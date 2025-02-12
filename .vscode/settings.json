@@ -3,5 +3,7 @@
   "editor.insertSpaces": true,
   "files.trimTrailingWhitespace": true,
   "cSpell.words": [
+    "layoutreader",
+    "pdfplumber"
   ]
 }
