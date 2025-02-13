@@ -8,9 +8,11 @@ disable=
   missing-class-docstring,
   missing-function-docstring,
   redefined-builtin,
-  no-else-return,
   too-few-public-methods,
   too-many-return-statements,
+  fixme,
+  no-else-return,
+  broad-exception-caught,
 
 [FORMAT]
 # Maximum number of characters on a single line.

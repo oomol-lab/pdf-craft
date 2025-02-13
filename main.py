@@ -1,5 +1,5 @@
 import os
-from pdf_craft.pdf import PDF
+from pdf_craft.pdf_parser import PDF
 
 def main():
   model_dir_path = os.path.join(__file__, "..", "./models")

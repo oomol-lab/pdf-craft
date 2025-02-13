@@ -1,4 +1,3 @@
-import os
 import pdfplumber
 
 from doc_page_extractor import DocExtractor, LayoutClass
