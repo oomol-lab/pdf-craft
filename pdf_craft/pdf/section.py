@@ -44,7 +44,7 @@ class Section:
         yield shape
 
   def link_next(self, next: Section, offset: int) -> None:
-    assert 1 <= offset <= 2, f"invalid offset {offset}"
+    assert offset in (1, 2), f"invalid offset {offset}"
     matched_shapes_matrix: list[list[_Shape]] = []
     for shape in self._shapes:
       matched_shapes_matrix.append([
@@ -79,6 +79,9 @@ class Section:
           break
 
     fragments_count = max(len(layout1.fragments), len(layout2.fragments))
+    if fragments_count == 0:
+      return True
+
     return self._check_group_matches(
        matched_count / fragments_count,
       fragments_count,

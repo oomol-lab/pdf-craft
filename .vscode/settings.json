@@ -4,6 +4,7 @@
   "files.trimTrailingWhitespace": true,
   "cSpell.words": [
     "layoutreader",
-    "pdfplumber"
+    "pdfplumber",
+    "rects"
   ]
 }
