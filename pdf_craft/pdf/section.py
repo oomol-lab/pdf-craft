@@ -30,10 +30,7 @@ class Section:
     else:
       framework_shapes = pre_shapes
 
-    framework_layouts = [shape.layout for shape in framework_shapes]
-    framework_layouts.sort(key=lambda layout: layout.rect.lt)
-
-    return framework_layouts
+    return [shape.layout for shape in framework_shapes]
 
   def _side_framework(self, get_side: Callable[[_Shape], list[Layout | None]]):
     for shape in self._shapes:
@@ -48,19 +45,20 @@ class Section:
 
   def link_next(self, next: Section, offset: int) -> None:
     assert 1 <= offset <= 2, f"invalid offset {offset}"
-    matched_shapes: list[list[_Shape]] = []
+    matched_shapes_matrix: list[list[_Shape]] = []
     for shape in self._shapes:
-      matched_shapes.append([
+      matched_shapes_matrix.append([
         # pylint: disable=W0212
         next_shape for next_shape in next._shapes
         if self._is_shape_contents_matches(shape, next_shape)
       ])
-    origin_shapes = self._find_origin_shapes(matched_shapes)
-    origins = (origin_shapes[0].layout.rect.lt, origin_shapes[1].layout.rect.lt)
 
-    for shape1, shape2 in self._iter_matched_shapes(origins, matched_shapes):
-      shape1.nex[offset - 1] = shape2
-      shape2.pre[offset - 1] = shape1
+    origin_shapes = self._find_origin_shapes(matched_shapes_matrix)
+    if origin_shapes is not None:
+      origins = (origin_shapes[0].layout.rect.lt, origin_shapes[1].layout.rect.lt)
+      for shape1, shape2 in self._iter_matched_shapes(origins, matched_shapes_matrix):
+        shape1.nex[offset - 1] = shape2
+        shape2.pre[offset - 1] = shape1
 
   def _is_shape_contents_matches(self, shape1: _Shape, shape2: _Shape) -> bool:
     size_match_rate = 0.95
@@ -116,10 +114,12 @@ class Section:
         origin_matched_shape = matched_shapes
         min_distance2 = distance2
 
-    assert origin_shape1 is not None
-    assert origin_matched_shape is not None
+    if origin_shape1 is None:
+      return None
 
+    assert origin_matched_shape is not None
     min_distance2 = float("inf")
+
     for shape in origin_matched_shape:
       distance2 = shape.distance2
       if distance2 < min_distance2:
@@ -129,14 +129,14 @@ class Section:
     assert origin_shape2 is not None
     return origin_shape1, origin_shape2
 
-  def _iter_matched_shapes(self, origins: tuple[Point, Point], matched_shapes: list[list[_Shape]]):
-    for shape1 in self._shapes:
-      rect1 = self._relative_rect(origins, shape1.layout.rect)
+  def _iter_matched_shapes(self, origins: tuple[Point, Point], matched_shapes_matrix: list[list[_Shape]]):
+    for shape1, matched_shapes in zip(self._shapes, matched_shapes_matrix):
+      rect1 = self._relative_rect(origins[0], shape1.layout.rect)
       max_area_rate: float = float("-inf")
       matched_shape2: _Shape | None = None
 
       for shape2 in matched_shapes:
-        rect2 = self._relative_rect(origins, shape2.layout.rect)
+        rect2 = self._relative_rect(origins[1], shape2.layout.rect)
         area_rate = self._intersection_rate(rect1, rect2)
         if area_rate > max_area_rate:
           max_area_rate = area_rate
@@ -152,16 +152,16 @@ class Section:
     else:
       return calculated_rate >= rates_list[-1]
 
-  def _relative_rect(self, origins: tuple[Point, Point], rect: Rectangle) -> Rectangle:
+  def _relative_rect(self, origin: Point, rect: Rectangle) -> Rectangle:
     return Rectangle(
-      lt=(rect.lt[0] - origins[0], rect.lt[1] - origins[1]),
-      rt=(rect.rt[0] - origins[0], rect.rt[1] - origins[1]),
-      lb=(rect.lb[0] - origins[0], rect.lb[1] - origins[1]),
-      rb=(rect.rb[0] - origins[0], rect.rb[1] - origins[1])
+      lt=(rect.lt[0] - origin[0], rect.lt[1] - origin[1]),
+      rt=(rect.rt[0] - origin[0], rect.rt[1] - origin[1]),
+      lb=(rect.lb[0] - origin[0], rect.lb[1] - origin[1]),
+      rb=(rect.rb[0] - origin[0], rect.rb[1] - origin[1])
     )
 
   def _intersection_rate(self, rect1: Rectangle, rect2: Rectangle) -> float:
-    return 1.0 - (
+    return (
       intersection_area(rect1, rect2) /
       max(rect_area(rect1), rect_area(rect2))
     )

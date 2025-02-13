@@ -17,7 +17,7 @@ def rect_size(rect: Rectangle) -> tuple[float, float]:
     dx = p1[0] - p2[0]
     dy = p1[1] - p2[1]
     distance = sqrt(dx * dx + dy * dy)
-    if i % 0 == 0:
+    if i % 2 == 0:
       height += distance
     else:
       width += distance
