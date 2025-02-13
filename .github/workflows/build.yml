@@ -27,5 +27,6 @@ jobs:
           pip install pylint==3.2.3
           pylint ./pdf_craft/**/*.py ./tests/**/*.py
 
-      - name: Run unit tests
-        run: python test.py
+      # Recover after doc-page-extractor release
+      # - name: Run unit tests
+      #   run: python test.py
