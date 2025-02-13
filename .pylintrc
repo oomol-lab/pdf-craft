@@ -12,6 +12,7 @@ disable=
   too-many-return-statements,
   fixme,
   no-else-return,
+  import-error,
   broad-exception-caught,
 
 [FORMAT]
