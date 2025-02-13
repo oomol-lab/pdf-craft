@@ -6,14 +6,30 @@ from unicodedata import category
 from alphabet_detector import AlphabetDetector
 
 
-def check_texts_matching_rank(text1: str, text2: str):
+def check_texts_matching_rank(text1: str, text2: str) -> tuple[float, int]:
   words1: list[str] = list(split_into_words(text1))
   words2: list[str] = list(split_into_words(text2))
 
   if len(words1) > len(words2):
     words1, words2 = words2, words1
 
+  marked_taken_list: list[bool] = [False] * len(words2)
+  matched_indexes: list[int] = []
+  for word1 in words1:
+    matched_index: int = -1
+    for i, word2 in enumerate(words2):
+      if not marked_taken_list[i] and word1 == word2:
+        marked_taken_list[i] = True
+        matched_index = i
+        break
+    matched_indexes.append(matched_index)
 
+  not_matched_count: int = len(words2) - len(words1)
+  for i, matched_index in enumerate(matched_indexes):
+    if matched_index == -1 or i > matched_index:
+      not_matched_count += 1
+
+  return 1.0 - not_matched_count / len(words2), len(words2)
 
 class _Phase(Enum):
   Init = 0,
