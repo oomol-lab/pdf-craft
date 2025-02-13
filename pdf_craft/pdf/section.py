@@ -79,6 +79,9 @@ class Section:
           break
 
     fragments_count = max(len(layout1.fragments), len(layout2.fragments))
+    if fragments_count == 0:
+      return True
+
     return self._check_group_matches(
        matched_count / fragments_count,
       fragments_count,
