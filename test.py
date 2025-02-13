@@ -4,7 +4,6 @@ try:
   loader = unittest.TestLoader()
   suite = loader.discover(
     start_dir="tests",
-    # pattern="test_file_kb.py",
   )
   runner = unittest.TextTestRunner()
   result = runner.run(suite)
