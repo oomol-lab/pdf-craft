@@ -6,7 +6,7 @@ from unicodedata import category
 from alphabet_detector import AlphabetDetector
 
 
-def check_texts_matching_rank(text1: str, text2: str) -> tuple[float, int]:
+def check_texts_matching_rate(text1: str, text2: str) -> tuple[float, int]:
   words1: list[str] = list(split_into_words(text1))
   words2: list[str] = list(split_into_words(text2))
 

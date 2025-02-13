@@ -1,28 +1,28 @@
 import unittest
 
-from pdf_craft.pdf.text_matcher import check_texts_matching_rank, split_into_words
+from pdf_craft.pdf.text_matcher import check_texts_matching_rate, split_into_words
 
 class TextTextMatching(unittest.TestCase):
 
   def test_texts_matching(self):
     self.assertEqual(
-      check_texts_matching_rank("Hello, world!", "Hello, world!"),
+      check_texts_matching_rate("Hello, world!", "Hello, world!"),
       (1.0, 4),
     )
     self.assertEqual(
-      check_texts_matching_rank("围点打援", "围点打援！"),
+      check_texts_matching_rate("围点打援", "围点打援！"),
       (4 / 5, 5),
     )
     self.assertEqual(
-      check_texts_matching_rank("围点打援", "围点打缓"),
+      check_texts_matching_rate("围点打援", "围点打缓"),
       (3 / 4, 4),
     )
     self.assertEqual(
-      check_texts_matching_rank("围点打援", "援点打围"),
+      check_texts_matching_rate("围点打援", "援点打围"),
       (0.75, 4),
     )
     self.assertEqual(
-      check_texts_matching_rank("围点Foobar打援", "围点打援"),
+      check_texts_matching_rate("围点Foobar打援", "围点打援"),
       (4 / 5, 5),
     )
 

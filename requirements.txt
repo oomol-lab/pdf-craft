@@ -1,9 +1,9 @@
 pdfplumber==0.11.5
 alphabet-detector==0.0.7
+shapely==2.0.6
 
 tqdm==4.66.5
 pillow==10.3.0
-shapely==2.0.6
 transformers==4.48.2
 doclayout_yolo==0.0.3
 paddlepaddle==2.6.2
