@@ -30,24 +30,50 @@ PDFItem = Text | Image
 
 def stream_pdf(doc_extractor: DocExtractor, pdf_file: str, debug_output: str | None = None) -> Generator[PDFItem, None, None]:
   generator = _extract_page_result(doc_extractor, pdf_file, debug_output)
+  current_plain_text: ExtractedPlainText | None = None
+
   for items in extract(generator):
     for item in items:
-      if isinstance(item, ExtractedTitle):
-        yield Text(
-          text=_text(item.texts),
-          kind=TextKind.TITLE,
-        )
-      elif isinstance(item, ExtractedPlainText):
-        yield Text(
-          text=_text(item.texts),
-          kind=TextKind.PLAIN_TEXT,
-        )
-      elif isinstance(item, ExtractedFigure):
-        yield item.image
-      elif isinstance(item, ExtractedTable):
-        yield item.image
-      elif isinstance(item, ExtractedFormula):
-        yield item.image
+      if isinstance(item, ExtractedPlainText):
+        if current_plain_text is None:
+          current_plain_text = item
+        elif current_plain_text.last_line_touch_end and not item.has_paragraph_indentation:
+          current_plain_text.texts.extend(item.texts)
+          current_plain_text.rects.extend(item.rects)
+          current_plain_text.last_line_touch_end = item.last_line_touch_end
+        else:
+          yield Text(
+            text=_text(current_plain_text.texts),
+            kind=TextKind.PLAIN_TEXT,
+          )
+          current_plain_text = item
+
+      else:
+        if current_plain_text is not None:
+          yield Text(
+            text=_text(current_plain_text.texts),
+            kind=TextKind.PLAIN_TEXT,
+          )
+          current_plain_text = None
+
+        if isinstance(item, ExtractedTitle):
+          yield Text(
+            text=_text(item.texts),
+            kind=TextKind.TITLE,
+          )
+        elif isinstance(item, ExtractedFigure):
+          yield item.image
+        elif isinstance(item, ExtractedTable):
+          yield item.image
+        elif isinstance(item, ExtractedFormula):
+          yield item.image
+
+  if current_plain_text is not None:
+    yield Text(
+      text=_text(current_plain_text.texts),
+      kind=TextKind.PLAIN_TEXT,
+    )
+    current_plain_text = None
 
 def _extract_page_result(doc_extractor: DocExtractor, pdf_file: str, debug_output: str | None = None):
   if debug_output is not None:
