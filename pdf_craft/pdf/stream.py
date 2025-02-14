@@ -1,10 +1,12 @@
-from io import StringIO
+import os
+import io
+
 from dataclasses import dataclass
 from enum import Enum
 from typing import Iterable, Generator
 from PIL.Image import Image
 from pdfplumber import open
-from doc_page_extractor import DocExtractor
+from doc_page_extractor import plot, DocExtractor, ExtractedResult
 from .extractor import (
   extract,
   ExtractedTitle,
@@ -26,8 +28,8 @@ class Text:
 
 PDFItem = Text | Image
 
-def stream_pdf(doc_extractor: DocExtractor, pdf_file: str) -> Generator[PDFItem, None, None]:
-  generator = _extract_page_result(doc_extractor, pdf_file)
+def stream_pdf(doc_extractor: DocExtractor, pdf_file: str, debug_output: str | None = None) -> Generator[PDFItem, None, None]:
+  generator = _extract_page_result(doc_extractor, pdf_file, debug_output)
   for items in extract(generator):
     for item in items:
       if isinstance(item, ExtractedTitle):
@@ -47,15 +49,32 @@ def stream_pdf(doc_extractor: DocExtractor, pdf_file: str) -> Generator[PDFItem,
       elif isinstance(item, ExtractedFormula):
         yield item.image
 
-def _extract_page_result(doc_extractor: DocExtractor, pdf_file: str):
+def _extract_page_result(doc_extractor: DocExtractor, pdf_file: str, debug_output: str | None = None):
+  if debug_output is not None:
+    os.makedirs(debug_output, exist_ok=True)
+
   with open(pdf_file) as pdf:
-    for page in pdf.pages:
+    for i, page in enumerate(pdf.pages):
       image = page.to_image().annotated
-      yield doc_extractor.extract(image, "ch")
+      result = doc_extractor.extract(image, "ch")
+      if debug_output is not None:
+        _generate_plot(image, i, result, debug_output)
+      yield result
 
 def _text(texts: Iterable[str]) -> str:
-  buffer = StringIO()
+  buffer = io.StringIO()
   for text in texts:
     text = text.strip()
     buffer.write(text)
   return buffer.getvalue()
+
+def _generate_plot(image: Image, index: int, result: ExtractedResult, debug_output: str):
+  plot_image: Image
+  if result.adjusted_image is None:
+    plot_image = image.copy()
+  else:
+    plot_image = result.adjusted_image
+
+  plot(plot_image, result.layouts)
+  image_path = os.path.join(debug_output, f"plot_{index + 1}.png")
+  plot_image.save(image_path)
