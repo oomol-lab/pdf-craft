@@ -1,5 +1,6 @@
 [MAIN]
 py-version=3.12
+extension-pkg-whitelist=cv2
 
 [MESSAGES CONTROL]
 disable=
@@ -12,7 +13,6 @@ disable=
   too-many-return-statements,
   fixme,
   no-else-return,
-  import-error,
   broad-exception-caught,
 
 [FORMAT]

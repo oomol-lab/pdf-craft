@@ -25,7 +25,7 @@ jobs:
       - name: Lint
         run: |
           pip install pylint==3.2.3
-          pylint ./pdf_craft/**/*.py ./tests/**/*.py
+          pylint ./pdf_craft/**/*.py ./tests/**/*.py --generate-members
 
       # Recover after doc-page-extractor release
       # - name: Run unit tests

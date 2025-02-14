@@ -2,6 +2,9 @@
   "editor.tabSize": 2,
   "editor.insertSpaces": true,
   "files.trimTrailingWhitespace": true,
+  "pylint.args": [
+    "--generate-members"
+  ],
   "cSpell.words": [
     "layoutreader",
     "pdfplumber",
