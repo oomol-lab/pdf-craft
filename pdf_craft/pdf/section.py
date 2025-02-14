@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import Iterable, Sequence, Callable
 from doc_page_extractor import Point, Rectangle, Layout, OCRFragment
 from .text_matcher import check_texts_matching_rate
-from .utils import rate, intersection_area
+from .utils import rate, intersection_area_size
 
 class _Shape:
   def __init__(self, layout: Layout):
@@ -89,10 +89,10 @@ class Section:
     )
 
   def _is_fragments_matches(self, layout1: Layout, layout2: Layout, fragment1: OCRFragment, fragment2: OCRFragment) -> bool:
-    area_match_rate = 0.95
+    size_match_rate = 0.85
     rect1 = self._relative_rect(layout1.rect.lt, fragment1.rect)
     rect2 = self._relative_rect(layout2.rect.lt, fragment2.rect)
-    if self._intersection_rate(rect1, rect2) < area_match_rate:
+    if self._intersection_rate(rect1, rect2) < size_match_rate:
       return False
 
     text_rate, text_length = check_texts_matching_rate(fragment1.text, fragment2.text)
@@ -143,9 +143,9 @@ class Section:
 
       for shape2 in matched_shapes:
         rect2 = self._relative_rect(origins[1], shape2.layout.rect)
-        area_rate = self._intersection_rate(rect1, rect2)
-        if area_rate > max_area_rate:
-          max_area_rate = area_rate
+        size_rate = self._intersection_rate(rect1, rect2)
+        if size_rate > max_area_rate:
+          max_area_rate = size_rate
           matched_shape2 = shape2
 
       if max_area_rate >= 0.85:
@@ -167,7 +167,9 @@ class Section:
     )
 
   def _intersection_rate(self, rect1: Rectangle, rect2: Rectangle) -> float:
-    return (
-      intersection_area(rect1, rect2) /
-      max(rect1.area, rect2.area)
-    )
+    width1, height1 = rect1.size
+    width2, height2 = rect2.size
+    width, height = intersection_area_size(rect1, rect2)
+    width_rate = width / max(width1, width2)
+    height_rate = height / max(height1, height2)
+    return 0.5 * (width_rate + height_rate)
