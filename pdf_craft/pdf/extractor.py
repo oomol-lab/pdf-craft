@@ -14,6 +14,8 @@ class ExtractedTitle:
 class ExtractedPlainText:
   texts: list[str]
   rects: list[Rectangle]
+  has_paragraph_indentation: bool
+  last_line_touch_end: bool
 
 @dataclass
 class ExtractedFigure:
@@ -66,10 +68,8 @@ def _map_to_extracted_item(result: ExtractedResult, layout: Layout) -> Extracted
       rects=[f.rect for f in layout.fragments],
     )
   elif layout.cls == LayoutClass.PLAIN_TEXT:
-    return ExtractedPlainText(
-      texts=[f.text for f in layout.fragments],
-      rects=[f.rect for f in layout.fragments],
-    )
+    return _to_extracted_plan_text(layout)
+
   elif layout.cls == LayoutClass.FIGURE:
     return ExtractedFigure(
       image=clip(result, layout),
@@ -84,3 +84,37 @@ def _map_to_extracted_item(result: ExtractedResult, layout: Layout) -> Extracted
     )
   else:
     return None
+
+def _to_extracted_plan_text(layout: Layout) -> ExtractedPlainText:
+  mean_line_height: float = 0.0
+  x1: float = float("inf")
+  y1: float = float("inf")
+  x2: float = float("-inf")
+  y2: float = float("-inf")
+
+  for fragment in layout.fragments:
+    mean_line_height += fragment.rect.size[1]
+    for x, y in fragment.rect:
+      x1 = min(x1, x)
+      y1 = min(y1, y)
+      x2 = max(x2, x)
+      y2 = max(y2, y)
+
+  has_paragraph_indentation: bool = False
+  last_line_touch_end: bool = False
+
+  if len(layout.fragments) > 0:
+    mean_line_height /= len(layout.fragments)
+    first_fragment = layout.fragments[0]
+    first_fragment_delta_x = (first_fragment.rect.lt[0] + first_fragment.rect.lb[0]) / 2 - x1
+    has_paragraph_indentation = first_fragment_delta_x > mean_line_height
+    last_fragment = layout.fragments[-1]
+    last_fragment_delta_x = x2 - (last_fragment.rect.rt[0] + last_fragment.rect.rb[0]) / 2
+    last_line_touch_end = last_fragment_delta_x < mean_line_height
+
+  return ExtractedPlainText(
+    texts=[f.text for f in layout.fragments],
+    rects=[f.rect for f in layout.fragments],
+    has_paragraph_indentation=has_paragraph_indentation,
+    last_line_touch_end=last_line_touch_end,
+  )
