@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import Iterable, Sequence, Callable
 from doc_page_extractor import Point, Rectangle, Layout, OCRFragment
 from .text_matcher import check_texts_matching_rate
-from .utils import rate, rect_size, rect_area, intersection_area
+from .utils import rate, intersection_area
 
 class _Shape:
   def __init__(self, layout: Layout):
@@ -64,8 +64,8 @@ class Section:
     size_match_rate = 0.95
     layout1 = shape1.layout
     layout2 = shape2.layout
-    size1 = rect_size(layout1.rect)
-    size2 = rect_size(layout2.rect)
+    size1 = layout1.rect.size
+    size2 = layout2.rect.size
     if rate(size1[0], size2[0]) < size_match_rate or \
        rate(size1[1], size2[1]) < size_match_rate:
       return False
@@ -166,5 +166,5 @@ class Section:
   def _intersection_rate(self, rect1: Rectangle, rect2: Rectangle) -> float:
     return (
       intersection_area(rect1, rect2) /
-      max(rect_area(rect1), rect_area(rect2))
+      max(rect1.area, rect2.area)
     )
