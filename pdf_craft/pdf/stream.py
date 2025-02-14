@@ -55,7 +55,8 @@ def _extract_page_result(doc_extractor: DocExtractor, pdf_file: str, debug_outpu
 
   with open(pdf_file) as pdf:
     for i, page in enumerate(pdf.pages):
-      image = page.to_image().annotated
+      dpi = 300 # for scanned book pages
+      image = page.to_image(resolution=dpi).annotated
       result = doc_extractor.extract(image, "ch")
       if debug_output is not None:
         _generate_plot(image, i, result, debug_output)
