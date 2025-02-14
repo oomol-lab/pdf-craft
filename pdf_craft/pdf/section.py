@@ -134,6 +134,9 @@ class Section:
 
   def _iter_matched_shapes(self, origins: tuple[Point, Point], matched_shapes_matrix: list[list[_Shape]]):
     for shape1, matched_shapes in zip(self._shapes, matched_shapes_matrix):
+      if len(matched_shapes) == 0:
+        continue
+
       rect1 = self._relative_rect(origins[0], shape1.layout.rect)
       max_area_rate: float = float("-inf")
       matched_shape2: _Shape | None = None
@@ -145,7 +148,7 @@ class Section:
           max_area_rate = area_rate
           matched_shape2 = shape2
 
-      if max_area_rate >= 0.95:
+      if max_area_rate >= 0.85:
         assert matched_shape2 is not None
         yield shape1, matched_shape2
 
