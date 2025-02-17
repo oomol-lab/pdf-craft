@@ -1,4 +1,5 @@
 pdfplumber==0.11.5
+pyMuPDF==1.25.3
 alphabet-detector==0.0.7
 shapely==2.0.6
 
