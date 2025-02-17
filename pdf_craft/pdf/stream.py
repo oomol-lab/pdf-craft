@@ -88,7 +88,7 @@ def _extract_page_result(doc_extractor: DocExtractor, pdf_file: str, debug_outpu
         lang="ch",
         adjust_rotation=True,
         adjust_points=False,
-        pre_fragments=list(_extract_pre_ocr_fragments(image, page)),
+        pre_fragments=_extract_pre_ocr_fragments(image, page),
       )
       if debug_output is not None:
         _generate_plot(image, i, result, debug_output)
@@ -100,7 +100,8 @@ def _page_screenshot_image(page: fitz.Page, dpi: int):
   pixmap = page.get_pixmap(matrix=matrix)
   return frombytes("RGB", (pixmap.width, pixmap.height), pixmap.samples)
 
-def _extract_pre_ocr_fragments(image: Image, page: fitz.Page) -> Generator[PreOCRFragment, None, None]:
+def _extract_pre_ocr_fragments(image: Image, page: fitz.Page) -> list[PreOCRFragment]:
+  fragments: list[PreOCRFragment] = []
   page_width = page.rect.width
   page_height = page.rect.height
   image_width = float(image.size[0])
@@ -118,7 +119,7 @@ def _extract_pre_ocr_fragments(image: Image, page: fitz.Page) -> Generator[PreOC
     x1: float = handle_x(word[2])
     y1: float = handle_y(word[3])
     text: str = word[4]
-    yield PreOCRFragment(
+    fragments.append(PreOCRFragment(
       text=text,
       rect=Rectangle(
         lt=(x0, y0),
@@ -126,7 +127,8 @@ def _extract_pre_ocr_fragments(image: Image, page: fitz.Page) -> Generator[PreOC
         lb=(x0, y1),
         rb=(x1, y1),
       ),
-    )
+    ))
+  return sorted(fragments, key=lambda fragment: fragment.rect.lt[1])
 
 def _text(texts: Iterable[str]) -> str:
   buffer = io.StringIO()
