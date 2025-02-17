@@ -1,12 +1,12 @@
 import os
 import io
+import fitz
 
 from dataclasses import dataclass
 from enum import Enum
 from typing import Iterable, Generator
-from PIL.Image import Image
-from pdfplumber import open
-from doc_page_extractor import plot, DocExtractor, ExtractedResult
+from PIL.Image import frombytes, Image
+from doc_page_extractor import plot, Rectangle, DocExtractor, PreOCRFragment, ExtractedResult
 from .extractor import (
   extract,
   ExtractedTitle,
@@ -79,14 +79,54 @@ def _extract_page_result(doc_extractor: DocExtractor, pdf_file: str, debug_outpu
   if debug_output is not None:
     os.makedirs(debug_output, exist_ok=True)
 
-  with open(pdf_file) as pdf:
-    for i, page in enumerate(pdf.pages):
+  with fitz.open(pdf_file) as pdf:
+    for i, page in enumerate(pdf.pages()):
       dpi = 300 # for scanned book pages
-      image = page.to_image(resolution=dpi).annotated
-      result = doc_extractor.extract(image, "ch")
+      image = _page_screenshot_image(page, dpi)
+      result = doc_extractor.extract(
+        image=image,
+        lang="ch",
+        adjust_rotation=True,
+        adjust_points=False,
+        pre_fragments=list(_extract_pre_ocr_fragments(image, page)),
+      )
       if debug_output is not None:
         _generate_plot(image, i, result, debug_output)
       yield result
+
+def _page_screenshot_image(page: fitz.Page, dpi: int):
+  default_dpi = 72
+  matrix = fitz.Matrix(dpi / default_dpi, dpi / default_dpi)
+  pixmap = page.get_pixmap(matrix=matrix)
+  return frombytes("RGB", (pixmap.width, pixmap.height), pixmap.samples)
+
+def _extract_pre_ocr_fragments(image: Image, page: fitz.Page) -> Generator[PreOCRFragment, None, None]:
+  page_width = page.rect.width
+  page_height = page.rect.height
+  image_width = float(image.size[0])
+  image_height = float(image.size[1])
+
+  def handle_x(x: float) -> float:
+    return (x / page_width) * image_width
+
+  def handle_y(y: float) -> float:
+    return (y / page_height) * image_height
+
+  for word in page.get_text("words"):
+    x0: float = handle_x(word[0])
+    y0: float = handle_y(word[1])
+    x1: float = handle_x(word[2])
+    y1: float = handle_y(word[3])
+    text: str = word[4]
+    yield PreOCRFragment(
+      text=text,
+      rect=Rectangle(
+        lt=(x0, y0),
+        rt=(x1, y0),
+        lb=(x0, y1),
+        rb=(x1, y1),
+      ),
+    )
 
 def _text(texts: Iterable[str]) -> str:
   buffer = io.StringIO()

@@ -6,8 +6,10 @@
     "--generate-members"
   ],
   "cSpell.words": [
+    "fitz",
+    "frombytes",
     "layoutreader",
-    "pdfplumber",
+    "pixmap",
     "rects"
   ]
 }
