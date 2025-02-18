@@ -1,27 +1,23 @@
 import os
 import shutil
 
-from pdf_craft.pdf import stream_pdf, Text, TextKind
-from doc_page_extractor import DocExtractor
+from pdf_craft import PDFPageExtractor, MarkDownWriter
+
 
 def main():
-  pdf_file = "/Users/taozeyu/Downloads/中国古代练丹家的目的.pdf"
+  pdf_file = "/Users/taozeyu/Downloads/长觉能图片.pdf"
   model_dir_path = _project_dir_path("models")
   output_dir_path = _project_dir_path("output", True)
-  extractor = DocExtractor(model_dir_path, order_by_layoutreader=False)
-  lines: list[str] = []
-
-  for item in stream_pdf(extractor, pdf_file, output_dir_path):
-    if not isinstance(item, Text):
-      continue
-    if item.kind == TextKind.TITLE:
-      lines.append("# " + item.text)
-    elif item.kind == TextKind.PLAIN_TEXT:
-      lines.append(item.text)
-
-  for line in lines:
-    print(line)
-    print("")
+  markdown_path = os.path.join(output_dir_path, "output.md")
+  extractor = PDFPageExtractor(
+    device="cpu",
+    model_dir_path=model_dir_path,
+    debug_dir_path=os.path.join("output", "plot"),
+  )
+  with MarkDownWriter(markdown_path, "images", "utf-8") as writer:
+    for item in extractor.extract(pdf_file):
+      writer.write(item)
+      writer.flush()
 
 def _project_dir_path(name: str, clean: bool = False) -> str:
   path = os.path.join(__file__, "..", name)
