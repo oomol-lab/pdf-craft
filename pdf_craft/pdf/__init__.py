@@ -1,1 +1,1 @@
-from .extractor import Text, TextKind, PDFItem, PDFPageExtractor
+from .extractor import Block, Text, TextKind, TextBlock, AssetBlock, PDFPageExtractor

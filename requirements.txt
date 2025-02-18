@@ -1,11 +1,5 @@
+tqdm==4.66.5
 pyMuPDF==1.25.3
 alphabet-detector==0.0.7
 shapely==2.0.6
-
-tqdm==4.66.5
-opencv-python==4.11.0.86
-pillow==10.3.0
-transformers==4.48.2
-doclayout_yolo==0.0.3
-paddlepaddle==2.6.2
-paddleocr==2.9.0
+doc-page-extractor==0.0.1

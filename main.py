@@ -1,6 +1,8 @@
 import os
+import fitz
 import shutil
 
+from tqdm import tqdm
 from pdf_craft import PDFPageExtractor, MarkDownWriter
 
 
@@ -15,9 +17,11 @@ def main():
     debug_dir_path=os.path.join("output", "plot"),
   )
   with MarkDownWriter(markdown_path, "images", "utf-8") as writer:
-    for item in extractor.extract(pdf_file):
-      writer.write(item)
-      writer.flush()
+    with fitz.open(pdf_file) as pdf:
+      for blocks in tqdm(extractor.extract(pdf, "ch"), total=pdf.page_count):
+        for block in blocks:
+          writer.write(block)
+        writer.flush()
 
 def _project_dir_path(name: str, clean: bool = False) -> str:
   path = os.path.join(__file__, "..", name)
