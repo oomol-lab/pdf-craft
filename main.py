@@ -1,27 +1,22 @@
 import os
 import shutil
 
-from pdf_craft.pdf import stream_pdf, Text, TextKind
+from pdf_craft import stream_pdf, MarkDownWriter
 from doc_page_extractor import DocExtractor
 
 def main():
-  pdf_file = "/Users/taozeyu/Downloads/长觉能测试.pdf"
+  pdf_file = "/Users/taozeyu/Downloads/长觉能图片.pdf"
   model_dir_path = _project_dir_path("models")
   output_dir_path = _project_dir_path("output", True)
-  markdown_path = os.path.join("output", "output.md")
+  markdown_path = os.path.join(output_dir_path, "output.md")
+  assets_path = os.path.join(output_dir_path, "images")
+  debug_dir_path = os.path.join("output", "plot")
   extractor = DocExtractor(model_dir_path, order_by_layoutreader=False)
 
-  with open(markdown_path, "w", encoding="utf-8") as file:
-    for item in stream_pdf(extractor, pdf_file, output_dir_path):
-      if not isinstance(item, Text):
-        continue
-      if item.kind == TextKind.TITLE:
-        file.write("# " + item.text)
-        file.write("\n\n")
-      elif item.kind == TextKind.PLAIN_TEXT:
-        file.write(item.text)
-        file.write("\n\n")
-      file.flush()
+  with MarkDownWriter(markdown_path, assets_path, "utf-8") as writer:
+    for item in stream_pdf(extractor, pdf_file, debug_dir_path):
+      writer.write(item)
+      writer.flush()
 
 def _project_dir_path(name: str, clean: bool = False) -> str:
   path = os.path.join(__file__, "..", name)

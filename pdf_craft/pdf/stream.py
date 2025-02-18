@@ -143,5 +143,6 @@ def _generate_plot(image: Image, index: int, result: ExtractedResult, debug_outp
     plot_image = result.adjusted_image
 
   plot(plot_image, result.layouts)
+  os.makedirs(debug_output, exist_ok=True)
   image_path = os.path.join(debug_output, f"plot_{index + 1}.png")
   plot_image.save(image_path)
