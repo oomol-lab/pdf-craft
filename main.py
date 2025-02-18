@@ -15,8 +15,9 @@ def main():
     debug_dir_path=os.path.join("output", "plot"),
   )
   with MarkDownWriter(markdown_path, "images", "utf-8") as writer:
-    for item in extractor.extract(pdf_file):
-      writer.write(item)
+    for blocks in extractor.extract(pdf_file):
+      for block in blocks:
+        writer.write(block)
       writer.flush()
 
 def _project_dir_path(name: str, clean: bool = False) -> str:
