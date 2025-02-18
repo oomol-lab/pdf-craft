@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import Iterable, Generator
 from PIL.Image import frombytes, Image
-from doc_page_extractor import plot, Rectangle, DocExtractor, PreOCRFragment, ExtractedResult
+from doc_page_extractor import plot, DocExtractor, ExtractedResult
 from .extractor import (
   extract,
   ExtractedTitle,
@@ -86,9 +86,7 @@ def _extract_page_result(doc_extractor: DocExtractor, pdf_file: str, debug_outpu
       result = doc_extractor.extract(
         image=image,
         lang="ch",
-        adjust_rotation=True,
         adjust_points=False,
-        pre_fragments=_extract_pre_ocr_fragments(image, page),
       )
       if debug_output is not None:
         _generate_plot(image, i, result, debug_output)
@@ -100,35 +98,35 @@ def _page_screenshot_image(page: fitz.Page, dpi: int):
   pixmap = page.get_pixmap(matrix=matrix)
   return frombytes("RGB", (pixmap.width, pixmap.height), pixmap.samples)
 
-def _extract_pre_ocr_fragments(image: Image, page: fitz.Page) -> list[PreOCRFragment]:
-  fragments: list[PreOCRFragment] = []
-  page_width = page.rect.width
-  page_height = page.rect.height
-  image_width = float(image.size[0])
-  image_height = float(image.size[1])
+# def _extract_pre_ocr_fragments(image: Image, page: fitz.Page) -> list[PreOCRFragment]:
+#   fragments: list[PreOCRFragment] = []
+#   page_width = page.rect.width
+#   page_height = page.rect.height
+#   image_width = float(image.size[0])
+#   image_height = float(image.size[1])
 
-  def handle_x(x: float) -> float:
-    return (x / page_width) * image_width
+#   def handle_x(x: float) -> float:
+#     return (x / page_width) * image_width
 
-  def handle_y(y: float) -> float:
-    return (y / page_height) * image_height
+#   def handle_y(y: float) -> float:
+#     return (y / page_height) * image_height
 
-  for word in page.get_text("words"):
-    x0: float = handle_x(word[0])
-    y0: float = handle_y(word[1])
-    x1: float = handle_x(word[2])
-    y1: float = handle_y(word[3])
-    text: str = word[4]
-    fragments.append(PreOCRFragment(
-      text=text,
-      rect=Rectangle(
-        lt=(x0, y0),
-        rt=(x1, y0),
-        lb=(x0, y1),
-        rb=(x1, y1),
-      ),
-    ))
-  return sorted(fragments, key=lambda fragment: fragment.rect.lt[1])
+#   for word in page.get_text("words"):
+#     x0: float = handle_x(word[0])
+#     y0: float = handle_y(word[1])
+#     x1: float = handle_x(word[2])
+#     y1: float = handle_y(word[3])
+#     text: str = word[4]
+#     fragments.append(PreOCRFragment(
+#       text=text,
+#       rect=Rectangle(
+#         lt=(x0, y0),
+#         rt=(x1, y0),
+#         lb=(x0, y1),
+#         rb=(x1, y1),
+#       ),
+#     ))
+#   return sorted(fragments, key=lambda fragment: fragment.rect.lt[1])
 
 def _text(texts: Iterable[str]) -> str:
   buffer = io.StringIO()

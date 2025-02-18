@@ -5,7 +5,7 @@ from pdf_craft.pdf import stream_pdf, Text, TextKind
 from doc_page_extractor import DocExtractor
 
 def main():
-  pdf_file = "/Users/taozeyu/Downloads/中国古代练丹家的目的.pdf"
+  pdf_file = "/Users/taozeyu/Downloads/临炉前的准备⼯作.pdf"
   model_dir_path = _project_dir_path("models")
   output_dir_path = _project_dir_path("output", True)
   extractor = DocExtractor(model_dir_path, order_by_layoutreader=False)
