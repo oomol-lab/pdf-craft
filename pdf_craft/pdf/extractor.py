@@ -1,120 +1,132 @@
-from typing import Generator
+import os
+import io
+import fitz
+
+from typing import Literal
 from dataclasses import dataclass
-from PIL.Image import Image
-from doc_page_extractor import clip, Layout, LayoutClass, Rectangle, ExtractedResult
-from .section import Section
+from enum import Enum
+from typing import Iterable, Generator
+from PIL.Image import frombytes, Image
+from doc_page_extractor import plot, DocExtractor, ExtractedResult
+from .rough_extractor import (
+  extract,
+  ExtractedTitle,
+  ExtractedPlainText,
+  ExtractedFigure,
+  ExtractedTable,
+  ExtractedFormula,
+)
 
 
-@dataclass
-class ExtractedTitle:
-  texts: list[str]
-  rects: list[Rectangle]
-
-@dataclass
-class ExtractedPlainText:
-  texts: list[str]
-  rects: list[Rectangle]
-  has_paragraph_indentation: bool
-  last_line_touch_end: bool
-
-@dataclass
-class ExtractedFigure:
-  image: Image
+class TextKind(Enum):
+  TITLE = 0
+  PLAIN_TEXT = 1
 
 @dataclass
-class ExtractedTable:
-  image: Image
+class Text:
+  text: str
+  kind: TextKind
 
-@dataclass
-class ExtractedFormula:
-  image: Image
+PDFItem = Text | Image
 
-ExtractedItem = ExtractedTitle | ExtractedPlainText | ExtractedFigure | ExtractedTable | ExtractedFormula
-
-def extract(generator: Generator[ExtractedResult, None, None]) -> Generator[list[ExtractedItem], None, None]:
-  for result, section in _extract_results_and_sections(generator):
-    framework_layouts = section.framework()
-    extracted_items: list[ExtractedItem] = []
-    for layout in result.layouts:
-      if layout in framework_layouts:
-        continue
-      extracted_item = _map_to_extracted_item(result, layout)
-      if extracted_item is None:
-        continue
-      extracted_items.append(extracted_item)
-    yield extracted_items
-
-def _extract_results_and_sections(generator: Generator[ExtractedResult, None, None]):
-  max_len = 2 # section can be viewed up to 2 pages back
-  queue: list[tuple[ExtractedResult, Section]] = []
-
-  for result in generator:
-    section = Section(result.layouts)
-    for i, (_, pre_section) in enumerate(queue):
-      offset = len(queue) - i
-      pre_section.link_next(section, offset)
-
-    queue.append((result, section))
-    if len(queue) > max_len:
-      yield queue.pop(0)
-
-  for result, section in queue:
-    yield result, section
-
-def _map_to_extracted_item(result: ExtractedResult, layout: Layout) -> ExtractedItem | None:
-  if layout.cls == LayoutClass.TITLE:
-    return ExtractedTitle(
-      texts=[f.text for f in layout.fragments],
-      rects=[f.rect for f in layout.fragments],
+class PDFPageExtractor:
+  def __init__(
+      self,
+      device: Literal["cpu", "cuda"],
+      model_dir_path: str,
+      debug_dir_path: str | None = None,
+    ):
+    self._debug_dir_path: str | None = debug_dir_path
+    self._doc_extractor = DocExtractor(
+      device=device,
+      model_dir_path=model_dir_path,
+      order_by_layoutreader=False,
     )
-  elif layout.cls == LayoutClass.PLAIN_TEXT:
-    return _to_extracted_plan_text(layout)
 
-  elif layout.cls == LayoutClass.FIGURE:
-    return ExtractedFigure(
-      image=clip(result, layout),
-    )
-  elif layout.cls == LayoutClass.TABLE:
-    return ExtractedTable(
-      image=clip(result, layout),
-    )
-  elif layout.cls == LayoutClass.ISOLATE_FORMULA:
-    return ExtractedFormula(
-      image=clip(result, layout),
-    )
-  else:
-    return None
+  def extract(self, pdf_path: str) -> Generator[PDFItem, None, None]:
+    current_plain_text: ExtractedPlainText | None = None
 
-def _to_extracted_plan_text(layout: Layout) -> ExtractedPlainText:
-  mean_line_height: float = 0.0
-  x1: float = float("inf")
-  y1: float = float("inf")
-  x2: float = float("-inf")
-  y2: float = float("-inf")
+    for items in extract(self._extract_page_result(pdf_path)):
+      for item in items:
+        if isinstance(item, ExtractedPlainText):
+          if current_plain_text is None:
+            current_plain_text = item
+          elif current_plain_text.last_line_touch_end and not item.has_paragraph_indentation:
+            current_plain_text.texts.extend(item.texts)
+            current_plain_text.rects.extend(item.rects)
+            current_plain_text.last_line_touch_end = item.last_line_touch_end
+          else:
+            yield Text(
+              text=self._text(current_plain_text.texts),
+              kind=TextKind.PLAIN_TEXT,
+            )
+            current_plain_text = item
 
-  for fragment in layout.fragments:
-    mean_line_height += fragment.rect.size[1]
-    for x, y in fragment.rect:
-      x1 = min(x1, x)
-      y1 = min(y1, y)
-      x2 = max(x2, x)
-      y2 = max(y2, y)
+        else:
+          if current_plain_text is not None:
+            yield Text(
+              text=self._text(current_plain_text.texts),
+              kind=TextKind.PLAIN_TEXT,
+            )
+            current_plain_text = None
 
-  has_paragraph_indentation: bool = False
-  last_line_touch_end: bool = False
+          if isinstance(item, ExtractedTitle):
+            yield Text(
+              text=self._text(item.texts),
+              kind=TextKind.TITLE,
+            )
+          elif isinstance(item, ExtractedFigure):
+            yield item.image
+          elif isinstance(item, ExtractedTable):
+            yield item.image
+          elif isinstance(item, ExtractedFormula):
+            yield item.image
 
-  if len(layout.fragments) > 0:
-    mean_line_height /= len(layout.fragments)
-    first_fragment = layout.fragments[0]
-    first_fragment_delta_x = (first_fragment.rect.lt[0] + first_fragment.rect.lb[0]) / 2 - x1
-    has_paragraph_indentation = first_fragment_delta_x > mean_line_height
-    last_fragment = layout.fragments[-1]
-    last_fragment_delta_x = x2 - (last_fragment.rect.rt[0] + last_fragment.rect.rb[0]) / 2
-    last_line_touch_end = last_fragment_delta_x < mean_line_height
+    if current_plain_text is not None:
+      yield Text(
+        text=self._text(current_plain_text.texts),
+        kind=TextKind.PLAIN_TEXT,
+      )
+      current_plain_text = None
 
-  return ExtractedPlainText(
-    texts=[f.text for f in layout.fragments],
-    rects=[f.rect for f in layout.fragments],
-    has_paragraph_indentation=has_paragraph_indentation,
-    last_line_touch_end=last_line_touch_end,
-  )
+  def _extract_page_result(self, pdf_file: str):
+    if self._debug_dir_path is not None:
+      os.makedirs(self._debug_dir_path, exist_ok=True)
+
+    with fitz.open(pdf_file) as pdf:
+      for i, page in enumerate(pdf.pages()):
+        dpi = 300 # for scanned book pages
+        image = self._page_screenshot_image(page, dpi)
+        result = self._doc_extractor.extract(
+          image=image,
+          lang="ch",
+          adjust_points=False,
+        )
+        if self._debug_dir_path is not None:
+          self._generate_plot(image, i, result, self._debug_dir_path)
+        yield result
+
+  def _text(self, texts: Iterable[str]) -> str:
+    buffer = io.StringIO()
+    for text in texts:
+      text = text.strip()
+      buffer.write(text)
+    return buffer.getvalue()
+
+  def _page_screenshot_image(self, page: fitz.Page, dpi: int):
+    default_dpi = 72
+    matrix = fitz.Matrix(dpi / default_dpi, dpi / default_dpi)
+    pixmap = page.get_pixmap(matrix=matrix)
+    return frombytes("RGB", (pixmap.width, pixmap.height), pixmap.samples)
+
+  def _generate_plot(self, image: Image, index: int, result: ExtractedResult, plot_path: str):
+    plot_image: Image
+    if result.adjusted_image is None:
+      plot_image = image.copy()
+    else:
+      plot_image = result.adjusted_image
+
+    plot(plot_image, result.layouts)
+    os.makedirs(plot_path, exist_ok=True)
+    image_path = os.path.join(plot_path, f"plot_{index + 1}.png")
+    plot_image.save(image_path)

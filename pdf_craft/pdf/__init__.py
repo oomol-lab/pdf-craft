@@ -1,1 +1,1 @@
-from .stream import stream_pdf, Text, TextKind, PDFItem
+from .extractor import Text, TextKind, PDFItem, PDFPageExtractor
