@@ -3,7 +3,8 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import Iterable, Generator
 from PIL.Image import Image
-from doc_page_extractor import clip, Rectangle, Layout, LayoutClass, OCRFragment, ExtractedResult
+from fitz import Document
+from doc_page_extractor import clip, PaddleLang, Rectangle, Layout, LayoutClass, OCRFragment, ExtractedResult
 from .document import DocumentExtractor
 
 
@@ -47,8 +48,8 @@ class PDFPageExtractor:
       debug_dir_path=debug_dir_path,
     )
 
-  def extract(self, pdf_file_path: str) -> Generator[list[Block], None, None]:
-    for result, layouts in self._doc_extractor.extract(pdf_file_path):
+  def extract(self, pdf: str | Document, lang: PaddleLang) -> Generator[list[Block], None, None]:
+    for result, layouts in self._doc_extractor.extract(pdf, lang):
       blocks = self._convert_to_blocks(result, layouts)
       page_range = self._texts_range(blocks)
 

@@ -3,7 +3,7 @@ import fitz
 
 from typing import Generator, Literal
 from PIL.Image import frombytes, Image
-from doc_page_extractor import plot, Layout, DocExtractor, ExtractedResult
+from doc_page_extractor import plot, Layout, PaddleLang, DocExtractor, ExtractedResult
 from .section import Section
 
 
@@ -21,19 +21,19 @@ class DocumentExtractor:
       order_by_layoutreader=False,
     )
 
-  def extract(self, pdf_file_path: str) -> Generator[tuple[ExtractedResult, list[Layout]], None, None]:
-    for result, section in self._extract_results_and_sections(pdf_file_path):
+  def extract(self, pdf: str | fitz.Document, lang: PaddleLang) -> Generator[tuple[ExtractedResult, list[Layout]], None, None]:
+    for result, section in self._extract_results_and_sections(pdf, lang):
       framework_layouts = section.framework()
       yield result, [
         layout for layout in result.layouts
         if layout not in framework_layouts
       ]
 
-  def _extract_results_and_sections(self, pdf_file_path: str):
+  def _extract_results_and_sections(self, pdf: str | fitz.Document, lang: PaddleLang):
     max_len = 2 # section can be viewed up to 2 pages back
     queue: list[tuple[ExtractedResult, Section]] = []
 
-    for result in self._extract_page_result(pdf_file_path):
+    for result in self._extract_page_result(pdf, lang):
       section = Section(result.layouts)
       for i, (_, pre_section) in enumerate(queue):
         offset = len(queue) - i
@@ -46,22 +46,33 @@ class DocumentExtractor:
     for result, section in queue:
       yield result, section
 
-  def _extract_page_result(self, pdf_file_path: str):
+  def _extract_page_result(self, pdf: str | fitz.Document, lang: PaddleLang):
     if self._debug_dir_path is not None:
       os.makedirs(self._debug_dir_path, exist_ok=True)
 
-    with fitz.open(pdf_file_path) as pdf:
-      for i, page in enumerate(pdf.pages()):
+    document: fitz.Document
+    should_close = False
+    if isinstance(pdf, str):
+      document = fitz.open(pdf)
+      should_close = True
+    else:
+      document = pdf
+
+    try:
+      for i, page in enumerate(document.pages()):
         dpi = 300 # for scanned book pages
         image = self._page_screenshot_image(page, dpi)
         result = self._doc_extractor.extract(
           image=image,
-          lang="ch",
+          lang=lang,
           adjust_points=False,
         )
         if self._debug_dir_path is not None:
           self._generate_plot(image, i, result, self._debug_dir_path)
         yield result
+    finally:
+      if should_close:
+        document.close()
 
   def _page_screenshot_image(self, page: fitz.Page, dpi: int):
     default_dpi = 72
