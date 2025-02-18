@@ -61,7 +61,7 @@ class PDFPageExtractor:
         if len(block.texts) == 1:
           mean_line_height, x1, x2 = page_range
         else:
-          mean_line_height, x1, x2 = self._texts_range(blocks)
+          mean_line_height, x1, x2 = self._texts_range((block,))
 
         first_text = block.texts[0]
         last_text = block.texts[-1]
@@ -131,7 +131,7 @@ class PDFPageExtractor:
     return [block for _, block in store]
 
   def _texts_range(self, blocks: Iterable[Block]) -> tuple[float, float, float]:
-    mean_line_height: float = 0.0
+    sum_lines_height: float = 0.0
     texts_count: int = 0
     x1: float = float("inf")
     x2: float = float("-inf")
@@ -142,7 +142,7 @@ class PDFPageExtractor:
       if block.kind == TextKind.ABANDON:
         continue
       for text in block.texts:
-        mean_line_height += text.rect.size[0]
+        sum_lines_height += text.rect.size[1]
         texts_count += 1
         for x, _ in text.rect:
           x1 = min(x1, x)
@@ -150,7 +150,7 @@ class PDFPageExtractor:
 
     if texts_count == 0:
       return 0.0, 0.0, 0.0
-    return mean_line_height, x1, x2
+    return sum_lines_height / texts_count, x1, x2
 
   def _convert_to_text(self, fragments: list[OCRFragment]) -> list[Text]:
     return [
