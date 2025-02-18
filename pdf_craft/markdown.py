@@ -29,7 +29,7 @@ class MarkDownWriter:
     if isinstance(block, TextBlock):
       if block.kind == TextKind.TITLE:
         self._close_texts_buffer()
-        self._file.write("#")
+        self._file.write("# ")
         self._write_text_contents(block.texts)
         self._file.write("\n\n")
       elif block.kind == TextKind.PLAIN_TEXT:
