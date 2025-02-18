@@ -10,6 +10,7 @@
     "frombytes",
     "layoutreader",
     "pixmap",
-    "rects"
+    "rects",
+    "tobytes"
   ]
 }

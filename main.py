@@ -9,11 +9,10 @@ def main():
   model_dir_path = _project_dir_path("models")
   output_dir_path = _project_dir_path("output", True)
   markdown_path = os.path.join(output_dir_path, "output.md")
-  assets_path = os.path.join(output_dir_path, "images")
   debug_dir_path = os.path.join("output", "plot")
   extractor = DocExtractor(model_dir_path, order_by_layoutreader=False)
 
-  with MarkDownWriter(markdown_path, assets_path, "utf-8") as writer:
+  with MarkDownWriter(markdown_path, "images", "utf-8") as writer:
     for item in stream_pdf(extractor, pdf_file, debug_dir_path):
       writer.write(item)
       writer.flush()
