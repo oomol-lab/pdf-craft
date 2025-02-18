@@ -22,11 +22,10 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-      # - name: Lint
-      #   run: |
-      #     pip install pylint==3.3.4
-      #     pylint "--generated-member=cv2" ./pdf_craft/**/*.py ./tests/**/*.py
+      - name: Lint
+        run: |
+          pip install pylint==3.3.4
+          pylint "--generated-member=cv2" ./pdf_craft/**/*.py ./tests/**/*.py
 
-      # Recover after doc-page-extractor release
-      # - name: Run unit tests
-      #   run: python test.py
+      - name: Run unit tests
+        run: python test.py
