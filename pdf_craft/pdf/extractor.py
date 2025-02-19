@@ -27,10 +27,16 @@ class TextBlock:
   has_paragraph_indentation: bool = False
   last_line_touch_end: bool = False
 
+class AssetKind(Enum):
+  FIGURE = 0
+  TABLE = 1
+  FORMULA = 2
+
 @dataclass
 class AssetBlock:
   rect: Rectangle
   image: Image
+  kind: AssetKind
   texts: list[Text]
 
 Block = TextBlock | AssetBlock
@@ -103,12 +109,25 @@ class PDFPageExtractor:
           kind=TextKind.ABANDON,
           texts=self._convert_to_text(layout.fragments),
         )))
-      elif cls == LayoutClass.FIGURE or \
-           cls == LayoutClass.TABLE or \
-           cls == LayoutClass.ISOLATE_FORMULA:
+      elif cls == LayoutClass.FIGURE:
         store.append((cls, AssetBlock(
           rect=layout.rect,
           texts=[],
+          kind=AssetKind.FIGURE,
+          image=clip(result, layout),
+        )))
+      elif cls == LayoutClass.TABLE:
+        store.append((cls, AssetBlock(
+          rect=layout.rect,
+          texts=[],
+          kind=AssetKind.TABLE,
+          image=clip(result, layout),
+        )))
+      elif cls == LayoutClass.ISOLATE_FORMULA:
+        store.append((cls, AssetBlock(
+          rect=layout.rect,
+          texts=[],
+          kind=AssetKind.FORMULA,
           image=clip(result, layout),
         )))
       elif cls == LayoutClass.FIGURE_CAPTION:
