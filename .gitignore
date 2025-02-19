@@ -1,5 +1,6 @@
 /models
 /output
+/format.json
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
