@@ -45,14 +45,11 @@ class MarkDownWriter:
       self._texts_buffer.clear()
 
   def _write_plain_text(self, block: TextBlock) -> None:
-    if not block.has_paragraph_indentation:
+    if block.has_paragraph_indentation:
       self._close_texts_buffer()
-
-    if block.last_line_touch_end:
-      self._texts_buffer.extend(block.texts)
-    else:
-      self._write_text_contents(block.texts)
-      self._file.write("\n\n")
+    self._texts_buffer.extend(block.texts)
+    if not block.last_line_touch_end:
+      self._close_texts_buffer()
 
   def _write_image(self, block: AssetBlock) -> None:
     os.makedirs(self._abs_assets_path, exist_ok=True)

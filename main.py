@@ -7,7 +7,7 @@ from pdf_craft import PDFPageExtractor, MarkDownWriter
 
 
 def main():
-  pdf_file = "/Users/taozeyu/Downloads/长觉能图片.pdf"
+  pdf_file = "/Users/taozeyu/Downloads/译后记.pdf"
   model_dir_path = _project_dir_path("models")
   output_dir_path = _project_dir_path("output", True)
   markdown_path = os.path.join(output_dir_path, "output.md")
