@@ -2,7 +2,7 @@ from setuptools import setup, find_packages
 
 setup(
   name="pdf-craft",
-  version="0.0.1",
+  version="0.0.2",
   author="Tao Zeyu",
   author_email="i@taozeyu.com",
   url="https://github.com/oomol-lab/pdf-craft",
@@ -14,6 +14,6 @@ setup(
     "pyMuPDF>=1.25.3,<2.0.0",
     "alphabet-detector>=0.0.7,<1.0.0",
     "shapely>=2.0.6,<3.0.0",
-    "doc-page-extractor==0.0.1",
+    "doc-page-extractor==0.0.2",
   ],
 )
