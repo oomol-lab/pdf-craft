@@ -58,18 +58,18 @@ touch-end 表示区块的**最后一行**的文字是否充满了一整行的空
 <title>
 <line confidence=0.98>幼年与历史</line>
 </title>
-<text start-incision="impossible" end-incision="impossible">
+<text indent="false" touch-end="false">
 <line confidence=0.98>经验的毁灭【意］吉奥乔·阿甘本</line>
 </text>
 <title>
 <line confidence=0.97>虚拟的寓言★</line>
 </title>
-<text start-incision="impossible" end-incision="impossible">
+<text indent="false" touch-end="false">
 <line confidence=0.96>［加］布来恩·马苏米</line>
 </text>
 <line confidence=0.97>类人猿、赛博格和女人*</line>
 </title>
-<text start-incision="impossible" end-incision="impossible">
+<text indent="false" touch-end="false">
 <line confidence=0.96>自然的重塑［美］唐娜·哈拉维</line>
 </text>
 </page>
@@ -81,7 +81,7 @@ touch-end 表示区块的**最后一行**的文字是否充满了一整行的空
 <title>
 <line confidence=0.99>参考文献</line>
 </title>
-<text>
+<text start-incision="impossible" end-incision="impossible">
 <line confidence=0.98>幼年与历史</line>
 <line confidence=0.98>经验的毁灭【意］吉奥乔·阿甘本</line>
 <line confidence=0.97>虚拟的寓言★</line>
@@ -123,4 +123,61 @@ touch-end 表示区块的**最后一行**的文字是否充满了一整行的空
 <line confidence=0.98>在乡下，没有任何程度上的奴隶阶层。草纸文献记载</line>
 <line confidence=0.99>表明，各种的个样摩擦和敌对都出现在乡村，伴随着的是种</line>
 </text>
+```
+
+## 将部分区块重组进 <citation> 节点
+
+书页的最下部分，有时会用排版给引用文献区。你需要识别找到这些区块，并将它们修改为 <citation> 区块标签。引用文献有如下特征：
+- 引用文献往往以数字开头（如 1. <1> (1) ① 之类的），有的用 * 或 # 来开头。
+- 引用文献总是集中分布在书页下部，不会和其他内容混合。但要注意，最下面的内容可能是页脚，不要与引用文献混淆。
+- 从正文往下读，读到引用文献后，正文可能会戛然而止。因此正文语义无法顺接引用文献。
+- 传统算法往往会将引用文献标记为 abandon 区块。在引用文献较少时，可信任这一条。但当引用文献较多时，或混合图表时，传统算法可能会将其错误地标记为其他类型。
+- 一页最多只有一个引用文献区，若你发现两个，显然搞错了。
+
+所有被你重组进 <citation> 的区块应该保留原来的顺序，但若是 abandon 区块，你应该将其改为 text 类型，因为放进 citation 就意味着它不再被忽略了。此外，对于 text 的 start-incision 和 end-incision 属性，也要重新考虑。对于出版物而言，与正文不同，对读者而言，引用是不会跨页的，编辑在排版时也会考虑这一点。因此，除非编辑直接显式用文字说明（如直接写上”接上页”或“见下页”），否则认为 text 没有被截断。
+
+举个例子，如果用户提交的内容如下：
+```XML
+<page>
+<abandon>
+<line confidence=0.95>⼩说翻译与⽂化建构</line>
+</abandon>
+<text indent="true" touch-end="false">
+<line confidence=0.99>汉语“⼩说”词最早出现于《庄⼦•外物篇》：“饰⼩说以⼲县令，其于⼤达亦远矣。”①⼩说意肤浅、琐碎的⾔论。东</line>
+<line confidence=0.97>汉班固 《汉书•艺⽂志》视⼩说为“街谈巷语，道听涂说”，“闾⾥⼩知者之 所及”，但“或⼀⾔可采”②。</line>
+</text>
+<abandon>
+<line confidence=0.97>（接上页）则更可能实事求是地描述那些令分析家震惊和担忧的处境。</line>
+</abandon>
+<abandon>
+<line confidence=0.95>①曹础基：《庄⼦浅注》，410页，北京，中华书局，1982</line>
+<abandon>
+<text indent="false" touch-end="false">
+<line confidence=0.95>②班固撰、（唐）颜师古注：《汉书•艺⽂志》，291页，郑州，中州古籍出版社，1990。</line>
+<text>
+<abandon>
+<line confidence=0.98>128</line>
+</abandon>
+</page>
+```
+
+你应该返回如下内容：
+```XML
+<page>
+<text start-incision="impossible" end-incision="impossible">
+<line confidence=0.99>汉语“⼩说”词最早出现于《庄⼦•外物篇》：“饰⼩说以⼲县令，其于⼤达亦远矣。”①⼩说意肤浅、琐碎的⾔论。东</line>
+<line confidence=0.97>汉班固 《汉书•艺⽂志》视⼩说为“街谈巷语，道听涂说”，“闾⾥⼩知者之 所及”，但“或⼀⾔可采”②。</line>
+</text>
+<citation>
+<text start-incision="must-be" end-incision="impossible">
+<line confidence=0.97>（接上页）则更可能实事求是地描述那些令分析家震惊和担忧的处境。</line>
+</text>
+<text start-incision="impossible" end-incision="impossible">
+<line confidence=0.95>①曹础基：《庄⼦浅注》，410页，北京，中华书局，1982</line>
+<text>
+<text start-incision="impossible" end-incision="impossible">
+<line confidence=0.95>②班固撰、（唐）颜师古注：《汉书•艺⽂志》，291页，郑州，中州古籍出版社，1990。</line>
+<text>
+</citation>
+</page>
 ```

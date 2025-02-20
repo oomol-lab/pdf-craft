@@ -1,7 +1,6 @@
 from typing import Literal
 from dataclasses import dataclass
 from enum import Enum
-from math import log10
 from typing import Iterable, Generator
 from PIL.Image import Image
 from fitz import Document
@@ -196,13 +195,16 @@ class PDFPageExtractor:
     font_sizes: list[float] = []
 
     for layout, _ in store:
-      sum_height: float = 0.0
-      for fragment in layout.fragments:
-        sum_height += fragment.rect.size[1]
+      if len(layout.fragments) == 0:
+        font_sizes.append(0.0)
+      else:
+        sum_height: float = 0.0
+        for fragment in layout.fragments:
+          sum_height += fragment.rect.size[1]
 
-      # without considering vertical writing, the height of a line of text is proportional to the font size.
-      font_size = sum_height / len(layout.fragments)
-      font_sizes.append(font_size)
+        # without considering vertical writing, the height of a line of text is proportional to the font size.
+        font_size = sum_height / len(layout.fragments)
+        font_sizes.append(font_size)
 
     max_font_size = max(font_sizes)
     min_font_size = min(font_sizes)

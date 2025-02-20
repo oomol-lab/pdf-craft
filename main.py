@@ -9,7 +9,7 @@ from pdf_craft.ai.format import Format
 
 
 def main():
-  pdf_file = "/Users/taozeyu/Downloads/托勒密埃及.pdf"
+  pdf_file = "/Users/taozeyu/Downloads/引用文献强化.pdf"
   model_dir_path = _project_dir_path("models")
   format = Format(**_read_format_json())
   extractor = PDFPageExtractor(
