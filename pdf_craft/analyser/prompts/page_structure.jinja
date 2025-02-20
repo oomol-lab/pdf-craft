@@ -34,12 +34,13 @@ touch-end 表示区块的**最后一行**的文字是否充满了一整行的空
 
 ## 区块标签的子节点
 
-区块内部的子标签都是 <line>，表示区块中根据 OCR 识别出的文字，一行的结构从上到下排列。
-它的 confidence 属性表示 OCR 给出的可信度（0～1），若大于 0.95 可认为文字是准确的。越低，混入的错字（增字、缺字）会越多。
+区块内部的子标签都是 <line>，表示区块中根据 OCR 识别出的文字，一行的结构从上到下排列。它的 confidence 属性表示 OCR 给出的可信度（0～1），若大于 0.95 可认为文字是准确的。越低，混入的错字（增字、缺字）会越多。
 
 # 你格式化的内容
 
-你要阅读 <line> 中的文本，根据语义，对标签进行修正和调整（传统算法无法读出语义）。在此期间，你必须一字不改地保留文本中的内容，这意味着即便是 OCR 错误也必须原封不动地保留下来。你要直接写出符合格式要求的内容，禁止说多余的话。你要调整的任务如下。
+你要阅读 <line> 中的文本，根据语义，对标签进行修正和调整（传统算法无法读出语义）。在此期间，你必须一字不改地保留文本中的内容，这意味着即便是 OCR 错误也必须原封不动地保留下来。但 <line> 本身的属性 confidence 在你写出的 XML 中要被删除。
+
+你要直接写出符合格式要求的内容，禁止说多余的话。你写的内容必须严格遵守 XML 的规范。你要调整的任务如下。
 
 ## 调整、删除 abandon 相关的区块
 
@@ -53,24 +54,24 @@ touch-end 表示区块的**最后一行**的文字是否充满了一整行的空
 ```XML
 <page>
 <title>
-<line confidence=0.99>参考文献</line>
+<line confidence="0.99">参考文献</line>
 </title>
 <title>
-<line confidence=0.98>幼年与历史</line>
+<line confidence="0.98">幼年与历史</line>
 </title>
 <text indent="false" touch-end="false">
-<line confidence=0.98>经验的毁灭【意］吉奥乔·阿甘本</line>
+<line confidence="0.98">经验的毁灭【意］吉奥乔·阿甘本</line>
 </text>
 <title>
-<line confidence=0.97>虚拟的寓言★</line>
+<line confidence="0.97">虚拟的寓言★</line>
 </title>
 <text indent="false" touch-end="false">
-<line confidence=0.96>［加］布来恩·马苏米</line>
+<line confidence="0.96">［加］布来恩·马苏米</line>
 </text>
-<line confidence=0.97>类人猿、赛博格和女人*</line>
+<line confidence="0.97">类人猿、赛博格和女人*</line>
 </title>
 <text indent="false" touch-end="false">
-<line confidence=0.96>自然的重塑［美］唐娜·哈拉维</line>
+<line confidence="0.96">自然的重塑［美］唐娜·哈拉维</line>
 </text>
 </page>
 ```
@@ -79,15 +80,15 @@ touch-end 表示区块的**最后一行**的文字是否充满了一整行的空
 ```XML
 <page>
 <title>
-<line confidence=0.99>参考文献</line>
+<line confidence="0.99">参考文献</line>
 </title>
 <text start-incision="impossible" end-incision="impossible">
-<line confidence=0.98>幼年与历史</line>
-<line confidence=0.98>经验的毁灭【意］吉奥乔·阿甘本</line>
-<line confidence=0.97>虚拟的寓言★</line>
-<line confidence=0.96>［加］布来恩·马苏米</line>
-<line confidence=0.97>类人猿、赛博格和女人*</line>
-<line confidence=0.96>自然的重塑［美］唐娜·哈拉维</line>
+<line>幼年与历史</line>
+<line>经验的毁灭【意］吉奥乔·阿甘本</line>
+<line>虚拟的寓言★</line>
+<line>［加］布来恩·马苏米</line>
+<line>类人猿、赛博格和女人*</line>
+<line>自然的重塑［美］唐娜·哈拉维</line>
 </text>
 </page>
 ```
@@ -120,8 +121,8 @@ touch-end 表示区块的**最后一行**的文字是否充满了一整行的空
 举个例子，<text> 标签会被你改写成如下形式（这只是片段，不能作为你输出的全文。此处仅参考格式）：
 ```XML
 <text start-incision="uncertain" end-incision="must-be">
-<line confidence=0.98>在乡下，没有任何程度上的奴隶阶层。草纸文献记载</line>
-<line confidence=0.99>表明，各种的个样摩擦和敌对都出现在乡村，伴随着的是种</line>
+<line>在乡下，没有任何程度上的奴隶阶层。草纸文献记载</line>
+<line>表明，各种的个样摩擦和敌对都出现在乡村，伴随着的是种</line>
 </text>
 ```
 
@@ -140,23 +141,23 @@ touch-end 表示区块的**最后一行**的文字是否充满了一整行的空
 ```XML
 <page>
 <abandon>
-<line confidence=0.95>⼩说翻译与⽂化建构</line>
+<line confidence="0.95">⼩说翻译与⽂化建构</line>
 </abandon>
 <text indent="true" touch-end="false">
-<line confidence=0.99>汉语“⼩说”词最早出现于《庄⼦•外物篇》：“饰⼩说以⼲县令，其于⼤达亦远矣。”①⼩说意肤浅、琐碎的⾔论。东</line>
-<line confidence=0.97>汉班固 《汉书•艺⽂志》视⼩说为“街谈巷语，道听涂说”，“闾⾥⼩知者之 所及”，但“或⼀⾔可采”②。</line>
+<line confidence="0.99">汉语“⼩说”词最早出现于《庄⼦•外物篇》：“饰⼩说以⼲县令，其于⼤达亦远矣。”①⼩说意肤浅、琐碎的⾔论。东</line>
+<line confidence="0.97">汉班固 《汉书•艺⽂志》视⼩说为“街谈巷语，道听涂说”，“闾⾥⼩知者之 所及”，但“或⼀⾔可采”②。</line>
 </text>
 <abandon>
-<line confidence=0.97>（接上页）则更可能实事求是地描述那些令分析家震惊和担忧的处境。</line>
+<line confidence="0.97">（接上页）则更可能实事求是地描述那些令分析家震惊和担忧的处境。</line>
 </abandon>
 <abandon>
-<line confidence=0.95>①曹础基：《庄⼦浅注》，410页，北京，中华书局，1982</line>
+<line confidence="0.95">①曹础基：《庄⼦浅注》，410页，北京，中华书局，1982</line>
 <abandon>
 <text indent="false" touch-end="false">
-<line confidence=0.95>②班固撰、（唐）颜师古注：《汉书•艺⽂志》，291页，郑州，中州古籍出版社，1990。</line>
+<line confidence="0.95">②班固撰、（唐）颜师古注：《汉书•艺⽂志》，291页，郑州，中州古籍出版社，1990。</line>
 <text>
 <abandon>
-<line confidence=0.98>128</line>
+<line confidence="0.98">128</line>
 </abandon>
 </page>
 ```
@@ -165,18 +166,18 @@ touch-end 表示区块的**最后一行**的文字是否充满了一整行的空
 ```XML
 <page>
 <text start-incision="impossible" end-incision="impossible">
-<line confidence=0.99>汉语“⼩说”词最早出现于《庄⼦•外物篇》：“饰⼩说以⼲县令，其于⼤达亦远矣。”①⼩说意肤浅、琐碎的⾔论。东</line>
-<line confidence=0.97>汉班固 《汉书•艺⽂志》视⼩说为“街谈巷语，道听涂说”，“闾⾥⼩知者之 所及”，但“或⼀⾔可采”②。</line>
+<line>汉语“⼩说”词最早出现于《庄⼦•外物篇》：“饰⼩说以⼲县令，其于⼤达亦远矣。”①⼩说意肤浅、琐碎的⾔论。东</line>
+<line>汉班固 《汉书•艺⽂志》视⼩说为“街谈巷语，道听涂说”，“闾⾥⼩知者之 所及”，但“或⼀⾔可采”②。</line>
 </text>
 <citation>
 <text start-incision="must-be" end-incision="impossible">
-<line confidence=0.97>（接上页）则更可能实事求是地描述那些令分析家震惊和担忧的处境。</line>
+<line>（接上页）则更可能实事求是地描述那些令分析家震惊和担忧的处境。</line>
 </text>
 <text start-incision="impossible" end-incision="impossible">
-<line confidence=0.95>①曹础基：《庄⼦浅注》，410页，北京，中华书局，1982</line>
+<line>①曹础基：《庄⼦浅注》，410页，北京，中华书局，1982</line>
 <text>
 <text start-incision="impossible" end-incision="impossible">
-<line confidence=0.95>②班固撰、（唐）颜师古注：《汉书•艺⽂志》，291页，郑州，中州古籍出版社，1990。</line>
+<line>②班固撰、（唐）颜师古注：《汉书•艺⽂志》，291页，郑州，中州古籍出版社，1990。</line>
 <text>
 </citation>
 </page>
