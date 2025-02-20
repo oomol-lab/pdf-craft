@@ -6,6 +6,7 @@
     "--generate-members"
   ],
   "cSpell.words": [
+    "analyser",
     "fitz",
     "frombytes",
     "langchain",

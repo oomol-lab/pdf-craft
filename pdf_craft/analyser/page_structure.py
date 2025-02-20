@@ -1,38 +1,19 @@
 import io
-import os
 
-from typing import cast
 from html import escape
-from pydantic import SecretStr
-from langchain_openai import ChatOpenAI
-from langchain_core.messages import SystemMessage, HumanMessage
-
 from ..pdf import Block, Text, TextBlock, AssetBlock, TextKind, AssetKind
+from .llm import LLM
 
 
 class Format:
-  def __init__(self, key: str, url: str, model: str):
-    self._llm = ChatOpenAI(
-      api_key=cast(SecretStr, key),
-      base_url=url,
-      model=model,
-      temperature=0.7,
-    )
-    prompt_path = os.path.join(__file__, "..", "prompt.jinja")
-    prompt_path = os.path.abspath(prompt_path)
-
-    with open(prompt_path, mode="r", encoding="utf-8") as file:
-      self._prompt: str = file.read()
+  def __init__(self, llm: LLM):
+    self._llm: LLM = llm
 
   def push(self, blocks: list[Block]):
     page_xml = self._get_page_xml(blocks)
-    response = self._llm([
-      SystemMessage(content=self._prompt),
-      HumanMessage(content=page_xml)
-    ])
     print(page_xml)
     print("\nResponse:")
-    print(response.content)
+    print(self._llm.request("page_structure", page_xml))
 
   def _get_page_xml(self, blocks: list[Block]) -> str:
     buffer = io.StringIO()
@@ -56,10 +37,10 @@ class Format:
       buffer.write(tag_name)
 
       if block.kind == TextKind.PLAIN_TEXT:
-        if block.has_paragraph_indentation:
-          buffer.write(" indent")
-        if block.last_line_touch_end:
-          buffer.write(" touch-end")
+        buffer.write(" indent=")
+        buffer.write("\"true\"" if block.has_paragraph_indentation else "\"false\"")
+        buffer.write(" touch-end=")
+        buffer.write("\"true\"" if block.last_line_touch_end else "\"false\"")
 
       buffer.write(">\n")
 
