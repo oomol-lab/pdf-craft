@@ -1,6 +1,7 @@
 from typing import Literal
 from dataclasses import dataclass
 from enum import Enum
+from math import log10
 from typing import Iterable, Generator
 from PIL.Image import Image
 from fitz import Document
@@ -20,10 +21,14 @@ class Text:
   rect: Rectangle
 
 @dataclass
-class TextBlock:
+class BasicBlock:
   rect: Rectangle
-  kind: TextKind
   texts: list[Text]
+  font_size: float
+
+@dataclass
+class TextBlock(BasicBlock):
+  kind: TextKind
   has_paragraph_indentation: bool = False
   last_line_touch_end: bool = False
 
@@ -33,11 +38,9 @@ class AssetKind(Enum):
   FORMULA = 2
 
 @dataclass
-class AssetBlock:
-  rect: Rectangle
+class AssetBlock(BasicBlock):
   image: Image
   kind: AssetKind
-  texts: list[Text]
 
 Block = TextBlock | AssetBlock
 
@@ -79,11 +82,11 @@ class PDFPageExtractor:
       yield blocks
 
   def _convert_to_blocks(self, result: ExtractedResult, layouts: list[Layout]) -> list[Block]:
-    store: list[tuple[LayoutClass, Block]] = []
+    store: list[tuple[Layout, Block]] = []
     def previous_block(cls: LayoutClass) -> Block | None:
       for i in range(len(store) - 1, -1, -1):
-        block_cls, block = store[i]
-        if cls == block_cls:
+        layout, block = store[i]
+        if cls == layout.cls:
           return block
         if cls != LayoutClass.ABANDON:
           return None
@@ -92,42 +95,48 @@ class PDFPageExtractor:
     for layout in layouts:
       cls = layout.cls
       if cls == LayoutClass.TITLE:
-        store.append((cls, TextBlock(
+        store.append((layout, TextBlock(
           rect=layout.rect,
           kind=TextKind.TITLE,
+          font_size=0.0,
           texts=self._convert_to_text(layout.fragments),
         )))
       elif cls == LayoutClass.PLAIN_TEXT:
-        store.append((cls, TextBlock(
+        store.append((layout, TextBlock(
           rect=layout.rect,
           kind=TextKind.PLAIN_TEXT,
+          font_size=0.0,
           texts=self._convert_to_text(layout.fragments),
         )))
       elif cls == LayoutClass.ABANDON:
-        store.append((cls, TextBlock(
+        store.append((layout, TextBlock(
           rect=layout.rect,
           kind=TextKind.ABANDON,
+          font_size=0.0,
           texts=self._convert_to_text(layout.fragments),
         )))
       elif cls == LayoutClass.FIGURE:
-        store.append((cls, AssetBlock(
+        store.append((layout, AssetBlock(
           rect=layout.rect,
           texts=[],
           kind=AssetKind.FIGURE,
+          font_size=0.0,
           image=clip(result, layout),
         )))
       elif cls == LayoutClass.TABLE:
-        store.append((cls, AssetBlock(
+        store.append((layout, AssetBlock(
           rect=layout.rect,
           texts=[],
           kind=AssetKind.TABLE,
+          font_size=0.0,
           image=clip(result, layout),
         )))
       elif cls == LayoutClass.ISOLATE_FORMULA:
-        store.append((cls, AssetBlock(
+        store.append((layout, AssetBlock(
           rect=layout.rect,
           texts=[],
           kind=AssetKind.FORMULA,
+          font_size=0.0,
           image=clip(result, layout),
         )))
       elif cls == LayoutClass.FIGURE_CAPTION:
@@ -146,6 +155,8 @@ class PDFPageExtractor:
         if block is not None:
           assert isinstance(block, AssetBlock)
           block.texts.extend(self._convert_to_text(layout.fragments))
+
+    self._fill_font_size_for_blocks(store)
 
     return [block for _, block in store]
 
@@ -180,3 +191,21 @@ class PDFPageExtractor:
       )
       for f in fragments
     ]
+
+  def _fill_font_size_for_blocks(self, store: list[tuple[Layout, Block]]):
+    font_sizes: list[float] = []
+
+    for layout, _ in store:
+      sum_height: float = 0.0
+      for fragment in layout.fragments:
+        sum_height += fragment.rect.size[1]
+
+      # without considering vertical writing, the height of a line of text is proportional to the font size.
+      font_size = sum_height / len(layout.fragments)
+      font_sizes.append(font_size)
+
+    max_font_size = max(font_sizes)
+    min_font_size = min(font_sizes)
+
+    for font_size, (_, block) in zip(font_sizes, store):
+      block.font_size = (font_size - min_font_size) / (max_font_size - min_font_size)
