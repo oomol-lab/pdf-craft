@@ -11,6 +11,7 @@
     "frombytes",
     "langchain",
     "layoutreader",
+    "natsorted",
     "pixmap",
     "rects",
     "tobytes"

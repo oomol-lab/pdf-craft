@@ -2,6 +2,7 @@ tqdm==4.66.5
 pyMuPDF==1.25.3
 alphabet-detector==0.0.7
 shapely==2.0.6
+natsort==8.4.0
 doc-page-extractor==0.0.2
 langchain==0.3.19
 langchain_core==0.3.36
