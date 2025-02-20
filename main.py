@@ -5,13 +5,14 @@ import shutil
 
 from tqdm import tqdm
 from pdf_craft import PDFPageExtractor
-from pdf_craft.ai.format import Format
+from pdf_craft.analyser.page_structure import Format
+from pdf_craft.analyser.llm import LLM
 
 
 def main():
   pdf_file = "/Users/taozeyu/Downloads/引用文献强化.pdf"
   model_dir_path = _project_dir_path("models")
-  format = Format(**_read_format_json())
+  format = Format(llm=LLM(**_read_format_json()))
   extractor = PDFPageExtractor(
     device="cpu",
     model_dir_path=model_dir_path,
