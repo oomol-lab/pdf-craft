@@ -56,10 +56,10 @@ class Format:
       buffer.write(tag_name)
 
       if block.kind == TextKind.PLAIN_TEXT:
-        if block.has_paragraph_indentation:
-          buffer.write(" indent")
-        if block.last_line_touch_end:
-          buffer.write(" touch-end")
+        buffer.write(" indent=")
+        buffer.write("\"true\"" if block.has_paragraph_indentation else "\"false\"")
+        buffer.write(" touch-end=")
+        buffer.write("\"true\"" if block.last_line_touch_end else "\"false\"")
 
       buffer.write(">\n")
 
