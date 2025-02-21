@@ -5,7 +5,6 @@ from enum import IntEnum
 from typing import Iterable
 from dataclasses import dataclass
 from natsort import natsorted
-from tiktoken import Encoding
 from xml.etree.ElementTree import fromstring, Element
 from .llm import LLM
 
@@ -31,9 +30,8 @@ class PageInfo:
   citation: TextInfo | None
 
 class SecondaryAnalyser:
-  def __init__(self, llm: LLM, encoding: Encoding, dir_path: str):
+  def __init__(self, llm: LLM, dir_path: str):
     self._llm: LLM = llm
-    self._encoding: Encoding = encoding
     self._assets_dir_path = os.path.join(dir_path, "assets")
     self._pages: list[PageInfo] = []
     pages_dir_path: str = os.path.join(dir_path, "pages")
@@ -76,7 +74,7 @@ class SecondaryAnalyser:
     for child in children:
       for line in child:
         if line.tag == "line":
-          tokens += len(self._encoding.encode(line.text))
+          tokens += self._llm.count_tokens_count(line.text)
       if first is None:
         first = child
       last = child
