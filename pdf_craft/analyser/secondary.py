@@ -5,7 +5,7 @@ from enum import IntEnum
 from typing import Iterable
 from dataclasses import dataclass
 from natsort import natsorted
-from xml.etree.ElementTree import fromstring, Element
+from xml.etree.ElementTree import fromstring, tostring, Element
 from .llm import LLM
 
 
@@ -18,6 +18,7 @@ class TextIncision(IntEnum):
 
 @dataclass
 class TextInfo:
+  page_index: int
   tokens: int
   start_incision: TextIncision
   end_incision: TextIncision
@@ -51,7 +52,7 @@ class SecondaryAnalyser:
 
     for child in root:
       if child.tag == "citation":
-        citation = self._parse_text_info(child)
+        citation = self._parse_text_info(page_index, child)
       else:
         main_children.append(child)
 
@@ -59,22 +60,18 @@ class SecondaryAnalyser:
       file_name=file_name,
       page_index=page_index,
       citation=citation,
-      main=self._parse_text_info(main_children),
+      main=self._parse_text_info(page_index, main_children),
     )
 
-  def _parse_text_info(self, children: Iterable[Element]) -> TextInfo:
+  def _parse_text_info(self, page_index: int, children: Iterable[Element]) -> TextInfo:
     # When no text is found on this page, it means it is full of tables or
     # it is a blank page. We cannot tell if there is a cut in the context.
     start_incision: TextIncision = TextIncision.UNCERTAIN
     end_incision: TextIncision = TextIncision.UNCERTAIN
-    tokens: int = 0
     first: Element | None = None
     last: Element | None = None
 
     for child in children:
-      for line in child:
-        if line.tag == "line":
-          tokens += self._llm.count_tokens_count(line.text)
       if first is None:
         first = child
       last = child
@@ -85,11 +82,20 @@ class SecondaryAnalyser:
       if last.tag == "text":
         end_incision = self._attr_value_to_kind(last.attrib.get("end-incision"))
 
+    tokens = self._count_elements_tokens(children)
+
     return TextInfo(
+      page_index=page_index,
       tokens=tokens,
       start_incision=start_incision,
       end_incision=end_incision,
     )
+
+  def _count_elements_tokens(self, elements: Iterable[Element]) -> int:
+    root = Element("page")
+    root.extend(elements)
+    xml_content = tostring(root)
+    return self._llm.count_tokens_count(xml_content)
 
   def _attr_value_to_kind(self, value: str | None) -> TextIncision:
     if value == "must-be":

@@ -1,7 +1,8 @@
 from __future__ import annotations
 from dataclasses import dataclass
-from typing import Iterable, Iterator, Generator
+from typing import Iterable, Generator
 from .secondary import TextIncision, TextInfo
+from .utils import Stream
 
 
 _MIN_LEVEL = -1
@@ -12,7 +13,7 @@ class Segment:
   text_infos: list[TextInfo]
 
 def allocate_segments(text_infos: Iterable[TextInfo], max_tokens: int) -> Generator[TextInfo | Segment, None, None]:
-  segment = _collect_segment(_Stream(text_infos), _MIN_LEVEL)
+  segment = _collect_segment(Stream(text_infos), _MIN_LEVEL)
   for item in segment.children:
     if isinstance(item, _Segment):
       for segment in _split_segment_if_need(item, max_tokens):
@@ -38,21 +39,7 @@ class _Segment:
   end_incision: TextIncision
   children: list[TextInfo | _Segment]
 
-class _Stream:
-  def __init__(self, text_infos: Iterable[TextInfo]):
-    self._iterator: Iterator[TextInfo] = iter(text_infos)
-    self._buffer: list[TextInfo] = []
-
-  def recover(self, text: TextInfo):
-    self._buffer.append(text)
-
-  def get(self) -> TextInfo | None:
-    if len(self._buffer) > 0:
-      return self._buffer.pop(0)
-    else:
-      return next(self._iterator, None)
-
-def _collect_segment(stream: _Stream, level: int) -> _Segment:
+def _collect_segment(stream: Stream[TextInfo], level: int) -> _Segment:
   start_incision: TextIncision = TextIncision.IMPOSSIBLE
   end_incision: TextIncision = TextIncision.IMPOSSIBLE
   children: list[TextInfo | _Segment] = []
