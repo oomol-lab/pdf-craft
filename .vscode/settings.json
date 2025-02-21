@@ -11,8 +11,10 @@
     "frombytes",
     "langchain",
     "layoutreader",
+    "natsorted",
     "pixmap",
     "rects",
+    "tiktoken",
     "tobytes"
   ]
 }
