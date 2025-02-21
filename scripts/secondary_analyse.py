@@ -4,15 +4,17 @@ import json
 
 sys.path.append(os.path.abspath(os.path.join(__file__, "..", "..")))
 
-from tqdm import tqdm
+from tiktoken import get_encoding
 from pdf_craft.analyser.llm import LLM
 from pdf_craft.analyser.secondary import SecondaryAnalyser
 
 
 def main():
-  struct_dir_path = "/Users/taozeyu/Downloads/并非旨在使人正常化的分析"
-  llm=LLM(**_read_format_json())
-  analyser = SecondaryAnalyser(llm, struct_dir_path)
+  analyser = SecondaryAnalyser(
+    llm=LLM(**_read_format_json()),
+    encoding=get_encoding("o200k_base"),
+    dir_path="/Users/taozeyu/Downloads/并非旨在使人正常化的分析",
+  )
 
 def _read_format_json() -> dict:
   path = os.path.join(__file__, "..", "..", "format.json")

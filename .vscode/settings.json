@@ -14,6 +14,7 @@
     "natsorted",
     "pixmap",
     "rects",
+    "tiktoken",
     "tobytes"
   ]
 }

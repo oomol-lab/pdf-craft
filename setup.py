@@ -15,6 +15,7 @@ setup(
     "alphabet-detector>=0.0.7,<1.0.0",
     "shapely>=2.0.6,<3.0.0",
     "natsort>=8.4.0,<9.0.0",
+    "tiktoken>=0.9.0,<1.0.0",
     "doc-page-extractor==0.0.2",
   ],
 )
