@@ -126,7 +126,7 @@ def _create_segment(tokens: int, children: list[TextInfo | _Segment], level: int
   return _Segment(
     level=level,
     tokens=tokens,
-    text_infos=children,
+    children=children,
     start_incision=children[0].start_incision,
     end_incision=children[-1].end_incision,
   )

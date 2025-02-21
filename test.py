@@ -3,6 +3,7 @@ import unittest
 try:
   loader = unittest.TestLoader()
   suite = loader.discover(
+    # pattern="test_segment.py",
     start_dir="tests",
   )
   runner = unittest.TextTestRunner()
