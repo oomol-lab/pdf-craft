@@ -9,7 +9,6 @@ _MIN_LEVEL = -1
 @dataclass
 class Segment:
   tokens: int
-  level: int
   text_infos: list[TextInfo]
 
 def allocate_segments(text_infos: Iterable[TextInfo], max_tokens: int) -> Generator[TextInfo | Segment, None, None]:
@@ -28,7 +27,6 @@ def _transform_segment(segment: _Segment):
   else:
     return Segment(
       tokens=segment.tokens,
-      level=segment.level,
       text_infos=children,
     )
 

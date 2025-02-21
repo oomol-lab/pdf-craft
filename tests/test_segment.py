@@ -31,7 +31,6 @@ class TestSplitter(unittest.TestCase):
         TextInfo(100, TextIncision.IMPOSSIBLE, TextIncision.IMPOSSIBLE),
         Segment(
           tokens=300,
-          level=2,
           text_infos = [
             TextInfo(100, TextIncision.IMPOSSIBLE, TextIncision.MOST_LIKELY),
             TextInfo(100, TextIncision.MOST_LIKELY, TextIncision.MOST_LIKELY),
@@ -57,7 +56,6 @@ class TestSplitter(unittest.TestCase):
       _to_json([
         Segment(
           tokens=200,
-          level=2,
           text_infos = [
             TextInfo(100, TextIncision.IMPOSSIBLE, TextIncision.MOST_LIKELY),
             TextInfo(100, TextIncision.MOST_LIKELY, TextIncision.IMPOSSIBLE),
@@ -66,7 +64,6 @@ class TestSplitter(unittest.TestCase):
         TextInfo(100, TextIncision.IMPOSSIBLE, TextIncision.IMPOSSIBLE),
         Segment(
           tokens=200,
-          level=4,
           text_infos = [
             TextInfo(100, TextIncision.IMPOSSIBLE, TextIncision.MUST_BE),
             TextInfo(100, TextIncision.MUST_BE, TextIncision.IMPOSSIBLE),
@@ -92,7 +89,6 @@ class TestSplitter(unittest.TestCase):
         TextInfo(100, TextIncision.IMPOSSIBLE, TextIncision.IMPOSSIBLE),
         Segment(
           tokens=200,
-          level=2,
           text_infos = [
             TextInfo(100, TextIncision.IMPOSSIBLE, TextIncision.MOST_LIKELY),
             TextInfo(100, TextIncision.MOST_LIKELY, TextIncision.MOST_LIKELY),
@@ -100,7 +96,6 @@ class TestSplitter(unittest.TestCase):
         ),
         Segment(
           tokens=350,
-          level=2,
           text_infos = [
             TextInfo(250, TextIncision.MOST_LIKELY, TextIncision.MOST_LIKELY),
             TextInfo(100, TextIncision.MOST_LIKELY, TextIncision.MOST_LIKELY),
@@ -127,7 +122,6 @@ class TestSplitter(unittest.TestCase):
         TextInfo(100, TextIncision.IMPOSSIBLE, TextIncision.IMPOSSIBLE),
         Segment(
           tokens=200,
-          level=0,
           text_infos = [
             TextInfo(100, TextIncision.IMPOSSIBLE, TextIncision.MOST_LIKELY),
             TextInfo(100, TextIncision.MOST_LIKELY, TextIncision.MOST_LIKELY),
@@ -135,7 +129,6 @@ class TestSplitter(unittest.TestCase):
         ),
         Segment(
           tokens=300,
-          level=0,
           text_infos = [
             TextInfo(100, TextIncision.MOST_LIKELY, TextIncision.MUST_BE),
             TextInfo(100, TextIncision.MUST_BE, TextIncision.MOST_LIKELY),
@@ -154,7 +147,6 @@ def _to_json(items: Iterable[TextInfo | Segment]) -> list[dict]:
     elif isinstance(item, Segment):
       json_list.append({
         "tokens": item.tokens,
-        "level": item.level,
         "text_infos": [_text_info_to_json(t) for t in item.text_infos],
       })
     else:
