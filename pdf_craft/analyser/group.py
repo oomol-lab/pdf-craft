@@ -105,7 +105,7 @@ class _Group:
     tail_remain_tokens = self.tail.tokens
 
     if tokens > self._attr.max_tokens:
-      if self.body.tokens > self._max_tokens:
+      if self.body.tokens > self._attr.max_tokens:
         head_remain_tokens = 0
         tail_remain_tokens = 0
       else:
