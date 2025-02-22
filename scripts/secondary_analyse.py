@@ -12,7 +12,6 @@ from pdf_craft.analyser.secondary import SecondaryAnalyser
 def main():
   analyser = SecondaryAnalyser(
     llm=LLM(**_read_format_json()),
-    encoding=get_encoding("o200k_base"),
     dir_path="/Users/taozeyu/Downloads/并非旨在使人正常化的分析",
   )
 
