@@ -62,8 +62,8 @@ def _collect_segment(stream: Stream[TextInfo], level: int) -> _Segment:
         end_incision = text.end_incision
         break
       elif incision_level > level:
-        stream.recover(pre_text)
         stream.recover(text)
+        stream.recover(pre_text)
         segment = _collect_segment(stream, incision_level)
         children[-1] = segment
       else:
