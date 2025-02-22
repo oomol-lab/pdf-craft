@@ -148,13 +148,13 @@ class TestGroup(unittest.TestCase):
       }],
     )
 
-def _group_to_json(group: Group) -> dict:
+def _group_to_json(item: Group) -> dict:
   return {
-    "head_remain": group.head_remain_tokens,
-    "tail_remain": group.tail_remain_tokens,
-    "head": [_item_to_json(item) for item in group.head],
-    "body": [_item_to_json(item) for item in group.body],
-    "tail": [_item_to_json(item) for item in group.tail],
+    "head_remain": item.head_remain_tokens,
+    "tail_remain": item.tail_remain_tokens,
+    "head": [_item_to_json(item) for item in item.head],
+    "body": [_item_to_json(item) for item in item.body],
+    "tail": [_item_to_json(item) for item in item.tail],
   }
 
 def _item_to_json(item: TextInfo | Segment) -> str:

@@ -99,7 +99,7 @@ class _Group:
   def report(self) -> Group:
     tokens: int = 0
     for buffer in (self.head, self.body, self.tail):
-      tokens += buffer._tokens
+      tokens += buffer.tokens
 
     head_remain_tokens = self.head.tokens
     tail_remain_tokens = self.tail.tokens
@@ -119,8 +119,8 @@ class _Group:
           head_remain_tokens = round(remain_tokens * (1.0 - tail_rate))
           tail_remain_tokens = round(remain_tokens * tail_rate)
 
-    head = self.head._items
-    tail = self.tail._items
+    head = list(self.head)
+    tail = list(self.tail)
 
     if head_remain_tokens == 0:
       head = []
@@ -131,7 +131,7 @@ class _Group:
       head_remain_tokens=head_remain_tokens,
       tail_remain_tokens=tail_remain_tokens,
       head=head,
-      body=self.body._items,
+      body=list(self.body),
       tail=tail,
     )
 
