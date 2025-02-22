@@ -1,13 +1,11 @@
 from __future__ import annotations
 from dataclasses import dataclass
-from typing import Iterable
+from typing import Iterable, Generator
 from math import floor
 from .secondary import TextInfo
 from .segment import Segment
 from .utils import Stream
 
-
-_Item = TextInfo | Segment
 
 @dataclass
 class Group:
@@ -16,6 +14,45 @@ class Group:
   head: list[TextInfo | Segment]
   body: list[TextInfo | Segment]
   tail: list[TextInfo | Segment]
+
+def group(
+    items: Iterable[TextInfo | Segment],
+    max_tokens: int,
+    gap_rate: float,
+    tail_rate: float,
+  ) -> Generator[Group, None, None]:
+
+  gap_max_tokens = floor(max_tokens * gap_rate)
+  assert gap_max_tokens > 0
+
+  curr_group: _Group = _Group(_Attributes(
+    max_tokens=max_tokens,
+    gap_max_tokens=gap_max_tokens,
+    tail_rate=tail_rate,
+  ))
+  curr_group.head.seal()
+  stream: Stream[_Item] = Stream(items)
+
+  while True:
+    item = stream.get()
+    if item is not None:
+      success = curr_group.append(item)
+      if success:
+        continue
+
+    if curr_group.body.has_any:
+      yield curr_group.report()
+    if item is not None:
+      stream.recover(item)
+    for tail_item in reversed(list(curr_group.tail)):
+      stream.recover(tail_item)
+
+    if not stream.has_buffer and item is None:
+      # next item never comes
+      break
+    curr_group = curr_group.next()
+
+_Item = TextInfo | Segment
 
 @dataclass
 class _Attributes:
@@ -138,35 +175,3 @@ class _Buffer:
       return True
     next_tokens = self._tokens + item.tokens
     return next_tokens <= self._max_tokens
-
-def group(
-    items: Iterable[TextInfo | Segment],
-    max_tokens: int,
-    gap_rate: float,
-    tail_rate: float,
-  ):
-  curr_group: _Group | None = None
-  stream: Stream[_Item] = Stream(items)
-  while True:
-    item = stream.get()
-    if item is None:
-      break
-    if curr_group is None:
-      gap_max_tokens = floor(max_tokens * gap_rate)
-      assert gap_max_tokens > 0
-      attr = _Attributes(max_tokens, gap_max_tokens, tail_rate)
-      curr_group = _Group(attr)
-      curr_group.head.seal()
-
-    success = curr_group.append(item)
-    if not success:
-      if curr_group.body.has_any:
-        yield curr_group.report()
-      stream.recover(item)
-      for item in reversed(list(curr_group.tail)):
-        stream.recover(item)
-      curr_group = curr_group.next()
-
-  if curr_group is not None and \
-     curr_group.body.has_any:
-    yield curr_group.report()

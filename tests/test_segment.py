@@ -4,7 +4,7 @@ from typing import Iterable
 from pdf_craft.analyser.segment import allocate_segments, Segment
 from pdf_craft.analyser.secondary import TextInfo, TextIncision
 
-class TestSplitter(unittest.TestCase):
+class TestSegment(unittest.TestCase):
   def test_no_segments(self):
     text_infos = [
       TextInfo(0, 100, TextIncision.IMPOSSIBLE, TextIncision.IMPOSSIBLE),
