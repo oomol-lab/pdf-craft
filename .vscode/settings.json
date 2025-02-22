@@ -9,6 +9,7 @@
     "analyser",
     "fitz",
     "frombytes",
+    "kwoa",
     "langchain",
     "layoutreader",
     "natsorted",

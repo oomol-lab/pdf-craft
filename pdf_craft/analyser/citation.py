@@ -11,9 +11,9 @@ def analyse_citations(llm: LLM, pages: list[PageInfo], request_max_tokens: int):
     raise ValueError(f"Request max tokens is too small (less than system prompt tokens count {prompt_tokens})")
 
   citations = [p.citation for p in pages if p.citation is not None]
-  _split_into_task(citations)
+  _split_into_task(citations, data_max_tokens)
 
 
 def _split_into_task(citations: list[TextInfo], data_max_tokens: int):
-  for item in allocate_segments(citations, data_max_tokens):
+  for _ in allocate_segments(citations, data_max_tokens):
     pass

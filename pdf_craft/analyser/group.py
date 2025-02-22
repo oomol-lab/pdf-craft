@@ -18,29 +18,26 @@ class Group:
 class _Group:
   def __init__(self, max_tokens: int, gap_max_tokens: float):
     self._max_tokens: int = max_tokens
+    self._gap_max_tokens: int = gap_max_tokens
     body_max_tokens = max_tokens - gap_max_tokens * 2
     assert body_max_tokens > 0
 
     # head and tail are passed to LLM as additional text
     # to let LLM understand the context of the body text.
-    self._head: _Buffer = _Buffer(gap_max_tokens)
-    self._tail: _Buffer = _Buffer(gap_max_tokens)
-    self._body: _Buffer = _Buffer(body_max_tokens)
-
-  @property
-  def tail(self) -> _Buffer:
-    return self._tail
+    self.head: _Buffer = _Buffer(gap_max_tokens)
+    self.tail: _Buffer = _Buffer(gap_max_tokens)
+    self.body: _Buffer = _Buffer(body_max_tokens)
 
   @property
   def body_has_any(self) -> bool:
-    return self._body.has_any
+    return self.body.has_any
 
   def seal_head(self):
-    self._head.seal()
+    self.head.seal()
 
   def append(self, item: _Item) -> bool:
     success: bool = False
-    for buffer in (self._head, self._body, self._tail):
+    for buffer in (self.head, self.body, self.tail):
       if buffer.is_sealed:
         continue
       if not buffer.can_append(item):
@@ -52,9 +49,9 @@ class _Group:
     return success
 
   def next(self) -> _Group:
-    next_group: _Group = _Group(self._max_tokens, self._head._max_tokens)
-    next_head = next_group._head
-    for item in reversed([*self._head, *self._body]):
+    next_group: _Group = _Group(self._max_tokens, self._gap_max_tokens)
+    next_head = next_group.head
+    for item in reversed([*self.head, *self.body]):
       if next_head.can_append(item):
         next_head.append(item)
       else:
@@ -120,7 +117,7 @@ def group(items: Iterable[TextInfo | Segment], max_tokens: int, gap_rate: float)
       if curr_group.body_has_any:
         yield curr_group.report()
       stream.recover(item)
-      for item in reversed(curr_group.tail):
+      for item in reversed(list(curr_group.tail)):
         stream.recover(item)
       curr_group = curr_group.next()
 

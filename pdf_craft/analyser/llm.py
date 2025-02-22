@@ -16,7 +16,7 @@ class _Prompt:
 class LLM:
   def __init__(self, key: str, url: str, model: str):
     self._prompts: dict[str, _Prompt] = {}
-    self._encoding: Encoding = Encoding("o200k_base")
+    self._encoding: Encoding = Encoding("o200k_base") # pylint: disable=missing-kwoa
     self._model = ChatOpenAI(
       api_key=cast(SecretStr, key),
       base_url=url,
