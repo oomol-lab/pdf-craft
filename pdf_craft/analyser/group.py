@@ -28,13 +28,6 @@ class _Group:
     self.tail: _Buffer = _Buffer(gap_max_tokens)
     self.body: _Buffer = _Buffer(body_max_tokens)
 
-  @property
-  def body_has_any(self) -> bool:
-    return self.body.has_any
-
-  def seal_head(self):
-    self.head.seal()
-
   def append(self, item: _Item) -> bool:
     success: bool = False
     for buffer in (self.head, self.body, self.tail):
@@ -110,11 +103,11 @@ def group(items: Iterable[TextInfo | Segment], max_tokens: int, gap_rate: float)
       gap_max_tokens = floor(max_tokens * gap_rate)
       assert gap_max_tokens > 0
       curr_group = _Group(max_tokens, gap_max_tokens)
-      curr_group.seal_head()
+      curr_group.head.seal()
 
     success = curr_group.append(item)
     if not success:
-      if curr_group.body_has_any:
+      if curr_group.body.has_any:
         yield curr_group.report()
       stream.recover(item)
       for item in reversed(list(curr_group.tail)):
@@ -122,5 +115,5 @@ def group(items: Iterable[TextInfo | Segment], max_tokens: int, gap_rate: float)
       curr_group = curr_group.next()
 
   if curr_group is not None and \
-     curr_group.body_has_any:
+     curr_group.body.has_any:
     yield curr_group.report()
