@@ -150,6 +150,7 @@ class _Pages:
   def __init__(self, elements: list[Element]):
     self._elements: list[Element] = elements
     self.llm: LLM = LLM(
+      token_encoding="o200k_base",
       key="never touch",
       url="never touch",
       model="never touch",

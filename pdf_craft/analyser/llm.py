@@ -14,9 +14,9 @@ class _Prompt:
   tokens: int
 
 class LLM:
-  def __init__(self, key: str, url: str, model: str):
+  def __init__(self, key: str, url: str, model: str, token_encoding: str):
     self._prompts: dict[str, _Prompt] = {}
-    self._encoding: Encoding = get_encoding("o200k_base")
+    self._encoding: Encoding = get_encoding(token_encoding)
     self._model = ChatOpenAI(
       api_key=cast(SecretStr, key),
       base_url=url,
