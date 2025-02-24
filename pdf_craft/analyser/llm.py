@@ -37,6 +37,12 @@ class LLM:
   def prompt_tokens_count(self, prompt_name: str) -> int:
     return self._prompt(prompt_name).tokens
 
+  def encode_tokens(self, text: str) -> list[int]:
+    return self._encoding.encode(text)
+
+  def decode_tokens(self, tokens: list[int]) -> str:
+    return self._encoding.decode(tokens)
+
   def count_tokens_count(self, text: str) -> int:
     return len(self._encoding.encode(text))
 
