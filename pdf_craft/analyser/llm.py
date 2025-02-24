@@ -3,7 +3,7 @@ import os
 from typing import cast
 from dataclasses import dataclass
 from pydantic import SecretStr
-from tiktoken import Encoding
+from tiktoken import get_encoding, Encoding
 from langchain_openai import ChatOpenAI
 from langchain_core.messages import SystemMessage, HumanMessage
 
@@ -14,9 +14,9 @@ class _Prompt:
   tokens: int
 
 class LLM:
-  def __init__(self, key: str, url: str, model: str):
+  def __init__(self, key: str, url: str, model: str, token_encoding: str):
     self._prompts: dict[str, _Prompt] = {}
-    self._encoding: Encoding = Encoding("o200k_base") # pylint: disable=missing-kwoa
+    self._encoding: Encoding = get_encoding(token_encoding)
     self._model = ChatOpenAI(
       api_key=cast(SecretStr, key),
       base_url=url,
@@ -36,6 +36,12 @@ class LLM:
 
   def prompt_tokens_count(self, prompt_name: str) -> int:
     return self._prompt(prompt_name).tokens
+
+  def encode_tokens(self, text: str) -> list[int]:
+    return self._encoding.encode(text)
+
+  def decode_tokens(self, tokens: list[int]) -> str:
+    return self._encoding.decode(tokens)
 
   def count_tokens_count(self, text: str) -> int:
     return len(self._encoding.encode(text))

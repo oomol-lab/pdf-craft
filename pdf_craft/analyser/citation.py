@@ -1,19 +1,104 @@
+import os
+import re
+
+from typing import Iterable, Generator
+from xml.etree.ElementTree import tostring, fromstring, Element
+
 from .llm import LLM
-from .secondary import PageInfo, TextInfo
+from .types import PageInfo, TextInfo, TextIncision
 from .segment import allocate_segments
+from .group import group
+from .page_clipper import get_and_clip_pages
 
 
-def analyse_citations(llm: LLM, pages: list[PageInfo], request_max_tokens: int):
+def analyse_citations(
+    llm: LLM,
+    pages: list[PageInfo],
+    pages_dir_path: str,
+    request_max_tokens: int,
+    tail_rate: float) -> Generator[tuple[int, int, Element], None, None]:
+
   prompt_name = "citation"
   prompt_tokens = llm.prompt_tokens_count(prompt_name)
-  data_max_tokens = request_max_tokens - prompt_name
+  data_max_tokens = request_max_tokens - prompt_tokens
   if data_max_tokens <= 0:
     raise ValueError(f"Request max tokens is too small (less than system prompt tokens count {prompt_tokens})")
 
-  citations = [p.citation for p in pages if p.citation is not None]
-  _split_into_task(citations, data_max_tokens)
+  for task_group in group(
+    max_tokens=data_max_tokens,
+    gap_rate=tail_rate,
+    tail_rate=1.0,
+    items=allocate_segments(
+      text_infos=_extract_citations(pages),
+      max_tokens=data_max_tokens,
+    ),
+  ):
+    page_xml_list, head_count, tail_count = get_and_clip_pages(
+      llm=llm,
+      group=task_group,
+      get_element=lambda i: _get_citation_with_file(pages[i].file_name, pages_dir_path),
+    )
+    raw_pages_xml = Element("pages")
+    for i, page_xml in enumerate(page_xml_list):
+      page_xml.set("page-index", str(i + 1))
+      raw_pages_xml.append(page_xml)
 
+    raw_data = tostring(raw_pages_xml, encoding="unicode")
+    response = llm.request("citation", raw_data)
+    response_xml: Element = fromstring(_preprocess_response(response))
+    page_start_index = task_group.body[0].page_index
+    page_end_index = task_group.body[-1].page_index
+    chunk_xml = Element("chunk", {
+      "page-start-index": str(page_start_index),
+      "page-end-index": str(page_end_index),
+    })
+    for citation in response_xml:
+      page_indexes: list[int] = [int(p) for p in citation.get("page-index").split(",")]
+      page_indexes.sort()
+      page_index: int = page_indexes[0]
+      if page_index - 1 >= head_count and page_index - 1 < len(page_xml_list) - tail_count:
+        chunk_xml.append(citation)
+        citation.set("page-index", ",".join([
+          str(page_start_index + p - head_count - 1) for p in page_indexes
+        ]))
 
-def _split_into_task(citations: list[TextInfo], data_max_tokens: int):
-  for _ in allocate_segments(citations, data_max_tokens):
-    pass
+    yield page_start_index, page_end_index, chunk_xml
+
+def _extract_citations(pages: Iterable[PageInfo]) -> Generator[TextInfo, None, None]:
+  citations_matrix: list[list[TextInfo]] = []
+  current_citations: list[TextInfo] = []
+
+  for page in pages:
+    citation = page.citation
+    if citation is not None:
+      current_citations.append(citation)
+    elif len(current_citations) > 0:
+      citations_matrix.append(current_citations)
+      current_citations = []
+
+  if len(current_citations) > 0:
+    citations_matrix.append(current_citations)
+    current_citations.clear()
+
+  for citations in citations_matrix:
+    citations[0].start_incision = TextIncision.IMPOSSIBLE
+    citations[-1].end_incision = TextIncision.IMPOSSIBLE
+
+  for citations in citations_matrix:
+    yield from citations
+
+def _get_citation_with_file(file_name: str, file_dir_path: str) -> Element:
+  file_path = os.path.join(file_dir_path, file_name)
+  with open(file_path, "r", encoding="utf-8") as file:
+    root: Element = fromstring(file.read())
+    citation = root.find("citation")
+    for child in citation:
+      child.attrib = {}
+    return citation
+
+def _preprocess_response(response: str) -> str:
+  matches = re.findall(r"<response>.*</response>", response, re.DOTALL)
+  if matches and len(matches) > 0:
+    return matches[0]
+  else:
+    raise ValueError("No page tag found in LLM response")
