@@ -13,7 +13,7 @@ def main():
     llm=LLM(**_read_format_json()),
     dir_path="/Users/taozeyu/Downloads/并非旨在使人正常化的分析",
   )
-  analyser.analyse_citations(2048, 0.15)
+  analyser.analyse_citations(10000, 0.15)
 
 def _read_format_json() -> dict:
   path = os.path.join(__file__, "..", "..", "format.json")
