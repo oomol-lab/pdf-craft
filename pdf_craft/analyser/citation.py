@@ -16,7 +16,7 @@ def analyse_citations(
     pages: list[PageInfo],
     pages_dir_path: str,
     request_max_tokens: int,
-    tail_rate: float):
+    tail_rate: float) -> Generator[tuple[int, int, Element], None, None]:
 
   prompt_name = "citation"
   prompt_tokens = llm.prompt_tokens_count(prompt_name)
@@ -46,6 +46,23 @@ def analyse_citations(
     raw_data = tostring(raw_pages_xml, encoding="unicode")
     response = llm.request("citation", raw_data)
     response_xml: Element = fromstring(_preprocess_response(response))
+    page_start_index = task_group.body[0].page_index
+    page_end_index = task_group.body[-1].page_index
+    chunk_xml = Element("chunk", {
+      "page-start-index": str(page_start_index),
+      "page-end-index": str(page_end_index),
+    })
+    for citation in response_xml:
+      page_indexes: list[int] = [int(p) for p in citation.get("page-index").split(",")]
+      page_indexes.sort()
+      page_index: int = page_indexes[0]
+      if page_index - 1 >= head_count and page_index - 1 < len(page_xml_list) - tail_count:
+        chunk_xml.append(citation)
+        citation.set("page-index", ",".join([
+          str(page_start_index + p - head_count - 1) for p in page_indexes
+        ]))
+
+    yield page_start_index, page_end_index, chunk_xml
 
 def _extract_citations(pages: Iterable[PageInfo]) -> Generator[TextInfo, None, None]:
   citations_matrix: list[list[TextInfo]] = []
