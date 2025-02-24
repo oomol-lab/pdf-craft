@@ -1,8 +1,13 @@
+import os
+
 from typing import Iterable, Generator
+from xml.etree.ElementTree import fromstring, Element
+
 from .llm import LLM
-from .secondary import PageInfo, TextInfo
+from .types import PageInfo, TextInfo
 from .segment import allocate_segments
 from .group import group
+from .page_clipper import get_and_clip_pages
 
 
 def analyse_citations(

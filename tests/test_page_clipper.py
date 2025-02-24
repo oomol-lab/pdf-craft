@@ -3,7 +3,7 @@ import unittest
 from xml.etree.ElementTree import tostring, Element
 from pdf_craft.analyser.llm import LLM
 from pdf_craft.analyser.segment import Segment
-from pdf_craft.analyser.secondary import TextInfo, TextIncision
+from pdf_craft.analyser.types import TextInfo, TextIncision
 from pdf_craft.analyser.group import Group
 from pdf_craft.analyser.page_clipper import get_and_clip_pages
 

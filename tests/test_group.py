@@ -1,7 +1,7 @@
 import unittest
 
 from pdf_craft.analyser.segment import allocate_segments, Segment
-from pdf_craft.analyser.secondary import TextInfo, TextIncision
+from pdf_craft.analyser.types import TextInfo, TextIncision
 from pdf_craft.analyser.group import group, Group
 
 class TestGroup(unittest.TestCase):

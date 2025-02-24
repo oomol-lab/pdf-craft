@@ -1,7 +1,7 @@
 from __future__ import annotations
 from dataclasses import dataclass
 from typing import Iterable, Generator
-from .secondary import TextIncision, TextInfo
+from .types import TextIncision, TextInfo
 from .utils import Stream
 
 

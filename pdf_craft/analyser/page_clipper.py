@@ -1,6 +1,6 @@
 from typing import Generator, Callable
 from xml.etree.ElementTree import tostring, Element
-from .secondary import TextInfo
+from .types import TextInfo
 from .segment import Segment
 from .group import Group
 from .llm import LLM
