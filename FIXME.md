@@ -1,0 +1,1 @@
+- plot_7.png OCR 第一行丢失，导致 LLM 无法将引用归于 citation tag。

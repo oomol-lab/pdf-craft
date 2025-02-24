@@ -53,10 +53,16 @@ def _get_pages(
     get_element: Callable[[int], str],
   ) -> Generator[Element, None, None]:
 
+  if len(items) == 0:
+    return
+
+  if remain_tokens is not None:
+    tokens = sum(item.tokens for item in items)
+    if remain_tokens == tokens:
+      remain_tokens = None
+
   if remain_tokens is not None:
     assert len(items) == 1
-    if items[0].tokens == remain_tokens:
-      remain_tokens = None
 
   if remain_tokens is None:
     for item in items:

@@ -14,16 +14,25 @@ class SecondaryAnalyser:
     self._llm: LLM = llm
     self._assets_dir_path = os.path.join(dir_path, "assets")
     self._pages: list[PageInfo] = []
-    pages_dir_path: str = os.path.join(dir_path, "pages")
-    file_names = natsorted(os.listdir(pages_dir_path))
+    self._pages_dir_path: str = os.path.join(dir_path, "pages")
+    file_names = natsorted(os.listdir(self._pages_dir_path))
     file_names = [f for f in file_names if re.match(r"^page_\d+\.xml$", f)]
 
     for page_index, file_name in enumerate(file_names):
-      file_path = os.path.join(pages_dir_path, file_name)
+      file_path = os.path.join(self._pages_dir_path, file_name)
       with open(file_path, "r", encoding="utf-8") as file:
         root: Element = fromstring(file.read())
         page = self._parse_xml(file_name, page_index, root)
         self._pages.append(page)
+
+  def analyse_citations(self, request_max_tokens: int, tail_rate: float):
+    return analyse_citations(
+      llm=self._llm,
+      pages=self._pages,
+      pages_dir_path=self._pages_dir_path,
+      request_max_tokens=request_max_tokens,
+      tail_rate=tail_rate,
+    )
 
   def _parse_xml(self, file_name: str, page_index: int, root: Element) -> PageInfo:
     main_children: list[Element] = []
