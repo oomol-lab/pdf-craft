@@ -75,13 +75,17 @@ def _get_pages(
 
     elif isinstance(item, Segment):
       text_infos, remain_tokens = _clip_segment(item, remain_tokens, clip_tail)
+      page_xml_list: list[Element] = []
       for i, text_info in enumerate(text_infos):
         page_xml: Element | None = get_element(text_info.page_index)
         if (clip_tail and i == len(text_infos) - 1) or \
            (not clip_tail and i == 0):
           page_xml = _clip_element(llm, page_xml, remain_tokens, clip_tail)
         if page_xml is not None:
-          yield page_xml
+          page_xml_list.append(page_xml)
+      if not clip_tail:
+        page_xml_list.reverse()
+      yield from page_xml_list
 
 def _clip_segment(segment: Segment, remain_tokens: int, clip_tail: bool):
   clipped: list[TextInfo] = []
@@ -103,10 +107,10 @@ def _clip_segment(segment: Segment, remain_tokens: int, clip_tail: bool):
 def _clip_element(llm: LLM, element: Element, remain_tokens: int, clip_tail: bool) -> Element | None:
   clipped_element = Element(element.tag, element.attrib)
   children: list[tuple[Element, int]] = []
-  remain_tokens -= llm.count_tokens_count(tostring(clipped_element))
+  remain_tokens -= llm.count_tokens_count(tostring(clipped_element, encoding="unicode"))
 
   for child in element:
-    child_text = tostring(child)
+    child_text = tostring(child, encoding="unicode")
     child_tokens = llm.count_tokens_count(child_text)
     children.append((child, child_tokens))
   if not clip_tail:

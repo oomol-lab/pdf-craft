@@ -94,7 +94,7 @@ class SecondaryAnalyser:
   def _count_elements_tokens(self, elements: Iterable[Element]) -> int:
     root = Element("page")
     root.extend(elements)
-    xml_content = tostring(root)
+    xml_content = tostring(root, encoding="unicode")
     return self._llm.count_tokens_count(xml_content)
 
   def _attr_value_to_kind(self, value: str | None) -> TextIncision:
