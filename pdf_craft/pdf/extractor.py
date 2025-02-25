@@ -209,5 +209,9 @@ class PDFPageExtractor:
     max_font_size = max(font_sizes)
     min_font_size = min(font_sizes)
 
-    for font_size, (_, block) in zip(font_sizes, store):
-      block.font_size = (font_size - min_font_size) / (max_font_size - min_font_size)
+    if max_font_size == min_font_size:
+      for _, block in store:
+        block.font_size = 0
+    else:
+      for font_size, (_, block) in zip(font_sizes, store):
+        block.font_size = (font_size - min_font_size) / (max_font_size - min_font_size)

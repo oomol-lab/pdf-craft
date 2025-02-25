@@ -12,27 +12,32 @@ from .asset_matcher import AssetMatcher, ASSET_TAGS
 
 def structure(llm: LLM, blocks: list[Block], output_file_path: str, assets_dir_path: str):
   raw_page_xml = _get_page_xml(blocks)
-  page_xml = llm.request("page_structure", raw_page_xml)
-  root: XML = fromstring(_preprocess_page_xml(page_xml))
-
-  _match_assets(root, blocks, assets_dir_path)
-  with open(output_file_path, "wb") as file:
-    file.write(tostring(root, encoding="utf-8"))
+  response = llm.request("page_structure", raw_page_xml)
+  root: Element | None = _process_response_page_xml(response)
+  if root:
+    _match_assets(root, blocks, assets_dir_path)
+    with open(output_file_path, "wb") as file:
+      file.write(tostring(root, encoding="utf-8"))
+  else:
+    print("find index")
 
 def _get_page_xml(blocks: list[Block]) -> str:
   buffer = io.StringIO()
+  # TODO: 使用 xml 来生成，而非拼字符串的形式
   buffer.write("<page>\n")
   for block in blocks:
     _write_block(buffer, block)
   buffer.write("</page>\n")
   return buffer.getvalue()
 
-def _preprocess_page_xml(page_xml: str) -> str:
-  matches = re.findall(r"<page>.*</page>", page_xml, re.DOTALL)
-  if matches and len(matches) > 0:
-    return matches[0].replace("&", "&amp;")
-  else:
+def _process_response_page_xml(response: str) -> Element | None:
+  if "<index/>" in response:
+    return None
+  matches = re.findall(r"<page>.*</page>", response, re.DOTALL)
+  if not matches or len(matches) == 0:
     raise ValueError("No page tag found in LLM response")
+  xml_content = matches[0].replace("&", "&amp;")
+  return fromstring(xml_content)
 
 def _match_assets(root: XML, blocks: list[Block], assets_dir_path: str):
   asset_matcher = AssetMatcher()
