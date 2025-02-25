@@ -4,10 +4,10 @@ import re
 
 from html import escape
 from hashlib import sha256
-from typing import Generator, Iterable
 from xml.etree.ElementTree import fromstring, tostring, XML, Element
 from ..pdf import Block, Text, TextBlock, AssetBlock, TextKind, AssetKind
 from .llm import LLM
+from .asset_matcher import AssetMatcher, ASSET_TAGS
 
 
 def structure(llm: LLM, blocks: list[Block], output_file_path: str, assets_dir_path: str):
@@ -30,33 +30,18 @@ def _get_page_xml(blocks: list[Block]) -> str:
 def _preprocess_page_xml(page_xml: str) -> str:
   matches = re.findall(r"<page>.*</page>", page_xml, re.DOTALL)
   if matches and len(matches) > 0:
-    return matches[0]
+    return matches[0].replace("&", "&amp;")
   else:
     raise ValueError("No page tag found in LLM response")
 
 def _match_assets(root: XML, blocks: list[Block], assets_dir_path: str):
-  assets: dict[AssetKind, list[AssetBlock]] = {}
-  asset_tags = ("figure", "table", "formula")
-
+  asset_matcher = AssetMatcher()
   for block in blocks:
     if isinstance(block, AssetBlock):
-      blocks = assets.get(block.kind, None)
-      if blocks is None:
-        blocks = []
-        assets[block.kind] = blocks
-      blocks.append(block)
-
-  for element in _search_all_tags(root, asset_tags):
-    kind = _tag_to_asset_kind(element.tag)
-    blocks = assets.get(kind, None)
-    block: AssetBlock | None = None
-    if blocks is not None:
-      block = blocks.pop(0)
-    if block is not None:
       hash = _save_image(assets_dir_path, block)
-      element.set("hash", hash)
-
-  _handle_asset_tags(root, asset_tags)
+      asset_matcher.register_hash(block.kind, hash)
+  asset_matcher.add_asset_hashes_for_xml(root)
+  _handle_asset_tags(root)
 
 def _write_block(buffer: io.StringIO, block: Block):
   if isinstance(block, TextBlock):
@@ -119,24 +104,6 @@ def _write_texts(buffer: io.StringIO, texts: list[Text]):
     buffer.write(content)
     buffer.write("</line>\n")
 
-
-def _search_all_tags(target: Element, tag_names: Iterable[str]) -> Generator[Element, None, None]:
-  for child in target:
-    if child.tag in tag_names:
-      yield child
-    else:
-      yield from _search_all_tags(child, tag_names)
-
-def _tag_to_asset_kind(tag_name: str) -> AssetKind:
-  if tag_name == "figure":
-    return AssetKind.FIGURE
-  elif tag_name == "table":
-    return AssetKind.TABLE
-  elif tag_name == "formula":
-    return AssetKind.FORMULA
-  else:
-    raise ValueError(f"Unknown tag name: {tag_name}")
-
 def _save_image(assets_dir_path: str, block: AssetBlock) -> None:
   hash = sha256()
   hash.update(block.image.tobytes())
@@ -146,14 +113,14 @@ def _save_image(assets_dir_path: str, block: AssetBlock) -> None:
     block.image.save(file_path, "PNG")
   return file_hash
 
-def _handle_asset_tags(parent: Element, tag_names: Iterable[str]):
+def _handle_asset_tags(parent: Element):
   children: list[Element] = []
   pre_asset: Element | None = None
 
   for child in parent:
-    if child.tag not in tag_names:
+    if child.tag not in ASSET_TAGS:
       if child.tag == "citation":
-        _handle_asset_tags(child, tag_names)
+        _handle_asset_tags(child)
       if pre_asset is not None and \
          child.tag == f"{pre_asset.tag}-caption":
         for caption_child in child:

@@ -1,4 +1,5 @@
 from typing import Generator, Callable
+from dataclasses import dataclass
 from xml.etree.ElementTree import tostring, Element
 from .types import TextInfo
 from .segment import Segment
@@ -6,7 +7,13 @@ from .group import Group
 from .llm import LLM
 
 
-def get_and_clip_pages(llm: LLM, group: Group, get_element: Callable[[int], Element]) -> tuple[list[Element], int, int]:
+@dataclass
+class PageXML:
+  page_index: int
+  xml: Element
+  is_gap: bool = False
+
+def get_and_clip_pages(llm: LLM, group: Group, get_element: Callable[[int], Element]) -> list[PageXML]:
   head = _get_pages(
     llm=llm,
     items=group.head,
@@ -28,22 +35,20 @@ def get_and_clip_pages(llm: LLM, group: Group, get_element: Callable[[int], Elem
     clip_tail=True,
     get_element=get_element,
   )
-  head_count: int = 0
-  tail_count: int = 0
-  pages: list[Element] = []
+  page_xml_list: list[PageXML] = []
 
-  for page in reversed(list(head)):
-    head_count += 1
-    pages.append(page)
+  for page_xml in reversed(list(head)):
+    page_xml.is_gap = True
+    page_xml_list.append(page_xml)
 
-  for page in body:
-    pages.append(page)
+  for page_xml in body:
+    page_xml_list.append(page_xml)
 
-  for page in tail:
-    tail_count += 1
-    pages.append(page)
+  for page_xml in tail:
+    page_xml.is_gap = True
+    page_xml_list.append(page_xml)
 
-  return pages, head_count, tail_count
+  return page_xml_list
 
 def _get_pages(
     llm: LLM,
@@ -51,7 +56,7 @@ def _get_pages(
     remain_tokens: int | None,
     clip_tail: bool,
     get_element: Callable[[int], str],
-  ) -> Generator[Element, None, None]:
+  ) -> Generator[PageXML, None, None]:
 
   if len(items) == 0:
     return
@@ -67,28 +72,40 @@ def _get_pages(
   if remain_tokens is None:
     for item in items:
       if isinstance(item, TextInfo):
-        yield get_element(item.page_index)
-      elif isinstance(item, TextInfo):
+        yield PageXML(
+          page_index=item.page_index,
+          xml=get_element(item.page_index),
+        )
+      elif isinstance(item, Segment):
         for text_info in item.text_infos:
-          yield get_element(text_info.page_index)
+          yield PageXML(
+            page_index=text_info.page_index,
+            xml=get_element(text_info.page_index),
+          )
   else:
     item = items[0]
     if isinstance(item, TextInfo):
       page_xml = get_element(item.page_index)
       page_xml = _clip_element(llm, page_xml, remain_tokens, clip_tail)
       if page_xml is not None:
-        yield page_xml
+        yield PageXML(
+          page_index=item.page_index,
+          xml=page_xml,
+        )
 
     elif isinstance(item, Segment):
       text_infos, remain_tokens = _clip_segment(item, remain_tokens, clip_tail)
-      page_xml_list: list[Element] = []
+      page_xml_list: list[PageXML] = []
       for i, text_info in enumerate(text_infos):
         page_xml: Element | None = get_element(text_info.page_index)
         if (clip_tail and i == len(text_infos) - 1) or \
            (not clip_tail and i == 0):
           page_xml = _clip_element(llm, page_xml, remain_tokens, clip_tail)
         if page_xml is not None:
-          page_xml_list.append(page_xml)
+          page_xml_list.append(PageXML(
+            page_index=text_info.page_index,
+            xml=page_xml,
+          ))
       if not clip_tail:
         page_xml_list.reverse()
       yield from page_xml_list
