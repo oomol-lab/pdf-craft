@@ -128,7 +128,7 @@ def _match_assets(root: XML, blocks: list[Block], assets_dir_path: str):
     if image is not None:
       file_path = os.path.join(assets_dir_path, f"{hash}.png")
       if not os.path.exists(file_path):
-        block.image.save(file_path, "PNG")
+        image.save(file_path, "PNG")
 
 def _block_image_hash(block: AssetBlock) -> str:
   hash = sha256()
