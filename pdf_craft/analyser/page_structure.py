@@ -30,7 +30,7 @@ def _get_page_xml(blocks: list[Block]) -> str:
 def _preprocess_page_xml(page_xml: str) -> str:
   matches = re.findall(r"<page>.*</page>", page_xml, re.DOTALL)
   if matches and len(matches) > 0:
-    return matches[0]
+    return matches[0].replace("&", "&amp;")
   else:
     raise ValueError("No page tag found in LLM response")
 

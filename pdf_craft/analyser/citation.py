@@ -49,7 +49,7 @@ def analyse_citations(
     raw_data = tostring(raw_pages_root, encoding="unicode")
     response = llm.request("citation", raw_data)
 
-    response_xml: Element = fromstring(_preprocess_response(response))
+    response_xml = _encode_response(response)
     page_start_index, page_end_index = _get_pages_range(page_xml_list)
     chunk_xml = Element("chunk", {
       "page-start-index": str(page_start_index + 1),
@@ -82,7 +82,6 @@ def _extract_citations(pages: Iterable[PageInfo]) -> Generator[TextInfo, None, N
 
   if len(current_citations) > 0:
     citations_matrix.append(current_citations)
-    current_citations.clear()
 
   for citations in citations_matrix:
     citations[0].start_incision = TextIncision.IMPOSSIBLE
@@ -100,12 +99,17 @@ def _get_citation_with_file(file_name: str, file_dir_path: str) -> Element:
       child.attrib = {}
     return citation
 
-def _preprocess_response(response: str) -> str:
+def _encode_response(response: str) -> Element:
   matches = re.findall(r"<response>.*</response>", response, re.DOTALL)
-  if matches and len(matches) > 0:
-    return matches[0]
-  else:
+  if not matches or len(matches) == 0:
     raise ValueError("No page tag found in LLM response")
+  content: str = matches[0]
+  content = content.replace("&", "&amp;")
+  try:
+    return fromstring(content)
+  except Exception as e:
+    print(response)
+    raise e
 
 def _get_pages_range(page_xml_list: list[PageXML]):
   assert len(page_xml_list) > 0

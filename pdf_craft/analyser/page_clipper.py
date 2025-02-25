@@ -76,7 +76,7 @@ def _get_pages(
           page_index=item.page_index,
           xml=get_element(item.page_index),
         )
-      elif isinstance(item, TextInfo):
+      elif isinstance(item, Segment):
         for text_info in item.text_infos:
           yield PageXML(
             page_index=text_info.page_index,
