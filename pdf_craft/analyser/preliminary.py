@@ -11,25 +11,58 @@ from .asset_matcher import AssetMatcher, ASSET_TAGS
 
 
 def preliminary_analyse(llm: LLM, page_dir_path: str, assets_dir_path: str, blocks_matrix: Iterable[list[Block]]):
+  is_prev_index: bool = False
+  index_pages: list[tuple[int, Element]] = []
+
   for i, blocks in enumerate(blocks_matrix):
     raw_page_xml = _transform_page_xml(blocks)
-    raw_data = tostring(raw_page_xml, encoding="unicode")
-    response = llm.request("page_structure", raw_data)
-    root: Element | None = _process_response_page_xml(response)
-    if root is not None:
-      _match_assets(root, blocks, assets_dir_path)
-      file_path = os.path.join(page_dir_path, f"page_{i + 1}.xml")
-      with open(file_path, "wb") as file:
-        file.write(tostring(root, encoding="utf-8"))
+    if i == 0:
+      raw_page_xml.set("previous-page", "null")
+    elif is_prev_index:
+      raw_page_xml.set("previous-page", "index")
+    else:
+      raw_page_xml.set("previous-page", "page")
 
-def _process_response_page_xml(response: str) -> Element | None:
-  if "<index/>" in response:
-    return None
-  matches = re.findall(r"<page>.*</page>", response, re.DOTALL)
-  if not matches or len(matches) == 0:
-    raise ValueError("No page tag found in LLM response")
-  xml_content = matches[0].replace("&", "&amp;")
-  return fromstring(xml_content)
+    raw_data = tostring(raw_page_xml, encoding="unicode")
+    response = llm.request("preliminary", raw_data)
+    response_root: Element = _process_response_page_xml(response)
+
+    if response_root.tag == "index":
+      is_prev_index = True
+      index_pages.append((i, raw_page_xml))
+      raw_page_xml.attrib = {}
+
+    if response_root.tag == "page":
+      _match_assets(response_root, blocks, assets_dir_path)
+      file_path = os.path.join(page_dir_path, f"page_{i + 1}.xml")
+      is_prev_index = False
+      with open(file_path, "wb") as file:
+        file.write(tostring(response_root, encoding="utf-8"))
+
+  if len(index_pages) == 0:
+    return
+
+  raw_page_xml = Element("index")
+  for i, (_, raw_page_xml) in enumerate(index_pages):
+    raw_page_xml.set("page-index", str(i + 1))
+    raw_page_xml.append(raw_page_xml)
+
+  raw_data = tostring(raw_page_xml, encoding="unicode")
+  response = llm.request("index", raw_data)
+  response_root: Element = _process_response_page_xml(response)
+  start_page_index = min(i + 1 for i, _ in index_pages)
+  end_page_index = max(i + 1 for i, _ in index_pages)
+  file_path = os.path.join(page_dir_path, f"index_{start_page_index}_{end_page_index}.xml")
+
+  with open(file_path, "wb") as file:
+    file.write(tostring(response_root, encoding="utf-8"))
+
+def _process_response_page_xml(response: str) -> Element:
+  for pattern in (r"<page>.*</page>", r"<index>.*</index>", r"<index/>"):
+    matches = re.findall(pattern, response, re.DOTALL)
+    if matches and len(matches) > 0:
+      return fromstring(matches[0].replace("&", "&amp;"))
+  raise ValueError("No page / index tag found in LLM response")
 
 def _transform_page_xml(blocks: list[Block]) -> Element:
   root = Element("page")
