@@ -10,6 +10,7 @@ from .types import PageInfo, TextInfo, TextIncision
 from .segment import allocate_segments
 from .group import group
 from .page_clipper import get_and_clip_pages, PageXML
+from .asset_matcher import AssetMatcher, ASSET_TAGS
 
 
 def analyse_citations(
@@ -34,7 +35,6 @@ def analyse_citations(
       max_tokens=data_max_tokens,
     ),
   ):
-    # TODO: 将 asset 的 hash 恢复
     page_xml_list = get_and_clip_pages(
       llm=llm,
       group=task_group,
@@ -46,6 +46,7 @@ def analyse_citations(
       element.set("page-index", str(i + 1))
       raw_pages_root.append(element)
 
+    asset_matcher = AssetMatcher().register_raw_xml(raw_pages_root)
     raw_data = tostring(raw_pages_root, encoding="unicode")
     response = llm.request("citation", raw_data)
 
@@ -66,6 +67,7 @@ def analyse_citations(
           for p in page_indexes
         ]))
 
+    asset_matcher.add_asset_hashes_for_xml(chunk_xml)
     yield page_start_index, page_end_index, chunk_xml
 
 def _extract_citations(pages: Iterable[PageInfo]) -> Generator[TextInfo, None, None]:
@@ -96,7 +98,8 @@ def _get_citation_with_file(file_name: str, file_dir_path: str) -> Element:
     root: Element = fromstring(file.read())
     citation = root.find("citation")
     for child in citation:
-      child.attrib = {}
+      if child.tag not in ASSET_TAGS:
+        child.attrib = {}
     return citation
 
 def _encode_response(response: str) -> Element:

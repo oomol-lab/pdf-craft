@@ -9,12 +9,13 @@ class AssetMatcher:
   def __init__(self):
     self._asset_hashes: dict[AssetKind, list[str]] = {}
 
-  def register_raw_xml(self, root: Element):
+  def register_raw_xml(self, root: Element) -> "AssetMatcher":
     for element in self._search_asset_tags(root):
       kind = self._tag_to_asset_kind(element.tag)
       hash = element.get("hash")
       if hash is not None:
         self.register_hash(kind, hash)
+    return self
 
   def register_hash(self, kind: AssetKind, hash: str):
     hashes = self._asset_hashes.get(kind, None)
