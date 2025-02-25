@@ -12,7 +12,7 @@ from pdf_craft.analyser.secondary import SecondaryAnalyser
 def main():
   dir_path = os.path.join(__file__, "..", "..", "output")
   dir_path = os.path.abspath(dir_path)
-  # dir_path = "/Users/taozeyu/Downloads/并非旨在使人正常化的分析"
+  # dir_path = "/Users/taozeyu/Downloads/人类的由来与性选择目录"
   analyser = SecondaryAnalyser(
     llm=LLM(**_read_format_json()),
     dir_path=dir_path,
