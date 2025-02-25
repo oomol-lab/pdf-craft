@@ -180,7 +180,7 @@ class _Pages:
 def _split_page_xml_list(page_xml_list: list[PageXML]) -> tuple[list[Element], int, int]:
   page_xmls, head_count, tail_count = [], 0, 0
   found_body = False
-  for i, page_xml in enumerate(page_xml_list):
+  for page_xml in page_xml_list:
     page_xmls.append(page_xml.xml)
     if not page_xml.is_gap:
       found_body = True
