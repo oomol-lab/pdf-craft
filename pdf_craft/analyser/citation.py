@@ -34,7 +34,7 @@ def analyse_citations(
       max_tokens=data_max_tokens,
     ),
   ):
-    # TODO: prompt 支持修复扫描错误和错别字
+    # TODO: 将 asset 的 hash 恢复
     page_xml_list = get_and_clip_pages(
       llm=llm,
       group=task_group,
