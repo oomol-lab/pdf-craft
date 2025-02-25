@@ -1,5 +1,6 @@
 import os
 import re
+import sys
 
 from typing import Iterable, Generator
 from xml.etree.ElementTree import tostring, fromstring, Element
@@ -8,7 +9,7 @@ from .llm import LLM
 from .types import PageInfo, TextInfo, TextIncision
 from .segment import allocate_segments
 from .group import group
-from .page_clipper import get_and_clip_pages
+from .page_clipper import get_and_clip_pages, PageXML
 
 
 def analyse_citations(
@@ -33,33 +34,36 @@ def analyse_citations(
       max_tokens=data_max_tokens,
     ),
   ):
-    page_xml_list, head_count, tail_count = get_and_clip_pages(
+    # TODO: prompt 支持修复扫描错误和错别字
+    page_xml_list = get_and_clip_pages(
       llm=llm,
       group=task_group,
       get_element=lambda i: _get_citation_with_file(pages[i].file_name, pages_dir_path),
     )
-    raw_pages_xml = Element("pages")
+    raw_pages_root = Element("pages")
     for i, page_xml in enumerate(page_xml_list):
-      page_xml.set("page-index", str(i + 1))
-      raw_pages_xml.append(page_xml)
+      element = page_xml.xml
+      element.set("page-index", str(i + 1))
+      raw_pages_root.append(element)
 
-    raw_data = tostring(raw_pages_xml, encoding="unicode")
+    raw_data = tostring(raw_pages_root, encoding="unicode")
     response = llm.request("citation", raw_data)
+
     response_xml: Element = fromstring(_preprocess_response(response))
-    page_start_index = task_group.body[0].page_index
-    page_end_index = task_group.body[-1].page_index
+    page_start_index, page_end_index = _get_pages_range(page_xml_list)
     chunk_xml = Element("chunk", {
-      "page-start-index": str(page_start_index),
-      "page-end-index": str(page_end_index),
+      "page-start-index": str(page_start_index + 1),
+      "page-end-index": str(page_end_index + 1),
     })
     for citation in response_xml:
       page_indexes: list[int] = [int(p) for p in citation.get("page-index").split(",")]
       page_indexes.sort()
-      page_index: int = page_indexes[0]
-      if page_index - 1 >= head_count and page_index - 1 < len(page_xml_list) - tail_count:
+      page_xml = page_xml_list[page_indexes[0] - 1]
+      if not page_xml.is_gap:
         chunk_xml.append(citation)
         citation.set("page-index", ",".join([
-          str(page_start_index + p - head_count - 1) for p in page_indexes
+          str(page_xml_list[p - 1].page_index + 1)
+          for p in page_indexes
         ]))
 
     yield page_start_index, page_end_index, chunk_xml
@@ -102,3 +106,12 @@ def _preprocess_response(response: str) -> str:
     return matches[0]
   else:
     raise ValueError("No page tag found in LLM response")
+
+def _get_pages_range(page_xml_list: list[PageXML]):
+  assert len(page_xml_list) > 0
+  page_start_index: int = sys.maxsize
+  page_end_index: int = 0
+  for page_xml in page_xml_list:
+    page_start_index = min(page_start_index, page_xml.page_index)
+    page_end_index = max(page_end_index, page_xml.page_index)
+  return page_start_index, page_end_index

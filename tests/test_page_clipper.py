@@ -5,7 +5,7 @@ from pdf_craft.analyser.llm import LLM
 from pdf_craft.analyser.segment import Segment
 from pdf_craft.analyser.types import TextInfo, TextIncision
 from pdf_craft.analyser.group import Group
-from pdf_craft.analyser.page_clipper import get_and_clip_pages
+from pdf_craft.analyser.page_clipper import get_and_clip_pages, PageXML
 
 class TestPageClipper(unittest.TestCase):
   def test_clip_segments(self):
@@ -63,8 +63,8 @@ class TestPageClipper(unittest.TestCase):
       body=[pages.text_info(2)],
       tail=[pages.segment([3, 4])],
     )
-    elements, remain_head, remain_tail = get_and_clip_pages(
-      pages.llm, group, pages.get_element,
+    elements, remain_head, remain_tail = _split_page_xml_list(
+      get_and_clip_pages(pages.llm, group, pages.get_element),
     )
     self.assertEqual(remain_head, 2)
     self.assertEqual(remain_tail, 1)
@@ -115,8 +115,8 @@ class TestPageClipper(unittest.TestCase):
       body=[pages.text_info(1)],
       tail=[pages.text_info(2)],
     )
-    elements, remain_head, remain_tail = get_and_clip_pages(
-      pages.llm, group, pages.get_element,
+    elements, remain_head, remain_tail = _split_page_xml_list(
+      get_and_clip_pages(pages.llm, group, pages.get_element),
     )
     self.assertEqual(remain_head, 1)
     self.assertEqual(remain_tail, 1)
@@ -176,6 +176,19 @@ class _Pages:
       tokens=sum(info.tokens for info in text_infos),
       text_infos=text_infos,
     )
+
+def _split_page_xml_list(page_xml_list: list[PageXML]) -> tuple[list[Element], int, int]:
+  page_xmls, head_count, tail_count = [], 0, 0
+  found_body = False
+  for i, page_xml in enumerate(page_xml_list):
+    page_xmls.append(page_xml.xml)
+    if not page_xml.is_gap:
+      found_body = True
+    elif found_body:
+      tail_count += 1
+    else:
+      head_count += 1
+  return page_xmls, head_count, tail_count
 
 def _tag(tag_name: str, attr: dict[str, str], children: list[Element]) -> Element:
   element = Element(tag_name, attr)

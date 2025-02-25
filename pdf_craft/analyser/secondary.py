@@ -33,7 +33,7 @@ class SecondaryAnalyser:
       request_max_tokens=request_max_tokens,
       tail_rate=tail_rate,
     ):
-      file_name = f"chunk_{page_start_index}_{page_end_index}.xml"
+      file_name = f"chunk_{page_start_index + 1}_{page_end_index + 1}.xml"
       file_path = os.path.join(output_dir_path, file_name)
 
       with open(file_path, "wb") as file:

@@ -1,6 +1,7 @@
 import os
 import sys
 import json
+import shutil
 
 sys.path.append(os.path.abspath(os.path.join(__file__, "..", "..")))
 
@@ -15,7 +16,8 @@ def main():
   )
   output_dir_path = os.path.join(__file__, "..", "..", "output", "citations")
   output_dir_path = os.path.abspath(output_dir_path)
-  os.makedirs(output_dir_path, exist_ok=True)
+  shutil.rmtree(output_dir_path, ignore_errors=True)
+  os.makedirs(output_dir_path)
 
   analyser.analyse_citations(output_dir_path, 10000, 0.15)
 
