@@ -4,6 +4,7 @@ import re
 from html import escape
 from hashlib import sha256
 from typing import Iterable
+from PIL.Image import Image
 from xml.etree.ElementTree import fromstring, tostring, XML, Element
 from ..pdf import Block, Text, TextBlock, AssetBlock, TextKind, AssetKind
 from .llm import LLM
@@ -113,26 +114,29 @@ def _extends_line_doms(parent: Element, texts: list[Text]):
 
 def _match_assets(root: XML, blocks: list[Block], assets_dir_path: str):
   asset_matcher = AssetMatcher()
+  images: dict[str, Image] = {}
   for block in blocks:
     if isinstance(block, AssetBlock):
-      hash = _save_image(assets_dir_path, block)
+      # hash = _save_image(assets_dir_path, block)
+      hash = _block_image_hash(block)
+      images[hash] = block.image
       asset_matcher.register_hash(block.kind, hash)
   asset_matcher.add_asset_hashes_for_xml(root)
-  _handle_asset_tags(root)
 
-def _save_image(assets_dir_path: str, block: AssetBlock) -> None:
+  for hash in _handle_asset_tags(root):
+    image = images.get(hash, None)
+    if image is not None:
+      file_path = os.path.join(assets_dir_path, f"{hash}.png")
+      if not os.path.exists(file_path):
+        block.image.save(file_path, "PNG")
+
+def _block_image_hash(block: AssetBlock) -> str:
   hash = sha256()
   hash.update(block.image.tobytes())
-  file_hash = hash.hexdigest()
-  file_path = os.path.join(assets_dir_path, f"{file_hash}.png")
-  if not os.path.exists(file_path):
-    block.image.save(file_path, "PNG")
-  return file_hash
+  return hash.hexdigest()
 
 def _handle_asset_tags(parent: Element):
-  children: list[Element] = []
   pre_asset: Element | None = None
-
   for child in parent:
     if child.tag not in ASSET_TAGS:
       if child.tag == "citation":
@@ -141,9 +145,7 @@ def _handle_asset_tags(parent: Element):
          child.tag == f"{pre_asset.tag}-caption":
         for caption_child in child:
           pre_asset.append(caption_child)
-      else:
-        children.append(child)
       pre_asset = None
     if "hash" in child.attrib:
       pre_asset = child
-      children.append(child)
+      yield child.get("hash")
