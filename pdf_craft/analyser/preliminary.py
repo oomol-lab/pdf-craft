@@ -4,31 +4,23 @@ import re
 
 from html import escape
 from hashlib import sha256
+from typing import Iterable
 from xml.etree.ElementTree import fromstring, tostring, XML, Element
 from ..pdf import Block, Text, TextBlock, AssetBlock, TextKind, AssetKind
 from .llm import LLM
 from .asset_matcher import AssetMatcher, ASSET_TAGS
 
 
-def structure(llm: LLM, blocks: list[Block], output_file_path: str, assets_dir_path: str):
-  raw_page_xml = _get_page_xml(blocks)
-  response = llm.request("page_structure", raw_page_xml)
-  root: Element | None = _process_response_page_xml(response)
-  if root:
-    _match_assets(root, blocks, assets_dir_path)
-    with open(output_file_path, "wb") as file:
-      file.write(tostring(root, encoding="utf-8"))
-  else:
-    print("find index")
-
-def _get_page_xml(blocks: list[Block]) -> str:
-  buffer = io.StringIO()
-  # TODO: 使用 xml 来生成，而非拼字符串的形式
-  buffer.write("<page>\n")
-  for block in blocks:
-    _write_block(buffer, block)
-  buffer.write("</page>\n")
-  return buffer.getvalue()
+def preliminary_analyse(llm: LLM, page_dir_path: str, assets_dir_path: str, blocks_matrix: Iterable[list[Block]]):
+  for i, blocks in enumerate(blocks_matrix):
+    raw_page_xml = _get_page_xml(blocks)
+    response = llm.request("page_structure", raw_page_xml)
+    root: Element | None = _process_response_page_xml(response)
+    if root:
+      _match_assets(root, blocks, assets_dir_path)
+      file_path = os.path.join(page_dir_path, f"page_{i + 1}.xml")
+      with open(file_path, "wb") as file:
+        file.write(tostring(root, encoding="utf-8"))
 
 def _process_response_page_xml(response: str) -> Element | None:
   if "<index/>" in response:
@@ -38,6 +30,59 @@ def _process_response_page_xml(response: str) -> Element | None:
     raise ValueError("No page tag found in LLM response")
   xml_content = matches[0].replace("&", "&amp;")
   return fromstring(xml_content)
+
+def _transform_page_xml(blocks: list[Block]) -> Element:
+  root = Element("page")
+  for block in blocks:
+    if isinstance(block, TextBlock):
+      tag_name: str
+      if block.kind == TextKind.TITLE:
+        tag_name = "title"
+      elif block.kind == TextKind.PLAIN_TEXT:
+        tag_name = "text"
+      elif block.kind == TextKind.ABANDON:
+        tag_name = "abandon"
+
+      buffer.write("<")
+      buffer.write(tag_name)
+
+      if block.kind == TextKind.PLAIN_TEXT:
+        buffer.write(" indent=")
+        buffer.write("\"true\"" if block.has_paragraph_indentation else "\"false\"")
+        buffer.write(" touch-end=")
+        buffer.write("\"true\"" if block.last_line_touch_end else "\"false\"")
+
+      buffer.write(">\n")
+
+      _write_texts(buffer, block.texts)
+
+      buffer.write("</")
+      buffer.write(tag_name)
+      buffer.write(">\n")
+
+    elif isinstance(block, AssetBlock):
+      tag_name: str
+      if block.kind == AssetKind.FIGURE:
+        tag_name = "figure"
+      elif block.kind == AssetKind.TABLE:
+        tag_name = "table"
+      elif block.kind == AssetKind.FORMULA:
+        tag_name = "formula"
+
+      buffer.write("<")
+      buffer.write(tag_name)
+      buffer.write("/>\n")
+
+      if len(block.texts) > 0:
+        buffer.write("<")
+        buffer.write(tag_name)
+        buffer.write("-caption>\n")
+
+        _write_texts(buffer, block.texts)
+
+        buffer.write("</")
+        buffer.write(tag_name)
+        buffer.write("-caption>\n")
 
 def _match_assets(root: XML, blocks: list[Block], assets_dir_path: str):
   asset_matcher = AssetMatcher()

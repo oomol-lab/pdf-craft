@@ -7,8 +7,9 @@ import shutil
 sys.path.append(os.path.abspath(os.path.join(__file__, "..", "..")))
 
 from tqdm import tqdm
-from pdf_craft import PDFPageExtractor
-from pdf_craft.analyser.page_structure import structure
+from typing import Generator
+from pdf_craft import PDFPageExtractor, Block
+from pdf_craft.analyser.preliminary import preliminary_analyse
 from pdf_craft.analyser.llm import LLM
 
 
@@ -29,18 +30,20 @@ def main():
     model_dir_path=model_dir_path,
     debug_dir_path=os.path.join("output", "plot"),
   )
+  preliminary_analyse(
+    llm=llm,
+    page_dir_path=page_dir_path,
+    assets_dir_path=assets_dir_path,
+    blocks_matrix=_extract_blocks(pdf_file, extractor),
+  )
+
+def _extract_blocks(pdf_file: str, extractor: PDFPageExtractor) -> Generator[list[Block], None, None]:
   with fitz.open(pdf_file) as pdf:
-    for i, blocks in enumerate(tqdm(
+    for blocks in tqdm(
       iterable=extractor.extract(pdf, "ch"),
       total=pdf.page_count,
-    )):
-      output_file_path = os.path.join(page_dir_path, f"page_{i+1}.xml")
-      structure(
-        llm,
-        blocks,
-        output_file_path,
-        assets_dir_path,
-      )
+    ):
+      yield blocks
 
 def _project_dir_path(name: str, clean: bool = False) -> str:
   path = os.path.join(__file__, "..", "..", name)
