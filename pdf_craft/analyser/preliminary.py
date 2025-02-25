@@ -43,9 +43,9 @@ def preliminary_analyse(llm: LLM, page_dir_path: str, assets_dir_path: str, bloc
     return
 
   raw_page_xml = Element("index")
-  for i, (_, raw_page_xml) in enumerate(index_pages):
-    raw_page_xml.set("page-index", str(i + 1))
-    raw_page_xml.append(raw_page_xml)
+  for i, (_, index_xml) in enumerate(index_pages):
+    index_xml.set("page-index", str(i + 1))
+    raw_page_xml.append(index_xml)
 
   raw_data = tostring(raw_page_xml, encoding="unicode")
   response = llm.request("index", raw_data)
@@ -58,11 +58,13 @@ def preliminary_analyse(llm: LLM, page_dir_path: str, assets_dir_path: str, bloc
     file.write(tostring(response_root, encoding="utf-8"))
 
 def _process_response_page_xml(response: str) -> Element:
-  for pattern in (r"<page>.*</page>", r"<index>.*</index>", r"<index/>"):
-    matches = re.findall(pattern, response, re.DOTALL)
-    if matches and len(matches) > 0:
-      return fromstring(matches[0].replace("&", "&amp;"))
-  raise ValueError("No page / index tag found in LLM response")
+  response = re.sub(r"^```XML", "", response)
+  response = re.sub(r"```$", "", response)
+  try:
+    return fromstring(response.replace("&", "&amp;"))
+  except Exception as e:
+    print(response)
+    raise e
 
 def _transform_page_xml(blocks: list[Block]) -> Element:
   root = Element("page")
