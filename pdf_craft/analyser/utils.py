@@ -29,3 +29,15 @@ def read_xml_files(dir_path: str, enable_kinds: Iterable[str]) -> Generator[tupl
       root = fromstring(file.read())
 
     yield root, file_name, kind, int(index1), int(index2)
+
+def encode_response(response: str) -> Element:
+  matches = re.findall(r"<response>.*</response>", response, re.DOTALL)
+  if not matches or len(matches) == 0:
+    raise ValueError("No page tag found in LLM response")
+  content: str = matches[0]
+  content = content.replace("&", "&amp;")
+  try:
+    return fromstring(content)
+  except Exception as e:
+    print(response)
+    raise e

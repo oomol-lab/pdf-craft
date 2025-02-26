@@ -1,13 +1,11 @@
-import re
-import sys
-
 from typing import Iterable, Generator
 from xml.etree.ElementTree import tostring, fromstring, Element
 
 from .llm import LLM
 from .types import PageInfo, TextInfo, TextIncision
-from .splitter import group, allocate_segments, get_and_clip_pages, PageXML
+from .splitter import group, allocate_segments, get_pages_range, get_and_clip_pages
 from .asset_matcher import AssetMatcher, ASSET_TAGS
+from .utils import encode_response
 
 
 def analyse_citations(
@@ -45,12 +43,14 @@ def analyse_citations(
     raw_data = tostring(raw_pages_root, encoding="unicode")
     response = llm.request("citation", raw_data, {})
 
-    response_xml = _encode_response(response)
-    page_start_index, page_end_index = _get_pages_range(page_xml_list)
+    response_xml = encode_response(response)
+    page_start_index, page_end_index = get_pages_range(page_xml_list)
     chunk_xml = Element("chunk", {
       "page-start-index": str(page_start_index + 1),
       "page-end-index": str(page_end_index + 1),
     })
+    asset_matcher.add_asset_hashes_for_xml(response_xml)
+
     for citation in response_xml:
       page_indexes: list[int] = [int(p) for p in citation.get("page-index").split(",")]
       page_indexes.sort()
@@ -62,7 +62,6 @@ def analyse_citations(
           for p in page_indexes
         ]))
 
-    asset_matcher.add_asset_hashes_for_xml(chunk_xml)
     yield page_start_index, page_end_index, chunk_xml
 
 def _extract_citations(pages: Iterable[PageInfo]) -> Generator[TextInfo, None, None]:
@@ -99,24 +98,3 @@ def _get_citation_with_file(pages: list[PageInfo], index: int) -> Element:
       if child.tag not in ASSET_TAGS:
         child.attrib = {}
     return citation
-
-def _encode_response(response: str) -> Element:
-  matches = re.findall(r"<response>.*</response>", response, re.DOTALL)
-  if not matches or len(matches) == 0:
-    raise ValueError("No page tag found in LLM response")
-  content: str = matches[0]
-  content = content.replace("&", "&amp;")
-  try:
-    return fromstring(content)
-  except Exception as e:
-    print(response)
-    raise e
-
-def _get_pages_range(page_xml_list: list[PageXML]):
-  assert len(page_xml_list) > 0
-  page_start_index: int = sys.maxsize
-  page_end_index: int = 0
-  for page_xml in page_xml_list:
-    page_start_index = min(page_start_index, page_xml.page_index)
-    page_end_index = max(page_end_index, page_xml.page_index)
-  return page_start_index, page_end_index

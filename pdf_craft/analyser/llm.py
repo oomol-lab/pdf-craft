@@ -23,7 +23,7 @@ class LLM:
       api_key=cast(SecretStr, key),
       base_url=url,
       model=model,
-      temperature=1.4,
+      temperature=0.7,
     )
     prompts_path = os.path.join(__file__, "..", "prompts")
     prompts_path = os.path.abspath(prompts_path)

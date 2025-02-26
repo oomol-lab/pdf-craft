@@ -4,9 +4,9 @@ from typing import Any, Iterable, Generator
 from xml.etree.ElementTree import tostring, fromstring, Element
 from .llm import LLM
 from .types import PageInfo, TextInfo, TextIncision, IndexInfo
-from .splitter import group, allocate_segments, get_and_clip_pages
+from .splitter import group, get_pages_range, allocate_segments, get_and_clip_pages
 from .asset_matcher import AssetMatcher
-from .utils import read_xml_files
+from .utils import read_xml_files, encode_response
 
 def analyse_chapters(
     llm: LLM,
@@ -51,11 +51,21 @@ def analyse_chapters(
         element.append(citation)
       raw_pages_root.append(element)
 
-     # pylint: disable=unused-variable
     asset_matcher = AssetMatcher().register_raw_xml(raw_pages_root)
     raw_data = tostring(raw_pages_root, encoding="unicode")
     response = llm.request("chapter", raw_data, llm_params)
-    print(response)
+
+    response_xml = encode_response(response)
+    page_start_index, page_end_index = get_pages_range(page_xml_list)
+    chunk_xml = Element("chunk", {
+      "page-start-index": str(page_start_index + 1),
+      "page-end-index": str(page_end_index + 1),
+    })
+    asset_matcher.add_asset_hashes_for_xml(response_xml)
+    for child in response_xml:
+      chunk_xml.append(child)
+
+    yield page_start_index, page_end_index, chunk_xml
 
 def _extract_page_text_infos(pages: list[PageInfo]) -> Iterable[TextInfo]:
   if len(pages) == 0:

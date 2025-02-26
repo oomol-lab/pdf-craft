@@ -55,15 +55,20 @@ class SecondaryAnalyser:
       with open(file_path, "wb") as file:
         file.write(tostring(chunk_xml, encoding="utf-8"))
 
-  def analyse_chapters(self, citations_dir_path: str, request_max_tokens: int, gap_rate: float):
-    analyse_chapters(
+  def analyse_chapters(self, citations_dir_path: str, output_dir_path: str, request_max_tokens: int, gap_rate: float):
+    for page_start_index, page_end_index, chunk_xml in analyse_chapters(
       llm=self._llm,
       pages=self._pages,
       index=self._index,
       citations_dir_path=citations_dir_path,
       request_max_tokens=request_max_tokens,
       gap_rate=gap_rate,
-    )
+    ):
+      file_name = f"chunk_{page_start_index + 1}_{page_end_index + 1}.xml"
+      file_path = os.path.join(output_dir_path, file_name)
+
+      with open(file_path, "wb") as file:
+        file.write(tostring(chunk_xml, encoding="utf-8"))
 
   def _parse_page_info(self, file_path: str, page_index: int, root: Element) -> PageInfo:
     main_children: list[Element] = []

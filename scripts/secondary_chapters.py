@@ -1,6 +1,7 @@
 import os
 import sys
 import json
+import shutil
 
 sys.path.append(os.path.abspath(os.path.join(__file__, "..", "..")))
 
@@ -17,7 +18,14 @@ def main():
     dir_path=dir_path,
   )
   citations_dir_path = os.path.join(dir_path, "citations")
-  analyser.analyse_chapters(citations_dir_path, 10000, 0.1)
+  output_dir_path = os.path.join(__file__, "..", "..", "output", "chapters")
+  output_dir_path = os.path.abspath(output_dir_path)
+  shutil.rmtree(output_dir_path, ignore_errors=True)
+  os.makedirs(output_dir_path)
+
+  analyser.analyse_chapters(
+    citations_dir_path, output_dir_path, 6000, 0.1,
+  )
 
 def _read_format_json() -> dict:
   path = os.path.join(__file__, "..", "..", "format.json")
