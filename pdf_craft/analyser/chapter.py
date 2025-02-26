@@ -62,10 +62,23 @@ def analyse_chapters(
       "page-end-index": str(page_end_index + 1),
     })
     asset_matcher.add_asset_hashes_for_xml(response_xml)
+
     for child in response_xml:
       chunk_xml.append(child)
+    for child in chunk_xml.find("content"):
+      page_indexes = [i + page_start_index for i in _parse_page_indexes(child)]
+      if any(i for i in page_indexes if not page_xml_list[i].is_gap):
+        chunk_xml.append(child)
+        child.set("page-index", ",".join(str(i + 1) for i in page_indexes))
 
     yield page_start_index, page_end_index, chunk_xml
+
+def _parse_page_indexes(citation: Element) -> list[int]:
+  content = citation.get("page-index")
+  if content is None:
+    return []
+  else:
+    return [int(i) - 1 for i in content.split(",")]
 
 def _extract_page_text_infos(pages: list[PageInfo]) -> Iterable[TextInfo]:
   if len(pages) == 0:
@@ -109,7 +122,7 @@ class _CitationLoader:
   def _read_page_indexes(self, root: Element):
     for child in root:
       if child.tag == "citation":
-        page_indexes = self._parse_page_indexes(child)
+        page_indexes = _parse_page_indexes(child)
         if len(page_indexes) > 0:
           yield page_indexes[0]
 
@@ -127,7 +140,7 @@ class _CitationLoader:
     for child in root:
       if child.tag != "citation":
         continue
-      page_indexes = self._parse_page_indexes(child)
+      page_indexes = _parse_page_indexes(child)
       if len(page_indexes) == 0:
         continue
       if page_index != page_indexes[0]:
@@ -136,10 +149,3 @@ class _CitationLoader:
       citations.append(child)
 
     return citations
-
-  def _parse_page_indexes(self, citation: Element) -> list[int]:
-    content = citation.get("page-index")
-    if content is None:
-      return []
-    else:
-      return [int(i) - 1 for i in content.split(",")]
