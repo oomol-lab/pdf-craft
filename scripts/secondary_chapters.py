@@ -17,7 +17,7 @@ def main():
     dir_path=dir_path,
   )
   citations_dir_path = os.path.join(dir_path, "citations")
-  analyser.analyse_chapters(citations_dir_path, 10000, 0.7)
+  analyser.analyse_chapters(citations_dir_path, 10000, 0.1)
 
 def _read_format_json() -> dict:
   path = os.path.join(__file__, "..", "..", "format.json")

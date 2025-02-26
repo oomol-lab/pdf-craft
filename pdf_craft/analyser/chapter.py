@@ -1,6 +1,6 @@
 import os
 
-from typing import Iterable, Generator
+from typing import Any, Iterable, Generator
 from xml.etree.ElementTree import tostring, fromstring, Element
 from .llm import LLM
 from .types import PageInfo, TextInfo, TextIncision, IndexInfo
@@ -17,9 +17,10 @@ def analyse_chapters(
     gap_rate: float,
   ) -> Generator[tuple[int, int, Element], None, None]:
 
-  prompt_tokens = llm.prompt_tokens_count(
-    "chapter", {"index": index.text},
-  )
+  llm_params: dict[str, Any] = {
+    "index": index.text if index is not None else "",
+  }
+  prompt_tokens = llm.prompt_tokens_count("chapter", llm_params)
   data_max_tokens = request_max_tokens - prompt_tokens
   citations = _CitationLoader(citations_dir_path)
 
@@ -53,7 +54,7 @@ def analyse_chapters(
      # pylint: disable=unused-variable
     asset_matcher = AssetMatcher().register_raw_xml(raw_pages_root)
     raw_data = tostring(raw_pages_root, encoding="unicode")
-    response = llm.request("chapter", raw_data, {"index": index.text})
+    response = llm.request("chapter", raw_data, llm_params)
     print(response)
 
 def _extract_page_text_infos(pages: list[PageInfo]) -> Iterable[TextInfo]:
@@ -79,7 +80,6 @@ def _extract_page_text_infos(pages: list[PageInfo]) -> Iterable[TextInfo]:
 def _get_page_with_file(pages: list[PageInfo], index: int) -> Element:
   page = next((p for p in pages if p.page_index == index), None)
   assert page is not None
-  assert page.citation is not None
 
   with page.file() as file:
     root: Element = fromstring(file.read())

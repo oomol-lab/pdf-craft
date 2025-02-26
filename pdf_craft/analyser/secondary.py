@@ -147,10 +147,10 @@ class SecondaryAnalyser:
     if prefaces is None:
       self._write_chapters(buffer, chapters, 0)
     else:
-      buffer.write("# Prefaces\n\n")
+      buffer.write("### Prefaces\n\n")
       self._write_chapters(buffer, prefaces, 0)
       buffer.write("\n\n")
-      buffer.write("# Chapters\n\n")
+      buffer.write("### Chapters\n\n")
       self._write_chapters(buffer, chapters, 0)
 
     return buffer.getvalue()
@@ -173,6 +173,7 @@ class SecondaryAnalyser:
       text = text.strip()
 
       buffer.write(symbol)
+      buffer.write(" ")
       buffer.write(text)
       buffer.write("\n")
 
