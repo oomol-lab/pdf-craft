@@ -16,8 +16,7 @@ def analyse_citations(
     request_max_tokens: int,
     tail_rate: float) -> Generator[tuple[int, int, Element], None, None]:
 
-  prompt_name = "citation"
-  prompt_tokens = llm.prompt_tokens_count(prompt_name)
+  prompt_tokens = llm.prompt_tokens_count("citation")
   data_max_tokens = request_max_tokens - prompt_tokens
   if data_max_tokens <= 0:
     raise ValueError(f"Request max tokens is too small (less than system prompt tokens count {prompt_tokens})")

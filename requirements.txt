@@ -1,6 +1,7 @@
 tqdm==4.66.5
 tiktoken==0.9.0
 pyMuPDF==1.25.3
+jinja2==3.1.5
 alphabet-detector==0.0.7
 shapely==2.0.6
 doc-page-extractor==0.0.2
