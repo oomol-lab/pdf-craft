@@ -2,11 +2,15 @@ import os
 import re
 
 from typing import Iterable
+from io import StringIO
 from xml.etree.ElementTree import fromstring, tostring, Element
 from .types import PageInfo, TextInfo, TextIncision, IndexInfo
 from .llm import LLM
 from .citation import analyse_citations
 
+
+_SYMBOLS = ("*", "+", "-")
+_INTENTS = 2
 
 class SecondaryAnalyser:
   def __init__(self, llm: LLM, dir_path: str):
@@ -27,12 +31,13 @@ class SecondaryAnalyser:
 
       elif kind == "index":
         text = self._format_index(root)
-        self._index = IndexInfo(
-          start_page_index=index1 - 1,
-          end_page_index=index2 - 1,
-          text=text,
-          tokens=llm.count_tokens_count(text),
-        )
+        if text is not None:
+          self._index = IndexInfo(
+            start_page_index=index1 - 1,
+            end_page_index=index2 - 1,
+            text=text,
+            tokens=llm.count_tokens_count(text),
+          )
 
     self._pages.sort(key=lambda p: p.page_index)
 
@@ -116,8 +121,56 @@ class SecondaryAnalyser:
     else:
       return TextIncision.UNCERTAIN
 
-  def _format_index(self, root: Element) -> str:
-    return ""
+  def _format_index(self, root: Element) -> str | None:
+    prefaces: Element | None = None
+    chapters: Element | None = None
+
+    for child in root:
+      if child.tag == "prefaces":
+        prefaces = child
+      elif child.tag == "chapters":
+        chapters = child
+
+    if chapters is None:
+      if prefaces is None:
+        return None
+      chapters = prefaces
+
+    buffer = StringIO()
+    if prefaces is None:
+      self._write_chapters(buffer, chapters, 0)
+    else:
+      buffer.write("# Prefaces\n\n")
+      self._write_chapters(buffer, prefaces, 0)
+      buffer.write("\n\n")
+      buffer.write("# Chapters\n\n")
+      self._write_chapters(buffer, chapters, 0)
+
+    return buffer.getvalue()
+
+  def _write_chapters(self, buffer: StringIO, chapters: Element, level: int):
+    for chapter in chapters:
+      if chapter.tag != "chapter":
+        continue
+
+      title = chapter.find("title")
+      children = chapter.find("children")
+      if title is None:
+        continue
+
+      for _ in range(level * _INTENTS):
+        buffer.write(" ")
+
+      symbol = _SYMBOLS[level % len(_SYMBOLS)]
+      text: str = re.sub("\s+", " ", title.text)
+      text = text.strip()
+
+      buffer.write(symbol)
+      buffer.write(text)
+      buffer.write("\n")
+
+      if children is not None:
+        self._write_chapters(buffer, children, level + 1)
 
   def _read_xml_files(self, dir_path: str, enable_kinds: Iterable[str]):
     for file_name in os.listdir(dir_path):
