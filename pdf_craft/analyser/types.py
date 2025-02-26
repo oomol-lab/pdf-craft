@@ -24,3 +24,10 @@ class PageInfo:
   main: TextInfo
   citation: TextInfo | None
   file: Callable[[], TextIOWrapper]
+
+@dataclass
+class IndexInfo:
+  start_page_index: int
+  end_page_index: int
+  text: str
+  tokens: int

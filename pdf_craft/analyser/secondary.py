@@ -3,7 +3,7 @@ import re
 
 from typing import Iterable
 from xml.etree.ElementTree import fromstring, tostring, Element
-from .types import PageInfo, TextInfo, TextIncision
+from .types import PageInfo, TextInfo, TextIncision, IndexInfo
 from .llm import LLM
 from .citation import analyse_citations
 
@@ -12,9 +12,29 @@ class SecondaryAnalyser:
   def __init__(self, llm: LLM, dir_path: str):
     self._llm: LLM = llm
     self._assets_dir_path = os.path.join(dir_path, "assets")
-    self._pages: list[PageInfo] = self._read_index_and_pages(
-      pages_dir_path=os.path.join(dir_path, "pages"),
-    )
+    self._pages: list[PageInfo] = []
+    self._index: IndexInfo | None = None
+
+    for root, file_name, kind, index1, index2 in self._read_xml_files(
+      dir_path=os.path.join(dir_path, "pages"),
+      enable_kinds=("page", "index"),
+    ):
+      if kind == "page":
+        page_index = index1 - 1
+        file_path = os.path.join(dir_path, "pages", file_name)
+        page = self._parse_page_info(file_path, page_index, root)
+        self._pages.append(page)
+
+      elif kind == "index":
+        text = self._format_index(root)
+        self._index = IndexInfo(
+          start_page_index=index1 - 1,
+          end_page_index=index2 - 1,
+          text=text,
+          tokens=llm.count_tokens_count(text),
+        )
+
+    self._pages.sort(key=lambda p: p.page_index)
 
   def analyse_citations(self, output_dir_path: str, request_max_tokens: int, tail_rate: float):
     for page_start_index, page_end_index, chunk_xml in analyse_citations(
@@ -28,28 +48,6 @@ class SecondaryAnalyser:
 
       with open(file_path, "wb") as file:
         file.write(tostring(chunk_xml, encoding="utf-8"))
-
-  def _read_index_and_pages(self, pages_dir_path: str) -> list[PageInfo]:
-    pages: list[PageInfo] = []
-
-    for file_name in os.listdir(pages_dir_path):
-      file_path = os.path.join(pages_dir_path, file_name)
-      # matches = re.match(r"^index_(\d+)_(\d+)\.xml$", file_name)
-      # if matches:
-      #   index_start = int(matches.group(1))
-      #   index_end = int(matches.group(2))
-      #   root = self._read_xml_file(os.path.join(dir_path, file_name))
-      #   continue
-
-      matches = re.match(r"^page_(\d+)\.xml$", file_name)
-      if matches:
-        page_index = int(matches.group(1)) - 1
-        root = self._read_xml_file(file_path)
-        page = self._parse_page_info(file_path, page_index, root)
-        pages.append(page)
-
-    pages.sort(key=lambda p: p.page_index)
-    return pages
 
   def _read_xml_file(self, file_path: str) -> Element:
     with open(file_path, "r", encoding="utf-8") as file:
@@ -117,3 +115,32 @@ class SecondaryAnalyser:
       return TextIncision.UNCERTAIN
     else:
       return TextIncision.UNCERTAIN
+
+  def _format_index(self, root: Element) -> str:
+    return ""
+
+  def _read_xml_files(self, dir_path: str, enable_kinds: Iterable[str]):
+    for file_name in os.listdir(dir_path):
+      file_path = os.path.join(dir_path, file_name)
+      matches = re.match(r"^[a-zA-Z]+_\d+(_\d+)?\.xml$", file_name)
+      if not matches:
+        continue
+
+      root: Element
+      kind: str
+      index1: str
+      index2: str = "-1"
+      cells = re.sub(r"\..*$", "", file_name).split("_")
+
+      if len(cells) == 3:
+        kind, index1, index2 = cells
+      else:
+        kind, index1 = cells
+
+      if kind not in enable_kinds:
+        continue
+
+      with open(file_path, "r", encoding="utf-8") as file:
+        root = fromstring(file.read())
+
+      yield root, file_name, kind, int(index1), int(index2)
