@@ -7,9 +7,7 @@ from xml.etree.ElementTree import tostring, fromstring, Element
 
 from .llm import LLM
 from .types import PageInfo, TextInfo, TextIncision
-from .segment import allocate_segments
-from .group import group
-from .page_clipper import get_and_clip_pages, PageXML
+from .splitter import group, allocate_segments, get_and_clip_pages, PageXML
 from .asset_matcher import AssetMatcher, ASSET_TAGS
 
 

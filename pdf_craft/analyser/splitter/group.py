@@ -2,9 +2,9 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Iterable, Generator
 from math import floor
-from .types import TextInfo
 from .segment import Segment
-from .utils import Stream
+from .stream import Stream
+from ..types import TextInfo
 
 
 @dataclass

@@ -1,8 +1,10 @@
 import unittest
 
-from pdf_craft.analyser.segment import allocate_segments, Segment
 from pdf_craft.analyser.types import TextInfo, TextIncision
-from pdf_craft.analyser.group import group, Group
+from pdf_craft.analyser.splitter import group, allocate_segments
+from pdf_craft.analyser.splitter.group import Group
+from pdf_craft.analyser.splitter.segment import Segment
+
 
 class TestGroup(unittest.TestCase):
   def test_uniform_texts(self):

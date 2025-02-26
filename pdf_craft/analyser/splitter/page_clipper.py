@@ -1,10 +1,10 @@
 from typing import Generator, Callable
 from dataclasses import dataclass
 from xml.etree.ElementTree import tostring, Element
-from .types import TextInfo
 from .segment import Segment
 from .group import Group
-from .llm import LLM
+from ..types import TextInfo
+from ..llm import LLM
 
 
 @dataclass

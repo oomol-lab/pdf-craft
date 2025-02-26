@@ -1,7 +1,6 @@
 from typing import Iterable, Iterator, TypeVar, Generic
 
 
-
 E = TypeVar("E")
 
 class Stream(Generic[E]):
