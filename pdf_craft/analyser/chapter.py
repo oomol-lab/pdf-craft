@@ -45,7 +45,7 @@ def analyse_chapters(
 
     for i, page_xml in enumerate(page_xml_list):
       element = page_xml.xml
-      element.set("page-index", str(i + 1))
+      element.set("idx", str(i + 1))
       citation = citations.load(page_xml.page_index)
       if citation is not None:
         element.append(citation)
@@ -62,19 +62,27 @@ def analyse_chapters(
       "page-end-index": str(page_end_index + 1),
     })
     asset_matcher.add_asset_hashes_for_xml(response_xml)
+    index_offset = page_xml_list[0].page_index
+    abstract_xml = response_xml.find("abstract")
+    assert abstract_xml is not None
+    content_xml = Element("content")
+    chunk_xml.append(abstract_xml)
+    chunk_xml.append(content_xml)
 
-    for child in response_xml:
-      chunk_xml.append(child)
-    for child in chunk_xml.find("content"):
-      page_indexes = [i + page_start_index for i in _parse_page_indexes(child)]
+    for child in response_xml.find("content"):
+      page_indexes = [
+        i + index_offset
+        for i in _parse_page_indexes(child)
+        if 0 <= i + index_offset < len(page_xml_list)
+      ]
       if any(i for i in page_indexes if not page_xml_list[i].is_gap):
-        chunk_xml.append(child)
-        child.set("page-index", ",".join(str(i + 1) for i in page_indexes))
+        child.set("idx", ",".join(str(i + 1) for i in page_indexes))
+        content_xml.append(child)
 
     yield page_start_index, page_end_index, chunk_xml
 
 def _parse_page_indexes(citation: Element) -> list[int]:
-  content = citation.get("page-index")
+  content = citation.get("idx")
   if content is None:
     return []
   else:
