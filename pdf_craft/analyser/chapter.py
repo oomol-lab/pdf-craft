@@ -50,6 +50,7 @@ def analyse_chapters(
         element.append(citation)
       raw_pages_root.append(element)
 
+     # pylint: disable=unused-variable
     asset_matcher = AssetMatcher().register_raw_xml(raw_pages_root)
     raw_data = tostring(raw_pages_root, encoding="unicode")
     response = llm.request("chapter", raw_data, {"index": index.text})

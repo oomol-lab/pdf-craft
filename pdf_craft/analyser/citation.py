@@ -16,7 +16,7 @@ def analyse_citations(
     request_max_tokens: int,
     tail_rate: float) -> Generator[tuple[int, int, Element], None, None]:
 
-  prompt_tokens = llm.prompt_tokens_count("citation")
+  prompt_tokens = llm.prompt_tokens_count("citation", {})
   data_max_tokens = request_max_tokens - prompt_tokens
   if data_max_tokens <= 0:
     raise ValueError(f"Request max tokens is too small (less than system prompt tokens count {prompt_tokens})")
@@ -43,7 +43,7 @@ def analyse_citations(
 
     asset_matcher = AssetMatcher().register_raw_xml(raw_pages_root)
     raw_data = tostring(raw_pages_root, encoding="unicode")
-    response = llm.request("citation", raw_data)
+    response = llm.request("citation", raw_data, {})
 
     response_xml = _encode_response(response)
     page_start_index, page_end_index = _get_pages_range(page_xml_list)

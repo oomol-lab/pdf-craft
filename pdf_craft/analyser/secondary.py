@@ -169,7 +169,7 @@ class SecondaryAnalyser:
         buffer.write(" ")
 
       symbol = _SYMBOLS[level % len(_SYMBOLS)]
-      text: str = re.sub("\s+", " ", title.text)
+      text: str = re.sub(r"\s+", " ", title.text)
       text = text.strip()
 
       buffer.write(symbol)

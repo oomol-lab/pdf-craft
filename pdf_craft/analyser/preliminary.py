@@ -25,7 +25,7 @@ def preliminary_analyse(llm: LLM, page_dir_path: str, assets_dir_path: str, bloc
       raw_page_xml.set("previous-page", "page")
 
     raw_data = tostring(raw_page_xml, encoding="unicode")
-    response = llm.request("preliminary", raw_data)
+    response = llm.request("preliminary", raw_data, {})
     response_root: Element = _process_response_page_xml(response)
 
     if response_root.tag == "index":
@@ -49,7 +49,7 @@ def preliminary_analyse(llm: LLM, page_dir_path: str, assets_dir_path: str, bloc
     raw_page_xml.append(index_xml)
 
   raw_data = tostring(raw_page_xml, encoding="unicode")
-  response = llm.request("index", raw_data)
+  response = llm.request("index", raw_data, {})
   response_root: Element = _process_response_page_xml(response)
   start_page_index = min(i + 1 for i, _ in index_pages)
   end_page_index = max(i + 1 for i, _ in index_pages)
