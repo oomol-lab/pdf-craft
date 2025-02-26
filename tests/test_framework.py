@@ -5,6 +5,7 @@ from doc_page_extractor import Rectangle, Layout, LayoutClass, OCRFragment
 from pdf_craft.pdf.section import Section
 from pdf_craft.pdf.text_matcher import check_texts_matching_rate, split_into_words
 
+
 _Rect = tuple[float, float, float, float]
 
 class TextFramework(unittest.TestCase):

@@ -1,8 +1,10 @@
 import unittest
 
 from typing import Iterable
-from pdf_craft.analyser.segment import allocate_segments, Segment
+from pdf_craft.analyser.splitter import allocate_segments
+from pdf_craft.analyser.splitter.segment import Segment
 from pdf_craft.analyser.types import TextInfo, TextIncision
+
 
 class TestSegment(unittest.TestCase):
   def test_no_segments(self):
