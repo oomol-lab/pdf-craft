@@ -1,4 +1,6 @@
+from io import TextIOWrapper
 from enum import IntEnum
+from typing import Callable
 from dataclasses import dataclass
 
 
@@ -18,7 +20,7 @@ class TextInfo:
 
 @dataclass
 class PageInfo:
-  file_name: str
   page_index: int
   main: TextInfo
   citation: TextInfo | None
+  file: Callable[[], TextIOWrapper]
