@@ -2,34 +2,50 @@ import os
 import re
 
 from typing import Iterable
-from natsort import natsorted
-from xml.etree.ElementTree import fromstring, tostring, Element
-from .types import PageInfo, TextInfo, TextIncision
+from io import StringIO
+from xml.etree.ElementTree import tostring, Element
+from .types import PageInfo, TextInfo, TextIncision, IndexInfo
 from .llm import LLM
 from .citation import analyse_citations
+from .chapter import analyse_chapters
+from .utils import read_xml_files
 
+
+_SYMBOLS = ("*", "+", "-")
+_INTENTS = 2
 
 class SecondaryAnalyser:
   def __init__(self, llm: LLM, dir_path: str):
     self._llm: LLM = llm
     self._assets_dir_path = os.path.join(dir_path, "assets")
     self._pages: list[PageInfo] = []
-    self._pages_dir_path: str = os.path.join(dir_path, "pages")
-    file_names = natsorted(os.listdir(self._pages_dir_path))
-    file_names = [f for f in file_names if re.match(r"^page_\d+\.xml$", f)]
+    self._index: IndexInfo | None = None
 
-    for page_index, file_name in enumerate(file_names):
-      file_path = os.path.join(self._pages_dir_path, file_name)
-      with open(file_path, "r", encoding="utf-8") as file:
-        root: Element = fromstring(file.read())
-        page = self._parse_xml(file_name, page_index, root)
+    for root, file_name, kind, index1, index2 in read_xml_files(
+      dir_path=os.path.join(dir_path, "pages"),
+      enable_kinds=("page", "index"),
+    ):
+      if kind == "page":
+        page_index = index1 - 1
+        file_path = os.path.join(dir_path, "pages", file_name)
+        page = self._parse_page_info(file_path, page_index, root)
         self._pages.append(page)
+
+      elif kind == "index":
+        text = self._format_index(root)
+        if text is not None:
+          self._index = IndexInfo(
+            start_page_index=index1 - 1,
+            end_page_index=index2 - 1,
+            text=text,
+          )
+
+    self._pages.sort(key=lambda p: p.page_index)
 
   def analyse_citations(self, output_dir_path: str, request_max_tokens: int, tail_rate: float):
     for page_start_index, page_end_index, chunk_xml in analyse_citations(
       llm=self._llm,
       pages=self._pages,
-      pages_dir_path=self._pages_dir_path,
       request_max_tokens=request_max_tokens,
       tail_rate=tail_rate,
     ):
@@ -39,7 +55,17 @@ class SecondaryAnalyser:
       with open(file_path, "wb") as file:
         file.write(tostring(chunk_xml, encoding="utf-8"))
 
-  def _parse_xml(self, file_name: str, page_index: int, root: Element) -> PageInfo:
+  def analyse_chapters(self, citations_dir_path: str, request_max_tokens: int, gap_rate: float):
+    analyse_chapters(
+      llm=self._llm,
+      pages=self._pages,
+      index=self._index,
+      citations_dir_path=citations_dir_path,
+      request_max_tokens=request_max_tokens,
+      gap_rate=gap_rate,
+    )
+
+  def _parse_page_info(self, file_path: str, page_index: int, root: Element) -> PageInfo:
     main_children: list[Element] = []
     citation: TextInfo | None = None
 
@@ -50,9 +76,9 @@ class SecondaryAnalyser:
         main_children.append(child)
 
     return PageInfo(
-      file_name=file_name,
       page_index=page_index,
       citation=citation,
+      file=lambda: open(file_path, "rb"),
       main=self._parse_text_info(page_index, main_children),
     )
 
@@ -101,3 +127,54 @@ class SecondaryAnalyser:
       return TextIncision.UNCERTAIN
     else:
       return TextIncision.UNCERTAIN
+
+  def _format_index(self, root: Element) -> str | None:
+    prefaces: Element | None = None
+    chapters: Element | None = None
+
+    for child in root:
+      if child.tag == "prefaces":
+        prefaces = child
+      elif child.tag == "chapters":
+        chapters = child
+
+    if chapters is None:
+      if prefaces is None:
+        return None
+      chapters = prefaces
+
+    buffer = StringIO()
+    if prefaces is None:
+      self._write_chapters(buffer, chapters, 0)
+    else:
+      buffer.write("# Prefaces\n\n")
+      self._write_chapters(buffer, prefaces, 0)
+      buffer.write("\n\n")
+      buffer.write("# Chapters\n\n")
+      self._write_chapters(buffer, chapters, 0)
+
+    return buffer.getvalue()
+
+  def _write_chapters(self, buffer: StringIO, chapters: Element, level: int):
+    for chapter in chapters:
+      if chapter.tag != "chapter":
+        continue
+
+      title = chapter.find("title")
+      children = chapter.find("children")
+      if title is None:
+        continue
+
+      for _ in range(level * _INTENTS):
+        buffer.write(" ")
+
+      symbol = _SYMBOLS[level % len(_SYMBOLS)]
+      text: str = re.sub(r"\s+", " ", title.text)
+      text = text.strip()
+
+      buffer.write(symbol)
+      buffer.write(text)
+      buffer.write("\n")
+
+      if children is not None:
+        self._write_chapters(buffer, children, level + 1)
