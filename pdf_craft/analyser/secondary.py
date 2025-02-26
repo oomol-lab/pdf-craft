@@ -3,10 +3,12 @@ import re
 
 from typing import Iterable
 from io import StringIO
-from xml.etree.ElementTree import fromstring, tostring, Element
+from xml.etree.ElementTree import tostring, Element
 from .types import PageInfo, TextInfo, TextIncision, IndexInfo
 from .llm import LLM
 from .citation import analyse_citations
+from .chapter import analyse_chapters
+from .utils import read_xml_files
 
 
 _SYMBOLS = ("*", "+", "-")
@@ -19,7 +21,7 @@ class SecondaryAnalyser:
     self._pages: list[PageInfo] = []
     self._index: IndexInfo | None = None
 
-    for root, file_name, kind, index1, index2 in self._read_xml_files(
+    for root, file_name, kind, index1, index2 in read_xml_files(
       dir_path=os.path.join(dir_path, "pages"),
       enable_kinds=("page", "index"),
     ):
@@ -36,7 +38,6 @@ class SecondaryAnalyser:
             start_page_index=index1 - 1,
             end_page_index=index2 - 1,
             text=text,
-            tokens=llm.count_tokens_count(text),
           )
 
     self._pages.sort(key=lambda p: p.page_index)
@@ -54,9 +55,15 @@ class SecondaryAnalyser:
       with open(file_path, "wb") as file:
         file.write(tostring(chunk_xml, encoding="utf-8"))
 
-  def _read_xml_file(self, file_path: str) -> Element:
-    with open(file_path, "r", encoding="utf-8") as file:
-      return fromstring(file.read())
+  def analyse_chapters(self, citations_dir_path: str, request_max_tokens: int, gap_rate: float):
+    analyse_chapters(
+      llm=self._llm,
+      pages=self._pages,
+      index=self._index,
+      citations_dir_path=citations_dir_path,
+      request_max_tokens=request_max_tokens,
+      gap_rate=gap_rate,
+    )
 
   def _parse_page_info(self, file_path: str, page_index: int, root: Element) -> PageInfo:
     main_children: list[Element] = []
@@ -171,29 +178,3 @@ class SecondaryAnalyser:
 
       if children is not None:
         self._write_chapters(buffer, children, level + 1)
-
-  def _read_xml_files(self, dir_path: str, enable_kinds: Iterable[str]):
-    for file_name in os.listdir(dir_path):
-      file_path = os.path.join(dir_path, file_name)
-      matches = re.match(r"^[a-zA-Z]+_\d+(_\d+)?\.xml$", file_name)
-      if not matches:
-        continue
-
-      root: Element
-      kind: str
-      index1: str
-      index2: str = "-1"
-      cells = re.sub(r"\..*$", "", file_name).split("_")
-
-      if len(cells) == 3:
-        kind, index1, index2 = cells
-      else:
-        kind, index1 = cells
-
-      if kind not in enable_kinds:
-        continue
-
-      with open(file_path, "r", encoding="utf-8") as file:
-        root = fromstring(file.read())
-
-      yield root, file_name, kind, int(index1), int(index2)
