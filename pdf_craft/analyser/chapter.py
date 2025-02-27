@@ -1,12 +1,12 @@
 import os
 
-from typing import Iterable, Generator
+from typing import Any, Iterable, Generator
 from xml.etree.ElementTree import tostring, fromstring, Element
 from .llm import LLM
 from .types import PageInfo, TextInfo, TextIncision, IndexInfo
-from .splitter import group, allocate_segments, get_and_clip_pages
+from .splitter import group, get_pages_range, allocate_segments, get_and_clip_pages
 from .asset_matcher import AssetMatcher
-from .utils import read_xml_files
+from .utils import read_xml_files, encode_response
 
 def analyse_chapters(
     llm: LLM,
@@ -17,9 +17,10 @@ def analyse_chapters(
     gap_rate: float,
   ) -> Generator[tuple[int, int, Element], None, None]:
 
-  prompt_tokens = llm.prompt_tokens_count(
-    "chapter", {"index": index.text},
-  )
+  llm_params: dict[str, Any] = {
+    "index": index.text if index is not None else "",
+  }
+  prompt_tokens = llm.prompt_tokens_count("chapter", llm_params)
   data_max_tokens = request_max_tokens - prompt_tokens
   citations = _CitationLoader(citations_dir_path)
 
@@ -44,17 +45,54 @@ def analyse_chapters(
 
     for i, page_xml in enumerate(page_xml_list):
       element = page_xml.xml
-      element.set("page-index", str(i + 1))
+      element.set("idx", str(i + 1))
       citation = citations.load(page_xml.page_index)
       if citation is not None:
         element.append(citation)
       raw_pages_root.append(element)
 
-     # pylint: disable=unused-variable
     asset_matcher = AssetMatcher().register_raw_xml(raw_pages_root)
     raw_data = tostring(raw_pages_root, encoding="unicode")
-    response = llm.request("chapter", raw_data, {"index": index.text})
-    print(response)
+    response = llm.request("chapter", raw_data, llm_params)
+
+    # TODO: page-index 统统改为 idx 以节约空间
+    # TODO: 11 页的图片 caption 内容没有扫描进去
+    # print("response", response)
+
+    response_xml = encode_response(response)
+    page_start_index, page_end_index = get_pages_range(page_xml_list)
+    chunk_xml = Element("chunk", {
+      "page-start-index": str(page_start_index + 1),
+      "page-end-index": str(page_end_index + 1),
+    })
+    asset_matcher.add_asset_hashes_for_xml(response_xml)
+    abstract_xml = response_xml.find("abstract")
+    assert abstract_xml is not None
+    content_xml = Element("content")
+    chunk_xml.append(abstract_xml)
+    chunk_xml.append(content_xml)
+
+    for child in response_xml.find("content"):
+      page_indexes = [
+        i for i in _parse_page_indexes(child)
+        if 0 <= i < len(page_xml_list)
+      ]
+      if any(not page_xml_list[i].is_gap for i in page_indexes):
+        attr_ids: list[str] = []
+        for i in page_indexes:
+          page_index = page_xml_list[i].page_index + 1
+          attr_ids.append(str(page_index))
+        child.set("idx", ",".join(attr_ids))
+        content_xml.append(child)
+
+    yield page_start_index, page_end_index, chunk_xml
+
+def _parse_page_indexes(citation: Element) -> list[int]:
+  content = citation.get("idx")
+  if content is None:
+    return []
+  else:
+    return [int(i) - 1 for i in content.split(",")]
 
 def _extract_page_text_infos(pages: list[PageInfo]) -> Iterable[TextInfo]:
   if len(pages) == 0:
@@ -79,7 +117,6 @@ def _extract_page_text_infos(pages: list[PageInfo]) -> Iterable[TextInfo]:
 def _get_page_with_file(pages: list[PageInfo], index: int) -> Element:
   page = next((p for p in pages if p.page_index == index), None)
   assert page is not None
-  assert page.citation is not None
 
   with page.file() as file:
     root: Element = fromstring(file.read())
@@ -99,7 +136,7 @@ class _CitationLoader:
   def _read_page_indexes(self, root: Element):
     for child in root:
       if child.tag == "citation":
-        page_indexes = self._parse_page_indexes(child)
+        page_indexes = _parse_page_indexes(child)
         if len(page_indexes) > 0:
           yield page_indexes[0]
 
@@ -117,7 +154,7 @@ class _CitationLoader:
     for child in root:
       if child.tag != "citation":
         continue
-      page_indexes = self._parse_page_indexes(child)
+      page_indexes = _parse_page_indexes(child)
       if len(page_indexes) == 0:
         continue
       if page_index != page_indexes[0]:
@@ -126,10 +163,3 @@ class _CitationLoader:
       citations.append(child)
 
     return citations
-
-  def _parse_page_indexes(self, citation: Element) -> list[int]:
-    content = citation.get("page-index")
-    if content is None:
-      return []
-    else:
-      return [int(i) - 1 for i in content.split(",")]

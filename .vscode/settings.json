@@ -5,6 +5,12 @@
   "pylint.args": [
     "--generate-members"
   ],
+  "[jinja]": {
+    "editor.wordWrap": "on"
+  },
+  "[xml]": {
+    "editor.wordWrap": "on"
+  },
   "cSpell.words": [
     "analyser",
     "apos",
