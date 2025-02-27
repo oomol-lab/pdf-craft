@@ -22,7 +22,7 @@ def main():
   shutil.rmtree(output_dir_path, ignore_errors=True)
   os.makedirs(output_dir_path)
 
-  analyser.analyse_citations(output_dir_path, 6000, 0.15)
+  analyser.analyse_citations(output_dir_path, 10000, 0.15)
 
 def _read_format_json() -> dict:
   path = os.path.join(__file__, "..", "..", "format.json")

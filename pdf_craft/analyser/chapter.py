@@ -122,6 +122,7 @@ def _get_page_with_file(pages: list[PageInfo], index: int) -> Element:
 
 class _CitationLoader:
   def __init__(self, dir_path: str):
+    self._next_citation_id: int = 1
     self._dir_path: str = dir_path
     self._index2file: dict[int, str] = {}
     for root, file_name, _, _, _ in read_xml_files(dir_path, ("chunk",)):
@@ -154,7 +155,8 @@ class _CitationLoader:
         continue
       if page_index != page_indexes[0]:
         continue
-      child.attrib = {}
+      child.attrib = { "id": str(self._next_citation_id) }
       citations.append(child)
+      self._next_citation_id += 1
 
     return citations
