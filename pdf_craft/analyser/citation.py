@@ -36,7 +36,7 @@ def analyse_citations(
     raw_pages_root = Element("pages")
     for i, page_xml in enumerate(page_xml_list):
       element = page_xml.xml
-      element.set("page-index", str(i + 1))
+      element.set("idx", str(i + 1))
       raw_pages_root.append(element)
 
     asset_matcher = AssetMatcher().register_raw_xml(raw_pages_root)
@@ -44,25 +44,25 @@ def analyse_citations(
     response = llm.request("citation", raw_data, {})
 
     response_xml = encode_response(response)
-    page_start_index, page_end_index = get_pages_range(page_xml_list)
+    start_idx, end_idx = get_pages_range(page_xml_list)
     chunk_xml = Element("chunk", {
-      "page-start-index": str(page_start_index + 1),
-      "page-end-index": str(page_end_index + 1),
+      "start-idx": str(start_idx + 1),
+      "end-idx": str(end_idx + 1),
     })
     asset_matcher.add_asset_hashes_for_xml(response_xml)
 
     for citation in response_xml:
-      page_indexes: list[int] = [int(p) for p in citation.get("page-index").split(",")]
+      page_indexes: list[int] = [int(p) for p in citation.get("idx").split(",")]
       page_indexes.sort()
       page_xml = page_xml_list[page_indexes[0] - 1]
       if not page_xml.is_gap:
         chunk_xml.append(citation)
-        citation.set("page-index", ",".join([
+        citation.set("idx", ",".join([
           str(page_xml_list[p - 1].page_index + 1)
           for p in page_indexes
         ]))
 
-    yield page_start_index, page_end_index, chunk_xml
+    yield start_idx, end_idx, chunk_xml
 
 def _extract_citations(pages: Iterable[PageInfo]) -> Generator[TextInfo, None, None]:
   citations_matrix: list[list[TextInfo]] = []
