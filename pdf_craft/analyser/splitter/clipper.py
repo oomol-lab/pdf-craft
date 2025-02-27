@@ -53,12 +53,15 @@ def get_and_clip_pages(llm: LLM, group: Group, get_element: Callable[[int], Elem
   return page_xml_list
 
 def get_pages_range(page_xml_list: list[PageXML]):
-  assert len(page_xml_list) > 0
+  found_any = False
   page_start_index: int = sys.maxsize
   page_end_index: int = 0
   for page_xml in page_xml_list:
-    page_start_index = min(page_start_index, page_xml.page_index)
-    page_end_index = max(page_end_index, page_xml.page_index)
+    if not page_xml.is_gap:
+      page_start_index = min(page_start_index, page_xml.page_index)
+      page_end_index = max(page_end_index, page_xml.page_index)
+      found_any = True
+  assert found_any
   return page_start_index, page_end_index
 
 def _get_pages(

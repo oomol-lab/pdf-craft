@@ -55,6 +55,10 @@ def analyse_chapters(
     raw_data = tostring(raw_pages_root, encoding="unicode")
     response = llm.request("chapter", raw_data, llm_params)
 
+    # TODO: page-index 统统改为 idx 以节约空间
+    # TODO: 11 页的图片 caption 内容没有扫描进去
+    # print("response", response)
+
     response_xml = encode_response(response)
     page_start_index, page_end_index = get_pages_range(page_xml_list)
     chunk_xml = Element("chunk", {
@@ -62,7 +66,6 @@ def analyse_chapters(
       "page-end-index": str(page_end_index + 1),
     })
     asset_matcher.add_asset_hashes_for_xml(response_xml)
-    index_offset = page_xml_list[0].page_index
     abstract_xml = response_xml.find("abstract")
     assert abstract_xml is not None
     content_xml = Element("content")
@@ -71,12 +74,15 @@ def analyse_chapters(
 
     for child in response_xml.find("content"):
       page_indexes = [
-        i + index_offset
-        for i in _parse_page_indexes(child)
-        if 0 <= i + index_offset < len(page_xml_list)
+        i for i in _parse_page_indexes(child)
+        if 0 <= i < len(page_xml_list)
       ]
-      if any(i for i in page_indexes if not page_xml_list[i].is_gap):
-        child.set("idx", ",".join(str(i + 1) for i in page_indexes))
+      if any(not page_xml_list[i].is_gap for i in page_indexes):
+        attr_ids: list[str] = []
+        for i in page_indexes:
+          page_index = page_xml_list[i].page_index + 1
+          attr_ids.append(str(page_index))
+        child.set("idx", ",".join(attr_ids))
         content_xml.append(child)
 
     yield page_start_index, page_end_index, chunk_xml
