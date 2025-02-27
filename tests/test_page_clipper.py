@@ -13,7 +13,7 @@ class TestPageClipper(unittest.TestCase):
     self.maxDiff = 4096
     pages = _Pages([
       _tag("page", {}, [
-        _tag("title", {}, [
+        _tag("headline", {}, [
           "Lamian War",
           "Main article: Lamian War",
         ]),
@@ -33,7 +33,7 @@ class TestPageClipper(unittest.TestCase):
         ]),
       ]),
       _tag("page", {}, [
-        _tag("title", {}, [
+        _tag("headline", {}, [
           _line("First War of the Diadochi, 321–319 BC")
         ]),
         _tag("text", {"start-incision": "uncertain", "end-incision": "uncertain"}, [

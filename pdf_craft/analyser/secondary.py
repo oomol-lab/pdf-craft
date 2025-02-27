@@ -165,16 +165,16 @@ class SecondaryAnalyser:
       if chapter.tag != "chapter":
         continue
 
-      title = chapter.find("title")
+      headline = chapter.find("headline")
       children = chapter.find("children")
-      if title is None:
+      if headline is None:
         continue
 
       for _ in range(level * _INTENTS):
         buffer.write(" ")
 
       symbol = _SYMBOLS[level % len(_SYMBOLS)]
-      text: str = re.sub(r"\s+", " ", title.text)
+      text: str = re.sub(r"\s+", " ", headline.text)
       text = text.strip()
 
       buffer.write(symbol)

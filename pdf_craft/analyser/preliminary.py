@@ -63,7 +63,7 @@ def _transform_page_xml(blocks: list[Block]) -> Element:
     if isinstance(block, TextBlock):
       tag_name: str
       if block.kind == TextKind.TITLE:
-        tag_name = "title"
+        tag_name = "headline"
       elif block.kind == TextKind.PLAIN_TEXT:
         tag_name = "text"
       elif block.kind == TextKind.ABANDON:

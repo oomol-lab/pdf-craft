@@ -39,10 +39,10 @@ page 节点的属性 previous-page 会描述上一页的情况。若取值为 "n
 综上所述，例如，用户如果提供的片段类似如下结构，可以明确就是目录页：
 ```XML
 <page>
-  <title>
+  <headline>
     <line confidence="1.00">⽬</line>
     <line confidence="1.00">錄</line>
-  </title>
+  </headline>
   <text indent="false" touch-end="true">
     <line confidence="1.00">中國科學史料叢書總…</line>
     <line confidence="0.99">i-iii</line>
@@ -86,24 +86,24 @@ page 节点的属性 previous-page 会描述上一页的情况。若取值为 "n
 例如，算法可能提供这么一段片段：
 ```XML
 <page>
-  <title>
+  <headline>
     <line confidence="0.99">参考文献</line>
-  </title>
-  <title>
+  </headline>
+  <headline>
     <line confidence="0.98">幼年与历史</line>
-  </title>
+  </headline>
   <text indent="false" touch-end="false">
     <line confidence="0.98">经验的毁灭【意］吉奥乔·阿甘本</line>
   </text>
-  <title>
+  <headline>
     <line confidence="0.97">虚拟的寓言★</line>
-  </title>
+  </headline>
   <text indent="false" touch-end="false">
     <line confidence="0.96">［加］布来恩·马苏米</line>
   </text>
-  <title>
+  <headline>
     <line confidence="0.97">类人猿、赛博格和女人*</line>
-  </title>
+  </headline>
   <text indent="false" touch-end="false">
     <line confidence="0.96">自然的重塑［美］唐娜·哈拉维</line>
   </text>
@@ -113,9 +113,9 @@ page 节点的属性 previous-page 会描述上一页的情况。若取值为 "n
 一些正文中加粗的字体和周期性出现的格式会被算法错误地判定为多个区块。用语义来思考，结合逻辑，将这些错误修正。你应该把它们融合成一个区块：
 ```XML
 <page>
-  <title>
+  <headline>
     <line confidence="0.99">参考文献</line>
-  </title>
+  </headline>
   <text start-incision="impossible" end-incision="impossible">
     <line>幼年与历史</line>
     <line>经验的毁灭【意］吉奥乔·阿甘本</line>
