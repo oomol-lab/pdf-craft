@@ -5,7 +5,11 @@
   "pylint.args": [
     "--generate-members"
   ],
-  "[jinja]": {
+  "files.associations": {
+    "*.jinja": "jinja-xml",
+    "*.xml": "xml"
+  },
+  "[jinja-xml]": {
     "editor.wordWrap": "on"
   },
   "[xml]": {
