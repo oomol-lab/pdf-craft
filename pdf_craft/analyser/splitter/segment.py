@@ -101,7 +101,7 @@ def _split_segment_if_need(segment: _Segment, max_tokens: int):
 
 def _unfold_segments(segment: _Segment, max_tokens: int) -> Generator[TextInfo | _Segment]:
   for item in segment.children:
-    if item.tokens > max_tokens:
+    if item.tokens > max_tokens and isinstance(item, _Segment):
       for sub_item in _split_segment_if_need(item, max_tokens):
         yield sub_item
     else:
