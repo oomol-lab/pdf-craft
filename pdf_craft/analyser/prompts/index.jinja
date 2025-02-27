@@ -23,54 +23,55 @@ page 的子节点（二级区块）按顺序展示书页中的不同类型的区
 
 你的输出根节点是 <index> 节点，包含两个子节点 <prefaces> 和 <chapters>。其中，prefaces 表示引言、序言部分。有的书的目录可能没有这部分，直接省略。而 chapters 表示章节信息。
 
-prefaces 和 chapters 的二级结构都完全一致。都是 <chapter> 标签的嵌套结构。因为目录中的章节存在多级，比如“部分”、“章”、“节”的等级划分，因此 prefaces 和 chapters 都是树状结构的根节点。对于 chapter 而言，它有三种子节点：<title> 表示标题或名字、<page> 表示页码、<children> 则包含重复的 <chapter> 结构。若不存在子结构（已经是最高级别的章节了），则没有 children 子节点。
+prefaces 和 chapters 的二级结构都完全一致。都是 <chapter> 标签的嵌套结构。因为目录中的章节存在多级，比如“部分”、“章”、“节”的等级划分，因此 prefaces 和 chapters 都是树状结构的根节点。对于 chapter 而言，它有三种子节点：<headline> 表示标题或名字、<page> 表示页码、<children> 则包含重复的 <chapter> 结构。若不存在子结构（已经是最高级别的章节了），则没有 children 子节点。
 
 如个例子，如下是一个合法的返回结构，你的输出也要是如此：
 ```XML
 <index>
-<prefaces>
-<chapter>
-<title>前言</title>
-<page>1</page>
-</chapter>
-</prefaces>
-<chapters>
-<chapter>
-<title>第一部分 倾听和昕见</title>
-<page>3</page>
-<children>
-<chapter>
-<title>提问</title>
-<page>25</page>
-</chapter>
-<chapter>
-<title>标点</title>
-<page>37</page>
-</chapter>
-<chapter>
-<title>切分（弹性时间会谈）</title>
-<page>48</page>
-</chapter>
-</children>
-</chapter>
-<title>第二部分 并非旨在使人正常化的分析</title>
-<page>58</page>
-</chapter>
-<children>
-<chapter>
-<title>白日梦、自日梦和幻想进行工作</title>
-<page>59</page>
-</chapter>
-<chapter>
-<title>处理转移和反转移</title>
-<page>78</page>
-</chapter>
-<chapter>
-<title>治疗精神病</title>
-<page>102</page>
-</chapter>
-</children>
-</chapters>
+  <prefaces>
+    <chapter>
+      <headline>前言</headline>
+      <page>1</page>
+    </chapter>
+  </prefaces>
+  <chapters>
+    <chapter>
+      <headline>第一部分 倾听和昕见</headline>
+      <page>3</page>
+      <children>
+        <chapter>
+          <headline>提问</headline>
+          <page>25</page>
+        </chapter>
+        <chapter>
+          <headline>标点</headline>
+          <page>37</page>
+        </chapter>
+        <chapter>
+          <headline>切分（弹性时间会谈）</headline>
+          <page>48</page>
+        </chapter>
+      </children>
+    </chapter>
+    <chapter>
+      <headline>第二部分 并非旨在使人正常化的分析</headline>
+      <page>58</page>
+      <children>
+        <chapter>
+          <headline>白日梦、自日梦和幻想进行工作</headline>
+          <page>59</page>
+        </chapter>
+        <chapter>
+          <headline>处理转移和反转移</headline>
+          <page>78</page>
+        </chapter>
+        <chapter>
+          <headline>治疗精神病</headline>
+          <page>102</page>
+        </chapter>
+      </children>
+    </chapter>
+  </chapters>
 </index>
 ```
 

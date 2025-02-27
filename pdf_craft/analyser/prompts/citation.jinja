@@ -25,7 +25,7 @@
 {% include "common/xml_format.jinja" %}
 
 
-首先，你要通读全文理解语义，将文本拆分成一条一条引用分列，每列汇聚成 <citation> 标签，最终用一个 <response> 标签作为根节点包裹它们。citation 标签要有一个属性 idx，表示该引用所在的书页索引号（若引用涉及文本跨页，则将所跨页的所有索引列出）。citation 的第一个子节点必须为 <label>，它的内容为索引的编号（如①、②或星号等形式）。在 label 之后的子节点，则为被你汇总的的 text、figure、table、formula 节点，按阅读顺序依次排列。
+首先，你要通读全文理解语义，将文本拆分成一条一条引用分列，每列汇聚成 <citation> 标签，最终用一个 <response> 标签作为根节点包裹它们。citation 标签要有一个属性 idx，表示该引用所在的书页索引号（若引用涉及文本跨页，则将所跨页的所有索引列出）。citation 的第一个子节点必须为 <label>，它的内容为索引的编号（如①、②或星号等形式），若对应多个编号，则都要写入。在 label 之后的子节点，则为被你汇总的的 text、figure、table、formula 节点，按阅读顺序依次排列。
 
 注意，<text> 标签此时表示一个完整的自然段。如果不考虑跨页，它与用户提交的 text 一一对应，但如果考虑跨页，你需要将多个跨页的 text 合并为一个 text。
 
@@ -35,74 +35,74 @@
 在此举个例子，假如用户提交的内容如下：
 ```XML
 <pages>
-<citation idx="1">
-<text>
-<line>①《道藏》，第20册第372页。</line>
-<line>②《道德经》三⼗三章：“死⽽不亡者寿”。</line>
-<line>③ ⻬⼈鲁仲连批评秦国：</line>
-</text>
-<text>
-<line>彼秦，弃礼仪、上⾸功之国也。权使其⼠，虏使其⺠，彼则肆然⽽为帝，</line>
-<line>过⽽遂正于天 下，则连有赴东海⽽死⽿，吾不忍为之⺠也！”</line>
-</text>
-<text>
-<line>⻅《史记》卷83，“鲁仲连邹阳列传”，第2461⻚。</line>
-</text>
-</citation>
-<citation idx="2">
-<text>
-<line>①（汉）班固：《汉书》卷30“艺⽂志”，中华书局，1962年，第1780⻚。</line>
-<line>②《道德经》四⼗章。</line>
-</text>
-<figure>
-<line>《道德经》传本（故宫博物院）</line>
-</figure>
-<text>
-<line>③南华真经义海纂微•应帝王第三》，《道藏》第15册，第308页。</line>
-</text>
-</citation>
-<citation idx="3">
-<text>
-<line>①《庄⼦•天地》。</line>
-</text>
-</citation>
+  <citation idx="1">
+    <text>
+      <line>①《道藏》，第20册第372页。</line>
+      <line>②《道德经》三⼗三章：“死⽽不亡者寿”。</line>
+      <line>③ ⻬⼈鲁仲连批评秦国：</line>
+    </text>
+    <text>
+      <line>彼秦，弃礼仪、上⾸功之国也。权使其⼠，虏使其⺠，彼则肆然⽽为帝，</line>
+      <line>过⽽遂正于天 下，则连有赴东海⽽死⽿，吾不忍为之⺠也！”</line>
+    </text>
+    <text>
+      <line>⻅《史记》卷83，“鲁仲连邹阳列传”，第2461⻚。</line>
+    </text>
+  </citation>
+  <citation idx="2">
+    <text>
+      <line>①（汉）班固：《汉书》卷30“艺⽂志”，中华书局，1962年，第1780⻚。</line>
+      <line>②《道德经》四⼗章。</line>
+    </text>
+    <figure>
+      <line>《道德经》传本（故宫博物院）</line>
+    </figure>
+    <text>
+      <line>③南华真经义海纂微•应帝王第三》，《道藏》第15册，第308页。</line>
+    </text>
+  </citation>
+  <citation idx="3">
+    <text>
+      <line>①《庄⼦•天地》。</line>
+    </text>
+  </citation>
 </pages>
 ```
 
 你应该返回如下内容：
 ```XML
 <response>
-<citation idx="1">
-<label>①</label>
-<text>《道藏》，第20册第372页。</text>
-</citation>
-<citation idx="1">
-<label>②</label>
-<text>《道德经》三⼗三章：“死⽽不亡者寿”。</text>
-</citation>
-<citation idx="1">
-<label>③</label>
-<text>⻬⼈鲁仲连批评秦国：</text>
-<text>彼秦，弃礼仪、上⾸功之国也。权使其⼠，虏使其⺠，彼则肆然⽽为帝，过⽽遂正于天下，则连有赴东海⽽死⽿，吾不忍为之⺠也！</text>
-<text>⻅《史记》卷83，“鲁仲连邹阳列传”，第2461⻚。</text>
-</citation>
-<citation idx="2">
-<label>①</label>
-<text>（汉）班固：《汉书》卷30“艺⽂志”，中华书局，1962年，第1780⻚。</text>
-</citation>
-<citation idx="2">
-<label>②</label>
-<text>《道德经》四⼗章。</text>
-<figure>《道德经》传本（故宫博物院</figure>
-</citation>
-<citation idx="2">
-<label>③</label>
-<text>南华真经义海纂微•应帝王第三》，《道藏》第15册，第308页。</text>
-</citation>
-<citation idx="3">
-<label>①</label>
-<text>《庄⼦•天地》。</text>
-</citation>
+  <citation idx="1">
+    <label>①</label>
+    <text>《道藏》，第20册第372页。</text>
+  </citation>
+  <citation idx="1">
+    <label>②</label>
+    <text>《道德经》三⼗三章：“死⽽不亡者寿”。</text>
+  </citation>
+  <citation idx="1">
+    <label>③</label>
+    <text>⻬⼈鲁仲连批评秦国：</text>
+    <text>彼秦，弃礼仪、上⾸功之国也。权使其⼠，虏使其⺠，彼则肆然⽽为帝，过⽽遂正于天下，则连有赴东海⽽死⽿，吾不忍为之⺠也！</text>
+    <text>⻅《史记》卷83，“鲁仲连邹阳列传”，第2461⻚。</text>
+  </citation>
+  <citation idx="2">
+    <label>①</label>
+    <text>（汉）班固：《汉书》卷30“艺⽂志”，中华书局，1962年，第1780⻚。</text>
+  </citation>
+  <citation idx="2">
+    <label>②</label>
+    <text>《道德经》四⼗章。</text>
+    <figure>《道德经》传本（故宫博物院</figure>
+  </citation>
+  <citation idx="2">
+    <label>③</label>
+    <text>南华真经义海纂微•应帝王第三》，《道藏》第15册，第308页。</text>
+  </citation>
+  <citation idx="3">
+    <label>①</label>
+    <text>《庄⼦•天地》。</text>
+  </citation>
 </response>
 ```
 
@@ -111,36 +111,38 @@
 跨页的用户提交例子如下：
 ```XML
 <pages>
-<citation idx="1">
-<text>
-<line>（接上页）的关系（实际上是在说某种“预先建立”的和谐）。</line>
-<line>① 奥格登（1979）指出，其他的分析家，比如 比昂，几乎和瑞克在同一时间扩展了这个概念，</line>
-<line>不过奥格登并没有在 1979 年描述这个概念的发展时提到比昂。</line>
-<line>可以说，通过假定投射的人持续地 （转下页）</line>
-</text>
-</citation>
-<citation idx="2">
-<text>
-<line>（接上页）和被投射的人投射的人幻想过把自己的一部分投射给他的感受一致。</line>
-<line>在某一刻，治疗师“感到他的身体和言语……在某种程度上已经被患者征服和控制了（p. 151）。</line>
-<line>① 我们从未被告知，情感从一个人自身中被投射出去，抛出去，是如何成为可能的。这一</line>
-<line>点我稍候会详细讲到的。</line>
-</text>
-</citation>
+  <citation idx="1">
+    <text>
+      <line>（接上页）的关系（实际上是在说某种“预先建立”的和谐）。</line>
+      <line>① 奥格登（1979）指出，其他的分析家，比如 比昂，几乎和瑞克在同一时间扩展了这个概念，</line>
+      <line>不过奥格登并没有在 1979 年描述这个概念的发展时提到比昂。</line>
+      <line>可以说，通过假定投射的人持续地 （转下页）</line>
+    </text>
+  </citation>
+  <citation idx="2">
+    <text>
+      <line>（接上页）和被投射的人投射的人幻想过把自己的一部分投射给他的感受一致。</line>
+      <line>在某一刻，治疗师“感到他的身体和言语……在某种程度上已经被患者征服和控制了（p. 151）。</line>
+      <line>① 我们从未被告知，情感从一个人自身中被投射出去，抛出去，是如何成为可能的。这一</line>
+      <line>点我稍候会详细讲到的。</line>
+    </text>
+  </citation>
 </pages>
 ```
 
 你应该返回如下内容：
 ```XML
 <response>
-<citation idx="1,2">
-<label>①</label>
-<text>奥格登（1979）指出，其他的分析家，比如比昂，几乎和瑞克在同一时间扩展了这个概念，不过奥格登并没有在 1979 年描述这个概念的发展时提到比昂。可以说，通过假定投射的人持续地和被投射的人投射的人幻想过把自己的一部分投射给他的感受一致。在某一刻，治疗师“感到他的身体和言语……在某种程度上已经被患者征服和控制了（p. 151）。</text>
-</citation>
-<citation idx="2">
-<label>①</label>
-<text>我们从未被告知，情感从一个人自身中被投射出去，抛出去，是如何成为可能的。这一点我稍候会详细讲到的。</text>
-</citation>
+  <citation idx="1,2">
+    <label>①</label>
+    <text>奥格登（1979）指出，其他的分析家，比如比昂，几乎和瑞克在同一时间扩展了这个概念，不过奥格登并没有在 1979
+      年描述这个概念的发展时提到比昂。可以说，通过假定投射的人持续地和被投射的人投射的人幻想过把自己的一部分投射给他的感受一致。在某一刻，治疗师“感到他的身体和言语……在某种程度上已经被患者征服和控制了（p.
+      151）。</text>
+  </citation>
+  <citation idx="2">
+    <label>①</label>
+    <text>我们从未被告知，情感从一个人自身中被投射出去，抛出去，是如何成为可能的。这一点我稍候会详细讲到的。</text>
+  </citation>
 </response>
 ```
 
@@ -149,32 +151,34 @@
 例如，用户可能提交如下内容：
 ```XML
 <pages>
-<citation idx="1">
-<text>
-<line>1. 凯斯门特很可能会想起温尼科特(Winnlcott,1949 ,p. 74 ）的评论
-<line>2.令人好奇的是 ，我觉得精神分析文献中最无聊的强迫性理论作品172</line>
-<line>之一是，吉尔 C Gill , 1982) 的（（对转移的分析》（Aaalysis of Tran-</line>
-<line>sference ） ，他在其中夸大了分析家在分析情境中的角色的 重要性 。</line>
-<line>s.患者停⽌'藁⻝，开始进⻝⼤⻨粥  之前,少服⼀点蜂蜜⽔是有好处的o</line>
-</text>
-</citation>
+  <citation idx="1">
+    <text>
+      <line>1. 凯斯门特很可能会想起温尼科特(Winnlcott,1949 ,p. 74 ）的评论</line>
+      <line>2.令人好奇的是 ，我觉得精神分析文献中最无聊的强迫性理论作品172</line>
+      <line>之一是，吉尔 C Gill , 1982) 的（（对转移的分析》（Aaalysis of Tran-</line>
+      <line>sference ） ，他在其中夸大了分析家在分析情境中的角色的 重要性 。</line>
+      <line>s.患者停⽌'藁⻝，开始进⻝⼤⻨粥 之前,少服⼀点蜂蜜⽔是有好处的o</line>
+    </text>
+  </citation>
 </pages>
 ```
 
 一个可能的修复方案如下：
 ```XML
 <response>
-<citation idx="1">
-<label>1.</label>
-<text>凯斯门特很可能会想起温尼科特（Winnicott,1949,p.74 ）的评论。</text>
-</citation>
-<citation idx="1">
-<label>2.</label>
-<text>令人好奇的是，我觉得精神分析文献中最无聊的强迫性理论作品之一是，吉尔（Gill, 1982）的《对转移的分析》（Aaalysis of Transference），他在其中夸大了分析家在分析情境中的角色的重要性。</text>
-</citation>
-<label>3.</label>
-<text>患者停⽌禁⻝，开始进⻝⼤⻨粥之前，少服⼀点蜂蜜⽔是有好处的。</text>
-</citation>
+  <citation idx="1">
+    <label>1.</label>
+    <text>凯斯门特很可能会想起温尼科特（Winnicott,1949,p.74 ）的评论。</text>
+  </citation>
+  <citation idx="1">
+    <label>2.</label>
+    <text>令人好奇的是，我觉得精神分析文献中最无聊的强迫性理论作品之一是，吉尔（Gill, 1982）的《对转移的分析》（Aaalysis of
+      Transference），他在其中夸大了分析家在分析情境中的角色的重要性。</text>
+  </citation>
+  <citation>
+  <label>3.</label>
+  <text>患者停⽌禁⻝，开始进⻝⼤⻨粥之前，少服⼀点蜂蜜⽔是有好处的。</text>
+  </citation>
 </response>
 ```
 
@@ -200,28 +204,28 @@ OCR无法识别出引用区块的字体与其他部分明显不同，但它内�
 例如，用户可能提交如下内容：
 ```XML
 <pages>
-<citation idx="1">
-<text>
-<line>①此处参考西蒙·德·波伏娃：</line>
-</text>
-<text>
-<line>一个人不是生来就是女人，而其实是变成的。</line>
-</text>
-<text>
-<line>见《第二性》。</line>
-</text>
-</citation>
+  <citation idx="1">
+    <text>
+      <line>①此处参考西蒙·德·波伏娃：</line>
+    </text>
+    <text>
+      <line>一个人不是生来就是女人，而其实是变成的。</line>
+    </text>
+    <text>
+      <line>见《第二性》。</line>
+    </text>
+  </citation>
 </pages>
 ```
 
 你应该返回如下内容：
 ```XML
 <response>
-<citation idx="1">
-<label>①</label>
-<text>此处参考西蒙·德·波伏娃：</text>
-<quote>一个人不是生来就是女人，而其实是变成的。</quote>
-<text>见《第二性》。</text>
-</citation>
+  <citation idx="1">
+    <label>①</label>
+    <text>此处参考西蒙·德·波伏娃：</text>
+    <quote>一个人不是生来就是女人，而其实是变成的。</quote>
+    <text>见《第二性》。</text>
+  </citation>
 </response>
 ```

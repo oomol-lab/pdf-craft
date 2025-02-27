@@ -1,7 +1,7 @@
 import os
 
 from typing import Any, Iterable, Generator
-from xml.etree.ElementTree import tostring, fromstring, Element
+from xml.etree.ElementTree import fromstring, Element
 from .llm import LLM
 from .types import PageInfo, TextInfo, TextIncision, IndexInfo
 from .splitter import group, get_pages_range, allocate_segments, get_and_clip_pages
@@ -52,8 +52,7 @@ def analyse_chapters(
       raw_pages_root.append(element)
 
     asset_matcher = AssetMatcher().register_raw_xml(raw_pages_root)
-    raw_data = tostring(raw_pages_root, encoding="unicode")
-    response = llm.request("chapter", raw_data, llm_params)
+    response = llm.request("chapter", raw_pages_root, llm_params)
 
     response_xml = encode_response(response)
     start_idx, end_idx = get_pages_range(page_xml_list)
@@ -80,6 +79,10 @@ def analyse_chapters(
           attr_ids.append(str(page_index))
         child.set("idx", ",".join(attr_ids))
         content_xml.append(child)
+
+    citation_xml = _collect_citations_and_reallocate_ids(raw_pages_root, chunk_xml)
+    if citation_xml is not None:
+      chunk_xml.append(citation_xml)
 
     yield start_idx, end_idx, chunk_xml
 
@@ -121,8 +124,61 @@ def _get_page_with_file(pages: list[PageInfo], index: int) -> Element:
       root.remove(citation)
     return root
 
+def _collect_citations_and_reallocate_ids(raw_xml: Element, chunk_xml: Element) -> Element | None:
+  next_id: int = 1
+  citations_map: dict[str, Element] = {}
+  ids_map: dict[str, int] = {}
+  keep_citations: list[Element] = []
+
+  for page in raw_xml:
+    if page.tag != "page":
+      continue
+    citations = page.find("citations")
+    if citations is None:
+      continue
+    for citation in citations:
+      id: str = citation.get("id")
+      new_citation = Element("citation")
+      citations_map[id] = new_citation
+      for child in citation:
+        new_citation.append(child)
+
+  for ref in _search_refs(chunk_xml.find("content")):
+    origin_id = ref.get("id")
+    citation = citations_map.get(origin_id, None)
+    if citation is None:
+      continue
+
+    id: str | None = ids_map.get(origin_id, None)
+    if id is None:
+      id = next_id
+      next_id += 1
+      ids_map[origin_id] = id
+
+    citation.attrib = { "id": str(id) }
+    ref.set("id", str(id))
+    if citation not in keep_citations:
+      keep_citations.append(citation)
+
+  keep_citations.sort(key=lambda c: int(c.get("id")))
+  if len(keep_citations) == 0:
+    return None
+
+  citations_xml = Element("citations")
+  for citation in keep_citations:
+    citations_xml.append(citation)
+  return citations_xml
+
+def _search_refs(parent: Element):
+  for child in parent:
+    if child.tag == "ref":
+      yield child
+    else:
+      yield from _search_refs(child)
+
 class _CitationLoader:
   def __init__(self, dir_path: str):
+    self._next_citation_id: int = 1
     self._dir_path: str = dir_path
     self._index2file: dict[int, str] = {}
     for root, file_name, _, _, _ in read_xml_files(dir_path, ("chunk",)):
@@ -155,7 +211,8 @@ class _CitationLoader:
         continue
       if page_index != page_indexes[0]:
         continue
-      child.attrib = {}
+      child.attrib = { "id": str(self._next_citation_id) }
       citations.append(child)
+      self._next_citation_id += 1
 
     return citations

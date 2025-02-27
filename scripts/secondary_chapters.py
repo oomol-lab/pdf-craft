@@ -24,7 +24,7 @@ def main():
   os.makedirs(output_dir_path)
 
   analyser.analyse_chapters(
-    citations_dir_path, output_dir_path, 6000, 0.1,
+    citations_dir_path, output_dir_path, 10000, 0.1,
   )
 
 def _read_format_json() -> dict:

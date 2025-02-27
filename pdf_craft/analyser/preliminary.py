@@ -24,8 +24,7 @@ def preliminary_analyse(llm: LLM, page_dir_path: str, assets_dir_path: str, bloc
     else:
       raw_page_xml.set("previous-page", "page")
 
-    raw_data = tostring(raw_page_xml, encoding="unicode")
-    response = llm.request("preliminary", raw_data, {})
+    response = llm.request("preliminary", raw_page_xml, {})
     response_root: Element = _process_response_page_xml(response)
 
     if response_root.tag == "index":
@@ -48,8 +47,7 @@ def preliminary_analyse(llm: LLM, page_dir_path: str, assets_dir_path: str, bloc
     index_xml.set("page-index", str(i + 1))
     raw_page_xml.append(index_xml)
 
-  raw_data = tostring(raw_page_xml, encoding="unicode")
-  response = llm.request("index", raw_data, {})
+  response = llm.request("index", raw_page_xml, {})
   response_root: Element = _process_response_page_xml(response)
 
   start_page_index = min(i + 1 for i, _ in index_pages)
@@ -65,7 +63,7 @@ def _transform_page_xml(blocks: list[Block]) -> Element:
     if isinstance(block, TextBlock):
       tag_name: str
       if block.kind == TextKind.TITLE:
-        tag_name = "title"
+        tag_name = "headline"
       elif block.kind == TextKind.PLAIN_TEXT:
         tag_name = "text"
       elif block.kind == TextKind.ABANDON:
