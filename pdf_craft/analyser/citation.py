@@ -1,5 +1,5 @@
 from typing import Iterable, Generator
-from xml.etree.ElementTree import tostring, fromstring, Element
+from xml.etree.ElementTree import fromstring, Element
 
 from .llm import LLM
 from .types import PageInfo, TextInfo, TextIncision
@@ -40,8 +40,7 @@ def analyse_citations(
       raw_pages_root.append(element)
 
     asset_matcher = AssetMatcher().register_raw_xml(raw_pages_root)
-    raw_data = tostring(raw_pages_root, encoding="unicode")
-    response = llm.request("citation", raw_data, {})
+    response = llm.request("citation", raw_pages_root, {})
 
     response_xml = encode_response(response)
     start_idx, end_idx = get_pages_range(page_xml_list)

@@ -1,7 +1,7 @@
 import os
 
 from typing import Any, Iterable, Generator
-from xml.etree.ElementTree import tostring, fromstring, Element
+from xml.etree.ElementTree import fromstring, Element
 from .llm import LLM
 from .types import PageInfo, TextInfo, TextIncision, IndexInfo
 from .splitter import group, get_pages_range, allocate_segments, get_and_clip_pages
@@ -52,8 +52,7 @@ def analyse_chapters(
       raw_pages_root.append(element)
 
     asset_matcher = AssetMatcher().register_raw_xml(raw_pages_root)
-    raw_data = tostring(raw_pages_root, encoding="unicode")
-    response = llm.request("chapter", raw_data, llm_params)
+    response = llm.request("chapter", raw_pages_root, llm_params)
 
     response_xml = encode_response(response)
     start_idx, end_idx = get_pages_range(page_xml_list)

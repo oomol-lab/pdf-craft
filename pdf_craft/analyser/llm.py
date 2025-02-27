@@ -3,6 +3,7 @@ import re
 
 from typing import cast, Any, Tuple, Callable
 from jinja2 import select_autoescape, Environment, BaseLoader, Template, TemplateNotFound
+from xml.etree.ElementTree import tostring, Element
 from pydantic import SecretStr
 from tiktoken import get_encoding, Encoding
 from langchain_openai import ChatOpenAI
@@ -35,9 +36,10 @@ class LLM:
       keep_trailing_newline=True,
     )
 
-  def request(self, template_name: str, data: str, params: dict[str, Any]) -> str:
+  def request(self, template_name: str, xml_data: Element, params: dict[str, Any]) -> str:
     template = self._template(template_name)
     prompt = template.render(**params)
+    data = tostring(xml_data, encoding="unicode")
     response = self._model([
       SystemMessage(content=prompt),
       HumanMessage(content=data)
