@@ -55,15 +55,11 @@ def analyse_chapters(
     raw_data = tostring(raw_pages_root, encoding="unicode")
     response = llm.request("chapter", raw_data, llm_params)
 
-    # TODO: page-index 统统改为 idx 以节约空间
-    # TODO: 11 页的图片 caption 内容没有扫描进去
-    # print("response", response)
-
     response_xml = encode_response(response)
-    page_start_index, page_end_index = get_pages_range(page_xml_list)
+    start_idx, end_idx = get_pages_range(page_xml_list)
     chunk_xml = Element("chunk", {
-      "page-start-index": str(page_start_index + 1),
-      "page-end-index": str(page_end_index + 1),
+      "start-idx": str(start_idx + 1),
+      "end-idx": str(end_idx + 1),
     })
     asset_matcher.add_asset_hashes_for_xml(response_xml)
     abstract_xml = response_xml.find("abstract")
@@ -85,7 +81,7 @@ def analyse_chapters(
         child.set("idx", ",".join(attr_ids))
         content_xml.append(child)
 
-    yield page_start_index, page_end_index, chunk_xml
+    yield start_idx, end_idx, chunk_xml
 
 def _parse_page_indexes(citation: Element) -> list[int]:
   content = citation.get("idx")

@@ -14,7 +14,7 @@ from pdf_craft.analyser.llm import LLM
 
 
 def main():
-  pdf_file = os.path.join(__file__, "..", "..", "tests", "assets", "index.pdf")
+  pdf_file = os.path.join(__file__, "..", "..", "tests", "assets", "figure-caption.pdf")
   pdf_file = os.path.abspath(pdf_file)
   # pdf_file = "/Users/taozeyu/Downloads/中国古代农业.pdf"
   model_dir_path = _project_dir_path("models")

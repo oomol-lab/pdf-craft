@@ -43,20 +43,20 @@ class SecondaryAnalyser:
     self._pages.sort(key=lambda p: p.page_index)
 
   def analyse_citations(self, output_dir_path: str, request_max_tokens: int, tail_rate: float):
-    for page_start_index, page_end_index, chunk_xml in analyse_citations(
+    for start_idx, end_idx, chunk_xml in analyse_citations(
       llm=self._llm,
       pages=self._pages,
       request_max_tokens=request_max_tokens,
       tail_rate=tail_rate,
     ):
-      file_name = f"chunk_{page_start_index + 1}_{page_end_index + 1}.xml"
+      file_name = f"chunk_{start_idx + 1}_{end_idx + 1}.xml"
       file_path = os.path.join(output_dir_path, file_name)
 
       with open(file_path, "wb") as file:
         file.write(tostring(chunk_xml, encoding="utf-8"))
 
   def analyse_chapters(self, citations_dir_path: str, output_dir_path: str, request_max_tokens: int, gap_rate: float):
-    for page_start_index, page_end_index, chunk_xml in analyse_chapters(
+    for start_idx, end_idx, chunk_xml in analyse_chapters(
       llm=self._llm,
       pages=self._pages,
       index=self._index,
@@ -64,7 +64,7 @@ class SecondaryAnalyser:
       request_max_tokens=request_max_tokens,
       gap_rate=gap_rate,
     ):
-      file_name = f"chunk_{page_start_index + 1}_{page_end_index + 1}.xml"
+      file_name = f"chunk_{start_idx + 1}_{end_idx + 1}.xml"
       file_path = os.path.join(output_dir_path, file_name)
 
       with open(file_path, "wb") as file:
