@@ -51,21 +51,13 @@ def preliminary_analyse(llm: LLM, page_dir_path: str, assets_dir_path: str, bloc
   raw_data = tostring(raw_page_xml, encoding="unicode")
   response = llm.request("index", raw_data, {})
   response_root: Element = _process_response_page_xml(response)
+
   start_page_index = min(i + 1 for i, _ in index_pages)
   end_page_index = max(i + 1 for i, _ in index_pages)
   file_path = os.path.join(page_dir_path, f"index_{start_page_index}_{end_page_index}.xml")
 
   with open(file_path, "wb") as file:
     file.write(tostring(response_root, encoding="utf-8"))
-
-def _process_response_page_xml(response: str) -> Element:
-  response = re.sub(r"^```XML", "", response)
-  response = re.sub(r"```$", "", response)
-  try:
-    return fromstring(response.replace("&", "&amp;"))
-  except Exception as e:
-    print(response)
-    raise e
 
 def _transform_page_xml(blocks: list[Block]) -> Element:
   root = Element("page")
@@ -101,7 +93,17 @@ def _transform_page_xml(blocks: list[Block]) -> Element:
         caption_dom = Element(f"{tag_name}-caption")
         _extends_line_doms(caption_dom, block.texts)
         root.append(caption_dom)
+
   return root
+
+def _process_response_page_xml(response: str) -> Element:
+  response = re.sub(r"^```XML", "", response)
+  response = re.sub(r"```$", "", response)
+  try:
+    return fromstring(response.replace("&", "&amp;"))
+  except Exception as e:
+    print(response)
+    raise e
 
 def _extends_line_doms(parent: Element, texts: list[Text]):
   for text in texts:
@@ -137,6 +139,7 @@ def _block_image_hash(block: AssetBlock) -> str:
 
 def _handle_asset_tags(parent: Element):
   pre_asset: Element | None = None
+  asset_captions: list[Element] = []
   for child in parent:
     if child.tag not in ASSET_TAGS:
       if child.tag == "citation":
@@ -145,7 +148,10 @@ def _handle_asset_tags(parent: Element):
          child.tag == f"{pre_asset.tag}-caption":
         for caption_child in child:
           pre_asset.append(caption_child)
+        asset_captions.append(child)
       pre_asset = None
     if "hash" in child.attrib:
       pre_asset = child
       yield child.get("hash")
+  for asset_caption in asset_captions:
+    parent.remove(asset_caption)

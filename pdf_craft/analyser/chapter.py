@@ -56,7 +56,6 @@ def analyse_chapters(
     response = llm.request("chapter", raw_data, llm_params)
 
     # TODO: page-index 统统改为 idx 以节约空间
-    # TODO: 11 页的图片 caption 内容没有扫描进去
     # print("response", response)
 
     response_xml = encode_response(response)
