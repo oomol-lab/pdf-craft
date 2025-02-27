@@ -27,6 +27,10 @@ def analyse_chapters(
   if data_max_tokens <= 0:
     raise ValueError(f"Request max tokens is too small (less than system prompt tokens count {prompt_tokens})")
 
+  # TODO: 构建 summary class 用 spacy 循环删掉第一句话，以强行将它的范围限定在特定 tokens 数之内。
+  #       LLM 的总结有时候会出问题，多次循环后 summary 就不变了。
+  summary: str | None = None
+
   for task_group in group(
     max_tokens=data_max_tokens,
     gap_rate=gap_rate,
@@ -51,6 +55,11 @@ def analyse_chapters(
         element.append(citation)
       raw_pages_root.append(element)
 
+    if summary is not None:
+      summary_xml = Element("summary")
+      summary_xml.text = summary
+      raw_pages_root.append(summary_xml)
+
     asset_matcher = AssetMatcher().register_raw_xml(raw_pages_root)
     response = llm.request("chapter", raw_pages_root, llm_params)
 
@@ -66,6 +75,7 @@ def analyse_chapters(
     content_xml = Element("content")
     chunk_xml.append(abstract_xml)
     chunk_xml.append(content_xml)
+    summary = abstract_xml.text
 
     for child in response_xml.find("content"):
       page_indexes = [
