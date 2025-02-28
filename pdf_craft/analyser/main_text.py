@@ -8,7 +8,7 @@ from .splitter import group, get_pages_range, allocate_segments, get_and_clip_pa
 from .asset_matcher import AssetMatcher
 from .utils import read_xml_files, encode_response
 
-def analyse_chapters(
+def analyse_main_texts(
     llm: LLM,
     pages: list[PageInfo],
     index: IndexInfo | None,
@@ -20,7 +20,7 @@ def analyse_chapters(
   llm_params: dict[str, Any] = {
     "index": index.text if index is not None else "",
   }
-  prompt_tokens = llm.prompt_tokens_count("chapter", llm_params)
+  prompt_tokens = llm.prompt_tokens_count("main_text", llm_params)
   data_max_tokens = request_max_tokens - prompt_tokens
   citations = _CitationLoader(citations_dir_path)
 
@@ -61,7 +61,7 @@ def analyse_chapters(
       raw_pages_root.append(summary_xml)
 
     asset_matcher = AssetMatcher().register_raw_xml(raw_pages_root)
-    response = llm.request("chapter", raw_pages_root, llm_params)
+    response = llm.request("main_text", raw_pages_root, llm_params)
 
     response_xml = encode_response(response)
     start_idx, end_idx = get_pages_range(page_xml_list)

@@ -18,12 +18,12 @@ def main():
     dir_path=dir_path,
   )
   citations_dir_path = os.path.join(dir_path, "citations")
-  output_dir_path = os.path.join(__file__, "..", "..", "output", "chapters")
+  output_dir_path = os.path.join(__file__, "..", "..", "output", "main_texts")
   output_dir_path = os.path.abspath(output_dir_path)
   shutil.rmtree(output_dir_path, ignore_errors=True)
   os.makedirs(output_dir_path)
 
-  analyser.analyse_chapters(
+  analyser.analyse_main_texts(
     citations_dir_path, output_dir_path, 11500, 0.1,
   )
 
