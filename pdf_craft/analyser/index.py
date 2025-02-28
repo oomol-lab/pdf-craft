@@ -99,7 +99,7 @@ class Index:
         continue
       chapters.append(Chapter(
         id=0,
-        headline=re.sub(r"\s+", " ", headline.text).strip(),
+        headline=self._normalize_headline(headline.text),
         children=self._parse_chapters(children) if children is not None else [],
       ))
     return chapters
@@ -130,15 +130,21 @@ class Index:
       buffer.write("\n")
 
   @property
-  def stack(self) -> list[Chapter]:
+  def stack(self) -> str:
+    if self._stack is None:
+      return ""
     chapter = self._root
-    stack: list[Chapter] = []
+    buffer = StringIO()
     for index in self._stack:
       chapter = chapter.children[index]
-      stack.append(chapter)
-    return stack
+      buffer.write("- ")
+      buffer.write(chapter.headline)
+      buffer.write("\n")
+    return buffer.getvalue()
 
   def identify_chapter(self, headline: str, level: int) -> Chapter | None:
+    headline = self._normalize_headline(headline)
+
     for chapter, chapter_stack in self._search_from_stack(self._stack):
       # level of PREFACES & CHAPTERS is 0
       chapter_level = len(chapter_stack) - 1
@@ -205,3 +211,6 @@ class Index:
         return True
       else:
         return False
+
+  def _normalize_headline(self, headline: str) -> str:
+    return re.sub(r"\s+", " ", headline).strip()

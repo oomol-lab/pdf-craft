@@ -12,6 +12,7 @@ def main():
   for template_name in ("main_text", "citation", "preliminary", "index"):
     tokens = llm.prompt_tokens_count(template_name, {
       "index": "",
+      "stack": "",
     })
     print(template_name, tokens)
 
