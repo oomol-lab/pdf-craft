@@ -4,7 +4,6 @@ from typing import Iterable, Generator
 from xml.etree.ElementTree import fromstring, Element
 from .llm import LLM
 from .types import PageInfo, TextInfo, TextIncision
-from .index import Index
 from .splitter import group, get_pages_range, allocate_segments, get_and_clip_pages
 from .asset_matcher import AssetMatcher
 from .utils import read_xml_files, encode_response
@@ -12,7 +11,6 @@ from .utils import read_xml_files, encode_response
 def analyse_main_texts(
     llm: LLM,
     pages: list[PageInfo],
-    index: Index | None,
     citations_dir_path: str,
     request_max_tokens: int, # TODO: not includes tokens of citations
     gap_rate: float,
@@ -91,9 +89,6 @@ def analyse_main_texts(
     citation_xml = _collect_citations_and_reallocate_ids(raw_pages_root, chunk_xml)
     if citation_xml is not None:
       chunk_xml.append(citation_xml)
-
-    if index is not None:
-      index.mark_ids_for_headlines(llm, content_xml)
 
     yield start_idx, end_idx, chunk_xml
 
