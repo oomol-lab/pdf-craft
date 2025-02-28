@@ -3,7 +3,8 @@ import os
 from typing import Any, Iterable, Generator
 from xml.etree.ElementTree import fromstring, Element
 from .llm import LLM
-from .types import PageInfo, TextInfo, TextIncision, IndexInfo
+from .types import PageInfo, TextInfo, TextIncision
+from .index import Index
 from .splitter import group, get_pages_range, allocate_segments, get_and_clip_pages
 from .asset_matcher import AssetMatcher
 from .utils import read_xml_files, encode_response
@@ -11,14 +12,14 @@ from .utils import read_xml_files, encode_response
 def analyse_main_texts(
     llm: LLM,
     pages: list[PageInfo],
-    index: IndexInfo | None,
+    index: Index | None,
     citations_dir_path: str,
     request_max_tokens: int, # TODO: not includes tokens of citations
     gap_rate: float,
   ) -> Generator[tuple[int, int, Element], None, None]:
 
   llm_params: dict[str, Any] = {
-    "index": index.text if index is not None else "",
+    "index": index.markdown if index is not None else "",
   }
   prompt_tokens = llm.prompt_tokens_count("main_text", llm_params)
   data_max_tokens = request_max_tokens - prompt_tokens
