@@ -1,10 +1,9 @@
 import os
 
-from typing import Any, Iterable, Generator
+from typing import Iterable, Generator
 from xml.etree.ElementTree import fromstring, Element
 from .llm import LLM
 from .types import PageInfo, TextInfo, TextIncision
-from .index import Index
 from .splitter import group, get_pages_range, allocate_segments, get_and_clip_pages
 from .asset_matcher import AssetMatcher
 from .utils import read_xml_files, encode_response
@@ -12,17 +11,12 @@ from .utils import read_xml_files, encode_response
 def analyse_main_texts(
     llm: LLM,
     pages: list[PageInfo],
-    index: Index | None,
     citations_dir_path: str,
     request_max_tokens: int, # TODO: not includes tokens of citations
     gap_rate: float,
   ) -> Generator[tuple[int, int, Element], None, None]:
 
-  llm_params: dict[str, Any] = {
-    "index": index.markdown if index is not None else "",
-    "stack": "",
-  }
-  prompt_tokens = llm.prompt_tokens_count("main_text", llm_params)
+  prompt_tokens = llm.prompt_tokens_count("main_text", {})
   data_max_tokens = request_max_tokens - prompt_tokens
   citations = _CitationLoader(citations_dir_path)
 
@@ -62,11 +56,8 @@ def analyse_main_texts(
       summary_xml.text = summary
       raw_pages_root.append(summary_xml)
 
-    if index is not None:
-      llm_params["stack"] = index.stack
-
     asset_matcher = AssetMatcher().register_raw_xml(raw_pages_root)
-    response = llm.request("main_text", raw_pages_root, llm_params)
+    response = llm.request("main_text", raw_pages_root, {})
 
     response_xml = encode_response(response)
     start_idx, end_idx = get_pages_range(page_xml_list)
@@ -98,23 +89,6 @@ def analyse_main_texts(
     citation_xml = _collect_citations_and_reallocate_ids(raw_pages_root, chunk_xml)
     if citation_xml is not None:
       chunk_xml.append(citation_xml)
-
-    for child in content_xml:
-      if child.tag == "headline":
-        level = child.get("level")
-        idx = child.get("idx")
-        child.attrib = {}
-
-        if level is not None:
-          chapter = index.identify_chapter(
-            headline=child.text,
-            level=int(level),
-          )
-          if chapter is not None:
-            child.set("id", str(chapter.id))
-
-        if idx is not None:
-          child.set("idx", idx)
 
     yield start_idx, end_idx, chunk_xml
 

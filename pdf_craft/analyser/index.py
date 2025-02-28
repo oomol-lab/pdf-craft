@@ -1,11 +1,14 @@
 from __future__ import annotations
 
 import re
+import json
 
 from io import StringIO
 from typing import Generator
 from dataclasses import dataclass
 from xml.etree.ElementTree import Element
+from .llm import LLM
+from .utils import encode_response
 
 
 _SYMBOLS = ("*", "+", "-")
@@ -104,6 +107,70 @@ class Index:
       ))
     return chapters
 
+  def mark_ids_for_headlines(self, llm: LLM, content_xml: Element):
+    raw_pages_root = Element("pages")
+    origin_headlines: list[Element] = []
+
+    for child in content_xml:
+      if child.tag == "headline":
+        headline = Element("headline")
+        headline.text = self._normalize_headline(child.text)
+        raw_pages_root.append(headline)
+        origin_headlines.append(child)
+
+    response = llm.request("headline", raw_pages_root, {
+      "index": json.dumps(
+        obj=self._to_json(),
+        ensure_ascii=False,
+        indent=2,
+      ),
+    })
+    for i, headline in enumerate(encode_response(response)):
+      id = headline.get("id")
+      if id is not None and i < len(origin_headlines):
+        origin_headline = origin_headlines[i]
+        origin_headline.set("id", id)
+        origin_headline.text = self._normalize_headline(headline.text)
+
+  def _to_json(self) -> dict:
+    prefaces = self._root.children[0].children
+    chapters = self._root.children[1].children
+
+    if len(prefaces) == 0:
+      return self._json_list(chapters)
+    else:
+      return {
+        "prefaces": self._json_list(prefaces),
+        "chapters": self._json_list(chapters),
+      }
+
+  def _json_list(self, chapters: list[Chapter]) -> list[dict]:
+    return [
+      {
+        "id": str(chapter.id),
+        "headline": chapter.headline,
+        "children": self._json_list(chapter.children),
+      }
+      for chapter in chapters
+    ]
+
+  def identify_chapter(self, headline: str, level: int) -> Chapter | None:
+    headline = self._normalize_headline(headline)
+
+    for chapter, chapter_stack in self._search_from_stack(self._stack):
+      # level of PREFACES & CHAPTERS is 0
+      chapter_level = len(chapter_stack) - 1
+      if level == chapter_level and chapter.headline == headline:
+        self._stack = chapter_stack
+        return chapter
+
+    # there is no other solution, the expedient measure is to ignore the level
+    for _, chapter in self._iter_chapters(self._root.children):
+      if chapter.headline == headline:
+        return chapter
+
+    return None
+
   @property
   def markdown(self) -> str:
     buffer = StringIO()
@@ -128,36 +195,6 @@ class Index:
       buffer.write(" ")
       buffer.write(chapter.headline)
       buffer.write("\n")
-
-  @property
-  def stack(self) -> str:
-    if self._stack is None:
-      return ""
-    chapter = self._root
-    buffer = StringIO()
-    for index in self._stack:
-      chapter = chapter.children[index]
-      buffer.write("- ")
-      buffer.write(chapter.headline)
-      buffer.write("\n")
-    return buffer.getvalue()
-
-  def identify_chapter(self, headline: str, level: int) -> Chapter | None:
-    headline = self._normalize_headline(headline)
-
-    for chapter, chapter_stack in self._search_from_stack(self._stack):
-      # level of PREFACES & CHAPTERS is 0
-      chapter_level = len(chapter_stack) - 1
-      if level == chapter_level and chapter.headline == headline:
-        self._stack = chapter_stack
-        return chapter
-
-    # there is no other solution, the expedient measure is to ignore the level
-    for _, chapter in self._iter_chapters(self._root.children):
-      if chapter.headline == headline:
-        return chapter
-
-    return None
 
   def reset_stack_with_chapter(self, chapter: Chapter):
     for found_chapter, stack in self._search_from_stack(None):

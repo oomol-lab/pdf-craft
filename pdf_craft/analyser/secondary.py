@@ -1,4 +1,5 @@
 import os
+import shutil
 
 from typing import Iterable
 from xml.etree.ElementTree import tostring, Element
@@ -11,9 +12,16 @@ from .utils import read_xml_files
 
 
 class SecondaryAnalyser:
-  def __init__(self, llm: LLM, dir_path: str):
+  def __init__(
+      self,
+      llm: LLM,
+      dir_path: str,
+    ):
     self._llm: LLM = llm
     self._assets_dir_path = os.path.join(dir_path, "assets")
+    self._citations_dir_path = os.path.join(dir_path, "citations")
+    self._main_texts_dir_path = os.path.join(dir_path, "main_texts")
+
     self._pages: list[PageInfo] = []
     self._index: Index | None = None
 
@@ -36,7 +44,9 @@ class SecondaryAnalyser:
 
     self._pages.sort(key=lambda p: p.page_index)
 
-  def analyse_citations(self, output_dir_path: str, request_max_tokens: int, tail_rate: float):
+  def analyse_citations(self, request_max_tokens: int, tail_rate: float):
+    output_dir_path = self._prepare_output_path(self._citations_dir_path)
+
     for start_idx, end_idx, chunk_xml in analyse_citations(
       llm=self._llm,
       pages=self._pages,
@@ -49,15 +59,20 @@ class SecondaryAnalyser:
       with open(file_path, "wb") as file:
         file.write(tostring(chunk_xml, encoding="utf-8"))
 
-  def analyse_main_texts(self, citations_dir_path: str, output_dir_path: str, request_max_tokens: int, gap_rate: float):
+  def analyse_main_texts(self, request_max_tokens: int, gap_rate: float):
+    output_dir_path = self._prepare_output_path(self._main_texts_dir_path)
+
     for start_idx, end_idx, chunk_xml in analyse_main_texts(
       llm=self._llm,
       pages=self._pages,
-      index=self._index,
-      citations_dir_path=citations_dir_path,
+      citations_dir_path=self._citations_dir_path,
       request_max_tokens=request_max_tokens,
       gap_rate=gap_rate,
     ):
+      if self._index is not None:
+        content_xml = chunk_xml.find("content")
+        self._index.mark_ids_for_headlines(self._llm, content_xml)
+
       file_name = f"chunk_{start_idx + 1}_{end_idx + 1}.xml"
       file_path = os.path.join(output_dir_path, file_name)
 
@@ -127,3 +142,7 @@ class SecondaryAnalyser:
     else:
       return TextIncision.UNCERTAIN
 
+  def _prepare_output_path(self, path: str) -> str:
+    shutil.rmtree(path, ignore_errors=True)
+    os.makedirs(path)
+    return path
