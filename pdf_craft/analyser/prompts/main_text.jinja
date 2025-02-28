@@ -127,11 +127,11 @@ page 的子节点（二级子节点）按顺序展示书页中的不同类型的
 <pages>
   <page idx="1">
     <headline>
-      <line>下篇各</line>
+      <line>各</line>
       <line>论</line>
     </headline>
     <headline>
-      <line>第⼀章三个独特类型的丹药⽅剂</line>
+      <line>三个独特类型的丹药⽅剂</line>
     </headline>
     <text>
       <line>丹药中有三个最突出的类型就是氯化汞、硫化汞和氧化汞，</line>
@@ -156,7 +156,7 @@ page 的子节点（二级子节点）按顺序展示书页中的不同类型的
 </pages>
 ```
 
-你转换后的输出的内容应该如下：
+你的输出的内容应该如下：
 ```XML
 <response>
   <abstract>
@@ -164,8 +164,9 @@ page 的子节点（二级子节点）按顺序展示书页中的不同类型的
   <content>
     <headline level="1">下篇 各论</headline>
     <headline level="2">第⼀章 三个独特类型的丹药⽅剂</headline>
-    <headline>丹药中有三个最突出的类型就是氯化汞、硫化汞和氧化汞，现把这三类典型⽅剂⾸先分别加以记述，然后再及其他。</text>
-    <head level="3">（甲）属于氯化汞⽅⾯的丹药⽅剂</headline>
+    <text>丹药中有三个最突出的类型就是氯化汞、硫化汞和氧化汞，现把这三类典型⽅剂⾸先分别加以记述，然后再及其他。</text>
+    <headline level="3">
+      （甲）属于氯化汞⽅⾯的丹药⽅剂</headline>
     <text>氯化汞的发现史：氯化汞包括“轻粉”与“粉霜”两种，轻粉质轻，粉霜质重。从⽂献上看，我国远在⻄晋以前就有了氯化汞（HgCI）的制造。</text>
     <headline>（⼀）轻粉 HgxCh</headline>
     <text>“轻粉”⼜名“⽔银粉”，在提炼⽔银时升于炉盖上的附着物即是⽔银粉。</text>
@@ -177,8 +178,14 @@ page 的子节点（二级子节点）按顺序展示书页中的不同类型的
 ```markdown
 {{ index }}
 ```
-
+{% if stack != "" %}
+在用户上一次提交的数据（你这次无法查看），你曾做出判断，在提交文本的最后的章节如下（按层级从浅到深为）：
+```markdown
+{{ stack }}
+```
 {% endif %}
+{% endif %}
+
 
 ## 修复 OCR 识别错误
 
