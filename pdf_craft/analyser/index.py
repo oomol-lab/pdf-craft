@@ -54,22 +54,39 @@ class Index:
     ):
     self._start_page_index: int = start_page_index
     self._end_page_index: int = end_page_index
-    self._stack: list[int] = []
+    self._root: Chapter = self._create_root(chapters, prefaces)
+    self._stack: list[int] | None = None
 
-    self._chapters: list[Chapter] = self._parse_chapters(chapters)
-    self._prefaces: list[Chapter] = []
+  def _create_root(self, chapters: Element, prefaces: Element | None) -> Chapter:
+    next_id: int = 0
+    chapters: list[Chapter] = self._parse_chapters(chapters)
+    prefaces: list[Chapter]
     if prefaces is not None:
-      self._prefaces = self._parse_chapters(prefaces)
+      prefaces = self._parse_chapters(prefaces)
+    else:
+      prefaces = []
 
-    self._root: Chapter = Chapter(
+    root: Chapter = Chapter(
       id=0,
       headline="ROOT",
-      children=[self._prefaces, self._chapters],
+      children=[
+        Chapter(
+          id=0,
+          headline="PREFACES",
+          children=prefaces,
+        ),
+        Chapter(
+          id=0,
+          headline="CHAPTERS",
+          children=chapters,
+        )
+      ],
     )
-    next_id: int = 0
-    for _, chapter in self._iter_chapters(self._root):
+    for _, chapter in self._iter_chapters(root.children):
       chapter.id = next_id
       next_id += 1
+
+    return root
 
   def _parse_chapters(self, parent: Element) -> list[Chapter]:
     chapters: list[Chapter] = []
@@ -90,14 +107,17 @@ class Index:
   @property
   def markdown(self) -> str:
     buffer = StringIO()
-    if len(self._prefaces) == 0:
-      self._write_markdown(buffer, self._chapters)
+    prefaces = self._root.children[0].children
+    chapters = self._root.children[1].children
+
+    if len(prefaces) == 0:
+      self._write_markdown(buffer, chapters)
     else:
       buffer.write("### Prefaces\n\n")
-      self._write_markdown(buffer, self._prefaces)
+      self._write_markdown(buffer, prefaces)
       buffer.write("\n")
       buffer.write("### Chapters\n\n")
-      self._write_markdown(buffer, self._chapters)
+      self._write_markdown(buffer, chapters)
     return buffer.getvalue()
 
   def _write_markdown(self, buffer: StringIO, chapters: list[Chapter]):
@@ -120,23 +140,25 @@ class Index:
 
   def identify_chapter(self, headline: str, level: int) -> Chapter | None:
     for chapter, chapter_stack in self._search_from_stack(self._stack):
-      if level == len(chapter_stack) and chapter.headline == headline:
+      # level of PREFACES & CHAPTERS is 0
+      chapter_level = len(chapter_stack) - 1
+      if level == chapter_level and chapter.headline == headline:
         self._stack = chapter_stack
         return chapter
 
     # there is no other solution, the expedient measure is to ignore the level
-    for _, chapter in self._iter_chapters(self._root):
+    for _, chapter in self._iter_chapters(self._root.children):
       if chapter.headline == headline:
         return chapter
 
     return None
 
   def reset_stack_with_chapter(self, chapter: Chapter):
-    for found_chapter, stack in self._search_from_stack([]):
+    for found_chapter, stack in self._search_from_stack(None):
       if found_chapter.id == chapter.id:
         self._stack = stack
         return
-    raise ValueError("The chapter is not found in the index")
+    self._stack = None
 
   def _iter_chapters(self, chapters: list[Chapter], deep: int = 0) -> Generator[tuple[int, Chapter], None, None]:
     for chapter in chapters:
@@ -144,7 +166,9 @@ class Index:
       yield from self._iter_chapters(chapter.children, deep + 1)
 
   # start traversing the tree in pre-order from the current position of the stack
-  def _search_from_stack(self, stack: list[int]) -> Generator[tuple[Chapter, list[int]], None, None]:
+  def _search_from_stack(self, stack: list[int] | None) -> Generator[tuple[Chapter, list[int]], None, None]:
+    if stack is None:
+      stack = [0]
     chapter: Chapter = self._root
     chapters_stack: list[tuple[int, Chapter]] = []
     for index in stack:
@@ -160,19 +184,24 @@ class Index:
         if not move_success:
           return
       _, chapter = chapters_stack[-1]
-      yield chapter, [i for i, _ in chapters_stack]
+
+      # skip PREFACES & CHAPTERS
+      if len(chapters_stack) > 1:
+        yield chapter, [i for i, _ in chapters_stack]
 
   # @return True if has next
   def _move_to_next(self, stack: list[tuple[int, Chapter]]) -> bool:
     while True:
       index, _ = stack.pop()
       index += 1
-      if len(stack) == 0:
+      if len(stack) > 0:
+        _, parent = stack[-1]
+        if index >= len(parent.children):
+          continue
+        stack.append((index, parent.children[index]))
+        return True
+      elif index < len(self._root.children):
+        stack.append((index, self._root.children[index]))
+        return True
+      else:
         return False
-
-      _, parent = stack[-1]
-      if index >= len(parent.children):
-        continue
-
-      stack.append((index, parent.children[index]))
-      return True
