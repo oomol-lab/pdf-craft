@@ -130,6 +130,29 @@ class Index:
       buffer.write("\n")
 
   @property
+  def json(self) -> dict:
+    prefaces = self._root.children[0].children
+    chapters = self._root.children[1].children
+
+    if len(prefaces) == 0:
+      return self._json_list(chapters)
+    else:
+      return {
+        "prefaces": self._json_list(prefaces),
+        "chapters": self._json_list(chapters),
+      }
+
+  def _json_list(self, chapters: list[Chapter]) -> list[dict]:
+    return [
+      {
+        "id": str(chapter.id),
+        "headline": chapter.headline,
+        "children": self._json_list(chapter.children),
+      }
+      for chapter in chapters
+    ]
+
+  @property
   def stack(self) -> str:
     if self._stack is None:
       return ""

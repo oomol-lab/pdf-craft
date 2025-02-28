@@ -1,4 +1,5 @@
 import os
+import json
 
 from typing import Any, Iterable, Generator
 from xml.etree.ElementTree import fromstring, Element
@@ -18,10 +19,13 @@ def analyse_main_texts(
     gap_rate: float,
   ) -> Generator[tuple[int, int, Element], None, None]:
 
-  llm_params: dict[str, Any] = {
-    "index": index.markdown if index is not None else "",
-    "stack": "",
-  }
+  llm_params: dict[str, Any] = { "index": "", "stack": "" }
+  if index is not None:
+    llm_params["index"] = json.dumps(
+      obj=index.json,
+      ensure_ascii=False,
+      indent=2,
+    )
   prompt_tokens = llm.prompt_tokens_count("main_text", llm_params)
   data_max_tokens = request_max_tokens - prompt_tokens
   citations = _CitationLoader(citations_dir_path)
@@ -99,22 +103,22 @@ def analyse_main_texts(
     if citation_xml is not None:
       chunk_xml.append(citation_xml)
 
-    for child in content_xml:
-      if child.tag == "headline":
-        level = child.get("level")
-        idx = child.get("idx")
-        child.attrib = {}
+    # for child in content_xml:
+    #   if child.tag == "headline":
+    #     level = child.get("level")
+    #     idx = child.get("idx")
+    #     child.attrib = {}
 
-        if level is not None:
-          chapter = index.identify_chapter(
-            headline=child.text,
-            level=int(level),
-          )
-          if chapter is not None:
-            child.set("id", str(chapter.id))
+    #     if level is not None:
+    #       chapter = index.identify_chapter(
+    #         headline=child.text,
+    #         level=int(level),
+    #       )
+    #       if chapter is not None:
+    #         child.set("id", str(chapter.id))
 
-        if idx is not None:
-          child.set("idx", idx)
+    #     if idx is not None:
+    #       child.set("idx", idx)
 
     yield start_idx, end_idx, chunk_xml
 
