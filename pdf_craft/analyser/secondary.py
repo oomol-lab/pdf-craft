@@ -7,7 +7,7 @@ from xml.etree.ElementTree import tostring, Element
 from .types import PageInfo, TextInfo, TextIncision, IndexInfo
 from .llm import LLM
 from .citation import analyse_citations
-from .chapter import analyse_chapters
+from .main_text import analyse_main_texts
 from .utils import read_xml_files
 
 
@@ -55,8 +55,8 @@ class SecondaryAnalyser:
       with open(file_path, "wb") as file:
         file.write(tostring(chunk_xml, encoding="utf-8"))
 
-  def analyse_chapters(self, citations_dir_path: str, output_dir_path: str, request_max_tokens: int, gap_rate: float):
-    for start_idx, end_idx, chunk_xml in analyse_chapters(
+  def analyse_main_texts(self, citations_dir_path: str, output_dir_path: str, request_max_tokens: int, gap_rate: float):
+    for start_idx, end_idx, chunk_xml in analyse_main_texts(
       llm=self._llm,
       pages=self._pages,
       index=self._index,
