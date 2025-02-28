@@ -112,7 +112,7 @@ class TestGroup(unittest.TestCase):
     self.assertEqual(chapter.headline, second="后记")
     self.assertEqual(chapter.id, 16)
 
-def _index_xml(prefaces: Iterable[Element] = [], chapters: Iterable[Element] = []) -> Element:
+def _index_xml(prefaces: Iterable[Element], chapters: Iterable[Element]) -> Element:
   index_xml = Element("index")
   if len(prefaces) > 0:
     prefaces_xml = Element("prefaces")
