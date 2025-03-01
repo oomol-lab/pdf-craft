@@ -25,7 +25,7 @@ class Serial:
 class Citation:
   id: int
   label: str
-  text: Element #TODO: should be texts
+  content: list[Element]
   str_text: str
 
 class Citations:
@@ -41,8 +41,8 @@ class Citations:
     return self._refs[id][1]
 
   # deduplication: will return citation with different id if the citation is already in the list
-  def ref(self, id: int, label: str, text: Element) -> Citation:
-    str_text = tostring(text, encoding="unicode")
+  def ref(self, id: int, label: str, content: list[Element]) -> Citation:
+    str_text = "".join(tostring(e, encoding="unicode") for e in content)
     for count, citation in self._refs.values():
       if citation.label != label or citation.str_text != str_text:
         continue
@@ -51,7 +51,7 @@ class Citations:
 
     if id in self._refs:
       id = self._max_id + 1
-    citation = Citation(id, label, text, str_text)
+    citation = Citation(id, label, content, str_text)
     self._refs[id] = (1, citation)
     self._max_id = max(self._max_id, id)
 
@@ -124,7 +124,7 @@ class _Deduplication:
           deduplicated_citation = serial.citations.ref(
             id=id,
             label=citation.label,
-            text=citation.text,
+            content=citation.content,
           )
           if id != deduplicated_citation.id:
             ref.set("id", str(deduplicated_citation.id))
@@ -238,10 +238,19 @@ class _Deduplication:
 
     if citations_xml is not None:
       id = int(citations_xml.get("id"))
+      label_xml: Element | None = None
+      content: list[Element] = []
+      for child in citations_xml:
+        if child.tag == "label":
+          label_xml = child
+        else:
+          content.append(child)
+
+      assert label_xml is not None, "Citation must have a label"
       citation = citations.ref(
         id=id,
-        label=citations_xml.find("label").text,
-        text=citations_xml.find("text"),
+        label=label_xml.text,
+        content=content,
       )
       if citation.id != id: # be deduplicated
         citations_xml.set("id", str(citation.id))
