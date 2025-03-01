@@ -4,14 +4,22 @@ import re
 from typing import Iterable, Generator
 from xml.etree.ElementTree import fromstring, Element
 
+def normalize_xml_text(xml_text: str) -> str:
+  return re.sub(r"\s+", " ", xml_text).strip()
+
 def read_xml_files(dir_path: str, enable_kinds: Iterable[str]) -> Generator[tuple[Element, str, str, int, int], None, None]:
-  for file_name in os.listdir(dir_path):
+  for file_name, kind, index1, index2 in read_files(dir_path, enable_kinds):
     file_path = os.path.join(dir_path, file_name)
+    with open(file_path, "r", encoding="utf-8") as file:
+      root = fromstring(file.read())
+      yield root, file_name, kind, index1, index2
+
+def read_files(dir_path: str, enable_kinds: Iterable[str]) -> Generator[tuple[str, str, int, int], None, None]:
+  for file_name in os.listdir(dir_path):
     matches = re.match(r"^[a-zA-Z]+_\d+(_\d+)?\.xml$", file_name)
     if not matches:
       continue
 
-    root: Element
     kind: str
     index1: str
     index2: str = "-1"
@@ -25,10 +33,19 @@ def read_xml_files(dir_path: str, enable_kinds: Iterable[str]) -> Generator[tupl
     if kind not in enable_kinds:
       continue
 
-    with open(file_path, "r", encoding="utf-8") as file:
-      root = fromstring(file.read())
+    yield file_name, kind, int(index1), int(index2)
 
-    yield root, file_name, kind, int(index1), int(index2)
+def search_xml_children(parent: Element) -> Generator[Element, None, None]:
+  for child in parent:
+    yield child
+    yield from search_xml_children(child)
+
+def parse_page_indexes(element: Element) -> list[int]:
+  idx = element.get("idx")
+  if idx is None:
+    return []
+  else:
+    return [int(i) - 1 for i in idx.split(",")]
 
 def encode_response(response: str) -> Element:
   matches = re.findall(r"<response>.*</response>", response, re.DOTALL)

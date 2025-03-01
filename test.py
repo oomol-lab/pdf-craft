@@ -3,7 +3,7 @@ import unittest
 try:
   loader = unittest.TestLoader()
   suite = loader.discover(
-    # pattern="test_index.py",
+    # pattern="test_serial.py",
     start_dir="tests",
   )
   runner = unittest.TextTestRunner()
