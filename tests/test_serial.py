@@ -3,8 +3,9 @@ import unittest
 
 from typing import cast, Any
 from xml.etree.ElementTree import tostring, Element
-from pdf_craft.analyser.serial import serials
+from pdf_craft.analyser.serial import serials, Serial
 from pdf_craft.analyser.llm import LLM
+from pdf_craft.analyser.utils import search_xml_children
 
 
 class TextSerial(unittest.TestCase):
@@ -46,6 +47,21 @@ class TextSerial(unittest.TestCase):
       )],
     )
     self.assertListEqual(
+      list(_parse_citations(serial1)),
+      [
+        (1, "(1)", [
+          '<text>“真正人道主义”的概念是J.桑普汉在《光明》报58期发表的一篇文章（参见《新评论》杂志1965年'
+          '3月164期）的基本论据，也是从马克思青年时期著作中借用的一个概念。</text>',
+        ]),
+        (2, "(23)", [
+          '<text>马克思：《政治经济学批判导言》，见《马克思恩格斯选集》中文版第二卷第104页。</text>',
+        ]),
+        (3, "(24)", [
+          '<text>这种比较是有根据的，因为这两种不同的实践都具有实践的一般本质。</text>',
+        ]),
+      ],
+    )
+    self.assertListEqual(
       [tostring(e, encoding="unicode") for e in serial2.main_texts],
       [(
         '<text> 思辨通过抽象颠倒了事物的顺序，把抽象概念的自生过程当成了具体实在的自生过程。马克思在'
@@ -54,7 +70,29 @@ class TextSerial(unittest.TestCase):
         '的卓越批判中作出了更好的阐述和批判。</text>'
       )],
     )
-    # TODO: test citations
+    self.assertListEqual(
+      list(_parse_citations(serial2)),
+      [
+        (1, "(25)", [
+          '<text>《神圣家族》写于1844年。</text>',
+          '<figure hash="FOOBAR">《德意志意识形态》（1845）和《哲学的贫困》（1847）再次谈到这个问题。</figure>',
+        ]),
+      ],
+    )
+
+def _parse_citations(serial: Serial):
+  ids: list[int] = []
+  for element in serial.main_texts:
+    for child in search_xml_children(element):
+      if child.tag != "ref":
+        continue
+      id = int(child.get("id"))
+      ids.append(id)
+
+  for id in sorted(ids):
+    citation = serial.citations.get(id)
+    citation.label
+    yield id, citation.label, [tostring(e, encoding="unicode") for e in citation.content]
 
 class _FakeLLM:
   def request(self, template_name: str, xml_data: Element, params: dict[str, Any]) -> str:

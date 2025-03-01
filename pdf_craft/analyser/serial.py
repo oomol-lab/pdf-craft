@@ -85,7 +85,7 @@ class _Deduplication:
         start_idx=index1 - 1,
         end_idx=index2 - 1,
         index=-1,
-        buffer=None,
+        serial=None,
       )
       for file_name, _, index1, index2 in read_files(
         dir_path=chunks_path,
@@ -100,8 +100,8 @@ class _Deduplication:
     for index, chunk in enumerate(self._chunks):
       serial = self._load_serial_and_deduplicate(index, chunk)
       chunk.serial = None
-      for text in serial.main_texts:
-        self._clean_all_idx_attr(text)
+      for child in serial.main_texts:
+        self._clean_all_idx_attr(child)
       for citation in serial.citations:
         self._clean_all_idx_attr(citation.text)
       if serial is not None:
@@ -225,8 +225,8 @@ class _Deduplication:
     with open(file_path, "r", encoding="utf-8") as file:
       chunk_xml = fromstring(file.read())
 
+    content_xml = chunk_xml.find("content")
     if self._index is not None:
-      content_xml = chunk_xml.find("content")
       self._index.mark_ids_for_headlines(self._llm, content_xml)
 
     main_texts: list[Element] = []
@@ -237,23 +237,24 @@ class _Deduplication:
     citations = Citations()
 
     if citations_xml is not None:
-      id = int(citations_xml.get("id"))
-      label_xml: Element | None = None
-      content: list[Element] = []
-      for child in citations_xml:
-        if child.tag == "label":
-          label_xml = child
-        else:
-          content.append(child)
+      for citation_xml in citations_xml:
+        id = int(citation_xml.get("id"))
+        label_xml: Element | None = None
+        content: list[Element] = []
+        for child in citation_xml:
+          if child.tag == "label":
+            label_xml = child
+          else:
+            content.append(child)
 
-      assert label_xml is not None, "Citation must have a label"
-      citation = citations.ref(
-        id=id,
-        label=label_xml.text,
-        content=content,
-      )
-      if citation.id != id: # be deduplicated
-        citations_xml.set("id", str(citation.id))
+        assert label_xml is not None, "Citation must have a label"
+        citation = citations.ref(
+          id=id,
+          label=label_xml.text,
+          content=content,
+        )
+        if citation.id != id: # be deduplicated
+          citation_xml.set("id", str(citation.id))
 
     return Serial(main_texts, citations)
 
