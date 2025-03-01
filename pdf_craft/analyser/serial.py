@@ -100,12 +100,8 @@ class _Deduplication:
     for index, chunk in enumerate(self._chunks):
       serial = self._load_serial_and_deduplicate(index, chunk)
       chunk.serial = None
-      for child in serial.main_texts:
-        self._clean_all_idx_attr(child)
-      for citation in serial.citations:
-        self._clean_all_idx_attr(citation.text)
       if serial is not None:
-        yield serial
+        yield self._clean_all_idx_attr_with_serial(serial)
 
   def _load_serial_and_deduplicate(self, index: int, chunk: _Chunk) -> Serial | None:
     serial = self._load_serial(chunk)
@@ -137,8 +133,7 @@ class _Deduplication:
 
   def _find_duplicated_texts_from_serials(self, text: Element, index: int):
     ban_max_index = index - 1 # the processed index cannot be processed again
-    search_indexes = [i for i in parse_page_indexes(text) if i != index]
-    search_indexes.sort()
+    search_indexes = self._chunk_indexes_with_text(text, index)
 
     while len(search_indexes) > 0:
       next_index = search_indexes.pop(0)
@@ -149,7 +144,7 @@ class _Deduplication:
         # and the process must be interrupted (this will not happen under every thing is OK)
         break
 
-      next_indexes = [i for i in parse_page_indexes(first_text) if i != next_index]
+      next_indexes = self._chunk_indexes_with_text(first_text, next_index)
       if index not in next_indexes:
         # This means that the index is not in the same order as the current one.
         # Something must have gone wrong. To be on the safe side, end this operation.
@@ -169,7 +164,7 @@ class _Deduplication:
         search_indexes.sort()
 
       index = next_index
-      ban_max_index = max(index)
+      ban_max_index = max(index, ban_max_index)
 
   def _remove_and_merge_texts_from_serials(self, duplicated: list[tuple[Element, Serial]]):
     citation_matrix: list[dict[int, Citation]] = []
@@ -283,9 +278,29 @@ class _Deduplication:
         id = int(target.get("id"))
         yield id, target
 
+  def _clean_all_idx_attr_with_serial(self, serial: Serial):
+    for child in serial.main_texts:
+      self._clean_all_idx_attr(child)
+    for citation in serial.citations:
+      for child in citation.content:
+        self._clean_all_idx_attr(child)
+    return serial
+
+  def _chunk_indexes_with_text(self, text: Element, expected_chunk_index: int):
+    chunk_indexes: list[int] = []
+    for page_index in parse_page_indexes(text):
+      for chunk_index, chunk in enumerate(self._chunks):
+        if chunk_index != expected_chunk_index and \
+           chunk_index not in chunk_indexes and \
+           chunk.start_idx <= page_index <= chunk.end_idx:
+          chunk_indexes.append(chunk_index)
+    chunk_indexes.sort()
+    return chunk_indexes
+
   def _clean_all_idx_attr(self, element: Element):
     for target in search_xml_children(element):
       target.attrib.pop("idx", None)
+    element.attrib.pop("idx", None)
 
   def _normalize_text(self, headline: str) -> str:
     return re.sub(r"\s+", " ", headline).strip()
