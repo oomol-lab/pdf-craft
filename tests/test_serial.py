@@ -2,6 +2,7 @@ import os
 import unittest
 
 from typing import cast, Any
+from datetime import datetime
 from xml.etree.ElementTree import tostring, Element
 from pdf_craft.analyser.serial import serials, Serial
 from pdf_craft.analyser.llm import LLM
@@ -10,7 +11,9 @@ from pdf_craft.analyser.utils import normalize_xml_text, search_xml_children
 
 class TextSerial(unittest.TestCase):
   def test_spread_page_text(self):
-    return #TODO: Fix this test
+    if datetime.now().second != 0:
+      return # TODO: Fix this test
+
     self.maxDiff = 8192
     chunks_path = os.path.join(__file__, "..", "serial_chunks", "POUR MARX")
     chunks_path = os.path.abspath(chunks_path)
@@ -98,7 +101,6 @@ def _parse_citations(serial: Serial):
 
   for id in sorted(ids):
     citation = serial.citations.get(id)
-    citation.label
     yield id, citation.label, [
       normalize_xml_text(tostring(e, encoding="unicode"))
       for e in citation.content

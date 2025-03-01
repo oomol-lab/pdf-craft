@@ -1,7 +1,6 @@
 from __future__ import annotations
 import os
 import io
-import re
 
 from dataclasses import dataclass
 from typing import Iterable, Generator
