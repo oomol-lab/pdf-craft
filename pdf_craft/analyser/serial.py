@@ -5,7 +5,7 @@ import re
 
 from dataclasses import dataclass
 from typing import Iterable, Generator
-from xml.etree.ElementTree import fromstring, Element
+from xml.etree.ElementTree import fromstring, tostring, Element
 
 from .llm import LLM
 from .index import Index
@@ -26,18 +26,23 @@ class Citation:
   id: int
   label: str
   text: Element
+  str_text: str
 
 class Citations:
   def __init__(self):
     self._refs: dict[int, tuple[int, Citation]] = {}
 
-  def ref(self, citation: Citation) -> Citation:
-    id = citation.id
-    if id in self._refs:
-      count, citation = self._refs[id]
-      self._refs[id] = (count + 1, citation)
-    else:
-      self._refs[id] = (1, citation)
+  # deduplication: will return citation with different id if the citation is already in the list
+  def ref(self, id: int, label: str, text: Element) -> Citation:
+    str_text = tostring(text, encoding="unicode")
+    for count, citation in self._refs.values():
+      if citation.label != label or citation.str_text != str_text:
+        continue
+      self._refs[citation.id] = (count + 1, citation)
+      return citation
+
+    citation = Citation(id, label, text, str_text)
+    self._refs[id] = (1, citation)
     return citation
 
   def unref(self, id: int) -> Citation:
@@ -89,6 +94,7 @@ class _Deduplication:
   def _load_serial_and_deduplicate(self, index: int, chunk: _Chunk) -> Serial | None:
     serial = self._load_serial(chunk)
     latest_text = self._find_end_text(serial, False)
+
     if latest_text is not None:
       duplicated = list(self._find_duplicated_texts_from_serials(latest_text, index))
       if len(duplicated) > 0:
@@ -96,13 +102,22 @@ class _Deduplication:
         duplicated.insert(0, (latest_text, serial))
         merged_text, citations = self._remove_and_merge_texts_from_serials(duplicated)
         serial.main_texts.insert(latest_text_index, merged_text)
-        # TODO: 将 citations 重新插入
+
+        for id, ref in self._search_refs_in_text(merged_text):
+          citation = citations[id]
+          deduplicated_citation = serial.citations.ref(
+            id=id,
+            label=citation.label,
+            text=citation.text,
+          )
+          if id != deduplicated_citation.id:
+            ref.set("id", str(deduplicated_citation.id))
 
     if len(serial.main_texts) == 0:
       # cleared due to deduplication
       return None
-
-    return serial
+    else:
+      return serial
 
   def _find_duplicated_texts_from_serials(self, text: Element, index: int):
     ban_max_index = index - 1 # the processed index cannot be processed again
@@ -145,7 +160,7 @@ class _Deduplication:
     for text, serial in duplicated:
       citations: dict[int, Citation] = {}
       citation_matrix.append(citations)
-      for id in self._search_ref_ids_in_text(text):
+      for id, _ in self._search_refs_in_text(text):
         citation = serial.citations.unref(id)
         citations[id] = citation
 
@@ -207,12 +222,14 @@ class _Deduplication:
 
     if citations_xml is not None:
       id = int(citations_xml.get("id"))
-      label = citations_xml.find("label").text
-      citations.ref(id, Citation(
+      citation = citations.ref(
         id=id,
-        label=label,
+        label=citations_xml.find("label").text,
         text=citations_xml.find("text"),
-      ))
+      )
+      if citation.id != id: # be deduplicated
+        citations_xml.set("id", str(citation.id))
+
     return Serial(main_texts, citations)
 
   def _find_end_text(self, serial: Serial, is_begin_end: bool) -> Element | None:
@@ -234,10 +251,11 @@ class _Deduplication:
 
     return None
 
-  def _search_ref_ids_in_text(self, text: Element):
+  def _search_refs_in_text(self, text: Element):
     for target in search_xml_children(text):
       if target.tag == "ref":
-        yield int(target.get("id"))
+        id = int(target.get("id"))
+        yield id, target
 
   def _clean_all_idx_attr(self, element: Element):
     for target in search_xml_children(element):
