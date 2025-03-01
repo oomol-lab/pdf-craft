@@ -6,7 +6,8 @@ from .llm import LLM
 from .types import PageInfo, TextInfo, TextIncision
 from .splitter import group, get_pages_range, allocate_segments, get_and_clip_pages
 from .asset_matcher import AssetMatcher
-from .utils import read_xml_files, encode_response
+from .utils import read_xml_files, parse_page_indexes, encode_response
+
 
 def analyse_main_texts(
     llm: LLM,
@@ -75,7 +76,7 @@ def analyse_main_texts(
 
     for child in response_xml.find("content"):
       page_indexes = [
-        i for i in _parse_page_indexes(child)
+        i for i in parse_page_indexes(child)
         if 0 <= i < len(page_xml_list)
       ]
       if any(not page_xml_list[i].is_gap for i in page_indexes):
@@ -91,13 +92,6 @@ def analyse_main_texts(
       chunk_xml.append(citation_xml)
 
     yield start_idx, end_idx, chunk_xml
-
-def _parse_page_indexes(citation: Element) -> list[int]:
-  content = citation.get("idx")
-  if content is None:
-    return []
-  else:
-    return [int(i) - 1 for i in content.split(",")]
 
 def _extract_page_text_infos(pages: list[PageInfo]) -> Iterable[TextInfo]:
   if len(pages) == 0:
@@ -194,7 +188,7 @@ class _CitationLoader:
   def _read_page_indexes(self, root: Element):
     for child in root:
       if child.tag == "citation":
-        page_indexes = _parse_page_indexes(child)
+        page_indexes = parse_page_indexes(child)
         if len(page_indexes) > 0:
           yield page_indexes[0]
 
@@ -212,7 +206,7 @@ class _CitationLoader:
     for child in root:
       if child.tag != "citation":
         continue
-      page_indexes = _parse_page_indexes(child)
+      page_indexes = parse_page_indexes(child)
       if len(page_indexes) == 0:
         continue
       if page_index != page_indexes[0]:

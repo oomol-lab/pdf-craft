@@ -69,10 +69,6 @@ class SecondaryAnalyser:
       request_max_tokens=request_max_tokens,
       gap_rate=gap_rate,
     ):
-      if self._index is not None:
-        content_xml = chunk_xml.find("content")
-        self._index.mark_ids_for_headlines(self._llm, content_xml)
-
       file_name = f"chunk_{start_idx + 1}_{end_idx + 1}.xml"
       file_path = os.path.join(output_dir_path, file_name)
 
