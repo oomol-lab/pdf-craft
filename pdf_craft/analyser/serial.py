@@ -25,12 +25,20 @@ class Serial:
 class Citation:
   id: int
   label: str
-  text: Element
+  text: Element #TODO: should be texts
   str_text: str
 
 class Citations:
   def __init__(self):
     self._refs: dict[int, tuple[int, Citation]] = {}
+    self._max_id: int = 0
+
+  def __iter__(self) -> Generator[Citation, None, None]:
+    for _, citation in self._refs.values():
+      yield citation
+
+  def get(self, id: int) -> Citation:
+    return self._refs[id][1]
 
   # deduplication: will return citation with different id if the citation is already in the list
   def ref(self, id: int, label: str, text: Element) -> Citation:
@@ -41,8 +49,12 @@ class Citations:
       self._refs[citation.id] = (count + 1, citation)
       return citation
 
+    if id in self._refs:
+      id = self._max_id + 1
     citation = Citation(id, label, text, str_text)
     self._refs[id] = (1, citation)
+    self._max_id = max(self._max_id, id)
+
     return citation
 
   def unref(self, id: int) -> Citation:
@@ -88,6 +100,10 @@ class _Deduplication:
     for index, chunk in enumerate(self._chunks):
       serial = self._load_serial_and_deduplicate(index, chunk)
       chunk.serial = None
+      for text in serial.main_texts:
+        self._clean_all_idx_attr(text)
+      for citation in serial.citations:
+        self._clean_all_idx_attr(citation.text)
       if serial is not None:
         yield serial
 
