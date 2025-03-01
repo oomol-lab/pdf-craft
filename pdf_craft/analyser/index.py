@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import re
 import json
 
 from io import StringIO
@@ -8,7 +7,7 @@ from typing import Generator
 from dataclasses import dataclass
 from xml.etree.ElementTree import Element
 from .llm import LLM
-from .utils import encode_response
+from .utils import encode_response, normalize_xml_text
 
 
 _SYMBOLS = ("*", "+", "-")
@@ -102,7 +101,7 @@ class Index:
         continue
       chapters.append(Chapter(
         id=0,
-        headline=self._normalize_headline(headline.text),
+        headline=normalize_xml_text(headline.text),
         children=self._parse_chapters(children) if children is not None else [],
       ))
     return chapters
@@ -114,7 +113,7 @@ class Index:
     for child in content_xml:
       if child.tag == "headline":
         headline = Element("headline")
-        headline.text = self._normalize_headline(child.text)
+        headline.text = normalize_xml_text(child.text)
         raw_pages_root.append(headline)
         origin_headlines.append(child)
 
@@ -130,7 +129,7 @@ class Index:
       if id is not None and i < len(origin_headlines):
         origin_headline = origin_headlines[i]
         origin_headline.set("id", id)
-        origin_headline.text = self._normalize_headline(headline.text)
+        origin_headline.text = normalize_xml_text(headline.text)
 
   def _to_json(self) -> dict:
     prefaces = self._root.children[0].children
@@ -155,7 +154,7 @@ class Index:
     ]
 
   def identify_chapter(self, headline: str, level: int) -> Chapter | None:
-    headline = self._normalize_headline(headline)
+    headline = normalize_xml_text(headline)
 
     for chapter, chapter_stack in self._search_from_stack(self._stack):
       # level of PREFACES & CHAPTERS is 0
@@ -248,6 +247,3 @@ class Index:
         return True
       else:
         return False
-
-  def _normalize_headline(self, headline: str) -> str:
-    return re.sub(r"\s+", " ", headline).strip()

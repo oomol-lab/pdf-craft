@@ -4,6 +4,9 @@ import re
 from typing import Iterable, Generator
 from xml.etree.ElementTree import fromstring, Element
 
+def normalize_xml_text(xml_text: str) -> str:
+  return re.sub(r"\s+", " ", xml_text).strip()
+
 def read_xml_files(dir_path: str, enable_kinds: Iterable[str]) -> Generator[tuple[Element, str, str, int, int], None, None]:
   for file_name, kind, index1, index2 in read_files(dir_path, enable_kinds):
     file_path = os.path.join(dir_path, file_name)

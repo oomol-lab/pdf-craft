@@ -10,7 +10,7 @@ from xml.etree.ElementTree import fromstring, tostring, Element
 from .llm import LLM
 from .index import Index
 from .asset_matcher import ASSET_TAGS
-from .utils import read_files, search_xml_children, parse_page_indexes
+from .utils import read_files, normalize_xml_text, search_xml_children, parse_page_indexes
 
 
 def serials(llm: LLM, index: Index | None, chunks_path: str) -> Generator[Serial, None, None]:
@@ -192,10 +192,10 @@ class _Deduplication:
     str_texts: list[str] = []
     for text in texts:
       buffer = io.StringIO()
-      buffer.write(self._normalize_text(text.text))
+      buffer.write(normalize_xml_text(text.text))
       for child in text:
         buffer.write("<ref/>")
-        buffer.write(self._normalize_text(child.tail))
+        buffer.write(normalize_xml_text(child.tail))
       str_texts.append(buffer.getvalue())
 
     no_sub_indexes: list[int] = []
@@ -301,6 +301,3 @@ class _Deduplication:
     for target in search_xml_children(element):
       target.attrib.pop("idx", None)
     element.attrib.pop("idx", None)
-
-  def _normalize_text(self, headline: str) -> str:
-    return re.sub(r"\s+", " ", headline).strip()
