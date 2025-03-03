@@ -131,7 +131,7 @@ class _Deduplication:
       return serial
 
   def _find_duplicated_texts_from_serials(self, text: Element, index: int):
-    ban_max_index = index - 1 # the processed index cannot be processed again
+    ban_max_index = index # the processed index cannot be processed again
     search_indexes = self._chunk_indexes_with_text(text, index)
 
     while len(search_indexes) > 0:
@@ -152,12 +152,12 @@ class _Deduplication:
       yield first_text, serial
 
       origin_indexes_count = len(search_indexes)
-      for next_index in next_indexes:
-        if next_index in search_indexes:
+      for i in next_indexes:
+        if i in search_indexes:
           continue
-        if next_index <= ban_max_index:
+        if i <= ban_max_index:
           continue
-        search_indexes.append(next_index)
+        search_indexes.append(i)
 
       if origin_indexes_count != len(search_indexes):
         search_indexes.sort()
