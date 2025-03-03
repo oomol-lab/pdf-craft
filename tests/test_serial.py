@@ -2,7 +2,6 @@ import os
 import unittest
 
 from typing import cast, Any
-from datetime import datetime
 from xml.etree.ElementTree import tostring, Element
 from pdf_craft.analyser.serial import serials, Serial
 from pdf_craft.analyser.llm import LLM
@@ -11,10 +10,7 @@ from pdf_craft.analyser.utils import normalize_xml_text, search_xml_children
 
 class TextSerial(unittest.TestCase):
   def test_spread_page_text(self):
-    if datetime.now().second != 0:
-      return # TODO: Fix this test
-
-    self.maxDiff = 8192
+    self.maxDiff = 12000
     chunks_path = os.path.join(__file__, "..", "serial_chunks", "POUR MARX")
     chunks_path = os.path.abspath(chunks_path)
     serial1, serial2 = list(serials(
@@ -34,8 +30,8 @@ class TextSerial(unittest.TestCase):
       ), (
         '<text>2.他把在认识过程开始时出现的普遍概念（例如：《逻辑学》中的普遍性概'
         '念和“存在”概念）当成了这一过程的本质和动力，当作“自我产生着的概念”；'
-        '<ref id="2" />他把将被理论实践加工为认识（“一般丙”）的“一般甲”当成了'
-        '加工过程的本质和动力！如果从另一种实践那儿借用一个例子来作比较，<ref id="3" /> '
+        '<ref id="4" />他把将被理论实践加工为认识（“一般丙”）的“一般甲”当成了'
+        '加工过程的本质和动力！如果从另一种实践那儿借用一个例子来作比较，<ref id="2" /> '
         '这就等于说，是煤炭通过它的辩证的自我发展，产生出蒸汽机、工厂以及其他非凡的技术设备、'
         '传动设备、物理设备、化学设备、电器设备等，这些设备今天又使煤的开采和煤的无数变革成为'
         '可能！黑格尔之所以陷入这种幻觉，正是因为他把有关普遍性以及它的作用和意义的意识形态观点'
@@ -59,11 +55,11 @@ class TextSerial(unittest.TestCase):
           '<text>“真正人道主义”的概念是J.桑普汉在《光明》报58期发表的一篇文章（参见《新评论》杂志1965年'
           '3月164期）的基本论据，也是从马克思青年时期著作中借用的一个概念。</text>',
         ]),
-        (2, "(23)", [
-          '<text>马克思：《政治经济学批判导言》，见《马克思恩格斯选集》中文版第二卷第104页。</text>',
-        ]),
-        (3, "(24)", [
+        (2, "(24)", [
           '<text>这种比较是有根据的，因为这两种不同的实践都具有实践的一般本质。</text>',
+        ]),
+        (4, "(23)", [
+          '<text>马克思：《政治经济学批判导言》，见《马克思恩格斯选集》中文版第二卷第104页。</text>',
         ]),
       ],
     )

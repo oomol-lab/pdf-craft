@@ -199,10 +199,10 @@ class _Deduplication:
 
     no_sub_indexes: list[int] = []
     for i, str_text1 in enumerate(str_texts):
-      not_sub = False
+      not_sub = True
       for j, str_text2 in enumerate(str_texts):
         if i != j and str_text1 in str_text2:
-          not_sub = True
+          not_sub = False
           break
       if not_sub:
         no_sub_indexes.append(i)
