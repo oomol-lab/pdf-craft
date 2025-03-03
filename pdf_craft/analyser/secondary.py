@@ -8,6 +8,7 @@ from .llm import LLM
 from .index import parse_index, Index
 from .citation import analyse_citations
 from .main_text import analyse_main_texts
+from .chapter import generate_chapters
 from .utils import read_xml_files
 
 
@@ -15,23 +16,26 @@ class SecondaryAnalyser:
   def __init__(
       self,
       llm: LLM,
-      dir_path: str,
+      assets_dir_path: str,
+      output_dir_path: str,
+      analysing_dir_path: str,
     ):
     self._llm: LLM = llm
-    self._assets_dir_path = os.path.join(dir_path, "assets")
-    self._citations_dir_path = os.path.join(dir_path, "citations")
-    self._main_texts_dir_path = os.path.join(dir_path, "main_texts")
+    self._assets_dir_path = assets_dir_path
+    self._output_dir_path = output_dir_path
+    self._citations_dir_path = os.path.join(analysing_dir_path, "citations")
+    self._main_texts_dir_path = os.path.join(analysing_dir_path, "main_texts")
 
     self._pages: list[PageInfo] = []
     self._index: Index | None = None
 
     for root, file_name, kind, index1, index2 in read_xml_files(
-      dir_path=os.path.join(dir_path, "pages"),
+      dir_path=os.path.join(analysing_dir_path, "pages"),
       enable_kinds=("page", "index"),
     ):
       if kind == "page":
         page_index = index1 - 1
-        file_path = os.path.join(dir_path, "pages", file_name)
+        file_path = os.path.join(analysing_dir_path, "pages", file_name)
         page = self._parse_page_info(file_path, page_index, root)
         self._pages.append(page)
 
@@ -43,6 +47,10 @@ class SecondaryAnalyser:
         )
 
     self._pages.sort(key=lambda p: p.page_index)
+
+  @property
+  def assets_dir_path(self) -> str:
+    return self._assets_dir_path
 
   def analyse_citations(self, request_max_tokens: int, tail_rate: float):
     output_dir_path = self._prepare_output_path(self._citations_dir_path)
@@ -74,6 +82,21 @@ class SecondaryAnalyser:
 
       with open(file_path, "wb") as file:
         file.write(tostring(chunk_xml, encoding="utf-8"))
+
+  def analyse_chapters(self):
+    for id, chapter_xml in generate_chapters(
+      llm=self._llm,
+      index=self._index,
+      chunks_path=self._main_texts_dir_path,
+    ):
+      if id is None:
+        file_name = "chapter_head.xml"
+      else:
+        file_name = f"chapter_{id + 1}.xml"
+      file_path = os.path.join(self._output_dir_path, file_name)
+
+      with open(file_path, "wb") as file:
+        file.write(tostring(chapter_xml, encoding="utf-8"))
 
   def _parse_page_info(self, file_path: str, page_index: int, root: Element) -> PageInfo:
     main_children: list[Element] = []
