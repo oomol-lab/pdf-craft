@@ -17,12 +17,12 @@ class SecondaryAnalyser:
       self,
       llm: LLM,
       assets_dir_path: str,
-      chapters_dir_path: str,
+      output_dir_path: str,
       analysing_dir_path: str,
     ):
     self._llm: LLM = llm
     self._assets_dir_path = assets_dir_path
-    self._chapters_dir_path = chapters_dir_path
+    self._output_dir_path = output_dir_path
     self._citations_dir_path = os.path.join(analysing_dir_path, "citations")
     self._main_texts_dir_path = os.path.join(analysing_dir_path, "main_texts")
 
@@ -84,8 +84,6 @@ class SecondaryAnalyser:
         file.write(tostring(chunk_xml, encoding="utf-8"))
 
   def analyse_chapters(self):
-    output_dir_path = self._prepare_output_path(self._chapters_dir_path)
-
     for id, chapter_xml in generate_chapters(
       llm=self._llm,
       index=self._index,
@@ -95,7 +93,7 @@ class SecondaryAnalyser:
         file_name = "chapter_head.xml"
       else:
         file_name = f"chapter_{id + 1}.xml"
-      file_path = os.path.join(output_dir_path, file_name)
+      file_path = os.path.join(self._output_dir_path, file_name)
 
       with open(file_path, "wb") as file:
         file.write(tostring(chapter_xml, encoding="utf-8"))

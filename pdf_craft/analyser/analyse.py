@@ -27,7 +27,7 @@ def analyse(
   secondary_analyser = SecondaryAnalyser(
     llm=llm,
     assets_dir_path=assets_dir_path,
-    chapters_dir_path=output_dir_path,
+    output_dir_path=output_dir_path,
     analysing_dir_path=analysing_dir_path,
   )
   secondary_analyser.analyse_citations(10000, 0.15)

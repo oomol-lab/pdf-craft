@@ -8,9 +8,7 @@ sys.path.append(os.path.abspath(os.path.join(__file__, "..", "..")))
 
 from tqdm import tqdm
 from typing import Generator
-from pdf_craft import PDFPageExtractor, Block
-from pdf_craft.analyser.preliminary import preliminary_analyse
-from pdf_craft.analyser.llm import LLM
+from pdf_craft import analyse, PDFPageExtractor, Block, LLM
 
 
 def main():
@@ -19,22 +17,16 @@ def main():
   # pdf_file = "/Users/taozeyu/Downloads/中国古代农业.pdf"
   model_dir_path = _project_dir_path("models")
   output_dir_path = _project_dir_path("output", clean=True)
-  page_dir_path = os.path.join(output_dir_path, "pages")
-  assets_dir_path = os.path.join(output_dir_path, "assets")
 
-  for dir_path in (page_dir_path, assets_dir_path):
-    os.makedirs(dir_path, exist_ok=True)
-
-  llm=LLM(**_read_format_json())
   extractor = PDFPageExtractor(
     device="cpu",
     model_dir_path=model_dir_path,
     debug_dir_path=os.path.join("output", "plot"),
   )
-  preliminary_analyse(
-    llm=llm,
-    page_dir_path=page_dir_path,
-    assets_dir_path=assets_dir_path,
+  analyse(
+    llm=LLM(**_read_format_json()),
+    analysing_dir_path=os.path.join(output_dir_path, "analysing"),
+    output_dir_path=output_dir_path,
     blocks_matrix=_extract_blocks(pdf_file, extractor),
   )
 
