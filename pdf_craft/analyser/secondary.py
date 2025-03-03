@@ -16,24 +16,26 @@ class SecondaryAnalyser:
   def __init__(
       self,
       llm: LLM,
-      dir_path: str,
+      assets_dir_path: str,
+      chapters_dir_path: str,
+      analysing_dir_path: str,
     ):
     self._llm: LLM = llm
-    self._assets_dir_path = os.path.join(dir_path, "assets")
-    self._citations_dir_path = os.path.join(dir_path, "citations")
-    self._main_texts_dir_path = os.path.join(dir_path, "main_texts")
-    self._chapters_dir_path = os.path.join(dir_path, "chapters")
+    self._assets_dir_path = assets_dir_path
+    self._chapters_dir_path = chapters_dir_path
+    self._citations_dir_path = os.path.join(analysing_dir_path, "citations")
+    self._main_texts_dir_path = os.path.join(analysing_dir_path, "main_texts")
 
     self._pages: list[PageInfo] = []
     self._index: Index | None = None
 
     for root, file_name, kind, index1, index2 in read_xml_files(
-      dir_path=os.path.join(dir_path, "pages"),
+      dir_path=os.path.join(analysing_dir_path, "pages"),
       enable_kinds=("page", "index"),
     ):
       if kind == "page":
         page_index = index1 - 1
-        file_path = os.path.join(dir_path, "pages", file_name)
+        file_path = os.path.join(analysing_dir_path, "pages", file_name)
         page = self._parse_page_info(file_path, page_index, root)
         self._pages.append(page)
 
