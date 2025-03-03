@@ -8,6 +8,7 @@ from .llm import LLM
 from .index import parse_index, Index
 from .citation import analyse_citations
 from .main_text import analyse_main_texts
+from .chapter import generate_chapters
 from .utils import read_xml_files
 
 
@@ -21,6 +22,7 @@ class SecondaryAnalyser:
     self._assets_dir_path = os.path.join(dir_path, "assets")
     self._citations_dir_path = os.path.join(dir_path, "citations")
     self._main_texts_dir_path = os.path.join(dir_path, "main_texts")
+    self._chapters_dir_path = os.path.join(dir_path, "chapters")
 
     self._pages: list[PageInfo] = []
     self._index: Index | None = None
@@ -74,6 +76,20 @@ class SecondaryAnalyser:
 
       with open(file_path, "wb") as file:
         file.write(tostring(chunk_xml, encoding="utf-8"))
+
+  def analyse_chapters(self):
+    output_dir_path = self._prepare_output_path(self._chapters_dir_path)
+
+    for id, chapter_xml in generate_chapters(
+      llm=self._llm,
+      index=self._index,
+      chunks_path=self._main_texts_dir_path,
+    ):
+      file_name = f"chapter_{id}.xml"
+      file_path = os.path.join(output_dir_path, file_name)
+
+      with open(file_path, "wb") as file:
+        file.write(tostring(chapter_xml, encoding="utf-8"))
 
   def _parse_page_info(self, file_path: str, page_index: int, root: Element) -> PageInfo:
     main_children: list[Element] = []
