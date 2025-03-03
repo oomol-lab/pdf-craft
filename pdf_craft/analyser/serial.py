@@ -173,10 +173,7 @@ class _Deduplication:
       for id, _ in self._search_refs_in_text(text):
         citation = serial.citations.unref(id)
         citations[id] = citation
-
-      index = serial.main_texts.index(text)
-      if index > 0:
-        serial.main_texts.pop(index)
+      serial.main_texts.remove(text)
 
     index = self._try_to_choose_from_texts(e[0] for e in duplicated)
     if index == -1:
@@ -199,10 +196,10 @@ class _Deduplication:
 
     no_sub_indexes: list[int] = []
     for i, str_text1 in enumerate(str_texts):
-      not_sub = False
+      not_sub = True
       for j, str_text2 in enumerate(str_texts):
         if i != j and str_text1 in str_text2:
-          not_sub = True
+          not_sub = False
           break
       if not_sub:
         no_sub_indexes.append(i)
@@ -250,7 +247,10 @@ class _Deduplication:
         if citation.id != id: # be deduplicated
           citation_xml.set("id", str(citation.id))
 
-    return Serial(main_texts, citations)
+    serial = Serial(main_texts, citations)
+    chunk.serial = serial
+
+    return serial
 
   def _find_end_text(self, serial: Serial, is_begin_end: bool) -> Element | None:
     main_texts = serial.main_texts
