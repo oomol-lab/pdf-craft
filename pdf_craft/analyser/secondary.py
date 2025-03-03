@@ -46,6 +46,10 @@ class SecondaryAnalyser:
 
     self._pages.sort(key=lambda p: p.page_index)
 
+  @property
+  def assets_dir_path(self) -> str:
+    return self._assets_dir_path
+
   def analyse_citations(self, request_max_tokens: int, tail_rate: float):
     output_dir_path = self._prepare_output_path(self._citations_dir_path)
 
