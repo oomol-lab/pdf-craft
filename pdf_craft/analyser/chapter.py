@@ -8,14 +8,14 @@ from .serial import serials, Citations
 from .utils import search_xml_children
 
 
-def generate_chapters(llm: LLM, index: Index | None, chunks_path: str) -> Generator[tuple[int, Element], None, None]:
+def generate_chapters(llm: LLM, index: Index | None, chunks_path: str) -> Generator[tuple[int | None, Element], None, None]:
   if index is None:
     raise NotImplementedError("TODO: generate automatically")
   session: _Session | None = None
 
   for serial in serials(llm, index, chunks_path):
     if session is None:
-      session = _Session(serial.citations)
+      session = _Session(None, serial.citations)
     else:
       session.update_serial_citations(serial.citations)
 
@@ -23,17 +23,17 @@ def generate_chapters(llm: LLM, index: Index | None, chunks_path: str) -> Genera
       chapter_id = _try_to_take_chapter_id(child)
       if chapter_id is not None:
         if not session.is_empty:
-          yield chapter_id, session.to_xml()
-        session = _Session(serial.citations)
+          yield session.chapter_id, session.to_xml()
+        session = _Session(chapter_id, serial.citations)
       session.append(child)
 
   if session is not None and not session.is_empty:
-    yield session.to_xml()
+    yield session.chapter_id, session.to_xml()
 
 def _try_to_take_chapter_id(element: Element) -> int | None:
   if element.tag != "headline":
     return None
-  id = element.pop("id", None)
+  id = element.attrib.pop("id", None)
   if id is None:
     return None
   return int(id)
@@ -44,11 +44,12 @@ class _Citation:
   content: list[Element]
 
 class _Session:
-  def __init__(self, serial_citations: Citations ):
+  def __init__(self, chapter_id: int | None, serial_citations: Citations ):
+    self.chapter_id: int | None = chapter_id
     self._elements: list[Element] = []
     self._citations: list[tuple[int, _Citation]] = []
     self._refs: list[tuple[int, Element]] = []
-    self._next_ref_id: int = 0
+    self._next_ref_id: int = 1
     self._serial_citations: Citations = serial_citations
 
   @property
@@ -84,20 +85,20 @@ class _Session:
 
   def to_xml(self) -> Element:
     self._reset_ref_ids()
-    chapter_xml = Element["chapter"]
-    content_xml = Element["content"]
+    chapter_xml = Element("chapter")
+    content_xml = Element("content")
     chapter_xml.append(content_xml)
     for element in self._elements:
       content_xml.append(element)
 
     if len(self._citations) > 0:
-      citations_xml = Element["citations"]
+      citations_xml = Element("citations")
       chapter_xml.append(citations_xml)
       for id, citation in self._citations:
-        citation_xml = Element["citation"]
+        citation_xml = Element("citation")
         citation_xml.set("id", str(id))
         citations_xml.append(citation_xml)
-        label_xml = Element["label"]
+        label_xml = Element("label")
         label_xml.text = citation.label
         citation_xml.append(label_xml)
         for child in citation.content:
