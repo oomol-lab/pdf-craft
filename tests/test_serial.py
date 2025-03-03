@@ -82,6 +82,43 @@ class TextSerial(unittest.TestCase):
       ],
     )
 
+  def test_spread_2_pages_text(self):
+    self.maxDiff = 12000
+    chunks_path = os.path.join(__file__, "..", "serial_chunks", "Der Witz und seine Beziehung zum")
+    chunks_path = os.path.abspath(chunks_path)
+
+    serials_list = list(serials(
+      llm=_fake_llm(),
+      index=None,
+      chunks_path=chunks_path,
+    ))
+    # serial2 will be skipped
+    self.assertEqual(len(serials_list), 2)
+    serial1, serial3 = serials_list
+
+    self.assertListEqual(
+      list(_parse_main_texts(serial1)),
+      [(
+        '<headline>诙谐及其与潜意识的关系</headline>'
+      ), (
+        '<text> 然而，我们觉得有必要修正斯宾塞的这种观点，这在某种程度上是为了给其观点中的某些思想下一个更为确切的定义，'
+        '同时也是为了改变它们。我们应该说，如果先前为特殊精神道路的贯注所运用的那些心理能量的配额变得毫无用处，以致于它可以'
+        '自由地释放时，笑才会出现。我们都知道，做出这种假设会招致什么样的“憎恶的面孔”；但为了捍卫自己，我们将冒险引用'
+        '李普斯的专著《滑稽与幽默》（1898，第71页）中的一句很贴切的话，从该书中我们可以得到除滑稽和幽默以外的许多问题的'
+        '启示。</text>'
+      ), (
+        '<text> 他说：“最后，特殊的心理学问题总是不偏不倚地引导我们深入到心理学中去，因此，从根本上说，人们不能孤立地'
+        '处理任何心理学问题。”自从我开始从哲学的角度对心理病理学中的事实加以整理时起，就已习惯于使用“心理能量”、“释放”'
+        '这些术语，以及把心理能量当做一种数量来处理。在《释梦》（1900a）里，我曾试图（和李普斯一样）证实“心理上真正有'
+        '效的（really psychically elective）东西本身就是潜意识的心理过程，而不是意识的内容。<ref id="1" /> 只有'
+        '当我谈到“心理途径的贯注“（"cathexis of psychical paths”）时，我似乎才开始背离李普斯所通常使用的那些类比。我'
+        '的经验是，心理能量可以沿着某些联想途径进行移置，以及心理过程的种种痕迹不仅是坚不可摧的，而且还是持久的，这些经验'
+        '实际上已经向我暗示，我可以采用某种类似的方法来描绘那些未知的东西。为了避免产生误解，我必须再补充一点，我现在并不是'
+        '想公开声明，细胞和神经纤维或者目前已有了自己地位的神经系统就是这些心理途径<ref id="2" />，即使这些途径可以用'
+        '至今仍无法说明的某种方式以神经系统的有机元素来表示。</text>'
+      )],
+    )
+
 def _parse_main_texts(serial: Serial):
   for element in serial.main_texts:
     yield normalize_xml_text(tostring(element, encoding="unicode"))
