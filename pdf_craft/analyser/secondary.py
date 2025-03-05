@@ -90,7 +90,7 @@ class SecondaryAnalyser:
       chunks_path=self._main_texts_dir_path,
     ):
       if id is None:
-        file_name = "chapter_head.xml"
+        file_name = "chapter.xml"
       else:
         file_name = f"chapter_{id + 1}.xml"
       file_path = os.path.join(self._output_dir_path, file_name)
