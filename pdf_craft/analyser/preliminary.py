@@ -34,6 +34,7 @@ def preliminary_analyse(llm: LLM, page_dir_path: str, assets_dir_path: str, bloc
 
     if response_root.tag == "page":
       _match_assets(response_root, blocks, assets_dir_path)
+      _collect_for_citation(response_root)
       file_path = os.path.join(page_dir_path, f"page_{i + 1}.xml")
       is_prev_index = False
       with open(file_path, "wb") as file:
@@ -117,7 +118,6 @@ def _match_assets(root: XML, blocks: list[Block], assets_dir_path: str):
   images: dict[str, Image] = {}
   for block in blocks:
     if isinstance(block, AssetBlock):
-      # hash = _save_image(assets_dir_path, block)
       hash = _block_image_hash(block)
       images[hash] = block.image
       asset_matcher.register_hash(block.kind, hash)
@@ -129,6 +129,15 @@ def _match_assets(root: XML, blocks: list[Block], assets_dir_path: str):
       file_path = os.path.join(assets_dir_path, f"{hash}.png")
       if not os.path.exists(file_path):
         image.save(file_path, "PNG")
+
+def _collect_for_citation(response_root: Element):
+  citation: Element | None = None
+  for child in list(response_root):
+    if child.tag == "citation":
+      citation = child
+    elif citation is not None:
+      citation.append(child)
+      response_root.remove(child)
 
 def _block_image_hash(block: AssetBlock) -> str:
   hash = sha256()

@@ -9,8 +9,6 @@ from .utils import search_xml_children
 
 
 def generate_chapters(llm: LLM, index: Index | None, chunks_path: str) -> Generator[tuple[int | None, Element], None, None]:
-  if index is None:
-    raise NotImplementedError("TODO: generate automatically")
   session: _Session | None = None
 
   for serial in serials(llm, index, chunks_path):
