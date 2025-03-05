@@ -9,6 +9,7 @@
     "*.jinja": "jinja-xml",
     "*.xml.jinja": "jinja-xml",
     "*.xhtml.jinja": "jinja-html",
+    "*.css.jinja": "jinja-css",
     "*.xml": "xml"
   },
   "[jinja-xml]": {

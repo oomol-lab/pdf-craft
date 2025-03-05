@@ -24,6 +24,7 @@ def _render_citations(citations_xml: Element | None):
     return
   for citation in citations_xml:
     to_div = Element("div")
+    to_div.attrib["class"] = "citation"
     id = citation.get("id", None)
     is_first_child = True
     for child in citation:
@@ -76,6 +77,7 @@ def _fill_text_and_citations(element: Element, origin: Element):
     assert id is not None
     anchor = Element("a")
     anchor.attrib["href"] = f"#ref-{id}"
+    anchor.attrib["class"] = "super"
     anchor.text = f"[{id}]"
     anchor.tail = child.tail
     element.append(anchor)
