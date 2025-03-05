@@ -7,6 +7,8 @@
   ],
   "files.associations": {
     "*.jinja": "jinja-xml",
+    "*.xml.jinja": "jinja-xml",
+    "*.html.jinja": "jinja-html",
     "*.xml": "xml"
   },
   "[jinja-xml]": {
@@ -27,6 +29,8 @@
     "natsorted",
     "pixmap",
     "rects",
+    "rootfile",
+    "rootfiles",
     "tiktoken",
     "tobytes"
   ]
