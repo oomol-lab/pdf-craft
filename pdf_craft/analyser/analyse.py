@@ -30,6 +30,6 @@ def analyse(
     output_dir_path=output_dir_path,
     analysing_dir_path=analysing_dir_path,
   )
-  secondary_analyser.analyse_citations(10000, 0.15)
-  secondary_analyser.analyse_main_texts(11500, 0.1)
+  secondary_analyser.analyse_citations(8000, 0.15)
+  secondary_analyser.analyse_main_texts(10000, 0.1)
   secondary_analyser.analyse_chapters()
