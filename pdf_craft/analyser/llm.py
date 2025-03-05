@@ -1,13 +1,13 @@
 import os
-import re
 
-from typing import cast, Any, Tuple, Callable
-from jinja2 import select_autoescape, Environment, BaseLoader, Template, TemplateNotFound
+from typing import cast, Any
+from jinja2 import Environment, Template
 from xml.etree.ElementTree import tostring, Element
 from pydantic import SecretStr
 from tiktoken import get_encoding, Encoding
 from langchain_openai import ChatOpenAI
 from langchain_core.messages import SystemMessage, HumanMessage
+from ..template import create_env
 
 
 class LLM:
@@ -28,13 +28,7 @@ class LLM:
     )
     prompts_path = os.path.join(__file__, "..", "prompts")
     prompts_path = os.path.abspath(prompts_path)
-
-    self._env: Environment = Environment(
-      loader=_DSLoader(prompts_path),
-      autoescape=select_autoescape(),
-      trim_blocks=True,
-      keep_trailing_newline=True,
-    )
+    self._env: Environment = create_env(prompts_path)
 
   def request(self, template_name: str, xml_data: Element, params: dict[str, Any]) -> str:
     template = self._template(template_name)
@@ -66,40 +60,3 @@ class LLM:
       template = self._env.get_template(template_name)
       self._templates[template_name] = template
     return template
-
-_LoaderResult = Tuple[str, str | None, Callable[[], bool] | None]
-
-class _DSLoader(BaseLoader):
-  def __init__(self, prompts_path: str):
-    super().__init__()
-    self._prompts_path: str = prompts_path
-
-  def get_source(self, _: Environment, template: str) -> _LoaderResult:
-    template = self._norm_template(template)
-    target_path = os.path.join(self._prompts_path, template)
-    target_path = os.path.abspath(target_path)
-
-    if not os.path.exists(target_path):
-      raise TemplateNotFound(f"cannot find {template}")
-
-    return self._get_source_with_path(target_path)
-
-  def _norm_template(self, template: str) -> str:
-    if bool(re.match(r"^\.+/", template)):
-      raise TemplateNotFound(f"invalid path {template}")
-
-    template = re.sub(r"^/", "", template)
-    template = re.sub(r"\.jinja$", "", template, flags=re.IGNORECASE)
-    template = f"{template}.jinja"
-
-    return template
-
-  def _get_source_with_path(self, path: str) -> _LoaderResult:
-    mtime = os.path.getmtime(path)
-    with open(path, "r", encoding="utf-8") as f:
-      source = f.read()
-
-    def is_updated() -> bool:
-      return mtime == os.path.getmtime(path)
-
-    return source, path, is_updated

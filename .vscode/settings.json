@@ -7,6 +7,9 @@
   ],
   "files.associations": {
     "*.jinja": "jinja-xml",
+    "*.xml.jinja": "jinja-xml",
+    "*.xhtml.jinja": "jinja-html",
+    "*.css.jinja": "jinja-css",
     "*.xml": "xml"
   },
   "[jinja-xml]": {
@@ -19,14 +22,18 @@
     "analyser",
     "analysing",
     "apos",
+    "endfor",
     "fitz",
     "frombytes",
     "kwoa",
     "langchain",
     "layoutreader",
     "natsorted",
+    "OEBPS",
     "pixmap",
     "rects",
+    "rootfile",
+    "rootfiles",
     "tiktoken",
     "tobytes"
   ]
