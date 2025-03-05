@@ -3,8 +3,8 @@ from .template import Template
 
 
 def generate_part(template: Template, chapter_xml: Element) -> str:
-  content_xml = chapter_xml.get("content")
-  citations_xml = chapter_xml.get("citations")
+  content_xml = chapter_xml.find("content")
+  citations_xml = chapter_xml.find("citations")
   assert content_xml is not None
   return template.render(
     template="part.xhtml",
@@ -14,8 +14,9 @@ def generate_part(template: Template, chapter_xml: Element) -> str:
 
 def _render_content(content_xml: Element):
   for child in content_xml:
-    to_element = _create_main_text_element(child)
-    _fill_text_and_citations(to_element, child)
+    to_element, need_fill = _create_main_text_element(child)
+    if need_fill:
+      _fill_text_and_citations(to_element, child)
     yield tostring(to_element, encoding="unicode")
 
 def _render_citations(citations_xml: Element | None):
@@ -24,36 +25,47 @@ def _render_citations(citations_xml: Element | None):
   for citation in citations_xml:
     to_div = Element("div")
     id = citation.get("id", None)
-    label: str | None = None
+    is_first_child = True
     for child in citation:
       if child.tag == "label":
-        label = child.text
-      else:
-        child = _create_main_text_element(child)
-        if label is not None:
-          child.text = f"[{label}] {child.text}"
-          child.attrib["id"] = f"ref-{id}"
-          label = None
-        to_div.append(child)
+        continue
+      to_element, need_fill = _create_main_text_element(child)
+      if need_fill:
+        _fill_text_and_citations(to_element, child)
+      if is_first_child:
+        is_first_child = False
+        to_element.text = f"[{id}] {to_element.text}"
+        to_element.attrib["id"] = f"ref-{id}"
+      to_div.append(to_element)
+
     yield tostring(to_div, encoding="unicode")
 
-def _create_main_text_element(origin: Element):
+def _create_main_text_element(origin: Element) -> tuple[Element, bool]:
   html_tag: str
   src: str | None = None
+  alt: str | None = None
+
   if origin.tag == "text":
     html_tag = "p"
+  elif origin.tag == "quote":
+    html_tag = "blockquote"
   elif origin.tag == "headline":
     html_tag = "h1"
   else:
     html_tag = "img"
     hash = origin.get("hash", None)
+    if origin.text != "":
+      alt = origin.text
     if hash is not None:
       src = f"../assets/{hash}.png"
 
   element = Element(html_tag)
   if src is not None:
     element.attrib["src"] = src
-  return element
+  if alt is not None:
+    element.attrib["alt"] = alt
+
+  return element, alt is None
 
 def _fill_text_and_citations(element: Element, origin: Element):
   element.text = origin.text
@@ -66,3 +78,4 @@ def _fill_text_and_citations(element: Element, origin: Element):
     anchor.attrib["href"] = f"#ref-{id}"
     anchor.text = f"[{id}]"
     anchor.tail = child.tail
+    element.append(anchor)
