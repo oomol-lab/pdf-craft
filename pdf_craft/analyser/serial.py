@@ -176,9 +176,6 @@ class _Deduplication:
       serial.main_texts.remove(text)
 
     index = self._try_to_choose_from_texts(e[0] for e in duplicated)
-    if index == -1:
-      raise NotImplementedError("TODO: use LLM to choose the best text index")
-
     text, _ = duplicated[index]
     citations = citation_matrix[index]
 
@@ -205,7 +202,16 @@ class _Deduplication:
         no_sub_indexes.append(i)
 
     if len(no_sub_indexes) != 1:
-      return -1
+      # TODO: use LLM to choose the best text index
+      max_len: int = 0
+      max_len_index: int = -1
+      for i, str_text in enumerate(str_texts):
+        text_len = len(str_text)
+        if text_len > max_len:
+          max_len = text_len
+          max_len_index = i
+      return max_len_index
+
     return no_sub_indexes[0]
 
   def _load_serial(self, chunk: _Chunk):
