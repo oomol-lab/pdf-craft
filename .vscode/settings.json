@@ -8,7 +8,7 @@
   "files.associations": {
     "*.jinja": "jinja-xml",
     "*.xml.jinja": "jinja-xml",
-    "*.html.jinja": "jinja-html",
+    "*.xhtml.jinja": "jinja-html",
     "*.xml": "xml"
   },
   "[jinja-xml]": {
@@ -21,6 +21,7 @@
     "analyser",
     "analysing",
     "apos",
+    "endfor",
     "fitz",
     "frombytes",
     "kwoa",

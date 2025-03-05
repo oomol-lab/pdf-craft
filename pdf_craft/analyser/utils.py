@@ -50,7 +50,8 @@ def parse_page_indexes(element: Element) -> list[int]:
 def encode_response(response: str) -> Element:
   matches = re.findall(r"<response>.*</response>", response, re.DOTALL)
   if not matches or len(matches) == 0:
-    raise ValueError("No page tag found in LLM response")
+    print(response)
+    raise ValueError("No response tag found in LLM response")
   content: str = matches[0]
   content = content.replace("&", "&amp;")
   try:
