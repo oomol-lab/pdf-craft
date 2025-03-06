@@ -48,44 +48,44 @@ def _render_citations(citations_xml: Element | None):
     yield tostring(to_div, encoding="unicode")
 
 def _create_main_text_element(origin: Element):
-  html_tag: str
-  src: str | None = None
-  alt: str | None = None
-
+  html_tag: str | None = None
   if origin.tag == "text":
     html_tag = "p"
   elif origin.tag == "quote":
     html_tag = "blockquote"
   elif origin.tag == "headline":
     html_tag = "h1"
-  else:
-    html_tag = "img"
-    hash = origin.get("hash", None)
-    if origin.text != "":
-      alt = origin.text
-    if hash is not None:
-      src = f"../assets/{hash}.png"
 
-  element = Element(html_tag)
-  if src is not None:
-    element.attrib["src"] = src
-  if alt is not None:
-    element.attrib["alt"] = alt
+  if html_tag is not None:
+     element = Element(html_tag)
+     _fill_text_and_citations(element, origin)
+     yield element
+     return
 
-  if alt is None:
-    _fill_text_and_citations(element, origin)
-    yield element
+  hash = origin.get("hash", None)
+  if hash is None:
+    return
 
-  else:
-    wrapper_div = Element("div")
-    wrapper_div.set("class", "alt-wrapper")
-    alt_div = Element("div")
-    alt_div.set("class", "alt")
-    alt_div.text = alt
-    wrapper_div.append(alt_div)
+  element = Element("p")
+  image = Element("img")
+  image.set("src", f"../assets/{hash}.png")
 
-    yield element
-    yield wrapper_div
+  alt: str | None = None
+  if origin.text != "":
+    alt = origin.text
+    if alt is not None:
+      image.set("alt", alt)
+
+  wrapper_div = Element("div")
+  wrapper_div.set("class", "alt-wrapper")
+  alt_div = Element("div")
+  alt_div.set("class", "alt")
+  alt_div.text = alt
+  wrapper_div.append(alt_div)
+  element.append(image)
+
+  yield element
+  yield wrapper_div
 
 def _fill_text_and_citations(element: Element, origin: Element):
   element.text = origin.text
