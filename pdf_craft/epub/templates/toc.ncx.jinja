@@ -1,0 +1,16 @@
+<?xml version='1.0' encoding='utf-8'?>
+<ncx xmlns="http://www.daisy.org/z3986/2005/ncx/" version="2005-1" xml:lang="zh">
+  <head>
+    <meta content="{{ depth }}" name="dtb:depth" />
+    <meta content="0" name="dtb:totalPageCount" />
+    <meta content="0" name="dtb:maxPageNumber" />
+  </head>
+  <docTitle>
+    <text>{{ title }}</text>
+  </docTitle>
+  <navMap>
+  {% for nav_point in nav_points %}
+  {{ nav_point|safe }}
+  {% endfor %}
+  </navMap>
+</ncx>

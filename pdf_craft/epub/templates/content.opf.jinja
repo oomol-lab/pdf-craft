@@ -8,9 +8,26 @@
     <meta name="primary-writing-mode" content="horizontal-lr" />
   </metadata>
   <manifest>
-    <item id="part0001.xhtml" media-type="application/xhtml+xml" href="Text/part0001.xhtml" />
+{% if has_head_chapter %}
+    <item id="x_head.xhtml" media-type="application/xhtml+xml" href="Text/head.xhtml" />
+{% endif %}
+{% for nav_point in nav_points %}
+    <item id="x_{{ nav_point.file_name }}" media-type="application/xhtml+xml" href="Text/{{ nav_point.file_name }}" />
+{% endfor %}
+{% if nav_points %}
+    <item id="ncx" media-type="application/x-dtbncx+xml" href="toc.ncx" />
+{% endif %}
   </manifest>
+{% if nav_points %}
   <spine toc="ncx">
-    <itemref idref="part0001.xhtml" />
+{% else %}
+  <spine>
+{% endif %}
+{% if has_head_chapter %}
+    <itemref idref="x_head.xhtml" />
+{% endif %}
+{% for nav_point in nav_points %}
+    <itemref idref="x_{{ nav_point.file_name }}" />
+{% endfor %}
   </spine>
 </package>
