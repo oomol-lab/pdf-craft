@@ -51,9 +51,14 @@ def generate_files(from_dir_path: str, output_dir_path: str):
     path=os.path.join(output_dir_path, "OEBPS", "content.opf"),
     content=template.render(
       template="content.opf",
+      identifier="395188820", # TODO: ISBN
       nav_points=nav_points,
       has_head_chapter=has_head_chapter,
       has_cover=has_cover,
+      asset_files=[
+        f for f in os.listdir(assets_path)
+        if f != "cover.png" and not f.startswith(".")
+      ],
     ),
   )
   _write(

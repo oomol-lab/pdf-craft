@@ -52,15 +52,20 @@ def _create_main_text_element(origin: Element):
   if origin.tag == "text":
     html_tag = "p"
   elif origin.tag == "quote":
-    html_tag = "blockquote"
+    html_tag = "p"
   elif origin.tag == "headline":
     html_tag = "h1"
 
   if html_tag is not None:
-     element = Element(html_tag)
-     _fill_text_and_citations(element, origin)
-     yield element
-     return
+    element = Element(html_tag)
+    _fill_text_and_citations(element, origin)
+    if origin.tag == "quote":
+      blockquote = Element("blockquote")
+      blockquote.append(element)
+      yield blockquote
+    else:
+      yield element
+    return
 
   hash = origin.get("hash", None)
   if hash is None:
@@ -73,8 +78,10 @@ def _create_main_text_element(origin: Element):
   alt: str | None = None
   if origin.text != "":
     alt = origin.text
-    if alt is not None:
-      image.set("alt", alt)
+  if alt is None:
+    alt = "image"
+
+  image.set("alt", alt)
 
   wrapper_div = Element("div")
   wrapper_div.set("class", "alt-wrapper")
