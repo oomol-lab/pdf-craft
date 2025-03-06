@@ -1,4 +1,6 @@
 import os
+import shutil
+
 from xml.etree.ElementTree import fromstring, tostring, Element
 from .gen_part import generate_part
 from .gen_index import gen_index, NavPoint
@@ -8,6 +10,7 @@ from .template import Template
 def generate_files(from_dir_path: str, output_dir_path: str):
   template = Template()
   index_path = os.path.join(from_dir_path, "index.json")
+  assets_path = os.path.join(from_dir_path, "assets")
   head_chapter_path = os.path.join(from_dir_path, "chapter.xml")
 
   out_oebps_path = os.path.join(output_dir_path, "OEBPS")
@@ -60,6 +63,12 @@ def generate_files(from_dir_path: str, output_dir_path: str):
         path=os.path.join(out_text_path, nav_point.file_name),
         content=generate_part(template, _read_xml(chapter_path)),
       )
+
+  if os.path.exists(assets_path):
+    shutil.copytree(
+      src=os.path.join(from_dir_path, "assets"),
+      dst=os.path.join(out_oebps_path, "assets"),
+    )
 
 def _read_xml(path: str) -> Element:
   with open(path, "r", encoding="utf-8") as file:
