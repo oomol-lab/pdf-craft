@@ -71,7 +71,6 @@ def _create_main_text_element(origin: Element):
   if hash is None:
     return
 
-  element = Element("p")
   image = Element("img")
   image.set("src", f"../assets/{hash}.png")
 
@@ -79,19 +78,20 @@ def _create_main_text_element(origin: Element):
   if origin.text != "":
     alt = origin.text
   if alt is None:
-    alt = "image"
-
-  image.set("alt", alt)
+    image.set("alt", "image")
+  else:
+    image.set("alt", alt)
 
   wrapper_div = Element("div")
   wrapper_div.set("class", "alt-wrapper")
-  alt_div = Element("div")
-  alt_div.set("class", "alt")
-  alt_div.text = alt
-  wrapper_div.append(alt_div)
-  element.append(image)
+  wrapper_div.append(image)
 
-  yield element
+  if alt is not None:
+    alt_div = Element("div")
+    alt_div.set("class", "alt")
+    alt_div.text = alt
+    wrapper_div.append(alt_div)
+
   yield wrapper_div
 
 def _fill_text_and_citations(element: Element, origin: Element):
