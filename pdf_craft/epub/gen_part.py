@@ -22,21 +22,32 @@ def _render_content(content_xml: Element):
 def _render_citations(citations_xml: Element | None):
   if citations_xml is None:
     return
+
   for citation in citations_xml:
     to_div = Element("div")
     to_div.attrib["class"] = "citation"
     id = citation.get("id", None)
     is_first_child = True
-    for child in citation:
-      if child.tag == "label":
-        continue
+    citation_children = [c for c in citation if c.tag != "label"]
+
+    if len(citation_children) == 1:
+      citation_children[0].tag = "text"
+
+    for child in citation_children:
       to_element, need_fill = _create_main_text_element(child)
       if need_fill:
         _fill_text_and_citations(to_element, child)
       if is_first_child:
         is_first_child = False
-        to_element.text = f"[{id}] {to_element.text}"
-        to_element.attrib["id"] = f"ref-{id}"
+        if to_element.tag == "p":
+          to_element.text = f"[{id}] {to_element.text}"
+          to_element.attrib["id"] = f"ref-{id}"
+        else:
+          injected_element = Element("p")
+          injected_element.text = f"[{id}]"
+          injected_element.attrib["id"] = f"ref-{id}"
+          to_div.append(injected_element)
+
       to_div.append(to_element)
 
     yield tostring(to_div, encoding="unicode")
