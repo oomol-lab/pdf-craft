@@ -1,6 +1,7 @@
 from __future__ import annotations
 from json import loads
 from dataclasses import dataclass
+from typing import Callable
 from xml.etree.ElementTree import tostring, Element
 from .template import Template
 
@@ -11,10 +12,11 @@ class NavPoint:
   order: int
   file_name: str
 
-def gen_index(template: Template, file_path: str) -> tuple[str, list[NavPoint]]:
+def gen_index(template: Template, file_path: str, check_chapter_exits: Callable[[int], bool]) -> tuple[str, list[NavPoint]]:
   prefaces, chapters = _parse_index(file_path)
   nav_points: list[Element] = []
   nav_point_generation = _NavPointGeneration(
+    check_chapter_exits=check_chapter_exits,
     chapters_count=(
       _count_chapters(prefaces) +
       _count_chapters(chapters)
@@ -23,7 +25,8 @@ def gen_index(template: Template, file_path: str) -> tuple[str, list[NavPoint]]:
   for chapters_list in (prefaces, chapters):
     for chapter in chapters_list:
       element = nav_point_generation.generate(chapter)
-      nav_points.append(element)
+      if element is not None:
+        nav_points.append(element)
 
   depth = max(
     _max_depth(prefaces),
@@ -53,16 +56,20 @@ def _max_depth(chapters: list[_Chapter]) -> int:
   return max_depth
 
 class _NavPointGeneration:
-  def __init__(self, chapters_count: int):
+  def __init__(self, chapters_count: int, check_chapter_exits: Callable[[int], bool]):
     self._nav_points: list[NavPoint] = []
     self._next_order: int = 1
     self._digits = len(str(chapters_count))
+    self._check_chapter_exits: Callable[[int], bool] = check_chapter_exits
 
   @property
   def nav_points(self) -> list[NavPoint]:
     return self._nav_points
 
-  def generate(self, chapter: _Chapter) -> Element:
+  def generate(self, chapter: _Chapter) -> Element | None:
+    if not self._check_chapter_exits(chapter.id):
+      return None
+
     part_id = str(chapter.id).zfill(self._digits)
     file_name = f"part{part_id}.xhtml"
     order = self._next_order
@@ -89,7 +96,9 @@ class _NavPointGeneration:
       file_name=file_name,
     ))
     for child in chapter.children:
-      nav_point_xml.append(self.generate(child))
+      child_xml = self.generate(child)
+      if child_xml is not None:
+        nav_point_xml.append(child_xml)
 
     return nav_point_xml
 

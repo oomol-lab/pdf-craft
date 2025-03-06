@@ -25,7 +25,13 @@ def generate_files(from_dir_path: str, output_dir_path: str):
   has_head_chapter: bool = os.path.exists(head_chapter_path)
 
   if os.path.exists(index_path):
-    toc_ncx, nav_points = gen_index(template, index_path)
+    toc_ncx, nav_points = gen_index(
+      template=template,
+      file_path=index_path,
+      check_chapter_exits=lambda id: os.path.exists(
+        os.path.join(from_dir_path, f"chapter_{id}.xml"),
+      ),
+    )
     _write(
       os.path.join(out_oebps_path, "toc.ncx"),
       content=toc_ncx,
