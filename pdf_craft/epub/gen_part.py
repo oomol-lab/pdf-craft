@@ -33,16 +33,22 @@ def _render_citations(citations_xml: Element | None):
 
     for child in citation_children:
       for to_element in _create_main_text_element(child):
+        ref_element = Element("span")
+        ref_element.text = f"[{id}]"
+        ref_element.attrib["id"] = f"ref-{id}"
+        ref_element.attrib["class"] = "citation"
+
         if is_first_child:
           is_first_child = False
           if to_element.tag == "p":
-            to_element.text = f"[{id}] {to_element.text}"
-            to_element.attrib["id"] = f"ref-{id}"
+            ref_element.tail = to_element.text
+            to_element.text = None
+            to_element.append(ref_element)
           else:
             injected_element = Element("p")
-            injected_element.text = f"[{id}]"
-            injected_element.attrib["id"] = f"ref-{id}"
             to_div.append(injected_element)
+            injected_element.append(ref_element)
+
         to_div.append(to_element)
 
     yield tostring(to_div, encoding="unicode")
