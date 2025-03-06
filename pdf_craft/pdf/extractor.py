@@ -56,7 +56,7 @@ class PDFPageExtractor:
       debug_dir_path=debug_dir_path,
     )
 
-  def extract(self, pdf: str | Document, lang: PaddleLang) -> Generator[list[Block], None, None]:
+  def extract(self, pdf: str | Document, lang: PaddleLang) -> Generator[tuple[list[Block], Image], None, None]:
     for result, layouts in self._doc_extractor.extract(pdf, lang):
       blocks = self._convert_to_blocks(result, layouts)
       page_range = self._texts_range(blocks)
@@ -78,7 +78,7 @@ class PDFPageExtractor:
         block.has_paragraph_indentation = first_delta_x > mean_line_height
         block.last_line_touch_end = last_delta_x < mean_line_height
 
-      yield blocks
+      yield blocks, result.extracted_image
 
   def _convert_to_blocks(self, result: ExtractedResult, layouts: list[Layout]) -> list[Block]:
     store: list[tuple[Layout, Block]] = []

@@ -4,10 +4,17 @@
     <dc:title>测试书籍</dc:title>
     <dc:language>zh</dc:language>
     <dc:creator>无名氏</dc:creator>
+{% if has_cover %}
+    <meta name="cover" content="assets/cover.png" />
+{% endif %}
     <meta name="output encoding" content="utf-8" />
     <meta name="primary-writing-mode" content="horizontal-lr" />
   </metadata>
   <manifest>
+{% if has_cover %}
+    <item id="x_cover" media-type="image/png" href="assets/cover.png" />
+    <item id="x_cover.xhtml" media-type="application/xhtml+xml" href="Text/cover.xhtml" />
+{% endif %}
 {% if has_head_chapter %}
     <item id="x_head.xhtml" media-type="application/xhtml+xml" href="Text/head.xhtml" />
 {% endif %}
@@ -22,6 +29,9 @@
   <spine toc="ncx">
 {% else %}
   <spine>
+{% endif %}
+{% if has_cover %}
+    <itemref idref="x_cover.xhtml" linear="no" />
 {% endif %}
 {% if has_head_chapter %}
     <itemref idref="x_head.xhtml" />

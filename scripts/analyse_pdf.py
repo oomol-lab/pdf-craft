@@ -27,15 +27,25 @@ def main():
     llm=LLM(**_read_format_json()),
     analysing_dir_path=os.path.join(output_dir_path, "analysing"),
     output_dir_path=output_dir_path,
-    blocks_matrix=_extract_blocks(pdf_file, extractor),
+    blocks_matrix=_extract_blocks(
+      pdf_file=pdf_file,
+      extractor=extractor,
+      cover_path=os.path.join(output_dir_path, "assets", "cover.png"),
+    ),
   )
 
-def _extract_blocks(pdf_file: str, extractor: PDFPageExtractor) -> Generator[list[Block], None, None]:
+def _extract_blocks(pdf_file: str, extractor: PDFPageExtractor, cover_path: str) -> Generator[list[Block], None, None]:
+  did_save_cover = False
+
   with fitz.open(pdf_file) as pdf:
-    for blocks in tqdm(
+    for blocks, image in tqdm(
       iterable=extractor.extract(pdf, "ch"),
       total=pdf.page_count,
     ):
+      if not did_save_cover:
+        image.save(cover_path)
+        did_save_cover = True
+
       yield blocks
 
 def _project_dir_path(name: str, clean: bool = False) -> str:

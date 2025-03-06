@@ -9,8 +9,16 @@
     <text>{{ title }}</text>
   </docTitle>
   <navMap>
-  {% for nav_point in nav_points %}
-  {{ nav_point|safe }}
-  {% endfor %}
+{% if has_cover %}
+    <navPoint id="cover" playOrder="0">
+        <navLabel>
+            <text>封面</text>
+        </navLabel>
+        <content src="assets/cover.png" />
+    </navPoint>
+{% endif %}
+{% for nav_point in nav_points %}
+    {{ nav_point|safe }}
+{% endfor %}
   </navMap>
 </ncx>
