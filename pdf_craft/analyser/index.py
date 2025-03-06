@@ -119,7 +119,7 @@ class Index:
 
     response = llm.request("headline", raw_pages_root, {
       "index": json.dumps(
-        obj=self._to_json(),
+        obj=self.json,
         ensure_ascii=False,
         indent=2,
       ),
@@ -131,7 +131,8 @@ class Index:
         origin_headline.set("id", id)
         origin_headline.text = normalize_xml_text(headline.text)
 
-  def _to_json(self) -> dict:
+  @property
+  def json(self) -> dict:
     prefaces = self._root.children[0].children
     chapters = self._root.children[1].children
 
