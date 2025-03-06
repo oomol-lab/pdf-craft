@@ -98,7 +98,7 @@ class SecondaryAnalyser:
       if id is None:
         file_name = "chapter.xml"
       else:
-        file_name = f"chapter_{id + 1}.xml"
+        file_name = f"chapter_{id}.xml"
       file_path = os.path.join(self._output_dir_path, file_name)
 
       with open(file_path, "wb") as file:
