@@ -14,10 +14,8 @@ def generate_part(template: Template, chapter_xml: Element) -> str:
 
 def _render_content(content_xml: Element):
   for child in content_xml:
-    to_element, need_fill = _create_main_text_element(child)
-    if need_fill:
-      _fill_text_and_citations(to_element, child)
-    yield tostring(to_element, encoding="unicode")
+    for to_element in _create_main_text_element(child):
+      yield tostring(to_element, encoding="unicode")
 
 def _render_citations(citations_xml: Element | None):
   if citations_xml is None:
@@ -34,25 +32,22 @@ def _render_citations(citations_xml: Element | None):
       citation_children[0].tag = "text"
 
     for child in citation_children:
-      to_element, need_fill = _create_main_text_element(child)
-      if need_fill:
-        _fill_text_and_citations(to_element, child)
-      if is_first_child:
-        is_first_child = False
-        if to_element.tag == "p":
-          to_element.text = f"[{id}] {to_element.text}"
-          to_element.attrib["id"] = f"ref-{id}"
-        else:
-          injected_element = Element("p")
-          injected_element.text = f"[{id}]"
-          injected_element.attrib["id"] = f"ref-{id}"
-          to_div.append(injected_element)
-
-      to_div.append(to_element)
+      for to_element in _create_main_text_element(child):
+        if is_first_child:
+          is_first_child = False
+          if to_element.tag == "p":
+            to_element.text = f"[{id}] {to_element.text}"
+            to_element.attrib["id"] = f"ref-{id}"
+          else:
+            injected_element = Element("p")
+            injected_element.text = f"[{id}]"
+            injected_element.attrib["id"] = f"ref-{id}"
+            to_div.append(injected_element)
+        to_div.append(to_element)
 
     yield tostring(to_div, encoding="unicode")
 
-def _create_main_text_element(origin: Element) -> tuple[Element, bool]:
+def _create_main_text_element(origin: Element):
   html_tag: str
   src: str | None = None
   alt: str | None = None
@@ -78,17 +73,19 @@ def _create_main_text_element(origin: Element) -> tuple[Element, bool]:
     element.attrib["alt"] = alt
 
   if alt is None:
-    return element, True
+    _fill_text_and_citations(element, origin)
+    yield element
 
-  image_div = Element("div")
-  image_div.set("class", "image")
-  alt_div = Element("div")
-  alt_div.set("class", "alt")
-  alt_div.text = alt
-  image_div.append(element)
-  image_div.append(alt_div)
+  else:
+    wrapper_div = Element("div")
+    wrapper_div.set("class", "alt-wrapper")
+    alt_div = Element("div")
+    alt_div.set("class", "alt")
+    alt_div.text = alt
+    wrapper_div.append(alt_div)
 
-  return image_div, False
+    yield element
+    yield wrapper_div
 
 def _fill_text_and_citations(element: Element, origin: Element):
   element.text = origin.text
