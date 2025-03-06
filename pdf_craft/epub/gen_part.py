@@ -66,7 +66,18 @@ def _create_main_text_element(origin: Element) -> tuple[Element, bool]:
   if alt is not None:
     element.attrib["alt"] = alt
 
-  return element, alt is None
+  if alt is None:
+    return element, True
+
+  image_div = Element("div")
+  image_div.set("class", "image")
+  alt_div = Element("div")
+  alt_div.set("class", "alt")
+  alt_div.text = alt
+  image_div.append(element)
+  image_div.append(alt_div)
+
+  return image_div, False
 
 def _fill_text_and_citations(element: Element, origin: Element):
   element.text = origin.text
