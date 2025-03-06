@@ -111,15 +111,20 @@ class Index:
     origin_headlines: list[Element] = []
 
     for child in content_xml:
-      if child.tag == "headline":
-        headline = Element("headline")
-        headline.text = normalize_xml_text(child.text)
-        raw_pages_root.append(headline)
-        origin_headlines.append(child)
+      if child.tag != "headline":
+        continue
+      page_index = int(child.get("idx", "-1"))
+      if page_index <= self._end_page_index:
+        # the reader has not yet read the catalogue.
+        continue
+      headline = Element("headline")
+      headline.text = normalize_xml_text(child.text)
+      raw_pages_root.append(headline)
+      origin_headlines.append(child)
 
     response = llm.request("headline", raw_pages_root, {
       "index": json.dumps(
-        obj=self._to_json(),
+        obj=self.json,
         ensure_ascii=False,
         indent=2,
       ),
@@ -131,7 +136,8 @@ class Index:
         origin_headline.set("id", id)
         origin_headline.text = normalize_xml_text(headline.text)
 
-  def _to_json(self) -> dict:
+  @property
+  def json(self) -> dict:
     prefaces = self._root.children[0].children
     chapters = self._root.children[1].children
 

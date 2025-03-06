@@ -14,7 +14,7 @@ from pdf_craft import analyse, PDFPageExtractor, Block, LLM
 def main():
   pdf_file = os.path.join(__file__, "..", "..", "tests", "assets", "figure-caption.pdf")
   pdf_file = os.path.abspath(pdf_file)
-  # pdf_file = "/Users/taozeyu/Downloads/中国古代农业.pdf"
+  # pdf_file = "/Users/taozeyu/Downloads/混编书籍.pdf"
   model_dir_path = _project_dir_path("models")
   output_dir_path = _project_dir_path("output", clean=True)
 

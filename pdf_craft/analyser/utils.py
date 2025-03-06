@@ -48,14 +48,10 @@ def parse_page_indexes(element: Element) -> list[int]:
     return [int(i) - 1 for i in idx.split(",")]
 
 def encode_response(response: str) -> Element:
-  matches = re.findall(r"<response>.*</response>", response, re.DOTALL)
-  if not matches or len(matches) == 0:
-    print(response)
-    raise ValueError("No response tag found in LLM response")
-  content: str = matches[0]
-  content = content.replace("&", "&amp;")
+  response = re.sub(r"^```XML", "", response)
+  response = re.sub(r"```$", "", response)
   try:
-    return fromstring(content)
+    return fromstring(response.replace("&", "&amp;"))
   except Exception as e:
     print(response)
     raise e

@@ -154,7 +154,10 @@ def _clip_element(llm: LLM, element: Element, remain_tokens: int, clip_tail: boo
     children.reverse()
 
   if len(children) == 0:
-    tokens = llm.encode_tokens(element.text)
+    text = element.text
+    if text is None:
+      return None
+    tokens = llm.encode_tokens(text)
     if clip_tail:
       tokens = tokens[:remain_tokens]
     else:

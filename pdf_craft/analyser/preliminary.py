@@ -1,14 +1,14 @@
 import os
-import re
 
 from html import escape
 from hashlib import sha256
 from typing import Iterable
 from PIL.Image import Image
-from xml.etree.ElementTree import fromstring, tostring, XML, Element
+from xml.etree.ElementTree import tostring, XML, Element
 from ..pdf import Block, Text, TextBlock, AssetBlock, TextKind, AssetKind
 from .llm import LLM
 from .asset_matcher import AssetMatcher, ASSET_TAGS
+from .utils import encode_response
 
 
 def preliminary_analyse(llm: LLM, page_dir_path: str, assets_dir_path: str, blocks_matrix: Iterable[list[Block]]):
@@ -25,7 +25,7 @@ def preliminary_analyse(llm: LLM, page_dir_path: str, assets_dir_path: str, bloc
       raw_page_xml.set("previous-page", "page")
 
     response = llm.request("preliminary", raw_page_xml, {})
-    response_root: Element = _process_response_page_xml(response)
+    response_root: Element = encode_response(response)
 
     if response_root.tag == "index":
       is_prev_index = True
@@ -49,7 +49,7 @@ def preliminary_analyse(llm: LLM, page_dir_path: str, assets_dir_path: str, bloc
     raw_page_xml.append(index_xml)
 
   response = llm.request("index", raw_page_xml, {})
-  response_root: Element = _process_response_page_xml(response)
+  response_root: Element = encode_response(response)
 
   start_page_index = min(i + 1 for i, _ in index_pages)
   end_page_index = max(i + 1 for i, _ in index_pages)
@@ -94,15 +94,6 @@ def _transform_page_xml(blocks: list[Block]) -> Element:
         root.append(caption_dom)
 
   return root
-
-def _process_response_page_xml(response: str) -> Element:
-  response = re.sub(r"^```XML", "", response)
-  response = re.sub(r"```$", "", response)
-  try:
-    return fromstring(response.replace("&", "&amp;"))
-  except Exception as e:
-    print(response)
-    raise e
 
 def _extends_line_doms(parent: Element, texts: list[Text]):
   for text in texts:
