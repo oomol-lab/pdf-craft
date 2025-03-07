@@ -23,11 +23,13 @@ def generate_files(from_dir_path: str, output_dir_path: str):
 
   nav_points: list[NavPoint] = []
   has_head_chapter: bool = os.path.exists(head_chapter_path)
+  has_cover: bool = os.path.exists(os.path.join(assets_path, "cover.png"))
 
   if os.path.exists(index_path):
     toc_ncx, nav_points = gen_index(
       template=template,
       file_path=index_path,
+      has_cover=has_cover,
       check_chapter_exits=lambda id: os.path.exists(
         os.path.join(from_dir_path, f"chapter_{id}.xml"),
       ),
@@ -49,14 +51,25 @@ def generate_files(from_dir_path: str, output_dir_path: str):
     path=os.path.join(output_dir_path, "OEBPS", "content.opf"),
     content=template.render(
       template="content.opf",
+      identifier="395188820", # TODO: ISBN
       nav_points=nav_points,
       has_head_chapter=has_head_chapter,
+      has_cover=has_cover,
+      asset_files=[
+        f for f in os.listdir(assets_path)
+        if f != "cover.png" and not f.startswith(".")
+      ],
     ),
   )
   _write(
     path=os.path.join(out_styles_path, "style.css"),
     content=template.render("style.css"),
   )
+  if has_cover:
+    _write(
+      path=os.path.join(out_text_path, "cover.xhtml"),
+      content=template.render("cover.xhtml"),
+    )
   if has_head_chapter:
     _write(
       path=os.path.join(out_text_path, "head.xhtml"),

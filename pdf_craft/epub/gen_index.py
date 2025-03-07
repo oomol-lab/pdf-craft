@@ -12,7 +12,13 @@ class NavPoint:
   order: int
   file_name: str
 
-def gen_index(template: Template, file_path: str, check_chapter_exits: Callable[[int], bool]) -> tuple[str, list[NavPoint]]:
+def gen_index(
+    template: Template,
+    file_path: str,
+    has_cover: bool,
+    check_chapter_exits: Callable[[int], bool],
+  ) -> tuple[str, list[NavPoint]]:
+
   prefaces, chapters = _parse_index(file_path)
   nav_points: list[Element] = []
   nav_point_generation = _NavPointGeneration(
@@ -36,6 +42,7 @@ def gen_index(template: Template, file_path: str, check_chapter_exits: Callable[
     template="toc.ncx",
     title="测试书名",
     depth=depth,
+    has_cover=has_cover,
     nav_points=[tostring(p, encoding="unicode") for p in nav_points],
   )
   return toc_ncx, nav_point_generation.nav_points
