@@ -1,21 +1,24 @@
 import os
 
-from typing import Iterable, Generator
+from typing import Iterable
 from xml.etree.ElementTree import fromstring, Element
+
 from .llm import LLM
 from .types import PageInfo, TextInfo, TextIncision
-from .splitter import group, get_pages_range, allocate_segments, get_and_clip_pages
+from .chunk_file import ChunkFile
+from .splitter import group, allocate_segments, get_and_clip_pages
 from .asset_matcher import AssetMatcher
 from .utils import read_xml_files, parse_page_indexes, encode_response
 
 
 def analyse_main_texts(
     llm: LLM,
+    file: ChunkFile,
     pages: list[PageInfo],
     citations_dir_path: str,
     request_max_tokens: int, # TODO: not includes tokens of citations
     gap_rate: float,
-  ) -> Generator[tuple[int, int, Element], None, None]:
+  ):
 
   prompt_tokens = llm.prompt_tokens_count("main_text", {})
   data_max_tokens = request_max_tokens - prompt_tokens
@@ -28,7 +31,7 @@ def analyse_main_texts(
   #       LLM 的总结有时候会出问题，多次循环后 summary 就不变了。
   summary: str | None = None
 
-  for task_group in group(
+  for start_idx, end_idx, task_group in file.filter_groups(group(
     max_tokens=data_max_tokens,
     gap_rate=gap_rate,
     tail_rate=0.5,
@@ -36,7 +39,7 @@ def analyse_main_texts(
       text_infos=_extract_page_text_infos(pages),
       max_tokens=data_max_tokens,
     ),
-  ):
+  )):
     page_xml_list = get_and_clip_pages(
       llm=llm,
       group=task_group,
@@ -61,7 +64,6 @@ def analyse_main_texts(
     response = llm.request("main_text", raw_pages_root, {})
 
     response_xml = encode_response(response)
-    start_idx, end_idx = get_pages_range(page_xml_list)
     chunk_xml = Element("chunk", {
       "start-idx": str(start_idx + 1),
       "end-idx": str(end_idx + 1),
@@ -91,7 +93,7 @@ def analyse_main_texts(
     if citation_xml is not None:
       chunk_xml.append(citation_xml)
 
-    yield start_idx, end_idx, chunk_xml
+    file.atomic_write_chunk(start_idx, end_idx, chunk_xml)
 
 def _extract_page_text_infos(pages: list[PageInfo]) -> Iterable[TextInfo]:
   if len(pages) == 0:

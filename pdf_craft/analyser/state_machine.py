@@ -4,13 +4,18 @@ import re
 from enum import auto, Enum
 from json import dumps, loads
 from tqdm import tqdm
+from typing import Iterable
 from xml.etree.ElementTree import tostring, fromstring, Element
 from doc_page_extractor import PaddleLang
 from ..pdf import PDFPageExtractor
 from .llm import LLM
+from .types import PageInfo, TextInfo, TextIncision
+from .chunk_file import ChunkFile
 from .ocr_extractor import extract_ocr_page_xmls
 from .page import analyse_page
 from .index import analyse_index, Index
+from .citation import analyse_citations
+from .main_text import analyse_main_texts
 
 
 _IndexXML = tuple[str, int, int]
@@ -53,6 +58,7 @@ class StateMachine:
     self._phase: _Phase = self._recover_phase()
     self._index: Index | None = None
     self._index_did_load: bool = False
+    self._pages: list[PageInfo] | None = None
 
   def start(self):
     while self._phase != _Phase.CHAPTERS:
@@ -121,7 +127,7 @@ class StateMachine:
       assets_dir_path=assets_path,
     ):
       self._atomic_write(
-        file_path=os.path.join(dir_path, f"page_{page_index + 1}.xml"),
+        file_path=os.path.join(dir_path, self._xml_name("page", page_index)),
         content=tostring(page_xml, encoding="unicode"),
       )
 
@@ -181,10 +187,29 @@ class StateMachine:
       self._index_did_load = True
 
   def _analyse_citations(self):
-    raise NotImplementedError()
+    dir_path = self._ensure_dir_path(os.path.join(self._analysing_dir_path, "citations"))
+    with ChunkFile(dir_path) as file:
+      analyse_citations(
+        llm=self._llm,
+        file=file,
+        pages=self._load_pages(),
+        request_max_tokens=8000,
+        tail_rate=0.15,
+      )
 
   def _analyse_main_texts(self):
-    raise NotImplementedError()
+    citations_dir_path = os.path.join(self._analysing_dir_path, "citations")
+    dir_path = self._ensure_dir_path(os.path.join(self._analysing_dir_path, "main_texts"))
+
+    with ChunkFile(dir_path) as file:
+      analyse_main_texts(
+        llm=self._llm,
+        file=file,
+        pages=self._load_pages(),
+        citations_dir_path=citations_dir_path,
+        request_max_tokens=10000,
+        gap_rate=0.1,
+      )
 
   def _analyse_position(self):
     raise NotImplementedError()
@@ -212,6 +237,91 @@ class StateMachine:
     index_xmls.sort(key=lambda x: x[1])
     return index_xmls
 
+  def _load_pages(self) -> list[PageInfo]:
+    if self._pages is None:
+      pages: list[PageInfo] = []
+      pages_path = os.path.join(self._analysing_dir_path, "pages")
+
+      for file_name, page_index, _ in self._list_index_xmls("page", pages_path):
+        file_path = os.path.join(pages_path, file_name)
+        page_xml = self._read_xml(file_path)
+        page = self._parse_page_info(file_path, page_index, page_xml)
+        pages.append(page)
+
+      pages.sort(key=lambda p: p.page_index)
+      self._pages = pages
+
+    return self._pages
+
+  def _parse_page_info(self, file_path: str, page_index: int, root: Element) -> PageInfo:
+    main_children: list[Element] = []
+    citation: TextInfo | None = None
+
+    for child in root:
+      if child.tag == "citation":
+        citation = self._parse_text_info(page_index, child)
+      else:
+        main_children.append(child)
+
+    return PageInfo(
+      page_index=page_index,
+      citation=citation,
+      file=lambda: open(file_path, "rb"),
+      main=self._parse_text_info(page_index, main_children),
+    )
+
+  def _parse_text_info(self, page_index: int, children: Iterable[Element]) -> TextInfo:
+    # When no text is found on this page, it means it is full of tables or
+    # it is a blank page. We cannot tell if there is a cut in the context.
+    start_incision: TextIncision = TextIncision.UNCERTAIN
+    end_incision: TextIncision = TextIncision.UNCERTAIN
+    first: Element | None = None
+    last: Element | None = None
+
+    for child in children:
+      if first is None:
+        first = child
+      last = child
+
+    if first is not None and last is not None:
+      if first.tag == "text":
+        start_incision = self._attr_value_to_kind(first.attrib.get("start-incision"))
+      if last.tag == "text":
+        end_incision = self._attr_value_to_kind(last.attrib.get("end-incision"))
+
+    tokens = self._count_elements_tokens(children)
+
+    return TextInfo(
+      page_index=page_index,
+      tokens=tokens,
+      start_incision=start_incision,
+      end_incision=end_incision,
+    )
+
+  def _count_elements_tokens(self, elements: Iterable[Element]) -> int:
+    root = Element("page")
+    root.extend(elements)
+    xml_content = tostring(root, encoding="unicode")
+    return self._llm.count_tokens_count(xml_content)
+
+  def _attr_value_to_kind(self, value: str | None) -> TextIncision:
+    if value == "must-be":
+      return TextIncision.MUST_BE
+    elif value == "most-likely":
+      return TextIncision.MOST_LIKELY
+    elif value == "impossible":
+      return TextIncision.IMPOSSIBLE
+    elif value == "uncertain":
+      return TextIncision.UNCERTAIN
+    else:
+      return TextIncision.UNCERTAIN
+
+  def _xml_name(self, kind: str, page_index: int, page_index2: int | None = None) -> str:
+    if page_index2 is None:
+      return f"{kind}_{page_index + 1}.xml"
+    else:
+      return f"{kind}_{page_index + 1}_{page_index2 + 1}.xml"
+
   def _search_index_xmls(self, kind: str, dir_path: str):
     for file_name in os.listdir(dir_path):
       matches = re.match(r"^[a-zA-Z]+_\d+(_\d+)?\.xml$", file_name)
@@ -238,6 +348,7 @@ class StateMachine:
     try:
       with open(file_path, "w", encoding="utf-8") as file:
         file.write(content)
+        file.flush()
     except Exception as e:
       if os.path.exists(file_path):
         os.unlink(file_path)

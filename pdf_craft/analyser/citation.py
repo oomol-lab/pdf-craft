@@ -3,23 +3,25 @@ from xml.etree.ElementTree import fromstring, Element
 
 from .llm import LLM
 from .types import PageInfo, TextInfo, TextIncision
-from .splitter import group, allocate_segments, get_pages_range, get_and_clip_pages
+from .splitter import group, allocate_segments, get_and_clip_pages
 from .asset_matcher import AssetMatcher, ASSET_TAGS
+from .chunk_file import ChunkFile
 from .utils import encode_response
 
 
 def analyse_citations(
     llm: LLM,
+    file: ChunkFile,
     pages: list[PageInfo],
     request_max_tokens: int,
-    tail_rate: float) -> Generator[tuple[int, int, Element], None, None]:
-
+    tail_rate: float,
+  ):
   prompt_tokens = llm.prompt_tokens_count("citation", {})
   data_max_tokens = request_max_tokens - prompt_tokens
   if data_max_tokens <= 0:
     raise ValueError(f"Request max tokens is too small (less than system prompt tokens count {prompt_tokens})")
 
-  for task_group in group(
+  for start_idx, end_idx, task_group in file.filter_groups(group(
     max_tokens=data_max_tokens,
     gap_rate=tail_rate,
     tail_rate=1.0,
@@ -27,7 +29,7 @@ def analyse_citations(
       text_infos=_extract_citations(pages),
       max_tokens=data_max_tokens,
     ),
-  ):
+  )):
     page_xml_list = get_and_clip_pages(
       llm=llm,
       group=task_group,
@@ -43,7 +45,6 @@ def analyse_citations(
     response = llm.request("citation", raw_pages_root, {})
 
     response_xml = encode_response(response)
-    start_idx, end_idx = get_pages_range(page_xml_list)
     chunk_xml = Element("chunk", {
       "start-idx": str(start_idx + 1),
       "end-idx": str(end_idx + 1),
@@ -61,7 +62,7 @@ def analyse_citations(
           for p in page_indexes
         ]))
 
-    yield start_idx, end_idx, chunk_xml
+    file.atomic_write_chunk(start_idx, end_idx, chunk_xml)
 
 def _extract_citations(pages: Iterable[PageInfo]) -> Generator[TextInfo, None, None]:
   citations_matrix: list[list[TextInfo]] = []
