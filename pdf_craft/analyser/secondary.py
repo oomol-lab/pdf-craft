@@ -1,5 +1,4 @@
 import os
-import json
 import shutil
 
 from typing import Iterable
@@ -85,10 +84,10 @@ class SecondaryAnalyser:
         file.write(tostring(chunk_xml, encoding="utf-8"))
 
   def analyse_chapters(self):
-    if self._index is not None:
-      file_path = os.path.join(self._output_dir_path, "index.json")
-      with open(file_path, "w", encoding="utf-8") as file:
-        file.write(json.dumps(self._index.json, ensure_ascii=False))
+    # if self._index is not None:
+    #   file_path = os.path.join(self._output_dir_path, "index.json")
+    #   with open(file_path, "w", encoding="utf-8") as file:
+    #     file.write(json.dumps(self._index._to_llm_json, ensure_ascii=False))
 
     for id, chapter_xml in generate_chapters(
       llm=self._llm,
