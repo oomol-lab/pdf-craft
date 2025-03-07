@@ -10,6 +10,7 @@ from doc_page_extractor import PaddleLang
 from ..pdf import PDFPageExtractor
 from .llm import LLM
 from .types import PageInfo, TextInfo, TextIncision
+from .chunk_file import ChunkFile
 from .ocr_extractor import extract_ocr_page_xmls
 from .page import analyse_page
 from .index import analyse_index, Index
@@ -187,35 +188,28 @@ class StateMachine:
 
   def _analyse_citations(self):
     dir_path = self._ensure_dir_path(os.path.join(self._analysing_dir_path, "citations"))
-
-    for start_idx, end_idx, chunk_xml in analyse_citations(
-      llm=self._llm,
-      pages=self._load_pages(),
-      request_max_tokens=8000,
-      tail_rate=0.15,
-    ):
-      file_name = self._xml_name("citations", start_idx, end_idx)
-      self._atomic_write(
-        file_path=os.path.join(dir_path, file_name),
-        content=tostring(chunk_xml, encoding="unicode"),
+    with ChunkFile(dir_path) as file:
+      analyse_citations(
+        llm=self._llm,
+        file=file,
+        pages=self._load_pages(),
+        request_max_tokens=8000,
+        tail_rate=0.15,
       )
 
   def _analyse_main_texts(self):
     citations_dir_path = os.path.join(self._analysing_dir_path, "citations")
     dir_path = self._ensure_dir_path(os.path.join(self._analysing_dir_path, "main_texts"))
 
-    for start_idx, end_idx, chunk_xml in analyse_main_texts(
-      llm=self._llm,
-      pages=self._load_pages(),
-      citations_dir_path=citations_dir_path,
-      request_max_tokens=10000,
-      gap_rate=0.1,
-    ):
-      file_name = self._xml_name("chunk", start_idx, end_idx)
-      file_path = os.path.join(dir_path, file_name)
-
-      with open(file_path, "wb") as file:
-        file.write(tostring(chunk_xml, encoding="utf-8"))
+    with ChunkFile(dir_path) as file:
+      analyse_main_texts(
+        llm=self._llm,
+        file=file,
+        pages=self._load_pages(),
+        citations_dir_path=citations_dir_path,
+        request_max_tokens=10000,
+        gap_rate=0.1,
+      )
 
   def _analyse_position(self):
     raise NotImplementedError()
