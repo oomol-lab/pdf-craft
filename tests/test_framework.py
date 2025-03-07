@@ -72,8 +72,8 @@ class TextFramework(unittest.TestCase):
       )
       for layout in layouts2
     ]
-    session = Section(layouts1)
-    session.link_next(Section(layouts2), 1)
+    session = Section(0, layouts1)
+    session.link_next(Section(0, layouts2), 1)
     framework_indexes = sorted([layouts1.index(layout) for layout in session.framework()])
 
     self.assertListEqual(framework_indexes, [0, 1, 4])
