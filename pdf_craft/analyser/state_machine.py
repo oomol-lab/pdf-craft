@@ -14,6 +14,7 @@ from .ocr_extractor import extract_ocr_page_xmls
 from .page import analyse_page
 from .index import analyse_index, Index
 from .citation import analyse_citations
+from .main_text import analyse_main_texts
 
 
 _IndexXML = tuple[str, int, int]
@@ -200,7 +201,21 @@ class StateMachine:
       )
 
   def _analyse_main_texts(self):
-    raise NotImplementedError()
+    citations_dir_path = os.path.join(self._analysing_dir_path, "citations")
+    dir_path = self._ensure_dir_path(os.path.join(self._analysing_dir_path, "main_texts"))
+
+    for start_idx, end_idx, chunk_xml in analyse_main_texts(
+      llm=self._llm,
+      pages=self._load_pages(),
+      citations_dir_path=citations_dir_path,
+      request_max_tokens=10000,
+      gap_rate=0.1,
+    ):
+      file_name = self._xml_name("chunk", start_idx, end_idx)
+      file_path = os.path.join(dir_path, file_name)
+
+      with open(file_path, "wb") as file:
+        file.write(tostring(chunk_xml, encoding="utf-8"))
 
   def _analyse_position(self):
     raise NotImplementedError()
