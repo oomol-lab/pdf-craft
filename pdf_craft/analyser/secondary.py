@@ -1,12 +1,11 @@
 import os
-import json
 import shutil
 
 from typing import Iterable
 from xml.etree.ElementTree import tostring, Element
 from .types import PageInfo, TextInfo, TextIncision
 from .llm import LLM
-from .index import parse_index, Index
+from .index import Index
 from .citation import analyse_citations
 from .main_text import analyse_main_texts
 from .chapter import generate_chapters
@@ -30,7 +29,7 @@ class SecondaryAnalyser:
     self._pages: list[PageInfo] = []
     self._index: Index | None = None
 
-    for root, file_name, kind, index1, index2 in read_xml_files(
+    for root, file_name, kind, index1, _ in read_xml_files(
       dir_path=os.path.join(analysing_dir_path, "pages"),
       enable_kinds=("page", "index"),
     ):
@@ -40,12 +39,12 @@ class SecondaryAnalyser:
         page = self._parse_page_info(file_path, page_index, root)
         self._pages.append(page)
 
-      elif kind == "index":
-        self._index = parse_index(
-          start_page_index=index1 - 1,
-          end_page_index=index2 - 1,
-          root=root,
-        )
+      # elif kind == "index":
+      #   self._index = parse_index(
+      #     start_page_index=index1 - 1,
+      #     end_page_index=index2 - 1,
+      #     root=root,
+      #   )
 
     self._pages.sort(key=lambda p: p.page_index)
 
@@ -85,10 +84,10 @@ class SecondaryAnalyser:
         file.write(tostring(chunk_xml, encoding="utf-8"))
 
   def analyse_chapters(self):
-    if self._index is not None:
-      file_path = os.path.join(self._output_dir_path, "index.json")
-      with open(file_path, "w", encoding="utf-8") as file:
-        file.write(json.dumps(self._index.json, ensure_ascii=False))
+    # if self._index is not None:
+    #   file_path = os.path.join(self._output_dir_path, "index.json")
+    #   with open(file_path, "w", encoding="utf-8") as file:
+    #     file.write(json.dumps(self._index._to_llm_json, ensure_ascii=False))
 
     for id, chapter_xml in generate_chapters(
       llm=self._llm,

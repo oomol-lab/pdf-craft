@@ -2,13 +2,15 @@ import os
 import re
 
 from enum import auto, Enum
+from json import dumps, loads
 from tqdm import tqdm
 from xml.etree.ElementTree import tostring, fromstring, Element
 from doc_page_extractor import PaddleLang
 from ..pdf import PDFPageExtractor
 from .llm import LLM
 from .ocr_extractor import extract_ocr_page_xmls
-from .page_and_index import analyse_page
+from .page import analyse_page
+from .index import analyse_index, Index
 
 
 _IndexXML = tuple[str, int, int]
@@ -49,6 +51,8 @@ class StateMachine:
     self._analysing_dir_path: str = analysing_dir_path
     self._output_dir_path: str = output_dir_path
     self._phase: _Phase = self._recover_phase()
+    self._index: Index | None = None
+    self._index_did_load: bool = False
 
   def start(self):
     while self._phase != _Phase.CHAPTERS:
@@ -154,7 +158,27 @@ class StateMachine:
       done_page_names[i] = f"page_{i + 1}.xml"
 
   def _analyse_index(self):
-    raise NotImplementedError()
+    from_path = os.path.join(self._analysing_dir_path, "pages")
+    dir_path = self._ensure_dir_path(os.path.join(self._analysing_dir_path, "index"))
+    json_index, index = analyse_index(
+      llm=self._llm,
+      raw=(
+        (i, self._read_xml(os.path.join(from_path, file_name)))
+        for file_name, i, _ in self._list_index_xmls("page", from_path)
+      )
+    )
+    if json_index is not None:
+      self._atomic_write(
+        file_path=os.path.join(dir_path, "index.json"),
+        content=dumps(
+          obj=json_index,
+          ensure_ascii=False,
+          indent=2,
+        ),
+      )
+    if index is not None:
+      self._index = index
+      self._index_did_load = True
 
   def _analyse_citations(self):
     raise NotImplementedError()
@@ -171,6 +195,17 @@ class StateMachine:
   def _ensure_dir_path(self, dir_path: str) -> str:
     os.makedirs(dir_path, exist_ok=True)
     return dir_path
+
+  def _load_index(self) -> Index | None:
+    if not self._index_did_load:
+      index_file_path = os.path.join(self._analysing_dir_path, "index", "index.json")
+      self._index_did_load = True
+
+      if os.path.exists(index_file_path):
+        with open(index_file_path, "r", encoding="utf-8") as file:
+          self._index = Index(loads(file.read()))
+
+    return self._index
 
   def _list_index_xmls(self, kind: str, dir_path: str) -> list[_IndexXML]:
     index_xmls = list(self._search_index_xmls(kind, dir_path))
