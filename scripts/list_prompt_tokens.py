@@ -9,7 +9,7 @@ from pdf_craft.analyser.llm import LLM
 
 def main():
   llm = LLM(**_read_format_json())
-  for template_name in ("main_text", "citation", "preliminary", "index", "headline"):
+  for template_name in ("main_text", "citation", "page", "index", "headline"):
     tokens = llm.prompt_tokens_count(template_name, {
       "index": "",
     })

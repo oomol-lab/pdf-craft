@@ -1,62 +1,46 @@
 import os
+import fitz
 
+from tqdm import tqdm
 from html import escape
 from hashlib import sha256
-from typing import Iterable
+from typing import Generator
 from PIL.Image import Image
-from xml.etree.ElementTree import tostring, XML, Element
-from ..pdf import Block, Text, TextBlock, AssetBlock, TextKind, AssetKind
-from .llm import LLM
+from xml.etree.ElementTree import Element
+from doc_page_extractor import PaddleLang
+from ..pdf import PDFPageExtractor, Block, Text, TextBlock, AssetBlock, TextKind, AssetKind
 from .asset_matcher import AssetMatcher, ASSET_TAGS
-from .utils import encode_response
 
 
-def preliminary_analyse(llm: LLM, page_dir_path: str, assets_dir_path: str, blocks_matrix: Iterable[list[Block]]):
-  is_prev_index: bool = False
-  index_pages: list[tuple[int, Element]] = []
+def extract_ocr_page_xmls(
+    extractor: PDFPageExtractor,
+    pdf_path: str,
+    lang: PaddleLang,
+    expected_page_indexes: set[int],
+    cover_path: str,
+    assets_dir_path: str,
+  ) -> Generator[Element, None, None]:
 
-  for i, blocks in enumerate(blocks_matrix):
-    raw_page_xml = _transform_page_xml(blocks)
-    if i == 0:
-      raw_page_xml.set("previous-page", "null")
-    elif is_prev_index:
-      raw_page_xml.set("previous-page", "index")
-    else:
-      raw_page_xml.set("previous-page", "page")
+  with fitz.open(pdf_path) as pdf:
+    page_generation = extractor.extract(
+      pdf=pdf,
+      lang=lang,
+      page_indexes=(i for i in range(pdf.page_count) if i not in expected_page_indexes),
+    )
+    for i, blocks, image in tqdm(
+      iterable=page_generation,
+      total=pdf.page_count - len(expected_page_indexes),
+    ):
+      if i == 0:
+        image.save(cover_path)
 
-    response = llm.request("preliminary", raw_page_xml, {})
-    response_root: Element = encode_response(response)
-
-    if response_root.tag == "index":
-      is_prev_index = True
-      index_pages.append((i, raw_page_xml))
-      raw_page_xml.attrib = {}
-
-    if response_root.tag == "page":
-      _match_assets(response_root, blocks, assets_dir_path)
-      _collect_for_citation(response_root)
-      file_path = os.path.join(page_dir_path, f"page_{i + 1}.xml")
-      is_prev_index = False
-      with open(file_path, "wb") as file:
-        file.write(tostring(response_root, encoding="utf-8"))
-
-  if len(index_pages) == 0:
-    return
-
-  raw_page_xml = Element("index")
-  for i, (_, index_xml) in enumerate(index_pages):
-    index_xml.set("page-index", str(i + 1))
-    raw_page_xml.append(index_xml)
-
-  response = llm.request("index", raw_page_xml, {})
-  response_root: Element = encode_response(response)
-
-  start_page_index = min(i + 1 for i, _ in index_pages)
-  end_page_index = max(i + 1 for i, _ in index_pages)
-  file_path = os.path.join(page_dir_path, f"index_{start_page_index}_{end_page_index}.xml")
-
-  with open(file_path, "wb") as file:
-    file.write(tostring(response_root, encoding="utf-8"))
+      page_xml = _transform_page_xml(blocks)
+      _bind_and_save_assets(
+        root=page_xml,
+        blocks=blocks,
+        assets_dir_path=assets_dir_path,
+      )
+      yield i, page_xml
 
 def _transform_page_xml(blocks: list[Block]) -> Element:
   root = Element("page")
@@ -104,7 +88,7 @@ def _extends_line_doms(parent: Element, texts: list[Text]):
     line_dom.text = content
     parent.append(line_dom)
 
-def _match_assets(root: XML, blocks: list[Block], assets_dir_path: str):
+def _bind_and_save_assets(root: Element, blocks: list[Block], assets_dir_path: str):
   asset_matcher = AssetMatcher()
   images: dict[str, Image] = {}
   for block in blocks:
@@ -115,20 +99,11 @@ def _match_assets(root: XML, blocks: list[Block], assets_dir_path: str):
   asset_matcher.add_asset_hashes_for_xml(root)
 
   for hash in _handle_asset_tags(root):
-    image = images.get(hash, None)
+    image: Image | None = images.get(hash, None)
     if image is not None:
       file_path = os.path.join(assets_dir_path, f"{hash}.png")
       if not os.path.exists(file_path):
         image.save(file_path, "PNG")
-
-def _collect_for_citation(response_root: Element):
-  citation: Element | None = None
-  for child in list(response_root):
-    if child.tag == "citation":
-      citation = child
-    elif citation is not None:
-      citation.append(child)
-      response_root.remove(child)
 
 def _block_image_hash(block: AssetBlock) -> str:
   hash = sha256()
