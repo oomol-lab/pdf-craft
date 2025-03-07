@@ -2,11 +2,13 @@ import os
 import re
 
 from enum import auto, Enum
-from xml.etree.ElementTree import tostring
+from tqdm import tqdm
+from xml.etree.ElementTree import tostring, fromstring, Element
 from doc_page_extractor import PaddleLang
 from ..pdf import PDFPageExtractor
 from .llm import LLM
 from .ocr_extractor import extract_ocr_page_xmls
+from .page_and_index import analyse_page
 
 
 _IndexXML = tuple[str, int, int]
@@ -120,7 +122,36 @@ class StateMachine:
       )
 
   def _analyse_pages(self):
-    raise NotImplementedError()
+    from_path = os.path.join(self._analysing_dir_path, "ocr")
+    dir_path = self._ensure_dir_path(os.path.join(self._analysing_dir_path, "pages"))
+    done_page_indexes: set[int] = set()
+    done_page_names: dict[int, str] = {}
+
+    for file_name, i, _ in self._search_index_xmls("page", dir_path):
+      done_page_indexes.add(i)
+      done_page_names[i] = file_name
+
+    for raw_name, i, _ in tqdm(self._list_index_xmls("page", from_path)):
+      if i in done_page_indexes:
+        continue
+
+      raw_page_xml = self._read_xml(os.path.join(from_path, raw_name))
+      previous_response_xml: Element | None = None
+      if i > 0:
+        file_name = done_page_names[i - 1]
+        file_path = os.path.join(dir_path, file_name)
+        previous_response_xml = self._read_xml(file_path)
+
+      response_xml = analyse_page(
+        llm=self._llm,
+        raw_page_xml=raw_page_xml,
+        previous_page_xml=previous_response_xml,
+      )
+      self._atomic_write(
+        file_path=os.path.join(dir_path, raw_name),
+        content=tostring(response_xml, encoding="unicode"),
+      )
+      done_page_names[i] = f"page_{i + 1}.xml"
 
   def _analyse_index(self):
     raise NotImplementedError()
@@ -142,7 +173,11 @@ class StateMachine:
     return dir_path
 
   def _list_index_xmls(self, kind: str, dir_path: str) -> list[_IndexXML]:
-    index_xmls: list[_IndexXML] = []
+    index_xmls = list(self._search_index_xmls(kind, dir_path))
+    index_xmls.sort(key=lambda x: x[1])
+    return index_xmls
+
+  def _search_index_xmls(self, kind: str, dir_path: str):
     for file_name in os.listdir(dir_path):
       matches = re.match(r"^[a-zA-Z]+_\d+(_\d+)?\.xml$", file_name)
       if not matches:
@@ -158,9 +193,11 @@ class StateMachine:
         index2 = index1
       if kind != file_kind:
         continue
-      index_xmls.append((file_name, int(index1) - 1, int(index2) - 1))
-    index_xmls.sort(key=lambda x: x[1])
-    return index_xmls
+      yield file_name, int(index1) - 1, int(index2) - 1
+
+  def _read_xml(self, file_path: str) -> Element:
+    with open(file_path, "r", encoding="utf-8") as file:
+      return fromstring(file.read())
 
   def _atomic_write(self, file_path: str, content: str):
     try:

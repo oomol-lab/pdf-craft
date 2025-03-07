@@ -3,7 +3,6 @@ import os
 from typing import Iterable
 from ..pdf import Block
 from .llm import LLM
-from .preliminary import preliminary_analyse
 from .secondary import SecondaryAnalyser
 
 def analyse(
@@ -18,12 +17,12 @@ def analyse(
   for dir_path in (page_dir_path, assets_dir_path):
     os.makedirs(dir_path, exist_ok=True)
 
-  preliminary_analyse(
-    llm=llm,
-    page_dir_path=page_dir_path,
-    assets_dir_path=assets_dir_path,
-    blocks_matrix=blocks_matrix,
-  )
+  # preliminary_analyse(
+  #   llm=llm,
+  #   page_dir_path=page_dir_path,
+  #   assets_dir_path=assets_dir_path,
+  #   blocks_matrix=blocks_matrix,
+  # )
   secondary_analyser = SecondaryAnalyser(
     llm=llm,
     assets_dir_path=assets_dir_path,
