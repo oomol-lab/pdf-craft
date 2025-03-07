@@ -13,6 +13,7 @@ from .types import PageInfo, TextInfo, TextIncision
 from .ocr_extractor import extract_ocr_page_xmls
 from .page import analyse_page
 from .index import analyse_index, Index
+from .citation import analyse_citations
 
 
 _IndexXML = tuple[str, int, int]
@@ -124,7 +125,7 @@ class StateMachine:
       assets_dir_path=assets_path,
     ):
       self._atomic_write(
-        file_path=os.path.join(dir_path, f"page_{page_index + 1}.xml"),
+        file_path=os.path.join(dir_path, self._xml_name("page", page_index)),
         content=tostring(page_xml, encoding="unicode"),
       )
 
@@ -184,8 +185,19 @@ class StateMachine:
       self._index_did_load = True
 
   def _analyse_citations(self):
-    from_path = os.path.join(self._analysing_dir_path, "pages")
     dir_path = self._ensure_dir_path(os.path.join(self._analysing_dir_path, "citations"))
+
+    for start_idx, end_idx, chunk_xml in analyse_citations(
+      llm=self._llm,
+      pages=self._load_pages(),
+      request_max_tokens=8000,
+      tail_rate=0.15,
+    ):
+      file_name = self._xml_name("citations", start_idx, end_idx)
+      self._atomic_write(
+        file_path=os.path.join(dir_path, file_name),
+        content=tostring(chunk_xml, encoding="unicode"),
+      )
 
   def _analyse_main_texts(self):
     raise NotImplementedError()
@@ -216,7 +228,7 @@ class StateMachine:
     index_xmls.sort(key=lambda x: x[1])
     return index_xmls
 
-  def _load_page_infos(self) -> list[PageInfo]:
+  def _load_pages(self) -> list[PageInfo]:
     if self._pages is None:
       pages: list[PageInfo] = []
       pages_path = os.path.join(self._analysing_dir_path, "pages")
@@ -295,6 +307,12 @@ class StateMachine:
     else:
       return TextIncision.UNCERTAIN
 
+  def _xml_name(self, kind: str, page_index: int, page_index2: int | None = None) -> str:
+    if page_index2 is None:
+      return f"{kind}_{page_index + 1}.xml"
+    else:
+      return f"{kind}_{page_index + 1}_{page_index2 + 1}.xml"
+
   def _search_index_xmls(self, kind: str, dir_path: str):
     for file_name in os.listdir(dir_path):
       matches = re.match(r"^[a-zA-Z]+_\d+(_\d+)?\.xml$", file_name)
@@ -321,6 +339,7 @@ class StateMachine:
     try:
       with open(file_path, "w", encoding="utf-8") as file:
         file.write(content)
+        file.flush()
     except Exception as e:
       if os.path.exists(file_path):
         os.unlink(file_path)
