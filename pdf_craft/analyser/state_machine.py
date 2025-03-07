@@ -2,7 +2,11 @@ import os
 import re
 
 from enum import auto, Enum
+from xml.etree.ElementTree import tostring
+from doc_page_extractor import PaddleLang
+from ..pdf import PDFPageExtractor
 from .llm import LLM
+from .ocr_extractor import extract_ocr_page_xmls
 
 
 _IndexXML = tuple[str, int, int]
@@ -30,10 +34,16 @@ class StateMachine:
   def __init__(
       self,
       llm: LLM,
+      pdf_page_extractor: PDFPageExtractor,
+      pdf_path: str,
+      lang: PaddleLang,
       analysing_dir_path: str,
       output_dir_path: str,
     ):
     self._llm: LLM = llm
+    self._pdf_page_extractor: PDFPageExtractor = pdf_page_extractor
+    self._pdf_path: str = pdf_path
+    self._lang: PaddleLang = lang
     self._analysing_dir_path: str = analysing_dir_path
     self._output_dir_path: str = output_dir_path
     self._phase: _Phase = self._recover_phase()
@@ -92,54 +102,44 @@ class StateMachine:
       self._atomic_write(mark_path, "")
 
   def _extract_ocr(self):
-    dir_path = self._ensure_dir_path("ocr")
+    dir_path = self._ensure_dir_path(os.path.join(self._analysing_dir_path, "ocr"))
+    assets_path = self._ensure_dir_path(os.path.join(self._output_dir_path, "assets"))
     index_xmls = self._list_index_xmls("page", dir_path)
-    index_xmls = self._cut_needless_tail(dir_path, index_xmls)
 
+    for page_index, page_xml in extract_ocr_page_xmls(
+      extractor=self._pdf_page_extractor,
+      pdf_path=self._pdf_path,
+      lang=self._lang,
+      expected_page_indexes=set(i for _, i, _ in index_xmls),
+      cover_path=os.path.join(dir_path, "cover.png"),
+      assets_dir_path=assets_path,
+    ):
+      self._atomic_write(
+        file_path=os.path.join(dir_path, f"page_{page_index + 1}.xml"),
+        content=tostring(page_xml, encoding="unicode"),
+      )
 
   def _analyse_pages(self):
-    pass
+    raise NotImplementedError()
 
   def _analyse_index(self):
-    pass
+    raise NotImplementedError()
 
   def _analyse_citations(self):
-    pass
+    raise NotImplementedError()
 
   def _analyse_main_texts(self):
-    pass
+    raise NotImplementedError()
 
   def _analyse_position(self):
-    pass
+    raise NotImplementedError()
 
   def _generate_chapters(self):
-    pass
+    raise NotImplementedError()
 
-  def _ensure_dir_path(self, dir_name: str) -> str:
-    dir_path = os.path.join(self._output_dir_path, dir_name)
+  def _ensure_dir_path(self, dir_path: str) -> str:
     os.makedirs(dir_path, exist_ok=True)
     return dir_path
-
-  def _cut_needless_tail(self, dir_path: str, index_xmls: list[_IndexXML]):
-    last_index: int = -1
-    cut_index: int = -1
-    for i, (file_name, start_idx, end_idx) in index_xmls:
-      if start_idx != last_index + 1:
-        cut_index = i
-        break
-      if end_idx < start_idx:
-        cut_index = i
-        break
-      last_index = end_idx
-
-    if cut_index != -1:
-      for file_name, _, _ in index_xmls[cut_index:]:
-        file_path = os.path.join(dir_path, file_name)
-        if os.path.exists(file_path):
-          os.unlink(file_path)
-      index_xmls = index_xmls[:cut_index]
-
-    return index_xmls
 
   def _list_index_xmls(self, kind: str, dir_path: str) -> list[_IndexXML]:
     index_xmls: list[_IndexXML] = []
@@ -158,14 +158,15 @@ class StateMachine:
         index2 = index1
       if kind != file_kind:
         continue
-      index_xmls.append((file_name, int(index1), int(index2)))
+      index_xmls.append((file_name, int(index1) - 1, int(index2) - 1))
     index_xmls.sort(key=lambda x: x[1])
     return index_xmls
 
   def _atomic_write(self, file_path: str, content: str):
     try:
       with open(file_path, "w", encoding="utf-8") as file:
-        file.write("")
+        file.write(content)
     except Exception as e:
-      os.unlink(file_path)
+      if os.path.exists(file_path):
+        os.unlink(file_path)
       raise e

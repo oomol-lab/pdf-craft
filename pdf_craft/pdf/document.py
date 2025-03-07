@@ -1,11 +1,21 @@
 import os
 import fitz
 
-from typing import Generator, Literal
+from typing import Generator, Literal, Iterable, Sequence
+from dataclasses import dataclass
 from PIL.Image import frombytes, Image
 from doc_page_extractor import plot, Layout, PaddleLang, DocExtractor, ExtractedResult
 from .section import Section
 
+
+# section can be viewed up to 2 pages back
+_MAX_VIEWED_PAGES: int = 2
+
+@dataclass
+class DocumentParams:
+  pdf: str | fitz.Document
+  lang: PaddleLang
+  page_indexes: Iterable[int] | None
 
 class DocumentExtractor:
   def __init__(
@@ -21,58 +31,88 @@ class DocumentExtractor:
       order_by_layoutreader=False,
     )
 
-  def extract(self, pdf: str | fitz.Document, lang: PaddleLang) -> Generator[tuple[ExtractedResult, list[Layout]], None, None]:
-    for result, section in self._extract_results_and_sections(pdf, lang):
+  def extract(self, params: DocumentParams) -> Generator[tuple[int, ExtractedResult, list[Layout]], None, None]:
+    for result, section in self._extract_results_and_sections(params):
       framework_layouts = section.framework()
-      yield result, [
+      yield section.page_index, result, [
         layout for layout in result.layouts
         if layout not in framework_layouts
       ]
 
-  def _extract_results_and_sections(self, pdf: str | fitz.Document, lang: PaddleLang):
-    max_len = 2 # section can be viewed up to 2 pages back
+  def _extract_results_and_sections(self, params: DocumentParams):
     queue: list[tuple[ExtractedResult, Section]] = []
 
-    for result in self._extract_page_result(pdf, lang):
-      section = Section(result.layouts)
+    for page_index, result in self._extract_page_result(params):
+      section = Section(page_index, result.layouts)
       for i, (_, pre_section) in enumerate(queue):
         offset = len(queue) - i
         pre_section.link_next(section, offset)
 
       queue.append((result, section))
-      if len(queue) > max_len:
+      if len(queue) > _MAX_VIEWED_PAGES:
         yield queue.pop(0)
 
     for result, section in queue:
       yield result, section
 
-  def _extract_page_result(self, pdf: str | fitz.Document, lang: PaddleLang):
+  def _extract_page_result(self, params: DocumentParams):
     if self._debug_dir_path is not None:
       os.makedirs(self._debug_dir_path, exist_ok=True)
 
     document: fitz.Document
     should_close = False
-    if isinstance(pdf, str):
-      document = fitz.open(pdf)
+
+    if isinstance(params.pdf, str):
+      document = fitz.open(params.pdf)
       should_close = True
     else:
-      document = pdf
+      document = params.pdf
 
+    scan_indexes, enable_indexes = self._page_indexes_range(
+      document=document,
+      page_indexes=params.page_indexes,
+    )
     try:
-      for i, page in enumerate(document.pages()):
+      for i in scan_indexes:
         dpi = 300 # for scanned book pages
+        page = document.load_page(i)
         image = self._page_screenshot_image(page, dpi)
         result = self._doc_extractor.extract(
           image=image,
-          lang=lang,
+          lang=params.lang,
           adjust_points=False,
         )
         if self._debug_dir_path is not None:
           self._generate_plot(image, i, result, self._debug_dir_path)
-        yield result
+
+        if i in enable_indexes:
+          yield i, result
+
     finally:
       if should_close:
         document.close()
+
+  def _page_indexes_range(self, document: fitz.Document, page_indexes: Iterable[int] | None) -> tuple[Sequence[int], Sequence[int]]:
+    pages_count = document.page_count
+    if page_indexes is None:
+      return range(pages_count), range(pages_count)
+
+    enable_set: set[int] = set()
+    scan_set: set[int] = set()
+
+    for i in page_indexes:
+      if 0 <= i < document.page_count:
+        enable_set.add(i)
+        for j in range(i - _MAX_VIEWED_PAGES, i + _MAX_VIEWED_PAGES + 1):
+          if 0 <= j < document.page_count:
+            scan_set.add(j)
+
+    enable_list: list[int] = list(enable_set)
+    scan_list: list[int] = list(scan_set)
+    enable_list.sort()
+    scan_list.sort()
+
+    return enable_list, scan_list
 
   def _page_screenshot_image(self, page: fitz.Page, dpi: int):
     default_dpi = 72

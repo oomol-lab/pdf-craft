@@ -5,7 +5,7 @@ from typing import Iterable, Generator
 from PIL.Image import Image
 from fitz import Document
 from doc_page_extractor import clip, PaddleLang, Rectangle, Layout, LayoutClass, OCRFragment, ExtractedResult
-from .document import DocumentExtractor
+from .document import DocumentExtractor, DocumentParams
 
 
 class TextKind(Enum):
@@ -56,8 +56,18 @@ class PDFPageExtractor:
       debug_dir_path=debug_dir_path,
     )
 
-  def extract(self, pdf: str | Document, lang: PaddleLang) -> Generator[tuple[list[Block], Image], None, None]:
-    for result, layouts in self._doc_extractor.extract(pdf, lang):
+  def extract(
+      self,
+      pdf: str | Document,
+      lang: PaddleLang,
+      page_indexes: Iterable[int] | None = None,
+    ) -> Generator[tuple[int, list[Block], Image], None, None]:
+
+    for page_index, result, layouts in self._doc_extractor.extract(DocumentParams(
+      pdf=pdf,
+      lang=lang,
+      page_indexes=page_indexes,
+    )):
       blocks = self._convert_to_blocks(result, layouts)
       page_range = self._texts_range(blocks)
 
@@ -78,7 +88,7 @@ class PDFPageExtractor:
         block.has_paragraph_indentation = first_delta_x > mean_line_height
         block.last_line_touch_end = last_delta_x < mean_line_height
 
-      yield blocks, result.extracted_image
+      yield page_index, blocks, result.extracted_image
 
   def _convert_to_blocks(self, result: ExtractedResult, layouts: list[Layout]) -> list[Block]:
     store: list[tuple[Layout, Block]] = []

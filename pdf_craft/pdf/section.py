@@ -17,8 +17,17 @@ class _Shape:
     return x*x + y*y
 
 class Section:
-  def __init__(self, layouts: Iterable[Layout]) -> list[Layout]:
+  def __init__(
+      self,
+      page_index: int,
+      layouts: Iterable[Layout],
+    ) -> list[Layout]:
+    self._page_index: int = page_index
     self._shapes: list[_Shape] = [_Shape(layout) for layout in layouts]
+
+  @property
+  def page_index(self) -> int:
+    return self._page_index
 
   def framework(self) -> list[Layout]:
     pre_shapes = list(self._side_framework(lambda shape: shape.pre))
