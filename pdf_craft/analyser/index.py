@@ -2,16 +2,12 @@ from __future__ import annotations
 
 import json
 
-from io import StringIO
 from typing import Generator
 from dataclasses import dataclass
 from xml.etree.ElementTree import Element
 from .llm import LLM
 from .utils import encode_response, normalize_xml_text
 
-
-_SYMBOLS = ("*", "+", "-")
-_INTENTS = 2
 
 def parse_index(
     start_page_index: int,
@@ -159,97 +155,7 @@ class Index:
       for chapter in chapters
     ]
 
-  def identify_chapter(self, headline: str, level: int) -> Chapter | None:
-    headline = normalize_xml_text(headline)
-
-    for chapter, chapter_stack in self._search_from_stack(self._stack):
-      # level of PREFACES & CHAPTERS is 0
-      chapter_level = len(chapter_stack) - 1
-      if level == chapter_level and chapter.headline == headline:
-        self._stack = chapter_stack
-        return chapter
-
-    # there is no other solution, the expedient measure is to ignore the level
-    for _, chapter in self._iter_chapters(self._root.children):
-      if chapter.headline == headline:
-        return chapter
-
-    return None
-
-  @property
-  def markdown(self) -> str:
-    buffer = StringIO()
-    prefaces = self._root.children[0].children
-    chapters = self._root.children[1].children
-
-    if len(prefaces) == 0:
-      self._write_markdown(buffer, chapters)
-    else:
-      buffer.write("### Prefaces\n\n")
-      self._write_markdown(buffer, prefaces)
-      buffer.write("\n")
-      buffer.write("### Chapters\n\n")
-      self._write_markdown(buffer, chapters)
-    return buffer.getvalue()
-
-  def _write_markdown(self, buffer: StringIO, chapters: list[Chapter]):
-    for deep, chapter in self._iter_chapters(chapters):
-      for _ in range(deep * _INTENTS):
-        buffer.write(" ")
-      buffer.write(_SYMBOLS[deep % len(_SYMBOLS)])
-      buffer.write(" ")
-      buffer.write(chapter.headline)
-      buffer.write("\n")
-
-  def reset_stack_with_chapter(self, chapter: Chapter):
-    for found_chapter, stack in self._search_from_stack(None):
-      if found_chapter.id == chapter.id:
-        self._stack = stack
-        return
-    self._stack = None
-
   def _iter_chapters(self, chapters: list[Chapter], deep: int = 0) -> Generator[tuple[int, Chapter], None, None]:
     for chapter in chapters:
       yield deep, chapter
       yield from self._iter_chapters(chapter.children, deep + 1)
-
-  # start traversing the tree in pre-order from the current position of the stack
-  def _search_from_stack(self, stack: list[int] | None) -> Generator[tuple[Chapter, list[int]], None, None]:
-    if stack is None:
-      stack = [0]
-    chapter: Chapter = self._root
-    chapters_stack: list[tuple[int, Chapter]] = []
-    for index in stack:
-      chapter = chapter.children[index]
-      chapters_stack.append((index, chapter))
-
-    while True:
-      _, chapter = chapters_stack[-1]
-      if len(chapter.children) > 0:
-        chapters_stack.append((0, chapter.children[0]))
-      else:
-        move_success = self._move_to_next(chapters_stack)
-        if not move_success:
-          return
-      _, chapter = chapters_stack[-1]
-
-      # skip PREFACES & CHAPTERS
-      if len(chapters_stack) > 1:
-        yield chapter, [i for i, _ in chapters_stack]
-
-  # @return True if has next
-  def _move_to_next(self, stack: list[tuple[int, Chapter]]) -> bool:
-    while True:
-      index, _ = stack.pop()
-      index += 1
-      if len(stack) > 0:
-        _, parent = stack[-1]
-        if index >= len(parent.children):
-          continue
-        stack.append((index, parent.children[index]))
-        return True
-      elif index < len(self._root.children):
-        stack.append((index, self._root.children[index]))
-        return True
-      else:
-        return False
