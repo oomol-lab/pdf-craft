@@ -184,7 +184,7 @@ class _CitationLoader:
     self._dir_path: str = dir_path
     self._index2file: dict[int, str] = {}
 
-    for file_name, _, _ in search_xml_and_indexes("citation", dir_path):
+    for file_name, _, _ in search_xml_and_indexes("chunk", dir_path):
       file_path = os.path.join(dir_path, file_name)
       with open(file_path, "r", encoding="utf-8") as file:
         root = fromstring(file.read())
