@@ -1,5 +1,5 @@
 import os
-import re
+import shutil
 
 from enum import auto, Enum
 from json import dumps, loads
@@ -16,7 +16,29 @@ from .page import analyse_page
 from .index import analyse_index, Index
 from .citation import analyse_citations
 from .main_text import analyse_main_texts
+from .position import analyse_position
+from .chapter import generate_chapters
+from .asset_matcher import ASSET_TAGS
+from .utils import search_xml_and_indexes
 
+
+def analyse(
+  llm: LLM,
+  lang: PaddleLang,
+  pdf_page_extractor: PDFPageExtractor,
+  pdf_path: str,
+  analysing_dir_path: str,
+  output_dir_path: str,
+):
+  state_machine = _StateMachine(
+    llm=llm,
+    lang=lang,
+    pdf_page_extractor=pdf_page_extractor,
+    pdf_path=pdf_path,
+    analysing_dir_path=analysing_dir_path,
+    output_dir_path=output_dir_path,
+  )
+  state_machine.start()
 
 _IndexXML = tuple[str, int, int]
 
@@ -39,7 +61,7 @@ _PHASE_DIR_NAME_MAP = (
   ("position", _Phase.POSITION),
 )
 
-class StateMachine:
+class _StateMachine:
   def __init__(
       self,
       llm: LLM,
@@ -115,7 +137,7 @@ class StateMachine:
 
   def _extract_ocr(self):
     dir_path = self._ensure_dir_path(os.path.join(self._analysing_dir_path, "ocr"))
-    assets_path = self._ensure_dir_path(os.path.join(self._output_dir_path, "assets"))
+    assets_path = self._ensure_dir_path(os.path.join(self._analysing_dir_path, "assets"))
     index_xmls = self._list_index_xmls("page", dir_path)
 
     for page_index, page_xml in extract_ocr_page_xmls(
@@ -137,7 +159,7 @@ class StateMachine:
     done_page_indexes: set[int] = set()
     done_page_names: dict[int, str] = {}
 
-    for file_name, i, _ in self._search_index_xmls("page", dir_path):
+    for file_name, i, _ in search_xml_and_indexes("page", dir_path):
       done_page_indexes.add(i)
       done_page_names[i] = file_name
 
@@ -205,6 +227,7 @@ class StateMachine:
       analyse_main_texts(
         llm=self._llm,
         file=file,
+        index=self._load_index(),
         pages=self._load_pages(),
         citations_dir_path=citations_dir_path,
         request_max_tokens=10000,
@@ -212,10 +235,59 @@ class StateMachine:
       )
 
   def _analyse_position(self):
-    raise NotImplementedError()
+    main_texts_path = os.path.join(self._analysing_dir_path, "main_texts")
+    dir_path = self._ensure_dir_path(os.path.join(self._analysing_dir_path, "position"))
+
+    with ChunkFile(dir_path) as file:
+      for start_idx, end_idx, chunk_xml in file.filter_origin_files(main_texts_path):
+        position_xml = analyse_position(self._llm, self._load_index(), chunk_xml)
+        file.atomic_write_chunk(start_idx, end_idx, position_xml)
 
   def _generate_chapters(self):
-    raise NotImplementedError()
+    if self._index is not None:
+      file_path = os.path.join(self._output_dir_path, "index.json")
+      self._atomic_write(
+        file_path=file_path,
+        content=dumps(self._index.json, ensure_ascii=False),
+      )
+    asset_hash_set: set[str] = set()
+
+    for id, chapter_xml in generate_chapters(
+      llm=self._llm,
+      chunks_path=os.path.join(self._analysing_dir_path, "position"),
+    ):
+      if id is None:
+        file_name = "chapter.xml"
+      else:
+        file_name = f"chapter_{id}.xml"
+
+      self._atomic_write(
+        file_path=os.path.join(self._output_dir_path, file_name),
+        content=tostring(chapter_xml, encoding="unicode"),
+      )
+      content_xml = chapter_xml.find("content")
+      for child in content_xml:
+        if child.tag in ASSET_TAGS:
+          hash = child.get("hash", None)
+          if hash is not None:
+            asset_hash_set.add(hash)
+
+    self._copy_file(
+      src_path=os.path.join(self._analysing_dir_path, "ocr", "cover.png"),
+      dst_path=os.path.join(self._output_dir_path, "cover.png"),
+    )
+    self._copy_file(
+      src_path=os.path.join(self._analysing_dir_path, "index", "index.json"),
+      dst_path=os.path.join(self._output_dir_path, "index.json"),
+    )
+
+    if len(asset_hash_set) > 0:
+      asset_path = self._ensure_dir_path(os.path.join(self._output_dir_path, "assets"))
+      for hash in asset_hash_set:
+        src_path = os.path.join(self._analysing_dir_path, "assets", f"{hash}.png")
+        dst_path = os.path.join(asset_path, f"{hash}.png")
+        if os.path.exists(src_path):
+          shutil.copy(src_path, dst_path)
 
   def _ensure_dir_path(self, dir_path: str) -> str:
     os.makedirs(dir_path, exist_ok=True)
@@ -233,7 +305,7 @@ class StateMachine:
     return self._index
 
   def _list_index_xmls(self, kind: str, dir_path: str) -> list[_IndexXML]:
-    index_xmls = list(self._search_index_xmls(kind, dir_path))
+    index_xmls = list(search_xml_and_indexes(kind, dir_path))
     index_xmls.sort(key=lambda x: x[1])
     return index_xmls
 
@@ -322,27 +394,13 @@ class StateMachine:
     else:
       return f"{kind}_{page_index + 1}_{page_index2 + 1}.xml"
 
-  def _search_index_xmls(self, kind: str, dir_path: str):
-    for file_name in os.listdir(dir_path):
-      matches = re.match(r"^[a-zA-Z]+_\d+(_\d+)?\.xml$", file_name)
-      if not matches:
-        continue
-      file_kind: str
-      index1: str
-      index2: str
-      cells = re.sub(r"\..*$", "", file_name).split("_")
-      if len(cells) == 3:
-        file_kind, index1, index2 = cells
-      else:
-        file_kind, index1 = cells
-        index2 = index1
-      if kind != file_kind:
-        continue
-      yield file_name, int(index1) - 1, int(index2) - 1
-
   def _read_xml(self, file_path: str) -> Element:
     with open(file_path, "r", encoding="utf-8") as file:
       return fromstring(file.read())
+
+  def _copy_file(self, src_path: str, dst_path: str):
+    if os.path.exists(src_path):
+      shutil.copy(src_path, dst_path)
 
   def _atomic_write(self, file_path: str, content: str):
     try:

@@ -3,15 +3,14 @@ from typing import Generator
 from dataclasses import dataclass
 from xml.etree.ElementTree import Element
 from .llm import LLM
-from .index import Index
 from .serial import serials, Citations
 from .utils import search_xml_children
 
 
-def generate_chapters(llm: LLM, index: Index | None, chunks_path: str) -> Generator[tuple[int | None, Element], None, None]:
+def generate_chapters(llm: LLM, chunks_path: str) -> Generator[tuple[int | None, Element], None, None]:
   session: _Session | None = None
 
-  for serial in serials(llm, index, chunks_path):
+  for serial in serials(llm, chunks_path):
     if session is None:
       session = _Session(None, serial.citations)
     else:

@@ -7,13 +7,12 @@ from typing import Iterable, Generator
 from xml.etree.ElementTree import fromstring, tostring, Element
 
 from .llm import LLM
-from .index import Index
 from .asset_matcher import ASSET_TAGS
 from .utils import read_files, normalize_xml_text, search_xml_children, parse_page_indexes
 
 
-def serials(llm: LLM, index: Index | None, chunks_path: str) -> Generator[Serial, None, None]:
-  yield from _Deduplication(llm, index, chunks_path).for_serials()
+def serials(llm: LLM, chunks_path: str) -> Generator[Serial, None, None]:
+  yield from _Deduplication(llm, chunks_path).for_serials()
 
 @dataclass
 class Serial:
@@ -74,9 +73,8 @@ class _Chunk:
   serial: Serial | None
 
 class _Deduplication:
-  def __init__(self, llm: LLM, index: Index | None, chunks_path: str):
+  def __init__(self, llm: LLM, chunks_path: str):
     self._llm: LLM = llm
-    self._index: Index | None = index
     self._chunks_path: str = chunks_path
     self._chunks: list[_Chunk] = [
       _Chunk(
@@ -223,9 +221,6 @@ class _Deduplication:
       chunk_xml = fromstring(file.read())
 
     content_xml = chunk_xml.find("content")
-    if self._index is not None:
-      self._index.mark_ids_for_headlines(self._llm, content_xml)
-
     main_texts: list[Element] = []
     for child in content_xml:
       main_texts.append(child)

@@ -15,7 +15,6 @@ class TextSerial(unittest.TestCase):
     chunks_path = os.path.abspath(chunks_path)
     serial1, serial2 = list(serials(
       llm=_fake_llm(),
-      index=None,
       chunks_path=chunks_path,
     ))
     self.assertListEqual(
@@ -89,7 +88,6 @@ class TextSerial(unittest.TestCase):
 
     serials_list = list(serials(
       llm=_fake_llm(),
-      index=None,
       chunks_path=chunks_path,
     ))
     # serial2 will be skipped
