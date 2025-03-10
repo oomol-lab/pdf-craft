@@ -22,6 +22,24 @@ from .asset_matcher import ASSET_TAGS
 from .utils import search_xml_and_indexes
 
 
+def analyse(
+  llm: LLM,
+  lang: PaddleLang,
+  pdf_page_extractor: PDFPageExtractor,
+  pdf_path: str,
+  analysing_dir_path: str,
+  output_dir_path: str,
+):
+  state_machine = _StateMachine(
+    llm=llm,
+    lang=lang,
+    pdf_page_extractor=pdf_page_extractor,
+    pdf_path=pdf_path,
+    analysing_dir_path=analysing_dir_path,
+    output_dir_path=output_dir_path,
+  )
+  state_machine.start()
+
 _IndexXML = tuple[str, int, int]
 
 class _Phase(Enum):
@@ -43,7 +61,7 @@ _PHASE_DIR_NAME_MAP = (
   ("position", _Phase.POSITION),
 )
 
-class StateMachine:
+class _StateMachine:
   def __init__(
       self,
       llm: LLM,

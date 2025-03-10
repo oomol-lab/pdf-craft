@@ -6,8 +6,7 @@ import shutil
 sys.path.append(os.path.abspath(os.path.join(__file__, "..", "..")))
 
 from pdf_craft import PDFPageExtractor
-from pdf_craft.analyser.llm import LLM
-from pdf_craft.analyser.state_machine import StateMachine
+from pdf_craft.analyser import analyse, LLM
 
 
 def main():
@@ -17,7 +16,8 @@ def main():
   model_dir_path = _project_dir_path("models")
   output_dir_path = _project_dir_path("output", clean=True)
   analysing_dir_path = _project_dir_path("analysing", clean=False)
-  state_machine = StateMachine(
+
+  analyse(
     llm=LLM(**_read_format_json()),
     pdf_path=pdf_file,
     lang="ch",
@@ -29,7 +29,6 @@ def main():
       debug_dir_path=os.path.join(analysing_dir_path, "plot"),
     ),
   )
-  state_machine.start()
 
 def _project_dir_path(name: str, clean: bool = False) -> str:
   path = os.path.join(__file__, "..", "..", name)
