@@ -209,6 +209,7 @@ class StateMachine:
       analyse_main_texts(
         llm=self._llm,
         file=file,
+        index=self._load_index(),
         pages=self._load_pages(),
         citations_dir_path=citations_dir_path,
         request_max_tokens=10000,

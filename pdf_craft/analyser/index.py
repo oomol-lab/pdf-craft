@@ -82,10 +82,13 @@ class Chapter:
 
 class Index:
   def __init__(self, json_data: dict):
-    self._start_idx: int = json_data["start_idx"]
-    self._end_idx: int = json_data["end_idx"]
+    self._start_idx: int = json_data["start_idx"] - 1
+    self._end_idx: int = json_data["end_idx"] - 1
     self._prefaces: list[Chapter] = [self._parse_chapter(c) for c in json_data["prefaces"]]
     self._chapters: list[Chapter] = [self._parse_chapter(c) for c in json_data["chapters"]]
+
+  def is_index_page_index(self, index: int) -> bool:
+    return self._start_idx <= index <= self._end_idx
 
   def _parse_chapter(self, data: dict) -> Chapter:
     return Chapter(
