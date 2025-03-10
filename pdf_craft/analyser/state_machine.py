@@ -16,6 +16,7 @@ from .index import analyse_index, Index
 from .citation import analyse_citations
 from .main_text import analyse_main_texts
 from .position import analyse_position
+from .meta import extract_meta
 from .chapter import generate_chapters
 from .asset_matcher import ASSET_TAGS
 from .utils import search_xml_and_indexes
@@ -69,6 +70,7 @@ class _StateMachine:
     self._run_analyse_step("citations", self._analyse_citations)
     self._run_analyse_step("main_texts", self._analyse_main_texts)
     self._run_analyse_step("position", self._analyse_position)
+    self._run_analyse_step("meta", self._extract_meta)
     self._generate_chapters()
 
   def _run_analyse_step(self, dir_name: str, func: Callable[[str], None]):
@@ -180,6 +182,25 @@ class _StateMachine:
         position_xml = analyse_position(self._llm, self._load_index(), chunk_xml)
         file.atomic_write_chunk(start_idx, end_idx, position_xml)
 
+  def _extract_meta(self, dir_path: str):
+    page_xmls: list[Element] = []
+    page_dir_path = os.path.join(self._analysing_dir_path, "pages")
+    head_count = 5
+
+    for file_name, page_index, _ in search_xml_and_indexes("page", page_dir_path):
+      if page_index >= head_count:
+        break
+      file_path = os.path.join(page_dir_path, file_name)
+      page_xml = self._read_xml(file_path)
+      page_xmls.append(page_xml)
+
+    meta_json = extract_meta(self._llm, page_xmls)
+    meta_file_path = os.path.join(dir_path, "meta.json")
+    self._atomic_write(
+      file_path=meta_file_path,
+      content=dumps(meta_json, ensure_ascii=False, indent=2),
+    )
+
   def _generate_chapters(self):
     if self._index is not None:
       file_path = os.path.join(self._output_dir_path, "index.json")
@@ -216,6 +237,10 @@ class _StateMachine:
     self._copy_file(
       src_path=os.path.join(self._analysing_dir_path, "index", "index.json"),
       dst_path=os.path.join(self._output_dir_path, "index.json"),
+    )
+    self._copy_file(
+      src_path=os.path.join(self._analysing_dir_path, "meta", "meta.json"),
+      dst_path=os.path.join(self._output_dir_path, "meta.json"),
     )
 
     if len(asset_hash_set) > 0:
