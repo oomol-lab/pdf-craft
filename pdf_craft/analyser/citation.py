@@ -3,7 +3,7 @@ from xml.etree.ElementTree import fromstring, Element
 
 from .llm import LLM
 from .types import PageInfo, TextInfo, TextIncision
-from .splitter import group, allocate_segments, get_and_clip_pages
+from .splitter import group, allocate_segments, get_and_clip_pages, PageXML
 from .asset_matcher import AssetMatcher, ASSET_TAGS
 from .chunk_file import ChunkFile
 from .utils import encode_response
@@ -51,16 +51,11 @@ def analyse_citations(
     })
     asset_matcher.add_asset_hashes_for_xml(response_xml)
 
-    for citation in response_xml:
-      page_indexes: list[int] = [int(p) for p in citation.get("idx").split(",")]
-      page_indexes.sort()
-      page_xml = page_xml_list[page_indexes[0] - 1]
-      if not page_xml.is_gap:
-        chunk_xml.append(citation)
-        citation.set("idx", ",".join([
-          str(page_xml_list[p - 1].page_index + 1)
-          for p in page_indexes
-        ]))
+    for citation in _search_and_filter_and_split_citations(
+      response_xml=response_xml,
+      page_xml_list=page_xml_list,
+    ):
+      chunk_xml.append(citation)
 
     file.atomic_write_chunk(start_idx, end_idx, chunk_xml)
 
@@ -98,3 +93,35 @@ def _get_citation_with_file(pages: list[PageInfo], index: int) -> Element:
       if child.tag not in ASSET_TAGS:
         child.attrib = {}
     return citation
+
+def _search_and_filter_and_split_citations(response_xml: Element, page_xml_list: list[PageXML]):
+  for citation in response_xml:
+    page_indexes: list[int] = [int(p) for p in citation.get("idx").split(",")]
+    page_indexes.sort()
+    page_xml = page_xml_list[page_indexes[0] - 1]
+
+    if page_xml.is_gap:
+      continue
+
+    attributes = {
+      **citation.attrib,
+      "idx": ",".join([
+        str(page_xml_list[p - 1].page_index + 1)
+        for p in page_indexes
+      ]),
+    }
+    # after testing, LLM will merge multiple citations together, which will result in multiple
+    # labels for one citation. the code here handles this as a backup.
+    splitted_citation: Element | None = None
+
+    for child in citation:
+      if child.tag == "label":
+        if splitted_citation is not None:
+          yield splitted_citation
+        splitted_citation = Element("citation", {**attributes})
+
+      if splitted_citation is not None:
+        splitted_citation.append(child)
+
+    if splitted_citation is not None:
+      yield splitted_citation
