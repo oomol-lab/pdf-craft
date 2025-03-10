@@ -1,10 +1,9 @@
 import os
 import shutil
 
-from enum import auto, Enum
 from json import dumps, loads
 from tqdm import tqdm
-from typing import Iterable
+from typing import Iterable, Callable
 from xml.etree.ElementTree import tostring, fromstring, Element
 from doc_page_extractor import PaddleLang
 from ..pdf import PDFPageExtractor
@@ -41,25 +40,7 @@ def analyse(
   state_machine.start()
 
 _IndexXML = tuple[str, int, int]
-
-class _Phase(Enum):
-  OCR = auto()
-  PAGES = auto()
-  INDEX = auto()
-  CITATIONS = auto()
-  MAIN_TEXTS = auto()
-  POSITION = auto()
-  CHAPTERS = auto()
-
 _MARK_FILE_NAME = "MARK_DONE"
-_PHASE_DIR_NAME_MAP = (
-  ("ocr", _Phase.OCR),
-  ("pages", _Phase.PAGES),
-  ("index", _Phase.INDEX),
-  ("citations", _Phase.CITATIONS),
-  ("main_texts", _Phase.MAIN_TEXTS),
-  ("position", _Phase.POSITION),
-)
 
 class _StateMachine:
   def __init__(
@@ -77,66 +58,29 @@ class _StateMachine:
     self._lang: PaddleLang = lang
     self._analysing_dir_path: str = analysing_dir_path
     self._output_dir_path: str = output_dir_path
-    self._phase: _Phase = self._recover_phase()
     self._index: Index | None = None
     self._index_did_load: bool = False
     self._pages: list[PageInfo] | None = None
 
   def start(self):
-    while self._phase != _Phase.CHAPTERS:
-      if self._phase == _Phase.OCR:
-        self._extract_ocr()
-      elif self._phase == _Phase.PAGES:
-        self._analyse_pages()
-      elif self._phase == _Phase.INDEX:
-        self._analyse_index()
-      elif self._phase == _Phase.CITATIONS:
-        self._analyse_citations()
-      elif self._phase == _Phase.MAIN_TEXTS:
-        self._analyse_main_texts()
-      elif self._phase == _Phase.POSITION:
-        self._analyse_position()
-
-      self._mark_step_done(self._phase)
-      self._phase = self._next_phase(self._phase)
-
+    self._run_analyse_step("ocr", self._extract_ocr)
+    self._run_analyse_step("pages", self._analyse_pages)
+    self._run_analyse_step("index", self._analyse_index)
+    self._run_analyse_step("citations", self._analyse_citations)
+    self._run_analyse_step("main_texts", self._analyse_main_texts)
+    self._run_analyse_step("position", self._analyse_position)
     self._generate_chapters()
 
-  def _recover_phase(self):
-    for name, phase in reversed(_PHASE_DIR_NAME_MAP):
-      mark_path = os.path.join(self._analysing_dir_path, name, _MARK_FILE_NAME)
-      if os.path.exists(mark_path):
-        return self._next_phase(phase)
-    return _Phase.OCR
-
-  def _next_phase(self, phase: _Phase) -> _Phase:
-    if phase == _Phase.OCR:
-      return _Phase.PAGES
-    elif phase == _Phase.PAGES:
-      return _Phase.INDEX
-    elif phase == _Phase.INDEX:
-      return _Phase.CITATIONS
-    elif phase == _Phase.CITATIONS:
-      return _Phase.MAIN_TEXTS
-    elif phase == _Phase.MAIN_TEXTS:
-      return _Phase.POSITION
-    elif phase == _Phase.POSITION:
-      return _Phase.CHAPTERS
-    else:
-      return _Phase.CHAPTERS
-
-  def _mark_step_done(self, phase: _Phase):
-    dir_name: str | None = None
-    for name, p in _PHASE_DIR_NAME_MAP:
-      if p == phase:
-        dir_name = name
-        break
-    if dir_name is not None:
-      mark_path = os.path.join(self._analysing_dir_path, dir_name, _MARK_FILE_NAME)
+  def _run_analyse_step(self, dir_name: str, func: Callable[[str], None]):
+    mark_path = os.path.join(self._analysing_dir_path, dir_name, _MARK_FILE_NAME)
+    if not os.path.exists(mark_path):
+      dir_path = self._ensure_dir_path(
+        dir_path=os.path.join(self._analysing_dir_path, dir_name),
+      )
+      func(dir_path)
       self._atomic_write(mark_path, "")
 
-  def _extract_ocr(self):
-    dir_path = self._ensure_dir_path(os.path.join(self._analysing_dir_path, "ocr"))
+  def _extract_ocr(self, dir_path: str):
     assets_path = self._ensure_dir_path(os.path.join(self._analysing_dir_path, "assets"))
     index_xmls = self._list_index_xmls("page", dir_path)
 
@@ -153,9 +97,8 @@ class _StateMachine:
         content=tostring(page_xml, encoding="unicode"),
       )
 
-  def _analyse_pages(self):
+  def _analyse_pages(self, dir_path: str):
     from_path = os.path.join(self._analysing_dir_path, "ocr")
-    dir_path = self._ensure_dir_path(os.path.join(self._analysing_dir_path, "pages"))
     done_page_indexes: set[int] = set()
     done_page_names: dict[int, str] = {}
 
@@ -185,9 +128,8 @@ class _StateMachine:
       )
       done_page_names[i] = f"page_{i + 1}.xml"
 
-  def _analyse_index(self):
+  def _analyse_index(self, dir_path: str):
     from_path = os.path.join(self._analysing_dir_path, "pages")
-    dir_path = self._ensure_dir_path(os.path.join(self._analysing_dir_path, "index"))
     json_index, index = analyse_index(
       llm=self._llm,
       raw=(
@@ -208,8 +150,7 @@ class _StateMachine:
       self._index = index
       self._index_did_load = True
 
-  def _analyse_citations(self):
-    dir_path = self._ensure_dir_path(os.path.join(self._analysing_dir_path, "citations"))
+  def _analyse_citations(self, dir_path: str):
     with ChunkFile(dir_path) as file:
       analyse_citations(
         llm=self._llm,
@@ -219,10 +160,8 @@ class _StateMachine:
         tail_rate=0.15,
       )
 
-  def _analyse_main_texts(self):
+  def _analyse_main_texts(self, dir_path: str):
     citations_dir_path = os.path.join(self._analysing_dir_path, "citations")
-    dir_path = self._ensure_dir_path(os.path.join(self._analysing_dir_path, "main_texts"))
-
     with ChunkFile(dir_path) as file:
       analyse_main_texts(
         llm=self._llm,
@@ -234,10 +173,8 @@ class _StateMachine:
         gap_rate=0.1,
       )
 
-  def _analyse_position(self):
+  def _analyse_position(self, dir_path: str):
     main_texts_path = os.path.join(self._analysing_dir_path, "main_texts")
-    dir_path = self._ensure_dir_path(os.path.join(self._analysing_dir_path, "position"))
-
     with ChunkFile(dir_path) as file:
       for start_idx, end_idx, chunk_xml in file.filter_origin_files(main_texts_path):
         position_xml = analyse_position(self._llm, self._load_index(), chunk_xml)
