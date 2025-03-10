@@ -1,10 +1,34 @@
 <?xml version="1.0" encoding="utf-8"?>
 <package version="2.0" xmlns="http://www.idpf.org/2007/opf" unique-identifier="uid">
   <metadata xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:opf="http://www.idpf.org/2007/opf">
-    <dc:title>测试书籍</dc:title>
     <dc:language>zh</dc:language>
-    <dc:identifier id="uid">{{ identifier }}</dc:identifier>
-    <dc:creator>无名氏</dc:creator>
+    <dc:identifier id="uid">{{ ISBN }}</dc:identifier>
+{% if "title" in meta %}
+    <dc:title>{{ meta["title"] }}</dc:title>
+{% else %}
+    <dc:title>未命名</dc:title>
+{% endif %}
+{% if "description" in meta %}
+    <dc:description>{{ meta["description"] }}</dc:description>
+{% endif %}
+{% if "publisher" in meta %}
+    <dc:publisher>{{ meta["publisher"] }}</dc:publisher>
+{% endif %}
+{% if "authors" in meta %}
+{% for author in meta["authors"] %}
+    <dc:creator opf:role="aut">{{ author }}</dc:creator>
+{% endfor %}
+{% endif %}
+{% if "editors" in meta %}
+{% for editor in meta["editors"] %}
+    <dc:creator opf:role="edt">{{ editor }}</dc:creator>
+{% endfor %}
+{% endif %}
+{% if "translators" in meta %}
+{% for translator in meta["translators"] %}
+    <dc:creator opf:role="trl">{{ translator }}</dc:creator>
+{% endfor %}
+{% endif %}
 {% if has_cover %}
     <meta name="cover" content="a_cover" />
 {% endif %}

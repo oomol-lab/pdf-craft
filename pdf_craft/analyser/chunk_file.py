@@ -1,5 +1,6 @@
 import re
 import os
+import sys
 
 from typing import Generator, Iterable, Self
 from xml.etree.ElementTree import fromstring, tostring, Element
@@ -13,7 +14,8 @@ class ChunkFile:
     self._files: list[tuple[int, int, str]] = list(self._search_chunk_file(output_dir_path))
     self._files.sort(key=lambda x: (x[0], x[1]))
     self._overlapped_files: dict[tuple[int, int], str] = {}
-    self._latest_end_page_index: int = 0
+    self._min_page_index: int = sys.maxsize
+    self._max_page_index: int = 0
 
   def __enter__(self) -> Self:
     return self
@@ -23,12 +25,15 @@ class ChunkFile:
       return
     for file_name in self._overlapped_files.values():
       self._remove_file(file_name)
-    for start, _, file_name in self._files:
-      if start > self._latest_end_page_index:
+    for start, end, file_name in self._files:
+      if start > self._max_page_index:
+        self._remove_file(file_name)
+      if end < self._min_page_index:
         self._remove_file(file_name)
 
   def filter_origin_files(self, origin_dir_path: str) -> Generator[tuple[int, int, Element], None, None]:
     for start, end, file_name in self._search_chunk_file(origin_dir_path):
+      self._register_page_range(start, end)
       if self._overlap_files(start, end):
         file_path = os.path.join(origin_dir_path, file_name)
         with open(file_path, "r", encoding="utf-8") as file:
@@ -46,6 +51,8 @@ class ChunkFile:
     for group in groups:
       start = min(t.page_index for t in self._search_text_infos(group))
       end = max(t.page_index for t in self._search_text_infos(group))
+      self._register_page_range(start, end)
+
       if self._overlap_files(start, end):
         yield start, end, group
 
@@ -56,6 +63,10 @@ class ChunkFile:
           yield text_info
       elif isinstance(item, TextInfo):
         yield item
+
+  def _register_page_range(self, start: int, end: int):
+    self._min_page_index = min(self._min_page_index, start)
+    self._max_page_index = max(self._max_page_index, end)
 
   # return False if matches origin chunk file
   def _overlap_files(self, start: int, end: int):
@@ -81,7 +92,6 @@ class ChunkFile:
       yield file_start, file_end, file_name
 
   def atomic_write_chunk(self, start: int, end: int, chunk_xml: Element):
-    self._latest_end_page_index = max(self._latest_end_page_index, end)
     overlap_files = self._overlapped_files.pop((start, end), None)
     if overlap_files is not None:
       for _, _, file_name in overlap_files:

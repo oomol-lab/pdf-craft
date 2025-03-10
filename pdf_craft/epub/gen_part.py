@@ -33,11 +33,13 @@ def _render_citations(citations_xml: Element | None):
 
     for child in citation_children:
       for to_element in _create_main_text_element(child):
-        ref_element = Element("span")
+        ref_element = Element("a")
         ref_element.text = f"[{id}]"
-        ref_element.attrib["id"] = f"ref-{id}"
-        ref_element.attrib["class"] = "citation"
-
+        ref_element.attrib = {
+          "id": f"citation-{id}",
+          "href": f"#ref-{id}",
+          "class": "citation",
+        }
         if is_first_child:
           is_first_child = False
           if to_element.tag == "p":
@@ -108,8 +110,11 @@ def _fill_text_and_citations(element: Element, origin: Element):
     id = child.get("id")
     assert id is not None
     anchor = Element("a")
-    anchor.attrib["href"] = f"#ref-{id}"
-    anchor.attrib["class"] = "super"
+    anchor.attrib = {
+      "id": f"ref-{id}",
+      "href": f"#citation-{id}",
+      "class": "super",
+    }
     anchor.text = f"[{id}]"
     anchor.tail = child.tail
     element.append(anchor)
