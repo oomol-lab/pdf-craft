@@ -17,13 +17,15 @@ def generate_files(from_dir_path: str, output_dir_path: str):
   out_text_path = os.path.join(out_oebps_path, "Text")
   out_styles_path = os.path.join(out_oebps_path, "styles")
   out_meta_inf_path = os.path.join(output_dir_path, "META-INF")
+  out_assets_path = os.path.join(out_oebps_path, "assets")
+
   os.makedirs(out_text_path, exist_ok=True)
   os.makedirs(out_styles_path, exist_ok=True)
   os.makedirs(out_meta_inf_path, exist_ok=True)
 
   nav_points: list[NavPoint] = []
   has_head_chapter: bool = os.path.exists(head_chapter_path)
-  has_cover: bool = os.path.exists(os.path.join(assets_path, "cover.png"))
+  has_cover: bool = os.path.exists(os.path.join(from_dir_path, "cover.png"))
 
   if os.path.exists(index_path):
     toc_ncx, nav_points = gen_index(
@@ -57,7 +59,7 @@ def generate_files(from_dir_path: str, output_dir_path: str):
       has_cover=has_cover,
       asset_files=[
         f for f in os.listdir(assets_path)
-        if f != "cover.png" and not f.startswith(".")
+        if not f.startswith(".")
       ],
     ),
   )
@@ -86,7 +88,14 @@ def generate_files(from_dir_path: str, output_dir_path: str):
   if os.path.exists(assets_path):
     shutil.copytree(
       src=os.path.join(from_dir_path, "assets"),
-      dst=os.path.join(out_oebps_path, "assets"),
+      dst=out_assets_path,
+    )
+
+  if has_cover:
+    os.makedirs(out_assets_path, exist_ok=True)
+    shutil.copy(
+      src=os.path.join(from_dir_path, "cover.png"),
+      dst=os.path.join(out_assets_path, "cover.png"),
     )
 
 def _read_xml(path: str) -> Element:

@@ -232,7 +232,6 @@ class StateMachine:
         content=dumps(self._index.json, ensure_ascii=False),
       )
     asset_hash_set: set[str] = set()
-    cover_file_path = os.path.join(self._analysing_dir_path, "ocr", "cover.png")
 
     for id, chapter_xml in generate_chapters(
       llm=self._llm,
@@ -254,11 +253,14 @@ class StateMachine:
           if hash is not None:
             asset_hash_set.add(hash)
 
-    if os.path.exists(cover_file_path):
-      shutil.copy(
-        src=cover_file_path,
-        dst=os.path.join(self._output_dir_path, "cover.png"),
-      )
+    self._copy_file(
+      src_path=os.path.join(self._analysing_dir_path, "ocr", "cover.png"),
+      dst_path=os.path.join(self._output_dir_path, "cover.png"),
+    )
+    self._copy_file(
+      src_path=os.path.join(self._analysing_dir_path, "index", "index.json"),
+      dst_path=os.path.join(self._output_dir_path, "index.json"),
+    )
 
     if len(asset_hash_set) > 0:
       asset_path = self._ensure_dir_path(os.path.join(self._output_dir_path, "assets"))
@@ -376,6 +378,10 @@ class StateMachine:
   def _read_xml(self, file_path: str) -> Element:
     with open(file_path, "r", encoding="utf-8") as file:
       return fromstring(file.read())
+
+  def _copy_file(self, src_path: str, dst_path: str):
+    if os.path.exists(src_path):
+      shutil.copy(src_path, dst_path)
 
   def _atomic_write(self, file_path: str, content: str):
     try:
