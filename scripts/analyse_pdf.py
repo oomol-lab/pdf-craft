@@ -16,7 +16,7 @@ def main():
   # pdf_file = "/Users/taozeyu/Downloads/混编书籍.pdf"
   model_dir_path = _project_dir_path("models")
   output_dir_path = _project_dir_path("output", clean=True)
-  analysing_dir_path = _project_dir_path("analysing", clean=True)
+  analysing_dir_path = _project_dir_path("analysing", clean=False)
   state_machine = StateMachine(
     llm=LLM(**_read_format_json()),
     pdf_path=pdf_file,

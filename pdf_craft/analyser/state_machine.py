@@ -1,4 +1,5 @@
 import os
+import shutil
 
 from enum import auto, Enum
 from json import dumps, loads
@@ -17,6 +18,7 @@ from .citation import analyse_citations
 from .main_text import analyse_main_texts
 from .position import analyse_position
 from .chapter import generate_chapters
+from .asset_matcher import ASSET_TAGS
 from .utils import search_xml_and_indexes
 
 
@@ -117,7 +119,7 @@ class StateMachine:
 
   def _extract_ocr(self):
     dir_path = self._ensure_dir_path(os.path.join(self._analysing_dir_path, "ocr"))
-    assets_path = self._ensure_dir_path(os.path.join(self._output_dir_path, "assets"))
+    assets_path = self._ensure_dir_path(os.path.join(self._analysing_dir_path, "assets"))
     index_xmls = self._list_index_xmls("page", dir_path)
 
     for page_index, page_xml in extract_ocr_page_xmls(
@@ -229,6 +231,8 @@ class StateMachine:
         file_path=file_path,
         content=dumps(self._index.json, ensure_ascii=False),
       )
+    asset_hash_set: set[str] = set()
+    cover_file_path = os.path.join(self._analysing_dir_path, "ocr", "cover.png")
 
     for id, chapter_xml in generate_chapters(
       llm=self._llm,
@@ -243,6 +247,26 @@ class StateMachine:
         file_path=os.path.join(self._output_dir_path, file_name),
         content=tostring(chapter_xml, encoding="unicode"),
       )
+      content_xml = chapter_xml.find("content")
+      for child in content_xml:
+        if child.tag in ASSET_TAGS:
+          hash = child.get("hash", None)
+          if hash is not None:
+            asset_hash_set.add(hash)
+
+    if os.path.exists(cover_file_path):
+      shutil.copy(
+        src=cover_file_path,
+        dst=os.path.join(self._output_dir_path, "cover.png"),
+      )
+
+    if len(asset_hash_set) > 0:
+      asset_path = self._ensure_dir_path(os.path.join(self._output_dir_path, "assets"))
+      for hash in asset_hash_set:
+        src_path = os.path.join(self._analysing_dir_path, "assets", f"{hash}.png")
+        dst_path = os.path.join(asset_path, f"{hash}.png")
+        if os.path.exists(src_path):
+          shutil.copy(src_path, dst_path)
 
   def _ensure_dir_path(self, dir_path: str) -> str:
     os.makedirs(dir_path, exist_ok=True)
