@@ -1,6 +1,8 @@
 import os
+import json
 import shutil
 
+from uuid import uuid4
 from xml.etree.ElementTree import fromstring, tostring, Element
 from .gen_part import generate_part
 from .gen_index import gen_index, NavPoint
@@ -10,6 +12,7 @@ from .template import Template
 def generate_files(from_dir_path: str, output_dir_path: str):
   template = Template()
   index_path = os.path.join(from_dir_path, "index.json")
+  meta_path = os.path.join(from_dir_path, "meta.json")
   assets_path = os.path.join(from_dir_path, "assets")
   head_chapter_path = os.path.join(from_dir_path, "chapter.xml")
 
@@ -24,8 +27,13 @@ def generate_files(from_dir_path: str, output_dir_path: str):
   os.makedirs(out_meta_inf_path, exist_ok=True)
 
   nav_points: list[NavPoint] = []
+  meta: dict = {}
   has_head_chapter: bool = os.path.exists(head_chapter_path)
   has_cover: bool = os.path.exists(os.path.join(from_dir_path, "cover.png"))
+
+  if os.path.exists(meta_path):
+    with open(meta_path, "r", encoding="utf-8") as file:
+      meta = json.loads(file.read())
 
   if os.path.exists(index_path):
     toc_ncx, nav_points = gen_index(
@@ -53,7 +61,8 @@ def generate_files(from_dir_path: str, output_dir_path: str):
     path=os.path.join(output_dir_path, "OEBPS", "content.opf"),
     content=template.render(
       template="content.opf",
-      identifier="395188820", # TODO: ISBN
+      meta=meta,
+      ISBN=meta.get("ISBN", str(uuid4())),
       nav_points=nav_points,
       has_head_chapter=has_head_chapter,
       has_cover=has_cover,
