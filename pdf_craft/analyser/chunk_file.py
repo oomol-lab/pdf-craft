@@ -2,17 +2,17 @@ import re
 import os
 
 from typing import Generator, Iterable, Self
-from xml.etree.ElementTree import tostring, Element
+from xml.etree.ElementTree import fromstring, tostring, Element
 from .splitter import Group, Segment
 from .types import TextInfo
 
 
 class ChunkFile:
-  def __init__(self, dir_path: str):
-    self._dir_path: str = dir_path
-    self._files: list[tuple[int, int, str]] = list(self._search_chunk_file(dir_path))
+  def __init__(self, output_dir_path: str):
+    self._output_dir_path: str = output_dir_path
+    self._files: list[tuple[int, int, str]] = list(self._search_chunk_file(output_dir_path))
     self._files.sort(key=lambda x: (x[0], x[1]))
-    self._overlap_files: dict[tuple[int, int], str] = {}
+    self._overlapped_files: dict[tuple[int, int], str] = {}
     self._latest_end_page_index: int = 0
 
   def __enter__(self) -> Self:
@@ -21,11 +21,18 @@ class ChunkFile:
   def __exit__(self, exc_type, exc_value, traceback):
     if exc_type is not None:
       return
-    for file_name in self._overlap_files.values():
+    for file_name in self._overlapped_files.values():
       self._remove_file(file_name)
     for start, _, file_name in self._files:
       if start > self._latest_end_page_index:
         self._remove_file(file_name)
+
+  def filter_origin_files(self, origin_dir_path: str) -> Generator[tuple[int, int, Element], None, None]:
+    for start, end, file_name in self._search_chunk_file(origin_dir_path):
+      if self._overlap_files(start, end):
+        file_path = os.path.join(origin_dir_path, file_name)
+        with open(file_path, "r", encoding="utf-8") as file:
+          yield start, end, fromstring(file.read())
 
   def _search_chunk_file(self, dir_path: str) -> Generator[tuple[int, int, str], None, None]:
     for file_name in os.listdir(dir_path):
@@ -39,18 +46,8 @@ class ChunkFile:
     for group in groups:
       start = min(t.page_index for t in self._search_text_infos(group))
       end = max(t.page_index for t in self._search_text_infos(group))
-      overlap_files = list(self._search_overlap_files(start, end))
-      overlap_files.sort(key=lambda x: (x[0], x[1]))
-
-      if len(overlap_files) == 1:
-        overlap_start, overlap_end, _ = overlap_files[0]
-        if start == overlap_start and end == overlap_end:
-          continue
-
-      if len(overlap_files) > 0:
-        self._overlap_files[(start, end)] = overlap_files
-
-      yield start, end, group
+      if self._overlap_files(start, end):
+        yield start, end, group
 
   def _search_text_infos(self, group: Group):
     for item in group.body:
@@ -59,6 +56,21 @@ class ChunkFile:
           yield text_info
       elif isinstance(item, TextInfo):
         yield item
+
+  # return False if matches origin chunk file
+  def _overlap_files(self, start: int, end: int):
+    overlap_files = list(self._search_overlap_files(start, end))
+    overlap_files.sort(key=lambda x: (x[0], x[1]))
+
+    if len(overlap_files) == 1:
+      overlap_start, overlap_end, _ = overlap_files[0]
+      if start == overlap_start and end == overlap_end:
+        return False
+
+    if len(overlap_files) > 0:
+      self._overlapped_files[(start, end)] = overlap_files
+
+    return True
 
   def _search_overlap_files(self, start: int, end: int):
     for file_start, file_end, file_name in self._files:
@@ -70,13 +82,13 @@ class ChunkFile:
 
   def atomic_write_chunk(self, start: int, end: int, chunk_xml: Element):
     self._latest_end_page_index = max(self._latest_end_page_index, end)
-    overlap_files = self._overlap_files.pop((start, end), None)
+    overlap_files = self._overlapped_files.pop((start, end), None)
     if overlap_files is not None:
       for _, _, file_name in overlap_files:
         self._remove_file(file_name)
 
     file_name = f"chunk_{start + 1}_{end + 1}.xml"
-    file_path = os.path.join(self._dir_path, file_name)
+    file_path = os.path.join(self._output_dir_path, file_name)
     try:
       with open(file_path, "w", encoding="utf-8") as file:
         content = tostring(chunk_xml, encoding="unicode")
@@ -88,6 +100,6 @@ class ChunkFile:
       raise e
 
   def _remove_file(self, file_name: str):
-    file_path = os.path.join(self._dir_path, file_name)
+    file_path = os.path.join(self._output_dir_path, file_name)
     if os.path.exists(file_path):
       os.remove(file_path)

@@ -1,13 +1,9 @@
 from __future__ import annotations
-
-import json
-
 from typing import Iterable, Callable
 from dataclasses import dataclass
 from xml.etree.ElementTree import Element
 from .llm import LLM
 from .utils import encode_response, normalize_xml_text
-
 
 
 def analyse_index(llm: LLM, raw: Iterable[tuple[int, Element]]) -> dict | None:
@@ -106,39 +102,8 @@ class Index:
   def end_page_index(self) -> int:
     return self._end_idx
 
-  def mark_ids_for_headlines(self, llm: LLM, content_xml: Element):
-    raw_pages_root = Element("pages")
-    origin_headlines: list[Element] = []
-
-    for child in content_xml:
-      if child.tag != "headline":
-        continue
-      page_index = int(child.get("idx", "-1"))
-      if page_index <= self._end_idx:
-        # the reader has not yet read the catalogue.
-        continue
-      headline = Element("headline")
-      headline.text = normalize_xml_text(child.text)
-      raw_pages_root.append(headline)
-      origin_headlines.append(child)
-
-    response = llm.request("headline", raw_pages_root, {
-      "index": json.dumps(
-        obj=self._to_llm_json,
-        ensure_ascii=False,
-        indent=2,
-      ),
-    })
-    response_xml = encode_response(response)
-
-    for i, headline in enumerate(response_xml):
-      id = headline.get("id")
-      if id is not None and i < len(origin_headlines):
-        origin_headline = origin_headlines[i]
-        origin_headline.set("id", id)
-        origin_headline.text = normalize_xml_text(headline.text)
-
-  def _to_llm_json(self) -> dict:
+  @property
+  def llm_json(self) -> dict:
     if len(self._prefaces) == 0:
       return self._json_list(self._chapters)
     else:

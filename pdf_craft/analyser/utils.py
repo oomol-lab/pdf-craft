@@ -14,6 +14,24 @@ def read_xml_files(dir_path: str, enable_kinds: Iterable[str]) -> Generator[tupl
       root = fromstring(file.read())
       yield root, file_name, kind, index1, index2
 
+def search_xml_and_indexes(kind: str, dir_path: str) -> Generator[tuple[str, int, int], None, None]:
+  for file_name in os.listdir(dir_path):
+    matches = re.match(r"^[a-zA-Z]+_\d+(_\d+)?\.xml$", file_name)
+    if not matches:
+      continue
+    file_kind: str
+    index1: str
+    index2: str
+    cells = re.sub(r"\..*$", "", file_name).split("_")
+    if len(cells) == 3:
+      file_kind, index1, index2 = cells
+    else:
+      file_kind, index1 = cells
+      index2 = index1
+    if kind != file_kind:
+      continue
+    yield file_name, int(index1) - 1, int(index2) - 1
+
 def read_files(dir_path: str, enable_kinds: Iterable[str]) -> Generator[tuple[str, str, int, int], None, None]:
   for file_name in os.listdir(dir_path):
     matches = re.match(r"^[a-zA-Z]+_\d+(_\d+)?\.xml$", file_name)

@@ -8,7 +8,7 @@ from .types import PageInfo, TextInfo, TextIncision
 from .chunk_file import ChunkFile
 from .splitter import group, allocate_segments, get_and_clip_pages
 from .asset_matcher import AssetMatcher
-from .utils import read_xml_files, parse_page_indexes, encode_response
+from .utils import search_xml_and_indexes, parse_page_indexes, encode_response
 
 
 def analyse_main_texts(
@@ -183,9 +183,13 @@ class _CitationLoader:
     self._next_citation_id: int = 1
     self._dir_path: str = dir_path
     self._index2file: dict[int, str] = {}
-    for root, file_name, _, _, _ in read_xml_files(dir_path, ("chunk",)):
-      for page_index in self._read_page_indexes(root):
-        self._index2file[page_index] = file_name
+
+    for file_name, _, _ in search_xml_and_indexes("citation", dir_path):
+      file_path = os.path.join(dir_path, file_name)
+      with open(file_path, "r", encoding="utf-8") as file:
+        root = fromstring(file.read())
+        for page_index in self._read_page_indexes(root):
+          self._index2file[page_index] = file_name
 
   def _read_page_indexes(self, root: Element):
     for child in root:

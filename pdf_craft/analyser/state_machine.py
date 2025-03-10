@@ -1,5 +1,4 @@
 import os
-import re
 
 from enum import auto, Enum
 from json import dumps, loads
@@ -16,6 +15,8 @@ from .page import analyse_page
 from .index import analyse_index, Index
 from .citation import analyse_citations
 from .main_text import analyse_main_texts
+from .position import analyse_position
+from .utils import search_xml_and_indexes
 
 
 _IndexXML = tuple[str, int, int]
@@ -137,7 +138,7 @@ class StateMachine:
     done_page_indexes: set[int] = set()
     done_page_names: dict[int, str] = {}
 
-    for file_name, i, _ in self._search_index_xmls("page", dir_path):
+    for file_name, i, _ in search_xml_and_indexes("page", dir_path):
       done_page_indexes.add(i)
       done_page_names[i] = file_name
 
@@ -212,7 +213,13 @@ class StateMachine:
       )
 
   def _analyse_position(self):
-    raise NotImplementedError()
+    main_texts_path = os.path.join(self._analysing_dir_path, "main_texts")
+    dir_path = self._ensure_dir_path(os.path.join(self._analysing_dir_path, "position"))
+
+    with ChunkFile(dir_path) as file:
+      for start_idx, end_idx, chunk_xml in file.filter_origin_files(main_texts_path):
+        position_xml = analyse_position(self._llm, self._load_index(), chunk_xml)
+        file.atomic_write_chunk(start_idx, end_idx, position_xml)
 
   def _generate_chapters(self):
     raise NotImplementedError()
@@ -233,7 +240,7 @@ class StateMachine:
     return self._index
 
   def _list_index_xmls(self, kind: str, dir_path: str) -> list[_IndexXML]:
-    index_xmls = list(self._search_index_xmls(kind, dir_path))
+    index_xmls = list(search_xml_and_indexes(kind, dir_path))
     index_xmls.sort(key=lambda x: x[1])
     return index_xmls
 
@@ -321,24 +328,6 @@ class StateMachine:
       return f"{kind}_{page_index + 1}.xml"
     else:
       return f"{kind}_{page_index + 1}_{page_index2 + 1}.xml"
-
-  def _search_index_xmls(self, kind: str, dir_path: str):
-    for file_name in os.listdir(dir_path):
-      matches = re.match(r"^[a-zA-Z]+_\d+(_\d+)?\.xml$", file_name)
-      if not matches:
-        continue
-      file_kind: str
-      index1: str
-      index2: str
-      cells = re.sub(r"\..*$", "", file_name).split("_")
-      if len(cells) == 3:
-        file_kind, index1, index2 = cells
-      else:
-        file_kind, index1 = cells
-        index2 = index1
-      if kind != file_kind:
-        continue
-      yield file_name, int(index1) - 1, int(index2) - 1
 
   def _read_xml(self, file_path: str) -> Element:
     with open(file_path, "r", encoding="utf-8") as file:
