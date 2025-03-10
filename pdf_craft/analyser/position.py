@@ -27,7 +27,7 @@ def analyse_position(llm: LLM, index: Index | None, chunk_xml: Element) -> Eleme
 
   response = llm.request("position", raw_pages_root, {
     "index": dumps(
-      obj=index.llm_json,
+      obj=index.json,
       ensure_ascii=False,
       indent=2,
     ),

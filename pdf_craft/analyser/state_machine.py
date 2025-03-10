@@ -16,6 +16,7 @@ from .index import analyse_index, Index
 from .citation import analyse_citations
 from .main_text import analyse_main_texts
 from .position import analyse_position
+from .chapter import generate_chapters
 from .utils import search_xml_and_indexes
 
 
@@ -222,7 +223,26 @@ class StateMachine:
         file.atomic_write_chunk(start_idx, end_idx, position_xml)
 
   def _generate_chapters(self):
-    raise NotImplementedError()
+    if self._index is not None:
+      file_path = os.path.join(self._output_dir_path, "index.json")
+      self._atomic_write(
+        file_path=file_path,
+        content=dumps(self._index.json, ensure_ascii=False),
+      )
+
+    for id, chapter_xml in generate_chapters(
+      llm=self._llm,
+      chunks_path=os.path.join(self._analysing_dir_path, "position"),
+    ):
+      if id is None:
+        file_name = "chapter.xml"
+      else:
+        file_name = f"chapter_{id}.xml"
+
+      self._atomic_write(
+        file_path=os.path.join(self._output_dir_path, file_name),
+        content=tostring(chapter_xml, encoding="unicode"),
+      )
 
   def _ensure_dir_path(self, dir_path: str) -> str:
     os.makedirs(dir_path, exist_ok=True)

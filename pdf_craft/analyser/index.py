@@ -103,7 +103,7 @@ class Index:
     return self._end_idx
 
   @property
-  def llm_json(self) -> dict:
+  def json(self) -> dict:
     if len(self._prefaces) == 0:
       return self._json_list(self._chapters)
     else:
