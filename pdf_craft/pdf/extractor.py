@@ -4,7 +4,7 @@ from enum import Enum
 from typing import Iterable, Generator
 from PIL.Image import Image
 from fitz import Document
-from doc_page_extractor import clip, PaddleLang, Rectangle, Layout, LayoutClass, OCRFragment, ExtractedResult
+from doc_page_extractor import clip, Rectangle, Layout, LayoutClass, OCRFragment, ExtractedResult
 from .document import DocumentExtractor, DocumentParams
 
 
@@ -59,13 +59,11 @@ class PDFPageExtractor:
   def extract(
       self,
       pdf: str | Document,
-      lang: PaddleLang,
       page_indexes: Iterable[int] | None = None,
     ) -> Generator[tuple[int, list[Block], Image], None, None]:
 
     for page_index, result, layouts in self._doc_extractor.extract(DocumentParams(
       pdf=pdf,
-      lang=lang,
       page_indexes=page_indexes,
     )):
       blocks = self._convert_to_blocks(result, layouts)
