@@ -5,8 +5,7 @@ import shutil
 
 sys.path.append(os.path.abspath(os.path.join(__file__, "..", "..")))
 
-from pdf_craft import PDFPageExtractor
-from pdf_craft.analyser import analyse, LLM
+from pdf_craft import analyse, LLM, PDFPageExtractor
 
 
 def main():
