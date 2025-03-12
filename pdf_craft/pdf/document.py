@@ -4,7 +4,7 @@ import fitz
 from typing import Generator, Literal, Iterable, Sequence
 from dataclasses import dataclass
 from PIL.Image import frombytes, Image
-from doc_page_extractor import plot, Layout, PaddleLang, DocExtractor, ExtractedResult
+from doc_page_extractor import plot, Layout, DocExtractor, ExtractedResult
 from .section import Section
 
 
@@ -14,7 +14,6 @@ _MAX_VIEWED_PAGES: int = 2
 @dataclass
 class DocumentParams:
   pdf: str | fitz.Document
-  lang: PaddleLang
   page_indexes: Iterable[int] | None
 
 class DocumentExtractor:
@@ -79,7 +78,6 @@ class DocumentExtractor:
         image = self._page_screenshot_image(page, dpi)
         result = self._doc_extractor.extract(
           image=image,
-          lang=params.lang,
           adjust_points=False,
         )
         if self._debug_dir_path is not None:

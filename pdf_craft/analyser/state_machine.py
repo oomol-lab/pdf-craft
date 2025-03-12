@@ -5,7 +5,6 @@ from json import dumps, loads
 from tqdm import tqdm
 from typing import Iterable, Callable
 from xml.etree.ElementTree import tostring, fromstring, Element
-from doc_page_extractor import PaddleLang
 from ..pdf import PDFPageExtractor
 from .llm import LLM
 from .types import PageInfo, TextInfo, TextIncision
@@ -24,7 +23,6 @@ from .utils import search_xml_and_indexes
 
 def analyse(
   llm: LLM,
-  lang: PaddleLang,
   pdf_page_extractor: PDFPageExtractor,
   pdf_path: str,
   analysing_dir_path: str,
@@ -32,7 +30,6 @@ def analyse(
 ):
   state_machine = _StateMachine(
     llm=llm,
-    lang=lang,
     pdf_page_extractor=pdf_page_extractor,
     pdf_path=pdf_path,
     analysing_dir_path=analysing_dir_path,
@@ -49,14 +46,12 @@ class _StateMachine:
       llm: LLM,
       pdf_page_extractor: PDFPageExtractor,
       pdf_path: str,
-      lang: PaddleLang,
       analysing_dir_path: str,
       output_dir_path: str,
     ):
     self._llm: LLM = llm
     self._pdf_page_extractor: PDFPageExtractor = pdf_page_extractor
     self._pdf_path: str = pdf_path
-    self._lang: PaddleLang = lang
     self._analysing_dir_path: str = analysing_dir_path
     self._output_dir_path: str = output_dir_path
     self._index: Index | None = None
@@ -89,7 +84,6 @@ class _StateMachine:
     for page_index, page_xml in extract_ocr_page_xmls(
       extractor=self._pdf_page_extractor,
       pdf_path=self._pdf_path,
-      lang=self._lang,
       expected_page_indexes=set(i for _, i, _ in index_xmls),
       cover_path=os.path.join(dir_path, "cover.png"),
       assets_dir_path=assets_path,

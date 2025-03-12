@@ -20,7 +20,6 @@ def main():
   analyse(
     llm=LLM(**_read_format_json()),
     pdf_path=pdf_file,
-    lang="ch",
     analysing_dir_path=analysing_dir_path,
     output_dir_path=output_dir_path,
     pdf_page_extractor=PDFPageExtractor(

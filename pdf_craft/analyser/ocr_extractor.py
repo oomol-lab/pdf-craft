@@ -7,7 +7,6 @@ from hashlib import sha256
 from typing import Generator
 from PIL.Image import Image
 from xml.etree.ElementTree import Element
-from doc_page_extractor import PaddleLang
 from ..pdf import PDFPageExtractor, Block, Text, TextBlock, AssetBlock, TextKind, AssetKind
 from .asset_matcher import AssetMatcher, ASSET_TAGS
 
@@ -15,7 +14,6 @@ from .asset_matcher import AssetMatcher, ASSET_TAGS
 def extract_ocr_page_xmls(
     extractor: PDFPageExtractor,
     pdf_path: str,
-    lang: PaddleLang,
     expected_page_indexes: set[int],
     cover_path: str,
     assets_dir_path: str,
@@ -24,7 +22,6 @@ def extract_ocr_page_xmls(
   with fitz.open(pdf_path) as pdf:
     page_generation = extractor.extract(
       pdf=pdf,
-      lang=lang,
       page_indexes=(i for i in range(pdf.page_count) if i not in expected_page_indexes),
     )
     for i, blocks, image in tqdm(

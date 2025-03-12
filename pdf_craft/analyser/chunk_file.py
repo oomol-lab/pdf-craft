@@ -1,8 +1,10 @@
+from __future__ import annotations
+
 import re
 import os
 import sys
 
-from typing import Generator, Iterable, Self
+from typing import Generator, Iterable
 from xml.etree.ElementTree import fromstring, tostring, Element
 from .splitter import Group, Segment
 from .types import TextInfo
@@ -17,7 +19,7 @@ class ChunkFile:
     self._min_page_index: int = sys.maxsize
     self._max_page_index: int = 0
 
-  def __enter__(self) -> Self:
+  def __enter__(self) -> ChunkFile:
     return self
 
   def __exit__(self, exc_type, exc_value, traceback):
