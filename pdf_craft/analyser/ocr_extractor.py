@@ -20,7 +20,7 @@ def extract_ocr_page_xmls(
   ) -> Generator[Element, None, None]:
 
   with fitz.open(pdf_path) as pdf:
-    page_generation = extractor.extract(
+    page_generation = extractor.extract_enumerated_blocks_and_image(
       pdf=pdf,
       page_indexes=(i for i in range(pdf.page_count) if i not in expected_page_indexes),
     )

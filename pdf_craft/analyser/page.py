@@ -5,6 +5,10 @@ from .utils import encode_response
 
 
 def analyse_page(llm: LLM, raw_page_xml: Element, previous_page_xml: Element | None):
+  if len(raw_page_xml) == 0:
+    # some page from PDF maybe empty
+    return Element("page")
+
   if previous_page_xml is None:
     raw_page_xml.set("previous-page", "null")
   elif previous_page_xml.tag == "index":
