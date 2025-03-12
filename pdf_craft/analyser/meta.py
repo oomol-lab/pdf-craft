@@ -14,7 +14,11 @@ def extract_meta(llm: LLM, page_xmls: list[Element]) -> dict:
   response = llm.request("meta", raw_pages_xml, {})
   response = re.sub(r"^```JSON", "", response)
   response = re.sub(r"```$", "", response)
-  response_json = json.loads(response)
+  try:
+    response_json = json.loads(response)
+  except json.JSONDecodeError as e:
+    print(response)
+    raise e
 
   if not isinstance(response_json, dict):
     return None
