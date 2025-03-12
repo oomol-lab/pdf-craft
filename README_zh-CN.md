@@ -104,6 +104,8 @@ generate_epub_file(
 该步骤会根据之前分析的书本结构，在 EPUB 中分章节，并匹配恰当的目录结构。此外，原本书页底部的注释和引用将以合适的方式呈现在 EPUB 中。
 
 ![](docs/images/pdf2epub.png)
+![](docs/images/epub-tox.png)
+![](docs/images/epub-citations.png)
 
 ## 致谢
 
