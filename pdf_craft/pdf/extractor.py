@@ -214,8 +214,12 @@ class PDFPageExtractor:
         font_size = sum_height / len(layout.fragments)
         font_sizes.append(font_size)
 
-    max_font_size = max(font_sizes)
-    min_font_size = min(font_sizes)
+    max_font_size: float = 1.0
+    min_font_size: float = 1.0
+
+    if len(font_sizes) > 0:
+      max_font_size = max(font_sizes)
+      min_font_size = min(font_sizes)
 
     if max_font_size == min_font_size:
       for _, block in store:
