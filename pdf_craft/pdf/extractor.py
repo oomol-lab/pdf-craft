@@ -56,7 +56,11 @@ class PDFPageExtractor:
       debug_dir_path=debug_dir_path,
     )
 
-  def extract(
+  def extract(self, pdf: str | Document) -> Generator[Block, None, None]:
+    for _, blocks, _ in self.extract_enumerated_blocks_and_image(pdf):
+      yield from blocks
+
+  def extract_enumerated_blocks_and_image(
       self,
       pdf: str | Document,
       page_indexes: Iterable[int] | None = None,

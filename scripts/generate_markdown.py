@@ -16,9 +16,8 @@ def main():
     model_dir_path=_project_dir_path("models"),
   )
   with MarkDownWriter(markdown_path, "images", "utf-8") as md:
-    for blocks in extractor.extract(pdf_file):
-      for block in blocks:
-        md.write(block)
+    for block in extractor.extract(pdf_file):
+      md.write(block)
 
 def _project_dir_path(name: str, clean: bool = False) -> str:
   path = os.path.join(__file__, "..", "..", name)
