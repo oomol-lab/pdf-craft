@@ -4,7 +4,7 @@ import shutil
 
 sys.path.append(os.path.abspath(os.path.join(__file__, "..", "..")))
 
-from pdf_craft.epub.gen_epub import generate_epub_file
+from pdf_craft import generate_epub_file
 
 
 def main():
