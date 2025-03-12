@@ -19,4 +19,3 @@ conda activate ./.venv
 
 pip install --upgrade pip
 pip install -r requirements.txt
-pip install paddlepaddle==2.6.2
