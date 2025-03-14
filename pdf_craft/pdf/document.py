@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from PIL.Image import frombytes, Image
 from doc_page_extractor import plot, Layout, DocExtractor, ExtractedResult
 from .section import Section
+from .types import PDFPageExtractorProgressReport
 
 
 # section can be viewed up to 2 pages back
@@ -15,6 +16,7 @@ _MAX_VIEWED_PAGES: int = 2
 class DocumentParams:
   pdf: str | fitz.Document
   page_indexes: Iterable[int] | None
+  report_progress: PDFPageExtractorProgressReport | None
 
 class DocumentExtractor:
   def __init__(
@@ -60,6 +62,7 @@ class DocumentExtractor:
 
     document: fitz.Document
     should_close = False
+    report_progress = params.report_progress
 
     if isinstance(params.pdf, str):
       document = fitz.open(params.pdf)
@@ -72,19 +75,22 @@ class DocumentExtractor:
       page_indexes=params.page_indexes,
     )
     try:
-      for i in scan_indexes:
+      for i, page_index in enumerate(scan_indexes):
         dpi = 300 # for scanned book pages
-        page = document.load_page(i)
+        page = document.load_page(page_index)
         image = self._page_screenshot_image(page, dpi)
         result = self._doc_extractor.extract(
           image=image,
           adjust_points=False,
         )
         if self._debug_dir_path is not None:
-          self._generate_plot(image, i, result, self._debug_dir_path)
+          self._generate_plot(image, page_index, result, self._debug_dir_path)
 
-        if i in enable_indexes:
-          yield i, result
+        if page_index in enable_indexes:
+          yield page_index, result
+
+        if report_progress is not None:
+          report_progress(i + 1, len(scan_indexes))
 
     finally:
       if should_close:
