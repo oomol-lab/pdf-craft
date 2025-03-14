@@ -27,8 +27,8 @@ def analyse(
   pdf_path: str,
   analysing_dir_path: str,
   output_dir_path: str,
-  report_progress: AnalysingProgressReport | None = None,
   report_step: AnalysingStepReport | None = None,
+  report_progress: AnalysingProgressReport | None = None,
 ):
   state_machine = _StateMachine(
     llm=llm,

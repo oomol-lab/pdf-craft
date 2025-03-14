@@ -5,7 +5,8 @@ import shutil
 
 sys.path.append(os.path.abspath(os.path.join(__file__, "..", "..")))
 
-from pdf_craft import analyse, LLM, PDFPageExtractor
+from tqdm import tqdm
+from pdf_craft import analyse, LLM, PDFPageExtractor, AnalysingStep
 
 
 def main():
@@ -14,18 +15,37 @@ def main():
   model_dir_path = _project_dir_path("models")
   output_dir_path = _project_dir_path("output", clean=True)
   analysing_dir_path = _project_dir_path("analysing", clean=True)
+  bar: tqdm | None = None
 
-  analyse(
-    llm=LLM(**_read_format_json()),
-    pdf_path=pdf_file,
-    analysing_dir_path=analysing_dir_path,
-    output_dir_path=output_dir_path,
-    pdf_page_extractor=PDFPageExtractor(
-      device="cpu",
-      model_dir_path=model_dir_path,
-      debug_dir_path=os.path.join(analysing_dir_path, "plot"),
-    ),
-  )
+  try:
+    def report_step(step: AnalysingStep, count: int):
+      nonlocal bar
+      if bar is not None:
+        bar.close()
+      print("Step:", step.name)
+      bar = tqdm(total=count)
+
+    def report_progress(completed_count: int):
+      nonlocal bar
+      if bar is not None:
+        bar.update(completed_count)
+
+    analyse(
+      llm=LLM(**_read_format_json()),
+      pdf_path=pdf_file,
+      analysing_dir_path=analysing_dir_path,
+      output_dir_path=output_dir_path,
+      report_step=report_step,
+      report_progress=report_progress,
+      pdf_page_extractor=PDFPageExtractor(
+        device="cpu",
+        model_dir_path=model_dir_path,
+        debug_dir_path=os.path.join(analysing_dir_path, "plot"),
+      ),
+    )
+  finally:
+    if bar is not None:
+      bar.close()
 
 def _project_dir_path(name: str, clean: bool = False) -> str:
   path = os.path.join(__file__, "..", "..", name)
