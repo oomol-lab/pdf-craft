@@ -222,11 +222,12 @@ class _StateMachine:
       page_xmls.append(page_xml)
 
     meta_json = extract_meta(self._llm, page_xmls)
-    meta_file_path = os.path.join(dir_path, "meta.json")
-    self._atomic_write(
-      file_path=meta_file_path,
-      content=dumps(meta_json, ensure_ascii=False, indent=2),
-    )
+    if meta_json is not None:
+      meta_file_path = os.path.join(dir_path, "meta.json")
+      self._atomic_write(
+        file_path=meta_file_path,
+        content=dumps(meta_json, ensure_ascii=False, indent=2),
+      )
 
   def _generate_chapters(self):
     if self._report_step is not None:
