@@ -65,9 +65,9 @@ def analyse_main_texts(
 
     raw_pages_root = Element("pages")
 
-    for i, page_xml in enumerate(page_xml_list):
+    for j, page_xml in enumerate(page_xml_list):
       element = page_xml.xml
-      element.set("idx", str(i + 1))
+      element.set("idx", str(j + 1))
       citation = citations.load(page_xml.page_index)
       if citation is not None:
         element.append(citation)
@@ -96,13 +96,13 @@ def analyse_main_texts(
 
     for child in response_xml.find("content"):
       page_indexes = [
-        i for i in parse_page_indexes(child)
-        if 0 <= i < len(page_xml_list)
+        j for j in parse_page_indexes(child)
+        if 0 <= j < len(page_xml_list)
       ]
-      if any(not page_xml_list[i].is_gap for i in page_indexes):
+      if any(not page_xml_list[k].is_gap for k in page_indexes):
         attr_ids: list[str] = []
-        for i in page_indexes:
-          page_index = page_xml_list[i].page_index + 1
+        for k in page_indexes:
+          page_index = page_xml_list[k].page_index + 1
           attr_ids.append(str(page_index))
         child.set("idx", ",".join(attr_ids))
         content_xml.append(child)
