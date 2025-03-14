@@ -1,13 +1,11 @@
-import os
-
+from importlib.resources import files
 from jinja2 import Environment, Template as JinjaTemplate
 from ..template import create_env
 
 class Template:
   def __init__(self):
-    path = os.path.join(__file__, "..", "templates")
-    path = os.path.abspath(path)
-    self._env: Environment = create_env(path)
+    templates_path = files("pdf_craft").joinpath("data/templates")
+    self._env: Environment = create_env(templates_path)
     self._templates: dict[str, JinjaTemplate] = {}
 
   def render(self, template: str, **params) -> str:
