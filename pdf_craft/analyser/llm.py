@@ -1,6 +1,5 @@
-import os
-
 from typing import cast, Any
+from importlib.resources import files
 from jinja2 import Environment, Template
 from xml.etree.ElementTree import tostring, Element
 from pydantic import SecretStr
@@ -26,8 +25,7 @@ class LLM:
       model=model,
       temperature=0.7,
     )
-    prompts_path = os.path.join(__file__, "..", "prompts")
-    prompts_path = os.path.abspath(prompts_path)
+    prompts_path = files("pdf_craft").joinpath("data/prompts")
     self._env: Environment = create_env(prompts_path)
 
   def request(self, template_name: str, xml_data: Element, params: dict[str, Any]) -> str:

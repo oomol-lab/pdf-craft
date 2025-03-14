@@ -1,2 +1,2 @@
-include pdf_craft/*.jinja
+include pdf_craft/data/**/*.jinja
 prune tests
