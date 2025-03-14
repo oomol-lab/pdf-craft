@@ -45,9 +45,9 @@ def analyse_citations(
       get_element=lambda i: _get_citation_with_file(pages, i),
     )
     raw_pages_root = Element("pages")
-    for i, page_xml in enumerate(page_xml_list):
+    for j, page_xml in enumerate(page_xml_list):
       element = page_xml.xml
-      element.set("idx", str(i + 1))
+      element.set("idx", str(j + 1))
       raw_pages_root.append(element)
 
     asset_matcher = AssetMatcher().register_raw_xml(raw_pages_root)
