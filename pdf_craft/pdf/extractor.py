@@ -5,6 +5,7 @@ from typing import Iterable, Generator
 from PIL.Image import Image
 from fitz import Document
 from doc_page_extractor import clip, Rectangle, Layout, LayoutClass, OCRFragment, ExtractedResult
+from .types import PDFPageExtractorProgressReport
 from .document import DocumentExtractor, DocumentParams
 
 
@@ -56,19 +57,25 @@ class PDFPageExtractor:
       debug_dir_path=debug_dir_path,
     )
 
-  def extract(self, pdf: str | Document) -> Generator[Block, None, None]:
-    for _, blocks, _ in self.extract_enumerated_blocks_and_image(pdf):
+  def extract(self, pdf: str | Document, report_progress: PDFPageExtractorProgressReport | None = None) -> Generator[Block, None, None]:
+    for _, blocks, _ in self.extract_enumerated_blocks_and_image(
+      pdf=pdf,
+      report_progress=report_progress,
+    ):
       yield from blocks
 
   def extract_enumerated_blocks_and_image(
       self,
       pdf: str | Document,
       page_indexes: Iterable[int] | None = None,
+      report_progress: PDFPageExtractorProgressReport | None = None,
+
     ) -> Generator[tuple[int, list[Block], Image], None, None]:
 
     for page_index, result, layouts in self._doc_extractor.extract(DocumentParams(
       pdf=pdf,
       page_indexes=page_indexes,
+      report_progress=report_progress,
     )):
       blocks = self._convert_to_blocks(result, layouts)
       page_range = self._texts_range(blocks)
