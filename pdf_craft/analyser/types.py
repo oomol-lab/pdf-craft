@@ -9,7 +9,7 @@ class AnalysingStep(Enum):
   EXTRACT_MAIN_TEXT = auto()
   MARK_POSITION = auto()
   ANALYSE_META = auto()
-
+  GENERATE_CHAPTERS = auto
 
 # func(completed_count: int) -> None
 AnalysingProgressReport = Callable[[int], None]

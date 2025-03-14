@@ -9,12 +9,11 @@ from pdf_craft import analyse, LLM, PDFPageExtractor
 
 
 def main():
-  pdf_file = os.path.join(__file__, "..", "..", "tests", "assets", "figure-caption.pdf")
+  pdf_file = os.path.join(__file__, "..", "..", "tests", "assets", "citation.pdf")
   pdf_file = os.path.abspath(pdf_file)
-  # pdf_file = "/Users/taozeyu/Downloads/混编书籍.pdf"
   model_dir_path = _project_dir_path("models")
   output_dir_path = _project_dir_path("output", clean=True)
-  analysing_dir_path = _project_dir_path("analysing", clean=False)
+  analysing_dir_path = _project_dir_path("analysing", clean=True)
 
   analyse(
     llm=LLM(**_read_format_json()),

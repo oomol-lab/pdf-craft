@@ -1,13 +1,13 @@
 import os
 import fitz
 
-from tqdm import tqdm
 from html import escape
 from hashlib import sha256
 from typing import Generator
 from PIL.Image import Image
 from xml.etree.ElementTree import Element
 from ..pdf import PDFPageExtractor, Block, Text, TextBlock, AssetBlock, TextKind, AssetKind
+from .types import AnalysingStep, AnalysingProgressReport, AnalysingStepReport
 from .asset_matcher import AssetMatcher, ASSET_TAGS
 
 
@@ -17,16 +17,19 @@ def extract_ocr_page_xmls(
     expected_page_indexes: set[int],
     cover_path: str,
     assets_dir_path: str,
+    report_step: AnalysingStepReport | None,
+    report_progress: AnalysingProgressReport | None,
   ) -> Generator[Element, None, None]:
 
   with fitz.open(pdf_path) as pdf:
-    page_generation = extractor.extract_enumerated_blocks_and_image(
+    if report_step is not None:
+      report_step(
+        AnalysingStep.OCR,
+        pdf.page_count - len(expected_page_indexes),
+      )
+    for i, blocks, image in extractor.extract_enumerated_blocks_and_image(
       pdf=pdf,
       page_indexes=(i for i in range(pdf.page_count) if i not in expected_page_indexes),
-    )
-    for i, blocks, image in tqdm(
-      iterable=page_generation,
-      total=pdf.page_count - len(expected_page_indexes),
     ):
       if i == 0:
         image.save(cover_path)
@@ -38,6 +41,9 @@ def extract_ocr_page_xmls(
         assets_dir_path=assets_dir_path,
       )
       yield i, page_xml
+
+      if report_progress is not None:
+        report_progress(i + 1)
 
 def _transform_page_xml(blocks: list[Block]) -> Element:
   root = Element("page")
