@@ -1,6 +1,6 @@
 import unittest
 
-from pdf_craft.analyser.types import TextInfo, TextIncision
+from pdf_craft.analyser.common import TextInfo, TextIncision
 from pdf_craft.analyser.splitter import group, allocate_segments
 from pdf_craft.analyser.splitter.group import Group
 from pdf_craft.analyser.splitter.segment import Segment

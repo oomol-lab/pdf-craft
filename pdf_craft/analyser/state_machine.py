@@ -2,12 +2,11 @@ import os
 import shutil
 
 from json import dumps, loads
-from tqdm import tqdm
 from typing import Iterable, Callable
 from xml.etree.ElementTree import tostring, fromstring, Element
 from ..pdf import PDFPageExtractor
 from .llm import LLM
-from .types import PageInfo, TextInfo, TextIncision
+from .common import PageInfo, TextInfo, TextIncision
 from .chunk_file import ChunkFile
 from .ocr_extractor import extract_ocr_page_xmls
 from .page import analyse_page
@@ -18,6 +17,7 @@ from .position import analyse_position
 from .meta import extract_meta
 from .chapter import generate_chapters
 from .asset_matcher import ASSET_TAGS
+from .types import AnalysingStep, AnalysingProgressReport, AnalysingStepReport
 from .utils import search_xml_and_indexes
 
 
@@ -27,6 +27,8 @@ def analyse(
   pdf_path: str,
   analysing_dir_path: str,
   output_dir_path: str,
+  report_step: AnalysingStepReport | None = None,
+  report_progress: AnalysingProgressReport | None = None,
 ):
   state_machine = _StateMachine(
     llm=llm,
@@ -34,6 +36,8 @@ def analyse(
     pdf_path=pdf_path,
     analysing_dir_path=analysing_dir_path,
     output_dir_path=output_dir_path,
+    report_progress=report_progress,
+    report_step=report_step,
   )
   state_machine.start()
 
@@ -48,12 +52,16 @@ class _StateMachine:
       pdf_path: str,
       analysing_dir_path: str,
       output_dir_path: str,
+      report_step: AnalysingStepReport | None,
+      report_progress: AnalysingProgressReport | None,
     ):
     self._llm: LLM = llm
     self._pdf_page_extractor: PDFPageExtractor = pdf_page_extractor
     self._pdf_path: str = pdf_path
     self._analysing_dir_path: str = analysing_dir_path
     self._output_dir_path: str = output_dir_path
+    self._report_step: AnalysingStepReport | None = report_step
+    self._report_progress: AnalysingProgressReport | None = report_progress
     self._index: Index | None = None
     self._index_did_load: bool = False
     self._pages: list[PageInfo] | None = None
@@ -87,6 +95,8 @@ class _StateMachine:
       expected_page_indexes=set(i for _, i, _ in index_xmls),
       cover_path=os.path.join(dir_path, "cover.png"),
       assets_dir_path=assets_path,
+      report_step=self._report_step,
+      report_progress=self._report_progress,
     ):
       self._atomic_write(
         file_path=os.path.join(dir_path, self._xml_name("page", page_index)),
@@ -98,33 +108,42 @@ class _StateMachine:
     done_page_indexes: set[int] = set()
     done_page_names: dict[int, str] = {}
 
-    for file_name, i, _ in search_xml_and_indexes("page", dir_path):
-      done_page_indexes.add(i)
-      done_page_names[i] = file_name
+    for file_name, page_index, _ in search_xml_and_indexes("page", dir_path):
+      done_page_indexes.add(page_index)
+      done_page_names[page_index] = file_name
 
-    for raw_name, i, _ in tqdm(self._list_index_xmls("page", from_path)):
-      if i in done_page_indexes:
-        continue
+    index_xmls = self._list_index_xmls("page", from_path)
 
-      raw_page_xml = self._read_xml(os.path.join(from_path, raw_name))
-      previous_response_xml: Element | None = None
-      if i > 0:
-        file_name = done_page_names[i - 1]
-        file_path = os.path.join(dir_path, file_name)
-        previous_response_xml = self._read_xml(file_path)
+    if self._report_step is not None:
+      self._report_step(AnalysingStep.ANALYSE_PAGE, len(index_xmls))
 
-      response_xml = analyse_page(
-        llm=self._llm,
-        raw_page_xml=raw_page_xml,
-        previous_page_xml=previous_response_xml,
-      )
-      self._atomic_write(
-        file_path=os.path.join(dir_path, raw_name),
-        content=tostring(response_xml, encoding="unicode"),
-      )
-      done_page_names[i] = f"page_{i + 1}.xml"
+    for i, (raw_name, page_index, _) in enumerate(index_xmls):
+      if page_index not in done_page_indexes:
+        raw_page_xml = self._read_xml(os.path.join(from_path, raw_name))
+        previous_response_xml: Element | None = None
+        if page_index > 0:
+          file_name = done_page_names[page_index - 1]
+          file_path = os.path.join(dir_path, file_name)
+          previous_response_xml = self._read_xml(file_path)
+
+        response_xml = analyse_page(
+          llm=self._llm,
+          raw_page_xml=raw_page_xml,
+          previous_page_xml=previous_response_xml,
+        )
+        self._atomic_write(
+          file_path=os.path.join(dir_path, raw_name),
+          content=tostring(response_xml, encoding="unicode"),
+        )
+        done_page_names[page_index] = f"page_{page_index + 1}.xml"
+
+      if self._report_progress is not None:
+        self._report_progress(i + 1)
 
   def _analyse_index(self, dir_path: str):
+    if self._report_step is not None:
+      self._report_step(AnalysingStep.EXTRACT_INDEX, 0)
+
     from_path = os.path.join(self._analysing_dir_path, "pages")
     json_index, index = analyse_index(
       llm=self._llm,
@@ -154,6 +173,8 @@ class _StateMachine:
         pages=self._load_pages(),
         request_max_tokens=8000,
         tail_rate=0.15,
+        report_step=self._report_step,
+        report_progress=self._report_progress,
       )
 
   def _analyse_main_texts(self, dir_path: str):
@@ -167,19 +188,31 @@ class _StateMachine:
         citations_dir_path=citations_dir_path,
         request_max_tokens=10000,
         gap_rate=0.1,
+        report_step=self._report_step,
+        report_progress=self._report_progress,
       )
 
   def _analyse_position(self, dir_path: str):
     main_texts_path = os.path.join(self._analysing_dir_path, "main_texts")
     with ChunkFile(dir_path) as file:
-      for start_idx, end_idx, chunk_xml in file.filter_origin_files(main_texts_path):
+      chunk_xmls = file.filter_origin_files(main_texts_path)
+      if self._report_step is not None:
+        chunk_xmls = list(chunk_xmls)
+        self._report_step(AnalysingStep.MARK_POSITION, len(chunk_xmls))
+
+      for i, (start_idx, end_idx, chunk_xml) in enumerate(chunk_xmls):
         position_xml = analyse_position(self._llm, self._load_index(), chunk_xml)
         file.atomic_write_chunk(start_idx, end_idx, position_xml)
+        if self._report_progress is not None:
+          self._report_progress(i + 1)
 
   def _extract_meta(self, dir_path: str):
     page_xmls: list[Element] = []
     page_dir_path = os.path.join(self._analysing_dir_path, "pages")
     head_count = 5
+
+    if self._report_step is not None:
+      self._report_step(AnalysingStep.ANALYSE_META, 0)
 
     for file_name, page_index, _ in search_xml_and_indexes("page", page_dir_path):
       if page_index >= head_count:
@@ -196,6 +229,9 @@ class _StateMachine:
     )
 
   def _generate_chapters(self):
+    if self._report_step is not None:
+      self._report_step(AnalysingStep.GENERATE_CHAPTERS, 0)
+
     if self._index is not None:
       file_path = os.path.join(self._output_dir_path, "index.json")
       self._atomic_write(

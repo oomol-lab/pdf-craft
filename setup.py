@@ -2,7 +2,7 @@ from setuptools import setup, find_packages
 
 setup(
   name="pdf-craft",
-  version="0.0.3",
+  version="0.0.4",
   author="Tao Zeyu",
   author_email="i@taozeyu.com",
   url="https://github.com/oomol-lab/pdf-craft",
@@ -11,8 +11,6 @@ setup(
   long_description=open("./README.md", encoding="utf8").read(),
   long_description_content_type="text/markdown",
   install_requires=[
-    "tqdm>=4.66.5,<5.0.0",
-    "tiktoken>=0.9.0,<1.0.0",
     "jinja2>=3.1.5,<4.0.0",
     "pyMuPDF>=1.25.3,<2.0.0",
     "alphabet-detector>=0.0.7,<1.0.0",

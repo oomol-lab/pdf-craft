@@ -4,7 +4,7 @@ from typing import Iterable, Generator
 from math import floor
 from .segment import Segment
 from .stream import Stream
-from ..types import TextInfo
+from ..common import TextInfo
 
 
 @dataclass

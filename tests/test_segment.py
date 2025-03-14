@@ -3,7 +3,7 @@ import unittest
 from typing import Iterable
 from pdf_craft.analyser.splitter import allocate_segments
 from pdf_craft.analyser.splitter.segment import Segment
-from pdf_craft.analyser.types import TextInfo, TextIncision
+from pdf_craft.analyser.common import TextInfo, TextIncision
 
 
 class TestSegment(unittest.TestCase):

@@ -1,26 +1,18 @@
-from io import TextIOWrapper
-from enum import IntEnum
 from typing import Callable
-from dataclasses import dataclass
+from enum import auto, Enum
 
+class AnalysingStep(Enum):
+  OCR = auto()
+  ANALYSE_PAGE = auto()
+  EXTRACT_INDEX = auto()
+  EXTRACT_CITATION = auto()
+  EXTRACT_MAIN_TEXT = auto()
+  MARK_POSITION = auto()
+  ANALYSE_META = auto()
+  GENERATE_CHAPTERS = auto
 
-@dataclass
-class TextIncision(IntEnum):
-  MUST_BE = 2
-  MOST_LIKELY = 1
-  IMPOSSIBLE = -1
-  UNCERTAIN = 0
+# func(completed_count: int) -> None
+AnalysingProgressReport = Callable[[int], None]
 
-@dataclass
-class TextInfo:
-  page_index: int
-  tokens: int
-  start_incision: TextIncision
-  end_incision: TextIncision
-
-@dataclass
-class PageInfo:
-  page_index: int
-  main: TextInfo
-  citation: TextInfo | None
-  file: Callable[[], TextIOWrapper]
+# func(step: AnalysingStep, count: int) -> None
+AnalysingStepReport = Callable[[AnalysingStep, int], None]

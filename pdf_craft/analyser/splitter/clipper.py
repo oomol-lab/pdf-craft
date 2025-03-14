@@ -3,7 +3,7 @@ from dataclasses import dataclass
 from xml.etree.ElementTree import tostring, Element
 from .segment import Segment
 from .group import Group
-from ..types import TextInfo
+from ..common import TextInfo
 from ..llm import LLM
 
 
