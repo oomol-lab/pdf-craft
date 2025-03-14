@@ -2,7 +2,7 @@ from typing import Iterable, Generator
 from xml.etree.ElementTree import fromstring, Element
 
 from .llm import LLM
-from .types import PageInfo, TextInfo, TextIncision
+from .common import PageInfo, TextInfo, TextIncision
 from .splitter import group, allocate_segments, get_and_clip_pages, PageXML
 from .asset_matcher import AssetMatcher, ASSET_TAGS
 from .chunk_file import ChunkFile

@@ -7,7 +7,7 @@ from typing import Iterable, Callable
 from xml.etree.ElementTree import tostring, fromstring, Element
 from ..pdf import PDFPageExtractor
 from .llm import LLM
-from .types import PageInfo, TextInfo, TextIncision
+from .common import PageInfo, TextInfo, TextIncision
 from .chunk_file import ChunkFile
 from .ocr_extractor import extract_ocr_page_xmls
 from .page import analyse_page

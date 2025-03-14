@@ -7,7 +7,7 @@ import sys
 from typing import Generator, Iterable
 from xml.etree.ElementTree import fromstring, tostring, Element
 from .splitter import Group, Segment
-from .types import TextInfo
+from .common import TextInfo
 
 
 class ChunkFile:

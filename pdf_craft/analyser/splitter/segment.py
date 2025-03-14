@@ -2,7 +2,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Iterable, Generator
 from .stream import Stream
-from ..types import TextIncision, TextInfo
+from ..common import TextIncision, TextInfo
 
 
 _MIN_LEVEL = -1
