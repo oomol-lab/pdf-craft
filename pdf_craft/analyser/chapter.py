@@ -9,6 +9,7 @@ from .utils import search_xml_children
 
 def generate_chapters(llm: LLM, chunks_path: str) -> Generator[tuple[int | None, Element], None, None]:
   session: _Session | None = None
+  used_chapter_ids: set[int] = set()
 
   for serial in serials(llm, chunks_path):
     if session is None:
@@ -19,9 +20,13 @@ def generate_chapters(llm: LLM, chunks_path: str) -> Generator[tuple[int | None,
     for child in serial.main_texts:
       chapter_id = _try_to_take_chapter_id(child)
       if chapter_id is not None:
+        if chapter_id in used_chapter_ids:
+          continue
         if not session.is_empty:
           yield session.chapter_id, session.to_xml()
         session = _Session(chapter_id, serial.citations)
+        used_chapter_ids.add(chapter_id)
+
       session.append(child)
 
   if session is not None and not session.is_empty:
