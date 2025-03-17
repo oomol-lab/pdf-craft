@@ -4,9 +4,11 @@ import shutil
 from json import dumps, loads
 from typing import Iterable, Callable
 from xml.etree.ElementTree import tostring, fromstring, Element
+from resource_segmentation import Resource, Incision
+
 from ..pdf import PDFPageExtractor
 from .llm import LLM
-from .common import PageInfo, TextInfo, TextIncision
+from .common import PageInfo, PageRef
 from .chunk_file import ChunkFile
 from .ocr_extractor import extract_ocr_page_xmls
 from .page import analyse_page
@@ -320,7 +322,7 @@ class _StateMachine:
 
   def _parse_page_info(self, file_path: str, page_index: int, root: Element) -> PageInfo:
     main_children: list[Element] = []
-    citation: TextInfo | None = None
+    citation: Resource[PageRef] | None = None
 
     for child in root:
       if child.tag == "citation":
@@ -335,11 +337,11 @@ class _StateMachine:
       main=self._parse_text_info(page_index, main_children),
     )
 
-  def _parse_text_info(self, page_index: int, children: Iterable[Element]) -> TextInfo:
+  def _parse_text_info(self, page_index: int, children: Iterable[Element]) -> Resource[PageRef]:
     # When no text is found on this page, it means it is full of tables or
     # it is a blank page. We cannot tell if there is a cut in the context.
-    start_incision: TextIncision = TextIncision.UNCERTAIN
-    end_incision: TextIncision = TextIncision.UNCERTAIN
+    start_incision: Incision = Incision.UNCERTAIN
+    end_incision: Incision = Incision.UNCERTAIN
     first: Element | None = None
     last: Element | None = None
 
@@ -356,7 +358,7 @@ class _StateMachine:
 
     tokens = self._count_elements_tokens(children)
 
-    return TextInfo(
+    return Resource(
       page_index=page_index,
       tokens=tokens,
       start_incision=start_incision,
@@ -369,17 +371,17 @@ class _StateMachine:
     xml_content = tostring(root, encoding="unicode")
     return self._llm.count_tokens_count(xml_content)
 
-  def _attr_value_to_kind(self, value: str | None) -> TextIncision:
+  def _attr_value_to_kind(self, value: str | None) -> Incision:
     if value == "must-be":
-      return TextIncision.MUST_BE
+      return Incision.MUST_BE
     elif value == "most-likely":
-      return TextIncision.MOST_LIKELY
+      return Incision.MOST_LIKELY
     elif value == "impossible":
-      return TextIncision.IMPOSSIBLE
+      return Incision.IMPOSSIBLE
     elif value == "uncertain":
-      return TextIncision.UNCERTAIN
+      return Incision.UNCERTAIN
     else:
-      return TextIncision.UNCERTAIN
+      return Incision.UNCERTAIN
 
   def _xml_name(self, kind: str, page_index: int, page_index2: int | None = None) -> str:
     if page_index2 is None:

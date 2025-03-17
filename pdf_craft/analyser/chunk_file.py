@@ -6,8 +6,8 @@ import sys
 
 from typing import Generator, Iterable
 from xml.etree.ElementTree import fromstring, tostring, Element
-from .splitter import Group, Segment
-from .common import TextInfo
+from resource_segmentation import Resource, Group, Segment
+from .common import PageRef
 
 
 class ChunkFile:
@@ -49,7 +49,7 @@ class ChunkFile:
       start, end = matches.group(1).split("_")
       yield int(start) - 1, int(end) - 1, file_name
 
-  def filter_groups(self, groups: Iterable[Group]) -> Generator[tuple[int, int, Group], None, None]:
+  def filter_groups(self, groups: Iterable[Group[PageRef]]) -> Generator[tuple[int, int, Group], None, None]:
     for group in groups:
       start = min(t.page_index for t in self._search_text_infos(group))
       end = max(t.page_index for t in self._search_text_infos(group))
@@ -58,12 +58,12 @@ class ChunkFile:
       if self._overlap_files(start, end):
         yield start, end, group
 
-  def _search_text_infos(self, group: Group):
+  def _search_text_infos(self, group: Group[PageRef]):
     for item in group.body:
       if isinstance(item, Segment):
         for text_info in item.text_infos:
           yield text_info
-      elif isinstance(item, TextInfo):
+      elif isinstance(item, Resource):
         yield item
 
   def _register_page_range(self, start: int, end: int):

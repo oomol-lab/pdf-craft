@@ -1,11 +1,10 @@
 import unittest
 
 from xml.etree.ElementTree import tostring, Element
+from resource_segmentation import Group, Segment, Resource, Incision
 from pdf_craft.analyser.llm import LLM
-from pdf_craft.analyser.common import TextInfo, TextIncision
-from pdf_craft.analyser.splitter import get_and_clip_pages, PageXML
-from pdf_craft.analyser.splitter.group import Group
-from pdf_craft.analyser.splitter.segment import Segment
+from pdf_craft.analyser.common import PageRef
+from pdf_craft.analyser.page_clipper import get_and_clip_pages, PageXML
 
 
 class TestPageClipper(unittest.TestCase):
@@ -58,8 +57,8 @@ class TestPageClipper(unittest.TestCase):
       ]),
     ])
     group = Group(
-      head_remain_tokens=122,
-      tail_remain_tokens=68,
+      head_remain_count=122,
+      tail_remain_count=68,
       head=[pages.segment([0, 1])],
       body=[pages.text_info(2)],
       tail=[pages.segment([3, 4])],
@@ -110,8 +109,8 @@ class TestPageClipper(unittest.TestCase):
       ]),
     ])
     group = Group(
-      head_remain_tokens=57,
-      tail_remain_tokens=55,
+      head_remain_count=57,
+      tail_remain_count=55,
       head=[pages.text_info(0)],
       body=[pages.text_info(1)],
       tail=[pages.text_info(2)],
@@ -160,22 +159,22 @@ class _Pages:
   def get_element(self, page_index: int) -> Element:
     return self._elements[page_index]
 
-  def text_info(self, page_index: int) -> TextInfo:
+  def text_info(self, page_index: int) -> Resource[PageRef]:
     element = self._elements[page_index]
     element_text = tostring(element, encoding="unicode")
     tokens = self.llm.count_tokens_count(element_text)
-    return TextInfo(
-      page_index=page_index,
-      tokens=tokens,
-      start_incision=TextIncision.UNCERTAIN,
-      end_incision=TextIncision.UNCERTAIN,
+    return Resource(
+      count=tokens,
+      start_incision=Incision.UNCERTAIN,
+      end_incision=Incision.UNCERTAIN,
+      payload=PageRef(page_index),
     )
 
-  def segment(self, page_indexes: list[int]) -> Segment:
+  def segment(self, page_indexes: list[int]) -> Segment[PageRef]:
     text_infos = [self.text_info(i) for i in page_indexes]
     return Segment(
-      tokens=sum(info.tokens for info in text_infos),
-      text_infos=text_infos,
+      count=sum(info.count for info in text_infos),
+      resources=text_infos,
     )
 
 def _split_page_xml_list(page_xml_list: list[PageXML]) -> tuple[list[Element], int, int]:

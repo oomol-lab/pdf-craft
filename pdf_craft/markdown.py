@@ -5,6 +5,7 @@ from hashlib import sha256
 from typing import Iterable
 from .pdf import Text, TextKind, TextBlock, AssetBlock, Block
 
+
 class MarkDownWriter:
   def __init__(self, md_path: str, assets_path: str, encoding: str | None):
     self._assets_path: str = assets_path
