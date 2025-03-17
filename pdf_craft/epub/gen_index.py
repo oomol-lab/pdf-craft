@@ -3,6 +3,7 @@ from json import loads
 from dataclasses import dataclass
 from typing import Callable
 from xml.etree.ElementTree import tostring, Element
+from .i18n import I18N
 from .template import Template
 
 
@@ -14,6 +15,8 @@ class NavPoint:
 
 def gen_index(
     template: Template,
+    i18n: I18N,
+    meta: dict,
     file_path: str,
     has_cover: bool,
     check_chapter_exits: Callable[[int], bool],
@@ -40,8 +43,9 @@ def gen_index(
   )
   toc_ncx = template.render(
     template="toc.ncx",
-    title="测试书名",
     depth=depth,
+    i18n=i18n,
+    meta=meta,
     has_cover=has_cover,
     nav_points=[tostring(p, encoding="unicode") for p in nav_points],
   )

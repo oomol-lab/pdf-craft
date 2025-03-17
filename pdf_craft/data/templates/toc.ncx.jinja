@@ -6,13 +6,17 @@
     <meta content="0" name="dtb:maxPageNumber" />
   </head>
   <docTitle>
-    <text>{{ title }}</text>
+{% if "title" in meta %}
+    <text>{{ meta["title"] }}</text>
+{% else %}
+    <text>{{ i18n.unnamed }}</text>
+{% endif %}
   </docTitle>
   <navMap>
 {% if has_cover %}
     <navPoint id="cover" playOrder="0">
         <navLabel>
-            <text>封面</text>
+            <text>{{ i18n.cover }}</text>
         </navLabel>
         <content src="Text/cover.xhtml" />
     </navPoint>

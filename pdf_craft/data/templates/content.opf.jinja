@@ -6,7 +6,7 @@
 {% if "title" in meta %}
     <dc:title>{{ meta["title"] }}</dc:title>
 {% else %}
-    <dc:title>未命名</dc:title>
+    <dc:title>{{ i18n.unnamed }}</dc:title>
 {% endif %}
 {% if "description" in meta %}
     <dc:description>{{ meta["description"] }}</dc:description>
