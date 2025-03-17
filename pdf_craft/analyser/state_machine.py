@@ -359,10 +359,10 @@ class _StateMachine:
     tokens = self._count_elements_tokens(children)
 
     return Resource(
-      page_index=page_index,
-      tokens=tokens,
+      count=tokens,
       start_incision=start_incision,
       end_incision=end_incision,
+      payload=PageRef(page_index)
     )
 
   def _count_elements_tokens(self, elements: Iterable[Element]) -> int:

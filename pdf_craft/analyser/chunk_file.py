@@ -51,8 +51,8 @@ class ChunkFile:
 
   def filter_groups(self, groups: Iterable[Group[PageRef]]) -> Generator[tuple[int, int, Group], None, None]:
     for group in groups:
-      start = min(t.page_index for t in self._search_text_infos(group))
-      end = max(t.page_index for t in self._search_text_infos(group))
+      start = min(t.payload.page_index for t in self._search_text_infos(group))
+      end = max(t.payload.page_index for t in self._search_text_infos(group))
       self._register_page_range(start, end)
 
       if self._overlap_files(start, end):
@@ -61,7 +61,7 @@ class ChunkFile:
   def _search_text_infos(self, group: Group[PageRef]):
     for item in group.body:
       if isinstance(item, Segment):
-        for text_info in item.text_infos:
+        for text_info in item.resources:
           yield text_info
       elif isinstance(item, Resource):
         yield item
