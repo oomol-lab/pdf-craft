@@ -1,9 +1,10 @@
 from typing import Iterable, Generator
 from xml.etree.ElementTree import fromstring, Element
+from resource_segmentation import split, Resource, Incision
 
 from .llm import LLM
-from .common import PageInfo, TextInfo, TextIncision
-from .splitter import group, allocate_segments, get_and_clip_pages, PageXML
+from .common import PageInfo
+from .page_clipper import get_and_clip_pages, PageRef, PageXML
 from .asset_matcher import AssetMatcher, ASSET_TAGS
 from .chunk_file import ChunkFile
 from .types import AnalysingStep, AnalysingProgressReport, AnalysingStepReport
@@ -25,14 +26,11 @@ def analyse_citations(
   if data_max_tokens <= 0:
     raise ValueError(f"Request max tokens is too small (less than system prompt tokens count {prompt_tokens})")
 
-  groups = file.filter_groups(group(
-    max_tokens=data_max_tokens,
+  groups = file.filter_groups(split(
+    max_segment_count=data_max_tokens,
     gap_rate=tail_rate,
     tail_rate=1.0,
-    items=allocate_segments(
-      text_infos=_extract_citations(pages),
-      max_tokens=data_max_tokens,
-    ),
+    resources=_extract_citations(pages),
   ))
   if report_step is not None:
     groups = list(groups)
@@ -71,9 +69,9 @@ def analyse_citations(
     if report_progress is not None:
       report_progress(i + 1)
 
-def _extract_citations(pages: Iterable[PageInfo]) -> Generator[TextInfo, None, None]:
-  citations_matrix: list[list[TextInfo]] = []
-  current_citations: list[TextInfo] = []
+def _extract_citations(pages: Iterable[PageInfo]) -> Generator[Resource[PageRef], None, None]:
+  citations_matrix: list[list[Resource[PageRef]]] = []
+  current_citations: list[Resource[PageRef]] = []
 
   for page in pages:
     citation = page.citation
@@ -87,8 +85,8 @@ def _extract_citations(pages: Iterable[PageInfo]) -> Generator[TextInfo, None, N
     citations_matrix.append(current_citations)
 
   for citations in citations_matrix:
-    citations[0].start_incision = TextIncision.IMPOSSIBLE
-    citations[-1].end_incision = TextIncision.IMPOSSIBLE
+    citations[0].start_incision = Incision.IMPOSSIBLE
+    citations[-1].end_incision = Incision.IMPOSSIBLE
 
   for citations in citations_matrix:
     yield from citations

@@ -1,10 +1,9 @@
 from typing import Generator, Callable
 from dataclasses import dataclass
 from xml.etree.ElementTree import tostring, Element
-from .segment import Segment
-from .group import Group
-from ..common import TextInfo
-from ..llm import LLM
+from resource_segmentation import Group, Segment, Resource
+from .common import PageRef
+from .llm import LLM
 
 
 @dataclass
@@ -13,18 +12,18 @@ class PageXML:
   xml: Element
   is_gap: bool = False
 
-def get_and_clip_pages(llm: LLM, group: Group, get_element: Callable[[int], Element]) -> list[PageXML]:
+def get_and_clip_pages(llm: LLM, group: Group[PageRef], get_element: Callable[[int], Element]) -> list[PageXML]:
   head = _get_pages(
     llm=llm,
     items=group.head,
-    remain_tokens=group.head_remain_tokens,
+    remain_tokens=group.head_remain_count,
     clip_tail=False,
     get_element=get_element,
   )
   tail = _get_pages(
     llm=llm,
     items=group.tail,
-    remain_tokens=group.tail_remain_tokens,
+    remain_tokens=group.tail_remain_count,
     clip_tail=True,
     get_element=get_element,
   )
@@ -52,7 +51,7 @@ def get_and_clip_pages(llm: LLM, group: Group, get_element: Callable[[int], Elem
 
 def _get_pages(
     llm: LLM,
-    items: list[TextInfo | Segment],
+    items: list[Resource[PageRef] | Segment[PageRef]],
     remain_tokens: int | None,
     clip_tail: bool,
     get_element: Callable[[int], str],
@@ -62,7 +61,7 @@ def _get_pages(
     return
 
   if remain_tokens is not None:
-    tokens = sum(item.tokens for item in items)
+    tokens = sum(item.count for item in items)
     if remain_tokens == tokens:
       remain_tokens = None
 
@@ -71,39 +70,43 @@ def _get_pages(
 
   if remain_tokens is None:
     for item in items:
-      if isinstance(item, TextInfo):
+      if isinstance(item, Resource):
+        page_index = item.payload.page_index
         yield PageXML(
-          page_index=item.page_index,
-          xml=get_element(item.page_index),
+          page_index=page_index,
+          xml=get_element(page_index),
         )
       elif isinstance(item, Segment):
-        for text_info in item.text_infos:
+        for resource in item.resources:
+          page_index = resource.payload.page_index
           yield PageXML(
-            page_index=text_info.page_index,
-            xml=get_element(text_info.page_index),
+            page_index=page_index,
+            xml=get_element(page_index),
           )
   else:
     item = items[0]
-    if isinstance(item, TextInfo):
-      page_xml = get_element(item.page_index)
+    if isinstance(item, Resource):
+      page_index = item.payload.page_index
+      page_xml = get_element(page_index)
       page_xml = _clip_element(llm, page_xml, remain_tokens, clip_tail)
       if page_xml is not None:
         yield PageXML(
-          page_index=item.page_index,
+          page_index=page_index,
           xml=page_xml,
         )
 
     elif isinstance(item, Segment):
       text_infos, remain_tokens = _clip_segment(item, remain_tokens, clip_tail)
       page_xml_list: list[PageXML] = []
-      for i, text_info in enumerate(text_infos):
-        page_xml: Element | None = get_element(text_info.page_index)
+      for i, resource in enumerate(text_infos):
+        page_index = resource.payload.page_index
+        page_xml: Element | None = get_element(page_index)
         if (clip_tail and i == len(text_infos) - 1) or \
            (not clip_tail and i == 0):
           page_xml = _clip_element(llm, page_xml, remain_tokens, clip_tail)
         if page_xml is not None:
           page_xml_list.append(PageXML(
-            page_index=text_info.page_index,
+            page_index=page_index,
             xml=page_xml,
           ))
       if not clip_tail:
@@ -111,15 +114,15 @@ def _get_pages(
       yield from page_xml_list
 
 def _clip_segment(segment: Segment, remain_tokens: int, clip_tail: bool):
-  clipped: list[TextInfo] = []
-  iter_source = segment.text_infos
+  clipped: list[Resource[PageRef]] = []
+  iter_source = segment.resources
   if not clip_tail:
     iter_source = reversed(iter_source)
 
   for text_info in iter_source:
     clipped.append(text_info)
-    if remain_tokens >= text_info.tokens:
-      remain_tokens -= text_info.tokens
+    if remain_tokens >= text_info.count:
+      remain_tokens -= text_info.count
     else:
       break
   if not clip_tail:

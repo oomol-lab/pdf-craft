@@ -2,12 +2,13 @@ import os
 
 from typing import Iterable
 from xml.etree.ElementTree import fromstring, Element
+from resource_segmentation import split, Resource, Incision
 
 from .llm import LLM
-from .common import PageInfo, TextInfo, TextIncision
+from .common import PageInfo, PageRef
 from .chunk_file import ChunkFile
 from .index import Index
-from .splitter import group, allocate_segments, get_and_clip_pages
+from .page_clipper import get_and_clip_pages
 from .asset_matcher import AssetMatcher
 from .types import AnalysingStep, AnalysingProgressReport, AnalysingStepReport
 from .utils import search_xml_and_indexes, parse_page_indexes, encode_response
@@ -32,14 +33,11 @@ def analyse_main_texts(
   if data_max_tokens <= 0:
     raise ValueError(f"Request max tokens is too small (less than system prompt tokens count {prompt_tokens})")
 
-  groups = file.filter_groups(group(
-    max_tokens=data_max_tokens,
+  groups = file.filter_groups(split(
+    max_segment_count=data_max_tokens,
     gap_rate=gap_rate,
     tail_rate=0.5,
-    items=allocate_segments(
-      text_infos=_extract_page_text_infos(pages),
-      max_tokens=data_max_tokens,
-    ),
+    resources=_extract_page_text_infos(pages),
   ))
   if report_step is not None:
     groups = list(groups)
@@ -116,7 +114,7 @@ def analyse_main_texts(
     if report_progress is not None:
       report_progress(i + 1)
 
-def _extract_page_text_infos(pages: list[PageInfo]) -> Iterable[TextInfo]:
+def _extract_page_text_infos(pages: list[PageInfo]) -> Iterable[Resource[PageRef]]:
   if len(pages) == 0:
     return
 
@@ -124,14 +122,14 @@ def _extract_page_text_infos(pages: list[PageInfo]) -> Iterable[TextInfo]:
 
   for page in pages:
     if previous is not None and previous.page_index + 1 != page.page_index:
-      previous.main.end_incision = TextIncision.IMPOSSIBLE
+      previous.main.end_incision = Incision.IMPOSSIBLE
       previous = None
     if previous is None:
-      page.main.start_incision = TextIncision.IMPOSSIBLE
+      page.main.start_incision = Incision.IMPOSSIBLE
     previous = page
 
   if previous is not None:
-    previous.main.end_incision = TextIncision.IMPOSSIBLE
+    previous.main.end_incision = Incision.IMPOSSIBLE
 
   for page in pages:
     yield page.main
