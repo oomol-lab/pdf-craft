@@ -12,16 +12,24 @@ def rate(value1: float, value2: float) -> float:
 def intersection_area_size(rect1: Rectangle, rect2: Rectangle) -> tuple[float, float]:
   poly1 = Polygon(rect1)
   poly2 = Polygon(rect2)
-  intersection: Polygon = poly1.intersection(poly2)
+  intersection = poly1.intersection(poly2)
+
   if intersection.is_empty:
     return 0.0, 0.0
+
+  if not isinstance(intersection, Polygon):
+    return intersection.area, 0.0
 
   x1: float = float("inf")
   y1: float = float("inf")
   x2: float = float("-inf")
   y2: float = float("-inf")
 
-  for x, y in intersection.exterior.coords:
+  exterior = intersection.exterior
+  if exterior is None:
+    return 0.0, 0.0
+
+  for x, y in exterior.coords:
     x1 = min(x1, x)
     y1 = min(y1, y)
     x2 = max(x2, x)
