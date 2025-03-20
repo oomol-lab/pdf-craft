@@ -1,7 +1,8 @@
 <div align=center>
 <h1>pdf-craft</h1>
-English | [中文](./README_zh-CN.md)
 </div>
+
+English | [中文](./README_zh-CN.md)
 
 ## Introduction
 

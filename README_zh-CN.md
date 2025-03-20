@@ -1,7 +1,8 @@
 <div align=center>
 <h1>pdf-craft</h1>
-[English](./README.md) | 中文
 </div>
+
+[English](./README.md) | 中文
 
 ## 简介
 
