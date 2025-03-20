@@ -1,10 +1,13 @@
-# pdf-craft
-
+<div align=center>
+<h1>pdf-craft</h1>
 [English](./README.md) | 中文
+</div>
 
 ## 简介
 
 PDF craft 可以将 PDF 文件转化为各种其他格式。该项目将专注于扫描书籍的 PDF 文件的处理。目前项目刚刚启动，如果你碰到问题或任何建议，请提交 [issues](https://github.com/oomol-lab/pdf-craft/issues)。
+
+[![About PDF craft](./docs/images/youtube.png)](https://www.youtube.com/watch?v=EpaLC71gPpM)
 
 本项目可将 PDF 一页一页读出，并使用 [DocLayout-YOLO](https://github.com/opendatalab/DocLayout-YOLO) 混合我写的一个算法，将书页中的正文提取出来，并过滤掉页眉、页脚、脚注、页码等元素。在跨页过程中，会使用算法判断以妥善处理前后文跨页顺接问题，最终生成语义通顺的文本。书页会使用 [OnnxOCR](https://github.com/jingsongliujing/OnnxOCR) 进行文本识别。并使用 [layoutreader](https://github.com/ppaanngggg/layoutreader) 来确定符合人类习惯的阅读顺序。
 
