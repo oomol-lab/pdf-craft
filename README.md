@@ -44,7 +44,7 @@ After the execution is completed, a `*.md` file will be generated at the specifi
 
 The conversion effect is as follows.
 
-![](docs/images/pdf2md-cn.png)
+![](docs/images/pdf2md-en.png)
 
 ### Convert PDF to EPUB
 
@@ -103,9 +103,9 @@ generate_epub_file(
 
 This step will divide the chapters in the EPUB according to the previously analyzed book structure and match the appropriate directory structure. In addition, the original annotations and citations at the bottom of the book page will be presented in the EPUB in an appropriate way.
 
-![](docs/images/pdf2epub-cn.png)
-![](docs/images/epub-tox-cn.png)
-![](docs/images/epub-citations-cn.png)
+![](docs/images/pdf2epub-en.png)
+![](docs/images/epub-tox-en.png)
+![](docs/images/epub-citations-en.png)
 
 ## Acknowledgements
 
