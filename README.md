@@ -70,7 +70,7 @@ from pdf_craft import LLM
 
 llm = LLM(
   key="sk-XXXXX", # key provided by LLM vendor
-  base_url="https://api.deepseek.com", # URL provided by LLM vendor
+  url="https://api.deepseek.com", # URL provided by LLM vendor
   model="deepseek-chat", # model provided by LLM vendor
   token_encoding="o200k_base", # local model name for tokens estimation (not related to LLM, if you don't care, keep "o200k_base")
 )
