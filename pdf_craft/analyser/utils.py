@@ -62,8 +62,9 @@ def parse_page_indexes(element: Element) -> list[int]:
   idx = element.get("idx")
   if idx is None:
     return []
-  else:
-    return [int(i) - 1 for i in idx.split(",")]
+  page_indexes = [int(i) - 1 for i in idx.split(",")]
+  page_indexes.sort()
+  return page_indexes
 
 def encode_response(response: str) -> Element:
   response = re.sub(r"^```XML", "", response)
