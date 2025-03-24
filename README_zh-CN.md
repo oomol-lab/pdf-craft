@@ -18,6 +18,8 @@ PDF craft 可以将 PDF 文件转化为各种其他格式。该项目将专注�
 
 ## 安装
 
+你需要 python 3.10 或以上（推荐 3.10.16）。
+
 ```shell
 pip install pdf-craft
 ```
