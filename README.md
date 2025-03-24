@@ -18,6 +18,8 @@ However, if you want to parse books (generally more than 100 pages), it is recom
 
 ## Installation
 
+You need python 3.10 or above (recommended 3.10.16).
+
 ```shell
 pip install pdf-craft
 ```
