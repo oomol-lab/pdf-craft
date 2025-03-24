@@ -32,7 +32,7 @@ class LLM:
     template = self._template(template_name)
     prompt = template.render(**params)
     data = tostring(xml_data, encoding="unicode")
-    response = self._model([
+    response = self._model.invoke([
       SystemMessage(content=prompt),
       HumanMessage(content=data)
     ])
