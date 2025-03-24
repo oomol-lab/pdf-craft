@@ -55,7 +55,10 @@ def _transform_llm_response_to_json(response_xml: Element) -> dict:
     "chapters": _parse_chapters(chapters, gen_id),
   }
 
-def _parse_chapters(parent: Iterable[Element], gen_id: Callable[[], int]) -> list[Chapter]:
+def _parse_chapters(parent: Iterable[Element] | None, gen_id: Callable[[], int]) -> list[Chapter]:
+  if parent is None:
+    return []
+
   chapters: list[dict] = []
   for chapter in parent:
     if chapter.tag != "chapter":
