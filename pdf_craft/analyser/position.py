@@ -2,7 +2,7 @@ from json import dumps
 from xml.etree.ElementTree import Element
 from .llm import LLM
 from .index import Index
-from .utils import encode_response, normalize_xml_text
+from .utils import encode_response, normalize_xml_text, parse_page_indexes
 
 
 def analyse_position(llm: LLM, index: Index | None, chunk_xml: Element) -> Element:
@@ -16,10 +16,12 @@ def analyse_position(llm: LLM, index: Index | None, chunk_xml: Element) -> Eleme
   for child in content_xml:
     if child.tag != "headline":
       continue
-    page_index = int(child.get("idx", "-1"))
-    if page_index <= index.end_page_index:
+
+    page_indexes = parse_page_indexes(child)
+    if page_indexes[0] <= index.end_page_index:
       # the reader has not yet read the catalogue.
       continue
+
     headline = Element("headline")
     headline.text = normalize_xml_text(child.text)
     raw_pages_root.append(headline)

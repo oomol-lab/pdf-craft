@@ -8,7 +8,7 @@ from .page_clipper import get_and_clip_pages, PageRef, PageXML
 from .asset_matcher import AssetMatcher, ASSET_TAGS
 from .chunk_file import ChunkFile
 from .types import AnalysingStep, AnalysingProgressReport, AnalysingStepReport
-from .utils import encode_response
+from .utils import encode_response, parse_page_indexes
 
 
 def analyse_citations(
@@ -106,8 +106,7 @@ def _get_citation_with_file(pages: list[PageInfo], index: int) -> Element:
 
 def _search_and_filter_and_split_citations(response_xml: Element, page_xml_list: list[PageXML]):
   for citation in response_xml:
-    page_indexes: list[int] = [int(p) for p in citation.get("idx").split(",")]
-    page_indexes.sort()
+    page_indexes = parse_page_indexes(citation)
     page_xml = page_xml_list[page_indexes[0] - 1]
 
     if page_xml.is_gap:
