@@ -1,4 +1,4 @@
-from typing import Generator, Callable
+from typing import Generator, Callable, Iterable
 from dataclasses import dataclass
 from xml.etree.ElementTree import tostring, Element
 from resource_segmentation import Group, Segment, Resource
@@ -54,7 +54,7 @@ def _get_pages(
     items: list[Resource[PageRef] | Segment[PageRef]],
     remain_tokens: int | None,
     clip_tail: bool,
-    get_element: Callable[[int], str],
+    get_element: Callable[[int], Element],
   ) -> Generator[PageXML, None, None]:
 
   if len(items) == 0:
@@ -84,51 +84,52 @@ def _get_pages(
             xml=get_element(page_index),
           )
   else:
-    item = items[0]
-    if isinstance(item, Resource):
-      page_index = item.payload.page_index
-      page_xml = get_element(page_index)
-      page_xml = _clip_element(llm, page_xml, remain_tokens, clip_tail)
+    clipped: list[Resource[PageRef]] = []
+    page_xml_list: list[PageXML] = []
+    iter_source: Iterable[Resource[PageRef]] = _search_resources(items)
+    if not clip_tail:
+      iter_source = reversed(list(iter_source))
+
+    for text_info in iter_source:
+      if remain_tokens > 0:
+        clipped.append(text_info)
+      if remain_tokens >= text_info.count:
+        remain_tokens -= text_info.count
+      else:
+        break
+    if not clip_tail:
+      clipped.reverse()
+
+    for i, resource in enumerate(clipped):
+      page_index = resource.payload.page_index
+      page_xml: Element | None = get_element(page_index)
+
+      if remain_tokens > 0 and (
+        (clip_tail and i == len(clipped) - 1) or \
+        (not clip_tail and i == 0)
+      ):
+        page_xml = _clip_element(
+          llm=llm,
+          element=page_xml,
+          remain_tokens=remain_tokens,
+          clip_tail=clip_tail,
+        )
       if page_xml is not None:
-        yield PageXML(
+        page_xml_list.append(PageXML(
           page_index=page_index,
           xml=page_xml,
-        )
+        ))
 
+    if not clip_tail:
+      page_xml_list.reverse()
+    yield from page_xml_list
+
+def _search_resources(items: list[Resource[PageRef] | Segment[PageRef]]):
+  for item in items:
+    if isinstance(item, Resource):
+      yield item
     elif isinstance(item, Segment):
-      text_infos, remain_tokens = _clip_segment(item, remain_tokens, clip_tail)
-      page_xml_list: list[PageXML] = []
-      for i, resource in enumerate(text_infos):
-        page_index = resource.payload.page_index
-        page_xml: Element | None = get_element(page_index)
-        if (clip_tail and i == len(text_infos) - 1) or \
-           (not clip_tail and i == 0):
-          page_xml = _clip_element(llm, page_xml, remain_tokens, clip_tail)
-        if page_xml is not None:
-          page_xml_list.append(PageXML(
-            page_index=page_index,
-            xml=page_xml,
-          ))
-      if not clip_tail:
-        page_xml_list.reverse()
-      yield from page_xml_list
-
-def _clip_segment(segment: Segment, remain_tokens: int, clip_tail: bool):
-  clipped: list[Resource[PageRef]] = []
-  iter_source = segment.resources
-  if not clip_tail:
-    iter_source = reversed(iter_source)
-
-  for text_info in iter_source:
-    clipped.append(text_info)
-    if remain_tokens >= text_info.count:
-      remain_tokens -= text_info.count
-    else:
-      break
-  if not clip_tail:
-    clipped.reverse()
-
-  return clipped, remain_tokens
+      yield from item.resources
 
 def _clip_element(llm: LLM, element: Element, remain_tokens: int, clip_tail: bool) -> Element | None:
   clipped_element = Element(element.tag, element.attrib)
