@@ -113,6 +113,35 @@ This step will divide the chapters in the EPUB according to the previously analy
 ![](docs/images/epub-tox-en.png)
 ![](docs/images/epub-citations-en.png)
 
+## Advanced Functionality
+
+As mentioned above, the construction of `LLM` can add more parameters to it to achieve richer functions. To achieve disconnection and reconnection, or specify a specific timeout.
+
+```python
+llm = LLM(
+  key="sk-XXXXX",
+  url="https://api.deepseek.com",
+  model="deepseek-chat",
+  token_encoding="o200k_base",
+  temperature=0.3, # Temperature (optional)
+  timeout=360, # Timeout, in seconds (optional)
+  retry_times=10, # The maximum number of retries that can be accepted for failed requests due to network reasons or incomplete formats (optional)
+  retry_interval_seconds=6.0, # The time interval between retries, in seconds (optional)
+)
+```
+
+In addition, `temperature` can be set to a range. In general, the leftmost value in the range is used as the temperature. Once LLM returns broken content, gradually increase the temperature when retrying (not exceeding the value on the right side of the range). This prevents LLM from falling into a loop that always returns broken content.
+
+```python
+llm = LLM(
+  key="sk-XXXXX",
+  url="https://api.deepseek.com",
+  model="deepseek-chat",
+  token_encoding="o200k_base",
+  temperature=(0.3, 1.0), # Temperature (optional)
+)
+```
+
 ## Acknowledgements
 
 - [DocLayout-YOLO](https://github.com/opendatalab/DocLayout-YOLO)
