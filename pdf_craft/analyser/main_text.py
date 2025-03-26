@@ -4,14 +4,14 @@ from typing import Iterable
 from xml.etree.ElementTree import fromstring, Element
 from resource_segmentation import split, Resource, Incision
 
-from .llm import LLM
+from ..llm import LLM
 from .common import PageInfo, PageRef
 from .chunk_file import ChunkFile
 from .index import Index
 from .page_clipper import get_and_clip_pages
 from .asset_matcher import AssetMatcher
 from .types import AnalysingStep, AnalysingProgressReport, AnalysingStepReport
-from .utils import search_xml_and_indexes, parse_page_indexes, encode_response
+from .utils import search_xml_and_indexes, parse_page_indexes
 
 
 def analyse_main_texts(
@@ -77,9 +77,7 @@ def analyse_main_texts(
       raw_pages_root.append(summary_xml)
 
     asset_matcher = AssetMatcher().register_raw_xml(raw_pages_root)
-    response = llm.request("main_text", raw_pages_root, {})
-
-    response_xml = encode_response(response)
+    response_xml = llm.request_xml("main_text", raw_pages_root)
     chunk_xml = Element("chunk", {
       "start-idx": str(start_idx + 1),
       "end-idx": str(end_idx + 1),

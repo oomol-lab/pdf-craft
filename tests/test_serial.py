@@ -3,8 +3,8 @@ import unittest
 
 from typing import cast, Any
 from xml.etree.ElementTree import tostring, Element
+from pdf_craft.llm import LLM
 from pdf_craft.analyser.serial import serials, Serial
-from pdf_craft.analyser.llm import LLM
 from pdf_craft.analyser.utils import normalize_xml_text, search_xml_children
 
 

@@ -1,7 +1,6 @@
 from xml.etree.ElementTree import Element
-from .llm import LLM
+from ..llm import LLM
 from .asset_matcher import search_asset_tags, AssetMatcher, ASSET_TAGS
-from .utils import encode_response
 
 
 def analyse_page(llm: LLM, raw_page_xml: Element, previous_page_xml: Element | None):
@@ -18,8 +17,7 @@ def analyse_page(llm: LLM, raw_page_xml: Element, previous_page_xml: Element | N
 
   asset_matcher = AssetMatcher().register_raw_xml(raw_page_xml)
   raw_page_xml = _clean_hash_from_assets(raw_page_xml)
-  response = llm.request("page", raw_page_xml, {})
-  response_xml: Element = encode_response(response)
+  response_xml = llm.request_xml("page", raw_page_xml)
 
   if response_xml.tag == "index":
     index_xml = Element("index")

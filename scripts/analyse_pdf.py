@@ -12,7 +12,6 @@ from pdf_craft import analyse, LLM, PDFPageExtractor, AnalysingStep
 def main():
   pdf_file = os.path.join(__file__, "..", "..", "tests", "assets", "citation.pdf")
   pdf_file = os.path.abspath(pdf_file)
-  pdf_file = "/Users/taozeyu/Downloads/The Works of Archimedes.pdf"
   model_dir_path = _project_dir_path("models")
   output_dir_path = _project_dir_path("output", clean=True)
   analysing_dir_path = _project_dir_path("analysing", clean=True)

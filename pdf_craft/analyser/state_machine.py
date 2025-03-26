@@ -6,8 +6,8 @@ from typing import Iterable, Callable
 from xml.etree.ElementTree import tostring, fromstring, Element
 from resource_segmentation import Resource, Incision
 
+from ..llm import LLM
 from ..pdf import PDFPageExtractor
-from .llm import LLM
 from .common import PageInfo, PageRef
 from .chunk_file import ChunkFile
 from .ocr_extractor import extract_ocr_page_xmls

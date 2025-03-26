@@ -1,8 +1,8 @@
 from json import dumps
 from xml.etree.ElementTree import Element
-from .llm import LLM
+from ..llm import LLM
 from .index import Index
-from .utils import encode_response, normalize_xml_text, parse_page_indexes
+from .utils import normalize_xml_text, parse_page_indexes
 
 
 def analyse_position(llm: LLM, index: Index | None, chunk_xml: Element) -> Element:
@@ -26,14 +26,13 @@ def analyse_position(llm: LLM, index: Index | None, chunk_xml: Element) -> Eleme
     raw_pages_root.append(headline)
     origin_headlines.append(child)
 
-  response = llm.request("position", raw_pages_root, {
+  response_xml = llm.request_xml("position", raw_pages_root, {
     "index": dumps(
       obj=index.json,
       ensure_ascii=False,
       indent=2,
     ),
   })
-  response_xml = encode_response(response)
 
   for i, headline in enumerate(response_xml):
     id = headline.get("id")
