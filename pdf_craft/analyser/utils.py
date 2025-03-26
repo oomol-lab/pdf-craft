@@ -66,15 +66,6 @@ def parse_page_indexes(element: Element) -> list[int]:
   page_indexes.sort()
   return page_indexes
 
-def encode_response(response: str) -> Element:
-  response = re.sub(r"^```XML", "", response)
-  response = re.sub(r"```$", "", response)
-  try:
-    return fromstring(response.replace("&", "&amp;"))
-  except Exception as e:
-    print(response)
-    raise e
-
 def group_range(indexes: Iterable[int]) -> Generator[range, None, None]:
   indexes = list(indexes)
   indexes.sort()

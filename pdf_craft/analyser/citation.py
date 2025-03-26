@@ -8,7 +8,7 @@ from .page_clipper import get_and_clip_pages, PageRef, PageXML
 from .asset_matcher import AssetMatcher, ASSET_TAGS
 from .chunk_file import ChunkFile
 from .types import AnalysingStep, AnalysingProgressReport, AnalysingStepReport
-from .utils import encode_response, parse_page_indexes
+from .utils import parse_page_indexes
 
 
 def analyse_citations(
@@ -49,9 +49,7 @@ def analyse_citations(
       raw_pages_root.append(element)
 
     asset_matcher = AssetMatcher().register_raw_xml(raw_pages_root)
-    response = llm.request("citation", raw_pages_root, {})
-
-    response_xml = encode_response(response)
+    response_xml = llm.request_xml("citation", raw_pages_root)
     chunk_xml = Element("chunk", {
       "start-idx": str(start_idx + 1),
       "end-idx": str(end_idx + 1),

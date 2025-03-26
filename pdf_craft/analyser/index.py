@@ -3,7 +3,7 @@ from typing import Iterable, Callable
 from dataclasses import dataclass
 from xml.etree.ElementTree import Element
 from ..llm import LLM
-from .utils import group_range, encode_response, normalize_xml_text
+from .utils import group_range, normalize_xml_text
 
 
 def analyse_index(llm: LLM, raw: Iterable[tuple[int, Element]]) -> dict | None:
@@ -20,9 +20,7 @@ def analyse_index(llm: LLM, raw: Iterable[tuple[int, Element]]) -> dict | None:
     raw_index_xml.set("page-index", str(i + 1))
     raw_page_xml.append(raw_index_xml)
 
-  response = llm.request("index", raw_page_xml, {})
-  response_xml: Element = encode_response(response)
-
+  response_xml = llm.request_xml("index", raw_page_xml)
   index_json = _transform_llm_response_to_json(response_xml)
   ranges = group_range(i + 1 for i, _ in raw_index_pages)
   index_json["ranges"] = [[r[0], r[-1]] for r in ranges]

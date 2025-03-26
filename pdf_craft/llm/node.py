@@ -1,12 +1,16 @@
+import re
+import json
+
 from typing import cast, Any
 from importlib.resources import files
 from jinja2 import Environment, Template
-from xml.etree.ElementTree import tostring, Element
+from xml.etree.ElementTree import tostring, fromstring, Element
 from pydantic import SecretStr
 from tiktoken import get_encoding, Encoding
-from langchain_openai import ChatOpenAI
 from langchain_core.messages import SystemMessage, HumanMessage
+
 from ..template import create_env
+from .executor import LLMExecutor
 
 
 class LLM:
@@ -16,27 +20,51 @@ class LLM:
       url: str,
       model: str,
       token_encoding: str,
+      temperature: float | tuple[float, float] = 0.0,
+      retry_times: int = 1,
+      retry_interval_seconds: float = 0.0,
     ):
+
+    if isinstance(temperature, float):
+      temperature = (temperature, temperature)
+    prompts_path = files("pdf_craft").joinpath("data/prompts")
+
     self._templates: dict[str, Template] = {}
     self._encoding: Encoding = get_encoding(token_encoding)
-    self._model = ChatOpenAI(
-      api_key=cast(SecretStr, key),
-      base_url=url,
-      model=model,
-      temperature=0.7,
-    )
-    prompts_path = files("pdf_craft").joinpath("data/prompts")
     self._env: Environment = create_env(prompts_path)
+    self._executor = LLMExecutor(
+      url=url,
+      model=model,
+      api_key=cast(SecretStr, key),
+      temperatures=temperature,
+      retry_times=retry_times,
+      retry_interval_seconds=retry_interval_seconds,
+    )
 
-  def request(self, template_name: str, xml_data: Element, params: dict[str, Any]) -> str:
+  def request_json(self, template_name: str, user_data: Element, params: dict[str, Any] | None = None) -> Any:
+    if params is None:
+      params = {}
+    return self._executor.request(
+      input=self._create_input(template_name, user_data, params),
+      parser=self._encode_xml,
+    )
+
+  def request_xml(self, template_name: str, user_data: Element, params: dict[str, Any] | None = None) -> Element:
+    if params is None:
+      params = {}
+    return self._executor.request(
+      input=self._create_input(template_name, user_data, params),
+      parser=self._encode_xml,
+    )
+
+  def _create_input(self, template_name: str, user_data: Element, params: dict[str, Any]):
     template = self._template(template_name)
+    data = tostring(user_data, encoding="unicode")
     prompt = template.render(**params)
-    data = tostring(xml_data, encoding="unicode")
-    response = self._model.invoke([
+    return [
       SystemMessage(content=prompt),
       HumanMessage(content=data)
-    ])
-    return response.content
+    ]
 
   def prompt_tokens_count(self, template_name: str, params: dict[str, Any]) -> int:
     template = self._template(template_name)
@@ -58,3 +86,21 @@ class LLM:
       template = self._env.get_template(template_name)
       self._templates[template_name] = template
     return template
+
+  def _encode_json(response: str) -> Any:
+    response = re.sub(r"^```JSON", "", response)
+    response = re.sub(r"```$", "", response)
+    try:
+      return json.loads(response)
+    except Exception as e:
+      print(response)
+      raise e
+
+  def _encode_xml(response: str) -> Element:
+    response = re.sub(r"^```XML", "", response)
+    response = re.sub(r"```$", "", response)
+    try:
+      return fromstring(response.replace("&", "&amp;"))
+    except Exception as e:
+      print(response)
+      raise e
