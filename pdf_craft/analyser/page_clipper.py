@@ -65,9 +65,6 @@ def _get_pages(
     if remain_tokens == tokens:
       remain_tokens = None
 
-  if remain_tokens is not None:
-    assert len(items) == 1
-
   if remain_tokens is None:
     for item in items:
       if isinstance(item, Resource):
