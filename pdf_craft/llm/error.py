@@ -1,11 +1,22 @@
+import openai
 import httpx
 import requests
 
 
 def is_retry_error(err: Exception) -> bool:
+  if _is_openai_retry_error(err):
+    return True
   if _is_httpx_retry_error(err):
     return True
   if _is_request_retry_error(err):
+    return True
+  return False
+
+# https://help.openai.com/en/articles/6897213-openai-library-error-types-guidance
+def _is_openai_retry_error(err: Exception) -> bool:
+  if isinstance(err, openai.Timeout):
+    return True
+  if isinstance(err, openai.APIConnectionError):
     return True
   return False
 

@@ -12,7 +12,8 @@ class LLMExecutor:
     api_key: SecretStr,
     url: str,
     model: str,
-    temperatures: tuple[float, float],
+    timeout: float | None,
+    temperatures: tuple[float, float] | None,
     retry_times: int,
     retry_interval_seconds: float,
   ) -> None:
@@ -24,6 +25,7 @@ class LLMExecutor:
       api_key=cast(SecretStr, api_key),
       base_url=url,
       model=model,
+      timeout=timeout,
     )
 
   def request(self, input: LanguageModelInput, parser: Callable[[str], Any]) -> Any:

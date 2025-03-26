@@ -20,7 +20,8 @@ class LLM:
       url: str,
       model: str,
       token_encoding: str,
-      temperature: float | tuple[float, float] = 0.0,
+      timeout: float | None = None,
+      temperature: float | tuple[float, float] | None = None,
       retry_times: int = 1,
       retry_interval_seconds: float = 0.0,
     ):
@@ -36,6 +37,7 @@ class LLM:
       url=url,
       model=model,
       api_key=cast(SecretStr, key),
+      timeout=timeout,
       temperatures=temperature,
       retry_times=retry_times,
       retry_interval_seconds=retry_interval_seconds,
