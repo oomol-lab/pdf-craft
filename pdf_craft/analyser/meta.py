@@ -2,7 +2,7 @@ import re
 import json
 
 from xml.etree.ElementTree import Element
-from .llm import LLM
+from ..llm import LLM
 
 
 def extract_meta(llm: LLM, page_xmls: list[Element]) -> dict:

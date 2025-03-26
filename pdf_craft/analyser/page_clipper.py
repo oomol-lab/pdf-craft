@@ -2,8 +2,8 @@ from typing import Generator, Callable, Iterable
 from dataclasses import dataclass
 from xml.etree.ElementTree import tostring, Element
 from resource_segmentation import Group, Segment, Resource
+from ..llm import LLM
 from .common import PageRef
-from .llm import LLM
 
 
 @dataclass

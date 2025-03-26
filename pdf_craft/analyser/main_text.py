@@ -4,7 +4,7 @@ from typing import Iterable
 from xml.etree.ElementTree import fromstring, Element
 from resource_segmentation import split, Resource, Incision
 
-from .llm import LLM
+from ..llm import LLM
 from .common import PageInfo, PageRef
 from .chunk_file import ChunkFile
 from .index import Index

@@ -1,6 +1,6 @@
 from json import dumps
 from xml.etree.ElementTree import Element
-from .llm import LLM
+from ..llm import LLM
 from .index import Index
 from .utils import encode_response, normalize_xml_text, parse_page_indexes
 

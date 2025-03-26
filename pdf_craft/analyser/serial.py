@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from typing import Iterable, Generator
 from xml.etree.ElementTree import fromstring, tostring, Element
 
-from .llm import LLM
+from ..llm import LLM
 from .asset_matcher import ASSET_TAGS
 from .utils import read_files, normalize_xml_text, search_xml_children, parse_page_indexes
 

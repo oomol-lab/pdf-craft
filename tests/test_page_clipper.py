@@ -2,7 +2,7 @@ import unittest
 
 from xml.etree.ElementTree import tostring, Element
 from resource_segmentation import Group, Segment, Resource, Incision
-from pdf_craft.analyser.llm import LLM
+from pdf_craft.llm import LLM
 from pdf_craft.analyser.common import PageRef
 from pdf_craft.analyser.page_clipper import get_and_clip_pages, PageXML
 

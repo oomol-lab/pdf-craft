@@ -1,5 +1,5 @@
 from xml.etree.ElementTree import Element
-from .llm import LLM
+from ..llm import LLM
 from .asset_matcher import search_asset_tags, AssetMatcher, ASSET_TAGS
 from .utils import encode_response
 

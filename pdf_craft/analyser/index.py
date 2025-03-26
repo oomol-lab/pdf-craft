@@ -2,7 +2,7 @@ from __future__ import annotations
 from typing import Iterable, Callable
 from dataclasses import dataclass
 from xml.etree.ElementTree import Element
-from .llm import LLM
+from ..llm import LLM
 from .utils import group_range, encode_response, normalize_xml_text
 
 

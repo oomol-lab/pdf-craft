@@ -2,7 +2,7 @@ from __future__ import annotations
 from typing import Generator
 from dataclasses import dataclass
 from xml.etree.ElementTree import Element
-from .llm import LLM
+from ..llm import LLM
 from .serial import serials, Citations
 from .utils import search_xml_children
 

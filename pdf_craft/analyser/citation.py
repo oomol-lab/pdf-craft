@@ -2,7 +2,7 @@ from typing import Iterable, Generator
 from xml.etree.ElementTree import fromstring, Element
 from resource_segmentation import split, Resource, Incision
 
-from .llm import LLM
+from ..llm import LLM
 from .common import PageInfo
 from .page_clipper import get_and_clip_pages, PageRef, PageXML
 from .asset_matcher import AssetMatcher, ASSET_TAGS
