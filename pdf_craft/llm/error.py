@@ -22,15 +22,15 @@ def _is_openai_retry_error(err: Exception) -> bool:
 
 # https://www.python-httpx.org/exceptions/
 def _is_httpx_retry_error(err: Exception) -> bool:
-    if isinstance(err, httpx.StreamError):
-      return True
-    if isinstance(err, httpx.TimeoutException):
-      return True
-    if isinstance(err, httpx.NetworkError):
-      return True
-    if isinstance(err, httpx.ProtocolError):
-      return True
-    return False
+  if isinstance(err, httpx.StreamError):
+    return True
+  if isinstance(err, httpx.TimeoutException):
+    return True
+  if isinstance(err, httpx.NetworkError):
+    return True
+  if isinstance(err, httpx.ProtocolError):
+    return True
+  return False
 
 # https://requests.readthedocs.io/en/latest/api/#exceptions
 def _is_request_retry_error(err: Exception) -> bool:
