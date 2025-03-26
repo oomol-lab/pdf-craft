@@ -18,8 +18,7 @@ def analyse_position(llm: LLM, index: Index | None, chunk_xml: Element) -> Eleme
       continue
 
     page_indexes = parse_page_indexes(child)
-    if page_indexes[0] <= index.end_page_index:
-      # the reader has not yet read the catalogue.
+    if not index.after_first_index_page(page_indexes[0]):
       continue
 
     headline = Element("headline")
