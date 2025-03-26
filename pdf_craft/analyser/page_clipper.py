@@ -65,24 +65,13 @@ def _get_pages(
     if remain_tokens == tokens:
       remain_tokens = None
 
-  if remain_tokens is not None:
-    assert len(items) == 1
-
   if remain_tokens is None:
-    for item in items:
-      if isinstance(item, Resource):
-        page_index = item.payload.page_index
-        yield PageXML(
-          page_index=page_index,
-          xml=get_element(page_index),
-        )
-      elif isinstance(item, Segment):
-        for resource in item.resources:
-          page_index = resource.payload.page_index
-          yield PageXML(
-            page_index=page_index,
-            xml=get_element(page_index),
-          )
+    for text_info in _search_resources(items):
+      page_index = text_info.payload.page_index
+      yield PageXML(
+        page_index=page_index,
+        xml=get_element(page_index),
+      )
   else:
     clipped: list[Resource[PageRef]] = []
     page_xml_list: list[PageXML] = []
