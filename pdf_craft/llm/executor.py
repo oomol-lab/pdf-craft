@@ -52,6 +52,8 @@ class LLMExecutor:
 
         try:
           result = parser(response.content)
+          break
+
         except Exception as err:
           last_error = err
           temperature = temperature + 0.5 * (max_temperature - temperature)
@@ -60,7 +62,6 @@ class LLMExecutor:
             i < self._retry_times - 1:
             sleep(self._retry_interval_seconds)
           continue
-        break
 
     except KeyboardInterrupt as err:
       if last_error is not None:

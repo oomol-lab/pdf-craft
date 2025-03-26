@@ -48,7 +48,7 @@ class LLM:
       params = {}
     return self._executor.request(
       input=self._create_input(template_name, user_data, params),
-      parser=self._encode_xml,
+      parser=self._encode_json,
     )
 
   def request_xml(self, template_name: str, user_data: Element, params: dict[str, Any] | None = None) -> Element:
@@ -89,7 +89,7 @@ class LLM:
       self._templates[template_name] = template
     return template
 
-  def _encode_json(response: str) -> Any:
+  def _encode_json(self, response: str) -> Any:
     response = re.sub(r"^```JSON", "", response)
     response = re.sub(r"```$", "", response)
     try:
@@ -98,7 +98,7 @@ class LLM:
       print(response)
       raise e
 
-  def _encode_xml(response: str) -> Element:
+  def _encode_xml(self, response: str) -> Element:
     response = re.sub(r"^```XML", "", response)
     response = re.sub(r"```$", "", response)
     try:
