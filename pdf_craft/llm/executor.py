@@ -18,7 +18,7 @@ class LLMExecutor:
     retry_interval_seconds: float,
   ) -> None:
 
-    self._temperatures: tuple[float, float] = temperatures
+    self._temperatures: tuple[float, float] | None = temperatures
     self._retry_times: int = retry_times
     self._retry_interval_seconds: float = retry_interval_seconds
     self._model = ChatOpenAI(
@@ -30,11 +30,15 @@ class LLMExecutor:
 
   def request(self, input: LanguageModelInput, parser: Callable[[str], Any]) -> Any:
     last_error: Exception | None = None
-    temperature, max_temperature = self._temperatures
+    temperature: float | None = None
+    max_temperature: float | None = None
     result: Any | None = None
 
+    if self._temperatures is not None:
+      temperature, max_temperature = self._temperatures
+
     try:
-      for i in range(self._retry_times):
+      for i in range(self._retry_times + 1):
         try:
           response = self._model.invoke(
             input=input,
@@ -46,7 +50,7 @@ class LLMExecutor:
             raise err
           print(f"request failed with connection error, retrying... ({i + 1} times)")
           if self._retry_interval_seconds > 0.0 and \
-            i < self._retry_times - 1:
+            i < self._retry_times:
             sleep(self._retry_interval_seconds)
           continue
 
@@ -56,10 +60,11 @@ class LLMExecutor:
 
         except Exception as err:
           last_error = err
-          temperature = temperature + 0.5 * (max_temperature - temperature)
           print(f"request failed with parsing error, retrying... ({i + 1} times)")
+          if temperature is not None and max_temperature is not None:
+            temperature = temperature + 0.5 * (max_temperature - temperature)
           if self._retry_interval_seconds > 0.0 and \
-            i < self._retry_times - 1:
+            i < self._retry_times:
             sleep(self._retry_interval_seconds)
           continue
 
