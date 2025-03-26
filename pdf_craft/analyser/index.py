@@ -25,7 +25,7 @@ def analyse_index(llm: LLM, raw: Iterable[tuple[int, Element]]) -> dict | None:
 
   index_json = _transform_llm_response_to_json(response_xml)
   ranges = group_range(i + 1 for i, _ in raw_index_pages)
-  index_json["ranges"] = [list(r[0], r[-1]) for r in ranges]
+  index_json["ranges"] = [[r[0], r[-1]] for r in ranges]
 
   return index_json, Index(index_json)
 
@@ -90,9 +90,6 @@ class Index:
     self._ranges: list[range] = [range(r[0], r[1] + 1) for r in json_data["ranges"]]
     assert len(self._ranges) > 0
 
-  def is_index_page_index(self, index: int) -> bool:
-    return self._start_idx <= index <= self._end_idx
-
   def _parse_chapter(self, data: dict) -> Chapter:
     return Chapter(
       id=int(data["id"]),
@@ -100,13 +97,11 @@ class Index:
       children=[self._parse_chapter(child) for child in data["children"]],
     )
 
-  @property
-  def start_page_index(self) -> int:
-    return self._ranges[0][0]
+  def is_index_page_index(self, page_index: int) -> bool:
+    return any(page_index in range for range in self._ranges)
 
-  @property
-  def end_page_index(self) -> int:
-    return self._ranges[-1][-1]
+  def after_first_index_page(self, page_index: int):
+    page_index > self._ranges[0][-1]
 
   @property
   def json(self) -> dict:
