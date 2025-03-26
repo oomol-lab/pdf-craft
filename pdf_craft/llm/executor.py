@@ -33,32 +33,38 @@ class LLMExecutor:
     temperature, max_temperature = self._temperatures
     result: Any | None = None
 
-    for i in range(self._retry_times):
-      try:
-        response = self._model.invoke(
-          input=input,
-          temperature=temperature,
-        )
-      except Exception as err:
-        last_error = err
-        if not is_retry_error(err):
-          raise err
-        print(f"request failed with connection error, retrying... ({i + 1} times)")
-        if self._retry_interval_seconds > 0.0 and \
-           i < self._retry_times - 1:
-          sleep(self._retry_interval_seconds)
-        continue
+    try:
+      for i in range(self._retry_times):
+        try:
+          response = self._model.invoke(
+            input=input,
+            temperature=temperature,
+          )
+        except Exception as err:
+          last_error = err
+          if not is_retry_error(err):
+            raise err
+          print(f"request failed with connection error, retrying... ({i + 1} times)")
+          if self._retry_interval_seconds > 0.0 and \
+            i < self._retry_times - 1:
+            sleep(self._retry_interval_seconds)
+          continue
 
-      try:
-        result = parser(response.content)
-      except Exception as err:
-        last_error = err
-        temperature = temperature + 0.5 * (max_temperature - temperature)
-        print(f"request failed with parsing error, retrying... ({i + 1} times)")
-        if self._retry_interval_seconds > 0.0 and \
-           i < self._retry_times - 1:
-          sleep(self._retry_interval_seconds)
-        continue
+        try:
+          result = parser(response.content)
+        except Exception as err:
+          last_error = err
+          temperature = temperature + 0.5 * (max_temperature - temperature)
+          print(f"request failed with parsing error, retrying... ({i + 1} times)")
+          if self._retry_interval_seconds > 0.0 and \
+            i < self._retry_times - 1:
+            sleep(self._retry_interval_seconds)
+          continue
+
+    except KeyboardInterrupt as err:
+      if last_error is not None:
+        print(last_error)
+      raise err
 
     if last_error is not None:
       raise last_error
