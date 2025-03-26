@@ -74,3 +74,23 @@ def encode_response(response: str) -> Element:
   except Exception as e:
     print(response)
     raise e
+
+def group_range(indexes: Iterable[int]) -> Generator[range, None, None]:
+  indexes = list(indexes)
+  indexes.sort()
+  current_range: tuple[int, int] | None = None
+
+  for index in indexes:
+    if current_range is None:
+      current_range = (index, index)
+    else:
+      start, end = current_range
+      if end + 1 == index:
+        current_range = (start, index)
+      else:
+        yield range(start, end + 1)
+        current_range = (index, index)
+
+  if current_range is not None:
+    start, end = current_range
+    yield range(start, end + 1)

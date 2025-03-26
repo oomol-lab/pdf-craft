@@ -3,7 +3,7 @@ from typing import Iterable, Callable
 from dataclasses import dataclass
 from xml.etree.ElementTree import Element
 from .llm import LLM
-from .utils import encode_response, normalize_xml_text
+from .utils import group_range, encode_response, normalize_xml_text
 
 
 def analyse_index(llm: LLM, raw: Iterable[tuple[int, Element]]) -> dict | None:
@@ -24,8 +24,8 @@ def analyse_index(llm: LLM, raw: Iterable[tuple[int, Element]]) -> dict | None:
   response_xml: Element = encode_response(response)
 
   index_json = _transform_llm_response_to_json(response_xml)
-  index_json["start_idx"] = min(i + 1 for i, _ in raw_index_pages)
-  index_json["end_idx"] = max(i + 1 for i, _ in raw_index_pages)
+  ranges = group_range(i + 1 for i, _ in raw_index_pages)
+  index_json["ranges"] = [list(r[0], r[-1]) for r in ranges]
 
   return index_json, Index(index_json)
 
@@ -85,10 +85,10 @@ class Chapter:
 
 class Index:
   def __init__(self, json_data: dict):
-    self._start_idx: int = json_data["start_idx"] - 1
-    self._end_idx: int = json_data["end_idx"] - 1
     self._prefaces: list[Chapter] = [self._parse_chapter(c) for c in json_data["prefaces"]]
     self._chapters: list[Chapter] = [self._parse_chapter(c) for c in json_data["chapters"]]
+    self._ranges: list[range] = [range(r[0], r[1] + 1) for r in json_data["ranges"]]
+    assert len(self._ranges) > 0
 
   def is_index_page_index(self, index: int) -> bool:
     return self._start_idx <= index <= self._end_idx
@@ -102,11 +102,11 @@ class Index:
 
   @property
   def start_page_index(self) -> int:
-    return self._start_idx
+    return self._ranges[0][0]
 
   @property
   def end_page_index(self) -> int:
-    return self._end_idx
+    return self._ranges[-1][-1]
 
   @property
   def json(self) -> dict:
