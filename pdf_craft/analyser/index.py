@@ -100,8 +100,8 @@ class Index:
   def is_index_page_index(self, page_index: int) -> bool:
     return any(page_index in range for range in self._ranges)
 
-  def after_first_index_page(self, page_index: int):
-    page_index > self._ranges[0][-1]
+  def after_first_index_page(self, page_index: int) -> bool:
+    return page_index > self._ranges[0][-1]
 
   @property
   def json(self) -> dict:
