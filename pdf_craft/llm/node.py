@@ -22,8 +22,8 @@ class LLM:
       token_encoding: str,
       timeout: float | None = None,
       temperature: float | tuple[float, float] | None = None,
-      retry_times: int = 0,
-      retry_interval_seconds: float = 0.0,
+      retry_times: int = 5,
+      retry_interval_seconds: float = 6.0,
     ):
 
     if isinstance(temperature, float):

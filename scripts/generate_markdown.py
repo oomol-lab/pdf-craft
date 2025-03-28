@@ -11,7 +11,6 @@ from pdf_craft import PDFPageExtractor, MarkDownWriter
 def main():
   pdf_file = os.path.join(__file__, "..", "..", "tests", "assets", "citation.pdf")
   pdf_file = os.path.abspath(pdf_file)
-  pdf_file = "/Users/taozeyu/Downloads/The Works of Archimedes.pdf"
   output_dir_path = _project_dir_path("output", clean=True)
   markdown_path = os.path.join(output_dir_path, "output.md")
   extractor = PDFPageExtractor(

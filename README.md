@@ -123,7 +123,23 @@ This step will divide the chapters in the EPUB according to the previously analy
 ![](docs/images/epub-tox-en.png)
 ![](docs/images/epub-citations-en.png)
 
-## Advanced Functionality
+## Advanced Functions
+
+### Multiple OCR
+
+Improve recognition quality by performing multiple OCRs on the same page to avoid the problem of blurred text and missing text.
+
+```python
+from pdf_craft import ORCLevel, PDFPageExtractor
+
+extractor = PDFPageExtractor(
+  device="cpu",
+  model_dir_path="/path/to/model/dir/path",
+  ocr_level=ORCLevel.OncePerLayout,
+)
+```
+
+### Advanced LLM
 
 As mentioned above, the construction of `LLM` can add more parameters to it to achieve richer functions. To achieve disconnection and reconnection, or specify a specific timeout.
 
