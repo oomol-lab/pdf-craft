@@ -24,9 +24,19 @@ You need python 3.10 or above (recommended 3.10.16).
 pip install pdf-craft
 ```
 
+```shell
+pip install onnxruntime==1.21.0
+```
+
 ## Using CUDA
 
 If you want to use GPU acceleration, you need to ensure that your device is ready for the CUDA environment. Please refer to the introduction of [PyTorch](https://pytorch.org/get-started/locally/) and select the appropriate command installation according to your operating system installation.
+
+In addition, replace the command to install `onnxruntime` in the previous article with the following:
+
+```shell
+pip install onnxruntime-gpu==1.21.0
+```
 
 ## Function
 
