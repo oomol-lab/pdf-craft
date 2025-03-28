@@ -124,6 +124,22 @@ generate_epub_file(
 
 ## 功能进阶
 
+### 多重 OCR
+
+通过对同一页进行多次 OCR 来提高识别质量，避免字迹模糊而丢失文字的问题。
+
+```python
+from pdf_craft import ORCLevel, PDFPageExtractor
+
+extractor = PDFPageExtractor(
+  device="cpu",
+  model_dir_path="/path/to/model/dir/path",
+  ocr_level=ORCLevel.OncePerLayout,
+)
+```
+
+### LLM 进阶
+
 前文提及 `LLM` 的构建，可以为其添加更多的参数来实现更丰富的功能。以实现断线重连，或指定特定的超时时间。
 
 ```python

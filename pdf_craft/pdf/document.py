@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from PIL.Image import frombytes, Image
 from doc_page_extractor import plot, Layout, DocExtractor, ExtractedResult
 from .section import Section
-from .types import PDFPageExtractorProgressReport
+from .types import ORCLevel, PDFPageExtractorProgressReport
 
 
 # section can be viewed up to 2 pages back
@@ -23,6 +23,7 @@ class DocumentExtractor:
       self,
       device: Literal["cpu", "cuda"],
       model_dir_path: str,
+      ocr_level: ORCLevel = ORCLevel.Once,
       debug_dir_path: str | None = None,
     ):
     self._debug_dir_path: str | None = debug_dir_path
@@ -30,6 +31,7 @@ class DocumentExtractor:
       device=device,
       model_dir_path=model_dir_path,
       order_by_layoutreader=False,
+      ocr_for_each_layouts=(ocr_level == ORCLevel.OncePerLayout),
     )
 
   def extract(self, params: DocumentParams) -> Generator[tuple[int, ExtractedResult, list[Layout]], None, None]:
