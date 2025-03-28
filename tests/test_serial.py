@@ -163,7 +163,7 @@ def _parse_main_texts(serial: Serial):
 def _parse_citations(serial: Serial):
   ids: list[int] = []
   for element in serial.main_texts:
-    for child in search_xml_children(element):
+    for child, _ in search_xml_children(element):
       if child.tag != "ref":
         continue
       id = int(child.get("id"))

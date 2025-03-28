@@ -50,7 +50,7 @@ class _Session:
     self.chapter_id: int | None = chapter_id
     self._elements: list[Element] = []
     self._citations: list[tuple[int, _Citation]] = []
-    self._refs: list[tuple[int, Element]] = []
+    self._refs: list[tuple[int, Element, Element]] = []
     self._next_ref_id: int = 1
     self._serial_citations: Citations = serial_citations
 
@@ -59,10 +59,10 @@ class _Session:
     return len(self._elements) == 0
 
   def append(self, element: Element):
-    for child in search_xml_children(element):
+    for child, parent in search_xml_children(element):
       if child.tag == "ref":
         id = int(child.get("id"))
-        self._refs.append((id, child))
+        self._refs.append((id, parent, child))
     self._elements.append(element)
 
   def update_serial_citations(self, citations: Citations):
@@ -72,18 +72,34 @@ class _Session:
 
   def _reset_ref_ids(self):
     ids_map: dict[int, int] = {}
-    for origin_id, ref in self._refs:
+    for origin_id, parent, ref in self._refs:
       citation = self._serial_citations.get(origin_id)
-      new_id = ids_map.get(origin_id, None)
-      if new_id is None:
-        new_id = self._next_ref_id
-        self._next_ref_id += 1
-        ids_map[origin_id] = new_id
-        self._citations.append((new_id, _Citation(
-          label=citation.label,
-          content=citation.content,
-        )))
-      ref.set("id", str(new_id))
+      if citation is None:
+        self._remove_ref(parent, ref)
+      else:
+        new_id = ids_map.get(origin_id, None)
+        if new_id is None:
+          new_id = self._next_ref_id
+          self._next_ref_id += 1
+          ids_map[origin_id] = new_id
+          self._citations.append((new_id, _Citation(
+            label=citation.label,
+            content=citation.content,
+          )))
+        ref.set("id", str(new_id))
+
+  def _remove_ref(self, parent: Element, ref: Element):
+    pre_element: Element | None = None
+    for child in parent:
+      if child == ref:
+        break
+      pre_element = child
+    if ref.tail is not None:
+      if pre_element is not None:
+        pre_element.tail = (pre_element.tail or "") + ref.tail
+      else:
+        parent.text = (parent.text or "") + ref.tail
+    parent.remove(ref)
 
   def to_xml(self) -> Element:
     self._reset_ref_ids()
