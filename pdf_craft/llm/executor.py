@@ -1,4 +1,5 @@
 from typing import cast, Any, Callable
+from io import StringIO
 from time import sleep
 from pydantic import SecretStr
 from langchain_core.language_models import LanguageModelInput
@@ -18,6 +19,7 @@ class LLMExecutor:
     retry_interval_seconds: float,
   ) -> None:
 
+    self._timeout: float | None = timeout
     self._temperatures: tuple[float, float] | None = temperatures
     self._retry_times: int = retry_times
     self._retry_interval_seconds: float = retry_interval_seconds
@@ -40,7 +42,7 @@ class LLMExecutor:
     try:
       for i in range(self._retry_times + 1):
         try:
-          response = self._model.invoke(
+          response = self._invoke_model(
             input=input,
             temperature=temperature,
           )
@@ -55,7 +57,7 @@ class LLMExecutor:
           continue
 
         try:
-          result = parser(response.content)
+          result = parser(response)
           break
 
         except Exception as err:
@@ -76,3 +78,15 @@ class LLMExecutor:
     if last_error is not None:
       raise last_error
     return result
+
+  def _invoke_model(self, input: LanguageModelInput, temperature: float | None):
+    stream = self._model.stream(
+      input=input,
+      timeout=self._timeout,
+      temperature=temperature,
+    )
+    buffer = StringIO()
+    for chunk in stream:
+      data = str(chunk.content)
+      buffer.write(data)
+    return buffer.getvalue()
