@@ -130,12 +130,12 @@ This step will divide the chapters in the EPUB according to the previously analy
 Improve recognition quality by performing multiple OCRs on the same page to avoid the problem of blurred text and missing text.
 
 ```python
-from pdf_craft import ORCLevel, PDFPageExtractor
+from pdf_craft import OCRLevel, PDFPageExtractor
 
 extractor = PDFPageExtractor(
   device="cpu",
   model_dir_path="/path/to/model/dir/path",
-  ocr_level=ORCLevel.OncePerLayout,
+  ocr_level=OCRLevel.OncePerLayout,
 )
 ```
 

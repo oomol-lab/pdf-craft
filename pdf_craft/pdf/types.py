@@ -5,6 +5,6 @@ from enum import auto, Enum
 # func(completed_pages: int, all_pages: int) -> None
 PDFPageExtractorProgressReport = Callable[[int, int], None]
 
-class ORCLevel(Enum):
+class OCRLevel(Enum):
   Once = auto()
   OncePerLayout = auto()

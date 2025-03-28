@@ -5,7 +5,7 @@ from typing import Iterable, Generator
 from PIL.Image import Image
 from fitz import Document
 from doc_page_extractor import clip, Rectangle, Layout, LayoutClass, OCRFragment, ExtractedResult
-from .types import PDFPageExtractorProgressReport
+from .types import OCRLevel, PDFPageExtractorProgressReport
 from .document import DocumentExtractor, DocumentParams
 
 
@@ -49,10 +49,12 @@ class PDFPageExtractor:
       self,
       device: Literal["cpu", "cuda"],
       model_dir_path: str,
+      ocr_level: OCRLevel = OCRLevel.Once,
       debug_dir_path: str | None = None,
     ):
     self._doc_extractor: DocumentExtractor = DocumentExtractor(
       device=device,
+      ocr_level=ocr_level,
       model_dir_path=model_dir_path,
       debug_dir_path=debug_dir_path,
     )

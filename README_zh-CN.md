@@ -129,12 +129,12 @@ generate_epub_file(
 通过对同一页进行多次 OCR 来提高识别质量，避免字迹模糊而丢失文字的问题。
 
 ```python
-from pdf_craft import ORCLevel, PDFPageExtractor
+from pdf_craft import OCRLevel, PDFPageExtractor
 
 extractor = PDFPageExtractor(
   device="cpu",
   model_dir_path="/path/to/model/dir/path",
-  ocr_level=ORCLevel.OncePerLayout,
+  ocr_level=OCRLevel.OncePerLayout,
 )
 ```
 
