@@ -22,10 +22,6 @@ setup(
     "tiktoken>=0.9.0,<1.0.0",
     "doc-page-extractor==0.0.6",
     "resource-segmentation==0.0.1",
-    "langchain>=0.3.17,<0.4.0",
-    "langchain_community>=0.3.16,<0.4.0",
-    "langchain_core>=0.3.35,<0.4.0",
-    "langchain_openai>=0.3.6,<0.4.0",
-    "langchain_anthropic>=0.3.7,<0.4.0",
+    "langchain[openai]>=0.3.21,<0.4.0",
   ],
 )
