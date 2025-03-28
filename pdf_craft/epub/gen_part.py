@@ -15,8 +15,9 @@ def generate_part(template: Template, chapter_xml: Element, i18n: I18N) -> str:
   )
 
 def _render_content(content_xml: Element):
+  used_ref_ids: set[str] = set()
   for child in content_xml:
-    for to_element in _create_main_text_element(child):
+    for to_element in _create_main_text_element(child, used_ref_ids):
       yield tostring(to_element, encoding="unicode")
 
 def _render_citations(citations_xml: Element | None):
@@ -33,15 +34,22 @@ def _render_citations(citations_xml: Element | None):
     if len(citation_children) == 1:
       citation_children[0].tag = "text"
 
+    used_citation_ids: set[str] = set()
+
     for child in citation_children:
       for to_element in _create_main_text_element(child):
         ref_element = Element("a")
         ref_element.text = f"[{id}]"
         ref_element.attrib = {
-          "id": f"citation-{id}",
           "href": f"#ref-{id}",
           "class": "citation",
         }
+        if id not in used_citation_ids:
+          used_citation_ids.add(id)
+          ref_element.attrib = {
+            "id": f"citation-{id}",
+            **ref_element.attrib,
+          }
         if is_first_child:
           is_first_child = False
           if to_element.tag == "p":
@@ -57,7 +65,7 @@ def _render_citations(citations_xml: Element | None):
 
     yield tostring(to_div, encoding="unicode")
 
-def _create_main_text_element(origin: Element):
+def _create_main_text_element(origin: Element, used_ref_ids: set[str] | None = None):
   html_tag: str | None = None
   if origin.tag == "text":
     html_tag = "p"
@@ -68,7 +76,7 @@ def _create_main_text_element(origin: Element):
 
   if html_tag is not None:
     element = Element(html_tag)
-    _fill_text_and_citations(element, origin)
+    _fill_text_and_citations(element, origin, used_ref_ids)
     if origin.tag == "quote":
       blockquote = Element("blockquote")
       blockquote.append(element)
@@ -104,7 +112,7 @@ def _create_main_text_element(origin: Element):
 
   yield wrapper_div
 
-def _fill_text_and_citations(element: Element, origin: Element):
+def _fill_text_and_citations(element: Element, origin: Element, used_ref_ids: set[str] | None):
   element.text = origin.text
   for child in origin:
     if child.tag != "ref":
@@ -117,6 +125,12 @@ def _fill_text_and_citations(element: Element, origin: Element):
       "href": f"#citation-{id}",
       "class": "super",
     }
+    if used_ref_ids is not None:
+      if id in used_ref_ids:
+        anchor.attrib.pop("id", None)
+      else:
+        used_ref_ids.add(id)
+
     anchor.text = f"[{id}]"
     anchor.tail = child.tail
     element.append(anchor)
