@@ -35,8 +35,11 @@ class Citations:
     for _, citation in self._refs.values():
       yield citation
 
-  def get(self, id: int) -> Citation:
-    return self._refs[id][1]
+  def get(self, id: int) -> Citation | None:
+    ref = self._refs.get(id, None)
+    if ref is None:
+      return None
+    return ref[1]
 
   # deduplication: will return citation with different id if the citation is already in the list
   def ref(self, id: int, label: str, content: list[Element]) -> Citation:
@@ -273,7 +276,7 @@ class _Deduplication:
     return None
 
   def _search_refs_in_text(self, text: Element):
-    for target in search_xml_children(text):
+    for target, _ in search_xml_children(text):
       if target.tag == "ref":
         id = int(target.get("id"))
         yield id, target
@@ -298,6 +301,6 @@ class _Deduplication:
     return chunk_indexes
 
   def _clean_all_idx_attr(self, element: Element):
-    for target in search_xml_children(element):
+    for target, _ in search_xml_children(element):
       target.attrib.pop("idx", None)
     element.attrib.pop("idx", None)

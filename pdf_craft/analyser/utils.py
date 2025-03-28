@@ -53,9 +53,9 @@ def read_files(dir_path: str, enable_kinds: Iterable[str]) -> Generator[tuple[st
 
     yield file_name, kind, int(index1), int(index2)
 
-def search_xml_children(parent: Element) -> Generator[Element, None, None]:
+def search_xml_children(parent: Element) -> Generator[tuple[Element, Element], None, None]:
   for child in parent:
-    yield child
+    yield child, parent
     yield from search_xml_children(child)
 
 def parse_page_indexes(element: Element) -> list[int]:
