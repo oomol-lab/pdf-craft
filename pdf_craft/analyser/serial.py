@@ -189,7 +189,8 @@ class _Deduplication:
       buffer.write(normalize_xml_text(text.text))
       for child in text:
         buffer.write("<ref/>")
-        buffer.write(normalize_xml_text(child.tail))
+        if child.tail is not None:
+          buffer.write(normalize_xml_text(child.tail))
       str_texts.append(buffer.getvalue())
 
     no_sub_indexes: list[int] = []
