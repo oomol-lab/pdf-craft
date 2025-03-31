@@ -4,7 +4,7 @@ import json
 
 sys.path.append(os.path.abspath(os.path.join(__file__, "..", "..")))
 
-from pdf_craft.analyser.llm import LLM
+from pdf_craft.llm import LLM
 
 
 def main():
