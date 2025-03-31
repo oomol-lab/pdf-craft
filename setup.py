@@ -2,7 +2,7 @@ from setuptools import setup, find_packages
 
 setup(
   name="pdf-craft",
-  version="0.0.14",
+  version="0.0.15",
   author="Tao Zeyu",
   author_email="i@taozeyu.com",
   url="https://github.com/oomol-lab/pdf-craft",
