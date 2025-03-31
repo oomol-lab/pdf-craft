@@ -24,6 +24,8 @@ def _is_openai_retry_error(err: Exception) -> bool:
 
 # https://www.python-httpx.org/exceptions/
 def _is_httpx_retry_error(err: Exception) -> bool:
+  if isinstance(err, httpx.RemoteProtocolError):
+    return True
   if isinstance(err, httpx.StreamError):
     return True
   if isinstance(err, httpx.TimeoutException):

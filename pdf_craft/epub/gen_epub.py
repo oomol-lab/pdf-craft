@@ -20,7 +20,7 @@ def generate_epub_file(
   template = Template()
   index_path = os.path.join(from_dir_path, "index.json")
   meta_path = os.path.join(from_dir_path, "meta.json")
-  assets_path = os.path.join(from_dir_path, "assets")
+  assets_path: str | None = os.path.join(from_dir_path, "assets")
   head_chapter_path = os.path.join(from_dir_path, "chapter.xml")
 
   toc_ncx: str | None = None
@@ -32,6 +32,9 @@ def generate_epub_file(
   if os.path.exists(meta_path):
     with open(meta_path, "r", encoding="utf-8") as f:
       meta = json.loads(f.read())
+
+  if not os.path.exists(assets_path):
+    assets_path = None
 
   if os.path.exists(index_path):
     toc_ncx, nav_points = gen_index(
@@ -82,7 +85,7 @@ def _write_basic_files(
     i18n: I18N,
     meta: dict,
     nav_points: list[NavPoint],
-    assets_path: str,
+    assets_path: str | None,
     has_cover: bool,
     has_head_chapter: bool,
   ):
@@ -95,6 +98,14 @@ def _write_basic_files(
     zinfo_or_arcname="META-INF/container.xml",
     data=template.render("container.xml").encode("utf-8"),
   )
+  asset_files: list[str]
+  if assets_path is None:
+    asset_files = []
+  else:
+    asset_files = [
+      f for f in os.listdir(assets_path)
+      if not f.startswith(".")
+    ]
   file.writestr(
     zinfo_or_arcname="OEBPS/content.opf",
     data=template.render(
@@ -105,10 +116,7 @@ def _write_basic_files(
       nav_points=nav_points,
       has_head_chapter=has_head_chapter,
       has_cover=has_cover,
-      asset_files=[
-        f for f in os.listdir(assets_path)
-        if not f.startswith(".")
-      ],
+      asset_files=asset_files,
     ).encode("utf-8"),
   )
 
@@ -117,7 +125,7 @@ def _write_assets(
     template: Template,
     i18n: I18N,
     from_dir_path: str,
-    assets_path: str,
+    assets_path: str | None,
     has_cover: bool,
   ):
   file.writestr(
@@ -139,7 +147,7 @@ def _write_assets(
       arcname="OEBPS/assets/cover.png",
     )
 
-  if os.path.exists(assets_path):
+  if assets_path is not None:
     for file_name in sorted(os.listdir(assets_path)):
       file_path = os.path.join(assets_path, file_name)
       file.write(
