@@ -1,14 +1,15 @@
 <div align=center>
-<h1>pdf-craft</h1>
+  <h1>PDF Craft</h1>
+  <p><a href="https://hub.oomol.com/package/pdf-craft-starter?open=true" target="_blank"><img src="https://static.oomol.com/assets/button.svg" alt="Open in OOMOL Studio" /></a></p>
+  <p>English | <a href="./README_zh-CN.md">中文</a></p>
 </div>
 
-English | [中文](./README_zh-CN.md)
 
 ## Introduction
 
-PDF craft can convert PDF files into various other formats. This project will focus on processing PDF files of scanned books. The project has just started. If you encounter any problems or have any suggestions, please submit [issues](https://github.com/oomol-lab/pdf-craft/issues).
+PDF Craft can convert PDF files into various other formats. This project will focus on processing PDF files of scanned books. The project has just started. If you encounter any problems or have any suggestions, please submit [issues](https://github.com/oomol-lab/pdf-craft/issues).
 
-[![About PDF craft](./docs/images/youtube.png)](https://www.youtube.com/watch?v=EpaLC71gPpM)
+[![About PDF Craft](./docs/images/youtube.png)](https://www.youtube.com/watch?v=EpaLC71gPpM)
 
 This project can read PDF pages one by one, and use [DocLayout-YOLO](https://github.com/opendatalab/DocLayout-YOLO) mixed with an algorithm I wrote to extract the text from the book pages and filter out elements such as headers, footers, footnotes, and page numbers. In the process of crossing pages, the algorithm will be used to properly handle the problem of the connection between the previous and next pages, and finally generate semantically coherent text. The book pages will use [OnnxOCR](https://github.com/jingsongliujing/OnnxOCR) for text recognition. And use [layoutreader](https://github.com/ppaanngggg/layoutreader) to determine the reading order that conforms to human habits.
 
