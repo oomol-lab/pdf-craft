@@ -11,6 +11,13 @@ setup(
   long_description=open("./README.md", encoding="utf8").read(),
   long_description_content_type="text/markdown",
   include_package_data=True,
+  classifiers=[
+      'Development Status :: 2 - Pre-Alpha',
+      'Intended Audience :: Developers',
+      'License :: OSI Approved :: GNU Affero General Public License v3',
+      'Programming Language :: Python',
+      'Programming Language :: Python :: 3.10',
+  ],
   package_data={
     "pdf_craft": ["data/**/*.jinja"],
   },
