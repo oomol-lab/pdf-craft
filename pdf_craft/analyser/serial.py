@@ -62,7 +62,7 @@ class Citations:
     assert id in self._refs, f"Cannot find citation with id {id}"
     count, citation = self._refs[id]
     if count == 1:
-      self._refs.pop(id)
+      self._refs.pop(id, None)
     else:
       self._refs[id] = (count - 1, citation)
     return citation
