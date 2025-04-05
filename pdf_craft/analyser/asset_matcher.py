@@ -29,7 +29,7 @@ class AssetMatcher:
       kind = self._tag_to_asset_kind(element.tag)
       hashes = self._asset_hashes.get(kind, None)
       hash: str | None = None
-      if hashes is not None:
+      if hashes:
         hash = hashes.pop(0)
       if hash is not None:
         element.set("hash", hash)
