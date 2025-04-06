@@ -10,6 +10,7 @@ from tiktoken import get_encoding, Encoding
 from langchain_core.messages import SystemMessage, HumanMessage
 
 from ..template import create_env
+from .increasable import Increasable
 from .executor import LLMExecutor
 
 
@@ -35,8 +36,8 @@ class LLM:
       model=model,
       api_key=cast(SecretStr, key),
       timeout=timeout,
-      top_p=self._to_range(top_p),
-      temperature=self._to_range(temperature),
+      top_p=Increasable(top_p),
+      temperature=Increasable(temperature),
       retry_times=retry_times,
       retry_interval_seconds=retry_interval_seconds,
     )
@@ -104,8 +105,3 @@ class LLM:
     except Exception as e:
       print(response)
       raise e
-
-  def _to_range(self, value: float | tuple[float, float]) -> tuple[float, float]:
-    if isinstance(value, float):
-      return (value, value)
-    return value
