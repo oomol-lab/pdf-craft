@@ -4,6 +4,7 @@ from time import sleep
 from pydantic import SecretStr
 from langchain_core.language_models import LanguageModelInput
 from langchain_openai import ChatOpenAI
+from .increasable import Increasable, Increaser
 from .error import is_retry_error
 
 
@@ -14,13 +15,15 @@ class LLMExecutor:
     url: str,
     model: str,
     timeout: float | None,
-    temperatures: tuple[float, float] | None,
+    top_p: Increasable,
+    temperature: Increasable,
     retry_times: int,
     retry_interval_seconds: float,
   ) -> None:
 
     self._timeout: float | None = timeout
-    self._temperatures: tuple[float, float] | None = temperatures
+    self._top_p: Increasable = top_p
+    self._temperature: Increasable = temperature
     self._retry_times: int = retry_times
     self._retry_interval_seconds: float = retry_interval_seconds
     self._model = ChatOpenAI(
@@ -31,20 +34,18 @@ class LLMExecutor:
     )
 
   def request(self, input: LanguageModelInput, parser: Callable[[str], Any]) -> Any:
-    last_error: Exception | None = None
-    temperature: float | None = None
-    max_temperature: float | None = None
     result: Any | None = None
-
-    if self._temperatures is not None:
-      temperature, max_temperature = self._temperatures
+    last_error: Exception | None = None
+    top_p: Increaser = self._top_p.context()
+    temperature: Increaser = self._temperature.context()
 
     try:
       for i in range(self._retry_times + 1):
         try:
           response = self._invoke_model(
             input=input,
-            temperature=temperature,
+            top_p=top_p.current,
+            temperature=temperature.current,
           )
         except Exception as err:
           last_error = err
@@ -63,8 +64,8 @@ class LLMExecutor:
         except Exception as err:
           last_error = err
           print(f"request failed with parsing error, retrying... ({i + 1} times)")
-          if temperature is not None and max_temperature is not None:
-            temperature = temperature + 0.5 * (max_temperature - temperature)
+          top_p.increase()
+          temperature.increase()
           if self._retry_interval_seconds > 0.0 and \
             i < self._retry_times:
             sleep(self._retry_interval_seconds)
@@ -79,10 +80,16 @@ class LLMExecutor:
       raise last_error
     return result
 
-  def _invoke_model(self, input: LanguageModelInput, temperature: float | None):
+  def _invoke_model(
+        self,
+        input: LanguageModelInput,
+        top_p: float | None,
+        temperature: float | None,
+      ):
     stream = self._model.stream(
       input=input,
       timeout=self._timeout,
+      top_p=top_p,
       temperature=temperature,
     )
     buffer = StringIO()

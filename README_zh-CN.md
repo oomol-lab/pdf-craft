@@ -156,6 +156,7 @@ llm = LLM(
   url="https://api.deepseek.com",
   model="deepseek-chat",
   token_encoding="o200k_base",
+  top_p=0.8, # Top P 创造力（可选）
   temperature=0.3, # 温度（可选）
   timeout=360, # 超时时间，单位秒（可选）
   retry_times=10, # 因为网络原因或格式不完整请求失败所能接受的最大重试次数（可选）
@@ -163,7 +164,7 @@ llm = LLM(
 )
 ```
 
-此外可将 `temperature` 设置成一个范围。在一般情况下，使用范围最左边的值作为温度。一旦 LLM 返回断裂的内容，则在重试时逐渐增加温度（不会超过范围右边的值）。以免 LLM 陷入总是返回断裂内容的循环之中。
+此外可将 `top_p` 和 `temperature` 设置成一个范围。在一般情况下，它们的取值会取范围最左边的值。一旦 LLM 返回断裂的内容，则在重试时逐渐将值朝右边移动（不会超过范围的右边界）。以免 LLM 陷入总是返回断裂内容的循环之中。
 
 ```python
 llm = LLM(
@@ -171,6 +172,7 @@ llm = LLM(
   url="https://api.deepseek.com",
   model="deepseek-chat",
   token_encoding="o200k_base",
+  top_p=(0.3, 1.0) # 创造力（可选）
   temperature=(0.3, 1.0), # 温度（可选）
 )
 ```

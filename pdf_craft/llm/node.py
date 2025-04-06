@@ -10,6 +10,7 @@ from tiktoken import get_encoding, Encoding
 from langchain_core.messages import SystemMessage, HumanMessage
 
 from ..template import create_env
+from .increasable import Increasable
 from .executor import LLMExecutor
 
 
@@ -21,15 +22,12 @@ class LLM:
       model: str,
       token_encoding: str,
       timeout: float | None = None,
+      top_p: float | tuple[float, float] | None = None,
       temperature: float | tuple[float, float] | None = None,
       retry_times: int = 5,
       retry_interval_seconds: float = 6.0,
     ):
-
-    if isinstance(temperature, float):
-      temperature = (temperature, temperature)
     prompts_path = files("pdf_craft").joinpath("data/prompts")
-
     self._templates: dict[str, Template] = {}
     self._encoding: Encoding = get_encoding(token_encoding)
     self._env: Environment = create_env(prompts_path)
@@ -38,7 +36,8 @@ class LLM:
       model=model,
       api_key=cast(SecretStr, key),
       timeout=timeout,
-      temperatures=temperature,
+      top_p=Increasable(top_p),
+      temperature=Increasable(temperature),
       retry_times=retry_times,
       retry_interval_seconds=retry_interval_seconds,
     )

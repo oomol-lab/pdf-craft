@@ -157,6 +157,7 @@ llm = LLM(
   url="https://api.deepseek.com",
   model="deepseek-chat",
   token_encoding="o200k_base",
+  top_p=0.8, # Nucleus Sampling (optional)
   temperature=0.3, # Temperature (optional)
   timeout=360, # Timeout, in seconds (optional)
   retry_times=10, # The maximum number of retries that can be accepted for failed requests due to network reasons or incomplete formats (optional)
@@ -164,7 +165,7 @@ llm = LLM(
 )
 ```
 
-In addition, `temperature` can be set to a range. In general, the leftmost value in the range is used as the temperature. Once LLM returns broken content, gradually increase the temperature when retrying (not exceeding the value on the right side of the range). This prevents LLM from falling into a loop that always returns broken content.
+In addition, `top_p` and `temperature` can be set to a range. In general, their values ​​will be the leftmost value in the range. Once LLM returns a broken content, the value will gradually move to the right when retrying (not exceeding the right boundary of the range). This prevents LLM from falling into a loop that always returns broken content.
 
 ```python
 llm = LLM(
@@ -172,6 +173,7 @@ llm = LLM(
   url="https://api.deepseek.com",
   model="deepseek-chat",
   token_encoding="o200k_base",
+  top_p=(0.3, 1.0) # Nucleus Sampling（optional）
   temperature=(0.3, 1.0), # Temperature (optional)
 )
 ```
