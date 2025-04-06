@@ -34,13 +34,10 @@ class LLMExecutor:
     )
 
   def request(self, input: LanguageModelInput, parser: Callable[[str], Any]) -> Any:
+    result: Any | None = None
     last_error: Exception | None = None
     top_p: Increaser = self._top_p.context()
     temperature: Increaser = self._temperature.context()
-    result: Any | None = None
-
-    if self._temperature is not None:
-      temperature, max_temperature = self._temperature
 
     try:
       for i in range(self._retry_times + 1):
