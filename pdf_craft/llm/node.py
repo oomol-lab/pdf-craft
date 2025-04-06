@@ -21,15 +21,12 @@ class LLM:
       model: str,
       token_encoding: str,
       timeout: float | None = None,
+      top_p: float | tuple[float, float] | None = None,
       temperature: float | tuple[float, float] | None = None,
       retry_times: int = 5,
       retry_interval_seconds: float = 6.0,
     ):
-
-    if isinstance(temperature, float):
-      temperature = (temperature, temperature)
     prompts_path = files("pdf_craft").joinpath("data/prompts")
-
     self._templates: dict[str, Template] = {}
     self._encoding: Encoding = get_encoding(token_encoding)
     self._env: Environment = create_env(prompts_path)
@@ -38,7 +35,8 @@ class LLM:
       model=model,
       api_key=cast(SecretStr, key),
       timeout=timeout,
-      temperatures=temperature,
+      top_p=self._to_range(top_p),
+      temperature=self._to_range(temperature),
       retry_times=retry_times,
       retry_interval_seconds=retry_interval_seconds,
     )
@@ -106,3 +104,8 @@ class LLM:
     except Exception as e:
       print(response)
       raise e
+
+  def _to_range(self, value: float | tuple[float, float]) -> tuple[float, float]:
+    if isinstance(value, float):
+      return (value, value)
+    return value

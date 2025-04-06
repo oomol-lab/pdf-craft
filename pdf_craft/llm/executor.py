@@ -14,13 +14,15 @@ class LLMExecutor:
     url: str,
     model: str,
     timeout: float | None,
-    temperatures: tuple[float, float] | None,
+    top_p: tuple[float, float] | None,
+    temperature: tuple[float, float] | None,
     retry_times: int,
     retry_interval_seconds: float,
   ) -> None:
 
     self._timeout: float | None = timeout
-    self._temperatures: tuple[float, float] | None = temperatures
+    self._top_p: tuple[float, float] | None = top_p
+    self._temperature: tuple[float, float] | None = temperature
     self._retry_times: int = retry_times
     self._retry_interval_seconds: float = retry_interval_seconds
     self._model = ChatOpenAI(
@@ -36,8 +38,8 @@ class LLMExecutor:
     max_temperature: float | None = None
     result: Any | None = None
 
-    if self._temperatures is not None:
-      temperature, max_temperature = self._temperatures
+    if self._temperature is not None:
+      temperature, max_temperature = self._temperature
 
     try:
       for i in range(self._retry_times + 1):
