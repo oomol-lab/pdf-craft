@@ -56,7 +56,7 @@ This operation does not require calling a remote LLM, and can be completed with 
 from pdf_craft import PDFPageExtractor, MarkDownWriter
 
 extractor = PDFPageExtractor(
-  device="cpu", # If you want to use CUDA, please change to device="cuda:0" format.
+  device="cpu", # If you want to use CUDA, please change to device="cuda" format.
   model_dir_path="/path/to/model/dir/path", # The folder address where the AI ​​model is downloaded and installed
 )
 with MarkDownWriter(markdown_path, "images", "utf-8") as md:
@@ -78,7 +78,7 @@ The first half of this operation is the same as Convert PDF to MarkDown (see the
 from pdf_craft import PDFPageExtractor
 
 extractor = PDFPageExtractor(
-  device="cpu", # If you want to use CUDA, please change to device="cuda:0" format.
+  device="cpu", # If you want to use CUDA, please change to device="cuda" format.
   model_dir_path="/path/to/model/dir/path", # The folder address where the AI ​​model is downloaded and installed
 )
 ```

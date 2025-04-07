@@ -55,7 +55,7 @@ pip install onnxruntime-gpu==1.21.0
 from pdf_craft import PDFPageExtractor, MarkDownWriter
 
 extractor = PDFPageExtractor(
-  device="cpu", # 如果希望使用 CUDA，请改为 device="cuda:0" 这样的格式。
+  device="cpu", # 如果希望使用 CUDA，请改为 device="cuda" 这样的格式。
   model_dir_path="/path/to/model/dir/path", # AI 模型下载和安装的文件夹地址
 )
 with MarkDownWriter(markdown_path, "images", "utf-8") as md:
@@ -77,7 +77,7 @@ with MarkDownWriter(markdown_path, "images", "utf-8") as md:
 from pdf_craft import PDFPageExtractor
 
 extractor = PDFPageExtractor(
-  device="cpu", # 如果希望使用 CUDA，请改为 device="cuda:0" 这样的格式。
+  device="cpu", # 如果希望使用 CUDA，请改为 device="cuda" 这样的格式。
   model_dir_path="/path/to/model/dir/path", # AI 模型下载和安装的文件夹地址
 )
 ```
