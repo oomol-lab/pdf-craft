@@ -1,6 +1,7 @@
 from typing import Callable
 from enum import auto, Enum
 
+
 class AnalysingStep(Enum):
   OCR = auto()
   ANALYSE_PAGE = auto()

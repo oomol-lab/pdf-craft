@@ -55,7 +55,7 @@ pip install onnxruntime-gpu==1.21.0
 from pdf_craft import PDFPageExtractor, MarkDownWriter
 
 extractor = PDFPageExtractor(
-  device="cpu", # 如果希望使用 CUDA，请改为 device="cuda:0" 这样的格式。
+  device="cpu", # 如果希望使用 CUDA，请改为 device="cuda" 这样的格式。
   model_dir_path="/path/to/model/dir/path", # AI 模型下载和安装的文件夹地址
 )
 with MarkDownWriter(markdown_path, "images", "utf-8") as md:
@@ -77,7 +77,7 @@ with MarkDownWriter(markdown_path, "images", "utf-8") as md:
 from pdf_craft import PDFPageExtractor
 
 extractor = PDFPageExtractor(
-  device="cpu", # 如果希望使用 CUDA，请改为 device="cuda:0" 这样的格式。
+  device="cpu", # 如果希望使用 CUDA，请改为 device="cuda" 这样的格式。
   model_dir_path="/path/to/model/dir/path", # AI 模型下载和安装的文件夹地址
 )
 ```
@@ -174,6 +174,41 @@ llm = LLM(
   token_encoding="o200k_base",
   top_p=(0.3, 1.0) # 创造力（可选）
   temperature=(0.3, 1.0), # 温度（可选）
+)
+```
+
+### 分析请求拆分
+
+在调用 `analyse` 方法时，配置 `window_tokens` 字段来修改每一次发起 LLM 请求时，提交的书籍内容的最大 token 数。这个值越小，分析过程中向 LLM 发起的请求次数就会越多，但相应的，LLM 一次处理的数据就越少。通常来说，LLM 处理的数据越少，效果会越好，但消耗的总 token 数会越多。调整这个字段，以在质量和费用之间寻求平衡。
+
+```python
+from pdf_craft import analyse
+
+analyse(
+  llm=llm, # 上一步准备好的 LLM 配置
+  pdf_page_extractor=pdf_page_extractor, # 上一部准备好的 PDFPageExtractor 对象
+  pdf_path="/path/to/pdf/file", # PDF 文件路径
+  analysing_dir_path="/path/to/analysing/dir", # analysing 文件夹地址
+  output_dir_path="/path/to/output/files", # 分析结果将写入这个文件夹
+  window_tokens=2000, # 请求窗口中最大 token 数
+)
+```
+
+也可以通过构建 `LLMWindowTokens` 来精确设置某个具体的 token 限制。
+
+```python
+from pdf_craft import analyse, LLMWindowTokens
+
+analyse(
+  llm=llm, # 上一步准备好的 LLM 配置
+  pdf_page_extractor=pdf_page_extractor, # 上一部准备好的 PDFPageExtractor 对象
+  pdf_path="/path/to/pdf/file", # PDF 文件路径
+  analysing_dir_path="/path/to/analysing/dir", # analysing 文件夹地址
+  output_dir_path="/path/to/output/files", # 分析结果将写入这个文件夹
+  window_tokens=LLMWindowTokens(
+    main_texts=2400,
+    citations=2000,
+  ),
 )
 ```
 

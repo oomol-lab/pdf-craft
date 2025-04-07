@@ -15,16 +15,11 @@ def analyse_citations(
     llm: LLM,
     file: ChunkFile,
     pages: list[PageInfo],
-    request_max_tokens: int,
+    data_max_tokens: int,
     tail_rate: float,
     report_step: AnalysingStepReport | None,
     report_progress: AnalysingProgressReport | None,
-  ):
-
-  prompt_tokens = llm.prompt_tokens_count("citation", {})
-  data_max_tokens = request_max_tokens - prompt_tokens
-  if data_max_tokens <= 0:
-    raise ValueError(f"Request max tokens is too small (less than system prompt tokens count {prompt_tokens})")
+  ) -> None:
 
   groups = file.filter_groups(split(
     max_segment_count=data_max_tokens,
