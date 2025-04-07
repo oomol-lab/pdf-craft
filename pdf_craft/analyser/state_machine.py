@@ -19,6 +19,7 @@ from .position import analyse_position
 from .meta import extract_meta
 from .chapter import generate_chapters
 from .asset_matcher import ASSET_TAGS
+from .window import parse_window_tokens, LLMWindowTokens
 from .types import AnalysingStep, AnalysingProgressReport, AnalysingStepReport
 from .utils import search_xml_and_indexes
 
@@ -29,6 +30,7 @@ def analyse(
   pdf_path: str,
   analysing_dir_path: str,
   output_dir_path: str,
+  window_tokens: LLMWindowTokens | int | None = None,
   report_step: AnalysingStepReport | None = None,
   report_progress: AnalysingProgressReport | None = None,
 ):
@@ -38,6 +40,7 @@ def analyse(
     pdf_path=pdf_path,
     analysing_dir_path=analysing_dir_path,
     output_dir_path=output_dir_path,
+    window_tokens=parse_window_tokens(window_tokens),
     report_progress=report_progress,
     report_step=report_step,
   )
@@ -54,6 +57,7 @@ class _StateMachine:
       pdf_path: str,
       analysing_dir_path: str,
       output_dir_path: str,
+      window_tokens: LLMWindowTokens,
       report_step: AnalysingStepReport | None,
       report_progress: AnalysingProgressReport | None,
     ):
@@ -62,6 +66,7 @@ class _StateMachine:
     self._pdf_path: str = pdf_path
     self._analysing_dir_path: str = analysing_dir_path
     self._output_dir_path: str = output_dir_path
+    self._window_tokens: LLMWindowTokens = window_tokens
     self._report_step: AnalysingStepReport | None = report_step
     self._report_progress: AnalysingProgressReport | None = report_progress
     self._index: Index | None = None
@@ -173,7 +178,7 @@ class _StateMachine:
         llm=self._llm,
         file=file,
         pages=self._load_pages(),
-        data_max_tokens=3300,
+        data_max_tokens=self._window_tokens.citations,
         tail_rate=0.15,
         report_step=self._report_step,
         report_progress=self._report_progress,
@@ -188,7 +193,7 @@ class _StateMachine:
         index=self._load_index(),
         pages=self._load_pages(),
         citations_dir_path=citations_dir_path,
-        data_max_tokens=4400,
+        data_max_tokens=self._window_tokens.main_texts,
         gap_rate=0.1,
         report_step=self._report_step,
         report_progress=self._report_progress,
