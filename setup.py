@@ -2,7 +2,7 @@ from setuptools import setup, find_packages
 
 setup(
   name="pdf-craft",
-  version="0.0.16",
+  version="0.0.17",
   author="Tao Zeyu",
   author_email="i@taozeyu.com",
   url="https://github.com/oomol-lab/pdf-craft",
@@ -12,11 +12,11 @@ setup(
   long_description_content_type="text/markdown",
   include_package_data=True,
   classifiers=[
-      'Development Status :: 2 - Pre-Alpha',
-      'Intended Audience :: Developers',
-      'License :: OSI Approved :: GNU Affero General Public License v3',
-      'Programming Language :: Python',
-      'Programming Language :: Python :: 3.10',
+    "Development Status :: 2 - Pre-Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: GNU Affero General Public License v3",
+    "Programming Language :: Python",
+    "Programming Language :: Python :: 3.10",
   ],
   package_data={
     "pdf_craft": ["data/**/*.jinja"],

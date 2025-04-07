@@ -4,6 +4,7 @@ import re
 from typing import Iterable, Generator
 from xml.etree.ElementTree import fromstring, Element
 
+
 def normalize_xml_text(xml_text: str) -> str:
   return re.sub(r"\s+", " ", xml_text).strip()
 
