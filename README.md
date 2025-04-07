@@ -178,6 +178,41 @@ llm = LLM(
 )
 ```
 
+### Analysis Request Splitting
+
+When calling the `analyse` method, configure the `window_tokens` field to modify the maximum number of tokens submitted for each LLM request. The smaller this value is, the more requests will be made to LLM during the analysis process, but the less data LLM will process at a time. Generally speaking, the less data LLM processes, the better the effect will be, but the more total tokens will be consumed. Adjust this field to find a balance between quality and cost.
+
+```python
+from pdf_craft import analyse
+
+analyse(
+  llm=llm, # LLM configuration prepared in the previous step
+  pdf_page_extractor=pdf_page_extractor, # PDFPageExtractor object prepared in the previous step
+  pdf_path="/path/to/pdf/file", # PDF file path
+  analysing_dir_path="/path/to/analysing/dir", # analysing directory path
+  output_dir_path="/path/to/output/files", # The analysis results will be written to this directory
+  window_tokens=2000, # Maximum number of tokens in the request window
+)
+```
+
+You can also set a specific token limit by constructing `LLMWindowTokens`.
+
+```python
+from pdf_craft import analyse, LLMWindowTokens
+
+analyse(
+  llm=llm, # LLM configuration prepared in the previous step
+  pdf_page_extractor=pdf_page_extractor, # PDFPageExtractor object prepared in the previous step
+  pdf_path="/path/to/pdf/file", # PDF file path
+  analysing_dir_path="/path/to/analysing/dir", # analysing directory path
+  output_dir_path="/path/to/output/files", # The analysis results will be written to this directory
+  window_tokens=LLMWindowTokens(
+    main_texts=2400,
+    citations=2000,
+  ),
+)
+```
+
 ## Acknowledgements
 
 - [DocLayout-YOLO](https://github.com/opendatalab/DocLayout-YOLO)

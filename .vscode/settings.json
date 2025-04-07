@@ -19,6 +19,7 @@
     "editor.wordWrap": "on"
   },
   "cSpell.words": [
+    "analyse",
     "analyser",
     "analysing",
     "apos",
@@ -30,6 +31,7 @@
     "langchain",
     "layoutreader",
     "OEBPS",
+    "Onnx",
     "pixmap",
     "rects",
     "rootfile",
