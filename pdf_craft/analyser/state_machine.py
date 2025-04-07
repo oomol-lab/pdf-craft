@@ -2,7 +2,7 @@ import os
 import shutil
 
 from json import dumps, loads
-from typing import Iterable, Callable
+from typing import cast, Iterable, Callable
 from xml.etree.ElementTree import tostring, fromstring, Element
 from resource_segmentation import Resource, Incision
 
@@ -178,7 +178,7 @@ class _StateMachine:
         llm=self._llm,
         file=file,
         pages=self._load_pages(),
-        data_max_tokens=self._window_tokens.citations,
+        data_max_tokens=cast(int, self._window_tokens.citations),
         tail_rate=0.15,
         report_step=self._report_step,
         report_progress=self._report_progress,
@@ -193,7 +193,7 @@ class _StateMachine:
         index=self._load_index(),
         pages=self._load_pages(),
         citations_dir_path=citations_dir_path,
-        data_max_tokens=self._window_tokens.main_texts,
+        data_max_tokens=cast(int, self._window_tokens.main_texts),
         gap_rate=0.1,
         report_step=self._report_step,
         report_progress=self._report_progress,
