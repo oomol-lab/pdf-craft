@@ -20,19 +20,13 @@ def analyse_main_texts(
     index: Index | None,
     pages: list[PageInfo],
     citations_dir_path: str,
-    request_max_tokens: int, # TODO: not includes tokens of citations
+    data_max_tokens: int, # TODO: not includes tokens of citations
     gap_rate: float,
     report_step: AnalysingStepReport | None,
     report_progress: AnalysingProgressReport | None,
   ):
 
-  prompt_tokens = llm.prompt_tokens_count("main_text", {})
-  data_max_tokens = request_max_tokens - prompt_tokens
   citations = _CitationLoader(citations_dir_path)
-
-  if data_max_tokens <= 0:
-    raise ValueError(f"Request max tokens is too small (less than system prompt tokens count {prompt_tokens})")
-
   groups = file.filter_groups(split(
     max_segment_count=data_max_tokens,
     gap_rate=gap_rate,
