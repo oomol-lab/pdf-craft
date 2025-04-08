@@ -2,7 +2,7 @@ from setuptools import setup, find_packages
 
 setup(
   name="pdf-craft",
-  version="0.0.17",
+  version="0.0.18",
   author="Tao Zeyu",
   author_email="i@taozeyu.com",
   url="https://github.com/oomol-lab/pdf-craft",
@@ -27,7 +27,7 @@ setup(
     "alphabet-detector>=0.0.7,<1.0.0",
     "shapely>=2.0.6,<3.0.0",
     "tiktoken>=0.9.0,<1.0.0",
-    "doc-page-extractor==0.0.8",
+    "doc-page-extractor==0.0.9",
     "resource-segmentation==0.0.1",
     "langchain[openai]>=0.3.21,<0.4.0",
   ],
