@@ -40,6 +40,7 @@ def main():
       pdf_page_extractor=PDFPageExtractor(
         device="cpu",
         model_dir_path=model_dir_path,
+        ocr_level=OCRLevel.OncePerLayout,
         debug_dir_path=os.path.join(analysing_dir_path, "plot"),
       ),
     )
