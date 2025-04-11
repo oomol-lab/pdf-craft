@@ -10,7 +10,7 @@ from pdf_craft import analyse, LLM, PDFPageExtractor, AnalysingStep
 
 
 def main():
-  pdf_file = os.path.join(__file__, "..", "..", "tests", "assets", "citation.pdf")
+  pdf_file = os.path.join(__file__, "..", "..", "tests", "assets", "double_column.pdf")
   pdf_file = os.path.abspath(pdf_file)
   model_dir_path = _project_dir_path("models")
   output_dir_path = _project_dir_path("output", clean=True)
@@ -40,6 +40,7 @@ def main():
       pdf_page_extractor=PDFPageExtractor(
         device="cpu",
         model_dir_path=model_dir_path,
+        ocr_level=OCRLevel.OncePerLayout,
         debug_dir_path=os.path.join(analysing_dir_path, "plot"),
       ),
     )

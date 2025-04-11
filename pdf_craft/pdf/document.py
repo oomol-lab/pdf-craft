@@ -30,7 +30,6 @@ class DocumentExtractor:
     self._doc_extractor = DocExtractor(
       device=device,
       model_dir_path=model_dir_path,
-      order_by_layoutreader=False,
       ocr_for_each_layouts=(ocr_level == OCRLevel.OncePerLayout),
     )
 
