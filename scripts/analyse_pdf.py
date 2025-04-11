@@ -6,7 +6,7 @@ import shutil
 sys.path.append(os.path.abspath(os.path.join(__file__, "..", "..")))
 
 from tqdm import tqdm
-from pdf_craft import analyse, LLM, PDFPageExtractor, AnalysingStep
+from pdf_craft import analyse, LLM, OCRLevel, PDFPageExtractor, AnalysingStep
 
 
 def main():
