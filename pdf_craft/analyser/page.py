@@ -25,7 +25,7 @@ def analyse_page(llm: LLM, raw_page_xml: Element, previous_page_xml: Element | N
     return index_xml
 
   elif response_xml.tag == "page":
-    asset_matcher.add_asset_hashes_for_xml(response_xml)
+    asset_matcher.recover_asset_doms_for_xml(response_xml)
     _collect_for_citation(response_xml)
     return response_xml
 

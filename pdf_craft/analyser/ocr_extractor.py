@@ -77,11 +77,6 @@ def _transform_page_xml(blocks: list[Block]) -> Element:
 
     elif isinstance(block, FormulaBlock):
       formula_dom = Element("formula")
-      if isinstance(block.content, str):
-        latex = Element("latex")
-        latex.text = block.content
-        formula_dom.append(latex)
-
       root.append(formula_dom)
       if len(block.texts) > 0:
         caption_dom = Element("formula-caption")
@@ -121,11 +116,18 @@ def _bind_hashes_and_save_images(root: Element, blocks: list[Block], assets_dir_
     hash256.update(image.tobytes())
     hash = hash256.hexdigest()
     images[hash] = image
-    asset_matcher.register_hash(kind, hash)
+    asset_matcher.register_hash(kind=kind, hash=hash)
 
   for block in blocks:
     if isinstance(block, FormulaBlock):
-      if not isinstance(block.content, str):
+      if isinstance(block.content, str):
+        latex = Element("latex")
+        latex.text = block.content
+        asset_matcher.register_hash(
+          kind=AssetKind.FORMULA,
+          children=(latex,),
+        )
+      else:
         register_image(AssetKind.FORMULA, block.content)
 
     elif isinstance(block, AssetBlock):
@@ -138,7 +140,7 @@ def _bind_hashes_and_save_images(root: Element, blocks: list[Block], assets_dir_
         raise ValueError(f"Unknown asset kind: {block.kind}")
       register_image(kind, block.image)
 
-  asset_matcher.add_asset_hashes_for_xml(root)
+  asset_matcher.recover_asset_doms_for_xml(root)
 
   for asset_dom in search_asset_tags(root):
     hash = asset_dom.get("hash", None)

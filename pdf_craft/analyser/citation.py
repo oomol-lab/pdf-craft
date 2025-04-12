@@ -49,7 +49,7 @@ def analyse_citations(
       "start-idx": str(start_idx + 1),
       "end-idx": str(end_idx + 1),
     })
-    asset_matcher.add_asset_hashes_for_xml(response_xml)
+    asset_matcher.recover_asset_doms_for_xml(response_xml)
 
     for citation in _search_and_filter_and_split_citations(
       response_xml=response_xml,
