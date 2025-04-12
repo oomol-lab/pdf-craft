@@ -4,7 +4,7 @@ import fitz
 from typing import Generator, Literal, Iterable, Sequence
 from dataclasses import dataclass
 from PIL.Image import frombytes, Image
-from doc_page_extractor import plot, Layout, DocExtractor, ExtractedResult
+from doc_page_extractor import plot, Layout, DocExtractor, ExtractedResult, TableLayoutParsedFormat
 from .section import Section
 from .types import OCRLevel, PDFPageExtractorProgressReport
 
@@ -24,14 +24,16 @@ class DocumentExtractor:
       device: Literal["cpu", "cuda"],
       model_dir_path: str,
       ocr_level: OCRLevel,
-      debug_dir_path: str | None = None,
+      extract_formula: bool,
+      extract_table_format: TableLayoutParsedFormat | None,
+      debug_dir_path: str | None,
     ):
     self._debug_dir_path: str | None = debug_dir_path
     self._doc_extractor = DocExtractor(
       device=device,
       model_dir_path=model_dir_path,
-      extract_formula=False,
-      extract_table_format=None,
+      extract_formula=extract_formula,
+      extract_table_format=extract_table_format,
       ocr_for_each_layouts=(ocr_level == OCRLevel.OncePerLayout),
     )
 

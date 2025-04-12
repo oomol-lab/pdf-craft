@@ -5,7 +5,7 @@ import shutil
 sys.path.append(os.path.abspath(os.path.join(__file__, "..", "..")))
 
 from tqdm import tqdm
-from pdf_craft import PDFPageExtractor, MarkDownWriter
+from pdf_craft import PDFPageExtractor, MarkDownWriter, ExtractedTableFormat
 
 
 def main():
@@ -16,6 +16,7 @@ def main():
   extractor = PDFPageExtractor(
     device="cpu",
     model_dir_path=_project_dir_path("models"),
+    extract_table_format=ExtractedTableFormat.MARKDOWN,
   )
   bar: tqdm | None = None
   try:

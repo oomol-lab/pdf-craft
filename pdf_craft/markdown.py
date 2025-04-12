@@ -3,7 +3,17 @@ import os
 
 from hashlib import sha256
 from typing import Iterable
-from .pdf import Text, TextKind, TextBlock, AssetBlock, Block
+from .pdf import (
+  Text,
+  TextKind,
+  TextBlock,
+  Block,
+  AssetBlock,
+  TableBlock,
+  TableFormat,
+  FormulaBlock,
+  FigureBlock,
+)
 
 
 class MarkDownWriter:
@@ -35,7 +45,25 @@ class MarkDownWriter:
         self._file.write("\n\n")
       elif block.kind == TextKind.PLAIN_TEXT:
         self._write_plain_text(block)
-    elif isinstance(block, AssetBlock):
+
+    elif isinstance(block, TableBlock):
+      self._close_texts_buffer()
+      if block.format == TableFormat.MARKDOWN:
+        self._file.write(block.content)
+        self._file.write("\n\n")
+      else:
+        self._write_image(block)
+
+    elif isinstance(block, FormulaBlock):
+      self._close_texts_buffer()
+      if block.content is not None:
+        self._file.write("$$\n")
+        self._file.write(block.content)
+        self._file.write("\n$$\n\n")
+      else:
+        self._write_image(block)
+
+    elif isinstance(block, FigureBlock):
       self._close_texts_buffer()
       self._write_image(block)
 
