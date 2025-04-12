@@ -121,7 +121,7 @@ class PDFPageExtractor:
     store: list[tuple[Layout, Block]] = []
     for layout in layouts:
       if isinstance(layout, PlainLayout):
-        self._fill_plaint_layout(store, layout, result)
+        self._fill_plain_layout(store, layout, result)
       elif isinstance(layout, TableLayout):
         store.append((layout, self._transform_table(layout, result)))
       elif isinstance(layout, FormulaLayout):
@@ -152,7 +152,7 @@ class PDFPageExtractor:
       return 0.0, 0.0, 0.0
     return sum_lines_height / texts_count, x1, x2
 
-  def _fill_plaint_layout(
+  def _fill_plain_layout(
         self,
         store: list[tuple[Layout, Block]],
         layout: PlainLayout,
