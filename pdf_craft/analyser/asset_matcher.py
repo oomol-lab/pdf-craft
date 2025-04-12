@@ -22,7 +22,7 @@ class AssetMatcher:
       element.clear()
     return self
 
-  def register_hash(
+  def register_virtual_dom(
         self,
         kind: AssetKind,
         hash: str | None = None,

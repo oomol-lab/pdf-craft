@@ -1,6 +1,6 @@
 from typing import Literal
 from dataclasses import dataclass
-from enum import Enum
+from enum import auto, Enum
 from typing import Iterable, Generator
 from PIL.Image import Image
 from fitz import Document
@@ -15,6 +15,7 @@ from doc_page_extractor import (
   PlainLayout,
   TableLayout,
   FormulaLayout,
+  TableLayoutParsedFormat,
 )
 
 from .types import OCRLevel, PDFPageExtractorProgressReport
@@ -45,20 +46,29 @@ class TextBlock(BasicBlock):
   has_paragraph_indentation: bool = False
   last_line_touch_end: bool = False
 
+class TableFormat(Enum):
+  LATEX = auto()
+  MARKDOWN = auto()
+  HTML = auto()
+  UNRECOGNIZABLE = auto()
+
+@dataclass
+class TableBlock(BasicBlock):
+  content: str
+  format: TableFormat
+  image: Image
+
 @dataclass
 class FormulaBlock(BasicBlock):
-  content: (str | Image)
-
-class AssetKind(Enum):
-  FIGURE = 0
-  TABLE = 1
+  content: str | None
+  image: Image
 
 @dataclass
-class AssetBlock(BasicBlock):
+class FigureBlock(BasicBlock):
   image: Image
-  kind: AssetKind
 
-Block = TextBlock | FormulaBlock | AssetBlock
+AssetBlock = TableFormat | FormulaBlock | FigureBlock
+Block = TextBlock | AssetBlock
 
 class PDFPageExtractor:
   def __init__(
@@ -192,23 +202,22 @@ class PDFPageExtractor:
         texts=self._convert_to_text(layout.fragments),
       )))
     elif cls == LayoutClass.FIGURE:
-      store.append((layout, AssetBlock(
+      store.append((layout, FigureBlock(
         rect=layout.rect,
         texts=[],
-        kind=AssetKind.FIGURE,
         font_size=0.0,
         image=clip(result, layout),
       )))
     elif cls == LayoutClass.FIGURE_CAPTION:
       block = previous_block(LayoutClass.FIGURE)
       if block is not None:
-        assert isinstance(block, AssetBlock)
+        assert isinstance(block, FigureBlock)
         block.texts.extend(self._convert_to_text(layout.fragments))
     elif cls == LayoutClass.TABLE_CAPTION or \
           cls == LayoutClass.TABLE_FOOTNOTE:
       block = previous_block(LayoutClass.TABLE)
       if block is not None:
-        assert isinstance(block, AssetBlock)
+        assert isinstance(block, TableBlock)
         block.texts.extend(self._convert_to_text(layout.fragments))
     elif cls == LayoutClass.FORMULA_CAPTION:
       block = previous_block(LayoutClass.ISOLATE_FORMULA)
@@ -216,20 +225,32 @@ class PDFPageExtractor:
         assert isinstance(block, FormulaBlock)
         block.texts.extend(self._convert_to_text(layout.fragments))
 
-  def _transform_table(self, layout: TableLayout, result: ExtractedResult) -> AssetBlock:
-    return AssetBlock(
+  def _transform_table(self, layout: TableLayout, result: ExtractedResult) -> TableBlock:
+    parsed = layout.parsed
+    format: TableFormat = TableFormat.UNRECOGNIZABLE
+    content: str = ""
+
+    if parsed is not None and self._can_use_latex(layout):
+      content, layout_format = parsed
+      if layout_format == TableLayoutParsedFormat.LATEX:
+        format = TableFormat.LATEX
+      elif layout_format == TableLayoutParsedFormat.MARKDOWN:
+        format = TableFormat.MARKDOWN
+      elif layout_format == TableLayoutParsedFormat.HTML:
+        format = TableFormat.HTML
+
+    return TableBlock(
       rect=layout.rect,
       texts=[],
-      kind=AssetKind.TABLE,
       font_size=0.0,
+      format=format,
+      content=content,
       image=clip(result, layout),
     )
 
   def _transform_formula(self, layout: FormulaLayout, result: ExtractedResult) -> FormulaBlock:
-    content: Image | str
-    if layout.latex is None or self._contains_cjka(layout):
-      content = clip(result, layout)
-    else:
+    content: str | None = None
+    if layout.latex is not None and self._can_use_latex(layout):
       content = layout.latex
 
     return FormulaBlock(
@@ -237,6 +258,7 @@ class PDFPageExtractor:
       texts=[],
       font_size=0.0,
       content=content,
+      image=clip(result, layout),
     )
 
   def _fill_font_size_for_blocks(self, store: list[tuple[Layout, Block]]):
@@ -278,8 +300,8 @@ class PDFPageExtractor:
       for f in fragments
     ]
 
-  def _contains_cjka(self, layout: BaseLayout) -> bool:
-    return any(
-      contains_cjka(fragment.text)
+  def _can_use_latex(self, layout: BaseLayout) -> bool:
+    return all(
+      not contains_cjka(fragment.text)
       for fragment in layout.fragments
     )
