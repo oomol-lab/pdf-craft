@@ -230,7 +230,7 @@ class PDFPageExtractor:
     format: TableFormat = TableFormat.UNRECOGNIZABLE
     content: str = ""
 
-    if parsed is not None:
+    if parsed is not None and self._can_use_latex(layout):
       content, layout_format = parsed
       if layout_format == TableLayoutParsedFormat.LATEX:
         format = TableFormat.LATEX
@@ -250,7 +250,7 @@ class PDFPageExtractor:
 
   def _transform_formula(self, layout: FormulaLayout, result: ExtractedResult) -> FormulaBlock:
     content: str | None = None
-    if layout.latex is not None and not self._contains_cjka(layout):
+    if layout.latex is not None and self._can_use_latex(layout):
       content = layout.latex
 
     return FormulaBlock(
@@ -300,8 +300,8 @@ class PDFPageExtractor:
       for f in fragments
     ]
 
-  def _contains_cjka(self, layout: BaseLayout) -> bool:
-    return any(
-      contains_cjka(fragment.text)
+  def _can_use_latex(self, layout: BaseLayout) -> bool:
+    return all(
+      not contains_cjka(fragment.text)
       for fragment in layout.fragments
     )
