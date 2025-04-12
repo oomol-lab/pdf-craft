@@ -1,5 +1,8 @@
+import re
+
 from doc_page_extractor import Rectangle
 from shapely.geometry import Polygon
+
 
 def rate(value1: float, value2: float) -> float:
   if value1 > value2:
@@ -35,3 +38,9 @@ def intersection_area_size(rect1: Rectangle, rect2: Rectangle) -> tuple[float, f
     x2 = max(x2, x)
     y2 = max(y2, y)
   return x2 - x1, y2 - y1
+
+_CJKA_PATTERN = re.compile(r"[\u4e00-\u9fff\u3040-\u309f\u30a0-\u30ff\uac00-\ud7a3\u0600-\u06ff]")
+
+# 中、日、韩、阿拉伯文
+def contains_cjka(text: str):
+  return bool(_CJKA_PATTERN.search(text))

@@ -76,7 +76,7 @@ def analyse_main_texts(
       "start-idx": str(start_idx + 1),
       "end-idx": str(end_idx + 1),
     })
-    asset_matcher.add_asset_hashes_for_xml(response_xml)
+    asset_matcher.recover_asset_doms_for_xml(response_xml)
     abstract_xml = response_xml.find("abstract")
     assert abstract_xml is not None
     content_xml = Element("content")
