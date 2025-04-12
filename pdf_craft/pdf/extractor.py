@@ -23,6 +23,12 @@ from .document import DocumentExtractor, DocumentParams
 from .utils import contains_cjka
 
 
+class ExtractedTableFormat(Enum):
+  LATEX = auto()
+  MARKDOWN = auto()
+  HTML = auto()
+  DISABLE = auto()
+
 class TextKind(Enum):
   TITLE = 0
   PLAIN_TEXT = 1
@@ -72,15 +78,34 @@ Block = TextBlock | AssetBlock
 
 class PDFPageExtractor:
   def __init__(
-      self,
-      device: Literal["cpu", "cuda"],
-      model_dir_path: str,
-      ocr_level: OCRLevel = OCRLevel.Once,
-      debug_dir_path: str | None = None,
-    ):
+        self,
+        device: Literal["cpu", "cuda"],
+        model_dir_path: str,
+        ocr_level: OCRLevel = OCRLevel.Once,
+        extract_formula: bool = True,
+        extract_table_format: ExtractedTableFormat | None = None,
+        debug_dir_path: str | None = None,
+      ) -> None:
+
+    if extract_table_format is None:
+      if device == "cpu":
+        extract_table_format = ExtractedTableFormat.DISABLE
+      else:
+        extract_table_format = ExtractedTableFormat.LATEX
+
+    to_pass_table_format: TableLayoutParsedFormat | None = None
+    if extract_table_format == ExtractedTableFormat.LATEX:
+      to_pass_table_format = TableLayoutParsedFormat.LATEX
+    elif extract_table_format == ExtractedTableFormat.MARKDOWN:
+      to_pass_table_format = TableLayoutParsedFormat.MARKDOWN
+    elif extract_table_format == ExtractedTableFormat.HTML:
+      to_pass_table_format = TableLayoutParsedFormat.HTML
+
     self._doc_extractor: DocumentExtractor = DocumentExtractor(
       device=device,
       ocr_level=ocr_level,
+      extract_formula=extract_formula,
+      extract_table_format=to_pass_table_format,
       model_dir_path=model_dir_path,
       debug_dir_path=debug_dir_path,
     )
