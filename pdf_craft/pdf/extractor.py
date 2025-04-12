@@ -4,7 +4,18 @@ from enum import Enum
 from typing import Iterable, Generator
 from PIL.Image import Image
 from fitz import Document
-from doc_page_extractor import clip, Rectangle, Layout, LayoutClass, OCRFragment, ExtractedResult
+from doc_page_extractor import (
+  clip,
+  Rectangle,
+  OCRFragment,
+  ExtractedResult,
+  Layout,
+  LayoutClass,
+  PlainLayout,
+  TableLayout,
+  FormulaLayout,
+)
+
 from .types import OCRLevel, PDFPageExtractorProgressReport
 from .document import DocumentExtractor, DocumentParams
 
@@ -103,47 +114,10 @@ class PDFPageExtractor:
 
   def _convert_to_blocks(self, result: ExtractedResult, layouts: list[Layout]) -> list[Block]:
     store: list[tuple[Layout, Block]] = []
-    def previous_block(cls: LayoutClass) -> Block | None:
-      for i in range(len(store) - 1, -1, -1):
-        layout, block = store[i]
-        if cls == layout.cls:
-          return block
-        if cls != LayoutClass.ABANDON:
-          return None
-      return None
-
     for layout in layouts:
-      cls = layout.cls
-      if cls == LayoutClass.TITLE:
-        store.append((layout, TextBlock(
-          rect=layout.rect,
-          kind=TextKind.TITLE,
-          font_size=0.0,
-          texts=self._convert_to_text(layout.fragments),
-        )))
-      elif cls == LayoutClass.PLAIN_TEXT:
-        store.append((layout, TextBlock(
-          rect=layout.rect,
-          kind=TextKind.PLAIN_TEXT,
-          font_size=0.0,
-          texts=self._convert_to_text(layout.fragments),
-        )))
-      elif cls == LayoutClass.ABANDON:
-        store.append((layout, TextBlock(
-          rect=layout.rect,
-          kind=TextKind.ABANDON,
-          font_size=0.0,
-          texts=self._convert_to_text(layout.fragments),
-        )))
-      elif cls == LayoutClass.FIGURE:
-        store.append((layout, AssetBlock(
-          rect=layout.rect,
-          texts=[],
-          kind=AssetKind.FIGURE,
-          font_size=0.0,
-          image=clip(result, layout),
-        )))
-      elif cls == LayoutClass.TABLE:
+      if isinstance(layout, PlainLayout):
+        self._fill_plaint_layout(store, layout, result)
+      elif isinstance(layout, TableLayout):
         store.append((layout, AssetBlock(
           rect=layout.rect,
           texts=[],
@@ -151,7 +125,7 @@ class PDFPageExtractor:
           font_size=0.0,
           image=clip(result, layout),
         )))
-      elif cls == LayoutClass.ISOLATE_FORMULA:
+      elif isinstance(layout, FormulaLayout):
         store.append((layout, AssetBlock(
           rect=layout.rect,
           texts=[],
@@ -159,25 +133,8 @@ class PDFPageExtractor:
           font_size=0.0,
           image=clip(result, layout),
         )))
-      elif cls == LayoutClass.FIGURE_CAPTION:
-        block = previous_block(LayoutClass.FIGURE)
-        if block is not None:
-          assert isinstance(block, AssetBlock)
-          block.texts.extend(self._convert_to_text(layout.fragments))
-      elif cls == LayoutClass.TABLE_CAPTION or \
-           cls == LayoutClass.TABLE_FOOTNOTE:
-        block = previous_block(LayoutClass.TABLE)
-        if block is not None:
-          assert isinstance(block, AssetBlock)
-          block.texts.extend(self._convert_to_text(layout.fragments))
-      elif cls == LayoutClass.FORMULA_CAPTION:
-        block = previous_block(LayoutClass.ISOLATE_FORMULA)
-        if block is not None:
-          assert isinstance(block, AssetBlock)
-          block.texts.extend(self._convert_to_text(layout.fragments))
 
     self._fill_font_size_for_blocks(store)
-
     return [block for _, block in store]
 
   def _texts_range(self, blocks: Iterable[Block]) -> tuple[float, float, float]:
@@ -202,15 +159,69 @@ class PDFPageExtractor:
       return 0.0, 0.0, 0.0
     return sum_lines_height / texts_count, x1, x2
 
-  def _convert_to_text(self, fragments: list[OCRFragment]) -> list[Text]:
-    return [
-      Text(
-        content=f.text,
-        rank=f.rank,
-        rect=f.rect,
-      )
-      for f in fragments
-    ]
+  def _fill_plaint_layout(
+        self,
+        store: list[tuple[Layout, Block]],
+        layout: PlainLayout,
+        result: ExtractedResult,
+      ):
+
+    def previous_block(cls: LayoutClass) -> Block | None:
+      nonlocal store
+      for i in range(len(store) - 1, -1, -1):
+        layout, block = store[i]
+        if cls == layout.cls:
+          return block
+        if cls != LayoutClass.ABANDON:
+          return None
+      return None
+
+    cls = layout.cls
+    if cls == LayoutClass.TITLE:
+      store.append((layout, TextBlock(
+        rect=layout.rect,
+        kind=TextKind.TITLE,
+        font_size=0.0,
+        texts=self._convert_to_text(layout.fragments),
+      )))
+    elif cls == LayoutClass.PLAIN_TEXT:
+      store.append((layout, TextBlock(
+        rect=layout.rect,
+        kind=TextKind.PLAIN_TEXT,
+        font_size=0.0,
+        texts=self._convert_to_text(layout.fragments),
+      )))
+    elif cls == LayoutClass.ABANDON:
+      store.append((layout, TextBlock(
+        rect=layout.rect,
+        kind=TextKind.ABANDON,
+        font_size=0.0,
+        texts=self._convert_to_text(layout.fragments),
+      )))
+    elif cls == LayoutClass.FIGURE:
+      store.append((layout, AssetBlock(
+        rect=layout.rect,
+        texts=[],
+        kind=AssetKind.FIGURE,
+        font_size=0.0,
+        image=clip(result, layout),
+      )))
+    elif cls == LayoutClass.FIGURE_CAPTION:
+      block = previous_block(LayoutClass.FIGURE)
+      if block is not None:
+        assert isinstance(block, AssetBlock)
+        block.texts.extend(self._convert_to_text(layout.fragments))
+    elif cls == LayoutClass.TABLE_CAPTION or \
+          cls == LayoutClass.TABLE_FOOTNOTE:
+      block = previous_block(LayoutClass.TABLE)
+      if block is not None:
+        assert isinstance(block, AssetBlock)
+        block.texts.extend(self._convert_to_text(layout.fragments))
+    elif cls == LayoutClass.FORMULA_CAPTION:
+      block = previous_block(LayoutClass.ISOLATE_FORMULA)
+      if block is not None:
+        assert isinstance(block, AssetBlock)
+        block.texts.extend(self._convert_to_text(layout.fragments))
 
   def _fill_font_size_for_blocks(self, store: list[tuple[Layout, Block]]):
     font_sizes: list[float] = []
@@ -240,3 +251,13 @@ class PDFPageExtractor:
     else:
       for font_size, (_, block) in zip(font_sizes, store):
         block.font_size = (font_size - min_font_size) / (max_font_size - min_font_size)
+
+  def _convert_to_text(self, fragments: list[OCRFragment]) -> list[Text]:
+    return [
+      Text(
+        content=f.text,
+        rank=f.rank,
+        rect=f.rect,
+      )
+      for f in fragments
+    ]
