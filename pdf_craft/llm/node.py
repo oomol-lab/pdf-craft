@@ -12,6 +12,7 @@ from langchain_core.messages import SystemMessage, HumanMessage
 from ..template import create_env
 from .increasable import Increasable
 from .executor import LLMExecutor
+from .escape import normal_llm_response_xml
 
 
 class LLM:
@@ -100,8 +101,9 @@ class LLM:
   def _encode_xml(self, response: str) -> Element:
     response = re.sub(r"^```XML", "", response)
     response = re.sub(r"```$", "", response)
+    response = normal_llm_response_xml(response)
     try:
-      return fromstring(response.replace("&", "&amp;"))
+      return fromstring(response)
     except Exception as e:
       print(response)
       raise e
