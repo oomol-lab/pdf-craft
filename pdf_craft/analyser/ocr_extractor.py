@@ -3,7 +3,7 @@ import fitz
 
 from html import escape
 from hashlib import sha256
-from typing import Generator
+from typing import Generator, Iterable
 from PIL.Image import Image
 from xml.etree.ElementTree import Element
 
@@ -13,11 +13,12 @@ from ..pdf import (
   PDFPageExtractor,
   Block,
   Text,
-  TextBlock,
-  FormulaBlock,
-  AssetBlock,
   TextKind,
-  AssetKind as PDFAssetKind,
+  TextBlock,
+  TableBlock,
+  TableFormat,
+  FigureBlock,
+  FormulaBlock,
 )
 
 
@@ -75,28 +76,23 @@ def _transform_page_xml(blocks: list[Block]) -> Element:
       _extends_line_doms(text_dom, block.texts)
       root.append(text_dom)
 
+    elif isinstance(block, TableBlock):
+      _append_asset_dom(root, block, "table")
+
     elif isinstance(block, FormulaBlock):
-      formula_dom = Element("formula")
-      root.append(formula_dom)
-      if len(block.texts) > 0:
-        caption_dom = Element("formula-caption")
-        _extends_line_doms(caption_dom, block.texts)
-        root.append(caption_dom)
+      _append_asset_dom(root, block, "formula")
 
-    elif isinstance(block, AssetBlock):
-      tag_name: str
-      if block.kind == PDFAssetKind.FIGURE:
-        tag_name = "figure"
-      elif block.kind == PDFAssetKind.TABLE:
-        tag_name = "table"
-
-      root.append(Element(tag_name))
-      if len(block.texts) > 0:
-        caption_dom = Element(f"{tag_name}-caption")
-        _extends_line_doms(caption_dom, block.texts)
-        root.append(caption_dom)
+    elif isinstance(block, FigureBlock):
+      _append_asset_dom(root, block, "figure")
 
   return root
+
+def _append_asset_dom(root: Element, block: Block, tag_name: str):
+  root.append(Element(tag_name))
+  if len(block.texts) > 0:
+    caption_dom = Element(f"{tag_name}-caption")
+    _extends_line_doms(caption_dom, block.texts)
+    root.append(caption_dom)
 
 def _extends_line_doms(parent: Element, texts: list[Text]):
   for text in texts:
@@ -111,34 +107,49 @@ def _bind_hashes_and_save_images(root: Element, blocks: list[Block], assets_dir_
   asset_matcher = AssetMatcher()
   images: dict[str, Image] = {}
 
-  def register_image(kind: AssetKind, image: Image):
+  def register_image_and_get_hash(image: Image):
     hash256 = sha256()
     hash256.update(image.tobytes())
     hash = hash256.hexdigest()
     images[hash] = image
-    asset_matcher.register_hash(kind=kind, hash=hash)
+    return hash
+
+  def create_children(tag_name: str, text: str) -> Iterable[Element]:
+    child = Element(tag_name)
+    child.text = text
+    return (child,)
 
   for block in blocks:
-    if isinstance(block, FormulaBlock):
-      if isinstance(block.content, str):
-        latex = Element("latex")
-        latex.text = block.content
-        asset_matcher.register_hash(
-          kind=AssetKind.FORMULA,
-          children=(latex,),
-        )
-      else:
-        register_image(AssetKind.FORMULA, block.content)
+    kind: AssetKind | None = None
+    hash: str | None = None
+    children: Iterable[Element] | None = None
 
-    elif isinstance(block, AssetBlock):
-      kind: AssetKind
-      if block.kind == PDFAssetKind.FIGURE:
-        kind = AssetKind.FIGURE
-      elif block.kind == PDFAssetKind.TABLE:
-        kind = AssetKind.TABLE
-      else:
-        raise ValueError(f"Unknown asset kind: {block.kind}")
-      register_image(kind, block.image)
+    if isinstance(block, TableBlock):
+      kind = AssetKind.TABLE
+      hash = register_image_and_get_hash(AssetKind.FORMULA, block.image)
+      if block.format == TableFormat.LATEX:
+        children = create_children("latex", block.content)
+      elif block.format == TableFormat.MARKDOWN:
+        children = create_children("markdown", block.content)
+      elif block.format == TableFormat.HTML:
+        children = create_children("html", block.content)
+
+    elif isinstance(block, FormulaBlock):
+      kind = AssetKind.FORMULA
+      hash = register_image_and_get_hash(AssetKind.FORMULA, block.image)
+      if block.content is not None:
+        children = create_children("latex", block.content)
+
+    elif isinstance(block, FigureBlock):
+      kind = AssetKind.FIGURE
+      hash = register_image_and_get_hash(AssetKind.FORMULA, block.image)
+
+    if kind is not None:
+      asset_matcher.register_hash(
+        kind=kind,
+        hash=hash,
+        children=children,
+      )
 
   asset_matcher.recover_asset_doms_for_xml(root)
 

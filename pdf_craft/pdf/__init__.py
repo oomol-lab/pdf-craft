@@ -1,2 +1,2 @@
-from .extractor import Block, Text, TextKind, TextBlock, FormulaBlock, AssetKind, AssetBlock, PDFPageExtractor
+from .extractor import Block, AssetBlock, Text, TextKind, TextBlock, TableBlock, TableFormat, FormulaBlock, FigureBlock, PDFPageExtractor
 from .types import OCRLevel, PDFPageExtractorProgressReport
