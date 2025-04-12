@@ -1,9 +1,14 @@
 from typing import Generator
+from enum import auto, Enum
 from xml.etree.ElementTree import Element
-from ..pdf import AssetKind
 
 
 ASSET_TAGS = ("figure", "table", "formula")
+
+class AssetKind(Enum):
+  FIGURE = auto()
+  TABLE = auto()
+  FORMULA = auto()
 
 class AssetMatcher:
   def __init__(self):

@@ -213,7 +213,7 @@ class PDFPageExtractor:
     elif cls == LayoutClass.FORMULA_CAPTION:
       block = previous_block(LayoutClass.ISOLATE_FORMULA)
       if block is not None:
-        assert isinstance(block, AssetBlock)
+        assert isinstance(block, FormulaBlock)
         block.texts.extend(self._convert_to_text(layout.fragments))
 
   def _transform_table(self, layout: TableLayout, result: ExtractedResult) -> AssetBlock:
