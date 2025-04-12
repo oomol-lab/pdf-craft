@@ -1,7 +1,7 @@
 import unittest
 
 from typing import Iterable
-from doc_page_extractor import Rectangle, Layout, LayoutClass, OCRFragment
+from doc_page_extractor import Rectangle, PlainLayout, LayoutClass, OCRFragment
 from pdf_craft.pdf.section import Section
 from pdf_craft.pdf.text_matcher import check_texts_matching_rate, split_into_words
 
@@ -57,7 +57,7 @@ class TextFramework(unittest.TestCase):
     # Scanned book pages often shift, this is normal and needs to be fixed.
     delta2 = (27.35, 48.12)
     layouts2 = [
-      Layout(
+      PlainLayout(
         cls=layout.cls,
         rect=_move_rect(layout.rect, delta2),
         fragments=[
@@ -120,7 +120,7 @@ class TextFramework(unittest.TestCase):
 
 def _layout(rect: _Rect, fragments: Iterable[tuple[_Rect, str]]):
   origin = (rect[0], rect[1])
-  return Layout(
+  return PlainLayout(
     cls=LayoutClass.PLAIN_TEXT,
     rect=_rect(rect),
     fragments=[

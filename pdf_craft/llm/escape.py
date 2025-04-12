@@ -18,7 +18,7 @@ _XML_TAG_PATTERN = re.compile(
   pattern=r'<([a-zA-Z0-9_\-]+)(?:\s+[a-zA-Z][a-zA-Z0-9_\-]*="[a-zA-Z0-9_,\-]*")*\s*/?>|</([a-zA-Z0-9_\-]+)>',
 )
 
-def _process_xml_text(text: str, process_func=Callable[[str], str]) -> str:
+def _process_xml_text(text: str, process_func: Callable[[str], str]) -> str:
   buffer = io.StringIO()
   prev_end: int = 0
 
