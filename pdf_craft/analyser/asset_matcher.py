@@ -44,8 +44,12 @@ class AssetMatcher:
       if cloned_list is None or len(cloned_list) == 0:
         continue
       cloned = cloned_list.pop(0)
+      attrib = {
+        **element.attrib,
+        **cloned.attrib,
+      }
       element.clear()
-      element.attrib = cloned.attrib
+      element.attrib = attrib
       for child in cloned:
         element.append(child)
 
