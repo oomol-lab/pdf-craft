@@ -46,7 +46,7 @@ def extract_ocr_page_xmls(
         image.save(cover_path)
 
       page_xml = _transform_page_xml(blocks)
-      _bind_hashes_and_save_images(
+      _migrate_expressions_and_save_images(
         root=page_xml,
         blocks=blocks,
         assets_dir_path=assets_dir_path,
@@ -103,7 +103,7 @@ def _extends_line_doms(parent: Element, texts: list[Text]):
     line_dom.text = content
     parent.append(line_dom)
 
-def _bind_hashes_and_save_images(root: Element, blocks: list[Block], assets_dir_path: str):
+def _migrate_expressions_and_save_images(root: Element, blocks: list[Block], assets_dir_path: str):
   asset_matcher = AssetMatcher()
   images: dict[str, Image] = {}
 
@@ -126,7 +126,7 @@ def _bind_hashes_and_save_images(root: Element, blocks: list[Block], assets_dir_
 
     if isinstance(block, TableBlock):
       kind = AssetKind.TABLE
-      hash = register_image_and_get_hash(AssetKind.FORMULA, block.image)
+      hash = register_image_and_get_hash(block.image)
       if block.format == TableFormat.LATEX:
         children = create_children("latex", block.content)
       elif block.format == TableFormat.MARKDOWN:
@@ -136,16 +136,16 @@ def _bind_hashes_and_save_images(root: Element, blocks: list[Block], assets_dir_
 
     elif isinstance(block, FormulaBlock):
       kind = AssetKind.FORMULA
-      hash = register_image_and_get_hash(AssetKind.FORMULA, block.image)
+      hash = register_image_and_get_hash(block.image)
       if block.content is not None:
         children = create_children("latex", block.content)
 
     elif isinstance(block, FigureBlock):
       kind = AssetKind.FIGURE
-      hash = register_image_and_get_hash(AssetKind.FORMULA, block.image)
+      hash = register_image_and_get_hash(block.image)
 
     if kind is not None:
-      asset_matcher.register_hash(
+      asset_matcher.register_virtual_dom(
         kind=kind,
         hash=hash,
         children=children,
