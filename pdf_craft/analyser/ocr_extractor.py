@@ -6,7 +6,7 @@ from hashlib import sha256
 from typing import Generator
 from PIL.Image import Image
 from xml.etree.ElementTree import Element
-from ..pdf import PDFPageExtractor, Block, Text, TextBlock, AssetBlock, TextKind, AssetKind
+from ..pdf import PDFPageExtractor, Block, Text, TextBlock, FormulaBlock, AssetBlock, TextKind, AssetKind
 from .types import AnalysingStep, AnalysingProgressReport, AnalysingStepReport
 from .asset_matcher import AssetMatcher, ASSET_TAGS
 
@@ -65,14 +65,22 @@ def _transform_page_xml(blocks: list[Block]) -> Element:
       _extends_line_doms(text_dom, block.texts)
       root.append(text_dom)
 
+    elif isinstance(block, FormulaBlock):
+      formula_dom = Element("formula")
+      if isinstance(block.content, str):
+        formula_dom.text = block.content
+      root.append(formula_dom)
+      if len(block.texts) > 0:
+        caption_dom = Element("formula-caption")
+        _extends_line_doms(caption_dom, block.texts)
+        root.append(caption_dom)
+
     elif isinstance(block, AssetBlock):
       tag_name: str
       if block.kind == AssetKind.FIGURE:
         tag_name = "figure"
       elif block.kind == AssetKind.TABLE:
         tag_name = "table"
-      elif block.kind == AssetKind.FORMULA:
-        tag_name = "formula"
 
       root.append(Element(tag_name))
       if len(block.texts) > 0:

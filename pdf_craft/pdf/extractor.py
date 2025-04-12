@@ -11,6 +11,7 @@ from doc_page_extractor import (
   ExtractedResult,
   Layout,
   LayoutClass,
+  BaseLayout,
   PlainLayout,
   TableLayout,
   FormulaLayout,
@@ -18,6 +19,7 @@ from doc_page_extractor import (
 
 from .types import OCRLevel, PDFPageExtractorProgressReport
 from .document import DocumentExtractor, DocumentParams
+from .utils import contains_cjka
 
 
 class TextKind(Enum):
@@ -43,17 +45,20 @@ class TextBlock(BasicBlock):
   has_paragraph_indentation: bool = False
   last_line_touch_end: bool = False
 
+@dataclass
+class FormulaBlock(BasicBlock):
+  content: (str | Image)
+
 class AssetKind(Enum):
   FIGURE = 0
   TABLE = 1
-  FORMULA = 2
 
 @dataclass
 class AssetBlock(BasicBlock):
   image: Image
   kind: AssetKind
 
-Block = TextBlock | AssetBlock
+Block = TextBlock | FormulaBlock | AssetBlock
 
 class PDFPageExtractor:
   def __init__(
@@ -118,21 +123,9 @@ class PDFPageExtractor:
       if isinstance(layout, PlainLayout):
         self._fill_plaint_layout(store, layout, result)
       elif isinstance(layout, TableLayout):
-        store.append((layout, AssetBlock(
-          rect=layout.rect,
-          texts=[],
-          kind=AssetKind.TABLE,
-          font_size=0.0,
-          image=clip(result, layout),
-        )))
+        store.append((layout, self._transform_table(layout, result)))
       elif isinstance(layout, FormulaLayout):
-        store.append((layout, AssetBlock(
-          rect=layout.rect,
-          texts=[],
-          kind=AssetKind.FORMULA,
-          font_size=0.0,
-          image=clip(result, layout),
-        )))
+        store.append((layout, self._transform_formula(layout, result)))
 
     self._fill_font_size_for_blocks(store)
     return [block for _, block in store]
@@ -223,6 +216,29 @@ class PDFPageExtractor:
         assert isinstance(block, AssetBlock)
         block.texts.extend(self._convert_to_text(layout.fragments))
 
+  def _transform_table(self, layout: TableLayout, result: ExtractedResult) -> AssetBlock:
+    return AssetBlock(
+      rect=layout.rect,
+      texts=[],
+      kind=AssetKind.TABLE,
+      font_size=0.0,
+      image=clip(result, layout),
+    )
+
+  def _transform_formula(self, layout: FormulaLayout, result: ExtractedResult) -> FormulaBlock:
+    content: Image | str
+    if layout.latex is None or self._contains_cjka(layout):
+      content = clip(result, layout)
+    else:
+      content = layout.latex
+
+    return FormulaBlock(
+      rect=layout.rect,
+      texts=[],
+      font_size=0.0,
+      content=content,
+    )
+
   def _fill_font_size_for_blocks(self, store: list[tuple[Layout, Block]]):
     font_sizes: list[float] = []
 
@@ -261,3 +277,9 @@ class PDFPageExtractor:
       )
       for f in fragments
     ]
+
+  def _contains_cjka(self, layout: BaseLayout) -> bool:
+    return any(
+      contains_cjka(fragment.text)
+      for fragment in layout.fragments
+    )
