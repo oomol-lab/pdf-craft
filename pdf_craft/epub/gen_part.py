@@ -1,12 +1,12 @@
 from xml.etree.ElementTree import tostring, Element
 from .i18n import I18N
 from .template import Template
-from .assets import Assets
+from .context import Context
 from .gen_asset import try_gen_formula, try_gen_asset
 
 
 def generate_part(
-      assets: Assets,
+      context: Context,
       template: Template,
       chapter_xml: Element,
       i18n: I18N,
@@ -18,18 +18,18 @@ def generate_part(
   return template.render(
     template="part.xhtml",
     i18n=i18n,
-    content=list(_render_content(assets, content_xml)),
-    citations=list(_render_citations(assets, citations_xml)),
+    content=list(_render_content(context, content_xml)),
+    citations=list(_render_citations(context, citations_xml)),
   )
 
-def _render_content(assets: Assets, content_xml: Element):
+def _render_content(context: Context, content_xml: Element):
   used_ref_ids: set[str] = set()
   for child in content_xml:
-    to_element = _create_main_text_element(child, assets, used_ref_ids)
+    to_element = _create_main_text_element(child, context, used_ref_ids)
     if to_element is not None:
       yield tostring(to_element, encoding="unicode")
 
-def _render_citations(assets: Assets, citations_xml: Element | None):
+def _render_citations(context: Context, citations_xml: Element | None):
   if citations_xml is None:
     return
 
@@ -46,7 +46,7 @@ def _render_citations(assets: Assets, citations_xml: Element | None):
     used_citation_ids: set[str] = set()
 
     for child in citation_children:
-      to_element = _create_main_text_element(child, assets)
+      to_element = _create_main_text_element(child, context)
       if to_element is not None:
         ref_element = Element("a")
         ref_element.text = f"[{id}]"
@@ -83,7 +83,7 @@ _XML2HTML_TAGS: dict[str, str] = {
 
 def _create_main_text_element(
       origin: Element,
-      assets: Assets,
+      assets: Context,
       used_ref_ids: set[str] | None = None,
     ) -> Element | None:
 
