@@ -21,7 +21,7 @@ def try_gen_formula(context: Context, element: Element) -> Element | None:
   if latex is None:
     return None
 
-  latex_expr = _normal_expression(latex.text)
+  latex_expr = _normalize_expression(latex.text)
   if context.latex_render == LaTeXRender.MATHML:
     try:
       return _latex2mathml(latex_expr)
@@ -105,7 +105,7 @@ def _create_image_element(file_name: str, origin: Element):
 
   return img_element
 
-def _normal_expression(expression: str) -> str:
+def _normalize_expression(expression: str) -> str:
   expression = expression.replace("\n", "")
   expression = expression.strip()
   return expression
