@@ -1,13 +1,22 @@
 import os
+
 from zipfile import ZipFile
+from .types import LaTeXRender
 
 
 class Context:
-  def __init__(self, file: ZipFile, assets_path: str | None) -> None:
+  def __init__(
+        self,
+        file: ZipFile,
+        assets_path: str | None,
+        latex_render: LaTeXRender,
+      ) -> None:
+
     if assets_path is not None and not os.path.exists(assets_path):
       assets_path = None
     self._assets_path: str | None = assets_path
     self._file: ZipFile = file
+    self._latex_render: LaTeXRender = latex_render
     self._used_file_names: dict[str, str] = {}
     self._asset_files: list[str] = []
 
@@ -20,6 +29,10 @@ class Context:
   @property
   def file(self) -> ZipFile:
     return self._file
+
+  @property
+  def latex_render(self) -> LaTeXRender:
+    return self._latex_render
 
   def use_asset(self, file_name: str, media_type: str) -> None:
     self._used_file_names[file_name] = media_type

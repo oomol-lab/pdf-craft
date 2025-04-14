@@ -5,6 +5,7 @@ from typing import Literal
 from uuid import uuid4
 from zipfile import ZipFile
 from xml.etree.ElementTree import fromstring, Element
+from .types import LaTeXRender
 from .gen_part import generate_part
 from .gen_index import gen_index, NavPoint
 from .i18n import I18N
@@ -13,9 +14,11 @@ from .context import Context
 
 
 def generate_epub_file(
-    from_dir_path: str,
-    epub_file_path: str,
-    lan: Literal["zh", "en"] = "zh") -> None:
+      from_dir_path: str,
+      epub_file_path: str,
+      lan: Literal["zh", "en"] = "zh",
+      latex_render: LaTeXRender = LaTeXRender.CLIPPING,
+    ) -> None:
 
   i18n = I18N(lan)
   template = Template()
@@ -45,7 +48,11 @@ def generate_epub_file(
     ),
   )
   with ZipFile(epub_file_path, "w") as file:
-    context = Context(file, assets_path)
+    context = Context(
+      file=file,
+      assets_path=assets_path,
+      latex_render=latex_render,
+    )
     file.writestr(
       zinfo_or_arcname="mimetype",
       data=template.render("mimetype").encode("utf-8"),

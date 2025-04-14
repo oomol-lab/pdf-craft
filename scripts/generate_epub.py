@@ -4,7 +4,7 @@ import shutil
 
 sys.path.append(os.path.abspath(os.path.join(__file__, "..", "..")))
 
-from pdf_craft import generate_epub_file
+from pdf_craft import generate_epub_file, LaTeXRender
 
 
 def main():
@@ -12,6 +12,7 @@ def main():
   generate_epub_file(
     from_dir_path=output_dir_path,
     epub_file_path=os.path.join(output_dir_path, "final.epub"),
+    latex_render=LaTeXRender.SVG,
   )
 
 def _project_dir_path(name: str, clean: bool = False) -> str:

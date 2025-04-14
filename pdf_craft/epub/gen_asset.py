@@ -2,12 +2,16 @@ import io
 import matplotlib.pyplot as plt
 
 from xml.etree.ElementTree import Element
-# from latex2mathml.converter import convert_to_element
+from latex2mathml.converter import convert_to_element
 from ..utils import sha256_hash
+from .types import LaTeXRender
 from .context import Context
 
 
 def try_gen_formula(context: Context, element: Element) -> Element | None:
+  if context.latex_render == LaTeXRender.CLIPPING:
+    return None
+
   latex: Element | None = None
   for child in element:
     if child.tag == "latex":
@@ -16,19 +20,23 @@ def try_gen_formula(context: Context, element: Element) -> Element | None:
   if latex is None:
     return None
 
-  try:
-    print("LaTeX")
-    print(latex.text)
-    print("")
-    # dom = convert_to_element(latex.text)
-    svg_image = _latex_formula2svg(latex.text.replace("\n", ""))
+  latex_expr = _normal_expression(latex.text)
+  if context.latex_render == LaTeXRender.MATHML:
+    try:
+      return convert_to_element(latex_expr)
+    except SystemError:
+      return None
+
+  elif context.latex_render == LaTeXRender.SVG:
+    try:
+      svg_image = _latex_formula2svg(latex_expr)
+    except Exception:
+      return None
+
     file_name = f"{sha256_hash(svg_image)}.svg"
     img_element = _create_image_element(file_name, element)
     context.add_asset(file_name, "image/svg+xml", svg_image)
     return img_element
-
-  except SystemError:
-    return None
 
 def try_gen_asset(context: Context, element: Element) -> Element | None:
   hash = element.get("hash", None)
@@ -73,3 +81,8 @@ def _create_image_element(file_name: str, origin: Element):
     img_element.set("alt", alt)
 
   return img_element
+
+def _normal_expression(expression: str) -> str:
+  expression = expression.replace("\n", "")
+  expression = expression.strip()
+  return expression
