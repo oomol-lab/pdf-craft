@@ -131,11 +131,10 @@ def _migrate_expressions_and_save_images(root: Element, blocks: list[Block], ass
         children = create_children("markdown", block.content)
       elif block.format == TableFormat.HTML:
         try:
-          html_element = fromstring(block.content)
-          children = Element("table-html")
-          children.attrib = html_element.attrib
-          for child in html_element:
-            children.append(child)
+          table_element = fromstring(block.content)
+          table_content = Element("html")
+          table_content.append(table_element)
+          children = (table_content,)
         except ParseError:
           pass
 
