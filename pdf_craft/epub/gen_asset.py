@@ -2,7 +2,7 @@ import io
 import matplotlib.pyplot as plt
 
 from xml.etree.ElementTree import Element
-from latex2mathml.converter import convert_to_element
+# from latex2mathml.converter import convert_to_element
 from ..utils import sha256_hash
 from .assets import Assets
 

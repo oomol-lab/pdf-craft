@@ -32,6 +32,7 @@
     "langchain",
     "layoutreader",
     "mathml",
+    "matplotlib",
     "OEBPS",
     "Onnx",
     "pixmap",
