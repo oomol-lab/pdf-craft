@@ -90,7 +90,7 @@ def _create_main_text_element(origin: Element, used_ref_ids: set[str] | None = N
     if origin.tag == "formula":
       asset_element = try_gen_formula(origin)
 
-    if asset_element is not None:
+    if asset_element is None:
       hash = origin.get("hash", None)
       if hash is not None:
         asset_element = Element("img")
@@ -103,13 +103,13 @@ def _create_main_text_element(origin: Element, used_ref_ids: set[str] | None = N
         else:
           asset_element.set("alt", alt)
 
-    if asset_element is not None:
-      wrapper_div = Element("div")
-      wrapper_div.set("class", "alt-wrapper")
-      wrapper_div.append(asset_element)
-      return wrapper_div
-    else:
+    if asset_element is None:
       return None
+
+    wrapper_div = Element("div")
+    wrapper_div.set("class", "alt-wrapper")
+    wrapper_div.append(asset_element)
+    return wrapper_div
 
 def _fill_text_and_citations(element: Element, origin: Element, used_ref_ids: set[str] | None):
   element.text = origin.text
