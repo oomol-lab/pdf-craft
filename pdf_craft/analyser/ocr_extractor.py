@@ -2,13 +2,13 @@ import os
 import fitz
 
 from html import escape
-from hashlib import sha256
 from typing import Generator, Iterable
 from PIL.Image import Image
 from xml.etree.ElementTree import Element
 
 from .types import AnalysingStep, AnalysingProgressReport, AnalysingStepReport
 from .asset_matcher import search_asset_tags, AssetMatcher, AssetKind
+from ..utils import sha256_hash
 from ..pdf import (
   PDFPageExtractor,
   Block,
@@ -108,9 +108,7 @@ def _migrate_expressions_and_save_images(root: Element, blocks: list[Block], ass
   images: dict[str, Image] = {}
 
   def register_image_and_get_hash(image: Image):
-    hash256 = sha256()
-    hash256.update(image.tobytes())
-    hash = hash256.hexdigest()
+    hash = sha256_hash(image.tobytes())
     images[hash] = image
     return hash
 
