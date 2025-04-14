@@ -47,12 +47,12 @@ def generate_epub_file(
   with ZipFile(epub_file_path, "w") as file:
     assets = Assets(assets_path, file)
     file.writestr(
-      zinfo_or_arcname="OEBPS/toc.ncx",
-      data=toc_ncx.encode("utf-8"),
-    )
-    file.writestr(
       zinfo_or_arcname="mimetype",
       data=template.render("mimetype").encode("utf-8"),
+    )
+    file.writestr(
+      zinfo_or_arcname="OEBPS/toc.ncx",
+      data=toc_ncx.encode("utf-8"),
     )
     _write_chapters(
       file=file,
