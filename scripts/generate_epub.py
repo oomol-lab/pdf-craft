@@ -12,7 +12,7 @@ def main():
   generate_epub_file(
     from_dir_path=output_dir_path,
     epub_file_path=os.path.join(output_dir_path, "final.epub"),
-    latex_render=LaTeXRender.SVG,
+    latex_render=LaTeXRender.MATHML,
   )
 
 def _project_dir_path(name: str, clean: bool = False) -> str:

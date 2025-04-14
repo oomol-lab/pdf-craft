@@ -17,7 +17,7 @@ def generate_epub_file(
       from_dir_path: str,
       epub_file_path: str,
       lan: Literal["zh", "en"] = "zh",
-      latex_render: LaTeXRender = LaTeXRender.CLIPPING,
+      latex_render: LaTeXRender = LaTeXRender.MATHML,
     ) -> None:
 
   i18n = I18N(lan)

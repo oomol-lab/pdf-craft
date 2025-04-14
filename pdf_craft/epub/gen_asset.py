@@ -1,8 +1,9 @@
 import io
+import re
 import matplotlib.pyplot as plt
 
-from xml.etree.ElementTree import Element
-from latex2mathml.converter import convert_to_element
+from xml.etree.ElementTree import fromstring, Element
+from latex2mathml.converter import convert
 from ..utils import sha256_hash
 from .types import LaTeXRender
 from .context import Context
@@ -23,7 +24,7 @@ def try_gen_formula(context: Context, element: Element) -> Element | None:
   latex_expr = _normal_expression(latex.text)
   if context.latex_render == LaTeXRender.MATHML:
     try:
-      return convert_to_element(latex_expr)
+      return _latex2mathml(latex_expr)
     except SystemError:
       return None
 
@@ -47,6 +48,28 @@ def try_gen_asset(context: Context, element: Element) -> Element | None:
   context.use_asset(file_name, "image/png")
 
   return _create_image_element(file_name, element)
+
+_ESCAPE_UNICODE_PATTERN = re.compile(r"&#x([0-9A-Fa-f]{5});")
+
+def _latex2mathml(latex: str):
+  # latex2mathml 转义会带上一个奇怪的 `&` 前缀，这显然是多余的
+  # 不得已，在这里用正则表达式处理以修正这个错误
+  def repl(match):
+    hex_code = match.group(1)
+    char = chr(int(hex_code, 16))
+    if char == "<":
+      return "&lt;"
+    elif char == ">":
+      return "&gt;"
+    else:
+      return char
+
+  mathml = re.sub(
+    pattern=_ESCAPE_UNICODE_PATTERN,
+    repl=repl,
+    string=convert(latex),
+  )
+  return fromstring(mathml)
 
 def _latex_formula2svg(latex: str, font_size: int=12):
   # from https://www.cnblogs.com/qizhou/p/18170083
