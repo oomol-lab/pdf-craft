@@ -4,7 +4,7 @@ import fitz
 from html import escape
 from typing import Generator, Iterable
 from PIL.Image import Image
-from xml.etree.ElementTree import Element
+from xml.etree.ElementTree import fromstring, Element, ParseError
 
 from .types import AnalysingStep, AnalysingProgressReport, AnalysingStepReport
 from .asset_matcher import search_asset_tags, AssetMatcher, AssetKind
@@ -130,7 +130,13 @@ def _migrate_expressions_and_save_images(root: Element, blocks: list[Block], ass
       elif block.format == TableFormat.MARKDOWN:
         children = create_children("markdown", block.content)
       elif block.format == TableFormat.HTML:
-        children = create_children("html", block.content)
+        try:
+          table_element = fromstring(block.content)
+          table_content = Element("html")
+          table_content.append(table_element)
+          children = (table_content,)
+        except ParseError:
+          pass
 
     elif isinstance(block, FormulaBlock):
       kind = AssetKind.FORMULA

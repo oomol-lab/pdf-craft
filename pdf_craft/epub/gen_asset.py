@@ -9,15 +9,23 @@ from .types import LaTeXRender
 from .context import Context
 
 
+def try_gen_table(context: Context, element: Element) -> list[Element] | None:
+  if context.table_render == LaTeXRender.CLIPPING:
+    return None
+
+  table_html = _find_child(element, ("html",))
+  children: list[Element] = []
+  if table_html is not None:
+    for child in table_html:
+      children.append(child)
+
+  return children
+
 def try_gen_formula(context: Context, element: Element) -> Element | None:
   if context.latex_render == LaTeXRender.CLIPPING:
     return None
 
-  latex: Element | None = None
-  for child in element:
-    if child.tag == "latex":
-      latex = child
-      break
+  latex = _find_child(element, ("latex",))
   if latex is None:
     return None
 
@@ -104,6 +112,12 @@ def _create_image_element(file_name: str, origin: Element):
     img_element.set("alt", alt)
 
   return img_element
+
+def _find_child(parent: Element, tags: tuple[str, ...]) -> Element | None:
+  for child in parent:
+    if child.tag in tags:
+      return child
+  return None
 
 def _normalize_expression(expression: str) -> str:
   expression = expression.replace("\n", "")

@@ -2,7 +2,7 @@ from xml.etree.ElementTree import tostring, Element
 from .i18n import I18N
 from .template import Template
 from .context import Context
-from .gen_asset import try_gen_formula, try_gen_asset
+from .gen_asset import try_gen_table, try_gen_formula, try_gen_asset
 
 
 def generate_part(
@@ -83,7 +83,7 @@ _XML2HTML_TAGS: dict[str, str] = {
 
 def _create_main_text_element(
       origin: Element,
-      assets: Context,
+      context: Context,
       used_ref_ids: set[str] | None = None,
     ) -> Element | None:
 
@@ -98,19 +98,27 @@ def _create_main_text_element(
       return element
 
   else:
-    asset_element: Element | None = None
+    asset_elements: list[Element] = []
+    if origin.tag == "table":
+      asset_elements.extend(try_gen_table(context, origin))
+
     if origin.tag == "formula":
-      asset_element = try_gen_formula(assets, origin)
+      asset_element = try_gen_formula(context, origin)
+      if asset_element is not None:
+        asset_elements.append(asset_element)
 
-    if asset_element is None:
-      asset_element = try_gen_asset(assets, origin)
+    if len(asset_elements) == 0:
+      asset_element = try_gen_asset(context, origin)
+      if asset_element is not None:
+        asset_elements.append(asset_element)
 
-    if asset_element is None:
+    if len(asset_elements) == 0:
       return None
 
     wrapper_div = Element("div")
     wrapper_div.set("class", "alt-wrapper")
-    wrapper_div.append(asset_element)
+    wrapper_div.extend(asset_elements)
+
     return wrapper_div
 
 def _fill_text_and_citations(element: Element, origin: Element, used_ref_ids: set[str] | None):
