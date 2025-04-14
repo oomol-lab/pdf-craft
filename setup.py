@@ -26,6 +26,8 @@ setup(
     "pyMuPDF>=1.25.3,<2.0.0",
     "alphabet-detector>=0.0.7,<1.0.0",
     "shapely>=2.0.6,<3.0.0",
+    "latex2mathml>=3.77.0,<4.0.0",
+    "matplotlib>=3.10.1,<3.11.0",
     "tiktoken>=0.9.0,<1.0.0",
     "doc-page-extractor==0.1.0",
     "resource-segmentation==0.0.1",

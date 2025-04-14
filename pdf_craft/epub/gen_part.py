@@ -1,26 +1,35 @@
 from xml.etree.ElementTree import tostring, Element
 from .i18n import I18N
 from .template import Template
+from .assets import Assets
+from .gen_asset import try_gen_formula, try_gen_asset
 
 
-def generate_part(template: Template, chapter_xml: Element, i18n: I18N) -> str:
+def generate_part(
+      assets: Assets,
+      template: Template,
+      chapter_xml: Element,
+      i18n: I18N,
+    ) -> str:
+
   content_xml = chapter_xml.find("content")
   citations_xml = chapter_xml.find("citations")
   assert content_xml is not None
   return template.render(
     template="part.xhtml",
     i18n=i18n,
-    content=list(_render_content(content_xml)),
-    citations=list(_render_citations(citations_xml)),
+    content=list(_render_content(assets, content_xml)),
+    citations=list(_render_citations(assets, citations_xml)),
   )
 
-def _render_content(content_xml: Element):
+def _render_content(assets: Assets, content_xml: Element):
   used_ref_ids: set[str] = set()
   for child in content_xml:
-    for to_element in _create_main_text_element(child, used_ref_ids):
+    to_element = _create_main_text_element(child, assets, used_ref_ids)
+    if to_element is not None:
       yield tostring(to_element, encoding="unicode")
 
-def _render_citations(citations_xml: Element | None):
+def _render_citations(assets: Assets, citations_xml: Element | None):
   if citations_xml is None:
     return
 
@@ -37,7 +46,8 @@ def _render_citations(citations_xml: Element | None):
     used_citation_ids: set[str] = set()
 
     for child in citation_children:
-      for to_element in _create_main_text_element(child):
+      to_element = _create_main_text_element(child, assets)
+      if to_element is not None:
         ref_element = Element("a")
         ref_element.text = f"[{id}]"
         ref_element.attrib = {
@@ -65,52 +75,43 @@ def _render_citations(citations_xml: Element | None):
 
     yield tostring(to_div, encoding="unicode")
 
-def _create_main_text_element(origin: Element, used_ref_ids: set[str] | None = None):
-  html_tag: str | None = None
-  if origin.tag == "text":
-    html_tag = "p"
-  elif origin.tag == "quote":
-    html_tag = "p"
-  elif origin.tag == "headline":
-    html_tag = "h1"
+_XML2HTML_TAGS: dict[str, str] = {
+  "headline": "h1",
+  "quote": "p",
+  "text": "p",
+}
 
-  if html_tag is not None:
-    element = Element(html_tag)
+def _create_main_text_element(
+      origin: Element,
+      assets: Assets,
+      used_ref_ids: set[str] | None = None,
+    ) -> Element | None:
+
+  if origin.tag in _XML2HTML_TAGS:
+    element = Element(_XML2HTML_TAGS[origin.tag])
     _fill_text_and_citations(element, origin, used_ref_ids)
     if origin.tag == "quote":
       blockquote = Element("blockquote")
       blockquote.append(element)
-      yield blockquote
+      return blockquote
     else:
-      yield element
-    return
+      return element
 
-  hash = origin.get("hash", None)
-  if hash is None:
-    return
-
-  image = Element("img")
-  image.set("src", f"../assets/{hash}.png")
-
-  alt: str | None = None
-  if origin.text != "":
-    alt = origin.text
-  if alt is None:
-    image.set("alt", "image")
   else:
-    image.set("alt", alt)
+    asset_element: Element | None = None
+    if origin.tag == "formula":
+      asset_element = try_gen_formula(assets, origin)
 
-  wrapper_div = Element("div")
-  wrapper_div.set("class", "alt-wrapper")
-  wrapper_div.append(image)
+    if asset_element is None:
+      asset_element = try_gen_asset(assets, origin)
 
-  if alt is not None:
-    alt_div = Element("div")
-    alt_div.set("class", "alt")
-    alt_div.text = alt
-    wrapper_div.append(alt_div)
+    if asset_element is None:
+      return None
 
-  yield wrapper_div
+    wrapper_div = Element("div")
+    wrapper_div.set("class", "alt-wrapper")
+    wrapper_div.append(asset_element)
+    return wrapper_div
 
 def _fill_text_and_citations(element: Element, origin: Element, used_ref_ids: set[str] | None):
   element.text = origin.text

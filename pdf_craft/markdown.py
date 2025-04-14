@@ -1,8 +1,8 @@
 import io
 import os
 
-from hashlib import sha256
 from typing import Iterable
+from .utils import sha256_hash
 from .pdf import (
   Text,
   TextKind,
@@ -82,9 +82,8 @@ class MarkDownWriter:
 
   def _write_image(self, block: AssetBlock) -> None:
     os.makedirs(self._abs_assets_path, exist_ok=True)
-    hash = sha256()
-    hash.update(block.image.tobytes())
-    file_name = f"{hash.hexdigest()}.png"
+    hash = sha256_hash(block.image.tobytes())
+    file_name = f"{hash}.png"
     file_path = os.path.join(self._abs_assets_path, file_name)
     relative_path = os.path.join(self._assets_path, file_name)
 

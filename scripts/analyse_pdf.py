@@ -14,7 +14,7 @@ def main():
   pdf_file = os.path.abspath(pdf_file)
   model_dir_path = _project_dir_path("models")
   output_dir_path = _project_dir_path("output", clean=True)
-  analysing_dir_path = _project_dir_path("analysing", clean=True)
+  analysing_dir_path = _project_dir_path("analysing", clean=False)
   bar: tqdm | None = None
 
   try:
