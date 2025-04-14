@@ -1,12 +1,9 @@
 from typing import Literal
-from dataclasses import dataclass
-from enum import auto, Enum
 from typing import Iterable, Generator
 from PIL.Image import Image
 from fitz import Document
 from doc_page_extractor import (
   clip,
-  Rectangle,
   OCRFragment,
   ExtractedResult,
   Layout,
@@ -18,63 +15,22 @@ from doc_page_extractor import (
   TableLayoutParsedFormat,
 )
 
-from .types import OCRLevel, PDFPageExtractorProgressReport
 from .document import DocumentExtractor, DocumentParams
 from .utils import contains_cjka
+from .types import (
+  Block,
+  OCRLevel,
+  Text,
+  TextBlock,
+  TextKind,
+  FigureBlock,
+  TableBlock,
+  FormulaBlock,
+  TableFormat,
+  ExtractedTableFormat,
+  PDFPageExtractorProgressReport,
+)
 
-
-class ExtractedTableFormat(Enum):
-  LATEX = auto()
-  MARKDOWN = auto()
-  HTML = auto()
-  DISABLE = auto()
-
-class TextKind(Enum):
-  TITLE = 0
-  PLAIN_TEXT = 1
-  ABANDON = 2
-
-@dataclass
-class Text:
-  content: str
-  rank: float
-  rect: Rectangle
-
-@dataclass
-class BasicBlock:
-  rect: Rectangle
-  texts: list[Text]
-  font_size: float
-
-@dataclass
-class TextBlock(BasicBlock):
-  kind: TextKind
-  has_paragraph_indentation: bool = False
-  last_line_touch_end: bool = False
-
-class TableFormat(Enum):
-  LATEX = auto()
-  MARKDOWN = auto()
-  HTML = auto()
-  UNRECOGNIZABLE = auto()
-
-@dataclass
-class TableBlock(BasicBlock):
-  content: str
-  format: TableFormat
-  image: Image
-
-@dataclass
-class FormulaBlock(BasicBlock):
-  content: str | None
-  image: Image
-
-@dataclass
-class FigureBlock(BasicBlock):
-  image: Image
-
-AssetBlock = TableFormat | FormulaBlock | FigureBlock
-Block = TextBlock | AssetBlock
 
 class PDFPageExtractor:
   def __init__(
