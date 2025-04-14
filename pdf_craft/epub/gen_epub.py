@@ -50,13 +50,9 @@ def generate_epub_file(
     if toc_ncx is not None:
       file.writestr("OEBPS/toc.ncx", toc_ncx.encode("utf-8"))
 
-    _write_assets(
-      file=file,
-      template=template,
-      i18n=i18n,
-      from_dir_path=from_dir_path,
-      assets=assets,
-      has_cover=has_cover,
+    file.writestr(
+      zinfo_or_arcname="mimetype",
+      data=template.render("mimetype").encode("utf-8"),
     )
     _write_chapters(
       file=file,
@@ -77,6 +73,14 @@ def generate_epub_file(
       assets=assets,
       has_cover=has_cover,
       has_head_chapter=has_head_chapter,
+    )
+    _write_assets(
+      file=file,
+      template=template,
+      i18n=i18n,
+      from_dir_path=from_dir_path,
+      assets=assets,
+      has_cover=has_cover,
     )
 
 def _write_assets(
@@ -144,11 +148,6 @@ def _write_basic_files(
     has_cover: bool,
     has_head_chapter: bool,
   ):
-
-  file.writestr(
-    zinfo_or_arcname="mimetype",
-    data=template.render("mimetype").encode("utf-8"),
-  )
   file.writestr(
     zinfo_or_arcname="META-INF/container.xml",
     data=template.render("container.xml").encode("utf-8"),
@@ -161,7 +160,7 @@ def _write_basic_files(
     nav_points=nav_points,
     has_head_chapter=has_head_chapter,
     has_cover=has_cover,
-    asset_files=assets.used_file_names,
+    asset_files=assets.used_files,
   )
   file.writestr(
     zinfo_or_arcname="OEBPS/content.opf",

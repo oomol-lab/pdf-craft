@@ -24,7 +24,7 @@ def try_gen_formula(assets: Assets, element: Element) -> Element | None:
     svg_image = _latex_formula2svg(latex.text.replace("\n", ""))
     file_name = f"{sha256_hash(svg_image)}.svg"
     img_element = _create_image_element(file_name, element)
-    assets.add_asset(file_name, svg_image)
+    assets.add_asset(file_name, "image/svg+xml", svg_image)
     return img_element
 
   except SystemError:
@@ -36,7 +36,7 @@ def try_gen_asset(assets: Assets, element: Element) -> Element | None:
     return None
 
   file_name = f"{hash}.png"
-  assets.use_asset(file_name)
+  assets.use_asset(file_name, "image/png")
 
   return _create_image_element(file_name, element)
 

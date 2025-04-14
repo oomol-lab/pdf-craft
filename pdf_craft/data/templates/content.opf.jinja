@@ -37,8 +37,8 @@
   </metadata>
   <manifest>
     <item id="a_css" media-type="text/css" href="styles/style.css" />
-{% for asset_file in asset_files %}
-    <item id="a_{{ asset_file }}" media-type="image/png" href="assets/{{ asset_file }}" />
+{% for asset_file, media_type in asset_files %}
+    <item id="a_{{ asset_file }}" media-type="{{ media_type }}" href="assets/{{ asset_file }}" />
 {% endfor%}
 {% if has_cover %}
     <item id="a_cover" media-type="image/png" href="assets/cover.png" />

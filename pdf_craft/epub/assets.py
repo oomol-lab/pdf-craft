@@ -8,7 +8,7 @@ class Assets:
       assets_path = None
     self._assets_path: str | None = assets_path
     self._file: ZipFile = file
-    self._used_file_names: set[str] = set()
+    self._used_file_names: dict[str, str] = {}
     self._asset_files: list[str] = []
 
     if assets_path is not None:
@@ -17,24 +17,26 @@ class Assets:
           self._asset_files.append(file)
       self._asset_files.sort()
 
-  def use_asset(self, file_name: str) -> None:
-    self._used_file_names.add(file_name)
+  def use_asset(self, file_name: str, media_type: str) -> None:
+    self._used_file_names[file_name] = media_type
 
-  def add_asset(self, file_name: str, data: bytes) -> None:
+  def add_asset(self, file_name: str, media_type: str, data: bytes) -> None:
     if file_name in self._used_file_names:
       return
 
-    self._used_file_names.add(file_name)
+    self._used_file_names[file_name] = media_type
     self._file.writestr(
       zinfo_or_arcname="OEBPS/assets/" + file_name,
       data=data,
     )
 
   @property
-  def used_file_names(self) -> list[str]:
-    file_names = list(self._used_file_names)
-    file_names.sort()
-    return file_names
+  def used_files(self) -> list[tuple[str, str]]:
+    files: list[tuple[str, str]] = []
+    for file_name in sorted(list(self._used_file_names.keys())):
+      media_type = self._used_file_names[file_name]
+      files.append((file_name, media_type))
+    return files
 
   def add_used_asset_files(self) -> None:
     if self._assets_path is None:
