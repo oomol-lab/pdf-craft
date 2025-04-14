@@ -4,10 +4,10 @@ import matplotlib.pyplot as plt
 from xml.etree.ElementTree import Element
 # from latex2mathml.converter import convert_to_element
 from ..utils import sha256_hash
-from .assets import Assets
+from .context import Context
 
 
-def try_gen_formula(assets: Assets, element: Element) -> Element | None:
+def try_gen_formula(context: Context, element: Element) -> Element | None:
   latex: Element | None = None
   for child in element:
     if child.tag == "latex":
@@ -24,19 +24,19 @@ def try_gen_formula(assets: Assets, element: Element) -> Element | None:
     svg_image = _latex_formula2svg(latex.text.replace("\n", ""))
     file_name = f"{sha256_hash(svg_image)}.svg"
     img_element = _create_image_element(file_name, element)
-    assets.add_asset(file_name, "image/svg+xml", svg_image)
+    context.add_asset(file_name, "image/svg+xml", svg_image)
     return img_element
 
   except SystemError:
     return None
 
-def try_gen_asset(assets: Assets, element: Element) -> Element | None:
+def try_gen_asset(context: Context, element: Element) -> Element | None:
   hash = element.get("hash", None)
   if hash is None:
     return None
 
   file_name = f"{hash}.png"
-  assets.use_asset(file_name, "image/png")
+  context.use_asset(file_name, "image/png")
 
   return _create_image_element(file_name, element)
 

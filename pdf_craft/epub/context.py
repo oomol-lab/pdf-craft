@@ -2,8 +2,8 @@ import os
 from zipfile import ZipFile
 
 
-class Assets:
-  def __init__(self, assets_path: str | None, file: ZipFile) -> None:
+class Context:
+  def __init__(self, file: ZipFile, assets_path: str | None) -> None:
     if assets_path is not None and not os.path.exists(assets_path):
       assets_path = None
     self._assets_path: str | None = assets_path
@@ -16,6 +16,10 @@ class Assets:
         if not file.startswith("."):
           self._asset_files.append(file)
       self._asset_files.sort()
+
+  @property
+  def file(self) -> ZipFile:
+    return self._file
 
   def use_asset(self, file_name: str, media_type: str) -> None:
     self._used_file_names[file_name] = media_type

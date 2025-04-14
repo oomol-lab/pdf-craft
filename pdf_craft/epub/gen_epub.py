@@ -9,7 +9,7 @@ from .gen_part import generate_part
 from .gen_index import gen_index, NavPoint
 from .i18n import I18N
 from .template import Template
-from .assets import Assets
+from .context import Context
 
 
 def generate_epub_file(
@@ -45,7 +45,7 @@ def generate_epub_file(
     ),
   )
   with ZipFile(epub_file_path, "w") as file:
-    assets = Assets(assets_path, file)
+    context = Context(file, assets_path)
     file.writestr(
       zinfo_or_arcname="mimetype",
       data=template.render("mimetype").encode("utf-8"),
@@ -55,48 +55,44 @@ def generate_epub_file(
       data=toc_ncx.encode("utf-8"),
     )
     _write_chapters(
-      file=file,
+      context=context,
       template=template,
       i18n=i18n,
-      assets=assets,
       nav_points=nav_points,
       from_dir_path=from_dir_path,
       has_head_chapter=has_head_chapter,
       head_chapter_path=head_chapter_path,
     )
     _write_basic_files(
-      file=file,
+      context=context,
       template=template,
       i18n=i18n,
       meta=meta,
       nav_points=nav_points,
-      assets=assets,
       has_cover=has_cover,
       has_head_chapter=has_head_chapter,
     )
     _write_assets(
-      file=file,
+      context=context,
       template=template,
       i18n=i18n,
       from_dir_path=from_dir_path,
-      assets=assets,
       has_cover=has_cover,
     )
 
 def _write_assets(
-    file: ZipFile,
+    context: Context,
     template: Template,
     i18n: I18N,
     from_dir_path: str,
-    assets: Assets,
     has_cover: bool,
   ):
-  file.writestr(
+  context.file.writestr(
     zinfo_or_arcname="OEBPS/styles/style.css",
     data=template.render("style.css").encode("utf-8"),
   )
   if has_cover:
-    file.writestr(
+    context.file.writestr(
       zinfo_or_arcname="OEBPS/Text/cover.xhtml",
       data=template.render(
         template="cover.xhtml",
@@ -104,17 +100,16 @@ def _write_assets(
       ).encode("utf-8"),
     )
   if has_cover:
-    file.write(
+    context.file.write(
       filename=os.path.join(from_dir_path, "cover.png"),
       arcname="OEBPS/assets/cover.png",
     )
-  assets.add_used_asset_files()
+  context.add_used_asset_files()
 
 def _write_chapters(
-    file: ZipFile,
+    context: Context,
     template: Template,
     i18n: I18N,
-    assets: Assets,
     nav_points: list[NavPoint],
     from_dir_path: str,
     has_head_chapter: bool,
@@ -123,8 +118,8 @@ def _write_chapters(
 
   if has_head_chapter:
     chapter_xml = _read_xml(head_chapter_path)
-    data = generate_part(assets, template, chapter_xml, i18n)
-    file.writestr(
+    data = generate_part(context, template, chapter_xml, i18n)
+    context.file.writestr(
       zinfo_or_arcname="OEBPS/Text/head.xhtml",
       data=data.encode("utf-8"),
     )
@@ -132,23 +127,22 @@ def _write_chapters(
     chapter_path = os.path.join(from_dir_path, f"chapter_{nav_point.index_id}.xml")
     if os.path.exists(chapter_path):
       chapter_xml = _read_xml(chapter_path)
-      data = generate_part(assets, template, chapter_xml, i18n)
-      file.writestr(
+      data = generate_part(context, template, chapter_xml, i18n)
+      context.file.writestr(
         zinfo_or_arcname="OEBPS/Text/" + nav_point.file_name,
         data=data.encode("utf-8"),
       )
 
 def _write_basic_files(
-    file: ZipFile,
+    context: Context,
     template: Template,
     i18n: I18N,
     meta: dict,
     nav_points: list[NavPoint],
-    assets: Assets,
     has_cover: bool,
     has_head_chapter: bool,
   ):
-  file.writestr(
+  context.file.writestr(
     zinfo_or_arcname="META-INF/container.xml",
     data=template.render("container.xml").encode("utf-8"),
   )
@@ -160,9 +154,9 @@ def _write_basic_files(
     nav_points=nav_points,
     has_head_chapter=has_head_chapter,
     has_cover=has_cover,
-    asset_files=assets.used_files,
+    asset_files=context.used_files,
   )
-  file.writestr(
+  context.file.writestr(
     zinfo_or_arcname="OEBPS/content.opf",
     data=content.encode("utf-8"),
   )
