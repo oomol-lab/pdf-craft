@@ -1,4 +1,6 @@
 from __future__ import annotations
+import os
+
 from json import loads
 from dataclasses import dataclass
 from typing import Callable
@@ -17,39 +19,52 @@ def gen_index(
     template: Template,
     i18n: I18N,
     meta: dict,
-    file_path: str,
+    index_file_path: str,
     has_cover: bool,
     check_chapter_exits: Callable[[int], bool],
   ) -> tuple[str, list[NavPoint]]:
 
-  prefaces, chapters = _parse_index(file_path)
-  nav_points: list[Element] = []
-  nav_point_generation = _NavPointGeneration(
-    check_chapter_exits=check_chapter_exits,
-    chapters_count=(
-      _count_chapters(prefaces) +
-      _count_chapters(chapters)
-    ),
-  )
-  for chapters_list in (prefaces, chapters):
-    for chapter in chapters_list:
-      element = nav_point_generation.generate(chapter)
-      if element is not None:
-        nav_points.append(element)
+  nav_elements: list[Element]
+  nav_points: list[NavPoint]
+  depth: int
 
-  depth = max(
-    _max_depth(prefaces),
-    _max_depth(chapters),
-  )
+  if os.path.exists(index_file_path):
+    prefaces, chapters = _parse_index(index_file_path)
+    nav_point_generation = _NavPointGeneration(
+      has_cover=has_cover,
+      check_chapter_exits=check_chapter_exits,
+      chapters_count=(
+        _count_chapters(prefaces) +
+        _count_chapters(chapters)
+      ),
+    )
+    nav_elements = []
+    for chapters_list in (prefaces, chapters):
+      for chapter in chapters_list:
+        element = nav_point_generation.generate(chapter)
+        if element is not None:
+          nav_elements.append(element)
+
+    depth = max(
+      _max_depth(prefaces),
+      _max_depth(chapters),
+    )
+    nav_points = nav_point_generation.nav_points
+
+  else:
+    nav_elements = []
+    nav_points = []
+    depth = 0
+
   toc_ncx = template.render(
     template="toc.ncx",
     depth=depth,
     i18n=i18n,
     meta=meta,
     has_cover=has_cover,
-    nav_points=[tostring(p, encoding="unicode") for p in nav_points],
+    nav_points=[tostring(p, encoding="unicode") for p in nav_elements],
   )
-  return toc_ncx, nav_point_generation.nav_points
+  return toc_ncx, nav_points
 
 def _count_chapters(chapters: list[_Chapter]) -> int:
   count: int = 0
@@ -67,9 +82,9 @@ def _max_depth(chapters: list[_Chapter]) -> int:
   return max_depth
 
 class _NavPointGeneration:
-  def __init__(self, chapters_count: int, check_chapter_exits: Callable[[int], bool]):
+  def __init__(self, has_cover: bool, chapters_count: int, check_chapter_exits: Callable[[int], bool]):
     self._nav_points: list[NavPoint] = []
-    self._next_order: int = 1
+    self._next_order: int = 2 if has_cover else 1
     self._digits = len(str(chapters_count))
     self._check_chapter_exits: Callable[[int], bool] = check_chapter_exits
 

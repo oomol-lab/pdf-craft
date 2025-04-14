@@ -50,15 +50,9 @@
 {% for nav_point in nav_points %}
     <item id="x_{{ nav_point.file_name }}" media-type="application/xhtml+xml" href="Text/{{ nav_point.file_name }}" />
 {% endfor %}
-{% if nav_points %}
     <item id="ncx" media-type="application/x-dtbncx+xml" href="toc.ncx" />
-{% endif %}
   </manifest>
-{% if nav_points %}
   <spine toc="ncx">
-{% else %}
-  <spine>
-{% endif %}
 {% if has_cover %}
     <itemref idref="x_cover.xhtml" linear="no" />
 {% endif %}

@@ -24,7 +24,7 @@ def generate_epub_file(
   assets_path: str | None = os.path.join(from_dir_path, "assets")
   head_chapter_path = os.path.join(from_dir_path, "chapter.xml")
 
-  toc_ncx: str | None = None
+  toc_ncx: str
   nav_points: list[NavPoint] = []
   meta: dict = {}
   has_head_chapter: bool = os.path.exists(head_chapter_path)
@@ -34,25 +34,25 @@ def generate_epub_file(
     with open(meta_path, "r", encoding="utf-8") as f:
       meta = json.loads(f.read())
 
-  if os.path.exists(index_path):
-    toc_ncx, nav_points = gen_index(
-      template=template,
-      i18n=i18n,
-      meta=meta,
-      file_path=index_path,
-      has_cover=has_cover,
-      check_chapter_exits=lambda id: os.path.exists(
-        os.path.join(from_dir_path, f"chapter_{id}.xml"),
-      ),
-    )
+  toc_ncx, nav_points = gen_index(
+    template=template,
+    i18n=i18n,
+    meta=meta,
+    index_file_path=index_path,
+    has_cover=has_cover,
+    check_chapter_exits=lambda id: os.path.exists(
+      os.path.join(from_dir_path, f"chapter_{id}.xml"),
+    ),
+  )
   with ZipFile(epub_file_path, "w") as file:
     assets = Assets(assets_path, file)
-    if toc_ncx is not None:
-      file.writestr("OEBPS/toc.ncx", toc_ncx.encode("utf-8"))
-
     file.writestr(
       zinfo_or_arcname="mimetype",
       data=template.render("mimetype").encode("utf-8"),
+    )
+    file.writestr(
+      zinfo_or_arcname="OEBPS/toc.ncx",
+      data=toc_ncx.encode("utf-8"),
     )
     _write_chapters(
       file=file,
