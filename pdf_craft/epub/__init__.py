@@ -1,2 +1,2 @@
 from .gen_epub import generate_epub_file
-from .types import LaTeXRender
+from .types import TableRender, LaTeXRender

@@ -1,7 +1,7 @@
 import os
 
 from zipfile import ZipFile
-from .types import LaTeXRender
+from .types import TableRender, LaTeXRender
 
 
 class Context:
@@ -9,6 +9,7 @@ class Context:
         self,
         file: ZipFile,
         assets_path: str | None,
+        table_render: TableRender,
         latex_render: LaTeXRender,
       ) -> None:
 
@@ -16,6 +17,7 @@ class Context:
       assets_path = None
     self._assets_path: str | None = assets_path
     self._file: ZipFile = file
+    self._table_render: TableRender = table_render
     self._latex_render: LaTeXRender = latex_render
     self._used_file_names: dict[str, str] = {}
     self._asset_files: list[str] = []
@@ -29,6 +31,10 @@ class Context:
   @property
   def file(self) -> ZipFile:
     return self._file
+
+  @property
+  def table_render(self) -> TableRender:
+    return self._table_render
 
   @property
   def latex_render(self) -> LaTeXRender:

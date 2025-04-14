@@ -5,7 +5,7 @@ from typing import Literal
 from uuid import uuid4
 from zipfile import ZipFile
 from xml.etree.ElementTree import fromstring, Element
-from .types import LaTeXRender
+from .types import TableRender, LaTeXRender
 from .gen_part import generate_part
 from .gen_index import gen_index, NavPoint
 from .i18n import I18N
@@ -17,6 +17,7 @@ def generate_epub_file(
       from_dir_path: str,
       epub_file_path: str,
       lan: Literal["zh", "en"] = "zh",
+      table_render: TableRender = TableRender.HTML,
       latex_render: LaTeXRender = LaTeXRender.MATHML,
     ) -> None:
 
@@ -51,6 +52,7 @@ def generate_epub_file(
     context = Context(
       file=file,
       assets_path=assets_path,
+      table_render=table_render,
       latex_render=latex_render,
     )
     file.writestr(

@@ -10,11 +10,15 @@ from .context import Context
 
 
 def try_gen_table(context: Context, element: Element) -> list[Element] | None:
+  if context._table_render == LaTeXRender.CLIPPING:
+    return None
+
   table_html = _find_child(element, ("html",))
   children: list[Element] = []
   if table_html is not None:
     for child in table_html:
       children.append(child)
+
   return children
 
 def try_gen_formula(context: Context, element: Element) -> Element | None:
