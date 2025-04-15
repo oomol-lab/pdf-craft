@@ -56,7 +56,7 @@ def try_gen_asset(context: Context, element: Element) -> Element | None:
 
 _ESCAPE_UNICODE_PATTERN = re.compile(r"&#x([0-9A-Fa-f]{5});")
 
-def _latex2mathml(latex: str) -> None | Element[str]:
+def _latex2mathml(latex: str) -> None | Element:
   try:
     html_latex = convert(latex)
   except Exception:
