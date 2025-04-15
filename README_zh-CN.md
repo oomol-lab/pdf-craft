@@ -14,7 +14,7 @@
 
 ## 简介
 
-PDF Craft 可以将 PDF 文件转化为各种其他格式。该项目将专注于扫描书籍的 PDF 文件的处理。目前项目刚刚启动，如果你碰到问题或任何建议，请提交 [issues](https://github.com/oomol-lab/pdf-craft/issues)。
+PDF Craft 可以将 PDF 文件转化为各种其他格式。该项目将专注于扫描书籍的 PDF 文件的处理。如果你遇到问题或任何建议，请提交 [issues](https://github.com/oomol-lab/pdf-craft/issues)。
 
 [![About PDF Craft](./docs/images/youtube.png)](https://www.youtube.com/watch?v=EpaLC71gPpM)
 
@@ -22,7 +22,7 @@ PDF Craft 可以将 PDF 文件转化为各种其他格式。该项目将专注�
 
 仅靠以上这些可在本地执行的 AI 模型（使用本地显卡设备来加速），便可将 PDF 文件转化为 Markdown 格式。这适应于论文或小书本。
 
-但若要解析书籍（一般页数超过 100 页），建议将其转化为 [EPUB](https://en.wikipedia.org/wiki/EPUB) 格式的文件。转化过程中，本库会将本地 OCR 识别出的数据传给 [LLM](https://en.wikipedia.org/wiki/Large_language_model)，并通过特定信息（比如目录等）来构建书本的结构，最终生成带目录，分章节的 EPUB 文件。这个解析和构建的过程中，会通过 LLM 读取每页的注释和引用信息，然后在 EPUB 文件中以新的格式呈现。此外 LLM 还能在一定程度上矫正 OCR 的错误。这一步骤无法全在本地执行，你需要配置 LLM 服务，推荐使用 [DeepSeek](https://www.deepseek.com/)，本库的 Prompt 基于 V3 模型调试。
+但若要解析书籍（一般页数超过 100 页），建议将其转化为 [EPUB](https://en.wikipedia.org/wiki/EPUB) 格式的文件。转化过程中，本库会将本地 OCR 识别出的数据传给 [LLM](https://en.wikipedia.org/wiki/Large_language_model)，并通过特定信息（比如目录等）来构建书本的结构，最终生成带目录，分章节的 EPUB 文件。这个解析和构建的过程中，会通过 LLM 读取每页的注释和引用信息，然后在 EPUB 文件中以新的格式呈现。此外 LLM 还能在一定程度上校正 OCR 的错误。这一步骤无法全在本地执行，你需要配置 LLM 服务，推荐使用 [DeepSeek](https://www.deepseek.com/)，本库的 Prompt 基于 V3 模型调试。
 
 ## 安装
 
@@ -113,7 +113,7 @@ analyse(
 
 其二是 `analysing_dir_path`，用来存储分析过程中的中间状态。在扫描和分析成功后，这个文件夹及其内部文件将变得没用（你可以用代码将它们删除）。该地址应该指向一个文件夹，若不存在，则会自动创建一个文件夹。这个文件夹（及其内部文件）可以保存分析进度。若某次分析因为意外而中断，可以通过将 `analysing_dir_path` 配置到上次被中断而产生的 analysing 文件夹，从而从上次被中断的点恢复并继续分析。特别的，如果你要开始一个全新的任务，请手动删除或清空 `analysing_dir_path` 文件夹，避免误触发中断恢复功能。
 
-在分析结束后，将 `output_dir_path` 文件夹地址传给如下代码作为参数，即可最终生成 EPUB 文件。
+在分析结束后，将 `output_dir_path` 文件夹地址传递给如下代码作为参数，即可最终生成 EPUB 文件。
 
 ```python
 from pdf_craft import generate_epub_file
@@ -140,27 +140,82 @@ generate_epub_file(
 from pdf_craft import OCRLevel, PDFPageExtractor
 
 extractor = PDFPageExtractor(
-  device="cpu",
-  model_dir_path="/path/to/model/dir/path",
+  ..., # 其他参数
   ocr_level=OCRLevel.OncePerLayout,
 )
 ```
 
-### LLM 进阶
+### 识别公式与表格
+
+构造的 `PDFPageExtractor` 在识别文件时，默认会直接将原始页中的公式与表格裁剪出来，当作图片处理。你可以在构造它时添加配置，改变默认行为，以让其将公式和表格提取出来。
+
+配置 `extract_formula` 参数的值为 `True`，将启用 [LaTeX-OCR](https://github.com/lukas-blecher/LaTeX-OCR) 来识别原始页中的公式，并以 [LaTeX](https://zh.wikipedia.org/zh-hans/LaTeX) 的形式存储。
+
+配置 `extract_table_format` 的参数并指定形式，将启动 [StructEqTable](https://github.com/Alpha-Innovator/StructEqTable-Deploy) 来处理原始页中的表格，并以制定的形式存储。**注意：该功能需要本地设备支持 CUDA（并配置 `device="cuda"` 参数）**，否则功能将回退到默认行为。
+
+#### 在转 Markdown 中的应用
+
+在构建 `PDFPageExtractor` 时插入前文提及的两个参数，以在转 Markdown 时开启公式、表格识别。
+
+```python
+from pdf_craft import PDFPageExtractor, ExtractedTableFormat
+
+extractor = PDFPageExtractor(
+  ..., # 其他参数
+  extract_formula=True, # 开启公式识别
+  extract_table_format=ExtractedTableFormat.MARKDOWN, # 开启表格识别（以 MarkDown 格式保存）
+)
+```
+
+特别的，对于转 Markdown 场景时，`extract_table_format` 只有设置为 `ExtractedTableFormat.MARKDOWN` 。
+
+#### 在转 EPub 中的应用
+
+同上一章节所述，需要在构建时插入那两个参数。但需注意，`extract_table_format` 的值应为 `ExtractedTableFormat.HTML` 。
+
+```python
+from pdf_craft import PDFPageExtractor, ExtractedTableFormat
+
+extractor = PDFPageExtractor(
+  ..., # 其他参数
+  extract_formula=True, # 开启公式识别
+  extract_table_format=ExtractedTableFormat.HTML, # 开启表格识别（以 MarkDown 格式保存）
+)
+```
+
+此外，在接下来调用 `generate_epub_file()` 函数时，还需要配置 `table_render` 和 `latex_render`，以分别指定识别出的表格、公式以何种方式在 EPub 文件中渲染。
+
+```python
+from pdf_craft import generate_epub_file, TableRender, LaTeXRender
+
+generate_epub_file(
+  ..., # 其他参数
+  table_render=TableRender.HTML, # 表格渲染模式
+  latex_render=LaTeXRender.SVG, # 公式渲染模式
+)
+```
+
+对于表格渲染模式（`TableRender`），只有 `HTML` 和 `CLIPPING` 两种。前者表示以 HTML 的形式（即 `<table>` 相关的标签）渲染，后者是默认渲染模式，即从原始页中截图。
+
+对于公式的渲染模式（`LaTeXRender`），有 `MATHML`、`SVG`、`CLIPPING` 三种。其中`CLIPPING` 是默认行为，即从原始页中截图。前两种我将分别介绍。
+
+`MATHML` 表示以 [MathML](https://en.wikipedia.org/wiki/MathML) 标签在 EPub 文件中渲染，这是一种 XML 应用的数学标记语言。但请注意，在 EPub 2.0 中并不支持这种语言。这意味若使用这种渲染方式，并非所有的 EPub 阅读器都能正确渲染公式。
+
+`SVG` 表示将识别出的公式以 [SVG](https://en.wikipedia.org/wiki/SVG) 文件的形式渲染。这是一种无损图片格式，也意味着以此方式渲染的公式可以在任意支持 EPub 2.0 的阅读器中正确展示。但该配置需要在本地安装 `latex`，若未安装，则运行时会报错。你可以通过如下命令测试本地设备是否正确安装。
+
+```shell
+latex --version
+```
+
+### 温度与创造力
 
 前文提及 `LLM` 的构建，可以为其添加更多的参数来实现更丰富的功能。以实现断线重连，或指定特定的超时时间。
 
 ```python
 llm = LLM(
-  key="sk-XXXXX",
-  url="https://api.deepseek.com",
-  model="deepseek-chat",
-  token_encoding="o200k_base",
+  ..., # 其他参数
   top_p=0.8, # Top P 创造力（可选）
   temperature=0.3, # 温度（可选）
-  timeout=360, # 超时时间，单位秒（可选）
-  retry_times=10, # 因为网络原因或格式不完整请求失败所能接受的最大重试次数（可选）
-  retry_interval_seconds=6.0, # 重试之间间隔的时间，单位秒（可选）
 )
 ```
 
@@ -168,10 +223,7 @@ llm = LLM(
 
 ```python
 llm = LLM(
-  key="sk-XXXXX",
-  url="https://api.deepseek.com",
-  model="deepseek-chat",
-  token_encoding="o200k_base",
+  ..., # 其他参数
   top_p=(0.3, 1.0) # 创造力（可选）
   temperature=(0.3, 1.0), # 温度（可选）
 )
@@ -185,11 +237,7 @@ llm = LLM(
 from pdf_craft import analyse
 
 analyse(
-  llm=llm, # 上一步准备好的 LLM 配置
-  pdf_page_extractor=pdf_page_extractor, # 上一部准备好的 PDFPageExtractor 对象
-  pdf_path="/path/to/pdf/file", # PDF 文件路径
-  analysing_dir_path="/path/to/analysing/dir", # analysing 文件夹地址
-  output_dir_path="/path/to/output/files", # 分析结果将写入这个文件夹
+  ..., # 其他参数
   window_tokens=2000, # 请求窗口中最大 token 数
 )
 ```
@@ -200,11 +248,7 @@ analyse(
 from pdf_craft import analyse, LLMWindowTokens
 
 analyse(
-  llm=llm, # 上一步准备好的 LLM 配置
-  pdf_page_extractor=pdf_page_extractor, # 上一部准备好的 PDFPageExtractor 对象
-  pdf_path="/path/to/pdf/file", # PDF 文件路径
-  analysing_dir_path="/path/to/analysing/dir", # analysing 文件夹地址
-  output_dir_path="/path/to/output/files", # 分析结果将写入这个文件夹
+  ..., # 其他参数
   window_tokens=LLMWindowTokens(
     main_texts=2400,
     citations=2000,
@@ -214,6 +258,9 @@ analyse(
 
 ## 致谢
 
+- [doc-page-extractor](https://github.com/Moskize91/doc-page-extractor)
 - [DocLayout-YOLO](https://github.com/opendatalab/DocLayout-YOLO)
 - [OnnxOCR](https://github.com/jingsongliujing/OnnxOCR)
 - [layoutreader](https://github.com/ppaanngggg/layoutreader)
+- [StructEqTable](https://github.com/Alpha-Innovator/StructEqTable-Deploy)
+- [LaTeX-OCR](https://github.com/lukas-blecher/LaTeX-OCR)
