@@ -14,7 +14,7 @@
 
 ## Introduction
 
-PDF Craft can convert PDF files into various other formats. This project will focus on processing PDF files of scanned books. The project has just started. If you encounter any problems or have any suggestions, please submit [issues](https://github.com/oomol-lab/pdf-craft/issues).
+PDF Craft can convert PDF files into various other formats. This project will focus on processing PDF files of scanned books. If you encounter any problems or have any suggestions, please submit [issues](https://github.com/oomol-lab/pdf-craft/issues).
 
 [![About PDF Craft](./docs/images/youtube.png)](https://www.youtube.com/watch?v=EpaLC71gPpM)
 
@@ -22,7 +22,7 @@ This project can read PDF pages one by one, and use [DocLayout-YOLO](https://git
 
 With only these AI models that can be executed locally (using local graphics devices to accelerate), PDF files can be converted to Markdown format. This is suitable for papers or small books.
 
-However, if you want to parse books (generally more than 100 pages), it is recommended to convert them to [EPUB](https://en.wikipedia.org/wiki/EPUB) format files. During the conversion process, this library will pass the data recognized by the local OCR to [LLM](https://en.wikipedia.org/wiki/Large_language_model), and build the structure of the book through specific information (such as the table of contents), and finally generate an EPUB file with a table of contents and chapters. During this parsing and construction process, the annotations and citations information of each page will be read through LLM, and then presented in the new format in the EPUB file. In addition, LLM can correct OCR errors to a certain extent. This step cannot be performed entirely locally. You need to configure the LLM service. It is recommended to use [DeepSeek](https://www.deepseek.com/). The prompt of this library is based on V3 model testing.
+However, if you want to parse books (generally more than 100 pages), it is recommended to convert them to [EPUB](https://en.wikipedia.org/wiki/EPUB) format files. During the conversion process, this library will pass the data recognized by the local OCR to [LLM](https://en.wikipedia.org/wiki/Large_language_model), and build the structure of the book through specific information (such as the table of contents, etc.), and finally generate an EPUB file with a table of contents and chapters. During this parsing and building process, the comments and reference information of each page will be read through LLM, and then presented in a new format in the EPUB file. In addition, LLM can correct OCR errors to a certain extent. This step cannot be performed entirely locally. You need to configure the LLM service. It is recommended to use [DeepSeek](https://www.deepseek.com/). The prompt of this library is based on the V3 model debugging.
 
 ## Installation
 
@@ -147,21 +147,77 @@ extractor = PDFPageExtractor(
 )
 ```
 
-### Advanced LLM
+### Identify formulas and tables
+
+When the constructed `PDFPageExtractor` recognizes a file, by default it will directly crop the formulas and tables in the original page and treat them as images. You can add configuration when constructing it to change the default behavior so that it can extract formulas and tables.
+
+Configuring the value of the `extract_formula` parameter to `True` will enable [LaTeX-OCR](https://github.com/lukas-blecher/LaTeX-OCR) to recognize the formulas in the original page and store them in the form of [LaTeX](https://zh.wikipedia.org/zh-hans/LaTeX).
+
+Configuring the parameters of `extract_table_format` and specifying the format will start [StructEqTable](https://github.com/Alpha-Innovator/StructEqTable-Deploy) to process the table in the original page and store it in the specified format. **Note: This feature requires the local device to support CUDA (and configure the `device="cuda"` parameter)**, otherwise the feature will fall back to the default behavior.
+
+#### Application in Markdown conversion
+
+Insert the two parameters mentioned above when building `PDFPageExtractor` to enable formula and table recognition when converting Markdown.
+
+```python
+from pdf_craft import PDFPageExtractor, ExtractedTableFormat
+
+extractor = PDFPageExtractor(
+  ..., # Other parameters
+  extract_formula=True, # Enable formula recognition
+  extract_table_format=ExtractedTableFormat.MARKDOWN, # Enable table recognition (save in MarkDown format)
+)
+```
+
+In particular, for the Markdown conversion scenario, `extract_table_format` can only be set to `ExtractedTableFormat.MARKDOWN`.
+
+#### Application in EPub conversion
+
+As mentioned in the previous section, you need to insert the two parameters when building. But please note that the value of `extract_table_format` should be `ExtractedTableFormat.HTML`.
+
+```python
+from pdf_craft import PDFPageExtractor, ExtractedTableFormat
+
+extractor = PDFPageExtractor(
+  ..., # Other parameters
+  extract_formula=True, # Enable formula recognition
+  extract_table_format=ExtractedTableFormat.HTML, # Enable table recognition (save in MarkDown format)
+)
+```
+
+In addition, when calling the `generate_epub_file()` function next, you also need to configure `table_render` and `latex_render` to specify how the recognized tables and formulas are rendered in the EPub file.
+
+```python
+from pdf_craft import generate_epub_file, TableRender, LaTeXRender
+
+generate_epub_file(
+  ..., # other parameters
+  table_render=TableRender.HTML, # table rendering mode
+  latex_render=LaTeXRender.SVG, # formula rendering mode
+)
+```
+
+For table rendering mode (`TableRender`), there are only two modes: `HTML` and `CLIPPING`. The former means rendering in HTML form (i.e., `<table>` related tags), and the latter is the default rendering mode, i.e., taking a screenshot from the original page.
+
+For formula rendering mode (`LaTeXRender`), there are three modes: `MATHML`, `SVG`, and `CLIPPING`. Among them, `CLIPPING` is the default behavior, i.e., taking a screenshot from the original page. I will introduce the first two modes separately.
+
+`MATHML` means rendering in EPub files with [MathML](https://en.wikipedia.org/wiki/MathML) tags, which is a mathematical markup language for XML applications. But please note that this language is not supported in EPub 2.0. This means that if this rendering method is used, not all EPub readers can render the formula correctly.
+
+`SVG` means rendering the recognized formula in the form of [SVG](https://en.wikipedia.org/wiki/SVG) files. This is a lossless image format, which means that formulas rendered in this way can be displayed correctly in any reader that supports EPub 2.0. However, this configuration requires `latex` to be installed locally. If it is not installed, an error will be reported during operation. You can use the following command to test whether the local device is correctly installed.
+
+```shell
+latex --version
+```
+
+### Temperature and top p
 
 As mentioned above, the construction of `LLM` can add more parameters to it to achieve richer functions. To achieve disconnection and reconnection, or specify a specific timeout.
 
 ```python
 llm = LLM(
-  key="sk-XXXXX",
-  url="https://api.deepseek.com",
-  model="deepseek-chat",
-  token_encoding="o200k_base",
+  ..., # other parameters
   top_p=0.8, # Nucleus Sampling (optional)
   temperature=0.3, # Temperature (optional)
-  timeout=360, # Timeout, in seconds (optional)
-  retry_times=10, # The maximum number of retries that can be accepted for failed requests due to network reasons or incomplete formats (optional)
-  retry_interval_seconds=6.0, # The time interval between retries, in seconds (optional)
 )
 ```
 
@@ -169,10 +225,7 @@ In addition, `top_p` and `temperature` can be set to a range. In general, their 
 
 ```python
 llm = LLM(
-  key="sk-XXXXX",
-  url="https://api.deepseek.com",
-  model="deepseek-chat",
-  token_encoding="o200k_base",
+  ..., # other parameters
   top_p=(0.3, 1.0) # Nucleus Sampling（optional）
   temperature=(0.3, 1.0), # Temperature (optional)
 )
@@ -186,11 +239,7 @@ When calling the `analyse` method, configure the `window_tokens` field to modify
 from pdf_craft import analyse
 
 analyse(
-  llm=llm, # LLM configuration prepared in the previous step
-  pdf_page_extractor=pdf_page_extractor, # PDFPageExtractor object prepared in the previous step
-  pdf_path="/path/to/pdf/file", # PDF file path
-  analysing_dir_path="/path/to/analysing/dir", # analysing directory path
-  output_dir_path="/path/to/output/files", # The analysis results will be written to this directory
+  ..., # other parameters
   window_tokens=2000, # Maximum number of tokens in the request window
 )
 ```
@@ -201,11 +250,7 @@ You can also set a specific token limit by constructing `LLMWindowTokens`.
 from pdf_craft import analyse, LLMWindowTokens
 
 analyse(
-  llm=llm, # LLM configuration prepared in the previous step
-  pdf_page_extractor=pdf_page_extractor, # PDFPageExtractor object prepared in the previous step
-  pdf_path="/path/to/pdf/file", # PDF file path
-  analysing_dir_path="/path/to/analysing/dir", # analysing directory path
-  output_dir_path="/path/to/output/files", # The analysis results will be written to this directory
+  ..., # other parameters
   window_tokens=LLMWindowTokens(
     main_texts=2400,
     citations=2000,
@@ -215,6 +260,9 @@ analyse(
 
 ## Acknowledgements
 
+- [doc-page-extractor](https://github.com/Moskize91/doc-page-extractor)
 - [DocLayout-YOLO](https://github.com/opendatalab/DocLayout-YOLO)
 - [OnnxOCR](https://github.com/jingsongliujing/OnnxOCR)
 - [layoutreader](https://github.com/ppaanngggg/layoutreader)
+- [StructEqTable](https://github.com/Alpha-Innovator/StructEqTable-Deploy)
+- [LaTeX-OCR](https://github.com/lukas-blecher/LaTeX-OCR)
