@@ -31,20 +31,17 @@ def try_gen_formula(context: Context, element: Element) -> Element | None:
 
   latex_expr = _normalize_expression(latex.text)
   if context.latex_render == LaTeXRender.MATHML:
-    try:
-      return _latex2mathml(latex_expr)
-    except SystemError:
-      return None
+    return _latex2mathml(latex_expr)
 
   elif context.latex_render == LaTeXRender.SVG:
-    try:
-      svg_image = _latex_formula2svg(latex_expr)
-    except Exception:
+    svg_image = _latex_formula2svg(latex_expr)
+    if svg_image is None:
       return None
 
     file_name = f"{sha256_hash(svg_image)}.svg"
     img_element = _create_image_element(file_name, element)
     context.add_asset(file_name, "image/svg+xml", svg_image)
+
     return img_element
 
 def try_gen_asset(context: Context, element: Element) -> Element | None:
@@ -59,7 +56,12 @@ def try_gen_asset(context: Context, element: Element) -> Element | None:
 
 _ESCAPE_UNICODE_PATTERN = re.compile(r"&#x([0-9A-Fa-f]{5});")
 
-def _latex2mathml(latex: str):
+def _latex2mathml(latex: str) -> None | Element:
+  try:
+    html_latex = convert(latex)
+  except Exception:
+    return None
+
   # latex2mathml 转义会带上一个奇怪的 `&` 前缀，这显然是多余的
   # 不得已，在这里用正则表达式处理以修正这个错误
   def repl(match):
@@ -75,29 +77,35 @@ def _latex2mathml(latex: str):
   mathml = re.sub(
     pattern=_ESCAPE_UNICODE_PATTERN,
     repl=repl,
-    string=convert(latex),
+    string=html_latex,
   )
-  return fromstring(mathml)
+  try:
+    return fromstring(mathml)
+  except Exception:
+    return None
 
 def _latex_formula2svg(latex: str, font_size: int=12):
   # from https://www.cnblogs.com/qizhou/p/18170083
-  output = io.BytesIO()
-  plt.rc("text", usetex = True)
-  plt.rc("font", size = font_size)
-  fig, ax = plt.subplots()
-  txt = ax.text(0.5, 0.5, f"${latex}$", ha="center", va="center", transform=ax.transAxes)
-  ax.axis("off")
-  fig.canvas.draw()
-  bbox = txt.get_window_extent(renderer=fig.canvas.get_renderer())
-  fig.set_size_inches(bbox.width / fig.dpi, bbox.height / fig.dpi)
-  plt.savefig(
-    output,
-    format="svg",
-    transparent=True,
-    bbox_inches="tight",
-    pad_inches=0,
-  )
-  return output.getvalue()
+  try:
+    output = io.BytesIO()
+    plt.rc("text", usetex = True)
+    plt.rc("font", size = font_size)
+    fig, ax = plt.subplots()
+    txt = ax.text(0.5, 0.5, f"${latex}$", ha="center", va="center", transform=ax.transAxes)
+    ax.axis("off")
+    fig.canvas.draw()
+    bbox = txt.get_window_extent(renderer=fig.canvas.get_renderer())
+    fig.set_size_inches(bbox.width / fig.dpi, bbox.height / fig.dpi)
+    plt.savefig(
+      output,
+      format="svg",
+      transparent=True,
+      bbox_inches="tight",
+      pad_inches=0,
+    )
+    return output.getvalue()
+  except Exception:
+    return None
 
 def _create_image_element(file_name: str, origin: Element):
   img_element = Element("img")
