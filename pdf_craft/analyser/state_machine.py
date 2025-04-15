@@ -240,6 +240,8 @@ class _StateMachine:
     if self._report_step is not None:
       self._report_step(AnalysingStep.GENERATE_CHAPTERS, 0)
 
+    os.makedirs(self._output_dir_path, exist_ok=True)
+
     if self._index is not None:
       file_path = os.path.join(self._output_dir_path, "index.json")
       self._atomic_write(

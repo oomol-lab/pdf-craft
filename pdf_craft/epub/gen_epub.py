@@ -48,6 +48,9 @@ def generate_epub_file(
       os.path.join(from_dir_path, f"chapter_{id}.xml"),
     ),
   )
+  epub_base_path = os.path.dirname(epub_file_path)
+  os.makedirs(epub_base_path, exist_ok=True)
+
   with ZipFile(epub_file_path, "w") as file:
     context = Context(
       file=file,
