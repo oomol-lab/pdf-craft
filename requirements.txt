@@ -6,6 +6,6 @@ alphabet-detector==0.0.7
 shapely==2.0.6
 latex2mathml==3.77.0
 matplotlib==3.10.1
-doc-page-extractor==0.1.0
+doc-page-extractor==0.1.1
 resource-segmentation==0.0.1
 langchain[openai]==0.3.21
