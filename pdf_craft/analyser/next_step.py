@@ -12,6 +12,7 @@ def analyse_next_step(llm: LLM, raw_page_xmls: tuple[int, Element]):
     raw_page_xml.set("page_index", str(page_index + 1))
 
   request_xml = _norm_xml(request_xml)
+  print(tostring(request_xml, encoding="unicode"))
   resp_xml = llm.request_xml(
     template_name="next_step",
     user_data=request_xml,
