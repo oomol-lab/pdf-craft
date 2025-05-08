@@ -7,7 +7,7 @@ from ..llm import LLM
 
 def analyse_next_step(llm: LLM, raw_page_xmls: tuple[int, Element]):
   request_xml = Element("request")
-  for page_index, raw_page_xml in raw_page_xmls[3:6]:
+  for page_index, raw_page_xml in raw_page_xmls[:3]:
     request_xml.append(raw_page_xml)
     raw_page_xml.set("page-index", str(page_index + 1))
 

@@ -14,6 +14,12 @@
 
 # 分析内容
 
+分析每一页本身根据语义归属哪种类型（如下之一）：
+- 正文：书籍中绝大部分的页，一般来自序、章节、附录。
+- 目录：通常在书籍开始部分
+- 参考文献：通常在末尾单独一章。注意与页脚注释区分开，前者独立成章节，后者分散在正文页的页脚处。
+- 版权页：通常在封面后的第一页，包含ISBN、出版信息等。
+
 分析并将每一页的内文本归为三组：
 - 正文组（**注意**：它包含标题、图、表格、公式）
 - 页脚注释，称之为“注释组”。该组对正文进行注释，或给出引用来源。往往用编号或星号与正文某处来对应）。
@@ -26,6 +32,7 @@
 
 将分析结果以人类阅读友好的格式汇报，每一页都要包含如下项目：
 - 页码
+- 书页类型（简短说明归于此类的理由）
 - 正文组
   * 原文（必须完整，不得省略，不得修改、增加、删除任何内容）：
   * 分为正文组的依据（主要语义依据，OCR标签推断只能作为次要参考）
@@ -39,7 +46,11 @@
 
 # 输出XML
 
-你要将你上述输出的文本能容用XML格式再次封装、压缩一遍。你要输出一个<response>作为根标签，在其中每一页都构建一个<page>节点，并附带page_index属性。
+你要将你上述输出的文本能容用XML格式再次封装、压缩一遍。你要输出一个<response>作为根标签，在其中每一页都构建一个<page>节点
+
+<page>标签包含如下属性：
+- `page-index`：页码，与用户提交的对应即可
+- `type`：取值"text"、"contents"、"references"、"copyright"
 
 在<page>中，为每一组构建<group>标签，它的属性如下：
 - `type`：取值"text"表示正文组，"footnotes"表示注释组。
@@ -53,7 +64,7 @@
 输出格式如下（仅参考格式，不要参考内容）：
 ```XML
 <response>
-  <page page-index="4">
+  <page page-index="4" type="text">
     <group type="text" truncation-begin="truncated" truncation-end="not-truncated">
       <line id="1-6"/>
       <line id="8-9"/>
@@ -63,7 +74,7 @@
       <line id="10"/>
     </group>
   </page>
-  <page page-index="5">
+  <page page-index="5" type="text">
     <group type="text" truncation-begin="not-truncated" truncation-end="truncated">
       <line id="13-16"/>
       <line id="18"/>
