@@ -7,14 +7,14 @@ from ..llm import LLM
 
 def analyse_next_step(llm: LLM, raw_page_xmls: tuple[int, Element]):
   request_xml = Element("request")
-  for page_index, raw_page_xml in raw_page_xmls[:3]:
+  for page_index, raw_page_xml in raw_page_xmls[3:6]:
     request_xml.append(raw_page_xml)
-    raw_page_xml.set("page_index", str(page_index + 1))
+    raw_page_xml.set("page-index", str(page_index + 1))
 
   request_xml = _norm_xml(request_xml)
   print(tostring(request_xml, encoding="unicode"))
   resp_xml = llm.request_xml(
-    template_name="next_step",
+    template_name="prune_serial",
     user_data=request_xml,
     params={},
   )
@@ -23,13 +23,13 @@ def analyse_next_step(llm: LLM, raw_page_xmls: tuple[int, Element]):
 
 def _norm_xml(raw_page_xml: Element) -> Element:
   next_id: int = 1
-  for line in _for_each_lines(raw_page_xml):
-    line.set("id", str(next_id))
-    next_id += 1
+  for page in raw_page_xml:
+    for child in _for_each_children(page):
+      child.set("id", str(next_id))
+      next_id += 1
   return raw_page_xml
 
-def _for_each_lines(parent: Element) -> Generator[Element[str], None, None]:
-  if parent.tag == "line":
-    yield parent
+def _for_each_children(parent: Element) -> Generator[Element, None, None]:
   for child in parent:
-    yield from _for_each_lines(child)
+    yield child
+    yield from _for_each_children(child)
