@@ -2,7 +2,8 @@ import unittest
 
 from io import StringIO
 from xml.etree.ElementTree import tostring, Element
-from pdf_craft.xml.parser import parse_tags, Tag, TagKind
+from pdf_craft.xml.tag import Tag, TagKind
+from pdf_craft.xml.parser import parse_tags
 from pdf_craft.xml import decode, encode
 
 

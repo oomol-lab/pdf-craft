@@ -3,7 +3,8 @@ from typing import Generator
 from html import escape
 from xml.etree.ElementTree import Element
 
-from .parser import parse_tags, Tag, TagKind
+from .tag import Tag, TagKind
+from .parser import parse_tags
 from .transform import element_to_tag
 
 # why implement XML encoding?

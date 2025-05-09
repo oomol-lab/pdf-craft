@@ -1,7 +1,8 @@
 from typing import Generator, Iterable
 from xml.etree.ElementTree import Element
 
-from .parser import parse_tags, Tag, TagKind
+from .tag import Tag, TagKind
+from .parser import parse_tags
 from .transform import tag_to_element
 
 # why implement XML decoding?

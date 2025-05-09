@@ -1,5 +1,5 @@
 from xml.etree.ElementTree import Element
-from .parser import Tag, TagKind
+from .tag import Tag, TagKind
 
 
 def tag_to_element(tag: Tag) -> Element:
