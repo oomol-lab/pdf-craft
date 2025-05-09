@@ -32,6 +32,7 @@ class TagKind(Enum):
 class Tag:
   kind: TagKind
   name: str
+  proto: str
   attributes: list[tuple[str, str]]
 
   def __str__(self):
@@ -88,6 +89,7 @@ class _XMLTagsParser:
         self._tag = Tag(
           kind=TagKind.OPENING,
           name="",
+          proto="",
           attributes=[],
         )
     else:
@@ -182,7 +184,8 @@ class _XMLTagsParser:
           yield outside_text
         yield self._tag
       else:
-        self._outside_buffer.write(self._tag_buffer.getvalue())
+        self._tag.proto = self._tag_buffer.getvalue()
+        self._outside_buffer.write(self._tag.proto)
         self._clear_buffer(self._tag_buffer)
       self._tag = None
       self._phase = _Phase.OUTSIDE
@@ -193,6 +196,9 @@ class _XMLTagsParser:
       self._phase = _Phase.OUTSIDE
 
   def _is_tag_valid(self, tag: Tag) -> bool:
+    if tag.kind == TagKind.CLOSING and len(tag.attributes) > 0:
+      return False
+
     for name in self._iter_tag_names(tag):
       # https://www.w3schools.com/xml/xml_elements.asp
       if name == "":
@@ -203,6 +209,7 @@ class _XMLTagsParser:
       if "a" <= char <= "z" or "A" <= char <= "Z":
         continue
       return False
+
     return True
 
   def _iter_tag_names(self, tag: Tag):
