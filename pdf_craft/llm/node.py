@@ -4,15 +4,15 @@ import json
 from typing import cast, Any
 from importlib.resources import files
 from jinja2 import Environment, Template
-from xml.etree.ElementTree import tostring, fromstring, Element
+from xml.etree.ElementTree import Element
 from pydantic import SecretStr
 from tiktoken import get_encoding, Encoding
 from langchain_core.messages import SystemMessage, HumanMessage
 
 from ..template import create_env
+from ..xml import decode as decode_xml, encode as encode_xml
 from .increasable import Increasable
 from .executor import LLMExecutor
-from .escape import normal_llm_response_xml
 
 
 class LLM:
@@ -61,7 +61,7 @@ class LLM:
 
   def _create_input(self, template_name: str, user_data: Element, params: dict[str, Any]):
     template = self._template(template_name)
-    data = tostring(user_data, encoding="unicode")
+    data = encode_xml(user_data)
     prompt = template.render(**params)
     return [
       SystemMessage(content=prompt),
@@ -99,12 +99,7 @@ class LLM:
       raise e
 
   def _encode_xml(self, response: str) -> Element:
+    for element in decode_xml(response, "response"):
+      return element
     print(response)
-    response = re.sub(r"^```XML", "", response)
-    response = re.sub(r"```$", "", response)
-    response = normal_llm_response_xml(response)
-    try:
-      return fromstring(response)
-    except Exception as e:
-      print(response)
-      raise e
+    raise ValueError("No valid XML response found")
