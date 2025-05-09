@@ -75,8 +75,8 @@ class _Sequence:
   def _create_page_with_sequences(self, raw_page: Element, resp_page: Element) -> Element:
     layout_lines: dict[int, tuple[Element, Element]] = {}
     new_page = Element(
-      tag="page",
-      attrib=self._pick_attrib(raw_page, ("page-index", "type")),
+      "page",
+      self._pick_attrib(raw_page, ("page-index", "type")),
     )
     for layout in raw_page:
       for line in layout:
@@ -105,8 +105,8 @@ class _Sequence:
 
     current_layout: tuple[Element, Element] | None = None
     sequence = Element(
-      tag="sequence",
-      attrib=self._pick_attrib(
+      "sequence",
+      self._pick_attrib(
         element=group,
         keys=("type", "truncation-begin", "truncation-end"),
       ),
@@ -124,8 +124,8 @@ class _Sequence:
             current_layout = None
         if current_layout is None:
           new_layout = Element(
-            tag=layout.tag,
-            attrib=self._reject_attrib(
+            layout.tag,
+            self._reject_attrib(
               element=layout,
               keys=("indent", "touch-end"),
             ),
@@ -133,8 +133,8 @@ class _Sequence:
           current_layout = (layout, new_layout)
         _, new_layout = current_layout
         new_layout.append(Element(
-          tag=line.tag,
-          attrib=self._reject_attrib(
+          line.tag,
+          self._reject_attrib(
             element=line,
             keys=("id",),
           ),
