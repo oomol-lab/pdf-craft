@@ -43,6 +43,9 @@ class Tag:
       if not all(is_valid_value_char(c) for c in name):
         return name
       # https://www.w3schools.com/xml/xml_elements.asp
+      # The following logic enforces a subset of XML naming rules:
+      # - Names must not be empty.
+      # - Names must start with a letter (a-z, A-Z) or an underscore (_).
       if name == "":
         return name
       char = name[0]
