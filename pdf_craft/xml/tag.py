@@ -38,24 +38,49 @@ class Tag:
       buffer.write(">")
     return buffer.getvalue()
 
-  def is_valid(self) -> bool:
-    if self.kind == TagKind.CLOSING and len(self.attributes) > 0:
-      return False
-
+  def find_invalid_name(self) -> str | None:
     for name in self._iter_tag_names():
+      if not all(is_valid_value_char(c) for c in name):
+        return name
       # https://www.w3schools.com/xml/xml_elements.asp
       if name == "":
-        return False
+        return name
       char = name[0]
       if char == "_":
         continue
       if "a" <= char <= "z" or "A" <= char <= "Z":
         continue
-      return False
+      return name
 
-    return True
+    return None
+
+  def find_invalid_attr_value(self) -> tuple[str, str] | None:
+    for attr_name, attr_value in self.attributes:
+      if not all(is_valid_value_char(c) for c in attr_value):
+        return attr_name, attr_value
+    return None
 
   def _iter_tag_names(self) -> Generator[str, None, None]:
     yield self.name
     for attr_name, _ in self.attributes:
       yield attr_name
+
+def is_valid_value_char(char: str) -> bool:
+  if is_valid_name_char(char):
+    return True
+  if char == ",":
+    return True
+  return False
+
+def is_valid_name_char(char: str) -> bool:
+  if "a" <= char <= "z":
+    return True
+  if "A" <= char <= "Z":
+    return True
+  if "0" <= char <= "9":
+    return True
+  if char == "_":
+    return True
+  if char == "-":
+    return True
+  return False

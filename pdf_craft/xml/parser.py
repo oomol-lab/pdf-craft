@@ -1,11 +1,10 @@
 from io import StringIO
 from typing import Generator, Iterable
 from enum import auto, Enum
-from .tag import Tag, TagKind
+from .tag import is_valid_name_char, is_valid_value_char, Tag, TagKind
 
 
 _SPACES = (" ", "\n")
-_VALUES_EXT = (",",)
 
 class _Phase(Enum):
   OUTSIDE = auto()
@@ -65,14 +64,14 @@ class _XMLTagsParser:
         if char == "/":
           self._tag.kind = TagKind.CLOSING
           self._phase = _Phase.LEFT_SLASH
-        elif self._is_valid_name_char(char):
+        elif is_valid_name_char(char):
           self._tag.name += char
           self._phase = _Phase.TAG_NAME
         else:
           parsed_result = _ParsedResult.Failed
 
       elif self._phase == _Phase.LEFT_SLASH:
-        if self._is_valid_name_char(char):
+        if is_valid_name_char(char):
           self._tag.name += char
           self._phase = _Phase.TAG_NAME
         else:
@@ -81,7 +80,7 @@ class _XMLTagsParser:
       elif self._phase == _Phase.TAG_NAME:
         if char in _SPACES:
           self._phase = _Phase.TAG_GAP
-        elif self._is_valid_name_char(char):
+        elif is_valid_name_char(char):
           self._tag.name += char
         elif char == ">":
           parsed_result = _ParsedResult.Success
@@ -94,7 +93,7 @@ class _XMLTagsParser:
       elif self._phase == _Phase.TAG_GAP:
         if char in _SPACES:
           pass
-        elif self._is_valid_name_char(char):
+        elif is_valid_name_char(char):
           self._tag.attributes.append((char, ""))
           self._phase = _Phase.ATTRIBUTE_NAME
         elif char == ">":
@@ -106,7 +105,7 @@ class _XMLTagsParser:
           parsed_result = _ParsedResult.Failed
 
       elif self._phase == _Phase.ATTRIBUTE_NAME:
-        if self._is_valid_name_char(char):
+        if is_valid_name_char(char):
           attr_name, attr_value = self._tag.attributes[-1]
           attr_name = attr_name + char
           self._tag.attributes[-1] = (attr_name, attr_value)
@@ -122,7 +121,7 @@ class _XMLTagsParser:
           parsed_result = _ParsedResult.Failed
 
       elif self._phase == _Phase.ATTRIBUTE_VALUE:
-        if char in _VALUES_EXT or self._is_valid_name_char(char):
+        if is_valid_value_char(char):
           attr_name, attr_value = self._tag.attributes[-1]
           attr_value = attr_value + char
           self._tag.attributes[-1] = (attr_name, attr_value)
@@ -142,7 +141,7 @@ class _XMLTagsParser:
   def _generate_by_result(self, parsed_result: _ParsedResult) -> Generator[str | Tag, None, None]:
     if parsed_result == _ParsedResult.Success:
       assert self._tag is not None
-      if self._tag.is_valid():
+      if self._is_tag_valid(self._tag):
         outside_text = self._outside_buffer.getvalue()
         self._clear_buffer(self._outside_buffer)
         self._clear_buffer(self._tag_buffer)
@@ -161,19 +160,13 @@ class _XMLTagsParser:
       self._clear_buffer(self._tag_buffer)
       self._phase = _Phase.OUTSIDE
 
+  def _is_tag_valid(self, tag: Tag) -> bool:
+    if tag.kind == TagKind.CLOSING and len(tag.attributes) > 0:
+      return False
+    if tag.find_invalid_name() is not None:
+      return False
+    return True
+
   def _clear_buffer(self, buffer: StringIO):
     buffer.truncate(0)
     buffer.seek(0)
-
-  def _is_valid_name_char(self, char: str) -> bool:
-    if "a" <= char <= "z":
-      return True
-    if "A" <= char <= "Z":
-      return True
-    if "0" <= char <= "9":
-      return True
-    if char == "_":
-      return True
-    if char == "-":
-      return True
-    return False
