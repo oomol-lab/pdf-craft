@@ -1,0 +1,23 @@
+import os
+import json
+from pathlib import Path
+
+from pdf_craft.llm import LLM
+from pdf_craft.analysers.sequence import to_sequences
+
+
+def main() -> None:
+  to_sequences(
+    llm=LLM(**_read_format_json()),
+    workspace=Path("/Users/taozeyu/codes/github.com/oomol-lab/pdf-craft/analysing/sequence"),
+    ocr_path=Path("/Users/taozeyu/codes/github.com/oomol-lab/pdf-craft/analysing/ocr"),
+  )
+
+def _read_format_json() -> dict:
+  path = os.path.join(__file__, "..", "format.json")
+  path = os.path.abspath(path)
+  with open(path, mode="r", encoding="utf-8") as file:
+    return json.load(file)
+
+if __name__ == "__main__":
+  main()

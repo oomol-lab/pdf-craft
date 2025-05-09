@@ -11,7 +11,6 @@ from ..pdf import PDFPageExtractor
 from .common import PageInfo, PageRef
 from .chunk_file import ChunkFile
 from .ocr_extractor import extract_ocr_page_xmls
-from .next_step import analyse_next_step
 from .page import analyse_page
 from .index import analyse_index, Index
 from .citation import analyse_citations
@@ -76,7 +75,7 @@ class _StateMachine:
 
   def start(self):
     self._run_analyse_step("ocr", self._extract_ocr)
-    self._run_analyse_step("next_steps", self._analyse_next_step)
+    raise NotImplementedError("Breakpoint")
     self._run_analyse_step("pages", self._analyse_pages)
     self._run_analyse_step("index", self._analyse_index)
     self._run_analyse_step("citations", self._analyse_citations)
@@ -111,18 +110,6 @@ class _StateMachine:
         file_path=os.path.join(dir_path, self._xml_name("page", page_index)),
         content=tostring(page_xml, encoding="unicode"),
       )
-
-  def _analyse_next_step(self, dir_path: str):
-    from_path = os.path.join(self._analysing_dir_path, "ocr")
-    raw_page_xmls: list[tuple[int, Element]] = []
-    for file_name, page_index, _ in search_xml_and_indexes("page", from_path):
-      file_path = os.path.join(from_path, file_name)
-      raw_page_xml = self._read_xml(file_path)
-      raw_page_xmls.append((page_index, raw_page_xml))
-
-    raw_page_xmls.sort(key=lambda x: x[0])
-    analyse_next_step(self._llm, raw_page_xmls)
-    raise NotImplementedError("next steps is not implemented yet.")
 
   def _analyse_pages(self, dir_path: str):
     from_path = os.path.join(self._analysing_dir_path, "ocr")

@@ -10,7 +10,7 @@ from pdf_craft import analyse, LLM, OCRLevel, PDFPageExtractor, AnalysingStep
 
 
 def main():
-  pdf_file = os.path.join(__file__, "..", "..", "tests", "assets", "index.pdf")
+  pdf_file = os.path.join(__file__, "..", "..", "tests", "assets", "citation_large.pdf")
   pdf_file = os.path.abspath(pdf_file)
   model_dir_path = _project_dir_path("models")
   output_dir_path = _project_dir_path("output", clean=True)
