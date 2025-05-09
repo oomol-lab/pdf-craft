@@ -99,9 +99,7 @@ class LLM:
       raise e
 
   def _encode_xml(self, response: str) -> Element:
-    # TODO: to pass
     print(response)
-    return Element("response")
     response = re.sub(r"^```XML", "", response)
     response = re.sub(r"```$", "", response)
     response = normal_llm_response_xml(response)
