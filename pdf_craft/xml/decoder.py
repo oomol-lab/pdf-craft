@@ -2,6 +2,7 @@ from typing import Generator, Iterable
 from xml.etree.ElementTree import Element
 
 from .parser import parse_tags, Tag, TagKind
+from .transform import tag_to_element
 
 # why implement XML decoding?
 # https://github.com/oomol-lab/pdf-craft/issues/149
@@ -22,7 +23,7 @@ def _collect_elements(chars: Iterable[str]) -> Generator[Element, None, None]:
   for cell in parse_tags(chars):
     if isinstance(cell, Tag):
       tag: Tag = cell
-      element = _tag_to_element(tag)
+      element = tag_to_element(tag)
       if tag.kind == TagKind.CLOSING:
         popped = _pop_element(tag.name, opening_stack)
         if popped is not None:
@@ -56,12 +57,6 @@ def _clone_element(element: Element) -> Element:
     new_element.append(new_child)
     new_child.tail = child.tail
   return new_element
-
-def _tag_to_element(tag: Tag) -> Element:
-  element = Element(tag.name)
-  for attr_name, attr_value in tag.attributes:
-    element.set(attr_name, attr_value)
-  return element
 
 def _append_to_tail(element: Element, text: str) -> None:
   if element.tail:

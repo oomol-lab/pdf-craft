@@ -1,9 +1,9 @@
 import unittest
 
 from io import StringIO
-from xml.etree.ElementTree import tostring
+from xml.etree.ElementTree import tostring, Element
 from pdf_craft.xml.parser import parse_tags, Tag, TagKind
-from pdf_craft.xml.decoder import decode
+from pdf_craft.xml import decode, encode
 
 
 _WIKI_XML_DESCRIPTION = """
@@ -49,16 +49,47 @@ class TextXML(unittest.TestCase):
       '</response>',
     ])
 
-  def test_encode(self):
+  def test_decode(self):
     encoded = list(decode(_WIKI_XML_DESCRIPTION, "response"))
     self.assertEqual(len(encoded), 1)
     response_text = tostring(encoded[0], encoding="unicode")
-    self.assertEqual(
-      first=response_text.strip(),
-      second="""
+    expected_text = """
   <response result="well-done" page-index="12">
     <section id="1-2" />
     <fragment>hello world</fragment>
   </response>
-""".strip()
+    """
+    self.assertEqual(
+      first=response_text.strip(),
+      second=expected_text.strip()
+    )
+
+  def test_encode(self):
+    root = Element("response", {
+      "foobar": "hello",
+      "apple": "OSX",
+    })
+    root.text = "\n1 + 1 < 3\n"
+    section1 = Element("section", {
+      "id": "10-20",
+    })
+    section1.tail = "\ncheck <html id=\"110\"> ...<1> foobar</html>\n"
+    section2 = Element("section", {
+      "id": "25-30",
+      "name": "latest_section"
+    })
+    section2.tail = "\n"
+    root.extend((section1, section2))
+    root.tail = "\ncannot encode content...\n"
+    expected_text = """
+  <response apple="OSX" foobar="hello">
+1 + 1 < 3
+<section id="10-20"/>
+check &lt;html id=&quot;110&quot;&gt; ...<1> foobar&lt;/html&gt;
+<section id="25-30" name="latest_section"/>
+</response>
+    """
+    self.assertEqual(
+      first=encode(root).strip(),
+      second=expected_text.strip()
     )
