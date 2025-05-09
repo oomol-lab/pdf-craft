@@ -7,6 +7,7 @@ from pdf_craft.xml.parser import parse_tags
 from pdf_craft.xml import decode, encode
 
 
+# pylint: disable=W1401
 _WIKI_XML_DESCRIPTION = """
   一个tag属于标记结构，以<开头，以>结尾。Tag名字是大小写敏感，不能包括任何字符
   !"#$%&'()*+,/;<=>?@[\]^`{|}~， 也不能有空格符， 不能以"-"或"."或数字开始。
@@ -20,6 +21,7 @@ _WIKI_XML_DESCRIPTION = """
     <fragment>hello world</fragment>
   </response>
 """
+# pylint: enable=W1401
 
 class TextXML(unittest.TestCase):
   def test_parse_tags(self):
