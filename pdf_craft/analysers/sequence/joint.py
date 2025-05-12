@@ -1,0 +1,223 @@
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Generator
+from enum import auto, Enum
+from xml.etree.ElementTree import tostring, fromstring, Element
+
+from ...llm import LLM
+from ..context import Context
+from .common import State, SequenceType, PageType, Truncation
+
+
+def join(llm: LLM, context: Context[State], type: SequenceType, extraction_path: Path):
+  _Joint(llm, context, type, extraction_path).do()
+
+@dataclass
+class _SequenceMeta:
+  page_type: PageType
+  page_index: int
+  truncations: tuple[Truncation, Truncation]
+
+class _TruncationKind(Enum):
+  NO = auto()
+  VERIFIED = auto()
+  UNCERTAIN = auto()
+
+class _Paragraph:
+  def __init__(self, page_type: PageType, page_index: int, element: Element):
+    self.page_type: PageType = page_type
+    self.children: list[tuple[int, Element]] = [page_index, element]
+
+  def append(self, page_index: int, element: Element):
+    self.children.append((page_index, element))
+
+  @property
+  def first_page_index(self) -> int:
+    return self.children[0][0]
+
+  def to_xml(self) -> Element:
+    element = Element("paragraph")
+    element.set("type", self.page_type.value)
+    for page_index, child in self.children:
+      child.set("page-index", str(page_index))
+      element.append(child)
+    return element
+
+class _Joint:
+  def __init__(self, llm: LLM, context: Context[State], type: SequenceType, extraction_path: Path):
+    self._llm: LLM = llm
+    self._ctx: Context[State] = context
+    self._type: SequenceType = type
+    self._extraction_path: Path = extraction_path
+
+  def do(self):
+    metas = self._extract_sequence_metas()
+    truncations = list(self._extract_truncations(metas))
+
+    for i in range(0, len(truncations) - 1):
+      truncation = truncations[i]
+      if truncation == _TruncationKind.UNCERTAIN:
+        truncations[i] = _TruncationKind.VERIFIED # TODO: 用 LLM 来进一步确认
+
+    meta_dict: dict[int, _SequenceMeta] = {}
+    truncation_dict: dict[int, _TruncationKind] = {}
+
+    for i, meta in enumerate(metas):
+      meta_dict[meta.page_index] = meta
+      if i < len(truncations):
+        truncation_dict[meta.page_index] = truncations[i]
+
+    last_page_index = 0
+    next_paragraph_id = 1
+
+    for paragraph in self._join_and_get_sequences(meta_dict, truncation_dict):
+      page_index = paragraph.first_page_index
+      if last_page_index != page_index:
+        last_page_index = page_index
+        next_paragraph_id = 1
+
+      save_dir_name: str
+      if self._type == SequenceType.TEXT:
+        save_dir_name = paragraph.page_type.value
+      elif self._type == SequenceType.FOOTNOTE:
+        save_dir_name = "footnote"
+
+      save_dir_path = self._ctx.path / "output" / save_dir_name
+      save_dir_path.mkdir(parents=True, exist_ok=True)
+
+      paragraph_id = f"{page_index}_{next_paragraph_id}"
+      file_path = save_dir_path / f"paragraph_{paragraph_id}.xml"
+      next_paragraph_id += 1
+
+      with open(file_path, mode="w", encoding="utf-8") as file:
+        file.write(tostring(paragraph.to_xml(), encoding="unicode"))
+
+  def _extract_sequence_metas(self) -> list[_SequenceMeta]:
+    metas: list[_SequenceMeta] = []
+    for sequence in self._extract_sequences():
+      truncation_begin = Truncation(sequence.get("truncation-begin", Truncation.UNCERTAIN.value))
+      truncation_end = Truncation(sequence.get("truncation-end", Truncation.UNCERTAIN.value))
+      metas.append(_SequenceMeta(
+        page_type=PageType(sequence.get("type")),
+        page_index=int(sequence.get("page-index")),
+        truncations=(truncation_begin, truncation_end),
+      ))
+
+    pre_page_index = 0 # page-index is begin from 1
+    pre_meta: _SequenceMeta | None = None
+    for meta in metas:
+      if pre_page_index + 1 != meta.page_index:
+        # The pages are not continuous, and it is impossible to cross pages in the middle,
+        # so this assertion is made
+        meta.truncations = (Truncation.IMPOSSIBLE, meta.truncations[1])
+        if pre_meta is not None:
+          pre_meta.truncations = (pre_meta.truncations[0], Truncation.IMPOSSIBLE)
+      pre_page_index = meta.page_index
+      pre_meta = meta
+
+    return metas
+
+  def _extract_truncations(self, metas: list[_SequenceMeta]):
+    for i in range(0, len(metas) - 1):
+      meta1 = metas[i]
+      meta2 = metas[i + 1]
+      _, truncation1 = meta1.truncations
+      truncation2, _ = meta2.truncations
+      truncations = (truncation1, truncation2)
+
+      if all(t == Truncation.IMPOSSIBLE for t in truncations):
+        yield _TruncationKind.NO
+        continue
+
+      if any(t == Truncation.MUST_BE for t in truncations) and \
+         all(t in (Truncation.MUST_BE, Truncation.MOST_LIKELY) for t in truncations):
+        yield _TruncationKind.VERIFIED
+        continue
+
+      yield _TruncationKind.UNCERTAIN
+
+  def _join_and_get_sequences(
+        self,
+        meta_dict: dict[int, _SequenceMeta],
+        truncation_dict: dict[int, _TruncationKind],
+      ) -> Generator[_Paragraph, None, None]:
+
+    last_paragraph: _Paragraph | None = None
+    for sequence in self._extract_sequences():
+      page_index = int(sequence.get("page-index"))
+      meta = meta_dict[page_index]
+      head, body = self._split_sequence(sequence)
+
+      if last_paragraph is not None and \
+         meta.page_type != last_paragraph.page_type:
+        yield last_paragraph
+        last_paragraph = None
+
+      if last_paragraph is None:
+        yield last_paragraph
+        last_paragraph = _Paragraph(
+          page_type=meta.page_type,
+          page_index=meta.page_index,
+          element=head,
+        )
+      else:
+        last_paragraph.append(page_index, head)
+
+      for element in body:
+        if last_paragraph is not None:
+          yield last_paragraph
+        last_paragraph = _Paragraph(
+          page_type=meta.page_type,
+          page_index=meta.page_index,
+          element=element,
+        )
+
+      truncation = truncation_dict.get(page_index, _TruncationKind.NO)
+      if last_paragraph is not None and truncation == _TruncationKind.NO:
+        yield last_paragraph
+        last_paragraph = None
+
+    if last_paragraph is not None:
+      yield last_paragraph
+
+  def _extract_sequences(self) -> Generator[Element, None, None]:
+    for file_path, _, _, _ in self._ctx.xml_files(self._extraction_path):
+      with open(file_path, mode="r", encoding="utf-8") as file:
+        raw_page_xmls = fromstring(file.read())
+
+      page_pairs: list[tuple[int, Element]] = []
+      for page in raw_page_xmls:
+        page_type = PageType.TEXT
+        page_index = int(page.get("page-index", "-1"))
+        page_pairs.append((page_index, page))
+
+      page_pairs.sort(key=lambda x: x[0])
+      for page_index, page in page_pairs:
+        if self._type == SequenceType.TEXT:
+          page_type = PageType(page.get("type", "text"))
+
+        sequence: Element | None = None
+        for sequence in page:
+          if sequence.get("type", None) == self._type:
+            break
+        if sequence is None:
+          continue
+
+        sequence.set("type", page_type.value)
+        sequence.set("page-index", str(page_index))
+        for line in sequence:
+          if line.tag == "abandoned":
+            line.tag = "text"
+        yield sequence
+
+  def _split_sequence(self, sequence: Element) -> tuple[Element, list[Element]]:
+    head: Element | None = None
+    body: list[Element] = []
+
+    for i, element in enumerate(sequence):
+      if i == 0:
+        head = element
+      else:
+        body.append(element)
+
+    return head, body

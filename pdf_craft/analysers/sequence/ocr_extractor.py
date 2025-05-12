@@ -7,7 +7,7 @@ from ...xml import encode
 from ..context import Context
 from ..range_state import RangeState, RangeMatched, RangeOverlapped
 from ..utils import search_xml_children
-from .common import State, Phase, Truncation
+from .common import State, Phase, SequenceType, Truncation
 
 
 def extract_ocr(llm: LLM, context: Context[State], ocr_path: Path) -> None:
@@ -39,7 +39,7 @@ class _Sequence:
       ):
         data_xml.append(page)
 
-      data_file_path = save_path / f"pages-{begin}-{end}.xml"
+      data_file_path = save_path / f"pages_{begin}_{end}.xml"
       with open(data_file_path, mode="w", encoding="utf-8") as file:
         file.write(tostring(data_xml, encoding="unicode"))
 
@@ -51,7 +51,7 @@ class _Sequence:
       if isinstance(state, RangeOverlapped):
         for overlapped in state.ranges:
           begin, end = overlapped
-          data_file_path = save_path / f"pages-{begin}-{end}.xml"
+          data_file_path = save_path / f"pages_{begin}_{end}.xml"
           self._ctx.remove_file(data_file_path)
 
   def _split_and_create_requests(self, ocr_path: Path) -> Generator[tuple[int, int, Element], None, None]:
@@ -144,9 +144,9 @@ class _Sequence:
 
     for group in resp_page:
       type = group.get("type", None)
-      if type == "text":
+      if type == SequenceType.TEXT:
         text = (group, self._ids_from_group(group))
-      elif type == "footnote":
+      elif type == SequenceType.FOOTNOTE:
         footnote = (group, self._ids_from_group(group))
 
     if text and footnote:
