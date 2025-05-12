@@ -1,35 +1,93 @@
 from pathlib import Path
-from typing import Iterable, Generator
+from typing import Iterable, Generator, TypedDict
 from xml.etree.ElementTree import tostring, Element
 
 from ..llm import LLM
+from ..xml import encode
 from .context import Context
+from .range_state import RangeState, RangeMatched, RangeOverlapped
 from .utils import search_xml_children
 
-def to_sequences(llm: LLM, workspace: Path, ocr_path: Path) -> None:
-  return _Sequence(llm, workspace).to_sequences(ocr_path)
+def to_sequences(llm: LLM, workspace: Path, ocr_path: Path, max_data_tokens: int) -> None:
+  return _Sequence(llm, workspace, max_data_tokens).to_sequences(ocr_path)
+
+class _State(TypedDict):
+  max_data_tokens: int
+  completed_ranges: list[list[int]]
 
 class _Sequence:
-  def __init__(self, llm: LLM, workspace: Path) -> None:
+  def __init__(self, llm: LLM, workspace: Path, max_data_tokens: int) -> None:
     self._llm: LLM = llm
-    self._ctx: Context[None] = Context(workspace, lambda: None)
+    self._ctx: Context[_State] = Context(workspace, lambda: {
+      "max_data_tokens": max_data_tokens,
+      "completed_ranges": [],
+    })
 
   def to_sequences(self, ocr_path: Path):
-    raw_page_xmls: list[Element] = []
+    completed_range_state = RangeState(self._ctx.state["completed_ranges"])
+
+    for begin, end, request_xml in self._split_and_create_requests(ocr_path):
+      state = completed_range_state.check(begin, end)
+      if isinstance(state, RangeMatched):
+        continue # skip completed task
+
+      resp_xml = self._request_sequences(request_xml)
+      data_xml = Element("pages")
+      data_xml.set("begin-page-index", str(begin))
+      data_xml.set("end-page-index", str(end))
+
+      for page in self._gen_pages_with_sequences(
+        raw_page_xmls=request_xml,
+        resp_xml=resp_xml,
+      ):
+        data_xml.append(page)
+
+      data_file_name = f"pages-{begin}-{end}.xml"
+      data_file_path = self._ctx.path.joinpath(data_file_name)
+      with open(data_file_path, mode="w", encoding="utf-8") as file:
+        file.write(tostring(data_xml, encoding="unicode"))
+
+      completed_range_state.add(begin, end)
+      self._ctx.state = {
+        **self._ctx.state,
+        "completed_ranges": completed_range_state.to_json_state(),
+      }
+      if isinstance(state, RangeOverlapped):
+        for overlapped in state.ranges:
+          begin, end = overlapped
+          data_file_name = f"pages-{begin}-{end}.xml"
+          data_file_path = self._ctx.path.joinpath(data_file_name)
+          self._ctx.remove_file(data_file_path)
+
+  def _split_and_create_requests(self, ocr_path: Path) -> Generator[tuple[int, int, Element], None, None]:
+    max_data_tokens = self._ctx.state["max_data_tokens"]
+    request_xml = Element("request")
+    request_tokens: int = 0
+    request_begin: int = -1
+    request_end: int = -1
+
     for xml_path, _, page_index, _ in self._ctx.xml_files(ocr_path):
       raw_page_xml = self._ctx.read_xml_file(xml_path)
+      if len(raw_page_xml) == 0: # empty page
+        continue
       raw_page_xml.set("page-index", str(page_index))
-      raw_page_xmls.append(raw_page_xml)
+      tokens = len(self._llm.encode_tokens(encode(raw_page_xml)))
 
-    request_xml = Element("request")
-    request_xml.extend(raw_page_xmls[:3])
-    resp_xml = self._request_sequences(request_xml)
+      if request_tokens > 0 and request_tokens + tokens > max_data_tokens:
+        yield request_begin, request_end, request_xml
+        request_xml = Element("request")
+        request_tokens = 0
+        request_begin = -1
+        request_end = -1
 
-    for page in self._gen_pages_with_sequences(
-      raw_page_xmls=raw_page_xmls[:3],
-      resp_xml=resp_xml,
-    ):
-      print(tostring(page, encoding="unicode"))
+      request_xml.append(raw_page_xml)
+      request_tokens += tokens
+      request_end = page_index
+      if request_begin == -1:
+        request_begin = page_index
+
+    if request_tokens > 0:
+      yield request_begin, request_end, request_xml
 
   def _request_sequences(self, request_xml: Element) -> Element:
     next_id: int = 1

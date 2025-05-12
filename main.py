@@ -14,6 +14,7 @@ def main() -> None:
     ),
     workspace=Path("/Users/taozeyu/codes/github.com/oomol-lab/pdf-craft/analysing/sequence"),
     ocr_path=Path("/Users/taozeyu/codes/github.com/oomol-lab/pdf-craft/analysing/ocr"),
+    max_data_tokens=4096,
   )
 
 def _read_format_json() -> dict:

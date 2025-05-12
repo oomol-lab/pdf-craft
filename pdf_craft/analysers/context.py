@@ -87,6 +87,10 @@ class Context(Generic[S]):
       base_path.mkdir(parents=True)
     self._atomic_write(file_path, file_content)
 
+  def remove_file(self, file_path: Path) -> None:
+    if file_path.exists():
+      os.unlink(file_path)
+
   def xml_files(self, dir_path: Path) -> list[XML_Info]:
     xml_infos: list[XML_Info] = []
     for file in dir_path.iterdir():
