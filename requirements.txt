@@ -1,4 +1,5 @@
 tqdm==4.66.5
+strenum==0.4.15
 tiktoken==0.9.0
 pyMuPDF==1.25.3
 pyyaml==6.0.2

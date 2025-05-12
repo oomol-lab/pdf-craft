@@ -1,30 +1,27 @@
 from pathlib import Path
-from typing import Iterable, Generator, TypedDict
+from typing import Iterable, Generator
 from xml.etree.ElementTree import tostring, Element
 
-from ..llm import LLM
-from ..xml import encode
-from .context import Context
-from .range_state import RangeState, RangeMatched, RangeOverlapped
-from .utils import search_xml_children
+from ...llm import LLM
+from ...xml import encode
+from ..context import Context
+from ..range_state import RangeState, RangeMatched, RangeOverlapped
+from ..utils import search_xml_children
+from .common import State, Phase, Truncation
 
-def to_sequences(llm: LLM, workspace: Path, ocr_path: Path, max_data_tokens: int) -> None:
-  return _Sequence(llm, workspace, max_data_tokens).to_sequences(ocr_path)
 
-class _State(TypedDict):
-  max_data_tokens: int
-  completed_ranges: list[list[int]]
+def extract_ocr(llm: LLM, context: Context[State], ocr_path: Path) -> None:
+  return _Sequence(llm, context).to_sequences(ocr_path)
 
 class _Sequence:
-  def __init__(self, llm: LLM, workspace: Path, max_data_tokens: int) -> None:
+  def __init__(self, llm: LLM, context: Context[State]) -> None:
     self._llm: LLM = llm
-    self._ctx: Context[_State] = Context(workspace, lambda: {
-      "max_data_tokens": max_data_tokens,
-      "completed_ranges": [],
-    })
+    self._ctx: Context[State] = context
 
   def to_sequences(self, ocr_path: Path):
     completed_range_state = RangeState(self._ctx.state["completed_ranges"])
+    save_path = self._ctx.path.joinpath(Phase.EXTRACTION.value)
+    save_path.mkdir(parents=True, exist_ok=True)
 
     for begin, end, request_xml in self._split_and_create_requests(ocr_path):
       state = completed_range_state.check(begin, end)
@@ -42,8 +39,7 @@ class _Sequence:
       ):
         data_xml.append(page)
 
-      data_file_name = f"pages-{begin}-{end}.xml"
-      data_file_path = self._ctx.path.joinpath(data_file_name)
+      data_file_path = save_path / f"pages-{begin}-{end}.xml"
       with open(data_file_path, mode="w", encoding="utf-8") as file:
         file.write(tostring(data_xml, encoding="unicode"))
 
@@ -55,8 +51,7 @@ class _Sequence:
       if isinstance(state, RangeOverlapped):
         for overlapped in state.ranges:
           begin, end = overlapped
-          data_file_name = f"pages-{begin}-{end}.xml"
-          data_file_path = self._ctx.path.joinpath(data_file_name)
+          data_file_path = save_path / f"pages-{begin}-{end}.xml"
           self._ctx.remove_file(data_file_path)
 
   def _split_and_create_requests(self, ocr_path: Path) -> Generator[tuple[int, int, Element], None, None]:
@@ -134,7 +129,7 @@ class _Sequence:
     layout_lines: dict[int, tuple[Element, Element]] = {}
     new_page = Element(
       "page",
-      self._pick_attrib(raw_page, ("page-index", "type")),
+      self._pick_attrib(resp_page, ("page-index", "type")),
     )
     for layout in raw_page:
       for line in layout:
@@ -175,7 +170,7 @@ class _Sequence:
             "truncation-end",
             text_group.get("truncation-end", None),
           )
-        text_group.set("truncation-end", "uncertain") # be cut down
+        text_group.set("truncation-end", Truncation.UNCERTAIN.value) # be cut down
 
     for group_pair in (text, footnote):
       if group_pair is None:

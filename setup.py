@@ -22,6 +22,7 @@ setup(
     "pdf_craft": ["data/**/*.jinja"],
   },
   install_requires=[
+    "strenum>=0.4.15,<0.5.0",
     "jinja2>=3.1.5,<4.0.0",
     "pyMuPDF>=1.25.3,<2.0.0",
     "alphabet-detector>=0.0.7,<1.0.0",

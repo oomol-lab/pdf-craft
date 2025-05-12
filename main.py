@@ -3,11 +3,11 @@ import json
 from pathlib import Path
 
 from pdf_craft.llm import LLM
-from pdf_craft.analysers.sequence import to_sequences
+from pdf_craft.analysers.sequence import extract_sequences
 
 
 def main() -> None:
-  to_sequences(
+  extract_sequences(
     llm=LLM(
       **_read_format_json(),
       log_file_path=Path("/Users/taozeyu/codes/github.com/oomol-lab/pdf-craft/analysing/request.log"),
