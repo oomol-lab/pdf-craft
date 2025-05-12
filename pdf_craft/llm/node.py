@@ -1,11 +1,13 @@
 import re
 import json
 
+from os import PathLike
 from typing import cast, Any
 from importlib.resources import files
 from jinja2 import Environment, Template
 from xml.etree.ElementTree import Element
 from pydantic import SecretStr
+from logging import getLogger, DEBUG, Formatter, Logger, FileHandler
 from tiktoken import get_encoding, Encoding
 from langchain_core.messages import SystemMessage, HumanMessage
 
@@ -27,11 +29,16 @@ class LLM:
       temperature: float | tuple[float, float] | None = None,
       retry_times: int = 5,
       retry_interval_seconds: float = 6.0,
+      log_file_path: PathLike | None = None,
     ):
     prompts_path = files("pdf_craft").joinpath("data/prompts")
     self._templates: dict[str, Template] = {}
     self._encoding: Encoding = get_encoding(token_encoding)
     self._env: Environment = create_env(prompts_path)
+    self._logger: Logger | None = None
+    if log_file_path is not None:
+      self._logger = self._create_logger(log_file_path)
+
     self._executor = LLMExecutor(
       url=url,
       model=model,
@@ -41,7 +48,17 @@ class LLM:
       temperature=Increasable(temperature),
       retry_times=retry_times,
       retry_interval_seconds=retry_interval_seconds,
+      logger=self._logger,
     )
+
+  def _create_logger(self, log_file_path: PathLike) -> Logger:
+    logger = getLogger("LLM Request")
+    logger.setLevel(DEBUG)
+    handler = FileHandler(log_file_path, encoding="utf-8")
+    handler.setLevel(DEBUG)
+    handler.setFormatter(Formatter("%(asctime)s    %(message)s", "%H:%M:%S"))
+    logger.addHandler(handler)
+    return logger
 
   def request_json(self, template_name: str, user_data: Element, params: dict[str, Any] | None = None) -> Any:
     if params is None:
@@ -92,14 +109,9 @@ class LLM:
   def _encode_json(self, response: str) -> Any:
     response = re.sub(r"^```JSON", "", response)
     response = re.sub(r"```$", "", response)
-    try:
-      return json.loads(response)
-    except Exception as e:
-      print(response)
-      raise e
+    return json.loads(response)
 
   def _encode_xml(self, response: str) -> Element:
     for element in decode_xml(response, "response"):
       return element
-    print(response)
     raise ValueError("No valid XML response found")

@@ -8,7 +8,10 @@ from pdf_craft.analysers.sequence import to_sequences
 
 def main() -> None:
   to_sequences(
-    llm=LLM(**_read_format_json()),
+    llm=LLM(
+      **_read_format_json(),
+      log_file_path=Path("/Users/taozeyu/codes/github.com/oomol-lab/pdf-craft/analysing/request.log"),
+    ),
     workspace=Path("/Users/taozeyu/codes/github.com/oomol-lab/pdf-craft/analysing/sequence"),
     ocr_path=Path("/Users/taozeyu/codes/github.com/oomol-lab/pdf-craft/analysing/ocr"),
   )
