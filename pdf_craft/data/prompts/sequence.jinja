@@ -53,7 +53,7 @@
 - `type`：取值"text"、"contents"、"references"、"copyright"
 
 在<page>中，为每一组构建<group>标签，它的属性如下：
-- `type`：取值"text"表示正文组，"footnotes"表示注释组。
+- `type`：取值"text"表示正文组，"footnote"表示注释组。
 - `truncation-begin`、`truncation-end`：分别表示头部、尾部的截断情况，取值"truncated"、"not-truncated"、"probably"、"uncertain"。
 
 在<group>之下包含用户提交的<line>信息，这里你要根据我的要求压缩信息。
@@ -69,7 +69,7 @@
       <line id="1-6"/>
       <line id="8-9"/>
     </group>
-    <group type="footnotes" truncation-begin="not-truncated" truncation-end="not-truncated">
+    <group type="footnote" truncation-begin="not-truncated" truncation-end="not-truncated">
       <line id="7"/>
       <line id="10"/>
     </group>

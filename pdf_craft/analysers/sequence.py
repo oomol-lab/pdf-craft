@@ -86,21 +86,64 @@ class _Sequence:
         except (ValueError, TypeError):
           pass
 
+    text: tuple[Element, list[int]] | None = None
+    footnote: tuple[Element, list[int]] | None = None
+
     for group in resp_page:
+      type = group.get("type", None)
+      if type == "text":
+        text = (group, self._ids_from_group(group))
+      elif type == "footnote":
+        footnote = (group, self._ids_from_group(group))
+
+    if text and footnote:
+      text_group, text_ids = text
+      footnote_group, footnote_ids = footnote
+
+      # There may be overlap between the two.
+      # In this case, the footnote header should be used as the reference for re-cutting.
+      if text_ids[-1] >= footnote_ids[0]:
+        text_id_cut_index: int = -1
+        origin_footnote_ids = footnote_ids
+        for i, id in enumerate(text_ids):
+          if id >= footnote_ids[0]:
+            text_id_cut_index = i
+            break
+        text = (text_group, text_ids[:text_id_cut_index])
+        footnote_ids = sorted(footnote_ids + text_ids[text_id_cut_index:])
+        footnote = (footnote_group, footnote_ids)
+        if footnote_ids[-1] not in origin_footnote_ids:
+          footnote_group.set(
+            "truncation-end",
+            text_group.get("truncation-end", None),
+          )
+        text_group.set("truncation-end", "uncertain") # be cut down
+
+    for group_pair in (text, footnote):
+      if group_pair is None:
+        continue
+      group, ids = group_pair
       sequence = self._create_sequence(
         layout_lines=layout_lines,
         group=group,
-        resp_line=group,
+        group_ids=ids,
       )
       new_page.append(sequence)
 
     return new_page
 
+  def _ids_from_group(self, group: Element) -> list[int]:
+    ids: set[int] = set()
+    for resp_line in group:
+      for id in self._iter_line_ids(resp_line):
+        ids.add(id)
+    return sorted(list(ids))
+
   def _create_sequence(
         self,
         layout_lines: dict[int, tuple[Element, Element]],
         group: Element,
-        resp_line: Element,
+        group_ids: list[int],
       ) -> Generator[Element, None, None]:
 
     current_layout: tuple[Element, Element] | None = None
@@ -111,38 +154,41 @@ class _Sequence:
         keys=("type", "truncation-begin", "truncation-end"),
       ),
     )
-    for resp_line in group:
-      for id in self._iter_line_ids(resp_line):
-        result = layout_lines.get(id, None)
-        if result is None:
-          continue
-        layout, line = result
-        if current_layout is not None:
-          raw_layout, new_layout = current_layout
-          if raw_layout != layout:
-            sequence.append(new_layout)
-            current_layout = None
-        if current_layout is None:
-          new_layout = Element(
-            layout.tag,
-            self._reject_attrib(
-              element=layout,
-              keys=("indent", "touch-end"),
-            ),
-          )
-          current_layout = (layout, new_layout)
-        _, new_layout = current_layout
-        new_layout.append(Element(
-          line.tag,
-          self._reject_attrib(
-            element=line,
-            keys=("id",),
-          ),
-        ))
+    for id in group_ids:
+      result = layout_lines.get(id, None)
+      if result is None:
+        continue
+      layout, line = result
       if current_layout is not None:
-        _, new_layout = current_layout
-        sequence.append(new_layout)
-        current_layout = None
+        raw_layout, new_layout = current_layout
+        if raw_layout != layout:
+          sequence.append(new_layout)
+          current_layout = None
+      if current_layout is None:
+        new_layout = Element(
+          layout.tag,
+          self._reject_attrib(
+            element=layout,
+            keys=("indent", "touch-end"),
+          ),
+        )
+        current_layout = (layout, new_layout)
+      _, new_layout = current_layout
+      new_line = Element(
+        line.tag,
+        self._reject_attrib(
+          element=line,
+          keys=("id",),
+        ),
+      )
+      new_line.text = line.text
+      new_line.tail = line.tail
+      new_layout.append(new_line)
+
+    if current_layout is not None:
+      _, new_layout = current_layout
+      sequence.append(new_layout)
+      current_layout = None
 
     return sequence
 
@@ -162,7 +208,7 @@ class _Sequence:
     return attr
 
   def _iter_line_ids(self, line: Element) -> Generator[int, None, None]:
-    ids = line.get("ids", None)
+    ids = line.get("id", None)
     if ids is None:
       return
 
