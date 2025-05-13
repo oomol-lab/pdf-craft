@@ -26,21 +26,25 @@ class _TruncationKind(Enum):
 
 class _Paragraph:
   def __init__(self, page_type: PageType, page_index: int, element: Element):
-    self.page_type: PageType = page_type
-    self.children: list[tuple[int, Element]] = [(page_index, element)]
+    self._page_type: PageType = page_type
+    self._page_index: int = page_index
+    self._children: list[Element] = [element]
 
-  def append(self, page_index: int, element: Element):
-    self.children.append((page_index, element))
+  def append(self, element: Element):
+    self._children.append(element)
 
   @property
-  def first_page_index(self) -> int:
-    return self.children[0][0]
+  def page_index(self) -> int:
+    return self._page_index
+
+  @property
+  def page_type(self) -> PageType:
+    return self._page_type
 
   def to_xml(self) -> Element:
     element = Element("paragraph")
-    element.set("type", self.page_type.value)
-    for page_index, child in self.children:
-      child.set("page-index", str(page_index))
+    element.set("type", self._page_type.value)
+    for child in self._children:
       element.append(child)
     return element
 
@@ -58,28 +62,30 @@ class _Joint:
     for i in range(0, len(truncations) - 1):
       truncation = truncations[i]
       if truncation == _TruncationKind.UNCERTAIN:
-        truncations[i] = _TruncationKind.VERIFIED # TODO: 用 LLM 来进一步确认
+        # TODO: 用 LLM 来进一步确认
+        # 此外还要考虑连续跨越多个段落的特殊情况，涉及合适的 prompt
+        # 目前个人理解，应该关注在断裂口处，让 LLM 根据断裂口 id 来做出结论
+        truncations[i] = _TruncationKind.NO
 
-    meta_dict: dict[int, _SequenceMeta] = {}
-    truncation_dict: dict[int, _TruncationKind] = {}
-
+    meta_truncation_dict: dict[int, tuple[_SequenceMeta, _TruncationKind]] = {}
     for i, meta in enumerate(metas):
-      meta_dict[meta.page_index] = meta
+      truncation: _TruncationKind = _TruncationKind.NO
       if i < len(truncations):
-        truncation_dict[meta.page_index] = truncations[i]
+        truncation = truncations[i]
+      meta_truncation_dict[meta.page_index] = (meta, truncation)
 
     last_page_index = 0
     next_paragraph_id = 1
 
-    for paragraph in self._join_and_get_sequences(meta_dict, truncation_dict):
-      page_index = paragraph.first_page_index
+    for paragraph in self._join_and_get_sequences(meta_truncation_dict):
+      page_index = paragraph.page_index
       if last_page_index != page_index:
         last_page_index = page_index
         next_paragraph_id = 1
 
       save_dir_name: str
       if self._type == SequenceType.TEXT:
-        save_dir_name = paragraph.page_type.value
+        save_dir_name = paragraph._page_type.value
       elif self._type == SequenceType.FOOTNOTE:
         save_dir_name = "footnote"
 
@@ -139,14 +145,13 @@ class _Joint:
 
   def _join_and_get_sequences(
         self,
-        meta_dict: dict[int, _SequenceMeta],
-        truncation_dict: dict[int, _TruncationKind],
+        meta_truncation_dict: dict[int, tuple[_SequenceMeta, _TruncationKind]],
       ) -> Generator[_Paragraph, None, None]:
 
     last_paragraph: _Paragraph | None = None
     for sequence in self._extract_sequences():
       page_index = int(sequence.get("page-index"))
-      meta = meta_dict[page_index]
+      meta, truncation = meta_truncation_dict[page_index]
       head, body = self._split_sequence(sequence)
 
       if last_paragraph is not None and \
@@ -155,7 +160,7 @@ class _Joint:
         last_paragraph = None
 
       if last_paragraph is not None:
-        last_paragraph.append(page_index, head)
+        last_paragraph.append(head)
       else:
         last_paragraph = _Paragraph(
           page_type=meta.page_type,
@@ -171,8 +176,6 @@ class _Joint:
           page_index=meta.page_index,
           element=element,
         )
-
-      truncation = truncation_dict.get(page_index, _TruncationKind.NO)
       if last_paragraph is not None and truncation == _TruncationKind.NO:
         yield last_paragraph
         last_paragraph = None
@@ -205,8 +208,9 @@ class _Joint:
 
         sequence.set("type", page_type.value)
         sequence.set("page-index", str(page_index))
+
         for line in sequence:
-          if line.tag == "abandoned":
+          if line.tag == "abandon":
             line.tag = "text"
 
         for i, layout in enumerate(sequence):
