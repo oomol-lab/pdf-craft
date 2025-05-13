@@ -1,5 +1,5 @@
 from pathlib import Path
-from typing import Iterable, Generator
+from typing import Any, Iterable, Generator
 from xml.etree.ElementTree import Element
 
 from ...llm import LLM
@@ -7,6 +7,8 @@ from ...xml import encode, encode_friendly
 from ..context import Context
 from ..range_state import RangeState, RangeMatched, RangeOverlapped
 from ..utils import search_xml_children
+
+from .paragraph import ParagraphType
 from .common import State, Phase, SequenceType, Truncation
 
 
@@ -22,16 +24,18 @@ class _Sequence:
     completed_range_state = RangeState(self._ctx.state["completed_ranges"])
     save_path = self._ctx.path.joinpath(Phase.EXTRACTION.value)
     save_path.mkdir(parents=True, exist_ok=True)
+    previous_params = self._consecutive_pages_params(())
 
     for begin, end, request_xml in self._split_and_create_requests(ocr_path):
       state = completed_range_state.check(begin, end)
       if isinstance(state, RangeMatched):
         continue # skip completed task
 
-      resp_xml = self._request_sequences(request_xml)
+      resp_xml = self._request_sequences(request_xml, previous_params)
       data_xml = Element("pages")
       data_xml.set("begin-page-index", str(begin))
       data_xml.set("end-page-index", str(end))
+      previous_params = self._consecutive_pages_params(resp_xml)
 
       for page in self._gen_pages_with_sequences(
         raw_page_xmls=request_xml,
@@ -84,7 +88,7 @@ class _Sequence:
     if request_tokens > 0:
       yield request_begin, request_end, request_xml
 
-  def _request_sequences(self, request_xml: Element) -> Element:
+  def _request_sequences(self, request_xml: Element, request_params: dict[str, Any]) -> Element:
     next_id: int = 1
     for page in request_xml:
       for layout in page:
@@ -95,8 +99,35 @@ class _Sequence:
     return self._llm.request_xml(
       template_name="sequence",
       user_data=request_xml,
-      params={},
+      params=request_params,
     )
+
+  def _consecutive_pages_params(self, resp_pages: Iterable[Element]):
+    page_infos: list[tuple[int, str]] = []
+    for resp_page in resp_pages:
+      page_index = int(resp_page.get("page-index", "-1"))
+      page_type = resp_page.get("type", "text")
+      page_infos.append((page_index, page_type))
+
+    page_infos.sort(key=lambda x: -x[0])
+    last_page_type: str | None = None
+    contents_count: int = 0
+    references_count: int = 0
+
+    for page_index, page_type in page_infos:
+      if last_page_type is None:
+        last_page_type = page_type
+      if page_type != last_page_type:
+        break
+      if page_type == ParagraphType.CONTENTS:
+        contents_count += 1
+      elif page_type == ParagraphType.REFERENCES:
+        references_count += 1
+
+    return {
+      "contents_count": contents_count,
+      "references_count": references_count,
+    }
 
   def _gen_pages_with_sequences(
         self,
