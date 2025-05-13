@@ -11,4 +11,5 @@ from .types import (
   FormulaBlock,
   FigureBlock,
   ExtractedTableFormat,
+  DocExtractorProtocol,
 )
