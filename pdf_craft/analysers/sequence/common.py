@@ -24,7 +24,7 @@ class SequenceType(StrEnum):
   FOOTNOTE = "footnote"
 
 class Truncation(StrEnum):
-  MUST_BE = "must-be"
-  MOST_LIKELY = "most-likely"
-  IMPOSSIBLE = "impossible"
+  YES = "truncated"
+  NO = "not-truncated"
+  PROBABLY = "probably"
   UNCERTAIN = "uncertain"

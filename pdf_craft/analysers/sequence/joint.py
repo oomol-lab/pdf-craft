@@ -2,9 +2,10 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Generator
 from enum import auto, Enum
-from xml.etree.ElementTree import tostring, fromstring, Element
+from xml.etree.ElementTree import fromstring, Element
 
 from ...llm import LLM
+from ...xml import encode
 from ..context import Context
 from .common import State, SequenceType, PageType, Truncation
 
@@ -26,7 +27,7 @@ class _TruncationKind(Enum):
 class _Paragraph:
   def __init__(self, page_type: PageType, page_index: int, element: Element):
     self.page_type: PageType = page_type
-    self.children: list[tuple[int, Element]] = [page_index, element]
+    self.children: list[tuple[int, Element]] = [(page_index, element)]
 
   def append(self, page_index: int, element: Element):
     self.children.append((page_index, element))
@@ -90,7 +91,7 @@ class _Joint:
       next_paragraph_id += 1
 
       with open(file_path, mode="w", encoding="utf-8") as file:
-        file.write(tostring(paragraph.to_xml(), encoding="unicode"))
+        file.write(encode(paragraph.to_xml()))
 
   def _extract_sequence_metas(self) -> list[_SequenceMeta]:
     metas: list[_SequenceMeta] = []
@@ -109,9 +110,9 @@ class _Joint:
       if pre_page_index + 1 != meta.page_index:
         # The pages are not continuous, and it is impossible to cross pages in the middle,
         # so this assertion is made
-        meta.truncations = (Truncation.IMPOSSIBLE, meta.truncations[1])
+        meta.truncations = (Truncation.NO, meta.truncations[1])
         if pre_meta is not None:
-          pre_meta.truncations = (pre_meta.truncations[0], Truncation.IMPOSSIBLE)
+          pre_meta.truncations = (pre_meta.truncations[0], Truncation.NO)
       pre_page_index = meta.page_index
       pre_meta = meta
 
@@ -125,12 +126,12 @@ class _Joint:
       truncation2, _ = meta2.truncations
       truncations = (truncation1, truncation2)
 
-      if all(t == Truncation.IMPOSSIBLE for t in truncations):
+      if all(t == Truncation.NO for t in truncations):
         yield _TruncationKind.NO
         continue
 
-      if any(t == Truncation.MUST_BE for t in truncations) and \
-         all(t in (Truncation.MUST_BE, Truncation.MOST_LIKELY) for t in truncations):
+      if any(t == Truncation.YES for t in truncations) and \
+         all(t in (Truncation.YES, Truncation.PROBABLY) for t in truncations):
         yield _TruncationKind.VERIFIED
         continue
 
@@ -153,15 +154,14 @@ class _Joint:
         yield last_paragraph
         last_paragraph = None
 
-      if last_paragraph is None:
-        yield last_paragraph
+      if last_paragraph is not None:
+        last_paragraph.append(page_index, head)
+      else:
         last_paragraph = _Paragraph(
           page_type=meta.page_type,
           page_index=meta.page_index,
           element=head,
         )
-      else:
-        last_paragraph.append(page_index, head)
 
       for element in body:
         if last_paragraph is not None:
@@ -196,10 +196,10 @@ class _Joint:
         if self._type == SequenceType.TEXT:
           page_type = PageType(page.get("type", "text"))
 
-        sequence: Element | None = None
-        for sequence in page:
-          if sequence.get("type", None) == self._type:
-            break
+        sequence = next(
+          (found for found in page if found.get("type", None) == self._type),
+          None
+        )
         if sequence is None:
           continue
 
@@ -208,6 +208,10 @@ class _Joint:
         for line in sequence:
           if line.tag == "abandoned":
             line.tag = "text"
+
+        for i, layout in enumerate(sequence):
+          layout.set("id", f"{page_index}/{i + 1}")
+
         yield sequence
 
   def _split_sequence(self, sequence: Element) -> tuple[Element, list[Element]]:

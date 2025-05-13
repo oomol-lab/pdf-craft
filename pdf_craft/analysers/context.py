@@ -9,6 +9,7 @@ from datetime import datetime, timezone
 from typing import cast, Any, TypeVar, Generic, TypedDict, Callable
 from yaml import safe_load, safe_dump
 from xml.etree.ElementTree import tostring, fromstring, Element
+from ..xml import encode
 
 
 CURRENT_STATE_VERSION = "1.0.0"
@@ -81,7 +82,7 @@ class Context(Generic[S]):
       return fromstring(file.read())
 
   def write_xml_file(self, file_path: Path, xml: Element) -> None:
-    file_content = tostring(xml, encoding="unicode")
+    file_content = encode(xml)
     base_path = file_path.parent
     if not base_path.exists():
       base_path.mkdir(parents=True)

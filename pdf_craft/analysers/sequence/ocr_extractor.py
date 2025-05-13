@@ -1,9 +1,9 @@
 from pathlib import Path
 from typing import Iterable, Generator
-from xml.etree.ElementTree import tostring, Element
+from xml.etree.ElementTree import Element
 
 from ...llm import LLM
-from ...xml import encode
+from ...xml import encode, encode_friendly
 from ..context import Context
 from ..range_state import RangeState, RangeMatched, RangeOverlapped
 from ..utils import search_xml_children
@@ -41,7 +41,7 @@ class _Sequence:
 
       data_file_path = save_path / f"pages_{begin}_{end}.xml"
       with open(data_file_path, mode="w", encoding="utf-8") as file:
-        file.write(tostring(data_xml, encoding="unicode"))
+        file.write(encode(data_xml))
 
       completed_range_state.add(begin, end)
       self._ctx.state = {
@@ -66,7 +66,7 @@ class _Sequence:
       if len(raw_page_xml) == 0: # empty page
         continue
       raw_page_xml.set("page-index", str(page_index))
-      tokens = len(self._llm.encode_tokens(encode(raw_page_xml)))
+      tokens = len(self._llm.encode_tokens(encode_friendly(raw_page_xml)))
 
       if request_tokens > 0 and request_tokens + tokens > max_data_tokens:
         yield request_begin, request_end, request_xml
@@ -179,18 +179,18 @@ class _Sequence:
       sequence = self._create_sequence(
         layout_lines=layout_lines,
         group=group,
-        group_ids=ids,
+        group_ids=sorted(list(set(ids))),
       )
       new_page.append(sequence)
 
     return new_page
 
   def _ids_from_group(self, group: Element) -> list[int]:
-    ids: set[int] = set()
+    ids: list[int] = []
     for resp_line in group:
       for id in self._iter_line_ids(resp_line):
-        ids.add(id)
-    return sorted(list(ids))
+        ids.append(id)
+    return sorted(ids)
 
   def _create_sequence(
         self,

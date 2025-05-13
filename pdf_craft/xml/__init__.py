@@ -1,2 +1,2 @@
-from .encoder import encode
-from .decoder import decode
+from .encoder import encode, encode_friendly
+from .decoder import decode_friendly

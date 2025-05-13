@@ -7,7 +7,7 @@ from .transform import tag_to_element
 
 # why implement XML decoding?
 # https://github.com/oomol-lab/pdf-craft/issues/149
-def decode(chars: Iterable[str], tags: Iterable[str] | str = ()) -> Generator[Element, None, None]:
+def decode_friendly(chars: Iterable[str], tags: Iterable[str] | str = ()) -> Generator[Element, None, None]:
   if isinstance(tags, str):
     tags = set((tags,))
   else:

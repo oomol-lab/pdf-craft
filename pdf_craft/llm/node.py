@@ -12,7 +12,7 @@ from tiktoken import get_encoding, Encoding
 from langchain_core.messages import SystemMessage, HumanMessage
 
 from ..template import create_env
-from ..xml import decode as decode_xml, encode as encode_xml
+from ..xml import decode_friendly, encode_friendly
 from .increasable import Increasable
 from .executor import LLMExecutor
 
@@ -78,7 +78,8 @@ class LLM:
 
   def _create_input(self, template_name: str, user_data: Element, params: dict[str, Any]):
     template = self._template(template_name)
-    data = encode_xml(user_data)
+    data = encode_friendly(user_data)
+    data = f"```XML\n{data}\n```"
     prompt = template.render(**params)
     return [
       SystemMessage(content=prompt),
@@ -112,6 +113,6 @@ class LLM:
     return json.loads(response)
 
   def _encode_xml(self, response: str) -> Element:
-    for element in decode_xml(response, "response"):
+    for element in decode_friendly(response, "response"):
       return element
     raise ValueError("No valid XML response found")

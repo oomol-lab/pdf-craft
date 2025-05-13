@@ -22,7 +22,7 @@ def extract_sequences(llm: LLM, workspace: Path, ocr_path: Path, max_data_tokens
       )
       context.state = {
         **context.state,
-        "phase": Phase.JOINT.value,
+        "phase": Phase.TEXT_JOINT.value,
         "completed_ranges": [],
       }
     elif context.state["phase"] == Phase.TEXT_JOINT:
