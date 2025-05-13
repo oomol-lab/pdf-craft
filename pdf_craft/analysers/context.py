@@ -8,7 +8,7 @@ from pathlib import Path
 from datetime import datetime, timezone
 from typing import cast, Any, TypeVar, Generic, TypedDict, Callable
 from yaml import safe_load, safe_dump
-from xml.etree.ElementTree import tostring, fromstring, Element
+from xml.etree.ElementTree import fromstring, Element
 from ..xml import encode
 
 

@@ -7,7 +7,8 @@ from xml.etree.ElementTree import fromstring, Element
 from ...llm import LLM
 from ...xml import encode
 from ..context import Context
-from .common import State, SequenceType, PageType, Truncation
+from .common import State, SequenceType, Truncation
+from .paragraph import ParagraphType
 
 
 def join(llm: LLM, context: Context[State], type: SequenceType, extraction_path: Path):
@@ -15,7 +16,7 @@ def join(llm: LLM, context: Context[State], type: SequenceType, extraction_path:
 
 @dataclass
 class _SequenceMeta:
-  page_type: PageType
+  paragraph_type: ParagraphType
   page_index: int
   truncations: tuple[Truncation, Truncation]
 
@@ -25,8 +26,8 @@ class _TruncationKind(Enum):
   UNCERTAIN = auto()
 
 class _Paragraph:
-  def __init__(self, page_type: PageType, page_index: int, element: Element):
-    self._page_type: PageType = page_type
+  def __init__(self, type: ParagraphType, page_index: int, element: Element):
+    self._type: ParagraphType = type
     self._page_index: int = page_index
     self._children: list[Element] = [element]
 
@@ -38,12 +39,12 @@ class _Paragraph:
     return self._page_index
 
   @property
-  def page_type(self) -> PageType:
-    return self._page_type
+  def type(self) -> ParagraphType:
+    return self._type
 
   def to_xml(self) -> Element:
     element = Element("paragraph")
-    element.set("type", self._page_type.value)
+    element.set("type", self._type.value)
     for child in self._children:
       element.append(child)
     return element
@@ -85,7 +86,7 @@ class _Joint:
 
       save_dir_name: str
       if self._type == SequenceType.TEXT:
-        save_dir_name = paragraph._page_type.value
+        save_dir_name = paragraph._type.value
       elif self._type == SequenceType.FOOTNOTE:
         save_dir_name = "footnote"
 
@@ -105,7 +106,7 @@ class _Joint:
       truncation_begin = Truncation(sequence.get("truncation-begin", Truncation.UNCERTAIN.value))
       truncation_end = Truncation(sequence.get("truncation-end", Truncation.UNCERTAIN.value))
       metas.append(_SequenceMeta(
-        page_type=PageType(sequence.get("type")),
+        paragraph_type=ParagraphType(sequence.get("type")),
         page_index=int(sequence.get("page-index")),
         truncations=(truncation_begin, truncation_end),
       ))
@@ -155,7 +156,7 @@ class _Joint:
       head, body = self._split_sequence(sequence)
 
       if last_paragraph is not None and \
-         meta.page_type != last_paragraph.page_type:
+         meta.paragraph_type != last_paragraph.type:
         yield last_paragraph
         last_paragraph = None
 
@@ -163,7 +164,7 @@ class _Joint:
         last_paragraph.append(head)
       else:
         last_paragraph = _Paragraph(
-          page_type=meta.page_type,
+          type=meta.paragraph_type,
           page_index=meta.page_index,
           element=head,
         )
@@ -172,7 +173,7 @@ class _Joint:
         if last_paragraph is not None:
           yield last_paragraph
         last_paragraph = _Paragraph(
-          page_type=meta.page_type,
+          type=meta.paragraph_type,
           page_index=meta.page_index,
           element=element,
         )
@@ -190,14 +191,14 @@ class _Joint:
 
       page_pairs: list[tuple[int, Element]] = []
       for page in raw_page_xmls:
-        page_type = PageType.TEXT
+        paragraph_type = ParagraphType.TEXT
         page_index = int(page.get("page-index", "-1"))
         page_pairs.append((page_index, page))
 
       page_pairs.sort(key=lambda x: x[0])
       for page_index, page in page_pairs:
         if self._type == SequenceType.TEXT:
-          page_type = PageType(page.get("type", "text"))
+          paragraph_type = ParagraphType(page.get("type", "text"))
 
         sequence = next(
           (found for found in page if found.get("type", None) == self._type),
@@ -206,7 +207,7 @@ class _Joint:
         if sequence is None:
           continue
 
-        sequence.set("type", page_type.value)
+        sequence.set("type", paragraph_type.value)
         sequence.set("page-index", str(page_index))
 
         for line in sequence:
