@@ -7,6 +7,7 @@ from xml.etree.ElementTree import fromstring, Element
 from ...llm import LLM
 from ...xml import encode
 from ..context import Context
+from ..utils import xml_files
 from .common import State, SequenceType, Truncation
 from .paragraph import ParagraphType
 
@@ -84,13 +85,7 @@ class _Joint:
         last_page_index = page_index
         next_paragraph_id = 1
 
-      save_dir_name: str
-      if self._type == SequenceType.TEXT:
-        save_dir_name = paragraph._type.value
-      elif self._type == SequenceType.FOOTNOTE:
-        save_dir_name = "footnote"
-
-      save_dir_path = self._ctx.path / "output" / save_dir_name
+      save_dir_path = self._ctx.path.joinpath("output", self._type.value)
       save_dir_path.mkdir(parents=True, exist_ok=True)
 
       paragraph_id = f"{page_index}_{next_paragraph_id}"
@@ -185,7 +180,7 @@ class _Joint:
       yield last_paragraph
 
   def _extract_sequences(self) -> Generator[Element, None, None]:
-    for file_path, _, _, _ in self._ctx.xml_files(self._extraction_path):
+    for file_path, _, _, _ in xml_files(self._extraction_path):
       with open(file_path, mode="r", encoding="utf-8") as file:
         raw_page_xmls = fromstring(file.read())
 

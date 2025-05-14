@@ -1,6 +1,7 @@
 from __future__ import annotations
 from dataclasses import dataclass
 from strenum import StrEnum
+from xml.etree.ElementTree import Element
 
 
 @dataclass
@@ -9,6 +10,13 @@ class Paragraph:
   page_index: int
   order_index: int
   layouts: list[Layout]
+
+  def xml(self) -> Element:
+    element = Element("paragraph")
+    element.set("type", self.type.value)
+    for layout in self.layouts:
+      element.append(layout.xml())
+    return element
 
 class ParagraphType(StrEnum):
   TEXT = "text"
@@ -27,6 +35,13 @@ class Layout:
   def id(self) -> str:
     return f"{self.page_index}/{self.order_index}"
 
+  def xml(self) -> Element:
+    element = Element(self.kind.value)
+    element.set("id", self.id)
+    for line in self.lines:
+      element.append(line.xml())
+    return element
+
 class LayoutKind(StrEnum):
   TEXT = "text"
   HEADLINE = "headline"
@@ -39,3 +54,9 @@ class LayoutKind(StrEnum):
 class Line:
   text: str
   confidence: str
+
+  def xml(self) -> Element:
+    element = Element("line")
+    element.text = self.text
+    element.set("confidence", str(object=self.confidence))
+    return element

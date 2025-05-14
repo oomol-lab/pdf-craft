@@ -1,0 +1,1 @@
+from .contents_extractor import extract_contents

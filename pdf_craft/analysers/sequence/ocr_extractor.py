@@ -6,7 +6,7 @@ from ...llm import LLM
 from ...xml import encode, encode_friendly
 from ..context import Context
 from ..range_state import RangeState, RangeMatched, RangeOverlapped
-from ..utils import search_xml_children
+from ..utils import remove_file, read_xml_file, xml_files, search_xml_children
 
 from .common import State, Phase, SequenceType, Truncation
 
@@ -53,7 +53,7 @@ class _Sequence:
         for overlapped in state.ranges:
           begin, end = overlapped
           data_file_path = save_path / f"pages_{begin}_{end}.xml"
-          self._ctx.remove_file(data_file_path)
+          remove_file(data_file_path)
 
   def _split_and_create_requests(self, ocr_path: Path) -> Generator[tuple[int, int, Element], None, None]:
     max_data_tokens = self._ctx.state["max_data_tokens"]
@@ -62,8 +62,8 @@ class _Sequence:
     request_begin: int = -1
     request_end: int = -1
 
-    for xml_path, _, page_index, _ in self._ctx.xml_files(ocr_path):
-      raw_page_xml = self._ctx.read_xml_file(xml_path)
+    for xml_path, _, page_index, _ in xml_files(ocr_path):
+      raw_page_xml = read_xml_file(xml_path)
       if len(raw_page_xml) == 0: # empty page
         continue
       raw_page_xml.set("page-index", str(page_index))

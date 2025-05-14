@@ -8,13 +8,12 @@ from pathlib import Path
 from datetime import datetime, timezone
 from typing import cast, Any, TypeVar, Generic, TypedDict, Callable
 from yaml import safe_load, safe_dump
-from xml.etree.ElementTree import fromstring, Element
+from xml.etree.ElementTree import Element
 from ..xml import encode
 
 
 CURRENT_STATE_VERSION = "1.0.0"
 S = TypeVar("S")
-XML_Info = tuple[Path, str, int, int]
 
 _STATE_FILE = "state.yaml"
 
@@ -69,17 +68,15 @@ class Context(Generic[S]):
   def state(self, state: S) -> None:
     self._state = state
     file_path = self._path.joinpath(_STATE_FILE)
-    with file_path.open("w", encoding="utf-8") as file:
-      file.write(safe_dump({
+    self._atomic_write(
+      file_path=file_path,
+      content=safe_dump({
         "version": CURRENT_STATE_VERSION,
         "created_at": self._created_at,
         "updated_at": self._current_utc(),
         "payload": self._state,
-      }))
-
-  def read_xml_file(self, file_path: Path) -> Element:
-    with file_path.open("r", encoding="utf-8") as file:
-      return fromstring(file.read())
+      }),
+    )
 
   def write_xml_file(self, file_path: Path, xml: Element) -> None:
     file_content = encode(xml)
@@ -87,25 +84,6 @@ class Context(Generic[S]):
     if not base_path.exists():
       base_path.mkdir(parents=True)
     self._atomic_write(file_path, file_content)
-
-  def remove_file(self, file_path: Path) -> None:
-    if file_path.exists():
-      os.unlink(file_path)
-
-  def xml_files(self, dir_path: Path) -> list[XML_Info]:
-    xml_infos: list[XML_Info] = []
-    for file in dir_path.iterdir():
-      file_path = dir_path / file
-      if not file_path.is_file():
-        continue
-      file_prefix, index1, index2 = self._split_index_suffix(file.name)
-      if file_prefix is None:
-        continue
-
-      xml_infos.append((file_path, file_prefix, index1, index2))
-
-    xml_infos.sort(key=lambda x: (x[2], x[3]))
-    return xml_infos
 
   def _current_utc(self) -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")

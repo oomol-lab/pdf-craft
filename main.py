@@ -3,17 +3,17 @@ import json
 from pathlib import Path
 
 from pdf_craft.llm import LLM
-from pdf_craft.analysers.sequence import extract_sequences
+from pdf_craft.analysers.contents import extract_contents
 
 
 def main() -> None:
-  extract_sequences(
+  extract_contents(
     llm=LLM(
       **_read_format_json(),
       log_file_path=Path("/Users/taozeyu/codes/github.com/oomol-lab/pdf-craft/analysing/request.log"),
     ),
-    workspace=Path("/Users/taozeyu/codes/github.com/oomol-lab/pdf-craft/analysing/sequence"),
-    ocr_path=Path("/Users/taozeyu/codes/github.com/oomol-lab/pdf-craft/analysing/ocr"),
+    workspace=Path("/Users/taozeyu/codes/github.com/oomol-lab/pdf-craft/analysing/contents"),
+    sequence_path=Path("/Users/taozeyu/codes/github.com/oomol-lab/pdf-craft/analysing/sequence/output/text"),
     max_data_tokens=4096,
   )
 
