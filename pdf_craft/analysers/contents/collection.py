@@ -7,8 +7,8 @@ from ...llm import LLM
 from ...xml import encode
 from ..context import Context
 from ..sequence import read_paragraphs, Paragraph, ParagraphType
-from ..utils import search_xml_children
 from .common import Phase, State
+from .utils import normalize_layout_xml
 
 
 def collect(llm: LLM, context: Context[State], sequence_path: Path) -> Generator[Paragraph, None, None]:
@@ -25,22 +25,9 @@ class _Page:
     page.set("page-index", str(self.page_index))
 
     for paragraph in self.paragraphs:
-      merged_layout: Element | None = None
-      for layout in paragraph.layouts:
-        if merged_layout is None:
-          merged_layout = layout.xml()
-        else:
-          for line in layout.lines:
-            merged_layout.append(line.xml())
-
+      merged_layout = normalize_layout_xml(paragraph)
       if merged_layout is not None:
-        merged_layout.attrib = {}
         page.append(merged_layout)
-
-    for layout in page:
-      for child, _ in search_xml_children(layout):
-        if child.tag == "line":
-          child.attrib = {}
 
     return page
 
@@ -188,7 +175,7 @@ class _Collector:
     request_xml = Element("request")
     request_xml.extend(page_elements)
     resp_xml = self._llm.request_xml(
-      template_name="identify_contents",
+      template_name="contents_identifier",
       user_data=request_xml,
       params={
         "last_pages_count": yield_pages_count,
