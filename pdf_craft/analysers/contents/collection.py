@@ -4,11 +4,15 @@ from pathlib import Path
 from xml.etree.ElementTree import Element
 
 from ...llm import LLM
+from ...xml import encode
 from ..context import Context
 from ..sequence import read_paragraphs, Paragraph, ParagraphType
 from ..utils import search_xml_children
 from .common import Phase, State
 
+
+def collect(llm: LLM, context: Context[State], sequence_path: Path) -> Generator[Paragraph, None, None]:
+  yield from _Collector(llm, context, sequence_path).do()
 
 @dataclass
 class _Page:
@@ -16,117 +20,192 @@ class _Page:
   page_index: int
   paragraphs: list[Paragraph]
 
-def collect(llm: LLM, context: Context[State], sequence_path: Path) -> Generator[Paragraph, None, None]:
-  phase = Phase(context.state["phase"])
-  page_indexes = context.state["page_indexes"]
+  def xml(self) -> Element | None:
+    page = Element("page")
+    page.set("page-index", str(self.page_index))
 
-  if phase == Phase.INIT:
-    page_indexes = []
-    for page in _read_pages(sequence_path):
-      if page.page_type == ParagraphType.CONTENTS:
-        page_indexes.append(page.page_index)
-      else:
-        break
-    phase = Phase.COLLECT
-    context.state = {
-      **context.state,
-      "phase": phase.value,
-      "page_indexes": page_indexes,
-    }
+    for paragraph in self.paragraphs:
+      merged_layout: Element | None = None
+      for layout in paragraph.layouts:
+        if merged_layout is None:
+          merged_layout = layout.xml()
+        else:
+          for line in layout.lines:
+            merged_layout.append(line.xml())
 
-  if phase == Phase.COLLECT:
-    page_indexes.sort()
-    for page in _read_pages(sequence_path):
-      if page.page_type == ParagraphType.CONTENTS:
-        yield from page.paragraphs
-        page_indexes.append(page.page_index)
-      else:
-        if page.page_index in page_indexes:
-          yield from page.paragraphs
-        elif _check_page_matched(llm, page):
-          yield from page.paragraphs
+      if merged_layout is not None:
+        merged_layout.attrib = {}
+        page.append(merged_layout)
+
+    for layout in page:
+      for child, _ in search_xml_children(layout):
+        if child.tag == "line":
+          child.attrib = {}
+
+    return page
+
+class _Collector:
+  def __init__(self, llm: LLM, context: Context[State], sequence_path: Path):
+    self._llm: LLM = llm
+    self._context: Context[State] = context
+    self._sequence_path: Path = sequence_path
+
+  def do(self) -> Generator[Paragraph, None, None]:
+    phase = Phase(self._context.state["phase"])
+    page_indexes = self._context.state["page_indexes"]
+
+    if phase == Phase.INIT:
+      page_indexes = []
+      for page in self._read_pages():
+        if page.page_type == ParagraphType.CONTENTS:
           page_indexes.append(page.page_index)
-          context.state = {
-            **context.state,
-            "page_indexes": page_indexes,
-          }
         else:
           break
+      phase = Phase.COLLECT
+      self._context.state = {
+        **self._context.state,
+        "phase": phase.value,
+        "page_indexes": page_indexes,
+      }
 
-    phase = Phase.ANALYSE
-    context.state = {
-      **context.state,
-      "phase": phase.value,
-      "page_indexes": page_indexes,
-    }
+    if phase == Phase.COLLECT:
+      for page in self._read_and_identify_pages(page_indexes):
+        if page.page_index not in page_indexes:
+          page_indexes.append(page.page_index)
+          self._context.state = {
+            **self._context.state,
+            "page_indexes": page_indexes,
+          }
+        yield page
 
-  else:
+      phase = Phase.ANALYSE
+      self._context.state = {
+        **self._context.state,
+        "phase": phase.value,
+      }
+    else:
+      for page, matched in self._read_pages_with_matched(page_indexes):
+        if not matched:
+          break
+        yield from page.paragraphs
+
+  def _read_and_identify_pages(self, page_indexes: list[int]) -> Generator[_Page, None, None]:
+    yield_pages_count: int = 0
+    unmatched_pages: list[_Page] = []
+    unmatched_elements: list[Element] = []
+    unmatched_tokens: int = 0
+
+    def identify_matched_pages_and_check_done() -> tuple[list[_Page], bool]:
+      nonlocal yield_pages_count, unmatched_pages, unmatched_elements, unmatched_tokens
+      if not unmatched_elements:
+        return [], False
+
+      matched_pages: list[_Page] = []
+      matched_result = self._check_pages_matched(
+        yield_pages_count=yield_pages_count,
+        page_elements=unmatched_elements,
+      )
+      for page, matched in zip(unmatched_pages, matched_result):
+        if not matched:
+          return matched_pages, True
+        matched_pages.append(page)
+
+      unmatched_pages.clear()
+      unmatched_elements.clear()
+      unmatched_tokens = 0
+      return matched_pages, False
+
+    max_data_tokens = self._context.state["max_data_tokens"]
+
+    for page, matched in self._read_pages_with_matched(page_indexes):
+      if matched or page.page_type == ParagraphType.CONTENTS:
+        if unmatched_pages:
+          matched_pages, done = identify_matched_pages_and_check_done()
+          if done:
+            return
+          yield from matched_pages
+          yield_pages_count += len(matched_pages)
+        yield page
+        yield_pages_count += 1
+      else:
+        page_element = page.xml()
+        page_tokens = len(self._llm.encode_tokens(encode(page_element)))
+        if unmatched_pages and unmatched_tokens + page_tokens > max_data_tokens:
+          matched_pages, done = identify_matched_pages_and_check_done()
+          if done:
+            return
+          yield from matched_pages
+          yield_pages_count += len(matched_pages)
+
+        unmatched_pages.append(page)
+        unmatched_elements.append(page_element)
+        unmatched_tokens += page_tokens
+
+    if unmatched_pages:
+      matched_pages, _ = identify_matched_pages_and_check_done()
+      yield from matched_pages
+
+  def _read_pages_with_matched(self, page_indexes: list[int]) -> Generator[tuple[_Page, bool], None, None]:
+    page_indexes.sort()
     max_page_index = -1
     if page_indexes:
       max_page_index = max(page_indexes)
-    for page in _read_pages(sequence_path):
+    for page in self._read_pages():
       if page.page_index in page_indexes:
-        yield from page.paragraphs
+        yield page, True
       elif page.page_index > max_page_index:
-        break
+        yield page, False
 
-def _read_pages(sequence_path: Path) -> Generator[_Page, None, None]:
-  page: _Page | None = None
-  skip_not_matched = True
+  def _read_pages(self) -> Generator[_Page, None, None]:
+    page: _Page | None = None
+    skip_not_matched = True
 
-  for paragraph in read_paragraphs(sequence_path):
-    if paragraph.type == ParagraphType.CONTENTS:
-      skip_not_matched = False
-    elif skip_not_matched:
-      continue
+    for paragraph in read_paragraphs(self._sequence_path):
+      if len(paragraph.layouts) == 0:
+        continue
+      elif paragraph.type == ParagraphType.CONTENTS:
+        skip_not_matched = False
+      elif skip_not_matched:
+        continue
 
+      if page is not None:
+        if page.page_index == paragraph.page_index:
+          page.paragraphs.append(paragraph)
+        else:
+          yield page
+          page = None
+
+      if page is None:
+        page = _Page(
+          page_type=paragraph.type,
+          page_index=paragraph.page_index,
+          paragraphs=[paragraph],
+        )
     if page is not None:
-      if page.page_index == paragraph.page_index:
-        page.paragraphs.append(paragraph)
-      else:
-        yield page
-        page = None
+      yield page
 
-    if page is None:
-      page = _Page(
-        page_type=paragraph.type,
-        page_index=paragraph.page_index,
-        paragraphs=[paragraph],
-      )
-  if page is not None:
-    yield page
+  def _check_pages_matched(self, yield_pages_count: int, page_elements: list[Element]) -> list[bool]:
+    request_xml = Element("request")
+    request_xml.extend(page_elements)
+    resp_xml = self._llm.request_xml(
+      template_name="identify_contents",
+      user_data=request_xml,
+      params={
+        "last_pages_count": yield_pages_count,
+        "current_pages_count": len(page_elements),
+      },
+    )
+    matched_page_indexes: set[int] = set()
+    matched: list[bool] = []
 
-def _check_page_matched(llm: LLM, page: _Page) -> bool:
-  if page.page_type == ParagraphType.CONTENTS:
-    return True
+    for resp_page in resp_xml:
+      page_index = resp_page.get("page-index", None)
+      page_type = resp_page.get("type", None)
+      if page_index is not None and ParagraphType.CONTENTS == page_type:
+        matched_page_indexes.add(page_index)
 
-  layouts: list[Element] = []
-  for paragraph in page.paragraphs:
-    merged_layout: Element | None = None
-    for layout in paragraph.layouts:
-      if merged_layout is None:
-        merged_layout = layout.xml()
-      else:
-        for line in layout.lines:
-          merged_layout.append(line.xml())
-    if merged_layout is not None:
-      merged_layout.attrib = {}
-      layouts.append(merged_layout)
+    for raw_page in page_elements:
+      page_index = raw_page.get("page-index", None)
+      matched.append(page_index in matched_page_indexes)
 
-  if len(layouts) == 0:
-    return True # maybe it's an empty page or a page fill with a picture
-
-  for layout in layouts:
-    for child, _ in search_xml_children(layout):
-      if child.tag == "line":
-        child.attrib = {}
-
-  request_xml = Element("request")
-  request_xml.set("page-index", str(page.page_index))
-  request_xml.extend(layouts)
-  resp_xml = llm.request_xml(
-    template_name="identify_contents",
-    user_data=request_xml,
-  )
-  print(resp_xml)
-  raise NotImplementedError("This function is not implemented yet.")
+    return matched

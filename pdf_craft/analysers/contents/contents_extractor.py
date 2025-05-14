@@ -1,6 +1,7 @@
 from pathlib import Path
 
 from ...llm import LLM
+from ...xml import encode
 from ..context import Context
 from .common import Phase, State
 from .collection import collect
@@ -13,4 +14,4 @@ def extract_contents(llm: LLM, workspace: Path, sequence_path: Path, max_data_to
     "max_data_tokens": max_data_tokens,
   })
   for paragraph in collect(llm, context, sequence_path):
-    print(paragraph.xml())
+    print(encode(paragraph.xml()))
