@@ -68,7 +68,7 @@ class Context(Generic[S]):
   def state(self, state: S) -> None:
     self._state = state
     file_path = self._path.joinpath(_STATE_FILE)
-    self._atomic_write(
+    self.atomic_write(
       file_path=file_path,
       content=safe_dump({
         "version": CURRENT_STATE_VERSION,
@@ -83,7 +83,7 @@ class Context(Generic[S]):
     base_path = file_path.parent
     if not base_path.exists():
       base_path.mkdir(parents=True)
-    self._atomic_write(file_path, file_content)
+    self.atomic_write(file_path, file_content)
 
   def _current_utc(self) -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
@@ -105,7 +105,7 @@ class Context(Generic[S]):
 
     return file_prefix, int(index1), int(index2)
 
-  def _atomic_write(self, file_path: str, content: str):
+  def atomic_write(self, file_path: Path, content: str):
     try:
       with open(file_path, "w", encoding="utf-8") as file:
         file.write(content)

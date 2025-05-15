@@ -41,6 +41,7 @@ class LLMExecutor:
   def request(self, input: LanguageModelInput, parser: Callable[[str], Any]) -> Any:
     result: Any | None = None
     last_error: Exception | None = None
+    did_success = False
     top_p: Increaser = self._top_p.context()
     temperature: Increaser = self._temperature.context()
 
@@ -69,6 +70,7 @@ class LLMExecutor:
 
         try:
           result = parser(response)
+          did_success = True
           break
 
         except Exception as err:
@@ -86,8 +88,12 @@ class LLMExecutor:
         self._logger.debug(f"[[Error]]:\n{last_error}\n")
       raise err
 
-    if last_error is not None:
-      raise last_error
+    if not did_success:
+      if last_error is None:
+        raise RuntimeError("Request failed with unknown error")
+      else:
+        raise last_error
+
     return result
 
   def _input2str(self, input: LanguageModelInput) -> str:

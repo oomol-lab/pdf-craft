@@ -63,7 +63,7 @@ class _Collector:
             **self._context.state,
             "page_indexes": page_indexes,
           }
-        yield page
+        yield from page.paragraphs
 
       phase = Phase.ANALYSE
       self._context.state = {
@@ -175,7 +175,7 @@ class _Collector:
     request_xml = Element("request")
     request_xml.extend(page_elements)
     resp_xml = self._llm.request_xml(
-      template_name="contents_identifier",
+      template_name="contents/identifier",
       user_data=request_xml,
       params={
         "last_pages_count": yield_pages_count,

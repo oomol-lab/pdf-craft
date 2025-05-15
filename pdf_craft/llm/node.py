@@ -1,8 +1,7 @@
-import re
 import json
 
 from os import PathLike
-from typing import cast, Any
+from typing import cast, Any, Generator
 from importlib.resources import files
 from jinja2 import Environment, Template
 from xml.etree.ElementTree import Element
@@ -60,7 +59,15 @@ class LLM:
     logger.addHandler(handler)
     return logger
 
-  def request_json(self, template_name: str, user_data: Element, params: dict[str, Any] | None = None) -> Any:
+  def request_markdown(self, template_name: str, user_data: Element | str, params: dict[str, Any] | None = None) -> str:
+    if params is None:
+      params = {}
+    return self._executor.request(
+      input=self._create_input(template_name, user_data, params),
+      parser=self._encode_markdown,
+    )
+
+  def request_json(self, template_name: str, user_data: Element | str, params: dict[str, Any] | None = None) -> Any:
     if params is None:
       params = {}
     return self._executor.request(
@@ -68,7 +75,7 @@ class LLM:
       parser=self._encode_json,
     )
 
-  def request_xml(self, template_name: str, user_data: Element, params: dict[str, Any] | None = None) -> Element:
+  def request_xml(self, template_name: str, user_data: Element | str, params: dict[str, Any] | None = None) -> Element:
     if params is None:
       params = {}
     return self._executor.request(
@@ -76,10 +83,15 @@ class LLM:
       parser=self._encode_xml,
     )
 
-  def _create_input(self, template_name: str, user_data: Element, params: dict[str, Any]):
+  def _create_input(self, template_name: str, user_data: Element | str, params: dict[str, Any]):
+    data: str
+    if isinstance(user_data, Element):
+      data = encode_friendly(user_data)
+      data = f"```XML\n{data}\n```"
+    else:
+      data = user_data
+
     template = self._template(template_name)
-    data = encode_friendly(user_data)
-    data = f"```XML\n{data}\n```"
     prompt = template.render(**params)
     return [
       SystemMessage(content=prompt),
@@ -107,12 +119,35 @@ class LLM:
       self._templates[template_name] = template
     return template
 
+  def _encode_markdown(self, response: str) -> str:
+    for quote in self._search_quotes("Markdown", response):
+      return quote
+    raise ValueError("No valid Markdown response found")
+
   def _encode_json(self, response: str) -> Any:
-    response = re.sub(r"^```JSON", "", response)
-    response = re.sub(r"```$", "", response)
-    return json.loads(response)
+    for quote in self._search_quotes("JSON", response):
+      return json.loads(quote)
+    raise ValueError("No valid Markdown response found")
 
   def _encode_xml(self, response: str) -> Element:
-    for element in decode_friendly(response, "response"):
-      return element
+    quote = next(self._search_quotes("XML", response), None)
+    if quote is not None:
+      for element in decode_friendly(quote, "response"):
+        return element
     raise ValueError("No valid XML response found")
+
+  def _search_quotes(self, kind: str, response: str) -> Generator[str, None, None]:
+    start_marker = f"```{kind}"
+    end_marker = "```"
+    start_index = 0
+
+    while True:
+      start_index = response.find(start_marker, start_index)
+      if start_index == -1:
+          break
+      end_index = response.find(end_marker, start_index + len(start_marker))
+      if end_index == -1:
+          break
+      extracted_text = response[start_index + len(start_marker):end_index].strip()
+      yield extracted_text
+      start_index = end_index + len(end_marker)
