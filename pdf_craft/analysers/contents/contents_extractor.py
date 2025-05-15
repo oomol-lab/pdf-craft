@@ -40,7 +40,7 @@ def extract_contents(llm: LLM, workspace: Path, sequence_path: Path, max_data_to
       "phase": Phase.COMPLETED.value,
     }
 
-  return _parse_contents_xml(extracted_xml)
+  return _parse_contents_xml(context, extracted_xml)
 
 def _extract_md_contents(llm: LLM, context: Context[State], sequence_path: Path) -> str:
   md_path = context.path.joinpath("extracted.md")
@@ -65,7 +65,7 @@ def _extract_md_contents(llm: LLM, context: Context[State], sequence_path: Path)
 
   return md_content
 
-def _parse_contents_xml(contents_xml: Element) -> Contents:
+def _parse_contents_xml(context: Context[State], contents_xml: Element) -> Contents:
   prefaces: list[Chapter] = []
   chapters: list[Chapter] = []
 
@@ -82,10 +82,17 @@ def _parse_contents_xml(contents_xml: Element) -> Contents:
       if chapter is not None:
         l0_chapters.append(chapter)
 
-  return Contents(
+  next_id = 1
+  contents = Contents(
     prefaces=prefaces,
     chapters=chapters,
+    page_indexes=context.state["page_indexes"],
   )
+  for chapter in contents:
+    chapter.id = next_id
+    next_id += 1
+
+  return contents
 
 def _parse_chapter(chapter_xml: Element) -> Chapter | None:
   if chapter_xml.tag != "chapter":
@@ -102,6 +109,7 @@ def _parse_chapter(chapter_xml: Element) -> Chapter | None:
       children.append(sub_chapter)
 
   return Chapter(
+    id=-1,
     name=name,
     children=children,
   )

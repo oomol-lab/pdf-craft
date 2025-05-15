@@ -1,22 +1,29 @@
 import os
 import json
+
 from pathlib import Path
 
 from pdf_craft.llm import LLM
 from pdf_craft.analysers.contents import extract_contents
+from pdf_craft.analysers.chapter.contents_binder import bind_contents
 
 
 def main() -> None:
+  llm=LLM(
+    **_read_format_json(),
+    log_file_path=Path("/Users/taozeyu/codes/github.com/oomol-lab/pdf-craft/analysing/request.log"),
+  )
   contents = extract_contents(
-    llm=LLM(
-      **_read_format_json(),
-      log_file_path=Path("/Users/taozeyu/codes/github.com/oomol-lab/pdf-craft/analysing/request.log"),
-    ),
+    llm=llm,
     workspace=Path("/Users/taozeyu/codes/github.com/oomol-lab/pdf-craft/analysing/contents"),
     sequence_path=Path("/Users/taozeyu/codes/github.com/oomol-lab/pdf-craft/analysing/sequence/output/text"),
     max_data_tokens=4096,
   )
-  print(contents)
+  bind_contents(
+    llm=llm,
+    content=contents,
+    sequence_path=Path("/Users/taozeyu/codes/github.com/oomol-lab/pdf-craft/analysing/sequence/output/text"),
+  )
 
 def _read_format_json() -> dict:
   path = os.path.join(__file__, "..", "format.json")
