@@ -7,7 +7,7 @@ from pdf_craft.analysers.contents import extract_contents
 
 
 def main() -> None:
-  extract_contents(
+  contents = extract_contents(
     llm=LLM(
       **_read_format_json(),
       log_file_path=Path("/Users/taozeyu/codes/github.com/oomol-lab/pdf-craft/analysing/request.log"),
@@ -16,6 +16,7 @@ def main() -> None:
     sequence_path=Path("/Users/taozeyu/codes/github.com/oomol-lab/pdf-craft/analysing/sequence/output/text"),
     max_data_tokens=4096,
   )
+  print(contents)
 
 def _read_format_json() -> dict:
   path = os.path.join(__file__, "..", "format.json")
