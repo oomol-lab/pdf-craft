@@ -130,10 +130,8 @@ class LLM:
     raise ValueError("No valid Markdown response found")
 
   def _encode_xml(self, response: str) -> Element:
-    quote = next(self._search_quotes("XML", response), None)
-    if quote is not None:
-      for element in decode_friendly(quote, "response"):
-        return element
+    for element in decode_friendly(response, "response"):
+      return element
     raise ValueError("No valid XML response found")
 
   def _search_quotes(self, kind: str, response: str) -> Generator[str, None, None]:

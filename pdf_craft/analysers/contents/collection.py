@@ -108,9 +108,9 @@ class _Collector:
       if matched or page.page_type == ParagraphType.CONTENTS:
         if unmatched_pages:
           matched_pages, done = identify_matched_pages_and_check_done()
+          yield from matched_pages
           if done:
             return
-          yield from matched_pages
           yield_pages_count += len(matched_pages)
         yield page
         yield_pages_count += 1
@@ -119,9 +119,9 @@ class _Collector:
         page_tokens = len(self._llm.encode_tokens(encode(page_element)))
         if unmatched_pages and unmatched_tokens + page_tokens > max_data_tokens:
           matched_pages, done = identify_matched_pages_and_check_done()
+          yield from matched_pages
           if done:
             return
-          yield from matched_pages
           yield_pages_count += len(matched_pages)
 
         unmatched_pages.append(page)

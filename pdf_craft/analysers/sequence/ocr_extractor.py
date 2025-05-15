@@ -183,6 +183,8 @@ class _Sequence:
       )
       new_page.append(sequence)
 
+    # TODO: 将表格、图片等没有 Line 的元素恢复并插入正确的位置
+
     return new_page
 
   def _ids_from_group(self, group: Element) -> list[int]:

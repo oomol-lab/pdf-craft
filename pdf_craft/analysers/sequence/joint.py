@@ -92,8 +92,10 @@ class _Joint:
       file_path = save_dir_path / f"paragraph_{paragraph_id}.xml"
       next_paragraph_id += 1
 
-      with open(file_path, mode="w", encoding="utf-8") as file:
-        file.write(encode(paragraph.to_xml()))
+      self._ctx.atomic_write(
+        file_path=file_path,
+        content=encode(paragraph.to_xml()),
+      )
 
   def _extract_sequence_metas(self) -> list[_SequenceMeta]:
     metas: list[_SequenceMeta] = []
@@ -199,7 +201,7 @@ class _Joint:
           (found for found in page if found.get("type", None) == self._type),
           None
         )
-        if sequence is None:
+        if sequence is None or len(sequence) == 0:
           continue
 
         sequence.set("type", paragraph_type.value)
