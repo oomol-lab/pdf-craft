@@ -22,6 +22,7 @@ def main() -> None:
   bind_contents(
     llm=llm,
     content=contents,
+    max_request_tokens=8192,
     sequence_path=Path("/Users/taozeyu/codes/github.com/oomol-lab/pdf-craft/analysing/sequence/output/text"),
   )
 
