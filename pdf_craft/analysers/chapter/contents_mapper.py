@@ -46,7 +46,7 @@ class _ContentsMapper:
     )
     for fragment in self._read_fragment():
       id = 1 # only for calculate tokens. won't be used in request
-      request_text = encode_friendly(fragment.to_xml(id))
+      request_text = encode_friendly(fragment.to_request_xml(id))
       tokens = len(self._llm.encode_tokens(request_text))
       if request_tokens > 0 and request_tokens + tokens > max_request_tokens:
         yield request

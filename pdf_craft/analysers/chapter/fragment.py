@@ -5,7 +5,7 @@ from ..sequence import Layout
 
 
 @dataclass
-class _Line:
+class Line:
   id: int
   text: str
   splitted: bool
@@ -19,12 +19,12 @@ class _Line:
 @dataclass
 class _Abstract:
   raw_layout: Layout
-  lines: list[_Line]
+  lines: list[Line]
 
 class Fragment:
   def __init__(self, page_index: int) -> None:
     self._page_index: int = page_index
-    self._headlines: list[tuple[Layout, list[_Line]]] = []
+    self._headlines: list[tuple[Layout, list[Line]]] = []
     self._abstracts: list[_Abstract] = []
 
   @property
@@ -39,7 +39,7 @@ class Fragment:
     self._headlines.append((
       headline_layout,
       [
-        _Line(
+        Line(
           id=-1,
           text=line.text,
           splitted=False,
@@ -62,7 +62,7 @@ class Fragment:
         to_append_abstract = last_abstract
 
     if to_append_abstract:
-      to_append_abstract.lines.append(_Line(
+      to_append_abstract.lines.append(Line(
         id=-1,
         text=text,
         splitted=splitted,
@@ -70,7 +70,7 @@ class Fragment:
     else:
       self._abstracts.append(_Abstract(
         raw_layout=parent_layout,
-        lines=[_Line(
+        lines=[Line(
           id=-1,
           text=text,
           splitted=splitted,
@@ -84,7 +84,25 @@ class Fragment:
       next_id += 1
     return next_id
 
-  def to_xml(self, id: int):
+  def pop_line(self, line_id: int) -> Line | None:
+    lines: list[Line] | None = None
+    for _, lines in self._headlines:
+      for i, line in enumerate(lines):
+        if line.id == line_id:
+          return lines.pop(i)
+    for abstract in self._abstracts:
+      for i, line in enumerate(abstract.lines):
+        if line.id == line_id and not line.splitted:
+          return abstract.lines.pop(i)
+    return None
+
+  def update_headline(self, id: str, lines: list[Line]):
+    for i, (headline, _) in enumerate(self._headlines):
+      if headline.id == id:
+        self._headlines[i] = (headline, lines)
+        return
+
+  def to_request_xml(self, id: int):
     fragment_element = Element("fragment")
     fragment_element.set("id", _to_abc_id(id))
     fragment_element.set("page-index", str(self._page_index))
@@ -105,7 +123,7 @@ class Fragment:
 
     return fragment_element
 
-  def _lines(self) -> Generator[_Line, None, None]:
+  def _lines(self) -> Generator[Line, None, None]:
     for _, lines in self._headlines:
       yield from lines
     for abstract in self._abstracts:
@@ -128,18 +146,60 @@ class FragmentRequest:
       next_id = fragment.define_line_ids(next_id)
 
     request_xml = Element("request")
-    for i, fragment in enumerate(self._fragments):
-      fragment_element = fragment.to_xml(i+1)
+    for id, fragment in enumerate(self._fragments):
+      fragment_element = fragment.to_request_xml(id)
       request_xml.append(fragment_element)
     return request_xml
 
   def generate_patch(self, resp_xml: Element) -> None:
-    pass
+    patched_headline_indexes_set: set[int] = set()
+    for index, headline_id, line_pairs in self._collect_headline_patch(resp_xml):
+      if index >= len(self._fragments):
+        continue
+      fragment = self._fragments[index]
+      lines: list[Line] = []
+      for line_id, line_text in line_pairs:
+        line = fragment.pop_line(line_id)
+        if line is None:
+          continue
+        line.text = line_text
+        lines.append(line)
+      fragment.update_headline(headline_id, lines)
+      patched_headline_indexes_set.add(index)
+
+    for index in sorted(list(patched_headline_indexes_set)):
+      fragment = self._fragments[index]
+
+  def _collect_headline_patch(self, resp_xml: Element):
+    for child in resp_xml:
+      if child.tag != "fixed-fragment":
+        continue
+      index = _parse_abc_id(child.get("id", "A"))
+      if index >= len(self._fragments):
+        continue
+      for headline in child:
+        headline_id = headline.get("id", None)
+        if headline_id is None:
+          continue
+        lines: list[tuple[int, str]] = []
+        for line in headline:
+          if line.tag != "line":
+            continue
+          line_id = line.get("id", "-1")
+          lines.append((int(line_id), line.text))
+        yield index, headline_id, lines
 
 def _to_abc_id(id: int) -> str:
   result = ""
   while id > 0:
-    id, remainder = divmod(id - 1, 26)
+    id, remainder = divmod(id, 26)
     result = chr(ord("A") + remainder) + result
-  assert result, "id must be greater than 0"
+  if not result:
+    result = "A"
+  return result
+
+def _parse_abc_id(id: str) -> int:
+  result = 0
+  for char in id:
+    result = result * 26 + (ord(char) - ord("A"))
   return result
