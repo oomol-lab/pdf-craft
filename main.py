@@ -5,7 +5,7 @@ from pathlib import Path
 
 from pdf_craft.llm import LLM
 from pdf_craft.analysers.contents import extract_contents
-from pdf_craft.analysers.chapter.contents_binder import bind_contents
+from pdf_craft.analysers.chapter.contents_mapper import map_contents
 
 
 def main() -> None:
@@ -19,7 +19,7 @@ def main() -> None:
     sequence_path=Path("/Users/taozeyu/codes/github.com/oomol-lab/pdf-craft/analysing/sequence/output/text"),
     max_data_tokens=4096,
   )
-  bind_contents(
+  map_contents(
     llm=llm,
     content=contents,
     max_request_tokens=8192,
