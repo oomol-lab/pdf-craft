@@ -1,8 +1,8 @@
 from setuptools import setup, find_packages
 
 setup(
-  name="pdf-craft",
-  version="0.1.2",
+  name="pdf-craft-cloud",
+  version="0.1.3",
   author="Tao Zeyu",
   author_email="i@taozeyu.com",
   url="https://github.com/oomol-lab/pdf-craft",
@@ -29,7 +29,7 @@ setup(
     "latex2mathml>=3.77.0,<4.0.0",
     "matplotlib>=3.10.1,<3.11.0",
     "tiktoken>=0.9.0,<1.0.0",
-    "doc-page-extractor==0.1.1",
+    "doc-page-extractor==0.2.0",
     "resource-segmentation==0.0.1",
     "langchain[openai]>=0.3.21,<0.4.0",
   ],

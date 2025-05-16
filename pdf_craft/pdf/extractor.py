@@ -29,6 +29,7 @@ from .types import (
   TableFormat,
   ExtractedTableFormat,
   PDFPageExtractorProgressReport,
+  DocExtractorProtocol
 )
 
 
@@ -36,11 +37,12 @@ class PDFPageExtractor:
   def __init__(
         self,
         device: Literal["cpu", "cuda"],
-        model_dir_path: str,
+        model_dir_path: str | None = None,
         ocr_level: OCRLevel = OCRLevel.Once,
         extract_formula: bool = True,
         extract_table_format: ExtractedTableFormat | None = None,
         debug_dir_path: str | None = None,
+        doc_extractor:  DocExtractorProtocol | None = None,
       ) -> None:
 
     if extract_table_format is None:
@@ -64,6 +66,7 @@ class PDFPageExtractor:
       extract_table_format=to_pass_table_format,
       model_dir_path=model_dir_path,
       debug_dir_path=debug_dir_path,
+      doc_extractor=doc_extractor
     )
 
   def extract(self, pdf: str | Document, report_progress: PDFPageExtractorProgressReport | None = None) -> Generator[Block, None, None]:
@@ -78,7 +81,6 @@ class PDFPageExtractor:
       pdf: str | Document,
       page_indexes: Iterable[int] | None = None,
       report_progress: PDFPageExtractorProgressReport | None = None,
-
     ) -> Generator[tuple[int, list[Block], Image], None, None]:
 
     for page_index, result, layouts in self._doc_extractor.extract(DocumentParams(

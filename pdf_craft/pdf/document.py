@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from PIL.Image import frombytes, Image
 from doc_page_extractor import plot, Layout, DocExtractor, ExtractedResult, TableLayoutParsedFormat
 from .section import Section
-from .types import OCRLevel, PDFPageExtractorProgressReport
+from .types import DocExtractorProtocol, OCRLevel, PDFPageExtractorProgressReport
 
 
 # section can be viewed up to 2 pages back
@@ -22,20 +22,24 @@ class DocumentExtractor:
   def __init__(
       self,
       device: Literal["cpu", "cuda"],
-      model_dir_path: str,
+      model_dir_path: str | None,
       ocr_level: OCRLevel,
       extract_formula: bool,
       extract_table_format: TableLayoutParsedFormat | None,
       debug_dir_path: str | None,
+      doc_extractor: DocExtractorProtocol | None = None,
     ):
     self._debug_dir_path: str | None = debug_dir_path
-    self._doc_extractor = DocExtractor(
-      device=device,
-      model_dir_path=model_dir_path,
-      extract_formula=extract_formula,
-      extract_table_format=extract_table_format,
-      ocr_for_each_layouts=(ocr_level == OCRLevel.OncePerLayout),
-    )
+    self._extract_formula = extract_formula
+    self._extract_table_format = extract_table_format
+    self._ocr_for_each_layouts = ocr_level == OCRLevel.OncePerLayout
+    if doc_extractor is None:
+      self._doc_extractor: DocExtractorProtocol = DocExtractor(
+        device=device,
+        model_cache_dir=model_dir_path,
+      )
+    else:
+      self._doc_extractor: DocExtractorProtocol = doc_extractor
 
   def extract(self, params: DocumentParams) -> Generator[tuple[int, ExtractedResult, list[Layout]], None, None]:
     for result, section in self._extract_results_and_sections(params):
@@ -86,8 +90,16 @@ class DocumentExtractor:
         image = self._page_screenshot_image(page, dpi)
         result = self._doc_extractor.extract(
           image=image,
+          extract_formula=self._extract_formula,
+          extract_table_format=self._extract_table_format,
+          ocr_for_each_layouts=self._ocr_for_each_layouts,
           adjust_points=False,
         )
+
+        if result.extracted_image is None:
+          # remote extract no extracted_image
+          result.extracted_image = image.copy()
+
         if self._debug_dir_path is not None:
           self._generate_plot(image, page_index, result, self._debug_dir_path)
 

@@ -1,8 +1,8 @@
-from typing import Callable
+from typing import Callable, Protocol
 from enum import auto, Enum
 from dataclasses import dataclass
 from PIL.Image import Image
-from doc_page_extractor import Rectangle
+from doc_page_extractor import Rectangle, TableLayoutParsedFormat, ExtractedResult
 
 
 # func(completed_pages: int, all_pages: int) -> None
@@ -64,3 +64,15 @@ class FigureBlock(BasicBlock):
 
 AssetBlock = TableFormat | FormulaBlock | FigureBlock
 Block = TextBlock | AssetBlock
+
+
+class DocExtractorProtocol(Protocol):
+  def extract(
+      self,
+      image: Image,
+      extract_formula: bool,
+      extract_table_format: TableLayoutParsedFormat | None,
+      ocr_for_each_layouts: bool,
+      adjust_points: bool,
+  ) -> ExtractedResult:
+    pass
