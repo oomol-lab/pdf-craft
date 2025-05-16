@@ -7,6 +7,8 @@ from ...llm import LLM
 from ...xml import encode_friendly
 from ..sequence import read_paragraphs, Line, Layout, LayoutKind
 from ..contents import Contents, Chapter
+from ..utils import search_xml_children
+
 
 def bind_contents(llm: LLM, content: Contents, sequence_path: Path, max_request_tokens: int):
   _ContentsBinder(llm, content, sequence_path, max_request_tokens).do()
@@ -49,10 +51,11 @@ class _ContentsBinder:
       self._max_request_tokens - contents_tokens_count,
       int(self._max_request_tokens * 0.25),
     )
-    for abstract in self._read_abstract():
-      fragment = self._to_fragment_xml(abstract)
+    for i, abstract in enumerate(self._read_abstract()):
+      fragment = self._to_fragment_xml(i + 1, abstract)
       tokens = len(self._llm.encode_tokens(encode_friendly(fragment)))
       if request_tokens > 0 and request_tokens + tokens > max_request_tokens:
+        self._add_ids_for_all_lines(request_xml)
         yield request_xml, abstracts
         request_xml = Element("request")
         request_tokens = 0
@@ -63,6 +66,7 @@ class _ContentsBinder:
       abstracts.append(abstract)
 
     if request_tokens > 0:
+      self._add_ids_for_all_lines(request_xml)
       yield request_xml, abstracts
 
   def _read_abstract(self) -> Generator[_Abstract, None, None]:
@@ -140,9 +144,11 @@ class _ContentsBinder:
       chapter_element.append(child_xml)
     return chapter_element
 
-  def _to_fragment_xml(self, abstract: _Abstract):
+  def _to_fragment_xml(self, id: int, abstract: _Abstract):
     fragment_element = Element("fragment")
+    fragment_element.set("id", self._to_abc_id(id))
     fragment_element.set("page-index", str(abstract.page_index))
+
     for headline in abstract.headlines:
       fragment_element.append(headline.xml())
 
@@ -154,8 +160,23 @@ class _ContentsBinder:
 
     return fragment_element
 
+  def _add_ids_for_all_lines(self, element: Element):
+    next_line_id: int = 1
+    for child, _ in search_xml_children(element):
+      if child.tag == "line":
+        child.attrib = {"id": str(next_line_id)}
+        next_line_id += 1
+
   def _is_empty(self, text: str) -> bool:
     for char in text:
       if char not in (" ", "\n", "\r", "\t"):
         return False
     return True
+
+  def _to_abc_id(self, id: int) -> str:
+    result = ""
+    while id > 0:
+      id, remainder = divmod(id - 1, 26)
+      result = chr(ord("A") + remainder) + result
+    assert result, "id must be greater than 0"
+    return result
