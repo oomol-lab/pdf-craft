@@ -125,7 +125,7 @@ class Fragment:
 
     return fragment_element
 
-  def generate_patch_xml(self) -> Generator[tuple[int, Element], None, None]:
+  def generate_patch_xmls(self) -> Generator[tuple[int, Element], None, None]:
     for headline, lines in self._headlines:
       headline_element = self._to_headline_xml(headline, lines)
       yield headline.page_index, headline_element
@@ -174,6 +174,19 @@ class FragmentRequest:
   def append(self, fragment: Fragment) -> None:
     self._fragments.append(fragment)
 
+  def generate_matched_mapper(self, resp_xml: Element) -> Generator[tuple[str, int], None, None]:
+    contents_map = resp_xml.find("contents-map")
+    if contents_map is None:
+      return
+    for child in contents_map:
+      if child.tag != "match":
+        continue
+      headline_id = child.get("headline-id", default=None)
+      chapter_id = int(child.get("chapter-id", "-1"))
+      if headline_id is None or chapter_id < 0:
+        continue
+      yield headline_id, chapter_id
+
   def complete_to_xml(self) -> Element:
     next_id: int = 1
     for fragment in self._fragments:
@@ -185,7 +198,7 @@ class FragmentRequest:
       request_xml.append(fragment_element)
     return request_xml
 
-  def generate_patch_xml(self, resp_xml: Element) -> Generator[tuple[int, Element], None, None]:
+  def generate_patch_xmls(self, resp_xml: Element) -> Generator[tuple[int, Element], None, None]:
     patched_headline_indexes_set: set[int] = set()
     for index, headline_id, line_pairs in self._collect_headline_patch(resp_xml):
       if index >= len(self._fragments):
@@ -203,7 +216,7 @@ class FragmentRequest:
 
     for index in sorted(list(patched_headline_indexes_set)):
       fragment = self._fragments[index]
-      yield from fragment.generate_patch_xml()
+      yield from fragment.generate_patch_xmls()
 
   def _collect_headline_patch(self, resp_xml: Element):
     for child in resp_xml:
