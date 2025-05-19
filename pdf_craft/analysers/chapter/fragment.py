@@ -20,6 +20,7 @@ class Line:
 class _Abstract:
   raw_layout: Layout
   lines: list[Line]
+  did_update: bool = False
 
 class Fragment:
   def __init__(self, page_index: int) -> None:
@@ -70,6 +71,7 @@ class Fragment:
     else:
       self._abstracts.append(_Abstract(
         raw_layout=parent_layout,
+        did_update=False,
         lines=[Line(
           id=-1,
           text=text,
@@ -90,10 +92,13 @@ class Fragment:
       for i, line in enumerate(lines):
         if line.id == line_id:
           return lines.pop(i)
+
     for abstract in self._abstracts:
       for i, line in enumerate(abstract.lines):
         if line.id == line_id and not line.splitted:
+          abstract.did_update = True
           return abstract.lines.pop(i)
+
     return None
 
   def update_headline(self, id: str, lines: list[Line]):
@@ -108,11 +113,8 @@ class Fragment:
     fragment_element.set("page-index", str(self._page_index))
 
     for headline, lines in self._headlines:
-      headline_xml = Element(headline.kind.value)
-      headline_xml.set("id", headline.id)
-      for line in lines:
-        headline_xml.append(line.to_xml())
-      fragment_element.append(headline_xml)
+      headline_element = self._to_headline_xml(headline, lines)
+      fragment_element.append(headline_element)
 
     if self._abstracts:
       abstract_element = Element("abstract")
@@ -123,11 +125,35 @@ class Fragment:
 
     return fragment_element
 
+  def generate_patch_xml(self) -> Generator[tuple[int, Element], None, None]:
+    for headline, lines in self._headlines:
+      headline_element = self._to_headline_xml(headline, lines)
+      yield headline.page_index, headline_element
+
+    for abstract in self._abstracts:
+      if not abstract.did_update:
+        continue
+      raw_layout = abstract.raw_layout
+      layout_element = Element(raw_layout.kind.value)
+      layout_element.set("id", raw_layout.id)
+      for line in abstract.lines:
+        line_element = Element("line")
+        line_element.text = line.text
+        layout_element.append(line_element)
+      yield raw_layout.page_index, layout_element
+
   def _lines(self) -> Generator[Line, None, None]:
     for _, lines in self._headlines:
       yield from lines
     for abstract in self._abstracts:
       yield from abstract.lines
+
+  def _to_headline_xml(self, headline: Layout, lines: list[Line]) -> Element:
+    headline_xml = Element(headline.kind.value)
+    headline_xml.set("id", headline.id)
+    for line in lines:
+      headline_xml.append(line.to_xml())
+    return headline_xml
 
 class FragmentRequest:
   def __init__(self):
@@ -136,6 +162,14 @@ class FragmentRequest:
   @property
   def fragments_count(self) -> int:
     return len(self._fragments)
+
+  @property
+  def begin_page_index(self) -> int:
+    return min(f.page_index for f in self._fragments)
+
+  @property
+  def end_page_index(self) -> int:
+    return max(f.page_index for f in self._fragments)
 
   def append(self, fragment: Fragment) -> None:
     self._fragments.append(fragment)
@@ -151,7 +185,7 @@ class FragmentRequest:
       request_xml.append(fragment_element)
     return request_xml
 
-  def generate_patch(self, resp_xml: Element) -> None:
+  def generate_patch_xml(self, resp_xml: Element) -> Generator[tuple[int, Element], None, None]:
     patched_headline_indexes_set: set[int] = set()
     for index, headline_id, line_pairs in self._collect_headline_patch(resp_xml):
       if index >= len(self._fragments):
@@ -169,6 +203,7 @@ class FragmentRequest:
 
     for index in sorted(list(patched_headline_indexes_set)):
       fragment = self._fragments[index]
+      yield from fragment.generate_patch_xml()
 
   def _collect_headline_patch(self, resp_xml: Element):
     for child in resp_xml:

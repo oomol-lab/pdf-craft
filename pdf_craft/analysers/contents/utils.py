@@ -7,10 +7,10 @@ def normalize_layout_xml(paragraph: Paragraph) -> Element | None:
   merged_layout: Element | None = None
   for layout in paragraph.layouts:
     if merged_layout is None:
-      merged_layout = layout.xml()
+      merged_layout = layout.to_xml()
     else:
       for line in layout.lines:
-        merged_layout.append(line.xml())
+        merged_layout.append(line.to_xml())
 
   if merged_layout is not None:
     merged_layout.attrib = {}

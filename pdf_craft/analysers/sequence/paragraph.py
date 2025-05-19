@@ -16,7 +16,7 @@ class Paragraph:
     element = Element("paragraph")
     element.set("type", self.type.value)
     for layout in self.layouts:
-      element.append(layout.xml())
+      element.append(layout.to_xml())
     return element
 
 class ParagraphType(StrEnum):
@@ -45,11 +45,11 @@ class Layout:
         buffer.write("\n")
     return buffer.getvalue()
 
-  def xml(self) -> Element:
+  def to_xml(self) -> Element:
     element = Element(self.kind.value)
     element.set("id", self.id)
     for line in self.lines:
-      element.append(line.xml())
+      element.append(line.to_xml())
     return element
 
 class LayoutKind(StrEnum):
@@ -65,7 +65,7 @@ class Line:
   text: str
   confidence: str
 
-  def xml(self) -> Element:
+  def to_xml(self) -> Element:
     element = Element("line")
     element.text = self.text
     element.set("confidence", str(object=self.confidence))

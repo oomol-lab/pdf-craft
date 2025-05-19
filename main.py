@@ -24,6 +24,7 @@ def main() -> None:
     content=contents,
     max_request_tokens=8192,
     sequence_path=Path("/Users/taozeyu/codes/github.com/oomol-lab/pdf-craft/analysing/sequence/output/text"),
+    chapter_path=Path("/Users/taozeyu/codes/github.com/oomol-lab/pdf-craft/analysing/chapter"),
   )
 
 def _read_format_json() -> dict:

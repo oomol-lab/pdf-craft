@@ -3,22 +3,23 @@ from pathlib import Path
 from xml.etree.ElementTree import Element
 
 from ...llm import LLM
-from ...xml import encode_friendly
+from ...xml import encode, encode_friendly
 from ..sequence import read_paragraphs, Layout, LayoutKind
 from ..contents import Contents, Chapter
 from .fragment import Fragment, FragmentRequest
 
 
-def map_contents(llm: LLM, content: Contents, sequence_path: Path, max_request_tokens: int):
-  _ContentsMapper(llm, content, sequence_path, max_request_tokens).do()
+def map_contents(llm: LLM, content: Contents, sequence_path: Path, chapter_path: Path, max_request_tokens: int):
+  _ContentsMapper(llm, content, sequence_path, chapter_path, max_request_tokens).do()
 
 _MAX_ABSTRACT_CONTENT_TOKENS = 150
 
 class _ContentsMapper:
-  def __init__(self, llm: LLM, content: Contents, sequence_path: Path, max_request_tokens: int):
+  def __init__(self, llm: LLM, content: Contents, sequence_path: Path, chapter_path: Path, max_request_tokens: int):
     self._llm: LLM = llm
     self._contents: Contents = content
     self._sequence_path: Path = sequence_path
+    self._chapter_path: Path = chapter_path
     self._max_request_tokens: int = max_request_tokens
 
   def do(self):
@@ -35,7 +36,21 @@ class _ContentsMapper:
           "fragments_count": request.fragments_count,
         },
       )
-      request.generate_patch(resp_xml)
+      page_indexes_set: set[int] = set()
+      patch_element = Element("patch")
+
+      for page_index, sub_patch_element in request.generate_patch_xml(resp_xml):
+        # TODO: ADD completed_ranges: list[list[int]]
+        page_indexes_set.add(page_index)
+        patch_element.append(sub_patch_element)
+
+      page_indexes = sorted(list(page_indexes_set))
+      patch_element.set("page_indexes", ",".join(map(str, page_indexes)))
+      file_name = f"map_{request.begin_page_index}_{request.end_page_index}.xml"
+      file_path = self._chapter_path / file_name
+      self._chapter_path.mkdir(parents=True, exist_ok=True)
+      with file_path.open("w", encoding="utf-8") as file:
+        file.write(encode(patch_element))
 
   def _gen_request(self, contents_tokens_count: int) -> Generator[FragmentRequest, None, None]:
     request = FragmentRequest()
