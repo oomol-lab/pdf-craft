@@ -5,7 +5,7 @@ from pathlib import Path
 
 from pdf_craft.llm import LLM
 from pdf_craft.analysers.contents import extract_contents
-from pdf_craft.analysers.chapter.contents_mapper import map_contents
+from pdf_craft.analysers.chapter import generate_chapters
 
 
 def main() -> None:
@@ -19,12 +19,12 @@ def main() -> None:
     sequence_path=Path("/Users/taozeyu/codes/github.com/oomol-lab/pdf-craft/analysing/sequence/output/text"),
     max_data_tokens=4096,
   )
-  map_contents(
+  generate_chapters(
     llm=llm,
-    content=contents,
+    contents=contents,
     max_request_tokens=8192,
     sequence_path=Path("/Users/taozeyu/codes/github.com/oomol-lab/pdf-craft/analysing/sequence/output/text"),
-    chapter_path=Path("/Users/taozeyu/codes/github.com/oomol-lab/pdf-craft/analysing/chapter"),
+    workspace_path=Path("/Users/taozeyu/codes/github.com/oomol-lab/pdf-craft/analysing/chapter"),
   )
 
 def _read_format_json() -> dict:

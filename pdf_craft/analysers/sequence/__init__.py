@@ -1,3 +1,3 @@
 from .paragraph import *
 from .executor import extract_sequences
-from .operation import read_paragraphs, ParagraphWriter
+from .operation import read_paragraphs, decode_paragraph, ParagraphWriter

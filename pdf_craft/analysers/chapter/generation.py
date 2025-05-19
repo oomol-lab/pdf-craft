@@ -1,0 +1,148 @@
+from pathlib import Path
+from xml.etree.ElementTree import Element
+from shutil import rmtree
+
+from ...llm import LLM
+from ..context import Context
+from ..contents import Contents, Chapter
+from ..utils import xml_files
+from .common import State, Phase
+from .contents_mapper import map_contents
+from .patcher import read_paragraphs_with_patches
+
+
+
+def generate_chapters(
+      llm: LLM,
+      contents: Contents,
+      sequence_path: Path,
+      workspace_path: Path,
+      max_request_tokens: int,
+    ) -> tuple[Path, Contents]:
+
+  map_path = workspace_path / "map"
+  output_path = workspace_path / "output"
+  context: Context[State] = Context(workspace_path, lambda: {
+    "phase": Phase.MAPPER.value,
+    "max_request_tokens": max_request_tokens,
+    "completed_ranges": [],
+  })
+  if context.state["phase"] == Phase.MAPPER:
+    map_contents(
+      llm=llm,
+      context=context,
+      contents=contents,
+      sequence_path=sequence_path,
+      map_path=map_path,
+    )
+    context.state = {
+      **context.state,
+      "phase": Phase.CHAPTER.value,
+    }
+
+  used_chapter_ids: set[int] = set()
+
+  if context.state["phase"] == Phase.CHAPTER:
+    rmtree(output_path, ignore_errors=True)
+    _generate_chapter_xmls(
+      context=context,
+      contents=contents,
+      used_chapter_ids=used_chapter_ids,
+      sequence_path=sequence_path,
+      map_path=map_path,
+      output_path=output_path,
+    )
+    context.state = {
+      **context.state,
+      "phase": Phase.COMPLETED.value,
+    }
+  elif output_path.exists():
+    for _, _, chapter_id, _ in xml_files(output_path):
+      used_chapter_ids.add(chapter_id)
+
+  return output_path, _filter_contents(
+    contents=contents,
+    used_chapter_ids=used_chapter_ids,
+  )
+
+def _generate_chapter_xmls(
+      context: Context[State],
+      contents: Contents,
+      used_chapter_ids: set[int],
+      sequence_path: Path,
+      map_path: Path,
+      output_path: Path,
+    ):
+
+  chapter: Chapter | None = None
+  chapter_element = Element("chapter")
+
+  def save_chapter():
+    nonlocal chapter, chapter_element
+    if len(chapter_element) == 0:
+      return
+
+    file_name = "chapter_head.xml"
+    if chapter is not None:
+      file_name = f"chapter_{chapter.id}.xml"
+      used_chapter_ids.add(chapter.id)
+
+    context.write_xml_file(
+      file_path=output_path / file_name,
+      xml=chapter_element,
+    )
+    chapter_element = Element("chapter")
+
+  for this_chapter, paragraph in read_paragraphs_with_patches(
+    contents=contents,
+    paragraph_path=sequence_path,
+    map_path=map_path,
+  ):
+    if chapter is None:
+      if this_chapter is not None:
+        save_chapter()
+        chapter = this_chapter
+    elif this_chapter is not None and this_chapter.id != chapter.id:
+      save_chapter()
+      chapter = this_chapter
+
+    for layout in paragraph.layouts:
+      chapter_element.append(layout.to_xml())
+
+  save_chapter()
+
+def _filter_contents(contents: Contents, used_chapter_ids: set[int]) -> Contents:
+  return Contents(
+    page_indexes=contents.page_indexes,
+    chapters=_filter_chapters(
+      raw_chapters=contents.chapters,
+      used_chapter_ids=used_chapter_ids,
+    ),
+    prefaces=_filter_chapters(
+      raw_chapters=contents.prefaces,
+      used_chapter_ids=used_chapter_ids,
+    ),
+  )
+
+def _filter_chapters(raw_chapters: list[Chapter], used_chapter_ids: set[int]) -> list[Chapter]:
+  chapters: list[Chapter] = []
+  for raw_chapter in raw_chapters:
+    chapter = _filter_chapter(raw_chapter, used_chapter_ids)
+    if chapter is not None:
+      chapters.append(chapter)
+  return chapters
+
+def _filter_chapter(raw_chapter: Chapter, used_chapter_ids: set[int]) -> Chapter | None:
+  children: list[Chapter] = []
+  for sub_chapter in raw_chapter.children:
+    sub_chapter = _filter_chapter(sub_chapter, used_chapter_ids)
+    if sub_chapter is not None:
+      children.append(sub_chapter)
+
+  if children and raw_chapter.id not in used_chapter_ids:
+    return None
+  return Chapter(
+    id=raw_chapter.id,
+    name=raw_chapter.name,
+    children=children,
+  )

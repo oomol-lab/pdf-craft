@@ -4,6 +4,7 @@ from strenum import StrEnum
 
 class Phase(StrEnum):
   MAPPER = "mapper"
+  CHAPTER = "chapter"
   COMPLETED = "completed"
 
 class State(TypedDict):

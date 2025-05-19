@@ -9,15 +9,17 @@ from .paragraph import Paragraph, ParagraphType, Line, Layout, LayoutKind
 
 def read_paragraphs(dir_path: Path, name: str = "paragraph") -> Generator[Paragraph, None, None]:
   for file_path, _name, page_index, order_index in xml_files(dir_path):
-    if name != _name:
-      continue
-    root = read_xml_file(file_path)
-    yield Paragraph(
-      type=ParagraphType(root.get("type")),
-      page_index=page_index,
-      order_index=order_index,
-      layouts=list(_read_layouts(root)),
-    )
+    if name == _name:
+      element = read_xml_file(file_path)
+      yield decode_paragraph(element, page_index, order_index)
+
+def decode_paragraph(element: Element, page_index: int, order_index: int):
+  return Paragraph(
+    type=ParagraphType(element.get("type")),
+    page_index=page_index,
+    order_index=order_index,
+    layouts=list(_read_layouts(element)),
+  )
 
 def _read_layouts(root: Element) -> Generator[Layout, None, None]:
   for layout_element in root:

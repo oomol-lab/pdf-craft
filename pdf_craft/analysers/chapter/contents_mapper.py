@@ -9,30 +9,24 @@ from ..range_state import RangeState, RangeMatched, RangeOverlapped
 from ..sequence import read_paragraphs, Layout, LayoutKind
 from ..contents import Contents, Chapter
 from ..utils import remove_file
-from .common import State, Phase
+from .common import State
 from .fragment import Fragment, FragmentRequest
 
 
 def map_contents(
       llm: LLM,
-      content: Contents,
+      context: Context[State],
+      contents: Contents,
       sequence_path: Path,
-      chapter_path: Path,
-      max_request_tokens: int,
+      map_path: Path,
     ) -> None:
 
-  # TODO: 应该在外面配置 context
-  context: Context[State] = Context(chapter_path, lambda: {
-    "phase": Phase.MAPPER.value,
-    "max_request_tokens": max_request_tokens,
-    "completed_ranges": [],
-  })
   mapper = _ContentsMapper(
     context=context,
     llm=llm,
-    content=content,
+    contents=contents,
     sequence_path=sequence_path,
-    chapter_path=chapter_path,
+    map_path=map_path,
   )
   mapper.do()
 
@@ -43,16 +37,16 @@ class _ContentsMapper:
         self,
         context: Context[State],
         llm: LLM,
-        content: Contents,
+        contents: Contents,
         sequence_path: Path,
-        chapter_path: Path,
+        map_path: Path,
       ) -> None:
 
     self._ctx: Context[State] = context
     self._llm: LLM = llm
-    self._contents: Contents = content
+    self._contents: Contents = contents
     self._sequence_path: Path = sequence_path
-    self._chapter_path: Path = chapter_path
+    self._map_path: Path = map_path
 
   def do(self):
     completed_range_state = RangeState(self._ctx.state["completed_ranges"])
@@ -96,7 +90,7 @@ class _ContentsMapper:
         map_element.append(patch_element)
 
       file_name = f"pages_{request.begin_page_index}_{request.end_page_index}.xml"
-      file_path = self._chapter_path / "map" / file_name
+      file_path = self._map_path / file_name
       self._ctx.write_xml_file(file_path, map_element)
 
       completed_range_state.add(
@@ -110,7 +104,7 @@ class _ContentsMapper:
       if isinstance(state, RangeOverlapped):
         for overlapped in state.ranges:
           begin, end = overlapped
-          data_file_path = self._chapter_path / f"pages_{begin}_{end}.xml"
+          data_file_path = self._map_path / f"pages_{begin}_{end}.xml"
           remove_file(data_file_path)
 
   def _gen_request(self, contents_tokens_count: int) -> Generator[FragmentRequest, None, None]:
