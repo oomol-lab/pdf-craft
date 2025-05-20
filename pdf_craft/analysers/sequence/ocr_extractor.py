@@ -5,7 +5,7 @@ from xml.etree.ElementTree import Element
 from ...llm import LLM
 from ...xml import encode, encode_friendly
 from ..context import Context
-from ..range_state import RangeState, RangeMatched, RangeOverlapped
+from ..partition import Partition
 from ..utils import remove_file, read_xml_file, xml_files, search_xml_children
 
 from .common import State, Phase, SequenceType, Truncation
@@ -20,40 +20,36 @@ class _Sequence:
     self._ctx: Context[State] = context
 
   def to_sequences(self, ocr_path: Path):
-    completed_range_state = RangeState(self._ctx.state["completed_ranges"])
     save_path = self._ctx.path.joinpath(Phase.EXTRACTION.value)
     save_path.mkdir(parents=True, exist_ok=True)
+    partition: Partition[tuple[int], State, Element] = Partition(
+      dimension=1,
+      context=self._ctx,
+      sequence=self._split_and_create_requests(ocr_path),
+      remove=lambda begin, end: remove_file(
+        save_path / f"pages_{begin[0]}_{end[0]}.xml"
+      )
+    )
+    with partition:
+      for task in partition.pop_tasks():
+        with task:
+          begin = task.begin[0]
+          end = task.end[0]
+          request_xml = task.payload
+          resp_xml = self._request_sequences(request_xml)
+          data_xml = Element("pages")
+          data_xml.set("begin-page-index", str(begin))
+          data_xml.set("end-page-index", str(end))
 
-    for begin, end, request_xml in self._split_and_create_requests(ocr_path):
-      state = completed_range_state.check(begin, end)
-      if isinstance(state, RangeMatched):
-        continue # skip completed task
+          for page in self._gen_pages_with_sequences(
+            raw_page_xmls=request_xml,
+            resp_xml=resp_xml,
+          ):
+            data_xml.append(page)
 
-      resp_xml = self._request_sequences(request_xml)
-      data_xml = Element("pages")
-      data_xml.set("begin-page-index", str(begin))
-      data_xml.set("end-page-index", str(end))
-
-      for page in self._gen_pages_with_sequences(
-        raw_page_xmls=request_xml,
-        resp_xml=resp_xml,
-      ):
-        data_xml.append(page)
-
-      data_file_path = save_path / f"pages_{begin}_{end}.xml"
-      with open(data_file_path, mode="w", encoding="utf-8") as file:
-        file.write(encode(data_xml))
-
-      completed_range_state.add(begin, end)
-      self._ctx.state = {
-        **self._ctx.state,
-        "completed_ranges": completed_range_state.to_json_state(),
-      }
-      if isinstance(state, RangeOverlapped):
-        for overlapped in state.ranges:
-          begin, end = overlapped
           data_file_path = save_path / f"pages_{begin}_{end}.xml"
-          remove_file(data_file_path)
+          with open(data_file_path, mode="w", encoding="utf-8") as file:
+            file.write(encode(data_xml))
 
   def _split_and_create_requests(self, ocr_path: Path) -> Generator[tuple[int, int, Element], None, None]:
     max_data_tokens = self._ctx.state["max_data_tokens"]

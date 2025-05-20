@@ -4,7 +4,8 @@ import json
 from pathlib import Path
 
 from pdf_craft.llm import LLM
-from pdf_craft.analysers.correction import correct
+from pdf_craft.analysers.contents import extract_contents
+from pdf_craft.analysers.chapter import generate_chapters
 
 
 def main() -> None:
@@ -12,12 +13,18 @@ def main() -> None:
     **_read_format_json(),
     log_file_path=Path("/Users/taozeyu/codes/github.com/oomol-lab/pdf-craft/analysing/request.log"),
   )
-  correct(
+  contents = extract_contents(
     llm=llm,
-    workspace=Path("/Users/taozeyu/codes/github.com/oomol-lab/pdf-craft/analysing/correction"),
-    text_path=Path("/Users/taozeyu/codes/github.com/oomol-lab/pdf-craft/analysing/sequence/output/text"),
-    footnote_path=Path("/Users/taozeyu/codes/github.com/oomol-lab/pdf-craft/analysing/sequence/output/footnote"),
+    workspace=Path("/Users/taozeyu/codes/github.com/oomol-lab/pdf-craft/analysing/contents"),
+    sequence_path=Path("/Users/taozeyu/codes/github.com/oomol-lab/pdf-craft/analysing/sequence/output/text"),
     max_data_tokens=4096,
+  )
+  generate_chapters(
+    llm=llm,
+    contents=contents,
+    max_request_tokens=8192,
+    sequence_path=Path("/Users/taozeyu/codes/github.com/oomol-lab/pdf-craft/analysing/sequence/output/text"),
+    workspace_path=Path("/Users/taozeyu/codes/github.com/oomol-lab/pdf-craft/analysing/chapter"),
   )
 
 def _read_format_json() -> dict:
