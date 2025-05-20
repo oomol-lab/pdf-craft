@@ -18,26 +18,25 @@ def decode_paragraph(element: Element, page_index: int, order_index: int):
     type=ParagraphType(element.get("type")),
     page_index=page_index,
     order_index=order_index,
-    layouts=list(_read_layouts(element)),
+    layouts=[decode_layout(e) for e in element],
   )
 
-def _read_layouts(root: Element) -> Generator[Layout, None, None]:
-  for layout_element in root:
-    id: str = layout_element.get("id")
-    kind = LayoutKind(layout_element.tag)
-    page_index, order_index = id.split("/", maxsplit=1)
-    yield Layout(
-      kind=kind,
-      page_index=int(page_index),
-      order_index=int(order_index),
-      lines=[
-        Line(
-          text=(line_element.text or "").strip(),
-          confidence=line_element.get("confidence"),
-        )
-        for line_element in layout_element
-      ],
-    )
+def decode_layout(element: Element) -> Layout:
+  id: str = element.get("id")
+  kind = LayoutKind(element.tag)
+  page_index, order_index = id.split("/", maxsplit=1)
+  return Layout(
+    kind=kind,
+    page_index=int(page_index),
+    order_index=int(order_index),
+    lines=[
+      Line(
+        text=(line_element.text or "").strip(),
+        confidence=line_element.get("confidence"),
+      )
+      for line_element in element
+    ],
+  )
 
 class ParagraphWriter:
   def __init__(self, dir_path: Path, name: str = "paragraph"):
