@@ -4,18 +4,20 @@ import json
 from pathlib import Path
 
 from pdf_craft.llm import LLM
-from pdf_craft.analysers.reference.footnote import generate_footnote_references, append_footnote_for_chapters
+from pdf_craft.analysers.correction import correct
 
 
 def main() -> None:
-  generate_footnote_references(
-    sequence_path=Path("/Users/taozeyu/codes/github.com/oomol-lab/pdf-craft/analysing/sequence/output/footnote"),
-    output_path=Path("/Users/taozeyu/codes/github.com/oomol-lab/pdf-craft/analysing/reference/footnote"),
+  llm=LLM(
+    **_read_format_json(),
+    log_file_path=Path("/Users/taozeyu/codes/github.com/oomol-lab/pdf-craft/analysing/request.log"),
   )
-  append_footnote_for_chapters(
-    chapter_path=Path("/Users/taozeyu/codes/github.com/oomol-lab/pdf-craft/analysing/chapter/output"),
-    footnote_path=Path("/Users/taozeyu/codes/github.com/oomol-lab/pdf-craft/analysing/reference/footnote"),
-    output_path=Path("/Users/taozeyu/codes/github.com/oomol-lab/pdf-craft/analysing/reference/output"),
+  correct(
+    llm=llm,
+    workspace=Path("/Users/taozeyu/codes/github.com/oomol-lab/pdf-craft/analysing/correction"),
+    text_path=Path("/Users/taozeyu/codes/github.com/oomol-lab/pdf-craft/analysing/sequence/output/text"),
+    footnote_path=Path("/Users/taozeyu/codes/github.com/oomol-lab/pdf-craft/analysing/sequence/output/footnote"),
+    max_data_tokens=4096,
   )
 
 def _read_format_json() -> dict:
