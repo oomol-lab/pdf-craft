@@ -4,27 +4,13 @@ import json
 from pathlib import Path
 
 from pdf_craft.llm import LLM
-from pdf_craft.analysers.contents import extract_contents
-from pdf_craft.analysers.chapter import generate_chapters
+from pdf_craft.analysers.reference.footnote import generate_footnote_references
 
 
 def main() -> None:
-  llm=LLM(
-    **_read_format_json(),
-    log_file_path=Path("/Users/taozeyu/codes/github.com/oomol-lab/pdf-craft/analysing/request.log"),
-  )
-  contents = extract_contents(
-    llm=llm,
-    workspace=Path("/Users/taozeyu/codes/github.com/oomol-lab/pdf-craft/analysing/contents"),
-    sequence_path=Path("/Users/taozeyu/codes/github.com/oomol-lab/pdf-craft/analysing/sequence/output/text"),
-    max_data_tokens=4096,
-  )
-  generate_chapters(
-    llm=llm,
-    contents=contents,
-    max_request_tokens=8192,
-    sequence_path=Path("/Users/taozeyu/codes/github.com/oomol-lab/pdf-craft/analysing/sequence/output/text"),
-    workspace_path=Path("/Users/taozeyu/codes/github.com/oomol-lab/pdf-craft/analysing/chapter"),
+  generate_footnote_references(
+    sequence_path=Path("/Users/taozeyu/codes/github.com/oomol-lab/pdf-craft/analysing/sequence/output/footnote"),
+    output_path=Path("/Users/taozeyu/codes/github.com/oomol-lab/pdf-craft/analysing/reference/footnote"),
   )
 
 def _read_format_json() -> dict:

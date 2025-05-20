@@ -83,7 +83,7 @@ class _NumberMarks:
     )
 
 # some of they are from https://tw.piliapp.com/symbol/number/
-_number_marks = _NumberMarks(
+_number_marks = _NumberMarks((
   (NumberClass.ROMAN_NUMERAL, NumberStyle.ROMAN_NUMERAL, (
     (1, "Ⅰ"), (2, "Ⅱ"), (3, "Ⅲ"), (4, "Ⅳ"), (5, "Ⅴ"),
     (6, "Ⅵ"), (7, "Ⅶ"), (8, "Ⅷ"), (9, "Ⅸ"), (10, "Ⅹ"),
@@ -154,4 +154,4 @@ _number_marks = _NumberMarks(
     (0, "🄁"), (1, "🄂"), (2, "🄃"), (3, "🄄"), (4, "🄅"),
     (5, "🄆"), (6, "🄇"), (7, "🄈"), (8, "🄉"), (9, "🄊"),
   )),
-)
+))
