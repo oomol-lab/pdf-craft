@@ -5,15 +5,15 @@ from strenum import StrEnum
 from xml.etree.ElementTree import Element
 
 from ...llm import LLM
+from ...xml import clone as clone_xml
 from ..utils import read_xml_file
 from ..context import Context
 from .common import State
 
 
-_REPEAT_COUNT = 4
 _FILE_NAME_PATTERN = re.compile(r"^step_(\d+)\.xml$")
 
-def repeat_correct(llm: LLM, context: Context[State], save_path: Path, raw_request: Element) -> None:
+def repeat_correct(llm: LLM, context: Context[State], save_path: Path, raw_request: Element) -> Element:
   save_path.mkdir(parents=True, exist_ok=True)
   repeater = _Repeater(
     llm=llm,
@@ -38,7 +38,7 @@ class _Repeater:
     self._remain_steps: int = self._quality_retry_times(self._quality)
     self._next_index: int = 1
 
-  def do(self, raw_request_element: Element):
+  def do(self, raw_request_element: Element) -> Element:
     request_element = self._recover_state(raw_request_element)
 
     while self._remain_steps > 0:
@@ -53,7 +53,11 @@ class _Repeater:
         request_element=request_element,
         resp_element=resp_element,
       )
-      request_element = self._update_request_element(updation_element)
+      request_element = self._update_request_element(
+        raw_request_element=request_element,
+        updation_element=updation_element,
+      )
+    return request_element
 
   def _recover_state(self, raw_request_element: Element) -> Element:
     request_element: Element = raw_request_element
@@ -93,9 +97,6 @@ class _Repeater:
 
     return resp_element
 
-  def _update_request_element(self, request_element: Element) -> Element:
-    return request_element
-
   def _read_quality_from_element(self, element: Element) -> _Quality:
     quality: _Quality = _Quality.PERFECT
     overview_element = element.find("overview")
@@ -119,11 +120,11 @@ class _Repeater:
     elif quality == _Quality.GOOD:
       return 1
     elif quality == _Quality.FAIR:
-      return 2
+      return 3
     elif quality == _Quality.POOR:
-      return 2
-    else:
       return 4
+    else:
+      return 6
 
   def _quality_order(self, quality: _Quality) -> int:
     if quality == _Quality.PERFECT:
@@ -136,3 +137,33 @@ class _Repeater:
       return 3
     else:
       return 4
+
+  def _update_request_element(self, raw_request_element: Element, updation_element: Element) -> Element:
+    request_ids: list[str] = []
+    request_layouts: dict[str, Element] = {}
+
+    for layout_element in clone_xml(raw_request_element):
+      layout_id = layout_element.get("id", None)
+      if layout_id is not None:
+        request_ids.append(layout_id)
+        request_layouts[layout_id] = layout_element
+
+    for updation_layout_element in updation_element:
+      layout_id = updation_layout_element.get("id", None)
+      if layout_id is None:
+        continue
+      request_layout_element = request_layouts.get(layout_id, None)
+      if request_layout_element is None:
+        continue
+      raw_attrib = request_layout_element.attrib
+      request_layout_element.clear()
+      request_layout_element.extend(updation_layout_element)
+      request_layout_element.attrib = raw_attrib
+
+    request_element = Element("request")
+    for request_id in request_ids:
+      layout_element = request_layouts.get(request_id, None)
+      if layout_element is not None:
+        request_element.append(layout_element)
+
+    return request_element

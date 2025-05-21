@@ -63,7 +63,7 @@ class _Corrector:
         with task:
           begin = task.begin
           end = task.end
-          repeat_correct(
+          resp_element = repeat_correct(
             llm=self._llm,
             context=self._ctx,
             save_path=request_path / self._step_dir_name(begin, end),
