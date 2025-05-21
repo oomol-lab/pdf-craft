@@ -9,7 +9,7 @@ from ..context import Context
 from .common import State
 
 
-_REPEAT_COUNT = 1
+_REPEAT_COUNT = 4
 
 def repeat_correct(llm: LLM, context: Context[State], save_path: Path, raw_request: Element) -> None:
   save_path.mkdir(parents=True, exist_ok=True)
