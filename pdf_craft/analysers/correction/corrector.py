@@ -76,14 +76,10 @@ class _Corrector:
     request_begin: tuple[int, int] = (sys.maxsize, sys.maxsize)
     request_end: tuple[int, int] = (-1, -1)
     data_tokens: int = 0
-    next_line_id: int = 1
     last_type: ParagraphType | None = None
 
     for paragraph in read_paragraphs(from_path):
-      next_line_id, layout_element = self._paragraph_to_layout_xml(
-        paragraph=paragraph,
-        begin_line_id=next_line_id,
-      )
+      layout_element = self._paragraph_to_layout_xml(paragraph)
       tokens = self._llm.count_tokens_count(
         text=encode_friendly(layout_element),
       )
@@ -96,10 +92,8 @@ class _Corrector:
         data_tokens = 0
         request_begin = (sys.maxsize, sys.maxsize)
         request_end = (-1, -1)
-        next_line_id, layout_element = self._paragraph_to_layout_xml(
-          paragraph=paragraph,
-          begin_line_id=1,
-        )
+        layout_element = self._paragraph_to_layout_xml(paragraph)
+
       paragraph_index = (paragraph.page_index, paragraph.order_index)
       request_element.append(layout_element)
       request_begin = min(request_begin, paragraph_index)
@@ -110,9 +104,9 @@ class _Corrector:
     if len(request_element) > 0:
       yield request_begin, request_end, request_element
 
-  def _paragraph_to_layout_xml(self, paragraph: Paragraph, begin_line_id: int) -> tuple[int, Element]:
+  def _paragraph_to_layout_xml(self, paragraph: Paragraph) -> tuple[int, Element]:
     layout_element: Element | None = None
-    next_line_id: int = begin_line_id
+    next_line_id: int = 1
 
     for layout in paragraph.layouts:
       if layout_element is None:
@@ -126,7 +120,7 @@ class _Corrector:
         next_line_id += 1
 
     assert layout_element is not None
-    return next_line_id, layout_element
+    return layout_element
 
   def _step_dir_name(self, begin: tuple[int, int], end: tuple[int, int]) -> str:
     return f"steps_{begin[0]}_{begin[1]}_{end[0]}_{end[1]}"

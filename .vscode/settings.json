@@ -45,6 +45,7 @@
     "rootfiles",
     "tiktoken",
     "tobytes",
+    "updation",
     "zinfo"
   ]
 }
