@@ -58,7 +58,7 @@ class _ContentsMapper:
       sequence=self._gen_request(contents_tokens_count),
       remove=lambda begin, end: remove_file(
         self._map_path / f"pages_{begin}_{end}.xml"
-      )
+      ),
     )
     with partition:
       for task in partition.pop_tasks():

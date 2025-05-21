@@ -28,7 +28,7 @@ class _Sequence:
       sequence=self._split_and_create_requests(ocr_path),
       remove=lambda begin, end: remove_file(
         save_path / f"pages_{begin[0]}_{end[0]}.xml"
-      )
+      ),
     )
     with partition:
       for task in partition.pop_tasks():
