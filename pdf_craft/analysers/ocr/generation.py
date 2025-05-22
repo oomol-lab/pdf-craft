@@ -13,27 +13,26 @@ class _State(TypedDict):
 def generate_ocr_pages(
       extractor: PDFPageExtractor,
       pdf_path: Path,
-      workspace: Path,
+      ocr_path: Path,
+      assets_path: Path,
     ) -> None:
 
-  context: Context[_State] = Context(workspace / "orc", lambda: {
+  context: Context[_State] = Context(ocr_path, lambda: {
     "completed_scanning": False,
     "completed_pages": [],
   })
   if context.state["completed_scanning"]:
     return
 
-  assets_dir_path = workspace / "assets"
-
-  for path in (context.path, assets_dir_path):
+  for path in (context.path, assets_path):
     path.mkdir(parents=True, exist_ok=True)
 
   for page_index, page_xml in extract_ocr_page_xmls(
     extractor=extractor,
     pdf_path=pdf_path,
     expected_page_indexes=set(context.state["completed_pages"]),
-    cover_path=assets_dir_path / "cover.png",
-    assets_dir_path=assets_dir_path,
+    cover_path=assets_path / "cover.png",
+    assets_dir_path=assets_path,
   ):
     file_name = f"page_{page_index + 1}.xml"
     file_path = context.path / file_name

@@ -9,6 +9,7 @@ from .collection import collect
 from .utils import normalize_layout_xml
 
 
+# TODO: 支持全书没有目录的场景（返回 None）
 def extract_contents(llm: LLM, workspace: Path, sequence_path: Path, max_data_tokens: int) -> Contents:
   context: Context[State] = Context(workspace, lambda: {
     "phase": Phase.INIT,

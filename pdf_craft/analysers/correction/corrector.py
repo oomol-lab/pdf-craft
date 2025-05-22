@@ -177,13 +177,18 @@ class _Corrector:
       id1, id2 = layout_id.split("/", maxsplit=1)
       index = (int(id1), int(id2))
       lines: list[str] = []
+
       for line in layout:
         if line.tag != "line":
           continue
         line_id = line.get("id", None)
         if line_id is None:
           continue
-        lines.append(line.text.strip())
+        if line.text:
+          lines.append(line.text.strip())
+        else:
+          lines.append("")
+
       yield index, lines
 
   def _apply_paragraph_lines(self, paragraph: Paragraph, lines: list[str]) -> Paragraph | None:

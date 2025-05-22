@@ -1,0 +1,1 @@
+from .footnote import append_footnote_for_chapters
