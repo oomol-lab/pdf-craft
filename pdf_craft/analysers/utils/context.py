@@ -9,7 +9,7 @@ from datetime import datetime, timezone
 from typing import cast, Any, TypeVar, Generic, TypedDict, Callable
 from yaml import safe_load, safe_dump
 from xml.etree.ElementTree import Element
-from ..xml import encode
+from ...xml import encode
 
 
 CURRENT_STATE_VERSION = "1.0.0"
