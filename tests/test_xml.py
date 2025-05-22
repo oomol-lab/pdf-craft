@@ -4,7 +4,7 @@ from io import StringIO
 from xml.etree.ElementTree import tostring, Element
 from pdf_craft.xml.tag import Tag, TagKind
 from pdf_craft.xml.parser import parse_tags
-from pdf_craft.xml import decode, encode
+from pdf_craft.xml import decode_friendly, encode_friendly
 
 
 # pylint: disable=W1401
@@ -53,7 +53,7 @@ class TextXML(unittest.TestCase):
     ])
 
   def test_decode(self):
-    encoded = list(decode(_WIKI_XML_DESCRIPTION, "response"))
+    encoded = list(decode_friendly(_WIKI_XML_DESCRIPTION, "response"))
     self.assertEqual(len(encoded), 1)
     response_text = tostring(encoded[0], encoding="unicode")
     expected_text = """
@@ -86,13 +86,13 @@ class TextXML(unittest.TestCase):
     root.tail = "\ncannot encode content...\n"
     expected_text = """
   <response apple="OSX" foobar="hello">
-1 + 1 < 3
-<section id="10-20"/>
-check &lt;html id=&quot;110&quot;&gt; ...<1> foobar&lt;/html&gt;
-<section id="25-30" name="latest_section"/>
+  1 + 1 < 3
+  <section id="10-20"/>
+  check &lt;html id=&quot;110&quot;&gt; ...<1> foobar&lt;/html&gt;
+  <section id="25-30" name="latest_section"/>
 </response>
     """
     self.assertEqual(
-      first=encode(root).strip(),
+      first=encode_friendly(root).strip(),
       second=expected_text.strip()
     )

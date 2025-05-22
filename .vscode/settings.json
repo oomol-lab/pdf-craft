@@ -21,10 +21,13 @@
   "cSpell.words": [
     "analyse",
     "analyser",
+    "analysers",
     "analysing",
     "apos",
     "arcname",
     "CJKA",
+    "clazz",
+    "elif",
     "endfor",
     "fitz",
     "frombytes",
@@ -33,6 +36,7 @@
     "layoutreader",
     "mathml",
     "matplotlib",
+    "metas",
     "OEBPS",
     "Onnx",
     "pixmap",
@@ -41,6 +45,7 @@
     "rootfiles",
     "tiktoken",
     "tobytes",
+    "updation",
     "zinfo"
   ]
 }

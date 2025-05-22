@@ -73,6 +73,10 @@ def is_valid_value_char(char: str) -> bool:
     return True
   if char == ",":
     return True
+  if char == ".":
+    return True
+  if char == "/":
+    return True
   return False
 
 def is_valid_name_char(char: str) -> bool:

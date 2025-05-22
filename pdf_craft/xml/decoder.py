@@ -4,10 +4,11 @@ from xml.etree.ElementTree import Element
 from .tag import Tag, TagKind
 from .parser import parse_tags
 from .transform import tag_to_element
+from .utils import clone
 
 # why implement XML decoding?
 # https://github.com/oomol-lab/pdf-craft/issues/149
-def decode(chars: Iterable[str], tags: Iterable[str] | str = ()) -> Generator[Element, None, None]:
+def decode_friendly(chars: Iterable[str], tags: Iterable[str] | str = ()) -> Generator[Element, None, None]:
   if isinstance(tags, str):
     tags = set((tags,))
   else:
@@ -15,7 +16,7 @@ def decode(chars: Iterable[str], tags: Iterable[str] | str = ()) -> Generator[El
 
   for element in _collect_elements(chars):
     if element.tag in tags or len(tags) == 0:
-      yield _clone_element(element)
+      yield clone(element)
 
 def _collect_elements(chars: Iterable[str]) -> Generator[Element, None, None]:
   opening_stack: list[Element] = []
@@ -47,17 +48,6 @@ def _collect_elements(chars: Iterable[str]) -> Generator[Element, None, None]:
 
     elif opening_stack:
       opening_stack[-1].text = cell
-
-def _clone_element(element: Element) -> Element:
-  new_element = Element(element.tag)
-  for attr_name, attr_value in element.items():
-    new_element.set(attr_name, attr_value)
-  new_element.text = element.text
-  for child in element:
-    new_child = _clone_element(child)
-    new_element.append(new_child)
-    new_child.tail = child.tail
-  return new_element
 
 def _append_to_tail(element: Element, text: str) -> None:
   if element.tail:
