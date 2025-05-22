@@ -3,9 +3,8 @@ from xml.etree.ElementTree import Element
 from shutil import rmtree
 
 from ...llm import LLM
-from ..context import Context
 from ..contents import Contents, Chapter
-from ..utils import xml_files
+from ..utils import xml_files, Context
 from .common import State, Phase
 from .contents_mapper import map_contents
 from .patcher import read_paragraphs_with_patches

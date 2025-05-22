@@ -6,8 +6,7 @@ from xml.etree.ElementTree import fromstring, Element
 
 from ...llm import LLM
 from ...xml import encode
-from ..context import Context
-from ..utils import xml_files
+from ..utils import xml_files, Context
 from .common import State, SequenceType, Truncation
 from .paragraph import ParagraphType
 

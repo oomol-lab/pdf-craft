@@ -1,10 +1,11 @@
 import os
 import json
+import shutil
 
 from pathlib import Path
-
 from pdf_craft.llm import LLM
-from pdf_craft.analysers.correction import correct
+from pdf_craft import OCRLevel, PDFPageExtractor
+from pdf_craft.analysers import analyse
 
 
 def main() -> None:
@@ -12,12 +13,18 @@ def main() -> None:
     **_read_format_json(),
     log_dir_path=Path("/Users/taozeyu/codes/github.com/oomol-lab/pdf-craft/analysing/log"),
   )
-  correct(
+  extractor=PDFPageExtractor(
+    device="cpu",
+    ocr_level=OCRLevel.OncePerLayout,
+    model_dir_path=str(_project_dir_path("models")),
+    debug_dir_path=str(_project_dir_path("analysing") / "plot"),
+  )
+  analyse(
     llm=llm,
-    workspace=Path("/Users/taozeyu/codes/github.com/oomol-lab/pdf-craft/analysing/correction"),
-    text_path=Path("/Users/taozeyu/codes/github.com/oomol-lab/pdf-craft/analysing/sequence/output/text"),
-    footnote_path=Path("/Users/taozeyu/codes/github.com/oomol-lab/pdf-craft/analysing/sequence/output/footnote"),
-    max_data_tokens=4096,
+    pdf_page_extractor=extractor,
+    pdf_path=Path("/Users/taozeyu/Downloads/pdf-craft 问题pdf文件搜集/美国工人运动史张友伦.pdf"),
+    analysing_dir_path=_project_dir_path("analysing"),
+    output_path=_project_dir_path("output", clean=True),
   )
 
 def _read_format_json() -> dict:
@@ -25,6 +32,14 @@ def _read_format_json() -> dict:
   path = os.path.abspath(path)
   with open(path, mode="r", encoding="utf-8") as file:
     return json.load(file)
+
+def _project_dir_path(name: str, clean: bool = False) -> Path:
+  path = Path(__file__) / ".." / name
+  path = path.resolve()
+  if clean:
+    shutil.rmtree(path, ignore_errors=True)
+  path.mkdir(parents=True, exist_ok=True)
+  return path
 
 if __name__ == "__main__":
   main()

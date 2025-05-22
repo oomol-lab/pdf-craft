@@ -1,15 +1,14 @@
-import os
 import fitz
 
+from pathlib import Path
 from html import escape
 from typing import Generator, Iterable
 from PIL.Image import Image
 from xml.etree.ElementTree import fromstring, Element, ParseError
 
-from .types import AnalysingStep, AnalysingProgressReport, AnalysingStepReport
 from .asset_matcher import search_asset_tags, AssetMatcher, AssetKind
-from ..utils import sha256_hash
-from ..pdf import (
+from ...utils import sha256_hash
+from ...pdf import (
   PDFPageExtractor,
   Block,
   Text,
@@ -24,20 +23,13 @@ from ..pdf import (
 
 def extract_ocr_page_xmls(
     extractor: PDFPageExtractor,
-    pdf_path: str,
+    pdf_path: Path,
     expected_page_indexes: set[int],
-    cover_path: str,
-    assets_dir_path: str,
-    report_step: AnalysingStepReport | None,
-    report_progress: AnalysingProgressReport | None,
+    cover_path: Path,
+    assets_dir_path: Path,
   ) -> Generator[Element, None, None]:
 
   with fitz.open(pdf_path) as pdf:
-    if report_step is not None:
-      report_step(
-        AnalysingStep.OCR,
-        pdf.page_count - len(expected_page_indexes),
-      )
     for i, blocks, image in extractor.extract_enumerated_blocks_and_image(
       pdf=pdf,
       page_indexes=(i for i in range(pdf.page_count) if i not in expected_page_indexes),
@@ -52,9 +44,6 @@ def extract_ocr_page_xmls(
         assets_dir_path=assets_dir_path,
       )
       yield i, page_xml
-
-      if report_progress is not None:
-        report_progress(i + 1)
 
 def _transform_page_xml(blocks: list[Block]) -> Element:
   root = Element("page")
@@ -103,7 +92,7 @@ def _extends_line_doms(parent: Element, texts: list[Text]):
     line_dom.text = content
     parent.append(line_dom)
 
-def _migrate_expressions_and_save_images(root: Element, blocks: list[Block], assets_dir_path: str):
+def _migrate_expressions_and_save_images(root: Element, blocks: list[Block], assets_dir_path: Path):
   asset_matcher = AssetMatcher()
   images: dict[str, Image] = {}
 
@@ -164,7 +153,7 @@ def _migrate_expressions_and_save_images(root: Element, blocks: list[Block], ass
     image: Image | None = images.get(hash, None)
     if image is None:
       continue
-    file_path = os.path.join(assets_dir_path, f"{hash}.png")
-    if os.path.exists(file_path):
+    file_path = assets_dir_path / f"{hash}.png"
+    if file_path.exists():
       continue
     image.save(file_path, "PNG")

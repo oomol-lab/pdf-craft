@@ -2,13 +2,17 @@ from pathlib import Path
 from typing import Iterable, Generator
 from xml.etree.ElementTree import Element
 
+from .common import State, Phase, SequenceType, Truncation
 from ...llm import LLM
 from ...xml import encode, encode_friendly
-from ..context import Context
-from ..partition import Partition
-from ..utils import remove_file, read_xml_file, xml_files, search_xml_children
-
-from .common import State, Phase, SequenceType, Truncation
+from ..utils import (
+  remove_file,
+  read_xml_file,
+  xml_files,
+  search_xml_children,
+  Context,
+  Partition,
+)
 
 
 def extract_ocr(llm: LLM, context: Context[State], ocr_path: Path) -> None:

@@ -4,8 +4,7 @@ from xml.etree.ElementTree import Element
 
 from ...llm import LLM
 from ...xml import encode_friendly
-from ..context import Context
-from ..partition import Partition
+from ..utils import Context, Partition
 from ..sequence import read_paragraphs, Layout, LayoutKind
 from ..contents import Contents, Chapter
 from ..utils import remove_file

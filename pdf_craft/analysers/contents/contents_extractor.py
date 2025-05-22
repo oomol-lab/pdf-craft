@@ -2,14 +2,14 @@ from pathlib import Path
 from xml.etree.ElementTree import Element
 
 from ...llm import LLM
-from ..context import Context
-from ..utils import read_xml_file
+from ..utils import read_xml_file, Context
 from .common import Phase, State
 from .type import Contents, Chapter
 from .collection import collect
 from .utils import normalize_layout_xml
 
 
+# TODO: 支持全书没有目录的场景（返回 None）
 def extract_contents(llm: LLM, workspace: Path, sequence_path: Path, max_data_tokens: int) -> Contents:
   context: Context[State] = Context(workspace, lambda: {
     "phase": Phase.INIT,
