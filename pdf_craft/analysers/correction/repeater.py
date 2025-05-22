@@ -6,8 +6,7 @@ from xml.etree.ElementTree import Element
 
 from ...llm import LLM
 from ...xml import clone as clone_xml
-from ..utils import read_xml_file
-from ..context import Context
+from ..utils import read_xml_file, Context
 from .common import State
 
 

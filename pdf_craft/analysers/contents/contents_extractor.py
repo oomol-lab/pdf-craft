@@ -2,8 +2,7 @@ from pathlib import Path
 from xml.etree.ElementTree import Element
 
 from ...llm import LLM
-from ..context import Context
-from ..utils import read_xml_file
+from ..utils import read_xml_file, Context
 from .common import Phase, State
 from .type import Contents, Chapter
 from .collection import collect

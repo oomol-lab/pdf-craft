@@ -1,7 +1,7 @@
 from pathlib import Path
 
 from ...llm import LLM
-from ..context import Context
+from ..utils import Context
 from .common import Phase, State, SequenceType
 from .ocr_extractor import extract_ocr
 from .joint import join

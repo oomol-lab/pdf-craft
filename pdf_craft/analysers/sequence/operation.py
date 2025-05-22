@@ -2,8 +2,7 @@ from pathlib import Path
 from typing import Generator
 from xml.etree.ElementTree import Element
 
-from ..context import Context
-from ..utils import read_xml_file, xml_files
+from ..utils import read_xml_file, xml_files, Context
 from .paragraph import Paragraph, ParagraphType, Line, Layout, LayoutKind
 
 
