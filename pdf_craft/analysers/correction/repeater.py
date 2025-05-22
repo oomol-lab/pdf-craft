@@ -139,6 +139,13 @@ class _Repeater:
       return 4
 
   def _update_request_element(self, raw_request_element: Element, updation_element: Element) -> Element:
+    # TODO: 此处可用传统逻辑设计些防御性操作，以避免 LLM 生成内容发生如下错误
+    #       这些错误我虽然用 prompt 进行了约束，但无法杜绝：
+    #         1. layout ID 错误，这将导致整个自然段丢失
+    #         2. line 丢失某些行，或插入某些行
+    #
+    #       可以考虑用字符串匹配或 Sentence embedding 技术来发现这些问题，并用传统算法修复
+
     request_ids: list[str] = []
     request_layouts: dict[str, Element] = {}
 
