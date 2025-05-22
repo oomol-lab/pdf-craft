@@ -75,7 +75,6 @@ class _StateMachine:
 
   def start(self):
     self._run_analyse_step("ocr", self._extract_ocr)
-    raise NotImplementedError("Breakpoint")
     self._run_analyse_step("pages", self._analyse_pages)
     self._run_analyse_step("index", self._analyse_index)
     self._run_analyse_step("citations", self._analyse_citations)

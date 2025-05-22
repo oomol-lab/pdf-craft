@@ -86,10 +86,10 @@ class TextXML(unittest.TestCase):
     root.tail = "\ncannot encode content...\n"
     expected_text = """
   <response apple="OSX" foobar="hello">
-1 + 1 < 3
-<section id="10-20"/>
-check &lt;html id=&quot;110&quot;&gt; ...<1> foobar&lt;/html&gt;
-<section id="25-30" name="latest_section"/>
+  1 + 1 < 3
+  <section id="10-20"/>
+  check &lt;html id=&quot;110&quot;&gt; ...<1> foobar&lt;/html&gt;
+  <section id="25-30" name="latest_section"/>
 </response>
     """
     self.assertEqual(

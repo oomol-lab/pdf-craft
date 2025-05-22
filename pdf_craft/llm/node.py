@@ -156,10 +156,10 @@ class LLM:
     while True:
       start_index = response.find(start_marker, start_index)
       if start_index == -1:
-          break
+        break
       end_index = response.find(end_marker, start_index + len(start_marker))
       if end_index == -1:
-          break
+        break
       extracted_text = response[start_index + len(start_marker):end_index].strip()
       yield extracted_text
       start_index = end_index + len(end_marker)
