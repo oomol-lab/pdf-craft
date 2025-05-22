@@ -22,7 +22,7 @@ class LLMExecutor:
     temperature: Increasable,
     retry_times: int,
     retry_interval_seconds: float,
-    logger: Logger | None,
+    create_logger: Callable[[], Logger | None],
   ) -> None:
 
     self._timeout: float | None = timeout
@@ -30,7 +30,7 @@ class LLMExecutor:
     self._temperature: Increasable = temperature
     self._retry_times: int = retry_times
     self._retry_interval_seconds: float = retry_interval_seconds
-    self._logger: Logger | None = logger
+    self._create_logger: Callable[[], Logger | None] = create_logger
     self._model = ChatOpenAI(
       api_key=cast(SecretStr, api_key),
       base_url=url,
@@ -44,9 +44,10 @@ class LLMExecutor:
     did_success = False
     top_p: Increaser = self._top_p.context()
     temperature: Increaser = self._temperature.context()
+    logger = self._create_logger()
 
-    if self._logger is not None:
-      self._logger.debug(f"[[Request]]:\n{self._input2str(input)}\n")
+    if logger is not None:
+      logger.debug(f"[[Request]]:\n{self._input2str(input)}\n")
 
     try:
       for i in range(self._retry_times + 1):
@@ -56,13 +57,15 @@ class LLMExecutor:
             top_p=top_p.current,
             temperature=temperature.current,
           )
-          self._logger.debug(f"[[Response]]:\n{response}\n")
+          if logger is not None:
+            logger.debug(f"[[Response]]:\n{response}\n")
 
         except Exception as err:
           last_error = err
           if not is_retry_error(err):
             raise err
-          self._logger.warning(f"request failed with connection error, retrying... ({i + 1} times)")
+          if logger is not None:
+            logger.warning(f"request failed with connection error, retrying... ({i + 1} times)")
           if self._retry_interval_seconds > 0.0 and \
             i < self._retry_times:
             sleep(self._retry_interval_seconds)
@@ -75,7 +78,8 @@ class LLMExecutor:
 
         except Exception as err:
           last_error = err
-          self._logger.warning(f"request failed with parsing error, retrying... ({i + 1} times)")
+          if logger is not None:
+            logger.warning(f"request failed with parsing error, retrying... ({i + 1} times)")
           top_p.increase()
           temperature.increase()
           if self._retry_interval_seconds > 0.0 and \
@@ -84,8 +88,8 @@ class LLMExecutor:
           continue
 
     except KeyboardInterrupt as err:
-      if last_error is not None:
-        self._logger.debug(f"[[Error]]:\n{last_error}\n")
+      if last_error is not None and logger is not None:
+        logger.debug(f"[[Error]]:\n{last_error}\n")
       raise err
 
     if not did_success:

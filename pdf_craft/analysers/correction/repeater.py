@@ -11,8 +11,6 @@ from ..context import Context
 from .common import State
 
 
-_FILE_NAME_PATTERN = re.compile(r"^step_(\d+)\.xml$")
-
 def repeat_correct(llm: LLM, context: Context[State], save_path: Path, raw_request: Element) -> Element:
   save_path.mkdir(parents=True, exist_ok=True)
   repeater = _Repeater(
@@ -22,6 +20,9 @@ def repeat_correct(llm: LLM, context: Context[State], save_path: Path, raw_reque
   )
   return repeater.do(raw_request)
 
+_BASIC_RETRY_TIMES = 2
+_FILE_NAME_PATTERN = re.compile(r"^step_(\d+)\.xml$")
+
 class _Quality(StrEnum):
   PERFECT = "perfect"
   GOOD = "good"
@@ -29,23 +30,32 @@ class _Quality(StrEnum):
   POOR = "poor"
   INVALID = "invalid"
 
+_STEPS_INCREMENT: tuple[tuple[_Quality, int], ...] = (
+  (_Quality.INVALID, 5),
+  (_Quality.POOR, 4),
+  (_Quality.FAIR, 3),
+  (_Quality.GOOD, 0),
+  (_Quality.PERFECT, 0),
+)
+
 class _Repeater:
   def __init__(self, llm: LLM, context: Context[State], save_path: Path):
     self._llm: LLM = llm
     self._ctx: Context[State] = context
     self._save_path: Path = save_path
-    self._quality: _Quality = _Quality.INVALID
-    self._remain_steps: int = self._quality_retry_times(self._quality)
+    self._quality: _Quality | None = None
+    self._remain_steps: int = _BASIC_RETRY_TIMES
     self._next_index: int = 1
 
   def do(self, raw_request_element: Element) -> Element:
     request_element = self._recover_state(raw_request_element)
+    while self._remain_steps > 0 and \
+          self._quality != _Quality.PERFECT:
 
-    while self._remain_steps > 0:
       resp_element = self._llm.request_xml(
         template_name="correction",
         user_data=request_element,
-        params={"layouts_count": 3},
+        params={"layouts_count": 4},
       )
       quality = self._read_quality_from_element(resp_element)
       self._report_quality(quality)
@@ -57,6 +67,7 @@ class _Repeater:
         raw_request_element=request_element,
         updation_element=updation_element,
       )
+
     return request_element
 
   def _recover_state(self, raw_request_element: Element) -> Element:
@@ -105,38 +116,28 @@ class _Repeater:
     return quality
 
   def _report_quality(self, resp_quality: _Quality) -> None:
-    resp_order = self._quality_order(resp_quality)
-    self_order = self._quality_order(self._quality)
-
-    if resp_order >= self_order:
-      self._remain_steps = max(0, self._remain_steps - 1)
-    else:
+    if self._quality is None:
       self._quality = resp_quality
-      self._remain_steps = self._quality_retry_times(resp_quality)
 
-  def _quality_retry_times(self, quality: _Quality) -> int:
-    if quality == _Quality.PERFECT:
-      return 0
-    elif quality == _Quality.GOOD:
-      return 1
-    elif quality == _Quality.FAIR:
-      return 3
-    elif quality == _Quality.POOR:
-      return 4
     else:
-      return 6
+      found_begin = False
+      found_end = False
+      increment_remain_steps: int = 0
 
-  def _quality_order(self, quality: _Quality) -> int:
-    if quality == _Quality.PERFECT:
-      return 0
-    elif quality == _Quality.GOOD:
-      return 1
-    elif quality == _Quality.FAIR:
-      return 2
-    elif quality == _Quality.POOR:
-      return 3
-    else:
-      return 4
+      for quality, increment in _STEPS_INCREMENT:
+        if quality == self._quality:
+          found_begin = True
+        if quality == resp_quality:
+          found_end = True
+          break
+        if found_begin:
+          increment_remain_steps += increment
+
+      if found_begin and found_end:
+        self._remain_steps += increment_remain_steps
+        self._quality = resp_quality
+
+    self._remain_steps = max(0, self._remain_steps - 1)
 
   def _update_request_element(self, raw_request_element: Element, updation_element: Element) -> Element:
     # TODO: 此处可用传统逻辑设计些防御性操作，以避免 LLM 生成内容发生如下错误

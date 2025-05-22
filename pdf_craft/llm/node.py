@@ -1,6 +1,8 @@
 import json
+import datetime
 
 from os import PathLike
+from pathlib import Path
 from typing import cast, Any, Generator
 from importlib.resources import files
 from jinja2 import Environment, Template
@@ -28,15 +30,20 @@ class LLM:
       temperature: float | tuple[float, float] | None = None,
       retry_times: int = 5,
       retry_interval_seconds: float = 6.0,
-      log_file_path: PathLike | None = None,
+      log_dir_path: PathLike | None = None,
     ):
     prompts_path = files("pdf_craft").joinpath("data/prompts")
     self._templates: dict[str, Template] = {}
     self._encoding: Encoding = get_encoding(token_encoding)
     self._env: Environment = create_env(prompts_path)
-    self._logger: Logger | None = None
-    if log_file_path is not None:
-      self._logger = self._create_logger(log_file_path)
+    self._logger_save_path: Path | None = None
+
+    if log_dir_path is not None:
+      self._logger_save_path = Path(log_dir_path)
+      if not self._logger_save_path.exists():
+        self._logger_save_path.mkdir(parents=True, exist_ok=True)
+      elif not self._logger_save_path.is_dir():
+        self._logger_save_path = None
 
     self._executor = LLMExecutor(
       url=url,
@@ -47,16 +54,23 @@ class LLM:
       temperature=Increasable(temperature),
       retry_times=retry_times,
       retry_interval_seconds=retry_interval_seconds,
-      logger=self._logger,
+      create_logger=self._create_logger,
     )
 
-  def _create_logger(self, log_file_path: PathLike) -> Logger:
-    logger = getLogger("LLM Request")
+  def _create_logger(self) -> Logger | None:
+    if self._logger_save_path is None:
+      return None
+
+    now = datetime.datetime.now(datetime.timezone.utc)
+    timestamp = now.strftime("%Y-%m-%d %H-%M-%S %f")
+    file_path = self._logger_save_path / f"request {timestamp}.log"
+    logger = getLogger(f"LLM Request {timestamp}")
     logger.setLevel(DEBUG)
-    handler = FileHandler(log_file_path, encoding="utf-8")
+    handler = FileHandler(file_path, encoding="utf-8")
     handler.setLevel(DEBUG)
     handler.setFormatter(Formatter("%(asctime)s    %(message)s", "%H:%M:%S"))
     logger.addHandler(handler)
+
     return logger
 
   def request_markdown(self, template_name: str, user_data: Element | str, params: dict[str, Any] | None = None) -> str:

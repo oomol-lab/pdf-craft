@@ -10,7 +10,7 @@ from pdf_craft.analysers.correction import correct
 def main() -> None:
   llm=LLM(
     **_read_format_json(),
-    log_file_path=Path("/Users/taozeyu/codes/github.com/oomol-lab/pdf-craft/analysing/request.log"),
+    log_dir_path=Path("/Users/taozeyu/codes/github.com/oomol-lab/pdf-craft/analysing/log"),
   )
   correct(
     llm=llm,
