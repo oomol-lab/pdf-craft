@@ -2,7 +2,7 @@ from pathlib import Path
 from typing import Generator
 from xml.etree.ElementTree import Element
 
-from ..data import Paragraph, ParagraphType, Line, Layout, LayoutKind
+from ..data import Paragraph, ParagraphType, Line, Layout, LayoutKind, Caption
 from ..utils import read_xml_file, xml_files, Context
 
 
@@ -28,6 +28,7 @@ def decode_layout(element: Element) -> Layout:
     kind=kind,
     page_index=int(page_index),
     order_index=int(order_index),
+    caption=Caption(lines=[]),
     lines=[
       Line(
         text=(line_element.text or "").strip(),

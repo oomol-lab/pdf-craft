@@ -3,8 +3,9 @@ from typing import Iterable, Generator
 from xml.etree.ElementTree import Element
 
 from .common import State, Phase, SequenceType, Truncation
+from .request import SequenceRequest, RawPage
 from ...llm import LLM
-from ...xml import encode, encode_friendly
+from ...xml import encode
 from ..utils import (
   remove_file,
   read_xml_file,
@@ -26,10 +27,10 @@ class _Sequence:
   def to_sequences(self, ocr_path: Path):
     save_path = self._ctx.path.joinpath(Phase.EXTRACTION.value)
     save_path.mkdir(parents=True, exist_ok=True)
-    partition: Partition[tuple[int], State, Element] = Partition(
+    partition: Partition[tuple[int], State, SequenceRequest] = Partition(
       dimension=1,
       context=self._ctx,
-      sequence=self._split_and_create_requests(ocr_path),
+      sequence=((r.begin, r.end, r) for r in self._split_requests(ocr_path)),
       remove=lambda begin, end: remove_file(
         save_path / f"pages_{begin[0]}_{end[0]}.xml"
       ),
@@ -39,7 +40,8 @@ class _Sequence:
         with task:
           begin = task.begin[0]
           end = task.end[0]
-          request_xml = task.payload
+          request = task.payload
+          request_xml = request.to_xml()
           resp_xml = self._request_sequences(request_xml)
           data_xml = Element("pages")
           data_xml.set("begin-page-index", str(begin))
@@ -55,35 +57,29 @@ class _Sequence:
           with open(data_file_path, mode="w", encoding="utf-8") as file:
             file.write(encode(data_xml))
 
-  def _split_and_create_requests(self, ocr_path: Path) -> Generator[tuple[int, int, Element], None, None]:
+  def _split_requests(self, ocr_path: Path) -> Generator[SequenceRequest, None, None]:
     max_data_tokens = self._ctx.state["max_data_tokens"]
-    request_xml = Element("request")
+    request = SequenceRequest()
     request_tokens: int = 0
-    request_begin: int = -1
-    request_end: int = -1
 
     for xml_path, _, page_index, _ in xml_files(ocr_path):
-      raw_page_xml = read_xml_file(xml_path)
-      if len(raw_page_xml) == 0: # empty page
+      raw_page = RawPage(
+        raw_element=read_xml_file(xml_path),
+        page_index=page_index,
+      )
+      if not raw_page.children: # empty page
         continue
-      raw_page_xml.set("page-index", str(page_index))
-      tokens = len(self._llm.encode_tokens(encode_friendly(raw_page_xml)))
 
+      tokens = raw_page.tokens_count(self._llm)
       if request_tokens > 0 and request_tokens + tokens > max_data_tokens:
-        yield request_begin, request_end, request_xml
-        request_xml = Element("request")
-        request_tokens = 0
-        request_begin = -1
-        request_end = -1
+        yield request
+        request = SequenceRequest()
 
-      request_xml.append(raw_page_xml)
+      request.append(page_index, raw_page)
       request_tokens += tokens
-      request_end = page_index
-      if request_begin == -1:
-        request_begin = page_index
 
     if request_tokens > 0:
-      yield request_begin, request_end, request_xml
+      yield request
 
   def _request_sequences(self, request_xml: Element) -> Element:
     next_id: int = 1
@@ -182,8 +178,6 @@ class _Sequence:
         group_ids=sorted(list(set(ids))),
       )
       new_page.append(sequence)
-
-    # TODO: 将表格、图片等没有 Line 的元素恢复并插入正确的位置
 
     return new_page
 

@@ -1,5 +1,4 @@
 from __future__ import annotations
-from io import StringIO
 from dataclasses import dataclass
 from strenum import StrEnum
 from xml.etree.ElementTree import Element
@@ -30,20 +29,12 @@ class Layout:
   kind: LayoutKind
   page_index: int
   order_index: int
+  caption: Caption
   lines: list[Line]
 
   @property
   def id(self) -> str:
     return f"{self.page_index}/{self.order_index}"
-
-  @property
-  def text(self):
-    buffer = StringIO()
-    for i, line in enumerate(self.lines):
-      buffer.write(line.text)
-      if i < len(self.lines) - 1:
-        buffer.write("\n")
-    return buffer.getvalue()
 
   def to_xml(self) -> Element:
     element = Element(self.kind.value)
@@ -52,6 +43,14 @@ class Layout:
       element.append(line.to_xml())
     return element
 
+@dataclass
+class AssetLayout(Layout):
+  hash: bytes
+
+@dataclass
+class Formula(AssetLayout):
+  latex: str
+
 class LayoutKind(StrEnum):
   TEXT = "text"
   HEADLINE = "headline"
@@ -59,6 +58,10 @@ class LayoutKind(StrEnum):
   TABLE = "table"
   FORMULA = "formula"
   ABANDON = "abandon"
+
+@dataclass
+class Caption:
+  lines: list[Line]
 
 @dataclass
 class Line:

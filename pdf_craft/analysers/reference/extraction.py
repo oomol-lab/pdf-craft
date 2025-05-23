@@ -1,7 +1,7 @@
 from pathlib import Path
 from typing import Generator
 
-from ..data import Paragraph, Layout, Line
+from ..data import Paragraph, Layout, Caption, Line
 from ..sequence import read_paragraphs
 from .mark import transform2mark, Mark
 
@@ -47,6 +47,7 @@ def _transform2layouts(lines: list[tuple[Layout, Line]]) -> list[Layout]:
           kind=layout.kind,
           page_index=layout.page_index,
           order_index=layout.order_index,
+          caption=Caption(lines=[]),
           lines=lines,
         ),
       )
