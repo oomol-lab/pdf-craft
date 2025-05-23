@@ -1,1 +1,1 @@
-from .footnote import append_footnote_for_chapters
+from .generation import generate_chapters_with_footnotes

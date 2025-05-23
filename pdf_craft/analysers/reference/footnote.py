@@ -12,7 +12,7 @@ from .extraction import extract_footnote_references, ExtractedFootnote
 from .mark import transform2mark, search_marks, Mark
 
 
-def append_footnote_for_chapters(chapter_path: Path, footnote_path: Path, output_path: Path):
+def append_footnote_for_chapters(chapter_path: Path, footnote_path: Path, output_path: Path) -> None:
   if output_path.exists():
     rmtree(output_path)
 
@@ -142,7 +142,7 @@ class _FootnotePage:
   def pop(self, mark: Mark) -> Element | None:
     return self._mark2element.pop(mark, None)
 
-def generate_footnote_references(sequence_path: Path, output_path: Path):
+def generate_footnote_references(sequence_path: Path, output_path: Path) -> None:
   if output_path.exists():
     rmtree(output_path)
   output_path.mkdir(parents=True, exist_ok=True)
