@@ -8,7 +8,8 @@ from xml.etree.ElementTree import Element
 from ...llm import LLM
 from ...xml import encode_friendly
 from ..utils import Context, Partition
-from ..sequence import read_paragraphs, Paragraph, ParagraphType
+from ..sequence import read_paragraphs
+from ..data import Paragraph, ParagraphType
 from .common import State, Phase
 from .repeater import repeat_correct
 from .paragraphs_reader import ParagraphsReader

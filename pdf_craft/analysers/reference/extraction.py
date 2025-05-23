@@ -1,7 +1,8 @@
 from pathlib import Path
 from typing import Generator
 
-from ..sequence import read_paragraphs, Paragraph, Layout, Line
+from ..data import Paragraph, Layout, Line
+from ..sequence import read_paragraphs
 from .mark import transform2mark, Mark
 
 

@@ -6,9 +6,9 @@ from xml.etree.ElementTree import fromstring, Element
 
 from ...llm import LLM
 from ...xml import encode
+from ..data import ParagraphType
 from ..utils import xml_files, Context
 from .common import State, SequenceType, Truncation
-from .paragraph import ParagraphType
 
 
 def join(llm: LLM, context: Context[State], type: SequenceType, extraction_path: Path):
