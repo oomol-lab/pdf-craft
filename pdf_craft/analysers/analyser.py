@@ -8,7 +8,7 @@ from .sequence import extract_sequences
 from .correction import correct
 from .contents import extract_contents
 from .chapter import generate_chapters
-from .reference import append_footnote_for_chapters
+from .reference import generate_chapters_with_footnotes
 
 
 def analyse(
@@ -27,6 +27,7 @@ def analyse(
   correction_path = analysing_dir_path / "correction"
   contents_path = analysing_dir_path / "contents"
   chapter_path = analysing_dir_path / "chapter"
+  reference_path = analysing_dir_path / "reference"
 
   generate_ocr_pages(
     extractor=pdf_page_extractor,
@@ -65,8 +66,9 @@ def analyse(
     workspace_path=chapter_path,
     max_request_tokens=max_data_tokens,
   )
-  append_footnote_for_chapters(
+  generate_chapters_with_footnotes(
     chapter_path=chapter_output_path,
-    footnote_path=sequence_output_path / "footnote",
+    footnote_sequence_path=sequence_output_path / "footnote",
+    workspace_path=reference_path,
     output_path=output_path,
   )

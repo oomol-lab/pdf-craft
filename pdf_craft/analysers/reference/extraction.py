@@ -4,6 +4,7 @@ from typing import Generator
 from ..sequence import read_paragraphs, Paragraph, Layout, Line
 from .mark import transform2mark, Mark
 
+
 ExtractedFootnote = tuple[Mark | None, list[Layout]]
 
 def extract_footnote_references(footnote_path: Path) -> Generator[ExtractedFootnote, None, None]:
