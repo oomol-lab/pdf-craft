@@ -41,13 +41,14 @@ class _Sequence:
           begin = task.begin[0]
           end = task.end[0]
           request = task.payload
-          request_xml = request.to_xml()
+          request_xml = request.inject_ids_and_get_xml()
           resp_xml = self._request_sequences(request_xml)
           data_xml = Element("pages")
           data_xml.set("begin-page-index", str(begin))
           data_xml.set("end-page-index", str(end))
 
           for page in self._gen_pages_with_sequences(
+            request=request,
             raw_page_xmls=request_xml,
             resp_xml=resp_xml,
           ):
@@ -96,6 +97,7 @@ class _Sequence:
 
   def _gen_pages_with_sequences(
         self,
+        request: SequenceRequest,
         raw_page_xmls: Iterable[Element],
         resp_xml: Element,
       ) -> Generator[Element, None, None]:
@@ -117,11 +119,20 @@ class _Sequence:
       if resp_page is None:
         continue
       yield self._create_page_with_sequences(
+        request=request,
+        page_index=page_index,
         raw_page=raw_page,
         resp_page=resp_page,
       )
 
-  def _create_page_with_sequences(self, raw_page: Element, resp_page: Element) -> Element:
+  def _create_page_with_sequences(
+        self,
+        request: SequenceRequest,
+        page_index: int,
+        raw_page: Element,
+        resp_page: Element,
+      ) -> Element:
+
     layout_lines: dict[int, tuple[Element, Element]] = {}
     new_page = Element(
       "page",
@@ -175,9 +186,17 @@ class _Sequence:
       sequence = self._create_sequence(
         layout_lines=layout_lines,
         group=group,
-        group_ids=sorted(list(set(ids))),
+        group_ids=list(set(ids)),
+        raw_page=request.raw_page(page_index),
       )
       new_page.append(sequence)
+
+    # TODO: 将没有纳入的 asset 插入到 text 的首部和 footnote 的尾部
+    #       总之，所有的 asset 都要插回来
+
+    for child, _ in search_xml_children(new_page):
+      if child.tag == "line":
+        child.attrib.pop("id", None)
 
     return new_page
 
@@ -193,6 +212,7 @@ class _Sequence:
         layout_lines: dict[int, tuple[Element, Element]],
         group: Element,
         group_ids: list[int],
+        raw_page: RawPage | None,
       ) -> Generator[Element, None, None]:
 
     current_layout: tuple[Element, Element] | None = None
@@ -203,10 +223,23 @@ class _Sequence:
         keys=("type", "truncation-begin", "truncation-end"),
       ),
     )
-    for id in group_ids:
+    group_id_and_asset_element: Iterable[tuple[int, Element | None]] = ()
+    if raw_page is not None:
+      group_id_and_asset_element = raw_page.inject_assets(group_ids)
+    else:
+      group_id_and_asset_element = ((id, None) for id in sorted(group_ids))
+
+    # TODO: 由于 asset 的插入，会导致“断裂分析”结果不一定准确，此处需要重新设计
+
+    for id, asset_layout in group_id_and_asset_element:
+      if asset_layout is not None:
+        sequence.append(asset_layout)
+        continue
+
       result = layout_lines.get(id, None)
       if result is None:
         continue
+
       layout, line = result
       if current_layout is not None:
         raw_layout, new_layout = current_layout
@@ -222,22 +255,12 @@ class _Sequence:
           ),
         )
         current_layout = (layout, new_layout)
+
       _, new_layout = current_layout
-      new_line = Element(
-        line.tag,
-        self._reject_attrib(
-          element=line,
-          keys=("id",),
-        ),
-      )
+      new_line = Element(line.tag, line.attrib)
       new_line.text = line.text
       new_line.tail = line.tail
       new_layout.append(new_line)
-
-    if current_layout is not None:
-      _, new_layout = current_layout
-      sequence.append(new_layout)
-      current_layout = None
 
     return sequence
 
