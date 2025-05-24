@@ -75,21 +75,34 @@ class RawPage:
           line_element.set("id", "X")
 
   def _handle_layout_elements(self, raw_element: Element) -> Generator[tuple[Element, list[Element]], None, None]:
-    last_asset: Element | None = None
-    last_captions: list[Element] = []
+    asset_and_captions: tuple[Element, list[Element]] | None = None
 
     for layout_element in raw_element:
       if layout_element.tag in _ASSET_TAGS:
-        last_asset = layout_element
-        yield layout_element, []
-
-      elif last_asset is not None and\
-           layout_element.tag == f"{last_asset.tag}-caption":
-        last_captions.append(layout_element)
+        if asset_and_captions is not None:
+          asset, captions = asset_and_captions
+          yield asset, captions
+        asset_and_captions = (layout_element, [])
 
       else:
-        yield layout_element, last_captions
-        last_captions = []
+        did_append_as_caption = False
+        if asset_and_captions is not None:
+          asset, captions = asset_and_captions
+          if layout_element.tag == f"{asset.tag}-caption":
+            captions.append(layout_element)
+            did_append_as_caption = True
+
+        if not did_append_as_caption:
+          if asset_and_captions is not None:
+            asset, captions = asset_and_captions
+            asset_and_captions = None
+            yield asset, captions
+          yield layout_element, []
+          asset_and_captions = None
+
+    if asset_and_captions is not None:
+      asset, captions = asset_and_captions
+      yield asset, captions
 
   def tokens_count(self, llm: LLM) -> int:
     tokens_count: int = 0
