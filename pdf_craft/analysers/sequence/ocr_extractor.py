@@ -1,3 +1,5 @@
+import sys
+
 from pathlib import Path
 from typing import Iterable, Generator
 from xml.etree.ElementTree import Element
@@ -121,7 +123,7 @@ class _Sequence:
       yield self._create_page_with_sequences(
         request=request,
         page_index=page_index,
-        raw_page=raw_page,
+        raw_page_element=raw_page,
         resp_page=resp_page,
       )
 
@@ -129,7 +131,7 @@ class _Sequence:
         self,
         request: SequenceRequest,
         page_index: int,
-        raw_page: Element,
+        raw_page_element: Element,
         resp_page: Element,
       ) -> Element:
 
@@ -138,7 +140,7 @@ class _Sequence:
       "page",
       self._pick_attrib(resp_page, ("page-index", "type")),
     )
-    for layout in raw_page:
+    for layout in raw_page_element:
       for line in layout:
         try:
           id: int = int(line.get("id", None))
@@ -179,20 +181,49 @@ class _Sequence:
           )
         text_group.set("truncation-end", Truncation.UNCERTAIN.value) # be cut down
 
+    begin: tuple[int, int, Element] | None = None
+    end: tuple[int, int, Element] | None = None
+    raw_page = request.raw_page(page_index)
+
     for group_pair in (text, footnote):
       if group_pair is None:
         continue
       group, ids = group_pair
+      list_ids = list(set(ids))
       sequence = self._create_sequence(
         layout_lines=layout_lines,
         group=group,
-        group_ids=list(set(ids)),
-        raw_page=request.raw_page(page_index),
+        group_ids=list_ids,
+        raw_page=raw_page,
       )
       new_page.append(sequence)
+      end = self._term_sequence(sequence, list_ids)
+      if begin is None:
+        begin = self._term_sequence(sequence, list_ids)
 
-    # TODO: 将没有纳入的 asset 插入到 text 的首部和 footnote 的尾部
-    #       总之，所有的 asset 都要插回来
+    if raw_page is not None:
+      if begin:
+        begin_line_id, _, sequence = begin
+        for element in reversed(list(raw_page.assets_in_range(
+          before_line_id=begin_line_id,
+        ))):
+          sequence.insert(0, element)
+
+      if begin and end:
+        _, after_line_id, _ = begin
+        begin_line_id, _, _ = end
+        if after_line_id < begin_line_id:
+          sequence.extend(element in raw_page.assets_in_range(
+            after_line_id=after_line_id,
+            before_line_id=begin_line_id,
+          ))
+
+      if end:
+        _, end_line_id, sequence = end
+        for element in raw_page.assets_in_range(
+          after_line_id=end_line_id,
+        ):
+          sequence.append(element)
 
     for child, _ in search_xml_children(new_page):
       if child.tag == "line":
@@ -206,6 +237,16 @@ class _Sequence:
       for id in self._iter_line_ids(resp_line):
         ids.append(id)
     return sorted(ids)
+
+  def _term_sequence(self, sequence: Element, ids: Iterable[int]) -> tuple[int, int, Element]:
+    begin_id: int = sys.maxsize
+    end_id: int = -1
+    for id in ids:
+      if id < begin_id:
+        begin_id = id
+      if id > end_id:
+        end_id = id
+    return begin_id, end_id, sequence
 
   def _create_sequence(
         self,

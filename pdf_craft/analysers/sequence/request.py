@@ -129,6 +129,21 @@ class RawPage:
         yield line_id, None
       pre_line_id = line_id
 
+  def assets_in_range(
+        self,
+        after_line_id: int | None = None,
+        before_line_id: int | None = None,
+      ) -> Generator[Element, None, None]:
+    for asset in self.asset_datas:
+      line_id = asset.line_id
+      if line_id is None:
+        continue
+      if after_line_id is not None and line_id <= after_line_id:
+        continue
+      if before_line_id is not None and line_id >= before_line_id:
+        break
+      yield asset.to_saved_xml()
+
 class _AssetData:
   def __init__(self, element: Element, captions: list[Element]):
     self.element = element
