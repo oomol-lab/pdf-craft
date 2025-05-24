@@ -4,7 +4,8 @@ from typing import Generator, Iterator
 from xml.etree.ElementTree import Element
 
 from ..contents import Contents, Chapter
-from ..sequence import decode_paragraph, Paragraph, Layout
+from ..sequence import decode_paragraph
+from ..data import Paragraph, Layout
 from ..utils import xml_files, read_xml_file, XML_Info
 
 

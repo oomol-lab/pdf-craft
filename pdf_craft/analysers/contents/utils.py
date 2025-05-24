@@ -1,5 +1,5 @@
 from xml.etree.ElementTree import Element
-from ..sequence import Paragraph
+from ..data import Paragraph
 from ..utils import search_xml_children
 
 

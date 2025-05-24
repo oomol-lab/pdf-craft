@@ -5,7 +5,8 @@ from typing import Generator, Iterator
 from xml.etree.ElementTree import Element
 
 from ...xml import encode
-from ..sequence import decode_layout, Layout
+from ..data import Layout
+from ..sequence import decode_layout
 from ..chapter import list_chapter_files
 from ..utils import xml_files, read_xml_file, XML_Info
 from .extraction import extract_footnote_references, ExtractedFootnote

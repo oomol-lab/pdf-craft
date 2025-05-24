@@ -6,7 +6,8 @@ from xml.etree.ElementTree import Element
 from ...llm import LLM
 from ...xml import encode
 from ..utils import Context
-from ..sequence import read_paragraphs, Paragraph, ParagraphType
+from ..sequence import read_paragraphs
+from ..data import Paragraph, ParagraphType
 from .common import Phase, State
 from .utils import normalize_layout_xml
 

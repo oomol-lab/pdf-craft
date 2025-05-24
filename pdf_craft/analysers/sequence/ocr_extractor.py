@@ -1,10 +1,13 @@
+import sys
+
 from pathlib import Path
 from typing import Iterable, Generator
 from xml.etree.ElementTree import Element
 
 from .common import State, Phase, SequenceType, Truncation
+from .request import SequenceRequest, RawPage
 from ...llm import LLM
-from ...xml import encode, encode_friendly
+from ...xml import encode
 from ..utils import (
   remove_file,
   read_xml_file,
@@ -26,10 +29,10 @@ class _Sequence:
   def to_sequences(self, ocr_path: Path):
     save_path = self._ctx.path.joinpath(Phase.EXTRACTION.value)
     save_path.mkdir(parents=True, exist_ok=True)
-    partition: Partition[tuple[int], State, Element] = Partition(
+    partition: Partition[tuple[int], State, SequenceRequest] = Partition(
       dimension=1,
       context=self._ctx,
-      sequence=self._split_and_create_requests(ocr_path),
+      sequence=((r.begin, r.end, r) for r in self._split_requests(ocr_path)),
       remove=lambda begin, end: remove_file(
         save_path / f"pages_{begin[0]}_{end[0]}.xml"
       ),
@@ -39,13 +42,15 @@ class _Sequence:
         with task:
           begin = task.begin[0]
           end = task.end[0]
-          request_xml = task.payload
+          request = task.payload
+          request_xml = request.inject_ids_and_get_xml()
           resp_xml = self._request_sequences(request_xml)
           data_xml = Element("pages")
           data_xml.set("begin-page-index", str(begin))
           data_xml.set("end-page-index", str(end))
 
           for page in self._gen_pages_with_sequences(
+            request=request,
             raw_page_xmls=request_xml,
             resp_xml=resp_xml,
           ):
@@ -55,35 +60,29 @@ class _Sequence:
           with open(data_file_path, mode="w", encoding="utf-8") as file:
             file.write(encode(data_xml))
 
-  def _split_and_create_requests(self, ocr_path: Path) -> Generator[tuple[int, int, Element], None, None]:
+  def _split_requests(self, ocr_path: Path) -> Generator[SequenceRequest, None, None]:
     max_data_tokens = self._ctx.state["max_data_tokens"]
-    request_xml = Element("request")
+    request = SequenceRequest()
     request_tokens: int = 0
-    request_begin: int = -1
-    request_end: int = -1
 
     for xml_path, _, page_index, _ in xml_files(ocr_path):
-      raw_page_xml = read_xml_file(xml_path)
-      if len(raw_page_xml) == 0: # empty page
+      raw_page = RawPage(
+        raw_element=read_xml_file(xml_path),
+        page_index=page_index,
+      )
+      if not raw_page.children: # empty page
         continue
-      raw_page_xml.set("page-index", str(page_index))
-      tokens = len(self._llm.encode_tokens(encode_friendly(raw_page_xml)))
 
+      tokens = raw_page.tokens_count(self._llm)
       if request_tokens > 0 and request_tokens + tokens > max_data_tokens:
-        yield request_begin, request_end, request_xml
-        request_xml = Element("request")
-        request_tokens = 0
-        request_begin = -1
-        request_end = -1
+        yield request
+        request = SequenceRequest()
 
-      request_xml.append(raw_page_xml)
+      request.append(page_index, raw_page)
       request_tokens += tokens
-      request_end = page_index
-      if request_begin == -1:
-        request_begin = page_index
 
     if request_tokens > 0:
-      yield request_begin, request_end, request_xml
+      yield request
 
   def _request_sequences(self, request_xml: Element) -> Element:
     next_id: int = 1
@@ -100,6 +99,7 @@ class _Sequence:
 
   def _gen_pages_with_sequences(
         self,
+        request: SequenceRequest,
         raw_page_xmls: Iterable[Element],
         resp_xml: Element,
       ) -> Generator[Element, None, None]:
@@ -121,17 +121,26 @@ class _Sequence:
       if resp_page is None:
         continue
       yield self._create_page_with_sequences(
-        raw_page=raw_page,
+        request=request,
+        page_index=page_index,
+        raw_page_element=raw_page,
         resp_page=resp_page,
       )
 
-  def _create_page_with_sequences(self, raw_page: Element, resp_page: Element) -> Element:
+  def _create_page_with_sequences(
+        self,
+        request: SequenceRequest,
+        page_index: int,
+        raw_page_element: Element,
+        resp_page: Element,
+      ) -> Element:
+
     layout_lines: dict[int, tuple[Element, Element]] = {}
     new_page = Element(
       "page",
       self._pick_attrib(resp_page, ("page-index", "type")),
     )
-    for layout in raw_page:
+    for layout in raw_page_element:
       for line in layout:
         try:
           id: int = int(line.get("id", None))
@@ -172,18 +181,53 @@ class _Sequence:
           )
         text_group.set("truncation-end", Truncation.UNCERTAIN.value) # be cut down
 
+    begin: tuple[int, int, Element] | None = None
+    end: tuple[int, int, Element] | None = None
+    raw_page = request.raw_page(page_index)
+
     for group_pair in (text, footnote):
       if group_pair is None:
         continue
       group, ids = group_pair
+      list_ids = list(set(ids))
       sequence = self._create_sequence(
         layout_lines=layout_lines,
         group=group,
-        group_ids=sorted(list(set(ids))),
+        group_ids=list_ids,
+        raw_page=raw_page,
       )
       new_page.append(sequence)
+      end = self._term_sequence(sequence, list_ids)
+      if begin is None:
+        begin = self._term_sequence(sequence, list_ids)
 
-    # TODO: 将表格、图片等没有 Line 的元素恢复并插入正确的位置
+    if raw_page is not None:
+      if begin:
+        begin_line_id, _, sequence = begin
+        for element in reversed(list(raw_page.assets_in_range(
+          before_line_id=begin_line_id,
+        ))):
+          sequence.insert(0, element)
+
+      if begin and end:
+        _, after_line_id, _ = begin
+        begin_line_id, _, _ = end
+        if after_line_id < begin_line_id:
+          sequence.extend(element in raw_page.assets_in_range(
+            after_line_id=after_line_id,
+            before_line_id=begin_line_id,
+          ))
+
+      if end:
+        _, end_line_id, sequence = end
+        for element in raw_page.assets_in_range(
+          after_line_id=end_line_id,
+        ):
+          sequence.append(element)
+
+    for child, _ in search_xml_children(new_page):
+      if child.tag == "line":
+        child.attrib.pop("id", None)
 
     return new_page
 
@@ -194,11 +238,22 @@ class _Sequence:
         ids.append(id)
     return sorted(ids)
 
+  def _term_sequence(self, sequence: Element, ids: Iterable[int]) -> tuple[int, int, Element]:
+    begin_id: int = sys.maxsize
+    end_id: int = -1
+    for id in ids:
+      if id < begin_id:
+        begin_id = id
+      if id > end_id:
+        end_id = id
+    return begin_id, end_id, sequence
+
   def _create_sequence(
         self,
         layout_lines: dict[int, tuple[Element, Element]],
         group: Element,
         group_ids: list[int],
+        raw_page: RawPage | None,
       ) -> Generator[Element, None, None]:
 
     current_layout: tuple[Element, Element] | None = None
@@ -209,10 +264,23 @@ class _Sequence:
         keys=("type", "truncation-begin", "truncation-end"),
       ),
     )
-    for id in group_ids:
+    group_id_and_asset_element: Iterable[tuple[int, Element | None]] = ()
+    if raw_page is not None:
+      group_id_and_asset_element = raw_page.inject_assets(group_ids)
+    else:
+      group_id_and_asset_element = ((id, None) for id in sorted(group_ids))
+
+    # TODO: 由于 asset 的插入，会导致“断裂分析”结果不一定准确，此处需要重新设计
+
+    for id, asset_layout in group_id_and_asset_element:
+      if asset_layout is not None:
+        sequence.append(asset_layout)
+        continue
+
       result = layout_lines.get(id, None)
       if result is None:
         continue
+
       layout, line = result
       if current_layout is not None:
         raw_layout, new_layout = current_layout
@@ -228,22 +296,12 @@ class _Sequence:
           ),
         )
         current_layout = (layout, new_layout)
+
       _, new_layout = current_layout
-      new_line = Element(
-        line.tag,
-        self._reject_attrib(
-          element=line,
-          keys=("id",),
-        ),
-      )
+      new_line = Element(line.tag, line.attrib)
       new_line.text = line.text
       new_line.tail = line.tail
       new_layout.append(new_line)
-
-    if current_layout is not None:
-      _, new_layout = current_layout
-      sequence.append(new_layout)
-      current_layout = None
 
     return sequence
 

@@ -1,6 +1,7 @@
 from pathlib import Path
 from typing import Generator
-from ..sequence import read_paragraphs, Paragraph
+from ..sequence import read_paragraphs
+from ..data import Paragraph
 
 
 class ParagraphsReader:

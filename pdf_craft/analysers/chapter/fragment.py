@@ -1,7 +1,7 @@
 from dataclasses import dataclass
 from typing import Generator
 from xml.etree.ElementTree import Element
-from ..sequence import Layout
+from ..data import Layout
 
 
 @dataclass

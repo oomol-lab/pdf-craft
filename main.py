@@ -11,7 +11,7 @@ from pdf_craft.analysers import analyse
 def main() -> None:
   llm=LLM(
     **_read_format_json(),
-    log_dir_path=Path("/Users/taozeyu/codes/github.com/oomol-lab/pdf-craft/analysing/log"),
+    log_dir_path=_project_dir_path("analysing") / "log",
   )
   extractor=PDFPageExtractor(
     device="cpu",
@@ -22,7 +22,7 @@ def main() -> None:
   analyse(
     llm=llm,
     pdf_page_extractor=extractor,
-    pdf_path=Path("/Users/taozeyu/Downloads/pdf-craft 问题pdf文件搜集/美国工人运动史张友伦.pdf"),
+    pdf_path=_project_dir_path("tests") / "assets" / "table&formula.pdf",
     analysing_dir_path=_project_dir_path("analysing"),
     output_path=_project_dir_path("output", clean=True),
   )
