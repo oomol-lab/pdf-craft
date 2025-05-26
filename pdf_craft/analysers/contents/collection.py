@@ -55,6 +55,8 @@ class _Collector:
         "phase": phase.value,
         "page_indexes": page_indexes,
       }
+    if not page_indexes:
+      return
 
     if phase == Phase.COLLECT:
       for page in self._read_and_identify_pages(page_indexes):

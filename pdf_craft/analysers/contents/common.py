@@ -6,7 +6,8 @@ class Phase(StrEnum):
   INIT = "init"
   COLLECT = "collect"
   ANALYSE = "analyse"
-  COMPLETED = "completed"
+  NO_CONTENTS = "no_contents"
+  GENERATED = "generated"
 
 class State(TypedDict):
   phase: Phase

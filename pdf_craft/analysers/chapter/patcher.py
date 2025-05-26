@@ -9,9 +9,26 @@ from ..data import Paragraph, Layout
 from ..utils import xml_files, read_xml_file, XML_Info
 
 
+def read_paragraphs(paragraph_path: Path) -> Generator[Paragraph, None, None]:
+  for file_path, _, page_index, order_index in xml_files(paragraph_path):
+    raw_root = read_xml_file(file_path)
+    root = Element(raw_root.tag, attrib=raw_root.attrib)
+    for layout in raw_root:
+      if layout.get("id", None) is None:
+        continue
+      if len(layout) == 0:
+        continue
+      root.append(layout)
+
+    yield decode_paragraph(
+      element=root,
+      page_index=page_index,
+      order_index=order_index,
+    )
+
 def read_paragraphs_with_patches(
-      contents: Contents,
       paragraph_path: Path,
+      contents: Contents,
       map_path: Path,
     ) -> Generator[tuple[Chapter | None, Paragraph], None, None]:
 
@@ -29,7 +46,7 @@ def read_paragraphs_with_patches(
     root_chapter: Chapter | None = None
 
     for raw_layout in raw_root:
-      id = raw_layout.get("id")
+      id = raw_layout.get("id", None)
       if id is None:
         continue
 
