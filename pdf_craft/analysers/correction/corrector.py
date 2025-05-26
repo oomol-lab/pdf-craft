@@ -9,43 +9,13 @@ from ...llm import LLM
 from ...xml import encode_friendly
 from ..utils import Context, Partition
 from ..sequence import read_paragraphs
-from ..data import Paragraph, ParagraphType
-from .common import State, Phase
+from ..data import Paragraph, ParagraphType, AssetLayout, FormulaLayout
+from .common import State
 from .repeater import repeat_correct
 from .paragraphs_reader import ParagraphsReader
 
 
-def correct(llm: LLM, workspace: Path, text_path: Path, footnote_path: Path, max_data_tokens: int):
-  context: Context[State] = Context(workspace, lambda: {
-    "phase": Phase.Text.value,
-    "max_data_tokens": max_data_tokens,
-    "completed_ranges": [],
-  })
-  corrector = _Corrector(llm, context)
-
-  if context.state["phase"] == Phase.Text:
-    corrector.do(
-      from_path=text_path,
-      request_path=workspace / "text",
-    )
-    context.state = {
-      **context.state,
-      "phase": Phase.FOOTNOTE.value,
-      "completed_ranges": [],
-    }
-
-  if context.state["phase"] == Phase.FOOTNOTE:
-    corrector.do(
-      from_path=footnote_path,
-      request_path=workspace / "footnote",
-    )
-    context.state = {
-      **context.state,
-      "phase": Phase.COMPLETED.value,
-      "completed_ranges": [],
-    }
-
-class _Corrector:
+class Corrector:
   def __init__(self, llm: LLM, context: Context[State]):
     self._llm: LLM = llm
     self._ctx: Context[State] = context
@@ -102,7 +72,6 @@ class _Corrector:
         data_tokens = 0
         request_begin = (sys.maxsize, sys.maxsize)
         request_end = (-1, -1)
-        layout_element = self._paragraph_to_layout_xml(paragraph)
 
       paragraph_index = (paragraph.page_index, paragraph.order_index)
       request_element.append(layout_element)
@@ -122,12 +91,25 @@ class _Corrector:
       if layout_element is None:
         layout_element = Element(layout.kind.value)
         layout_element.set("id", layout.id)
-      for line in layout.lines:
+
+      if isinstance(layout, AssetLayout):
         line_element = Element("line")
-        line_element.set("id", str(next_line_id))
-        line_element.text = line.text.strip()
-        layout_element.append(line_element)
+        line_element.set("id", str(object=next_line_id))
         next_line_id += 1
+        layout_element.append(line_element)
+
+        if isinstance(layout, FormulaLayout) and layout.latex:
+          line_element.text = layout.latex.strip()
+        else:
+          line_element.text = f"[[here is a {layout.kind.value}]]"
+
+      else:
+        for line in layout.lines:
+          line_element = Element("line")
+          line_element.set("id", str(next_line_id))
+          line_element.text = line.text.strip()
+          layout_element.append(line_element)
+          next_line_id += 1
 
     assert layout_element is not None
     return layout_element
@@ -157,7 +139,10 @@ class _Corrector:
         lines=corrected_lines,
       )
       if paragraph is not None:
-        chunk_element.append(paragraph.xml())
+        paragraph_element = paragraph.to_xml()
+        paragraph_element.set("page-index", str(page_index))
+        paragraph_element.set("order-index", str(order_index))
+        chunk_element.append(paragraph_element)
 
     if not raw_lines_list:
       return
@@ -204,12 +189,16 @@ class _Corrector:
         line.text = lines[next_line_index]
         next_line_index += 1
 
-      if limit_length != -1:
-        layout.lines = layout.lines[:limit_length]
-        if layout.lines:
-          limit_length = i + 1
-        else:
-          limit_length = i
+      if limit_length < 0:
+        continue
+      if isinstance(layout, AssetLayout):
+        continue
+
+      layout.lines = layout.lines[:limit_length]
+      if layout.lines:
+        limit_length = i + 1
+      else:
+        limit_length = i
 
     if limit_length != -1:
       paragraph.layouts = paragraph.layouts[:limit_length]

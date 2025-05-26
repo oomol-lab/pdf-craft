@@ -44,14 +44,13 @@ def analyse(
   sequence_output_path = sequence_path / "output"
 
   if correction:
-    correct(
+    sequence_output_path = correct(
       llm=llm,
       workspace=correction_path,
       text_path=sequence_output_path / "text",
       footnote_path=sequence_output_path / "footnote",
       max_data_tokens=max_data_tokens,
     )
-    sequence_output_path = correction_path / "output"
 
   contents = extract_contents(
     llm=llm,

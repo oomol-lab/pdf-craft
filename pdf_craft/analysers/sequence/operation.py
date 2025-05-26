@@ -89,13 +89,19 @@ def _decode_line(element: Element) -> Line:
   )
 
 class ParagraphWriter:
-  def __init__(self, dir_path: Path, name: str = "paragraph"):
+  def __init__(self, context: Context, dir_path: Path, name: str = "paragraph"):
     self._name: str = name
-    self._context: Context[None] = Context(dir_path, lambda: None)
+    self._context: Context = context
+    self._dir_path: Path = dir_path
+
+    if not self._dir_path.exists():
+      self._dir_path.mkdir(parents=True)
+    if not self._dir_path.is_dir():
+      raise ValueError(f"Path {self._dir_path} is not a directory")
 
   def write(self, paragraph: Paragraph) -> None:
     file_name = f"{self._name}_{paragraph.page_index}_{paragraph.order_index}.xml"
     self._context.write_xml_file(
-      file_path=self._context.path / file_name,
+      file_path=self._dir_path / file_name,
       xml=paragraph.to_xml(),
     )
