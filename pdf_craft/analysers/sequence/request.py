@@ -4,9 +4,8 @@ from xml.etree.ElementTree import Element
 
 from ...xml import encode_friendly
 from ...llm import LLM
+from ..data import ASSET_LAYOUT_KINDS
 
-
-_ASSET_TAGS = ("figure", "table", "formula")
 
 class SequenceRequest:
   def __init__(self):
@@ -38,7 +37,7 @@ class SequenceRequest:
 
       for layout_element in raw_page.children:
         page_element.append(layout_element)
-        if layout_element.tag not in _ASSET_TAGS:
+        if layout_element.tag not in ASSET_LAYOUT_KINDS:
           for line_element in layout_element:
             if line_element.tag == "line":
               line_element.set("id", str(next_line_id))
@@ -61,7 +60,7 @@ class RawPage:
     self.page_index: int = page_index
 
     for layout_element, asset_captions in self._handle_layout_elements(raw_element):
-      if layout_element.tag in _ASSET_TAGS:
+      if layout_element.tag in ASSET_LAYOUT_KINDS:
         asset_data = _AssetData(layout_element, asset_captions)
         self.asset_datas.append(asset_data)
         self.children.append(asset_data.element)
@@ -78,7 +77,7 @@ class RawPage:
     asset_and_captions: tuple[Element, list[Element]] | None = None
 
     for layout_element in raw_element:
-      if layout_element.tag in _ASSET_TAGS:
+      if layout_element.tag in ASSET_LAYOUT_KINDS:
         if asset_and_captions is not None:
           asset, captions = asset_and_captions
           yield asset, captions
