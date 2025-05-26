@@ -74,6 +74,12 @@ class LayoutKind(StrEnum):
   FORMULA = "formula"
   ABANDON = "abandon"
 
+ASSET_LAYOUT_KINDS = (
+  LayoutKind.FIGURE,
+  LayoutKind.TABLE,
+  LayoutKind.FORMULA,
+)
+
 @dataclass
 class Caption:
   lines: list[Line]

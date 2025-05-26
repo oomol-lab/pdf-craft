@@ -5,7 +5,7 @@ from xml.etree.ElementTree import Element
 
 from ..contents import Contents, Chapter
 from ..sequence import decode_paragraph
-from ..data import Paragraph, Layout
+from ..data import Paragraph
 from ..utils import xml_files, read_xml_file, XML_Info
 
 
@@ -16,7 +16,7 @@ def read_paragraphs(paragraph_path: Path) -> Generator[Paragraph, None, None]:
     for layout in raw_root:
       if layout.get("id", None) is None:
         continue
-      if len(layout) == 0:
+      if _is_invalid_layout_element(layout):
         continue
       root.append(layout)
 
@@ -55,7 +55,7 @@ def read_paragraphs_with_patches(
       patch = reader.read(page_index)
 
       chapter: Chapter | None = None
-      layout: Layout = raw_layout
+      layout: Element = raw_layout
       if patch is not None:
         chapter = patch.headline2chapter.get(id, None)
         layout = patch.layout_xmls_patches.get(id, raw_layout)
@@ -63,9 +63,8 @@ def read_paragraphs_with_patches(
       if chapter is not None:
         root_chapter = chapter
 
-      if len(layout) == 0:
-        # means it was removed
-        continue
+      if _is_invalid_layout_element(layout):
+        continue # means it was removed
 
       if root_chapter is not None and len(root) > 0:
         # paragraph maybe splitted by a chapter headline
@@ -84,6 +83,13 @@ def read_paragraphs_with_patches(
         page_index=page_index,
         order_index=order_index,
       )
+
+def _is_invalid_layout_element(layout: Element) -> bool:
+  if len(layout) > 0:
+    return False # means it wasn't removed
+  if layout.tag in ("figure", "table", "formula"):
+    return False
+  return True
 
 @dataclass
 class _Patch:
