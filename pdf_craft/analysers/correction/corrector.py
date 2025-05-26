@@ -128,7 +128,9 @@ class Corrector:
 
     for index, raw_lines in sorted(raw_lines_list, key=lambda x: x[0]):
       page_index, order_index = index
-      paragraph = reader.read(page_index, order_index)
+      paragraph = reader.read(
+        layout_index=(page_index, order_index),
+      )
       if paragraph is None:
         continue
       corrected_lines = corrected_lines_dict.get(index, None)
