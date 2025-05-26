@@ -2,8 +2,17 @@ from pathlib import Path
 from typing import Generator
 from xml.etree.ElementTree import Element
 
-from ..data import Paragraph, ParagraphType, Line, Layout, LayoutKind, Caption
 from ..utils import read_xml_file, xml_files, Context
+from ..data import (
+  Paragraph,
+  ParagraphType,
+  Caption,
+  FormulaLayout,
+  AssetLayout,
+  Line,
+  Layout,
+  LayoutKind,
+)
 
 
 def read_paragraphs(dir_path: Path, name: str = "paragraph") -> Generator[Paragraph, None, None]:
@@ -24,18 +33,59 @@ def decode_layout(element: Element) -> Layout:
   id: str = element.get("id")
   kind = LayoutKind(element.tag)
   page_index, order_index = id.split("/", maxsplit=1)
-  return Layout(
-    kind=kind,
-    page_index=int(page_index),
-    order_index=int(order_index),
-    caption=Caption(lines=[]),
-    lines=[
-      Line(
-        text=(line_element.text or "").strip(),
-        confidence=line_element.get("confidence"),
-      )
-      for line_element in element
-    ],
+  caption_lines: list[Line] = []
+  body_lines: list[Line] = [
+    _decode_line(line_element)
+    for line_element in element
+    if line_element.tag == "line"
+  ]
+  for child in element:
+    if child.tag != "caption":
+      continue
+    for line_element in child:
+      if line_element.tag != "line":
+        continue
+      caption_lines.append(_decode_line(line_element))
+
+  if kind == LayoutKind.FORMULA:
+    hash_hex = element.get("hash", "")
+    latex_element = element.find("latex")
+    latex_text: str = ""
+    if latex_element is not None:
+      latex_text = latex_element.text or ""
+
+    return FormulaLayout(
+      kind=kind,
+      hash=bytes.fromhex(hash_hex),
+      page_index=int(page_index),
+      order_index=int(order_index),
+      caption=Caption(lines=caption_lines),
+      lines=body_lines,
+      latex=latex_text,
+    )
+  elif kind in (LayoutKind.FIGURE, LayoutKind.TABLE):
+    hash_hex = element.get("hash", "")
+    return AssetLayout(
+      kind=kind,
+      hash=bytes.fromhex(hash_hex),
+      page_index=int(page_index),
+      order_index=int(order_index),
+      caption=Caption(lines=caption_lines),
+      lines=body_lines,
+    )
+  else:
+    return Layout(
+      kind=kind,
+      page_index=int(page_index),
+      order_index=int(order_index),
+      caption=Caption(lines=caption_lines),
+      lines=body_lines,
+    )
+
+def _decode_line(element: Element) -> Line:
+  return Line(
+    text=(element.text or "").strip(),
+    confidence=element.get("confidence"),
   )
 
 class ParagraphWriter:
@@ -47,5 +97,5 @@ class ParagraphWriter:
     file_name = f"{self._name}_{paragraph.page_index}_{paragraph.order_index}.xml"
     self._context.write_xml_file(
       file_path=self._context.path / file_name,
-      xml=paragraph.xml(),
+      xml=paragraph.to_xml(),
     )

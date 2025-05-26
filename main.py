@@ -22,6 +22,7 @@ def main() -> None:
   analyse(
     llm=llm,
     pdf_page_extractor=extractor,
+    correction=True,
     pdf_path=_project_dir_path("tests") / "assets" / "table&formula.pdf",
     analysing_dir_path=_project_dir_path("analysing"),
     output_path=_project_dir_path("output", clean=True),
