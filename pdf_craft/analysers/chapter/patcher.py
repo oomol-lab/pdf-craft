@@ -5,13 +5,30 @@ from xml.etree.ElementTree import Element
 
 from ..contents import Contents, Chapter
 from ..sequence import decode_paragraph
-from ..data import Paragraph, Layout
+from ..data import Paragraph
 from ..utils import xml_files, read_xml_file, XML_Info
 
 
+def read_paragraphs(paragraph_path: Path) -> Generator[Paragraph, None, None]:
+  for file_path, _, page_index, order_index in xml_files(paragraph_path):
+    raw_root = read_xml_file(file_path)
+    root = Element(raw_root.tag, attrib=raw_root.attrib)
+    for layout in raw_root:
+      if layout.get("id", None) is None:
+        continue
+      if _is_invalid_layout_element(layout):
+        continue
+      root.append(layout)
+
+    yield decode_paragraph(
+      element=root,
+      page_index=page_index,
+      order_index=order_index,
+    )
+
 def read_paragraphs_with_patches(
-      contents: Contents,
       paragraph_path: Path,
+      contents: Contents,
       map_path: Path,
     ) -> Generator[tuple[Chapter | None, Paragraph], None, None]:
 
@@ -29,7 +46,7 @@ def read_paragraphs_with_patches(
     root_chapter: Chapter | None = None
 
     for raw_layout in raw_root:
-      id = raw_layout.get("id")
+      id = raw_layout.get("id", None)
       if id is None:
         continue
 
@@ -38,7 +55,7 @@ def read_paragraphs_with_patches(
       patch = reader.read(page_index)
 
       chapter: Chapter | None = None
-      layout: Layout = raw_layout
+      layout: Element = raw_layout
       if patch is not None:
         chapter = patch.headline2chapter.get(id, None)
         layout = patch.layout_xmls_patches.get(id, raw_layout)
@@ -46,9 +63,8 @@ def read_paragraphs_with_patches(
       if chapter is not None:
         root_chapter = chapter
 
-      if len(layout) == 0:
-        # means it was removed
-        continue
+      if _is_invalid_layout_element(layout):
+        continue # means it was removed
 
       if root_chapter is not None and len(root) > 0:
         # paragraph maybe splitted by a chapter headline
@@ -67,6 +83,13 @@ def read_paragraphs_with_patches(
         page_index=page_index,
         order_index=order_index,
       )
+
+def _is_invalid_layout_element(layout: Element) -> bool:
+  if len(layout) > 0:
+    return False # means it wasn't removed
+  if layout.tag in ("figure", "table", "formula"):
+    return False
+  return True
 
 @dataclass
 class _Patch:

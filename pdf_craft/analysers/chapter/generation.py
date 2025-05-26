@@ -7,48 +7,56 @@ from ..contents import Contents, Chapter
 from ..utils import xml_files, Context
 from .common import State, Phase
 from .contents_mapper import map_contents
-from .patcher import read_paragraphs_with_patches
-
+from .patcher import read_paragraphs, read_paragraphs_with_patches
 
 
 def generate_chapters(
       llm: LLM,
-      contents: Contents,
+      contents: Contents | None,
       sequence_path: Path,
       workspace_path: Path,
       max_request_tokens: int,
-    ) -> tuple[Path, Contents]:
+    ) -> tuple[Path, Contents | None]:
 
-  map_path = workspace_path / "map"
+  map_path: Path = workspace_path / "map"
   output_path = workspace_path / "output"
   context: Context[State] = Context(workspace_path, lambda: {
     "phase": Phase.MAPPER.value,
+    "has_contents": False,
     "max_request_tokens": max_request_tokens,
     "completed_ranges": [],
   })
   if context.state["phase"] == Phase.MAPPER:
-    map_contents(
-      llm=llm,
-      context=context,
-      contents=contents,
-      sequence_path=sequence_path,
-      map_path=map_path,
-    )
+    has_contents = False
+    if contents is not None:
+      has_contents = True
+      map_contents(
+        llm=llm,
+        context=context,
+        contents=contents,
+        sequence_path=sequence_path,
+        map_path=map_path,
+      )
+
     context.state = {
       **context.state,
       "phase": Phase.CHAPTER.value,
+      "has_contents": has_contents,
     }
 
   used_chapter_ids: set[int] = set()
 
   if context.state["phase"] == Phase.CHAPTER:
+    contents_and_map_path: tuple[Contents, Path] | None = None
+    if contents and context.state["has_contents"]:
+      contents_and_map_path = (contents, map_path)
+
     rmtree(output_path, ignore_errors=True)
     _generate_chapter_xmls(
       context=context,
-      contents=contents,
+      contents_and_map_path=contents_and_map_path,
       used_chapter_ids=used_chapter_ids,
       sequence_path=sequence_path,
-      map_path=map_path,
       output_path=output_path,
     )
     context.state = {
@@ -59,17 +67,18 @@ def generate_chapters(
     for _, _, chapter_id, _ in xml_files(output_path):
       used_chapter_ids.add(chapter_id)
 
-  return output_path, _filter_contents(
-    contents=contents,
-    used_chapter_ids=used_chapter_ids,
-  )
+  if contents is not None:
+    contents = _filter_contents(
+      contents=contents,
+      used_chapter_ids=used_chapter_ids,
+    )
+  return output_path, contents
 
 def _generate_chapter_xmls(
       context: Context[State],
-      contents: Contents,
+      contents_and_map_path: tuple[Contents, Path] | None,
       used_chapter_ids: set[int],
       sequence_path: Path,
-      map_path: Path,
       output_path: Path,
     ):
 
@@ -92,21 +101,28 @@ def _generate_chapter_xmls(
     )
     chapter_element = Element("chapter")
 
-  for this_chapter, paragraph in read_paragraphs_with_patches(
-    contents=contents,
-    paragraph_path=sequence_path,
-    map_path=map_path,
-  ):
-    if chapter is None:
-      if this_chapter is not None:
+  if contents_and_map_path is None:
+    for paragraph in read_paragraphs(sequence_path):
+      for layout in paragraph.layouts:
+        chapter_element.append(layout.to_xml())
+  else:
+    contents, map_path = contents_and_map_path
+
+    for this_chapter, paragraph in read_paragraphs_with_patches(
+      paragraph_path=sequence_path,
+      contents=contents,
+      map_path=map_path,
+    ):
+      if chapter is None:
+        if this_chapter is not None:
+          save_chapter()
+          chapter = this_chapter
+      elif this_chapter is not None and this_chapter.id != chapter.id:
         save_chapter()
         chapter = this_chapter
-    elif this_chapter is not None and this_chapter.id != chapter.id:
-      save_chapter()
-      chapter = this_chapter
 
-    for layout in paragraph.layouts:
-      chapter_element.append(layout.to_xml())
+      for layout in paragraph.layouts:
+        chapter_element.append(layout.to_xml())
 
   save_chapter()
 

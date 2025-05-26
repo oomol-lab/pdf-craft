@@ -11,7 +11,7 @@ class Paragraph:
   order_index: int
   layouts: list[Layout]
 
-  def xml(self) -> Element:
+  def to_xml(self) -> Element:
     element = Element("paragraph")
     element.set("type", self.type.value)
     for layout in self.layouts:
@@ -41,15 +41,30 @@ class Layout:
     element.set("id", self.id)
     for line in self.lines:
       element.append(line.to_xml())
+    if len(self.caption.lines) > 0:
+      element.append(self.caption.to_xml())
     return element
 
 @dataclass
 class AssetLayout(Layout):
   hash: bytes
 
+  def to_xml(self) -> Element:
+    element = super().to_xml()
+    element.set("hash", self.hash.hex())
+    return element
+
 @dataclass
-class Formula(AssetLayout):
+class FormulaLayout(AssetLayout):
   latex: str
+
+  def to_xml(self) -> Element:
+    element = super().to_xml()
+    if self.latex:
+      latex_element = Element("latex")
+      latex_element.text = self.latex
+      element.insert(0, latex_element)
+    return element
 
 class LayoutKind(StrEnum):
   TEXT = "text"
@@ -59,9 +74,21 @@ class LayoutKind(StrEnum):
   FORMULA = "formula"
   ABANDON = "abandon"
 
+ASSET_LAYOUT_KINDS = (
+  LayoutKind.FIGURE,
+  LayoutKind.TABLE,
+  LayoutKind.FORMULA,
+)
+
 @dataclass
 class Caption:
   lines: list[Line]
+
+  def to_xml(self) -> Element:
+    element = Element("caption")
+    for line in self.lines:
+      element.append(line.to_xml())
+    return element
 
 @dataclass
 class Line:

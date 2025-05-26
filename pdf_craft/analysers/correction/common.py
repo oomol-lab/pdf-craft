@@ -5,6 +5,7 @@ from strenum import StrEnum
 class Phase(StrEnum):
   Text = "text"
   FOOTNOTE = "footnote"
+  GENERATION = "generation"
   COMPLETED = "completed"
 
 class State(TypedDict):

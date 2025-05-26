@@ -9,17 +9,19 @@ from .collection import collect
 from .utils import normalize_layout_xml
 
 
-# TODO: 支持全书没有目录的场景（返回 None）
-def extract_contents(llm: LLM, workspace: Path, sequence_path: Path, max_data_tokens: int) -> Contents:
+def extract_contents(llm: LLM, workspace: Path, sequence_path: Path, max_data_tokens: int) -> Contents | None:
   context: Context[State] = Context(workspace, lambda: {
     "phase": Phase.INIT,
     "page_indexes": [],
     "max_data_tokens": max_data_tokens,
   })
+  if context.state["phase"] == Phase.NO_CONTENTS:
+    return None
+
   extracted_path = context.path.joinpath("extracted.xml")
   extracted_xml: Element
 
-  if Phase(context.state["phase"]) == Phase.COMPLETED:
+  if context.state["phase"] == Phase.GENERATED:
     extracted_xml = read_xml_file(extracted_path)
   else:
     # why not do it in 1 step? Because in extreme cases the contents will be
@@ -30,6 +32,13 @@ def extract_contents(llm: LLM, workspace: Path, sequence_path: Path, max_data_to
       context=context,
       sequence_path=sequence_path,
     )
+    if md_content is None:
+      context.state = {
+        **context.state,
+        "phase": Phase.NO_CONTENTS.value,
+      }
+      return None
+
     extracted_xml = llm.request_xml(
       template_name="contents/format",
       user_data=f"```Markdown\n{md_content}\n```",
@@ -37,14 +46,14 @@ def extract_contents(llm: LLM, workspace: Path, sequence_path: Path, max_data_to
     context.write_xml_file(extracted_path, extracted_xml)
     context.state = {
       **context.state,
-      "phase": Phase.COMPLETED.value,
+      "phase": Phase.GENERATED.value,
     }
 
   return _parse_contents_xml(context, extracted_xml)
 
-def _extract_md_contents(llm: LLM, context: Context[State], sequence_path: Path) -> str:
+def _extract_md_contents(llm: LLM, context: Context[State], sequence_path: Path) -> str | None:
   md_path = context.path.joinpath("extracted.md")
-  md_content: str
+  md_content: str | None = None
 
   if md_path.exists():
     context.write_xml_file
@@ -57,11 +66,12 @@ def _extract_md_contents(llm: LLM, context: Context[State], sequence_path: Path)
       if layout is not None:
         request_xml.append(layout)
 
-    md_content = llm.request_markdown(
-      template_name="contents/extractor",
-      user_data=request_xml,
-    )
-    context.atomic_write(md_path, md_content)
+    if len(request_xml) > 0:
+      md_content = llm.request_markdown(
+        template_name="contents/extractor",
+        user_data=request_xml,
+      )
+      context.atomic_write(md_path, md_content)
 
   return md_content
 

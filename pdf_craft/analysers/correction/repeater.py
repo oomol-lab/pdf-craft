@@ -10,7 +10,13 @@ from ..utils import read_xml_file, Context
 from .common import State
 
 
-def repeat_correct(llm: LLM, context: Context[State], save_path: Path, raw_request: Element) -> Element:
+def repeat_correct(
+      llm: LLM,
+      context: Context[State],
+      save_path: Path,
+      raw_request: Element,
+    ) -> Element:
+
   save_path.mkdir(parents=True, exist_ok=True)
   repeater = _Repeater(
     llm=llm,
