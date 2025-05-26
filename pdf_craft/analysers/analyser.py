@@ -65,9 +65,13 @@ def analyse(
     workspace_path=chapter_path,
     max_request_tokens=max_data_tokens,
   )
-  generate_chapters_with_footnotes(
-    chapter_path=chapter_output_path,
-    footnote_sequence_path=sequence_output_path / "footnote",
-    workspace_path=reference_path,
-    output_path=output_path,
-  )
+  footnote_sequence_path = sequence_output_path / "footnote"
+
+  if footnote_sequence_path.exists():
+    chapter_output_path = generate_chapters_with_footnotes(
+      chapter_path=chapter_output_path,
+      footnote_sequence_path=footnote_sequence_path,
+      workspace_path=reference_path,
+    )
+
+  print(str(chapter_output_path), str(output_path))

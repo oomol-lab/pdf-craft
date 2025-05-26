@@ -18,9 +18,9 @@ def generate_chapters_with_footnotes(
       chapter_path: Path,
       footnote_sequence_path: Path,
       workspace_path: Path,
-      output_path: Path,
-    ) -> None:
+    ) -> Path:
 
+  output_path = workspace_path / "output"
   context: Context[_State] = Context(workspace_path, lambda: {
     "phase": _Phase.GENERATE_FOOTNOTES.value,
   })
@@ -44,3 +44,4 @@ def generate_chapters_with_footnotes(
       **context.state,
       "phase": _Phase.COMPLETED.value,
     }
+  return output_path
