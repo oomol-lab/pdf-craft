@@ -150,7 +150,7 @@ def _transform_chapters(data_list: list) -> list[_Chapter]:
   chapters: list[_Chapter] = []
   for data in data_list:
     chapters.append(_Chapter(
-      id=data["id"],
+      id=int(data["id"]),
       headline=data["headline"],
       children=_transform_chapters(data["children"]),
     ))
