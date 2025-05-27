@@ -90,7 +90,7 @@ def _generate_chapter_xmls(
     if len(chapter_element) == 0:
       return
 
-    file_name = "chapter_head.xml"
+    file_name = "chapter.xml"
     if chapter is not None:
       file_name = f"chapter_{chapter.id}.xml"
       used_chapter_ids.add(chapter.id)

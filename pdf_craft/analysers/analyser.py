@@ -1,4 +1,5 @@
 from os import PathLike
+from pathlib import Path
 
 from ..llm import LLM
 from ..pdf import PDFPageExtractor
@@ -9,6 +10,7 @@ from .correction import correct
 from .contents import extract_contents
 from .chapter import generate_chapters
 from .reference import generate_chapters_with_footnotes
+from .output import output
 
 
 def analyse(
@@ -21,6 +23,7 @@ def analyse(
   ) -> None:
 
   max_data_tokens = 4096
+  analysing_dir_path = Path(analysing_dir_path)
   ocr_path = analysing_dir_path / "ocr"
   assets_path = analysing_dir_path / "assets"
   sequence_path = analysing_dir_path / "sequence"
@@ -31,7 +34,7 @@ def analyse(
 
   generate_ocr_pages(
     extractor=pdf_page_extractor,
-    pdf_path=pdf_path,
+    pdf_path=Path(pdf_path),
     ocr_path=ocr_path,
     assets_path=assets_path,
   )
@@ -74,4 +77,9 @@ def analyse(
       workspace_path=reference_path,
     )
 
-  print(str(chapter_output_path), str(output_path))
+  output(
+    contents=contents,
+    output_path=Path(output_path),
+    chapter_output_path=chapter_output_path,
+    assets_path=assets_path,
+  )

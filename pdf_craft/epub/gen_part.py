@@ -12,19 +12,17 @@ def generate_part(
       i18n: I18N,
     ) -> str:
 
-  content_xml = chapter_xml.find("content")
   citations_xml = chapter_xml.find("citations")
-  assert content_xml is not None
   return template.render(
     template="part.xhtml",
     i18n=i18n,
-    content=list(_render_content(context, content_xml)),
+    content=list(_render_content(context, chapter_xml)),
     citations=list(_render_citations(context, citations_xml)),
   )
 
-def _render_content(context: Context, content_xml: Element):
+def _render_content(context: Context, chapter_xml: Element):
   used_ref_ids: set[str] = set()
-  for child in content_xml:
+  for child in chapter_xml:
     to_element = _create_main_text_element(child, context, used_ref_ids)
     if to_element is not None:
       yield tostring(to_element, encoding="unicode")

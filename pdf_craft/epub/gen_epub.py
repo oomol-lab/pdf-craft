@@ -26,7 +26,8 @@ def generate_epub_file(
   index_path = os.path.join(from_dir_path, "index.json")
   meta_path = os.path.join(from_dir_path, "meta.json")
   assets_path: str | None = os.path.join(from_dir_path, "assets")
-  head_chapter_path = os.path.join(from_dir_path, "chapter.xml")
+  chapters_path: str = os.path.join(from_dir_path, "chapters")
+  head_chapter_path = os.path.join(chapters_path, "chapter.xml")
 
   toc_ncx: str
   nav_points: list[NavPoint] = []
@@ -45,7 +46,7 @@ def generate_epub_file(
     index_file_path=index_path,
     has_cover=has_cover,
     check_chapter_exits=lambda id: os.path.exists(
-      os.path.join(from_dir_path, f"chapter_{id}.xml"),
+      os.path.join(chapters_path, f"chapter_{id}.xml"),
     ),
   )
   epub_base_path = os.path.dirname(epub_file_path)
@@ -71,7 +72,7 @@ def generate_epub_file(
       template=template,
       i18n=i18n,
       nav_points=nav_points,
-      from_dir_path=from_dir_path,
+      chapters_path=chapters_path,
       has_head_chapter=has_head_chapter,
       head_chapter_path=head_chapter_path,
     )
@@ -123,7 +124,7 @@ def _write_chapters(
     template: Template,
     i18n: I18N,
     nav_points: list[NavPoint],
-    from_dir_path: str,
+    chapters_path: str,
     has_head_chapter: bool,
     head_chapter_path: str,
   ):
@@ -136,7 +137,7 @@ def _write_chapters(
       data=data.encode("utf-8"),
     )
   for nav_point in nav_points:
-    chapter_path = os.path.join(from_dir_path, f"chapter_{nav_point.index_id}.xml")
+    chapter_path = os.path.join(chapters_path, f"chapter_{nav_point.index_id}.xml")
     if os.path.exists(chapter_path):
       chapter_xml = _read_xml(chapter_path)
       data = generate_part(context, template, chapter_xml, i18n)
