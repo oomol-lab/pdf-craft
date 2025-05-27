@@ -213,7 +213,7 @@ class _Sequence:
         _, after_line_id, _ = begin
         begin_line_id, _, _ = end
         if after_line_id < begin_line_id:
-          sequence.extend(element in raw_page.assets_in_range(
+          sequence.extend(raw_page.assets_in_range(
             after_line_id=after_line_id,
             before_line_id=begin_line_id,
           ))

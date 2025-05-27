@@ -20,7 +20,7 @@ class Corrector:
     self._llm: LLM = llm
     self._ctx: Context[State] = context
 
-  def do(self, from_path: Path, request_path: Path):
+  def do(self, from_path: Path, request_path: Path, is_footnote: bool):
     request_path.mkdir(parents=True, exist_ok=True)
     reader = ParagraphsReader(from_path)
     partition: Partition[tuple[int, int], State, Element] = Partition(
@@ -42,6 +42,7 @@ class Corrector:
             context=self._ctx,
             save_path=request_path / _file_name("steps",begin, end),
             raw_request=request_element,
+            is_footnote=is_footnote,
           )
           self._apply_updation(
             reader=reader,
