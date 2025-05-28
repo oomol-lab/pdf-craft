@@ -48,7 +48,8 @@ def output(
 
   for file in chapter_output_path.iterdir():
     if file.is_file() and _CHAPTER_FILE_PATTERN.match(file.name):
-      chapter = _transform_chapter(asset_hash_set, file)
+      chapter = _transform_chapter(file)
+      asset_hash_set.update(_search_asset_hashes(chapter))
       target_path = output_chapters_path / file.name
       with open(target_path, "w", encoding="utf-8") as f:
         f.write(encode(chapter))
@@ -66,7 +67,25 @@ def output(
         continue
       shutil.copy(file, output_assets_path / file.name)
 
-def _transform_chapter(asset_hash_set: set[str], origin_path: Path) -> Element:
+def _search_asset_hashes(chapter: Element):
+  for chapter_child in chapter:
+    if chapter_child.tag == "footnote":
+      for footnote_child in chapter_child:
+        hash = _get_asset_hash(footnote_child)
+        if hash is not None:
+          yield hash
+    else:
+      hash = _get_asset_hash(chapter_child)
+      if hash is not None:
+        yield hash
+
+def _get_asset_hash(layout: Element) -> str | None:
+  if layout.tag in ASSET_LAYOUT_KINDS:
+    return layout.get("hash", None)
+  else:
+    return None
+
+def _transform_chapter(origin_path: Path) -> Element:
   raw_chapter_element = read_xml_file(origin_path)
   chapter_element = Element(
     raw_chapter_element.tag,
