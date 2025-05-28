@@ -177,12 +177,15 @@ def generate_footnote_references(sequence_path: Path, output_path: Path) -> None
 def _extract_and_split_by_pages(sequence_path: Path) -> Generator[tuple[int, list[ExtractedFootnote]], None, None]:
   page_index = -1
   buffer: list[ExtractedFootnote] = []
+
   for mark, layouts in extract_footnote_references(sequence_path):
     current_page_index = layouts[0].page_index
-    if buffer and page_index != current_page_index:
-      yield page_index, buffer
+    if page_index != current_page_index:
+      if buffer:
+        yield page_index, buffer
+        buffer = []
       page_index = current_page_index
-      buffer = []
     buffer.append((mark, layouts))
+
   if buffer:
     yield page_index, buffer
