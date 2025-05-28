@@ -1,9 +1,9 @@
 import re
-import io
 import shutil
 
 from json import dumps
 from pathlib import Path
+from typing import Iterable
 from xml.etree.ElementTree import Element
 
 from ..xml import encode
@@ -48,7 +48,8 @@ def output(
 
   for file in chapter_output_path.iterdir():
     if file.is_file() and _CHAPTER_FILE_PATTERN.match(file.name):
-      chapter = _handle_chapter(asset_hash_set, file)
+      chapter = _transform_chapter(file)
+      asset_hash_set.update(_search_asset_hashes(chapter))
       target_path = output_chapters_path / file.name
       with open(target_path, "w", encoding="utf-8") as f:
         f.write(encode(chapter))
@@ -66,51 +67,97 @@ def output(
         continue
       shutil.copy(file, output_assets_path / file.name)
 
-def _handle_chapter(asset_hash_set: set[str], origin_path: Path) -> Element:
+def _search_asset_hashes(chapter: Element):
+  for chapter_child in chapter:
+    if chapter_child.tag == "footnote":
+      for footnote_child in chapter_child:
+        hash = _get_asset_hash(footnote_child)
+        if hash is not None:
+          yield hash
+    else:
+      hash = _get_asset_hash(chapter_child)
+      if hash is not None:
+        yield hash
+
+def _get_asset_hash(layout: Element) -> str | None:
+  if layout.tag in ASSET_LAYOUT_KINDS:
+    return layout.get("hash", None)
+  else:
+    return None
+
+def _transform_chapter(origin_path: Path) -> Element:
   raw_chapter_element = read_xml_file(origin_path)
   chapter_element = Element(
     raw_chapter_element.tag,
     attrib=raw_chapter_element.attrib,
   )
-  for raw_layout in raw_chapter_element:
-    layout = Element(raw_layout.tag)
-    text_buffer = io.StringIO()
-    caption_elements: list[Element] = []
-    mark_elements: list[Element] = []
-
-    if raw_layout.tag in ASSET_LAYOUT_KINDS:
-      layout_hash = raw_layout.get("hash", None)
-      if layout_hash is not None:
-        asset_hash_set.add(layout_hash)
-        layout.set("hash", layout_hash)
-      for child in raw_layout:
-        if child.tag == "caption":
-          caption_elements.append(_handle_caption(child))
-        elif child.text and child.tag == "latex":
-          text_buffer.write(child.text.strip())
+  for child in raw_chapter_element:
+    if child.tag == "footnote":
+      child = _transform_footnote(child)
     else:
-      for child in raw_layout:
-        if child.tag == "mark":
-          mark_elements.append(child)
-        elif child.text and child.tag == "line":
-          text_buffer.write(child.text.strip())
-
-    layout.text = text_buffer.getvalue()
-    if layout.tag == "footnote":
-      layout.extend(mark_elements)
-    layout.extend(caption_elements)
-    chapter_element.append(layout)
+      child = _transform_layout(child)
+    chapter_element.append(child)
 
   return chapter_element
 
-def _handle_caption(raw_caption: Element) -> Element:
-  text_buffer = io.StringIO()
-  caption = Element(
-    raw_caption.tag,
-    attrib=raw_caption.attrib,
-  )
-  for child in raw_caption:
-    if child.text and child.tag == "line":
-      text_buffer.write(child.text.strip())
-  caption.text = text_buffer.getvalue()
-  return caption
+def _transform_footnote(raw_footnote: Element) -> Element:
+  footnote = Element(raw_footnote.tag)
+  footnote.set("id", raw_footnote.get("id"))
+  for child in raw_footnote:
+    if child.tag == "mark":
+      mark_element = Element(child.tag, attrib=child.attrib)
+      footnote.append(mark_element)
+      mark_element.text = (child.text or "").strip()
+    else:
+      layout = _transform_layout(child)
+      footnote.append(layout)
+  return footnote
+
+def _transform_layout(raw_layout: Element) -> Element:
+  layout = Element(raw_layout.tag)
+
+  if raw_layout.tag not in ASSET_LAYOUT_KINDS:
+    _fill_lines(layout, raw_layout)
+  else:
+    layout_hash = raw_layout.get("hash", None)
+    if layout_hash is not None:
+      layout.set("hash", layout_hash)
+    for child in raw_layout:
+      if child.tag == "caption":
+        caption_element = Element(child.tag)
+        layout.append(caption_element)
+        _fill_lines(caption_element, child)
+      elif child.text and child.tag == "latex":
+        layout.text = child.text.strip()
+
+  return layout
+
+def _fill_lines(target_element: Element, line_elements: Iterable[Element]):
+  text_buffer: list[str] = []
+  last_mark_element: Element | None = None
+
+  def flush_buffer():
+    nonlocal text_buffer, last_mark_element
+    if len(text_buffer) > 0:
+      if last_mark_element is None:
+        target_element.text = "".join(text_buffer)
+      else:
+        last_mark_element.tail = "".join(text_buffer)
+      text_buffer.clear()
+
+  for line_element in line_elements:
+    if line_element.tag != "line":
+      continue
+    text = (line_element.text or "").strip()
+    if text:
+      text_buffer.append(text)
+    for child in line_element:
+      if child.tag == "mark":
+        flush_buffer()
+        target_element.append(child)
+        last_mark_element = child
+      text = (child.tail or "").strip()
+      if text:
+        text_buffer.append(text)
+
+  flush_buffer()

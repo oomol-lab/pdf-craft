@@ -1,4 +1,5 @@
 import re
+import io
 
 from dataclasses import dataclass
 from enum import Enum, auto
@@ -52,6 +53,21 @@ class Mark:
       return False
     return True
 
+def samples(number_style: NumberStyle, count: int) -> str:
+  if count <= 1:
+      raise ValueError("Count must be greater than 1")
+  half_count = count // 2
+  number_styles = _number_marks.styles.get(number_style, None)
+  if number_styles is None:
+      raise ValueError(f"Invalid number style: {number_style.name}")
+  buffer = io.StringIO()
+  for char in number_styles[:half_count]:
+    buffer.write(char)
+  buffer.write("...")
+  for char in number_styles[-half_count:]:
+    buffer.write(char)
+  return buffer.getvalue()
+
 def transform2mark(raw_char: str) -> Mark | None:
   gotten = _number_marks.marks.get(raw_char, None)
   if gotten is None:
@@ -74,9 +90,11 @@ def search_marks(text: str) -> Generator[Mark | str, None, None]:
 class _NumberMarks:
   def __init__(self, styles: Iterable[tuple[NumberClass, NumberStyle, Iterable[tuple[int, str]]]]):
     self.marks: dict[str, Mark] = {}
+    self.styles: dict[NumberStyle, list[str]] = {}
     for clazz, style, marks in styles:
       for number, mark in marks:
         self.marks[mark] = Mark(number, mark, clazz, style)
+      self.styles[style] = [char for _, char in sorted(marks, key=lambda x: x[0])]
 
     self.pattern: re.Pattern = re.compile(
       r"([" + "".join(sorted(list(self.marks.keys()))) + r"])"

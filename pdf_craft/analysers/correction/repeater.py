@@ -6,6 +6,7 @@ from xml.etree.ElementTree import Element
 
 from ...llm import LLM
 from ...xml import clone as clone_xml
+from ..reference import samples, NumberStyle
 from ..utils import read_xml_file, Context
 from .common import State
 
@@ -15,6 +16,7 @@ def repeat_correct(
       context: Context[State],
       save_path: Path,
       raw_request: Element,
+      is_footnote: bool,
     ) -> Element:
 
   save_path.mkdir(parents=True, exist_ok=True)
@@ -22,6 +24,7 @@ def repeat_correct(
     llm=llm,
     context=context,
     save_path=save_path,
+    is_footnote=is_footnote,
   )
   return repeater.do(raw_request)
 
@@ -44,10 +47,17 @@ _STEPS_INCREMENT: tuple[tuple[_Quality, int], ...] = (
 )
 
 class _Repeater:
-  def __init__(self, llm: LLM, context: Context[State], save_path: Path):
+  def __init__(
+        self,
+        llm: LLM,
+        context: Context[State],
+        save_path: Path,
+        is_footnote: bool,
+      ):
     self._llm: LLM = llm
     self._ctx: Context[State] = context
     self._save_path: Path = save_path
+    self._is_footnote: bool = is_footnote
     self._quality: _Quality | None = None
     self._remain_steps: int = _BASIC_RETRY_TIMES
     self._next_index: int = 1
@@ -60,7 +70,11 @@ class _Repeater:
       resp_element = self._llm.request_xml(
         template_name="correction",
         user_data=request_element,
-        params={"layouts_count": 4},
+        params={
+          "layouts_count": 4,
+          "is_footnote": self._is_footnote,
+          "marks": samples(NumberStyle.CIRCLED_NUMBER, 6),
+        },
       )
       quality = self._read_quality_from_element(resp_element)
       self._report_quality(quality)

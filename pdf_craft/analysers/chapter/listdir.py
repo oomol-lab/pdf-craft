@@ -4,7 +4,7 @@ from ..utils import xml_files
 
 
 def list_chapter_files(chapter_path: Path) -> Generator[tuple[int | None, Path], None, None]:
-  head_path = chapter_path.joinpath("chapter_head.xml")
+  head_path = chapter_path.joinpath("chapter.xml")
   if head_path.exists():
     yield None, head_path
 

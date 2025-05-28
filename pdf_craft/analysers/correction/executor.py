@@ -24,6 +24,7 @@ def correct(llm: LLM, workspace: Path, text_path: Path, footnote_path: Path, max
       corrector.do(
         from_path=text_path,
         request_path=text_request_path,
+        is_footnote=False,
       )
     context.state = {
       **context.state,
@@ -36,6 +37,7 @@ def correct(llm: LLM, workspace: Path, text_path: Path, footnote_path: Path, max
       corrector.do(
         from_path=footnote_path,
         request_path=footnote_request_path,
+        is_footnote=True,
       )
     context.state = {
       **context.state,
