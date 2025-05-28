@@ -1,4 +1,6 @@
+from typing import Generator
 from xml.etree.ElementTree import tostring, Element
+
 from .i18n import I18N
 from .template import Template
 from .context import Context
@@ -12,66 +14,18 @@ def generate_part(
       i18n: I18N,
     ) -> str:
 
-  citations_xml = chapter_xml.find("citations")
   return template.render(
     template="part.xhtml",
     i18n=i18n,
-    content=list(_render_content(context, chapter_xml)),
-    citations=list(_render_citations(context, citations_xml)),
+    content=[
+      tostring(child, encoding="unicode")
+      for child in _render_contents(context, chapter_xml)
+    ],
+    citations=[
+      tostring(child, encoding="unicode")
+      for child in _render_footnotes(context, chapter_xml)
+    ],
   )
-
-def _render_content(context: Context, chapter_xml: Element):
-  used_ref_ids: set[str] = set()
-  for child in chapter_xml:
-    to_element = _create_main_text_element(child, context, used_ref_ids)
-    if to_element is not None:
-      yield tostring(to_element, encoding="unicode")
-
-def _render_citations(context: Context, citations_xml: Element | None):
-  if citations_xml is None:
-    return
-
-  for citation in citations_xml:
-    to_div = Element("div")
-    to_div.attrib["class"] = "citation"
-    id = citation.get("id", None)
-    is_first_child = True
-    citation_children = [c for c in citation if c.tag != "label"]
-
-    if len(citation_children) == 1:
-      citation_children[0].tag = "text"
-
-    used_citation_ids: set[str] = set()
-
-    for child in citation_children:
-      to_element = _create_main_text_element(child, context)
-      if to_element is not None:
-        ref_element = Element("a")
-        ref_element.text = f"[{id}]"
-        ref_element.attrib = {
-          "href": f"#ref-{id}",
-          "class": "citation",
-        }
-        if id not in used_citation_ids:
-          used_citation_ids.add(id)
-          ref_element.attrib = {
-            "id": f"citation-{id}",
-            **ref_element.attrib,
-          }
-        if is_first_child:
-          is_first_child = False
-          if to_element.tag == "p":
-            ref_element.tail = to_element.text
-            to_element.text = None
-            to_element.append(ref_element)
-          else:
-            injected_element = Element("p")
-            to_div.append(injected_element)
-            injected_element.append(ref_element)
-
-        to_div.append(to_element)
-
-    yield tostring(to_div, encoding="unicode")
 
 _XML2HTML_TAGS: dict[str, str] = {
   "headline": "h1",
@@ -79,65 +33,96 @@ _XML2HTML_TAGS: dict[str, str] = {
   "text": "p",
 }
 
-def _create_main_text_element(
-      origin: Element,
-      context: Context,
-      used_ref_ids: set[str] | None = None,
-    ) -> Element | None:
+def _render_contents(context: Context, chapter_element: Element) -> Generator[Element, None, None]:
+  for child in chapter_element:
+    layout = _render_layout(context, child)
+    if layout is not None:
+      yield layout
 
-  if origin.tag in _XML2HTML_TAGS:
-    element = Element(_XML2HTML_TAGS[origin.tag])
-    _fill_text_and_citations(element, origin, used_ref_ids)
-    if origin.tag == "quote":
+def _render_footnotes(context: Context, chapter_element: Element):
+  for footnote in chapter_element:
+    if footnote.tag != "footnote":
+      continue
+
+    found_mark = False
+    citation_div = Element("div", attrib={
+      "class": "citation",
+    })
+    for child in footnote:
+      if child.tag == "mark":
+        found_mark = True
+      else:
+        layout = _render_layout(context, child)
+        if layout is not None:
+          citation_div.append(layout)
+
+    if not found_mark or len(citation_div) == 0:
+      continue
+
+    footnote_id = int(footnote.get("id"))
+    ref = Element("a")
+    ref.text = f"[{footnote_id}]"
+    ref.attrib = {
+      "id": f"mark-{footnote_id}",
+      "href": f"#ref-{footnote_id}",
+      "class": "citation",
+    }
+    first_layout = citation_div[0]
+    if first_layout.tag == "p":
+      ref.tail = first_layout.text
+      first_layout.text = None
+      first_layout.insert(0, ref)
+    else:
+      inject_p = Element("p")
+      inject_p.append(ref)
+      citation_div.insert(0, inject_p)
+
+    yield citation_div
+
+def _render_layout(context: Context, raw_layout: Element) -> Element | None:
+  if raw_layout.tag == "footnote":
+    pass
+
+  elif raw_layout.tag in _XML2HTML_TAGS:
+    layout = Element(_XML2HTML_TAGS[raw_layout.tag])
+    layout.text = raw_layout.text
+    for mark in raw_layout:
+      assert mark.tag == "mark"
+      mark_id = int(mark.get("id"))
+      anchor = Element("a")
+      anchor.attrib = {
+        "id": f"ref-{mark_id}",
+        "href": f"#mark-{mark_id}",
+        "class": "super",
+      }
+      layout.append(anchor)
+      anchor.text = f"[{mark_id}]"
+      anchor.tail = mark.tail
+
+    if raw_layout.tag == "quote":
       blockquote = Element("blockquote")
-      blockquote.append(element)
+      blockquote.append(layout)
       return blockquote
     else:
-      return element
+      return layout
 
   else:
-    asset_elements: list[Element] = []
-    if origin.tag == "table":
-      asset_elements.extend(try_gen_table(context, origin))
+    asset_wrapper = Element("div", attrib={
+      "class": "alt-wrapper",
+    })
+    if raw_layout.tag == "table":
+      asset_wrapper.extend(try_gen_table(context, raw_layout))
+    elif raw_layout.tag == "formula":
+      formula = try_gen_formula(context, raw_layout)
+      if formula is not None:
+        asset_wrapper.append(formula)
 
-    if origin.tag == "formula":
-      asset_element = try_gen_formula(context, origin)
-      if asset_element is not None:
-        asset_elements.append(asset_element)
+    if len(asset_wrapper) == 0:
+      asset = try_gen_asset(context, raw_layout)
+      if asset is not None:
+        asset_wrapper.append(asset)
 
-    if len(asset_elements) == 0:
-      asset_element = try_gen_asset(context, origin)
-      if asset_element is not None:
-        asset_elements.append(asset_element)
+    if len(asset_wrapper) > 0:
+      return asset_wrapper
 
-    if len(asset_elements) == 0:
-      return None
-
-    wrapper_div = Element("div")
-    wrapper_div.set("class", "alt-wrapper")
-    wrapper_div.extend(asset_elements)
-
-    return wrapper_div
-
-def _fill_text_and_citations(element: Element, origin: Element, used_ref_ids: set[str] | None):
-  element.text = origin.text
-  for child in origin:
-    if child.tag != "ref":
-      continue
-    id = child.get("id")
-    assert id is not None
-    anchor = Element("a")
-    anchor.attrib = {
-      "id": f"ref-{id}",
-      "href": f"#citation-{id}",
-      "class": "super",
-    }
-    if used_ref_ids is not None:
-      if id in used_ref_ids:
-        anchor.attrib.pop("id", None)
-      else:
-        used_ref_ids.add(id)
-
-    anchor.text = f"[{id}]"
-    anchor.tail = child.tail
-    element.append(anchor)
+  return None
