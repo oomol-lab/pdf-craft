@@ -54,10 +54,12 @@ class Mark:
     return True
 
 def samples(number_style: NumberStyle, count: int) -> str:
-  assert count > 1, "Count must be greater than 1"
+  if count <= 1:
+      raise ValueError("Count must be greater than 1")
   half_count = count // 2
   number_styles = _number_marks.styles.get(number_style, None)
-  assert number_styles is not None, f"Invalid number style: {number_style.name}"
+  if number_styles is None:
+      raise ValueError(f"Invalid number style: {number_style.name}")
   buffer = io.StringIO()
   for char in number_styles[:half_count]:
     buffer.write(char)
