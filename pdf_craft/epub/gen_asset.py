@@ -25,11 +25,11 @@ def try_gen_formula(context: Context, element: Element) -> Element | None:
   if context.latex_render == LaTeXRender.CLIPPING:
     return None
 
-  latex = _find_child(element, ("latex",))
-  if latex is None:
+  latex = (element.text or "").strip()
+  if not latex:
     return None
 
-  latex_expr = _normalize_expression(latex.text)
+  latex_expr = _normalize_expression(latex)
   if context.latex_render == LaTeXRender.MATHML:
     return _latex2mathml(latex_expr)
 
