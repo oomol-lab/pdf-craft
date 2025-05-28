@@ -256,6 +256,13 @@ class _Sequence:
         raw_page: RawPage | None,
       ) -> Generator[Element, None, None]:
 
+    # TODO: 由于 asset 的插入，会导致“断裂分析”结果不一定准确，此处需要重新设计
+    group_id_and_asset_element: Iterable[tuple[int, Element | None]] = ()
+    if raw_page is not None:
+      group_id_and_asset_element = raw_page.inject_assets(group_ids)
+    else:
+      group_id_and_asset_element = ((id, None) for id in sorted(group_ids))
+
     current_layout: tuple[Element, Element] | None = None
     sequence = Element(
       "sequence",
@@ -264,14 +271,6 @@ class _Sequence:
         keys=("type", "truncation-begin", "truncation-end"),
       ),
     )
-    group_id_and_asset_element: Iterable[tuple[int, Element | None]] = ()
-    if raw_page is not None:
-      group_id_and_asset_element = raw_page.inject_assets(group_ids)
-    else:
-      group_id_and_asset_element = ((id, None) for id in sorted(group_ids))
-
-    # TODO: 由于 asset 的插入，会导致“断裂分析”结果不一定准确，此处需要重新设计
-
     for id, asset_layout in group_id_and_asset_element:
       if asset_layout is not None:
         sequence.append(asset_layout)
@@ -287,6 +286,7 @@ class _Sequence:
         if raw_layout != layout:
           sequence.append(new_layout)
           current_layout = None
+
       if current_layout is None:
         new_layout = Element(
           layout.tag,
@@ -302,6 +302,10 @@ class _Sequence:
       new_line.text = line.text
       new_line.tail = line.tail
       new_layout.append(new_line)
+
+    if current_layout is not None:
+      _, new_layout = current_layout
+      sequence.append(new_layout)
 
     return sequence
 
