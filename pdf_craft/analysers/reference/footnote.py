@@ -8,7 +8,7 @@ from ...xml import encode
 from ..data import Layout
 from ..sequence import decode_layout
 from ..chapter import list_chapter_files
-from ..utils import xml_files, read_xml_file, XML_Info
+from ..utils import xml_files, read_xml_file, search_xml_children, XML_Info
 from .extraction import extract_footnote_references
 from .mark import transform2mark, search_marks, Mark
 
@@ -48,7 +48,7 @@ def append_footnote_for_chapters(chapter_path: Path, footnote_path: Path, output
       next_mark_id += 1
 
     if chapter_id is None:
-      file_path = output_path / "chapter_head.xml"
+      file_path = output_path / "chapter.xml"
     else:
       file_path = output_path / f"chapter_{chapter_id}.xml"
 
@@ -59,7 +59,9 @@ def _parse_layout_and_mark(footnote_page: _FootnotePage, layout: Layout):
   layout_element = layout.to_xml()
   footnotes: list[tuple[int, Element, Element]] = []
 
-  for line_element in layout_element:
+  for line_element, _ in search_xml_children(layout_element):
+    if line_element.tag != "line":
+      continue
     raw_text = line_element.text.strip()
     line_element.text = None
     last_mark_element: Element | None = None
@@ -88,7 +90,9 @@ def _parse_layout_and_mark(footnote_page: _FootnotePage, layout: Layout):
         else:
           last_mark_element.tail = str(cell)
 
-    return layout_element, footnotes
+      # TODO: footnote_page 如果剩余 mark 没有匹配应该交给 LLM 处理
+
+  return layout_element, footnotes
 
 class _FootnoteReader:
   def __init__(self, footnote_path: Path):
