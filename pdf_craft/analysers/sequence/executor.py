@@ -11,6 +11,8 @@ def extract_sequences(llm: LLM, workspace: Path, ocr_path: Path, max_data_tokens
   context: Context[State] = Context(workspace, lambda: {
     "phase": Phase.EXTRACTION.value,
     "max_data_tokens": max_data_tokens,
+    "max_paragraph_tokens": 512,
+    "max_paragraphs": 8,
     "completed_ranges": [],
   })
   while context.state["phase"] != Phase.COMPLETED:
@@ -31,10 +33,12 @@ def extract_sequences(llm: LLM, workspace: Path, ocr_path: Path, max_data_tokens
         context=context,
         type=SequenceType.TEXT,
         extraction_path=workspace / Phase.EXTRACTION.value,
+        join_path=workspace / Phase.TEXT_JOINT.value,
       )
       context.state = {
         **context.state,
         "phase": Phase.FOOTNOTE_JOINT.value,
+        "completed_ranges": [],
       }
     elif context.state["phase"] == Phase.FOOTNOTE_JOINT:
       join(
@@ -42,8 +46,10 @@ def extract_sequences(llm: LLM, workspace: Path, ocr_path: Path, max_data_tokens
         context=context,
         type=SequenceType.FOOTNOTE,
         extraction_path=workspace / Phase.EXTRACTION.value,
+        join_path=workspace / Phase.FOOTNOTE_JOINT.value,
       )
       context.state = {
         **context.state,
         "phase": Phase.COMPLETED.value,
+        "completed_ranges": [],
       }

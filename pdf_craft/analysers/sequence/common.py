@@ -11,6 +11,8 @@ class Phase(StrEnum):
 class State(TypedDict):
   phase: Phase
   max_data_tokens: int
+  max_paragraph_tokens: int
+  max_paragraphs: int
   completed_ranges: list[list[int]]
 
 class SequenceType(StrEnum):

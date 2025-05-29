@@ -96,7 +96,7 @@ class _Sequence:
           next_id += 1
 
     return self._llm.request_xml(
-      template_name="sequence",
+      template_name="sequence/extraction",
       user_data=request_xml,
     )
 
@@ -212,12 +212,14 @@ class _Sequence:
       type = group.get("type", None)
       if type == SequenceType.TEXT:
         text_ids = self._ids_from_group(group)
-        text = (group, text_ids)
-        origin_text_ids.update(text_ids)
+        if text_ids:
+          text = (group, text_ids)
+          origin_text_ids.update(text_ids)
       elif type == SequenceType.FOOTNOTE:
         footnote_ids = self._ids_from_group(group)
-        footnote = (group, footnote_ids)
-        origin_footnote_ids.update(footnote_ids)
+        if footnote_ids:
+          footnote = (group, footnote_ids)
+          origin_footnote_ids.update(footnote_ids)
 
     if text and footnote:
       text_group, text_ids = text
