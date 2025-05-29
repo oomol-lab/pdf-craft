@@ -8,6 +8,7 @@ from .common import State, Phase, SequenceType, Truncation
 from .request import SequenceRequest, RawPage
 from ...llm import LLM
 from ...xml import encode
+from ..data import ASSET_LAYOUT_KINDS
 from ..utils import (
   remove_file,
   read_xml_file,
@@ -20,6 +21,8 @@ from ..utils import (
 
 def extract_ocr(llm: LLM, context: Context[State], ocr_path: Path) -> None:
   return _Sequence(llm, context).to_sequences(ocr_path)
+
+_LayoutLines = dict[int, tuple[Element, Element]]
 
 class _Sequence:
   def __init__(self, llm: LLM, context: Context[State]) -> None:
@@ -135,7 +138,7 @@ class _Sequence:
         resp_page: Element,
       ) -> Element:
 
-    layout_lines: dict[int, tuple[Element, Element]] = {}
+    layout_lines: _LayoutLines = {}
     new_page = Element(
       "page",
       self._pick_attrib(resp_page, ("page-index", "type")),
@@ -148,39 +151,7 @@ class _Sequence:
         except (ValueError, TypeError):
           pass
 
-    text: tuple[Element, list[int]] | None = None
-    footnote: tuple[Element, list[int]] | None = None
-
-    for group in resp_page:
-      type = group.get("type", None)
-      if type == SequenceType.TEXT:
-        text = (group, self._ids_from_group(group))
-      elif type == SequenceType.FOOTNOTE:
-        footnote = (group, self._ids_from_group(group))
-
-    if text and footnote:
-      text_group, text_ids = text
-      footnote_group, footnote_ids = footnote
-
-      # There may be overlap between the two.
-      # In this case, the footnote header should be used as the reference for re-cutting.
-      if text_ids[-1] >= footnote_ids[0]:
-        text_id_cut_index: int = -1
-        origin_footnote_ids = footnote_ids
-        for i, id in enumerate(text_ids):
-          if id >= footnote_ids[0]:
-            text_id_cut_index = i
-            break
-        text = (text_group, text_ids[:text_id_cut_index])
-        footnote_ids = sorted(footnote_ids + text_ids[text_id_cut_index:])
-        footnote = (footnote_group, footnote_ids)
-        if footnote_ids[-1] not in origin_footnote_ids:
-          footnote_group.set(
-            "truncation-end",
-            text_group.get("truncation-end", None),
-          )
-        text_group.set("truncation-end", Truncation.UNCERTAIN.value) # be cut down
-
+    text, footnote = self._text_and_footnote_groups(resp_page, layout_lines)
     begin: tuple[int, int, Element] | None = None
     end: tuple[int, int, Element] | None = None
     raw_page = request.raw_page(page_index)
@@ -231,12 +202,122 @@ class _Sequence:
 
     return new_page
 
+  def _text_and_footnote_groups(self, resp_page: Element, layout_lines: _LayoutLines):
+    text: tuple[Element, list[int]] | None = None
+    footnote: tuple[Element, list[int]] | None = None
+    origin_text_ids: set[int] = set()
+    origin_footnote_ids: set[int] = set()
+
+    for group in resp_page:
+      type = group.get("type", None)
+      if type == SequenceType.TEXT:
+        text_ids = self._ids_from_group(group)
+        text = (group, text_ids)
+        origin_text_ids.update(text_ids)
+      elif type == SequenceType.FOOTNOTE:
+        footnote_ids = self._ids_from_group(group)
+        footnote = (group, footnote_ids)
+        origin_footnote_ids.update(footnote_ids)
+
+    if text and footnote:
+      text_group, text_ids = text
+      footnote_group, footnote_ids = footnote
+
+      # There may be overlap between the two.
+      # In this case, the footnote header should be used as the reference for re-cutting.
+      if text_ids[-1] >= footnote_ids[0]:
+        text_id_cut_index: int = -1
+        for i, id in enumerate(text_ids):
+          if id >= footnote_ids[0]:
+            text_id_cut_index = i
+            break
+        text = (text_group, text_ids[:text_id_cut_index])
+        footnote_ids = sorted(footnote_ids + text_ids[text_id_cut_index:])
+        footnote = (footnote_group, footnote_ids)
+        if footnote_ids[-1] not in origin_footnote_ids:
+          footnote_group.set(
+            "truncation-end",
+            text_group.get("truncation-end", None),
+          )
+          origin_footnote_ids = set(footnote_ids)
+
+    if text:
+      text_group, text_ids = text
+      before_id: int | None = None
+      if footnote:
+        _, footnote_ids = footnote
+        if footnote_ids:
+          before_id = footnote_ids[0]
+
+      text_ids = self._fill_gap_with_lines(
+        raw_ids=text_ids,
+        layout_lines=layout_lines,
+        before_id=before_id,
+        ignore_origin_abandon=True,
+      )
+      text = (text_group, text_ids)
+      if text_ids[-1] not in origin_text_ids:
+        text_group.set("truncation-end", Truncation.UNCERTAIN.value)
+
+    if footnote:
+      footnote_group, footnote_ids = footnote
+      footnote_ids = text_ids = self._fill_gap_with_lines(
+        raw_ids=footnote_ids,
+        layout_lines=layout_lines,
+        before_id=None,
+        ignore_origin_abandon=False,
+      )
+      footnote = (footnote_group, footnote_ids)
+      if footnote_ids[-1] not in origin_footnote_ids:
+        footnote_group.set("truncation-end", Truncation.UNCERTAIN.value)
+
+    return text, footnote
+
   def _ids_from_group(self, group: Element) -> list[int]:
     ids: list[int] = []
     for resp_line in group:
       for id in self._iter_line_ids(resp_line):
         ids.append(id)
     return sorted(ids)
+
+  def _fill_gap_with_lines(
+        self,
+        raw_ids: list[int],
+        layout_lines: _LayoutLines,
+        before_id: int | None,
+        ignore_origin_abandon: bool,
+      ) -> list[int]:
+
+    target_ids: list[int] = []
+    if not raw_ids:
+      return target_ids
+
+    def check_and_collect(gap_id: int):
+      gap = layout_lines.get(gap_id, None)
+      if gap is None:
+        return
+      layout, _ = gap
+      if layout.tag == "abandon" or layout.tag in ASSET_LAYOUT_KINDS:
+        return
+      target_ids.append(gap_id)
+
+    pre_id = raw_ids[0] - 1
+    for id in raw_ids:
+      for gap_id in range(pre_id + 1, id):
+        check_and_collect(gap_id)
+
+      pre_id = id
+      origin = layout_lines.get(id, None)
+      if origin is not None:
+        layout, _ = origin
+        if not ignore_origin_abandon or layout.tag != "abandon":
+          target_ids.append(id)
+
+    if before_id is not None:
+      for gap_id in range(pre_id + 1, before_id):
+        check_and_collect(gap_id)
+
+    return target_ids
 
   def _term_sequence(self, sequence: Element, ids: Iterable[int]) -> tuple[int, int, Element]:
     begin_id: int = sys.maxsize
@@ -250,7 +331,7 @@ class _Sequence:
 
   def _create_sequence(
         self,
-        layout_lines: dict[int, tuple[Element, Element]],
+        layout_lines: _LayoutLines,
         group: Element,
         group_ids: list[int],
         raw_page: RawPage | None,
