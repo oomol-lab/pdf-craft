@@ -4,6 +4,7 @@ from shutil import rmtree
 
 from ...llm import LLM
 from ..contents import Contents, Chapter
+from ..data import ASSET_LAYOUT_KINDS, Paragraph
 from ..utils import xml_files, Context
 from .common import State, Phase
 from .contents_mapper import map_contents
@@ -103,8 +104,8 @@ def _generate_chapter_xmls(
 
   if contents_and_map_path is None:
     for paragraph in read_paragraphs(sequence_path):
-      for layout in paragraph.layouts:
-        chapter_element.append(layout.to_xml())
+      for layout_element in _flat_layouts_from_paragraph(paragraph):
+        chapter_element.append(layout_element)
   else:
     contents, map_path = contents_and_map_path
 
@@ -121,10 +122,32 @@ def _generate_chapter_xmls(
         save_chapter()
         chapter = this_chapter
 
-      for layout in paragraph.layouts:
-        chapter_element.append(layout.to_xml())
+      for layout_element in _flat_layouts_from_paragraph(paragraph):
+        chapter_element.append(layout_element)
 
   save_chapter()
+
+def _flat_layouts_from_paragraph(paragraph: Paragraph):
+  layout_element: Element | None = None
+  for layout in paragraph.layouts:
+    if layout_element is not None and \
+       layout_element.tag != layout.kind:
+      yield layout_element
+      layout_element = None
+
+    if layout.kind in ASSET_LAYOUT_KINDS:
+      yield layout.to_xml()
+      continue
+
+    if layout_element is None:
+      layout_element = Element(layout.kind.value, {
+        "id": layout.id,
+      })
+    for line in layout.lines:
+      layout_element.append(line.to_xml())
+
+  if layout_element is not None:
+    yield layout_element
 
 def _filter_contents(contents: Contents, used_chapter_ids: set[int]) -> Contents:
   return Contents(
