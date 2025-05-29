@@ -193,7 +193,7 @@ class _Joint:
             if child.tag != "paragraph":
               continue
             page_index = int(child.get("first-page-index", "-1"))
-            truncation = child.get("truncation", None)
+            truncation = child.get("conclusion", None)
             truncations_dict[page_index] = (truncation == Truncation.YES)
 
           file_content: dict[str, Any] = {
