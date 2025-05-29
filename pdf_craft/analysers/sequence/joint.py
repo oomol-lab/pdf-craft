@@ -1,14 +1,13 @@
-from json import loads, dumps
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Generator
+from typing import Generator
 from enum import auto, Enum
 from xml.etree.ElementTree import fromstring, Element
 
 from ...llm import LLM
 from ...xml import encode
 from ..data import ParagraphType
-from ..utils import remove_file, xml_files, Context, Partition
+from ..utils import remove_file, read_xml_file, xml_files, Context, Partition
 from .common import State, SequenceType, Truncation
 
 
@@ -162,17 +161,17 @@ class _Joint:
 
   def _request_llm_to_verify(self, meta_truncation_dict: _MetaTruncationDict):
     self._join_path.mkdir(parents=True, exist_ok=True)
-    partition: Partition[tuple[int], State, tuple[list[int], Element]] = Partition(
+    partition: Partition[tuple[int], State, Element] = Partition(
       dimension=1,
       context=self._ctx,
       sequence=(
-        (min(page_indexes), max(page_indexes), (page_indexes, request_element))
+        (min(page_indexes), max(page_indexes), request_element)
         for page_indexes, request_element in self._search_uncertain_request(
           meta_truncation_dict=meta_truncation_dict,
         )
       ),
       remove=lambda begin, end: remove_file(
-        self._join_path / f"truncation_{begin[0]}_{end[0]}.json"
+        self._join_path / f"truncation_{begin[0]}_{end[0]}.xml"
       ),
     )
     with partition:
@@ -180,8 +179,7 @@ class _Joint:
         with task:
           begin = task.begin[0]
           end = task.end[0]
-          page_indexes, request_element = task.payload
-          truncations_dict: dict[int, bool] = {}
+          request_element = task.payload
           resp_element = self._llm.request_xml(
             template_name="truncation",
             user_data=request_element,
@@ -189,39 +187,27 @@ class _Joint:
               "count": len(request_element),
             },
           )
-          for child in resp_element:
-            if child.tag != "paragraph":
-              continue
-            page_index = int(child.get("first-page-index", "-1"))
-            truncation = child.get("conclusion", None)
-            truncations_dict[page_index] = (truncation == Truncation.YES)
-
-          file_content: dict[str, Any] = {
-            "page-indexes": page_indexes,
-            "truncations": [
-              truncations_dict.get(page_index, False)
-              for page_index in page_indexes
-            ],
-          }
-          self._ctx.atomic_write(
-            file_path=self._join_path / f"truncation_{begin}_{end}.json",
-            content=dumps(file_content, ensure_ascii=False),
+          self._ctx.write_xml_file(
+            file_path=self._join_path / f"truncation_{begin}_{end}.xml",
+            xml=resp_element,
           )
 
-    for file_path, _, _, _ in xml_files(self._extraction_path):
-      with open(file_path, mode="r", encoding="utf-8") as file:
-        file_content = loads(file.read())
+    for file_path, file_prefix, _, _ in xml_files(self._extraction_path):
+      if file_prefix != "truncation":
+        continue
 
-      page_indexes: list[int] = file_content.get("page-indexes", [])
-      truncations: list[bool] = file_content.get("truncations", [])
-
-      for page_index, truncation in zip(page_indexes, truncations):
+      for child in read_xml_file(file_path):
+        if child.tag != "paragraph":
+          continue
+        page_index = int(child.get("first-page-index", "-1"))
         if page_index not in meta_truncation_dict:
           continue
+        conclusion = child.get("conclusion", None)
         meta, _ = meta_truncation_dict[page_index]
-        meta_truncation_dict[page_index] = (
-          meta, _TruncationKind.VERIFIED if truncation else _TruncationKind.NO,
-        )
+        truncation = _TruncationKind.NO
+        if conclusion == Truncation.YES:
+          truncation = _TruncationKind.VERIFIED
+        meta_truncation_dict[page_index] = (meta, truncation)
 
   def _search_uncertain_request(self, meta_truncation_dict: _MetaTruncationDict):
     max_paragraphs = self._ctx.state["max_paragraphs"]
