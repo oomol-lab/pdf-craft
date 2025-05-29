@@ -1,18 +1,33 @@
+from json import loads, dumps
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Generator
+from typing import Any, Generator
 from enum import auto, Enum
 from xml.etree.ElementTree import fromstring, Element
 
 from ...llm import LLM
 from ...xml import encode
 from ..data import ParagraphType
-from ..utils import xml_files, Context
+from ..utils import remove_file, xml_files, Context, Partition
 from .common import State, SequenceType, Truncation
 
 
-def join(llm: LLM, context: Context[State], type: SequenceType, extraction_path: Path):
-  _Joint(llm, context, type, extraction_path).do()
+def join(
+      llm: LLM,
+      context: Context[State],
+      type: SequenceType,
+      extraction_path: Path,
+      join_path: Path,
+    ) -> None:
+
+  joint = _Joint(
+    llm=llm,
+    context=context,
+    type=type,
+    extraction_path=extraction_path,
+    join_path=join_path,
+  )
+  joint.do()
 
 @dataclass
 class _SequenceMeta:
@@ -24,6 +39,8 @@ class _TruncationKind(Enum):
   NO = auto()
   VERIFIED = auto()
   UNCERTAIN = auto()
+
+_MetaTruncationDict = dict[int, tuple[_SequenceMeta, _TruncationKind]]
 
 class _Paragraph:
   def __init__(self, type: ParagraphType, page_index: int, element: Element):
@@ -50,30 +67,33 @@ class _Paragraph:
     return element
 
 class _Joint:
-  def __init__(self, llm: LLM, context: Context[State], type: SequenceType, extraction_path: Path):
+  def __init__(
+        self,
+        llm: LLM,
+        context: Context[State],
+        type: SequenceType,
+        extraction_path: Path,
+        join_path: Path,
+      ) -> None:
+
     self._llm: LLM = llm
     self._ctx: Context[State] = context
     self._type: SequenceType = type
     self._extraction_path: Path = extraction_path
+    self._join_path: Path = join_path
 
   def do(self):
     metas = self._extract_sequence_metas()
     truncations = list(self._extract_truncations(metas))
+    meta_truncation_dict: _MetaTruncationDict = {}
 
-    for i in range(0, len(truncations) - 1):
-      truncation = truncations[i]
-      if truncation == _TruncationKind.UNCERTAIN:
-        # TODO: 用 LLM 来进一步确认
-        # 此外还要考虑连续跨越多个段落的特殊情况，涉及合适的 prompt
-        # 目前个人理解，应该关注在断裂口处，让 LLM 根据断裂口 id 来做出结论
-        truncations[i] = _TruncationKind.NO
-
-    meta_truncation_dict: dict[int, tuple[_SequenceMeta, _TruncationKind]] = {}
     for i, meta in enumerate(metas):
       truncation: _TruncationKind = _TruncationKind.NO
       if i < len(truncations):
         truncation = truncations[i]
       meta_truncation_dict[meta.page_index] = (meta, truncation)
+
+    self._request_llm_to_verify(meta_truncation_dict)
 
     last_page_index = 0
     next_paragraph_id = 1
@@ -98,12 +118,12 @@ class _Joint:
 
   def _extract_sequence_metas(self) -> list[_SequenceMeta]:
     metas: list[_SequenceMeta] = []
-    for sequence in self._extract_sequences():
+    for page_index, sequence in self._extract_sequences():
       truncation_begin = Truncation(sequence.get("truncation-begin", Truncation.UNCERTAIN.value))
       truncation_end = Truncation(sequence.get("truncation-end", Truncation.UNCERTAIN.value))
       metas.append(_SequenceMeta(
         paragraph_type=ParagraphType(sequence.get("type")),
-        page_index=int(sequence.get("page-index")),
+        page_index=page_index,
         truncations=(truncation_begin, truncation_end),
       ))
 
@@ -140,14 +160,139 @@ class _Joint:
 
       yield _TruncationKind.UNCERTAIN
 
-  def _join_and_get_sequences(
-        self,
-        meta_truncation_dict: dict[int, tuple[_SequenceMeta, _TruncationKind]],
-      ) -> Generator[_Paragraph, None, None]:
+  def _request_llm_to_verify(self, meta_truncation_dict: _MetaTruncationDict):
+    self._join_path.mkdir(parents=True, exist_ok=True)
+    partition: Partition[tuple[int], State, tuple[list[int], Element]] = Partition(
+      dimension=1,
+      context=self._ctx,
+      sequence=(
+        (min(page_indexes), max(page_indexes), (page_indexes, request_element))
+        for page_indexes, request_element in self._search_uncertain_request(
+          meta_truncation_dict=meta_truncation_dict,
+        )
+      ),
+      remove=lambda begin, end: remove_file(
+        self._join_path / f"truncation_{begin[0]}_{end[0]}.json"
+      ),
+    )
+    with partition:
+      for task in partition.pop_tasks():
+        with task:
+          begin = task.begin[0]
+          end = task.end[0]
+          page_indexes, request_element = task.payload
+          truncations_dict: dict[int, bool] = {}
+          resp_element = self._llm.request_xml(
+            template_name="truncation",
+            user_data=request_element,
+            params={
+              "count": len(request_element),
+            },
+          )
+          for child in resp_element:
+            if child.tag != "paragraph":
+              continue
+            page_index = int(child.get("first-page-index", "-1"))
+            truncation = child.get("truncation", None)
+            truncations_dict[page_index] = (truncation == Truncation.YES)
 
+          file_content: dict[str, Any] = {
+            "page-indexes": page_indexes,
+            "truncations": [
+              truncations_dict.get(page_index, False)
+              for page_index in page_indexes
+            ],
+          }
+          self._ctx.atomic_write(
+            file_path=self._join_path / f"truncation_{begin}_{end}.json",
+            content=dumps(file_content, ensure_ascii=False),
+          )
+
+    for file_path, _, _, _ in xml_files(self._extraction_path):
+      with open(file_path, mode="r", encoding="utf-8") as file:
+        file_content = loads(file.read())
+
+      page_indexes: list[int] = file_content.get("page-indexes", [])
+      truncations: list[bool] = file_content.get("truncations", [])
+
+      for page_index, truncation in zip(page_indexes, truncations):
+        if page_index not in meta_truncation_dict:
+          continue
+        meta, _ = meta_truncation_dict[page_index]
+        meta_truncation_dict[page_index] = (
+          meta, _TruncationKind.VERIFIED if truncation else _TruncationKind.NO,
+        )
+
+  def _search_uncertain_request(self, meta_truncation_dict: _MetaTruncationDict):
+    max_paragraphs = self._ctx.state["max_paragraphs"]
+    request_element: Element | None = None
+    request_page_indexes: list[int] = []
+
+    for page_index, text1, text2 in self._search_uncertain_texts(meta_truncation_dict):
+      if request_element is not None and len(request_element) > max_paragraphs:
+        yield request_page_indexes, request_element
+        request_element = None
+        request_page_indexes = []
+
+      if request_element is None:
+        request_element = Element("request")
+
+      paragraph_element = Element("paragraph")
+      paragraph_element.set("first-page-index", str(page_index))
+      paragraph_element.set("second-page-index", str(page_index + 1))
+
+      for text in (text1, text2):
+        text_element = Element("text")
+        text_element.text = text
+        paragraph_element.append(text_element)
+
+      request_element.append(paragraph_element)
+      request_page_indexes.append(page_index)
+
+    if request_element is not None:
+      yield request_page_indexes, request_element
+
+  def _search_uncertain_texts(self, meta_truncation_dict: _MetaTruncationDict):
+    max_paragraph_tokens = self._ctx.state["max_paragraph_tokens"]
+    tail: Element | None = None
+
+    for page_index, sequence in self._extract_sequences():
+      _, truncation = meta_truncation_dict[page_index]
+      head, body = self._split_sequence(sequence)
+      if tail is not None:
+        text1 = "".join((line.text or "").strip() for line in tail)
+        text2 = "".join((line.text or "").strip() for line in head)
+        tail = None
+
+        raw_tokens1 = self._llm.encode_tokens(text1)
+        raw_tokens2 = list(reversed(self._llm.encode_tokens(text2)))
+        tokens1: list[int] = []
+        tokens2: list[int] = []
+
+        while len(tokens1) + len(tokens2) < max_paragraph_tokens:
+          if raw_tokens1:
+            tokens1.append(raw_tokens1.pop())
+          if raw_tokens2:
+            tokens2.append(raw_tokens2.pop())
+          if not raw_tokens1 and not raw_tokens2:
+            break
+
+        text1 = self._llm.decode_tokens(list(reversed(tokens1)))
+        text2 = self._llm.decode_tokens(tokens2)
+
+        if raw_tokens1:
+          text1 = "..." + text1
+        if raw_tokens2:
+          text2 = text2 + "..."
+
+        yield page_index - 1, text1, text2
+
+      if truncation == _TruncationKind.UNCERTAIN:
+        tail = head if len(body) == 0 else body[-1]
+
+  def _join_and_get_sequences(self, meta_truncation_dict: _MetaTruncationDict) -> Generator[_Paragraph, None, None]:
     last_paragraph: _Paragraph | None = None
-    for sequence in self._extract_sequences():
-      page_index = int(sequence.get("page-index"))
+    for page_index, sequence in self._extract_sequences():
       meta, truncation = meta_truncation_dict[page_index]
       head, body = self._split_sequence(sequence)
 
@@ -180,28 +325,28 @@ class _Joint:
     if last_paragraph is not None:
       yield last_paragraph
 
-  def _extract_sequences(self) -> Generator[Element, None, None]:
+  def _extract_sequences(self) -> Generator[tuple[int, Element], None, None]:
     for file_path, _, _, _ in xml_files(self._extraction_path):
       with open(file_path, mode="r", encoding="utf-8") as file:
         raw_page_xmls = fromstring(file.read())
 
       page_pairs: list[tuple[int, Element]] = []
       for page in raw_page_xmls:
-        paragraph_type = ParagraphType.TEXT
         page_index = int(page.get("page-index", "-1"))
         page_pairs.append((page_index, page))
 
       page_pairs.sort(key=lambda x: x[0])
       for page_index, page in page_pairs:
-        if self._type == SequenceType.TEXT:
-          paragraph_type = ParagraphType(page.get("type", "text"))
-
         sequence = next(
           (found for found in page if found.get("type", None) == self._type),
           None
         )
         if sequence is None or len(sequence) == 0:
           continue
+
+        paragraph_type = ParagraphType.TEXT
+        if self._type == SequenceType.TEXT:
+          paragraph_type = ParagraphType(page.get("type", "text"))
 
         sequence.set("type", paragraph_type.value)
         sequence.set("page-index", str(page_index))
@@ -213,7 +358,7 @@ class _Joint:
         for i, layout in enumerate(sequence):
           layout.set("id", f"{page_index}/{i + 1}")
 
-        yield sequence
+        yield page_index, sequence
 
   def _split_sequence(self, sequence: Element) -> tuple[Element, list[Element]]:
     head: Element | None = None

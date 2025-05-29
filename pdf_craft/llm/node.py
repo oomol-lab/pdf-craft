@@ -3,7 +3,7 @@ import datetime
 
 from os import PathLike
 from pathlib import Path
-from typing import cast, Any, Generator
+from typing import cast, Any, Generator, Sequence
 from importlib.resources import files
 from jinja2 import Environment, Template
 from xml.etree.ElementTree import Element
@@ -120,7 +120,7 @@ class LLM:
   def encode_tokens(self, text: str) -> list[int]:
     return self._encoding.encode(text)
 
-  def decode_tokens(self, tokens: list[int]) -> str:
+  def decode_tokens(self, tokens: Sequence[int]) -> str:
     return self._encoding.decode(tokens)
 
   def count_tokens_count(self, text: str) -> int:
