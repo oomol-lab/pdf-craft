@@ -181,7 +181,7 @@ class _Joint:
           end = task.end[0]
           request_element = task.payload
           resp_element = self._llm.request_xml(
-            template_name="truncation",
+            template_name="sequence/truncation",
             user_data=request_element,
             params={
               "count": len(request_element),

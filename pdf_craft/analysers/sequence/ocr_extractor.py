@@ -96,7 +96,7 @@ class _Sequence:
           next_id += 1
 
     return self._llm.request_xml(
-      template_name="sequence",
+      template_name="sequence/extraction",
       user_data=request_xml,
     )
 
