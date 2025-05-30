@@ -3,7 +3,9 @@ from xml.etree.ElementTree import Element
 from shutil import rmtree
 
 from ...llm import LLM
+from ..reporter import Reporter
 from ..contents import Contents, Chapter
+from ..types import AnalysingStep
 from ..data import ASSET_LAYOUT_KINDS, Paragraph
 from ..utils import xml_files, Context
 from .common import State, Phase
@@ -13,6 +15,7 @@ from .patcher import read_paragraphs, read_paragraphs_with_patches
 
 def generate_chapters(
       llm: LLM,
+      reporter: Reporter,
       contents: Contents | None,
       sequence_path: Path,
       workspace_path: Path,
@@ -21,16 +24,21 @@ def generate_chapters(
 
   map_path: Path = workspace_path / "map"
   output_path = workspace_path / "output"
-  context: Context[State] = Context(workspace_path, lambda: {
-    "phase": Phase.MAPPER.value,
-    "has_contents": False,
-    "max_request_tokens": max_request_tokens,
-    "completed_ranges": [],
-  })
+  context: Context[State] = Context(
+    reporter=reporter,
+    path=workspace_path,
+    init=lambda: {
+      "phase": Phase.MAPPER.value,
+      "has_contents": False,
+      "max_request_tokens": max_request_tokens,
+      "completed_ranges": [],
+    },
+  )
   if context.state["phase"] == Phase.MAPPER:
     has_contents = False
     if contents is not None:
       has_contents = True
+      context.reporter.go_to_step(AnalysingStep.MAPPING_CONTENTS)
       map_contents(
         llm=llm,
         context=context,

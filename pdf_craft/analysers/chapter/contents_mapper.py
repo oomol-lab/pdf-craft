@@ -55,6 +55,7 @@ class _ContentsMapper:
       dimension=1,
       context=self._ctx,
       sequence=self._gen_request(contents_tokens_count),
+      done=lambda _, __: self._ctx.reporter.increment(),
       remove=lambda begin, end: remove_file(
         self._map_path / f"pages_{begin}_{end}.xml"
       ),

@@ -3,24 +3,39 @@ import re
 from pathlib import Path
 from ...llm import LLM
 from ..sequence import decode_paragraph, ParagraphWriter
+from ..reporter import Reporter
+from ..types import AnalysingStep
 from ..utils import read_xml_file, Context
 from .common import State, Phase
 from .corrector import Corrector
 
 
-def correct(llm: LLM, workspace: Path, text_path: Path, footnote_path: Path, max_data_tokens: int) -> Path:
-  context: Context[State] = Context(workspace, lambda: {
-    "phase": Phase.Text.value,
-    "max_data_tokens": max_data_tokens,
-    "completed_ranges": [],
-  })
+def correct(
+      llm: LLM,
+      reporter: Reporter,
+      workspace_path: Path,
+      text_path: Path,
+      footnote_path: Path,
+      max_data_tokens: int,
+    ) -> Path:
+
+  context: Context[State] = Context(
+    reporter=reporter,
+    path=workspace_path,
+    init=lambda: {
+      "phase": Phase.Text.value,
+      "max_data_tokens": max_data_tokens,
+      "completed_ranges": [],
+    },
+  )
   corrector = Corrector(llm, context)
-  output_path = workspace / "output"
-  text_request_path = workspace / "text"
-  footnote_request_path = workspace / "footnote"
+  output_path = workspace_path / "output"
+  text_request_path = workspace_path / "text"
+  footnote_request_path = workspace_path / "footnote"
 
   if context.state["phase"] == Phase.Text:
     if text_path.exists():
+      reporter.go_to_step(AnalysingStep.CORRECT_TEXT)
       corrector.do(
         from_path=text_path,
         request_path=text_request_path,
@@ -34,6 +49,7 @@ def correct(llm: LLM, workspace: Path, text_path: Path, footnote_path: Path, max
 
   if context.state["phase"] == Phase.FOOTNOTE:
     if footnote_path.exists():
+      reporter.go_to_step(AnalysingStep.CORRECT_FOOTNOTE)
       corrector.do(
         from_path=footnote_path,
         request_path=footnote_request_path,
