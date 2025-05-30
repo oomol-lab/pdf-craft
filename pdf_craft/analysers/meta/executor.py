@@ -12,7 +12,7 @@ def extract_meta(
       workspace_path: Path,
       sequence_path: Path,
       max_request_tokens: int = 4090,
-    ) -> None:
+    ) -> Path:
 
   meta_path = workspace_path / "meta.json"
 
@@ -43,7 +43,7 @@ def _create_request_element(
     ) -> Element:
 
   tokens: int = 0
-  request_element = Element("page")
+  request_element = Element("request")
   page_element: Element | None = None
   page_index: int = -1
 
