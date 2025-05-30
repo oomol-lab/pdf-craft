@@ -32,6 +32,7 @@ def extract_ocr_page_xmls(
   ) -> Generator[Element, None, None]:
 
   with fitz.open(pdf_path) as pdf:
+    reporter.set(max_count=pdf.page_count)
     for i, blocks, image in extractor.extract_enumerated_blocks_and_image(
       pdf=pdf,
       page_indexes=(i for i in range(pdf.page_count) if i not in expected_page_indexes),
@@ -45,8 +46,8 @@ def extract_ocr_page_xmls(
         blocks=blocks,
         assets_dir_path=assets_dir_path,
       )
+      reporter.increment()
       yield i, page_xml
-      reporter.progress(i + 1, pdf.page_count)
 
 def _transform_page_xml(blocks: list[Block]) -> Element:
   root = Element("page")

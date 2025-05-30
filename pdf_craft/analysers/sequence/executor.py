@@ -11,9 +11,9 @@ from .joint import join
 
 def extract_sequences(
       llm: LLM,
+      reporter: Reporter,
       workspace_path: Path,
       ocr_path: Path,
-      reporter: Reporter,
       max_data_tokens: int,
     ) -> None:
 
