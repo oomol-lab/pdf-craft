@@ -25,7 +25,7 @@ def main() -> None:
     correction=False,
     pdf_path=_project_dir_path("tests") / "assets" / "citation_large.pdf",
     analysing_dir_path=_project_dir_path("analysing"),
-    output_path=_project_dir_path("output", clean=True),
+    output_dir_path=_project_dir_path("output", clean=True),
   )
 
 def _read_format_json() -> dict:

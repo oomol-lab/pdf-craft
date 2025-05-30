@@ -19,7 +19,7 @@ def analyse(
     pdf_page_extractor: PDFPageExtractor,
     pdf_path: PathLike,
     analysing_dir_path: PathLike,
-    output_path: PathLike,
+    output_dir_path: PathLike,
     correction: bool = False,
   ) -> None:
 
@@ -86,7 +86,7 @@ def analyse(
 
   output(
     contents=contents,
-    output_path=Path(output_path),
+    output_path=Path(output_dir_path),
     meta_path=meta_path,
     chapter_output_path=chapter_output_path,
     assets_path=assets_path,
