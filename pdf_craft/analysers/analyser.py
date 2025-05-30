@@ -43,16 +43,16 @@ def analyse(
 
   generate_ocr_pages(
     extractor=pdf_page_extractor,
+    reporter=reporter,
     pdf_path=Path(pdf_path),
     ocr_path=ocr_path,
     assets_path=assets_path,
-    reporter=reporter,
   )
   extract_sequences(
     llm=llm,
+    reporter=reporter,
     workspace_path=sequence_path,
     ocr_path=ocr_path,
-    reporter=reporter,
     max_data_tokens=max_data_tokens,
   )
   sequence_output_path = sequence_path / "output"

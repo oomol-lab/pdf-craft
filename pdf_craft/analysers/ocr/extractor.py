@@ -48,7 +48,6 @@ def extract_ocr_page_xmls(
       )
       reporter.increment()
       yield i, page_xml
-      reporter.progress(i + 1, pdf.page_count)
 
 def _transform_page_xml(blocks: list[Block]) -> Element:
   root = Element("page")

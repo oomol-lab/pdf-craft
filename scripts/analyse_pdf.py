@@ -17,26 +17,32 @@ def main():
   output_dir_path = _project_dir_path("output", clean=True)
   analysing_dir_path = _project_dir_path("analysing", clean=False)
   bar: tqdm | None = None
+  count: int = 0
 
   try:
     def report_step(step: AnalysingStep):
-      nonlocal bar
+      nonlocal bar, count
       bar = None
-      print("Step:", step.name)
+      count = 0
+      print("[[Step]]", step.name)
 
     def report_progress(completed_count: int, max_count: int | None):
-      nonlocal bar
+      nonlocal bar, count
       if bar is None:
         bar = tqdm(total=max_count)
-      bar.update(completed_count)
+      bar.update(completed_count - count)
+      count = completed_count
 
     analyse(
-      llm=LLM(**_read_format_json()),
       pdf_path=pdf_file,
       analysing_dir_path=analysing_dir_path,
       output_dir_path=output_dir_path,
       report_step=report_step,
       report_progress=report_progress,
+      llm=LLM(
+        **_read_format_json(),
+        log_dir_path=analysing_dir_path / "log",
+      ),
       pdf_page_extractor=PDFPageExtractor(
         device="cpu",
         model_dir_path=model_dir_path,
