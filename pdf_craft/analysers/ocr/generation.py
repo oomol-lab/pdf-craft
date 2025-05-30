@@ -2,6 +2,8 @@ from pathlib import Path
 from typing import TypedDict
 
 from ...pdf import PDFPageExtractor
+from ..reporter import Reporter
+from ..types import AnalysingStep
 from ..utils import Context
 from .extractor import extract_ocr_page_xmls
 
@@ -15,6 +17,7 @@ def generate_ocr_pages(
       pdf_path: Path,
       ocr_path: Path,
       assets_path: Path,
+      reporter: Reporter,
     ) -> None:
 
   context: Context[_State] = Context(ocr_path, lambda: {
@@ -26,6 +29,8 @@ def generate_ocr_pages(
 
   for path in (context.path, assets_path):
     path.mkdir(parents=True, exist_ok=True)
+
+  reporter.go_to_step(AnalysingStep.OCR)
 
   for page_index, page_xml in extract_ocr_page_xmls(
     extractor=extractor,

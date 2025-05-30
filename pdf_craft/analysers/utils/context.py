@@ -9,7 +9,9 @@ from datetime import datetime, timezone
 from typing import cast, Any, TypeVar, Generic, TypedDict, Callable
 from yaml import safe_load, safe_dump
 from xml.etree.ElementTree import Element
+
 from ...xml import encode
+from ..reporter import Reporter
 
 
 CURRENT_STATE_VERSION = "1.0.0"
@@ -25,7 +27,8 @@ class _StateRoot(TypedDict):
 
 
 class Context(Generic[S]):
-  def __init__(self, path: Path, init: Callable[[], S]) -> None:
+  def __init__(self, reporter: Reporter, path: Path, init: Callable[[], S]) -> None:
+    self._reporter = reporter
     self._state: S
     self._path: Path = path
     self._created_at: str
@@ -55,6 +58,11 @@ class Context(Generic[S]):
       if version != CURRENT_STATE_VERSION:
         return None, None
       return cast(S, root["payload"]), root["created_at"]
+
+
+  @property
+  def reporter(self) -> Reporter:
+    return self._reporter
 
   @property
   def path(self) -> Path:

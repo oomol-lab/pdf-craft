@@ -1,22 +1,36 @@
 from pathlib import Path
 
 from ...llm import LLM
+from ..reporter import Reporter
+from ..types import AnalysingStep
 from ..utils import Context
 from .common import Phase, State, SequenceType
 from .ocr_extractor import extract_ocr
 from .joint import join
 
 
-def extract_sequences(llm: LLM, workspace: Path, ocr_path: Path, max_data_tokens: int) -> None:
-  context: Context[State] = Context(workspace, lambda: {
-    "phase": Phase.EXTRACTION.value,
-    "max_data_tokens": max_data_tokens,
-    "max_paragraph_tokens": 512,
-    "max_paragraphs": 8,
-    "completed_ranges": [],
-  })
+def extract_sequences(
+      llm: LLM,
+      workspace: Path,
+      ocr_path: Path,
+      reporter: Reporter,
+      max_data_tokens: int,
+    ) -> None:
+
+  context: Context[State] = Context(
+    reporter=reporter,
+    path=workspace,
+    init=lambda: {
+      "phase": Phase.EXTRACTION.value,
+      "max_data_tokens": max_data_tokens,
+      "max_paragraph_tokens": 512,
+      "max_paragraphs": 8,
+      "completed_ranges": [],
+    },
+  )
   while context.state["phase"] != Phase.COMPLETED:
     if context.state["phase"] == Phase.EXTRACTION:
+      reporter.go_to_step(AnalysingStep.EXTRACT_SEQUENCE)
       extract_ocr(
         llm=llm,
         context=context,
@@ -28,6 +42,7 @@ def extract_sequences(llm: LLM, workspace: Path, ocr_path: Path, max_data_tokens
         "completed_ranges": [],
       }
     elif context.state["phase"] == Phase.TEXT_JOINT:
+      reporter.go_to_step(AnalysingStep.VERIFY_TEXT_PARAGRAPH)
       join(
         llm=llm,
         context=context,
@@ -41,6 +56,7 @@ def extract_sequences(llm: LLM, workspace: Path, ocr_path: Path, max_data_tokens
         "completed_ranges": [],
       }
     elif context.state["phase"] == Phase.FOOTNOTE_JOINT:
+      reporter.go_to_step(AnalysingStep.VERIFY_FOOTNOTE_PARAGRAPH)
       join(
         llm=llm,
         context=context,

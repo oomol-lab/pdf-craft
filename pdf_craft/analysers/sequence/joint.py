@@ -161,6 +161,12 @@ class _Joint:
 
   def _request_llm_to_verify(self, meta_truncation_dict: _MetaTruncationDict):
     self._join_path.mkdir(parents=True, exist_ok=True)
+    self._ctx.reporter.set(
+      max_count=sum(
+        1 for _, kind in meta_truncation_dict.values()
+        if kind == _TruncationKind.VERIFIED
+      ),
+    )
     partition: Partition[tuple[int], State, Element] = Partition(
       dimension=1,
       context=self._ctx,
@@ -170,8 +176,13 @@ class _Joint:
           meta_truncation_dict=meta_truncation_dict,
         )
       ),
+      done=lambda begin, end: self._ctx.reporter.increment(
+        count=len(read_xml_file(
+          file_path=self._join_path / f"truncation_{begin[0]}_{end[0]}.xml"
+        ))
+      ),
       remove=lambda begin, end: remove_file(
-        self._join_path / f"truncation_{begin[0]}_{end[0]}.xml"
+        file_path=self._join_path / f"truncation_{begin[0]}_{end[0]}.xml"
       ),
     )
     with partition:

@@ -17,14 +17,16 @@ class Partition(Generic[T, S, P]):
         dimension: int,
         context: Context[S],
         sequence: Sequence[tuple[T, T, P]],
-        remove: Callable[[T, T], None],
+        remove: Callable[[T, T], None] | None = None,
+        done: Callable[[T, T], None] | None = None,
       ) -> None:
 
     super().__init__()
     self._dimension: int = dimension
     self._context: Context[S] = context
     self._range_iterator: Iterator[tuple[T | int, T | int, P]] = iter(sequence)
-    self._remove: Callable[[T, T], None] = remove
+    self._done: Callable[[T, T], None] = done or (lambda _, __: None)
+    self._remove: Callable[[T, T], None] = remove or (lambda _, __: None)
     self._iter_lock: Lock = Lock()
     self._range_lock: Lock = Lock()
     self._last_index: T | None = None
@@ -86,6 +88,7 @@ class Partition(Generic[T, S, P]):
         end = self._assert_index(end)
 
         if (begin, end) in self._done_ranges:
+          self._done(begin, end)
           continue
 
         with self._range_lock:
@@ -131,6 +134,7 @@ class Partition(Generic[T, S, P]):
       new_done_ranges.sort(key=lambda x: x[0])
       self._done_ranges = new_done_ranges
       self._sync_done_ranges()
+      self._done(done_begin, done_end)
 
   def _sync_done_ranges(self) -> None:
     ranges: list[list[int]] = []

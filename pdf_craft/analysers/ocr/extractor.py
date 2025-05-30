@@ -7,6 +7,7 @@ from PIL.Image import Image
 from xml.etree.ElementTree import fromstring, Element, ParseError
 
 from .asset_matcher import search_asset_tags, AssetMatcher, AssetKind
+from ..reporter import Reporter
 from ...utils import sha256_hash
 from ...pdf import (
   PDFPageExtractor,
@@ -27,6 +28,7 @@ def extract_ocr_page_xmls(
     expected_page_indexes: set[int],
     cover_path: Path,
     assets_dir_path: Path,
+    reporter: Reporter,
   ) -> Generator[Element, None, None]:
 
   with fitz.open(pdf_path) as pdf:
@@ -44,6 +46,7 @@ def extract_ocr_page_xmls(
         assets_dir_path=assets_dir_path,
       )
       yield i, page_xml
+      reporter.progress(i + 1, pdf.page_count)
 
 def _transform_page_xml(blocks: list[Block]) -> Element:
   root = Element("page")
