@@ -164,7 +164,7 @@ class _Joint:
     self._ctx.reporter.set(
       max_count=sum(
         1 for _, kind in meta_truncation_dict.values()
-        if kind == _TruncationKind.UNCERTAIN
+        if kind == _TruncationKind.VERIFIED
       ),
     )
     partition: Partition[tuple[int], State, Element] = Partition(

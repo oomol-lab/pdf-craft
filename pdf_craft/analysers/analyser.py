@@ -4,6 +4,8 @@ from pathlib import Path
 from ..llm import LLM
 from ..pdf import PDFPageExtractor
 
+from .types import AnalysingStepReport, AnalysingProgressReport
+from .reporter import Reporter
 from .ocr import generate_ocr_pages
 from .sequence import extract_sequences
 from .correction import correct
@@ -20,10 +22,16 @@ def analyse(
     pdf_path: PathLike,
     analysing_dir_path: PathLike,
     output_dir_path: PathLike,
+    report_step: AnalysingStepReport | None = None,
+    report_progress: AnalysingProgressReport | None = None,
     correction: bool = False,
   ) -> None:
 
   max_data_tokens = 4096
+  reporter = Reporter(
+    report_step=report_step,
+    report_progress=report_progress,
+  )
   analysing_dir_path = Path(analysing_dir_path)
   ocr_path = analysing_dir_path / "ocr"
   assets_path = analysing_dir_path / "assets"
@@ -38,11 +46,13 @@ def analyse(
     pdf_path=Path(pdf_path),
     ocr_path=ocr_path,
     assets_path=assets_path,
+    reporter=reporter,
   )
   extract_sequences(
     llm=llm,
     workspace=sequence_path,
     ocr_path=ocr_path,
+    reporter=reporter,
     max_data_tokens=max_data_tokens,
   )
   sequence_output_path = sequence_path / "output"

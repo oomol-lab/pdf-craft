@@ -1,7 +1,8 @@
 from pathlib import Path
 
 from ...llm import LLM
-from ..reporter import Reporter, AnalysingStep
+from ..reporter import Reporter
+from ..types import AnalysingStep
 from ..utils import Context
 from .common import Phase, State, SequenceType
 from .ocr_extractor import extract_ocr
@@ -10,15 +11,15 @@ from .joint import join
 
 def extract_sequences(
       llm: LLM,
-      reporter: Reporter,
-      workspace_path: Path,
+      workspace: Path,
       ocr_path: Path,
+      reporter: Reporter,
       max_data_tokens: int,
     ) -> None:
 
   context: Context[State] = Context(
     reporter=reporter,
-    path=workspace_path,
+    path=workspace,
     init=lambda: {
       "phase": Phase.EXTRACTION.value,
       "max_data_tokens": max_data_tokens,
@@ -46,8 +47,8 @@ def extract_sequences(
         llm=llm,
         context=context,
         type=SequenceType.TEXT,
-        extraction_path=workspace_path / Phase.EXTRACTION.value,
-        join_path=workspace_path / Phase.TEXT_JOINT.value,
+        extraction_path=workspace / Phase.EXTRACTION.value,
+        join_path=workspace / Phase.TEXT_JOINT.value,
       )
       context.state = {
         **context.state,
@@ -60,8 +61,8 @@ def extract_sequences(
         llm=llm,
         context=context,
         type=SequenceType.FOOTNOTE,
-        extraction_path=workspace_path / Phase.EXTRACTION.value,
-        join_path=workspace_path / Phase.FOOTNOTE_JOINT.value,
+        extraction_path=workspace / Phase.EXTRACTION.value,
+        join_path=workspace / Phase.FOOTNOTE_JOINT.value,
       )
       context.state = {
         **context.state,

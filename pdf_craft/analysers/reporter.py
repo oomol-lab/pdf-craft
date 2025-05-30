@@ -1,26 +1,9 @@
-from typing import Callable
-from enum import auto, Enum
+from .types import (
+  AnalysingStep,
+  AnalysingStepReport,
+  AnalysingProgressReport,
+)
 
-
-class AnalysingStep(Enum):
-  OCR = auto()
-  EXTRACT_SEQUENCE = auto()
-  VERIFY_TEXT_PARAGRAPH = auto()
-  VERIFY_FOOTNOTE_PARAGRAPH = auto()
-  CORRECT_TEXT = auto()
-  CORRECT_FOOTNOTE = auto()
-  EXTRACT_META = auto()
-  COLLECT_CONTENTS = auto()
-  ANALYSE_CONTENTS = auto()
-  MAPPING_CONTENTS = auto()
-  GENERATE_FOOTNOTES = auto()
-  OUTPUT = auto()
-
-# func(completed_count: int, max_count: int | None) -> None
-AnalysingProgressReport = Callable[[int, int | None], None]
-
-# func(step: AnalysingStep) -> None
-AnalysingStepReport = Callable[[AnalysingStep], None]
 
 class Reporter:
   def __init__(
@@ -39,18 +22,21 @@ class Reporter:
     self._progress = 0
     self._max_progress_count = None
 
+  def progress(self, completed_count: int, max_count: int):
+    self._call_report_progress(completed_count, max_count)
+    self._progress = completed_count
+    self._max_progress_count = max_count
+
   def set(self, max_count: int):
     self._max_progress_count = max_count
 
   def increment(self, count: int = 1):
-    next_progress = self._progress + count
-    if self._max_progress_count is not None:
-      next_progress = min(next_progress, self._max_progress_count)
+    self._progress += count
+    self._call_report_progress(self._progress, self._max_progress_count)
 
-    if next_progress == self._progress:
-      return
-    self._progress = next_progress
+  def _call_report_progress(self, completed_count: int, max_count: int | None) -> None:
     if self._report_progress is None:
       return
-
-    self._report_progress(next_progress, self._max_progress_count)
+    if max_count is not None and completed_count > max_count:
+      return
+    self._report_progress(completed_count, max_count)
