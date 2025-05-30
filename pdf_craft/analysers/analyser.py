@@ -5,6 +5,7 @@ from ..llm import LLM
 from ..pdf import PDFPageExtractor
 
 from .reporter import Reporter, AnalysingStep, AnalysingStepReport, AnalysingProgressReport
+from .window import parse_window_tokens, LLMWindowTokens
 from .ocr import generate_ocr_pages
 from .sequence import extract_sequences
 from .correction import correct
@@ -24,9 +25,10 @@ def analyse(
     report_step: AnalysingStepReport | None = None,
     report_progress: AnalysingProgressReport | None = None,
     correction: bool = False,
+    window_tokens: LLMWindowTokens | int | None = None,
   ) -> None:
 
-  max_data_tokens = 4096
+  window_tokens = parse_window_tokens(window_tokens)
   reporter = Reporter(
     report_step=report_step,
     report_progress=report_progress,
@@ -52,7 +54,9 @@ def analyse(
     reporter=reporter,
     workspace_path=sequence_path,
     ocr_path=ocr_path,
-    max_data_tokens=max_data_tokens,
+    max_request_data_tokens=window_tokens.max_request_data_tokens,
+    max_paragraph_tokens=window_tokens.max_verify_paragraph_tokens,
+    max_paragraphs=window_tokens.max_verify_paragraphs_count,
   )
   sequence_output_path = sequence_path / "output"
 
@@ -63,7 +67,7 @@ def analyse(
       workspace_path=correction_path,
       text_path=sequence_output_path / "text",
       footnote_path=sequence_output_path / "footnote",
-      max_data_tokens=max_data_tokens,
+      max_data_tokens=window_tokens.max_request_data_tokens,
     )
 
   reporter.go_to_step(AnalysingStep.EXTRACT_META)
@@ -71,14 +75,14 @@ def analyse(
     llm=llm,
     workspace_path=analysing_dir_path / "meta",
     sequence_path=sequence_output_path / "text",
-    max_request_tokens=max_data_tokens,
+    max_request_tokens=window_tokens.max_request_data_tokens,
   )
   contents = extract_contents(
     llm=llm,
     reporter=reporter,
     workspace_path=contents_path,
     sequence_path=sequence_output_path / "text",
-    max_data_tokens=max_data_tokens,
+    max_data_tokens=window_tokens.max_request_data_tokens,
   )
   chapter_output_path, contents = generate_chapters(
     llm=llm,
@@ -86,7 +90,7 @@ def analyse(
     contents=contents,
     sequence_path=sequence_output_path / "text",
     workspace_path=chapter_path,
-    max_request_tokens=max_data_tokens,
+    max_request_tokens=window_tokens.max_request_data_tokens,
   )
   footnote_sequence_path = sequence_output_path / "footnote"
 
