@@ -58,8 +58,11 @@ def _encode_element(
     opening_tag = element_to_tag(element, TagKind.OPENING)
     closing_tag = element_to_tag(element, TagKind.CLOSING)
     buffer.write(str(opening_tag))
-    is_one_line = len(text) <= _TINY_TEXT_LEN and len(element) == 0
-
+    is_one_line = (
+      len(text) <= _TINY_TEXT_LEN and
+      len(element) == 0 and
+      "\n" not in text
+    )
     if text:
       if not is_one_line:
         buffer.write("\n")
