@@ -68,7 +68,7 @@ class _Sequence:
             file.write(encode(data_xml))
 
   def _split_requests(self, ocr_path: Path) -> Generator[SequenceRequest, None, None]:
-    max_data_tokens = self._ctx.state["max_data_tokens"]
+    max_request_data_tokens = self._ctx.state["max_request_data_tokens"]
     request = SequenceRequest()
     request_tokens: int = 0
 
@@ -81,7 +81,7 @@ class _Sequence:
         continue
 
       tokens = raw_page.tokens_count(self._llm)
-      if request_tokens > 0 and request_tokens + tokens > max_data_tokens:
+      if request_tokens > 0 and request_tokens + tokens > max_request_data_tokens:
         yield request
         request = SequenceRequest()
 
