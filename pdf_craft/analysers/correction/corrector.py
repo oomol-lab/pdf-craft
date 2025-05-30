@@ -27,6 +27,7 @@ class Corrector:
       dimension=2,
       context=self._ctx,
       sequence=self._generate_request_xml(from_path),
+      done=lambda _, __: self._ctx.reporter.increment(),
       remove=lambda begin, end: shutil.rmtree(
         request_path / _file_name("steps", begin, end),
       ),

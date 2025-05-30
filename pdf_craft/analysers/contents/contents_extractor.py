@@ -2,6 +2,7 @@ from pathlib import Path
 from xml.etree.ElementTree import Element
 
 from ...llm import LLM
+from ..reporter import Reporter, AnalysingStep
 from ..utils import read_xml_file, Context
 from .common import Phase, State
 from .type import Contents, Chapter
@@ -9,12 +10,23 @@ from .collection import collect
 from .utils import normalize_layout_xml
 
 
-def extract_contents(llm: LLM, workspace: Path, sequence_path: Path, max_data_tokens: int) -> Contents | None:
-  context: Context[State] = Context(workspace, lambda: {
-    "phase": Phase.INIT,
-    "page_indexes": [],
-    "max_data_tokens": max_data_tokens,
-  })
+def extract_contents(
+      llm: LLM,
+      reporter: Reporter,
+      workspace_path: Path,
+      sequence_path: Path,
+      max_data_tokens: int,
+    ) -> Contents | None:
+
+  context: Context[State] = Context(
+    reporter=reporter,
+    path=workspace_path,
+    init=lambda: {
+      "phase": Phase.INIT,
+      "page_indexes": [],
+      "max_data_tokens": max_data_tokens,
+    },
+  )
   if context.state["phase"] == Phase.NO_CONTENTS:
     return None
 
@@ -48,6 +60,7 @@ def extract_contents(llm: LLM, workspace: Path, sequence_path: Path, max_data_to
       **context.state,
       "phase": Phase.GENERATED.value,
     }
+    context.reporter.go_to_step(AnalysingStep.ANALYSE_CONTENTS)
 
   return _parse_contents_xml(context, extracted_xml)
 
@@ -60,11 +73,13 @@ def _extract_md_contents(llm: LLM, context: Context[State], sequence_path: Path)
     with md_path.open("r", encoding="utf-8") as f:
       md_content = f.read()
   else:
+    context.reporter.go_to_step(AnalysingStep.COLLECT_CONTENTS)
     request_xml = Element("request")
     for paragraph in collect(llm, context, sequence_path):
       layout = normalize_layout_xml(paragraph)
       if layout is not None:
         request_xml.append(layout)
+      context.reporter.increment()
 
     if len(request_xml) > 0:
       md_content = llm.request_markdown(

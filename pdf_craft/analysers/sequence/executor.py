@@ -1,22 +1,35 @@
 from pathlib import Path
 
 from ...llm import LLM
+from ..reporter import Reporter, AnalysingStep
 from ..utils import Context
 from .common import Phase, State, SequenceType
 from .ocr_extractor import extract_ocr
 from .joint import join
 
 
-def extract_sequences(llm: LLM, workspace: Path, ocr_path: Path, max_data_tokens: int) -> None:
-  context: Context[State] = Context(workspace, lambda: {
-    "phase": Phase.EXTRACTION.value,
-    "max_data_tokens": max_data_tokens,
-    "max_paragraph_tokens": 512,
-    "max_paragraphs": 8,
-    "completed_ranges": [],
-  })
+def extract_sequences(
+      llm: LLM,
+      reporter: Reporter,
+      workspace_path: Path,
+      ocr_path: Path,
+      max_data_tokens: int,
+    ) -> None:
+
+  context: Context[State] = Context(
+    reporter=reporter,
+    path=workspace_path,
+    init=lambda: {
+      "phase": Phase.EXTRACTION.value,
+      "max_data_tokens": max_data_tokens,
+      "max_paragraph_tokens": 512,
+      "max_paragraphs": 8,
+      "completed_ranges": [],
+    },
+  )
   while context.state["phase"] != Phase.COMPLETED:
     if context.state["phase"] == Phase.EXTRACTION:
+      reporter.go_to_step(AnalysingStep.EXTRACT_SEQUENCE)
       extract_ocr(
         llm=llm,
         context=context,
@@ -28,12 +41,13 @@ def extract_sequences(llm: LLM, workspace: Path, ocr_path: Path, max_data_tokens
         "completed_ranges": [],
       }
     elif context.state["phase"] == Phase.TEXT_JOINT:
+      reporter.go_to_step(AnalysingStep.VERIFY_TEXT_PARAGRAPH)
       join(
         llm=llm,
         context=context,
         type=SequenceType.TEXT,
-        extraction_path=workspace / Phase.EXTRACTION.value,
-        join_path=workspace / Phase.TEXT_JOINT.value,
+        extraction_path=workspace_path / Phase.EXTRACTION.value,
+        join_path=workspace_path / Phase.TEXT_JOINT.value,
       )
       context.state = {
         **context.state,
@@ -41,12 +55,13 @@ def extract_sequences(llm: LLM, workspace: Path, ocr_path: Path, max_data_tokens
         "completed_ranges": [],
       }
     elif context.state["phase"] == Phase.FOOTNOTE_JOINT:
+      reporter.go_to_step(AnalysingStep.VERIFY_FOOTNOTE_PARAGRAPH)
       join(
         llm=llm,
         context=context,
         type=SequenceType.FOOTNOTE,
-        extraction_path=workspace / Phase.EXTRACTION.value,
-        join_path=workspace / Phase.FOOTNOTE_JOINT.value,
+        extraction_path=workspace_path / Phase.EXTRACTION.value,
+        join_path=workspace_path / Phase.FOOTNOTE_JOINT.value,
       )
       context.state = {
         **context.state,

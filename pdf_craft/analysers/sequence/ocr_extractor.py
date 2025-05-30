@@ -20,7 +20,8 @@ from ..utils import (
 
 
 def extract_ocr(llm: LLM, context: Context[State], ocr_path: Path) -> None:
-  return _Sequence(llm, context).to_sequences(ocr_path)
+  sequence = _Sequence(llm, context)
+  return sequence.to_sequences(ocr_path)
 
 _LayoutLines = dict[int, tuple[Element, Element]]
 
@@ -32,10 +33,13 @@ class _Sequence:
   def to_sequences(self, ocr_path: Path):
     save_path = self._ctx.path.joinpath(Phase.EXTRACTION.value)
     save_path.mkdir(parents=True, exist_ok=True)
+
+    self._ctx.reporter.set(max_count=len(xml_files(ocr_path)))
     partition: Partition[tuple[int], State, SequenceRequest] = Partition(
       dimension=1,
       context=self._ctx,
       sequence=((r.begin, r.end, r) for r in self._split_requests(ocr_path)),
+      done=lambda _, __: self._ctx.reporter.increment(),
       remove=lambda begin, end: remove_file(
         save_path / f"pages_{begin[0]}_{end[0]}.xml"
       ),
