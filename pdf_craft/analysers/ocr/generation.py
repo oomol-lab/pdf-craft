@@ -2,8 +2,7 @@ from pathlib import Path
 from typing import TypedDict
 
 from ...pdf import PDFPageExtractor
-from ..reporter import Reporter
-from ..types import AnalysingStep
+from ..reporter import Reporter, AnalysingStep
 from ..utils import Context
 from .extractor import extract_ocr_page_xmls
 

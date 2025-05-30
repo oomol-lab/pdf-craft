@@ -3,8 +3,7 @@ import re
 from pathlib import Path
 from ...llm import LLM
 from ..sequence import decode_paragraph, ParagraphWriter
-from ..reporter import Reporter
-from ..types import AnalysingStep
+from ..reporter import Reporter, AnalysingStep
 from ..utils import read_xml_file, Context
 from .common import State, Phase
 from .corrector import Corrector

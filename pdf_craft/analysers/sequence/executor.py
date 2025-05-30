@@ -1,8 +1,7 @@
 from pathlib import Path
 
 from ...llm import LLM
-from ..reporter import Reporter
-from ..types import AnalysingStep
+from ..reporter import Reporter, AnalysingStep
 from ..utils import Context
 from .common import Phase, State, SequenceType
 from .ocr_extractor import extract_ocr
