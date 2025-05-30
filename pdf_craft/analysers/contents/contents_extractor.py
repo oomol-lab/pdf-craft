@@ -2,8 +2,7 @@ from pathlib import Path
 from xml.etree.ElementTree import Element
 
 from ...llm import LLM
-from ..reporter import Reporter
-from ..types import AnalysingStep
+from ..reporter import Reporter, AnalysingStep
 from ..utils import read_xml_file, Context
 from .common import Phase, State
 from .type import Contents, Chapter

@@ -4,8 +4,7 @@ from pathlib import Path
 from ..llm import LLM
 from ..pdf import PDFPageExtractor
 
-from .types import AnalysingStep, AnalysingStepReport, AnalysingProgressReport
-from .reporter import Reporter
+from .reporter import Reporter, AnalysingStep, AnalysingStepReport, AnalysingProgressReport
 from .ocr import generate_ocr_pages
 from .sequence import extract_sequences
 from .correction import correct

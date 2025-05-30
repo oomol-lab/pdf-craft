@@ -3,9 +3,8 @@ from xml.etree.ElementTree import Element
 from shutil import rmtree
 
 from ...llm import LLM
-from ..reporter import Reporter
+from ..reporter import Reporter, AnalysingStep
 from ..contents import Contents, Chapter
-from ..types import AnalysingStep
 from ..data import ASSET_LAYOUT_KINDS, Paragraph
 from ..utils import xml_files, Context
 from .common import State, Phase

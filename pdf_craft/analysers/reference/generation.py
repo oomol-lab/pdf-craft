@@ -2,8 +2,7 @@ from pathlib import Path
 from typing import TypedDict
 from strenum import StrEnum
 
-from ..types import AnalysingStep
-from ..reporter import Reporter
+from ..reporter import Reporter, AnalysingStep
 from ..utils import Context
 from .footnote import append_footnote_for_chapters, generate_footnote_references
 
