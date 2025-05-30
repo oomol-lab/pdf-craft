@@ -18,6 +18,7 @@ _ASSET_FILE_PATTERN = re.compile(r"([0-9a-f]+)\.[a-zA-Z0-9]+$")
 def output(
     contents: Contents | None,
     output_path: Path,
+    meta_path: Path,
     chapter_output_path: Path,
     assets_path: Path,
   ) -> None:
@@ -27,21 +28,13 @@ def output(
     with open(index_path, "w", encoding="utf-8") as f:
       f.write(dumps(contents.json(), ensure_ascii=False, indent=2))
 
-  meta_path = output_path / "meta.json"
-  with open(meta_path, "w", encoding="utf-8") as f:
-    # TODO: complete metadata extraction logic
-    meta = {
-      "title": "Test book title",
-      "authors": ["Tao Zeyu"],
-    }
-    f.write(dumps(meta, ensure_ascii=False, indent=2))
-
   cover_path = assets_path / "cover.png"
   output_chapters_path = output_path / "chapters"
   output_assets_path = output_path / "assets"
 
   if cover_path.exists():
     shutil.copy(cover_path, output_path / "cover.png")
+  shutil.copy(meta_path, output_path / "meta.json")
 
   asset_hash_set: set[str] = set()
   output_chapters_path.mkdir(parents=True, exist_ok=True)

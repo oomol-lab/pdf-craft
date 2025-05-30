@@ -7,6 +7,7 @@ from ..pdf import PDFPageExtractor
 from .ocr import generate_ocr_pages
 from .sequence import extract_sequences
 from .correction import correct
+from .meta import extract_meta
 from .contents import extract_contents
 from .chapter import generate_chapters
 from .reference import generate_chapters_with_footnotes
@@ -55,6 +56,12 @@ def analyse(
       max_data_tokens=max_data_tokens,
     )
 
+  meta_path = extract_meta(
+    llm=llm,
+    workspace_path=analysing_dir_path / "meta",
+    sequence_path=sequence_output_path / "text",
+    max_request_tokens=max_data_tokens,
+  )
   contents = extract_contents(
     llm=llm,
     workspace=contents_path,
@@ -80,6 +87,7 @@ def analyse(
   output(
     contents=contents,
     output_path=Path(output_path),
+    meta_path=meta_path,
     chapter_output_path=chapter_output_path,
     assets_path=assets_path,
   )
