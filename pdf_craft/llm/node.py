@@ -32,7 +32,7 @@ class LLM:
       retry_interval_seconds: float = 6.0,
       log_dir_path: PathLike | None = None,
     ):
-    prompts_path = files("pdf_craft").joinpath("data/prompts")
+    prompts_path = files("pdf_craft") / "data" / "prompts"
     self._templates: dict[str, Template] = {}
     self._encoding: Encoding = get_encoding(token_encoding)
     self._env: Environment = create_env(prompts_path)

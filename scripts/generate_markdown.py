@@ -4,15 +4,16 @@ import shutil
 
 sys.path.append(os.path.abspath(os.path.join(__file__, "..", "..")))
 
+from pathlib import Path
 from tqdm import tqdm
 from pdf_craft import PDFPageExtractor, MarkDownWriter, ExtractedTableFormat
 
 
 def main():
-  pdf_file = os.path.join(__file__, "..", "..", "tests", "assets", "table&formula.pdf")
-  pdf_file = os.path.abspath(pdf_file)
+  pdf_file = Path(__file__) / ".." / ".." / "tests" / "assets" / "table&formula.pdf"
+  pdf_file = pdf_file.resolve()
   output_dir_path = _project_dir_path("output", clean=True)
-  markdown_path = os.path.join(output_dir_path, "output.md")
+  markdown_path = output_dir_path / "output.md"
   extractor = PDFPageExtractor(
     device="cpu",
     model_dir_path=_project_dir_path("models"),
@@ -35,12 +36,12 @@ def main():
     if bar:
       bar.close()
 
-def _project_dir_path(name: str, clean: bool = False) -> str:
-  path = os.path.join(__file__, "..", "..", name)
-  path = os.path.abspath(path)
+def _project_dir_path(name: str, clean: bool = False) -> Path:
+  path = Path(__file__) / ".." / ".." / name
+  path = path.resolve()
   if clean:
     shutil.rmtree(path, ignore_errors=True)
-  os.makedirs(path, exist_ok=True)
+  path.mkdir(parents=True, exist_ok=True)
   return path
 
 if __name__ == "__main__":

@@ -1,3 +1,5 @@
+from os import PathLike
+from pathlib import Path
 from typing import Literal
 from typing import Iterable, Generator
 from PIL.Image import Image
@@ -36,11 +38,11 @@ class PDFPageExtractor:
   def __init__(
         self,
         device: Literal["cpu", "cuda"],
-        model_dir_path: str,
+        model_dir_path: PathLike,
         ocr_level: OCRLevel = OCRLevel.Once,
         extract_formula: bool = True,
         extract_table_format: ExtractedTableFormat | None = None,
-        debug_dir_path: str | None = None,
+        debug_dir_path: PathLike | None = None,
       ) -> None:
 
     if extract_table_format is None:
@@ -62,8 +64,8 @@ class PDFPageExtractor:
       ocr_level=ocr_level,
       extract_formula=extract_formula,
       extract_table_format=to_pass_table_format,
-      model_dir_path=model_dir_path,
-      debug_dir_path=debug_dir_path,
+      model_dir_path=Path(model_dir_path),
+      debug_dir_path=Path(debug_dir_path) if debug_dir_path is not None else None,
     )
 
   def extract(self, pdf: str | Document, report_progress: PDFPageExtractorProgressReport | None = None) -> Generator[Block, None, None]:

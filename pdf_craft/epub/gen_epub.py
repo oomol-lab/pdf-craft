@@ -1,6 +1,7 @@
-import os
 import json
 
+from os import PathLike
+from pathlib import Path
 from typing import Literal
 from uuid import uuid4
 from zipfile import ZipFile
@@ -14,8 +15,8 @@ from .context import Context
 
 
 def generate_epub_file(
-      from_dir_path: str,
-      epub_file_path: str,
+      from_dir_path: PathLike,
+      epub_file_path: PathLike,
       lan: Literal["zh", "en"] = "zh",
       table_render: TableRender = TableRender.HTML,
       latex_render: LaTeXRender = LaTeXRender.MATHML,
@@ -23,21 +24,26 @@ def generate_epub_file(
 
   i18n = I18N(lan)
   template = Template()
-  index_path = os.path.join(from_dir_path, "index.json")
-  meta_path = os.path.join(from_dir_path, "meta.json")
-  assets_path: str | None = os.path.join(from_dir_path, "assets")
-  chapters_path: str = os.path.join(from_dir_path, "chapters")
-  head_chapter_path = os.path.join(chapters_path, "chapter.xml")
+  from_dir_path = Path(from_dir_path)
+  epub_file_path = Path(epub_file_path)
+  index_path = from_dir_path / "index.json"
+  meta_path = from_dir_path / "meta.json"
+  assets_path: Path | None = from_dir_path / "assets"
+  chapters_path: Path = from_dir_path / "chapters"
+  head_chapter_path = chapters_path / "chapter.xml"
 
   toc_ncx: str
   nav_points: list[NavPoint] = []
   meta: dict = {}
-  has_head_chapter: bool = os.path.exists(head_chapter_path)
-  has_cover: bool = os.path.exists(os.path.join(from_dir_path, "cover.png"))
+  has_head_chapter: bool = head_chapter_path.exists()
+  has_cover: bool = (from_dir_path / "cover.png").exists()
 
-  if os.path.exists(meta_path):
+  if meta_path.exists():
     with open(meta_path, "r", encoding="utf-8") as f:
       meta = json.loads(f.read())
+
+  if not assets_path.exists():
+    assets_path = None
 
   toc_ncx, nav_points = gen_index(
     template=template,
@@ -45,12 +51,10 @@ def generate_epub_file(
     meta=meta,
     index_file_path=index_path,
     has_cover=has_cover,
-    check_chapter_exits=lambda id: os.path.exists(
-      os.path.join(chapters_path, f"chapter_{id}.xml"),
-    ),
+    check_chapter_exits=lambda id: (chapters_path / f"chapter_{id}.xml").exists(),
   )
-  epub_base_path = os.path.dirname(epub_file_path)
-  os.makedirs(epub_base_path, exist_ok=True)
+  epub_base_path = epub_file_path.parent
+  epub_base_path.mkdir(parents=True, exist_ok=True)
 
   with ZipFile(epub_file_path, "w") as file:
     context = Context(
@@ -97,7 +101,7 @@ def _write_assets(
     context: Context,
     template: Template,
     i18n: I18N,
-    from_dir_path: str,
+    from_dir_path: Path,
     has_cover: bool,
   ):
   context.file.writestr(
@@ -114,7 +118,7 @@ def _write_assets(
     )
   if has_cover:
     context.file.write(
-      filename=os.path.join(from_dir_path, "cover.png"),
+      filename=from_dir_path / "cover.png",
       arcname="OEBPS/assets/cover.png",
     )
   context.add_used_asset_files()
@@ -124,9 +128,9 @@ def _write_chapters(
     template: Template,
     i18n: I18N,
     nav_points: list[NavPoint],
-    chapters_path: str,
+    chapters_path: Path,
     has_head_chapter: bool,
-    head_chapter_path: str,
+    head_chapter_path: Path,
   ):
 
   if has_head_chapter:
@@ -137,8 +141,8 @@ def _write_chapters(
       data=data.encode("utf-8"),
     )
   for nav_point in nav_points:
-    chapter_path = os.path.join(chapters_path, f"chapter_{nav_point.index_id}.xml")
-    if os.path.exists(chapter_path):
+    chapter_path = chapters_path / f"chapter_{nav_point.index_id}.xml"
+    if chapter_path.exists():
       chapter_xml = _read_xml(chapter_path)
       data = generate_part(context, template, chapter_xml, i18n)
       context.file.writestr(
@@ -174,6 +178,6 @@ def _write_basic_files(
     data=content.encode("utf-8"),
   )
 
-def _read_xml(path: str) -> Element:
+def _read_xml(path: Path) -> Element:
   with open(path, "r", encoding="utf-8") as file:
     return fromstring(file.read())
