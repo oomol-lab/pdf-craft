@@ -13,6 +13,7 @@ from .multiple_corrector import MultipleCorrector
 def correct(
       llm: LLM,
       reporter: Reporter,
+      level: Level,
       workspace_path: Path,
       text_path: Path,
       footnote_path: Path,
@@ -24,7 +25,7 @@ def correct(
     path=workspace_path,
     init=lambda: {
       "phase": Phase.Text.value,
-      "level": Level.Single.value,
+      "level": level.value,
       "max_data_tokens": max_data_tokens,
       "completed_ranges": [],
     },
