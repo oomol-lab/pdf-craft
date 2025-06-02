@@ -1,7 +1,7 @@
-import os
 import fitz
 
 from typing import Generator, Literal, Iterable, Sequence
+from pathlib import Path
 from dataclasses import dataclass
 from PIL.Image import frombytes, Image
 from doc_page_extractor import plot, Layout, DocExtractor, ExtractedResult, TableLayoutParsedFormat
@@ -20,18 +20,18 @@ class DocumentParams:
 
 class DocumentExtractor:
   def __init__(
-      self,
-      device: Literal["cpu", "cuda"],
-      model_dir_path: str,
-      ocr_level: OCRLevel,
-      extract_formula: bool,
-      extract_table_format: TableLayoutParsedFormat | None,
-      debug_dir_path: str | None,
-    ):
-    self._debug_dir_path: str | None = debug_dir_path
+        self,
+        device: Literal["cpu", "cuda"],
+        model_dir_path: Path,
+        ocr_level: OCRLevel,
+        extract_formula: bool,
+        extract_table_format: TableLayoutParsedFormat | None,
+        debug_dir_path: Path | None,
+      ) -> None:
+    self._debug_dir_path: Path | None = debug_dir_path
     self._doc_extractor = DocExtractor(
       device=device,
-      model_dir_path=model_dir_path,
+      model_dir_path=str(model_dir_path),
       extract_formula=extract_formula,
       extract_table_format=extract_table_format,
       ocr_for_each_layouts=(ocr_level == OCRLevel.OncePerLayout),
@@ -63,7 +63,7 @@ class DocumentExtractor:
 
   def _extract_page_result(self, params: DocumentParams):
     if self._debug_dir_path is not None:
-      os.makedirs(self._debug_dir_path, exist_ok=True)
+      self._debug_dir_path.mkdir(parents=True, exist_ok=True)
 
     document: fitz.Document
     should_close = False
@@ -89,8 +89,12 @@ class DocumentExtractor:
           adjust_points=False,
         )
         if self._debug_dir_path is not None:
-          self._generate_plot(image, page_index, result, self._debug_dir_path)
-
+          self._generate_plot(
+            image=image,
+            index=page_index,
+            result=result,
+            plot_path=self._debug_dir_path,
+          )
         if page_index in enable_indexes:
           yield page_index, result
 
@@ -129,7 +133,7 @@ class DocumentExtractor:
     pixmap = page.get_pixmap(matrix=matrix)
     return frombytes("RGB", (pixmap.width, pixmap.height), pixmap.samples)
 
-  def _generate_plot(self, image: Image, index: int, result: ExtractedResult, plot_path: str):
+  def _generate_plot(self, image: Image, index: int, result: ExtractedResult, plot_path: Path):
     plot_image: Image
     if result.adjusted_image is None:
       plot_image = image.copy()
@@ -137,6 +141,6 @@ class DocumentExtractor:
       plot_image = result.adjusted_image
 
     plot(plot_image, result.layouts)
-    os.makedirs(plot_path, exist_ok=True)
-    image_path = os.path.join(plot_path, f"plot_{index + 1}.png")
+    plot_path.mkdir(parents=True, exist_ok=True)
+    image_path = plot_path / f"plot_{index + 1}.png"
     plot_image.save(image_path)
