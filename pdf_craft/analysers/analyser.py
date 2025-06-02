@@ -4,11 +4,12 @@ from pathlib import Path
 from ..llm import LLM
 from ..pdf import PDFPageExtractor
 
+from .types import CorrectionMode
 from .reporter import Reporter, AnalysingStep, AnalysingStepReport, AnalysingProgressReport
 from .window import parse_window_tokens, LLMWindowTokens
 from .ocr import generate_ocr_pages
 from .sequence import extract_sequences
-from .correction import correct
+from .correction import correct, Level as CorrectionLevel
 from .meta import extract_meta
 from .contents import extract_contents
 from .chapter import generate_chapters
@@ -24,7 +25,7 @@ def analyse(
     output_dir_path: PathLike,
     report_step: AnalysingStepReport | None = None,
     report_progress: AnalysingProgressReport | None = None,
-    correction: bool = False,
+    correction_mode: CorrectionMode = CorrectionMode.NO,
     window_tokens: LLMWindowTokens | int | None = None,
   ) -> None:
 
@@ -60,10 +61,19 @@ def analyse(
   )
   sequence_output_path = sequence_path / "output"
 
-  if correction:
+  if correction_mode != CorrectionMode.NO:
+    level: CorrectionLevel
+    if correction_mode == CorrectionMode.ONCE:
+      level = CorrectionLevel.Single
+    elif correction_mode == CorrectionMode.DETAILED:
+      level = CorrectionLevel.Multiple
+    else:
+      raise ValueError(f"Unknown correction mode: {correction_mode}")
+
     sequence_output_path = correct(
       llm=llm,
       reporter=reporter,
+      level=level,
       workspace_path=correction_path,
       text_path=sequence_output_path / "text",
       footnote_path=sequence_output_path / "footnote",
