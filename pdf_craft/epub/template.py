@@ -4,7 +4,7 @@ from ..template import create_env
 
 class Template:
   def __init__(self):
-    templates_path = files("pdf_craft").joinpath("data/templates")
+    templates_path = files("pdf_craft") / "data" / "templates"
     self._env: Environment = create_env(templates_path)
     self._templates: dict[str, JinjaTemplate] = {}
 
