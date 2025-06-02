@@ -15,7 +15,7 @@ from .repeater import repeat_correct
 from .paragraphs_reader import ParagraphsReader
 
 
-class Corrector:
+class MultipleCorrector:
   def __init__(self, llm: LLM, context: Context[State]):
     self._llm: LLM = llm
     self._ctx: Context[State] = context

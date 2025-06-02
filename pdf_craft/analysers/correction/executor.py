@@ -6,7 +6,7 @@ from ..sequence import decode_paragraph, ParagraphWriter
 from ..reporter import Reporter, AnalysingStep
 from ..utils import read_xml_file, Context
 from .common import State, Phase
-from .corrector import Corrector
+from .multiple_corrector import MultipleCorrector
 
 
 def correct(
@@ -27,7 +27,7 @@ def correct(
       "completed_ranges": [],
     },
   )
-  corrector = Corrector(llm, context)
+  corrector = MultipleCorrector(llm, context)
   output_path = workspace_path / "output"
   text_request_path = workspace_path / "text"
   footnote_request_path = workspace_path / "footnote"
