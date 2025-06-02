@@ -5,7 +5,8 @@ from ...llm import LLM
 from ..sequence import decode_paragraph, ParagraphWriter
 from ..reporter import Reporter, AnalysingStep
 from ..utils import read_xml_file, Context
-from .common import State, Phase
+from .common import State, Phase, Level, Corrector
+from .single_corrector import SingleCorrector
 from .multiple_corrector import MultipleCorrector
 
 
@@ -23,14 +24,22 @@ def correct(
     path=workspace_path,
     init=lambda: {
       "phase": Phase.Text.value,
+      "level": Level.Single,
       "max_data_tokens": max_data_tokens,
       "completed_ranges": [],
     },
   )
-  corrector = MultipleCorrector(llm, context)
+  corrector: Corrector
   output_path = workspace_path / "output"
   text_request_path = workspace_path / "text"
   footnote_request_path = workspace_path / "footnote"
+
+  if context.state["level"] == Level.Single:
+    corrector = SingleCorrector(llm, context)
+  elif context.state["level"] == Level.Multiple:
+    corrector = MultipleCorrector(llm, context)
+  else:
+    raise ValueError(f"Unknown level: {context.state['level']}")
 
   if context.state["phase"] == Phase.Text:
     if text_path.exists():

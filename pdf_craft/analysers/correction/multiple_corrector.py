@@ -10,17 +10,18 @@ from ...xml import encode_friendly
 from ..utils import Context, Partition
 from ..sequence import read_paragraphs
 from ..data import Paragraph, ParagraphType, AssetLayout, FormulaLayout
-from .common import State
+from .common import State, Corrector
 from .repeater import repeat_correct
 from .paragraphs_reader import ParagraphsReader
 
 
-class MultipleCorrector:
+class MultipleCorrector(Corrector):
   def __init__(self, llm: LLM, context: Context[State]):
+    super().__init__()
     self._llm: LLM = llm
     self._ctx: Context[State] = context
 
-  def do(self, from_path: Path, request_path: Path, is_footnote: bool):
+  def do(self, from_path: Path, request_path: Path, is_footnote: bool) -> None:
     request_path.mkdir(parents=True, exist_ok=True)
     reader = ParagraphsReader(from_path)
     partition: Partition[tuple[int, int], State, Element] = Partition(
