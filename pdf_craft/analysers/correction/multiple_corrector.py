@@ -1,7 +1,6 @@
 import shutil
 
 from pathlib import Path
-from typing import Generator
 from xml.etree.ElementTree import Element
 
 from ..data import Paragraph, AssetLayout
@@ -53,8 +52,8 @@ class MultipleCorrector(Corrector):
         resp_element: Element,
       ) -> None:
 
-    raw_lines_list = list(self._extract_lines(request_element))
-    corrected_lines_dict = dict(self._extract_lines(resp_element))
+    raw_lines_list = list(self.extract_lines(request_element))
+    corrected_lines_dict = dict(self.extract_lines(resp_element))
     chunk_element = Element("chunk")
 
     for index, raw_lines in sorted(raw_lines_list, key=lambda x: x[0]):
@@ -87,28 +86,6 @@ class MultipleCorrector(Corrector):
       file_path=request_path / file_name,
       xml=chunk_element,
     )
-
-  def _extract_lines(self, extracted_element: Element) -> Generator[tuple[int, Element], None, None]:
-    for layout in extracted_element:
-      layout_id = layout.get("id", None)
-      if layout_id is None:
-        continue
-      id1, id2 = layout_id.split("/", maxsplit=1)
-      index = (int(id1), int(id2))
-      lines: list[str] = []
-
-      for line in layout:
-        if line.tag != "line":
-          continue
-        line_id = line.get("id", None)
-        if line_id is None:
-          continue
-        if line.text:
-          lines.append(line.text.strip())
-        else:
-          lines.append("")
-
-      yield index, lines
 
   def _apply_paragraph_lines(self, paragraph: Paragraph, lines: list[str]) -> Paragraph | None:
     next_line_index: int = 0

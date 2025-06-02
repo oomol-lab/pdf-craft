@@ -38,6 +38,28 @@ class Corrector(ABC):
   def do(self, from_path: Path, request_path: Path, is_footnote: bool) -> None:
     raise NotImplementedError()
 
+  def extract_lines(self, extracted_element: Element) -> Generator[tuple[tuple[int, int], list[str]], None, None]:
+    for layout in extracted_element:
+      layout_id = layout.get("id", None)
+      if layout_id is None:
+        continue
+      id1, id2 = layout_id.split("/", maxsplit=1)
+      index = (int(id1), int(id2))
+      lines: list[str] = []
+
+      for line in layout:
+        if line.tag != "line":
+          continue
+        line_id = line.get("id", None)
+        if line_id is None:
+          continue
+        if line.text:
+          lines.append(line.text.strip())
+        else:
+          lines.append("")
+
+      yield index, lines
+
   def generate_request_xml(self, from_path: Path) -> Generator[tuple[tuple[int, int], tuple[int, int], Element], None, None]:
     max_data_tokens = self.ctx.state["max_data_tokens"]
     request_element = Element("request")
