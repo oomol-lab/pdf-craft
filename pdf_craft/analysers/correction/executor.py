@@ -24,7 +24,7 @@ def correct(
     path=workspace_path,
     init=lambda: {
       "phase": Phase.Text.value,
-      "level": Level.Single,
+      "level": Level.Single.value,
       "max_data_tokens": max_data_tokens,
       "completed_ranges": [],
     },
