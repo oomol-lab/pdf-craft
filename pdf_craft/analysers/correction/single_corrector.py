@@ -73,7 +73,7 @@ class SingleCorrector(Corrector):
           corrected_lines=corrected_lines,
         )
 
-    chunk_element = Element("chunk") # TODO: 这个逻辑抄一份给另一边，另一边错了
+    chunk_element = Element("chunk")
 
     for para_index in sorted(list(paragraphs.keys())):
       page_index, order_index = para_index

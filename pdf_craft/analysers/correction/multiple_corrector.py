@@ -53,8 +53,11 @@ class MultipleCorrector(Corrector):
       ) -> None:
 
     raw_lines_list = list(self.extract_lines(request_element))
+    if not raw_lines_list:
+      return
+
     corrected_lines_dict = dict(self.extract_lines(resp_element))
-    chunk_element = Element("chunk")
+    paragraphs: dict[tuple[int, int], Paragraph] = {}
 
     for index, raw_lines in sorted(raw_lines_list, key=lambda x: x[0]):
       page_index, order_index = index
@@ -63,21 +66,31 @@ class MultipleCorrector(Corrector):
       )
       if paragraph is None:
         continue
+
+      para_index = (paragraph.page_index, paragraph.order_index)
+      if para_index not in paragraphs:
+        paragraphs[para_index] = paragraph
+
       corrected_lines = corrected_lines_dict.get(index, None)
       if corrected_lines is None:
         corrected_lines = raw_lines
-      paragraph = self._apply_paragraph_lines(
+
+      self._apply_paragraph_lines(
         paragraph=paragraph,
         lines=corrected_lines,
       )
-      if paragraph is not None:
-        paragraph_element = paragraph.to_xml()
-        paragraph_element.set("page-index", str(page_index))
-        paragraph_element.set("order-index", str(order_index))
-        chunk_element.append(paragraph_element)
 
-    if not raw_lines_list:
-      return
+    chunk_element = Element("chunk")
+
+    for para_index in sorted(list(paragraphs.keys())):
+      page_index, order_index = para_index
+      paragraph = paragraphs[para_index]
+      if not paragraph.layouts:
+        continue
+      paragraph_element = paragraph.to_xml()
+      paragraph_element.set("page-index", str(page_index))
+      paragraph_element.set("order-index", str(order_index))
+      chunk_element.append(paragraph_element)
 
     begin, _ = raw_lines_list[0]
     end, _ = raw_lines_list[-1]
@@ -87,7 +100,7 @@ class MultipleCorrector(Corrector):
       xml=chunk_element,
     )
 
-  def _apply_paragraph_lines(self, paragraph: Paragraph, lines: list[str]) -> Paragraph | None:
+  def _apply_paragraph_lines(self, paragraph: Paragraph, lines: list[str]):
     next_line_index: int = 0
     limit_length: int = -1
 
@@ -112,10 +125,6 @@ class MultipleCorrector(Corrector):
 
     if limit_length != -1:
       paragraph.layouts = paragraph.layouts[:limit_length]
-    if not paragraph.layouts:
-      return None
-
-    return paragraph
 
 def _file_name(name: str, begin: tuple[int, int], end: tuple[int, int]) -> str:
   return f"{name}_{begin[0]}_{begin[1]}_{end[0]}_{end[1]}"
