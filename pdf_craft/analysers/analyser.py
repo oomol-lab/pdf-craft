@@ -65,7 +65,7 @@ def analyse(
     level: CorrectionLevel
     if correction_mode == CorrectionMode.ONCE:
       level = CorrectionLevel.Single
-    elif correction_mode == CorrectionMode.MULTIPLE:
+    elif correction_mode == CorrectionMode.DETAILED:
       level = CorrectionLevel.Multiple
     else:
       raise ValueError(f"Unknown correction mode: {correction_mode}")
