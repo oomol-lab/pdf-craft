@@ -1,5 +1,4 @@
-import os
-
+from pathlib import Path
 from zipfile import ZipFile
 from .types import TableRender, LaTeXRender
 
@@ -8,25 +7,16 @@ class Context:
   def __init__(
         self,
         file: ZipFile,
-        assets_path: str | None,
+        assets_path: Path | None,
         table_render: TableRender,
         latex_render: LaTeXRender,
       ) -> None:
 
-    if assets_path is not None and not os.path.exists(assets_path):
-      assets_path = None
-    self._assets_path: str | None = assets_path
+    self._assets_path: Path | None = assets_path
     self._file: ZipFile = file
     self._table_render: TableRender = table_render
     self._latex_render: LaTeXRender = latex_render
     self._used_file_names: dict[str, str] = {}
-    self._asset_files: list[str] = []
-
-    if assets_path is not None:
-      for file in os.listdir(assets_path):
-        if not file.startswith("."):
-          self._asset_files.append(file)
-      self._asset_files.sort()
 
   @property
   def file(self) -> ZipFile:
@@ -64,11 +54,10 @@ class Context:
   def add_used_asset_files(self) -> None:
     if self._assets_path is None:
       return
-    for file_name in sorted(os.listdir(self._assets_path)):
-      if file_name not in self._used_file_names:
+    for file in sorted(self._assets_path.iterdir()):
+      if file.name not in self._used_file_names:
         continue
-      file_path = os.path.join(self._assets_path, file_name)
       self._file.write(
-        filename=file_path,
-        arcname="OEBPS/assets/" + file_name,
+        filename=file,
+        arcname="OEBPS/assets/" + file.name,
       )

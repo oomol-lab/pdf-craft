@@ -1,8 +1,7 @@
 from __future__ import annotations
-import os
-
 from json import loads
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Callable
 from xml.etree.ElementTree import tostring, Element
 from .i18n import I18N
@@ -19,7 +18,7 @@ def gen_index(
     template: Template,
     i18n: I18N,
     meta: dict,
-    index_file_path: str,
+    index_file_path: Path,
     has_cover: bool,
     check_chapter_exits: Callable[[int], bool],
   ) -> tuple[str, list[NavPoint]]:
@@ -28,7 +27,7 @@ def gen_index(
   nav_points: list[NavPoint]
   depth: int
 
-  if os.path.exists(index_file_path):
+  if index_file_path.exists():
     prefaces, chapters = _parse_index(index_file_path)
     nav_point_generation = _NavPointGeneration(
       has_cover=has_cover,
@@ -134,7 +133,7 @@ class _Chapter:
   headline: str
   children: list[_Chapter]
 
-def _parse_index(file_path: str) -> tuple[list[_Chapter], list[_Chapter]]:
+def _parse_index(file_path: Path) -> tuple[list[_Chapter], list[_Chapter]]:
   data: dict | list
   with open(file_path, "r", encoding="utf-8") as file:
     data = loads(file.read())
