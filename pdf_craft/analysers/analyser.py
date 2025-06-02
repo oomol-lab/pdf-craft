@@ -24,7 +24,7 @@ def analyse(
     output_dir_path: PathLike,
     report_step: AnalysingStepReport | None = None,
     report_progress: AnalysingProgressReport | None = None,
-    correction: bool = False,
+    correction: bool = True,
     window_tokens: LLMWindowTokens | int | None = None,
   ) -> None:
 

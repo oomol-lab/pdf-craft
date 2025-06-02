@@ -11,7 +11,7 @@ from ..utils import read_xml_file, Context
 from .common import State
 
 
-def repeat_correct(
+def repeat_multiple_correct(
       llm: LLM,
       context: Context[State],
       save_path: Path,
@@ -68,7 +68,7 @@ class _Repeater:
           self._quality != _Quality.PERFECT:
 
       resp_element = self._llm.request_xml(
-        template_name="correction",
+        template_name="correction/multiple",
         user_data=request_element,
         params={
           "layouts_count": 4,
