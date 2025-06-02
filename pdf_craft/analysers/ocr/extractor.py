@@ -1,7 +1,6 @@
 import fitz
 
 from pathlib import Path
-from html import escape
 from typing import Generator, Iterable
 from PIL.Image import Image
 from xml.etree.ElementTree import fromstring, Element, ParseError
@@ -89,11 +88,9 @@ def _append_asset_dom(root: Element, block: Block, tag_name: str):
 
 def _extends_line_doms(parent: Element, texts: list[Text]):
   for text in texts:
-    content = text.content.replace("\n", " ")
-    content = escape(content.strip())
     line_dom = Element("line")
     line_dom.set("confidence", "{:.2f}".format(text.rank))
-    line_dom.text = content
+    line_dom.text = text.content.replace("\n", " ")
     parent.append(line_dom)
 
 def _migrate_expressions_and_save_images(root: Element, blocks: list[Block], assets_dir_path: Path):
