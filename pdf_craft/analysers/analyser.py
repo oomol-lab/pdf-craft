@@ -107,6 +107,7 @@ def analyse(
   chapter_output_path, contents = generate_chapters(
     llm=llm,
     reporter=reporter,
+    threads=threads,
     contents=contents,
     sequence_path=sequence_output_path / "text",
     workspace_path=chapter_path,

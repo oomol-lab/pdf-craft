@@ -26,6 +26,7 @@ class _StateRoot(TypedDict):
   payload: Any
 
 
+# TODO: 令它线程安全
 class Context(Generic[S]):
   def __init__(self, reporter: Reporter, path: Path, init: Callable[[], S]) -> None:
     self._reporter = reporter
