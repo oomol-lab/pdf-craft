@@ -15,6 +15,7 @@ from .contents import extract_contents
 from .chapter import generate_chapters
 from .reference import generate_chapters_with_footnotes
 from .output import output
+from .utils import MultiThreads
 
 
 def analyse(
@@ -27,6 +28,7 @@ def analyse(
     report_progress: AnalysingProgressReport | None = None,
     correction_mode: CorrectionMode = CorrectionMode.NO,
     window_tokens: LLMWindowTokens | int | None = None,
+    threads_count: int = 1,
   ) -> None:
 
   if correction_mode == CorrectionMode.DETAILED:
@@ -37,6 +39,7 @@ def analyse(
     correction_mode = CorrectionMode.ONCE
 
   window_tokens = parse_window_tokens(window_tokens)
+  threads = MultiThreads(threads_count)
   reporter = Reporter(
     report_step=report_step,
     report_progress=report_progress,
