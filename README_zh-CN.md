@@ -250,8 +250,9 @@ from pdf_craft import analyse, LLMWindowTokens
 analyse(
   ..., # 其他参数
   window_tokens=LLMWindowTokens(
-    main_texts=2400,
-    citations=2000,
+    max_request_data_tokens=4096,
+    max_verify_paragraph_tokens=512,
+    max_verify_paragraphs_count=8,
   ),
 )
 ```
