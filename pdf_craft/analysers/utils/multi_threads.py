@@ -33,7 +33,6 @@ class _Invoker(Generic[T]):
         invoke: Callable[[T], None],
       ) -> None:
 
-    super().__init__()
     self._threads_count: int = threads_count
     self._next_task: Callable[[], T | None] = next_task
     self._invoke: Callable[[T], None] = invoke
