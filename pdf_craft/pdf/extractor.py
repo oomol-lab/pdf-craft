@@ -45,6 +45,9 @@ class PDFPageExtractor:
         debug_dir_path: PathLike | None = None,
       ) -> None:
 
+    if device not in ("cpu", "cuda"):
+      raise ValueError("Device must be 'cpu' or 'cuda'.")
+
     if extract_table_format is None:
       if device == "cpu":
         extract_table_format = ExtractedTableFormat.DISABLE

@@ -28,14 +28,12 @@ class DocumentExtractor:
         extract_table_format: TableLayoutParsedFormat | None,
         debug_dir_path: Path | None,
       ) -> None:
+
     self._debug_dir_path: Path | None = debug_dir_path
-    self._doc_extractor = DocExtractor(
-      device=device,
-      model_dir_path=str(model_dir_path),
-      extract_formula=extract_formula,
-      extract_table_format=extract_table_format,
-      ocr_for_each_layouts=(ocr_level == OCRLevel.OncePerLayout),
-    )
+    self._doc_extractor = DocExtractor(model_dir_path, device)
+    self._extract_formula: bool = extract_formula
+    self._extract_table_format: TableLayoutParsedFormat | None = extract_table_format
+    self._ocr_for_each_layouts: bool = (ocr_level == OCRLevel.OncePerLayout)
 
   def extract(self, params: DocumentParams) -> Generator[tuple[int, ExtractedResult, list[Layout]], None, None]:
     for result, section in self._extract_results_and_sections(params):
@@ -86,6 +84,9 @@ class DocumentExtractor:
         image = self._page_screenshot_image(page, dpi)
         result = self._doc_extractor.extract(
           image=image,
+          extract_formula=self._extract_formula,
+          extract_table_format=self._extract_table_format,
+          ocr_for_each_layouts=self._ocr_for_each_layouts,
           adjust_points=False,
         )
         if self._debug_dir_path is not None:
