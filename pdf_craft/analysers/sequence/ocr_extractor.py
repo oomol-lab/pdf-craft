@@ -15,20 +15,23 @@ from ..utils import (
   xml_files,
   search_xml_children,
   Context,
+  MultiThreads,
   Partition,
+  PartitionTask,
 )
 
 
-def extract_ocr(llm: LLM, context: Context[State], ocr_path: Path) -> None:
-  sequence = _Sequence(llm, context)
+def extract_ocr(llm: LLM, context: Context[State], ocr_path: Path, threads: MultiThreads) -> None:
+  sequence = _Sequence(llm, context, threads)
   return sequence.to_sequences(ocr_path)
 
 _LayoutLines = dict[int, tuple[Element, Element]]
 
 class _Sequence:
-  def __init__(self, llm: LLM, context: Context[State]) -> None:
+  def __init__(self, llm: LLM, context: Context[State], threads: MultiThreads) -> None:
     self._llm: LLM = llm
     self._ctx: Context[State] = context
+    self._threads: MultiThreads = threads
 
   def to_sequences(self, ocr_path: Path):
     save_path = self._ctx.path.joinpath(Phase.EXTRACTION.value)
@@ -45,27 +48,10 @@ class _Sequence:
       ),
     )
     with partition:
-      for task in partition.pop_tasks():
-        with task:
-          begin = task.begin[0]
-          end = task.end[0]
-          request = task.payload
-          request_xml = request.inject_ids_and_get_xml()
-          resp_xml = self._request_sequences(request_xml)
-          data_xml = Element("pages")
-          data_xml.set("begin-page-index", str(begin))
-          data_xml.set("end-page-index", str(end))
-
-          for page in self._gen_pages_with_sequences(
-            request=request,
-            raw_page_xmls=request_xml,
-            resp_xml=resp_xml,
-          ):
-            data_xml.append(page)
-
-          data_file_path = save_path / f"pages_{begin}_{end}.xml"
-          with open(data_file_path, mode="w", encoding="utf-8") as file:
-            file.write(encode(data_xml))
+      self._threads.run(
+        next_task=partition.pop_task,
+        invoke=self._emit_request,
+      )
 
   def _split_requests(self, ocr_path: Path) -> Generator[SequenceRequest, None, None]:
     max_request_data_tokens = self._ctx.state["max_request_data_tokens"]
@@ -90,6 +76,28 @@ class _Sequence:
 
     if request_tokens > 0:
       yield request
+
+  def _emit_request(self, save_path: Path, task: PartitionTask[tuple[int], State, SequenceRequest]):
+    with task:
+      begin = task.begin[0]
+      end = task.end[0]
+      request = task.payload
+      request_xml = request.inject_ids_and_get_xml()
+      resp_xml = self._request_sequences(request_xml)
+      data_xml = Element("pages")
+      data_xml.set("begin-page-index", str(begin))
+      data_xml.set("end-page-index", str(end))
+
+      for page in self._gen_pages_with_sequences(
+        request=request,
+        raw_page_xmls=request_xml,
+        resp_xml=resp_xml,
+      ):
+        data_xml.append(page)
+
+      data_file_path = save_path / f"pages_{begin}_{end}.xml"
+      with open(data_file_path, mode="w", encoding="utf-8") as file:
+        file.write(encode(data_xml))
 
   def _request_sequences(self, request_xml: Element) -> Element:
     next_id: int = 1

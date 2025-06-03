@@ -63,6 +63,7 @@ def analyse(
   extract_sequences(
     llm=llm,
     reporter=reporter,
+    threads=threads,
     workspace_path=sequence_path,
     ocr_path=ocr_path,
     max_request_data_tokens=window_tokens.max_request_data_tokens,

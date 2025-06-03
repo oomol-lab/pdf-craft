@@ -7,13 +7,23 @@ from xml.etree.ElementTree import fromstring, Element
 from ...llm import LLM
 from ...xml import encode
 from ..data import ParagraphType
-from ..utils import remove_file, read_xml_file, xml_files, Context, Partition
+from ..utils import (
+  remove_file,
+  read_xml_file,
+  xml_files,
+  Context,
+  Partition,
+  PartitionTask,
+  MultiThreads,
+)
+
 from .common import State, SequenceType, Truncation
 
 
 def join(
       llm: LLM,
       context: Context[State],
+      threads: MultiThreads,
       type: SequenceType,
       extraction_path: Path,
       join_path: Path,
@@ -22,6 +32,7 @@ def join(
   joint = _Joint(
     llm=llm,
     context=context,
+    threads=threads,
     type=type,
     extraction_path=extraction_path,
     join_path=join_path,
@@ -70,6 +81,7 @@ class _Joint:
         self,
         llm: LLM,
         context: Context[State],
+        threads: MultiThreads,
         type: SequenceType,
         extraction_path: Path,
         join_path: Path,
@@ -77,6 +89,7 @@ class _Joint:
 
     self._llm: LLM = llm
     self._ctx: Context[State] = context
+    self._threads: MultiThreads = threads
     self._type: SequenceType = type
     self._extraction_path: Path = extraction_path
     self._join_path: Path = join_path
@@ -186,22 +199,10 @@ class _Joint:
       ),
     )
     with partition:
-      for task in partition.pop_tasks():
-        with task:
-          begin = task.begin[0]
-          end = task.end[0]
-          request_element = task.payload
-          resp_element = self._llm.request_xml(
-            template_name="sequence/truncation",
-            user_data=request_element,
-            params={
-              "count": len(request_element),
-            },
-          )
-          self._ctx.write_xml_file(
-            file_path=self._join_path / f"truncation_{begin}_{end}.xml",
-            xml=resp_element,
-          )
+      self._threads.run(
+        next_task=partition.pop_task,
+        invoke=self._emit_request,
+      )
 
     for file_path, file_prefix, _, _ in xml_files(self._extraction_path):
       if file_prefix != "truncation":
@@ -248,6 +249,23 @@ class _Joint:
 
     if request_element is not None:
       yield request_page_indexes, request_element
+
+  def _emit_request(self, task: PartitionTask[tuple[int], State, Element]) -> None:
+    with task:
+      begin = task.begin[0]
+      end = task.end[0]
+      request_element = task.payload
+      resp_element = self._llm.request_xml(
+        template_name="sequence/truncation",
+        user_data=request_element,
+        params={
+          "count": len(request_element),
+        },
+      )
+      self._ctx.write_xml_file(
+        file_path=self._join_path / f"truncation_{begin}_{end}.xml",
+        xml=resp_element,
+      )
 
   def _search_uncertain_texts(self, meta_truncation_dict: _MetaTruncationDict):
     max_paragraph_tokens = self._ctx.state["max_paragraph_tokens"]
