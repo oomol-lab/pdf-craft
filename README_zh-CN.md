@@ -229,6 +229,19 @@ llm = LLM(
 )
 ```
 
+### 文字勘误
+
+由于原始扫描件不清晰或污损，可能导致 OCR 将部分内容识别错误。可利用 LLM 根据上下文推断找出这些错误，并修正。在调用 `analyse` 方法时，配置 `correction_mode` 可开启勘误功能。
+
+```python
+from pdf_craft import analyse, CorrectionMode
+
+analyse(
+  ..., # 其他参数
+  correction_mode=CorrectionMode.ONCE,
+)
+```
+
 ### 分析请求拆分
 
 在调用 `analyse` 方法时，配置 `window_tokens` 字段来修改每一次发起 LLM 请求时，提交的书籍内容的最大 token 数。这个值越小，分析过程中向 LLM 发起的请求次数就会越多，但相应的，LLM 一次处理的数据就越少。通常来说，LLM 处理的数据越少，效果会越好，但消耗的总 token 数会越多。调整这个字段，以在质量和费用之间寻求平衡。
@@ -250,8 +263,9 @@ from pdf_craft import analyse, LLMWindowTokens
 analyse(
   ..., # 其他参数
   window_tokens=LLMWindowTokens(
-    main_texts=2400,
-    citations=2000,
+    max_request_data_tokens=4096,
+    max_verify_paragraph_tokens=512,
+    max_verify_paragraphs_count=8,
   ),
 )
 ```

@@ -231,6 +231,19 @@ llm = LLM(
 )
 ```
 
+### Correction
+
+OCR may misrecognize some content due to the original scan being unclear or dirty. LLM can be used to find these errors based on contextual inference and correct them. When calling the `analyse` method, configure `correction_mode` to enable the errata feature.
+
+```python
+from pdf_craft import analyse, CorrectionMode
+
+analyse(
+  ..., # Other parameters
+  correction_mode=CorrectionMode.ONCE,
+)
+```
+
 ### Analysis Request Splitting
 
 When calling the `analyse` method, configure the `window_tokens` field to modify the maximum number of tokens submitted for each LLM request. The smaller this value is, the more requests will be made to LLM during the analysis process, but the less data LLM will process at a time. Generally speaking, the less data LLM processes, the better the effect will be, but the more total tokens will be consumed. Adjust this field to find a balance between quality and cost.
@@ -252,8 +265,9 @@ from pdf_craft import analyse, LLMWindowTokens
 analyse(
   ..., # other parameters
   window_tokens=LLMWindowTokens(
-    main_texts=2400,
-    citations=2000,
+    max_request_data_tokens=4096,
+    max_verify_paragraph_tokens=512,
+    max_verify_paragraphs_count=8,
   ),
 )
 ```

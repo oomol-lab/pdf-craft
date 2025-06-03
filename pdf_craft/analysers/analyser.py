@@ -29,6 +29,13 @@ def analyse(
     window_tokens: LLMWindowTokens | int | None = None,
   ) -> None:
 
+  if correction_mode == CorrectionMode.DETAILED:
+    print(
+      "`correction_mode=CorrectionMode.DETAILED` is still experimental and not open to the public yet. " +
+      "`correction_mode` will be forced to `CorrectionMode.ONCE`."
+    )
+    correction_mode = CorrectionMode.ONCE
+
   window_tokens = parse_window_tokens(window_tokens)
   reporter = Reporter(
     report_step=report_step,
