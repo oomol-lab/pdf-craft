@@ -83,6 +83,7 @@ def analyse(
     sequence_output_path = correct(
       llm=llm,
       reporter=reporter,
+      threads=threads,
       level=level,
       workspace_path=correction_path,
       text_path=sequence_output_path / "text",
