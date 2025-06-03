@@ -50,7 +50,7 @@ class _Sequence:
     with partition:
       self._threads.run(
         next_task=partition.pop_task,
-        invoke=self._emit_request,
+        invoke=lambda task: self._emit_request(save_path, task),
       )
 
   def _split_requests(self, ocr_path: Path) -> Generator[SequenceRequest, None, None]:
