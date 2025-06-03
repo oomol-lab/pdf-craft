@@ -231,7 +231,7 @@ llm = LLM(
 
 ### 文字勘误
 
-由于原始扫描件不清晰或无损，可能导致 OCR 将部分内容识别错误。可利用 LLM 根据上下文推断找出这些错误，并修正。在调用 `analyse` 方法时，配置 `correction_mode` 可开启勘误功能。
+由于原始扫描件不清晰或污损，可能导致 OCR 将部分内容识别错误。可利用 LLM 根据上下文推断找出这些错误，并修正。在调用 `analyse` 方法时，配置 `correction_mode` 可开启勘误功能。
 
 ```python
 from pdf_craft import analyse, CorrectionMode

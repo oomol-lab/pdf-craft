@@ -233,7 +233,7 @@ llm = LLM(
 
 ### Correction
 
-Because the original scan is not clear or intact, OCR may misrecognize some content. LLM can be used to find these errors based on contextual inference and correct them. When calling the `analyse` method, configure `correction_mode` to enable the correction function.
+OCR may misrecognize some content due to the original scan being unclear or dirty. LLM can be used to find these errors based on contextual inference and correct them. When calling the `analyse` method, configure `correction_mode` to enable the errata feature.
 
 ```python
 from pdf_craft import analyse, CorrectionMode
