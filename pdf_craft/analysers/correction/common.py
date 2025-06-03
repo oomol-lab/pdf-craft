@@ -10,7 +10,7 @@ from ...llm import LLM
 from ...xml import encode_friendly
 from ..sequence import read_paragraphs
 from ..data import Paragraph, ParagraphType, AssetLayout, FormulaLayout
-from ..utils import Context
+from ..utils import Context, MultiThreads
 
 
 class Phase(StrEnum):
@@ -30,9 +30,10 @@ class State(TypedDict):
   completed_ranges: list[list[int]]
 
 class Corrector(ABC):
-  def __init__(self, llm: LLM, context: Context[State]):
+  def __init__(self, llm: LLM, context: Context[State], threads: MultiThreads):
     self.llm: LLM = llm
     self.ctx: Context[State] = context
+    self.threads: MultiThreads = threads
 
   @abstractmethod
   def do(self, from_path: Path, request_path: Path, is_footnote: bool) -> None:

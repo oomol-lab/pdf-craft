@@ -5,7 +5,7 @@ from xml.etree.ElementTree import Element
 
 from ..reference import samples, NumberStyle
 from ..data import Paragraph, Layout, Line
-from ..utils import Partition
+from ..utils import Partition, PartitionTask
 from .common import State, Corrector
 from .paragraphs_reader import ParagraphsReader
 
@@ -24,20 +24,37 @@ class SingleCorrector(Corrector):
       ),
     )
     with partition:
-      for task in partition.pop_tasks():
-        with task:
-          begin = task.begin
-          end = task.end
-          request_element = task.payload
-          chunk_element = self._correct_request(
-            reader=reader,
-            request_element=request_element,
-            is_footnote=is_footnote,
-          )
-          self.ctx.write_xml_file(
-            file_path=request_path / _chunk_name(begin, end),
-            xml=chunk_element,
-          )
+      self.threads.run(
+        next_task=partition.pop_tasks,
+        invoke=lambda task: self._emit_request(
+          task=task,
+          reader=reader,
+          request_path=request_path,
+          is_footnote=is_footnote,
+        ),
+      )
+
+  def _emit_request(
+        self,
+        task: PartitionTask[tuple[int, int], State, Element],
+        reader: ParagraphsReader,
+        request_path: Path,
+        is_footnote: bool,
+      ) -> Element:
+
+    with task:
+      begin = task.begin
+      end = task.end
+      request_element = task.payload
+      chunk_element = self._correct_request(
+        reader=reader,
+        request_element=request_element,
+        is_footnote=is_footnote,
+      )
+      self.ctx.write_xml_file(
+        file_path=request_path / _chunk_name(begin, end),
+        xml=chunk_element,
+      )
 
   def _correct_request(self, reader: ParagraphsReader, request_element: Element, is_footnote: bool) -> Element:
     resp_element = self.llm.request_xml(

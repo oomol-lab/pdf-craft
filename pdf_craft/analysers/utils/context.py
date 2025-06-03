@@ -7,6 +7,7 @@ import shutil
 from pathlib import Path
 from datetime import datetime, timezone
 from typing import cast, Any, TypeVar, Generic, TypedDict, Callable
+from threading import Lock
 from yaml import safe_load, safe_dump
 from xml.etree.ElementTree import Element
 
@@ -26,10 +27,12 @@ class _StateRoot(TypedDict):
   payload: Any
 
 
+# thread safe
 class Context(Generic[S]):
   def __init__(self, reporter: Reporter, path: Path, init: Callable[[], S]) -> None:
     self._reporter = reporter
     self._state: S
+    self._state_lock: Lock = Lock()
     self._path: Path = path
     self._created_at: str
 
@@ -70,21 +73,22 @@ class Context(Generic[S]):
 
   @property
   def state(self) -> S:
-    return self._state
+    with self._state_lock:
+      return self._state
 
   @state.setter
   def state(self, state: S) -> None:
-    self._state = state
-    file_path = self._path.joinpath(_STATE_FILE)
-    self.atomic_write(
-      file_path=file_path,
-      content=safe_dump({
-        "version": CURRENT_STATE_VERSION,
-        "created_at": self._created_at,
-        "updated_at": self._current_utc(),
-        "payload": self._state,
-      }),
-    )
+    with self._state_lock:
+      self._state = state
+      self.atomic_write(
+        file_path=self._path / _STATE_FILE,
+        content=safe_dump({
+          "version": CURRENT_STATE_VERSION,
+          "created_at": self._created_at,
+          "updated_at": self._current_utc(),
+          "payload": self._state,
+        }),
+      )
 
   def write_xml_file(self, file_path: Path, xml: Element) -> None:
     file_content = encode(xml)

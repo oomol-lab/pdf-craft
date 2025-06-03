@@ -4,7 +4,7 @@ from pathlib import Path
 from ...llm import LLM
 from ..sequence import decode_paragraph, ParagraphWriter
 from ..reporter import Reporter, AnalysingStep
-from ..utils import read_xml_file, Context
+from ..utils import read_xml_file, Context, MultiThreads
 from .common import State, Phase, Level, Corrector
 from .single_corrector import SingleCorrector
 from .multiple_corrector import MultipleCorrector
@@ -13,6 +13,7 @@ from .multiple_corrector import MultipleCorrector
 def correct(
       llm: LLM,
       reporter: Reporter,
+      threads: MultiThreads,
       level: Level,
       workspace_path: Path,
       text_path: Path,
@@ -36,9 +37,9 @@ def correct(
   footnote_request_path = workspace_path / "footnote"
 
   if context.state["level"] == Level.Single:
-    corrector = SingleCorrector(llm, context)
+    corrector = SingleCorrector(llm, context, threads)
   elif context.state["level"] == Level.Multiple:
-    corrector = MultipleCorrector(llm, context)
+    corrector = MultipleCorrector(llm, context, threads)
   else:
     raise ValueError(f"Unknown level: {context.state['level']}")
 

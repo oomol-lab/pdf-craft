@@ -4,7 +4,7 @@ from pathlib import Path
 from xml.etree.ElementTree import Element
 
 from ..data import Paragraph, AssetLayout
-from ..utils import Partition
+from ..utils import Partition, PartitionTask
 from .common import State, Corrector
 from .repeater import repeat_multiple_correct
 from .paragraphs_reader import ParagraphsReader
@@ -25,24 +25,41 @@ class MultipleCorrector(Corrector):
       ),
     )
     with partition:
-      for task in partition.pop_tasks():
-        with task:
-          begin = task.begin
-          end = task.end
-          request_element = task.payload
-          resp_element = repeat_multiple_correct(
-            llm=self.llm,
-            context=self.ctx,
-            save_path=request_path / _file_name("steps",begin, end),
-            raw_request=request_element,
-            is_footnote=is_footnote,
-          )
-          self._apply_updation(
-            reader=reader,
-            request_path=request_path,
-            request_element=request_element,
-            resp_element=resp_element,
-          )
+      self.threads.run(
+        next_task=partition.pop_tasks,
+        invoke=lambda task: self._emit_request(
+          task=task,
+          reader=reader,
+          request_path=request_path,
+          is_footnote=is_footnote,
+        ),
+      )
+
+  def _emit_request(
+        self,
+        task: PartitionTask[tuple[int, int], State, Element],
+        reader: ParagraphsReader,
+        request_path: Path,
+        is_footnote: bool,
+      ) -> Element:
+
+    with task:
+      begin = task.begin
+      end = task.end
+      request_element = task.payload
+      resp_element = repeat_multiple_correct(
+        llm=self.llm,
+        context=self.ctx,
+        save_path=request_path / _file_name("steps",begin, end),
+        raw_request=request_element,
+        is_footnote=is_footnote,
+      )
+      self._apply_updation(
+        reader=reader,
+        request_path=request_path,
+        request_element=request_element,
+        resp_element=resp_element,
+      )
 
   def _apply_updation(
         self,

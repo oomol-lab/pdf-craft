@@ -7,7 +7,7 @@ from ...xml import encode_friendly
 from ..data import Layout, LayoutKind
 from ..sequence import read_paragraphs
 from ..contents import Contents, Chapter
-from ..utils import remove_file, Context, Partition
+from ..utils import remove_file, Context, Partition, PartitionTask, MultiThreads
 from .common import State
 from .fragment import Fragment, FragmentRequest
 
@@ -15,14 +15,16 @@ from .fragment import Fragment, FragmentRequest
 def map_contents(
       llm: LLM,
       context: Context[State],
+      threads: MultiThreads,
       contents: Contents,
       sequence_path: Path,
       map_path: Path,
     ) -> None:
 
   mapper = _ContentsMapper(
-    context=context,
     llm=llm,
+    context=context,
+    threads=threads,
     contents=contents,
     sequence_path=sequence_path,
     map_path=map_path,
@@ -34,15 +36,17 @@ _MAX_ABSTRACT_CONTENT_TOKENS = 150
 class _ContentsMapper:
   def __init__(
         self,
-        context: Context[State],
         llm: LLM,
+        context: Context[State],
+        threads: MultiThreads,
         contents: Contents,
         sequence_path: Path,
         map_path: Path,
       ) -> None:
 
-    self._ctx: Context[State] = context
     self._llm: LLM = llm
+    self._ctx: Context[State] = context
+    self._threads: MultiThreads = threads
     self._contents: Contents = contents
     self._sequence_path: Path = sequence_path
     self._map_path: Path = map_path
@@ -61,40 +65,10 @@ class _ContentsMapper:
       ),
     )
     with partition:
-      for task in partition.pop_tasks():
-        with task:
-          request = task.payload
-          request_xml = request.complete_to_xml()
-          request_xml.insert(0, self._get_contents_xml())
-          resp_xml = self._llm.request_xml(
-            template_name="contents/mapper",
-            user_data=request_xml,
-            params={
-              "fragments_count": request.fragments_count,
-            },
-          )
-          page_indexes_set: set[int] = set()
-          map_element = Element("map")
-          patch_element = Element("patch")
-
-          for page_index, sub_patch_element in request.generate_patch_xmls(resp_xml):
-            page_indexes_set.add(page_index)
-            patch_element.append(sub_patch_element)
-
-          for headline_id, chapter_id in request.generate_matched_mapper(resp_xml):
-            mapper = Element("mapper")
-            map_element.append(mapper)
-            mapper.set("headline-id", headline_id)
-            mapper.set("chapter-id", str(chapter_id))
-
-          page_indexes = sorted(list(page_indexes_set))
-          map_element.set("page_indexes", ",".join(map(str, page_indexes)))
-          if len(patch_element) > 0:
-            map_element.append(patch_element)
-
-          file_name = f"pages_{request.begin_page_index}_{request.end_page_index}.xml"
-          file_path = self._map_path / file_name
-          self._ctx.write_xml_file(file_path, map_element)
+      self._threads.run(
+        next_task=partition.pop_task,
+        invoke=self._emit_request,
+      )
 
   def _gen_request(self, contents_tokens_count: int) -> Generator[tuple[int, int, FragmentRequest], None, None]:
     request = FragmentRequest()
@@ -118,6 +92,42 @@ class _ContentsMapper:
 
     if request_tokens > 0:
       yield request.begin_page_index, request.end_page_index, request
+
+  # running in background thread
+  def _emit_request(self, task: PartitionTask[tuple[int], State, FragmentRequest]):
+    with task:
+      request = task.payload
+      request_xml = request.complete_to_xml()
+      request_xml.insert(0, self._get_contents_xml())
+      resp_xml = self._llm.request_xml(
+        template_name="contents/mapper",
+        user_data=request_xml,
+        params={
+          "fragments_count": request.fragments_count,
+        },
+      )
+      page_indexes_set: set[int] = set()
+      map_element = Element("map")
+      patch_element = Element("patch")
+
+      for page_index, sub_patch_element in request.generate_patch_xmls(resp_xml):
+        page_indexes_set.add(page_index)
+        patch_element.append(sub_patch_element)
+
+      for headline_id, chapter_id in request.generate_matched_mapper(resp_xml):
+        mapper = Element("mapper")
+        map_element.append(mapper)
+        mapper.set("headline-id", headline_id)
+        mapper.set("chapter-id", str(chapter_id))
+
+      page_indexes = sorted(list(page_indexes_set))
+      map_element.set("page_indexes", ",".join(map(str, page_indexes)))
+      if len(patch_element) > 0:
+        map_element.append(patch_element)
+
+      file_name = f"pages_{request.begin_page_index}_{request.end_page_index}.xml"
+      file_path = self._map_path / file_name
+      self._ctx.write_xml_file(file_path, map_element)
 
   def _read_fragment(self) -> Generator[Fragment, None, None]:
     fragment: Fragment | None = None

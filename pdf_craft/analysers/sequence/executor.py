@@ -2,7 +2,7 @@ from pathlib import Path
 
 from ...llm import LLM
 from ..reporter import Reporter, AnalysingStep
-from ..utils import Context
+from ..utils import Context, MultiThreads
 from .common import Phase, State, SequenceType
 from .ocr_extractor import extract_ocr
 from .joint import join
@@ -11,6 +11,7 @@ from .joint import join
 def extract_sequences(
       llm: LLM,
       reporter: Reporter,
+      threads: MultiThreads,
       workspace_path: Path,
       ocr_path: Path,
       max_request_data_tokens: int,
@@ -35,6 +36,7 @@ def extract_sequences(
       extract_ocr(
         llm=llm,
         context=context,
+        threads=threads,
         ocr_path=ocr_path,
       )
       context.state = {
@@ -47,6 +49,7 @@ def extract_sequences(
       join(
         llm=llm,
         context=context,
+        threads=threads,
         type=SequenceType.TEXT,
         extraction_path=workspace_path / Phase.EXTRACTION.value,
         join_path=workspace_path / Phase.TEXT_JOINT.value,
@@ -61,6 +64,7 @@ def extract_sequences(
       join(
         llm=llm,
         context=context,
+        threads=threads,
         type=SequenceType.FOOTNOTE,
         extraction_path=workspace_path / Phase.EXTRACTION.value,
         join_path=workspace_path / Phase.FOOTNOTE_JOINT.value,

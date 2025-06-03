@@ -6,7 +6,7 @@ from ...llm import LLM
 from ..reporter import Reporter, AnalysingStep
 from ..contents import Contents, Chapter
 from ..data import ASSET_LAYOUT_KINDS, Paragraph
-from ..utils import xml_files, Context
+from ..utils import xml_files, Context, MultiThreads
 from .common import State, Phase
 from .contents_mapper import map_contents
 from .patcher import read_paragraphs, read_paragraphs_with_patches
@@ -15,6 +15,7 @@ from .patcher import read_paragraphs, read_paragraphs_with_patches
 def generate_chapters(
       llm: LLM,
       reporter: Reporter,
+      threads: MultiThreads,
       contents: Contents | None,
       sequence_path: Path,
       workspace_path: Path,
@@ -41,6 +42,7 @@ def generate_chapters(
       map_contents(
         llm=llm,
         context=context,
+        threads=threads,
         contents=contents,
         sequence_path=sequence_path,
         map_path=map_path,
