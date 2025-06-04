@@ -83,7 +83,6 @@ class PDFPageExtractor:
       pdf: str | Document,
       page_indexes: Iterable[int] | None = None,
       report_progress: PDFPageExtractorProgressReport | None = None,
-
     ) -> Generator[tuple[int, list[Block], Image], None, None]:
 
     for page_index, result, layouts in self._doc_extractor.extract(DocumentParams(

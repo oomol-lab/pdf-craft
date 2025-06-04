@@ -269,9 +269,12 @@ class _Sequence:
         before_id=before_id,
         ignore_origin_abandon=True,
       )
-      text = (text_group, text_ids)
-      if text_ids[-1] not in origin_text_ids:
-        text_group.set("truncation-end", Truncation.UNCERTAIN.value)
+      if text_ids:
+        text = (text_group, text_ids)
+        if text_ids[-1] not in origin_text_ids:
+          text_group.set("truncation-end", Truncation.UNCERTAIN.value)
+      else:
+        text = None
 
     if footnote:
       footnote_group, footnote_ids = footnote
@@ -281,9 +284,12 @@ class _Sequence:
         before_id=None,
         ignore_origin_abandon=False,
       )
-      footnote = (footnote_group, footnote_ids)
-      if footnote_ids[-1] not in origin_footnote_ids:
-        footnote_group.set("truncation-end", Truncation.UNCERTAIN.value)
+      if footnote_ids:
+        footnote = (footnote_group, footnote_ids)
+        if footnote_ids[-1] not in origin_footnote_ids:
+          footnote_group.set("truncation-end", Truncation.UNCERTAIN.value)
+      else:
+        footnote = None
 
     return text, footnote
 
