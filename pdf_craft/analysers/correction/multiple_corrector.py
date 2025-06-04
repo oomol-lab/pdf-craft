@@ -26,7 +26,7 @@ class MultipleCorrector(Corrector):
     )
     with partition:
       self.threads.run(
-        next_task=partition.pop_tasks,
+        next_task=partition.pop_task,
         invoke=lambda task: self._emit_request(
           task=task,
           reader=reader,
