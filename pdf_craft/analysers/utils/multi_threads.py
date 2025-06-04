@@ -3,6 +3,7 @@ from threading import Lock, Thread
 
 
 T = TypeVar("T")
+P = TypeVar("P")
 
 class MultiThreads:
   def __init__(self, threads_count: int):
@@ -10,30 +11,40 @@ class MultiThreads:
     if threads_count <= 0:
       raise ValueError("threads_count must be greater than 0")
 
-  def run(self, next_task: Callable[[], T | None], invoke: Callable[[T], None]) -> None:
+  def run(
+        self,
+        next_task: Callable[[], T | None],
+        thread_payload: Callable[[], P],
+        invoke: Callable[[P, T], None],
+      ) -> None:
+
     if self._threads_count == 1:
+      payload = thread_payload()
       while True:
         task = next_task()
         if task is None:
           break
-        invoke(task)
+        invoke(payload, task)
     else:
-      invoker: _Invoker[T] = _Invoker(
+      invoker: _Invoker[P, T] = _Invoker(
         threads_count=self._threads_count,
         next_task=next_task,
+        thread_payload=thread_payload,
         invoke=invoke,
       )
       invoker.do()
 
-class _Invoker(Generic[T]):
+class _Invoker(Generic[P, T]):
   def __init__(
         self,
         threads_count: int,
         next_task: Callable[[], T | None],
+        thread_payload: Callable[[], P],
         invoke: Callable[[T], None],
       ) -> None:
 
     self._threads_count: int = threads_count
+    self._thread_payload: Callable[[], P] = thread_payload
     self._next_task: Callable[[], T | None] = next_task
     self._invoke: Callable[[T], None] = invoke
     self._threads: list[Thread] = []
@@ -43,7 +54,11 @@ class _Invoker(Generic[T]):
 
   def do(self):
     for _ in range(self._threads_count):
-      self._threads.append(Thread(target=self._run_thread_loop))
+      payload = self._thread_payload()
+      self._threads.append(Thread(
+        target=self._run_thread_loop,
+        args=(payload,),
+      ))
     for thread in self._threads:
       thread.start()
     for thread in self._threads:
@@ -51,13 +66,13 @@ class _Invoker(Generic[T]):
     if self._error is not None:
       raise self._error
 
-  def _run_thread_loop(self):
+  def _run_thread_loop(self, payload: P):
     while True:
       task = self._get_next_task()
       if task is None:
         break
       try:
-        self._invoke(task)
+        self._invoke(payload, task)
       except Exception as error:
         with self._task_lock:
           if self._error is not None:

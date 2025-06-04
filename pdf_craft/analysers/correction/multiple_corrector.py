@@ -14,7 +14,6 @@ class MultipleCorrector(Corrector):
 
   def do(self, from_path: Path, request_path: Path, is_footnote: bool) -> None:
     request_path.mkdir(parents=True, exist_ok=True)
-    reader = ParagraphsReader(from_path)
     partition: Partition[tuple[int, int], State, Element] = Partition(
       dimension=2,
       context=self.ctx,
@@ -27,7 +26,8 @@ class MultipleCorrector(Corrector):
     with partition:
       self.threads.run(
         next_task=partition.pop_task,
-        invoke=lambda task: self._emit_request(
+        thread_payload=lambda: ParagraphsReader(from_path),
+        invoke=lambda reader, task: self._emit_request(
           task=task,
           reader=reader,
           request_path=request_path,
