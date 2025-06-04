@@ -121,8 +121,10 @@ class _ContentsMapper:
         mapper.set("headline-id", headline_id)
         mapper.set("chapter-id", str(chapter_id))
 
-      page_indexes = sorted(list(page_indexes_set))
-      map_element.set("page_indexes", ",".join(map(str, page_indexes)))
+      if page_indexes_set:
+        page_indexes = sorted(list(page_indexes_set))
+        map_element.set("page-indexes", ",".join(map(str, page_indexes)))
+
       if len(patch_element) > 0:
         map_element.append(patch_element)
 
