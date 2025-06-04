@@ -201,7 +201,8 @@ class _Joint:
     with partition:
       self._threads.run(
         next_task=partition.pop_task,
-        invoke=self._emit_request,
+        thread_payload=lambda: None,
+        invoke=lambda _, task: self._emit_request(task),
       )
 
     for file_path, file_prefix, _, _ in xml_files(self._extraction_path):

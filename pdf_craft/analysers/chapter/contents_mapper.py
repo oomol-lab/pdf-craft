@@ -67,7 +67,8 @@ class _ContentsMapper:
     with partition:
       self._threads.run(
         next_task=partition.pop_task,
-        invoke=self._emit_request,
+        thread_payload=lambda: None,
+        invoke=lambda _, task: self._emit_request(task),
       )
 
   def _gen_request(self, contents_tokens_count: int) -> Generator[tuple[int, int, FragmentRequest], None, None]:
