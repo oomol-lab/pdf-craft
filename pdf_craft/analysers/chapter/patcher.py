@@ -97,9 +97,6 @@ class _Patch:
   headline2chapter: dict[str, Chapter]
   layout_xmls_patches: dict[str, Element]
 
-  def include(self, page_index: int) -> bool:
-    return self.range[0] <= page_index <= self.range[1]
-
 class _PatcherReader:
   def __init__(self, map_path: Path, no_matched_chapters: dict[int, Chapter]):
     self._pre_page_index: int = 0
@@ -107,40 +104,44 @@ class _PatcherReader:
     self._xml_infos_iter: Iterator[XML_Info, None, None] = iter(xml_files(map_path))
     self._no_matched_chapters: dict[int, Chapter] = no_matched_chapters
 
-  def read(self, page_index: int):
+  def read(self, page_index: int) -> _Patch | None:
     assert self._pre_page_index <= page_index
     self._pre_page_index = page_index
-    if self._current_patch is not None and \
-       self._current_patch.include(page_index):
-      return self._current_patch
 
-    xml_info = next(self._xml_infos_iter, None)
-    if xml_info is None:
-      return None
+    while True:
+      if self._current_patch is not None:
+        patch_begin, patch_end = self._current_patch.range
+        if page_index < patch_begin:
+          return None
+        if page_index <= patch_end:
+          return self._current_patch
 
-    file_path, _, begin, end = xml_info
-    map_element = read_xml_file(file_path)
-    self._current_patch = _Patch(
-      range=(begin, end),
-      headline2chapter={},
-      layout_xmls_patches={},
-    )
-    for child in map_element:
-      if child.tag != "mapper":
-        continue
-      headline_id = child.get("headline-id", None)
-      chapter_id = int(child.get("chapter-id", "-1"))
-      chapter = self._no_matched_chapters.pop(chapter_id, None)
-      if headline_id is None or chapter is None:
-        continue
-      self._current_patch.headline2chapter[headline_id] = chapter
+      xml_info = next(self._xml_infos_iter, None)
+      if xml_info is None:
+        self._current_patch = None
+        return None
 
-    patch_element = map_element.find("patch")
-    if patch_element is not None:
-      for child in patch_element:
-        id = child.get("id", None)
-        if id is None:
+      file_path, _, begin, end = xml_info
+      map_element = read_xml_file(file_path)
+      self._current_patch = _Patch(
+        range=(begin, end),
+        headline2chapter={},
+        layout_xmls_patches={},
+      )
+      for child in map_element:
+        if child.tag != "mapper":
           continue
-        self._current_patch.layout_xmls_patches[id] = child
+        headline_id = child.get("headline-id", None)
+        chapter_id = int(child.get("chapter-id", "-1"))
+        chapter = self._no_matched_chapters.pop(chapter_id, None)
+        if headline_id is None or chapter is None:
+          continue
+        self._current_patch.headline2chapter[headline_id] = chapter
 
-    return self._current_patch
+      patch_element = map_element.find("patch")
+      if patch_element is not None:
+        for child in patch_element:
+          id = child.get("id", None)
+          if id is None:
+            continue
+          self._current_patch.layout_xmls_patches[id] = child
