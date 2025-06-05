@@ -4,6 +4,7 @@ from typing import Generator
 from enum import auto, Enum
 from xml.etree.ElementTree import fromstring, Element
 
+from .common import get_truncation_attr
 from ...llm import LLM
 from ...xml import encode
 from ..data import ParagraphType
@@ -131,8 +132,8 @@ class _Joint:
   def _extract_sequence_metas(self) -> list[_SequenceMeta]:
     metas: list[_SequenceMeta] = []
     for page_index, sequence in self._extract_sequences():
-      truncation_begin = Truncation(sequence.get("truncation-begin", Truncation.UNCERTAIN.value))
-      truncation_end = Truncation(sequence.get("truncation-end", Truncation.UNCERTAIN.value))
+      truncation_begin = get_truncation_attr(sequence, "truncation-begin")
+      truncation_end = get_truncation_attr(sequence, "truncation-end")
       metas.append(_SequenceMeta(
         paragraph_type=ParagraphType(sequence.get("type")),
         page_index=page_index,
