@@ -43,6 +43,9 @@ class DocumentExtractor:
         if layout not in framework_layouts
       ]
 
+  def prepare_models(self) -> None:
+    self._doc_extractor.prepare_models()
+
   def _extract_results_and_sections(self, params: DocumentParams):
     queue: list[tuple[ExtractedResult, Section]] = []
 
