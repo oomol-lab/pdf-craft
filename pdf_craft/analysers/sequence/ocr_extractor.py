@@ -441,6 +441,9 @@ class _Sequence:
       elif len(ids) == 2:
         id_begin = int(ids[0])
         id_end = int(ids[1])
+      else:
+        raise ValueError(f"Invalid id format {ids}")
+
     except ValueError:
       return
 
