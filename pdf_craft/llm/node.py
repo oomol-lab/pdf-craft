@@ -134,12 +134,12 @@ class LLM:
     return template
 
   def _encode_markdown(self, response: str) -> str:
-    for quote in self._search_quotes("Markdown", response):
+    for quote in self._search_quotes("markdown", response):
       return quote
     raise ValueError("No valid Markdown response found")
 
   def _encode_json(self, response: str) -> Any:
-    for quote in self._search_quotes("JSON", response):
+    for quote in self._search_quotes("json", response):
       return json.loads(quote)
     raise ValueError("No valid Markdown response found")
 
@@ -154,12 +154,37 @@ class LLM:
     start_index = 0
 
     while True:
-      start_index = response.find(start_marker, start_index)
+      start_index = self._find_ignore_case(
+        raw=response,
+        sub=start_marker,
+        start=start_index,
+      )
       if start_index == -1:
         break
-      end_index = response.find(end_marker, start_index + len(start_marker))
+
+      end_index = self._find_ignore_case(
+        raw=response,
+        sub=end_marker,
+        start=start_index + len(start_marker),
+      )
       if end_index == -1:
         break
+
       extracted_text = response[start_index + len(start_marker):end_index].strip()
       yield extracted_text
       start_index = end_index + len(end_marker)
+
+  def _find_ignore_case(self, raw: str, sub: str, start: int = 0):
+    if not sub:
+      return 0 if 0 >= start else -1
+
+    raw_len, sub_len = len(raw), len(sub)
+    for i in range(start, raw_len - sub_len + 1):
+      match = True
+      for j in range(sub_len):
+        if raw[i + j].lower() != sub[j].lower():
+          match = False
+          break
+      if match:
+        return i
+    return -1
