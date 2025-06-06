@@ -434,14 +434,14 @@ class _Sequence:
     ids = ids.split("-")
     id_begin: int
     id_end: int
-    try:
-      if len(ids) == 1:
-        id_begin = int(ids[0])
-        id_end = id_begin
-      elif len(ids) == 2:
-        id_begin = int(ids[0])
-        id_end = int(ids[1])
-    except ValueError:
-      return
+
+    if len(ids) == 1:
+      id_begin = int(ids[0])
+      id_end = id_begin
+    elif len(ids) == 2:
+      id_begin = int(ids[0])
+      id_end = int(ids[1])
+    else:
+      raise ValueError(f"Invalid id format {ids}")
 
     yield from range(id_begin, id_end + 1)

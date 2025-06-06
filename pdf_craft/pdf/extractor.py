@@ -71,6 +71,9 @@ class PDFPageExtractor:
       debug_dir_path=Path(debug_dir_path) if debug_dir_path is not None else None,
     )
 
+  def prepare_models(self) -> None:
+    self._doc_extractor.prepare_models()
+
   def extract(self, pdf: str | Document, report_progress: PDFPageExtractorProgressReport | None = None) -> Generator[Block, None, None]:
     for _, blocks, _ in self.extract_enumerated_blocks_and_image(
       pdf=pdf,

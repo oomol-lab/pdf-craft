@@ -31,7 +31,7 @@ setup(
     "latex2mathml>=3.77.0,<4.0.0",
     "matplotlib>=3.10.1,<3.11.0",
     "tiktoken>=0.9.0,<1.0.0",
-    "doc-page-extractor==0.2.1",
+    "doc-page-extractor==0.2.2",
     "resource-segmentation==0.0.1",
     "langchain[openai]>=0.3.21,<0.4.0",
   ],

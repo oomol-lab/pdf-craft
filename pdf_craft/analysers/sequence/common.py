@@ -1,5 +1,6 @@
 from typing import TypedDict
 from strenum import StrEnum
+from xml.etree.ElementTree import Element
 
 
 class Phase(StrEnum):
@@ -24,3 +25,12 @@ class Truncation(StrEnum):
   NO = "not-truncated"
   PROBABLY = "probably"
   UNCERTAIN = "uncertain"
+
+def get_truncation_attr(element: Element, attr_name: str) -> Truncation:
+  value = element.get(attr_name, None)
+  if value is not None:
+    try:
+      return Truncation(value)
+    except Exception:
+      pass
+  return Truncation.UNCERTAIN

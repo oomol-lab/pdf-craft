@@ -78,8 +78,10 @@ class LLMExecutor:
 
         except Exception as err:
           last_error = err
+          warn_message = f"request failed with parsing error, retrying... ({i + 1} times)"
           if logger is not None:
-            logger.warning(f"request failed with parsing error, retrying... ({i + 1} times)")
+            logger.warning(warn_message)
+          print(warn_message)
           top_p.increase()
           temperature.increase()
           if self._retry_interval_seconds > 0.0 and \
