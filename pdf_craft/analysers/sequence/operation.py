@@ -85,7 +85,7 @@ def decode_layout(element: Element) -> Layout:
 def _decode_line(element: Element) -> Line:
   return Line(
     text=(element.text or "").strip(),
-    confidence=element.get("confidence"),
+    confidence=element.get("confidence", "1.0"),
   )
 
 class ParagraphWriter:
