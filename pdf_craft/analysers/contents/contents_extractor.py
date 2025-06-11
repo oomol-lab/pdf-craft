@@ -69,7 +69,6 @@ def _extract_md_contents(llm: LLM, context: Context[State], sequence_path: Path)
   md_content: str | None = None
 
   if md_path.exists():
-    context.write_xml_file
     with md_path.open("r", encoding="utf-8") as f:
       md_content = f.read()
   else:
