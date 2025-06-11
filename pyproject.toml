@@ -1,0 +1,29 @@
+[project]
+name = "pdf-craft"
+version = "0.2.1"
+description = "PDF craft can convert PDF files into various other formats. This project will focus on processing PDF files of scanned books."
+authors = [
+    {name = "Tao Zeyu",email = "i@taozeyu.com"}
+]
+license = {text = "AGPL-3.0"}
+readme = "README.md"
+requires-python = ">=3.10,<3.13"
+dependencies = [
+    "strenum (>=0.4.15,<0.5.0)",
+    "jinja2 (>=3.1.5,<4.0.0)",
+    "pymupdf (>=1.25.3,<2.0.0)",
+    "alphabet-detector (>=0.0.7,<1.0.0)",
+    "shapely (>=2.0.6,<3.0.0)",
+    "pyyaml (>=6.0,<7.0)",
+    "latex2mathml (>=3.77.0,<4.0.0)",
+    "matplotlib (>=3.10.1,<3.11.0)",
+    "tiktoken (>=0.9.0,<1.0.0)",
+    "doc-page-extractor (==0.2.2)",
+    "resource-segmentation (==0.0.1)",
+    "langchain[openai] (>=0.3.21,<0.4.0)"
+]
+
+
+[build-system]
+requires = ["poetry-core>=2.0.0,<3.0.0"]
+build-backend = "poetry.core.masonry.api"
