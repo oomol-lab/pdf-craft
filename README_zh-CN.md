@@ -52,9 +52,9 @@ pip install onnxruntime-gpu==1.21.0
 此操作无需调用远程的 LLM，仅凭本地算力（CPU 或显卡）就可完成。第一次调用时会联网下载所需的模型。遇到文档中的插图、表格、公式，会直接截图插入到 MarkDown 文件中。
 
 ```python
-from pdf_craft import PDFPageExtractor, MarkDownWriter
+from pdf_craft import create_pdf_page_extractor, PDFPageExtractor, MarkDownWriter
 
-extractor = PDFPageExtractor(
+extractor: PDFPageExtractor = create_pdf_page_extractor(
   device="cpu", # 如果希望使用 CUDA，请改为 device="cuda" 这样的格式。
   model_dir_path="/path/to/model/dir/path", # AI 模型下载和安装的文件夹地址
 )
@@ -74,9 +74,9 @@ with MarkDownWriter(markdown_path, "images", "utf-8") as md:
 此操作的前半部分与 PDF 转化 MarkDown（见前章节）相同，将使用 OCR 从 PDF 中扫描并识别文字。因此，也需要先构建 `PDFPageExtractor` 对象。
 
 ```python
-from pdf_craft import PDFPageExtractor
+from pdf_craft import create_pdf_page_extractor, PDFPageExtractor
 
-extractor = PDFPageExtractor(
+extractor: PDFPageExtractor = create_pdf_page_extractor(
   device="cpu", # 如果希望使用 CUDA，请改为 device="cuda" 这样的格式。
   model_dir_path="/path/to/model/dir/path", # AI 模型下载和安装的文件夹地址
 )
@@ -137,9 +137,9 @@ generate_epub_file(
 通过对同一页进行多次 OCR 来提高识别质量，避免字迹模糊而丢失文字的问题。
 
 ```python
-from pdf_craft import OCRLevel, PDFPageExtractor
+from pdf_craft import create_pdf_page_extractor, OCRLevel
 
-extractor = PDFPageExtractor(
+extractor = create_pdf_page_extractor(
   ..., # 其他参数
   ocr_level=OCRLevel.OncePerLayout,
 )
@@ -158,9 +158,9 @@ extractor = PDFPageExtractor(
 在构建 `PDFPageExtractor` 时插入前文提及的两个参数，以在转 Markdown 时开启公式、表格识别。
 
 ```python
-from pdf_craft import PDFPageExtractor, ExtractedTableFormat
+from pdf_craft import create_pdf_page_extractor, ExtractedTableFormat
 
-extractor = PDFPageExtractor(
+extractor = create_pdf_page_extractor(
   ..., # 其他参数
   extract_formula=True, # 开启公式识别
   extract_table_format=ExtractedTableFormat.MARKDOWN, # 开启表格识别（以 MarkDown 格式保存）
@@ -174,9 +174,9 @@ extractor = PDFPageExtractor(
 同上一章节所述，需要在构建时插入那两个参数。但需注意，`extract_table_format` 的值应为 `ExtractedTableFormat.HTML` 。
 
 ```python
-from pdf_craft import PDFPageExtractor, ExtractedTableFormat
+from pdf_craft import create_pdf_page_extractor, ExtractedTableFormat
 
-extractor = PDFPageExtractor(
+extractor = create_pdf_page_extractor(
   ..., # 其他参数
   extract_formula=True, # 开启公式识别
   extract_table_format=ExtractedTableFormat.HTML, # 开启表格识别（以 MarkDown 格式保存）
