@@ -1,13 +1,13 @@
 # how to release
 
 ```shell
-pip install twine
+poetry config pypi-token.pypi $PYPI_TOKEN$
 ```
 
 ```shell
-python setup.py sdist bdist_wheel
+poetry build
 ```
 
 ```shell
-twine upload dist/*
+poetry publish
 ```
