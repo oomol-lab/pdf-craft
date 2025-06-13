@@ -1,11 +1,12 @@
 import fitz
 
-from typing import Generator, Literal, Iterable, Sequence
+from typing import Generator, Iterable, Sequence
 from pathlib import Path
 from dataclasses import dataclass
 from PIL.Image import frombytes, Image
-from doc_page_extractor import plot, Layout, DocExtractor, ExtractedResult, TableLayoutParsedFormat
+from doc_page_extractor import plot, Layout, ExtractedResult, TableLayoutParsedFormat
 from .section import Section
+from .protocol import DocExtractorProtocol
 from .types import OCRLevel, PDFPageExtractorProgressReport
 
 
@@ -21,8 +22,7 @@ class DocumentParams:
 class DocumentExtractor:
   def __init__(
         self,
-        device: Literal["cpu", "cuda"],
-        model_dir_path: Path,
+        doc_extractor: DocExtractorProtocol,
         ocr_level: OCRLevel,
         extract_formula: bool,
         extract_table_format: TableLayoutParsedFormat | None,
@@ -30,7 +30,7 @@ class DocumentExtractor:
       ) -> None:
 
     self._debug_dir_path: Path | None = debug_dir_path
-    self._doc_extractor = DocExtractor(model_dir_path, device)
+    self._doc_extractor: DocExtractorProtocol = doc_extractor
     self._extract_formula: bool = extract_formula
     self._extract_table_format: TableLayoutParsedFormat | None = extract_table_format
     self._ocr_for_each_layouts: bool = (ocr_level == OCRLevel.OncePerLayout)

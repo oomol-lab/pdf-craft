@@ -7,7 +7,7 @@ sys.path.append(os.path.abspath(os.path.join(__file__, "..", "..")))
 
 from tqdm import tqdm
 from pathlib import Path
-from pdf_craft import analyse, LLM, OCRLevel, PDFPageExtractor, AnalysingStep
+from pdf_craft import analyse, create_pdf_page_extractor, LLM, OCRLevel, AnalysingStep
 
 
 def main():
@@ -43,7 +43,7 @@ def main():
         **_read_format_json(),
         log_dir_path=analysing_dir_path / "log",
       ),
-      pdf_page_extractor=PDFPageExtractor(
+      pdf_page_extractor=create_pdf_page_extractor(
         device="cpu",
         model_dir_path=model_dir_path,
         ocr_level=OCRLevel.OncePerLayout,

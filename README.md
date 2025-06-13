@@ -53,9 +53,9 @@ pip install onnxruntime-gpu==1.21.0
 This operation does not require calling a remote LLM, and can be completed with local computing power (CPU or graphics card). The required model will be downloaded online when it is called for the first time. When encountering illustrations, tables, and formulas in the document, screenshots will be directly inserted into the MarkDown file.
 
 ```python
-from pdf_craft import PDFPageExtractor, MarkDownWriter
+from pdf_craft import create_pdf_page_extractor, PDFPageExtractor, MarkDownWriter
 
-extractor = PDFPageExtractor(
+extractor: PDFPageExtractor = create_pdf_page_extractor(
   device="cpu", # If you want to use CUDA, please change to device="cuda" format.
   model_dir_path="/path/to/model/dir/path", # The folder address where the AI ​​model is downloaded and installed
 )
@@ -75,9 +75,9 @@ The conversion effect is as follows.
 The first half of this operation is the same as Convert PDF to MarkDown (see the previous section). OCR will be used to scan and recognize text from PDF. Therefore, you also need to build a `PDFPageExtractor` object first.
 
 ```python
-from pdf_craft import PDFPageExtractor
+from pdf_craft import create_pdf_page_extractor, PDFPageExtractor
 
-extractor = PDFPageExtractor(
+extractor: PDFPageExtractor = create_pdf_page_extractor(
   device="cpu", # If you want to use CUDA, please change to device="cuda" format.
   model_dir_path="/path/to/model/dir/path", # The folder address where the AI ​​model is downloaded and installed
 )
@@ -138,9 +138,9 @@ This step will divide the chapters in the EPUB according to the previously analy
 Improve recognition quality by performing multiple OCRs on the same page to avoid the problem of blurred text and missing text.
 
 ```python
-from pdf_craft import OCRLevel, PDFPageExtractor
+from pdf_craft import create_pdf_page_extractor, OCRLevel
 
-extractor = PDFPageExtractor(
+extractor = create_pdf_page_extractor(
   device="cpu",
   model_dir_path="/path/to/model/dir/path",
   ocr_level=OCRLevel.OncePerLayout,
@@ -160,9 +160,9 @@ Configuring the parameters of `extract_table_format` and specifying the format w
 Insert the two parameters mentioned above when building `PDFPageExtractor` to enable formula and table recognition when converting Markdown.
 
 ```python
-from pdf_craft import PDFPageExtractor, ExtractedTableFormat
+from pdf_craft import create_pdf_page_extractor, ExtractedTableFormat
 
-extractor = PDFPageExtractor(
+extractor = create_pdf_page_extractor(
   ..., # Other parameters
   extract_formula=True, # Enable formula recognition
   extract_table_format=ExtractedTableFormat.MARKDOWN, # Enable table recognition (save in MarkDown format)
@@ -176,9 +176,9 @@ In particular, for the Markdown conversion scenario, `extract_table_format` can 
 As mentioned in the previous section, you need to insert the two parameters when building. But please note that the value of `extract_table_format` should be `ExtractedTableFormat.HTML`.
 
 ```python
-from pdf_craft import PDFPageExtractor, ExtractedTableFormat
+from pdf_craft import create_pdf_page_extractor, ExtractedTableFormat
 
-extractor = PDFPageExtractor(
+extractor = create_pdf_page_extractor(
   ..., # Other parameters
   extract_formula=True, # Enable formula recognition
   extract_table_format=ExtractedTableFormat.HTML, # Enable table recognition (save in MarkDown format)
