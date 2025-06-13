@@ -7,6 +7,7 @@ from fitz import Document
 from doc_page_extractor import (
   clip,
   OCRFragment,
+  DocExtractor,
   ExtractedResult,
   Layout,
   LayoutClass,
@@ -18,6 +19,7 @@ from doc_page_extractor import (
 )
 
 from .document import DocumentExtractor, DocumentParams
+from .protocol import DocExtractorProtocol
 from .utils import contains_cjka
 from .types import (
   Block,
@@ -34,11 +36,32 @@ from .types import (
 )
 
 
+def create_pdf_page_extractor(
+      device: Literal["cpu", "cuda"],
+      model_dir_path: PathLike,
+      ocr_level: OCRLevel = OCRLevel.Once,
+      extract_formula: bool = True,
+      extract_table_format: ExtractedTableFormat | None = None,
+      debug_dir_path: PathLike | None = None,
+    ) -> "PDFPageExtractor":
+
+  return PDFPageExtractor(
+    device=device,
+    ocr_level=ocr_level,
+    extract_formula=extract_formula,
+    extract_table_format=extract_table_format,
+    debug_dir_path=debug_dir_path,
+    doc_extractor=DocExtractor(
+      model_cache_dir=Path(model_dir_path),
+      device=device,
+    ),
+  )
+
 class PDFPageExtractor:
   def __init__(
         self,
         device: Literal["cpu", "cuda"],
-        model_dir_path: PathLike,
+        doc_extractor: DocExtractorProtocol,
         ocr_level: OCRLevel = OCRLevel.Once,
         extract_formula: bool = True,
         extract_table_format: ExtractedTableFormat | None = None,
@@ -46,7 +69,7 @@ class PDFPageExtractor:
       ) -> None:
 
     if device not in ("cpu", "cuda"):
-      raise ValueError("Device must be 'cpu' or 'cuda'.")
+      raise ValueError("Device must be \"cpu\" or \"cuda\".")
 
     if extract_table_format is None:
       if device == "cpu":
@@ -63,11 +86,10 @@ class PDFPageExtractor:
       to_pass_table_format = TableLayoutParsedFormat.HTML
 
     self._doc_extractor: DocumentExtractor = DocumentExtractor(
-      device=device,
+      doc_extractor=doc_extractor,
       ocr_level=ocr_level,
       extract_formula=extract_formula,
       extract_table_format=to_pass_table_format,
-      model_dir_path=Path(model_dir_path),
       debug_dir_path=Path(debug_dir_path) if debug_dir_path is not None else None,
     )
 

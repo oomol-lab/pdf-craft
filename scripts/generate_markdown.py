@@ -6,7 +6,7 @@ sys.path.append(os.path.abspath(os.path.join(__file__, "..", "..")))
 
 from pathlib import Path
 from tqdm import tqdm
-from pdf_craft import PDFPageExtractor, MarkDownWriter, ExtractedTableFormat
+from pdf_craft import create_pdf_page_extractor, MarkDownWriter, ExtractedTableFormat
 
 
 def main():
@@ -14,7 +14,7 @@ def main():
   pdf_file = pdf_file.resolve()
   output_dir_path = _project_dir_path("output", clean=True)
   markdown_path = output_dir_path / "output.md"
-  extractor = PDFPageExtractor(
+  extractor = create_pdf_page_extractor(
     device="cpu",
     model_dir_path=_project_dir_path("models"),
     extract_table_format=ExtractedTableFormat.MARKDOWN,
