@@ -102,7 +102,7 @@ from pdf_craft import analyse
 
 analyse(
   llm=llm, # 上一步准备好的 LLM 配置
-  pdf_page_extractor=pdf_page_extractor, # 上一部准备好的 PDFPageExtractor 对象
+  pdf_page_extractor=pdf_page_extractor, # 上一步准备好的 PDFPageExtractor 对象
   pdf_path="/path/to/pdf/file", # PDF 文件路径
   analysing_dir_path="/path/to/analysing/dir", # analysing 文件夹地址
   output_dir_path="/path/to/output/files", # 分析结果将写入这个文件夹
