@@ -1,9 +1,13 @@
 [project]
 name = "pdf-craft"
-version = "0.2.1"
+version = "0.2.2"
 description = "PDF craft can convert PDF files into various other formats. This project will focus on processing PDF files of scanned books."
+keywords=["pdf", "epub", "markdown"]
 authors = [
-    {name = "Tao Zeyu",email = "i@taozeyu.com"}
+    {name = "Tao Zeyu", email = "i@taozeyu.com"}
+]
+maintainers = [
+    {name = "Tao Zeyu", email = "i@taozeyu.com"}
 ]
 license = {text = "AGPL-3.0"}
 readme = "README.md"
@@ -27,6 +31,22 @@ dependencies = [
 [build-system]
 requires = ["poetry-core>=2.0.0,<3.0.0"]
 build-backend = "poetry.core.masonry.api"
+
+[tool.poetry]
+license = "MIT"
+readme = "README.md"
+homepage = "https://hub.oomol.com/package/pdf-craft"
+repository = "https://github.com/oomol-lab/pdf-craft"
+packages = [
+    {include = "pdf_craft" }
+]
+classifiers=[
+    "Development Status :: 2 - Pre-Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: GNU Affero General Public License v3",
+    "Programming Language :: Python",
+    "Programming Language :: Python :: 3.10",
+]
 
 [tool.poetry.group.dev.dependencies]
 pylint = "^3.3.7"
