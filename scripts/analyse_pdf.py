@@ -5,7 +5,6 @@ import shutil
 
 sys.path.append(os.path.abspath(os.path.join(__file__, "..", "..")))
 
-from tqdm import tqdm
 from pathlib import Path
 from pdf_craft import analyse, create_pdf_page_extractor, LLM, OCRLevel, AnalysingStep
 
@@ -16,43 +15,33 @@ def main():
   model_dir_path = _project_dir_path("models")
   output_dir_path = _project_dir_path("output", clean=True)
   analysing_dir_path = _project_dir_path("analysing", clean=False)
-  bar: tqdm | None = None
-  count: int = 0
 
-  try:
-    def report_step(step: AnalysingStep):
-      nonlocal bar, count
-      bar = None
-      count = 0
-      print("[[Step]]", step.name)
+  def report_step(step: AnalysingStep):
+    print("[[Step]]", step.name)
 
-    def report_progress(completed_count: int, max_count: int | None):
-      nonlocal bar, count
-      if bar is None:
-        bar = tqdm(total=max_count)
-      bar.update(completed_count - count)
-      count = completed_count
+  def report_progress(completed_count: int, max_count: int | None):
+    print(f"[[Progress]] {completed_count} / {max_count}")
 
-    analyse(
-      pdf_path=pdf_file,
-      analysing_dir_path=analysing_dir_path,
-      output_dir_path=output_dir_path,
-      report_step=report_step,
-      report_progress=report_progress,
-      llm=LLM(
-        **_read_format_json(),
-        log_dir_path=analysing_dir_path / "log",
-      ),
-      pdf_page_extractor=create_pdf_page_extractor(
-        device="cpu",
-        model_dir_path=model_dir_path,
-        ocr_level=OCRLevel.OncePerLayout,
-        debug_dir_path=analysing_dir_path / "plot",
-      ),
-    )
-  finally:
-    if bar is not None:
-      bar.close()
+  pdf_page_extractor = create_pdf_page_extractor(
+    device="cpu",
+    model_dir_path=model_dir_path,
+    ocr_level=OCRLevel.OncePerLayout,
+    debug_dir_path=analysing_dir_path / "plot",
+  )
+  pdf_page_extractor.prepare_models()
+
+  analyse(
+    pdf_path=pdf_file,
+    analysing_dir_path=analysing_dir_path,
+    output_dir_path=output_dir_path,
+    pdf_page_extractor=pdf_page_extractor,
+    report_step=report_step,
+    report_progress=report_progress,
+    llm=LLM(
+      **_read_format_json(),
+      log_dir_path=analysing_dir_path / "log",
+    ),
+  )
 
 def _read_format_json() -> dict:
   path = Path(__file__) / ".." / ".." / "format.json"
