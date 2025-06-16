@@ -16,17 +16,25 @@
 
 PDF Craft can convert PDF files into various other formats. This project will focus on processing PDF files of scanned books. If you encounter any problems or have any suggestions, please submit [issues](https://github.com/oomol-lab/pdf-craft/issues).
 
-[![About PDF Craft](./docs/images/youtube.png)](https://www.youtube.com/watch?v=EpaLC71gPpM)
-
 This project can read PDF pages one by one, and use [DocLayout-YOLO](https://github.com/opendatalab/DocLayout-YOLO) mixed with an algorithm I wrote to extract the text from the book pages and filter out elements such as headers, footers, footnotes, and page numbers. In the process of crossing pages, the algorithm will be used to properly handle the problem of the connection between the previous and next pages, and finally generate semantically coherent text. The book pages will use [OnnxOCR](https://github.com/jingsongliujing/OnnxOCR) for text recognition. And use [layoutreader](https://github.com/ppaanngggg/layoutreader) to determine the reading order that conforms to human habits.
 
 With only these AI models that can be executed locally (using local graphics devices to accelerate), PDF files can be converted to Markdown format. This is suitable for papers or small books.
 
 However, if you want to parse books (generally more than 100 pages), it is recommended to convert them to [EPUB](https://en.wikipedia.org/wiki/EPUB) format files. During the conversion process, this library will pass the data recognized by the local OCR to [LLM](https://en.wikipedia.org/wiki/Large_language_model), and build the structure of the book through specific information (such as the table of contents, etc.), and finally generate an EPUB file with a table of contents and chapters. During this parsing and building process, the comments and reference information of each page will be read through LLM, and then presented in a new format in the EPUB file. In addition, LLM can correct OCR errors to a certain extent. This step cannot be performed entirely locally. You need to configure the LLM service. It is recommended to use [DeepSeek](https://www.deepseek.com/). The prompt of this library is based on the V3 model debugging.
 
-## Installation
+## Environment
 
-You need python 3.10 or above (recommended 3.10.16).
+You can call PDF Craft directly as a library, or use [OOMOL Studio](https://oomol.com/) to run it directly.
+
+### Run with OOMOL Studio
+
+OOMOL uses container technology to package the dependencies required by PDF craft directly, and it can be used out of the box.
+
+[![About PDF Craft](./docs/images/oomol-cover.png)](https://www.youtube.com/watch?v=1yYBCVry77I)
+
+### Call directly as a library
+
+You can also write python code directly and call it as a library. At this time, you need python 3.10 or above (3.10.16 is recommended).
 
 ```shell
 pip install pdf-craft
@@ -35,8 +43,6 @@ pip install pdf-craft
 ```shell
 pip install onnxruntime==1.21.0
 ```
-
-## Using CUDA
 
 If you want to use GPU acceleration, you need to ensure that your device is ready for the CUDA environment. Please refer to the introduction of [PyTorch](https://pytorch.org/get-started/locally/) and select the appropriate command installation according to your operating system installation.
 
@@ -47,6 +53,8 @@ pip install onnxruntime-gpu==1.21.0
 ```
 
 ## Function
+
+[![About PDF Craft](./docs/images/main-cover.png)](https://www.youtube.com/watch?v=EpaLC71gPpM)
 
 ### Convert PDF to MarkDown
 
@@ -67,8 +75,6 @@ with MarkDownWriter(markdown_path, "images", "utf-8") as md:
 After the execution is completed, a `*.md` file will be generated at the specified path. If there are illustrations (or tables, formulas) in the original PDF, an `assets` directory will be created at the same level as `*.md` to save the images. The images in the `assets` directory will be referenced in the MarkDown file in the form of relative addresses.
 
 The conversion effect is as follows.
-
-![](docs/images/pdf2md-en.png)
 
 ### Convert PDF to EPUB
 
