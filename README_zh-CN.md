@@ -16,17 +16,25 @@
 
 PDF Craft 可以将 PDF 文件转化为各种其他格式。该项目将专注于扫描书籍的 PDF 文件的处理。如果你遇到问题或任何建议，请提交 [issues](https://github.com/oomol-lab/pdf-craft/issues)。
 
-[![About PDF Craft](./docs/images/youtube.png)](https://www.youtube.com/watch?v=EpaLC71gPpM)
-
 本项目可将 PDF 一页一页读出，并使用 [DocLayout-YOLO](https://github.com/opendatalab/DocLayout-YOLO) 混合我写的一个算法，将书页中的正文提取出来，并过滤掉页眉、页脚、脚注、页码等元素。在跨页过程中，会使用算法判断以妥善处理前后文跨页顺接问题，最终生成语义通顺的文本。书页会使用 [OnnxOCR](https://github.com/jingsongliujing/OnnxOCR) 进行文本识别。并使用 [layoutreader](https://github.com/ppaanngggg/layoutreader) 来确定符合人类习惯的阅读顺序。
 
 仅靠以上这些可在本地执行的 AI 模型（使用本地显卡设备来加速），便可将 PDF 文件转化为 Markdown 格式。这适应于论文或小书本。
 
 但若要解析书籍（一般页数超过 100 页），建议将其转化为 [EPUB](https://en.wikipedia.org/wiki/EPUB) 格式的文件。转化过程中，本库会将本地 OCR 识别出的数据传给 [LLM](https://en.wikipedia.org/wiki/Large_language_model)，并通过特定信息（比如目录等）来构建书本的结构，最终生成带目录，分章节的 EPUB 文件。这个解析和构建的过程中，会通过 LLM 读取每页的注释和引用信息，然后在 EPUB 文件中以新的格式呈现。此外 LLM 还能在一定程度上校正 OCR 的错误。这一步骤无法全在本地执行，你需要配置 LLM 服务，推荐使用 [DeepSeek](https://www.deepseek.com/)，本库的 Prompt 基于 V3 模型调试。
 
-## 安装
+## 环境
 
-你需要 python 3.10 或以上（推荐 3.10.16）。
+你可以将 PDF Craft 当作库直接调用，或者使用 [OOMOL Studio](https://oomol.com/) 直接运行。
+
+### 使用 OOMOL Studio 运行
+
+OOMOL 使用容器技术将 PDF craft 所需的依赖直接打包，开箱即用。
+
+[![About PDF Craft](./docs/images/oomol-cover.png)](https://www.youtube.com/watch?v=1yYBCVry77I)
+
+### 作为库直接调用
+
+你也可以直接写 python 代码，将它作为库调用。此时你需要 python 3.10 或以上（推荐 3.10.16）。
 
 ```shell
 pip install pdf-craft
@@ -34,8 +42,6 @@ pip install pdf-craft
 ```shell
 pip install onnxruntime==1.21.0
 ```
-
-## 使用 CUDA
 
 如果你希望使用 GPU 加速，需要确保你的设备以准备好 CUDA 环境。请参考 [PyTorch](https://pytorch.org/get-started/locally/) 的介绍，根据你的操作系统安装选择适当的命令安装。
 
@@ -46,6 +52,8 @@ pip install onnxruntime-gpu==1.21.0
 ```
 
 ## 功能
+
+[![About PDF Craft](./docs/images/main-cover.png)](https://www.youtube.com/watch?v=EpaLC71gPpM)
 
 ### PDF 转化为 MarkDown
 
