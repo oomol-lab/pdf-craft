@@ -36,6 +36,7 @@ class Reporter:
     self._report_progress: AnalysingProgressReport | None = report_progress
     self._progress: int = 0
     self._max_progress_count: int | None = None
+    self._current_progress_count = 0
 
   def go_to_step(self, step: AnalysingStep) -> None:
     with self._lock:
@@ -61,3 +62,7 @@ class Reporter:
         return
 
       self._report_progress(next_progress, self._max_progress_count)
+
+  def add(self, count: int):
+        self._current_progress_count += count
+        self._report_progress(self._current_progress_count, self._max_progress_count)

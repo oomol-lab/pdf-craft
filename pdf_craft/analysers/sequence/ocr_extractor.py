@@ -33,20 +33,24 @@ class _Sequence:
     self._ctx: Context[State] = context
     self._threads: MultiThreads = threads
 
+
   def to_sequences(self, ocr_path: Path):
     save_path = self._ctx.path.joinpath(Phase.EXTRACTION.value)
     save_path.mkdir(parents=True, exist_ok=True)
 
     self._ctx.reporter.set(max_count=len(xml_files(ocr_path)))
+    def _add_progress_by_pages(begin, end):
+      page_count = end[0] - begin[0] + 1
+      self._ctx.reporter.add(page_count)
+
     partition: Partition[tuple[int], State, SequenceRequest] = Partition(
-      dimension=1,
-      context=self._ctx,
-      sequence=((r.begin, r.end, r) for r in self._split_requests(ocr_path)),
-      done=lambda _, __: self._ctx.reporter.increment(),
-      remove=lambda begin, end: remove_file(
-        save_path / f"pages_{begin[0]}_{end[0]}.xml"
-      ),
+        dimension=1,
+        context=self._ctx,
+        sequence=((r.begin, r.end, r) for r in self._split_requests(ocr_path)),
+        done=_add_progress_by_pages,
+        remove=lambda begin, end: remove_file(save_path / f"pages_{begin[0]}_{end[0]}.xml"),
     )
+
     with partition:
       self._threads.run(
         next_task=partition.pop_task,
