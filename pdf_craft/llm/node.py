@@ -11,8 +11,8 @@ from pydantic import SecretStr
 from logging import getLogger, DEBUG, Formatter, Logger, FileHandler
 from tiktoken import get_encoding, Encoding
 from langchain_core.messages import SystemMessage, HumanMessage
+from epub_generator.template import create_env
 
-from ..template import create_env
 from ..xml import decode_friendly, encode_friendly
 from .increasable import Increasable
 from .executor import LLMExecutor

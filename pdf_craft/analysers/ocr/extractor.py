@@ -5,9 +5,9 @@ from typing import Generator, Iterable
 from PIL.Image import Image
 from xml.etree.ElementTree import fromstring, Element, ParseError
 
+from ...utils import sha256_hash
 from .asset_matcher import search_asset_tags, AssetMatcher, AssetKind
 from ..reporter import Reporter
-from ...utils import sha256_hash
 from ...pdf import (
   PDFPageExtractor,
   Block,
