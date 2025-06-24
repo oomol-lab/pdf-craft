@@ -30,6 +30,7 @@
     "datas",
     "elif",
     "endfor",
+    "epub",
     "fitz",
     "frombytes",
     "kwoa",
@@ -48,6 +49,7 @@
     "tiktoken",
     "tobytes",
     "updation",
+    "venv",
     "zinfo"
   ]
 }
