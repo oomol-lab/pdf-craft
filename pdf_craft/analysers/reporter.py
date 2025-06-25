@@ -61,3 +61,4 @@ class Reporter:
         return
 
       self._report_progress(next_progress, self._max_progress_count)
+
