@@ -48,6 +48,10 @@ class Reporter:
     with self._lock:
       self._max_progress_count = max_count
 
+  def set_progress(self, progress: int):
+    with self._lock:
+        self._progress = progress
+
   def increment(self, count: int = 1) -> None:
     with self._lock:
       next_progress = self._progress + count

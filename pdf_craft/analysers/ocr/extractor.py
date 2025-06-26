@@ -31,7 +31,29 @@ def extract_ocr_page_xmls(
   ) -> Generator[Element, None, None]:
 
   with fitz.open(pdf_path) as pdf:
+    ocr_path = assets_dir_path.parent / "ocr"
+    ocr_path.mkdir(parents=True, exist_ok=True)
+
+    existing_pages = set()
+    for file in ocr_path.glob("page_*.xml"):
+      try:
+        page_num = int(file.stem.split("_")[1])
+        existing_pages.add(page_num)
+      except (ValueError, IndexError):
+        continue
+
     reporter.set(max_count=pdf.page_count)
+    reporter.set_progress(len(existing_pages))
+
+    for page_index in sorted(existing_pages):
+      xml_file = ocr_path / f"page_{page_index}.xml"
+      try:
+        with open(xml_file, "r", encoding="utf-8") as f:
+          page_xml = fromstring(f.read())
+          yield page_index, page_xml
+      except (FileNotFoundError, ParseError):
+        existing_pages.discard(page_index)
+
     for i, blocks, image in extractor.extract_enumerated_blocks_and_image(
       pdf=pdf,
       page_indexes=(i for i in range(pdf.page_count) if i not in expected_page_indexes),
