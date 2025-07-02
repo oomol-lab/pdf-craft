@@ -34,25 +34,27 @@ def extract_ocr_page_xmls(
     ocr_path = assets_dir_path.parent / "ocr"
     ocr_path.mkdir(parents=True, exist_ok=True)
 
-    existing_pages = set()
+    existing_from_disk = set()
     for file in ocr_path.glob("page_*.xml"):
       try:
         page_num = int(file.stem.split("_")[1])
-        existing_pages.add(page_num)
+        existing_from_disk.add(page_num)
       except (ValueError, IndexError):
         continue
 
-    reporter.set(max_count=pdf.page_count)
-    reporter.set_progress(len(existing_pages))
+    expected_page_indexes = set(expected_page_indexes) | existing_from_disk
 
-    for page_index in sorted(existing_pages):
+    reporter.set(max_count=pdf.page_count)
+    reporter.set_progress(len(expected_page_indexes))
+
+    for page_index in sorted(expected_page_indexes):
       xml_file = ocr_path / f"page_{page_index}.xml"
       try:
         with open(xml_file, "r", encoding="utf-8") as f:
           page_xml = fromstring(f.read())
           yield page_index, page_xml
       except (FileNotFoundError, ParseError):
-        existing_pages.discard(page_index)
+        continue
 
     for i, blocks, image in extractor.extract_enumerated_blocks_and_image(
       pdf=pdf,
