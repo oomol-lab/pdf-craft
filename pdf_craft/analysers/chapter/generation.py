@@ -180,16 +180,18 @@ def _filter_chapters(raw_chapters: list[Chapter], used_chapter_ids: set[int]) ->
   return chapters
 
 def _filter_chapter(raw_chapter: Chapter, used_chapter_ids: set[int]) -> Chapter | None:
+  filtered_chapter: Chapter | None = None
   children: list[Chapter] = []
+
   for sub_chapter in raw_chapter.children:
     sub_chapter = _filter_chapter(sub_chapter, used_chapter_ids)
     if sub_chapter is not None:
       children.append(sub_chapter)
 
-  if children and raw_chapter.id not in used_chapter_ids:
-    return None
-  return Chapter(
-    id=raw_chapter.id,
-    name=raw_chapter.name,
-    children=children,
-  )
+  if len(children) > 0 or raw_chapter.id in used_chapter_ids:
+    filtered_chapter = Chapter(
+      id=raw_chapter.id,
+      name=raw_chapter.name,
+      children=children,
+    )
+  return filtered_chapter
