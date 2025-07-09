@@ -278,6 +278,9 @@ analyse(
 )
 ```
 
+## 相关开源库
+[epub-translator](https://github.com/oomol-lab/epub-translator) 利用 AI 大模型自动翻译 EPUB 电子书，并 100% 保留原书的格式、插图、目录和排版，同时生成 双语对照版本，方便语言学习或国际分享。与本库搭配，可将扫描 PDF 书籍转换并翻译。搭配使用可参考 [视频：PDF 扫描件书籍转 EPUB 格式，翻译成双语书](https://www.bilibili.com/video/BV1tMQZY5EYY)。
+
 ## 致谢
 
 - [doc-page-extractor](https://github.com/Moskize91/doc-page-extractor)

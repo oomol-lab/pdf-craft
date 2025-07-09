@@ -278,6 +278,9 @@ analyse(
 )
 ```
 
+## Related open source libraries
+[epub-translator](https://github.com/oomol-lab/epub-translator) uses AI big models to automatically translate EPUB e-books, and retains 100% of the original book's format, illustrations, catalog, and layout, while generating bilingual versions for easy language learning or international sharing. Used with this library, scanned PDF books can be converted and translated. For combined use, please refer to [Video: Convert PDF scanned books to EPUB format and translate into bilingual books](https://www.bilibili.com/video/BV1tMQZY5EYY).
+
 ## Acknowledgements
 
 - [doc-page-extractor](https://github.com/Moskize91/doc-page-extractor)
