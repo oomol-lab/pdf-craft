@@ -15,8 +15,8 @@ def extract_sequences(
       workspace_path: Path,
       ocr_path: Path,
       max_request_data_tokens: int,
-      max_paragraph_tokens: int,
-      max_paragraphs: int,
+      max_verify_paragraph_tokens: int,
+      max_verify_paragraphs_count: int,
     ) -> None:
 
   context: Context[State] = Context(
@@ -25,8 +25,8 @@ def extract_sequences(
     init=lambda: {
       "phase": Phase.EXTRACTION.value,
       "max_request_data_tokens": max_request_data_tokens,
-      "max_paragraph_tokens": max_paragraph_tokens,
-      "max_paragraphs": max_paragraphs,
+      "max_verify_paragraph_tokens": max_verify_paragraph_tokens,
+      "max_verify_paragraphs_count": max_verify_paragraphs_count,
       "completed_ranges": [],
     },
   )

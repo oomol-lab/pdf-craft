@@ -193,12 +193,12 @@ class _Joint:
         meta_truncation_dict[page_index] = (meta, truncation)
 
   def _search_uncertain_request(self, meta_truncation_dict: _MetaTruncationDict):
-    max_paragraphs = self._ctx.state["max_paragraphs"]
+    max_verify_paragraphs_count = self._ctx.state["max_verify_paragraphs_count"]
     request_element: Element | None = None
     request_page_indexes: list[int] = []
 
     for page_index, text1, text2 in self._search_uncertain_texts(meta_truncation_dict):
-      if request_element is not None and len(request_element) > max_paragraphs:
+      if request_element is not None and len(request_element) > max_verify_paragraphs_count:
         yield request_page_indexes, request_element
         request_element = None
         request_page_indexes = []
@@ -239,7 +239,7 @@ class _Joint:
       )
 
   def _search_uncertain_texts(self, meta_truncation_dict: _MetaTruncationDict):
-    max_paragraph_tokens = self._ctx.state["max_paragraph_tokens"]
+    max_verify_paragraph_tokens = self._ctx.state["max_verify_paragraph_tokens"]
     tail: Element | None = None
 
     for page_index, sequence in self._extract_sequences():
@@ -255,7 +255,7 @@ class _Joint:
         tokens1: list[int] = []
         tokens2: list[int] = []
 
-        while len(tokens1) + len(tokens2) < max_paragraph_tokens:
+        while len(tokens1) + len(tokens2) < max_verify_paragraph_tokens:
           if raw_tokens1:
             tokens1.append(raw_tokens1.pop())
           if raw_tokens2:
@@ -277,13 +277,13 @@ class _Joint:
         tail = head if len(body) == 0 else body[-1]
 
   def _generate_paragraphs(self, meta_truncation_dict: _MetaTruncationDict) -> Generator[ParagraphDraft, None, None]:
-    max_paragraph_tokens = self._ctx.state["max_paragraph_tokens"]
+    max_verify_paragraph_tokens = self._ctx.state["max_verify_paragraph_tokens"]
     for paragraph in self._join_and_collect_paragraphs(meta_truncation_dict):
-      if paragraph.tokens <= max_paragraph_tokens:
+      if paragraph.tokens <= max_verify_paragraph_tokens:
         yield paragraph
       else:
-        for forked in paragraph.fork(max_paragraph_tokens):
-          if forked.tokens > max_paragraph_tokens:
+        for forked in paragraph.fork(max_verify_paragraph_tokens):
+          if forked.tokens > max_verify_paragraph_tokens:
             print(f"Warning: paragraph at page {forked.page_index} has too many tokens: {forked.tokens}")
           yield forked
 
