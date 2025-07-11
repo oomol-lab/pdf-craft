@@ -2752,14 +2752,14 @@ requests = ">=2.0.1,<3.0.0"
 
 [[package]]
 name = "resource-segmentation"
-version = "0.0.2"
+version = "0.0.3"
 description = ""
 optional = false
 python-versions = "<3.13,>=3.10"
 groups = ["main"]
 files = [
-    {file = "resource_segmentation-0.0.2-py3-none-any.whl", hash = "sha256:a1885940bbbe364c2fa6fd822f29e9c0ff9c229c080caa0ec88d1976dab6602a"},
-    {file = "resource_segmentation-0.0.2.tar.gz", hash = "sha256:db11ec6f83f4a184ac52951c954ead65ba78228360561608aafaf5800166bd58"},
+    {file = "resource_segmentation-0.0.3-py3-none-any.whl", hash = "sha256:91643913c40e5fb0ac651da5583935022971ebbfcc1b5249b6431a8ebc84cec5"},
+    {file = "resource_segmentation-0.0.3.tar.gz", hash = "sha256:5084991214243cd727174b36feaaacae65e13d3c701b399520a7b325f13cbfc2"},
 ]
 
 [[package]]
@@ -4021,4 +4021,4 @@ cffi = ["cffi (>=1.11)"]
 [metadata]
 lock-version = "2.1"
 python-versions = ">=3.10,<3.13"
-content-hash = "4ddff435632536776a98a43e4febb0bd10927a3d595b2dd9f7ac43a491dbc95f"
+content-hash = "27bbcf2067fb351b96f2468ab2cde75cfd8dc2cfe2812a973a2ece643802f3fa"
