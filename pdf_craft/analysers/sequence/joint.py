@@ -80,7 +80,7 @@ class _Joint:
     last_page_index = 0
     next_paragraph_id = 1
 
-    for paragraph in self._join_and_collect_paragraphs(meta_truncation_dict):
+    for paragraph in self._generate_paragraphs(meta_truncation_dict):
       page_index = paragraph.page_index
       if last_page_index != page_index:
         last_page_index = page_index
@@ -275,6 +275,17 @@ class _Joint:
 
       if truncation == TruncationKind.UNCERTAIN:
         tail = head if len(body) == 0 else body[-1]
+
+  def _generate_paragraphs(self, meta_truncation_dict: _MetaTruncationDict) -> Generator[ParagraphDraft, None, None]:
+    max_paragraph_tokens = self._ctx.state["max_paragraph_tokens"]
+    for paragraph in self._join_and_collect_paragraphs(meta_truncation_dict):
+      if paragraph.tokens <= max_paragraph_tokens:
+        yield paragraph
+      else:
+        for forked in paragraph.fork():
+          if forked.tokens > max_paragraph_tokens:
+            print(f"Warning: paragraph at page {forked.page_index} has too many tokens: {forked.tokens}")
+          yield forked
 
   def _join_and_collect_paragraphs(self, meta_truncation_dict: _MetaTruncationDict) -> Generator[ParagraphDraft, None, None]:
     last_paragraph: ParagraphDraft | None = None
