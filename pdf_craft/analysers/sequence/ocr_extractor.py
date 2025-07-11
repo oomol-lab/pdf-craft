@@ -33,7 +33,6 @@ class _Sequence:
     self._ctx: Context[State] = context
     self._threads: MultiThreads = threads
 
-
   def to_sequences(self, ocr_path: Path):
     save_path = self._ctx.path.joinpath(Phase.EXTRACTION.value)
     save_path.mkdir(parents=True, exist_ok=True)
@@ -50,7 +49,6 @@ class _Sequence:
       done=_add_progress_by_pages,
       remove=lambda begin, end: remove_file(save_path / f"pages_{begin[0]}_{end[0]}.xml"),
     )
-
     with partition:
       self._threads.run(
         next_task=partition.pop_task,

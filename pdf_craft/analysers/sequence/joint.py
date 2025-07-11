@@ -143,13 +143,12 @@ class _Joint:
       yield TruncationKind.UNCERTAIN
 
   def _request_llm_to_verify(self, meta_truncation_dict: _MetaTruncationDict):
-    self._join_path.mkdir(parents=True, exist_ok=True)
-    self._ctx.reporter.set(
-      max_count=sum(
-        1 for _, kind in meta_truncation_dict.values()
-        if kind == TruncationKind.UNCERTAIN
-      ),
+    uncertain_truncations_count = sum(
+      1 for _, kind in meta_truncation_dict.values()
+      if kind == TruncationKind.UNCERTAIN
     )
+    self._join_path.mkdir(parents=True, exist_ok=True)
+    self._ctx.reporter.set(uncertain_truncations_count)
     partition: Partition[tuple[int], State, Element] = Partition(
       dimension=1,
       context=self._ctx,
