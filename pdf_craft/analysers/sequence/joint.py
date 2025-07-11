@@ -4,7 +4,8 @@ from typing import Generator
 from enum import auto, Enum
 from xml.etree.ElementTree import fromstring, Element
 
-from .common import get_truncation_attr
+from .common import get_truncation_attr, State, SequenceType, Truncation
+from .draft import ParagraphDraft
 from ...llm import LLM
 from ...xml import encode
 from ..data import ParagraphType
@@ -17,8 +18,6 @@ from ..utils import (
   PartitionTask,
   MultiThreads,
 )
-
-from .common import State, SequenceType, Truncation
 
 
 def join(
@@ -52,30 +51,6 @@ class _TruncationKind(Enum):
   UNCERTAIN = auto()
 
 _MetaTruncationDict = dict[int, tuple[_SequenceMeta, _TruncationKind]]
-
-class _Paragraph:
-  def __init__(self, type: ParagraphType, page_index: int, element: Element):
-    self._type: ParagraphType = type
-    self._page_index: int = page_index
-    self._children: list[Element] = [element]
-
-  def append(self, element: Element):
-    self._children.append(element)
-
-  @property
-  def page_index(self) -> int:
-    return self._page_index
-
-  @property
-  def type(self) -> ParagraphType:
-    return self._type
-
-  def to_xml(self) -> Element:
-    element = Element("paragraph")
-    element.set("type", self._type.value)
-    for child in self._children:
-      element.append(child)
-    return element
 
 class _Joint:
   def __init__(
@@ -111,7 +86,7 @@ class _Joint:
     last_page_index = 0
     next_paragraph_id = 1
 
-    for paragraph in self._join_and_get_sequences(meta_truncation_dict):
+    for paragraph in self._join_and_collect_paragraphs(meta_truncation_dict):
       page_index = paragraph.page_index
       if last_page_index != page_index:
         last_page_index = page_index
@@ -307,8 +282,8 @@ class _Joint:
       if truncation == _TruncationKind.UNCERTAIN:
         tail = head if len(body) == 0 else body[-1]
 
-  def _join_and_get_sequences(self, meta_truncation_dict: _MetaTruncationDict) -> Generator[_Paragraph, None, None]:
-    last_paragraph: _Paragraph | None = None
+  def _join_and_collect_paragraphs(self, meta_truncation_dict: _MetaTruncationDict) -> Generator[ParagraphDraft, None, None]:
+    last_paragraph: ParagraphDraft | None = None
     for page_index, sequence in self._extract_sequences():
       meta, truncation = meta_truncation_dict[page_index]
       head, body = self._split_sequence(sequence)
@@ -319,9 +294,9 @@ class _Joint:
         last_paragraph = None
 
       if last_paragraph is not None:
-        last_paragraph.append(head)
+        last_paragraph.append(page_index, head)
       else:
-        last_paragraph = _Paragraph(
+        last_paragraph = ParagraphDraft(
           type=meta.paragraph_type,
           page_index=meta.page_index,
           element=head,
@@ -330,7 +305,7 @@ class _Joint:
       for element in body:
         if last_paragraph is not None:
           yield last_paragraph
-        last_paragraph = _Paragraph(
+        last_paragraph = ParagraphDraft(
           type=meta.paragraph_type,
           page_index=meta.page_index,
           element=element,
