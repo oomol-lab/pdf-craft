@@ -289,17 +289,17 @@ class _Joint:
 
       tokens = self._llm.count_tokens_count(head)
       if last_paragraph is not None:
-        last_paragraph.append(page_index, head, tokens)
+        last_paragraph.append(meta.page_index, head, tokens)
       else:
-        last_paragraph = ParagraphDraft(meta.paragraph_type, meta.page_index)
-        last_paragraph.append(page_index, head, tokens)
+        last_paragraph = ParagraphDraft(meta.paragraph_type)
+        last_paragraph.append(meta.page_index, head, tokens)
 
       for element in body:
         if last_paragraph is not None:
           yield last_paragraph
         tokens = self._llm.count_tokens_count(element)
-        last_paragraph = ParagraphDraft(meta.paragraph_type, meta.page_index)
-        last_paragraph.append(page_index, element, tokens)
+        last_paragraph = ParagraphDraft(meta.paragraph_type)
+        last_paragraph.append(meta.page_index, element, tokens)
 
       if last_paragraph is not None:
         last_paragraph.set_tail_truncation(truncation)
