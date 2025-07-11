@@ -53,13 +53,13 @@ class Reporter:
       if self._max_progress_count is not None:
         progress = min(progress, self._max_progress_count)
 
-    if progress == self._progress:
-      return
-    self._progress = progress
-    if self._report_progress is None:
-      return
+      if progress == self._progress:
+        return
+      self._progress = progress
+      if self._report_progress is None:
+        return
 
-    self._report_progress(self._progress, self._max_progress_count)
+      self._report_progress(self._progress, self._max_progress_count)
 
   def increment(self, count: int = 1) -> None:
     self.set_progress(self._progress + count)
