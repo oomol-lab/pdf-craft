@@ -1,11 +1,10 @@
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Generator
-from enum import auto, Enum
 from xml.etree.ElementTree import fromstring, Element
 
 from .common import get_truncation_attr, State, SequenceType, Truncation
-from .draft import ParagraphDraft
+from .draft import TruncationKind, ParagraphDraft
 from ...llm import LLM
 from ...xml import encode
 from ..data import ParagraphType
@@ -45,12 +44,7 @@ class _SequenceMeta:
   page_index: int
   truncations: tuple[Truncation, Truncation]
 
-class _TruncationKind(Enum):
-  NO = auto()
-  VERIFIED = auto()
-  UNCERTAIN = auto()
-
-_MetaTruncationDict = dict[int, tuple[_SequenceMeta, _TruncationKind]]
+_MetaTruncationDict = dict[int, tuple[_SequenceMeta, TruncationKind]]
 
 class _Joint:
   def __init__(
@@ -76,7 +70,7 @@ class _Joint:
     meta_truncation_dict: _MetaTruncationDict = {}
 
     for i, meta in enumerate(metas):
-      truncation: _TruncationKind = _TruncationKind.NO
+      truncation: TruncationKind = TruncationKind.NO
       if i < len(truncations):
         truncation = truncations[i]
       meta_truncation_dict[meta.page_index] = (meta, truncation)
@@ -138,22 +132,22 @@ class _Joint:
       truncations = (truncation1, truncation2)
 
       if all(t == Truncation.NO for t in truncations):
-        yield _TruncationKind.NO
+        yield TruncationKind.NO
         continue
 
       if any(t == Truncation.YES for t in truncations) and \
          all(t in (Truncation.YES, Truncation.PROBABLY) for t in truncations):
-        yield _TruncationKind.VERIFIED
+        yield TruncationKind.VERIFIED
         continue
 
-      yield _TruncationKind.UNCERTAIN
+      yield TruncationKind.UNCERTAIN
 
   def _request_llm_to_verify(self, meta_truncation_dict: _MetaTruncationDict):
     self._join_path.mkdir(parents=True, exist_ok=True)
     self._ctx.reporter.set(
       max_count=sum(
         1 for _, kind in meta_truncation_dict.values()
-        if kind == _TruncationKind.UNCERTAIN
+        if kind == TruncationKind.UNCERTAIN
       ),
     )
     partition: Partition[tuple[int], State, Element] = Partition(
@@ -193,9 +187,9 @@ class _Joint:
           continue
         conclusion = child.get("conclusion", None)
         meta, _ = meta_truncation_dict[page_index]
-        truncation = _TruncationKind.NO
+        truncation = TruncationKind.NO
         if conclusion == Truncation.YES:
-          truncation = _TruncationKind.VERIFIED
+          truncation = TruncationKind.VERIFIED
         meta_truncation_dict[page_index] = (meta, truncation)
 
   def _search_uncertain_request(self, meta_truncation_dict: _MetaTruncationDict):
@@ -279,7 +273,7 @@ class _Joint:
 
         yield page_index - 1, text1, text2
 
-      if truncation == _TruncationKind.UNCERTAIN:
+      if truncation == TruncationKind.UNCERTAIN:
         tail = head if len(body) == 0 else body[-1]
 
   def _join_and_collect_paragraphs(self, meta_truncation_dict: _MetaTruncationDict) -> Generator[ParagraphDraft, None, None]:
@@ -293,26 +287,25 @@ class _Joint:
         yield last_paragraph
         last_paragraph = None
 
+      tokens = self._llm.count_tokens_count(head)
       if last_paragraph is not None:
-        last_paragraph.append(page_index, head)
+        last_paragraph.append(page_index, head, tokens)
       else:
-        last_paragraph = ParagraphDraft(
-          type=meta.paragraph_type,
-          page_index=meta.page_index,
-          element=head,
-        )
+        last_paragraph = ParagraphDraft(meta.paragraph_type, meta.page_index)
+        last_paragraph.append(page_index, head, tokens)
 
       for element in body:
         if last_paragraph is not None:
           yield last_paragraph
-        last_paragraph = ParagraphDraft(
-          type=meta.paragraph_type,
-          page_index=meta.page_index,
-          element=element,
-        )
-      if last_paragraph is not None and truncation == _TruncationKind.NO:
-        yield last_paragraph
-        last_paragraph = None
+        tokens = self._llm.count_tokens_count(element)
+        last_paragraph = ParagraphDraft(meta.paragraph_type, meta.page_index)
+        last_paragraph.append(page_index, element, tokens)
+
+      if last_paragraph is not None:
+        last_paragraph.set_tail_truncation(truncation)
+        if truncation == TruncationKind.NO:
+          yield last_paragraph
+          last_paragraph = None
 
     if last_paragraph is not None:
       yield last_paragraph
