@@ -282,6 +282,8 @@ class _Joint:
       if paragraph.tokens <= max_request_data_tokens:
         yield paragraph
       else:
+        # TODO: 临时解决 Paragraph 过大导致后续请求拆分拆不动的问题
+        #。     https://github.com/oomol-lab/pdf-craft/issues/227
         for forked in paragraph.fork(max_request_data_tokens):
           if forked.tokens > max_request_data_tokens:
             print(f"Warning: paragraph at page {forked.page_index} has too many tokens: {forked.tokens}")
