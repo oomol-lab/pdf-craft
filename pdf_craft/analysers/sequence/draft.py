@@ -1,8 +1,8 @@
 from typing import Generator
 from dataclasses import dataclass
-from enum import auto, Enum
+from enum import auto, Enum, IntEnum
 from xml.etree.ElementTree import Element
-from resource_segmentation import split, Incision, Resource, Segment, Group
+from resource_segmentation import split, Resource, Segment, Group
 from ..data import ParagraphType
 
 
@@ -17,6 +17,13 @@ class _Child:
   element: Element
   tokens: int
   tail: TruncationKind
+
+@dataclass
+class _Incision(IntEnum):
+  MUST_BE = 2
+  MOST_LIKELY = 1
+  UNCERTAIN = 0
+  IMPOSSIBLE = -1
 
 class ParagraphDraft:
   def __init__(self, type: ParagraphType):
@@ -49,7 +56,7 @@ class ParagraphDraft:
     self._children[-1].tail = kind
 
   def fork(self, max_chunk_tokens: int) -> Generator["ParagraphDraft", None, None]:
-    pre_incision: Incision = Incision.IMPOSSIBLE
+    pre_incision: _Incision = _Incision.IMPOSSIBLE
     resources: list[Resource[_Child]] = []
 
     for child in self._children:
@@ -65,6 +72,7 @@ class ParagraphDraft:
     for group in split(
       resources=iter(resources),
       max_segment_count=max_chunk_tokens,
+      border_incision=_Incision.IMPOSSIBLE,
       gap_rate=0,
       tail_rate=0,
     ):
@@ -87,13 +95,13 @@ class ParagraphDraft:
       element.append(child.element)
     return element
 
-  def _to_incision(self, kind: TruncationKind) -> Incision:
+  def _to_incision(self, kind: TruncationKind) -> _Incision:
     if kind == TruncationKind.NO:
-      return Incision.IMPOSSIBLE
+      return _Incision.IMPOSSIBLE
     elif kind == TruncationKind.VERIFIED:
-      return Incision.MUST_BE
+      return _Incision.MUST_BE
     elif kind == TruncationKind.UNCERTAIN:
-      return Incision.UNCERTAIN
+      return _Incision.UNCERTAIN
     else:
       raise ValueError(f"Unknown truncation kind: {kind}")
 
