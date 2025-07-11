@@ -277,13 +277,13 @@ class _Joint:
         tail = head if len(body) == 0 else body[-1]
 
   def _generate_paragraphs(self, meta_truncation_dict: _MetaTruncationDict) -> Generator[ParagraphDraft, None, None]:
-    max_verify_paragraph_tokens = self._ctx.state["max_verify_paragraph_tokens"]
+    max_request_data_tokens = self._ctx.state["max_request_data_tokens"]
     for paragraph in self._join_and_collect_paragraphs(meta_truncation_dict):
-      if paragraph.tokens <= max_verify_paragraph_tokens:
+      if paragraph.tokens <= max_request_data_tokens:
         yield paragraph
       else:
-        for forked in paragraph.fork(max_verify_paragraph_tokens):
-          if forked.tokens > max_verify_paragraph_tokens:
+        for forked in paragraph.fork(max_request_data_tokens):
+          if forked.tokens > max_request_data_tokens:
             print(f"Warning: paragraph at page {forked.page_index} has too many tokens: {forked.tokens}")
           yield forked
 
