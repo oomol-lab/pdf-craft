@@ -67,8 +67,8 @@ def analyse(
     workspace_path=sequence_path,
     ocr_path=ocr_path,
     max_request_data_tokens=window_tokens.max_request_data_tokens,
-    max_paragraph_tokens=window_tokens.max_verify_paragraph_tokens,
-    max_paragraphs=window_tokens.max_verify_paragraphs_count,
+    max_verify_paragraph_tokens=window_tokens.max_verify_paragraph_tokens,
+    max_verify_paragraphs_count=window_tokens.max_verify_paragraphs_count,
   )
   sequence_output_path = sequence_path / "output"
 
