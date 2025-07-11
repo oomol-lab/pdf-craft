@@ -6,7 +6,7 @@ from xml.etree.ElementTree import fromstring, Element
 from .common import get_truncation_attr, State, SequenceType, Truncation
 from .draft import TruncationKind, ParagraphDraft
 from ...llm import LLM
-from ...xml import encode
+from ...xml import encode, encode_friendly
 from ..data import ParagraphType
 from ..utils import (
   remove_file,
@@ -282,7 +282,7 @@ class _Joint:
       if paragraph.tokens <= max_paragraph_tokens:
         yield paragraph
       else:
-        for forked in paragraph.fork():
+        for forked in paragraph.fork(max_paragraph_tokens):
           if forked.tokens > max_paragraph_tokens:
             print(f"Warning: paragraph at page {forked.page_index} has too many tokens: {forked.tokens}")
           yield forked
@@ -298,7 +298,7 @@ class _Joint:
         yield last_paragraph
         last_paragraph = None
 
-      tokens = self._llm.count_tokens_count(head)
+      tokens = self._llm.count_tokens_count(encode_friendly(head))
       if last_paragraph is not None:
         last_paragraph.append(meta.page_index, head, tokens)
       else:
@@ -308,7 +308,7 @@ class _Joint:
       for element in body:
         if last_paragraph is not None:
           yield last_paragraph
-        tokens = self._llm.count_tokens_count(element)
+        tokens = self._llm.count_tokens_count(encode_friendly(element))
         last_paragraph = ParagraphDraft(meta.paragraph_type)
         last_paragraph.append(meta.page_index, element, tokens)
 

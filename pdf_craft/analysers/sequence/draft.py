@@ -63,7 +63,7 @@ class ParagraphDraft:
       pre_incision = incision
 
     for group in split(
-      resources=resources,
+      resources=iter(resources),
       max_segment_count=max_chunk_tokens,
       gap_rate=0,
       tail_rate=0,
@@ -83,8 +83,8 @@ class ParagraphDraft:
   def to_xml(self) -> Element:
     element = Element("paragraph")
     element.set("type", self._type.value)
-    for _, child in self._children:
-      element.append(child)
+    for child in self._children:
+      element.append(child.element)
     return element
 
   def _to_incision(self, kind: TruncationKind) -> Incision:
