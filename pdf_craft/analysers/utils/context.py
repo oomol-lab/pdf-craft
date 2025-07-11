@@ -15,7 +15,7 @@ from ...xml import encode
 from ..reporter import Reporter
 
 
-CURRENT_STATE_VERSION = "1.0.0"
+CURRENT_STATE_VERSION = "1.0.1"
 S = TypeVar("S")
 
 _STATE_FILE = "state.yaml"

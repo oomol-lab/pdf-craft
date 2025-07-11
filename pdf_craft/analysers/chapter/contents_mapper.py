@@ -55,6 +55,9 @@ class _ContentsMapper:
     contents_tokens_count = self._llm.count_tokens_count(
       text=encode_friendly(self._get_contents_xml()),
     )
+    self._ctx.reporter.set(
+      max_count=sum(1 for _ in self._gen_request(contents_tokens_count)),
+    )
     partition: Partition[tuple[int], State, FragmentRequest] = Partition(
       dimension=1,
       context=self._ctx,

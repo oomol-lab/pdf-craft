@@ -14,6 +14,9 @@ class MultipleCorrector(Corrector):
 
   def do(self, from_path: Path, request_path: Path, is_footnote: bool) -> None:
     request_path.mkdir(parents=True, exist_ok=True)
+    self.ctx.reporter.set(
+      max_count=sum(1 for _ in self.generate_request_xml(from_path)),
+    )
     partition: Partition[tuple[int, int], State, Element] = Partition(
       dimension=2,
       context=self.ctx,
