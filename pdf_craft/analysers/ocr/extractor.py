@@ -129,7 +129,8 @@ def _migrate_expressions_and_save_images(root: Element, blocks: list[Block], ass
           table_content = Element("html")
           table_content.append(table_element)
           children = (table_content,)
-        except ParseError:
+        except ParseError as err:
+          print("warn: parsed table HTML failed: ", err)
           pass
 
     elif isinstance(block, FormulaBlock):
