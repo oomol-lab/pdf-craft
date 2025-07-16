@@ -17,5 +17,4 @@ conda create --prefix ./.venv python=3.10.16 -y
 eval "$(conda shell.bash hook)"
 conda activate ./.venv
 
-poetry install --no-root
-pip install onnxruntime==1.21.0
+poetry install --no-root --extras cpu
