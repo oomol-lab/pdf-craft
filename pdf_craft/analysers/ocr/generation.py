@@ -9,7 +9,7 @@ from .extractor import extract_ocr_page_xmls
 
 class _State(TypedDict):
   completed_scanning: bool
-  completed_pages: list[int] = []
+  completed_pages: list[int]
 
 def generate_ocr_pages(
       extractor: PDFPageExtractor,

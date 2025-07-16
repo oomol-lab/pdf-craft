@@ -108,7 +108,7 @@ class PDFPageExtractor:
       pdf: str | Document,
       page_indexes: Iterable[int] | None = None,
       report_progress: PDFPageExtractorProgressReport | None = None,
-    ) -> Generator[tuple[int, list[Block], Image], None, None]:
+    ) -> Generator[tuple[int, list[Block], Image | None], None, None]:
 
     for page_index, result, layouts in self._doc_extractor.extract(DocumentParams(
       pdf=pdf,
@@ -240,14 +240,17 @@ class PDFPageExtractor:
     format: TableFormat = TableFormat.UNRECOGNIZABLE
     content: str = ""
 
-    if parsed is not None and self._can_use_latex(layout):
+    if parsed:
       content, layout_format = parsed
-      if layout_format == TableLayoutParsedFormat.LATEX:
+      if layout_format == TableLayoutParsedFormat.HTML:
+        format = TableFormat.HTML
+      elif not self._can_use_latex(layout):
+        content = ""
+        format = TableFormat.UNRECOGNIZABLE
+      elif layout_format == TableLayoutParsedFormat.LATEX:
         format = TableFormat.LATEX
       elif layout_format == TableLayoutParsedFormat.MARKDOWN:
         format = TableFormat.MARKDOWN
-      elif layout_format == TableLayoutParsedFormat.HTML:
-        format = TableFormat.HTML
 
     return TableBlock(
       rect=layout.rect,

@@ -41,7 +41,7 @@ class AssetMatcher:
     for element in search_asset_tags(root):
       kind = self._tag_to_asset_kind(element.tag)
       cloned_list = self._cloned_store.get(kind, None)
-      if cloned_list is None or len(cloned_list) == 0:
+      if not cloned_list:
         continue
       cloned = cloned_list.pop(0)
       attrib = {

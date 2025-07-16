@@ -62,5 +62,5 @@ class FormulaBlock(BasicBlock):
 class FigureBlock(BasicBlock):
   image: Image
 
-AssetBlock = TableFormat | FormulaBlock | FigureBlock
+AssetBlock = TableBlock | FormulaBlock | FigureBlock
 Block = TextBlock | AssetBlock

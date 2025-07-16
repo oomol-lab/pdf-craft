@@ -28,10 +28,9 @@ def extract_ocr_page_xmls(
     cover_path: Path,
     assets_dir_path: Path,
     reporter: Reporter,
-  ) -> Generator[Element, None, None]:
+  ) -> Generator[tuple[int, Element], None, None]:
 
   with fitz.open(pdf_path) as pdf:
-
     reporter.set(max_count=pdf.page_count)
     reporter.set_progress(len(expected_page_indexes))
 
@@ -39,7 +38,7 @@ def extract_ocr_page_xmls(
       pdf=pdf,
       page_indexes=(i for i in range(pdf.page_count) if i not in expected_page_indexes),
     ):
-      if i == 0:
+      if image and i == 0:
         image.save(cover_path)
 
       page_xml = _transform_page_xml(blocks)
@@ -62,6 +61,8 @@ def _transform_page_xml(blocks: list[Block]) -> Element:
         tag_name = "text"
       elif block.kind == TextKind.ABANDON:
         tag_name = "abandon"
+      else:
+        raise ValueError(f"Unknown text kind: {block.kind}")
 
       text_dom = Element(tag_name)
       if block.kind == TextKind.PLAIN_TEXT:
@@ -128,7 +129,8 @@ def _migrate_expressions_and_save_images(root: Element, blocks: list[Block], ass
           table_content = Element("html")
           table_content.append(table_element)
           children = (table_content,)
-        except ParseError:
+        except ParseError as err:
+          print("warn: parsed table HTML failed: ", err)
           pass
 
     elif isinstance(block, FormulaBlock):
