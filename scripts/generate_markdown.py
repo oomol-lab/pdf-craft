@@ -28,8 +28,8 @@ def main():
       else:
         bar = tqdm(total=n)
 
-    with MarkDownWriter(markdown_path, "images", "utf-8") as md:
-      for block in extractor.extract(pdf_file, report_progress=report_progress):
+    with MarkDownWriter(str(markdown_path), "images", "utf-8") as md:
+      for block in extractor.extract(str(pdf_file), report_progress=report_progress):
         md.write(block)
 
   finally:
