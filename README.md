@@ -37,19 +37,15 @@ OOMOL uses container technology to package the dependencies required by PDF craf
 You can also write python code directly and call it as a library. At this time, you need python 3.10 or above (3.10.16 is recommended).
 
 ```shell
-pip install pdf-craft
-```
-
-```shell
-pip install onnxruntime==1.21.0
+pip install pdf-craft[cpu]
 ```
 
 If you want to use GPU acceleration, you need to ensure that your device is ready for the CUDA environment. Please refer to the introduction of [PyTorch](https://pytorch.org/get-started/locally/) and select the appropriate command installation according to your operating system installation.
 
-In addition, replace the command to install `onnxruntime` in the previous article with the following:
+In addition, you need to replace the installation command mentioned above with the following:
 
 ```shell
-pip install onnxruntime-gpu==1.21.0
+pip install pdf-craft[cuda]
 ```
 
 ## Function

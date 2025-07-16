@@ -37,18 +37,15 @@ OOMOL 使用容器技术将 PDF craft 所需的依赖直接打包，开箱即用
 你也可以直接写 python 代码，将它作为库调用。此时你需要 python 3.10 或以上（推荐 3.10.16）。
 
 ```shell
-pip install pdf-craft
-```
-```shell
-pip install onnxruntime==1.21.0
+pip install pdf-craft[cpu]
 ```
 
 如果你希望使用 GPU 加速，需要确保你的设备以准备好 CUDA 环境。请参考 [PyTorch](https://pytorch.org/get-started/locally/) 的介绍，根据你的操作系统安装选择适当的命令安装。
 
-此外，将前文安装 `onnxruntime` 的命令替换成如下：
+此外，需将前文提及的安装命令替换成如下：
 
 ```shell
-pip install onnxruntime-gpu==1.21.0
+pip install pdf-craft[cuda]
 ```
 
 ## 功能
