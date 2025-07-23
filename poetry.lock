@@ -590,14 +590,14 @@ torch = ">=1.3"
 
 [[package]]
 name = "epub-generator"
-version = "0.0.2"
+version = "0.0.3"
 description = ""
 optional = false
 python-versions = "<3.13,>=3.10"
 groups = ["main"]
 files = [
-    {file = "epub_generator-0.0.2-py3-none-any.whl", hash = "sha256:4b4ee0b6d5ceadf9c383f8d7e6b813374c7aa7988025a6b6f45eac18221c8c4d"},
-    {file = "epub_generator-0.0.2.tar.gz", hash = "sha256:340b9f98c093711dbb51196fddb21c5df8048d707d14e9196d5a4da003d949ad"},
+    {file = "epub_generator-0.0.3-py3-none-any.whl", hash = "sha256:10629110c4fb521fff9bdf6d21aee6e6ae6057464c768423f1fd41296317906d"},
+    {file = "epub_generator-0.0.3.tar.gz", hash = "sha256:59b096134afb5ccea7523c933ef19c91170d7fea45874bdcb7418d2058225e4f"},
 ]
 
 [package.dependencies]
@@ -1261,14 +1261,14 @@ xai = ["langchain-xai"]
 
 [[package]]
 name = "langchain-core"
-version = "0.3.70"
+version = "0.3.71"
 description = "Building applications with LLMs through composability"
 optional = false
 python-versions = ">=3.9"
 groups = ["main"]
 files = [
-    {file = "langchain_core-0.3.70-py3-none-any.whl", hash = "sha256:56f1ce0ab410508e25b3b4b3b87a8ffae38bf16294e5f605ac63a8aff5bc13a4"},
-    {file = "langchain_core-0.3.70.tar.gz", hash = "sha256:58551e5411ff9f92c7c8f4379e07e762ca66800e821cd904e19881fe41f691ee"},
+    {file = "langchain_core-0.3.71-py3-none-any.whl", hash = "sha256:cce6f3faae57d23bc4f2b41246b9dcf06b8dcdf52caaf6afd62b0849df20ba23"},
+    {file = "langchain_core-0.3.71.tar.gz", hash = "sha256:03ce06ba86bd1fa202b7b704d81554306f9cf5a3044b80d9a8ea7d93eab08623"},
 ]
 
 [package.dependencies]
@@ -1908,14 +1908,14 @@ cudnn = ["nvidia-cudnn-cu12 (>=9.0,<10.0)"]
 
 [[package]]
 name = "openai"
-version = "1.97.0"
+version = "1.97.1"
 description = "The official Python library for the openai API"
 optional = false
 python-versions = ">=3.8"
 groups = ["main"]
 files = [
-    {file = "openai-1.97.0-py3-none-any.whl", hash = "sha256:a1c24d96f4609f3f7f51c9e1c2606d97cc6e334833438659cfd687e9c972c610"},
-    {file = "openai-1.97.0.tar.gz", hash = "sha256:0be349569ccaa4fb54f97bb808423fd29ccaeb1246ee1be762e0c81a47bae0aa"},
+    {file = "openai-1.97.1-py3-none-any.whl", hash = "sha256:4e96bbdf672ec3d44968c9ea39d2c375891db1acc1794668d8149d5fa6000606"},
+    {file = "openai-1.97.1.tar.gz", hash = "sha256:a744b27ae624e3d4135225da9b1c89c107a2a7e5bc4c93e5b7b5214772ce7a4e"},
 ]
 
 [package.dependencies]
@@ -4165,4 +4165,4 @@ cuda = ["onnxruntime-gpu"]
 [metadata]
 lock-version = "2.1"
 python-versions = ">=3.10,<3.13"
-content-hash = "d84e83afb33457c867e1b5002c30356245e3fc0fcaa31c1ec14339b7f1dd6fc9"
+content-hash = "4ea194e55313c107481157741bb16fb67801d560f764d8260854be49c687d18b"
