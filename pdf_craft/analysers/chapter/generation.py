@@ -145,7 +145,11 @@ def _flat_layouts_from_paragraph(paragraph: Paragraph):
       layout_element = None
 
     if layout.kind in ASSET_LAYOUT_KINDS:
-      yield layout.to_xml()
+      asset_element = layout.to_xml()
+      if asset_element.get("hash", None):
+        # TODO: 临时做法，为了排除 hash 为空的情况而做的防御性工作。
+        #       之所以会出现此现象，是因为 https://github.com/oomol-lab/pdf-craft/issues/238 。
+        yield asset_element
       continue
 
     if layout_element is None:
