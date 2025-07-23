@@ -33,7 +33,7 @@ class LLM:
       log_dir_path: PathLike | None = None,
     ):
 
-    prompts_path = cast(Path, files("pdf_craft")) / "data" / "prompts"
+    prompts_path = cast(Path, files("pdf_craft")) / "data"
     self._templates: dict[str, Template] = {}
     self._encoding: Encoding = get_encoding(token_encoding)
     self._env: Environment = create_env(prompts_path)
