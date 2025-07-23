@@ -11,3 +11,4 @@ class State(TypedDict):
   phase: Phase
   has_contents: bool
   completed_ranges: list[list[int]]
+  max_request_tokens: int
