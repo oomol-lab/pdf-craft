@@ -2892,14 +2892,14 @@ requests = ">=2.0.1,<3.0.0"
 
 [[package]]
 name = "resource-segmentation"
-version = "0.0.3"
+version = "0.0.5"
 description = ""
 optional = false
-python-versions = "<3.13,>=3.10"
+python-versions = "<3.14,>=3.10"
 groups = ["main"]
 files = [
-    {file = "resource_segmentation-0.0.3-py3-none-any.whl", hash = "sha256:91643913c40e5fb0ac651da5583935022971ebbfcc1b5249b6431a8ebc84cec5"},
-    {file = "resource_segmentation-0.0.3.tar.gz", hash = "sha256:5084991214243cd727174b36feaaacae65e13d3c701b399520a7b325f13cbfc2"},
+    {file = "resource_segmentation-0.0.5-py3-none-any.whl", hash = "sha256:11bf8f775fb93a2246b15f483fada9f8921feaca1f65fd43080ff357b7ca721b"},
+    {file = "resource_segmentation-0.0.5.tar.gz", hash = "sha256:5a12da9bb1d9aa6663ea9b32e66f93ae094897d94d9173714866fd0a9b042e8f"},
 ]
 
 [[package]]
@@ -4165,4 +4165,4 @@ cuda = ["onnxruntime-gpu"]
 [metadata]
 lock-version = "2.1"
 python-versions = ">=3.10,<3.13"
-content-hash = "4ea194e55313c107481157741bb16fb67801d560f764d8260854be49c687d18b"
+content-hash = "3f05e361da30aa2c2559dd71964b5f0964061f65a024ad7673569c8c5b654a18"
