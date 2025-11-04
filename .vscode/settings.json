@@ -19,5 +19,8 @@
             ]
         }
     },
-    "terminal.integrated.defaultProfile.windows": "PowerShell with Conda"
+    "terminal.integrated.defaultProfile.windows": "PowerShell with Conda",
+    "[xml]": {
+        "editor.wordWrap": "on"
+    }
 }

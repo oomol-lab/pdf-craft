@@ -23,11 +23,11 @@ class Extractor:
         ) -> Generator[Page, None, None]:
 
         with fitz.open(pdf_path) as document:
-            for page_index in range(len(document)):
-                page = document.load_page(page_index)
+            for i in range(len(document)):
+                page = document.load_page(i)
                 image = self._page_screenshot_image(page)
                 yield self._convert_to_page(
-                    page_index=page_index,
+                    page_index=i + 1,
                     image=image, 
                     model_size=model_size, 
                     includes_footnotes=includes_footnotes,
