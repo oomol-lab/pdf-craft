@@ -38,6 +38,10 @@ name = "pytorch-cu121"
 url = "https://download.pytorch.org/whl/cu121"
 priority = "explicit"
 
+[tool.poetry.dependencies]
+PyMuPDF = ">=1.25.3,<2.0.0"
+doc-page-extractor = "1.0.0"
+
 [tool.poetry.group.dev.dependencies]
 pylint = "^3.3.7"
 torch = {version = "^2.5.1", source = "pytorch-cu121"}
