@@ -1,0 +1,44 @@
+[MAIN]
+py-version=3.12
+extension-pkg-whitelist=cv2
+
+[MESSAGES CONTROL]
+disable=
+  C,R,
+  missing-module-docstring,
+  missing-class-docstring,
+  missing-function-docstring,
+  redefined-builtin,
+  too-few-public-methods,
+  too-many-return-statements,
+  fixme,
+  no-else-return,
+  broad-exception-caught,
+
+[FORMAT]
+# Maximum number of characters on a single line.
+max-line-length=120
+
+# Regexp for a line that is allowed to be longer than the limit.
+ignore-long-lines=^\s*(# )?<?https?://\S+>?$
+
+# Allow the body of an if to be on the same line as the test if there is no
+# else.
+single-line-if-stmt=no
+
+# Allow the body of a class to be on the same line as the declaration if body
+# contains single statement.
+single-line-class-stmt=no
+
+# Maximum number of lines in a module
+max-module-lines=1000
+
+# String used as indentation unit. This is usually "    " (4 spaces) or "\t" (1
+# tab).
+indent-string='  '
+
+# Number of spaces of indent required inside a hanging or continued line.
+indent-after-paren=2
+
+# Expected format of line ending, e.g. empty (any line ending), LF or CRLF.
+expected-line-ending-format=
