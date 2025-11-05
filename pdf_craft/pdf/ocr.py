@@ -13,12 +13,15 @@ def ocr_pdf(
         ocr_path: Path,
         model_size: DeepSeekOCRSize,
         includes_footnotes: bool,
+        plot_path: Path | None = None,
     ):
     asset_hub = AssetHub(asset_path)
     executor = Extractor(asset_hub)
     ocr_path.mkdir(parents=True, exist_ok=True)
 
     with executor.page_refs(pdf_path) as refs:
+        if plot_path is not None:
+            plot_path.mkdir(parents=True, exist_ok=True)
         for ref in refs:
             filename = f"page_{ref.page_index}.xml"
             file_path = ocr_path / filename
@@ -26,6 +29,7 @@ def ocr_pdf(
                 page = ref.extract(
                     model_size=model_size,
                     includes_footnotes=includes_footnotes,
+                    plot_path=plot_path,
                 )
                 _save_page_to_xml(page, file_path)
 

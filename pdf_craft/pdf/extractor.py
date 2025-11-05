@@ -4,7 +4,7 @@ import re
 from typing import cast, Generator
 from pathlib import Path
 from PIL.Image import frombytes, Image
-from doc_page_extractor import PageExtractor, DeepSeekOCRSize
+from doc_page_extractor import plot, PageExtractor, DeepSeekOCRSize
 
 from .asset import AssetHub
 from .page import ASSET_TAGS, Page, PageLayout
@@ -75,6 +75,7 @@ class PageRef:
             self,
             model_size: DeepSeekOCRSize,
             includes_footnotes: bool,
+            plot_path: Path | None,
         ) -> Page:
         dpi = 300 # for scanned book pages
         default_dpi = 72
@@ -86,6 +87,7 @@ class PageRef:
             image=image,
             model_size=model_size,
             includes_footnotes=includes_footnotes,
+            plot_path=plot_path,
         )
 
     def _convert_to_page(
@@ -93,6 +95,7 @@ class PageRef:
             image: Image,
             model_size: DeepSeekOCRSize,
             includes_footnotes: bool,
+            plot_path: Path | None,
         ) -> Page:
         body_layouts: list[PageLayout] = []
         footnotes_layouts: list[PageLayout] = []
@@ -118,6 +121,11 @@ class PageRef:
                     body_layouts.append(page_layout)
                 elif i == 1 and ref not in ASSET_TAGS:
                     footnotes_layouts.append(page_layout)
+
+            if plot_path is not None:
+                plot_file_path = plot_path / f"page_{self._page_index}_stage_{i}.png"
+                image = plot(image, layouts)
+                image.save(plot_file_path, format="PNG")
 
         return Page(
             index=self._page_index,

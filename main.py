@@ -12,6 +12,7 @@ def main() -> None:
         pdf_path=assets_dir_path / pdf_file_name,
         asset_path=analysing_dir_path / "assets",
         ocr_path=analysing_dir_path / "ocr_output",
+        plot_path=analysing_dir_path / "plots",
         model_size="gundam",
         includes_footnotes=True,
     )
