@@ -1,12 +1,19 @@
 import re
 from dataclasses import dataclass
-from typing import Iterable
+from typing import Generator, Iterable
 
 from ..pdf import PageLayout
 from ..asset import ASSET_TAGS, AssetRef
 
 
 _ASSET_CPATION_TAGS = tuple(f"{t}_caption" for t in ASSET_TAGS)
+
+
+# to see https://github.com/opendatalab/MinerU/blob/fa1149cd4abf9db5e0f13e4e074cdb568be189f4/mineru/utils/span_pre_proc.py#L247
+_LINE_STOP_FLAGS = (
+    ".", "!", "?", "。", "！", "？", ")", "）", """, """, ":", "：", ";", "；",
+    "]", "】", "}", "}", ">", "》", "、", ",", "，", "-", "—", "–",
+)
 
 _LATEX_PATTERNS = [
     (re.compile(r"\\\["), re.compile(r"\\\]")),  # \[...\]
@@ -19,6 +26,7 @@ _TABLE_PATTERN = re.compile(r"<table[^>]*>.*?</table>", re.IGNORECASE | re.DOTAL
 
 @dataclass
 class AssetLayout:
+    page_index: int
     ref: AssetRef
     det: tuple[int, int, int, int]
     title: str | None
@@ -26,22 +34,59 @@ class AssetLayout:
     caption: str | None
     hash: str | None
 
+@dataclass
+class ParagraphLayout:
+    ref: str
+    page_indexes: list[int]
+    content: list[tuple[tuple[int, int, int, int], str]]
+
 class Jointer:
     def __init__(self) -> None:
         pass
 
-    def execute(self, layouts_in_page: Iterable[tuple[int, list[PageLayout]]]):
-        for page_index, layouts in layouts_in_page:
-            pass
+    def execute(self, layouts_in_page: Iterable[tuple[int, list[PageLayout]]]) -> Generator[ParagraphLayout | AssetLayout, None, None]:
+        last_page_para: ParagraphLayout | None = None
+        for page_index, raw_layouts in layouts_in_page:
+            layouts = self._transform_and_join_asset_layouts(page_index, raw_layouts)
+            if not layouts:
+                continue
 
-    def _join_asset_layouts(self, layouts: list[PageLayout]):
+            first_layout = layouts[0]
+            if last_page_para and isinstance(first_layout, ParagraphLayout) and \
+               self._can_merge_paragraphs(last_page_para, first_layout):
+                last_page_para.page_indexes.append(page_index)
+                last_page_para.content.extend(first_layout.content)
+                del layouts[0]
+
+            if not layouts:
+                continue
+
+            if last_page_para:
+                yield last_page_para
+                last_page_para = None
+
+            for i in range(len(layouts) - 1):
+                yield layouts[i]
+
+            last_layout = layouts[-1]
+            if last_layout:
+                if isinstance(last_layout, ParagraphLayout):
+                    last_page_para = last_layout
+                else:
+                    yield last_layout
+
+        if last_page_para:
+            yield last_page_para
+
+    def _transform_and_join_asset_layouts(self, page_index, layouts: list[PageLayout]):
         last_asset: AssetLayout | None = None
-        jointed_layouts: list[PageLayout | AssetLayout] = []
+        jointed_layouts: list[ParagraphLayout | AssetLayout] = []
         for layout in layouts:
             if layout.ref in ASSET_TAGS:
                 if last_asset:
                     jointed_layouts.append(last_asset)
                 last_asset = AssetLayout(
+                    page_index=page_index,
                     ref=layout.ref,
                     det=layout.det,
                     title=None,
@@ -59,7 +104,12 @@ class Jointer:
                 if last_asset:
                     jointed_layouts.append(last_asset)
                     last_asset = None
-                jointed_layouts.append(layout)
+
+                jointed_layouts.append(ParagraphLayout(
+                    ref=layout.ref,
+                    page_indexes=[page_index],
+                    content=[(layout.det, layout.text)],
+                ))
 
         for layout in jointed_layouts:
             if isinstance(layout, AssetLayout):
@@ -69,6 +119,54 @@ class Jointer:
                     _normalize_table(layout)
         return jointed_layouts
 
+    # too see https://github.com/opendatalab/MinerU/blob/fa1149cd4abf9db5e0f13e4e074cdb568be189f4/mineru/backend/pipeline/para_split.py#L253
+    def _can_merge_paragraphs(self, para1: ParagraphLayout, para2: ParagraphLayout) -> bool:
+        if para1.ref != "text":
+            return False
+        if para1.ref != para2.ref:
+            return False
+
+        det1, text1 = para1.content[-1]
+        det2, text2 = para2.content[0]
+
+        if not text1 or not text2:
+            return False
+
+        text1_stripped = text1.rstrip()
+        if not text1_stripped:
+            return False
+
+        text2_stripped = text2.lstrip()
+        if not text2_stripped:
+            return False
+
+        # 条件1：前一个段落的末尾不以句尾符号结尾
+        # 如果以句尾符号结尾，说明是完整段落，不应合并
+        if text1_stripped.endswith(_LINE_STOP_FLAGS):
+            return False
+
+        layout_width1 = det1[1] - det1[0]
+        layout_width2 = det2[1] - det2[0]
+
+        # 条件2：两个段落的宽度相似
+        # 差异不应超过较小宽度
+        min_layout_width = min(layout_width1, layout_width2)
+        if abs(layout_width1 - layout_width2) >= min_layout_width:
+            return False
+
+        first_char = text2_stripped[0]
+
+        # 条件3：下一个段落的第一个字符不是数字
+        # 如果以数字开头，可能是编号列表的新段落（如"1. xxx"）
+        if first_char.isdigit():
+            return False
+
+        # 条件4：下一个段落的第一个字符不是大写字母
+        # 如果以大写字母开头，可能是新段落的开始（特别是英文）
+        if first_char.isupper():
+            return False
+
+        return True
 
 def _normalize_equation(layout: AssetLayout):
     content = layout.content
