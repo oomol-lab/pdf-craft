@@ -28,6 +28,86 @@ _LATEX_PATTERNS = [
 _TABLE_PATTERN = re.compile(r"<table[^>]*>.*?</table>", re.IGNORECASE | re.DOTALL)
 
 
+def _extract_paragraph_lines(paragraph: ParagraphLayout) -> Generator[str, None, None]:
+    """
+    Extract text lines from a paragraph layout as a generator.
+    
+    Args:
+        paragraph: ParagraphLayout containing content lines
+        
+    Yields:
+        Text strings from each line in the paragraph
+    """
+    for _det, text in paragraph.content:
+        if text:  # Only yield non-empty text
+            yield text
+
+
+def _normalize_paragraph(paragraph: ParagraphLayout) -> str:
+    """
+    Normalize paragraph content by merging multiple lines into a single line.
+    Handles whitespace properly for different languages (English, Chinese, etc.).
+    
+    Args:
+        paragraph: ParagraphLayout to normalize
+        
+    Returns:
+        Normalized single-line text
+    """
+    if not paragraph.content:
+        return ""
+    
+    lines = list(_extract_paragraph_lines(paragraph))
+    if not lines:
+        return ""
+    
+    if len(lines) == 1:
+        return lines[0].strip()
+    
+    # Merge multiple lines into one
+    result_parts = []
+    for i, line in enumerate(lines):
+        line_stripped = line.strip()
+        if not line_stripped:
+            continue
+            
+        if i == 0:
+            # First line, just add it
+            result_parts.append(line_stripped)
+        else:
+            # For subsequent lines, determine if we need space
+            prev_text = result_parts[-1] if result_parts else ""
+            if not prev_text:
+                result_parts.append(line_stripped)
+                continue
+                
+            # Check if previous line ends with line stop flags
+            if prev_text.endswith(_LINE_STOP_FLAGS):
+                # Previous line ended with punctuation, add space
+                result_parts.append(" " + line_stripped)
+            else:
+                # Check if current line starts with ASCII letter or previous ends with ASCII letter
+                prev_last_char = prev_text[-1]
+                curr_first_char = line_stripped[0]
+                
+                # Need space if: 
+                # 1. Previous ends with alphanumeric and current starts with alphanumeric
+                # 2. Either is ASCII (likely English word)
+                needs_space = False
+                if prev_last_char.isalnum() and curr_first_char.isalnum():
+                    # Check if either character is ASCII (English)
+                    if ord(prev_last_char) < 128 or ord(curr_first_char) < 128:
+                        needs_space = True
+                
+                if needs_space:
+                    result_parts.append(" " + line_stripped)
+                else:
+                    # No space needed (e.g., Chinese characters)
+                    result_parts.append(line_stripped)
+    
+    return "".join(result_parts)
+
+
 class Jointer:
     def __init__(self) -> None:
         pass

@@ -1,5 +1,12 @@
 import unittest
-from pdf_craft.sequence.jointer import _normalize_equation, _normalize_table, AssetLayout
+from pdf_craft.sequence.jointer import (
+    _normalize_equation, 
+    _normalize_table, 
+    _extract_paragraph_lines,
+    _normalize_paragraph,
+    AssetLayout,
+    ParagraphLayout,
+)
 
 
 class TestNormalizeEquation(unittest.TestCase):
@@ -371,6 +378,194 @@ Footer text"""
         self.assertEqual(layout.content, "Just text without any table")
         self.assertIsNone(layout.title)
         self.assertIsNone(layout.caption)
+
+
+class TestExtractParagraphLines(unittest.TestCase):
+    """测试 _extract_paragraph_lines 函数"""
+
+    def test_extract_single_line(self):
+        """测试提取单行"""
+        paragraph = ParagraphLayout(
+            ref="text",
+            page_indexes=[0],
+            content=[((0, 0, 100, 20), "This is a single line")]
+        )
+        lines = list(_extract_paragraph_lines(paragraph))
+        self.assertEqual(len(lines), 1)
+        self.assertEqual(lines[0], "This is a single line")
+
+    def test_extract_multiple_lines(self):
+        """测试提取多行"""
+        paragraph = ParagraphLayout(
+            ref="text",
+            page_indexes=[0],
+            content=[
+                ((0, 0, 100, 20), "First line"),
+                ((0, 20, 100, 40), "Second line"),
+                ((0, 40, 100, 60), "Third line"),
+            ]
+        )
+        lines = list(_extract_paragraph_lines(paragraph))
+        self.assertEqual(len(lines), 3)
+        self.assertEqual(lines[0], "First line")
+        self.assertEqual(lines[1], "Second line")
+        self.assertEqual(lines[2], "Third line")
+
+    def test_extract_empty_lines(self):
+        """测试跳过空行"""
+        paragraph = ParagraphLayout(
+            ref="text",
+            page_indexes=[0],
+            content=[
+                ((0, 0, 100, 20), "First line"),
+                ((0, 20, 100, 40), ""),
+                ((0, 40, 100, 60), "Third line"),
+            ]
+        )
+        lines = list(_extract_paragraph_lines(paragraph))
+        self.assertEqual(len(lines), 2)
+        self.assertEqual(lines[0], "First line")
+        self.assertEqual(lines[1], "Third line")
+
+    def test_extract_empty_paragraph(self):
+        """测试空段落"""
+        paragraph = ParagraphLayout(
+            ref="text",
+            page_indexes=[0],
+            content=[]
+        )
+        lines = list(_extract_paragraph_lines(paragraph))
+        self.assertEqual(len(lines), 0)
+
+
+class TestNormalizeParagraph(unittest.TestCase):
+    """测试 _normalize_paragraph 函数"""
+
+    def test_single_line(self):
+        """测试单行段落"""
+        paragraph = ParagraphLayout(
+            ref="text",
+            page_indexes=[0],
+            content=[((0, 0, 100, 20), "This is a single line")]
+        )
+        result = _normalize_paragraph(paragraph)
+        self.assertEqual(result, "This is a single line")
+
+    def test_multiple_english_lines(self):
+        """测试多行英文段落（需要空格）"""
+        paragraph = ParagraphLayout(
+            ref="text",
+            page_indexes=[0],
+            content=[
+                ((0, 0, 100, 20), "This is the first"),
+                ((0, 20, 100, 40), "line of text"),
+            ]
+        )
+        result = _normalize_paragraph(paragraph)
+        self.assertEqual(result, "This is the first line of text")
+
+    def test_multiple_chinese_lines(self):
+        """测试多行中文段落（不需要空格）"""
+        paragraph = ParagraphLayout(
+            ref="text",
+            page_indexes=[0],
+            content=[
+                ((0, 0, 100, 20), "这是第一行"),
+                ((0, 20, 100, 40), "文本内容"),
+            ]
+        )
+        result = _normalize_paragraph(paragraph)
+        self.assertEqual(result, "这是第一行文本内容")
+
+    def test_mixed_language_lines(self):
+        """测试中英文混合段落"""
+        paragraph = ParagraphLayout(
+            ref="text",
+            page_indexes=[0],
+            content=[
+                ((0, 0, 100, 20), "这是中文text"),
+                ((0, 20, 100, 40), "mixed内容"),
+            ]
+        )
+        result = _normalize_paragraph(paragraph)
+        # When mixing languages with alphanumeric, space is added
+        self.assertEqual(result, "这是中文text mixed内容")
+
+    def test_lines_with_punctuation(self):
+        """测试带标点符号的段落"""
+        paragraph = ParagraphLayout(
+            ref="text",
+            page_indexes=[0],
+            content=[
+                ((0, 0, 100, 20), "First sentence."),
+                ((0, 20, 100, 40), "Second sentence."),
+            ]
+        )
+        result = _normalize_paragraph(paragraph)
+        self.assertEqual(result, "First sentence. Second sentence.")
+
+    def test_lines_with_chinese_punctuation(self):
+        """测试带中文标点的段落"""
+        paragraph = ParagraphLayout(
+            ref="text",
+            page_indexes=[0],
+            content=[
+                ((0, 0, 100, 20), "第一句话。"),
+                ((0, 20, 100, 40), "第二句话。"),
+            ]
+        )
+        result = _normalize_paragraph(paragraph)
+        self.assertEqual(result, "第一句话。 第二句话。")
+
+    def test_empty_paragraph(self):
+        """测试空段落"""
+        paragraph = ParagraphLayout(
+            ref="text",
+            page_indexes=[0],
+            content=[]
+        )
+        result = _normalize_paragraph(paragraph)
+        self.assertEqual(result, "")
+
+    def test_paragraph_with_whitespace(self):
+        """测试带空白字符的段落"""
+        paragraph = ParagraphLayout(
+            ref="text",
+            page_indexes=[0],
+            content=[
+                ((0, 0, 100, 20), "  First line  "),
+                ((0, 20, 100, 40), "  Second line  "),
+            ]
+        )
+        result = _normalize_paragraph(paragraph)
+        self.assertEqual(result, "First line Second line")
+
+    def test_paragraph_with_empty_lines(self):
+        """测试含有空行的段落"""
+        paragraph = ParagraphLayout(
+            ref="text",
+            page_indexes=[0],
+            content=[
+                ((0, 0, 100, 20), "First line"),
+                ((0, 20, 100, 40), "   "),
+                ((0, 40, 100, 60), "Third line"),
+            ]
+        )
+        result = _normalize_paragraph(paragraph)
+        self.assertEqual(result, "First line Third line")
+
+    def test_numbers_and_text(self):
+        """测试数字和文本混合"""
+        paragraph = ParagraphLayout(
+            ref="text",
+            page_indexes=[0],
+            content=[
+                ((0, 0, 100, 20), "The year"),
+                ((0, 20, 100, 40), "2024"),
+            ]
+        )
+        result = _normalize_paragraph(paragraph)
+        self.assertEqual(result, "The year 2024")
 
 
 if __name__ == "__main__":
