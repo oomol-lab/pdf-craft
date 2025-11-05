@@ -1,7 +1,4 @@
 {
-    "cSpell.words": [
-        "analysing"
-    ],
     "python-envs.defaultEnvManager": "ms-python.python:conda",
     "python-envs.defaultPackageManager": "ms-python.python:conda",
     "python-envs.pythonProjects": [],
@@ -22,5 +19,13 @@
     "terminal.integrated.defaultProfile.windows": "PowerShell with Conda",
     "[xml]": {
         "editor.wordWrap": "on"
-    }
+    },
+    "[python]": {
+        "editor.formatOnSave": true,
+        "editor.codeActionsOnSave": {
+            "source.organizeImports": "explicit"
+        },
+        "files.trimTrailingWhitespace": true
+    },
+    "files.trimTrailingWhitespace": true
 }

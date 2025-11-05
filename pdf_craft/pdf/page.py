@@ -25,13 +25,13 @@ def decode(element: Element) -> Page:
     if body_element is not None:
         for layout_element in body_element.findall("layout"):
             body_layouts.append(_decode_layout(layout_element))
-    
+
     footnotes_layouts = []
     footnotes_element = element.find("footnotes")
     if footnotes_element is not None:
         for layout_element in footnotes_element.findall("layout"):
             footnotes_layouts.append(_decode_layout(layout_element))
-    
+
     return Page(
         index=index,
         body_layouts=body_layouts,

@@ -8,7 +8,7 @@ from .page import encode, Page
 
 
 def ocr_pdf(
-        pdf_path: Path, 
+        pdf_path: Path,
         asset_path: Path,
         ocr_path: Path,
         model_size: DeepSeekOCRSize,
@@ -17,22 +17,29 @@ def ocr_pdf(
     asset_hub = AssetHub(asset_path)
     executor = Extractor(asset_hub)
     ocr_path.mkdir(parents=True, exist_ok=True)
-    
-    for page in executor.extract(
-        pdf_path=pdf_path,
-        model_size=model_size,
-        includes_footnotes=includes_footnotes,
-    ):
-        _save_page_to_xml(page, ocr_path)
 
-def _save_page_to_xml(page: Page, ocr_path: Path) -> None:
-    """将 page 对象保存为 XML 文件"""
-    filename = f"page_{page.index}.xml"
-    file_path = ocr_path / filename
+    with executor.page_refs(pdf_path) as refs:
+        for ref in refs:
+            filename = f"page_{ref.page_index}.xml"
+            file_path = ocr_path / filename
+            if not file_path.exists():
+                page = ref.extract(
+                    model_size=model_size,
+                    includes_footnotes=includes_footnotes,
+                )
+                _save_page_to_xml(page, file_path)
+
+def _save_page_to_xml(page: Page, file_path: Path) -> None:
+    # 使用临时文件确保写入的原子性
     page_element = encode(page)
     xml_string = tostring(page_element, encoding="unicode")
-    
-    # 写入文件
-    with open(file_path, "w", encoding="utf-8") as f:
-        f.write('<?xml version="1.0" encoding="UTF-8"?>\n')
-        f.write(xml_string)
+    temp_path = file_path.with_suffix(".xml.tmp")
+    try:
+        with open(temp_path, "w", encoding="utf-8") as f:
+            f.write('<?xml version="1.0" encoding="UTF-8"?>\n')
+            f.write(xml_string)
+        temp_path.replace(file_path)
+    except Exception:
+        if temp_path.exists():
+            temp_path.unlink()
+        raise
