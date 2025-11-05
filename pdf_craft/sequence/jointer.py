@@ -1,10 +1,13 @@
 import re
+
 from dataclasses import dataclass
 from typing import Generator, Iterable
 
 from ..pdf import PageLayout
 from ..asset import ASSET_TAGS
 from .chapter import ParagraphLayout, AssetLayout
+from .language import is_latin_letter
+
 
 TITLE_TAGS = ("title", "sub_title")
 
@@ -50,6 +53,7 @@ class Jointer:
                 continue
 
             if last_page_para:
+                normalize_paragraph_content(last_page_para)
                 yield last_page_para
                 last_page_para = None
 
@@ -64,6 +68,7 @@ class Jointer:
                     yield last_layout
 
         if last_page_para:
+            normalize_paragraph_content(last_page_para)
             yield last_page_para
 
     def _transform_and_join_asset_layouts(self, page_index, layouts: list[PageLayout]):
@@ -157,6 +162,10 @@ class Jointer:
         if first_char.isupper():
             return False
 
+        # 条件5：如果 para1 结尾是拉丁字母+"-"，para2 开头是拉丁字母，则允许合并（跨段单词拼接）
+        if _is_splitted_word(text1, text2):
+            return True
+
         return True
 
 def _normalize_equation(layout: AssetLayout):
@@ -209,3 +218,39 @@ def _extract_and_split_content(layout: AssetLayout, start: int, end: int):
             layout.caption = after
 
     layout.content = extracted
+
+
+
+def normalize_paragraph_content(paragraph: ParagraphLayout):
+    if len(paragraph.content) < 2:
+        return
+
+    for i in range(1, len(paragraph.content)):
+        det1, text1 = paragraph.content[i - 1]
+        det2, text2 = paragraph.content[i]
+        text1 = text1.rstrip()
+        text2 = text2.lstrip()
+
+        if not _is_splitted_word(text1, text2):
+            continue
+
+        tail_end = 0
+        for j in range(len(text2)):
+            if is_latin_letter(text2[j]):
+                tail_end = j + 1
+            else:
+                break
+
+        text1 = text1[:-1] + text2[:tail_end]
+        text2 = text2[tail_end:].lstrip()
+        paragraph.content[i - 1] = (det1, text1)
+        paragraph.content[i] = (det2, text2)
+
+    paragraph.content = [ (det, text) for det, text in paragraph.content if text.strip() ]
+
+def _is_splitted_word(text1: str, text2: str) -> bool:
+    return (
+        len(text1) >= 2 and text1[-1] == "-" and \
+        is_latin_letter(text1[-2]) and \
+        is_latin_letter(text2[0])
+    )
