@@ -2,8 +2,7 @@ from pathlib import Path
 from xml.etree.ElementTree import tostring
 from doc_page_extractor import DeepSeekOCRSize
 
-from ..asset import AssetHub
-from ..xml import save_xml
+from ..common import save_xml, AssetHub
 from .extractor import Extractor
 from .page import encode, Page
 

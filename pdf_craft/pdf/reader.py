@@ -1,7 +1,7 @@
 from pathlib import Path
 from xml.etree.ElementTree import Element
 
-from ..reader import BaseXMLReader
+from ..common import BaseXMLReader
 from .page import decode, Page
 
 

@@ -6,7 +6,7 @@ from pathlib import Path
 from PIL.Image import frombytes, Image
 from doc_page_extractor import plot, PageExtractor, DeepSeekOCRSize
 
-from ..asset import ASSET_TAGS, AssetHub
+from ..common import ASSET_TAGS, AssetHub
 from .page import Page, PageLayout
 
 
@@ -123,7 +123,7 @@ class PageRef:
                     footnotes_layouts.append(page_layout)
 
             if plot_path is not None:
-                plot_file_path = plot_path / f"page_{self._page_index}_stage_{i}.png"
+                plot_file_path = plot_path / f"page_{self._page_index}_stage_{i + 1}.png"
                 image = plot(image.copy(), layouts)
                 image.save(plot_file_path, format="PNG")
 

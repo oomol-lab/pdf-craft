@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from typing import Generator, Iterable
 
 from ..pdf import PageLayout
-from ..asset import ASSET_TAGS
+from ..common import ASSET_TAGS
 from .chapter import ParagraphLayout, AssetLayout
 from .language import is_latin_letter
 
@@ -53,7 +53,7 @@ class Jointer:
                 continue
 
             if last_page_para:
-                normalize_paragraph_content(last_page_para)
+                _normalize_paragraph_content(last_page_para)
                 yield last_page_para
                 last_page_para = None
 
@@ -68,7 +68,7 @@ class Jointer:
                     yield last_layout
 
         if last_page_para:
-            normalize_paragraph_content(last_page_para)
+            _normalize_paragraph_content(last_page_para)
             yield last_page_para
 
     def _transform_and_join_asset_layouts(self, page_index, layouts: list[PageLayout]):
@@ -106,6 +106,9 @@ class Jointer:
                     page_indexes=[page_index],
                     content=[(layout.det, layout.text)],
                 ))
+
+        if last_asset:
+            jointed_layouts.append(last_asset)
 
         for layout in jointed_layouts:
             if isinstance(layout, AssetLayout):
@@ -199,29 +202,7 @@ def _normalize_table(layout: AssetLayout):
         table_end = table_match.end()
         _extract_and_split_content(layout, table_start, table_end)
 
-def _extract_and_split_content(layout: AssetLayout, start: int, end: int):
-    content = layout.content
-    extracted = content[start:end]
-    before = content[:start].strip()
-
-    if before:
-        if layout.title:
-            layout.title = layout.title + "\n" + before
-        else:
-            layout.title = before
-
-    after = content[end:].strip()
-    if after:
-        if layout.caption:
-            layout.caption = layout.caption + "\n" + after
-        else:
-            layout.caption = after
-
-    layout.content = extracted
-
-
-
-def normalize_paragraph_content(paragraph: ParagraphLayout):
+def _normalize_paragraph_content(paragraph: ParagraphLayout):
     if len(paragraph.content) < 2:
         return
 
@@ -247,6 +228,26 @@ def normalize_paragraph_content(paragraph: ParagraphLayout):
         paragraph.content[i] = (det2, text2)
 
     paragraph.content = [ (det, text) for det, text in paragraph.content if text.strip() ]
+
+def _extract_and_split_content(layout: AssetLayout, start: int, end: int):
+    content = layout.content
+    extracted = content[start:end]
+    before = content[:start].strip()
+
+    if before:
+        if layout.title:
+            layout.title = layout.title + "\n" + before
+        else:
+            layout.title = before
+
+    after = content[end:].strip()
+    if after:
+        if layout.caption:
+            layout.caption = layout.caption + "\n" + after
+        else:
+            layout.caption = after
+
+    layout.content = extracted
 
 def _is_splitted_word(text1: str, text2: str) -> bool:
     return (

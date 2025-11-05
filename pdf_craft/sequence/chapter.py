@@ -2,8 +2,7 @@ from dataclasses import dataclass
 from typing import cast
 from xml.etree.ElementTree import Element
 
-from ..asset import AssetRef, ASSET_TAGS
-from ..xml import indent
+from ..common import indent, AssetRef, ASSET_TAGS
 
 @dataclass
 class Chapter:

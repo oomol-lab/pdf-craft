@@ -1,7 +1,6 @@
 from pathlib import Path
 
-from ..xml import save_xml
-
+from ..common import save_xml
 from ..pdf import PagesReader
 from .jointer import TITLE_TAGS, Jointer
 from .chapter import encode, Chapter, ParagraphLayout
@@ -13,7 +12,7 @@ def generate_chapter_files(pages_path: Path, chapters_path: Path):
         chapter_file.unlink()
 
     for i, chapter in enumerate(_generate_chapters(pages_path)):
-        chapter_file = chapters_path / f"chapter_{i}.xml"
+        chapter_file = chapters_path / f"chapter_{i + 1}.xml"
         chapter_element = encode(chapter)
         save_xml(chapter_element, chapter_file)
 
