@@ -1,4 +1,5 @@
-from xml.etree.ElementTree import Element
+from pathlib import Path
+from xml.etree.ElementTree import tostring, Element
 
 
 def indent(elem: Element, level: int = 0) -> Element:
@@ -17,3 +18,17 @@ def indent(elem: Element, level: int = 0) -> Element:
     elif level > 0 and (not elem.tail or not elem.tail.strip()):
         elem.tail = "\n" + indent_str
     return elem
+
+def save_xml(element: Element, file_path: Path) -> None:
+    # 使用临时文件确保写入的原子性
+    xml_string = tostring(element, encoding="unicode")
+    temp_path = file_path.with_suffix(".xml.tmp")
+    try:
+        with open(temp_path, "w", encoding="utf-8") as f:
+            f.write('<?xml version="1.0" encoding="UTF-8"?>\n')
+            f.write(xml_string)
+        temp_path.replace(file_path)
+    except Exception as err:
+        if temp_path.exists():
+            temp_path.unlink()
+        raise err

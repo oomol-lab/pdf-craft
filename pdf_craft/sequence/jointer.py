@@ -3,8 +3,10 @@ from dataclasses import dataclass
 from typing import Generator, Iterable
 
 from ..pdf import PageLayout
-from ..asset import ASSET_TAGS, AssetRef
+from ..asset import ASSET_TAGS
+from .chapter import ParagraphLayout, AssetLayout
 
+TITLE_TAGS = ("title", "sub_title")
 
 _ASSET_CPATION_TAGS = tuple(f"{t}_caption" for t in ASSET_TAGS)
 
@@ -15,6 +17,7 @@ _LINE_STOP_FLAGS = (
     "]", "】", "}", "}", ">", "》", "、", ",", "，", "-", "—", "–",
 )
 
+_MARKDOWN_HEAD_PATTERN = re.compile(r"^#+\s+")
 _LATEX_PATTERNS = [
     (re.compile(r"\\\["), re.compile(r"\\\]")),  # \[...\]
     (re.compile(r"\$\$"), re.compile(r"\$\$")),  # $$...$$
@@ -24,21 +27,6 @@ _LATEX_PATTERNS = [
 
 _TABLE_PATTERN = re.compile(r"<table[^>]*>.*?</table>", re.IGNORECASE | re.DOTALL)
 
-@dataclass
-class AssetLayout:
-    page_index: int
-    ref: AssetRef
-    det: tuple[int, int, int, int]
-    title: str | None
-    content: str
-    caption: str | None
-    hash: str | None
-
-@dataclass
-class ParagraphLayout:
-    ref: str
-    page_indexes: list[int]
-    content: list[tuple[tuple[int, int, int, int], str]]
 
 class Jointer:
     def __init__(self) -> None:
@@ -104,6 +92,9 @@ class Jointer:
                 if last_asset:
                     jointed_layouts.append(last_asset)
                     last_asset = None
+                if layout.ref in TITLE_TAGS:
+                    # 将 Markdown 标题前的 `##` 之类的符号删除，DeepSeek OCR 总会生成这种符号
+                    layout.text = _MARKDOWN_HEAD_PATTERN.sub("", layout.text)
 
                 jointed_layouts.append(ParagraphLayout(
                     ref=layout.ref,
@@ -145,8 +136,8 @@ class Jointer:
         if text1_stripped.endswith(_LINE_STOP_FLAGS):
             return False
 
-        layout_width1 = det1[1] - det1[0]
-        layout_width2 = det2[1] - det2[0]
+        layout_width1 = det1[2] - det1[0]
+        layout_width2 = det2[2] - det2[0]
 
         # 条件2：两个段落的宽度相似
         # 差异不应超过较小宽度

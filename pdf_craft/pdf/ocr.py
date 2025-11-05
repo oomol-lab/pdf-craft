@@ -3,6 +3,7 @@ from xml.etree.ElementTree import tostring
 from doc_page_extractor import DeepSeekOCRSize
 
 from ..asset import AssetHub
+from ..xml import save_xml
 from .extractor import Extractor
 from .page import encode, Page
 
@@ -31,19 +32,4 @@ def ocr_pdf(
                     includes_footnotes=includes_footnotes,
                     plot_path=plot_path,
                 )
-                _save_page_to_xml(page, file_path)
-
-def _save_page_to_xml(page: Page, file_path: Path) -> None:
-    # 使用临时文件确保写入的原子性
-    page_element = encode(page)
-    xml_string = tostring(page_element, encoding="unicode")
-    temp_path = file_path.with_suffix(".xml.tmp")
-    try:
-        with open(temp_path, "w", encoding="utf-8") as f:
-            f.write('<?xml version="1.0" encoding="UTF-8"?>\n')
-            f.write(xml_string)
-        temp_path.replace(file_path)
-    except Exception:
-        if temp_path.exists():
-            temp_path.unlink()
-        raise
+                save_xml(encode(page), file_path)

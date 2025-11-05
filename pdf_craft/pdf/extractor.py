@@ -124,7 +124,7 @@ class PageRef:
 
             if plot_path is not None:
                 plot_file_path = plot_path / f"page_{self._page_index}_stage_{i}.png"
-                image = plot(image, layouts)
+                image = plot(image.copy(), layouts)
                 image.save(plot_file_path, format="PNG")
 
         return Page(
