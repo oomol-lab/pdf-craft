@@ -2,7 +2,7 @@ from pathlib import Path
 
 from ..xml import save_xml
 
-from .pages_reader import PagesReader
+from ..pdf import PagesReader
 from .jointer import TITLE_TAGS, Jointer
 from .chapter import encode, Chapter, ParagraphLayout
 
