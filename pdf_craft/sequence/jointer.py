@@ -36,10 +36,12 @@ def _extract_paragraph_lines(paragraph: ParagraphLayout) -> Generator[str, None,
         paragraph: ParagraphLayout containing content lines
         
     Yields:
-        Text strings from each line in the paragraph
+        Text strings from each line in the paragraph (may contain whitespace)
     """
     for _det, text in paragraph.content:
-        if text:  # Only yield non-empty text
+        # Yield all non-empty strings (including whitespace-only strings)
+        # The normalization function will handle stripping and filtering
+        if text:
             yield text
 
 
@@ -57,6 +59,7 @@ def _normalize_paragraph(paragraph: ParagraphLayout) -> str:
     if not paragraph.content:
         return ""
     
+    # Extract raw lines first (may contain whitespace)
     lines = list(_extract_paragraph_lines(paragraph))
     if not lines:
         return ""
@@ -64,11 +67,11 @@ def _normalize_paragraph(paragraph: ParagraphLayout) -> str:
     if len(lines) == 1:
         return lines[0].strip()
     
-    # Merge multiple lines into one
+    # Merge multiple lines into one, stripping whitespace and handling spacing
     result_parts = []
     for i, line in enumerate(lines):
         line_stripped = line.strip()
-        if not line_stripped:
+        if not line_stripped:  # Skip whitespace-only lines
             continue
             
         if i == 0:
