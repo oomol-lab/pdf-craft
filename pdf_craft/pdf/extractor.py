@@ -6,8 +6,8 @@ from pathlib import Path
 from PIL.Image import frombytes, Image
 from doc_page_extractor import plot, PageExtractor, DeepSeekOCRSize
 
-from .asset import AssetHub
-from .page import ASSET_TAGS, Page, PageLayout
+from ..asset import ASSET_TAGS, AssetHub
+from .page import Page, PageLayout
 
 
 class Extractor:

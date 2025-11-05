@@ -3,7 +3,6 @@ from xml.etree.ElementTree import Element
 
 from ..xml import indent
 
-ASSET_TAGS = ("image", "table", "equation")
 
 @dataclass
 class Page:

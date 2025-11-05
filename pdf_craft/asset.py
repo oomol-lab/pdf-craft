@@ -1,8 +1,13 @@
-from pathlib import Path
-from PIL import Image
 import hashlib
 import uuid
 
+from pathlib import Path
+from typing import Literal
+from PIL import Image
+
+
+AssetRef = Literal["image", "table", "equation"]
+ASSET_TAGS: tuple[AssetRef, ...] = ("image", "table", "equation")
 
 class AssetHub:
     def __init__(self, asset_path: Path) -> None:
