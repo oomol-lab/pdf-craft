@@ -1,8 +1,9 @@
 from os import PathLike
 from pathlib import Path
+from typing import Callable
 
 from .common import EnsureFolder
-from .pdf import ocr_pdf, DeepSeekOCRModel
+from .pdf import ocr_pdf, DeepSeekOCRModel, OCREvent
 from .sequence import generate_chapter_files
 from .markdown import render_markdown_file
 
@@ -16,6 +17,7 @@ def transform_markdown(
     models_cache_path: PathLike | None = None,
     includes_footnotes: bool = False,
     generate_plot: bool = False,
+    on_ocr_event: Callable[[OCREvent], None] = lambda _: None,
 ) -> None:
 
     if markdown_assets_path is None:
@@ -39,6 +41,7 @@ def transform_markdown(
             models_cache_path=models_cache_path,
             plot_path=plot_path,
             includes_footnotes=includes_footnotes,
+            on_event=on_ocr_event,
         )
         generate_chapter_files(
             pages_path=pages_path,

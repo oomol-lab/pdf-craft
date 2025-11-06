@@ -1,3 +1,9 @@
+from dataclasses import dataclass
+import sys
+import time
+
+from typing import Container, Callable
+from enum import auto, Enum
 from pathlib import Path
 from os import PathLike
 
@@ -5,9 +11,27 @@ from ..common import save_xml, AssetHub
 from .types import encode, DeepSeekOCRModel
 
 
+class OCREventKind(Enum):
+    START = auto()
+    IGNORE = auto()
+    SKIP = auto()
+    COMPLETE = auto()
+
+@dataclass
+class OCREvent:
+    kind: OCREventKind
+    page_index: int
+    total_pages: int
+    cost_time_ms: int
+
 def predownload_models(models_cache_path: PathLike | None = None) -> None:
     from .extractor import predownload # 尽可能推迟 doc-page-extractor 的加载时间
     predownload(models_cache_path)
+
+def pdf_pages_count(pdf_path: PathLike) -> int:
+    import fitz
+    with fitz.open(Path(pdf_path)) as document:
+        return len(document)
 
 def ocr_pdf(
         pdf_path: Path,
@@ -15,24 +39,61 @@ def ocr_pdf(
         ocr_path: Path,
         model: DeepSeekOCRModel,
         includes_footnotes: bool,
-        models_cache_path: PathLike | None = None,
-        plot_path: Path | None = None,
+        models_cache_path: PathLike | None,
+        plot_path: Path | None,
+        on_event: Callable[[OCREvent], None],
+        page_indexes: Container[int] = range(1, sys.maxsize),
     ):
     from .extractor import Extractor # 尽可能推迟 doc-page-extractor 的加载时间
     asset_hub = AssetHub(asset_path)
     executor = Extractor(asset_hub, models_cache_path)
+
     ocr_path.mkdir(parents=True, exist_ok=True)
+    if plot_path is not None:
+        plot_path.mkdir(parents=True, exist_ok=True)
 
     with executor.page_refs(pdf_path) as refs:
-        if plot_path is not None:
-            plot_path.mkdir(parents=True, exist_ok=True)
+        pages_count = refs.pages_count
         for ref in refs:
+            start_time = time.perf_counter()
+            on_event(OCREvent(
+                kind=OCREventKind.START,
+                page_index=ref.page_index,
+                total_pages=pages_count,
+                cost_time_ms=0,
+            ))
+            if ref.page_index not in page_indexes:
+                elapsed_ms = int((time.perf_counter() - start_time) * 1000)
+                on_event(OCREvent(
+                    kind=OCREventKind.IGNORE,
+                    page_index=ref.page_index,
+                    total_pages=pages_count,
+                    cost_time_ms=elapsed_ms,
+                ))
+                continue
+
             filename = f"page_{ref.page_index}.xml"
             file_path = ocr_path / filename
-            if not file_path.exists():
+
+            if file_path.exists():
+                elapsed_ms = int((time.perf_counter() - start_time) * 1000)
+                on_event(OCREvent(
+                    kind=OCREventKind.SKIP,
+                    page_index=ref.page_index,
+                    total_pages=pages_count,
+                    cost_time_ms=elapsed_ms,
+                ))
+            else:
                 page = ref.extract(
                     model=model,
                     includes_footnotes=includes_footnotes,
                     plot_path=plot_path,
                 )
                 save_xml(encode(page), file_path)
+                elapsed_ms = int((time.perf_counter() - start_time) * 1000)
+                on_event(OCREvent(
+                    kind=OCREventKind.COMPLETE,
+                    page_index=ref.page_index,
+                    total_pages=pages_count,
+                    cost_time_ms=elapsed_ms,
+                ))

@@ -1,7 +1,7 @@
 import fitz
 import re
 
-from typing import cast, Generator
+from typing import cast, Generator, Container
 from pathlib import Path
 from os import PathLike
 from PIL.Image import frombytes, Image
@@ -38,19 +38,24 @@ class PageRefContext:
         self._pdf_path = pdf_path
         self._page_extractor = page_extractor
         self._asset_hub = asset_hub
-        self._document = None
+        self._document: fitz.Document | None = None
 
-    def __enter__(self) -> Generator["PageRef", None, None]:
+    @property
+    def pages_count(self) -> int:
+        assert self._document is not None
+        return len(self._document)
+
+    def __enter__(self) -> "PageRefContext":
         assert self._document is None
         self._document = fitz.open(self._pdf_path)
-        return self._generate_page_refs()
+        return self
 
     def __exit__(self, exc_type, exc_val, exc_tb) -> None:
         if self._document is not None:
             self._document.close()
             self._document = None
 
-    def _generate_page_refs(self) -> Generator["PageRef", None, None]:
+    def __iter__(self) -> Generator["PageRef", None, None]:
         document = cast(fitz.Document, self._document)
         for i in range(len(document)):
             yield PageRef(
