@@ -1,7 +1,7 @@
 import fitz
 import re
 
-from typing import cast, Generator, Container
+from typing import cast, Generator
 from pathlib import Path
 from os import PathLike
 from PIL.Image import frombytes, Image

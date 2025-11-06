@@ -21,11 +21,17 @@
         "editor.wordWrap": "on"
     },
     "[python]": {
-        "editor.formatOnSave": true,
+        "editor.formatOnSave": false,
         "editor.codeActionsOnSave": {
-            "source.organizeImports": "explicit"
+            "source.organizeImports": "never"
         },
         "files.trimTrailingWhitespace": true
     },
-    "files.trimTrailingWhitespace": true
+    "files.trimTrailingWhitespace": true,
+    "cSpell.words": [
+        "analysing",
+        "fitz",
+        "frombytes",
+        "gundam"
+    ]
 }
