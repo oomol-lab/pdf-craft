@@ -1,4 +1,6 @@
 from .generation import generate_chapter_files
 from .chapter import decode, encode, Chapter, AssetLayout, AssetRef, ParagraphLayout, LineLayout
+from .reference import Reference
+from .mark import Mark, NumberClass, NumberStyle
 from .reader import ChapterReader
-from .render import render_paragraph_layout
+from .language import is_chinese_char

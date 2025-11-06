@@ -253,8 +253,21 @@ def _extract_and_split_content(layout: AssetLayout, start: int, end: int):
     layout.content = extracted
 
 def line_text(line: LineLayout) -> str:
-    # 再未绑定 reference 之前，它的 content 是只有一个 str 的数组
-    return cast(str, line.content[0])
+    """
+    从 LineLayout 中提取文本内容。
+    支持处理混合的字符串和引用对象内容。
+    """
+    result_parts = []
+    for part in line.content:
+        if isinstance(part, str):
+            result_parts.append(part)
+        # 对于 Reference 对象，我们可以选择忽略或者转换为特定格式
+        # 在 jointer 阶段，可能还需要原始文本，所以暂时转换为空字符串
+        elif isinstance(part, Reference):
+            # Reference 对象在这里暂时不处理，或者可以添加标记
+            pass
+
+    return "".join(result_parts)
 
 def _is_splitted_word(text1: str, text2: str) -> bool:
     return (

@@ -1,8 +1,11 @@
 from pathlib import Path
 from shutil import copy2
+from typing import Generator
 
 from ..sequence import ChapterReader, AssetLayout, ParagraphLayout
-from ..sequence.render import render_paragraph_layout
+from ..sequence.language import is_chinese_char
+from ..sequence.chapter import Reference
+from .footnotes import collect_chapter_references, create_reference_mapping, render_footnotes_section
 
 
 def render_markdown_file(
@@ -18,12 +21,20 @@ def render_markdown_file(
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output_assets_path.mkdir(parents=True, exist_ok=True)
+    chapters = list(ChapterReader(chapters_path).read())
+
+    all_references = []
+    for chapter in chapters:
+        all_references.extend(collect_chapter_references(chapter))
+
+    all_references.sort(key=lambda ref: (ref.page_index, ref.order))
+    ref_id_to_number = create_reference_mapping(all_references)
 
     with open(output_path, "w", encoding="utf-8") as f:
-        for chapter in ChapterReader(chapters_path).read():
+        for chapter in chapters:
             if chapter.title is not None:
                 f.write("## ")
-                for line in render_paragraph_layout(chapter.title):
+                for line in _render_paragraph_layout(chapter.title, ref_id_to_number):
                     f.write(line)
                 f.write("\n\n")
             for layout in chapter.layouts:
@@ -37,10 +48,46 @@ def render_markdown_file(
                     if asset_markdown:
                         f.write(asset_markdown)
                 elif isinstance(layout, ParagraphLayout):
-                    for line in render_paragraph_layout(layout):
+                    for line in _render_paragraph_layout(layout, ref_id_to_number):
                         f.write(line)
                 f.write("\n\n")
 
+        for part in render_footnotes_section(all_references):
+            f.write(part)
+
+
+def _render_paragraph_layout(layout: ParagraphLayout, ref_id_to_number: dict) -> Generator[str, None, None]:
+    last_char: str | None = None
+    for line in _normalize_lines(layout, ref_id_to_number):
+        if last_char is not None and (
+            not is_chinese_char(last_char) or \
+            not is_chinese_char(line[0])
+        ):
+            yield " "
+        last_char = line[-1] if line else None
+        yield line
+
+def _normalize_lines(layout: ParagraphLayout, ref_id_to_number: dict) -> Generator[str, None, None]:
+    for line_layout in layout.lines:
+        line_content = _render_line_content(line_layout.content, ref_id_to_number)
+        if line_content:
+            for line in line_content.splitlines():
+                if line:
+                    yield line
+
+def _render_line_content(content: list[str | Reference], ref_id_to_number: dict) -> str:
+    result = []
+    for part in content:
+        if isinstance(part, str):
+            result.append(part)
+        elif isinstance(part, Reference):
+            # 使用映射的序号生成脚注引用标记
+            ref_number = ref_id_to_number.get(part.id, 1)
+            result.append(f"[^{ref_number}]")
+        else:
+            # 其他类型转换为字符串
+            result.append(str(part))
+    return "".join(result)
 
 def _render_asset(
     asset: AssetLayout,
