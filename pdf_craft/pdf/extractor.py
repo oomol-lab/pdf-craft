@@ -120,7 +120,7 @@ class PageRef:
                 ref = self._normalize_text(layout.ref)
                 text = self._normalize_text(layout.text)
                 hash: str | None = None
-                if ref in ASSET_TAGS and i == 0:
+                if ref in ASSET_TAGS:
                     hash = self._asset_hub.clip(image, layout.det)
                 page_layout = PageLayout(
                     ref=ref,

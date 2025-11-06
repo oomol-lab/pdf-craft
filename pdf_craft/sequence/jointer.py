@@ -4,14 +4,13 @@ from typing import Generator, Iterable
 
 from ..pdf import PageLayout
 from ..common import ASSET_TAGS
-from .chapter import ParagraphLayout, AssetLayout
+from .chapter import ParagraphLayout, AssetLayout, LineLayout
 from .language import is_latin_letter
 
 
 TITLE_TAGS = ("title", "sub_title")
 
-_ASSET_CPATION_TAGS = tuple(f"{t}_caption" for t in ASSET_TAGS)
-
+_ASSET_CAPTION_TAGS = tuple(f"{t}_caption" for t in ASSET_TAGS)
 
 # to see https://github.com/opendatalab/MinerU/blob/fa1149cd4abf9db5e0f13e4e074cdb568be189f4/mineru/utils/span_pre_proc.py#L247
 _LINE_STOP_FLAGS = (
@@ -44,8 +43,7 @@ class Jointer:
             first_layout = layouts[0]
             if last_page_para and isinstance(first_layout, ParagraphLayout) and \
                self._can_merge_paragraphs(last_page_para, first_layout):
-                last_page_para.page_indexes.append(page_index)
-                last_page_para.content.extend(first_layout.content)
+                last_page_para.lines.extend(first_layout.lines)
                 del layouts[0]
 
             if not layouts:
@@ -86,7 +84,7 @@ class Jointer:
                     caption=None,
                     hash=layout.hash,
                 )
-            elif layout.ref in _ASSET_CPATION_TAGS:
+            elif layout.ref in _ASSET_CAPTION_TAGS:
                 if last_asset:
                     if last_asset.caption:
                         last_asset.caption += "\n" + layout.text
@@ -102,8 +100,11 @@ class Jointer:
 
                 jointed_layouts.append(ParagraphLayout(
                     ref=layout.ref,
-                    page_indexes=[page_index],
-                    content=[(layout.det, layout.text)],
+                    lines=[LineLayout(
+                        page_index=page_index,
+                        det=layout.det,
+                        content=layout.text
+                    )],
                 ))
 
         if last_asset:
@@ -124,8 +125,10 @@ class Jointer:
         if para1.ref != para2.ref:
             return False
 
-        det1, text1 = para1.content[-1]
-        det2, text2 = para2.content[0]
+        line1 = para1.lines[-1]
+        line2 = para2.lines[0]
+        det1, text1 = line1.det, line1.content
+        det2, text2 = line2.det, line2.content
 
         if not text1 or not text2:
             return False
@@ -202,31 +205,29 @@ def _normalize_table(layout: AssetLayout):
         _extract_and_split_content(layout, table_start, table_end)
 
 def _normalize_paragraph_content(paragraph: ParagraphLayout):
-    if len(paragraph.content) < 2:
+    if len(paragraph.lines) < 2:
         return
 
-    for i in range(1, len(paragraph.content)):
-        det1, text1 = paragraph.content[i - 1]
-        det2, text2 = paragraph.content[i]
-        text1 = text1.rstrip()
-        text2 = text2.lstrip()
+    for i in range(1, len(paragraph.lines)):
+        line1 = paragraph.lines[i - 1]
+        line2 = paragraph.lines[i]
+        content1 = line1.content.rstrip()
+        content2 = line2.content.lstrip()
 
-        if not _is_splitted_word(text1, text2):
+        if not _is_splitted_word(content1, content2):
             continue
 
         tail_end = 0
-        for j in range(len(text2)):
-            if is_latin_letter(text2[j]):
+        for j in range(len(content2)):
+            if is_latin_letter(content2[j]):
                 tail_end = j + 1
             else:
                 break
 
-        text1 = text1[:-1] + text2[:tail_end]
-        text2 = text2[tail_end:].lstrip()
-        paragraph.content[i - 1] = (det1, text1)
-        paragraph.content[i] = (det2, text2)
+        line1.content = content1[:-1] + content2[:tail_end]
+        line2.content = content2[tail_end:].lstrip()
 
-    paragraph.content = [ (det, text) for det, text in paragraph.content if text.strip() ]
+    paragraph.lines = [line for line in paragraph.lines if line.content.strip()]
 
 def _extract_and_split_content(layout: AssetLayout, start: int, end: int):
     content = layout.content

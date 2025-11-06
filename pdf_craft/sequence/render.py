@@ -11,10 +11,11 @@ def render_paragraph_layout(layout: ParagraphLayout) -> Generator[str, None, Non
             not is_chinese_char(line[0])
         ):
             yield " "
+        last_char = line[-1] if line else None
         yield line
 
 def _normalize_lines(layout: ParagraphLayout) -> Generator[str, None, None]:
-    for _, text in layout.content:
-        for line in text.splitlines():
+    for line_layout in layout.lines:
+        for line in line_layout.content.splitlines():
             if line:
                 yield line
