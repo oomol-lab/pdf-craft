@@ -1,22 +1,26 @@
 from pathlib import Path
-from xml.etree.ElementTree import tostring
-from doc_page_extractor import DeepSeekOCRSize
+from os import PathLike
 
 from ..common import save_xml, AssetHub
-from .extractor import Extractor
-from .page import encode, Page
+from .types import encode, DeepSeekOCRModel
 
+
+def predownload_models(models_cache_path: PathLike | None = None) -> None:
+    from .extractor import predownload # 尽可能推迟 doc-page-extractor 的加载时间
+    predownload(models_cache_path)
 
 def ocr_pdf(
         pdf_path: Path,
         asset_path: Path,
         ocr_path: Path,
-        model_size: DeepSeekOCRSize,
+        model: DeepSeekOCRModel,
         includes_footnotes: bool,
+        models_cache_path: PathLike | None = None,
         plot_path: Path | None = None,
     ):
+    from .extractor import Extractor # 尽可能推迟 doc-page-extractor 的加载时间
     asset_hub = AssetHub(asset_path)
-    executor = Extractor(asset_hub)
+    executor = Extractor(asset_hub, models_cache_path)
     ocr_path.mkdir(parents=True, exist_ok=True)
 
     with executor.page_refs(pdf_path) as refs:
@@ -27,7 +31,7 @@ def ocr_pdf(
             file_path = ocr_path / filename
             if not file_path.exists():
                 page = ref.extract(
-                    model_size=model_size,
+                    model=model,
                     includes_footnotes=includes_footnotes,
                     plot_path=plot_path,
                 )

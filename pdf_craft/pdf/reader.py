@@ -2,7 +2,7 @@ from pathlib import Path
 from xml.etree.ElementTree import Element
 
 from ..common import BaseXMLReader
-from .page import decode, Page
+from .types import decode, Page
 
 
 class PagesReader(BaseXMLReader[Page]):

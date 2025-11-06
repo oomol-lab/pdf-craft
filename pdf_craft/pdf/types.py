@@ -1,8 +1,11 @@
 from dataclasses import dataclass
+from typing import Literal
 from xml.etree.ElementTree import Element
 
 from ..common import indent
 
+
+DeepSeekOCRModel = Literal["tiny", "small", "base", "large", "gundam"]
 
 @dataclass
 class Page:

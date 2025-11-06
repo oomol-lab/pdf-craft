@@ -12,6 +12,8 @@ def main() -> None:
         markdown_path=analysing_dir_path / "output.md",
         markdown_assets_path=Path("images"),
         analysing_path=analysing_dir_path,
+        models_cache_path=project_root / "models-cache",
+        generate_plot=True,
     )
 
 if __name__ == "__main__":

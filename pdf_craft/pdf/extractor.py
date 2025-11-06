@@ -3,24 +3,30 @@ import re
 
 from typing import cast, Generator
 from pathlib import Path
+from os import PathLike
 from PIL.Image import frombytes, Image
 from doc_page_extractor import plot, PageExtractor, DeepSeekOCRSize
 
 from ..common import ASSET_TAGS, AssetHub
-from .page import Page, PageLayout
-
+from .types import Page, PageLayout, DeepSeekOCRModel
 
 class Extractor:
-    def __init__(self, asset_hub: AssetHub) -> None:
-        self._page_extractor = PageExtractor()
+    def __init__(self, asset_hub: AssetHub, models_cache_path: PathLike | None) -> None:
         self._asset_hub = asset_hub
+        self._models_cache_path: PathLike | None = models_cache_path
+        self._page_extractor: PageExtractor | None = None
 
     def page_refs(self, pdf_path: Path) -> "PageRefContext":
+        if not self._page_extractor:
+            self._page_extractor = PageExtractor(self._models_cache_path)
         return PageRefContext(
             pdf_path=pdf_path,
             page_extractor=self._page_extractor,
             asset_hub=self._asset_hub,
         )
+
+def predownload(models_cache_path: PathLike | None = None) -> None:
+    PageExtractor(models_cache_path).download_models()
 
 class PageRefContext:
     def __init__(
@@ -73,7 +79,7 @@ class PageRef:
 
     def extract(
             self,
-            model_size: DeepSeekOCRSize,
+            model: DeepSeekOCRModel,
             includes_footnotes: bool,
             plot_path: Path | None,
         ) -> Page:
@@ -85,7 +91,7 @@ class PageRef:
         image = frombytes("RGB", (pixmap.width, pixmap.height), pixmap.samples)
         return self._convert_to_page(
             image=image,
-            model_size=model_size,
+            model_size=model,
             includes_footnotes=includes_footnotes,
             plot_path=plot_path,
         )

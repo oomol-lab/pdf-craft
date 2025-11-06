@@ -2,6 +2,7 @@
 
 /output
 /analysing
+/models-cache
 /format.json
 
 # Byte-compiled / optimized / DLL files

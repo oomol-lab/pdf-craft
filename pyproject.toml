@@ -40,7 +40,7 @@ priority = "explicit"
 
 [tool.poetry.dependencies]
 PyMuPDF = ">=1.25.3,<2.0.0"
-doc-page-extractor = "1.0.0"
+doc-page-extractor = "1.0.1"
 
 [tool.poetry.group.dev.dependencies]
 pylint = "^3.3.7"
