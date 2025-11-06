@@ -3,6 +3,7 @@ from typing import cast
 from xml.etree.ElementTree import Element
 
 from ..common import indent, AssetRef, ASSET_TAGS
+from .mark import Mark
 
 @dataclass
 class Chapter:
@@ -28,19 +29,40 @@ class ParagraphLayout:
 class LineLayout:
     page_index: int
     det: tuple[int, int, int, int]
-    content: str
+    content: list["str | Reference"]
+
+@dataclass
+class Reference:
+    page_index: int
+    order: int
+    mark: str | Mark
+    layouts: list[AssetLayout | ParagraphLayout]
+
+    @property
+    def id(self) -> tuple[int, int]:
+        return (self.page_index, self.order)
 
 def decode(element: Element) -> Chapter:
+    references_el = element.find("references")
+    references_map: dict[tuple[int, int], Reference] = {}
+    if references_el is not None:
+        for ref_el in references_el.findall("ref"):
+            reference = _decode_reference(ref_el)
+            references_map[reference.id] = reference
+
     title_el = element.find("title")
-    title = _decode_paragraph(title_el) if title_el is not None else None
+    title = _decode_paragraph(title_el, references_map) if title_el is not None else None
+    body_el = element.find("body")
+    if body_el is None:
+        raise ValueError("<chapter> missing required <body> element")
 
     layouts: list[ParagraphLayout | AssetLayout] = []
-    for child in list(element):
+    for child in list(body_el):
         tag = child.tag
         if tag == "asset":
             layouts.append(_decode_asset(child))
         elif tag == "paragraph":
-            layouts.append(_decode_paragraph(child))
+            layouts.append(_decode_paragraph(child, references_map))
 
     return Chapter(
         title=title,
@@ -56,13 +78,22 @@ def encode(chapter: Chapter) -> Element:
         _encode_line_elements(title_el, chapter.title.lines)
         root.append(title_el)
 
+    body_el = Element("body")
     for layout in chapter.layouts:
         if isinstance(layout, AssetLayout):
-            root.append(_encode_asset(layout))
+            body_el.append(_encode_asset(layout))
         else:
-            root.append(_encode_paragraph(layout))
+            body_el.append(_encode_paragraph(layout))
 
-    return indent(root)
+    root.append(body_el)
+    references = _collect_references(chapter)
+    if references:
+        references_el = Element("references")
+        for ref in references:
+            references_el.append(_encode_reference(ref))
+        root.append(references_el)
+
+    return indent(root, skip_tags=("line",))
 
 def _decode_asset(element: Element) -> AssetLayout:
     ref_attr = element.get("ref")
@@ -128,12 +159,12 @@ def _encode_asset(layout: AssetLayout) -> Element:
 
     return el
 
-def _decode_paragraph(element: Element) -> ParagraphLayout:
+def _decode_paragraph(element: Element, references_map: dict[tuple[int, int], Reference] | None = None) -> ParagraphLayout:
     ref_attr = element.get("ref")
     if ref_attr is None:
         raise ValueError("<paragraph> missing required attribute 'ref'")
 
-    lines = _decode_line_elements(element, context_tag="paragraph")
+    lines = _decode_line_elements(element, context_tag="paragraph", references_map=references_map)
 
     return ParagraphLayout(ref=ref_attr, lines=lines)
 
@@ -152,7 +183,7 @@ def _parse_det(det_str: str, context: str) -> tuple[int, int, int, int]:
         raise ValueError(f"{context}: det must have 4 values, got {len(det_list)}")
     return (det_list[0], det_list[1], det_list[2], det_list[3])
 
-def _decode_line_elements(parent: Element, *, context_tag: str) -> list[LineLayout]:
+def _decode_line_elements(parent: Element, *, context_tag: str, references_map: dict[tuple[int, int], Reference] | None = None) -> list[LineLayout]:
     lines: list[LineLayout] = []
     for line_el in parent.findall("line"):
         page_index_attr = line_el.get("page_index")
@@ -167,9 +198,36 @@ def _decode_line_elements(parent: Element, *, context_tag: str) -> list[LineLayo
         if det_str is None:
             raise ValueError(f"<{context_tag}><line> missing required attribute 'det'")
         det = _parse_det(det_str, context=f"<{context_tag}><line>@det")
+        content: list[str | Reference] = []
+        if line_el.text:
+            content.append(line_el.text)
 
-        text = line_el.text.strip() if line_el.text else ""
-        lines.append(LineLayout(page_index=page_index, det=det, content=text))
+        for child in line_el:
+            if child.tag == "ref":
+                ref_id = child.get("id")
+                if ref_id is None:
+                    raise ValueError(f"<{context_tag}><line><ref> missing required attribute 'id'")
+
+                try:
+                    parts = ref_id.split('-')
+                    if len(parts) != 2:
+                        raise ValueError(f"<{context_tag}><line><ref> attribute 'id' must be in format 'page-order'")
+                    ref_page_index = int(parts[0])
+                    ref_order = int(parts[1])
+                except ValueError as e:
+                    raise ValueError(f"<{context_tag}><line><ref> attribute 'id' must contain valid integers") from e
+
+                if references_map is not None:
+                    ref_key = (ref_page_index, ref_order)
+                    if ref_key in references_map:
+                        content.append(references_map[ref_key])
+                    else:
+                        raise ValueError(f"<{context_tag}><line><ref> references undefined reference: {ref_id}")
+
+            if child.tail:
+                content.append(child.tail)
+
+        lines.append(LineLayout(page_index=page_index, det=det, content=content))
     return lines
 
 def _encode_line_elements(parent: Element, lines: list[LineLayout]) -> None:
@@ -177,5 +235,104 @@ def _encode_line_elements(parent: Element, lines: list[LineLayout]) -> None:
         line_el = Element("line")
         line_el.set("page_index", str(line.page_index))
         line_el.set("det", ",".join(map(str, line.det)))
-        line_el.text = line.content
+        has_elements = False
+        for part in line.content:
+            if isinstance(part, str):
+                if not has_elements:
+                    line_el.text = part
+                else:
+                    last_child = line_el[-1]
+                    last_child.tail = part
+            elif isinstance(part, Reference):
+                ref_el = Element("ref")
+                ref_el.set("id", f"{part.page_index}-{part.order}")
+                line_el.append(ref_el)
+                has_elements = True
+
         parent.append(line_el)
+
+def _collect_references(chapter: Chapter) -> list[Reference]:
+    references: list[Reference] = []
+    seen: set[tuple[int, int]] = set()
+
+    def collect_from_layouts(layouts: list[AssetLayout | ParagraphLayout]) -> None:
+        for layout in layouts:
+            if isinstance(layout, ParagraphLayout):
+                for line in layout.lines:
+                    for part in line.content:
+                        if isinstance(part, Reference):
+                            ref_id = part.id
+                            if ref_id not in seen:
+                                seen.add(ref_id)
+                                references.append(part)
+
+    if chapter.title is not None:
+        for line in chapter.title.lines:
+            for part in line.content:
+                if isinstance(part, Reference):
+                    ref_id = part.id
+                    if ref_id not in seen:
+                        seen.add(ref_id)
+                        references.append(part)
+
+    collect_from_layouts(chapter.layouts)
+    references.sort(key=lambda ref: ref.id)
+
+    return references
+
+def _encode_reference(ref: Reference) -> Element:
+    ref_el = Element("ref")
+    ref_el.set("id", f"{ref.page_index}-{ref.order}")
+
+    mark_el = Element("mark")
+    mark_el.text = str(ref.mark)
+    ref_el.append(mark_el)
+
+    for layout in ref.layouts:
+        if isinstance(layout, AssetLayout):
+            ref_el.append(_encode_asset(layout))
+        else:
+            ref_el.append(_encode_paragraph(layout))
+
+    return ref_el
+
+def _decode_reference(element: Element) -> Reference:
+    ref_id = element.get("id")
+    if ref_id is None:
+        raise ValueError("<references><ref> missing required attribute 'id'")
+
+    try:
+        parts = ref_id.split('-')
+        if len(parts) != 2:
+            raise ValueError("<references><ref> attribute 'id' must be in format 'page-order'")
+        page_index = int(parts[0])
+        order = int(parts[1])
+    except ValueError as e:
+        raise ValueError("<references><ref> attribute 'id' must contain valid integers") from e
+
+    mark_el = element.find("mark")
+    if mark_el is None or mark_el.text is None:
+        raise ValueError("<references><ref> missing required <mark> element")
+    mark_text = mark_el.text
+
+    from .mark import transform2mark
+    mark = transform2mark(mark_text)
+    if mark is None:
+        # 如果不是特殊标记，就使用原始字符串
+        mark = mark_text
+
+    layouts: list[AssetLayout | ParagraphLayout] = []
+    for child in element:
+        if child.tag == "mark":
+            continue
+        elif child.tag == "asset":
+            layouts.append(_decode_asset(child))
+        elif child.tag == "paragraph":
+            layouts.append(_decode_paragraph(child, references_map=None))
+
+    return Reference(
+        page_index=page_index,
+        order=order,
+        mark=mark,
+        layouts=layouts,
+    )

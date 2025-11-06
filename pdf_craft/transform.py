@@ -47,9 +47,9 @@ def transform_markdown(
             pages_path=pages_path,
             chapters_path=chapters_path,
         )
-        render_markdown_file(
-            chapters_path=chapters_path,
-            assets_path=asserts_path,
-            output_path=Path(markdown_path),
-            output_assets_path=markdown_assets_path,
-        )
+        # render_markdown_file(
+        #     chapters_path=chapters_path,
+        #     assets_path=asserts_path,
+        #     output_path=Path(markdown_path),
+        #     output_assets_path=markdown_assets_path,
+        # )

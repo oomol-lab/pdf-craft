@@ -1,6 +1,6 @@
 import re
 
-from typing import Generator, Iterable
+from typing import cast, Generator, Iterable
 
 from ..pdf import PageLayout
 from ..common import ASSET_TAGS
@@ -30,12 +30,12 @@ _TABLE_PATTERN = re.compile(r"<table[^>]*>.*?</table>", re.IGNORECASE | re.DOTAL
 
 
 class Jointer:
-    def __init__(self) -> None:
-        pass
+    def __init__(self, layouts: Iterable[tuple[int, list[PageLayout]]]) -> None:
+        self._layouts = layouts
 
-    def execute(self, layouts_in_page: Iterable[tuple[int, list[PageLayout]]]) -> Generator[ParagraphLayout | AssetLayout, None, None]:
+    def execute(self) -> Generator[ParagraphLayout | AssetLayout, None, None]:
         last_page_para: ParagraphLayout | None = None
-        for page_index, raw_layouts in layouts_in_page:
+        for page_index, raw_layouts in self._layouts:
             layouts = self._transform_and_join_asset_layouts(page_index, raw_layouts)
             if not layouts:
                 continue
@@ -103,7 +103,7 @@ class Jointer:
                     lines=[LineLayout(
                         page_index=page_index,
                         det=layout.det,
-                        content=layout.text
+                        content=[layout.text],
                     )],
                 ))
 
@@ -127,8 +127,8 @@ class Jointer:
 
         line1 = para1.lines[-1]
         line2 = para2.lines[0]
-        det1, text1 = line1.det, line1.content
-        det2, text2 = line2.det, line2.content
+        det1, text1 = line1.det, line_text(line1)
+        det2, text2 = line2.det, line_text(line2)
 
         if not text1 or not text2:
             return False
@@ -211,8 +211,8 @@ def _normalize_paragraph_content(paragraph: ParagraphLayout):
     for i in range(1, len(paragraph.lines)):
         line1 = paragraph.lines[i - 1]
         line2 = paragraph.lines[i]
-        content1 = line1.content.rstrip()
-        content2 = line2.content.lstrip()
+        content1 = line_text(line1).rstrip()
+        content2 = line_text(line2).lstrip()
 
         if not _is_splitted_word(content1, content2):
             continue
@@ -224,10 +224,13 @@ def _normalize_paragraph_content(paragraph: ParagraphLayout):
             else:
                 break
 
-        line1.content = content1[:-1] + content2[:tail_end]
-        line2.content = content2[tail_end:].lstrip()
+        line1.content[0] = content1[:-1] + content2[:tail_end]
+        line2.content[0] = content2[tail_end:].lstrip()
 
-    paragraph.lines = [line for line in paragraph.lines if line.content.strip()]
+    paragraph.lines = [
+        line for line in paragraph.lines
+        if line_text(line).strip()
+    ]
 
 def _extract_and_split_content(layout: AssetLayout, start: int, end: int):
     content = layout.content
@@ -248,6 +251,10 @@ def _extract_and_split_content(layout: AssetLayout, start: int, end: int):
             layout.caption = after
 
     layout.content = extracted
+
+def line_text(line: LineLayout) -> str:
+    # 再未绑定 reference 之前，它的 content 是只有一个 str 的数组
+    return cast(str, line.content[0])
 
 def _is_splitted_word(text1: str, text2: str) -> bool:
     return (
