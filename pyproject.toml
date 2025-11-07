@@ -42,6 +42,11 @@ priority = "explicit"
 PyMuPDF = ">=1.25.3,<2.0.0"
 doc-page-extractor = "1.0.1"
 
+# 临时方案，等待 epub-generator 发布新版本
+jinja2 = ">=3.1.5,<4.0.0"
+latex2mathml = ">=3.77.0,<4.0.0"
+matplotlib = ">=3.10.1,<3.11.0"
+
 [tool.poetry.group.dev.dependencies]
 pylint = "^3.3.7"
 torch = {version = "^2.5.1", source = "pytorch-cu121"}

@@ -3,7 +3,7 @@
 /output
 /analysing
 /models-cache
-/format.json
+/epub_generator
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
