@@ -1,6 +1,6 @@
 [project]
 name = "pdf-craft"
-version = "1.0.0"
+version = "1.0.0rc1"
 description = "PDF craft can convert PDF files into various other formats. This project will focus on processing PDF files of scanned books."
 keywords=["pdf", "epub", "markdown"]
 authors = [
@@ -9,28 +9,45 @@ authors = [
 maintainers = [
     {name = "Tao Zeyu", email = "i@taozeyu.com"}
 ]
-license = {text = "AGPL-3.0"}
+license = {text = "MIT"}
 readme = "README.md"
 requires-python = ">=3.10,<3.14"
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+    "Topic :: Text Processing",
+]
 
 [build-system]
 requires = ["poetry-core>=2.0.0,<3.0.0"]
 build-backend = "poetry.core.masonry.api"
 
 [tool.poetry]
-license = "AGPL-3.0"
+license = "MIT"
 readme = "README.md"
 homepage = "https://hub.oomol.com/package/pdf-craft"
 repository = "https://github.com/oomol-lab/pdf-craft"
 packages = [
     {include = "pdf_craft" }
 ]
-classifiers=[
-    "Development Status :: 2 - Pre-Alpha",
+classifiers = [
+    "Development Status :: 4 - Beta",
     "Intended Audience :: Developers",
-    "License :: OSI Approved :: GNU Affero General Public License v3",
-    "Programming Language :: Python",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+    "Topic :: Text Processing",
 ]
 
 [[tool.poetry.source]]

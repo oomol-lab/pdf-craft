@@ -1,5 +1,6 @@
 from pathlib import Path
-from pdf_craft import transform_epub, transform_markdown, OCREventKind, TableRender, LaTeXRender, BookMeta
+from pdf_craft import transform_markdown, OCREventKind
+
 
 def main() -> None:
     project_root = Path(__file__).parent
@@ -7,30 +8,15 @@ def main() -> None:
     analysing_dir_path = project_root / "analysing"
     pdf_file_name = "table&formula.pdf"
 
-    # transform_markdown(
-    #     pdf_path=assets_dir_path / pdf_file_name,
-    #     markdown_path=analysing_dir_path / "output.md",
-    #     markdown_assets_path=Path("images"),
-    #     analysing_path=analysing_dir_path,
-    #     models_cache_path=project_root / "models-cache",
-    #     includes_footnotes=True,
-    #     generate_plot=True,
-    #     on_ocr_event=lambda e: print(f"OCR {OCREventKind(e.kind).name} - Page {e.page_index}/{e.total_pages} - {_format_duration(e.cost_time_ms)}"),
-    # )
-    transform_epub(
+    transform_markdown(
         pdf_path=assets_dir_path / pdf_file_name,
-        epub_path=analysing_dir_path / "output.epub",
+        markdown_path=analysing_dir_path / "output.md",
+        markdown_assets_path=Path("images"),
         analysing_path=analysing_dir_path,
         models_cache_path=project_root / "models-cache",
         includes_footnotes=True,
         generate_plot=True,
-        table_render=TableRender.HTML,
-        latex_render=LaTeXRender.MATHML,
         on_ocr_event=lambda e: print(f"OCR {OCREventKind(e.kind).name} - Page {e.page_index}/{e.total_pages} - {_format_duration(e.cost_time_ms)}"),
-        book_meta=BookMeta(
-            title="Sample Book",
-            authors=["Tao Zeyu"],
-        ),
     )
 
 def _format_duration(ms: int) -> str:
