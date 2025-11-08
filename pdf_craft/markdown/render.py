@@ -2,7 +2,16 @@ from pathlib import Path
 from shutil import copy2
 from typing import Generator
 
-from ..sequence import is_chinese_char, search_references_in_chapter, references_to_map, Reference, ChapterReader, AssetLayout, ParagraphLayout
+from ..sequence import (
+    is_chinese_char,
+    search_references_in_chapter,
+    references_to_map,
+    Reference,
+    ChapterReader,
+    AssetLayout,
+    ParagraphLayout,
+)
+
 from .footnotes import render_footnotes_section
 
 
@@ -19,17 +28,17 @@ def render_markdown_file(
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output_assets_path.mkdir(parents=True, exist_ok=True)
-    chapters = list(ChapterReader(chapters_path).read())
+    chapters_reader = ChapterReader(chapters_path)
 
-    all_references = []
-    for chapter in chapters:
-        all_references.extend(search_references_in_chapter(chapter))
+    references: list[Reference] = []
+    for chapter in chapters_reader.read():
+        references.extend(search_references_in_chapter(chapter))
 
-    all_references.sort(key=lambda ref: (ref.page_index, ref.order))
-    ref_id_to_number = references_to_map(all_references)
+    references.sort(key=lambda ref: (ref.page_index, ref.order))
+    ref_id_to_number = references_to_map(references)
 
     with open(output_path, "w", encoding="utf-8") as f:
-        for chapter in chapters:
+        for chapter in chapters_reader.read():
             if chapter.title is not None:
                 f.write("## ")
                 for line in _render_paragraph_layout(chapter.title, ref_id_to_number):
@@ -50,9 +59,8 @@ def render_markdown_file(
                         f.write(line)
                 f.write("\n\n")
 
-        for part in render_footnotes_section(all_references):
+        for part in render_footnotes_section(references):
             f.write(part)
-
 
 def _render_paragraph_layout(layout: ParagraphLayout, ref_id_to_number: dict) -> Generator[str, None, None]:
     last_char: str | None = None
@@ -79,11 +87,9 @@ def _render_line_content(content: list[str | Reference], ref_id_to_number: dict)
         if isinstance(part, str):
             result.append(part)
         elif isinstance(part, Reference):
-            # 使用映射的序号生成脚注引用标记
             ref_number = ref_id_to_number.get(part.id, 1)
             result.append(f"[^{ref_number}]")
         else:
-            # 其他类型转换为字符串
             result.append(str(part))
     return "".join(result)
 

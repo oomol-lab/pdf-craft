@@ -7,6 +7,7 @@ from epub_generator import (
     TableRender,
     LaTeXRender,
     Chapter as ChapterRecord,
+    ChapterGetter,
     TocItem,
     Text,
     Image,
@@ -16,8 +17,15 @@ from epub_generator import (
     TextKind,
 )
 
-from ..sequence import Chapter, ChapterReader, AssetLayout, ParagraphLayout
-from ..sequence.chapter import search_references_in_chapter, references_to_map, Reference
+from ..sequence import (
+    search_references_in_chapter,
+    references_to_map,
+    Reference,
+    Chapter,
+    ChapterReader,
+    AssetLayout,
+    ParagraphLayout,
+)
 
 
 def render_epub_file(
@@ -30,31 +38,36 @@ def render_epub_file(
         table_render: TableRender = TableRender.HTML,
         latex_render: LaTeXRender = LaTeXRender.MATHML,
     ):
-    chapters = list(ChapterReader(chapters_path).read())
 
+    chapters_reader = ChapterReader(chapters_path)
     references: list[Reference] = []
-    for chapter in chapters:
+    for chapter in chapters_reader.read():
         references.extend(search_references_in_chapter(chapter))
 
     references.sort(key=lambda ref: (ref.page_index, ref.order))
     ref_id_to_number = references_to_map(references)
+    toc_items: list[TocItem] = []
+    get_head: ChapterGetter | None = None
 
-    toc_items = []
-    for chapter_data in chapters:
-        def get_chapter(ch=chapter_data):
+    for chapter in chapters_reader.read():
+        def get_chapter(ch=chapter):
             return _convert_chapter_to_epub(
-                ch,
-                ref_id_to_number,
-                assets_path
+                chapter=ch,
+                ref_id_to_number=ref_id_to_number,
+                assets_path=assets_path
             )
-        title = _extract_chapter_title(chapter_data)
-        toc_items.append(TocItem(
-            title=title,
-            get_chapter=get_chapter
-        ))
+        if chapter.title is None:
+            get_head = get_chapter
+        else:
+            title = _extract_chapter_title(chapter)
+            toc_items.append(TocItem(
+                title=title,
+                get_chapter=get_chapter
+            ))
 
     epub_data = EpubData(
         meta=book_meta,
+        get_head=get_head,
         chapters=toc_items,
         cover_image_path=cover_path,
     )
