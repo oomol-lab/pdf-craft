@@ -1,287 +1,200 @@
-<div align=center>
-  <h1>PDF Craft</h1>
-  <p>
-    <a href="https://github.com/oomol-lab/pdf-craft/actions/workflows/build.yml" target="_blank"><img src="https://img.shields.io/github/actions/workflow/status/oomol-lab/pdf-craft/build.yml" alt"ci" /></a>
-    <a href="https://pypi.org/project/pdf-craft/" target="_blank"><img src="https://img.shields.io/badge/pip_install-pdf--craft-blue" alt="pip install pdf-craft" /></a>
-    <a href="https://pypi.org/project/pdf-craft/" target="_blank"><img src="https://img.shields.io/pypi/v/pdf-craft.svg" alt"pypi pdf-craft" /></a>
-    <a href="https://pypi.org/project/pdf-craft/" target="_blank"><img src="https://img.shields.io/pypi/pyversions/pdf-craft.svg" alt="python versions" /></a>
-    <a href="https://github.com/oomol-lab/pdf-craft/blob/main/LICENSE" target="_blank"><img src="https://img.shields.io/github/license/oomol-lab/pdf-craft" alt"license" /></a>
-  </p>
-  <p><a href="https://hub.oomol.com/package/pdf-craft?open=true" target="_blank"><img src="https://static.oomol.com/assets/button.svg" alt="Open in OOMOL Studio" /></a></p>
-  <p>English | <a href="./README_zh-CN.md">中文</a></p>
-</div>
+# pdf-craft
 
+将 PDF 文件转换为各种其他格式的工具。本项目专注于处理扫描书籍的 PDF 文件，支持 OCR 识别、表格提取、公式识别等功能。
 
-## Introduction
+## 功能特性
 
-PDF Craft can convert PDF files into various other formats. This project will focus on processing PDF files of scanned books. If you encounter any problems or have any suggestions, please submit [issues](https://github.com/oomol-lab/pdf-craft/issues).
+- **PDF 转 Markdown**：将 PDF 文件转换为 Markdown 格式，保留文档结构
+- **PDF 转 EPUB**：将 PDF 文件转换为电子书格式，支持自定义书籍元信息
+- **OCR 文字识别**：支持扫描版 PDF 的文字识别
+- **表格识别**：智能识别并提取 PDF 中的表格内容
+- **公式识别**：支持 LaTeX 格式的数学公式识别
+- **脚注支持**：可选择是否包含文档中的脚注内容
+- **进度追踪**：实时显示 OCR 处理进度
 
-This project can read PDF pages one by one, and use [DocLayout-YOLO](https://github.com/opendatalab/DocLayout-YOLO) mixed with an algorithm I wrote to extract the text from the book pages and filter out elements such as headers, footers, footnotes, and page numbers. In the process of crossing pages, the algorithm will be used to properly handle the problem of the connection between the previous and next pages, and finally generate semantically coherent text. The book pages will use [OnnxOCR](https://github.com/jingsongliujing/OnnxOCR) for text recognition. And use [layoutreader](https://github.com/ppaanngggg/layoutreader) to determine the reading order that conforms to human habits.
+## 系统要求
 
-With only these AI models that can be executed locally (using local graphics devices to accelerate), PDF files can be converted to Markdown format. This is suitable for papers or small books.
+### 硬件要求
 
-However, if you want to parse books (generally more than 100 pages), it is recommended to convert them to [EPUB](https://en.wikipedia.org/wiki/EPUB) format files. During the conversion process, this library will pass the data recognized by the local OCR to [LLM](https://en.wikipedia.org/wiki/Large_language_model), and build the structure of the book through specific information (such as the table of contents, etc.), and finally generate an EPUB file with a table of contents and chapters. During this parsing and building process, the comments and reference information of each page will be read through LLM, and then presented in a new format in the EPUB file. In addition, LLM can correct OCR errors to a certain extent. This step cannot be performed entirely locally. You need to configure the LLM service. It is recommended to use [DeepSeek](https://www.deepseek.com/). The prompt of this library is based on the V3 model debugging.
+- **必需**：NVIDIA GPU（支持 CUDA）
+- **推荐**：4GB 以上显存
 
-## Environment
+⚠️ **重要提示**：本项目依赖 `doc-page-extractor` 的最新版本，该组件必须在支持 CUDA 的环境中运行。没有 CUDA 的环境无法使用本项目。
 
-You can call PDF Craft directly as a library, or use [OOMOL Studio](https://oomol.com/) to run it directly.
+### 软件要求
 
-### Run with OOMOL Studio
+- Python 3.10 - 3.13
+- CUDA 11.8、12.1 或 12.6
 
-OOMOL uses container technology to package the dependencies required by PDF craft directly, and it can be used out of the box.
+## 安装说明
 
-[![About PDF Craft](./docs/images/oomol-cover.png)](https://www.youtube.com/watch?v=1yYBCVry77I)
+### 1. 检查 CUDA 版本
 
-### Call directly as a library
+首先检查你的 CUDA 版本：
 
-You can also write python code directly and call it as a library. At this time, you need python 3.10 or above (3.10.16 is recommended).
-
-```shell
-pip install pdf-craft[cpu]
+```bash
+nvidia-smi
 ```
 
-If you want to use GPU acceleration, you need to ensure that your device is ready for the CUDA environment. Please refer to the introduction of [PyTorch](https://pytorch.org/get-started/locally/) and select the appropriate command installation according to your operating system installation.
+如果不确定 CUDA 版本，推荐使用 CUDA 12.1。
 
-In addition, you need to replace the installation command mentioned above with the following:
+### 2. 安装 PyTorch（必须先安装）
 
-```shell
-pip install pdf-craft[cuda]
+在安装 `pdf-craft` 之前，必须先安装支持 CUDA 的 PyTorch：
+
+**CUDA 12.1（推荐）：**
+```bash
+pip install torch torchvision --index-url https://download.pytorch.org/whl/cu121
 ```
 
-## Function
+**CUDA 11.8：**
+```bash
+pip install torch torchvision --index-url https://download.pytorch.org/whl/cu118
+```
 
-[![About PDF Craft](./docs/images/main-cover.png)](https://www.youtube.com/watch?v=EpaLC71gPpM)
+**CUDA 12.6：**
+```bash
+pip install torch torchvision --index-url https://download.pytorch.org/whl/cu126
+```
 
-### Convert PDF to MarkDown
+### 3. 安装 pdf-craft
 
-This operation does not require calling a remote LLM, and can be completed with local computing power (CPU or graphics card). The required model will be downloaded online when it is called for the first time. When encountering illustrations, tables, and formulas in the document, screenshots will be directly inserted into the MarkDown file.
+```bash
+pip install pdf-craft
+```
+
+### 4. 验证安装
+
+运行以下命令验证 CUDA 是否正确配置：
 
 ```python
-from pdf_craft import create_pdf_page_extractor, PDFPageExtractor, MarkDownWriter
-
-extractor: PDFPageExtractor = create_pdf_page_extractor(
-  device="cpu", # If you want to use CUDA, please change to device="cuda" format.
-  model_dir_path="/path/to/model/dir/path", # The folder address where the AI ​​model is downloaded and installed
-)
-with MarkDownWriter(markdown_path, "images", "utf-8") as md:
-  for block in extractor.extract(pdf="/path/to/pdf/file"):
-    md.write(block)
+python -c "import doc_page_extractor; print('doc-page-extractor installed successfully'); import torch; print(f'CUDA available: {torch.cuda.is_available()}')"
 ```
 
-After the execution is completed, a `*.md` file will be generated at the specified path. If there are illustrations (or tables, formulas) in the original PDF, an `assets` directory will be created at the same level as `*.md` to save the images. The images in the `assets` directory will be referenced in the MarkDown file in the form of relative addresses.
+如果显示 `CUDA available: True`，说明安装成功。
 
-The conversion effect is as follows.
+### 故障排除
 
-### Convert PDF to EPUB
+如果 CUDA 显示不可用：
 
-The first half of this operation is the same as Convert PDF to MarkDown (see the previous section). OCR will be used to scan and recognize text from PDF. Therefore, you also need to build a `PDFPageExtractor` object first.
+1. 确认 GPU 驱动正常：`nvidia-smi`
+2. 检查是否安装了 CPU 版本的 PyTorch，需要重新安装正确的 CUDA 版本
+3. 确保 Python 版本在 3.10-3.13 范围内
 
-```python
-from pdf_craft import create_pdf_page_extractor, PDFPageExtractor
+## 使用方法
 
-extractor: PDFPageExtractor = create_pdf_page_extractor(
-  device="cpu", # If you want to use CUDA, please change to device="cuda" format.
-  model_dir_path="/path/to/model/dir/path", # The folder address where the AI ​​model is downloaded and installed
-)
-```
-
-After that, you need to configure the `LLM` object. It is recommended to use [DeepSeek](https://www.deepseek.com/). The prompt of this library is based on V3 model testing.
+### PDF 转 Markdown
 
 ```python
-from pdf_craft import LLM
+from pathlib import Path
+from pdf_craft import transform_markdown, OCREventKind
 
-llm = LLM(
-  key="sk-XXXXX", # key provided by LLM vendor
-  url="https://api.deepseek.com", # URL provided by LLM vendor
-  model="deepseek-chat", # model provided by LLM vendor
-  token_encoding="o200k_base", # local model name for tokens estimation (not related to LLM, if you don't care, keep "o200k_base")
-)
-```
-
-After the above two objects are prepared, you can start scanning and analyzing PDF books.
-
-```python
-from pdf_craft import analyse
-
-analyse(
-  llm=llm, # LLM configuration prepared in the previous step
-  pdf_page_extractor=pdf_page_extractor, # PDFPageExtractor object prepared in the previous step
-  pdf_path="/path/to/pdf/file", # PDF file path
-  analysing_dir_path="/path/to/analysing/dir", # analysing directory path
-  output_dir_path="/path/to/output/files", # The analysis results will be written to this directory
+transform_markdown(
+    pdf_path=Path("input.pdf"),
+    markdown_path=Path("output.md"),
+    markdown_assets_path=Path("images"),  # Markdown 中图片的相对路径
+    analysing_path=Path("analysing"),     # 分析文件输出目录（可选）
+    models_cache_path=Path("models-cache"),  # 模型缓存目录（可选）
+    includes_footnotes=True,              # 是否包含脚注
+    generate_plot=True,                   # 是否生成绘图分析文件
+    on_ocr_event=lambda e: print(f"OCR {OCREventKind(e.kind).name} - 页面 {e.page_index}/{e.total_pages} - {e.cost_time_ms}ms"),
 )
 ```
 
-Note the two directory paths in the above code. One is `output_dir_path`, which indicates the folder where the scan and analysis results (there will be multiple files) should be saved. The paths should point to an empty directory. If it does not exist, a directory will be created automatically.
-
-The second is `analysing_dir_path`, which is used to store the intermediate status during the analysis process. After successful scanning and analysis, this directory and its files will become useless (you can delete them with code). The path should point to a directory. If it does not exist, a directory will be created automatically. This directory (and its files) can save the analysis progress. If an analysis is interrupted due to an accident, you can configure `analysing_dir_path` to the analysing folder generated by the last interruption, so as to resume and continue the analysis from the last interruption point. In particular, if you want to start a new task, please manually delete or empty the `analysing_dir_path` directory to avoid accidentally triggering the interruption recovery function.
-
-After the analysis is completed, pass the `output_dir_path` to the following code as a parameter to finally generate the EPUB file.
+### PDF 转 EPUB
 
 ```python
-from pdf_craft import generate_epub_file
+from pathlib import Path
+from pdf_craft import transform_epub, OCREventKind, TableRender, LaTeXRender, BookMeta
 
-generate_epub_file(
-  from_dir_path=output_dir_path, # from the folder generated by the previous step
-  epub_file_path="/path/to/output/epub", # generated EPUB file save path
+transform_epub(
+    pdf_path=Path("input.pdf"),
+    epub_path=Path("output.epub"),
+    analysing_path=Path("analysing"),     # 分析文件输出目录（可选）
+    models_cache_path=Path("models-cache"),  # 模型缓存目录（可选）
+    includes_footnotes=True,              # 是否包含脚注
+    generate_plot=True,                   # 是否生成绘图分析文件
+    table_render=TableRender.HTML,        # 表格渲染方式：HTML 或 MARKDOWN
+    latex_render=LaTeXRender.MATHML,      # 公式渲染方式：MATHML 或 LATEX
+    on_ocr_event=lambda e: print(f"OCR {OCREventKind(e.kind).name} - 页面 {e.page_index}/{e.total_pages} - {e.cost_time_ms}ms"),
+    book_meta=BookMeta(
+        title="书籍标题",
+        authors=["作者1", "作者2"],
+    ),
 )
 ```
 
-This step will divide the chapters in the EPUB according to the previously analyzed book structure and match the appropriate directory structure. In addition, the original annotations and citations at the bottom of the book page will be presented in the EPUB in an appropriate way.
+### 参数说明
 
-![](docs/images/pdf2epub-en.png)
-![](docs/images/epub-tox-en.png)
-![](docs/images/epub-citations-en.png)
+#### transform_markdown 参数
 
-## Advanced Functions
+- `pdf_path`: PDF 文件路径
+- `markdown_path`: 输出的 Markdown 文件路径
+- `markdown_assets_path`: Markdown 中引用的图片资源相对路径
+- `analysing_path`: （可选）分析过程文件的输出目录，用于调试
+- `models_cache_path`: （可选）AI 模型缓存目录，避免重复下载
+- `includes_footnotes`: 是否包含脚注内容（默认 `True`）
+- `generate_plot`: 是否生成分析图表（默认 `False`）
+- `on_ocr_event`: OCR 进度回调函数
 
-### Multiple OCR
+#### transform_epub 参数
 
-Improve recognition quality by performing multiple OCRs on the same page to avoid the problem of blurred text and missing text.
+除了 `transform_markdown` 的参数外，还包括：
 
-```python
-from pdf_craft import create_pdf_page_extractor, OCRLevel
+- `epub_path`: 输出的 EPUB 文件路径
+- `table_render`: 表格渲染方式
+  - `TableRender.HTML`: 使用 HTML 表格
+  - `TableRender.MARKDOWN`: 使用 Markdown 表格
+- `latex_render`: 公式渲染方式
+  - `LaTeXRender.MATHML`: 使用 MathML 格式
+  - `LaTeXRender.LATEX`: 使用 LaTeX 格式
+- `book_meta`: 书籍元信息（`BookMeta` 对象）
+  - `title`: 书籍标题
+  - `authors`: 作者列表
 
-extractor = create_pdf_page_extractor(
-  device="cpu",
-  model_dir_path="/path/to/model/dir/path",
-  ocr_level=OCRLevel.OncePerLayout,
-)
+#### OCREventKind 事件类型
+
+- `OCREventKind.START`: OCR 开始
+- `OCREventKind.PROGRESS`: OCR 进行中
+- `OCREventKind.COMPLETE`: OCR 完成
+
+## 示例脚本
+
+项目提供了两个示例脚本，位于 [scripts/](scripts/) 目录：
+
+- [gen_md.py](scripts/gen_md.py) - PDF 转 Markdown 的完整示例
+- [gen_epub.py](scripts/gen_epub.py) - PDF 转 EPUB 的完整示例
+
+## 开发
+
+### 安装开发依赖
+
+```bash
+poetry install
 ```
 
-### Identify formulas and tables
+### 运行测试
 
-When the constructed `PDFPageExtractor` recognizes a file, by default it will directly crop the formulas and tables in the original page and treat them as images. You can add configuration when constructing it to change the default behavior so that it can extract formulas and tables.
-
-Configuring the value of the `extract_formula` parameter to `True` will enable [LaTeX-OCR](https://github.com/lukas-blecher/LaTeX-OCR) to recognize the formulas in the original page and store them in the form of [LaTeX](https://zh.wikipedia.org/zh-hans/LaTeX).
-
-Configuring the parameters of `extract_table_format` and specifying the format will start [StructEqTable](https://github.com/Alpha-Innovator/StructEqTable-Deploy) to process the table in the original page and store it in the specified format. **Note: This feature requires the local device to support CUDA (and configure the `device="cuda"` parameter)**, otherwise the feature will fall back to the default behavior.
-
-#### Application in Markdown conversion
-
-Insert the two parameters mentioned above when building `PDFPageExtractor` to enable formula and table recognition when converting Markdown.
-
-```python
-from pdf_craft import create_pdf_page_extractor, ExtractedTableFormat
-
-extractor = create_pdf_page_extractor(
-  ..., # Other parameters
-  extract_formula=True, # Enable formula recognition
-  extract_table_format=ExtractedTableFormat.MARKDOWN, # Enable table recognition (save in MarkDown format)
-)
+```bash
+poetry run pytest
 ```
 
-In particular, for the Markdown conversion scenario, `extract_table_format` can only be set to `ExtractedTableFormat.MARKDOWN`.
+### 代码检查
 
-#### Application in EPub conversion
-
-As mentioned in the previous section, you need to insert the two parameters when building. But please note that the value of `extract_table_format` should be `ExtractedTableFormat.HTML`.
-
-```python
-from pdf_craft import create_pdf_page_extractor, ExtractedTableFormat
-
-extractor = create_pdf_page_extractor(
-  ..., # Other parameters
-  extract_formula=True, # Enable formula recognition
-  extract_table_format=ExtractedTableFormat.HTML, # Enable table recognition (save in MarkDown format)
-)
+```bash
+poetry run pylint pdf_craft
 ```
 
-In addition, when calling the `generate_epub_file()` function next, you also need to configure `table_render` and `latex_render` to specify how the recognized tables and formulas are rendered in the EPub file.
+## 许可证
 
-```python
-from pdf_craft import generate_epub_file, TableRender, LaTeXRender
+本项目基于 [MIT 许可证](LICENSE) 开源。
 
-generate_epub_file(
-  ..., # other parameters
-  table_render=TableRender.HTML, # table rendering mode
-  latex_render=LaTeXRender.SVG, # formula rendering mode
-)
-```
+## 相关链接
 
-For table rendering mode (`TableRender`), there are only two modes: `HTML` and `CLIPPING`. The former means rendering in HTML form (i.e., `<table>` related tags), and the latter is the default rendering mode, i.e., taking a screenshot from the original page.
+- [项目主页](https://hub.oomol.com/package/pdf-craft)
+- [GitHub 仓库](https://github.com/oomol-lab/pdf-craft)
+- [doc-page-extractor](https://github.com/Moskize91/doc-page-extractor) - 核心 OCR 依赖
 
-For formula rendering mode (`LaTeXRender`), there are three modes: `MATHML`, `SVG`, and `CLIPPING`. Among them, `CLIPPING` is the default behavior, i.e., taking a screenshot from the original page. I will introduce the first two modes separately.
+## 贡献
 
-`MATHML` means rendering in EPub files with [MathML](https://en.wikipedia.org/wiki/MathML) tags, which is a mathematical markup language for XML applications. But please note that this language is not supported in EPub 2.0. This means that if this rendering method is used, not all EPub readers can render the formula correctly.
-
-`SVG` means rendering the recognized formula in the form of [SVG](https://en.wikipedia.org/wiki/SVG) files. This is a lossless image format, which means that formulas rendered in this way can be displayed correctly in any reader that supports EPub 2.0. However, this configuration requires `latex` to be installed locally. If it is not installed, an error will be reported during operation. You can use the following command to test whether the local device is correctly installed.
-
-```shell
-latex --version
-```
-
-### Temperature and top p
-
-As mentioned above, the construction of `LLM` can add more parameters to it to achieve richer functions. To achieve disconnection and reconnection, or specify a specific timeout.
-
-```python
-llm = LLM(
-  ..., # other parameters
-  top_p=0.8, # Nucleus Sampling (optional)
-  temperature=0.3, # Temperature (optional)
-)
-```
-
-In addition, `top_p` and `temperature` can be set to a range. In general, their values ​​will be the leftmost value in the range. Once LLM returns a broken content, the value will gradually move to the right when retrying (not exceeding the right boundary of the range). This prevents LLM from falling into a loop that always returns broken content.
-
-```python
-llm = LLM(
-  ..., # other parameters
-  top_p=(0.3, 1.0) # Nucleus Sampling（optional）
-  temperature=(0.3, 1.0), # Temperature (optional)
-)
-```
-
-### Correction
-
-OCR may misrecognize some content due to the original scan being unclear or dirty. LLM can be used to find these errors based on contextual inference and correct them. When calling the `analyse` method, configure `correction_mode` to enable the errata feature.
-
-```python
-from pdf_craft import analyse, CorrectionMode
-
-analyse(
-  ..., # Other parameters
-  correction_mode=CorrectionMode.ONCE,
-)
-```
-
-### Analysis Request Splitting
-
-When calling the `analyse` method, configure the `window_tokens` field to modify the maximum number of tokens submitted for each LLM request. The smaller this value is, the more requests will be made to LLM during the analysis process, but the less data LLM will process at a time. Generally speaking, the less data LLM processes, the better the effect will be, but the more total tokens will be consumed. Adjust this field to find a balance between quality and cost.
-
-```python
-from pdf_craft import analyse
-
-analyse(
-  ..., # other parameters
-  window_tokens=2000, # Maximum number of tokens in the request window
-)
-```
-
-You can also set a specific token limit by constructing `LLMWindowTokens`.
-
-```python
-from pdf_craft import analyse, LLMWindowTokens
-
-analyse(
-  ..., # other parameters
-  window_tokens=LLMWindowTokens(
-    max_request_data_tokens=4096,
-    max_verify_paragraph_tokens=512,
-    max_verify_paragraphs_count=8,
-  ),
-)
-```
-
-## Related open source libraries
-[epub-translator](https://github.com/oomol-lab/epub-translator) uses AI big models to automatically translate EPUB e-books, and retains 100% of the original book's format, illustrations, catalog, and layout, while generating bilingual versions for easy language learning or international sharing. Used with this library, scanned PDF books can be converted and translated. For combined use, please refer to [Video: Convert PDF scanned books to EPUB format and translate into bilingual books](https://www.bilibili.com/video/BV1tMQZY5EYY).
-
-## Acknowledgements
-
-- [doc-page-extractor](https://github.com/Moskize91/doc-page-extractor)
-- [DocLayout-YOLO](https://github.com/opendatalab/DocLayout-YOLO)
-- [OnnxOCR](https://github.com/jingsongliujing/OnnxOCR)
-- [layoutreader](https://github.com/ppaanngggg/layoutreader)
-- [StructEqTable](https://github.com/Alpha-Innovator/StructEqTable-Deploy)
-- [LaTeX-OCR](https://github.com/lukas-blecher/LaTeX-OCR)
+欢迎提交 Issue 和 Pull Request！
