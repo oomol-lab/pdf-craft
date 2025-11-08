@@ -17,12 +17,13 @@ from epub_generator import (
     TextKind,
 )
 
+from ..common import XMLReader
 from ..sequence import (
+    decode,
     search_references_in_chapter,
     references_to_map,
     Reference,
     Chapter,
-    ChapterReader,
     AssetLayout,
     ParagraphLayout,
 )
@@ -39,9 +40,13 @@ def render_epub_file(
         latex_render: LaTeXRender = LaTeXRender.MATHML,
     ):
 
-    chapters_reader = ChapterReader(chapters_path)
+    chapters: XMLReader[Chapter] = XMLReader(
+        prefix="chapter",
+        dir_path=chapters_path,
+        decode=decode,
+    )
     references: list[Reference] = []
-    for chapter in chapters_reader.read():
+    for chapter in chapters.read():
         references.extend(search_references_in_chapter(chapter))
 
     references.sort(key=lambda ref: (ref.page_index, ref.order))
@@ -49,7 +54,7 @@ def render_epub_file(
     toc_items: list[TocItem] = []
     get_head: ChapterGetter | None = None
 
-    for chapter in chapters_reader.read():
+    for chapter in chapters.read():
         def get_chapter(ch=chapter):
             return _convert_chapter_to_epub(
                 chapter=ch,

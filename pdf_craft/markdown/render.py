@@ -2,12 +2,14 @@ from pathlib import Path
 from shutil import copy2
 from typing import Generator
 
+from ..common import XMLReader
 from ..sequence import (
+    decode,
     is_chinese_char,
     search_references_in_chapter,
     references_to_map,
     Reference,
-    ChapterReader,
+    Chapter,
     AssetLayout,
     ParagraphLayout,
 )
@@ -28,17 +30,20 @@ def render_markdown_file(
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output_assets_path.mkdir(parents=True, exist_ok=True)
-    chapters_reader = ChapterReader(chapters_path)
-
+    chapters: XMLReader[Chapter] = XMLReader(
+        prefix="chapter",
+        dir_path=chapters_path,
+        decode=decode,
+    )
     references: list[Reference] = []
-    for chapter in chapters_reader.read():
+    for chapter in chapters.read():
         references.extend(search_references_in_chapter(chapter))
 
     references.sort(key=lambda ref: (ref.page_index, ref.order))
     ref_id_to_number = references_to_map(references)
 
     with open(output_path, "w", encoding="utf-8") as f:
-        for chapter in chapters_reader.read():
+        for chapter in chapters.read():
             if chapter.title is not None:
                 f.write("## ")
                 for line in _render_paragraph_layout(chapter.title, ref_id_to_number):

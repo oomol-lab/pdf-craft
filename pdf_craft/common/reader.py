@@ -1,18 +1,15 @@
 import re
 
-from abc import ABC, abstractmethod
 from pathlib import Path
-from typing import Generator, Generic, TypeVar
+from typing import Generator, Callable, Generic, TypeVar
 from xml.etree.ElementTree import Element, fromstring
 
 
 T = TypeVar("T")
 
 
-class BaseXMLReader(ABC, Generic[T]):
-    """Base class for reading indexed XML files and decoding them into objects."""
-
-    def __init__(self, prefix: str, dir_path: Path) -> None:
+class XMLReader(Generic[T]):
+    def __init__(self, prefix: str, dir_path: Path, decode: Callable[[Element], T]) -> None:
         dir_path = Path(dir_path)
         file_pattern = f"{prefix}_*.xml"
         regex = re.compile(rf"^{re.escape(prefix)}_(\d+)\.xml$")
@@ -27,10 +24,7 @@ class BaseXMLReader(ABC, Generic[T]):
 
         indexed_files.sort(key=lambda t: t[0])
         self._file_paths: list[Path] = [path for _, path in indexed_files]
-
-    @abstractmethod
-    def _decode(self, element: Element) -> T:
-        pass
+        self._decode: Callable[[Element], T] = decode
 
     def read(self) -> Generator[T, None, None]:
         for xml_path in self._file_paths:

@@ -1,8 +1,8 @@
 from pathlib import Path
 from typing import Generator
 
-from ..common import save_xml
-from ..pdf import PagesReader
+from ..common import save_xml, XMLReader
+from ..pdf import decode, Page
 from .jointer import TITLE_TAGS, Jointer
 from .chapter import encode, Reference, Chapter, AssetLayout, ParagraphLayout, LineLayout
 from .reference import References
@@ -35,9 +35,13 @@ def _generate_chapters(pages_path: Path):
         yield chapter
 
 def _extract_body_layouts(pages_path: Path):
-    pages_reader = PagesReader(pages_path)
-    body_jointer = Jointer(((p.index, p.body_layouts) for p in pages_reader.read()))
-    footnotes_jointer = Jointer(((p.index, p.footnotes_layouts) for p in pages_reader.read()))
+    pages: XMLReader[Page] = XMLReader(
+        prefix="page",
+        dir_path=pages_path,
+        decode=decode,
+    )
+    body_jointer = Jointer(((p.index, p.body_layouts) for p in pages.read()))
+    footnotes_jointer = Jointer(((p.index, p.footnotes_layouts) for p in pages.read()))
     references_generator = _extract_page_references(footnotes_jointer)
     current_references: References | None = next(references_generator, None)
 
