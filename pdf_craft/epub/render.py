@@ -16,8 +16,7 @@ from epub_generator import (
 )
 
 from ..sequence import Chapter, ChapterReader, AssetLayout, ParagraphLayout
-from ..sequence.chapter import Reference
-from ..markdown.footnotes import collect_chapter_references, create_reference_mapping
+from ..sequence.chapter import search_references_in_chapter, references_to_map, Reference
 
 
 def render_epub_file(
@@ -30,12 +29,12 @@ def render_epub_file(
     ):
     chapters = list(ChapterReader(chapters_path).read())
 
-    all_references = []
+    references: list[Reference] = []
     for chapter in chapters:
-        all_references.extend(collect_chapter_references(chapter))
+        references.extend(search_references_in_chapter(chapter))
 
-    all_references.sort(key=lambda ref: (ref.page_index, ref.order))
-    ref_id_to_number = create_reference_mapping(all_references)
+    references.sort(key=lambda ref: (ref.page_index, ref.order))
+    ref_id_to_number = references_to_map(references)
 
     toc_items = []
     for chapter_data in chapters:
@@ -101,7 +100,7 @@ def _convert_chapter_to_epub(
             if paragraph_content:
                 elements.append(Text(kind=TextKind.BODY, content=paragraph_content))
 
-    chapter_refs = collect_chapter_references(chapter)
+    chapter_refs = search_references_in_chapter(chapter)
     for ref in chapter_refs:
         footnotes.append(Footnote(
             id=ref_id_to_number.get(ref.id, 1),

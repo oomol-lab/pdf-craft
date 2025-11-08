@@ -1,10 +1,10 @@
 import re
 
-from typing import cast, Generator, Iterable
+from typing import Generator, Iterable
 
 from ..pdf import PageLayout
 from ..common import ASSET_TAGS
-from .chapter import ParagraphLayout, AssetLayout, LineLayout
+from .chapter import ParagraphLayout, AssetLayout, LineLayout, Reference
 from .language import is_latin_letter
 
 

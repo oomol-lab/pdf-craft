@@ -2,10 +2,8 @@ from pathlib import Path
 from shutil import copy2
 from typing import Generator
 
-from ..sequence import ChapterReader, AssetLayout, ParagraphLayout
-from ..sequence.language import is_chinese_char
-from ..sequence.chapter import Reference
-from .footnotes import collect_chapter_references, create_reference_mapping, render_footnotes_section
+from ..sequence import is_chinese_char, search_references_in_chapter, references_to_map, Reference, ChapterReader, AssetLayout, ParagraphLayout
+from .footnotes import render_footnotes_section
 
 
 def render_markdown_file(
@@ -25,10 +23,10 @@ def render_markdown_file(
 
     all_references = []
     for chapter in chapters:
-        all_references.extend(collect_chapter_references(chapter))
+        all_references.extend(search_references_in_chapter(chapter))
 
     all_references.sort(key=lambda ref: (ref.page_index, ref.order))
-    ref_id_to_number = create_reference_mapping(all_references)
+    ref_id_to_number = references_to_map(all_references)
 
     with open(output_path, "w", encoding="utf-8") as f:
         for chapter in chapters:

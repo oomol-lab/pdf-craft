@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from typing import cast
+from typing import cast, Generator, Iterable
 from xml.etree.ElementTree import Element
 
 from ..common import indent, AssetRef, ASSET_TAGS
@@ -41,6 +41,32 @@ class Reference:
     @property
     def id(self) -> tuple[int, int]:
         return (self.page_index, self.order)
+
+def search_references_in_chapter(chapter: Chapter) -> Generator[Reference, None, None]:
+    seen: set[tuple[int, int]] = set()
+    if chapter.title is not None:
+        for line in chapter.title.lines:
+            for part in line.content:
+                if isinstance(part, Reference):
+                    ref_id = part.id
+                    if ref_id not in seen:
+                        seen.add(ref_id)
+                        yield part
+    for layout in chapter.layouts:
+        if isinstance(layout, ParagraphLayout):
+            for line in layout.lines:
+                for part in line.content:
+                    if isinstance(part, Reference):
+                        ref_id = part.id
+                        if ref_id not in seen:
+                            seen.add(ref_id)
+                            yield part
+
+def references_to_map(references: Iterable[Reference]) -> dict[tuple[int, int], int]:
+    ref_id_to_number = {}
+    for i, ref in enumerate(references, 1):
+        ref_id_to_number[ref.id] = i
+    return ref_id_to_number
 
 def decode(element: Element) -> Chapter:
     references_el = element.find("references")

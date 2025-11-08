@@ -28,26 +28,14 @@ def transform_markdown(
         markdown_assets_path = Path(markdown_assets_path)
 
     with EnsureFolder(analysing_path) as analysing_path:
-        asserts_path = analysing_path / "assets"
-        pages_path = analysing_path / "orc"
-        chapters_path = analysing_path / "chapters"
-        plot_path: Path | None = None
-        if generate_plot:
-            plot_path = analysing_path / "plots"
-
-        ocr_pdf(
-            pdf_path=Path(pdf_path),
-            asset_path=asserts_path,
-            ocr_path=pages_path,
+        asserts_path, chapters_path = _extract_assets_and_chapters(
+            pdf_path=pdf_path,
+            analysing_path=analysing_path,
             model=model,
             models_cache_path=models_cache_path,
-            plot_path=plot_path,
             includes_footnotes=includes_footnotes,
-            on_event=on_ocr_event,
-        )
-        generate_chapter_files(
-            pages_path=pages_path,
-            chapters_path=chapters_path,
+            generate_plot=generate_plot,
+            on_ocr_event=on_ocr_event,
         )
         render_markdown_file(
             chapters_path=chapters_path,
@@ -72,26 +60,14 @@ def transform_epub(
 ) -> None:
 
     with EnsureFolder(analysing_path) as analysing_path:
-        asserts_path = analysing_path / "assets"
-        pages_path = analysing_path / "orc"
-        chapters_path = analysing_path / "chapters"
-        plot_path: Path | None = None
-        if generate_plot:
-            plot_path = analysing_path / "plots"
-
-        ocr_pdf(
-            pdf_path=Path(pdf_path),
-            asset_path=asserts_path,
-            ocr_path=pages_path,
+        asserts_path, chapters_path = _extract_assets_and_chapters(
+            pdf_path=pdf_path,
+            analysing_path=analysing_path,
             model=model,
             models_cache_path=models_cache_path,
-            plot_path=plot_path,
             includes_footnotes=includes_footnotes,
-            on_event=on_ocr_event,
-        )
-        generate_chapter_files(
-            pages_path=pages_path,
-            chapters_path=chapters_path,
+            generate_plot=generate_plot,
+            on_ocr_event=on_ocr_event,
         )
         render_epub_file(
             chapters_path=chapters_path,
@@ -101,3 +77,35 @@ def transform_epub(
             table_render=table_render,
             latex_render=latex_render,
         )
+
+def _extract_assets_and_chapters(
+    pdf_path: PathLike,
+    analysing_path: Path,
+    model: DeepSeekOCRModel = "gundam",
+    models_cache_path: PathLike | None = None,
+    includes_footnotes: bool = False,
+    generate_plot: bool = False,
+    on_ocr_event: Callable[[OCREvent], None] = lambda _: None,
+):
+    asserts_path = analysing_path / "assets"
+    pages_path = analysing_path / "orc"
+    chapters_path = analysing_path / "chapters"
+    plot_path: Path | None = None
+    if generate_plot:
+        plot_path = analysing_path / "plots"
+
+    ocr_pdf(
+        pdf_path=Path(pdf_path),
+        asset_path=asserts_path,
+        ocr_path=pages_path,
+        model=model,
+        models_cache_path=models_cache_path,
+        plot_path=plot_path,
+        includes_footnotes=includes_footnotes,
+        on_event=on_ocr_event,
+    )
+    generate_chapter_files(
+        pages_path=pages_path,
+        chapters_path=chapters_path,
+    )
+    return asserts_path, chapters_path
