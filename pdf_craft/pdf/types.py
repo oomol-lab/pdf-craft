@@ -1,6 +1,7 @@
 from dataclasses import dataclass
 from typing import Literal
 from xml.etree.ElementTree import Element
+from PIL.Image import Image
 
 from ..common import indent
 
@@ -10,6 +11,7 @@ DeepSeekOCRModel = Literal["tiny", "small", "base", "large", "gundam"]
 @dataclass
 class Page:
     index: int
+    image: Image | None
     body_layouts: list["PageLayout"]
     footnotes_layouts: list["PageLayout"]
 
@@ -36,6 +38,7 @@ def decode(element: Element) -> Page:
 
     return Page(
         index=index,
+        image=None,
         body_layouts=body_layouts,
         footnotes_layouts=footnotes_layouts
     )

@@ -41,6 +41,7 @@ def ocr_pdf(
         includes_footnotes: bool,
         models_cache_path: PathLike | None,
         plot_path: Path | None,
+        cover_path: Path | None,
         on_event: Callable[[OCREvent], None],
         page_indexes: Container[int] = range(1, sys.maxsize),
     ):
@@ -87,9 +88,15 @@ def ocr_pdf(
                 page = ref.extract(
                     model=model,
                     includes_footnotes=includes_footnotes,
+                    includes_raw_image=(ref.page_index == 1),
                     plot_path=plot_path,
                 )
                 save_xml(encode(page), file_path)
+
+                if cover_path and page.image:
+                    cover_path.parent.mkdir(parents=True, exist_ok=True)
+                    page.image.save(cover_path, format="PNG")
+
                 elapsed_ms = int((time.perf_counter() - start_time) * 1000)
                 on_event(OCREvent(
                     kind=OCREventKind.COMPLETE,

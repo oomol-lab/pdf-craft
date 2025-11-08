@@ -86,6 +86,7 @@ class PageRef:
             self,
             model: DeepSeekOCRModel,
             includes_footnotes: bool,
+            includes_raw_image: bool,
             plot_path: Path | None,
         ) -> Page:
         dpi = 300 # for scanned book pages
@@ -98,6 +99,7 @@ class PageRef:
             image=image,
             model_size=model,
             includes_footnotes=includes_footnotes,
+            includes_raw_image=includes_raw_image,
             plot_path=plot_path,
         )
 
@@ -106,10 +108,17 @@ class PageRef:
             image: Image,
             model_size: DeepSeekOCRSize,
             includes_footnotes: bool,
+            includes_raw_image: bool,
             plot_path: Path | None,
         ) -> Page:
+
         body_layouts: list[PageLayout] = []
         footnotes_layouts: list[PageLayout] = []
+        raw_image: Image | None = None
+
+        if includes_raw_image:
+            raw_image = image
+            image = image.copy()
 
         for i, (image, layouts) in enumerate(self._page_extractor.extract(
             image=image,
@@ -140,6 +149,7 @@ class PageRef:
 
         return Page(
             index=self._page_index,
+            image=raw_image,
             body_layouts=body_layouts,
             footnotes_layouts=footnotes_layouts,
         )

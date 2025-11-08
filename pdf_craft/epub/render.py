@@ -3,6 +3,7 @@ from typing import Literal
 from epub_generator import (
     generate_epub,
     EpubData,
+    BookMeta,
     TableRender,
     LaTeXRender,
     Chapter as ChapterRecord,
@@ -23,6 +24,8 @@ def render_epub_file(
         chapters_path: Path,
         assets_path: Path,
         epub_path: Path,
+        cover_path: Path | None = None,
+        book_meta: BookMeta | None = None,
         lan: Literal["zh", "en"] = "zh",
         table_render: TableRender = TableRender.HTML,
         latex_render: LaTeXRender = LaTeXRender.MATHML,
@@ -51,7 +54,9 @@ def render_epub_file(
         ))
 
     epub_data = EpubData(
-        chapters=toc_items
+        meta=book_meta,
+        chapters=toc_items,
+        cover_image_path=cover_path,
     )
     generate_epub(
         epub_data=epub_data,
