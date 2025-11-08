@@ -1,5 +1,5 @@
 from pathlib import Path
-from pdf_craft import transform_epub, transform_markdown, OCREventKind, TableRender, LaTeXRender
+from pdf_craft import transform_epub, transform_markdown, OCREventKind, TableRender, LaTeXRender, BookMeta
 
 def main() -> None:
     project_root = Path(__file__).parent
@@ -26,6 +26,11 @@ def main() -> None:
         generate_plot=True,
         table_render=TableRender.HTML,
         latex_render=LaTeXRender.MATHML,
+        on_ocr_event=lambda e: print(f"OCR {OCREventKind(e.kind).name} - Page {e.page_index}/{e.total_pages} - {_format_duration(e.cost_time_ms)}"),
+        book_meta=BookMeta(
+            title="Sample Book",
+            authors=["Tao Zeyu"],
+        ),
     )
 
 def _format_duration(ms: int) -> str:

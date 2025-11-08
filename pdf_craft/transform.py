@@ -2,12 +2,13 @@ from os import PathLike
 from pathlib import Path
 from typing import Callable, Literal
 
+from epub_generator import BookMeta, TableRender, LaTeXRender
+
 from .common import EnsureFolder
 from .pdf import ocr_pdf, DeepSeekOCRModel, OCREvent
 from .sequence import generate_chapter_files
 from .markdown import render_markdown_file
 from .epub import render_epub_file
-from epub_generator import TableRender, LaTeXRender
 
 
 def transform_markdown(
@@ -55,6 +56,7 @@ def transform_epub(
     includes_cover: bool = True,
     includes_footnotes: bool = False,
     generate_plot: bool = False,
+    book_meta: BookMeta | None = None,
     lan: Literal["zh", "en"] = "zh",
     table_render: TableRender = TableRender.HTML,
     latex_render: LaTeXRender = LaTeXRender.MATHML,
@@ -76,6 +78,7 @@ def transform_epub(
             chapters_path=chapters_path,
             assets_path=asserts_path,
             epub_path=Path(epub_path),
+            book_meta=book_meta,
             lan=lan,
             cover_path=cover_path,
             table_render=table_render,

@@ -9,6 +9,8 @@ import shutil
 from pathlib import Path
 
 
+_KEEP_FILES = {"assets", "orc", "plots", "cover.png"}
+
 def clean_analysing_folder():
     """删除 analysing 文件夹中除了指定目录之外的所有内容"""
     # 获取项目根目录
@@ -22,10 +24,9 @@ def clean_analysing_folder():
         return
 
     # 需要保留的目录
-    keep_dirs = {"assets", "orc", "plots"}
 
     print(f"📂 清理目录: {analysing_dir}")
-    print(f"🔒 保留目录: {', '.join(keep_dirs)}")
+    print(f"🔒 保留文件: {', '.join(_KEEP_FILES)}")
     print()
 
     deleted_count = 0
@@ -35,7 +36,7 @@ def clean_analysing_folder():
         item_name = item.name
 
         # 跳过需要保留的目录
-        if item_name in keep_dirs:
+        if item_name in _KEEP_FILES:
             print(f"✅ 保留: {item_name}")
             continue
 
