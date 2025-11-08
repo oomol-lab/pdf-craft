@@ -421,6 +421,23 @@ files = [
 ]
 
 [[package]]
+name = "epub-generator"
+version = "0.1.0"
+description = "A simple Python EPUB 3.0 generator with a single API call"
+optional = false
+python-versions = "<3.14,>=3.10"
+groups = ["main"]
+files = [
+    {file = "epub_generator-0.1.0-py3-none-any.whl", hash = "sha256:0503164a6ff9fbf954de7a9d4ff9cd4433bb303791f9fa83ad744ace65bcc79a"},
+    {file = "epub_generator-0.1.0.tar.gz", hash = "sha256:727f73f4103c566fd8343b1a11d90d3e60a23cb3a357da47b21c87c942b6e16d"},
+]
+
+[package.dependencies]
+jinja2 = ">=3.1.5,<4.0.0"
+latex2mathml = ">=3.77.0,<4.0.0"
+matplotlib = ">=3.10.1,<3.11.0"
+
+[[package]]
 name = "filelock"
 version = "3.18.0"
 description = "A platform independent file lock."
@@ -2085,4 +2102,4 @@ zstd = ["zstandard (>=0.18.0)"]
 [metadata]
 lock-version = "2.1"
 python-versions = ">=3.10,<3.14"
-content-hash = "3e013607d64adffcca1d45880cf8ba99aadf82bfc3748049a59e85c31690d3bb"
+content-hash = "0d262527bfc859ed955e773bd87802e6acf750faaeb39f85cffe6718a91bafac"
