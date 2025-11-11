@@ -11,14 +11,23 @@ from ..common import ASSET_TAGS, AssetHub
 from .types import Page, PageLayout, DeepSeekOCRModel
 
 class Extractor:
-    def __init__(self, asset_hub: AssetHub, models_cache_path: PathLike | None) -> None:
+    def __init__(
+            self,
+            asset_hub: AssetHub,
+            models_cache_path: PathLike | None,
+            local_only: bool,
+        ) -> None:
         self._asset_hub = asset_hub
         self._models_cache_path: PathLike | None = models_cache_path
+        self._local_only: bool = local_only
         self._page_extractor: PageExtractor | None = None
 
     def page_refs(self, pdf_path: Path) -> "PageRefContext":
         if not self._page_extractor:
-            self._page_extractor = PageExtractor(self._models_cache_path)
+            self._page_extractor = PageExtractor(
+                model_path=self._models_cache_path,
+                local_only=self._local_only,
+            )
         return PageRefContext(
             pdf_path=pdf_path,
             page_extractor=self._page_extractor,

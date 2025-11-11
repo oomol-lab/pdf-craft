@@ -40,6 +40,7 @@ def ocr_pdf(
         model: DeepSeekOCRModel,
         includes_footnotes: bool,
         models_cache_path: PathLike | None,
+        local_only: bool,
         plot_path: Path | None,
         cover_path: Path | None,
         on_event: Callable[[OCREvent], None],
@@ -47,8 +48,11 @@ def ocr_pdf(
     ):
     from .extractor import Extractor # 尽可能推迟 doc-page-extractor 的加载时间
     asset_hub = AssetHub(asset_path)
-    executor = Extractor(asset_hub, models_cache_path)
-
+    executor = Extractor(
+        asset_hub=asset_hub,
+        models_cache_path=models_cache_path,
+        local_only=local_only,
+    )
     ocr_path.mkdir(parents=True, exist_ok=True)
     if plot_path is not None:
         plot_path.mkdir(parents=True, exist_ok=True)

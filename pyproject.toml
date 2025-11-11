@@ -1,6 +1,6 @@
 [project]
 name = "pdf-craft"
-version = "1.0.0rc1"
+version = "1.0.0rc2"
 description = "PDF craft can convert PDF files into various other formats. This project will focus on processing PDF files of scanned books."
 keywords=["pdf", "epub", "markdown"]
 authors = [
@@ -57,7 +57,7 @@ priority = "explicit"
 
 [tool.poetry.dependencies]
 PyMuPDF = ">=1.25.3,<2.0.0"
-doc-page-extractor = "1.0.1"
+doc-page-extractor = "1.0.2"
 epub-generator = "0.1.0"
 
 [tool.poetry.group.dev.dependencies]
