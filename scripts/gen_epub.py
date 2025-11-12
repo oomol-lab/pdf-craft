@@ -3,7 +3,7 @@ from pdf_craft import transform_epub, OCREventKind, TableRender, LaTeXRender, Bo
 
 
 def main() -> None:
-    project_root = Path(__file__).parent
+    project_root = Path(__file__).parent.parent
     assets_dir_path = project_root / "tests" / "assets"
     analysing_dir_path = project_root / "analysing"
     pdf_file_name = "table&formula.pdf"

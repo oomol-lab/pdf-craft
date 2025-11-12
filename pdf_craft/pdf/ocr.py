@@ -60,6 +60,11 @@ def ocr_pdf(
     if plot_path is not None:
         plot_path.mkdir(parents=True, exist_ok=True)
 
+    done_path = ocr_path / "done"
+    did_ignore_any: bool = False
+    if done_path.exists():
+        return
+
     with executor.page_refs(pdf_path) as refs:
         pages_count = refs.pages_count
         for ref in refs:
@@ -73,6 +78,7 @@ def ocr_pdf(
             ))
             if ref.page_index not in page_indexes:
                 elapsed_ms = int((time.perf_counter() - start_time) * 1000)
+                did_ignore_any = True
                 on_event(OCREvent(
                     kind=OCREventKind.IGNORE,
                     page_index=ref.page_index,
@@ -112,3 +118,6 @@ def ocr_pdf(
                     total_pages=pages_count,
                     cost_time_ms=elapsed_ms,
                 ))
+
+    if not did_ignore_any:
+        done_path.touch()
