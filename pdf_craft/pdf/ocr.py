@@ -2,7 +2,7 @@ from dataclasses import dataclass
 import sys
 import time
 
-from typing import Container, Callable
+from typing import Container, Generator
 from enum import auto, Enum
 from pathlib import Path
 from os import PathLike
@@ -44,10 +44,10 @@ def ocr_pdf(
         local_only: bool = False,
         plot_path: Path | None = None,
         cover_path: Path | None = None,
-        on_event: Callable[[OCREvent], None] = lambda _: None,
         aborted: AbortedCheck = lambda: False,
         page_indexes: Container[int] = range(1, sys.maxsize),
-    ):
+    ) -> Generator[OCREvent, None, None]:
+
     from .extractor import Extractor # 尽可能推迟 doc-page-extractor 的加载时间
     asset_hub = AssetHub(asset_path)
     executor = Extractor(
@@ -70,21 +70,21 @@ def ocr_pdf(
         for ref in refs:
             check_aborted(aborted)
             start_time = time.perf_counter()
-            on_event(OCREvent(
+            yield OCREvent(
                 kind=OCREventKind.START,
                 page_index=ref.page_index,
                 total_pages=pages_count,
                 cost_time_ms=0,
-            ))
+            )
             if ref.page_index not in page_indexes:
                 elapsed_ms = int((time.perf_counter() - start_time) * 1000)
                 did_ignore_any = True
-                on_event(OCREvent(
+                yield OCREvent(
                     kind=OCREventKind.IGNORE,
                     page_index=ref.page_index,
                     total_pages=pages_count,
                     cost_time_ms=elapsed_ms,
-                ))
+                )
                 continue
 
             filename = f"page_{ref.page_index}.xml"
@@ -92,12 +92,12 @@ def ocr_pdf(
 
             if file_path.exists():
                 elapsed_ms = int((time.perf_counter() - start_time) * 1000)
-                on_event(OCREvent(
+                yield OCREvent(
                     kind=OCREventKind.SKIP,
                     page_index=ref.page_index,
                     total_pages=pages_count,
                     cost_time_ms=elapsed_ms,
-                ))
+                )
             else:
                 page = ref.extract(
                     model=model,
@@ -112,12 +112,12 @@ def ocr_pdf(
                     page.image.save(cover_path, format="PNG")
 
                 elapsed_ms = int((time.perf_counter() - start_time) * 1000)
-                on_event(OCREvent(
+                yield OCREvent(
                     kind=OCREventKind.COMPLETE,
                     page_index=ref.page_index,
                     total_pages=pages_count,
                     cost_time_ms=elapsed_ms,
-                ))
+                )
 
     if not did_ignore_any:
         done_path.touch()

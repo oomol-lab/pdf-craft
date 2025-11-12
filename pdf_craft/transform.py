@@ -118,7 +118,7 @@ def _extract_data_from_pdf(
     if generate_plot:
         plot_path = analysing_path / "plots"
 
-    ocr_pdf(
+    for event in ocr_pdf(
         pdf_path=Path(pdf_path),
         asset_path=asserts_path,
         ocr_path=pages_path,
@@ -129,8 +129,9 @@ def _extract_data_from_pdf(
         plot_path=plot_path,
         cover_path=cover_path,
         aborted=aborted,
-        on_event=on_ocr_event,
-    )
+    ):
+        on_ocr_event(event)
+
     generate_chapter_files(
         pages_path=pages_path,
         chapters_path=chapters_path,
