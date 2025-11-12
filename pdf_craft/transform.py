@@ -9,6 +9,7 @@ from .pdf import ocr_pdf, DeepSeekOCRModel, OCREvent
 from .sequence import generate_chapter_files
 from .markdown import render_markdown_file
 from .epub import render_epub_file
+from .aborted import AbortedCheck
 
 
 def transform_markdown(
@@ -21,6 +22,7 @@ def transform_markdown(
     local_only: bool = False,
     includes_footnotes: bool = False,
     generate_plot: bool = False,
+    aborted: AbortedCheck = lambda: False,
     on_ocr_event: Callable[[OCREvent], None] = lambda _: None,
 ) -> None:
 
@@ -39,6 +41,7 @@ def transform_markdown(
             includes_cover=False,
             includes_footnotes=includes_footnotes,
             generate_plot=generate_plot,
+            aborted=aborted,
             on_ocr_event=on_ocr_event,
         )
         render_markdown_file(
@@ -46,8 +49,8 @@ def transform_markdown(
             assets_path=asserts_path,
             output_path=Path(markdown_path),
             output_assets_path=markdown_assets_path,
+            aborted=aborted,
         )
-
 
 def transform_epub(
     pdf_path: PathLike,
@@ -63,6 +66,7 @@ def transform_epub(
     lan: Literal["zh", "en"] = "zh",
     table_render: TableRender = TableRender.HTML,
     latex_render: LaTeXRender = LaTeXRender.MATHML,
+    aborted: AbortedCheck = lambda: False,
     on_ocr_event: Callable[[OCREvent], None] = lambda _: None,
 ) -> None:
 
@@ -76,6 +80,7 @@ def transform_epub(
             includes_cover=includes_cover,
             includes_footnotes=includes_footnotes,
             generate_plot=generate_plot,
+            aborted=aborted,
             on_ocr_event=on_ocr_event,
         )
         render_epub_file(
@@ -87,6 +92,7 @@ def transform_epub(
             cover_path=cover_path,
             table_render=table_render,
             latex_render=latex_render,
+            aborted=aborted,
         )
 
 def _extract_data_from_pdf(
@@ -98,6 +104,7 @@ def _extract_data_from_pdf(
     includes_cover: bool,
     includes_footnotes: bool,
     generate_plot: bool,
+    aborted: AbortedCheck,
     on_ocr_event: Callable[[OCREvent], None],
 ):
     asserts_path = analysing_path / "assets"
@@ -121,6 +128,7 @@ def _extract_data_from_pdf(
         includes_footnotes=includes_footnotes,
         plot_path=plot_path,
         cover_path=cover_path,
+        aborted=aborted,
         on_event=on_ocr_event,
     )
     generate_chapter_files(

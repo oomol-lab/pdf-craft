@@ -18,6 +18,7 @@ from epub_generator import (
 )
 
 from ..common import XMLReader
+from ..aborted import check_aborted, AbortedCheck
 from ..sequence import (
     decode,
     search_references_in_chapter,
@@ -33,11 +34,12 @@ def render_epub_file(
         chapters_path: Path,
         assets_path: Path,
         epub_path: Path,
-        cover_path: Path | None = None,
-        book_meta: BookMeta | None = None,
-        lan: Literal["zh", "en"] = "zh",
-        table_render: TableRender = TableRender.HTML,
-        latex_render: LaTeXRender = LaTeXRender.MATHML,
+        cover_path: Path | None,
+        book_meta: BookMeta | None,
+        lan: Literal["zh", "en"],
+        table_render: TableRender,
+        latex_render: LaTeXRender,
+        aborted: AbortedCheck,
     ):
 
     chapters: XMLReader[Chapter] = XMLReader(
@@ -76,6 +78,7 @@ def render_epub_file(
         chapters=toc_items,
         cover_image_path=cover_path,
     )
+    check_aborted(aborted)
     generate_epub(
         epub_data=epub_data,
         epub_file_path=epub_path,

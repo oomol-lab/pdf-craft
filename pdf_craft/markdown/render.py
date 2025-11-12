@@ -3,6 +3,7 @@ from shutil import copy2
 from typing import Generator
 
 from ..common import XMLReader
+from ..aborted import check_aborted, AbortedCheck
 from ..sequence import (
     decode,
     is_chinese_char,
@@ -22,6 +23,7 @@ def render_markdown_file(
         assets_path: Path,
         output_path: Path,
         output_assets_path: Path,
+        aborted: AbortedCheck,
     ):
 
     assets_ref_path = output_assets_path
@@ -44,6 +46,7 @@ def render_markdown_file(
 
     with open(output_path, "w", encoding="utf-8") as f:
         for chapter in chapters.read():
+            check_aborted(aborted)
             if chapter.title is not None:
                 f.write("## ")
                 for line in _render_paragraph_layout(chapter.title, ref_id_to_number):
@@ -64,6 +67,7 @@ def render_markdown_file(
                         f.write(line)
                 f.write("\n\n")
 
+        check_aborted(aborted)
         for part in render_footnotes_section(references):
             f.write(part)
 

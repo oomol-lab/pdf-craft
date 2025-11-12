@@ -5,9 +5,10 @@ from typing import cast, Generator
 from pathlib import Path
 from os import PathLike
 from PIL.Image import frombytes, Image
-from doc_page_extractor import plot, PageExtractor, DeepSeekOCRSize
+from doc_page_extractor import plot, PageExtractor, AbortContext, DeepSeekOCRSize
 
 from ..common import ASSET_TAGS, AssetHub
+from ..aborted import check_aborted, AbortedCheck
 from .types import Page, PageLayout, DeepSeekOCRModel
 
 class Extractor:
@@ -16,10 +17,12 @@ class Extractor:
             asset_hub: AssetHub,
             models_cache_path: PathLike | None,
             local_only: bool,
+            aborted: AbortedCheck,
         ) -> None:
         self._asset_hub = asset_hub
         self._models_cache_path: PathLike | None = models_cache_path
         self._local_only: bool = local_only
+        self._aborted: AbortedCheck = aborted
         self._page_extractor: PageExtractor | None = None
 
     def page_refs(self, pdf_path: Path) -> "PageRefContext":
@@ -32,6 +35,7 @@ class Extractor:
             pdf_path=pdf_path,
             page_extractor=self._page_extractor,
             asset_hub=self._asset_hub,
+            aborted=self._aborted,
         )
 
 def predownload(models_cache_path: PathLike | None = None) -> None:
@@ -43,10 +47,12 @@ class PageRefContext:
             pdf_path: Path,
             page_extractor: PageExtractor,
             asset_hub: AssetHub,
+            aborted: AbortedCheck,
         ) -> None:
         self._pdf_path = pdf_path
         self._page_extractor = page_extractor
         self._asset_hub = asset_hub
+        self._aborted: AbortedCheck = aborted
         self._document: fitz.Document | None = None
 
     @property
@@ -72,6 +78,7 @@ class PageRefContext:
                 page_index=i + 1,
                 page_extractor=self._page_extractor,
                 asset_hub=self._asset_hub,
+                aborted=self._aborted,
             )
 
 class PageRef:
@@ -81,11 +88,13 @@ class PageRef:
             page_index: int,
             page_extractor: PageExtractor,
             asset_hub: AssetHub,
+            aborted: AbortedCheck,
         ) -> None:
         self._document = document
         self._page_index = page_index
         self._page_extractor = page_extractor
         self._asset_hub = asset_hub
+        self._aborted: AbortedCheck = aborted
 
     @property
     def page_index(self) -> int:
@@ -133,6 +142,7 @@ class PageRef:
             image=image,
             size=model_size,
             stages=2 if includes_footnotes else 1,
+            aborted_context=AbortContext(check_aborted=self._aborted),
         )):
             for layout in layouts:
                 ref = self._normalize_text(layout.ref)
@@ -151,10 +161,12 @@ class PageRef:
                 elif i == 1 and ref not in ASSET_TAGS:
                     footnotes_layouts.append(page_layout)
 
+            check_aborted(self._aborted)
             if plot_path is not None:
                 plot_file_path = plot_path / f"page_{self._page_index}_stage_{i + 1}.png"
                 image = plot(image.copy(), layouts)
                 image.save(plot_file_path, format="PNG")
+                check_aborted(self._aborted)
 
         return Page(
             index=self._page_index,
