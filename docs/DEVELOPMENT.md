@@ -2,38 +2,60 @@
 
 ## Setup
 
-Setup Conda
+### 1. Create Python Environment
+
+Setup Conda (recommended):
 ```shell
-conda create -p ./env python=3.11.14
-conda activate ./env
+conda create -p ./.conda python=3.11
+conda activate ./.conda
 ```
 
-Install dependencies:
+Or use your preferred Python environment manager (venv, pyenv, etc.)
 
+### 2. Install Dependencies
+
+#### Standard Installation (macOS / Linux without GPU)
+
+Simply run:
 ```shell
 poetry install
 ```
 
-### macOS Development Setup
+This installs:
+- ✅ Main dependencies (PyMuPDF, doc-page-extractor, epub-generator)
+- ✅ PyTorch CPU version (torch, torchvision)
+- ✅ Dev dependencies (pylint)
+- ❌ GPU-only dependencies (flash-attn is NOT installed)
 
-For macOS developers, PyTorch CUDA version is not compatible. Use the following steps:
+#### GPU Development Setup (Linux with CUDA)
 
+If you have a CUDA-enabled GPU and want to test GPU features:
+
+**CUDA 12.1 (recommended):**
 ```shell
-# Install only main dependencies first (skip dev group to avoid CUDA installation)
-poetry install --without dev
-
-# Install PyTorch CPU version
-poetry run pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
-
-# Install other dev dependencies (pylint, etc.)
-poetry install --only dev
+pip install torch torchvision --index-url https://download.pytorch.org/whl/cu121
+poetry install --extras gpu
 ```
 
-Or simply install everything and then override:
-
+**CUDA 11.8:**
 ```shell
-poetry install
-poetry run pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
+pip install torch torchvision --index-url https://download.pytorch.org/whl/cu118
+poetry install --extras gpu
+```
+
+**CUDA 12.4:**
+```shell
+pip install torch torchvision --index-url https://download.pytorch.org/whl/cu124
+poetry install --extras gpu
+```
+
+This installs everything including flash-attn for GPU acceleration.
+
+### 3. Verify Installation
+
+Check if PyTorch is correctly installed:
+```shell
+python -c "import torch; print(f'PyTorch version: {torch.__version__}'); print(f'CUDA available: {torch.cuda.is_available()}')"
 ```
 
 ## Development Workflow

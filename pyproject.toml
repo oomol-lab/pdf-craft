@@ -50,17 +50,16 @@ classifiers = [
     "Topic :: Text Processing",
 ]
 
-[[tool.poetry.source]]
-name = "pytorch-cu121"
-url = "https://download.pytorch.org/whl/cu121"
-priority = "explicit"
-
 [tool.poetry.dependencies]
 PyMuPDF = ">=1.25.3,<2.0.0"
 doc-page-extractor = "1.0.3"
 epub-generator = "0.1.0"
+torch = ">=2.5.0"
+torchvision = ">=0.20.0"
+flash-attn = {version = ">=2.7.0", optional = true}
+
+[tool.poetry.extras]
+gpu = ["flash-attn"]
 
 [tool.poetry.group.dev.dependencies]
 pylint = "^3.3.7"
-torch = {version = "^2.5.1", source = "pytorch-cu121"}
-torchvision = {version = "^0.20.1", source = "pytorch-cu121"}

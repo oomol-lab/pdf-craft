@@ -14,72 +14,45 @@
 
 ## 系统要求
 
-### 硬件要求
-
-- **必需**：NVIDIA GPU（支持 CUDA）
-- **推荐**：4GB 以上显存
-
-⚠️ **重要提示**：本项目依赖 `doc-page-extractor` 的最新版本，该组件必须在支持 CUDA 的环境中运行。没有 CUDA 的环境无法使用本项目。
-
-### 软件要求
-
 - Python 3.10 - 3.13
-- CUDA 11.8、12.1 或 12.6
+- （可选）NVIDIA GPU 支持 CUDA 11.8、12.1 或 12.4
 
 ## 安装说明
 
-### 1. 检查 CUDA 版本
-
-首先检查你的 CUDA 版本：
-
-```bash
-nvidia-smi
-```
-
-如果不确定 CUDA 版本，推荐使用 CUDA 12.1。
-
-### 2. 安装 PyTorch（必须先安装）
-
-在安装 `pdf-craft` 之前，必须先安装支持 CUDA 的 PyTorch：
-
-**CUDA 12.1（推荐）：**
-```bash
-pip install torch torchvision --index-url https://download.pytorch.org/whl/cu121
-```
-
-**CUDA 11.8：**
-```bash
-pip install torch torchvision --index-url https://download.pytorch.org/whl/cu118
-```
-
-**CUDA 12.6：**
-```bash
-pip install torch torchvision --index-url https://download.pytorch.org/whl/cu126
-```
-
-### 3. 安装 pdf-craft
+### CPU 版本（仅文本处理，无 OCR 功能）
 
 ```bash
 pip install pdf-craft
 ```
 
-### 4. 验证安装
+### GPU 版本（支持 OCR、表格识别、公式识别）
 
-运行以下命令验证 CUDA 是否正确配置：
+根据你的 CUDA 版本选择对应的安装命令：
 
-```python
-python -c "import doc_page_extractor; print('doc-page-extractor installed successfully'); import torch; print(f'CUDA available: {torch.cuda.is_available()}')"
+**CUDA 11.8：**
+```bash
+pip install --index-url https://download.pytorch.org/whl/cu118 pdf-craft[gpu]
 ```
 
-如果显示 `CUDA available: True`，说明安装成功。
+**CUDA 12.1（推荐）：**
+```bash
+pip install --index-url https://download.pytorch.org/whl/cu121 pdf-craft[gpu]
+```
 
-### 故障排除
+**CUDA 12.4：**
+```bash
+pip install --index-url https://download.pytorch.org/whl/cu124 pdf-craft[gpu]
+```
 
-如果 CUDA 显示不可用：
+### 验证安装
 
-1. 确认 GPU 驱动正常：`nvidia-smi`
-2. 检查是否安装了 CPU 版本的 PyTorch，需要重新安装正确的 CUDA 版本
-3. 确保 Python 版本在 3.10-3.13 范围内
+运行以下命令验证 GPU 是否正确配置：
+
+```python
+python -c "import torch; print(f'CUDA available: {torch.cuda.is_available()}')"
+```
+
+如果显示 `CUDA available: True`，说明 GPU 配置成功。
 
 ## 使用方法
 

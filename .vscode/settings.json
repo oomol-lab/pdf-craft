@@ -2,20 +2,6 @@
     "python-envs.defaultEnvManager": "ms-python.python:conda",
     "python-envs.defaultPackageManager": "ms-python.python:conda",
     "python-envs.pythonProjects": [],
-    "terminal.integrated.env.windows": {
-        "CONDA_AUTO_ACTIVATE_BASE": "false"
-    },
-    "terminal.integrated.shellIntegration.enabled": true,
-    "terminal.integrated.profiles.windows": {
-        "PowerShell with Conda": {
-            "source": "PowerShell",
-            "args": [
-                "-NoExit",
-                "-Command",
-                "conda activate ./env"
-            ]
-        }
-    },
     "terminal.integrated.defaultProfile.windows": "PowerShell with Conda",
     "[xml]": {
         "editor.wordWrap": "on"
@@ -37,6 +23,10 @@
         "gundam",
         "MATHML",
         "pixmap",
+        "pyenv",
+        "pylint",
+        "torchvision",
+        "venv",
         "Zeyu"
     ]
 }
