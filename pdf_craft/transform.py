@@ -108,7 +108,7 @@ def _extract_data_from_pdf(
     on_ocr_event: Callable[[OCREvent], None],
 ):
     asserts_path = analysing_path / "assets"
-    pages_path = analysing_path / "orc"
+    pages_path = analysing_path / "ocr"
     chapters_path = analysing_path / "chapters"
 
     cover_path: Path | None = None

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 清理 analysing 文件夹的脚本
-删除除了 assets、orc、plots 之外的所有文件和文件夹
+删除除了 assets、ocr、plots 之外的所有文件和文件夹
 """
 
 import argparse
@@ -9,7 +9,7 @@ import shutil
 from pathlib import Path
 
 
-_KEEP_FILES = {"assets", "orc", "plots", "cover.png"}
+_KEEP_FILES = {"assets", "ocr", "plots", "cover.png"}
 
 def clean_analysing_folder():
     """删除 analysing 文件夹中除了指定目录之外的所有内容"""
