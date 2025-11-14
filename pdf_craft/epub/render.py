@@ -85,6 +85,7 @@ def render_epub_file(
         lan=lan,
         table_render=table_render,
         latex_render=latex_render,
+        assert_not_aborted=lambda: check_aborted(aborted),
     )
 
 def _extract_chapter_title(chapter: Chapter) -> str:
