@@ -1,3 +1,4 @@
+from dataclasses import dataclass
 from os import PathLike
 from pathlib import Path
 from typing import Callable, Literal
@@ -12,6 +13,12 @@ from .epub import render_epub_file
 from .aborted import AbortedCheck
 
 
+@dataclass
+class OCRTokensMetering:
+    input_tokens: int
+    output_tokens: int
+
+
 def transform_markdown(
     pdf_path: PathLike,
     markdown_path: PathLike,
@@ -23,8 +30,10 @@ def transform_markdown(
     includes_footnotes: bool = False,
     generate_plot: bool = False,
     aborted: AbortedCheck = lambda: False,
+    max_ocr_tokens: int | None = None,
+    max_ocr_output_tokens: int | None = None,
     on_ocr_event: Callable[[OCREvent], None] = lambda _: None,
-) -> None:
+) -> OCRTokensMetering: # pyright: ignore[reportReturnType]
 
     if markdown_assets_path is None:
         markdown_assets_path = Path(".") / "assets"
@@ -32,7 +41,7 @@ def transform_markdown(
         markdown_assets_path = Path(markdown_assets_path)
 
     with EnsureFolder(analysing_path) as analysing_path:
-        asserts_path, chapters_path, _ = _extract_data_from_pdf(
+        asserts_path, chapters_path, _, metering = _extract_data_from_pdf(
             pdf_path=pdf_path,
             analysing_path=analysing_path,
             model=model,
@@ -42,6 +51,8 @@ def transform_markdown(
             includes_footnotes=includes_footnotes,
             generate_plot=generate_plot,
             aborted=aborted,
+            max_tokens=max_ocr_tokens,
+            max_output_tokens=max_ocr_output_tokens,
             on_ocr_event=on_ocr_event,
         )
         render_markdown_file(
@@ -51,6 +62,7 @@ def transform_markdown(
             output_assets_path=markdown_assets_path,
             aborted=aborted,
         )
+        return metering
 
 def transform_epub(
     pdf_path: PathLike,
@@ -67,11 +79,13 @@ def transform_epub(
     table_render: TableRender = TableRender.HTML,
     latex_render: LaTeXRender = LaTeXRender.MATHML,
     aborted: AbortedCheck = lambda: False,
+    max_ocr_tokens: int | None = None,
+    max_ocr_output_tokens: int | None = None,
     on_ocr_event: Callable[[OCREvent], None] = lambda _: None,
-) -> None:
+) -> OCRTokensMetering:  # pyright: ignore[reportReturnType]
 
     with EnsureFolder(analysing_path) as analysing_path:
-        asserts_path, chapters_path, cover_path = _extract_data_from_pdf(
+        asserts_path, chapters_path, cover_path, metering = _extract_data_from_pdf(
             pdf_path=pdf_path,
             analysing_path=analysing_path,
             model=model,
@@ -81,6 +95,8 @@ def transform_epub(
             includes_footnotes=includes_footnotes,
             generate_plot=generate_plot,
             aborted=aborted,
+            max_tokens=max_ocr_tokens,
+            max_output_tokens=max_ocr_output_tokens,
             on_ocr_event=on_ocr_event,
         )
         render_epub_file(
@@ -94,6 +110,7 @@ def transform_epub(
             latex_render=latex_render,
             aborted=aborted,
         )
+        return metering
 
 def _extract_data_from_pdf(
     pdf_path: PathLike,
@@ -105,6 +122,8 @@ def _extract_data_from_pdf(
     includes_footnotes: bool,
     generate_plot: bool,
     aborted: AbortedCheck,
+    max_tokens: int | None,
+    max_output_tokens: int | None,
     on_ocr_event: Callable[[OCREvent], None],
 ):
     asserts_path = analysing_path / "assets"
@@ -118,6 +137,10 @@ def _extract_data_from_pdf(
     if generate_plot:
         plot_path = analysing_path / "plots"
 
+    metering = OCRTokensMetering(
+        input_tokens=0,
+        output_tokens=0,
+    )
     for event in ocr_pdf(
         pdf_path=Path(pdf_path),
         asset_path=asserts_path,
@@ -129,11 +152,15 @@ def _extract_data_from_pdf(
         plot_path=plot_path,
         cover_path=cover_path,
         aborted=aborted,
+        max_tokens=max_tokens,
+        max_output_tokens=max_output_tokens,
     ):
         on_ocr_event(event)
+        metering.input_tokens += event.input_tokens
+        metering.output_tokens += event.output_tokens
 
     generate_chapter_files(
         pages_path=pages_path,
         chapters_path=chapters_path,
     )
-    return asserts_path, chapters_path, cover_path
+    return asserts_path, chapters_path, cover_path, metering
