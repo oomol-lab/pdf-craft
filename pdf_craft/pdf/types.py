@@ -14,6 +14,9 @@ class Page:
     image: Image | None
     body_layouts: list["PageLayout"]
     footnotes_layouts: list["PageLayout"]
+    input_tokens: int
+    output_tokens: int
+
 
 @dataclass
 class PageLayout:
@@ -22,8 +25,11 @@ class PageLayout:
     text: str
     hash: str | None
 
+
 def decode(element: Element) -> Page:
     index = int(element.get("index", "0"))
+    input_tokens = int(element.get("input_tokens", "0"))
+    output_tokens = int(element.get("output_tokens", "0"))
     body_layouts = []
     body_element = element.find("body")
     if body_element is not None:
@@ -40,12 +46,16 @@ def decode(element: Element) -> Page:
         index=index,
         image=None,
         body_layouts=body_layouts,
-        footnotes_layouts=footnotes_layouts
+        footnotes_layouts=footnotes_layouts,
+        input_tokens=input_tokens,
+        output_tokens=output_tokens
     )
 
 def encode(page: Page) -> Element:
     page_element = Element("page")
     page_element.set("index", str(page.index))
+    page_element.set("input_tokens", str(page.input_tokens))
+    page_element.set("output_tokens", str(page.output_tokens))
     if page.body_layouts:
         body_element = Element("body")
         for layout in page.body_layouts:

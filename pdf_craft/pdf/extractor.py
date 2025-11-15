@@ -5,11 +5,12 @@ from typing import cast, Generator
 from pathlib import Path
 from os import PathLike
 from PIL.Image import frombytes, Image
-from doc_page_extractor import plot, PageExtractor, AbortContext, DeepSeekOCRSize
+from doc_page_extractor import plot, PageExtractor, DeepSeekOCRSize, ExtractionContext
 
 from ..common import ASSET_TAGS, AssetHub
 from ..aborted import check_aborted, AbortedCheck
 from .types import Page, PageLayout, DeepSeekOCRModel
+
 
 class Extractor:
     def __init__(
@@ -106,6 +107,8 @@ class PageRef:
             includes_footnotes: bool,
             includes_raw_image: bool,
             plot_path: Path | None,
+            max_tokens: int | None,
+            max_output_tokens: int | None,
         ) -> Page:
         dpi = 300 # for scanned book pages
         default_dpi = 72
@@ -119,6 +122,8 @@ class PageRef:
             includes_footnotes=includes_footnotes,
             includes_raw_image=includes_raw_image,
             plot_path=plot_path,
+            max_tokens=max_tokens,
+            max_output_tokens=max_output_tokens,
         )
 
     def _convert_to_page(
@@ -128,6 +133,8 @@ class PageRef:
             includes_footnotes: bool,
             includes_raw_image: bool,
             plot_path: Path | None,
+            max_tokens: int | None,
+            max_output_tokens: int | None,
         ) -> Page:
 
         body_layouts: list[PageLayout] = []
@@ -138,11 +145,16 @@ class PageRef:
             raw_image = image
             image = image.copy()
 
+        context = ExtractionContext(
+            check_aborted=self._aborted,
+            max_tokens=max_tokens,
+            max_output_tokens=max_output_tokens,
+        )
         for i, (image, layouts) in enumerate(self._page_extractor.extract(
             image=image,
             size=model_size,
             stages=2 if includes_footnotes else 1,
-            aborted_context=AbortContext(check_aborted=self._aborted),
+            context=context,
         )):
             for layout in layouts:
                 ref = self._normalize_text(layout.ref)
@@ -173,6 +185,8 @@ class PageRef:
             image=raw_image,
             body_layouts=body_layouts,
             footnotes_layouts=footnotes_layouts,
+            input_tokens=context.input_tokens,
+            output_tokens=context.output_tokens,
         )
 
     def _normalize_text(self, text: str | None) -> str:
