@@ -7,10 +7,8 @@ from enum import auto, Enum
 from pathlib import Path
 from os import PathLike
 
-from doc_page_extractor import TokenLimitError
-
 from ..common import save_xml, AssetHub
-from ..aborted import check_aborted, AbortedCheck
+from ..errors import check_aborted, AbortedCheck
 from .page_extractor import PageExtractorNode
 from .page_ref import PageRefContext
 from .types import encode, DeepSeekOCRModel
@@ -113,6 +111,7 @@ class OCR:
                         cost_time_ms=elapsed_ms,
                     )
                 else:
+                    from doc_page_extractor import TokenLimitError
                     if remain_tokens is not None and remain_tokens <= 0:
                         raise TokenLimitError()
                     if remain_output_tokens is not None and remain_output_tokens <= 0:

@@ -4,7 +4,7 @@ import tempfile
 
 
 class EnsureFolder:
-    def __init__(self, path: PathLike | None):
+    def __init__(self, path: PathLike | str | None):
         self._path = Path(path) if path is not None else None
         self._temp: tempfile.TemporaryDirectory | None = None
 

@@ -5,7 +5,7 @@ from os import PathLike
 from PIL.Image import Image
 
 from ..common import ASSET_TAGS, AssetHub
-from ..aborted import check_aborted, AbortedCheck
+from ..errors import check_aborted, AbortedCheck
 from .types import Page, PageLayout, DeepSeekOCRModel
 
 
