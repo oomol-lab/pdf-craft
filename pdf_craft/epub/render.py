@@ -18,7 +18,7 @@ from epub_generator import (
 )
 
 from ..common import XMLReader
-from ..errors import check_aborted, AbortedCheck
+from ..metering import check_aborted, AbortedCheck
 from ..sequence import (
     decode,
     search_references_in_chapter,

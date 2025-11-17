@@ -1,4 +1,3 @@
-from dataclasses import dataclass
 from os import PathLike
 from pathlib import Path
 from typing import Callable, Literal
@@ -10,13 +9,8 @@ from .pdf import OCR, OCREvent, DeepSeekOCRModel
 from .sequence import generate_chapter_files
 from .markdown import render_markdown_file
 from .epub import render_epub_file
-from .errors import to_interrupted_error, AbortedCheck
+from .metering import to_interrupted_error, AbortedCheck, OCRTokensMetering
 
-
-@dataclass
-class OCRTokensMetering:
-    input_tokens: int
-    output_tokens: int
 
 class Transform:
     def __init__(

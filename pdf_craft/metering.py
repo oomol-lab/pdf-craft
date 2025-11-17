@@ -1,3 +1,4 @@
+from dataclasses import dataclass
 from enum import auto, Enum
 from typing import Callable
 
@@ -9,6 +10,12 @@ def check_aborted(aborted_check: AbortedCheck) -> None:
         from doc_page_extractor import AbortError
         raise AbortError()
 
+@dataclass
+class OCRTokensMetering:
+    input_tokens: int
+    output_tokens: int
+
+
 class InterruptedKind(Enum):
     ABORT = auto()
     TOKEN_LIMIT_EXCEEDED = auto()
@@ -17,11 +24,10 @@ class InterruptedKind(Enum):
 # 不可直接用 doc-page-extractor 的 Error，该库的一切都是懒加载，若暴露，则无法懒加载
 class InterruptedError(Exception):
     """Raised when the operation is interrupted by the user."""
-    def __init__(self, input_tokens: int, output_tokens: int) -> None:
+    def __init__(self, metering: OCRTokensMetering) -> None:
         super().__init__()
         self._kind: InterruptedKind
-        self.input_tokens: int = input_tokens
-        self.output_tokens: int = output_tokens
+        self._metering: OCRTokensMetering = metering
 
 def to_interrupted_error(error: Exception) -> InterruptedError | None:
     from doc_page_extractor import AbortError, TokenLimitError, ExtractionAbortedError
@@ -32,8 +38,8 @@ def to_interrupted_error(error: Exception) -> InterruptedError | None:
         elif isinstance(error, TokenLimitError):
             kind = InterruptedKind.TOKEN_LIMIT_EXCEEDED
         if kind is not None:
-            return InterruptedError(
+            return InterruptedError(OCRTokensMetering(
                 input_tokens=error.input_tokens,
                 output_tokens=error.output_tokens,
-            )
+            ))
     return None

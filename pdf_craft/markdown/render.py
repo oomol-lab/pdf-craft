@@ -3,7 +3,7 @@ from shutil import copy2
 from typing import Generator
 
 from ..common import XMLReader
-from ..errors import check_aborted, AbortedCheck
+from ..metering import check_aborted, AbortedCheck
 from ..sequence import (
     decode,
     is_chinese_char,

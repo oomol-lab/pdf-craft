@@ -8,7 +8,7 @@ from pathlib import Path
 from os import PathLike
 
 from ..common import save_xml, AssetHub
-from ..errors import check_aborted, AbortedCheck
+from ..metering import check_aborted, AbortedCheck
 from .page_extractor import PageExtractorNode
 from .page_ref import PageRefContext
 from .types import encode, DeepSeekOCRModel

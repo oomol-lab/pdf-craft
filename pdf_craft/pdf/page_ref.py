@@ -6,7 +6,7 @@ from pathlib import Path
 from PIL.Image import frombytes
 
 from ..common import AssetHub
-from ..errors import AbortedCheck
+from ..metering import AbortedCheck
 from .page_extractor import PageExtractorNode
 from .types import Page, DeepSeekOCRModel
 

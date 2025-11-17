@@ -3,10 +3,17 @@ from typing import Callable, Literal
 
 from epub_generator import BookMeta, TableRender, LaTeXRender
 
-from .pdf import OCREvent, DeepSeekOCRModel
-from .transform import Transform, OCRTokensMetering
-from .errors import AbortedCheck
+from .pdf import OCR, OCREvent, DeepSeekOCRModel
+from .transform import Transform
+from .metering import AbortedCheck, OCRTokensMetering
 
+
+def predownload(models_cache_path: PathLike | None = None) -> None:
+    ocr = OCR(
+        model_path=models_cache_path,
+        local_only=False,
+    )
+    ocr.predownload()
 
 def transform_markdown(
     pdf_path: PathLike,
@@ -22,7 +29,7 @@ def transform_markdown(
     max_ocr_tokens: int | None = None,
     max_ocr_output_tokens: int | None = None,
     on_ocr_event: Callable[[OCREvent], None] = lambda _: None,
-) -> OCRTokensMetering: # pyright: ignore[reportReturnType]
+) -> OCRTokensMetering:
 
     return Transform(
         models_cache_path=models_cache_path,
@@ -59,7 +66,7 @@ def transform_epub(
     max_ocr_tokens: int | None = None,
     max_ocr_output_tokens: int | None = None,
     on_ocr_event: Callable[[OCREvent], None] = lambda _: None,
-) -> OCRTokensMetering:  # pyright: ignore[reportReturnType]
+) -> OCRTokensMetering:
 
     return Transform(
         models_cache_path=models_cache_path,
