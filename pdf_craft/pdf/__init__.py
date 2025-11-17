@@ -1,2 +1,3 @@
-from .ocr import ocr_pdf, pdf_pages_count, predownload_models, OCREvent, OCREventKind
+from .ocr import OCR, OCREvent, OCREventKind
+from .page_ref import pdf_pages_count
 from .types import decode, encode, Page, PageLayout, DeepSeekOCRModel

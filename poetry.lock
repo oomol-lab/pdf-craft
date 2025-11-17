@@ -380,20 +380,21 @@ profile = ["gprof2dot (>=2022.7.29)"]
 
 [[package]]
 name = "doc-page-extractor"
-version = "1.0.5"
+version = "1.0.6"
 description = "Document page extraction tool powered by DeepSeek-OCR"
 optional = false
 python-versions = "<3.14,>=3.10"
 groups = ["main"]
 files = [
-    {file = "doc_page_extractor-1.0.5-py3-none-any.whl", hash = "sha256:91a93ea74560e550b10afe6cb3cacb85b72a97cdbd772beef17d45d5c28dcf4b"},
-    {file = "doc_page_extractor-1.0.5.tar.gz", hash = "sha256:b66aca83e84e50bc329e8c1285fee5c697141c835e726716d1b4e9c0d8decade"},
+    {file = "doc_page_extractor-1.0.6-py3-none-any.whl", hash = "sha256:66a766e9fde3e3f5213c2314907c42df1d9299b93b6c536f5cd69c3f2fa8e862"},
+    {file = "doc_page_extractor-1.0.6.tar.gz", hash = "sha256:d57b023a4891d8d30fcd1ded394d20c54f63f2df8550a0816bb827be864eec99"},
 ]
 
 [package.dependencies]
 addict = ">=2.4.0"
 easydict = ">=1.13"
 einops = ">=0.8.0"
+readerwriterlock = ">=1.0.9,<2.0.0"
 transformers = ">=4.46.0,<4.48.0"
 
 [[package]]
@@ -1518,6 +1519,21 @@ files = [
 ]
 
 [[package]]
+name = "readerwriterlock"
+version = "1.0.9"
+description = "A python implementation of the three Reader-Writer problems."
+optional = false
+python-versions = ">=3.6"
+groups = ["main"]
+files = [
+    {file = "readerwriterlock-1.0.9-py3-none-any.whl", hash = "sha256:8c4b704e60d15991462081a27ef46762fea49b478aa4426644f2146754759ca7"},
+    {file = "readerwriterlock-1.0.9.tar.gz", hash = "sha256:b7c4cc003435d7a8ff15b312b0a62a88d9800ba6164af88991f87f8b748f9bea"},
+]
+
+[package.dependencies]
+typing-extensions = "*"
+
+[[package]]
 name = "regex"
 version = "2025.11.3"
 description = "Alternative regular expression module, to replace re."
@@ -2059,4 +2075,4 @@ zstd = ["zstandard (>=0.18.0)"]
 [metadata]
 lock-version = "2.1"
 python-versions = ">=3.10,<3.14"
-content-hash = "b9447680124dfe8faf291804ee3c86990245d6852195c649872ffe828ab20e60"
+content-hash = "1333586b8c06d2d2ed74a4868f7f73fe09603db701bb6fb2c1835d7106c13a25"
