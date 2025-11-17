@@ -8,7 +8,7 @@ from .transform import Transform
 from .metering import AbortedCheck, OCRTokensMetering
 
 
-def predownload(models_cache_path: PathLike | None = None) -> None:
+def predownload_models(models_cache_path: PathLike | None = None) -> None:
     ocr = OCR(
         model_path=models_cache_path,
         local_only=False,
