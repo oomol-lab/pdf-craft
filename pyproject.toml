@@ -1,6 +1,6 @@
 [project]
 name = "pdf-craft"
-version = "1.0.0rc9"
+version = "1.0.0rc10"
 description = "PDF craft can convert PDF files into various other formats. This project will focus on processing PDF files of scanned books."
 keywords=["pdf", "epub", "markdown"]
 authors = [

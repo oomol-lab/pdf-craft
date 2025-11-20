@@ -17,20 +17,23 @@ class PageExtractorNode:
     ) -> None:
         self._model_path: PathLike | None = model_path
         self._local_only: bool = local_only
+        self._page_extractor = None
 
-    def _page_extractor(self):
-        # 尽可能推迟 doc-page-extractor 的加载时间
-        from doc_page_extractor import PageExtractor
-        return PageExtractor(
-            model_path=self._model_path,
-            local_only=self._local_only,
-        )
+    def _get_page_extractor(self):
+        if not self._page_extractor:
+            # 尽可能推迟 doc-page-extractor 的加载时间
+            from doc_page_extractor import PageExtractor
+            self._page_extractor = PageExtractor(
+                model_path=self._model_path,
+                local_only=self._local_only,
+            )
+        return self._page_extractor
 
     def download_models(self) -> None:
-        self._page_extractor().download_models()
+        self._get_page_extractor().download_models()
 
     def load_models(self) -> None:
-        self._page_extractor().load_models()
+        self._get_page_extractor().load_models()
 
     def image2page(
             self,
@@ -60,7 +63,7 @@ class PageExtractorNode:
             max_tokens=max_tokens,
             max_output_tokens=max_output_tokens,
         )
-        for i, (image, layouts) in enumerate(self._page_extractor().extract(
+        for i, (image, layouts) in enumerate(self._get_page_extractor().extract(
             image=image,
             size=model_size,
             stages=2 if includes_footnotes else 1,
