@@ -34,8 +34,8 @@ class PageExtractorNode:
             )
         return self._page_extractor
 
-    def download_models(self) -> None:
-        self._get_page_extractor().download_models()
+    def download_models(self, revision: str | None) -> None:
+        self._get_page_extractor().download_models(revision)
 
     def load_models(self) -> None:
         self._get_page_extractor().load_models()

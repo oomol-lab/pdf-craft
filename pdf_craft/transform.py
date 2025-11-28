@@ -23,8 +23,8 @@ class Transform:
             local_only=local_only,
         )
 
-    def predownload(self) -> None:
-        self._ocr.predownload()
+    def predownload(self, revision: str | None = None) -> None:
+        self._ocr.predownload(revision)
 
     def load_models(self) -> None:
         self._ocr.load_models()

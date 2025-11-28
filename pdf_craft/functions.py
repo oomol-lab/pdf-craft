@@ -8,12 +8,16 @@ from .transform import Transform
 from .metering import AbortedCheck, OCRTokensMetering
 
 
-def predownload_models(models_cache_path: PathLike | None = None) -> None:
+def predownload_models(
+        models_cache_path: PathLike | None = None,
+        revision: str | None = None,
+    ) -> None:
     ocr = OCR(
         model_path=models_cache_path,
         local_only=False,
     )
-    ocr.predownload()
+    ocr.predownload(revision)
+
 
 def transform_markdown(
     pdf_path: PathLike,
@@ -47,6 +51,7 @@ def transform_markdown(
         max_ocr_output_tokens=max_ocr_output_tokens,
         on_ocr_event=on_ocr_event,
     )
+
 
 def transform_epub(
     pdf_path: PathLike,

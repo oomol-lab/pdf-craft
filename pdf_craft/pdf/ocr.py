@@ -40,8 +40,8 @@ class OCR:
             local_only=local_only,
         )
 
-    def predownload(self) -> None:
-        self._extractor.download_models()
+    def predownload(self, revision: str | None) -> None:
+        self._extractor.download_models(revision)
 
     def load_models(self) -> None:
         self._extractor.load_models()
@@ -59,6 +59,7 @@ class OCR:
             page_indexes: Container[int] = range(1, sys.maxsize),
             max_tokens: int | None = None,
             max_output_tokens: int | None = None,
+            device_number: int | None = None,
         ) -> Generator[OCREvent, None, None]:
 
         ocr_path.mkdir(parents=True, exist_ok=True)
@@ -124,6 +125,7 @@ class OCR:
                         plot_path=plot_path,
                         max_tokens=remain_tokens,
                         max_output_tokens=remain_output_tokens,
+                        device_number=device_number,
                     )
                     save_xml(encode(page), file_path)
 
