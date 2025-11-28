@@ -17,7 +17,7 @@ python -m venv .venv
 For quick development setup on macOS or Linux without GPU:
 
 ```shell
-poetry install --with torch-cpu
+poetry run pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
 ```
 
 This will install:
