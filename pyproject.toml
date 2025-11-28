@@ -56,16 +56,12 @@ doc-page-extractor = "==1.0.7"
 epub-generator = "==0.1.1"
 
 [[tool.poetry.source]]
-name = "pytorch-cpu"
-url = "https://download.pytorch.org/whl/cpu"
+name = "pytorch-cu121"
+url = "https://download.pytorch.org/whl/cu121"
 priority = "explicit"
 
 [tool.poetry.group.dev.dependencies]
 pylint = "^3.3.7"
-
-[tool.poetry.group.torch-cpu]
-optional = true
-
-[tool.poetry.group.torch-cpu.dependencies]
-torch = {version = ">=2.5.0", source = "pytorch-cpu"}
-torchvision = {version = ">=0.20.0", source = "pytorch-cpu"}
+# Development environment includes CUDA 12.1 PyTorch
+torch = {version = "^2.5.1", source = "pytorch-cu121"}
+torchvision = {version = "^0.20.1", source = "pytorch-cu121"}

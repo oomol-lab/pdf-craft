@@ -78,11 +78,12 @@ class PageRef:
     def extract(
             self,
             model: DeepSeekOCRModel,
-            includes_footnotes: bool,
-            includes_raw_image: bool,
-            plot_path: Path | None,
-            max_tokens: int | None,
-            max_output_tokens: int | None,
+            includes_footnotes: bool = False,
+            includes_raw_image: bool = True,
+            plot_path: Path | None = None,
+            max_tokens: int | None = None,
+            max_output_tokens: int | None = None,
+            device_number: int | None = None,
         ) -> Page:
 
         dpi = 300 # for scanned book pages
@@ -102,5 +103,6 @@ class PageRef:
             plot_path=plot_path,
             max_tokens=max_tokens,
             max_output_tokens=max_output_tokens,
+            device_number=device_number,
             aborted=self._aborted,
         )
