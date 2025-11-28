@@ -4,13 +4,11 @@
 
 ### 1. Create Python Environment
 
-Setup Conda (recommended):
+Setup Python env
 ```shell
-conda create -p ./.conda python=3.11
-conda activate ./.conda
+python -m venv .venv
+. ./.venv/bin/activate
 ```
-
-Or use your preferred Python environment manager (venv, pyenv, etc.)
 
 ### 2. Install Dependencies
 
