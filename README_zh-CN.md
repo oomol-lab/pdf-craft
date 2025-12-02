@@ -25,6 +25,12 @@ pdf-craft 可以将 PDF 文件转换为各种其他格式，本项目专注于�
 
 ## 快速开始
 
+### 在线体验
+
+我们提供了 [在线演示平台](https://pdf.oomol.com/)，让你无需安装即可体验 PDF Craft 的转换效果。你可以直接上传 PDF 文件并转换。
+
+[![PDF Craft 在线演示](docs/images/website-cn.png)](https://pdf.oomol.com/)
+
 ### 安装
 
 ```bash
