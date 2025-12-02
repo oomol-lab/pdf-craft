@@ -1,39 +1,18 @@
-[project]
-name = "pdf-craft"
-version = "1.0.0rc13"
-description = "PDF craft can convert PDF files into various other formats. This project will focus on processing PDF files of scanned books."
-keywords=["pdf", "epub", "markdown"]
-authors = [
-    {name = "Tao Zeyu", email = "i@taozeyu.com"}
-]
-maintainers = [
-    {name = "Tao Zeyu", email = "i@taozeyu.com"}
-]
-license = {text = "MIT"}
-readme = "README.md"
-requires-python = ">=3.10,<3.14"
-classifiers = [
-    "Development Status :: 4 - Beta",
-    "Intended Audience :: Developers",
-    "License :: OSI Approved :: MIT License",
-    "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.10",
-    "Programming Language :: Python :: 3.11",
-    "Programming Language :: Python :: 3.12",
-    "Programming Language :: Python :: 3.13",
-    "Topic :: Software Development :: Libraries :: Python Modules",
-    "Topic :: Text Processing",
-]
-
 [build-system]
 requires = ["poetry-core>=2.0.0,<3.0.0"]
 build-backend = "poetry.core.masonry.api"
 
 [tool.poetry]
+name = "pdf-craft"
+version = "1.0.0"
+description = "PDF craft can convert PDF files into various other formats. This project will focus on processing PDF files of scanned books."
 license = "MIT"
+authors = ["Tao Zeyu <i@taozeyu.com>"]
+maintainers = ["Tao Zeyu <i@taozeyu.com>"]
 readme = "README.md"
 homepage = "https://hub.oomol.com/package/pdf-craft"
 repository = "https://github.com/oomol-lab/pdf-craft"
+keywords = ["pdf", "epub", "markdown"]
 packages = [
     {include = "pdf_craft" }
 ]
@@ -51,9 +30,12 @@ classifiers = [
 ]
 
 [tool.poetry.dependencies]
+python = ">=3.10,<3.14"
 PyMuPDF = ">=1.25.3,<2.0.0"
 doc-page-extractor = "==1.0.9"
 epub-generator = "==0.1.1"
 
 [tool.poetry.group.dev.dependencies]
 pylint = "^3.3.7"
+pytest = "^8.0.0"
+pytest-cov = "^6.0.0"

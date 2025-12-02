@@ -5,6 +5,7 @@ from typing import Callable, Literal
 from epub_generator import BookMeta, TableRender, LaTeXRender
 
 from .common import EnsureFolder
+from .to_path import to_path
 from .pdf import OCR, OCREvent, DeepSeekOCRModel
 from .sequence import generate_chapter_files
 from .markdown import render_markdown_file
@@ -15,7 +16,7 @@ from .metering import to_interrupted_error, AbortedCheck, OCRTokensMetering
 class Transform:
     def __init__(
             self,
-            models_cache_path: PathLike | None = None,
+            models_cache_path: PathLike | str | None = None,
             local_only: bool = False,
         ) -> None:
         self._ocr: OCR = OCR(
@@ -49,7 +50,9 @@ class Transform:
         else:
             markdown_assets_path = Path(markdown_assets_path)
         try:
-            with EnsureFolder(analysing_path) as analysing_path:
+            with EnsureFolder(
+                path=to_path(analysing_path) if analysing_path is not None else None,
+            ) as analysing_path:
                 asserts_path, chapters_path, _, metering = self._extract_from_pdf(
                     pdf_path=Path(pdf_path),
                     analysing_path=analysing_path,
@@ -98,7 +101,9 @@ class Transform:
     ) -> OCRTokensMetering:  # pyright: ignore[reportReturnType]
 
         try:
-            with EnsureFolder(analysing_path) as analysing_path:
+            with EnsureFolder(
+                path=to_path(analysing_path) if analysing_path is not None else None,
+            ) as analysing_path:
                 asserts_path, chapters_path, cover_path, metering = self._extract_from_pdf(
                     pdf_path=Path(pdf_path),
                     analysing_path=analysing_path,

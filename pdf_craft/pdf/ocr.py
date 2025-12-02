@@ -8,6 +8,7 @@ from pathlib import Path
 from os import PathLike
 
 from ..common import save_xml, AssetHub
+from ..to_path import to_path
 from ..metering import check_aborted, AbortedCheck
 from .page_extractor import PageExtractorNode
 from .page_ref import PageRefContext
@@ -32,11 +33,11 @@ class OCREvent:
 class OCR:
     def __init__(
             self,
-            model_path: PathLike | None,
+            model_path: PathLike | str | None,
             local_only: bool,
         ) -> None:
         self._extractor = PageExtractorNode(
-            model_path=model_path,
+            model_path=to_path(model_path) if model_path is not None else None,
             local_only=local_only,
         )
 

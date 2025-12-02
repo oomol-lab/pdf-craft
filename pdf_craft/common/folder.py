@@ -1,11 +1,10 @@
-from os import PathLike
 from pathlib import Path
 import tempfile
 
 
 class EnsureFolder:
-    def __init__(self, path: PathLike | str | None):
-        self._path = Path(path) if path is not None else None
+    def __init__(self, path: Path | None):
+        self._path = path
         self._temp: tempfile.TemporaryDirectory | None = None
 
     def __enter__(self) -> Path:

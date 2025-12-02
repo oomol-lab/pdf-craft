@@ -2,7 +2,6 @@ import re
 import tempfile
 
 from pathlib import Path
-from os import PathLike
 from typing import Iterable
 from PIL.Image import Image
 
@@ -14,11 +13,11 @@ from .types import Page, PageLayout, DeepSeekOCRModel
 class PageExtractorNode:
     def __init__(
         self,
-        model_path: PathLike | None = None,
+        model_path: Path | None = None,
         local_only: bool = False,
         enable_devices_numbers: Iterable[int] | None = None,
     ) -> None:
-        self._model_path: PathLike | None = model_path
+        self._model_path: Path | None = model_path
         self._local_only: bool = local_only
         self._enable_devices_numbers: Iterable[int] | None = enable_devices_numbers
         self._page_extractor = None
