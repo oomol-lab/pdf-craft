@@ -20,12 +20,12 @@ def predownload_models(
 
 
 def transform_markdown(
-    pdf_path: PathLike,
-    markdown_path: PathLike,
-    markdown_assets_path: PathLike | None = None,
-    analysing_path: PathLike | None = None,
+    pdf_path: PathLike | str,
+    markdown_path: PathLike | str,
+    markdown_assets_path: PathLike | str | None = None,
+    analysing_path: PathLike | str | None = None,
     model: DeepSeekOCRModel = "gundam",
-    models_cache_path: PathLike | None = None,
+    models_cache_path: PathLike | str | None = None,
     local_only: bool = False,
     includes_footnotes: bool = False,
     generate_plot: bool = False,
@@ -54,11 +54,11 @@ def transform_markdown(
 
 
 def transform_epub(
-    pdf_path: PathLike,
-    epub_path: PathLike,
-    analysing_path: PathLike | None = None,
+    pdf_path: PathLike | str,
+    epub_path: PathLike | str,
+    analysing_path: PathLike | str | None = None,
     model: DeepSeekOCRModel = "gundam",
-    models_cache_path: PathLike | None = None,
+    models_cache_path: PathLike | str | None = None,
     local_only: bool = False,
     includes_cover: bool = True,
     includes_footnotes: bool = False,

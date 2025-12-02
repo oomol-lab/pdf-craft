@@ -7,12 +7,13 @@ from PIL.Image import frombytes
 
 from ..common import AssetHub
 from ..metering import AbortedCheck
+from ..to_path import to_path
 from .page_extractor import PageExtractorNode
 from .types import Page, DeepSeekOCRModel
 
 
 def pdf_pages_count(pdf_path: PathLike | str) -> int:
-    with fitz.open(Path(pdf_path)) as document:
+    with fitz.open(to_path(pdf_path)) as document:
         return len(document)
 
 
