@@ -23,6 +23,12 @@ Starting from the official v1.0.0 release, pdf-craft fully embraces [DeepSeek OC
 
 However, the new version has also removed the LLM text correction feature. If your use case still requires this functionality, you can continue using the old version [v0.2.8](https://github.com/oomol-lab/pdf-craft/tree/v0.2.8).
 
+### Online Demo
+
+We provide an [online demo platform](https://pdf.oomol.com/) that lets you experience PDF Craft's conversion capabilities without any installation. You can directly upload PDF files and convert them.
+
+[![PDF Craft Online Demo](docs/images/website-en.png)](https://pdf.oomol.com/)
+
 ## Quick Start
 
 ### Installation
