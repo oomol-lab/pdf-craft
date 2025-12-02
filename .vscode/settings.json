@@ -23,8 +23,10 @@
         "pixmap",
         "pyenv",
         "pylint",
+        "pytest",
         "torchvision",
         "venv",
+        "virtualenvs",
         "Zeyu"
     ]
 }
