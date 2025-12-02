@@ -1,0 +1,197 @@
+<div align=center>
+  <h1>PDF Craft</h1>
+  <p>
+    <a href="https://github.com/oomol-lab/pdf-craft/actions/workflows/build.yml" target="_blank"><img src="https://img.shields.io/github/actions/workflow/status/oomol-lab/pdf-craft/build.yml" alt"ci" /></a>
+    <a href="https://pypi.org/project/pdf-craft/" target="_blank"><img src="https://img.shields.io/badge/pip_install-pdf--craft-blue" alt="pip install pdf-craft" /></a>
+    <a href="https://pypi.org/project/pdf-craft/" target="_blank"><img src="https://img.shields.io/pypi/v/pdf-craft.svg" alt"pypi pdf-craft" /></a>
+    <a href="https://pypi.org/project/pdf-craft/" target="_blank"><img src="https://img.shields.io/pypi/pyversions/pdf-craft.svg" alt="python versions" /></a>
+    <a href="https://github.com/oomol-lab/pdf-craft/blob/main/LICENSE" target="_blank"><img src="https://img.shields.io/github/license/oomol-lab/pdf-craft" alt"license" /></a>
+  </p>
+  <p><a href="https://hub.oomol.com/package/pdf-craft?open=true" target="_blank"><img src="https://static.oomol.com/assets/button.svg" alt="Open in OOMOL Studio" /></a></p>
+  <p>English | <a href="./README_zh-CN.md">中文</a></p>
+</div>
+
+## Introduction
+
+pdf-craft converts PDF files into various other formats, with a focus on handling scanned book PDFs.
+
+This project is based on [DeepSeek OCR](https://github.com/deepseek-ai/DeepSeek-OCR) for document recognition. It supports the recognition of complex content such as tables and formulas. With GPU acceleration, pdf-craft can complete the entire conversion process from PDF to Markdown or EPUB locally. During the conversion, pdf-craft automatically identifies document structure, accurately extracts body text, and filters out interfering elements like headers and footers. For academic or technical documents containing footnotes, formulas, and tables, pdf-craft handles them properly, preserving these important elements. The final Markdown or EPUB files maintain the content integrity and readability of the original book.
+
+## Lightweight and Fast
+
+Starting from the official v1.0.0 release, pdf-craft fully embraces [DeepSeek OCR](https://github.com/deepseek-ai/DeepSeek-OCR) and no longer relies on LLM for text correction. This change brings significant performance improvements: the entire conversion process is completed locally without network requests, eliminating the long waits and occasional network failures of the old version.
+
+However, the new version has also removed the LLM text correction feature. If your use case still requires this functionality, you can continue using the old version [v0.2.8](https://github.com/oomol-lab/pdf-craft/tree/v0.2.8).
+
+## Quick Start
+
+### Installation
+
+```bash
+pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
+pip install pdf-craft
+```
+
+This project uses DeepSeek OCR, which depends on a CUDA environment. **The above command only ensures Python can read types without errors, but cannot actually run OCR recognition.** For specific CUDA environment installation instructions, please refer to the [Installation Guide](docs/INSTALLATION.md).
+
+### Quick Start
+
+#### Convert to Markdown
+
+```python
+from pdf_craft import transform_markdown
+
+transform_markdown(
+    pdf_path="input.pdf",
+    markdown_path="output.md",
+    markdown_assets_path="images",
+)
+```
+
+![](docs/images/pdf2md-en.png)
+
+#### Convert to EPUB
+
+```python
+from pdf_craft import transform_epub, BookMeta
+
+transform_epub(
+    pdf_path="input.pdf",
+    epub_path="output.epub",
+    book_meta=BookMeta(
+        title="Book Title",
+        authors=["Author"],
+    ),
+)
+```
+
+![](docs/images/pdf2epub-en.png)
+
+## Detailed Usage
+
+### Convert to Markdown
+
+```python
+from pdf_craft import transform_markdown
+
+transform_markdown(
+    pdf_path="input.pdf",
+    markdown_path="output.md",
+    markdown_assets_path="images",
+    analysing_path="temp",  # Optional: specify temporary folder
+    model="gundam",  # Optional: tiny, small, base, large, gundam
+    models_cache_path="models",  # Optional: model cache path
+    includes_footnotes=True,  # Optional: include footnotes
+    generate_plot=False,  # Optional: generate visualization charts
+)
+```
+
+### Convert to EPUB
+
+```python
+from pdf_craft import transform_epub, BookMeta, TableRender, LaTeXRender
+
+transform_epub(
+    pdf_path="input.pdf",
+    epub_path="output.epub",
+    analysing_path="temp",  # Optional: specify temporary folder
+    model="gundam",  # Optional: OCR model size
+    models_cache_path="models",  # Optional: model cache path
+    includes_cover=True,  # Optional: include cover
+    includes_footnotes=True,  # Optional: include footnotes
+    generate_plot=False,  # Optional: generate visualization charts
+    book_meta=BookMeta(
+        title="Book Title",
+        authors=["Author 1", "Author 2"],
+        publisher="Publisher",
+        language="en",
+    ),
+    lan="en",  # Optional: language (zh/en)
+    table_render=TableRender.HTML,  # Optional: table rendering method
+    latex_render=LaTeXRender.MATHML,  # Optional: formula rendering method
+)
+```
+
+### Model Management
+
+pdf-craft depends on DeepSeek OCR models, which are automatically downloaded from Hugging Face on first run. You can control model storage and loading behavior through the `models_cache_path` and `local_only` parameters.
+
+#### Pre-download Models
+
+In production environments, it is recommended to download models in advance to avoid downloading on first run:
+
+```python
+from pdf_craft import predownload_models
+
+predownload_models(
+    models_cache_path="models",  # Specify model cache directory
+    revision=None,  # Optional: specify model version
+)
+```
+
+#### Specify Model Cache Path
+
+By default, models are downloaded to the system's Hugging Face cache directory. You can customize the cache location through the `models_cache_path` parameter:
+
+```python
+from pdf_craft import transform_markdown
+
+transform_markdown(
+    pdf_path="input.pdf",
+    markdown_path="output.md",
+    models_cache_path="./my_models",  # Custom model cache directory
+)
+```
+
+#### Offline Mode
+
+If you have pre-downloaded the models, you can use `local_only=True` to disable network downloads and ensure only local models are used:
+
+```python
+from pdf_craft import transform_markdown
+
+transform_markdown(
+    pdf_path="input.pdf",
+    markdown_path="output.md",
+    models_cache_path="./my_models",
+    local_only=True,  # Use local models only, do not download from network
+)
+```
+
+## API Reference
+
+### OCR Models
+
+Supports the following DeepSeek OCR models:
+
+- `tiny` - Smallest model, fastest speed
+- `small` - Small model
+- `base` - Base model
+- `large` - Large model
+- `gundam` - Largest model, highest quality (default)
+
+### Table Rendering Methods
+
+- `TableRender.HTML` - HTML format (default)
+- `TableRender.MARKDOWN` - Markdown format
+- `TableRender.TEXT` - Plain text format
+
+### Formula Rendering Methods
+
+- `LaTeXRender.MATHML` - MathML format (default)
+- `LaTeXRender.IMAGE` - Image format
+- `LaTeXRender.TEXT` - Plain text format
+
+## Related Open Source Libraries
+[epub-translator](https://github.com/oomol-lab/epub-translator) uses AI large language models to automatically translate EPUB e-books while 100% preserving the original book's format, illustrations, table of contents, and layout. It also generates bilingual versions for convenient language learning or international sharing. When combined with this library, you can convert and translate scanned PDF books. For a demonstration, see this [video: Convert PDF scanned books to EPUB format and translate to bilingual books](https://www.bilibili.com/video/BV1tMQZY5EYY).
+
+## License
+
+This project is licensed under the MIT License. See the [LICENSE](./LICENSE) file for details.
+
+Starting from v1.0.0, pdf-craft has fully migrated to DeepSeek OCR (MIT license), removing the previous AGPL-3.0 dependency, allowing the entire project to be released under the more permissive MIT license. Thanks to the community for their support and contributions!
+
+## Acknowledgments
+
+- [DeepSeekOCR](https://github.com/deepseek-ai/DeepSeek-OCR)
+- [doc-page-extractor](https://github.com/Moskize91/doc-page-extractor)
