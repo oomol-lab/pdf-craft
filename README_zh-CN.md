@@ -88,6 +88,7 @@ transform_markdown(
     model="gundam",  # 可选：tiny, small, base, large, gundam
     models_cache_path="models",  # 可选：模型缓存路径
     includes_footnotes=True,  # 可选：包含脚注
+    ignore_fitz_errors=False,  # 可选：遇到 PDF 渲染错误时继续处理
     generate_plot=False,  # 可选：生成可视化图表
 )
 ```
@@ -105,6 +106,7 @@ transform_epub(
     models_cache_path="models",  # 可选：模型缓存路径
     includes_cover=True,  # 可选：包含封面
     includes_footnotes=True,  # 可选：包含脚注
+    ignore_fitz_errors=False,  # 可选：遇到 PDF 渲染错误时继续处理
     generate_plot=False,  # 可选：生成可视化图表
     book_meta=BookMeta(
         title="书名",
@@ -187,6 +189,10 @@ transform_markdown(
 - `LaTeXRender.MATHML` - MathML 格式（默认）
 - `LaTeXRender.IMAGE` - 图片格式
 - `LaTeXRender.TEXT` - 纯文本格式
+
+### 错误处理
+
+你可以使用 `ignore_fitz_errors=True` 参数，在遇到单个页面渲染失败时继续处理，为失败的页面插入占位符消息，而不是停止整个转换过程。
 
 ## 相关开源库
 [epub-translator](https://github.com/oomol-lab/epub-translator) 利用 AI 大模型自动翻译 EPUB 电子书，并 100% 保留原书的格式、插图、目录和排版，同时生成 双语对照版本，方便语言学习或国际分享。与本库搭配，可将扫描 PDF 书籍转换并翻译。搭配使用可参考 [视频：PDF 扫描件书籍转 EPUB 格式，翻译成双语书](https://www.bilibili.com/video/BV1tMQZY5EYY)。
