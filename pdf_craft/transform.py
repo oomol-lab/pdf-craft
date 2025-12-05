@@ -10,7 +10,8 @@ from .pdf import OCR, OCREvent, DeepSeekOCRModel
 from .sequence import generate_chapter_files
 from .markdown import render_markdown_file
 from .epub import render_epub_file
-from .metering import to_interrupted_error, AbortedCheck, OCRTokensMetering
+from .error import to_interrupted_error
+from .metering import AbortedCheck, OCRTokensMetering
 
 
 class Transform:
