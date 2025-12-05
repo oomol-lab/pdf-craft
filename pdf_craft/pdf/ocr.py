@@ -9,8 +9,9 @@ from os import PathLike
 
 from ..common import save_xml, AssetHub
 from ..to_path import to_path
+from ..error import FitzError
 from ..metering import check_aborted, AbortedCheck
-from .page_extractor import PageExtractorNode
+from .page_extractor import Page, PageLayout, PageExtractorNode
 from .page_ref import PageRefContext
 from .types import encode, DeepSeekOCRModel
 
@@ -119,15 +120,22 @@ class OCR:
                     if remain_output_tokens is not None and remain_output_tokens <= 0:
                         raise TokenLimitError()
 
-                    page = ref.extract(
-                        model=model,
-                        includes_footnotes=includes_footnotes,
-                        includes_raw_image=(ref.page_index == 1),
-                        plot_path=plot_path,
-                        max_tokens=remain_tokens,
-                        max_output_tokens=remain_output_tokens,
-                        device_number=device_number,
-                    )
+                    try:
+                        page = ref.extract(
+                            model=model,
+                            includes_footnotes=includes_footnotes,
+                            includes_raw_image=(ref.page_index == 1),
+                            plot_path=plot_path,
+                            max_tokens=remain_tokens,
+                            max_output_tokens=remain_output_tokens,
+                            device_number=device_number,
+                        )
+                    except FitzError:
+                        page = self._create_warn_page(
+                            page_index=ref.page_index,
+                            text=f"[[Page {ref.page_index} extraction failed due to PDF rendering error]]",
+                        )
+
                     save_xml(encode(page), file_path)
 
                     if cover_path and page.image:
@@ -153,3 +161,20 @@ class OCR:
 
         if not did_ignore_any:
             done_path.touch()
+
+    def _create_warn_page(self, page_index: int, text: str) -> Page:
+        page = Page(
+            index=page_index,
+            image=None,
+            body_layouts=[],
+            footnotes_layouts=[],
+            input_tokens=0,
+            output_tokens=0,
+        )
+        page.body_layouts.append(PageLayout(
+            ref="text",
+            det=(0, 0, 100, 100),
+            text=text,
+            hash=None,
+        ))
+        return page
