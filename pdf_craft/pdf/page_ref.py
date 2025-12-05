@@ -1,12 +1,13 @@
 import fitz
 
-from typing import cast, Generator
+from typing import Generator
 from os import PathLike
 from pathlib import Path
 from PIL.Image import frombytes
 
 from ..common import AssetHub
 from ..metering import AbortedCheck
+from ..error import FitzError
 from ..to_path import to_path
 from .page_extractor import PageExtractorNode
 from .types import Page, DeepSeekOCRModel
@@ -38,7 +39,10 @@ class PageRefContext:
 
     def __enter__(self) -> "PageRefContext":
         assert self._document is None
-        self._document = fitz.open(self._pdf_path)
+        try:
+            self._document = fitz.open(self._pdf_path)
+        except Exception as error:
+            raise FitzError("Failed to open PDF document.", page_index=None) from error
         return self
 
     def __exit__(self, exc_type, exc_val, exc_tb) -> None:
@@ -47,10 +51,10 @@ class PageRefContext:
             self._document = None
 
     def __iter__(self) -> Generator["PageRef", None, None]:
-        document = cast(fitz.Document, self._document)
-        for i in range(len(document)):
+        assert self._document is not None
+        for i in range(len(self._document)):
             yield PageRef(
-                document=document,
+                document=self._document,
                 page_index=i + 1,
                 extractor=self._extractor,
                 asset_hub=self._asset_hub,
@@ -87,12 +91,15 @@ class PageRef:
             device_number: int | None = None,
         ) -> Page:
 
-        dpi = 300 # for scanned book pages
-        default_dpi = 72
-        matrix = fitz.Matrix(dpi / default_dpi, dpi / default_dpi)
-        page = self._document.load_page(self._page_index - 1)
-        pixmap = page.get_pixmap(matrix=matrix)
-        image = frombytes("RGB", (pixmap.width, pixmap.height), pixmap.samples)
+        try:
+            dpi = 300 # for scanned book pages
+            default_dpi = 72
+            matrix = fitz.Matrix(dpi / default_dpi, dpi / default_dpi)
+            page = self._document.load_page(self._page_index - 1)
+            pixmap = page.get_pixmap(matrix=matrix)
+            image = frombytes("RGB", (pixmap.width, pixmap.height), pixmap.samples)
+        except Exception as error:
+            raise FitzError(f"Failed to render page {self._page_index}.", page_index=self._page_index) from error
 
         return self._extractor.image2page(
             image=image,

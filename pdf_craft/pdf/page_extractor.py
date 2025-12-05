@@ -6,6 +6,7 @@ from typing import Iterable
 from PIL.Image import Image
 
 from ..common import ASSET_TAGS, AssetHub
+from ..error import OCRError
 from ..metering import check_aborted, AbortedCheck
 from .types import Page, PageLayout, DeepSeekOCRModel
 
@@ -72,14 +73,22 @@ class PageExtractorNode:
                 max_output_tokens=max_output_tokens,
                 output_dir_path=temp_dir_path,
             )
-            for i, get_pair in enumerate(self._get_page_extractor().extract(
+            step_index: int = 1
+            generator = self._get_page_extractor().extract(
                 image_path=image_path,
                 size=model_size,
                 stages=2 if includes_footnotes else 1,
                 context=context,
                 device_number=device_number,
-            )):
-                image, layouts = get_pair()
+            )
+            while True:
+                try:
+                    image, layouts = next(generator)()
+                except StopIteration:
+                    break
+                except Exception as error:
+                    raise OCRError(f"Failed to extract page {page_index} layout at stage {step_index}.", page_index=page_index, step_index=step_index) from error
+
                 for layout in layouts:
                     ref = self._normalize_text(layout.ref)
                     text = self._normalize_text(layout.text)
@@ -92,17 +101,19 @@ class PageExtractorNode:
                         text=text,
                         hash=hash,
                     )
-                    if i == 0:
+                    if step_index == 1:
                         body_layouts.append(page_layout)
-                    elif i == 1 and ref not in ASSET_TAGS:
+                    elif step_index == 2 and ref not in ASSET_TAGS:
                         footnotes_layouts.append(page_layout)
 
                 check_aborted(aborted)
                 if plot_path is not None:
-                    plot_file_path = plot_path / f"page_{page_index}_stage_{i + 1}.png"
+                    plot_file_path = plot_path / f"page_{page_index}_stage_{step_index}.png"
                     image = plot(image.copy(), layouts)
                     image.save(plot_file_path, format="PNG")
                     check_aborted(aborted)
+
+                step_index += 1
 
             return Page(
                 index=page_index,
