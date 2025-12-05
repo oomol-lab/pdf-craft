@@ -21,7 +21,7 @@ class OCREventKind(Enum):
     IGNORE = auto()
     SKIP = auto()
     COMPLETE = auto()
-    Failed = auto()
+    FAILED = auto()
 
 @dataclass
 class OCREvent:
@@ -154,7 +154,7 @@ class OCR:
                     elapsed_ms = int((time.perf_counter() - start_time) * 1000)
 
                     yield OCREvent(
-                        kind=OCREventKind.COMPLETE if fitz_error is None else OCREventKind.Failed,
+                        kind=OCREventKind.COMPLETE if fitz_error is None else OCREventKind.FAILED,
                         error=fitz_error,
                         page_index=ref.page_index,
                         total_pages=pages_count,
