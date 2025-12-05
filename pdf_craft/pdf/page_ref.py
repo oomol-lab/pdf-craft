@@ -14,8 +14,11 @@ from .types import Page, DeepSeekOCRModel
 
 
 def pdf_pages_count(pdf_path: PathLike | str) -> int:
-    with fitz.open(to_path(pdf_path)) as document:
-        return len(document)
+    try:
+        with fitz.open(to_path(pdf_path)) as document:
+            return len(document)
+    except Exception as error:
+        raise FitzError("Failed to parse PDF document.", page_index=None) from error
 
 
 class PageRefContext:
