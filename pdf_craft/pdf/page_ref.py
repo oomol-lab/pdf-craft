@@ -42,7 +42,7 @@ class PageRefContext:
         try:
             self._document = fitz.open(self._pdf_path)
         except Exception as error:
-            raise FitzError("Failed to open PDF document.") from error
+            raise FitzError("Failed to open PDF document.", page_index=None) from error
         return self
 
     def __exit__(self, exc_type, exc_val, exc_tb) -> None:
@@ -99,7 +99,7 @@ class PageRef:
             pixmap = page.get_pixmap(matrix=matrix)
             image = frombytes("RGB", (pixmap.width, pixmap.height), pixmap.samples)
         except Exception as error:
-            raise FitzError(f"Failed to render page {self._page_index}.") from error
+            raise FitzError(f"Failed to render page {self._page_index}.", page_index=self._page_index) from error
 
         return self._extractor.image2page(
             image=image,

@@ -87,7 +87,7 @@ class PageExtractorNode:
                 except StopIteration:
                     break
                 except Exception as error:
-                    raise OCRError(f"Failed to extract page {page_index} layout at stage {step_index}.") from error
+                    raise OCRError(f"Failed to extract page {page_index} layout at stage {step_index}.", page_index=page_index, step_index=step_index) from error
 
                 for layout in layouts:
                     ref = self._normalize_text(layout.ref)

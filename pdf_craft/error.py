@@ -2,11 +2,16 @@ from .metering import OCRTokensMetering, InterruptedKind
 
 
 class FitzError(Exception):
-    pass
+    def __init__(self, message: str, page_index: int | None = None) -> None:
+        super().__init__(message)
+        self.page_index: int | None = page_index
 
 
 class OCRError(Exception):
-    pass
+    def __init__(self, message: str, page_index: int, step_index: int) -> None:
+        super().__init__(message)
+        self.page_index: int = page_index
+        self.step_index: int = step_index
 
 
 # 不可直接用 doc-page-extractor 的 Error，该库的一切都是懒加载，若暴露，则无法懒加载
