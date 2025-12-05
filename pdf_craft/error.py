@@ -1,6 +1,14 @@
 from .metering import OCRTokensMetering, InterruptedKind
 
 
+class FitzError(Exception):
+    pass
+
+
+class OCRError(Exception):
+    pass
+
+
 # 不可直接用 doc-page-extractor 的 Error，该库的一切都是懒加载，若暴露，则无法懒加载
 class InterruptedError(Exception):
     """Raised when the operation is interrupted by the user."""
