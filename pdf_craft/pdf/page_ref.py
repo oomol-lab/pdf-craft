@@ -85,7 +85,7 @@ class PageRef:
 
     def extract(
             self,
-            model: DeepSeekOCRSize,
+            ocr_size: DeepSeekOCRSize,
             includes_footnotes: bool = False,
             includes_raw_image: bool = True,
             plot_path: Path | None = None,
@@ -108,7 +108,7 @@ class PageRef:
             image=image,
             page_index=self._page_index,
             asset_hub=self._asset_hub,
-            model_size=model,
+            model_size=ocr_size,
             includes_footnotes=includes_footnotes,
             includes_raw_image=includes_raw_image,
             plot_path=plot_path,
