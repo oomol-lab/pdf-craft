@@ -170,7 +170,7 @@ transform_markdown(
 
 ### OCR 模型
 
-支持以下 DeepSeek OCR 模型：
+`model` 参数接受 `DeepSeekOCRSize` 类型，支持以下 DeepSeek OCR 模型：
 
 - `tiny` - 最小模型，速度最快
 - `small` - 小型模型

@@ -170,7 +170,7 @@ transform_markdown(
 
 ### OCR Models
 
-Supports the following DeepSeek OCR models:
+The `model` parameter accepts a `DeepSeekOCRSize` type, which supports the following DeepSeek OCR models:
 
 - `tiny` - Smallest model, fastest speed
 - `small` - Small model
