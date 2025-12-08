@@ -3,7 +3,7 @@ from typing import Callable, Literal
 
 from epub_generator import BookMeta, TableRender, LaTeXRender
 
-from .pdf import OCR, OCREvent, DeepSeekOCRModel
+from .pdf import OCR, OCREvent, DeepSeekOCRSize
 from .transform import Transform
 from .metering import AbortedCheck, OCRTokensMetering
 
@@ -24,7 +24,7 @@ def transform_markdown(
     markdown_path: PathLike | str,
     markdown_assets_path: PathLike | str | None = None,
     analysing_path: PathLike | str | None = None,
-    model: DeepSeekOCRModel = "gundam",
+    ocr_size: DeepSeekOCRSize = "gundam",
     models_cache_path: PathLike | str | None = None,
     local_only: bool = False,
     includes_footnotes: bool = False,
@@ -44,7 +44,7 @@ def transform_markdown(
         markdown_path=markdown_path,
         markdown_assets_path=markdown_assets_path,
         analysing_path=analysing_path,
-        model=model,
+        ocr_size=ocr_size,
         includes_footnotes=includes_footnotes,
         ignore_fitz_errors=ignore_fitz_errors,
         generate_plot=generate_plot,
@@ -59,7 +59,7 @@ def transform_epub(
     pdf_path: PathLike | str,
     epub_path: PathLike | str,
     analysing_path: PathLike | str | None = None,
-    model: DeepSeekOCRModel = "gundam",
+    ocr_size: DeepSeekOCRSize = "gundam",
     models_cache_path: PathLike | str | None = None,
     local_only: bool = False,
     includes_cover: bool = True,
@@ -83,7 +83,7 @@ def transform_epub(
         pdf_path=pdf_path,
         epub_path=epub_path,
         analysing_path=analysing_path,
-        model=model,
+        ocr_size=ocr_size,
         includes_cover=includes_cover,
         includes_footnotes=includes_footnotes,
         generate_plot=generate_plot,

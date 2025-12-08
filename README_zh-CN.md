@@ -85,7 +85,7 @@ transform_markdown(
     markdown_path="output.md",
     markdown_assets_path="images",
     analysing_path="temp",  # 可选：指定临时文件夹
-    model="gundam",  # 可选：tiny, small, base, large, gundam
+    ocr_size="gundam",  # 可选：tiny, small, base, large, gundam
     models_cache_path="models",  # 可选：模型缓存路径
     includes_footnotes=True,  # 可选：包含脚注
     ignore_fitz_errors=False,  # 可选：遇到 PDF 渲染错误时继续处理
@@ -102,7 +102,7 @@ transform_epub(
     pdf_path="input.pdf",
     epub_path="output.epub",
     analysing_path="temp",  # 可选：指定临时文件夹
-    model="gundam",  # 可选：OCR 模型大小
+    ocr_size="gundam",  # 可选：tiny, small, base, large, gundam
     models_cache_path="models",  # 可选：模型缓存路径
     includes_cover=True,  # 可选：包含封面
     includes_footnotes=True,  # 可选：包含脚注
@@ -170,7 +170,7 @@ transform_markdown(
 
 ### OCR 模型
 
-支持以下 DeepSeek OCR 模型：
+`ocr_size` 参数接受 `DeepSeekOCRSize` 类型：
 
 - `tiny` - 最小模型，速度最快
 - `small` - 小型模型

@@ -6,7 +6,7 @@ from PIL.Image import Image
 from ..common import indent
 
 
-DeepSeekOCRModel = Literal["tiny", "small", "base", "large", "gundam"]
+DeepSeekOCRSize = Literal["tiny", "small", "base", "large", "gundam"]
 
 @dataclass
 class Page:

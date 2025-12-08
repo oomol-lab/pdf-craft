@@ -13,7 +13,7 @@ from ..error import FitzError
 from ..metering import check_aborted, AbortedCheck
 from .page_extractor import Page, PageLayout, PageExtractorNode
 from .page_ref import PageRefContext
-from .types import encode, DeepSeekOCRModel
+from .types import encode, DeepSeekOCRSize
 
 
 class OCREventKind(Enum):
@@ -55,7 +55,7 @@ class OCR:
             pdf_path: Path,
             asset_path: Path,
             ocr_path: Path,
-            model: DeepSeekOCRModel = "gundam",
+            ocr_size: DeepSeekOCRSize = "gundam",
             includes_footnotes: bool = False,
             ignore_fitz_errors: bool = False,
             plot_path: Path | None = None,
@@ -128,7 +128,7 @@ class OCR:
 
                     try:
                         page = ref.extract(
-                            model=model,
+                            ocr_size=ocr_size,
                             includes_footnotes=includes_footnotes,
                             includes_raw_image=(ref.page_index == 1),
                             plot_path=plot_path,

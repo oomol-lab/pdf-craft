@@ -85,7 +85,7 @@ transform_markdown(
     markdown_path="output.md",
     markdown_assets_path="images",
     analysing_path="temp",  # Optional: specify temporary folder
-    model="gundam",  # Optional: tiny, small, base, large, gundam
+    ocr_size="gundam",  # Optional: tiny, small, base, large, gundam
     models_cache_path="models",  # Optional: model cache path
     includes_footnotes=True,  # Optional: include footnotes
     ignore_fitz_errors=False,  # Optional: continue on PDF rendering errors
@@ -102,7 +102,7 @@ transform_epub(
     pdf_path="input.pdf",
     epub_path="output.epub",
     analysing_path="temp",  # Optional: specify temporary folder
-    model="gundam",  # Optional: OCR model size
+    ocr_size="gundam",  # Optional: tiny, small, base, large, gundam
     models_cache_path="models",  # Optional: model cache path
     includes_cover=True,  # Optional: include cover
     includes_footnotes=True,  # Optional: include footnotes
@@ -170,7 +170,7 @@ transform_markdown(
 
 ### OCR Models
 
-Supports the following DeepSeek OCR models:
+The `ocr_size` parameter accepts a `DeepSeekOCRSize` type:
 
 - `tiny` - Smallest model, fastest speed
 - `small` - Small model

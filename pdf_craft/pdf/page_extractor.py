@@ -8,7 +8,7 @@ from PIL.Image import Image
 from ..common import ASSET_TAGS, AssetHub
 from ..error import OCRError
 from ..metering import check_aborted, AbortedCheck
-from .types import Page, PageLayout, DeepSeekOCRModel
+from .types import Page, PageLayout, DeepSeekOCRSize
 
 
 class PageExtractorNode:
@@ -45,7 +45,7 @@ class PageExtractorNode:
             image: Image,
             page_index: int,
             asset_hub: AssetHub,
-            model_size: DeepSeekOCRModel,
+            model_size: DeepSeekOCRSize,
             includes_footnotes: bool,
             includes_raw_image: bool,
             plot_path: Path | None,
