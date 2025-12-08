@@ -3,7 +3,7 @@ from typing import Callable, Literal
 
 from epub_generator import BookMeta, TableRender, LaTeXRender
 
-from .pdf import OCR, OCREvent, DeepSeekOCRModel
+from .pdf import OCR, OCREvent, DeepSeekOCRSize
 from .transform import Transform
 from .metering import AbortedCheck, OCRTokensMetering
 
@@ -24,7 +24,7 @@ def transform_markdown(
     markdown_path: PathLike | str,
     markdown_assets_path: PathLike | str | None = None,
     analysing_path: PathLike | str | None = None,
-    model: DeepSeekOCRModel = "gundam",
+    model: DeepSeekOCRSize = "gundam",
     models_cache_path: PathLike | str | None = None,
     local_only: bool = False,
     includes_footnotes: bool = False,
@@ -59,7 +59,7 @@ def transform_epub(
     pdf_path: PathLike | str,
     epub_path: PathLike | str,
     analysing_path: PathLike | str | None = None,
-    model: DeepSeekOCRModel = "gundam",
+    model: DeepSeekOCRSize = "gundam",
     models_cache_path: PathLike | str | None = None,
     local_only: bool = False,
     includes_cover: bool = True,

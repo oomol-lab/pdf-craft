@@ -10,7 +10,7 @@ from ..metering import AbortedCheck
 from ..error import FitzError
 from ..to_path import to_path
 from .page_extractor import PageExtractorNode
-from .types import Page, DeepSeekOCRModel
+from .types import Page, DeepSeekOCRSize
 
 
 def pdf_pages_count(pdf_path: PathLike | str) -> int:
@@ -85,7 +85,7 @@ class PageRef:
 
     def extract(
             self,
-            model: DeepSeekOCRModel,
+            model: DeepSeekOCRSize,
             includes_footnotes: bool = False,
             includes_raw_image: bool = True,
             plot_path: Path | None = None,

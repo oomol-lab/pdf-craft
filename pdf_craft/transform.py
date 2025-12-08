@@ -6,7 +6,7 @@ from epub_generator import BookMeta, TableRender, LaTeXRender
 
 from .common import EnsureFolder
 from .to_path import to_path
-from .pdf import OCR, OCREvent, DeepSeekOCRModel
+from .pdf import OCR, OCREvent, DeepSeekOCRSize
 from .sequence import generate_chapter_files
 from .markdown import render_markdown_file
 from .epub import render_epub_file
@@ -37,7 +37,7 @@ class Transform:
         markdown_path: PathLike | str,
         markdown_assets_path: PathLike | str | None = None,
         analysing_path: PathLike | str | None = None,
-        model: DeepSeekOCRModel = "gundam",
+        model: DeepSeekOCRSize = "gundam",
         includes_footnotes: bool = False,
         generate_plot: bool = False,
         ignore_fitz_errors: bool = False,
@@ -89,7 +89,7 @@ class Transform:
         pdf_path: PathLike | str,
         epub_path: PathLike | str,
         analysing_path: PathLike | str | None = None,
-        model: DeepSeekOCRModel = "gundam",
+        model: DeepSeekOCRSize = "gundam",
         includes_cover: bool = True,
         includes_footnotes: bool = False,
         ignore_fitz_errors: bool = False,
@@ -145,7 +145,7 @@ class Transform:
         self,
         pdf_path: Path,
         analysing_path: Path,
-        model: DeepSeekOCRModel,
+        model: DeepSeekOCRSize,
         includes_cover: bool,
         includes_footnotes: bool,
         ignore_fitz_errors: bool,
