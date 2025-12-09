@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+from typing import Iterable
 from xml.etree.ElementTree import Element
 
 from ..common import indent
@@ -22,7 +23,7 @@ def decode(element: Element) -> list[TocItem]:
     return items
 
 
-def encode(items: list[TocItem]) -> Element:
+def encode(items: Iterable[TocItem]) -> Element:
     root = Element("toc")
 
     for item in items:
