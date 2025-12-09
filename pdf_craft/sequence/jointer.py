@@ -253,7 +253,7 @@ def _extract_and_split_content(layout: AssetLayout, start: int, end: int):
     layout.content = extracted
 
 def _line_text(line: LineLayout) -> str:
-    result_parts = []
+    result_parts: list[str] = []
     for part in line.content:
         if isinstance(part, str):
             result_parts.append(part)
@@ -262,7 +262,6 @@ def _line_text(line: LineLayout) -> str:
         elif isinstance(part, Reference):
             # Reference 对象在这里暂时不处理，或者可以添加标记
             pass
-
     return "".join(result_parts)
 
 def _is_splitted_word(text1: str, text2: str) -> bool:
