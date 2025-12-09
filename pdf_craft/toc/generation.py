@@ -4,7 +4,7 @@ from pathlib import Path
 from typing import Generator
 
 from ..common import save_xml, XMLReader
-from ..sequence import decode, Chapter, AssetLayout, ParagraphLayout, Reference
+from ..sequence import decode, Chapter, Reference
 from .item import encode
 from .analyse import analyse_toc, RawChapter
 
@@ -55,9 +55,8 @@ def _title_of_chapter(chapter: Chapter) -> str | None:
     return normalized_title
 
 def _search_det_in_chapter(chapter: Chapter) -> Generator[tuple[int, int, int, int], None, None]:
-    for layout in chapter.layouts:
-        if isinstance(layout, AssetLayout):
-            yield layout.det
-        elif isinstance(layout, ParagraphLayout):
-            for line in layout.lines:
-                yield line.det
+    title = chapter.title
+    if title is None:
+        return
+    for line in title.lines:
+        yield line.det
