@@ -1,5 +1,6 @@
 import unittest
-from pdf_craft.sequence.jointer import _normalize_equation, _normalize_table, AssetLayout
+from pdf_craft.sequence.jointer import _normalize_equation, _normalize_table, _parse_line_content, AssetLayout
+from pdf_craft.sequence.chapter import InlineExpression
 
 
 class TestNormalizeEquation(unittest.TestCase):
@@ -17,9 +18,9 @@ class TestNormalizeEquation(unittest.TestCase):
             hash=None
         )
         _normalize_equation(layout)
-        self.assertEqual(layout.content, r"\[x^2 + y^2 = z^2\]")
-        self.assertEqual(layout.title, "This is a formula:")
-        self.assertEqual(layout.caption, "and some text after")
+        self.assertEqual(layout.content, r"x^2 + y^2 = z^2")
+        self.assertEqual(layout.title, "This is a formula: ")
+        self.assertEqual(layout.caption, " and some text after")
 
     def test_equation_with_double_dollar(self):
         """测试 $$...$$ 格式的 LaTeX 代码"""
@@ -33,9 +34,9 @@ class TestNormalizeEquation(unittest.TestCase):
             hash=None
         )
         _normalize_equation(layout)
-        self.assertEqual(layout.content, "$$E = mc^2$$")
-        self.assertEqual(layout.title, "Equation:")
-        self.assertEqual(layout.caption, "Einstein's formula")
+        self.assertEqual(layout.content, "E = mc^2")
+        self.assertEqual(layout.title, "Equation: ")
+        self.assertEqual(layout.caption, " Einstein's formula")
 
     def test_equation_with_parenthesis_notation(self):
         r"""测试 \(...\) 格式的 LaTeX 代码"""
@@ -49,9 +50,9 @@ class TestNormalizeEquation(unittest.TestCase):
             hash=None
         )
         _normalize_equation(layout)
-        self.assertEqual(layout.content, r"\(a + b = c\)")
-        self.assertEqual(layout.title, "Inline math")
-        self.assertEqual(layout.caption, "in text")
+        self.assertEqual(layout.content, r"a + b = c")
+        self.assertEqual(layout.title, "Inline math ")
+        self.assertEqual(layout.caption, " in text")
 
     def test_equation_with_single_dollar(self):
         """测试 $...$ 格式的 LaTeX 代码"""
@@ -65,9 +66,9 @@ class TestNormalizeEquation(unittest.TestCase):
             hash=None
         )
         _normalize_equation(layout)
-        self.assertEqual(layout.content, "$x = y$")
-        self.assertEqual(layout.title, "Simple")
-        self.assertEqual(layout.caption, "equation")
+        self.assertEqual(layout.content, "x = y")
+        self.assertEqual(layout.title, "Simple ")
+        self.assertEqual(layout.caption, " equation")
 
     def test_equation_without_title(self):
         """测试没有 title 的情况"""
@@ -81,9 +82,9 @@ class TestNormalizeEquation(unittest.TestCase):
             hash=None
         )
         _normalize_equation(layout)
-        self.assertEqual(layout.content, r"\[a^2 + b^2 = c^2\]")
+        self.assertEqual(layout.content, r"a^2 + b^2 = c^2")
         self.assertIsNone(layout.title)
-        self.assertEqual(layout.caption, "This is caption")
+        self.assertEqual(layout.caption, " This is caption")
 
     def test_equation_without_caption(self):
         """测试没有 caption 的情况"""
@@ -97,8 +98,8 @@ class TestNormalizeEquation(unittest.TestCase):
             hash=None
         )
         _normalize_equation(layout)
-        self.assertEqual(layout.content, r"\[f(x) = x^2\]")
-        self.assertEqual(layout.title, "Title text")
+        self.assertEqual(layout.content, r"f(x) = x^2")
+        self.assertEqual(layout.title, "Title text ")
         self.assertIsNone(layout.caption)
 
     def test_equation_only_latex(self):
@@ -113,7 +114,7 @@ class TestNormalizeEquation(unittest.TestCase):
             hash=None
         )
         _normalize_equation(layout)
-        self.assertEqual(layout.content, r"\[\int_0^\infty e^{-x^2} dx = \frac{\sqrt{\pi}}{2}\]")
+        self.assertEqual(layout.content, r"\int_0^\infty e^{-x^2} dx = \frac{\sqrt{\pi}}{2}")
         self.assertIsNone(layout.title)
         self.assertIsNone(layout.caption)
 
@@ -129,9 +130,9 @@ class TestNormalizeEquation(unittest.TestCase):
             hash=None
         )
         _normalize_equation(layout)
-        self.assertEqual(layout.content, r"\[x = y\]")
-        self.assertEqual(layout.title, "Existing title\nMore title")
-        self.assertEqual(layout.caption, "caption text")
+        self.assertEqual(layout.content, r"x = y")
+        self.assertEqual(layout.title, "Existing titleMore title ")
+        self.assertEqual(layout.caption, " caption text")
 
     def test_equation_with_existing_caption(self):
         """测试已存在 caption 的情况"""
@@ -145,9 +146,9 @@ class TestNormalizeEquation(unittest.TestCase):
             hash=None
         )
         _normalize_equation(layout)
-        self.assertEqual(layout.content, r"\[a = b\]")
-        self.assertEqual(layout.title, "Title")
-        self.assertEqual(layout.caption, "Existing caption\nmore caption")
+        self.assertEqual(layout.content, r"a = b")
+        self.assertEqual(layout.title, "Title ")
+        self.assertEqual(layout.caption, " more captionExisting caption")
 
     def test_equation_empty_content(self):
         """测试空内容"""
@@ -321,7 +322,7 @@ Footer text"""
         )
         _normalize_table(layout)
         self.assertEqual(layout.content, "<table><tr><td>A</td></tr></table>")
-        self.assertEqual(layout.title, "Existing title\nMore title")
+        self.assertEqual(layout.title, "Existing titleMore title")
         self.assertEqual(layout.caption, "Caption")
 
     def test_table_with_existing_caption(self):
@@ -338,7 +339,7 @@ Footer text"""
         _normalize_table(layout)
         self.assertEqual(layout.content, "<table><tr><td>B</td></tr></table>")
         self.assertEqual(layout.title, "Title")
-        self.assertEqual(layout.caption, "Existing caption\nMore caption")
+        self.assertEqual(layout.caption, "Existing captionMore caption")
 
     def test_table_empty_content(self):
         """测试空内容"""
@@ -371,6 +372,116 @@ Footer text"""
         self.assertEqual(layout.content, "Just text without any table")
         self.assertIsNone(layout.title)
         self.assertIsNone(layout.caption)
+
+
+class TestParseLineContent(unittest.TestCase):
+    """测试 _parse_line_content 函数"""
+
+    def test_plain_text_only(self):
+        """测试纯文本"""
+        result = _parse_line_content("This is plain text")
+        self.assertEqual(len(result), 1)
+        self.assertEqual(result[0], "This is plain text")
+
+    def test_single_dollar_inline_formula(self):
+        """测试单美元符号行内公式"""
+        result = _parse_line_content("Einstein's formula $E = mc^2$ is famous")
+        self.assertEqual(len(result), 3)
+        self.assertEqual(result[0], "Einstein's formula ")
+        self.assertIsInstance(result[1], InlineExpression)
+        assert isinstance(result[1], InlineExpression)
+        self.assertEqual(result[1].context, "E = mc^2")
+        self.assertEqual(result[2], " is famous")
+
+    def test_double_dollar_formula(self):
+        """测试双美元符号公式"""
+        result = _parse_line_content("The formula $$x^2 + y^2 = z^2$$ is Pythagorean")
+        self.assertEqual(len(result), 3)
+        self.assertEqual(result[0], "The formula ")
+        self.assertIsInstance(result[1], InlineExpression)
+        assert isinstance(result[1], InlineExpression)
+        self.assertEqual(result[1].context, "x^2 + y^2 = z^2")
+        self.assertEqual(result[2], " is Pythagorean")
+
+    def test_parenthesis_inline_formula(self):
+        r"""测试 \( ... \) 行内公式"""
+        result = _parse_line_content(r"Inline \(a + b = c\) formula")
+        self.assertEqual(len(result), 3)
+        self.assertEqual(result[0], "Inline ")
+        self.assertIsInstance(result[1], InlineExpression)
+        assert isinstance(result[1], InlineExpression)
+        self.assertEqual(result[1].context, "a + b = c")
+        self.assertEqual(result[2], " formula")
+
+    def test_bracket_display_formula(self):
+        r"""测试 \[ ... \] 显示公式"""
+        result = _parse_line_content(r"Display \[f(x) = x^2\] formula")
+        self.assertEqual(len(result), 3)
+        self.assertEqual(result[0], "Display ")
+        self.assertIsInstance(result[1], InlineExpression)
+        assert isinstance(result[1], InlineExpression)
+        self.assertEqual(result[1].context, "f(x) = x^2")
+        self.assertEqual(result[2], " formula")
+
+    def test_multiple_formulas(self):
+        """测试多个公式"""
+        result = _parse_line_content("First $x$ and second $y$ formulas")
+        self.assertEqual(len(result), 5)
+        self.assertEqual(result[0], "First ")
+        self.assertIsInstance(result[1], InlineExpression)
+        assert isinstance(result[1], InlineExpression)
+        self.assertEqual(result[1].context, "x")
+        self.assertEqual(result[2], " and second ")
+        self.assertIsInstance(result[3], InlineExpression)
+        assert isinstance(result[3], InlineExpression)
+        self.assertEqual(result[3].context, "y")
+        self.assertEqual(result[4], " formulas")
+
+    def test_empty_string(self):
+        """测试空字符串"""
+        result = _parse_line_content("")
+        self.assertEqual(len(result), 0)
+
+    def test_formula_only(self):
+        """测试只有公式"""
+        result = _parse_line_content("$x = y$")
+        self.assertEqual(len(result), 1)
+        self.assertIsInstance(result[0], InlineExpression)
+        assert isinstance(result[0], InlineExpression)
+        self.assertEqual(result[0].context, "x = y")
+
+    def test_escaped_dollar(self):
+        r"""测试转义的美元符号"""
+        result = _parse_line_content(r"Price is \$100")
+        self.assertEqual(len(result), 1)
+        self.assertEqual(result[0], "Price is $100")
+
+    def test_mixed_delimiters(self):
+        r"""测试混合定界符"""
+        result = _parse_line_content(r"Mix $a$ and \(b\) and $$c$$")
+        self.assertEqual(len(result), 6)
+        self.assertEqual(result[0], "Mix ")
+        self.assertIsInstance(result[1], InlineExpression)
+        assert isinstance(result[1], InlineExpression)
+        self.assertEqual(result[1].context, "a")
+        self.assertEqual(result[2], " and ")
+        self.assertIsInstance(result[3], InlineExpression)
+        assert isinstance(result[3], InlineExpression)
+        self.assertEqual(result[3].context, "b")
+        self.assertEqual(result[4], " and ")
+        self.assertIsInstance(result[5], InlineExpression)
+        assert isinstance(result[5], InlineExpression)
+        self.assertEqual(result[5].context, "c")
+
+    def test_complex_latex_content(self):
+        """测试复杂的 LaTeX 内容"""
+        result = _parse_line_content(r"The integral $\int_0^\infty e^{-x^2} dx$ converges")
+        self.assertEqual(len(result), 3)
+        self.assertEqual(result[0], "The integral ")
+        self.assertIsInstance(result[1], InlineExpression)
+        assert isinstance(result[1], InlineExpression)
+        self.assertEqual(result[1].context, r"\int_0^\infty e^{-x^2} dx")
+        self.assertEqual(result[2], " converges")
 
 
 if __name__ == "__main__":

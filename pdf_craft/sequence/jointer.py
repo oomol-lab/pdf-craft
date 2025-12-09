@@ -4,8 +4,9 @@ from typing import Generator, Iterable
 
 from ..pdf import PageLayout
 from ..common import ASSET_TAGS
-from .chapter import ParagraphLayout, AssetLayout, LineLayout, Reference
+from .chapter import ParagraphLayout, AssetLayout, LineLayout, Reference, InlineExpression
 from .language import is_latin_letter
+from .expression import parse_latex_expressions, ParsedItemKind, ParsedItem
 
 
 TITLE_TAGS = ("title", "sub_title")
@@ -19,13 +20,6 @@ _LINE_STOP_FLAGS = (
 )
 
 _MARKDOWN_HEAD_PATTERN = re.compile(r"^#+\s+")
-_LATEX_PATTERNS = [
-    (re.compile(r"\\\["), re.compile(r"\\\]")),  # \[...\]
-    (re.compile(r"\$\$"), re.compile(r"\$\$")),  # $$...$$
-    (re.compile(r"\\\("), re.compile(r"\\\)")),  # \(...\)
-    (re.compile(r"\$"), re.compile(r"\$")),      # $...$
-]
-
 _TABLE_PATTERN = re.compile(r"<table[^>]*>.*?</table>", re.IGNORECASE | re.DOTALL)
 
 
@@ -103,7 +97,7 @@ class Jointer:
                     lines=[LineLayout(
                         page_index=page_index,
                         det=layout.det,
-                        content=[layout.text],
+                        content=_parse_line_content(layout.text),
                     )],
                 ))
 
@@ -174,24 +168,40 @@ class Jointer:
         return True
 
 def _normalize_equation(layout: AssetLayout):
-    content = layout.content
-    if not content:
+    if layout.ref != "equation" or not layout.content:
         return
-    latex_start = -1
-    latex_end = -1
 
-    for start_pat, end_pat in _LATEX_PATTERNS:
-        start_match = start_pat.search(content)
-        if start_match:
-            start_idx = start_match.start()
-            end_match = end_pat.search(content[start_match.end():])
-            if end_match:
-                latex_start = start_idx
-                latex_end = start_match.end() + end_match.end()
-                break
+    found_first_expression: bool = False
+    expression_content: str = ""
+    prefix_texts: list[str] = []
+    tail_items: list[ParsedItem] = []
 
-    if latex_start >= 0 and latex_end > latex_start:
-        _extract_and_split_content(layout, latex_start, latex_end)
+    for item in parse_latex_expressions(layout.content):
+        if not found_first_expression and item.kind != ParsedItemKind.TEXT:
+            expression_content = item.content
+            found_first_expression = True
+        elif found_first_expression:
+            tail_items.append(item)
+        else:
+            prefix_texts.append(item.content)
+
+    if not found_first_expression:
+        return
+
+    if layout.title is not None:
+        prefix_texts.insert(0, layout.title)
+
+    if layout.caption is not None:
+        tail_items.append(ParsedItem(kind=ParsedItemKind.TEXT, content=layout.caption))
+
+    if prefix_texts:
+        layout.title = "".join(prefix_texts)
+
+    layout.content = expression_content
+
+    if tail_items:
+        layout.caption = "".join(item.to_latex_string() for item in tail_items)
+
 
 def _normalize_table(layout: AssetLayout):
     content = layout.content
@@ -202,7 +212,24 @@ def _normalize_table(layout: AssetLayout):
     if table_match:
         table_start = table_match.start()
         table_end = table_match.end()
-        _extract_and_split_content(layout, table_start, table_end)
+
+        table_content = content[table_start:table_end]
+        before = content[:table_start].rstrip()
+        after = content[table_end:].lstrip()
+
+        if before.strip():
+            if layout.title is None:
+                layout.title = before
+            else:
+                layout.title += before
+
+        layout.content = table_content
+
+        if after.strip():
+            if layout.caption is None:
+                layout.caption = after
+            else:
+                layout.caption += after
 
 def _normalize_paragraph_content(paragraph: ParagraphLayout):
     if len(paragraph.lines) < 2:
@@ -232,25 +259,21 @@ def _normalize_paragraph_content(paragraph: ParagraphLayout):
         if _line_text(line).strip()
     ]
 
-def _extract_and_split_content(layout: AssetLayout, start: int, end: int):
-    content = layout.content
-    extracted = content[start:end]
-    before = content[:start].strip()
+def _parse_line_content(text: str) -> list[str | InlineExpression | Reference]:
+    if not text:
+        return []
 
-    if before:
-        if layout.title:
-            layout.title = layout.title + "\n" + before
+    parsed_items = list(parse_latex_expressions(text))
+    result: list[str | InlineExpression | Reference] = []
+
+    for item in parsed_items:
+        if item.kind == ParsedItemKind.TEXT:
+            if item.content:  # Only add non-empty strings
+                result.append(item.content)
         else:
-            layout.title = before
+            result.append(InlineExpression(context=item.content))
 
-    after = content[end:].strip()
-    if after:
-        if layout.caption:
-            layout.caption = layout.caption + "\n" + after
-        else:
-            layout.caption = after
-
-    layout.content = extracted
+    return result
 
 def _line_text(line: LineLayout) -> str:
     result_parts: list[str] = []

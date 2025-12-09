@@ -29,7 +29,11 @@ class ParagraphLayout:
 class LineLayout:
     page_index: int
     det: tuple[int, int, int, int]
-    content: list["str | Reference"]
+    content: list["str | InlineExpression | Reference"]
+
+@dataclass
+class InlineExpression:
+    context: str
 
 @dataclass
 class Reference:
@@ -224,7 +228,7 @@ def _decode_line_elements(parent: Element, *, context_tag: str, references_map: 
         if det_str is None:
             raise ValueError(f"<{context_tag}><line> missing required attribute 'det'")
         det = _parse_det(det_str, context=f"<{context_tag}><line>@det")
-        content: list[str | Reference] = []
+        content: list[str | InlineExpression | Reference] = []
         if line_el.text:
             content.append(line_el.text)
 
@@ -249,6 +253,9 @@ def _decode_line_elements(parent: Element, *, context_tag: str, references_map: 
                         content.append(references_map[ref_key])
                     else:
                         raise ValueError(f"<{context_tag}><line><ref> references undefined reference: {ref_id}")
+            elif child.tag == "inline_expr":
+                expr_text = child.text if child.text is not None else ""
+                content.append(InlineExpression(context=expr_text))
 
             if child.tail:
                 content.append(child.tail)
@@ -269,6 +276,11 @@ def _encode_line_elements(parent: Element, lines: list[LineLayout]) -> None:
                 else:
                     last_child = line_el[-1]
                     last_child.tail = part
+            elif isinstance(part, InlineExpression):
+                expr_el = Element("inline_expr")
+                expr_el.text = part.context
+                line_el.append(expr_el)
+                has_elements = True
             elif isinstance(part, Reference):
                 ref_el = Element("ref")
                 ref_el.set("id", f"{part.page_index}-{part.order}")

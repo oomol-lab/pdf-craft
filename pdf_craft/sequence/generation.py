@@ -4,7 +4,7 @@ from typing import Generator
 from ..common import save_xml, XMLReader
 from ..pdf import decode, Page
 from .jointer import TITLE_TAGS, Jointer
-from .chapter import encode, Reference, Chapter, AssetLayout, ParagraphLayout, LineLayout
+from .chapter import encode, Reference, Chapter, AssetLayout, InlineExpression, ParagraphLayout, LineLayout
 from .reference import References
 from .mark import search_marks, Mark
 
@@ -92,7 +92,7 @@ def _page_index_from_layout(layout: AssetLayout | ParagraphLayout) -> int:
         raise ValueError("Unknown layout type")
 
 
-def _line_parts_after_replace_references(references: References, line: LineLayout) -> Generator[str | Reference, None, None]:
+def _line_parts_after_replace_references(references: References, line: LineLayout) -> Generator[str | InlineExpression | Reference, None, None]:
     text_buffer: list[str] = []
     for part in _search_mark_and_split_line(references, line.content):
         if isinstance(part, str):
@@ -104,9 +104,11 @@ def _line_parts_after_replace_references(references: References, line: LineLayou
     if text_buffer:
         yield "".join(text_buffer)
 
-def _search_mark_and_split_line(references: References, parts: list[str | Reference]):
+def _search_mark_and_split_line(references: References, parts: list[str | InlineExpression | Reference]):
     for part in parts:
         if isinstance(part, Reference):
+            yield part
+        elif isinstance(part, InlineExpression):
             yield part
         else:
             for item in search_marks(part):
