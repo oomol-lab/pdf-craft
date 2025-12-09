@@ -64,8 +64,7 @@ class References:
             ParagraphLayout(ref=to_split_layout.ref, lines=[]),
         )
         for line in to_split_layout.lines:
-            # TODO: 此处会吞掉 inline expression，需要调整逻辑
-            mark, content = self._extract_mark(line.content)
+            mark, content = self._extract_head_mark(line.content)
             if mark is None:
                 mark_layout[1].lines.append(line)
             else:
@@ -76,30 +75,34 @@ class References:
                     lines=[LineLayout(
                         page_index=line.page_index,
                         det=line.det,
-                        content=[content],
+                        content=content,
                     )],
                 ))
         if mark_layout[1].lines:
             yield mark_layout
 
-    def _extract_mark(self, line_contents: list[str | InlineExpression | Reference]) -> tuple[Mark | str | None, str]:
-        content = ""
-        for item in line_contents:
-            # 此阶段不会有 Reference 故可断言全为 str
-            if isinstance(item, str):
-                content += item
-        content = content.lstrip()
-        if not content:
-            return None, ""
+    def _extract_head_mark(self, content: list[str | InlineExpression | Reference]) -> tuple[Mark | str | None, list[str | InlineExpression | Reference]]:
+        if not content or not isinstance(content[0], str):
+            return None, content
+        head_text = content[0].lstrip()
+        if not head_text:
+            return None, content
 
-        matched = _START_PREFIX_PATTERN.match(content)
+        mark: Mark | str | None = None
+        rest: str = ""
+        matched = _START_PREFIX_PATTERN.match(head_text)
+        new_content: list[str | InlineExpression | Reference] = content[1:]
+
         if matched:
             prefix = matched.group(0)
-            stars = prefix.strip()
-            rest = content[matched.end():]
-            return stars, rest
+            mark = prefix.strip()
+            rest = head_text[matched.end():].lstrip()
         else:
-            mark = transform2mark(content[0])
+            mark = transform2mark(head_text[0])
             if mark is not None:
-                return mark, content[1:]
-            return None, content
+                rest = head_text[1:].lstrip()
+
+        rest = rest.lstrip()
+        if rest:
+            new_content = [rest] + content[1:]
+        return mark, new_content
