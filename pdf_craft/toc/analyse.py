@@ -1,12 +1,16 @@
-from typing import Iterable, Callable
-from .types import P, TocItem
+from dataclasses import dataclass
+from typing import Iterable
+from .types import TocItem
 
 
-def analyse_toc(
-    payloads: Iterable[P],
-    get_det: Callable[[P], Iterable[tuple[int, int, int, int]]],
-    get_title: Callable[[P], str],
-) -> list[TocItem[P]]:
+@dataclass
+class RawChapter:
+    id: int
+    title: str
+    det: list[tuple[int, int, int, int]]
+
+
+def analyse_toc(chapters: Iterable[RawChapter]) -> list[TocItem]:
     """
     Analyze table of contents items and build a hierarchical tree structure.
 
@@ -16,32 +20,26 @@ def analyse_toc(
     3. Build a tree structure based on hierarchical levels
 
     Args:
-        payloads: Iterable of payload objects (e.g., ParagraphLayout)
-        get_det: Function to extract bounding boxes (x1, y1, x2, y2) from payload
-        get_title: Function to extract title text from payload
+        chapters: List of RawChapter objects containing chapter information
 
     Returns:
         List of top-level TocItem objects with hierarchical children
     """
-    # Convert to list and collect heading information
-    payload_list = list(payloads)
-    if not payload_list:
+    if not chapters:
         return []
 
-    # Calculate heading heights for each payload
-    heading_info: list[tuple[P, str, float]] = []
-    for payload in payload_list:
-        title = get_title(payload)
-        dets = list(get_det(payload))
-        if not dets:
+    # Calculate heading heights for each chapter
+    heading_info: list[tuple[RawChapter, str, float]] = []
+    for chapter in chapters:
+        if not chapter.det:
             continue
 
         # Calculate average height across all bounding boxes (for multi-line titles)
-        heights = [det[3] - det[1] for det in dets]  # y2 - y1
+        heights = [det[3] - det[1] for det in chapter.det]  # y2 - y1
         avg_height = sum(heights) / len(heights) if heights else 0
 
         if avg_height > 0:
-            heading_info.append((payload, title, avg_height))
+            heading_info.append((chapter, chapter.title, avg_height))
 
     if not heading_info:
         return []
@@ -53,9 +51,7 @@ def analyse_toc(
     return _build_toc_tree(heading_info, heading_levels)
 
 
-def _assign_heading_levels(
-    heading_info: list[tuple[P, str, float]]
-) -> list[int]:
+def _assign_heading_levels(heading_info: list[tuple[RawChapter, str, float]]) -> list[int]:
     """
     Assign heading levels to each heading based on height clustering.
     Larger heights get lower level numbers (1 is the highest level).
@@ -119,20 +115,20 @@ def _cluster_heights(heights: list[float], max_clusters: int) -> list[list[float
 
 
 def _build_toc_tree(
-    heading_info: list[tuple[P, str, float]],
+    heading_info: list[tuple[RawChapter, str, float]],
     heading_levels: list[int]
-) -> list[TocItem[P]]:
+) -> list[TocItem]:
     """
     Build a hierarchical tree structure from headings and their levels.
     """
     if not heading_info:
         return []
 
-    root_items: list[TocItem[P]] = []
-    stack: list[tuple[int, TocItem[P]]] = []  # (level, item)
+    root_items: list[TocItem] = []
+    stack: list[tuple[int, TocItem]] = []  # (level, item)
 
-    for (payload, title, _), level in zip(heading_info, heading_levels):
-        new_item = TocItem(title=title, payload=payload, children=[])
+    for (chapter, title, _), level in zip(heading_info, heading_levels):
+        new_item = TocItem(id=chapter.id, title=title, children=[])
 
         # Pop items from stack that are at the same or deeper level
         while stack and stack[-1][0] >= level:

@@ -5,8 +5,8 @@ from pathlib import Path
 from typing import Generator
 
 from ..common import XMLReader
-from .chapter import decode, Chapter, AssetLayout, ParagraphLayout, Reference
-from .toc import analyse_toc, TocItem
+from ..sequence import decode, Chapter, AssetLayout, ParagraphLayout, Reference
+from .analyse import analyse_toc, RawChapter
 
 
 @dataclass
@@ -22,19 +22,16 @@ def generate_toc(chapters_path: Path) -> list[TocChapter]:
         dir_path=chapters_path,
         decode=decode,
     )
-    top_items = analyse_toc(
-        payloads=(_extract_info(p) for p in enumerate(chapters.read())),
-        get_title=lambda info: info[1],
-        get_det=lambda info: info[2],
-    )
+    top_items = analyse_toc(_to_raw_chapter(p) for p in enumerate(chapters.read()))
     return [_to_toc_chapter(item) for item in top_items]
 
-def _extract_info(pair: tuple[int, Chapter]) -> tuple[int, str, list[tuple[int, int, int, int]]]:
+def _to_raw_chapter(pair: tuple[int, Chapter]) -> RawChapter:
     index, chapter = pair
-    title = _title_of_chapter(chapter)
-    dets = list(_search_det_in_chapter(chapter))
-
-    return index, title, dets
+    return RawChapter(
+        id=index + 1,
+        title=_title_of_chapter(chapter),
+        det=list(_search_det_in_chapter(chapter)),
+    )
 
 
 def _title_of_chapter(chapter: Chapter) -> str:
