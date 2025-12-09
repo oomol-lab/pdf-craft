@@ -5,11 +5,11 @@ from typing import Generator
 
 from ..common import save_xml, XMLReader
 from ..sequence import decode, Chapter, AssetLayout, ParagraphLayout, Reference
-from .analyse import analyse_toc, RawChapter
 from .item import encode
+from .analyse import analyse_toc, RawChapter
 
 
-def generate_toc(chapters_path: Path, toc_path: Path):
+def generate_toc_file(chapters_path: Path, toc_path: Path):
     chapters: XMLReader[Chapter] = XMLReader(
         prefix="chapter",
         dir_path=chapters_path,

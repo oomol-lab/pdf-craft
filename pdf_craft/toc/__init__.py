@@ -1,2 +1,2 @@
 from .item import encode, decode, TocItem
-from .analyse import analyse_toc
+from .generation import generate_toc_file
