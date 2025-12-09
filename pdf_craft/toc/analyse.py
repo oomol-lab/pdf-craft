@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 from typing import Iterable
-from .types import TocItem
+from .item import TocItem
 
 
 @dataclass

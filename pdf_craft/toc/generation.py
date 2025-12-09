@@ -1,29 +1,25 @@
 import re
 
-from dataclasses import dataclass
 from pathlib import Path
 from typing import Generator
 
-from ..common import XMLReader
+from ..common import save_xml, XMLReader
 from ..sequence import decode, Chapter, AssetLayout, ParagraphLayout, Reference
 from .analyse import analyse_toc, RawChapter
+from .item import encode
 
 
-@dataclass
-class TocChapter:
-    id: int
-    title: str
-    children: list["TocChapter"]
-
-
-def generate_toc(chapters_path: Path) -> list[TocChapter]:
+def generate_toc(chapters_path: Path, toc_path: Path):
     chapters: XMLReader[Chapter] = XMLReader(
         prefix="chapter",
         dir_path=chapters_path,
         decode=decode,
     )
-    top_items = analyse_toc(_to_raw_chapter(p) for p in enumerate(chapters.read()))
-    return [_to_toc_chapter(item) for item in top_items]
+    toc_items = list(analyse_toc(
+        chapters=(_to_raw_chapter(p) for p in enumerate(chapters.read())),
+    ))
+    toc_element = encode(toc_items)
+    save_xml(toc_element, toc_path)
 
 def _to_raw_chapter(pair: tuple[int, Chapter]) -> RawChapter:
     index, chapter = pair
@@ -58,11 +54,3 @@ def _search_det_in_chapter(chapter: Chapter) -> Generator[tuple[int, int, int, i
         elif isinstance(layout, ParagraphLayout):
             for line in layout.lines:
                 yield line.det
-
-def _to_toc_chapter(toc_item: TocItem[tuple[int, str, list[tuple[int, int, int, int]]]]) -> TocChapter:
-    index, _, _ = toc_item.payload
-    return TocChapter(
-        id=index,
-        title=toc_item.title,
-        children=[_to_toc_chapter(child) for child in toc_item.children],
-    )
