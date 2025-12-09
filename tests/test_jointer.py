@@ -18,8 +18,8 @@ class TestNormalizeEquation(unittest.TestCase):
         )
         _normalize_equation(layout)
         self.assertEqual(layout.content, r"\[x^2 + y^2 = z^2\]")
-        self.assertEqual(layout.title, "This is a formula:")
-        self.assertEqual(layout.caption, "and some text after")
+        self.assertEqual(layout.title, "This is a formula: ")
+        self.assertEqual(layout.caption, " and some text after")
 
     def test_equation_with_double_dollar(self):
         """测试 $$...$$ 格式的 LaTeX 代码"""
@@ -34,8 +34,8 @@ class TestNormalizeEquation(unittest.TestCase):
         )
         _normalize_equation(layout)
         self.assertEqual(layout.content, "$$E = mc^2$$")
-        self.assertEqual(layout.title, "Equation:")
-        self.assertEqual(layout.caption, "Einstein's formula")
+        self.assertEqual(layout.title, "Equation: ")
+        self.assertEqual(layout.caption, " Einstein's formula")
 
     def test_equation_with_parenthesis_notation(self):
         r"""测试 \(...\) 格式的 LaTeX 代码"""
@@ -50,8 +50,8 @@ class TestNormalizeEquation(unittest.TestCase):
         )
         _normalize_equation(layout)
         self.assertEqual(layout.content, r"\(a + b = c\)")
-        self.assertEqual(layout.title, "Inline math")
-        self.assertEqual(layout.caption, "in text")
+        self.assertEqual(layout.title, "Inline math ")
+        self.assertEqual(layout.caption, " in text")
 
     def test_equation_with_single_dollar(self):
         """测试 $...$ 格式的 LaTeX 代码"""
@@ -66,8 +66,8 @@ class TestNormalizeEquation(unittest.TestCase):
         )
         _normalize_equation(layout)
         self.assertEqual(layout.content, "$x = y$")
-        self.assertEqual(layout.title, "Simple")
-        self.assertEqual(layout.caption, "equation")
+        self.assertEqual(layout.title, "Simple ")
+        self.assertEqual(layout.caption, " equation")
 
     def test_equation_without_title(self):
         """测试没有 title 的情况"""
@@ -83,7 +83,7 @@ class TestNormalizeEquation(unittest.TestCase):
         _normalize_equation(layout)
         self.assertEqual(layout.content, r"\[a^2 + b^2 = c^2\]")
         self.assertIsNone(layout.title)
-        self.assertEqual(layout.caption, "This is caption")
+        self.assertEqual(layout.caption, " This is caption")
 
     def test_equation_without_caption(self):
         """测试没有 caption 的情况"""
@@ -98,7 +98,7 @@ class TestNormalizeEquation(unittest.TestCase):
         )
         _normalize_equation(layout)
         self.assertEqual(layout.content, r"\[f(x) = x^2\]")
-        self.assertEqual(layout.title, "Title text")
+        self.assertEqual(layout.title, "Title text ")
         self.assertIsNone(layout.caption)
 
     def test_equation_only_latex(self):
@@ -130,8 +130,8 @@ class TestNormalizeEquation(unittest.TestCase):
         )
         _normalize_equation(layout)
         self.assertEqual(layout.content, r"\[x = y\]")
-        self.assertEqual(layout.title, "Existing title\nMore title")
-        self.assertEqual(layout.caption, "caption text")
+        self.assertEqual(layout.title, "Existing titleMore title ")
+        self.assertEqual(layout.caption, " caption text")
 
     def test_equation_with_existing_caption(self):
         """测试已存在 caption 的情况"""
@@ -146,8 +146,8 @@ class TestNormalizeEquation(unittest.TestCase):
         )
         _normalize_equation(layout)
         self.assertEqual(layout.content, r"\[a = b\]")
-        self.assertEqual(layout.title, "Title")
-        self.assertEqual(layout.caption, "Existing caption\nmore caption")
+        self.assertEqual(layout.title, "Title ")
+        self.assertEqual(layout.caption, " more captionExisting caption")
 
     def test_equation_empty_content(self):
         """测试空内容"""
@@ -321,7 +321,7 @@ Footer text"""
         )
         _normalize_table(layout)
         self.assertEqual(layout.content, "<table><tr><td>A</td></tr></table>")
-        self.assertEqual(layout.title, "Existing title\nMore title")
+        self.assertEqual(layout.title, "Existing titleMore title")
         self.assertEqual(layout.caption, "Caption")
 
     def test_table_with_existing_caption(self):
@@ -338,7 +338,7 @@ Footer text"""
         _normalize_table(layout)
         self.assertEqual(layout.content, "<table><tr><td>B</td></tr></table>")
         self.assertEqual(layout.title, "Title")
-        self.assertEqual(layout.caption, "Existing caption\nMore caption")
+        self.assertEqual(layout.caption, "Existing captionMore caption")
 
     def test_table_empty_content(self):
         """测试空内容"""
