@@ -127,8 +127,8 @@ class Jointer:
 
         line1 = para1.lines[-1]
         line2 = para2.lines[0]
-        det1, text1 = line1.det, line_text(line1)
-        det2, text2 = line2.det, line_text(line2)
+        det1, text1 = line1.det, _line_text(line1)
+        det2, text2 = line2.det, _line_text(line2)
 
         if not text1 or not text2:
             return False
@@ -211,8 +211,8 @@ def _normalize_paragraph_content(paragraph: ParagraphLayout):
     for i in range(1, len(paragraph.lines)):
         line1 = paragraph.lines[i - 1]
         line2 = paragraph.lines[i]
-        content1 = line_text(line1).rstrip()
-        content2 = line_text(line2).lstrip()
+        content1 = _line_text(line1).rstrip()
+        content2 = _line_text(line2).lstrip()
 
         if not _is_splitted_word(content1, content2):
             continue
@@ -229,7 +229,7 @@ def _normalize_paragraph_content(paragraph: ParagraphLayout):
 
     paragraph.lines = [
         line for line in paragraph.lines
-        if line_text(line).strip()
+        if _line_text(line).strip()
     ]
 
 def _extract_and_split_content(layout: AssetLayout, start: int, end: int):
@@ -252,12 +252,8 @@ def _extract_and_split_content(layout: AssetLayout, start: int, end: int):
 
     layout.content = extracted
 
-def line_text(line: LineLayout) -> str:
-    """
-    从 LineLayout 中提取文本内容。
-    支持处理混合的字符串和引用对象内容。
-    """
-    result_parts = []
+def _line_text(line: LineLayout) -> str:
+    result_parts: list[str] = []
     for part in line.content:
         if isinstance(part, str):
             result_parts.append(part)
@@ -266,7 +262,6 @@ def line_text(line: LineLayout) -> str:
         elif isinstance(part, Reference):
             # Reference 对象在这里暂时不处理，或者可以添加标记
             pass
-
     return "".join(result_parts)
 
 def _is_splitted_word(text1: str, text2: str) -> bool:

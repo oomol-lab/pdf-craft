@@ -8,6 +8,7 @@ from .common import EnsureFolder
 from .to_path import to_path
 from .pdf import OCR, OCREvent, DeepSeekOCRSize
 from .sequence import generate_chapter_files
+from .toc import generate_toc_file
 from .markdown import render_markdown_file
 from .epub import render_epub_file
 from .error import to_interrupted_error
@@ -108,6 +109,7 @@ class Transform:
             with EnsureFolder(
                 path=to_path(analysing_path) if analysing_path is not None else None,
             ) as analysing_path:
+                toc_path = analysing_path / "toc.xml"
                 asserts_path, chapters_path, cover_path, metering = self._extract_from_pdf(
                     pdf_path=Path(pdf_path),
                     analysing_path=analysing_path,
@@ -121,6 +123,7 @@ class Transform:
                     max_output_tokens=max_ocr_output_tokens,
                     on_ocr_event=on_ocr_event,
                 )
+                generate_toc_file(chapters_path, toc_path)
                 render_epub_file(
                     chapters_path=chapters_path,
                     assets_path=asserts_path,
