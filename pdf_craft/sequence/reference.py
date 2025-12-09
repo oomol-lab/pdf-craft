@@ -2,7 +2,7 @@ import re
 
 from typing import Iterable
 
-from .chapter import Reference, LineLayout, AssetLayout, ParagraphLayout
+from .chapter import Reference, InlineExpression, LineLayout, AssetLayout, ParagraphLayout
 from .mark import transform2mark, Mark
 
 
@@ -64,6 +64,7 @@ class References:
             ParagraphLayout(ref=to_split_layout.ref, lines=[]),
         )
         for line in to_split_layout.lines:
+            # TODO: 此处会吞掉 inline expression，需要调整逻辑
             mark, content = self._extract_mark(line.content)
             if mark is None:
                 mark_layout[1].lines.append(line)
@@ -81,7 +82,7 @@ class References:
         if mark_layout[1].lines:
             yield mark_layout
 
-    def _extract_mark(self, line_contents: list[str | Reference]) -> tuple[Mark | str | None, str]:
+    def _extract_mark(self, line_contents: list[str | InlineExpression | Reference]) -> tuple[Mark | str | None, str]:
         content = ""
         for item in line_contents:
             # 此阶段不会有 Reference 故可断言全为 str
