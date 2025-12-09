@@ -213,12 +213,10 @@ def _normalize_table(layout: AssetLayout):
         table_start = table_match.start()
         table_end = table_match.end()
 
-        # Extract parts
         table_content = content[table_start:table_end]
         before = content[:table_start].rstrip()
         after = content[table_end:].lstrip()
 
-        # Update layout
         if before.strip():
             if layout.title is None:
                 layout.title = before
@@ -262,19 +260,6 @@ def _normalize_paragraph_content(paragraph: ParagraphLayout):
     ]
 
 def _parse_line_content(text: str) -> list[str | InlineExpression | Reference]:
-    """
-    Parse text and extract inline formulas.
-
-    For robustness:
-    - Inline formulas ($ and \\() are converted to InlineExpression
-    - Display formulas ($$ and \\[) appearing in paragraph text are also treated as InlineExpression
-
-    Args:
-        text: The text to parse
-
-    Returns:
-        A list containing strings and InlineExpression objects
-    """
     if not text:
         return []
 
@@ -286,7 +271,6 @@ def _parse_line_content(text: str) -> list[str | InlineExpression | Reference]:
             if item.content:  # Only add non-empty strings
                 result.append(item.content)
         else:
-            # Convert formula to InlineExpression with delimiters
             result.append(InlineExpression(context=item.content))
 
     return result

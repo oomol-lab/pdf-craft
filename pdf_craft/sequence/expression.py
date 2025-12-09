@@ -17,18 +17,7 @@ class ParsedItem:
     content: str
 
     def to_latex_string(self) -> str:
-        """
-        Convert the parsed item to a LaTeX string with delimiters.
-
-        For TEXT items, returns the content as-is.
-        For formula items, returns the content with appropriate delimiters.
-
-        Returns:
-            str: The LaTeX string with delimiters
-        """
-        if self.kind == ParsedItemKind.TEXT:
-            return self.content
-        elif self.kind == ParsedItemKind.INLINE_DOLLAR:
+        if self.kind == ParsedItemKind.INLINE_DOLLAR:
             return "$" + self.content + "$"
         elif self.kind == ParsedItemKind.DISPLAY_DOUBLE_DOLLAR:
             return "$$" + self.content + "$$"
@@ -37,31 +26,10 @@ class ParsedItem:
         elif self.kind == ParsedItemKind.DISPLAY_BRACKET:
             return "\\[" + self.content + "\\]"
         else:
-            # Should never reach here
             return self.content
 
 
 def parse_latex_expressions(text: str) -> Generator[ParsedItem, None, None]:
-    """
-    Parse Markdown LaTeX formulas from a string, expanding to plain text and InlineExpression.
-
-    Supported delimiters:
-    - Inline formulas: $ ... $, \( ... \)
-    - Display formulas: $$ ... $$, \[ ... \]
-
-    Edge cases handled:
-    - Escaped characters: \$ and \\( are treated as literals
-    - Delimiters inside formulas: correctly match paired delimiters
-    - Spaces and newlines: inline formulas cannot contain newlines, display formulas can
-    - No nesting or crossing allowed
-
-    Args:
-        text: The string to parse
-
-    Yields:
-        str: Plain text fragments
-        InlineExpression: LaTeX formula expressions
-    """
     if not text:
         return
 
@@ -72,9 +40,6 @@ def parse_latex_expressions(text: str) -> Generator[ParsedItem, None, None]:
     while i < n:
         # Check for backslash
         if text[i] == "\\" and i + 1 < n:
-            next_char = text[i + 1]
-
-            # Count consecutive backslashes
             backslash_count = 0
             j = i
             while j < n and text[j] == "\\":
@@ -169,27 +134,14 @@ def parse_latex_expressions(text: str) -> Generator[ParsedItem, None, None]:
                     i = end_pos
                     continue
 
-        # Regular character
         buffer.append(text[i])
         i += 1
 
-    # Output remaining text
     if buffer:
         yield ParsedItem(kind=ParsedItemKind.TEXT, content="".join(buffer))
 
 
 def _is_escaped(text: str, pos: int) -> bool:
-    """
-    Check if the character at position pos is escaped.
-    Escaped condition: preceded by an odd number of consecutive backslashes.
-
-    Args:
-        text: The text string
-        pos: The position to check
-
-    Returns:
-        bool: True if escaped, False otherwise
-    """
     backslash_count = 0
     i = pos - 1
     while i >= 0 and text[i] == "\\":
@@ -204,33 +156,16 @@ def _find_latex_end(
     end_delimiter: str,
     allow_newline: bool
 ) -> tuple[int, str] | None:
-    """
-    Find the end delimiter of a LaTeX formula starting from position start.
-
-    Args:
-        text: The text string
-        start: The position to start searching
-        end_delimiter: The end delimiter (e.g., "$", "$$", "\)", "\]")
-        allow_newline: Whether to allow newlines inside the formula
-
-    Returns:
-        If found, return (end position, LaTeX content); otherwise return None
-    """
     n = len(text)
     i = start
     delimiter_len = len(end_delimiter)
 
     while i < n:
-        # Check for newline
         if not allow_newline and text[i] == "\n":
             return None
-
-        # Check if end delimiter matches
         if i + delimiter_len <= n and text[i:i+delimiter_len] == end_delimiter:
             if not _is_escaped(text, i):
                 latex_content = text[start:i]
                 return (i + delimiter_len, latex_content)
-
         i += 1
-
     return None
