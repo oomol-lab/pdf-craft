@@ -178,7 +178,7 @@ def _normalize_equation(layout: AssetLayout):
 
     for item in parse_latex_expressions(layout.content):
         if not found_first_expression and item.kind != ParsedItemKind.TEXT:
-            expression_content = item.to_latex_string()
+            expression_content = item.content
             found_first_expression = True
         elif found_first_expression:
             tail_items.append(item)
@@ -215,11 +215,11 @@ def _normalize_table(layout: AssetLayout):
 
         # Extract parts
         table_content = content[table_start:table_end]
-        before = content[:table_start].strip()
-        after = content[table_end:].strip()
+        before = content[:table_start].rstrip()
+        after = content[table_end:].lstrip()
 
         # Update layout
-        if before:
+        if before.strip():
             if layout.title is None:
                 layout.title = before
             else:
@@ -227,7 +227,7 @@ def _normalize_table(layout: AssetLayout):
 
         layout.content = table_content
 
-        if after:
+        if after.strip():
             if layout.caption is None:
                 layout.caption = after
             else:
@@ -287,7 +287,7 @@ def _parse_line_content(text: str) -> list[str | InlineExpression | Reference]:
                 result.append(item.content)
         else:
             # Convert formula to InlineExpression with delimiters
-            result.append(InlineExpression(context=item.to_latex_string()))
+            result.append(InlineExpression(context=item.content))
 
     return result
 
