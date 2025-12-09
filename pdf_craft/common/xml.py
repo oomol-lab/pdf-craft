@@ -1,6 +1,6 @@
 from pathlib import Path
 from typing import Container
-from xml.etree.ElementTree import tostring, Element
+from xml.etree.ElementTree import tostring, fromstring, Element
 
 
 def indent(elem: Element, level: int = 0, skip_tags: Container[str] = ()) -> Element:
@@ -24,6 +24,12 @@ def indent(elem: Element, level: int = 0, skip_tags: Container[str] = ()) -> Ele
     elif level > 0 and (not elem.tail or not elem.tail.strip()):
         elem.tail = "\n" + indent_str
     return elem
+
+def read_xml(file_path: Path) -> Element:
+    try:
+        return fromstring(file_path.read_text(encoding="utf-8"))
+    except Exception as error:
+        raise ValueError(f"Failed to parse XML file: {file_path}") from error
 
 def save_xml(element: Element, file_path: Path) -> None:
     # 使用临时文件确保写入的原子性

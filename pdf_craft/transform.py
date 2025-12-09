@@ -109,7 +109,7 @@ class Transform:
             with EnsureFolder(
                 path=to_path(analysing_path) if analysing_path is not None else None,
             ) as analysing_path:
-                toc_path = analysing_path / "toc.xml"
+                toc_path: Path | None = analysing_path / "toc.xml"
                 asserts_path, chapters_path, cover_path, metering = self._extract_from_pdf(
                     pdf_path=Path(pdf_path),
                     analysing_path=analysing_path,
@@ -123,9 +123,11 @@ class Transform:
                     max_output_tokens=max_ocr_output_tokens,
                     on_ocr_event=on_ocr_event,
                 )
-                generate_toc_file(chapters_path, toc_path)
+                toc_path = generate_toc_file(chapters_path, toc_path)
+
                 render_epub_file(
                     chapters_path=chapters_path,
+                    toc_path=toc_path,
                     assets_path=asserts_path,
                     epub_path=Path(epub_path),
                     book_meta=book_meta,

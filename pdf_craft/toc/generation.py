@@ -4,36 +4,43 @@ from pathlib import Path
 from typing import Generator
 
 from ..common import save_xml, XMLReader
-from ..sequence import decode, Chapter, AssetLayout, ParagraphLayout, Reference
+from ..sequence import decode, Chapter, Reference
 from .item import encode
 from .analyse import analyse_toc, RawChapter
 
 
-def generate_toc_file(chapters_path: Path, toc_path: Path):
+def generate_toc_file(chapters_path: Path, toc_path: Path) -> Path | None:
     chapters: XMLReader[Chapter] = XMLReader(
         prefix="chapter",
         dir_path=chapters_path,
         decode=decode,
     )
-    toc_items = list(analyse_toc(
-        chapters=(_to_raw_chapter(p) for p in enumerate(chapters.read())),
+    raw_chapters = (_to_raw_chapter(p) for p in enumerate(chapters.read()))
+    toc_element = encode(analyse_toc(
+        chapters=(c for c in raw_chapters if c is not None),
     ))
-    toc_element = encode(toc_items)
+    if toc_element is None:
+        return None
     save_xml(toc_element, toc_path)
+    return toc_path
 
-def _to_raw_chapter(pair: tuple[int, Chapter]) -> RawChapter:
+
+def _to_raw_chapter(pair: tuple[int, Chapter]) -> RawChapter | None:
     index, chapter = pair
+    title = _title_of_chapter(chapter)
+    if title is None:
+        return None
     return RawChapter(
         id=index + 1,
-        title=_title_of_chapter(chapter),
+        title=title,
         det=list(_search_det_in_chapter(chapter)),
     )
 
 
-def _title_of_chapter(chapter: Chapter) -> str:
+def _title_of_chapter(chapter: Chapter) -> str | None:
     title = chapter.title
     if not title:
-        return ""
+        return None
     result_parts: list[str] = []
     for line in title.lines:
         for part in line.content:
@@ -48,9 +55,8 @@ def _title_of_chapter(chapter: Chapter) -> str:
     return normalized_title
 
 def _search_det_in_chapter(chapter: Chapter) -> Generator[tuple[int, int, int, int], None, None]:
-    for layout in chapter.layouts:
-        if isinstance(layout, AssetLayout):
-            yield layout.det
-        elif isinstance(layout, ParagraphLayout):
-            for line in layout.lines:
-                yield line.det
+    title = chapter.title
+    if title is None:
+        return
+    for line in title.lines:
+        yield line.det
