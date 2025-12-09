@@ -17,10 +17,11 @@ from epub_generator import (
     TextKind,
 )
 
-from ..common import XMLReader
+from ..common import read_xml, XMLReader
 from ..metering import check_aborted, AbortedCheck
+from ..toc import decode as decode_toc
 from ..sequence import (
-    decode,
+    decode as decode_chapter,
     search_references_in_chapter,
     references_to_map,
     Reference,
@@ -32,6 +33,7 @@ from ..sequence import (
 
 def render_epub_file(
         chapters_path: Path,
+        toc_path: Path | None,
         assets_path: Path,
         epub_path: Path,
         cover_path: Path | None,
@@ -45,7 +47,7 @@ def render_epub_file(
     chapters: XMLReader[Chapter] = XMLReader(
         prefix="chapter",
         dir_path=chapters_path,
-        decode=decode,
+        decode=decode_chapter,
     )
     references: list[Reference] = []
     for chapter in chapters.read():
@@ -55,6 +57,9 @@ def render_epub_file(
     ref_id_to_number = references_to_map(references)
     toc_items: list[TocItem] = []
     get_head: ChapterGetter | None = None
+
+    if toc_path:
+        decode_toc(read_xml(toc_path))
 
     for chapter in chapters.read():
         def get_chapter(ch=chapter):

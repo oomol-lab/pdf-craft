@@ -23,12 +23,12 @@ def decode(element: Element) -> list[TocItem]:
     return items
 
 
-def encode(items: Iterable[TocItem]) -> Element:
+def encode(items: Iterable[TocItem]) -> Element | None:
     root = Element("toc")
-
     for item in items:
         root.append(_encode_item(item))
-
+    if len(root) == 0:
+        return None
     return indent(root)
 
 

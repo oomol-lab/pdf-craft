@@ -2,7 +2,8 @@ import re
 
 from pathlib import Path
 from typing import Generator, Callable, Generic, TypeVar
-from xml.etree.ElementTree import Element, fromstring
+from xml.etree.ElementTree import Element
+from .xml import read_xml
 
 
 T = TypeVar("T")
@@ -28,10 +29,7 @@ class XMLReader(Generic[T]):
 
     def read(self) -> Generator[T, None, None]:
         for xml_path in self._file_paths:
-            try:
-                root = fromstring(xml_path.read_text(encoding="utf-8"))
-            except Exception as e:
-                raise ValueError(f"Failed to parse XML file: {xml_path}") from e
+            root = read_xml(xml_path)
             try:
                 yield self._decode(root)
             except Exception as e:

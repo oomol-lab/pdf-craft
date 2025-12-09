@@ -9,7 +9,7 @@ from .item import encode
 from .analyse import analyse_toc, RawChapter
 
 
-def generate_toc_file(chapters_path: Path, toc_path: Path):
+def generate_toc_file(chapters_path: Path, toc_path: Path) -> Path | None:
     chapters: XMLReader[Chapter] = XMLReader(
         prefix="chapter",
         dir_path=chapters_path,
@@ -19,7 +19,10 @@ def generate_toc_file(chapters_path: Path, toc_path: Path):
     toc_element = encode(analyse_toc(
         chapters=(c for c in raw_chapters if c is not None),
     ))
+    if toc_element is None:
+        return None
     save_xml(toc_element, toc_path)
+    return toc_path
 
 
 def _to_raw_chapter(pair: tuple[int, Chapter]) -> RawChapter | None:
