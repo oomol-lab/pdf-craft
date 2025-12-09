@@ -8,7 +8,6 @@ from epub_generator import (
     LaTeXRender,
     Chapter as ChapterRecord,
     ChapterGetter,
-    TocItem,
     Text,
     Image,
     Formula,
@@ -17,11 +16,12 @@ from epub_generator import (
     TextKind,
 )
 
-from ..common import read_xml, XMLReader
+from .toc_collection import TocCollection
+
+from ..common import XMLReader
 from ..metering import check_aborted, AbortedCheck
-from ..toc import decode as decode_toc
 from ..sequence import (
-    decode as decode_chapter,
+    decode,
     search_references_in_chapter,
     references_to_map,
     Reference,
@@ -47,7 +47,7 @@ def render_epub_file(
     chapters: XMLReader[Chapter] = XMLReader(
         prefix="chapter",
         dir_path=chapters_path,
-        decode=decode_chapter,
+        decode=decode,
     )
     references: list[Reference] = []
     for chapter in chapters.read():
@@ -55,13 +55,10 @@ def render_epub_file(
 
     references.sort(key=lambda ref: (ref.page_index, ref.order))
     ref_id_to_number = references_to_map(references)
-    toc_items: list[TocItem] = []
     get_head: ChapterGetter | None = None
+    toc_collection = TocCollection(toc_path)
 
-    if toc_path:
-        decode_toc(read_xml(toc_path))
-
-    for chapter in chapters.read():
+    for i, chapter in enumerate(chapters.read()):
         def get_chapter(ch=chapter):
             return _convert_chapter_to_epub(
                 chapter=ch,
@@ -71,16 +68,16 @@ def render_epub_file(
         if chapter.title is None:
             get_head = get_chapter
         else:
-            title = _extract_chapter_title(chapter)
-            toc_items.append(TocItem(
-                title=title,
-                get_chapter=get_chapter
-            ))
+            toc_collection.collect(
+                id=i + 1,
+                title=_extract_chapter_title(chapter),
+                get_chapter=get_chapter,
+            )
 
     epub_data = EpubData(
         meta=book_meta,
         get_head=get_head,
-        chapters=toc_items,
+        chapters=toc_collection.target,
         cover_image_path=cover_path,
     )
     check_aborted(aborted)
