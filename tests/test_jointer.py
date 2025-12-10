@@ -322,7 +322,7 @@ Footer text"""
         )
         _normalize_table(layout)
         self.assertEqual(layout.content, "<table><tr><td>A</td></tr></table>")
-        self.assertEqual(layout.title, "Existing titleMore title")
+        self.assertEqual(layout.title, "Existing title\nMore title")
         self.assertEqual(layout.caption, "Caption")
 
     def test_table_with_existing_caption(self):
@@ -339,7 +339,7 @@ Footer text"""
         _normalize_table(layout)
         self.assertEqual(layout.content, "<table><tr><td>B</td></tr></table>")
         self.assertEqual(layout.title, "Title")
-        self.assertEqual(layout.caption, "Existing captionMore caption")
+        self.assertEqual(layout.caption, "More caption\nExisting caption")
 
     def test_table_empty_content(self):
         """测试空内容"""

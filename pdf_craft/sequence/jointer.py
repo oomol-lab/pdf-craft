@@ -204,32 +204,45 @@ def _normalize_equation(layout: AssetLayout):
 
 
 def _normalize_table(layout: AssetLayout):
-    content = layout.content
-    if not content:
-        return
-    table_match = _TABLE_PATTERN.search(content)
+    found_table_content: str | None = None
+    head_buffer: list[str] = []
+    tail_buffer: list[str] = []
 
-    if table_match:
+    for part in (layout.title, "\n", layout.content, "\n", layout.caption):
+        if not part:
+            continue
+
+        table_match = _TABLE_PATTERN.search(part)
+        if not table_match:
+            if found_table_content is None:
+                head_buffer.append(part)
+            else:
+                tail_buffer.append(part)
+            continue
+
         table_start = table_match.start()
         table_end = table_match.end()
 
-        table_content = content[table_start:table_end]
-        before = content[:table_start].rstrip()
-        after = content[table_end:].lstrip()
+        table_content = part[table_start:table_end]
+        before = part[:table_start].rstrip()
+        after = part[table_end:].lstrip()
 
         if before.strip():
-            if layout.title is None:
-                layout.title = before
-            else:
-                layout.title += before
-
-        layout.content = table_content
-
+            head_buffer.append(before)
         if after.strip():
-            if layout.caption is None:
-                layout.caption = after
-            else:
-                layout.caption += after
+            tail_buffer.append(after)
+
+        found_table_content = table_content
+
+    if not found_table_content:
+        return
+
+    head = "".join(head_buffer).strip()
+    tail = "".join(tail_buffer).strip()
+
+    layout.title = head if head else None
+    layout.caption = tail if tail else None
+    layout.content = found_table_content
 
 def _normalize_paragraph_content(paragraph: ParagraphLayout):
     if len(paragraph.lines) < 2:
