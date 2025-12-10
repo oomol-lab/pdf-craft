@@ -1,5 +1,5 @@
 import unittest
-from pdf_craft.sequence.expression import parse_latex_expressions, ExpressionKind
+from pdf_craft.expression import parse_latex_expressions, ExpressionKind
 
 
 class TestParseLatexExpressions(unittest.TestCase):

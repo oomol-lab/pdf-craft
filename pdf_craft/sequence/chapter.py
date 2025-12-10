@@ -3,7 +3,7 @@ from typing import cast, Generator, Iterable
 from xml.etree.ElementTree import Element
 
 from ..common import indent, AssetRef, ASSET_TAGS
-from .expression import ExpressionKind, decode_expression_kind, encode_expression_kind
+from ..expression import ExpressionKind, decode_expression_kind, encode_expression_kind
 from .mark import Mark
 
 @dataclass

@@ -3,15 +3,14 @@ from shutil import copy2
 from typing import Generator
 
 from ..common import XMLReader
+from ..expression import to_markdown_string, ExpressionKind
 from ..metering import check_aborted, AbortedCheck
 from ..sequence import (
     decode,
     is_chinese_char,
     search_references_in_chapter,
     references_to_map,
-    to_markdown_string,
     Reference,
-    ExpressionKind,
     InlineExpression,
     Chapter,
     AssetLayout,

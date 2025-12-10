@@ -6,7 +6,7 @@ from ..pdf import PageLayout
 from ..common import ASSET_TAGS
 from .chapter import ParagraphLayout, AssetLayout, LineLayout, Reference, InlineExpression
 from .language import is_latin_letter
-from .expression import parse_latex_expressions, ExpressionKind, ParsedItem
+from ..expression import parse_latex_expressions, ExpressionKind, ParsedItem
 
 
 TITLE_TAGS = ("title", "sub_title")
