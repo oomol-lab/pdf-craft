@@ -3,7 +3,7 @@ from enum import auto, Enum
 from typing import Generator
 
 
-class ParsedItemKind(Enum):
+class ExpressionKind(Enum):
     TEXT = auto()
     INLINE_DOLLAR = auto()  # $ ... $
     DISPLAY_DOUBLE_DOLLAR = auto()  # $$ ... $$
@@ -13,26 +13,56 @@ class ParsedItemKind(Enum):
 
 @dataclass
 class ParsedItem:
-    kind: ParsedItemKind
+    kind: ExpressionKind
     content: str
 
-    def to_latex_string(self) -> str:
-        if self.kind == ParsedItemKind.INLINE_DOLLAR:
-            return "$" + self.content + "$"
-        elif self.kind == ParsedItemKind.DISPLAY_DOUBLE_DOLLAR:
-            return "$$" + self.content + "$$"
-        elif self.kind == ParsedItemKind.INLINE_PAREN:
-            return "\\(" + self.content + "\\)"
-        elif self.kind == ParsedItemKind.DISPLAY_BRACKET:
-            return "\\[" + self.content + "\\]"
-        else:
-            # TEXT type: need to re-escape backslashes and dollar signs
-            # Order matters: escape backslash first, then dollar sign
-            result = self.content
-            result = result.replace("\\", "\\\\")  # Escape backslashes
-            result = result.replace("$", "\\$")     # Escape dollar signs
-            return result
+    def reverse(self) -> str:
+        return to_markdown_string(self.kind, self.content)
 
+
+def encode_expression_kind(kind: ExpressionKind) -> str:
+    if kind == ExpressionKind.INLINE_DOLLAR:
+        return "$"
+    elif kind == ExpressionKind.DISPLAY_DOUBLE_DOLLAR:
+        return "$$"
+    elif kind == ExpressionKind.INLINE_PAREN:
+        return "\\("
+    elif kind == ExpressionKind.DISPLAY_BRACKET:
+        return "\\["
+    else:  # TEXT
+        return "text"
+
+
+def decode_expression_kind(kind_str: str) -> ExpressionKind:
+    if kind_str == "$":
+        return ExpressionKind.INLINE_DOLLAR
+    elif kind_str == "$$":
+        return ExpressionKind.DISPLAY_DOUBLE_DOLLAR
+    elif kind_str == "\\(":
+        return ExpressionKind.INLINE_PAREN
+    elif kind_str == "\\[":
+        return ExpressionKind.DISPLAY_BRACKET
+    elif kind_str == "text":
+        return ExpressionKind.TEXT
+    else:
+        raise ValueError(f"Unknown expression kind: {kind_str}")
+
+
+def to_markdown_string(kind: ExpressionKind, content: str) -> str:
+    # LaTEX 基于状态机，故它本身需要转义 `\$` 和 `\(` 等。content 本身包含转义符是最自然的。
+    if kind == ExpressionKind.INLINE_DOLLAR:
+        return "$" + content + "$"
+    elif kind == ExpressionKind.DISPLAY_DOUBLE_DOLLAR:
+        return "$$" + content + "$$"
+    elif kind == ExpressionKind.INLINE_PAREN:
+        return "\\(" + content + "\\)"
+    elif kind == ExpressionKind.DISPLAY_BRACKET:
+        return "\\[" + content + "\\]"
+    else:
+        # 反而是 Markdown 文档本身，需要区分 `$` 和 `(` 不是 LaTEX 语法时，才需要转义
+        content = content.replace("\\", "\\\\")
+        content = content.replace("$", "\\$")
+        return content
 
 def parse_latex_expressions(text: str) -> Generator[ParsedItem, None, None]:
     if not text:
@@ -88,9 +118,9 @@ def parse_latex_expressions(text: str) -> Generator[ParsedItem, None, None]:
                     if result is not None:
                         end_pos, latex_content = result
                         if buffer:
-                            yield ParsedItem(kind=ParsedItemKind.TEXT, content="".join(buffer))
+                            yield ParsedItem(kind=ExpressionKind.TEXT, content="".join(buffer))
                             buffer = []
-                        yield ParsedItem(kind=ParsedItemKind.DISPLAY_BRACKET, content=latex_content)
+                        yield ParsedItem(kind=ExpressionKind.DISPLAY_BRACKET, content=latex_content)
                         i = end_pos
                         continue
 
@@ -107,9 +137,9 @@ def parse_latex_expressions(text: str) -> Generator[ParsedItem, None, None]:
                     if result is not None:
                         end_pos, latex_content = result
                         if buffer:
-                            yield ParsedItem(kind=ParsedItemKind.TEXT, content="".join(buffer))
+                            yield ParsedItem(kind=ExpressionKind.TEXT, content="".join(buffer))
                             buffer = []
-                        yield ParsedItem(kind=ParsedItemKind.INLINE_PAREN, content=latex_content)
+                        yield ParsedItem(kind=ExpressionKind.INLINE_PAREN, content=latex_content)
                         i = end_pos
                         continue
 
@@ -120,9 +150,9 @@ def parse_latex_expressions(text: str) -> Generator[ParsedItem, None, None]:
                 if result is not None:
                     end_pos, latex_content = result
                     if buffer:
-                        yield ParsedItem(kind=ParsedItemKind.TEXT, content="".join(buffer))
+                        yield ParsedItem(kind=ExpressionKind.TEXT, content="".join(buffer))
                         buffer = []
-                    yield ParsedItem(kind=ParsedItemKind.DISPLAY_DOUBLE_DOLLAR, content=latex_content)
+                    yield ParsedItem(kind=ExpressionKind.DISPLAY_DOUBLE_DOLLAR, content=latex_content)
                     i = end_pos
                     continue
 
@@ -133,9 +163,9 @@ def parse_latex_expressions(text: str) -> Generator[ParsedItem, None, None]:
                 if result is not None:
                     end_pos, latex_content = result
                     if buffer:
-                        yield ParsedItem(kind=ParsedItemKind.TEXT, content="".join(buffer))
+                        yield ParsedItem(kind=ExpressionKind.TEXT, content="".join(buffer))
                         buffer = []
-                    yield ParsedItem(kind=ParsedItemKind.INLINE_DOLLAR, content=latex_content)
+                    yield ParsedItem(kind=ExpressionKind.INLINE_DOLLAR, content=latex_content)
                     i = end_pos
                     continue
 
@@ -143,7 +173,7 @@ def parse_latex_expressions(text: str) -> Generator[ParsedItem, None, None]:
         i += 1
 
     if buffer:
-        yield ParsedItem(kind=ParsedItemKind.TEXT, content="".join(buffer))
+        yield ParsedItem(kind=ExpressionKind.TEXT, content="".join(buffer))
 
 
 def _is_escaped(text: str, pos: int) -> bool:

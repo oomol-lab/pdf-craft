@@ -3,6 +3,7 @@ from shutil import copy2
 from typing import Generator
 
 from ..common import XMLReader
+from ..expression import to_markdown_string, ExpressionKind
 from ..metering import check_aborted, AbortedCheck
 from ..sequence import (
     decode,
@@ -95,7 +96,17 @@ def _render_line_content(content: list[str | InlineExpression | Reference], ref_
     result = []
     for part in content:
         if isinstance(part, str):
-            result.append(part)
+            result.append(to_markdown_string(
+                kind=ExpressionKind.TEXT,
+                content=part,
+            ))
+        elif isinstance(part, InlineExpression):
+            latex_content = part.content.strip()
+            if latex_content:
+                result.append(to_markdown_string(
+                    kind=part.kind,
+                    content=latex_content,
+                ))
         elif isinstance(part, Reference):
             ref_number = ref_id_to_number.get(part.id, 1)
             result.append(f"[^{ref_number}]")
@@ -119,19 +130,13 @@ def _render_asset(
 
     if asset.ref == "equation":
         latex_content = asset.content.strip()
-        if not latex_content:
-            return ""
-        if latex_content.startswith("\\[") and latex_content.endswith("\\]"):
-            # 块级公式 \[...\] -> $$...$$
-            formula = latex_content[2:-2].strip()
-            return f"$$\n{formula}\n$$\n"
-        elif latex_content.startswith("\\(") and latex_content.endswith("\\)"):
-            # 行内公式 \(...\) -> $...$
-            formula = latex_content[2:-2].strip()
-            return f"${formula}$\n"
-        else:
-            # 其他情况,假设为块级公式
-            return f"$$\n{latex_content}\n$$\n"
+        if latex_content:
+            latex_content = to_markdown_string(
+                kind=ExpressionKind.DISPLAY_BRACKET,
+                content=latex_content,
+            )
+            latex_content = f"\n{latex_content}\n"
+        return latex_content
 
     elif asset.ref in ("image", "table"):
         if asset.hash is None:
