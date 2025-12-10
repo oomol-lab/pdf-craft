@@ -1,4 +1,5 @@
 from pathlib import Path
+from typing import Generator
 
 from ..common import XMLReader
 from ..metering import check_aborted, AbortedCheck
@@ -8,10 +9,11 @@ from ..sequence import (
     references_to_map,
     Reference,
     Chapter,
+    AssetLayout,
+    ParagraphLayout,
 )
 
 from .layouts import render_layouts, render_paragraph
-from .footnotes import render_footnotes_section
 
 
 def render_markdown_file(
@@ -68,5 +70,32 @@ def render_markdown_file(
                 need_blank_line = True
 
         check_aborted(aborted)
-        for part in render_footnotes_section(references):
+        for part in _render_footnotes_section(references):
             f.write(part)
+
+def _render_footnotes_section(references: list[Reference]) -> Generator[str, None, None]:
+    if not references:
+        return
+    yield "\n\n---\n\n## References\n\n"
+    for i, ref in enumerate(references, 1):
+        yield f"[^{i}]: "
+        yield from _render_reference_content(ref)
+        yield "\n\n"
+
+def _render_reference_content(ref: Reference):
+    first = True
+    for layout in ref.layouts:
+        if isinstance(layout, AssetLayout):
+            if layout.content:
+                if not first:
+                    yield " "
+                yield layout.content.strip()
+                first = False
+        elif isinstance(layout, ParagraphLayout):
+            for line in layout.lines:
+                for part in line.content:
+                    if isinstance(part, str):
+                        if not first:
+                            yield " "
+                        yield part
+                        first = False
