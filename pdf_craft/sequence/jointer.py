@@ -271,7 +271,7 @@ def _parse_line_content(text: str) -> list[str | InlineExpression | Reference]:
             if item.content:  # Only add non-empty strings
                 result.append(item.content)
         else:
-            result.append(InlineExpression(context=item.content))
+            result.append(InlineExpression(content=item.content))
 
     return result
 

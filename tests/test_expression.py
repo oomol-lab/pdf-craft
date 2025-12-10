@@ -237,6 +237,103 @@ class TestParseLatexExpressions(unittest.TestCase):
         self.assertEqual(result[0].kind, ParsedItemKind.TEXT)
         self.assertEqual(result[0].content, r"\$x")
 
+    def test_roundtrip_plain_text(self):
+        """测试纯文本的往返转换"""
+        text = "Hello, world! This is plain text."
+        result = list(parse_latex_expressions(text))
+        reconstructed = "".join(item.to_latex_string() for item in result)
+        self.assertEqual(text, reconstructed)
+
+    def test_roundtrip_escaped_dollar(self):
+        r"""测试转义美元符号的往返转换"""
+        text = r"Price is \$100 and \$200"
+        result = list(parse_latex_expressions(text))
+        reconstructed = "".join(item.to_latex_string() for item in result)
+        self.assertEqual(text, reconstructed)
+
+    def test_roundtrip_double_backslash(self):
+        r"""测试双反斜杠的往返转换"""
+        text = r"Path: C:\\Users\\Name"
+        result = list(parse_latex_expressions(text))
+        reconstructed = "".join(item.to_latex_string() for item in result)
+        self.assertEqual(text, reconstructed)
+
+    def test_roundtrip_inline_formula(self):
+        """测试行内公式的往返转换"""
+        text = r"Formula: $x^2 + y^2 = z^2$"
+        result = list(parse_latex_expressions(text))
+        reconstructed = "".join(item.to_latex_string() for item in result)
+        self.assertEqual(text, reconstructed)
+
+    def test_roundtrip_display_formula(self):
+        """测试显示公式的往返转换"""
+        text = r"$$\int_0^\infty e^{-x^2} dx = \frac{\sqrt{\pi}}{2}$$"
+        result = list(parse_latex_expressions(text))
+        reconstructed = "".join(item.to_latex_string() for item in result)
+        self.assertEqual(text, reconstructed)
+
+    def test_roundtrip_inline_paren(self):
+        r"""测试 \( ... \) 的往返转换"""
+        text = r"Text \(a + b\) more"
+        result = list(parse_latex_expressions(text))
+        reconstructed = "".join(item.to_latex_string() for item in result)
+        self.assertEqual(text, reconstructed)
+
+    def test_roundtrip_display_bracket(self):
+        r"""测试 \[ ... \] 的往返转换"""
+        text = r"Formula: \[x^2 + y^2 = z^2\] text"
+        result = list(parse_latex_expressions(text))
+        reconstructed = "".join(item.to_latex_string() for item in result)
+        self.assertEqual(text, reconstructed)
+
+    def test_roundtrip_mixed_escape_and_formula(self):
+        r"""测试混合转义和公式的往返转换"""
+        text = r"Cost \$50, formula $x^2$, path C:\\home"
+        result = list(parse_latex_expressions(text))
+        reconstructed = "".join(item.to_latex_string() for item in result)
+        self.assertEqual(text, reconstructed)
+
+    def test_roundtrip_complex_escape(self):
+        r"""测试复杂转义的往返转换
+
+        注意：原始字符串中的 \\$ (两个反斜杠+未配对美元符号) 会被重建为 \\\$
+        这是因为解析时 \\$ 被转换为 content 中的 \$（一个反斜杠+美元符号），
+        重建时为了安全性，所有美元符号都会被转义，导致重建为 \\\$。
+        虽然形式不同，但语义相同（都表示：一个反斜杠字面量 + 美元符号字面量）。
+        """
+        text = r"\\\$100 means \\\$ sign after backslash"
+        result = list(parse_latex_expressions(text))
+        reconstructed = "".join(item.to_latex_string() for item in result)
+        self.assertEqual(text, reconstructed)
+
+    def test_roundtrip_backslash_before_formula(self):
+        r"""测试公式前的反斜杠往返转换"""
+        text = r"\\$x$"
+        result = list(parse_latex_expressions(text))
+        reconstructed = "".join(item.to_latex_string() for item in result)
+        self.assertEqual(text, reconstructed)
+
+    def test_roundtrip_multiple_formulas_with_escape(self):
+        r"""测试多个公式和转义的往返转换"""
+        text = r"Price \$10, $a + b$, path C:\\dir, $$x^2$$, cost \$20"
+        result = list(parse_latex_expressions(text))
+        reconstructed = "".join(item.to_latex_string() for item in result)
+        self.assertEqual(text, reconstructed)
+
+    def test_roundtrip_empty_formula(self):
+        """测试空公式的往返转换"""
+        text = r"Before $$$$After"
+        result = list(parse_latex_expressions(text))
+        reconstructed = "".join(item.to_latex_string() for item in result)
+        self.assertEqual(text, reconstructed)
+
+    def test_roundtrip_all_delimiters(self):
+        r"""测试所有定界符类型的往返转换"""
+        text = r"Text $a$ and \(b\) and $$c$$ and \[d\] with \$price and \\path"
+        result = list(parse_latex_expressions(text))
+        reconstructed = "".join(item.to_latex_string() for item in result)
+        self.assertEqual(text, reconstructed)
+
 
 if __name__ == "__main__":
     unittest.main()

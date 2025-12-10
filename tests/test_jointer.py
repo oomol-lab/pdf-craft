@@ -390,7 +390,7 @@ class TestParseLineContent(unittest.TestCase):
         self.assertEqual(result[0], "Einstein's formula ")
         self.assertIsInstance(result[1], InlineExpression)
         assert isinstance(result[1], InlineExpression)
-        self.assertEqual(result[1].context, "E = mc^2")
+        self.assertEqual(result[1].content, "E = mc^2")
         self.assertEqual(result[2], " is famous")
 
     def test_double_dollar_formula(self):
@@ -400,7 +400,7 @@ class TestParseLineContent(unittest.TestCase):
         self.assertEqual(result[0], "The formula ")
         self.assertIsInstance(result[1], InlineExpression)
         assert isinstance(result[1], InlineExpression)
-        self.assertEqual(result[1].context, "x^2 + y^2 = z^2")
+        self.assertEqual(result[1].content, "x^2 + y^2 = z^2")
         self.assertEqual(result[2], " is Pythagorean")
 
     def test_parenthesis_inline_formula(self):
@@ -410,7 +410,7 @@ class TestParseLineContent(unittest.TestCase):
         self.assertEqual(result[0], "Inline ")
         self.assertIsInstance(result[1], InlineExpression)
         assert isinstance(result[1], InlineExpression)
-        self.assertEqual(result[1].context, "a + b = c")
+        self.assertEqual(result[1].content, "a + b = c")
         self.assertEqual(result[2], " formula")
 
     def test_bracket_display_formula(self):
@@ -420,7 +420,7 @@ class TestParseLineContent(unittest.TestCase):
         self.assertEqual(result[0], "Display ")
         self.assertIsInstance(result[1], InlineExpression)
         assert isinstance(result[1], InlineExpression)
-        self.assertEqual(result[1].context, "f(x) = x^2")
+        self.assertEqual(result[1].content, "f(x) = x^2")
         self.assertEqual(result[2], " formula")
 
     def test_multiple_formulas(self):
@@ -430,11 +430,11 @@ class TestParseLineContent(unittest.TestCase):
         self.assertEqual(result[0], "First ")
         self.assertIsInstance(result[1], InlineExpression)
         assert isinstance(result[1], InlineExpression)
-        self.assertEqual(result[1].context, "x")
+        self.assertEqual(result[1].content, "x")
         self.assertEqual(result[2], " and second ")
         self.assertIsInstance(result[3], InlineExpression)
         assert isinstance(result[3], InlineExpression)
-        self.assertEqual(result[3].context, "y")
+        self.assertEqual(result[3].content, "y")
         self.assertEqual(result[4], " formulas")
 
     def test_empty_string(self):
@@ -448,7 +448,7 @@ class TestParseLineContent(unittest.TestCase):
         self.assertEqual(len(result), 1)
         self.assertIsInstance(result[0], InlineExpression)
         assert isinstance(result[0], InlineExpression)
-        self.assertEqual(result[0].context, "x = y")
+        self.assertEqual(result[0].content, "x = y")
 
     def test_escaped_dollar(self):
         r"""测试转义的美元符号"""
@@ -463,15 +463,15 @@ class TestParseLineContent(unittest.TestCase):
         self.assertEqual(result[0], "Mix ")
         self.assertIsInstance(result[1], InlineExpression)
         assert isinstance(result[1], InlineExpression)
-        self.assertEqual(result[1].context, "a")
+        self.assertEqual(result[1].content, "a")
         self.assertEqual(result[2], " and ")
         self.assertIsInstance(result[3], InlineExpression)
         assert isinstance(result[3], InlineExpression)
-        self.assertEqual(result[3].context, "b")
+        self.assertEqual(result[3].content, "b")
         self.assertEqual(result[4], " and ")
         self.assertIsInstance(result[5], InlineExpression)
         assert isinstance(result[5], InlineExpression)
-        self.assertEqual(result[5].context, "c")
+        self.assertEqual(result[5].content, "c")
 
     def test_complex_latex_content(self):
         """测试复杂的 LaTeX 内容"""
@@ -480,7 +480,7 @@ class TestParseLineContent(unittest.TestCase):
         self.assertEqual(result[0], "The integral ")
         self.assertIsInstance(result[1], InlineExpression)
         assert isinstance(result[1], InlineExpression)
-        self.assertEqual(result[1].context, r"\int_0^\infty e^{-x^2} dx")
+        self.assertEqual(result[1].content, r"\int_0^\infty e^{-x^2} dx")
         self.assertEqual(result[2], " converges")
 
 

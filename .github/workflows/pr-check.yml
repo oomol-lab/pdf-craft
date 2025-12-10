@@ -40,6 +40,10 @@ jobs:
         run: |
           poetry install --with dev
 
+      - name: Run pyright checking
+        run: |
+          poetry run pyright pdf_craft tests
+
       - name: Run linting
         run: |
           poetry run pylint pdf_craft tests
