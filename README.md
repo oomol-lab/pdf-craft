@@ -15,7 +15,7 @@
 
 pdf-craft converts PDF files into various other formats, with a focus on handling scanned book PDFs.
 
-This project is based on [DeepSeek OCR](https://github.com/deepseek-ai/DeepSeek-OCR) for document recognition. It supports the recognition of complex content such as tables and formulas. With GPU acceleration, pdf-craft can complete the entire conversion process from PDF to Markdown or EPUB locally. During the conversion, pdf-craft automatically identifies document structure, accurately extracts body text, and filters out interfering elements like headers and footers. For academic or technical documents containing footnotes, formulas, and tables, pdf-craft handles them properly, preserving these important elements. The final Markdown or EPUB files maintain the content integrity and readability of the original book.
+This project is based on [DeepSeek OCR](https://github.com/deepseek-ai/DeepSeek-OCR) for document recognition. It supports the recognition of complex content such as tables and formulas. With GPU acceleration, pdf-craft can complete the entire conversion process from PDF to Markdown or EPUB locally. During the conversion, pdf-craft automatically identifies document structure, accurately extracts body text, and filters out interfering elements like headers and footers. For academic or technical documents containing footnotes, formulas, and tables, pdf-craft handles them properly, preserving these important elements (including images and other assets within footnotes). When converting to EPUB, the table of contents is automatically generated. The final Markdown or EPUB files maintain the content integrity and readability of the original book.
 
 ## Lightweight and Fast
 
@@ -117,6 +117,7 @@ transform_epub(
     lan="en",  # Optional: language (zh/en)
     table_render=TableRender.HTML,  # Optional: table rendering method
     latex_render=LaTeXRender.MATHML,  # Optional: formula rendering method
+    inline_latex=True,  # Optional: preserve inline LaTeX expressions
 )
 ```
 
@@ -189,6 +190,10 @@ The `ocr_size` parameter accepts a `DeepSeekOCRSize` type:
 - `LaTeXRender.MATHML` - MathML format (default)
 - `LaTeXRender.IMAGE` - Image format
 - `LaTeXRender.TEXT` - Plain text format
+
+### Inline LaTeX
+
+The `inline_latex` parameter (EPUB only, default: `True`) controls whether to preserve inline LaTeX expressions in the output. When enabled, inline mathematical formulas are preserved as LaTeX code, which can be rendered by compatible EPUB readers.
 
 ### Error Handling
 
