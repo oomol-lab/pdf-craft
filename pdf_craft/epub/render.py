@@ -24,6 +24,7 @@ from ..sequence import (
     decode,
     search_references_in_chapter,
     references_to_map,
+    InlineExpression,
     Reference,
     Chapter,
     AssetLayout,
@@ -141,29 +142,12 @@ def _convert_chapter_to_epub(
 
     return ChapterRecord(elements=elements, footnotes=footnotes)
 
-def _render_paragraph_with_marks(layout: ParagraphLayout, ref_id_to_number: dict):
-    for line in layout.lines:
-        for part in line.content:
-            if isinstance(part, str):
-                yield part
-            elif isinstance(part, Reference):
-                ref_number = ref_id_to_number.get(part.id, 1)
-                yield Mark(id=ref_number)
-
 def _convert_asset_to_epub(asset: AssetLayout, assets_path: Path):
     if asset.ref == "equation":
-        latex_content = asset.content.strip()
-        if not latex_content:
+        latex_expression = asset.content.strip()
+        if not latex_expression:
             return None
-
-        if latex_content.startswith("\\[") and latex_content.endswith("\\]"):
-            formula = latex_content[2:-2].strip()
-        elif latex_content.startswith("\\(") and latex_content.endswith("\\)"):
-            formula = latex_content[2:-2].strip()
-        else:
-            formula = latex_content
-
-        return Formula(latex_expression=formula)
+        return Formula(latex_expression)
 
     elif asset.ref == "image":
         if asset.hash is None:
@@ -208,11 +192,17 @@ def _convert_reference_to_footnote_contents(ref: Reference, assets_path: Path):
             if asset_element:
                 yield asset_element
         elif isinstance(layout, ParagraphLayout):
-            content_parts: list[str | Mark] = []
-            for line in layout.lines:
-                for part in line.content:
-                    if isinstance(part, str):
-                        content_parts.append(part)
-
+            content_parts = list(_render_paragraph_with_marks(layout))
             if content_parts:
                 yield Text(kind=TextKind.BODY, content=content_parts)
+
+def _render_paragraph_with_marks(layout: ParagraphLayout, ref_id_to_number: dict | None = None):
+    for line in layout.lines:
+        for part in line.content:
+            if isinstance(part, str):
+                yield part
+            elif isinstance(part, InlineExpression):
+                yield Formula(latex_expression=part.content.strip())
+            elif ref_id_to_number and isinstance(part, Reference):
+                ref_number = ref_id_to_number.get(part.id, 1)
+                yield Mark(id=ref_number)
