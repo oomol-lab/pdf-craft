@@ -9,8 +9,6 @@ from ..sequence import (
     references_to_map,
     Reference,
     Chapter,
-    AssetLayout,
-    ParagraphLayout,
 )
 
 from .layouts import render_layouts, render_paragraph
@@ -70,32 +68,29 @@ def render_markdown_file(
                 need_blank_line = True
 
         check_aborted(aborted)
-        for part in _render_footnotes_section(references):
+        for part in _render_footnotes_section(
+            references=references,
+            assets_path=assets_path,
+            output_assets_path=output_assets_path,
+            asset_ref_path=assets_ref_path,
+        ):
             f.write(part)
 
-def _render_footnotes_section(references: list[Reference]) -> Generator[str, None, None]:
+def _render_footnotes_section(
+        references: list[Reference],
+        assets_path: Path,
+        output_assets_path: Path,
+        asset_ref_path: Path,
+    ) -> Generator[str, None, None]:
     if not references:
         return
-    yield "\n\n---\n\n## References\n\n"
+    yield "\n\n---\n\n## References"
     for i, ref in enumerate(references, 1):
-        yield f"[^{i}]: "
-        yield from _render_reference_content(ref)
         yield "\n\n"
-
-def _render_reference_content(ref: Reference):
-    first = True
-    for layout in ref.layouts:
-        if isinstance(layout, AssetLayout):
-            if layout.content:
-                if not first:
-                    yield " "
-                yield layout.content.strip()
-                first = False
-        elif isinstance(layout, ParagraphLayout):
-            for line in layout.lines:
-                for part in line.content:
-                    if isinstance(part, str):
-                        if not first:
-                            yield " "
-                        yield part
-                        first = False
+        yield f"[^{i}]:  "
+        yield from render_layouts(
+            layouts=ref.layouts,
+            assets_path=assets_path,
+            output_assets_path=output_assets_path,
+            asset_ref_path=asset_ref_path,
+        )
