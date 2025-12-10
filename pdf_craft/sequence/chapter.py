@@ -33,7 +33,7 @@ class LineLayout:
 
 @dataclass
 class InlineExpression:
-    context: str
+    content: str
 
 @dataclass
 class Reference:
@@ -255,7 +255,7 @@ def _decode_line_elements(parent: Element, *, context_tag: str, references_map: 
                         raise ValueError(f"<{context_tag}><line><ref> references undefined reference: {ref_id}")
             elif child.tag == "inline_expr":
                 expr_text = child.text if child.text is not None else ""
-                content.append(InlineExpression(context=expr_text))
+                content.append(InlineExpression(content=expr_text))
 
             if child.tail:
                 content.append(child.tail)
@@ -278,7 +278,7 @@ def _encode_line_elements(parent: Element, lines: list[LineLayout]) -> None:
                     last_child.tail = part
             elif isinstance(part, InlineExpression):
                 expr_el = Element("inline_expr")
-                expr_el.text = part.context
+                expr_el.text = part.content
                 line_el.append(expr_el)
                 has_elements = True
             elif isinstance(part, Reference):

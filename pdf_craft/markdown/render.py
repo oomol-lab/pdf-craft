@@ -10,6 +10,7 @@ from ..sequence import (
     search_references_in_chapter,
     references_to_map,
     Reference,
+    InlineExpression,
     Chapter,
     AssetLayout,
     ParagraphLayout,
@@ -90,7 +91,7 @@ def _normalize_lines(layout: ParagraphLayout, ref_id_to_number: dict) -> Generat
                 if line:
                     yield line
 
-def _render_line_content(content: list[str | Reference], ref_id_to_number: dict) -> str:
+def _render_line_content(content: list[str | InlineExpression | Reference], ref_id_to_number: dict) -> str:
     result = []
     for part in content:
         if isinstance(part, str):

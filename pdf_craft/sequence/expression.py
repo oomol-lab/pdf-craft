@@ -26,7 +26,12 @@ class ParsedItem:
         elif self.kind == ParsedItemKind.DISPLAY_BRACKET:
             return "\\[" + self.content + "\\]"
         else:
-            return self.content
+            # TEXT type: need to re-escape backslashes and dollar signs
+            # Order matters: escape backslash first, then dollar sign
+            result = self.content
+            result = result.replace("\\", "\\\\")  # Escape backslashes
+            result = result.replace("$", "\\$")     # Escape dollar signs
+            return result
 
 
 def parse_latex_expressions(text: str) -> Generator[ParsedItem, None, None]:
