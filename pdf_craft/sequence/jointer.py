@@ -208,7 +208,7 @@ def _normalize_table(layout: AssetLayout):
     head_buffer: list[str] = []
     tail_buffer: list[str] = []
 
-    for part in (layout.title, layout.content, layout.caption):
+    for part in (layout.title, "\n", layout.content, "\n", layout.caption):
         if not part:
             continue
 
@@ -237,14 +237,12 @@ def _normalize_table(layout: AssetLayout):
     if not found_table_content:
         return
 
-    layout.title = None
-    layout.caption = None
-    layout.content = found_table_content
+    head = "".join(head_buffer).strip()
+    tail = "".join(tail_buffer).strip()
 
-    if head_buffer:
-        layout.title = "".join(head_buffer)
-    if tail_buffer:
-        layout.caption = "".join(tail_buffer)
+    layout.title = head if head else None
+    layout.caption = tail if tail else None
+    layout.content = found_table_content
 
 def _normalize_paragraph_content(paragraph: ParagraphLayout):
     if len(paragraph.lines) < 2:
