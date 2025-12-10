@@ -1831,6 +1831,17 @@ files = [
 windows-terminal = ["colorama (>=0.4.6)"]
 
 [[package]]
+name = "pylatexenc"
+version = "2.10"
+description = "Simple LaTeX parser providing latex-to-unicode and unicode-to-latex conversion"
+optional = false
+python-versions = "*"
+groups = ["main"]
+files = [
+    {file = "pylatexenc-2.10.tar.gz", hash = "sha256:3dd8fd84eb46dc30bee1e23eaab8d8fb5a7f507347b23e5f38ad9675c84f40d3"},
+]
+
+[[package]]
 name = "pylint"
 version = "3.3.9"
 description = "python code static checker"
@@ -2637,4 +2648,4 @@ zstd = ["zstandard (>=0.18.0)"]
 [metadata]
 lock-version = "2.1"
 python-versions = ">=3.10,<3.14"
-content-hash = "3a003f0da8b688e57f35f52dea68d971f0585936656d9fc2927f605caaad9ed4"
+content-hash = "000bf6595635b42a51c41672055f3420dec0e79ae03773ed9315ab2e10b9554e"

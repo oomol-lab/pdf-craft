@@ -42,6 +42,7 @@ def render_epub_file(
         lan: Literal["zh", "en"],
         table_render: TableRender,
         latex_render: LaTeXRender,
+        inline_latex: bool,
         aborted: AbortedCheck,
     ):
 
@@ -63,8 +64,9 @@ def render_epub_file(
         def get_chapter(ch=chapter):
             return _convert_chapter_to_epub(
                 chapter=ch,
+                assets_path=assets_path,
+                inline_latex=inline_latex,
                 ref_id_to_number=ref_id_to_number,
-                assets_path=assets_path
             )
         if chapter.title is None:
             get_head = get_chapter
@@ -103,8 +105,9 @@ def _extract_chapter_title(chapter: Chapter) -> str:
 
 def _convert_chapter_to_epub(
     chapter: Chapter,
+    assets_path: Path,
+    inline_latex: bool,
     ref_id_to_number: dict,
-    assets_path: Path
 ) -> ChapterRecord:
     elements = []
     footnotes = []
@@ -112,8 +115,9 @@ def _convert_chapter_to_epub(
     if chapter.title is not None:
         title_content = list(_render_paragraph_with_marks(
             layout=chapter.title,
-            ref_id_to_number=ref_id_to_number),
-        )
+            inline_latex=inline_latex,
+            ref_id_to_number=ref_id_to_number,
+        ))
         if title_content:
             elements.append(Text(kind=TextKind.HEADLINE, content=title_content))
 
@@ -125,6 +129,7 @@ def _convert_chapter_to_epub(
         elif isinstance(layout, ParagraphLayout):
             paragraph_content = list(_render_paragraph_with_marks(
                 layout=layout,
+                inline_latex=inline_latex,
                 ref_id_to_number=ref_id_to_number),
             )
             if paragraph_content:
@@ -136,6 +141,7 @@ def _convert_chapter_to_epub(
             id=ref_id_to_number.get(ref.id, 1),
             contents=list(_convert_reference_to_footnote_contents(
                 ref=ref,
+                inline_latex=inline_latex,
                 assets_path=assets_path
             )),
         ))
@@ -185,18 +191,29 @@ def _convert_asset_to_epub(asset: AssetLayout, assets_path: Path):
 
     return None
 
-def _convert_reference_to_footnote_contents(ref: Reference, assets_path: Path):
+def _convert_reference_to_footnote_contents(
+        ref: Reference,
+        assets_path: Path,
+        inline_latex: bool,
+    ):
     for layout in ref.layouts:
         if isinstance(layout, AssetLayout):
             asset_element = _convert_asset_to_epub(layout, assets_path)
             if asset_element:
                 yield asset_element
         elif isinstance(layout, ParagraphLayout):
-            content_parts = list(_render_paragraph_with_marks(layout))
+            content_parts = list(_render_paragraph_with_marks(
+                layout=layout,
+                inline_latex=inline_latex,
+            ))
             if content_parts:
                 yield Text(kind=TextKind.BODY, content=content_parts)
 
-def _render_paragraph_with_marks(layout: ParagraphLayout, ref_id_to_number: dict | None = None):
+def _render_paragraph_with_marks(
+        layout: ParagraphLayout,
+        inline_latex: bool,
+        ref_id_to_number: dict | None = None,
+    ):
     for line in layout.lines:
         for part in line.content:
             if isinstance(part, str):

@@ -99,6 +99,7 @@ class Transform:
         lan: Literal["zh", "en"] = "zh",
         table_render: TableRender = TableRender.HTML,
         latex_render: LaTeXRender = LaTeXRender.MATHML,
+        inline_latex: bool = True,
         aborted: AbortedCheck = lambda: False,
         max_ocr_tokens: int | None = None,
         max_ocr_output_tokens: int | None = None,
@@ -135,6 +136,7 @@ class Transform:
                     cover_path=cover_path,
                     table_render=table_render,
                     latex_render=latex_render,
+                    inline_latex=inline_latex,
                     aborted=aborted,
                 )
                 return metering
