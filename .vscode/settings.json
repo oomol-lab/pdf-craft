@@ -23,6 +23,7 @@
         "OOMOL",
         "pixmap",
         "pyenv",
+        "pylatexenc",
         "pylint",
         "pytest",
         "torchvision",

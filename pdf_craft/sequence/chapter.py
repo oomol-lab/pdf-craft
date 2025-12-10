@@ -266,7 +266,11 @@ def _decode_line_elements(parent: Element, *, context_tag: str, references_map: 
             if child.tail:
                 content.append(child.tail)
 
-        lines.append(LineLayout(page_index=page_index, det=det, content=content))
+        lines.append(LineLayout(
+            page_index=page_index,
+            det=det,
+            content=content,
+        ))
     return lines
 
 def _encode_line_elements(parent: Element, lines: list[LineLayout]) -> None:
