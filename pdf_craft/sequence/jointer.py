@@ -234,9 +234,12 @@ def _normalize_table(layout: AssetLayout):
 
         found_table_content = table_content
 
+    if not found_table_content:
+        return
+
     layout.title = None
     layout.caption = None
-    layout.content = found_table_content or ""
+    layout.content = found_table_content
 
     if head_buffer:
         layout.title = "".join(head_buffer)
