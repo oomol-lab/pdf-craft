@@ -15,7 +15,7 @@
 
 pdf-craft 可以将 PDF 文件转换为各种其他格式，本项目专注于处理扫描版书籍的 PDF 文件。
 
-本项目基于 [DeepSeek OCR](https://github.com/deepseek-ai/DeepSeek-OCR) 进行文档识别。支持表格、公式等复杂内容的识别。通过 GPU 加速，pdf-craft 能够在本地完成从 PDF 到 Markdown 或 EPUB 的完整转换流程。转换过程中，pdf-craft 会自动识别文档结构，准确提取正文内容，同时过滤页眉、页脚等干扰信息。对于包含脚注、公式、表格的学术或技术文档，pdf-craft 也能妥善处理，保留这些重要元素。最终生成的 Markdown 或 EPUB 文件保持了原书的内容完整性和可读性。
+本项目基于 [DeepSeek OCR](https://github.com/deepseek-ai/DeepSeek-OCR) 进行文档识别。支持表格、公式等复杂内容的识别。通过 GPU 加速，pdf-craft 能够在本地完成从 PDF 到 Markdown 或 EPUB 的完整转换流程。转换过程中，pdf-craft 会自动识别文档结构，准确提取正文内容，同时过滤页眉、页脚等干扰信息。对于包含脚注、公式、表格的学术或技术文档，pdf-craft 也能妥善处理，保留这些重要元素（包括脚注中的图片等资源）。转换为 EPUB 时会自动生成目录。最终生成的 Markdown 或 EPUB 文件保持了原书的内容完整性和可读性。
 
 ## 轻装上阵
 
@@ -117,6 +117,7 @@ transform_epub(
     lan="zh",  # 可选：语言 (zh/en)
     table_render=TableRender.HTML,  # 可选：表格渲染方式
     latex_render=LaTeXRender.MATHML,  # 可选：公式渲染方式
+    inline_latex=True,  # 可选：保留内联 LaTeX 表达式
 )
 ```
 
@@ -189,6 +190,10 @@ transform_markdown(
 - `LaTeXRender.MATHML` - MathML 格式（默认）
 - `LaTeXRender.IMAGE` - 图片格式
 - `LaTeXRender.TEXT` - 纯文本格式
+
+### 内联 LaTeX
+
+`inline_latex` 参数（仅 EPUB，默认：`True`）控制是否在输出中保留内联 LaTeX 表达式。启用后，内联数学公式将以 LaTeX 代码形式保留，可由支持的 EPUB 阅读器渲染。
 
 ### 错误处理
 
