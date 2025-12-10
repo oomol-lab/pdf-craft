@@ -17,6 +17,7 @@ from epub_generator import (
 )
 
 from .toc_collection import TocCollection
+from .latex_to_text import latex_to_plain_text
 
 from ..common import XMLReader
 from ..metering import check_aborted, AbortedCheck
@@ -219,7 +220,12 @@ def _render_paragraph_with_marks(
             if isinstance(part, str):
                 yield part
             elif isinstance(part, InlineExpression):
-                yield Formula(latex_expression=part.content.strip())
+                if inline_latex:
+                    yield Formula(latex_expression=part.content.strip())
+                else:
+                    yield latex_to_plain_text(
+                        latex_content=part.content.strip(),
+                    )
             elif ref_id_to_number and isinstance(part, Reference):
                 ref_number = ref_id_to_number.get(part.id, 1)
                 yield Mark(id=ref_number)
