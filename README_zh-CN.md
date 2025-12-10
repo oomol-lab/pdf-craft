@@ -182,14 +182,13 @@ transform_markdown(
 ### 表格渲染方式
 
 - `TableRender.HTML` - HTML 格式（默认）
-- `TableRender.MARKDOWN` - Markdown 格式
-- `TableRender.TEXT` - 纯文本格式
+- `TableRender.CLIPPING` - Clipping 格式（直接从原书扫描件上裁剪表格图像）
 
 ### 公式渲染方式
 
 - `LaTeXRender.MATHML` - MathML 格式（默认）
-- `LaTeXRender.IMAGE` - 图片格式
-- `LaTeXRender.TEXT` - 纯文本格式
+- `LaTeXRender.SVG` - SVG 格式
+- `LaTeXRender.CLIPPING` - Clipping 格式（直接从原书扫描件上裁剪公式图像）
 
 ### 内联 LaTeX
 

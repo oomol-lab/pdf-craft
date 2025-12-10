@@ -182,14 +182,13 @@ The `ocr_size` parameter accepts a `DeepSeekOCRSize` type:
 ### Table Rendering Methods
 
 - `TableRender.HTML` - HTML format (default)
-- `TableRender.MARKDOWN` - Markdown format
-- `TableRender.TEXT` - Plain text format
+- `TableRender.CLIPPING` - Clipping format (directly clips table images from the original PDF scan)
 
 ### Formula Rendering Methods
 
 - `LaTeXRender.MATHML` - MathML format (default)
-- `LaTeXRender.IMAGE` - Image format
-- `LaTeXRender.TEXT` - Plain text format
+- `LaTeXRender.SVG` - SVG format
+- `LaTeXRender.CLIPPING` - Clipping format (directly clips formula images from the original PDF scan)
 
 ### Inline LaTeX
 
