@@ -99,6 +99,10 @@ def _render_line_content(content: list[str | InlineExpression | Reference], ref_
         elif isinstance(part, Reference):
             ref_number = ref_id_to_number.get(part.id, 1)
             result.append(f"[^{ref_number}]")
+        elif isinstance(part, InlineExpression):
+            latex_content = part.content.strip()
+            if latex_content:
+                result.append(f"${latex_content}$")
         else:
             result.append(str(part))
     return "".join(result)

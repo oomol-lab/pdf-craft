@@ -6,7 +6,7 @@ from ..pdf import PageLayout
 from ..common import ASSET_TAGS
 from .chapter import ParagraphLayout, AssetLayout, LineLayout, Reference, InlineExpression
 from .language import is_latin_letter
-from .expression import parse_latex_expressions, ParsedItemKind, ParsedItem
+from .expression import parse_latex_expressions, ExpressionKind, ParsedItem
 
 
 TITLE_TAGS = ("title", "sub_title")
@@ -177,7 +177,7 @@ def _normalize_equation(layout: AssetLayout):
     tail_items: list[ParsedItem] = []
 
     for item in parse_latex_expressions(layout.content):
-        if not found_first_expression and item.kind != ParsedItemKind.TEXT:
+        if not found_first_expression and item.kind != ExpressionKind.TEXT:
             expression_content = item.content
             found_first_expression = True
         elif found_first_expression:
@@ -192,7 +192,7 @@ def _normalize_equation(layout: AssetLayout):
         prefix_texts.insert(0, layout.title)
 
     if layout.caption is not None:
-        tail_items.append(ParsedItem(kind=ParsedItemKind.TEXT, content=layout.caption))
+        tail_items.append(ParsedItem(kind=ExpressionKind.TEXT, content=layout.caption))
 
     if prefix_texts:
         layout.title = "".join(prefix_texts)
@@ -200,7 +200,7 @@ def _normalize_equation(layout: AssetLayout):
     layout.content = expression_content
 
     if tail_items:
-        layout.caption = "".join(item.to_latex_string() for item in tail_items)
+        layout.caption = "".join(item.reverse() for item in tail_items)
 
 
 def _normalize_table(layout: AssetLayout):
@@ -267,11 +267,14 @@ def _parse_line_content(text: str) -> list[str | InlineExpression | Reference]:
     result: list[str | InlineExpression | Reference] = []
 
     for item in parsed_items:
-        if item.kind == ParsedItemKind.TEXT:
+        if item.kind == ExpressionKind.TEXT:
             if item.content:  # Only add non-empty strings
                 result.append(item.content)
         else:
-            result.append(InlineExpression(content=item.content))
+            result.append(InlineExpression(
+                kind=item.kind,
+                content=item.content,
+            ))
 
     return result
 

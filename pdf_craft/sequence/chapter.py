@@ -3,6 +3,7 @@ from typing import cast, Generator, Iterable
 from xml.etree.ElementTree import Element
 
 from ..common import indent, AssetRef, ASSET_TAGS
+from .expression import ExpressionKind, decode_expression_kind, encode_expression_kind
 from .mark import Mark
 
 @dataclass
@@ -33,6 +34,7 @@ class LineLayout:
 
 @dataclass
 class InlineExpression:
+    kind: ExpressionKind
     content: str
 
 @dataclass
@@ -254,8 +256,12 @@ def _decode_line_elements(parent: Element, *, context_tag: str, references_map: 
                     else:
                         raise ValueError(f"<{context_tag}><line><ref> references undefined reference: {ref_id}")
             elif child.tag == "inline_expr":
+                kind_attr = child.get("kind")
+                if kind_attr is None:
+                    raise ValueError(f"<{context_tag}><line><inline_expr> missing required attribute 'kind'")
+                kind = decode_expression_kind(kind_attr)
                 expr_text = child.text if child.text is not None else ""
-                content.append(InlineExpression(content=expr_text))
+                content.append(InlineExpression(kind=kind, content=expr_text))
 
             if child.tail:
                 content.append(child.tail)
@@ -278,6 +284,7 @@ def _encode_line_elements(parent: Element, lines: list[LineLayout]) -> None:
                     last_child.tail = part
             elif isinstance(part, InlineExpression):
                 expr_el = Element("inline_expr")
+                expr_el.set("kind", encode_expression_kind(part.kind))
                 expr_el.text = part.content
                 line_el.append(expr_el)
                 has_elements = True
