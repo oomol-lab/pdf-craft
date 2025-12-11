@@ -8,8 +8,7 @@ from ..error import FitzError
 from ..to_path import to_path
 from .page_extractor import PageExtractorNode
 from .types import Page, DeepSeekOCRSize
-from .pdf_adapter import PDFAdapter, PDFDocument
-from .pdf_adapter_default import DefaultPDFAdapter
+from .pdf_adapter import PDFAdapter, PDFDocument, DefaultPDFAdapter
 
 
 def pdf_pages_count(pdf_path: PathLike | str, adapter: PDFAdapter | None = None) -> int:
