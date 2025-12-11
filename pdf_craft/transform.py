@@ -11,7 +11,7 @@ from .sequence import generate_chapter_files
 from .toc import generate_toc_file
 from .markdown import render_markdown_file
 from .epub import render_epub_file
-from .error import to_interrupted_error
+from .error import is_inline_error, to_interrupted_error
 from .metering import AbortedCheck, OCRTokensMetering
 
 
@@ -84,6 +84,8 @@ class Transform:
             error = to_interrupted_error(raw_error)
             if error:
                 raise error from raw_error
+            elif is_inline_error(raw_error):
+                raise
             else:
                 raise RuntimeError(f"transform {pdf_path} to markdown failed") from raw_error
 
@@ -147,6 +149,8 @@ class Transform:
             error = to_interrupted_error(raw_error)
             if error:
                 raise error from raw_error
+            elif is_inline_error(raw_error):
+                raise
             else:
                 raise RuntimeError(f"transform {pdf_path} to epub failed") from raw_error
 

@@ -7,6 +7,8 @@ from os import PathLike
 from pathlib import Path
 from PIL import Image
 
+from ..error import PDFError
+
 
 @runtime_checkable
 class PDFDocument(Protocol):
@@ -43,6 +45,7 @@ class DefaultPDFDocument:
 
     def render_page(self, page_index: int, dpi: int) -> Image.Image:
         from pdf2image import convert_from_path
+        from pdf2image.exceptions import PDFInfoNotInstalledError
 
         poppler_path: str | None
         if self._poppler_path:
@@ -50,13 +53,21 @@ class DefaultPDFDocument:
         else:
             poppler_path = None # use poppler in system PATH
 
-        images: list[Image.Image] = convert_from_path(
-            str(self._pdf_path),
-            dpi=dpi,
-            first_page=page_index,
-            last_page=page_index,
-            poppler_path=cast(str, poppler_path),
-        )
+        try:
+            images: list[Image.Image] = convert_from_path(
+                str(self._pdf_path),
+                dpi=dpi,
+                first_page=page_index,
+                last_page=page_index,
+                poppler_path=cast(str, poppler_path),
+            )
+        except PDFInfoNotInstalledError as error:
+            if self._poppler_path:
+                error_message = f"Poppler not found at specified path: {self._poppler_path}"
+            else:
+                error_message = "Poppler not found in PATH. Either not installed or PATH is not configured correctly."
+            raise PDFError(error_message, page_index) from error
+
         if not images:
             raise RuntimeError(f"Failed to render page {page_index}")
 
