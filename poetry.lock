@@ -521,14 +521,14 @@ profile = ["gprof2dot (>=2022.7.29)"]
 
 [[package]]
 name = "doc-page-extractor"
-version = "1.0.9"
+version = "1.0.10"
 description = "Document page extraction tool powered by DeepSeek-OCR"
 optional = false
 python-versions = "<3.14,>=3.10"
 groups = ["main"]
 files = [
-    {file = "doc_page_extractor-1.0.9-py3-none-any.whl", hash = "sha256:e187a7b9ed76e2f1e963aaf14102f1762c3bd7985e9478211d1d20803313d7e5"},
-    {file = "doc_page_extractor-1.0.9.tar.gz", hash = "sha256:c478ead4dd08288028cbe025dcaac2c2911206babce3da13c97f2e776a602e76"},
+    {file = "doc_page_extractor-1.0.10-py3-none-any.whl", hash = "sha256:ad322309a3072bd44b4150948080f9e254b6a6c4dbe1da9322cb32cbc4def192"},
+    {file = "doc_page_extractor-1.0.10.tar.gz", hash = "sha256:63f1aab3a2127f7ca4074db31de85ada87c49e47a4b4477dd798467816f38366"},
 ]
 
 [package.dependencies]
@@ -2669,4 +2669,4 @@ zstd = ["zstandard (>=0.18.0)"]
 [metadata]
 lock-version = "2.1"
 python-versions = ">=3.10,<3.14"
-content-hash = "3864dac3f795ba1176fd5ae93ccfd059d5134ec2c63d86c1f56e98b2446034f9"
+content-hash = "83d6b20dc61f3e5e1c063300172430cff343e42d862ed774f446de25e5ca75bb"
