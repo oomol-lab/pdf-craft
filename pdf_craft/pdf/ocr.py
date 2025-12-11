@@ -6,6 +6,7 @@ from typing import Container, Generator
 from enum import auto, Enum
 from pathlib import Path
 from os import PathLike
+from PIL.Image import Image
 
 from ..common import save_xml, AssetHub
 from ..to_path import to_path
@@ -21,6 +22,7 @@ class OCREventKind(Enum):
     START = auto()
     IGNORE = auto()
     SKIP = auto()
+    RENDERED = auto()
     COMPLETE = auto()
     FAILED = auto()
 
@@ -84,12 +86,12 @@ class OCR:
 
         with PageRefContext(
             pdf_path=pdf_path,
-            extractor=self._extractor,
-            asset_hub=AssetHub(asset_path),
-            aborted=aborted,
             pdf_handler=self._pdf_handler,
         ) as refs:
+
             pages_count = refs.pages_count
+            asset_hub = AssetHub(asset_path)
+
             for ref in refs:
                 check_aborted(aborted)
                 start_time = time.perf_counter()
@@ -127,11 +129,31 @@ class OCR:
                     if remain_output_tokens is not None and remain_output_tokens <= 0:
                         raise TokenLimitError()
 
+                    image: Image | None = None
                     page: Page
                     pdf_error: PDFError | None = None
 
                     try:
-                        page = ref.extract(
+                        image = ref.render()
+                    except PDFError as error:
+                        if not ignore_pdf_errors:
+                            raise
+                        pdf_error = error
+
+                    if image is not None:
+                        elapsed_ms = int((time.perf_counter() - start_time) * 1000)
+                        yield OCREvent(
+                            kind=OCREventKind.RENDERED,
+                            page_index=ref.page_index,
+                            total_pages=pages_count,
+                            cost_time_ms=elapsed_ms,
+                            input_tokens=0,
+                            output_tokens=0,
+                        )
+                        page = self._extractor.image2page(
+                            image=image,
+                            page_index=ref.page_index,
+                            asset_hub=asset_hub,
                             ocr_size=ocr_size,
                             includes_footnotes=includes_footnotes,
                             includes_raw_image=(ref.page_index == 1),
@@ -139,11 +161,9 @@ class OCR:
                             max_tokens=remain_tokens,
                             max_output_tokens=remain_output_tokens,
                             device_number=device_number,
+                            aborted=aborted,
                         )
-                    except PDFError as error:
-                        if not ignore_pdf_errors:
-                            raise
-                        pdf_error = error
+                    else:
                         page = self._create_warn_page(
                             page_index=ref.page_index,
                             text=f"[[Page {ref.page_index} extraction failed due to PDF rendering error]]",
