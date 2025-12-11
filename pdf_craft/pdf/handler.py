@@ -1,7 +1,3 @@
-import sys
-import os
-import shutil
-
 from typing import cast, runtime_checkable, Protocol
 from os import PathLike
 from pathlib import Path
@@ -83,76 +79,12 @@ class DefaultPDFDocument:
 
 class DefaultPDFHandler:
     def __init__(self, poppler_path: PathLike | str | None = None) -> None:
-        self._poppler_path: Path | None
+        self._poppler_path: Path | None = None
         if poppler_path is not None:
             self._poppler_path = Path(poppler_path)
-        else:
-            self._poppler_path = _find_poppler_path()
 
     def open(self, pdf_path: Path) -> PDFDocument:
         return DefaultPDFDocument(
             pdf_path=pdf_path,
             poppler_path=self._poppler_path,
         )
-
-def _find_poppler_path() -> Path | None:
-    # Check if pdfinfo is already in PATH
-    if shutil.which("pdfinfo"):
-        return None  # Already in PATH, no need to specify
-
-    # Platform-specific search paths
-    possible_paths: list[Path] = []
-
-    if sys.platform == "darwin":  # macOS
-        possible_paths.extend([
-            Path("/opt/homebrew/bin"),  # Homebrew on Apple Silicon
-            Path("/usr/local/bin"),  # Homebrew on Intel Mac
-            Path("/opt/homebrew/Cellar/poppler"),  # Homebrew Cellar on Apple Silicon
-            Path("/usr/local/Cellar/poppler"),  # Homebrew Cellar on Intel
-        ])
-    elif sys.platform.startswith("linux"):  # Linux
-        possible_paths.extend([
-            Path("/usr/bin"),  # apt/yum install poppler-utils
-            Path("/usr/local/bin"),  # Manual installation
-            Path("/snap/bin"),  # Snap package
-        ])
-    elif sys.platform == "win32":  # Windows
-        # Check common Windows installation paths
-        program_files = os.environ.get("ProgramFiles", "C:\\Program Files")
-        program_files_x86 = os.environ.get("ProgramFiles(x86)", "C:\\Program Files (x86)")
-        local_app_data = os.environ.get("LOCALAPPDATA", "")
-
-        possible_paths.extend([
-            Path(program_files) / "poppler" / "Library" / "bin",
-            Path(program_files_x86) / "poppler" / "Library" / "bin",
-            Path(program_files) / "poppler-utils" / "bin",
-            Path(program_files_x86) / "poppler-utils" / "bin",
-        ])
-        if local_app_data:
-            possible_paths.append(Path(local_app_data) / "poppler" / "Library" / "bin")
-
-    # Search for poppler in candidate paths
-    for base_path in possible_paths:
-        if not base_path.exists():
-            continue
-
-        # For Cellar paths (macOS Homebrew), find the version directory
-        if base_path.name == "poppler":
-            try:
-                version_dirs = sorted(base_path.iterdir(), reverse=True)
-                for version_dir in version_dirs:
-                    if not version_dir.is_dir():
-                        continue
-                    bin_path = version_dir / "bin"
-                    if bin_path.exists() and (bin_path / "pdfinfo").exists():
-                        return bin_path
-            except (OSError, PermissionError):
-                continue
-        else:
-            # Direct bin path - check for pdfinfo or pdfinfo.exe
-            pdfinfo_path = base_path / "pdfinfo"
-            pdfinfo_exe_path = base_path / "pdfinfo.exe"
-            if pdfinfo_path.exists() or pdfinfo_exe_path.exists():
-                return base_path
-
-    return None
