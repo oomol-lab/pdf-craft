@@ -3,6 +3,7 @@
 ## System Requirements
 
 - Python >= 3.10, < 3.14 (3.11.16 recommended)
+- Poppler (required for PDF parsing and rendering)
 - NVIDIA GPU with CUDA 11.8 or 12.1 support
 - 16 GB or more VRAM (24 GB or higher recommended, see [DeepSeek OCR Hardware Requirements Discussion](https://huggingface.co/deepseek-ai/DeepSeek-OCR/discussions/31))
 
@@ -40,13 +41,39 @@ pip install torch torchvision --index-url https://download.pytorch.org/whl/cu121
 pip install pdf-craft
 ```
 
-#### 4. Verify Installation
+#### 4. Install Poppler
 
+pdf-craft uses Poppler (via `pdf2image`) for PDF parsing and rendering. You need to install Poppler separately:
+
+**Ubuntu/Debian:**
+```bash
+sudo apt-get install poppler-utils
+```
+
+**macOS:**
+```bash
+brew install poppler
+```
+
+**Windows:**
+
+Download the latest Poppler binary from [oschwartz10612/poppler-windows](https://github.com/oschwartz10612/poppler-windows/releases/) and add the `bin/` directory to your system PATH. Alternatively, you can specify the Poppler path when using pdf-craft (see [Custom PDF Handler](../README.md#custom-pdf-handler)).
+
+#### 5. Verify Installation
+
+Verify CUDA:
 ```bash
 python -c "import torch; print('CUDA available:', torch.cuda.is_available())"
 ```
 
 Should output `CUDA available: True`
+
+Verify Poppler:
+```bash
+pdfinfo -v
+```
+
+Should output Poppler version information. If the command is not found, please check the Poppler installation steps above.
 
 ### CPU Environment Installation (Development Only)
 
@@ -55,7 +82,17 @@ pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
 pip install pdf-craft
 ```
 
+**Note:** Even for development-only setups, you still need to install Poppler following step 4 above if you want to test PDF-related functionality.
+
 ## Troubleshooting
+
+### Poppler Not Found Error
+
+If you encounter an error like "Poppler not found in PATH" when running pdf-craft, it means Poppler is not properly installed or configured:
+
+1. **Poppler not installed** - Follow the Poppler installation steps above for your operating system
+2. **Poppler not in PATH** (Windows) - Add Poppler's `bin/` directory to your system PATH, or use the `pdf_handler` parameter to specify the path (see [Custom PDF Handler](../README.md#custom-pdf-handler))
+3. **Wrong package installed** (Linux) - Make sure you installed `poppler-utils`, not just `poppler`
 
 ### CUDA Not Available Error
 

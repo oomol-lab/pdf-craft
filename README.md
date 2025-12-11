@@ -38,7 +38,7 @@ pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
 pip install pdf-craft
 ```
 
-This project uses DeepSeek OCR, which depends on a CUDA environment. **The above command only ensures Python can read types without errors, but cannot actually run OCR recognition.** For specific CUDA environment installation instructions, please refer to the [Installation Guide](docs/INSTALLATION.md).
+The above commands are for quick setup only. To actually use pdf-craft, you need to **install Poppler** for PDF parsing (required for all use cases) and **configure a CUDA environment** for OCR recognition (required for actual conversion). Please refer to the [Installation Guide](docs/INSTALLATION.md) for detailed instructions.
 
 ### Quick Start
 
@@ -88,7 +88,7 @@ transform_markdown(
     ocr_size="gundam",  # Optional: tiny, small, base, large, gundam
     models_cache_path="models",  # Optional: model cache path
     includes_footnotes=True,  # Optional: include footnotes
-    ignore_fitz_errors=False,  # Optional: continue on PDF rendering errors
+    ignore_pdf_errors=False,  # Optional: continue on PDF rendering errors
     generate_plot=False,  # Optional: generate visualization charts
 )
 ```
@@ -106,7 +106,7 @@ transform_epub(
     models_cache_path="models",  # Optional: model cache path
     includes_cover=True,  # Optional: include cover
     includes_footnotes=True,  # Optional: include footnotes
-    ignore_fitz_errors=False,  # Optional: continue on PDF rendering errors
+    ignore_pdf_errors=False,  # Optional: continue on PDF rendering errors
     generate_plot=False,  # Optional: generate visualization charts
     book_meta=BookMeta(
         title="Book Title",
@@ -194,9 +194,26 @@ The `ocr_size` parameter accepts a `DeepSeekOCRSize` type:
 
 The `inline_latex` parameter (EPUB only, default: `True`) controls whether to preserve inline LaTeX expressions in the output. When enabled, inline mathematical formulas are preserved as LaTeX code, which can be rendered by compatible EPUB readers.
 
+### Custom PDF Handler
+
+By default, pdf-craft uses Poppler (via `pdf2image`) for PDF parsing and rendering. If Poppler is not in your system PATH, you can specify a custom path:
+
+```python
+from pdf_craft import transform_markdown, DefaultPDFHandler
+
+# Specify custom Poppler path
+transform_markdown(
+    pdf_path="input.pdf",
+    markdown_path="output.md",
+    pdf_handler=DefaultPDFHandler(poppler_path="/path/to/poppler/bin"),
+)
+```
+
+If not specified, pdf-craft will use Poppler from your system PATH. For advanced use cases, you can also implement the `PDFHandler` protocol to use alternative PDF libraries.
+
 ### Error Handling
 
-You can use `ignore_fitz_errors=True` to continue processing when individual pages fail to render, inserting a placeholder message for failed pages instead of stopping the entire conversion.
+You can use `ignore_pdf_errors=True` to continue processing when individual pages fail to render, inserting a placeholder message for failed pages instead of stopping the entire conversion.
 
 ## Related Open Source Libraries
 [epub-translator](https://github.com/oomol-lab/epub-translator) uses AI large language models to automatically translate EPUB e-books while 100% preserving the original book's format, illustrations, table of contents, and layout. It also generates bilingual versions for convenient language learning or international sharing. When combined with this library, you can convert and translate scanned PDF books. For a demonstration, see this [video: Convert PDF scanned books to EPUB format and translate to bilingual books](https://www.bilibili.com/video/BV1tMQZY5EYY).
@@ -205,7 +222,7 @@ You can use `ignore_fitz_errors=True` to continue processing when individual pag
 
 This project is licensed under the MIT License. See the [LICENSE](./LICENSE) file for details.
 
-Starting from v1.0.0, pdf-craft has fully migrated to DeepSeek OCR (MIT license), removing the previous AGPL-3.0 dependency, allowing the entire project to be released under the more permissive MIT license. Thanks to the community for their support and contributions!
+Starting from v1.0.0, pdf-craft has fully migrated to DeepSeek OCR (MIT license), removing the previous AGPL-3.0 dependency, allowing the entire project to be released under the more permissive MIT license. Note that pdf-craft has a transitive dependency on easydict (LGPLv3) via DeepSeek OCR. Thanks to the community for their support and contributions!
 
 ## Acknowledgments
 

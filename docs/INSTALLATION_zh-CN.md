@@ -3,6 +3,7 @@
 ## 系统要求
 
 - Python >= 3.10, < 3.14（推荐 3.11.16）
+- Poppler（用于 PDF 解析和渲染）
 - NVIDIA GPU，支持 CUDA 11.8 或 12.1
 - 显存 16 GB 以上（推荐 24 GB 或更高，详见 [DeepSeek OCR 硬件需求讨论](https://huggingface.co/deepseek-ai/DeepSeek-OCR/discussions/31)）
 
@@ -40,13 +41,39 @@ pip install torch torchvision --index-url https://download.pytorch.org/whl/cu121
 pip install pdf-craft
 ```
 
-#### 4. 验证安装
+#### 4. 安装 Poppler
 
+pdf-craft 使用 Poppler（通过 `pdf2image`）进行 PDF 解析和渲染。你需要单独安装 Poppler：
+
+**Ubuntu/Debian：**
+```bash
+sudo apt-get install poppler-utils
+```
+
+**macOS：**
+```bash
+brew install poppler
+```
+
+**Windows：**
+
+从 [oschwartz10612/poppler-windows](https://github.com/oschwartz10612/poppler-windows/releases/) 下载最新的 Poppler 二进制文件，并将 `bin/` 目录添加到系统 PATH 中。或者，你可以在使用 pdf-craft 时指定 Poppler 路径（参见 [自定义 PDF 处理器](../README_zh-CN.md#自定义-pdf-处理器)）。
+
+#### 5. 验证安装
+
+验证 CUDA：
 ```bash
 python -c "import torch; print('CUDA 可用:', torch.cuda.is_available())"
 ```
 
 应输出 `CUDA 可用: True`
+
+验证 Poppler：
+```bash
+pdfinfo -v
+```
+
+应输出 Poppler 版本信息。如果命令未找到，请检查上述 Poppler 安装步骤。
 
 ### CPU 环境安装（仅开发）
 
@@ -55,7 +82,17 @@ pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
 pip install pdf-craft
 ```
 
+**注意：** 即使是仅用于开发的环境，如果你想测试与 PDF 相关的功能，仍需按照上述步骤 4 安装 Poppler。
+
 ## 常见问题
+
+### Poppler 未找到错误
+
+如果运行 pdf-craft 时遇到类似"Poppler not found in PATH"的错误，说明 Poppler 未正确安装或配置：
+
+1. **未安装 Poppler** - 按照上述对应操作系统的 Poppler 安装步骤操作
+2. **Poppler 不在 PATH 中**（Windows）- 将 Poppler 的 `bin/` 目录添加到系统 PATH 中，或使用 `pdf_handler` 参数指定路径（参见 [自定义 PDF 处理器](../README_zh-CN.md#自定义-pdf-处理器)）
+3. **安装了错误的包**（Linux）- 确保安装的是 `poppler-utils`，而不仅仅是 `poppler`
 
 ### CUDA 不可用报错
 
