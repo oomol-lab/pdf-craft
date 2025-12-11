@@ -8,10 +8,13 @@ from ..error import FitzError
 from ..to_path import to_path
 from .page_extractor import PageExtractorNode
 from .types import Page, DeepSeekOCRSize
-from .pdf_adapter import PDFAdapter, PDFDocument, DefaultPDFAdapter
+from .handler import PDFHandler, PDFDocument, DefaultPDFHandler
 
 
-def pdf_pages_count(pdf_path: PathLike | str, adapter: PDFAdapter | None = None) -> int:
+def pdf_pages_count(
+        pdf_path: PathLike | str,
+        pdf_handler: PDFHandler | None = None,
+    ) -> int:
     """
     Get the number of pages in a PDF file.
 
@@ -25,11 +28,11 @@ def pdf_pages_count(pdf_path: PathLike | str, adapter: PDFAdapter | None = None)
     Raises:
         FitzError: If the PDF cannot be read
     """
-    if adapter is None:
-        adapter = DefaultPDFAdapter()
+    if pdf_handler is None:
+        pdf_handler = DefaultPDFHandler()
 
     try:
-        return adapter.get_pages_count(to_path(pdf_path))
+        return pdf_handler.get_pages_count(to_path(pdf_path))
     except Exception as error:
         raise FitzError("Failed to parse PDF document.", page_index=None) from error
 
@@ -38,16 +41,16 @@ class PageRefContext:
     def __init__(
             self,
             pdf_path: Path,
+            pdf_handler: PDFHandler | None,
             extractor: PageExtractorNode,
             asset_hub: AssetHub,
             aborted: AbortedCheck,
-            adapter: PDFAdapter | None = None,
         ) -> None:
         self._pdf_path = pdf_path
+        self._pdf_handler: PDFHandler = pdf_handler if pdf_handler is not None else DefaultPDFHandler()
         self._extractor = extractor
         self._asset_hub = asset_hub
         self._aborted: AbortedCheck = aborted
-        self._adapter: PDFAdapter = adapter if adapter is not None else DefaultPDFAdapter()
         self._document: PDFDocument | None = None
 
     @property
@@ -58,7 +61,7 @@ class PageRefContext:
     def __enter__(self) -> "PageRefContext":
         assert self._document is None
         try:
-            self._document = self._adapter.open(self._pdf_path)
+            self._document = self._pdf_handler.open(self._pdf_path)
         except Exception as error:
             raise FitzError("Failed to open PDF document.", page_index=None) from error
         return self

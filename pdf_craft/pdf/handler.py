@@ -38,7 +38,7 @@ class PDFDocument(Protocol):
 
 
 @runtime_checkable
-class PDFAdapter(Protocol):
+class PDFHandler(Protocol):
     """Protocol for PDF adapter that creates PDF documents."""
 
     def open(self, pdf_path: PathLike | str) -> PDFDocument:
@@ -141,7 +141,7 @@ class DefaultPDFDocument:
             self._reader = None
 
 
-class DefaultPDFAdapter:
+class DefaultPDFHandler:
     """Default implementation of PDFAdapter using pdf2image and pypdf."""
 
     def __init__(self, poppler_path: PathLike | str | None = None) -> None:
