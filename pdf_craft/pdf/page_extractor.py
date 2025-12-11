@@ -65,8 +65,6 @@ class PageExtractorNode:
             image = image.copy()
 
         with tempfile.TemporaryDirectory() as temp_dir_path:
-            image_path = Path(temp_dir_path) / "raw_image.png"
-            image.save(image_path, format="PNG")
             context = ExtractionContext(
                 check_aborted=aborted,
                 max_tokens=max_tokens,
@@ -75,7 +73,7 @@ class PageExtractorNode:
             )
             step_index: int = 1
             generator = self._get_page_extractor().extract(
-                image_path=image_path,
+                image=image,
                 size=model_size,
                 stages=2 if includes_footnotes else 1,
                 context=context,
@@ -83,7 +81,7 @@ class PageExtractorNode:
             )
             while True:
                 try:
-                    image, layouts = next(generator)()
+                    image, layouts = next(generator)
                 except StopIteration:
                     break
                 except Exception as error:
