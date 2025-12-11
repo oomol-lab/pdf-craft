@@ -1,6 +1,16 @@
 from epub_generator import BookMeta, TableRender, LaTeXRender
 
-from .pdf import pdf_pages_count, PDFDocument, PDFHandler, DeepSeekOCRSize, OCREvent, OCREventKind
+from .pdf import (
+    pdf_pages_count,
+    DeepSeekOCRSize,
+    PDFDocument,
+    PDFHandler,
+    DefaultPDFHandler,
+    DefaultPDFDocument,
+    OCREvent,
+    OCREventKind,
+)
+
 from .transform import Transform, OCRTokensMetering
 from .error import InterruptedError, PDFError, OCRError
 from .metering import AbortedCheck, InterruptedKind
