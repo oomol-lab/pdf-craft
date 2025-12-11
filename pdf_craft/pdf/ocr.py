@@ -60,7 +60,7 @@ class OCR:
             ocr_path: Path,
             ocr_size: DeepSeekOCRSize = "gundam",
             includes_footnotes: bool = False,
-            ignore_fitz_errors: bool = False,
+            ignore_pdf_errors: bool = False,
             plot_path: Path | None = None,
             cover_path: Path | None = None,
             aborted: AbortedCheck = lambda: False,
@@ -128,7 +128,7 @@ class OCR:
                         raise TokenLimitError()
 
                     page: Page
-                    fitz_error: PDFError | None = None
+                    pdf_error: PDFError | None = None
 
                     try:
                         page = ref.extract(
@@ -141,9 +141,9 @@ class OCR:
                             device_number=device_number,
                         )
                     except PDFError as error:
-                        if not ignore_fitz_errors:
+                        if not ignore_pdf_errors:
                             raise
-                        fitz_error = error
+                        pdf_error = error
                         page = self._create_warn_page(
                             page_index=ref.page_index,
                             text=f"[[Page {ref.page_index} extraction failed due to PDF rendering error]]",
@@ -158,8 +158,8 @@ class OCR:
                     elapsed_ms = int((time.perf_counter() - start_time) * 1000)
 
                     yield OCREvent(
-                        kind=OCREventKind.COMPLETE if fitz_error is None else OCREventKind.FAILED,
-                        error=fitz_error,
+                        kind=OCREventKind.COMPLETE if pdf_error is None else OCREventKind.FAILED,
+                        error=pdf_error,
                         page_index=ref.page_index,
                         total_pages=pages_count,
                         cost_time_ms=elapsed_ms,
