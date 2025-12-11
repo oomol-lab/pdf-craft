@@ -38,7 +38,7 @@ pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
 pip install pdf-craft
 ```
 
-This project uses DeepSeek OCR, which depends on a CUDA environment. **The above command only ensures Python can read types without errors, but cannot actually run OCR recognition.** For specific CUDA environment installation instructions, please refer to the [Installation Guide](docs/INSTALLATION.md).
+The above commands are for quick setup only. To actually use pdf-craft, you need to **install Poppler** for PDF parsing (required for all use cases) and **configure a CUDA environment** for OCR recognition (required for actual conversion). Please refer to the [Installation Guide](docs/INSTALLATION.md) for detailed instructions.
 
 ### Quick Start
 
