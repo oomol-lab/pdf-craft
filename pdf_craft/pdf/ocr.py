@@ -9,11 +9,12 @@ from os import PathLike
 
 from ..common import save_xml, AssetHub
 from ..to_path import to_path
-from ..error import FitzError
+from ..error import PDFError
 from ..metering import check_aborted, AbortedCheck
 from .page_extractor import Page, PageLayout, PageExtractorNode
 from .page_ref import PageRefContext
 from .types import encode, DeepSeekOCRSize
+from .handler import PDFHandler
 
 
 class OCREventKind(Enum):
@@ -37,8 +38,10 @@ class OCR:
     def __init__(
             self,
             model_path: PathLike | str | None,
+            pdf_handler: PDFHandler | None,
             local_only: bool,
         ) -> None:
+        self._pdf_handler = pdf_handler
         self._extractor = PageExtractorNode(
             model_path=to_path(model_path) if model_path is not None else None,
             local_only=local_only,
@@ -57,7 +60,7 @@ class OCR:
             ocr_path: Path,
             ocr_size: DeepSeekOCRSize = "gundam",
             includes_footnotes: bool = False,
-            ignore_fitz_errors: bool = False,
+            ignore_pdf_errors: bool = False,
             plot_path: Path | None = None,
             cover_path: Path | None = None,
             aborted: AbortedCheck = lambda: False,
@@ -84,6 +87,7 @@ class OCR:
             extractor=self._extractor,
             asset_hub=AssetHub(asset_path),
             aborted=aborted,
+            pdf_handler=self._pdf_handler,
         ) as refs:
             pages_count = refs.pages_count
             for ref in refs:
@@ -124,7 +128,7 @@ class OCR:
                         raise TokenLimitError()
 
                     page: Page
-                    fitz_error: FitzError | None = None
+                    pdf_error: PDFError | None = None
 
                     try:
                         page = ref.extract(
@@ -136,10 +140,10 @@ class OCR:
                             max_output_tokens=remain_output_tokens,
                             device_number=device_number,
                         )
-                    except FitzError as error:
-                        if not ignore_fitz_errors:
+                    except PDFError as error:
+                        if not ignore_pdf_errors:
                             raise
-                        fitz_error = error
+                        pdf_error = error
                         page = self._create_warn_page(
                             page_index=ref.page_index,
                             text=f"[[Page {ref.page_index} extraction failed due to PDF rendering error]]",
@@ -154,8 +158,8 @@ class OCR:
                     elapsed_ms = int((time.perf_counter() - start_time) * 1000)
 
                     yield OCREvent(
-                        kind=OCREventKind.COMPLETE if fitz_error is None else OCREventKind.FAILED,
-                        error=fitz_error,
+                        kind=OCREventKind.COMPLETE if pdf_error is None else OCREventKind.FAILED,
+                        error=pdf_error,
                         page_index=ref.page_index,
                         total_pages=pages_count,
                         cost_time_ms=elapsed_ms,

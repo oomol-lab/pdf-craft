@@ -6,12 +6,12 @@ from epub_generator import BookMeta, TableRender, LaTeXRender
 
 from .common import EnsureFolder
 from .to_path import to_path
-from .pdf import OCR, OCREvent, DeepSeekOCRSize
+from .pdf import OCR, OCREvent, PDFHandler, DeepSeekOCRSize
 from .sequence import generate_chapter_files
 from .toc import generate_toc_file
 from .markdown import render_markdown_file
 from .epub import render_epub_file
-from .error import to_interrupted_error
+from .error import is_inline_error, to_interrupted_error
 from .metering import AbortedCheck, OCRTokensMetering
 
 
@@ -19,10 +19,12 @@ class Transform:
     def __init__(
             self,
             models_cache_path: PathLike | str | None = None,
+            pdf_handler: PDFHandler | None = None,
             local_only: bool = False,
         ) -> None:
         self._ocr: OCR = OCR(
             model_path=models_cache_path,
+            pdf_handler=pdf_handler,
             local_only=local_only,
         )
 
@@ -41,7 +43,7 @@ class Transform:
         ocr_size: DeepSeekOCRSize = "gundam",
         includes_footnotes: bool = False,
         generate_plot: bool = False,
-        ignore_fitz_errors: bool = False,
+        ignore_pdf_errors: bool = False,
         aborted: AbortedCheck = lambda: False,
         max_ocr_tokens: int | None = None,
         max_ocr_output_tokens: int | None = None,
@@ -62,7 +64,7 @@ class Transform:
                     ocr_size=ocr_size,
                     includes_cover=False,
                     includes_footnotes=includes_footnotes,
-                    ignore_fitz_errors=ignore_fitz_errors,
+                    ignore_pdf_errors=ignore_pdf_errors,
                     generate_plot=generate_plot,
                     aborted=aborted,
                     max_tokens=max_ocr_tokens,
@@ -82,6 +84,8 @@ class Transform:
             error = to_interrupted_error(raw_error)
             if error:
                 raise error from raw_error
+            elif is_inline_error(raw_error):
+                raise
             else:
                 raise RuntimeError(f"transform {pdf_path} to markdown failed") from raw_error
 
@@ -93,7 +97,7 @@ class Transform:
         ocr_size: DeepSeekOCRSize = "gundam",
         includes_cover: bool = True,
         includes_footnotes: bool = False,
-        ignore_fitz_errors: bool = False,
+        ignore_pdf_errors: bool = False,
         generate_plot: bool = False,
         book_meta: BookMeta | None = None,
         lan: Literal["zh", "en"] = "zh",
@@ -117,7 +121,7 @@ class Transform:
                     ocr_size=ocr_size,
                     includes_cover=includes_cover,
                     includes_footnotes=includes_footnotes,
-                    ignore_fitz_errors=ignore_fitz_errors,
+                    ignore_pdf_errors=ignore_pdf_errors,
                     generate_plot=generate_plot,
                     aborted=aborted,
                     max_tokens=max_ocr_tokens,
@@ -145,6 +149,8 @@ class Transform:
             error = to_interrupted_error(raw_error)
             if error:
                 raise error from raw_error
+            elif is_inline_error(raw_error):
+                raise
             else:
                 raise RuntimeError(f"transform {pdf_path} to epub failed") from raw_error
 
@@ -155,7 +161,7 @@ class Transform:
         ocr_size: DeepSeekOCRSize,
         includes_cover: bool,
         includes_footnotes: bool,
-        ignore_fitz_errors: bool,
+        ignore_pdf_errors: bool,
         generate_plot: bool,
         aborted: AbortedCheck,
         max_tokens: int | None,
@@ -184,7 +190,7 @@ class Transform:
             ocr_path=pages_path,
             ocr_size=ocr_size,
             includes_footnotes=includes_footnotes,
-            ignore_fitz_errors=ignore_fitz_errors,
+            ignore_pdf_errors=ignore_pdf_errors,
             plot_path=plot_path,
             cover_path=cover_path,
             aborted=aborted,

@@ -9,6 +9,10 @@
         },
         "files.trimTrailingWhitespace": true
     },
+    "python.analysis.diagnosticSeverityOverrides": {
+        "reportUnnecessaryTypeIgnoreComment": "none"
+    },
+    "python.analysis.typeCheckingMode": "basic",
     "files.trimTrailingWhitespace": true,
     "cSpell.words": [
         "analysing",
@@ -16,12 +20,14 @@
         "CUDA",
         "dets",
         "epub",
-        "fitz",
         "frombytes",
         "gundam",
+        "LOCALAPPDATA",
         "MATHML",
         "OOMOL",
+        "pdfinfo",
         "pixmap",
+        "poppler",
         "pyenv",
         "pylatexenc",
         "pylint",

@@ -13,6 +13,7 @@ disable=
   fixme,
   no-else-return,
   broad-exception-caught,
+  unnecessary-ellipsis,
 
 [FORMAT]
 # Maximum number of characters on a single line.

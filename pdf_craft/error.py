@@ -1,7 +1,7 @@
 from .metering import OCRTokensMetering, InterruptedKind
 
 
-class FitzError(Exception):
+class PDFError(Exception):
     def __init__(self, message: str, page_index: int | None = None) -> None:
         super().__init__(message)
         self.page_index: int | None = page_index
@@ -12,6 +12,9 @@ class OCRError(Exception):
         super().__init__(message)
         self.page_index: int = page_index
         self.step_index: int = step_index
+
+def is_inline_error(error: Exception) -> bool:
+    return isinstance(error, (PDFError, OCRError))
 
 
 # 不可直接用 doc-page-extractor 的 Error，该库的一切都是懒加载，若暴露，则无法懒加载

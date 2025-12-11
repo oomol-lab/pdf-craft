@@ -3,17 +3,19 @@ from typing import Callable, Literal
 
 from epub_generator import BookMeta, TableRender, LaTeXRender
 
-from .pdf import OCR, OCREvent, DeepSeekOCRSize
+from .pdf import OCR, OCREvent, PDFHandler, DeepSeekOCRSize
 from .transform import Transform
 from .metering import AbortedCheck, OCRTokensMetering
 
 
 def predownload_models(
         models_cache_path: PathLike | None = None,
+        pdf_handler: PDFHandler | None = None,
         revision: str | None = None,
     ) -> None:
     ocr = OCR(
         model_path=models_cache_path,
+        pdf_handler=pdf_handler,
         local_only=False,
     )
     ocr.predownload(revision)
@@ -22,13 +24,14 @@ def predownload_models(
 def transform_markdown(
     pdf_path: PathLike | str,
     markdown_path: PathLike | str,
+    pdf_handler: PDFHandler | None = None,
     markdown_assets_path: PathLike | str | None = None,
     analysing_path: PathLike | str | None = None,
     ocr_size: DeepSeekOCRSize = "gundam",
     models_cache_path: PathLike | str | None = None,
     local_only: bool = False,
     includes_footnotes: bool = False,
-    ignore_fitz_errors: bool = False,
+    ignore_pdf_errors: bool = False,
     generate_plot: bool = False,
     aborted: AbortedCheck = lambda: False,
     max_ocr_tokens: int | None = None,
@@ -38,6 +41,7 @@ def transform_markdown(
 
     return Transform(
         models_cache_path=models_cache_path,
+        pdf_handler=pdf_handler,
         local_only=local_only,
     ).transform_markdown(
         pdf_path=pdf_path,
@@ -46,7 +50,7 @@ def transform_markdown(
         analysing_path=analysing_path,
         ocr_size=ocr_size,
         includes_footnotes=includes_footnotes,
-        ignore_fitz_errors=ignore_fitz_errors,
+        ignore_pdf_errors=ignore_pdf_errors,
         generate_plot=generate_plot,
         aborted=aborted,
         max_ocr_tokens=max_ocr_tokens,
@@ -58,6 +62,7 @@ def transform_markdown(
 def transform_epub(
     pdf_path: PathLike | str,
     epub_path: PathLike | str,
+    pdf_handler: PDFHandler | None = None,
     analysing_path: PathLike | str | None = None,
     ocr_size: DeepSeekOCRSize = "gundam",
     models_cache_path: PathLike | str | None = None,
@@ -65,7 +70,7 @@ def transform_epub(
     includes_cover: bool = True,
     includes_footnotes: bool = False,
     generate_plot: bool = False,
-    ignore_fitz_errors: bool = False,
+    ignore_pdf_errors: bool = False,
     book_meta: BookMeta | None = None,
     lan: Literal["zh", "en"] = "zh",
     table_render: TableRender = TableRender.HTML,
@@ -79,6 +84,7 @@ def transform_epub(
 
     return Transform(
         models_cache_path=models_cache_path,
+        pdf_handler=pdf_handler,
         local_only=local_only,
     ).transform_epub(
         pdf_path=pdf_path,
@@ -88,7 +94,7 @@ def transform_epub(
         includes_cover=includes_cover,
         includes_footnotes=includes_footnotes,
         generate_plot=generate_plot,
-        ignore_fitz_errors=ignore_fitz_errors,
+        ignore_pdf_errors=ignore_pdf_errors,
         book_meta=book_meta,
         lan=lan,
         table_render=table_render,
