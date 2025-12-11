@@ -14,6 +14,7 @@ from ..metering import check_aborted, AbortedCheck
 from .page_extractor import Page, PageLayout, PageExtractorNode
 from .page_ref import PageRefContext
 from .types import encode, DeepSeekOCRSize
+from .pdf_adapter import PDFAdapter
 
 
 class OCREventKind(Enum):
@@ -38,11 +39,13 @@ class OCR:
             self,
             model_path: PathLike | str | None,
             local_only: bool,
+            adapter: PDFAdapter | None = None,
         ) -> None:
         self._extractor = PageExtractorNode(
             model_path=to_path(model_path) if model_path is not None else None,
             local_only=local_only,
         )
+        self._adapter = adapter
 
     def predownload(self, revision: str | None) -> None:
         self._extractor.download_models(revision)
@@ -84,6 +87,7 @@ class OCR:
             extractor=self._extractor,
             asset_hub=AssetHub(asset_path),
             aborted=aborted,
+            adapter=self._adapter,
         ) as refs:
             pages_count = refs.pages_count
             for ref in refs:

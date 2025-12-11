@@ -1,9 +1,6 @@
-import fitz
-
 from typing import Generator
 from os import PathLike
 from pathlib import Path
-from PIL.Image import frombytes
 
 from ..common import AssetHub
 from ..metering import AbortedCheck
@@ -11,12 +8,29 @@ from ..error import FitzError
 from ..to_path import to_path
 from .page_extractor import PageExtractorNode
 from .types import Page, DeepSeekOCRSize
+from .pdf_adapter import PDFAdapter, PDFDocument
+from .pdf_adapter_default import DefaultPDFAdapter
 
 
-def pdf_pages_count(pdf_path: PathLike | str) -> int:
+def pdf_pages_count(pdf_path: PathLike | str, adapter: PDFAdapter | None = None) -> int:
+    """
+    Get the number of pages in a PDF file.
+
+    Args:
+        pdf_path: Path to the PDF file
+        adapter: PDF adapter to use (default: DefaultPDFAdapter)
+
+    Returns:
+        Number of pages in the PDF
+
+    Raises:
+        FitzError: If the PDF cannot be read
+    """
+    if adapter is None:
+        adapter = DefaultPDFAdapter()
+
     try:
-        with fitz.open(to_path(pdf_path)) as document:
-            return len(document)
+        return adapter.get_pages_count(to_path(pdf_path))
     except Exception as error:
         raise FitzError("Failed to parse PDF document.", page_index=None) from error
 
@@ -28,22 +42,24 @@ class PageRefContext:
             extractor: PageExtractorNode,
             asset_hub: AssetHub,
             aborted: AbortedCheck,
+            adapter: PDFAdapter | None = None,
         ) -> None:
         self._pdf_path = pdf_path
         self._extractor = extractor
         self._asset_hub = asset_hub
         self._aborted: AbortedCheck = aborted
-        self._document: fitz.Document | None = None
+        self._adapter: PDFAdapter = adapter if adapter is not None else DefaultPDFAdapter()
+        self._document: PDFDocument | None = None
 
     @property
     def pages_count(self) -> int:
         assert self._document is not None
-        return len(self._document)
+        return self._document.pages_count
 
     def __enter__(self) -> "PageRefContext":
         assert self._document is None
         try:
-            self._document = fitz.open(self._pdf_path)
+            self._document = self._adapter.open(self._pdf_path)
         except Exception as error:
             raise FitzError("Failed to open PDF document.", page_index=None) from error
         return self
@@ -55,7 +71,7 @@ class PageRefContext:
 
     def __iter__(self) -> Generator["PageRef", None, None]:
         assert self._document is not None
-        for i in range(len(self._document)):
+        for i in range(self._document.pages_count):
             yield PageRef(
                 document=self._document,
                 page_index=i + 1,
@@ -67,7 +83,7 @@ class PageRefContext:
 class PageRef:
     def __init__(
             self,
-            document: fitz.Document,
+            document: PDFDocument,
             page_index: int,
             extractor: PageExtractorNode,
             asset_hub: AssetHub,
@@ -95,12 +111,9 @@ class PageRef:
         ) -> Page:
 
         try:
-            dpi = 300 # for scanned book pages
-            default_dpi = 72
-            matrix = fitz.Matrix(dpi / default_dpi, dpi / default_dpi)
-            page = self._document.load_page(self._page_index - 1)
-            pixmap = page.get_pixmap(matrix=matrix)
-            image = frombytes("RGB", (pixmap.width, pixmap.height), pixmap.samples)
+            # Render page at 300 DPI for scanned book pages
+            dpi = 300
+            image = self._document.render_page(self._page_index - 1, dpi=dpi)
         except Exception as error:
             raise FitzError(f"Failed to render page {self._page_index}.", page_index=self._page_index) from error
 
