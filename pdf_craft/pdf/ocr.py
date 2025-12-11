@@ -84,12 +84,12 @@ class OCR:
 
         with PageRefContext(
             pdf_path=pdf_path,
-            extractor=self._extractor,
-            asset_hub=AssetHub(asset_path),
-            aborted=aborted,
             pdf_handler=self._pdf_handler,
         ) as refs:
+
             pages_count = refs.pages_count
+            asset_hub = AssetHub(asset_path)
+
             for ref in refs:
                 check_aborted(aborted)
                 start_time = time.perf_counter()
@@ -131,7 +131,11 @@ class OCR:
                     pdf_error: PDFError | None = None
 
                     try:
-                        page = ref.extract(
+                        image = ref.render()
+                        page = self._extractor.image2page(
+                            image=image,
+                            page_index=ref.page_index,
+                            asset_hub=asset_hub,
                             ocr_size=ocr_size,
                             includes_footnotes=includes_footnotes,
                             includes_raw_image=(ref.page_index == 1),
@@ -139,6 +143,7 @@ class OCR:
                             max_tokens=remain_tokens,
                             max_output_tokens=remain_output_tokens,
                             device_number=device_number,
+                            aborted=aborted,
                         )
                     except PDFError as error:
                         if not ignore_pdf_errors:

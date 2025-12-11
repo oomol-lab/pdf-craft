@@ -45,7 +45,7 @@ class PageExtractorNode:
             image: Image,
             page_index: int,
             asset_hub: AssetHub,
-            model_size: DeepSeekOCRSize,
+            ocr_size: DeepSeekOCRSize,
             includes_footnotes: bool,
             includes_raw_image: bool,
             plot_path: Path | None,
@@ -74,7 +74,7 @@ class PageExtractorNode:
             step_index: int = 1
             generator = self._get_page_extractor().extract(
                 image=image,
-                size=model_size,
+                size=ocr_size,
                 stages=2 if includes_footnotes else 1,
                 context=context,
                 device_number=device_number,
