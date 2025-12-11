@@ -2,6 +2,20 @@
 
 ## Setup
 
+### 0. System Dependencies (WSL/Linux)
+
+If you're developing on WSL or Linux, install poppler-utils first:
+
+```shell
+sudo apt-get update
+sudo apt-get install poppler-utils
+```
+
+Verify installation:
+```shell
+pdfinfo --version
+```
+
 ### 1. Create Python Environment
 
 Setup Python env
