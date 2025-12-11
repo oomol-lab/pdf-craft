@@ -1,9 +1,8 @@
 import sys
 import os
 import shutil
-import pypdf
 
-from typing import Protocol, runtime_checkable
+from typing import cast, runtime_checkable, Protocol
 from os import PathLike
 from pathlib import Path
 from PIL import Image
@@ -24,62 +23,51 @@ class PDFDocument(Protocol):
 
 @runtime_checkable
 class PDFHandler(Protocol):
-    def open(self, pdf_path: PathLike | str) -> PDFDocument:
-        ...
-
-    def get_pages_count(self, pdf_path: PathLike | str) -> int:
+    def open(self, pdf_path: Path) -> PDFDocument:
         ...
 
 
 class DefaultPDFDocument:
-    def __init__(self, pdf_path: Path, poppler_path: Path | None = None) -> None:
+    def __init__(self, pdf_path: Path, poppler_path: Path | None) -> None:
         self._pdf_path = pdf_path
         self._poppler_path: Path | None = poppler_path
-        self._reader: pypdf.PdfReader | None = None
-        self._pages_count: int = 0
-        self._open()
-
-    def _open(self) -> None:
-        self._reader = pypdf.PdfReader(str(self._pdf_path))
-        self._pages_count = len(self._reader.pages)
+        self._pages_count: int | None = None
 
     @property
     def pages_count(self) -> int:
+        if self._pages_count is None:
+            import pypdf
+            with pypdf.PdfReader(str(self._pdf_path)) as reader:
+                self._pages_count = len(reader.pages)
         return self._pages_count
 
     def render_page(self, page_index: int, dpi: int) -> Image.Image:
         from pdf2image import convert_from_path
-        if page_index < 0 or page_index >= self._pages_count:
-            raise IndexError(
-                f"Page index {page_index} out of range [0, {self._pages_count})"
-            )
 
-        # pdf2image uses 1-based page numbers
+        poppler_path: str | None
+        if self._poppler_path:
+            poppler_path = str(self._poppler_path)
+        else:
+            poppler_path = None # use poppler in system PATH
+
         images: list[Image.Image] = convert_from_path(
             str(self._pdf_path),
             dpi=dpi,
-            first_page=page_index + 1,
-            last_page=page_index + 1,
-            # Note: pdf2image's type hint is wrong - it accepts None despite annotation
-            poppler_path=str(self._poppler_path) if self._poppler_path else None,  # type: ignore[arg-type]
+            first_page=page_index,
+            last_page=page_index,
+            poppler_path=cast(str, poppler_path),
         )
-
         if not images:
             raise RuntimeError(f"Failed to render page {page_index}")
 
         image = images[0]
-
-        # Ensure RGB mode
         if image.mode != "RGB":
             image = image.convert("RGB")
 
         return image
 
     def close(self) -> None:
-        if self._reader is not None:
-            # pypdf doesn't require explicit close in newer versions
-            # but we keep this for protocol compliance
-            self._reader = None
+        pass
 
 
 class DefaultPDFHandler:
@@ -90,16 +78,11 @@ class DefaultPDFHandler:
         else:
             self._poppler_path = _find_poppler_path()
 
-    def open(self, pdf_path: PathLike | str) -> PDFDocument:
+    def open(self, pdf_path: Path) -> PDFDocument:
         return DefaultPDFDocument(
-            pdf_path=Path(pdf_path),
+            pdf_path=pdf_path,
             poppler_path=self._poppler_path,
         )
-
-    def get_pages_count(self, pdf_path: PathLike | str) -> int:
-        path = Path(pdf_path) if not isinstance(pdf_path, Path) else pdf_path
-        reader = pypdf.PdfReader(str(path))
-        return len(reader.pages)
 
 def _find_poppler_path() -> Path | None:
     # Check if pdfinfo is already in PATH

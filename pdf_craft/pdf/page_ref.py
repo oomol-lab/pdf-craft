@@ -5,7 +5,6 @@ from pathlib import Path
 from ..common import AssetHub
 from ..metering import AbortedCheck
 from ..error import PDFError
-from ..to_path import to_path
 from .page_extractor import PageExtractorNode
 from .types import Page, DeepSeekOCRSize
 from .handler import PDFHandler, PDFDocument, DefaultPDFHandler
@@ -17,12 +16,17 @@ def pdf_pages_count(
     ) -> int:
     if pdf_handler is None:
         pdf_handler = DefaultPDFHandler()
+    document: PDFDocument | None = None
     try:
-        return pdf_handler.get_pages_count(to_path(pdf_path))
+        document = pdf_handler.open(pdf_path=Path(pdf_path))
+        return document.pages_count
     except PDFError:
         raise
     except Exception as error:
         raise PDFError("Failed to parse PDF document.", page_index=None) from error
+    finally:
+        if document is not None:
+            document.close()
 
 
 class PageRefContext:
@@ -103,10 +107,10 @@ class PageRef:
         ) -> Page:
 
         try:
-            # Render page at 300 DPI for scanned book pages
-            dpi = 300
-            image = self._document.render_page(self._page_index - 1, dpi=dpi)
-
+            image = self._document.render_page(
+                page_index=self._page_index,
+                dpi=300, # Render page at 300 DPI for scanned book pages
+            )
         except PDFError as error:
             error.page_index = self._page_index
             raise error
