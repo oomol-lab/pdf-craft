@@ -6,7 +6,7 @@ from epub_generator import BookMeta, TableRender, LaTeXRender
 
 from .common import EnsureFolder
 from .to_path import to_path
-from .pdf import OCR, OCREvent, DeepSeekOCRSize
+from .pdf import OCR, OCREvent, PDFHandler, DeepSeekOCRSize
 from .sequence import generate_chapter_files
 from .toc import generate_toc_file
 from .markdown import render_markdown_file
@@ -19,10 +19,12 @@ class Transform:
     def __init__(
             self,
             models_cache_path: PathLike | str | None = None,
+            pdf_handler: PDFHandler | None = None,
             local_only: bool = False,
         ) -> None:
         self._ocr: OCR = OCR(
             model_path=models_cache_path,
+            pdf_handler=pdf_handler,
             local_only=local_only,
         )
 

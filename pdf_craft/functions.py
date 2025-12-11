@@ -3,17 +3,19 @@ from typing import Callable, Literal
 
 from epub_generator import BookMeta, TableRender, LaTeXRender
 
-from .pdf import OCR, OCREvent, DeepSeekOCRSize
+from .pdf import OCR, OCREvent, PDFHandler, DeepSeekOCRSize
 from .transform import Transform
 from .metering import AbortedCheck, OCRTokensMetering
 
 
 def predownload_models(
         models_cache_path: PathLike | None = None,
+        pdf_handler: PDFHandler | None = None,
         revision: str | None = None,
     ) -> None:
     ocr = OCR(
         model_path=models_cache_path,
+        pdf_handler=pdf_handler,
         local_only=False,
     )
     ocr.predownload(revision)
@@ -22,6 +24,7 @@ def predownload_models(
 def transform_markdown(
     pdf_path: PathLike | str,
     markdown_path: PathLike | str,
+    pdf_handler: PDFHandler | None = None,
     markdown_assets_path: PathLike | str | None = None,
     analysing_path: PathLike | str | None = None,
     ocr_size: DeepSeekOCRSize = "gundam",
@@ -38,6 +41,7 @@ def transform_markdown(
 
     return Transform(
         models_cache_path=models_cache_path,
+        pdf_handler=pdf_handler,
         local_only=local_only,
     ).transform_markdown(
         pdf_path=pdf_path,
@@ -58,6 +62,7 @@ def transform_markdown(
 def transform_epub(
     pdf_path: PathLike | str,
     epub_path: PathLike | str,
+    pdf_handler: PDFHandler | None = None,
     analysing_path: PathLike | str | None = None,
     ocr_size: DeepSeekOCRSize = "gundam",
     models_cache_path: PathLike | str | None = None,
@@ -79,6 +84,7 @@ def transform_epub(
 
     return Transform(
         models_cache_path=models_cache_path,
+        pdf_handler=pdf_handler,
         local_only=local_only,
     ).transform_epub(
         pdf_path=pdf_path,

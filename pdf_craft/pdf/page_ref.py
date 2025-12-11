@@ -4,7 +4,7 @@ from pathlib import Path
 
 from ..common import AssetHub
 from ..metering import AbortedCheck
-from ..error import FitzError
+from ..error import PDFError
 from ..to_path import to_path
 from .page_extractor import PageExtractorNode
 from .types import Page, DeepSeekOCRSize
@@ -15,26 +15,14 @@ def pdf_pages_count(
         pdf_path: PathLike | str,
         pdf_handler: PDFHandler | None = None,
     ) -> int:
-    """
-    Get the number of pages in a PDF file.
-
-    Args:
-        pdf_path: Path to the PDF file
-        adapter: PDF adapter to use (default: DefaultPDFAdapter)
-
-    Returns:
-        Number of pages in the PDF
-
-    Raises:
-        FitzError: If the PDF cannot be read
-    """
     if pdf_handler is None:
         pdf_handler = DefaultPDFHandler()
-
     try:
         return pdf_handler.get_pages_count(to_path(pdf_path))
+    except PDFError:
+        raise
     except Exception as error:
-        raise FitzError("Failed to parse PDF document.", page_index=None) from error
+        raise PDFError("Failed to parse PDF document.", page_index=None) from error
 
 
 class PageRefContext:
@@ -62,8 +50,10 @@ class PageRefContext:
         assert self._document is None
         try:
             self._document = self._pdf_handler.open(self._pdf_path)
+        except PDFError:
+            raise
         except Exception as error:
-            raise FitzError("Failed to open PDF document.", page_index=None) from error
+            raise PDFError("Failed to open PDF document.", page_index=None) from error
         return self
 
     def __exit__(self, exc_type, exc_val, exc_tb) -> None:
@@ -116,8 +106,13 @@ class PageRef:
             # Render page at 300 DPI for scanned book pages
             dpi = 300
             image = self._document.render_page(self._page_index - 1, dpi=dpi)
+
+        except PDFError as error:
+            error.page_index = self._page_index
+            raise error
+
         except Exception as error:
-            raise FitzError(f"Failed to render page {self._page_index}.", page_index=self._page_index) from error
+            raise PDFError(f"Failed to render page {self._page_index}.", page_index=self._page_index) from error
 
         return self._extractor.image2page(
             image=image,

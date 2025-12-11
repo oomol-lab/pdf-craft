@@ -1,7 +1,7 @@
 from .metering import OCRTokensMetering, InterruptedKind
 
 
-class FitzError(Exception):
+class PDFError(Exception):
     def __init__(self, message: str, page_index: int | None = None) -> None:
         super().__init__(message)
         self.page_index: int | None = page_index

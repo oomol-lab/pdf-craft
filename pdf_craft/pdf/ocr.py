@@ -9,7 +9,7 @@ from os import PathLike
 
 from ..common import save_xml, AssetHub
 from ..to_path import to_path
-from ..error import FitzError
+from ..error import PDFError
 from ..metering import check_aborted, AbortedCheck
 from .page_extractor import Page, PageLayout, PageExtractorNode
 from .page_ref import PageRefContext
@@ -38,8 +38,8 @@ class OCR:
     def __init__(
             self,
             model_path: PathLike | str | None,
-            local_only: bool,
             pdf_handler: PDFHandler | None,
+            local_only: bool,
         ) -> None:
         self._pdf_handler = pdf_handler
         self._extractor = PageExtractorNode(
@@ -128,7 +128,7 @@ class OCR:
                         raise TokenLimitError()
 
                     page: Page
-                    fitz_error: FitzError | None = None
+                    fitz_error: PDFError | None = None
 
                     try:
                         page = ref.extract(
@@ -140,7 +140,7 @@ class OCR:
                             max_output_tokens=remain_output_tokens,
                             device_number=device_number,
                         )
-                    except FitzError as error:
+                    except PDFError as error:
                         if not ignore_fitz_errors:
                             raise
                         fitz_error = error
