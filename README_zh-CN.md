@@ -88,7 +88,7 @@ transform_markdown(
     ocr_size="gundam",  # 可选：tiny, small, base, large, gundam
     models_cache_path="models",  # 可选：模型缓存路径
     includes_footnotes=True,  # 可选：包含脚注
-    ignore_fitz_errors=False,  # 可选：遇到 PDF 渲染错误时继续处理
+    ignore_pdf_errors=False,  # 可选：遇到 PDF 渲染错误时继续处理
     generate_plot=False,  # 可选：生成可视化图表
 )
 ```
@@ -106,7 +106,7 @@ transform_epub(
     models_cache_path="models",  # 可选：模型缓存路径
     includes_cover=True,  # 可选：包含封面
     includes_footnotes=True,  # 可选：包含脚注
-    ignore_fitz_errors=False,  # 可选：遇到 PDF 渲染错误时继续处理
+    ignore_pdf_errors=False,  # 可选：遇到 PDF 渲染错误时继续处理
     generate_plot=False,  # 可选：生成可视化图表
     book_meta=BookMeta(
         title="书名",
@@ -194,9 +194,26 @@ transform_markdown(
 
 `inline_latex` 参数（仅 EPUB，默认：`True`）控制是否在输出中保留内联 LaTeX 表达式。启用后，内联数学公式将以 LaTeX 代码形式保留，可由支持的 EPUB 阅读器渲染。
 
+### 自定义 PDF 处理器
+
+默认情况下，pdf-craft 使用本地 Poppler（通过 `pdf2image`）进行 PDF 解析和渲染。如果 Poppler 不在系统 PATH 中，你可以指定自定义路径：
+
+```python
+from pdf_craft import transform_markdown, DefaultPDFHandler
+
+# 指定自定义 Poppler 路径
+transform_markdown(
+    pdf_path="input.pdf",
+    markdown_path="output.md",
+    pdf_handler=DefaultPDFHandler(poppler_path="/path/to/poppler/bin"),
+)
+```
+
+如果不指定，pdf-craft 会从系统 PATH 中查找 Poppler。对于高级使用场景，你也可以实现 `PDFHandler` protocol 来使用其他 PDF 库。
+
 ### 错误处理
 
-你可以使用 `ignore_fitz_errors=True` 参数，在遇到单个页面渲染失败时继续处理，为失败的页面插入占位符消息，而不是停止整个转换过程。
+你可以使用 `ignore_pdf_errors=True` 参数，在遇到单个页面渲染失败时继续处理，为失败的页面插入占位符消息，而不是停止整个转换过程。
 
 ## 相关开源库
 [epub-translator](https://github.com/oomol-lab/epub-translator) 利用 AI 大模型自动翻译 EPUB 电子书，并 100% 保留原书的格式、插图、目录和排版，同时生成 双语对照版本，方便语言学习或国际分享。与本库搭配，可将扫描 PDF 书籍转换并翻译。搭配使用可参考 [视频：PDF 扫描件书籍转 EPUB 格式，翻译成双语书](https://www.bilibili.com/video/BV1tMQZY5EYY)。
