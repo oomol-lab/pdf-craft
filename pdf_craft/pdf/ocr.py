@@ -6,6 +6,7 @@ from typing import Container, Generator
 from enum import auto, Enum
 from pathlib import Path
 from os import PathLike
+from PIL.Image import Image
 
 from ..common import save_xml, AssetHub
 from ..to_path import to_path
@@ -21,6 +22,7 @@ class OCREventKind(Enum):
     START = auto()
     IGNORE = auto()
     SKIP = auto()
+    RENDERED = auto()
     COMPLETE = auto()
     FAILED = auto()
 
@@ -127,11 +129,27 @@ class OCR:
                     if remain_output_tokens is not None and remain_output_tokens <= 0:
                         raise TokenLimitError()
 
+                    image: Image | None = None
                     page: Page
                     pdf_error: PDFError | None = None
 
                     try:
                         image = ref.render()
+                    except PDFError as error:
+                        if not ignore_pdf_errors:
+                            raise
+                        pdf_error = error
+
+                    if image is not None:
+                        elapsed_ms = int((time.perf_counter() - start_time) * 1000)
+                        yield OCREvent(
+                            kind=OCREventKind.RENDERED,
+                            page_index=ref.page_index,
+                            total_pages=pages_count,
+                            cost_time_ms=elapsed_ms,
+                            input_tokens=0,
+                            output_tokens=0,
+                        )
                         page = self._extractor.image2page(
                             image=image,
                             page_index=ref.page_index,
@@ -145,10 +163,7 @@ class OCR:
                             device_number=device_number,
                             aborted=aborted,
                         )
-                    except PDFError as error:
-                        if not ignore_pdf_errors:
-                            raise
-                        pdf_error = error
+                    else:
                         page = self._create_warn_page(
                             page_index=ref.page_index,
                             text=f"[[Page {ref.page_index} extraction failed due to PDF rendering error]]",
