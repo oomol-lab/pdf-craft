@@ -1,6 +1,7 @@
 from typing import Generator
 from os import PathLike
 from pathlib import Path
+from typing import Callable
 
 from ..common import AssetHub
 from ..metering import AbortedCheck
@@ -98,12 +99,12 @@ class PageRef:
     def extract(
             self,
             ocr_size: DeepSeekOCRSize,
-            includes_footnotes: bool = False,
-            includes_raw_image: bool = True,
-            plot_path: Path | None = None,
-            max_tokens: int | None = None,
-            max_output_tokens: int | None = None,
-            device_number: int | None = None,
+            includes_footnotes: bool,
+            includes_raw_image: bool,
+            plot_path: Path | None,
+            max_tokens: int | None,
+            max_output_tokens: int | None,
+            device_number: int | None,
         ) -> Page:
 
         try:
