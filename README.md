@@ -222,7 +222,7 @@ You can use `ignore_pdf_errors=True` to continue processing when individual page
 
 This project is licensed under the MIT License. See the [LICENSE](./LICENSE) file for details.
 
-Starting from v1.0.0, pdf-craft has fully migrated to DeepSeek OCR (MIT license), removing the previous AGPL-3.0 dependency, allowing the entire project to be released under the more permissive MIT license. Thanks to the community for their support and contributions!
+Starting from v1.0.0, pdf-craft has fully migrated to DeepSeek OCR (MIT license), removing the previous AGPL-3.0 dependency, allowing the entire project to be released under the more permissive MIT license. Note that pdf-craft has a transitive dependency on easydict (LGPLv3) via DeepSeek OCR. Thanks to the community for their support and contributions!
 
 ## Acknowledgments
 
