@@ -32,9 +32,11 @@
         "pylatexenc",
         "pylint",
         "pytest",
+        "SSOHH'mm",
         "torchvision",
         "venv",
         "virtualenvs",
+        "YYYYMMDDH",
         "Zeyu"
     ]
 }

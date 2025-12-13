@@ -27,7 +27,7 @@ class PageLayout:
     hash: str | None
 
 @dataclass
-class PDFDocumentMeta:
+class PDFDocumentMetadata:
     title: str | None
     description: str | None
     publisher: str | None
