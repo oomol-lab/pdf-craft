@@ -3,6 +3,7 @@ from os import PathLike
 from pathlib import Path
 from PIL import Image
 
+from .types import PDFDocumentMeta
 from ..error import PDFError
 
 
@@ -10,6 +11,9 @@ from ..error import PDFError
 class PDFDocument(Protocol):
     @property
     def pages_count(self) -> int:
+        ...
+
+    def meta(self) -> PDFDocumentMeta:
         ...
 
     def render_page(self, page_index: int, dpi: int) -> Image.Image:
