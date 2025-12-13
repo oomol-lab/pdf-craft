@@ -1,5 +1,6 @@
 from dataclasses import dataclass
 from typing import Literal
+from datetime import datetime
 from xml.etree.ElementTree import Element
 from PIL.Image import Image
 
@@ -25,6 +26,16 @@ class PageLayout:
     text: str
     hash: str | None
 
+@dataclass
+class PDFDocumentMetadata:
+    title: str | None
+    description: str | None
+    publisher: str | None
+    isbn: str | None
+    authors: list[str]
+    editors: list[str]
+    translators: list[str]
+    modified: datetime
 
 def decode(element: Element) -> Page:
     index = int(element.get("index", "0"))
