@@ -3,6 +3,7 @@ import sys
 import time
 
 from typing import Container, Generator
+from threading import Lock
 from enum import auto, Enum
 from pathlib import Path
 from os import PathLike
@@ -14,8 +15,8 @@ from ..error import PDFError
 from ..metering import check_aborted, AbortedCheck
 from .page_extractor import Page, PageLayout, PageExtractorNode
 from .page_ref import PageRefContext
-from .types import encode, DeepSeekOCRSize
-from .handler import PDFHandler
+from .types import encode, DeepSeekOCRSize, PDFDocumentMetadata
+from .handler import PDFHandler, DefaultPDFHandler
 
 
 class OCREventKind(Enum):
@@ -44,6 +45,7 @@ class OCR:
             local_only: bool,
         ) -> None:
         self._pdf_handler = pdf_handler
+        self._pdf_handler_lock = Lock()
         self._extractor = PageExtractorNode(
             model_path=to_path(model_path) if model_path is not None else None,
             local_only=local_only,
@@ -54,6 +56,13 @@ class OCR:
 
     def load_models(self) -> None:
         self._extractor.load_models()
+
+    def metadata(self, pdf_path: Path) -> PDFDocumentMetadata:
+        document = self._get_pdf_handler().open(pdf_path)
+        try:
+            return document.metadata()
+        finally:
+            document.close()
 
     def recognize(
             self,
@@ -86,7 +95,7 @@ class OCR:
 
         with PageRefContext(
             pdf_path=pdf_path,
-            pdf_handler=self._pdf_handler,
+            pdf_handler=self._get_pdf_handler(),
         ) as refs:
 
             pages_count = refs.pages_count
@@ -195,6 +204,15 @@ class OCR:
 
         if not did_ignore_any:
             done_path.touch()
+
+    def _get_pdf_handler(self) -> PDFHandler:
+        if self._pdf_handler is not None:
+            return self._pdf_handler
+
+        with self._pdf_handler_lock:
+            if self._pdf_handler is None:
+                self._pdf_handler = DefaultPDFHandler()
+            return self._pdf_handler
 
     def _create_warn_page(self, page_index: int, text: str) -> Page:
         page = Page(

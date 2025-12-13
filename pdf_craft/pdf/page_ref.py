@@ -30,10 +30,10 @@ class PageRefContext:
     def __init__(
             self,
             pdf_path: Path,
-            pdf_handler: PDFHandler | None,
+            pdf_handler: PDFHandler,
         ) -> None:
         self._pdf_path = pdf_path
-        self._pdf_handler: PDFHandler = pdf_handler if pdf_handler is not None else DefaultPDFHandler()
+        self._pdf_handler: PDFHandler = pdf_handler
         self._document: PDFDocument | None = None
 
     @property

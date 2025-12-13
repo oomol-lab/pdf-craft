@@ -109,14 +109,14 @@ class Transform:
         max_ocr_output_tokens: int | None = None,
         on_ocr_event: Callable[[OCREvent], None] = lambda _: None,
     ) -> OCRTokensMetering:  # pyright: ignore[reportReturnType]
-
         try:
             with EnsureFolder(
                 path=to_path(analysing_path) if analysing_path is not None else None,
             ) as analysing_path:
+                pdf_path = Path(pdf_path)
                 toc_path: Path | None = analysing_path / "toc.xml"
                 asserts_path, chapters_path, cover_path, metering = self._extract_from_pdf(
-                    pdf_path=Path(pdf_path),
+                    pdf_path=pdf_path,
                     analysing_path=analysing_path,
                     ocr_size=ocr_size,
                     includes_cover=includes_cover,
@@ -129,6 +129,7 @@ class Transform:
                     on_ocr_event=on_ocr_event,
                 )
                 toc_path = generate_toc_file(chapters_path, toc_path)
+                book_meta = book_meta or self._extract_book_meta(pdf_path)
 
                 render_epub_file(
                     chapters_path=chapters_path,
@@ -206,3 +207,16 @@ class Transform:
             chapters_path=chapters_path,
         )
         return asserts_path, chapters_path, cover_path, metering
+
+    def _extract_book_meta(self, pdf_path: Path) -> BookMeta:
+        pdf_metadata = self._ocr.metadata(pdf_path)
+        return BookMeta(
+            title=pdf_metadata.title or pdf_path.stem,
+            description=pdf_metadata.description,
+            publisher=pdf_metadata.publisher,
+            isbn=pdf_metadata.isbn,
+            authors=pdf_metadata.authors,
+            editors=pdf_metadata.editors,
+            translators=pdf_metadata.translators,
+            modified=pdf_metadata.modified,
+        )
