@@ -18,7 +18,7 @@ _ASSET_CAPTION_TAGS = tuple(f"{t}_caption" for t in ASSET_TAGS)
 # to see https://github.com/opendatalab/MinerU/blob/fa1149cd4abf9db5e0f13e4e074cdb568be189f4/mineru/utils/span_pre_proc.py#L247
 _LINE_STOP_FLAGS = (
     ".", "!", "?", "。", "！", "？", ")", "）", """, """, ";", "；",
-    "]", "】", "}", ">", "》", "、", ",", "，",
+    "]", "】", "}", ">", "》",
 )
 
 _LINE_CONTINUE_FLAGS = (
@@ -167,12 +167,12 @@ class Jointer:
         if first_char.isdigit():
             return False
 
-        # 条件3：下一个段落的第一个字符不是大写字母
+        # 条件4：下一个段落的第一个字符不是大写字母
         # 如果以大写字母开头，可能是新段落的开始（特别是英文）
         if first_char.isupper():
             return False
 
-        # 条件4：如果 para1 结尾是拉丁字母+"-"，para2 开头是拉丁字母，则允许合并（跨段单词拼接）
+        # 条件5：如果 para1 结尾是拉丁字母 + `-`，para2 开头是拉丁字母，则允许合并（跨段单词拼接）
         if is_latin_letter(text2[0]):
             if len(text1) >= 2 and text1[-1] in _LINK_FLAGS and \
                is_latin_letter(text1[-2]):
