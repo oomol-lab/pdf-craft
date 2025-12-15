@@ -47,6 +47,9 @@ class Jointer:
         last: _LastTail | None = None
 
         for page_index, raw_layouts in self._iter_layout_serials():
+            # 此处为完成如下业务要求：
+            # 1. 当阅读序列跨越 group（跨页、跨分栏、跨因图片而挤变形拆分的段落）时，必须对连接处验证。若它们是被拆分的自然段，则拼起来。
+            # 2. 因为插图、表格而拆分的自然段，需将插图存起来接到完整的自然段最后，而不是任其分割自然段。
             layouts = self._transform_and_join_asset_layouts(page_index, raw_layouts)
             head, body, tail = self._split_layouts(layouts)
 
