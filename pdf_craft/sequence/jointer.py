@@ -76,20 +76,21 @@ class Jointer:
                     yield from tail
                 continue
 
+            # 至此，连续吞并段落的流程遇阻而结束
             if last:
                 _normalize_paragraph_content(last.page_para)
                 yield last.page_para
                 yield from last.override
                 last = None
 
+            yield from head
             for i in range(len(body) - 1):
                 yield body[i]
 
-            if body:
-                last = _LastTail(
-                    page_para=cast(ParagraphLayout, body[-1]),
-                    override=tail,
-                )
+            last = _LastTail(
+                page_para=cast(ParagraphLayout, body[-1]),
+                override=list(tail),
+            )
 
         if last:
             _normalize_paragraph_content(last.page_para)
