@@ -1,4 +1,4 @@
-from typing import Iterable, Generator
+from typing import TypeVar, Generic, Iterable, Generator
 from dataclasses import dataclass
 from enum import auto, Enum
 
@@ -6,29 +6,52 @@ from ..pdf import PageLayout
 
 
 _MIN_SIZE_RATE = 0.15
+_T = TypeVar("_T")
 
 @dataclass
-class _Projection:
+class _Projection(Generic[_T]):
     center: float
     size: float
     weight: float
-    layout: PageLayout
+    payload: _T
 
 
 def split_reading_serials(raw_layouts: list[PageLayout]) -> Generator[list[PageLayout], None, None]:
     if not raw_layouts:
         return
 
-    projections: list[_Projection] = list()
-    for layout in raw_layouts:
-        x1, y1, x2, y2 = layout.det
-        projections.append(_Projection(
-            center=(x1 + x2) / 2,
-            size=x2 - x1,
-            weight=float(y2 - y1),
-            layout=layout,
-        ))
+    layout_pairs: list[tuple[int, int, PageLayout]] = [] # order, group_id, layout
+    for group_id, group_layouts in enumerate(_group_projections(raw_projections=(
+        _wrap_projection(order, layout)
+        for order, layout in enumerate(raw_layouts)
+    ))):
+        for order, layout in group_layouts:
+            layout_pairs.append((order, group_id, layout))
 
+    last_group_id = -1
+    layouts_buffer: list[PageLayout] = []
+    for _, group_id, layout in sorted(layout_pairs, key=lambda p: p[0]):
+        if group_id != last_group_id:
+            last_group_id = group_id
+            if layouts_buffer:
+                yield layouts_buffer
+                layouts_buffer = []
+        layouts_buffer.append(layout)
+
+    if layouts_buffer:
+        yield layouts_buffer
+
+def _wrap_projection(index: int, layout: PageLayout) -> _Projection[tuple[int, PageLayout]]:
+    x1, y1, x2, y2 = layout.det
+    return _Projection(
+        center=(x1 + x2) / 2,
+        size=x2 - x1,
+        weight=float(y2 - y1),
+        payload=(index, layout),
+    )
+
+def _group_projections(raw_projections: Iterable[_Projection[_T]]) -> Generator[list[_T], None, None]:
+    projections = list(raw_projections)
     avg_size = sum(p.size for p in projections) / len(projections)
     min_size_threshold = avg_size * _MIN_SIZE_RATE
 
@@ -49,10 +72,10 @@ def split_reading_serials(raw_layouts: list[PageLayout]) -> Generator[list[PageL
         for project in next_group:
             projections.remove(project)
         if next_group:
-            yield [p.layout for p in next_group]
+            yield [p.payload for p in next_group]
 
     if projections:
-        yield [p.layout for p in projections]
+        yield [p.payload for p in projections]
 
 
 @dataclass
