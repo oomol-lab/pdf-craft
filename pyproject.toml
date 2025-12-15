@@ -33,7 +33,7 @@ classifiers = [
 python = ">=3.10,<3.14"
 pdf2image = "^1.17.0"
 pypdf = "^6.4.1"
-doc-page-extractor = "==1.0.10"
+doc-page-extractor = "==1.0.11"
 epub-generator = "==0.1.2"
 pylatexenc = "^2.10"
 
