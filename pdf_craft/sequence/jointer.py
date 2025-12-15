@@ -1,6 +1,7 @@
+from dataclasses import dataclass
 import re
 
-from typing import Generator, Iterable
+from typing import cast, Generator, Iterable
 
 from ..expression import parse_latex_expressions, ExpressionKind, ParsedItem
 
@@ -33,51 +34,95 @@ _MARKDOWN_HEAD_PATTERN = re.compile(r"^#+\s+")
 _TABLE_PATTERN = re.compile(r"<table[^>]*>.*?</table>", re.IGNORECASE | re.DOTALL)
 
 
+@dataclass
+class _LastTail:
+    page_para: ParagraphLayout
+    override: list[AssetLayout]
+
 class Jointer:
     def __init__(self, layouts: Iterable[tuple[int, list[PageLayout]]]) -> None:
         self._layouts = layouts
 
     def execute(self) -> Generator[ParagraphLayout | AssetLayout, None, None]:
-        last_page_para: ParagraphLayout | None = None
+        last: _LastTail | None = None
+
         for page_index, raw_layouts in self._iter_layout_serials():
+            # 此处为完成如下业务要求：
+            # 1. 当阅读序列跨越 group（跨页、跨分栏、跨因图片而挤变形拆分的段落）时，必须对连接处验证。若它们是被拆分的自然段，则拼起来。
+            # 2. 因为插图、表格而拆分的自然段，需将插图存起来接到完整的自然段最后，而不是任其分割自然段。
             layouts = self._transform_and_join_asset_layouts(page_index, raw_layouts)
-            if not layouts:
-                continue
+            head, body, tail = self._split_layouts(layouts)
 
-            first_layout = layouts[0]
-            if (
-                last_page_para and isinstance(first_layout, ParagraphLayout) and \
-                self._can_merge_paragraphs(last_page_para, first_layout)
-            ):
-                last_page_para.lines.extend(first_layout.lines)
-                del layouts[0]
-
-            if not layouts:
-                continue
-
-            if last_page_para:
-                _normalize_paragraph_content(last_page_para)
-                yield last_page_para
-                last_page_para = None
-
-            for i in range(len(layouts) - 1):
-                yield layouts[i]
-
-            last_layout = layouts[-1]
-            if last_layout:
-                if isinstance(last_layout, ParagraphLayout):
-                    last_page_para = last_layout
+            if not body:
+                if last:
+                    last.override.extend(head)
+                    last.override.extend(tail)
                 else:
-                    yield last_layout
+                    yield from head
+                    yield from tail
+                continue
 
-        if last_page_para:
-            _normalize_paragraph_content(last_page_para)
-            yield last_page_para
+            first_layout = cast(ParagraphLayout, body[0])
+            if last and self._can_merge_paragraphs(last.page_para, first_layout):
+                last.page_para.lines.extend(first_layout.lines)
+                del body[0]
+
+            if not body:
+                if last:
+                    last.override.extend(head)
+                    last.override.extend(tail)
+                else:
+                    yield from head
+                    yield from tail
+                continue
+
+            # 至此，连续吞并段落的流程遇阻而结束
+            if last:
+                _normalize_paragraph_content(last.page_para)
+                yield last.page_para
+                yield from last.override
+                last = None
+
+            yield from head
+            for i in range(len(body) - 1):
+                yield body[i]
+
+            last = _LastTail(
+                page_para=cast(ParagraphLayout, body[-1]),
+                override=list(tail),
+            )
+
+        if last:
+            _normalize_paragraph_content(last.page_para)
+            yield last.page_para
+            yield from last.override
 
     def _iter_layout_serials(self) -> Generator[tuple[int, list[PageLayout]], None, None]:
         for page_index, raw_layouts in self._layouts:
             for layouts in split_reading_serials(raw_layouts):
                 yield page_index, layouts
+
+    def _split_layouts(self, layouts: list[ParagraphLayout | AssetLayout]):
+        head: list[AssetLayout] = []
+        tail: list[AssetLayout] = []
+
+        for layout in layouts:
+            if isinstance(layout, ParagraphLayout):
+                break
+            head.append(layout)
+
+        for i in range(len(layouts) - 1, -1, -1):
+            if i < len(head):
+                break
+            layout = layouts[i]
+            if isinstance(layout, ParagraphLayout):
+                break
+            tail.append(layout)
+
+        tail.reverse()
+        body = layouts[len(head):len(layouts) - len(tail)]
+
+        return head, body, tail
 
     def _transform_and_join_asset_layouts(self, page_index, layouts: list[PageLayout]):
         last_asset: AssetLayout | None = None
