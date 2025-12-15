@@ -15,7 +15,7 @@ def main() -> None:
         epub_path=analysing_dir_path / "output.epub",
         analysing_path=analysing_dir_path,
         models_cache_path=project_root / "models-cache",
-        includes_footnotes=True,
+        # includes_footnotes=True,
         generate_plot=True,
         table_render=TableRender.HTML,
         latex_render=LaTeXRender.MATHML,
