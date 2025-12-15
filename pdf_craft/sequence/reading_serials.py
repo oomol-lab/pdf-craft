@@ -64,7 +64,7 @@ class _Rect:
 def _find_valleys(rectangles: Iterable[_Rect]):
     window: list[tuple[float, float]] = []
     prev_class: _WindowClass = _WindowClass.OTHER
-    flat_list: list[float] = []
+    flat_buffer: list[float] = []
 
     for rect in _histograms(rectangles):
         center = (rect.left + rect.right) / 2
@@ -75,31 +75,27 @@ def _find_valleys(rectangles: Iterable[_Rect]):
             continue
         prev, curr, next = window # pylint: disable=unbalanced-tuple-unpacking
         clazz = _classify_window(prev, curr, next)
-        if clazz == _WindowClass.TOUCHED_GROUND:
-            flat_list = [curr[0]]
+        keep_buffer = False
 
+        if clazz == _WindowClass.TOUCHED_GROUND:
+            flat_buffer = [curr[0]]
+            keep_buffer = True
         elif clazz == _WindowClass.LEFT_GROUND:
             if prev_class in (_WindowClass.TOUCHED_GROUND, _WindowClass.FLAT_GROUND):
-                flat_list.append(curr[0])
-                yield sum(flat_list) / len(flat_list)
-            elif flat_list:
-                flat_list = []
-
+                flat_buffer.append(curr[0])
+                yield sum(flat_buffer) / len(flat_buffer)
         elif clazz == _WindowClass.FLAT_GROUND:
-            if prev_class == _WindowClass.TOUCHED_GROUND:
-                flat_list.append(curr[0])
-            elif prev_class == _WindowClass.FLAT_GROUND and flat_list:
-                flat_list.append(curr[0])
-            elif flat_list:
-                flat_list = []
-
+            if prev_class == _WindowClass.TOUCHED_GROUND or (
+               prev_class == _WindowClass.FLAT_GROUND and flat_buffer
+            ):
+                flat_buffer.append(curr[0])
+                keep_buffer = True
         elif clazz == _WindowClass.AT_VALLEY:
             yield curr[0]
-            if flat_list:
-                flat_list = []
-        elif flat_list:
-            flat_list = []
+
         prev_class = clazz
+        if not keep_buffer and flat_buffer:
+            flat_buffer = []
 
 
 def _histograms(raw_rectangles: Iterable[_Rect]):
