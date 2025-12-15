@@ -360,48 +360,67 @@ def _find_closing_tag(input: str, start_pos: int, tag_name: str) -> int:
     """
     Find the matching closing tag for a given tag name.
 
-    This is a simplified version that doesn't handle nested tags of the same name.
-    A complete implementation would need to track nesting depth.
+    Handles nested tags of the same name and case-insensitive matching.
     """
-    closing_tag = f"</{tag_name}"
+    closing_tag_lower = f"</{tag_name.lower()}"
+    opening_tag_lower = f"<{tag_name.lower()}"
     pos = start_pos
     depth = 1
 
     while pos < len(input):
-        # Look for opening or closing tags of the same name
-        next_open = input.find(f"<{tag_name}", pos)
-        next_close = input.find(closing_tag, pos)
+        # Look for opening or closing tags of the same name (case-insensitive)
+        next_open = -1
+        next_close = -1
 
-        # Make sure we're finding actual tags, not just substrings
-        if next_close != -1:
-            # Verify it's a complete closing tag
-            after_tag = next_close + len(closing_tag)
-            if after_tag < len(input):
-                next_char = input[after_tag]
-                if next_char in " \t\n\r>":
-                    # Valid closing tag
-                    depth -= 1
-                    if depth == 0:
-                        return next_close
-                    pos = after_tag
-                    continue
-
-        # Check for opening tag
-        if next_open != -1 and (next_close == -1 or next_open < next_close):
+        # Search for next opening tag (case-insensitive)
+        search_pos = pos
+        while search_pos < len(input):
+            found = input[search_pos:].lower().find(opening_tag_lower)
+            if found == -1:
+                break
+            candidate_pos = search_pos + found
             # Verify it's a complete opening tag
-            after_tag = next_open + len(f"<{tag_name}")
+            after_tag = candidate_pos + len(opening_tag_lower)
             if after_tag < len(input):
                 next_char = input[after_tag]
                 if next_char in " \t\n\r>/":
-                    # Valid opening tag
-                    depth += 1
-                    pos = after_tag
-                    continue
+                    next_open = candidate_pos
+                    break
+            search_pos = candidate_pos + 1
 
-        # Move forward
-        if next_close != -1:
-            pos = next_close + 1
+        # Search for next closing tag (case-insensitive)
+        search_pos = pos
+        while search_pos < len(input):
+            found = input[search_pos:].lower().find(closing_tag_lower)
+            if found == -1:
+                break
+            candidate_pos = search_pos + found
+            # Verify it's a complete closing tag
+            after_tag = candidate_pos + len(closing_tag_lower)
+            if after_tag < len(input):
+                next_char = input[after_tag]
+                if next_char in " \t\n\r>":
+                    next_close = candidate_pos
+                    break
+            elif after_tag == len(input):
+                # End of input, assume it needs '>'
+                next_close = -1
+                break
+            search_pos = candidate_pos + 1
+
+        # Process the nearest tag
+        if next_close != -1 and (next_open == -1 or next_close < next_open):
+            # Found closing tag
+            depth -= 1
+            if depth == 0:
+                return next_close
+            pos = next_close + len(closing_tag_lower)
+        elif next_open != -1:
+            # Found opening tag
+            depth += 1
+            pos = next_open + len(opening_tag_lower)
         else:
+            # No more tags found
             break
 
     return -1
