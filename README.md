@@ -5,6 +5,7 @@
     <a href="https://pypi.org/project/pdf-craft/" target="_blank"><img src="https://img.shields.io/badge/pip_install-pdf--craft-blue" alt="pip install pdf-craft" /></a>
     <a href="https://pypi.org/project/pdf-craft/" target="_blank"><img src="https://img.shields.io/pypi/v/pdf-craft.svg" alt"pypi pdf-craft" /></a>
     <a href="https://pypi.org/project/pdf-craft/" target="_blank"><img src="https://img.shields.io/pypi/pyversions/pdf-craft.svg" alt="python versions" /></a>
+    <a href="https://deepwiki.com/oomol-lab/pdf-craft" target="_blank"><img src="https://deepwiki.com/badge.svg" alt="Ask DeepWiki" /></a>
     <a href="https://github.com/oomol-lab/pdf-craft/blob/main/LICENSE" target="_blank"><img src="https://img.shields.io/github/license/oomol-lab/pdf-craft" alt"license" /></a>
   </p>
   <p><a href="https://hub.oomol.com/package/pdf-craft?open=true" target="_blank"><img src="https://static.oomol.com/assets/button.svg" alt="Open in OOMOL Studio" /></a></p>
@@ -216,6 +217,7 @@ If not specified, pdf-craft will use Poppler from your system PATH. For advanced
 You can use `ignore_pdf_errors=True` to continue processing when individual pages fail to render, inserting a placeholder message for failed pages instead of stopping the entire conversion.
 
 ## Related Open Source Libraries
+
 [epub-translator](https://github.com/oomol-lab/epub-translator) uses AI large language models to automatically translate EPUB e-books while 100% preserving the original book's format, illustrations, table of contents, and layout. It also generates bilingual versions for convenient language learning or international sharing. When combined with this library, you can convert and translate scanned PDF books. For a demonstration, see this [video: Convert PDF scanned books to EPUB format and translate to bilingual books](https://www.bilibili.com/video/BV1tMQZY5EYY).
 
 ## License
