@@ -2,11 +2,13 @@ from pathlib import Path
 from pdf_craft import transform_markdown, OCREventKind
 
 
+_IMAGE_STEM = "friendly"
+
 def main() -> None:
     project_root = Path(__file__).parent.parent
     assets_dir_path = project_root / "tests" / "assets"
     analysing_dir_path = project_root / "analysing"
-    pdf_file_name = "table&formula.pdf"
+    pdf_file_name = f"{_IMAGE_STEM}.pdf"
 
     transform_markdown(
         pdf_path=assets_dir_path / pdf_file_name,
