@@ -6,7 +6,7 @@ from ..pdf import PageLayout
 
 
 _T = TypeVar("_T")
-_CV = 0.1
+_CV = 0.1 # Coefficient of Variation
 
 _MIN_SIZE_RATE = 0.15
 
@@ -222,17 +222,11 @@ def _split_projections_by_size_cv(projections: list[_Projection[_T]], max_cv: fl
 
 
 def _calculate_cv(values: list[float]) -> float:
-    """
-    计算变异系数（Coefficient of Variation）：CV = std / mean
-    """
     if not values or len(values) < 2:
         return 0.0
-
     mean = sum(values) / len(values)
     if mean == 0:
-        return float('inf')
-
+        return float("inf")
     variance = sum((x - mean) ** 2 for x in values) / len(values)
     std = variance ** 0.5
-
     return std / mean
