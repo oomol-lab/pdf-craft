@@ -1,6 +1,6 @@
 import re
 
-from typing import Generator, Iterable
+from typing import cast, Generator, Iterable
 
 from ..expression import parse_latex_expressions, ExpressionKind, ParsedItem
 
@@ -39,45 +39,74 @@ class Jointer:
 
     def execute(self) -> Generator[ParagraphLayout | AssetLayout, None, None]:
         last_page_para: ParagraphLayout | None = None
+        last_override: list[AssetLayout] = []
+
         for page_index, raw_layouts in self._iter_layout_serials():
             layouts = self._transform_and_join_asset_layouts(page_index, raw_layouts)
-            if not layouts:
+            head, body, tail = self._split_layouts(layouts)
+            print(len(head), len(body), len(tail))
+
+            if not body:
+                last_override.extend(head)
+                last_override.extend(tail)
                 continue
 
-            first_layout = layouts[0]
-            if (
-                last_page_para and isinstance(first_layout, ParagraphLayout) and \
-                self._can_merge_paragraphs(last_page_para, first_layout)
-            ):
+            first_layout = cast(ParagraphLayout, body[0])
+            if last_page_para and self._can_merge_paragraphs(last_page_para, first_layout):
                 last_page_para.lines.extend(first_layout.lines)
-                del layouts[0]
+                del body[0]
 
-            if not layouts:
+            if not body:
+                last_override.extend(head)
+                last_override.extend(tail)
                 continue
 
             if last_page_para:
                 _normalize_paragraph_content(last_page_para)
                 yield last_page_para
+                yield from last_override
                 last_page_para = None
+                if last_override:
+                    last_override = []
 
-            for i in range(len(layouts) - 1):
-                yield layouts[i]
+            for i in range(len(body) - 1):
+                yield body[i]
 
-            last_layout = layouts[-1]
-            if last_layout:
-                if isinstance(last_layout, ParagraphLayout):
-                    last_page_para = last_layout
-                else:
-                    yield last_layout
+            if body:
+                last_page_para = cast(ParagraphLayout, body[-1])
+                last_override = tail
 
         if last_page_para:
             _normalize_paragraph_content(last_page_para)
             yield last_page_para
+            yield from last_override
 
     def _iter_layout_serials(self) -> Generator[tuple[int, list[PageLayout]], None, None]:
         for page_index, raw_layouts in self._layouts:
             for layouts in split_reading_serials(raw_layouts):
                 yield page_index, layouts
+
+    def _split_layouts(self, layouts: list[ParagraphLayout | AssetLayout]):
+        head: list[AssetLayout] = []
+        tail: list[AssetLayout] = []
+
+        for layout in layouts:
+            if isinstance(layout, ParagraphLayout):
+                break
+            head.append(layout)
+
+        for i in range(len(layouts) - 1, -1, -1):
+            if i < len(head):
+                break
+            layout = layouts[i]
+            if isinstance(layout, ParagraphLayout):
+                break
+            tail.append(layout)
+
+        tail.reverse()
+        body = layouts[len(head):len(layouts) - len(tail)]
+
+        return head, body, tail
 
     def _transform_and_join_asset_layouts(self, page_index, layouts: list[PageLayout]):
         last_asset: AssetLayout | None = None
