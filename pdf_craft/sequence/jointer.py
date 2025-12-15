@@ -157,7 +157,7 @@ class Jointer:
             return False
 
         # 条件2：前一个段落结束的符号明显表明句子未结束，则必须合并
-        if text2_stripped.endswith(_LINE_CONTINUE_FLAGS):
+        if text1_stripped.endswith(_LINE_CONTINUE_FLAGS):
             return True
 
         first_char = text2_stripped[0]
