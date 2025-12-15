@@ -1,3 +1,4 @@
+from dataclasses import dataclass
 import re
 
 from typing import cast, Generator, Iterable
@@ -33,61 +34,64 @@ _MARKDOWN_HEAD_PATTERN = re.compile(r"^#+\s+")
 _TABLE_PATTERN = re.compile(r"<table[^>]*>.*?</table>", re.IGNORECASE | re.DOTALL)
 
 
+@dataclass
+class _LastTail:
+    page_para: ParagraphLayout
+    override: list[AssetLayout]
+
 class Jointer:
     def __init__(self, layouts: Iterable[tuple[int, list[PageLayout]]]) -> None:
         self._layouts = layouts
 
     def execute(self) -> Generator[ParagraphLayout | AssetLayout, None, None]:
-        last_page_para: ParagraphLayout | None = None
-        last_override: list[AssetLayout] = []
+        last: _LastTail | None = None
 
         for page_index, raw_layouts in self._iter_layout_serials():
             layouts = self._transform_and_join_asset_layouts(page_index, raw_layouts)
             head, body, tail = self._split_layouts(layouts)
 
             if not body:
-                if last_page_para:
-                    last_override.extend(head)
-                    last_override.extend(tail)
+                if last:
+                    last.override.extend(head)
+                    last.override.extend(tail)
                 else:
                     yield from head
                     yield from tail
                 continue
 
             first_layout = cast(ParagraphLayout, body[0])
-            if last_page_para and self._can_merge_paragraphs(last_page_para, first_layout):
-                last_page_para.lines.extend(first_layout.lines)
+            if last and self._can_merge_paragraphs(last.page_para, first_layout):
+                last.page_para.lines.extend(first_layout.lines)
                 del body[0]
 
             if not body:
-                if last_page_para:
-                    last_override.extend(head)
-                    last_override.extend(tail)
+                if last:
+                    last.override.extend(head)
+                    last.override.extend(tail)
                 else:
                     yield from head
                     yield from tail
                 continue
 
-            if last_page_para:
-                _normalize_paragraph_content(last_page_para)
-                yield last_page_para
-                yield from last_override
-                last_page_para = None
-                if last_override:
-                    last_override = []
+            if last:
+                _normalize_paragraph_content(last.page_para)
+                yield last.page_para
+                yield from last.override
+                last = None
 
             for i in range(len(body) - 1):
                 yield body[i]
 
             if body:
-                last_page_para = cast(ParagraphLayout, body[-1])
-                last_override = tail
+                last = _LastTail(
+                    page_para=cast(ParagraphLayout, body[-1]),
+                    override=tail,
+                )
 
-        if last_page_para:
-            _normalize_paragraph_content(last_page_para)
-            yield last_page_para
-
-        yield from last_override
+        if last:
+            _normalize_paragraph_content(last.page_para)
+            yield last.page_para
+            yield from last.override
 
     def _iter_layout_serials(self) -> Generator[tuple[int, list[PageLayout]], None, None]:
         for page_index, raw_layouts in self._layouts:
