@@ -6,6 +6,7 @@ from ..pdf import PageLayout
 
 
 _MIN_SIZE_RATE = 0.15
+_CV = 0.1
 _T = TypeVar("_T")
 
 @dataclass
@@ -68,10 +69,6 @@ def _wrap_projection(index: int, layout: PageLayout) -> _Projection[tuple[int, P
     )
 
 def _group_projects(raw_projections: Iterable[_Projection[_T]]) -> Generator[list[_T], None, None]:
-    for columes in _split_projections_into_columes(raw_projections):
-        yield columes
-
-def _split_projections_into_columes(raw_projections: Iterable[_Projection[_T]]) -> Generator[list[_T], None, None]:
     projections = list(raw_projections)
     avg_size = sum(p.size for p in projections) / len(projections)
     min_size_threshold = avg_size * _MIN_SIZE_RATE
@@ -93,10 +90,12 @@ def _split_projections_into_columes(raw_projections: Iterable[_Projection[_T]]) 
         for project in next_group:
             projections.remove(project)
         if next_group:
-            yield [p.payload for p in next_group]
+            for sub_group in _split_projections_by_size_cv(next_group):
+                yield [p.payload for p in sub_group]
 
     if projections:
-        yield [p.payload for p in projections]
+        for sub_group in _split_projections_by_size_cv(projections):
+            yield [p.payload for p in sub_group]
 
 
 @dataclass
@@ -187,3 +186,80 @@ def _classify_window(
         return _WindowClass.AT_VALLEY
     else:
         return _WindowClass.OTHER
+
+
+def _split_projections_by_size_cv(projections: list[_Projection[_T]], max_cv: float = _CV):
+    """
+    按 size 的变异系数（CV = std/mean）将投影分组。
+    如果整组的 CV > max_cv，则通过寻找最大 size 差距来切分，递归处理每个子组。
+
+    算法：
+    1. 计算整组的 CV
+    2. 如果 CV <= max_cv，直接 yield
+    3. 如果 CV > max_cv：
+       - 按 size 排序
+       - 找到相邻元素间最大的差距
+       - 在该处切分成两组
+       - 递归处理每个子组
+    """
+    if len(projections) < 3:
+        # 少于 3 个元素时，标准差意义不大，直接返回
+        yield projections
+        return
+
+    # 提取每个投影的 size
+    sizes = [p.size for p in projections]
+
+    cv = _calculate_cv(sizes)
+
+    if cv <= max_cv:
+        # CV 满足要求，直接返回
+        yield projections
+    else:
+        # CV 超标，需要切分
+        # 按 size 排序，同时保持原始 projections 的对应关系
+        sorted_items = sorted(zip(sizes, projections), key=lambda x: x[0])
+
+        if len(sorted_items) < 2:
+            yield projections
+            return
+
+        # 计算相邻元素的 size 差距
+        gaps = []
+        for i in range(len(sorted_items) - 1):
+            gap = sorted_items[i + 1][0] - sorted_items[i][0]
+            gaps.append((gap, i))
+
+        if not gaps:
+            yield projections
+            return
+
+        # 找到最大差距的位置
+        _, split_index = max(gaps, key=lambda x: x[0])
+
+        # 在最大差距处切分
+        group1 = [proj for _, proj in sorted_items[:split_index + 1]]
+        group2 = [proj for _, proj in sorted_items[split_index + 1:]]
+
+        # 递归处理两个子组
+        if group1:
+            yield from _split_projections_by_size_cv(group1, max_cv)
+        if group2:
+            yield from _split_projections_by_size_cv(group2, max_cv)
+
+
+def _calculate_cv(values: list[float]) -> float:
+    """
+    计算变异系数（Coefficient of Variation）：CV = std / mean
+    """
+    if not values or len(values) < 2:
+        return 0.0
+
+    mean = sum(values) / len(values)
+    if mean == 0:
+        return float('inf')
+
+    variance = sum((x - mean) ** 2 for x in values) / len(values)
+    std = variance ** 0.5
+
+    return std / mean
