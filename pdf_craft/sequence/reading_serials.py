@@ -1,5 +1,6 @@
-from typing import Iterable
+from typing import Iterable, Generator
 from dataclasses import dataclass
+from enum import auto, Enum
 
 from ..pdf import PageLayout
 
@@ -14,12 +15,11 @@ class _Projection:
     layout: PageLayout
 
 
-def split_reading_serials(raw_layouts: list[PageLayout]) -> list[list[PageLayout]]:
+def split_reading_serials(raw_layouts: list[PageLayout]) -> Generator[list[PageLayout], None, None]:
     if not raw_layouts:
-        return []
+        return
 
-    projections: list[_Projection] = []
-
+    projections: list[_Projection] = list()
     for layout in raw_layouts:
         x1, y1, x2, y2 = layout.det
         projections.append(_Projection(
@@ -29,82 +29,30 @@ def split_reading_serials(raw_layouts: list[PageLayout]) -> list[list[PageLayout
             layout=layout,
         ))
 
-    # 1. 预处理：避免毛刺
     avg_size = sum(p.size for p in projections) / len(projections)
     min_size_threshold = avg_size * _MIN_SIZE_RATE
 
-    rectangles = []
+    rectangles: list[_Rect] = []
     for p in projections:
-        size = max(p.size, min_size_threshold)
+        size = max(p.size, min_size_threshold) # 避免毛刺
         rectangles.append(_Rect(
             left=p.center - size / 2,
             right=p.center + size / 2,
             height=p.weight
         ))
 
-    # 2. 使用 _histograms 标准化为直方图段
-    histogram_segments = list(_histograms(rectangles))
+    for valley in _find_valleys(rectangles):
+        next_group: list[_Projection] = []
+        for projection in projections:
+            if projection.center < valley:
+                next_group.append(projection)
+        for project in next_group:
+            projections.remove(project)
+        if next_group:
+            yield [p.layout for p in next_group]
 
-    # 3. 找峰和谷（基于段的高度）
-    valleys_idx = []
-    peaks_idx = []
-
-    for i in range(1, len(histogram_segments) - 1):
-        curr_h = histogram_segments[i].height
-        prev_h = histogram_segments[i - 1].height
-        next_h = histogram_segments[i + 1].height
-
-        if curr_h < prev_h and curr_h < next_h:
-            valleys_idx.append(i)
-        elif curr_h > prev_h and curr_h > next_h:
-            peaks_idx.append(i)
-
-    # 4. 过滤谷值：只保留两侧都有显著峰的谷
-    if not valleys_idx or not peaks_idx:
-        return [[p.layout for p in projections]]
-
-    max_height = max(seg.height for seg in histogram_segments)
-    peak_threshold = max_height * 0.2
-    peaks_set = set(peaks_idx)
-
-    filtered_valleys = []
-    for valley_idx in valleys_idx:
-        # 找左侧最近的峰
-        left_peak_height = 0
-        for i in range(valley_idx - 1, -1, -1):
-            if i in peaks_set:
-                left_peak_height = histogram_segments[i].height
-                break
-
-        # 找右侧最近的峰
-        right_peak_height = 0
-        for i in range(valley_idx + 1, len(histogram_segments)):
-            if i in peaks_set:
-                right_peak_height = histogram_segments[i].height
-                break
-
-        # 两侧都有显著的峰
-        if left_peak_height > peak_threshold and right_peak_height > peak_threshold:
-            filtered_valleys.append(valley_idx)
-
-    if not filtered_valleys:
-        return [[p.layout for p in projections]]
-
-    # 5. 将谷的位置转换为 x 坐标边界（使用谷段的中心）
-    import bisect
-
-    boundaries = sorted([
-        (histogram_segments[idx].left + histogram_segments[idx].right) / 2
-        for idx in filtered_valleys
-    ])
-
-    # 6. 分组
-    groups: list[list[PageLayout]] = [[] for _ in range(len(boundaries) + 1)]
-    for p in projections:
-        group_idx = bisect.bisect_right(boundaries, p.center)
-        groups[group_idx].append(p.layout)
-
-    return [g for g in groups if g]
+    if projections:
+        yield [p.layout for p in projections]
 
 
 @dataclass
@@ -112,6 +60,47 @@ class _Rect:
     left: float
     right: float
     height: float
+
+def _find_valleys(rectangles: Iterable[_Rect]):
+    window: list[tuple[float, float]] = []
+    prev_class: _WindowClass = _WindowClass.OTHER
+    flat_list: list[float] = []
+
+    for rect in _histograms(rectangles):
+        center = (rect.left + rect.right) / 2
+        window.append((center, rect.height))
+        if len(window) > 3:
+            window.pop(0)
+        if len(window) != 3:
+            continue
+        prev, curr, next = window # pylint: disable=unbalanced-tuple-unpacking
+        clazz = _classify_window(prev, curr, next)
+        if clazz == _WindowClass.TOUCHED_GROUND:
+            flat_list = [curr[0]]
+
+        elif clazz == _WindowClass.LEFT_GROUND:
+            if prev_class in (_WindowClass.TOUCHED_GROUND, _WindowClass.FLAT_GROUND):
+                flat_list.append(curr[0])
+                yield sum(flat_list) / len(flat_list)
+            elif flat_list:
+                flat_list = []
+
+        elif clazz == _WindowClass.FLAT_GROUND:
+            if prev_class == _WindowClass.TOUCHED_GROUND:
+                flat_list.append(curr[0])
+            elif prev_class == _WindowClass.FLAT_GROUND and flat_list:
+                flat_list.append(curr[0])
+            elif flat_list:
+                flat_list = []
+
+        elif clazz == _WindowClass.AT_VALLEY:
+            yield curr[0]
+            if flat_list:
+                flat_list = []
+        elif flat_list:
+            flat_list = []
+        prev_class = clazz
+
 
 def _histograms(raw_rectangles: Iterable[_Rect]):
     rectangles = list(raw_rectangles)
@@ -132,3 +121,29 @@ def _histograms(raw_rectangles: Iterable[_Rect]):
                 height=rect.height
             )
             forbidden = right
+
+class _WindowClass(Enum):
+    TOUCHED_GROUND = auto()
+    LEFT_GROUND = auto()
+    FLAT_GROUND = auto()
+    AT_VALLEY = auto()
+    OTHER = auto()
+
+def _classify_window(
+        prev: tuple[float, float],
+        curr: tuple[float, float],
+        next: tuple[float, float],
+    ) -> _WindowClass:
+    _, prev_h = prev
+    _, curr_h = curr
+    _, next_h = next
+    if prev_h > curr_h and curr_h == next_h:
+        return _WindowClass.TOUCHED_GROUND
+    elif prev_h == curr_h and curr_h < next_h:
+        return _WindowClass.LEFT_GROUND
+    elif prev_h == curr_h and curr_h == next_h:
+        return _WindowClass.FLAT_GROUND
+    elif prev_h > curr_h < next_h:
+        return _WindowClass.AT_VALLEY
+    else:
+        return _WindowClass.OTHER
