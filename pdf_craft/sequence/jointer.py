@@ -17,8 +17,16 @@ _ASSET_CAPTION_TAGS = tuple(f"{t}_caption" for t in ASSET_TAGS)
 
 # to see https://github.com/opendatalab/MinerU/blob/fa1149cd4abf9db5e0f13e4e074cdb568be189f4/mineru/utils/span_pre_proc.py#L247
 _LINE_STOP_FLAGS = (
-    ".", "!", "?", "。", "！", "？", ")", "）", """, """, ":", "：", ";", "；",
-    "]", "】", "}", "}", ">", "》", "、", ",", "，", "-", "—", "–",
+    ".", "!", "?", "。", "！", "？", ")", "）", """, """, ";", "；",
+    "]", "】", "}", ">", "》", "、", ",", "，",
+)
+
+_LINE_CONTINUE_FLAGS = (
+    ":", "：", "[", "【", "{", "<", "《", "、", ",", "，",
+)
+
+_LINK_FLAGS = (
+    "-", "—", "–",
 )
 
 _MARKDOWN_HEAD_PATTERN = re.compile(r"^#+\s+")
@@ -37,8 +45,10 @@ class Jointer:
                 continue
 
             first_layout = layouts[0]
-            if last_page_para and isinstance(first_layout, ParagraphLayout) and \
-            self._can_merge_paragraphs(last_page_para, first_layout):
+            if (
+                last_page_para and isinstance(first_layout, ParagraphLayout) and \
+                self._can_merge_paragraphs(last_page_para, first_layout)
+            ):
                 last_page_para.lines.extend(first_layout.lines)
                 del layouts[0]
 
@@ -128,8 +138,8 @@ class Jointer:
 
         line1 = para1.lines[-1]
         line2 = para2.lines[0]
-        det1, text1 = line1.det, _line_text(line1)
-        det2, text2 = line2.det, _line_text(line2)
+        _, text1 = line1.det, _line_text(line1)
+        _, text2 = line2.det, _line_text(line2)
 
         if not text1 or not text2:
             return False
@@ -142,19 +152,13 @@ class Jointer:
         if not text2_stripped:
             return False
 
-        # 条件1：前一个段落的末尾不以句尾符号结尾
-        # 如果以句尾符号结尾，说明是完整段落，不应合并
+        # 条件1：前一个段落如果以句尾符号结尾，说明是完整段落，不应合并
         if text1_stripped.endswith(_LINE_STOP_FLAGS):
             return False
 
-        layout_width1 = det1[2] - det1[0]
-        layout_width2 = det2[2] - det2[0]
-
-        # 条件2：两个段落的宽度相似
-        # 差异不应超过较小宽度
-        min_layout_width = min(layout_width1, layout_width2)
-        if abs(layout_width1 - layout_width2) >= min_layout_width:
-            return False
+        # 条件2：前一个段落结束的符号明显表明句子未结束，则必须合并
+        if text2_stripped.endswith(_LINE_CONTINUE_FLAGS):
+            return True
 
         first_char = text2_stripped[0]
 
@@ -163,14 +167,18 @@ class Jointer:
         if first_char.isdigit():
             return False
 
-        # 条件4：下一个段落的第一个字符不是大写字母
+        # 条件3：下一个段落的第一个字符不是大写字母
         # 如果以大写字母开头，可能是新段落的开始（特别是英文）
         if first_char.isupper():
             return False
 
-        # 条件5：如果 para1 结尾是拉丁字母+"-"，para2 开头是拉丁字母，则允许合并（跨段单词拼接）
-        if _is_splitted_word(text1, text2):
-            return True
+        # 条件4：如果 para1 结尾是拉丁字母+"-"，para2 开头是拉丁字母，则允许合并（跨段单词拼接）
+        if is_latin_letter(text2[0]):
+            if len(text1) >= 2 and text1[-1] in _LINK_FLAGS and \
+               is_latin_letter(text1[-2]):
+                return True
+            if is_latin_letter(text1[-1]):
+                return False
 
         return True
 
