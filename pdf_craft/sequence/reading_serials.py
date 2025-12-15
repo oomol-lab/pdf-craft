@@ -38,7 +38,7 @@ def split_reading_serials(raw_layouts: list[PageLayout]) -> Generator[list[PageL
         return
 
     layout_pairs: list[tuple[int, int, PageLayout]] = [] # order, group_id, layout
-    for group_id, group_layouts in enumerate(_group_projections(raw_projections=(
+    for group_id, group_layouts in enumerate(_group_projects(raw_projections=(
         _wrap_projection(order, layout)
         for order, layout in enumerate(raw_layouts)
     ))):
@@ -67,7 +67,11 @@ def _wrap_projection(index: int, layout: PageLayout) -> _Projection[tuple[int, P
         payload=(index, layout),
     )
 
-def _group_projections(raw_projections: Iterable[_Projection[_T]]) -> Generator[list[_T], None, None]:
+def _group_projects(raw_projections: Iterable[_Projection[_T]]) -> Generator[list[_T], None, None]:
+    for columes in _split_projections_into_columes(raw_projections):
+        yield columes
+
+def _split_projections_into_columes(raw_projections: Iterable[_Projection[_T]]) -> Generator[list[_T], None, None]:
     projections = list(raw_projections)
     avg_size = sum(p.size for p in projections) / len(projections)
     min_size_threshold = avg_size * _MIN_SIZE_RATE
