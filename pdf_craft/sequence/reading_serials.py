@@ -5,9 +5,11 @@ from enum import auto, Enum
 from ..pdf import PageLayout
 
 
-_MIN_SIZE_RATE = 0.15
-_CV = 0.1
 _T = TypeVar("_T")
+_CV = 0.1
+
+_MIN_CV_CHECKING_COUNT = 3
+_MIN_SIZE_RATE = 0.15
 
 @dataclass
 class _Projection(Generic[_T]):
@@ -31,6 +33,7 @@ def split_reading_serials(raw_layouts: list[PageLayout]) -> Generator[list[PageL
     2. 构建加权直方图（高度作为权重，避免小字符干扰）
     3. 分析直方图的波峰和波谷：波峰对应列中心，波谷对应列间隙
     4. 在显著的波谷处切分，将文字块分配到对应的列组
+    5. 对每一列进一步切分，保证 CV （标准差 / 平均值）在合理范围，此步骤用于被图片挤压的文字块
 
     输入：原始的 layout 列表（从 OCR 获取，按页面位置无序）
     输出：按列分组的 layout 生成器，每组代表一列中的文字块
@@ -189,63 +192,41 @@ def _classify_window(
 
 
 def _split_projections_by_size_cv(projections: list[_Projection[_T]], max_cv: float = _CV):
-    """
-    按 size 的变异系数（CV = std/mean）将投影分组。
-    如果整组的 CV > max_cv，则通过寻找最大 size 差距来切分，递归处理每个子组。
-
-    算法：
-    1. 计算整组的 CV
-    2. 如果 CV <= max_cv，直接 yield
-    3. 如果 CV > max_cv：
-       - 按 size 排序
-       - 找到相邻元素间最大的差距
-       - 在该处切分成两组
-       - 递归处理每个子组
-    """
-    if len(projections) < 3:
-        # 少于 3 个元素时，标准差意义不大，直接返回
+    if len(projections) < _MIN_CV_CHECKING_COUNT:
+        # 元素过少计算 CV 没有统计学意义
         yield projections
         return
 
-    # 提取每个投影的 size
     sizes = [p.size for p in projections]
-
     cv = _calculate_cv(sizes)
 
     if cv <= max_cv:
-        # CV 满足要求，直接返回
         yield projections
-    else:
-        # CV 超标，需要切分
-        # 按 size 排序，同时保持原始 projections 的对应关系
-        sorted_items = sorted(zip(sizes, projections), key=lambda x: x[0])
+        return
 
-        if len(sorted_items) < 2:
-            yield projections
-            return
+    sorted_items = sorted(zip(sizes, projections), key=lambda x: x[0])
+    if len(sorted_items) < _MIN_CV_CHECKING_COUNT:
+        yield projections
+        # 元素过少计算 CV 没有统计学意义
+        return
 
-        # 计算相邻元素的 size 差距
-        gaps = []
-        for i in range(len(sorted_items) - 1):
-            gap = sorted_items[i + 1][0] - sorted_items[i][0]
-            gaps.append((gap, i))
+    gaps: list[tuple[float, int]] = []
+    for i in range(len(sorted_items) - 1):
+        gap = sorted_items[i + 1][0] - sorted_items[i][0]
+        gaps.append((gap, i))
 
-        if not gaps:
-            yield projections
-            return
+    if not gaps:
+        yield projections
+        return
 
-        # 找到最大差距的位置
-        _, split_index = max(gaps, key=lambda x: x[0])
+    _, split_index = max(gaps, key=lambda x: x[0])
+    group1 = [proj for _, proj in sorted_items[:split_index + 1]]
+    group2 = [proj for _, proj in sorted_items[split_index + 1:]]
 
-        # 在最大差距处切分
-        group1 = [proj for _, proj in sorted_items[:split_index + 1]]
-        group2 = [proj for _, proj in sorted_items[split_index + 1:]]
-
-        # 递归处理两个子组
-        if group1:
-            yield from _split_projections_by_size_cv(group1, max_cv)
-        if group2:
-            yield from _split_projections_by_size_cv(group2, max_cv)
+    if group1:
+        yield from _split_projections_by_size_cv(group1, max_cv)
+    if group2:
+        yield from _split_projections_by_size_cv(group2, max_cv)
 
 
 def _calculate_cv(values: list[float]) -> float:
