@@ -17,6 +17,23 @@ class _Projection(Generic[_T]):
 
 
 def split_reading_serials(raw_layouts: list[PageLayout]) -> Generator[list[PageLayout], None, None]:
+    """
+    将 OCR 识别的文字块按列分组，用于多列布局的阅读顺序识别。
+
+    问题背景：
+    - 扫描文档可能包含多列布局（双栏、三栏等学术论文或书籍）
+    - 图片、表格等元素可能导致局部文字块被挤压，形成临时的列布局
+    - 需要识别这些列的边界，以便按正确的阅读顺序（从左到右，从上到下）处理文字
+
+    算法思路：
+    1. 将所有 layout 在 x 轴上投影（使用中心点和宽度）
+    2. 构建加权直方图（高度作为权重，避免小字符干扰）
+    3. 分析直方图的波峰和波谷：波峰对应列中心，波谷对应列间隙
+    4. 在显著的波谷处切分，将文字块分配到对应的列组
+
+    输入：原始的 layout 列表（从 OCR 获取，按页面位置无序）
+    输出：按列分组的 layout 生成器，每组代表一列中的文字块
+    """
     if not raw_layouts:
         return
 
