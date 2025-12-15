@@ -8,7 +8,6 @@ from ..pdf import PageLayout
 _T = TypeVar("_T")
 _CV = 0.1
 
-_MIN_CV_CHECKING_COUNT = 3
 _MIN_SIZE_RATE = 0.15
 
 @dataclass
@@ -192,25 +191,18 @@ def _classify_window(
 
 
 def _split_projections_by_size_cv(projections: list[_Projection[_T]], max_cv: float = _CV):
-    if len(projections) < _MIN_CV_CHECKING_COUNT:
-        # 元素过少计算 CV 没有统计学意义
+    if len(projections) <= 2:
         yield projections
         return
 
     sizes = [p.size for p in projections]
-    cv = _calculate_cv(sizes)
-
-    if cv <= max_cv:
+    if _calculate_cv(sizes) <= max_cv:
         yield projections
         return
 
     sorted_items = sorted(zip(sizes, projections), key=lambda x: x[0])
-    if len(sorted_items) < _MIN_CV_CHECKING_COUNT:
-        yield projections
-        # 元素过少计算 CV 没有统计学意义
-        return
-
     gaps: list[tuple[float, int]] = []
+
     for i in range(len(sorted_items) - 1):
         gap = sorted_items[i + 1][0] - sorted_items[i][0]
         gaps.append((gap, i))
