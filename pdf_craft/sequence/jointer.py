@@ -44,11 +44,14 @@ class Jointer:
         for page_index, raw_layouts in self._iter_layout_serials():
             layouts = self._transform_and_join_asset_layouts(page_index, raw_layouts)
             head, body, tail = self._split_layouts(layouts)
-            print(len(head), len(body), len(tail))
 
             if not body:
-                last_override.extend(head)
-                last_override.extend(tail)
+                if last_page_para:
+                    last_override.extend(head)
+                    last_override.extend(tail)
+                else:
+                    yield from head
+                    yield from tail
                 continue
 
             first_layout = cast(ParagraphLayout, body[0])
@@ -57,8 +60,12 @@ class Jointer:
                 del body[0]
 
             if not body:
-                last_override.extend(head)
-                last_override.extend(tail)
+                if last_page_para:
+                    last_override.extend(head)
+                    last_override.extend(tail)
+                else:
+                    yield from head
+                    yield from tail
                 continue
 
             if last_page_para:
@@ -79,7 +86,8 @@ class Jointer:
         if last_page_para:
             _normalize_paragraph_content(last_page_para)
             yield last_page_para
-            yield from last_override
+
+        yield from last_override
 
     def _iter_layout_serials(self) -> Generator[tuple[int, list[PageLayout]], None, None]:
         for page_index, raw_layouts in self._layouts:
