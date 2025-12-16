@@ -206,6 +206,9 @@ class Transform:
             pages_path=pages_path,
             chapters_path=chapters_path,
         )
+        if cover_path and not cover_path.exists():
+            cover_path = None
+
         return asserts_path, chapters_path, cover_path, metering
 
     def _extract_book_meta(self, pdf_path: Path) -> BookMeta:
