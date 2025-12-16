@@ -78,7 +78,7 @@ def _normalize_paragraph(parts: Iterable[str]) -> Generator[str, None, None]:
             if is_line_head:
                 is_line_head = False
                 part = part.lstrip()
-                if last_char is not None and (
+                if part and last_char is not None and (
                     not is_chinese_char(last_char) or \
                     not is_chinese_char(part[0])
                 ):

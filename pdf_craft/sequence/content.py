@@ -25,9 +25,11 @@ def expand_text_in_content(
             part = sub_content[i]
             if isinstance(part, str):
                 del sub_content[i]
-                for part in expand(part):
-                    sub_content.insert(i, part)
+                for expanded_part in expand(part):
+                    sub_content.insert(i, expanded_part)
                     i += 1
+            else:
+                i += 1
 
 def _search_content(
         content: list[str | BlockMember | HTMLTag[BlockMember]],
