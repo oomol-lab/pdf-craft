@@ -1,8 +1,7 @@
 import unittest
 
 from typing import cast
-from pdf_craft.markdown.paragraph.parser import parse_raw_markdown
-from pdf_craft.markdown.paragraph.types import HTMLTag
+from pdf_craft.markdown.paragraph import parse_raw_markdown, HTMLTag
 
 
 class TestParseRawMarkdown(unittest.TestCase):
