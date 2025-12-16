@@ -1,9 +1,9 @@
 from pathlib import Path
 from typing import Generator
 
-from ..common import XMLReader
-from ..metering import check_aborted, AbortedCheck
-from ..sequence import (
+from ...common import XMLReader
+from ...metering import check_aborted, AbortedCheck
+from ...sequence import (
     decode,
     search_references_in_chapter,
     references_to_map,

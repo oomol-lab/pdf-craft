@@ -2,7 +2,8 @@ import re
 
 from typing import Iterable
 
-from .chapter import Reference, InlineExpression, LineLayout, AssetLayout, ParagraphLayout
+from ..markdown.paragraph import HTMLTag
+from .chapter import Reference, BlockLayout, BlockMember, AssetLayout, ParagraphLayout
 from .mark import transform2mark, Mark
 
 
@@ -61,27 +62,31 @@ class References:
     def _split_paragraph_by_marks(self, to_split_layout: ParagraphLayout):
         mark_layout: tuple[Mark | str | None, ParagraphLayout] = (
             None,
-            ParagraphLayout(ref=to_split_layout.ref, lines=[]),
+            ParagraphLayout(ref=to_split_layout.ref, blocks=[]),
         )
-        for line in to_split_layout.lines:
-            mark, content = self._extract_head_mark(line.content)
+        for block in to_split_layout.blocks:
+            mark, content = self._extract_head_mark(block.content)
             if mark is None:
-                mark_layout[1].lines.append(line)
+                mark_layout[1].blocks.append(block)
             else:
-                if mark_layout[1].lines:
+                if mark_layout[1].blocks:
                     yield mark_layout
                 mark_layout = (mark, ParagraphLayout(
                     ref=to_split_layout.ref,
-                    lines=[LineLayout(
-                        page_index=line.page_index,
-                        det=line.det,
+                    blocks=[BlockLayout(
+                        page_index=block.page_index,
+                        det=block.det,
                         content=content,
                     )],
                 ))
-        if mark_layout[1].lines:
+        if mark_layout[1].blocks:
             yield mark_layout
 
-    def _extract_head_mark(self, content: list[str | InlineExpression | Reference]) -> tuple[Mark | str | None, list[str | InlineExpression | Reference]]:
+    def _extract_head_mark(
+            self,
+            content: list[str | BlockMember | HTMLTag[BlockMember]],
+        ) -> tuple[Mark | str | None, list[str | BlockMember | HTMLTag[BlockMember]]]:
+
         if not content or not isinstance(content[0], str):
             return None, content
         head_text = content[0].lstrip()
@@ -91,7 +96,7 @@ class References:
         mark: Mark | str | None = None
         rest: str = ""
         matched = _START_PREFIX_PATTERN.match(head_text)
-        new_content: list[str | InlineExpression | Reference] = content[1:]
+        new_content: list[str | BlockMember | HTMLTag[BlockMember]] = content[1:]
 
         if matched:
             prefix = matched.group(0)
@@ -105,4 +110,5 @@ class References:
         rest = rest.lstrip()
         if rest:
             new_content = [rest] + content[1:]
+
         return mark, new_content

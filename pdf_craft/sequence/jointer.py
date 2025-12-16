@@ -7,8 +7,11 @@ from ..expression import parse_latex_expressions, ExpressionKind, ParsedItem
 
 from ..pdf import PageLayout
 from ..common import ASSET_TAGS
-from .chapter import ParagraphLayout, AssetLayout, LineLayout, Reference, InlineExpression
-from .language import is_latin_letter
+from ..language import is_latin_letter
+from ..markdown.paragraph import parse_raw_markdown, HTMLTag
+
+from .chapter import ParagraphLayout, AssetLayout, BlockLayout, BlockMember, InlineExpression
+from .content import expand_text_in_content
 from .reading_serials import split_reading_serials
 
 
@@ -64,7 +67,7 @@ class Jointer:
 
             first_layout = cast(ParagraphLayout, body[0])
             if last and self._can_merge_paragraphs(last.page_para, first_layout):
-                last.page_para.lines.extend(first_layout.lines)
+                last.page_para.blocks.extend(first_layout.blocks)
                 del body[0]
 
             if not body:
@@ -156,10 +159,10 @@ class Jointer:
 
                 jointed_layouts.append(ParagraphLayout(
                     ref=layout.ref,
-                    lines=[LineLayout(
+                    blocks=[BlockLayout(
                         page_index=page_index,
                         det=layout.det,
-                        content=_parse_line_content(layout.text),
+                        content=_parse_block_content(layout.text),
                     )],
                 ))
 
@@ -181,10 +184,10 @@ class Jointer:
         if para1.ref != para2.ref:
             return False
 
-        line1 = para1.lines[-1]
-        line2 = para2.lines[0]
-        _, text1 = line1.det, _line_text(line1)
-        _, text2 = line2.det, _line_text(line2)
+        block1 = para1.blocks[-1]
+        block2 = para2.blocks[0]
+        _, text1 = block1.det, _block_plain_text(block1)
+        _, text2 = block2.det, _block_plain_text(block2)
 
         if not text1 or not text2:
             return False
@@ -226,6 +229,11 @@ class Jointer:
                 return False
 
         return True
+
+def _block_plain_text(block: BlockLayout) -> str:
+    # FIXME: 不应该打印完整的文字，而是打印第一和最后一组文字就够了
+    #        这里涉及树的遍历的第一元素和最后一个元素的概念，真正渲染的时候，人眼看见的是树的第一元素，而非第一节点
+    return "".join(list(_search_visiable_texts(block.content)))
 
 def _normalize_equation(layout: AssetLayout):
     if layout.ref != "equation" or not layout.content:
@@ -305,14 +313,16 @@ def _normalize_table(layout: AssetLayout):
     layout.content = found_table_content
 
 def _normalize_paragraph_content(paragraph: ParagraphLayout):
-    if len(paragraph.lines) < 2:
+    if len(paragraph.blocks) < 2:
         return
 
-    for i in range(1, len(paragraph.lines)):
-        line1 = paragraph.lines[i - 1]
-        line2 = paragraph.lines[i]
-        content1 = _line_text(line1).rstrip()
-        content2 = _line_text(line2).lstrip()
+    for i in range(1, len(paragraph.blocks)):
+        block1 = paragraph.blocks[i - 1]
+        block2 = paragraph.blocks[i]
+
+        # FIXME: 这里假设首尾都是 str，实际上这不一定
+        content1 = _block_plain_text(block1).rstrip()
+        content2 = _block_plain_text(block2).lstrip()
 
         if not _is_splitted_word(content1, content2):
             continue
@@ -324,44 +334,32 @@ def _normalize_paragraph_content(paragraph: ParagraphLayout):
             else:
                 break
 
-        line1.content[0] = content1[:-1] + content2[:tail_end]
-        line2.content[0] = content2[tail_end:].lstrip()
+        block1.content[0] = content1[:-1] + content2[:tail_end]
+        block2.content[0] = content2[tail_end:].lstrip()
 
-    paragraph.lines = [
-        line for line in paragraph.lines
-        if _line_text(line).strip()
+    paragraph.blocks = [
+        block for block in paragraph.blocks
+        if _block_plain_text(block).strip()
     ]
 
-def _parse_line_content(text: str) -> list[str | InlineExpression | Reference]:
-    if not text:
-        return []
+def _parse_block_content(text: str) -> list[str | BlockMember | HTMLTag[BlockMember]]:
+    root_content: list[str | BlockMember | HTMLTag[BlockMember]] = parse_raw_markdown(text)
 
-    parsed_items = list(parse_latex_expressions(text))
-    result: list[str | InlineExpression | Reference] = []
+    def expand_text(text: str):
+        for item in parse_latex_expressions(text):
+            if item.kind != ExpressionKind.TEXT:
+                yield InlineExpression(
+                    kind=item.kind,
+                    content=item.content,
+                )
+            elif item.content: # Only add non-empty strings
+                yield item.content
 
-    for item in parsed_items:
-        if item.kind == ExpressionKind.TEXT:
-            if item.content:  # Only add non-empty strings
-                result.append(item.content)
-        else:
-            result.append(InlineExpression(
-                kind=item.kind,
-                content=item.content,
-            ))
-
-    return result
-
-def _line_text(line: LineLayout) -> str:
-    result_parts: list[str] = []
-    for part in line.content:
-        if isinstance(part, str):
-            result_parts.append(part)
-        # 对于 Reference 对象，我们可以选择忽略或者转换为特定格式
-        # 在 jointer 阶段，可能还需要原始文本，所以暂时转换为空字符串
-        elif isinstance(part, Reference):
-            # Reference 对象在这里暂时不处理，或者可以添加标记
-            pass
-    return "".join(result_parts)
+    expand_text_in_content(
+        content=root_content,
+        expand=expand_text,
+    )
+    return root_content
 
 def _is_splitted_word(text1: str, text2: str) -> bool:
     return (
@@ -369,3 +367,14 @@ def _is_splitted_word(text1: str, text2: str) -> bool:
         is_latin_letter(text1[-2]) and \
         is_latin_letter(text2[0])
     )
+
+def _search_visiable_texts(content: list[str | BlockMember | HTMLTag[BlockMember]]) -> Generator[str, None, None]:
+    for child in content:
+        if isinstance(child, HTMLTag):
+            yield from _search_visiable_texts(child.children)
+        elif isinstance(child, InlineExpression):
+            yield "<expr>"
+            yield child.content
+            yield "</expr>"
+        elif isinstance(child, str):
+            yield child

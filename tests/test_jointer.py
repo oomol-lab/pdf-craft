@@ -1,5 +1,5 @@
 import unittest
-from pdf_craft.sequence.jointer import _normalize_equation, _normalize_table, _parse_line_content, AssetLayout
+from pdf_craft.sequence.jointer import _normalize_equation, _normalize_table, _parse_block_content, AssetLayout
 from pdf_craft.sequence.chapter import InlineExpression
 
 
@@ -379,13 +379,13 @@ class TestParseLineContent(unittest.TestCase):
 
     def test_plain_text_only(self):
         """测试纯文本"""
-        result = _parse_line_content("This is plain text")
+        result = _parse_block_content("This is plain text")
         self.assertEqual(len(result), 1)
         self.assertEqual(result[0], "This is plain text")
 
     def test_single_dollar_inline_formula(self):
         """测试单美元符号行内公式"""
-        result = _parse_line_content("Einstein's formula $E = mc^2$ is famous")
+        result = _parse_block_content("Einstein's formula $E = mc^2$ is famous")
         self.assertEqual(len(result), 3)
         self.assertEqual(result[0], "Einstein's formula ")
         self.assertIsInstance(result[1], InlineExpression)
@@ -395,7 +395,7 @@ class TestParseLineContent(unittest.TestCase):
 
     def test_double_dollar_formula(self):
         """测试双美元符号公式"""
-        result = _parse_line_content("The formula $$x^2 + y^2 = z^2$$ is Pythagorean")
+        result = _parse_block_content("The formula $$x^2 + y^2 = z^2$$ is Pythagorean")
         self.assertEqual(len(result), 3)
         self.assertEqual(result[0], "The formula ")
         self.assertIsInstance(result[1], InlineExpression)
@@ -405,7 +405,7 @@ class TestParseLineContent(unittest.TestCase):
 
     def test_parenthesis_inline_formula(self):
         r"""测试 \( ... \) 行内公式"""
-        result = _parse_line_content(r"Inline \(a + b = c\) formula")
+        result = _parse_block_content(r"Inline \(a + b = c\) formula")
         self.assertEqual(len(result), 3)
         self.assertEqual(result[0], "Inline ")
         self.assertIsInstance(result[1], InlineExpression)
@@ -415,7 +415,7 @@ class TestParseLineContent(unittest.TestCase):
 
     def test_bracket_display_formula(self):
         r"""测试 \[ ... \] 显示公式"""
-        result = _parse_line_content(r"Display \[f(x) = x^2\] formula")
+        result = _parse_block_content(r"Display \[f(x) = x^2\] formula")
         self.assertEqual(len(result), 3)
         self.assertEqual(result[0], "Display ")
         self.assertIsInstance(result[1], InlineExpression)
@@ -425,7 +425,7 @@ class TestParseLineContent(unittest.TestCase):
 
     def test_multiple_formulas(self):
         """测试多个公式"""
-        result = _parse_line_content("First $x$ and second $y$ formulas")
+        result = _parse_block_content("First $x$ and second $y$ formulas")
         self.assertEqual(len(result), 5)
         self.assertEqual(result[0], "First ")
         self.assertIsInstance(result[1], InlineExpression)
@@ -439,12 +439,12 @@ class TestParseLineContent(unittest.TestCase):
 
     def test_empty_string(self):
         """测试空字符串"""
-        result = _parse_line_content("")
+        result = _parse_block_content("")
         self.assertEqual(len(result), 0)
 
     def test_formula_only(self):
         """测试只有公式"""
-        result = _parse_line_content("$x = y$")
+        result = _parse_block_content("$x = y$")
         self.assertEqual(len(result), 1)
         self.assertIsInstance(result[0], InlineExpression)
         assert isinstance(result[0], InlineExpression)
@@ -452,13 +452,13 @@ class TestParseLineContent(unittest.TestCase):
 
     def test_escaped_dollar(self):
         r"""测试转义的美元符号"""
-        result = _parse_line_content(r"Price is \$100")
+        result = _parse_block_content(r"Price is \$100")
         self.assertEqual(len(result), 1)
         self.assertEqual(result[0], "Price is $100")
 
     def test_mixed_delimiters(self):
         r"""测试混合定界符"""
-        result = _parse_line_content(r"Mix $a$ and \(b\) and $$c$$")
+        result = _parse_block_content(r"Mix $a$ and \(b\) and $$c$$")
         self.assertEqual(len(result), 6)
         self.assertEqual(result[0], "Mix ")
         self.assertIsInstance(result[1], InlineExpression)
@@ -475,7 +475,7 @@ class TestParseLineContent(unittest.TestCase):
 
     def test_complex_latex_content(self):
         """测试复杂的 LaTeX 内容"""
-        result = _parse_line_content(r"The integral $\int_0^\infty e^{-x^2} dx$ converges")
+        result = _parse_block_content(r"The integral $\int_0^\infty e^{-x^2} dx$ converges")
         self.assertEqual(len(result), 3)
         self.assertEqual(result[0], "The integral ")
         self.assertIsInstance(result[1], InlineExpression)

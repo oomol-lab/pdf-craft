@@ -2,17 +2,16 @@ from pathlib import Path
 from shutil import copy2
 from typing import Iterable, Generator
 
-from ..expression import to_markdown_string, ExpressionKind
-from ..sequence import (
-    is_chinese_char,
+from ..paragraph import render_markdown_paragraph
+from ...expression import to_markdown_string, ExpressionKind
+from ...sequence import (
     Reference,
-    InlineExpression,
     AssetLayout,
     ParagraphLayout,
+    InlineExpression,
+    BlockMember,
+    RefIdMap,
 )
-
-
-RefIdMap = dict[tuple[int, int], int]
 
 
 def render_layouts(
@@ -45,12 +44,30 @@ def render_layouts(
             )
 
 def render_paragraph(paragraph: ParagraphLayout, ref_id_to_number: RefIdMap | None = None) -> Generator[str, None, None]:
-    yield from _normalize_paragraph(
-        parts=(part for line in paragraph.lines for part in _content_to_text_parts(
-            content=line.content,
-            ref_id_to_number=ref_id_to_number,
-        )),
-    )
+    def render_member(part: BlockMember | str) -> Generator[str, None, None]:
+        if isinstance(part, str):
+            yield to_markdown_string(
+                kind=ExpressionKind.TEXT,
+                content=part,
+            )
+        elif isinstance(part, InlineExpression):
+            latex_content = part.content.strip()
+            if latex_content:
+                yield to_markdown_string(
+                    kind=part.kind,
+                    content=latex_content,
+                )
+        elif ref_id_to_number and isinstance(part, Reference):
+            ref_number = ref_id_to_number.get(part.id, 1)
+            yield "[^"
+            yield str(ref_number)
+            yield "]"
+
+    for block in paragraph.blocks:
+        yield from render_markdown_paragraph(
+            children=block.content,
+            render_payload=render_member,
+        )
 
 def _render_asset(
     asset: AssetLayout,
@@ -98,58 +115,3 @@ def _render_asset(
         return f"![{alt_text}]({image_path_str})\n"
 
     return ""
-
-def _content_to_text_parts(
-        content: Iterable[str | InlineExpression | Reference],
-        ref_id_to_number: RefIdMap | None,
-    ) -> Generator[str, None, None]:
-
-    for part in content:
-        if isinstance(part, str):
-            yield to_markdown_string(
-                kind=ExpressionKind.TEXT,
-                content=part,
-            )
-        elif isinstance(part, InlineExpression):
-            latex_content = part.content.strip()
-            if latex_content:
-                yield to_markdown_string(
-                    kind=part.kind,
-                    content=latex_content,
-                )
-        elif ref_id_to_number and isinstance(part, Reference):
-            ref_number = ref_id_to_number.get(part.id, 1)
-            yield f"[^{ref_number}]"
-
-
-def _normalize_paragraph(parts: Iterable[str]) -> Generator[str, None, None]:
-    last_char: str | None = None
-    is_line_head = True
-    for part in _split_enters(parts):
-        if part != "\n":
-            if is_line_head:
-                is_line_head = False
-                part = part.lstrip()
-                if last_char is not None and (
-                    not is_chinese_char(last_char) or \
-                    not is_chinese_char(part[0])
-                ):
-                    yield " "
-            if part:
-                yield part
-                part = part.rstrip()
-                if part:
-                    last_char = part[-1]
-        else:
-            is_line_head = True
-
-
-def _split_enters(parts: Iterable[str]) -> Generator[str, None, None]:
-    for part in parts:
-        if not part:
-            continue
-        split_parts = part.splitlines()
-        yield split_parts[0]
-        for i in range(1, len(split_parts)):
-            yield "\n"
-            yield split_parts[i]

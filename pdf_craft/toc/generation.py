@@ -42,7 +42,7 @@ def _title_of_chapter(chapter: Chapter) -> str | None:
     if not title:
         return None
     result_parts: list[str] = []
-    for line in title.lines:
+    for line in title.blocks:
         for part in line.content:
             if isinstance(part, str):
                 result_parts.append(part)
@@ -58,5 +58,5 @@ def _search_det_in_chapter(chapter: Chapter) -> Generator[tuple[int, int, int, i
     title = chapter.title
     if title is None:
         return
-    for line in title.lines:
+    for line in title.blocks:
         yield line.det

@@ -97,7 +97,7 @@ def render_epub_file(
 def _extract_chapter_title(chapter: Chapter) -> str:
     if chapter.title is not None:
         text_parts = []
-        for line in chapter.title.lines:
+        for line in chapter.title.blocks:
             for part in line.content:
                 if isinstance(part, str):
                     text_parts.append(part)
@@ -215,7 +215,7 @@ def _render_paragraph_with_marks(
         inline_latex: bool,
         ref_id_to_number: dict | None = None,
     ):
-    for line in layout.lines:
+    for line in layout.blocks:
         for part in line.content:
             if isinstance(part, str):
                 yield part
