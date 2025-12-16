@@ -7,7 +7,9 @@ from ..expression import parse_latex_expressions, ExpressionKind, ParsedItem
 
 from ..pdf import PageLayout
 from ..common import ASSET_TAGS
-from .chapter import ParagraphLayout, AssetLayout, BlockLayout, Reference, InlineExpression
+from ..markdown.paragraph import parse_raw_markdown, HTMLTag
+
+from .chapter import ParagraphLayout, AssetLayout, BlockLayout, BlockMember, InlineExpression
 from .language import is_latin_letter
 from .reading_serials import split_reading_serials
 
@@ -159,7 +161,7 @@ class Jointer:
                     blocks=[BlockLayout(
                         page_index=page_index,
                         det=layout.det,
-                        content=_parse_line_content(layout.text),
+                        content=_parse_block_content(layout.text),
                     )],
                 ))
 
@@ -181,10 +183,10 @@ class Jointer:
         if para1.ref != para2.ref:
             return False
 
-        line1 = para1.blocks[-1]
-        line2 = para2.blocks[0]
-        _, text1 = line1.det, _line_text(line1)
-        _, text2 = line2.det, _line_text(line2)
+        block1 = para1.blocks[-1]
+        block2 = para2.blocks[0]
+        _, text1 = block1.det, _block_plain_text(block1)
+        _, text2 = block2.det, _block_plain_text(block2)
 
         if not text1 or not text2:
             return False
@@ -226,6 +228,11 @@ class Jointer:
                 return False
 
         return True
+
+def _block_plain_text(block: BlockLayout) -> str:
+    # FIXME: 不应该打印完整的文字，而是打印第一和最后一组文字就够了
+    #        这里涉及树的遍历的第一元素和最后一个元素的概念，真正渲染的时候，人眼看见的是树的第一元素，而非第一节点
+    return "".join(list(_search_visiable_texts(block.content)))
 
 def _normalize_equation(layout: AssetLayout):
     if layout.ref != "equation" or not layout.content:
@@ -309,10 +316,12 @@ def _normalize_paragraph_content(paragraph: ParagraphLayout):
         return
 
     for i in range(1, len(paragraph.blocks)):
-        line1 = paragraph.blocks[i - 1]
-        line2 = paragraph.blocks[i]
-        content1 = _line_text(line1).rstrip()
-        content2 = _line_text(line2).lstrip()
+        block1 = paragraph.blocks[i - 1]
+        block2 = paragraph.blocks[i]
+
+        # FIXME: 这里假设首尾都是 str，实际上这不一定
+        content1 = _block_plain_text(block1).rstrip()
+        content2 = _block_plain_text(block2).lstrip()
 
         if not _is_splitted_word(content1, content2):
             continue
@@ -324,45 +333,33 @@ def _normalize_paragraph_content(paragraph: ParagraphLayout):
             else:
                 break
 
-        line1.content[0] = content1[:-1] + content2[:tail_end]
-        line2.content[0] = content2[tail_end:].lstrip()
+        block1.content[0] = content1[:-1] + content2[:tail_end]
+        block2.content[0] = content2[tail_end:].lstrip()
 
     paragraph.blocks = [
-        line for line in paragraph.blocks
-        if _line_text(line).strip()
+        block for block in paragraph.blocks
+        if _block_plain_text(block).strip()
     ]
 
-def _parse_line_content(text: str) -> list[str | InlineExpression | Reference]:
-    # TODO: 使用 markdown 的解析器
-    if not text:
-        return []
-
-    parsed_items = list(parse_latex_expressions(text))
-    result: list[str | InlineExpression | Reference] = []
-
-    for item in parsed_items:
-        if item.kind == ExpressionKind.TEXT:
-            if item.content:  # Only add non-empty strings
-                result.append(item.content)
-        else:
-            result.append(InlineExpression(
-                kind=item.kind,
-                content=item.content,
-            ))
-
-    return result
-
-def _line_text(line: BlockLayout) -> str:
-    result_parts: list[str] = []
-    for part in line.content:
-        if isinstance(part, str):
-            result_parts.append(part)
-        # 对于 Reference 对象，我们可以选择忽略或者转换为特定格式
-        # 在 jointer 阶段，可能还需要原始文本，所以暂时转换为空字符串
-        elif isinstance(part, Reference):
-            # Reference 对象在这里暂时不处理，或者可以添加标记
-            pass
-    return "".join(result_parts)
+def _parse_block_content(text: str) -> list[str | BlockMember | HTMLTag[BlockMember]]:
+    root_content: list[str | BlockMember | HTMLTag[BlockMember]] = parse_raw_markdown(text)
+    for content in _search_block_content(root_content):
+        i: int = 0
+        while True:
+            part = content[i]
+            if isinstance(part, str):
+                del content[i]
+                for item in parse_latex_expressions(text):
+                    if item.kind != ExpressionKind.TEXT:
+                        content.insert(i, InlineExpression(
+                            kind=item.kind,
+                            content=item.content,
+                        ))
+                        i += 1
+                    elif item.content: # Only add non-empty strings
+                        content.insert(i, item.content)
+                        i += 1
+    return root_content
 
 def _is_splitted_word(text1: str, text2: str) -> bool:
     return (
@@ -370,3 +367,20 @@ def _is_splitted_word(text1: str, text2: str) -> bool:
         is_latin_letter(text1[-2]) and \
         is_latin_letter(text2[0])
     )
+
+def _search_block_content(content: list[str | BlockMember | HTMLTag[BlockMember]]) -> Generator[list[str | BlockMember | HTMLTag[BlockMember]], None, None]:
+    for child in content:
+        if isinstance(child, HTMLTag):
+            yield from _search_block_content(child.children)
+    yield content
+
+def _search_visiable_texts(content: list[str | BlockMember | HTMLTag[BlockMember]]) -> Generator[str, None, None]:
+    for child in content:
+        if isinstance(child, HTMLTag):
+            yield from _search_visiable_texts(child.children)
+        elif isinstance(child, InlineExpression):
+            yield "<expr>"
+            yield child.content
+            yield "</expr>"
+        elif isinstance(child, str):
+            yield child

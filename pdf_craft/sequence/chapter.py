@@ -8,6 +8,7 @@ from ..markdown.paragraph import decode as decode_content, encode as encode_cont
 
 from .mark import Mark
 
+
 @dataclass
 class Chapter:
     title: "ParagraphLayout | None"
