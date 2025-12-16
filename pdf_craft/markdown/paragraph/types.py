@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from typing import TypeVar, Generic, Callable
+from typing import TypeVar, Generic, Generator, Callable
 
 from xml.etree.ElementTree import Element
 
@@ -14,6 +14,14 @@ class HTMLTag(Generic[P]):
     definition: HTMLTagDefinition
     attributes: list[tuple[str, str]]
     children: list["str | P | HTMLTag[P]"]
+
+
+def search_payloads(children: list[str | P | HTMLTag[P]]) -> Generator[P, None, None]:
+    for child in children:
+        if isinstance(child, HTMLTag):
+            yield from search_payloads(child.children)
+        elif not isinstance(child, str):
+            yield child
 
 
 def decode(root: Element, decode_payload: Callable[[Element], P]) -> list[str | P | HTMLTag[P]]:
