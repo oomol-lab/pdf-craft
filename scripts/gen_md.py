@@ -2,7 +2,7 @@ from pathlib import Path
 from pdf_craft import transform_markdown, OCREventKind
 
 
-_IMAGE_STEM = "tag"
+_IMAGE_STEM = "newton"
 
 def main() -> None:
     project_root = Path(__file__).parent.parent

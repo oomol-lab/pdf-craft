@@ -90,12 +90,16 @@ class PageExtractorNode:
                 for layout in layouts:
                     ref = self._normalize_text(layout.ref)
                     text = self._normalize_text(layout.text)
+                    det = self._normalize_layout_det(image.size, layout.det)
+                    if det is None:
+                        continue
+
                     hash: str | None = None
                     if ref in ASSET_TAGS:
-                        hash = asset_hub.clip(image, layout.det)
+                        hash = asset_hub.clip(image, det)
                     page_layout = PageLayout(
                         ref=ref,
-                        det=layout.det,
+                        det=det,
                         text=text,
                         hash=hash,
                     )
@@ -127,3 +131,20 @@ class PageExtractorNode:
             return ""
         text = re.sub(r"\s+", " ", text)
         return text.strip()
+
+    def _normalize_layout_det(
+            self,
+            size: tuple[int, int],
+            det: tuple[int, int, int, int],
+        ) -> tuple[int, int, int, int] | None:
+
+        width, height = size
+        left, top, right, bottom = det
+        left = max(0, min(left, width))
+        top = max(0, min(top, height))
+        right = max(0, min(right, width))
+        bottom = max(0, min(bottom, height))
+
+        if left >= right or top >= bottom:
+            return None
+        return left, top, right, bottom
