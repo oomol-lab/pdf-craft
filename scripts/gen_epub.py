@@ -2,7 +2,7 @@ from pathlib import Path
 from pdf_craft import transform_epub, OCREventKind, TableRender, LaTeXRender, BookMeta
 
 
-_IMAGE_STEM = "friendly"
+_IMAGE_STEM = "tag"
 
 def main() -> None:
     project_root = Path(__file__).parent.parent
