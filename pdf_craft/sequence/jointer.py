@@ -10,6 +10,7 @@ from ..common import ASSET_TAGS
 from ..markdown.paragraph import parse_raw_markdown, HTMLTag
 
 from .chapter import ParagraphLayout, AssetLayout, BlockLayout, BlockMember, InlineExpression
+from .content import expand_text_in_content
 from .language import is_latin_letter
 from .reading_serials import split_reading_serials
 
@@ -343,22 +344,21 @@ def _normalize_paragraph_content(paragraph: ParagraphLayout):
 
 def _parse_block_content(text: str) -> list[str | BlockMember | HTMLTag[BlockMember]]:
     root_content: list[str | BlockMember | HTMLTag[BlockMember]] = parse_raw_markdown(text)
-    for content in _search_block_content(root_content):
-        i: int = 0
-        while True:
-            part = content[i]
-            if isinstance(part, str):
-                del content[i]
-                for item in parse_latex_expressions(text):
-                    if item.kind != ExpressionKind.TEXT:
-                        content.insert(i, InlineExpression(
-                            kind=item.kind,
-                            content=item.content,
-                        ))
-                        i += 1
-                    elif item.content: # Only add non-empty strings
-                        content.insert(i, item.content)
-                        i += 1
+
+    def expand_text(text: str):
+        for item in parse_latex_expressions(text):
+            if item.kind != ExpressionKind.TEXT:
+                yield InlineExpression(
+                    kind=item.kind,
+                    content=item.content,
+                )
+            elif item.content: # Only add non-empty strings
+                yield item.content
+
+    expand_text_in_content(
+        content=root_content,
+        expand=expand_text,
+    )
     return root_content
 
 def _is_splitted_word(text1: str, text2: str) -> bool:
@@ -367,12 +367,6 @@ def _is_splitted_word(text1: str, text2: str) -> bool:
         is_latin_letter(text1[-2]) and \
         is_latin_letter(text2[0])
     )
-
-def _search_block_content(content: list[str | BlockMember | HTMLTag[BlockMember]]) -> Generator[list[str | BlockMember | HTMLTag[BlockMember]], None, None]:
-    for child in content:
-        if isinstance(child, HTMLTag):
-            yield from _search_block_content(child.children)
-    yield content
 
 def _search_visiable_texts(content: list[str | BlockMember | HTMLTag[BlockMember]]) -> Generator[str, None, None]:
     for child in content:

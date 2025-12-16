@@ -1,0 +1,38 @@
+from typing import Callable, Generator, Iterable
+from ..markdown.paragraph import HTMLTag
+from .chapter import BlockMember
+
+
+def join_texts_in_content(content: list[str | BlockMember | HTMLTag[BlockMember]]):
+    for sub_content in _search_content(content):
+        i: int = 0
+        while i < len(sub_content) - 1:
+            part1 = sub_content[i]
+            part2 = sub_content[i + 1]
+            if isinstance(part1, str) and isinstance(part2, str):
+                sub_content[i] = part1 + part2
+                del sub_content[i + 1]
+            else:
+                i += 1
+
+def expand_text_in_content(
+        content: list[str | BlockMember | HTMLTag[BlockMember]],
+        expand: Callable[[str], Iterable[str | BlockMember]],
+) -> None:
+    for sub_content in _search_content(content):
+        i: int = 0
+        while i < len(sub_content):
+            part = sub_content[i]
+            if isinstance(part, str):
+                del sub_content[i]
+                for part in expand(part):
+                    sub_content.insert(i, part)
+                    i += 1
+
+def _search_content(
+        content: list[str | BlockMember | HTMLTag[BlockMember]],
+    ) -> Generator[list[str | BlockMember | HTMLTag[BlockMember]], None, None]:
+    for child in content:
+        if isinstance(child, HTMLTag):
+            yield from _search_content(child.children)
+    yield content
