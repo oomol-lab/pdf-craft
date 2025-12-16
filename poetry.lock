@@ -1831,6 +1831,45 @@ dev = ["abi3audit", "black", "check-manifest", "colorama ; os_name == \"nt\"", "
 test = ["pytest", "pytest-instafail", "pytest-subtests", "pytest-xdist", "pywin32 ; os_name == \"nt\" and platform_python_implementation != \"PyPy\"", "setuptools", "wheel ; os_name == \"nt\" and platform_python_implementation != \"PyPy\"", "wmi ; os_name == \"nt\" and platform_python_implementation != \"PyPy\""]
 
 [[package]]
+name = "pyahocorasick"
+version = "2.2.0"
+description = "pyahocorasick is a fast and memory efficient library for exact or approximate multi-pattern string search.  With the ``ahocorasick.Automaton`` class, you can find multiple key string occurrences at once in some input text.  You can use it as a plain dict-like Trie or convert a Trie to an automaton for efficient Aho-Corasick search. And pickle to disk for easy reuse of large automatons. Implemented in C and tested on Python 3.6+. Works on Linux, macOS and Windows. BSD-3-Cause license."
+optional = false
+python-versions = ">=3.9"
+groups = ["main"]
+files = [
+    {file = "pyahocorasick-2.2.0-cp310-cp310-macosx_10_9_universal2.whl", hash = "sha256:779f1bb63644655d6001f5b1c5f864ec1284cf1b622ac24774f8444ab92f4f84"},
+    {file = "pyahocorasick-2.2.0-cp310-cp310-macosx_11_0_arm64.whl", hash = "sha256:6e9e082ffc2b240017357aeccaedc7aaccba530cb9e64945e23e999ef98b19c5"},
+    {file = "pyahocorasick-2.2.0-cp310-cp310-manylinux_2_5_x86_64.manylinux1_x86_64.manylinux_2_12_x86_64.manylinux2010_x86_64.whl", hash = "sha256:9b82717334794ee1bf50ab574c2b990179fc5bfedf1ff40875f18f011f5f7d5d"},
+    {file = "pyahocorasick-2.2.0-cp310-cp310-musllinux_1_2_x86_64.whl", hash = "sha256:f6be205779ba8e58670356a8cc5fbbbcf9255bfe24569c736d45f036fce9f2af"},
+    {file = "pyahocorasick-2.2.0-cp310-cp310-win_amd64.whl", hash = "sha256:43a2f3302a1c45d54fb24cd988629908b11e70da32fed0042e3558f1a6603b00"},
+    {file = "pyahocorasick-2.2.0-cp311-cp311-macosx_10_9_universal2.whl", hash = "sha256:a20d05f965ba3d5d38fd26b80d087fb59b8945d3dab3571ff9d64cef6d7edf01"},
+    {file = "pyahocorasick-2.2.0-cp311-cp311-macosx_11_0_arm64.whl", hash = "sha256:4352ade48042067eae16c9c049351cd037078fdf1885c6befe44c7fd38ec7bc9"},
+    {file = "pyahocorasick-2.2.0-cp311-cp311-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:3463d65232e93ddbdab22be8c22ebc9246419d9be738da07af2bccf800c57107"},
+    {file = "pyahocorasick-2.2.0-cp311-cp311-musllinux_1_2_x86_64.whl", hash = "sha256:9850cc8fc3071c239965ba1ca2114de990493025381582176af5951a64ff11cb"},
+    {file = "pyahocorasick-2.2.0-cp311-cp311-win_amd64.whl", hash = "sha256:e55347e2b884ec87c972e5f7706625f5bc4e07e703fbc1fb51a6f3bb3087d650"},
+    {file = "pyahocorasick-2.2.0-cp312-cp312-macosx_10_13_universal2.whl", hash = "sha256:744f63790fc4d337e129c80d28f57e6ba4d22a4b7e065825c72e98f92a77e16b"},
+    {file = "pyahocorasick-2.2.0-cp312-cp312-macosx_11_0_arm64.whl", hash = "sha256:73bb94c5621565c5ad22d2f44d45edc7e568de5bd629d22a435e76d7023dae4e"},
+    {file = "pyahocorasick-2.2.0-cp312-cp312-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:4c3fb6406b3311319bef625f0269af276b75f834e5cba33b81f2e8c35a9c6c91"},
+    {file = "pyahocorasick-2.2.0-cp312-cp312-musllinux_1_2_x86_64.whl", hash = "sha256:346f92c0086589e44c279d1519187bd3421d94836875033b27b7730f11bc923e"},
+    {file = "pyahocorasick-2.2.0-cp312-cp312-win_amd64.whl", hash = "sha256:1dbc761cdf8c9a1b85f065fb2442c234b742203df8e3cd2f38fc45e4838b02d3"},
+    {file = "pyahocorasick-2.2.0-cp313-cp313-macosx_10_13_universal2.whl", hash = "sha256:54c9604d73051f96c2d5a6c267f404f3d2d02790a2680a0c0ee7069ef7660d8b"},
+    {file = "pyahocorasick-2.2.0-cp313-cp313-macosx_11_0_arm64.whl", hash = "sha256:57932f7e894107d5ddf011051feb081b0ff7fdd6ab94462ead0c4c716ffdbd47"},
+    {file = "pyahocorasick-2.2.0-cp313-cp313-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:67c4489c2615fc4a25824d1f12c9e775d84c2207eecedde273bbffd479d82e71"},
+    {file = "pyahocorasick-2.2.0-cp313-cp313-musllinux_1_2_x86_64.whl", hash = "sha256:3f388b66e8973e8ac7cd7db7f90c56b2aaec4b5563b6da7bfc3e973b7ea34e1d"},
+    {file = "pyahocorasick-2.2.0-cp313-cp313-win_amd64.whl", hash = "sha256:8eabbd6fcd65595d36dadc3fc57d536aa302833991cd6b0b872aae60c5eac3e9"},
+    {file = "pyahocorasick-2.2.0-cp39-cp39-macosx_10_9_universal2.whl", hash = "sha256:9c964af712aa57216575d1d42afed9a9b1df296794739654ed1359a2c4a6074f"},
+    {file = "pyahocorasick-2.2.0-cp39-cp39-macosx_11_0_arm64.whl", hash = "sha256:179fb28f3bd9865ec175ed47283feb68af99d9ca1c63a4f25282d6575f29cdbd"},
+    {file = "pyahocorasick-2.2.0-cp39-cp39-manylinux_2_5_x86_64.manylinux1_x86_64.whl", hash = "sha256:08e7125b4baa5e6e293c06a994e7d11462c5bd4f08b708ab97ba5edddf07c5ff"},
+    {file = "pyahocorasick-2.2.0-cp39-cp39-musllinux_1_2_x86_64.whl", hash = "sha256:cfb8d47b5d709342c6f65770d266a5f608f7e2736f161427146ff504bc698bc6"},
+    {file = "pyahocorasick-2.2.0-cp39-cp39-win_amd64.whl", hash = "sha256:a54abc9f24ec9578769ce6ae24fce438e92171932d400c77b4ff5564e5be3b97"},
+    {file = "pyahocorasick-2.2.0.tar.gz", hash = "sha256:817f302088400a1402bf2f8631fdb21cf5a2666888e0d6a7d5a3ad556212e9da"},
+]
+
+[package.extras]
+testing = ["pytest", "setuptools", "twine", "wheel"]
+
+[[package]]
 name = "pygments"
 version = "2.19.2"
 description = "Pygments is a syntax highlighting package written in Python."
@@ -2669,4 +2708,4 @@ zstd = ["zstandard (>=0.18.0)"]
 [metadata]
 lock-version = "2.1"
 python-versions = ">=3.10,<3.14"
-content-hash = "9b09400674400a9340d50287fa9cb21c18aa6b241dce613ca4bc77ad30d0f08a"
+content-hash = "90943a0a01d3ae04ef72fca1a6eca4c35bf4e98a74a00560f812eed21184deef"

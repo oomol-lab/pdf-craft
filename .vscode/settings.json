@@ -28,6 +28,7 @@
         "pdfinfo",
         "pixmap",
         "poppler",
+        "pyahocorasick",
         "pyenv",
         "pylatexenc",
         "pylint",

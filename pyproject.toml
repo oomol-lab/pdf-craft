@@ -36,6 +36,7 @@ pypdf = "^6.4.1"
 doc-page-extractor = "==1.0.11"
 epub-generator = "==0.1.3"
 pylatexenc = "^2.10"
+pyahocorasick = "^2.2.0"
 
 [tool.poetry.group.dev.dependencies]
 pylint = "^3.3.7"
