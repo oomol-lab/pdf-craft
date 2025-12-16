@@ -33,11 +33,10 @@ def decode(root: Element, decode_payload: Callable[[Element], P]) -> list[str | 
         tag_def = tag_definition(child.tag)
         if tag_def is not None:
             attributes = list(child.attrib.items())
-            children = decode(child, decode_payload)
             children.append(HTMLTag(
                 definition=tag_def,
                 attributes=attributes,
-                children=children
+                children=decode(child, decode_payload)
             ))
         else:
             children.append(decode_payload(child))

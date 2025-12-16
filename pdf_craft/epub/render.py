@@ -8,23 +8,26 @@ from epub_generator import (
     LaTeXRender,
     Chapter as ChapterRecord,
     ChapterGetter,
-    Text,
+    TextBlock,
     Image,
     Formula,
     Footnote,
     Mark,
     TextKind,
+    HTMLTag as EpubHTMLTag,
 )
 
 from .toc_collection import TocCollection
 from .latex_to_text import latex_to_plain_text
 
 from ..common import XMLReader
+from ..markdown.paragraph import HTMLTag
 from ..metering import check_aborted, AbortedCheck
 from ..sequence import (
     decode,
     search_references_in_chapter,
     references_to_map,
+    Content,
     InlineExpression,
     Reference,
     Chapter,
@@ -114,13 +117,16 @@ def _convert_chapter_to_epub(
     footnotes = []
 
     if chapter.title is not None:
-        title_content = list(_render_paragraph_with_marks(
+        title_content = _render_paragraph_layout_with_marks(
             layout=chapter.title,
             inline_latex=inline_latex,
             ref_id_to_number=ref_id_to_number,
-        ))
+        )
         if title_content:
-            elements.append(Text(kind=TextKind.HEADLINE, content=title_content))
+            elements.append(TextBlock(
+                kind=TextKind.HEADLINE,
+                content=title_content,
+            ))
 
     for layout in chapter.layouts:
         if isinstance(layout, AssetLayout):
@@ -128,13 +134,16 @@ def _convert_chapter_to_epub(
             if asset_element:
                 elements.append(asset_element)
         elif isinstance(layout, ParagraphLayout):
-            paragraph_content = list(_render_paragraph_with_marks(
+            paragraph_content = _render_paragraph_layout_with_marks(
                 layout=layout,
                 inline_latex=inline_latex,
-                ref_id_to_number=ref_id_to_number),
+                ref_id_to_number=ref_id_to_number,
             )
             if paragraph_content:
-                elements.append(Text(kind=TextKind.BODY, content=paragraph_content))
+                elements.append(TextBlock(
+                    kind=TextKind.BODY,
+                    content=paragraph_content,
+                ))
 
     chapter_refs = search_references_in_chapter(chapter)
     for ref in chapter_refs:
@@ -203,22 +212,27 @@ def _convert_reference_to_footnote_contents(
             if asset_element:
                 yield asset_element
         elif isinstance(layout, ParagraphLayout):
-            content_parts = list(_render_paragraph_with_marks(
+            content_parts = _render_paragraph_layout_with_marks(
                 layout=layout,
                 inline_latex=inline_latex,
-            ))
+            )
             if content_parts:
-                yield Text(kind=TextKind.BODY, content=content_parts)
+                yield TextBlock(
+                    kind=TextKind.BODY,
+                    content=content_parts,
+                )
 
-def _render_paragraph_with_marks(
+def _render_paragraph_layout_with_marks(
         layout: ParagraphLayout,
         inline_latex: bool,
         ref_id_to_number: dict | None = None,
-    ):
-    for line in layout.blocks:
-        for part in line.content:
+    ) -> list[str | Formula | Mark | EpubHTMLTag]:
+
+    def render_content(content: Content):
+        for part in content:
             if isinstance(part, str):
                 yield part
+
             elif isinstance(part, InlineExpression):
                 if inline_latex:
                     yield Formula(latex_expression=part.content.strip())
@@ -229,3 +243,15 @@ def _render_paragraph_with_marks(
             elif ref_id_to_number and isinstance(part, Reference):
                 ref_number = ref_id_to_number.get(part.id, 1)
                 yield Mark(id=ref_number)
+
+            elif isinstance(part, HTMLTag):
+                yield EpubHTMLTag(
+                    name=part.definition.name,
+                    attributes=part.attributes,
+                    content=list(render_content(part.children)),
+                )
+
+    content_parts: list[str | Formula | Mark | EpubHTMLTag] = []
+    for block in layout.blocks:
+        content_parts.extend(render_content(block.content))
+    return content_parts
