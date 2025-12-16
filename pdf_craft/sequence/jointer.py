@@ -11,7 +11,7 @@ from ..language import is_latin_letter
 from ..markdown.paragraph import parse_raw_markdown, HTMLTag
 
 from .chapter import ParagraphLayout, AssetLayout, BlockLayout, BlockMember, InlineExpression
-from .content import expand_text_in_content
+from .content import expand_text_in_content, Content
 from .reading_serials import split_reading_serials
 
 
@@ -342,8 +342,8 @@ def _normalize_paragraph_content(paragraph: ParagraphLayout):
         if _block_plain_text(block).strip()
     ]
 
-def _parse_block_content(text: str) -> list[str | BlockMember | HTMLTag[BlockMember]]:
-    root_content: list[str | BlockMember | HTMLTag[BlockMember]] = parse_raw_markdown(text)
+def _parse_block_content(text: str) -> Content:
+    root_content: Content = parse_raw_markdown(text)
 
     def expand_text(text: str):
         for item in parse_latex_expressions(text):
@@ -368,7 +368,7 @@ def _is_splitted_word(text1: str, text2: str) -> bool:
         is_latin_letter(text2[0])
     )
 
-def _search_visiable_texts(content: list[str | BlockMember | HTMLTag[BlockMember]]) -> Generator[str, None, None]:
+def _search_visiable_texts(content: Content) -> Generator[str, None, None]:
     for child in content:
         if isinstance(child, HTMLTag):
             yield from _search_visiable_texts(child.children)
