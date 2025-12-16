@@ -1,5 +1,27 @@
 import ahocorasick
 
+from typing import Iterable, Callable
+from dataclasses import dataclass
+
+from .text import normalize_text
+
+@dataclass
+class PageAbstract:
+    body: str
+    titles: list[str]
+
+def find_toc_page_indexes(iter_pages: Callable[[], Iterable[PageAbstract]]):
+    matcher = SubstringMatcher()
+    for page in iter_pages():
+        for title in page.titles:
+            matcher.register_substring(
+                substring=normalize_text(title)
+            )
+    for page in iter_pages():
+        match_result = matcher.match(normalize_text(page.body))
+        for _, (count, _) in match_result.items():
+            if count >= 2:
+                yield page
 
 class SubstringMatcher:
     def __init__(self):
