@@ -1,11 +1,11 @@
 import re
 from html import escape, unescape
 
-from .types import HTMLTag
+from .types import P, HTMLTag
 from .tags import tag_definition, is_tag_filtered, is_protocol_allowed
 
 
-def parse_raw_markdown(input: str) -> list[str | HTMLTag]:
+def parse_raw_markdown(input: str) -> list[str | P | HTMLTag[P]]:
     """
     Parse raw markdown text containing HTML tags according to CommonMark and GFM specifications.
 
@@ -106,7 +106,7 @@ def _parse_html_construct(input: str, pos: int) -> tuple[str | HTMLTag | list[st
     return _parse_tag(input, pos)
 
 
-def _parse_tag(input: str, pos: int) -> tuple[str | HTMLTag | list[str | HTMLTag] | None, int]:
+def _parse_tag(input: str, pos: int) -> tuple[str | HTMLTag[P] | list[str | HTMLTag[P]] | None, int]:
     """
     Parse an HTML tag (opening, closing, or self-closing).
 
@@ -198,7 +198,7 @@ def _parse_tag(input: str, pos: int) -> tuple[str | HTMLTag | list[str | HTMLTag
                 closing_tag_end += 1
 
             # Recursively parse the content
-            children = parse_raw_markdown(content) if content else []
+            children: list[str | P | HTMLTag[P]] = parse_raw_markdown(content) if content else []
 
             return HTMLTag(
                 definition=tag_def,
