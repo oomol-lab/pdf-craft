@@ -28,14 +28,6 @@ jobs:
           poetry config virtualenvs.create true
           poetry config virtualenvs.in-project true
 
-      - name: Cache Poetry dependencies
-        uses: actions/cache@v4
-        with:
-          path: .venv
-          key: venv-${{ runner.os }}-${{ hashFiles('**/poetry.lock') }}
-          restore-keys: |
-            venv-${{ runner.os }}-
-
       - name: Install dependencies
         run: |
           poetry install --with dev
