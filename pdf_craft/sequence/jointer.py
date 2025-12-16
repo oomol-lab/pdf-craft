@@ -8,10 +8,10 @@ from ..expression import parse_latex_expressions, ExpressionKind, ParsedItem
 from ..pdf import PageLayout
 from ..common import ASSET_TAGS
 from ..language import is_latin_letter
-from ..markdown.paragraph import parse_raw_markdown, HTMLTag
+from ..markdown.paragraph import parse_raw_markdown
 
-from .chapter import ParagraphLayout, AssetLayout, BlockLayout, BlockMember, InlineExpression
-from .content import expand_text_in_content, Content
+from .chapter import ParagraphLayout, AssetLayout, BlockLayout, InlineExpression
+from .content import first, last, expand_text_in_content, Content
 from .reading_serials import split_reading_serials
 
 
@@ -47,7 +47,7 @@ class Jointer:
         self._layouts = layouts
 
     def execute(self) -> Generator[ParagraphLayout | AssetLayout, None, None]:
-        last: _LastTail | None = None
+        last_tail: _LastTail | None = None
 
         for page_index, raw_layouts in self._iter_layout_serials():
             # 此处为完成如下业务要求：
@@ -57,48 +57,48 @@ class Jointer:
             head, body, tail = self._split_layouts(layouts)
 
             if not body:
-                if last:
-                    last.override.extend(head)
-                    last.override.extend(tail)
+                if last_tail:
+                    last_tail.override.extend(head)
+                    last_tail.override.extend(tail)
                 else:
                     yield from head
                     yield from tail
                 continue
 
             first_layout = cast(ParagraphLayout, body[0])
-            if last and self._can_merge_paragraphs(last.page_para, first_layout):
-                last.page_para.blocks.extend(first_layout.blocks)
+            if last_tail and self._can_merge_paragraphs(last_tail.page_para, first_layout):
+                last_tail.page_para.blocks.extend(first_layout.blocks)
                 del body[0]
 
             if not body:
-                if last:
-                    last.override.extend(head)
-                    last.override.extend(tail)
+                if last_tail:
+                    last_tail.override.extend(head)
+                    last_tail.override.extend(tail)
                 else:
                     yield from head
                     yield from tail
                 continue
 
             # 至此，连续吞并段落的流程遇阻而结束
-            if last:
-                _normalize_paragraph_content(last.page_para)
-                yield last.page_para
-                yield from last.override
-                last = None
+            if last_tail:
+                _normalize_paragraph_content(last_tail.page_para)
+                yield last_tail.page_para
+                yield from last_tail.override
+                last_tail = None
 
             yield from head
             for i in range(len(body) - 1):
                 yield body[i]
 
-            last = _LastTail(
+            last_tail = _LastTail(
                 page_para=cast(ParagraphLayout, body[-1]),
                 override=list(tail),
             )
 
-        if last:
-            _normalize_paragraph_content(last.page_para)
-            yield last.page_para
-            yield from last.override
+        if last_tail:
+            _normalize_paragraph_content(last_tail.page_para)
+            yield last_tail.page_para
+            yield from last_tail.override
 
     def _iter_layout_serials(self) -> Generator[tuple[int, list[PageLayout]], None, None]:
         for page_index, raw_layouts in self._layouts:
@@ -186,18 +186,15 @@ class Jointer:
 
         block1 = para1.blocks[-1]
         block2 = para2.blocks[0]
-        _, text1 = block1.det, _block_plain_text(block1)
-        _, text2 = block2.det, _block_plain_text(block2)
 
-        if not text1 or not text2:
+        text1 = last(block1.content)
+        text2 = first(block2.content)
+        if not isinstance(text1, str) or not isinstance(text2, str):
             return False
 
         text1_stripped = text1.rstrip()
-        if not text1_stripped:
-            return False
-
         text2_stripped = text2.lstrip()
-        if not text2_stripped:
+        if not text1_stripped or not text2_stripped:
             return False
 
         # 条件1：前一个段落如果以句尾符号结尾，说明是完整段落，不应合并
@@ -229,11 +226,6 @@ class Jointer:
                 return False
 
         return True
-
-def _block_plain_text(block: BlockLayout) -> str:
-    # FIXME: 不应该打印完整的文字，而是打印第一和最后一组文字就够了
-    #        这里涉及树的遍历的第一元素和最后一个元素的概念，真正渲染的时候，人眼看见的是树的第一元素，而非第一节点
-    return "".join(list(_search_visiable_texts(block.content)))
 
 def _normalize_equation(layout: AssetLayout):
     if layout.ref != "equation" or not layout.content:
@@ -312,6 +304,7 @@ def _normalize_table(layout: AssetLayout):
     layout.caption = tail if tail else None
     layout.content = found_table_content
 
+# 将单词的连接符 `-` 删去，并将后半节单词移到前面一段拼接
 def _normalize_paragraph_content(paragraph: ParagraphLayout):
     if len(paragraph.blocks) < 2:
         return
@@ -320,27 +313,30 @@ def _normalize_paragraph_content(paragraph: ParagraphLayout):
         block1 = paragraph.blocks[i - 1]
         block2 = paragraph.blocks[i]
 
-        # FIXME: 这里假设首尾都是 str，实际上这不一定
-        content1 = _block_plain_text(block1).rstrip()
-        content2 = _block_plain_text(block2).lstrip()
+        text1 = last(block1.content)
+        text2 = first(block2.content)
+        if not isinstance(text1, str) or not isinstance(text2, str):
+            continue
 
-        if not _is_splitted_word(content1, content2):
+        text1 = text1.rstrip()
+        text2 = text2.lstrip()
+        if not _is_splitted_word(text1, text2):
             continue
 
         tail_end = 0
-        for j in range(len(content2)):
-            if is_latin_letter(content2[j]):
+        for j in range(len(text2)):
+            if is_latin_letter(text2[j]):
                 tail_end = j + 1
             else:
                 break
 
-        block1.content[0] = content1[:-1] + content2[:tail_end]
-        block2.content[0] = content2[tail_end:].lstrip()
+        block1.content[-1] = text1[:-1] + text2[:tail_end]
+        block2.content[0] = text2[tail_end:].lstrip()
+        if not block2.content[0]:
+            del block2.content[0]
 
-    paragraph.blocks = [
-        block for block in paragraph.blocks
-        if _block_plain_text(block).strip()
-    ]
+    # 极端情况下 block2 会因为单词被移走而被清空。此时要将其整个删去。
+    paragraph.blocks = [block for block in paragraph.blocks if block.content]
 
 def _parse_block_content(text: str) -> Content:
     root_content: Content = parse_raw_markdown(text)
@@ -363,18 +359,7 @@ def _parse_block_content(text: str) -> Content:
 
 def _is_splitted_word(text1: str, text2: str) -> bool:
     return (
-        len(text1) >= 2 and text1[-1] == "-" and \
+        len(text1) >= 2 and text1[-1] in _LINK_FLAGS and \
         is_latin_letter(text1[-2]) and \
         is_latin_letter(text2[0])
     )
-
-def _search_visiable_texts(content: Content) -> Generator[str, None, None]:
-    for child in content:
-        if isinstance(child, HTMLTag):
-            yield from _search_visiable_texts(child.children)
-        elif isinstance(child, InlineExpression):
-            yield "<expr>"
-            yield child.content
-            yield "</expr>"
-        elif isinstance(child, str):
-            yield child

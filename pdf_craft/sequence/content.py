@@ -5,6 +5,24 @@ from .chapter import BlockMember
 
 Content = list[str | BlockMember | HTMLTag[BlockMember]]
 
+def first(content: Content) -> None | str | BlockMember:
+    if not content:
+        return None
+    element = content[0]
+    if isinstance(element, HTMLTag):
+        return first(element.children)
+    else:
+        return element
+
+def last(content: Content) -> None | str | BlockMember:
+    if not content:
+        return None
+    element = content[-1]
+    if isinstance(element, HTMLTag):
+        return last(element.children)
+    else:
+        return element
+
 def join_texts_in_content(content: Content) -> None:
     for sub_content in _search_content(content):
         i: int = 0
