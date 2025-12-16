@@ -31,6 +31,7 @@
         "pyenv",
         "pylatexenc",
         "pylint",
+        "pypdf",
         "pytest",
         "SSOHH'mm",
         "torchvision",
