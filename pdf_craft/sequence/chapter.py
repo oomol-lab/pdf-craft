@@ -30,12 +30,6 @@ class ParagraphLayout:
     blocks: list["BlockLayout"]
 
 @dataclass
-class BlockLayout:
-    page_index: int
-    det: tuple[int, int, int, int]
-    content: list["str | BlockMember | HTMLTag[BlockMember]"]
-
-@dataclass
 class InlineExpression:
     kind: ExpressionKind
     content: str
@@ -52,6 +46,13 @@ class Reference:
         return (self.page_index, self.order)
 
 BlockMember = InlineExpression | Reference
+RefIdMap = dict[tuple[int, int], int]
+
+@dataclass
+class BlockLayout:
+    page_index: int
+    det: tuple[int, int, int, int]
+    content: list[str | BlockMember | HTMLTag[BlockMember]]
 
 def search_references_in_chapter(chapter: Chapter) -> Generator[Reference, None, None]:
     seen: set[tuple[int, int]] = set()
@@ -62,7 +63,7 @@ def search_references_in_chapter(chapter: Chapter) -> Generator[Reference, None,
                 seen.add(ref_id)
                 yield part
 
-def references_to_map(references: Iterable[Reference]) -> dict[tuple[int, int], int]:
+def references_to_map(references: Iterable[Reference]) -> RefIdMap:
     ref_id_to_number = {}
     for i, ref in enumerate(references, 1):
         ref_id_to_number[ref.id] = i

@@ -1,4 +1,5 @@
 import re
+
 from html import escape, unescape
 
 from .types import P, HTMLTag

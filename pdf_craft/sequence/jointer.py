@@ -7,11 +7,11 @@ from ..expression import parse_latex_expressions, ExpressionKind, ParsedItem
 
 from ..pdf import PageLayout
 from ..common import ASSET_TAGS
+from ..language import is_latin_letter
 from ..markdown.paragraph import parse_raw_markdown, HTMLTag
 
 from .chapter import ParagraphLayout, AssetLayout, BlockLayout, BlockMember, InlineExpression
 from .content import expand_text_in_content
-from .language import is_latin_letter
 from .reading_serials import split_reading_serials
 
 
