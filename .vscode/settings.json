@@ -15,6 +15,7 @@
     "python.analysis.typeCheckingMode": "basic",
     "files.trimTrailingWhitespace": true,
     "cSpell.words": [
+        "ahocorasick",
         "analysing",
         "clazz",
         "CUDA",
