@@ -1,5 +1,4 @@
 from .generation import generate_chapter_files
-from .reference import Reference
 from .mark import Mark, NumberClass, NumberStyle
 from .chapter import (
     decode,
