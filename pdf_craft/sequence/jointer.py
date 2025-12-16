@@ -7,7 +7,7 @@ from ..expression import parse_latex_expressions, ExpressionKind, ParsedItem
 
 from ..pdf import PageLayout
 from ..common import ASSET_TAGS
-from .chapter import ParagraphLayout, AssetLayout, LineLayout, Reference, InlineExpression
+from .chapter import ParagraphLayout, AssetLayout, BlockLayout, Reference, InlineExpression
 from .language import is_latin_letter
 from .reading_serials import split_reading_serials
 
@@ -64,7 +64,7 @@ class Jointer:
 
             first_layout = cast(ParagraphLayout, body[0])
             if last and self._can_merge_paragraphs(last.page_para, first_layout):
-                last.page_para.lines.extend(first_layout.lines)
+                last.page_para.blocks.extend(first_layout.blocks)
                 del body[0]
 
             if not body:
@@ -156,7 +156,7 @@ class Jointer:
 
                 jointed_layouts.append(ParagraphLayout(
                     ref=layout.ref,
-                    lines=[LineLayout(
+                    blocks=[BlockLayout(
                         page_index=page_index,
                         det=layout.det,
                         content=_parse_line_content(layout.text),
@@ -181,8 +181,8 @@ class Jointer:
         if para1.ref != para2.ref:
             return False
 
-        line1 = para1.lines[-1]
-        line2 = para2.lines[0]
+        line1 = para1.blocks[-1]
+        line2 = para2.blocks[0]
         _, text1 = line1.det, _line_text(line1)
         _, text2 = line2.det, _line_text(line2)
 
@@ -305,12 +305,12 @@ def _normalize_table(layout: AssetLayout):
     layout.content = found_table_content
 
 def _normalize_paragraph_content(paragraph: ParagraphLayout):
-    if len(paragraph.lines) < 2:
+    if len(paragraph.blocks) < 2:
         return
 
-    for i in range(1, len(paragraph.lines)):
-        line1 = paragraph.lines[i - 1]
-        line2 = paragraph.lines[i]
+    for i in range(1, len(paragraph.blocks)):
+        line1 = paragraph.blocks[i - 1]
+        line2 = paragraph.blocks[i]
         content1 = _line_text(line1).rstrip()
         content2 = _line_text(line2).lstrip()
 
@@ -327,12 +327,13 @@ def _normalize_paragraph_content(paragraph: ParagraphLayout):
         line1.content[0] = content1[:-1] + content2[:tail_end]
         line2.content[0] = content2[tail_end:].lstrip()
 
-    paragraph.lines = [
-        line for line in paragraph.lines
+    paragraph.blocks = [
+        line for line in paragraph.blocks
         if _line_text(line).strip()
     ]
 
 def _parse_line_content(text: str) -> list[str | InlineExpression | Reference]:
+    # TODO: 使用 markdown 的解析器
     if not text:
         return []
 
@@ -351,7 +352,7 @@ def _parse_line_content(text: str) -> list[str | InlineExpression | Reference]:
 
     return result
 
-def _line_text(line: LineLayout) -> str:
+def _line_text(line: BlockLayout) -> str:
     result_parts: list[str] = []
     for part in line.content:
         if isinstance(part, str):

@@ -3,8 +3,10 @@ from typing import Generator
 
 from ..common import save_xml, XMLReader
 from ..pdf import decode, Page
+from ..markdown.paragraph import HTMLTag
+
 from .jointer import TITLE_TAGS, Jointer
-from .chapter import encode, Reference, Chapter, AssetLayout, InlineExpression, ParagraphLayout, LineLayout
+from .chapter import encode, Reference, Chapter, AssetLayout, BlockMember, InlineExpression, ParagraphLayout, BlockLayout
 from .reference import References
 from .mark import search_marks, Mark
 
@@ -55,7 +57,7 @@ def _extract_body_layouts(pages_path: Path):
 
     for layout in body_jointer.execute():
         if isinstance(layout, ParagraphLayout):
-            for line in layout.lines:
+            for line in layout.blocks:
                 references = get_references(line.page_index)
                 if references:
                     line.content = list(_line_parts_after_replace_references(references, line))
@@ -85,14 +87,14 @@ def _extract_page_references(jointer: Jointer) -> Generator[References, None, No
 
 def _page_index_from_layout(layout: AssetLayout | ParagraphLayout) -> int:
     if isinstance(layout, ParagraphLayout):
-        return layout.lines[0].page_index
+        return layout.blocks[0].page_index
     elif isinstance(layout, AssetLayout):
         return layout.page_index
     else:
         raise ValueError("Unknown layout type")
 
 
-def _line_parts_after_replace_references(references: References, line: LineLayout) -> Generator[str | InlineExpression | Reference, None, None]:
+def _line_parts_after_replace_references(references: References, line: BlockLayout) -> Generator[str | InlineExpression | Reference, None, None]:
     text_buffer: list[str] = []
     for part in _search_mark_and_split_line(references, line.content):
         if isinstance(part, str):
@@ -104,13 +106,14 @@ def _line_parts_after_replace_references(references: References, line: LineLayou
     if text_buffer:
         yield "".join(text_buffer)
 
-def _search_mark_and_split_line(references: References, parts: list[str | InlineExpression | Reference]):
+def _search_mark_and_split_line(references: References, parts: list[str | BlockMember | HTMLTag[BlockMember]]) -> Generator[str | InlineExpression | Reference, None, None]:
     for part in parts:
         if isinstance(part, Reference):
             yield part
         elif isinstance(part, InlineExpression):
             yield part
         else:
+            # TODO: 递归搜索 HTMLTag
             for item in search_marks(part):
                 reference: Reference | None = None
                 if isinstance(item, Mark):

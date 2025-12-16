@@ -4,6 +4,7 @@ from xml.etree.ElementTree import Element
 
 from ..common import indent, AssetRef, ASSET_TAGS
 from ..expression import ExpressionKind, decode_expression_kind, encode_expression_kind
+from ..markdown.paragraph import HTMLTag
 from .mark import Mark
 
 @dataclass
@@ -24,13 +25,13 @@ class AssetLayout:
 @dataclass
 class ParagraphLayout:
     ref: str
-    lines: list["LineLayout"]
+    blocks: list["BlockLayout"]
 
 @dataclass
-class LineLayout:
+class BlockLayout:
     page_index: int
     det: tuple[int, int, int, int]
-    content: list["str | InlineExpression | Reference"]
+    content: list["str | BlockMember | HTMLTag[BlockMember]"]
 
 @dataclass
 class InlineExpression:
@@ -48,10 +49,12 @@ class Reference:
     def id(self) -> tuple[int, int]:
         return (self.page_index, self.order)
 
+BlockMember = InlineExpression | Reference
+
 def search_references_in_chapter(chapter: Chapter) -> Generator[Reference, None, None]:
     seen: set[tuple[int, int]] = set()
     if chapter.title is not None:
-        for line in chapter.title.lines:
+        for line in chapter.title.blocks:
             for part in line.content:
                 if isinstance(part, Reference):
                     ref_id = part.id
@@ -60,7 +63,7 @@ def search_references_in_chapter(chapter: Chapter) -> Generator[Reference, None,
                         yield part
     for layout in chapter.layouts:
         if isinstance(layout, ParagraphLayout):
-            for line in layout.lines:
+            for line in layout.blocks:
                 for part in line.content:
                     if isinstance(part, Reference):
                         ref_id = part.id
@@ -107,7 +110,7 @@ def encode(chapter: Chapter) -> Element:
     if chapter.title is not None:
         title_el = Element("title")
         title_el.set("ref", chapter.title.ref)
-        _encode_line_elements(title_el, chapter.title.lines)
+        _encode_line_elements(title_el, chapter.title.blocks)
         root.append(title_el)
 
     body_el = Element("body")
@@ -198,12 +201,12 @@ def _decode_paragraph(element: Element, references_map: dict[tuple[int, int], Re
 
     lines = _decode_line_elements(element, context_tag="paragraph", references_map=references_map)
 
-    return ParagraphLayout(ref=ref_attr, lines=lines)
+    return ParagraphLayout(ref=ref_attr, blocks=lines)
 
 def _encode_paragraph(layout: ParagraphLayout) -> Element:
     el = Element("paragraph")
     el.set("ref", layout.ref)
-    _encode_line_elements(el, layout.lines)
+    _encode_line_elements(el, layout.blocks)
     return el
 
 def _parse_det(det_str: str, context: str) -> tuple[int, int, int, int]:
@@ -215,8 +218,8 @@ def _parse_det(det_str: str, context: str) -> tuple[int, int, int, int]:
         raise ValueError(f"{context}: det must have 4 values, got {len(det_list)}")
     return (det_list[0], det_list[1], det_list[2], det_list[3])
 
-def _decode_line_elements(parent: Element, *, context_tag: str, references_map: dict[tuple[int, int], Reference] | None = None) -> list[LineLayout]:
-    lines: list[LineLayout] = []
+def _decode_line_elements(parent: Element, *, context_tag: str, references_map: dict[tuple[int, int], Reference] | None = None) -> list[BlockLayout]:
+    lines: list[BlockLayout] = []
     for line_el in parent.findall("line"):
         page_index_attr = line_el.get("page_index")
         if page_index_attr is None:
@@ -230,7 +233,7 @@ def _decode_line_elements(parent: Element, *, context_tag: str, references_map: 
         if det_str is None:
             raise ValueError(f"<{context_tag}><line> missing required attribute 'det'")
         det = _parse_det(det_str, context=f"<{context_tag}><line>@det")
-        content: list[str | InlineExpression | Reference] = []
+        content: list[str | BlockMember | HTMLTag[BlockMember]] = []
         if line_el.text:
             content.append(line_el.text)
 
@@ -266,14 +269,14 @@ def _decode_line_elements(parent: Element, *, context_tag: str, references_map: 
             if child.tail:
                 content.append(child.tail)
 
-        lines.append(LineLayout(
+        lines.append(BlockLayout(
             page_index=page_index,
             det=det,
             content=content,
         ))
     return lines
 
-def _encode_line_elements(parent: Element, lines: list[LineLayout]) -> None:
+def _encode_line_elements(parent: Element, lines: list[BlockLayout]) -> None:
     for line in lines:
         line_el = Element("line")
         line_el.set("page_index", str(line.page_index))
@@ -307,7 +310,7 @@ def _collect_references(chapter: Chapter) -> list[Reference]:
     def collect_from_layouts(layouts: list[AssetLayout | ParagraphLayout]) -> None:
         for layout in layouts:
             if isinstance(layout, ParagraphLayout):
-                for line in layout.lines:
+                for line in layout.blocks:
                     for part in line.content:
                         if isinstance(part, Reference):
                             ref_id = part.id
@@ -316,7 +319,7 @@ def _collect_references(chapter: Chapter) -> list[Reference]:
                                 references.append(part)
 
     if chapter.title is not None:
-        for line in chapter.title.lines:
+        for line in chapter.title.blocks:
             for part in line.content:
                 if isinstance(part, Reference):
                     ref_id = part.id

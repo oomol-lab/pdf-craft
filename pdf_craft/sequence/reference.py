@@ -2,7 +2,7 @@ import re
 
 from typing import Iterable
 
-from .chapter import Reference, InlineExpression, LineLayout, AssetLayout, ParagraphLayout
+from .chapter import Reference, InlineExpression, BlockLayout, AssetLayout, ParagraphLayout
 from .mark import transform2mark, Mark
 
 
@@ -61,27 +61,28 @@ class References:
     def _split_paragraph_by_marks(self, to_split_layout: ParagraphLayout):
         mark_layout: tuple[Mark | str | None, ParagraphLayout] = (
             None,
-            ParagraphLayout(ref=to_split_layout.ref, lines=[]),
+            ParagraphLayout(ref=to_split_layout.ref, blocks=[]),
         )
-        for line in to_split_layout.lines:
+        for line in to_split_layout.blocks:
             mark, content = self._extract_head_mark(line.content)
             if mark is None:
-                mark_layout[1].lines.append(line)
+                mark_layout[1].blocks.append(line)
             else:
-                if mark_layout[1].lines:
+                if mark_layout[1].blocks:
                     yield mark_layout
                 mark_layout = (mark, ParagraphLayout(
                     ref=to_split_layout.ref,
-                    lines=[LineLayout(
+                    blocks=[BlockLayout(
                         page_index=line.page_index,
                         det=line.det,
                         content=content,
                     )],
                 ))
-        if mark_layout[1].lines:
+        if mark_layout[1].blocks:
             yield mark_layout
 
     def _extract_head_mark(self, content: list[str | InlineExpression | Reference]) -> tuple[Mark | str | None, list[str | InlineExpression | Reference]]:
+        # TODO: 递归处理 HTMLTag
         if not content or not isinstance(content[0], str):
             return None, content
         head_text = content[0].lstrip()

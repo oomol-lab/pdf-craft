@@ -46,7 +46,7 @@ def render_layouts(
 
 def render_paragraph(paragraph: ParagraphLayout, ref_id_to_number: RefIdMap | None = None) -> Generator[str, None, None]:
     yield from _normalize_paragraph(
-        parts=(part for line in paragraph.lines for part in _content_to_text_parts(
+        parts=(part for line in paragraph.blocks for part in _content_to_text_parts(
             content=line.content,
             ref_id_to_number=ref_id_to_number,
         )),
