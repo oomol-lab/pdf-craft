@@ -2,9 +2,9 @@ from pathlib import Path
 from shutil import copy2
 from typing import Iterable, Generator
 
-from ..markdown.paragraph import render_markdown_paragraph
-from ..expression import to_markdown_string, ExpressionKind
-from ..sequence import (
+from ..paragraph import render_markdown_paragraph
+from ...expression import to_markdown_string, ExpressionKind
+from ...sequence import (
     Reference,
     AssetLayout,
     ParagraphLayout,
