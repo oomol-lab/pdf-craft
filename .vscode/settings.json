@@ -34,6 +34,7 @@
         "pypdf",
         "pytest",
         "SSOHH'mm",
+        "tagfilter",
         "torchvision",
         "venv",
         "virtualenvs",
