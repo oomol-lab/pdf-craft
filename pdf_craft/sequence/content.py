@@ -3,7 +3,27 @@ from ..markdown.paragraph import HTMLTag
 from .chapter import BlockMember
 
 
-def join_texts_in_content(content: list[str | BlockMember | HTMLTag[BlockMember]]):
+Content = list[str | BlockMember | HTMLTag[BlockMember]]
+
+def first(content: Content) -> None | str | BlockMember:
+    if not content:
+        return None
+    element = content[0]
+    if isinstance(element, HTMLTag):
+        return first(element.children)
+    else:
+        return element
+
+def last(content: Content) -> None | str | BlockMember:
+    if not content:
+        return None
+    element = content[-1]
+    if isinstance(element, HTMLTag):
+        return last(element.children)
+    else:
+        return element
+
+def join_texts_in_content(content: Content) -> None:
     for sub_content in _search_content(content):
         i: int = 0
         while i < len(sub_content) - 1:
@@ -16,7 +36,7 @@ def join_texts_in_content(content: list[str | BlockMember | HTMLTag[BlockMember]
                 i += 1
 
 def expand_text_in_content(
-        content: list[str | BlockMember | HTMLTag[BlockMember]],
+        content: Content,
         expand: Callable[[str], Iterable[str | BlockMember]],
 ) -> None:
     for sub_content in _search_content(content):
@@ -31,9 +51,7 @@ def expand_text_in_content(
             else:
                 i += 1
 
-def _search_content(
-        content: list[str | BlockMember | HTMLTag[BlockMember]],
-    ) -> Generator[list[str | BlockMember | HTMLTag[BlockMember]], None, None]:
+def _search_content(content: Content) -> Generator[Content, None, None]:
     for child in content:
         if isinstance(child, HTMLTag):
             yield from _search_content(child.children)

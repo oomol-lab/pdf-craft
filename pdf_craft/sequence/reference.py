@@ -2,8 +2,8 @@ import re
 
 from typing import Iterable
 
-from ..markdown.paragraph import HTMLTag
-from .chapter import Reference, BlockLayout, BlockMember, AssetLayout, ParagraphLayout
+from .chapter import Reference, BlockLayout, AssetLayout, ParagraphLayout
+from .content import Content
 from .mark import transform2mark, Mark
 
 
@@ -82,11 +82,7 @@ class References:
         if mark_layout[1].blocks:
             yield mark_layout
 
-    def _extract_head_mark(
-            self,
-            content: list[str | BlockMember | HTMLTag[BlockMember]],
-        ) -> tuple[Mark | str | None, list[str | BlockMember | HTMLTag[BlockMember]]]:
-
+    def _extract_head_mark(self, content: Content) -> tuple[Mark | str | None, Content]:
         if not content or not isinstance(content[0], str):
             return None, content
         head_text = content[0].lstrip()
@@ -96,7 +92,7 @@ class References:
         mark: Mark | str | None = None
         rest: str = ""
         matched = _START_PREFIX_PATTERN.match(head_text)
-        new_content: list[str | BlockMember | HTMLTag[BlockMember]] = content[1:]
+        new_content: Content = content[1:]
 
         if matched:
             prefix = matched.group(0)
