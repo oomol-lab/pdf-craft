@@ -8,11 +8,13 @@ from .tags import HTMLTagDefinition, tag_definition
 
 P = TypeVar("P")
 
+
 @dataclass
 class HTMLTag(Generic[P]):
     definition: HTMLTagDefinition
     attributes: list[tuple[str, str]]
     children: list["str | P | HTMLTag[P]"]
+
 
 def decode(root: Element, decode_payload: Callable[[Element], P]) -> list[str | P | HTMLTag[P]]:
     children: list[str | P | HTMLTag[P]] = []
@@ -36,6 +38,7 @@ def decode(root: Element, decode_payload: Callable[[Element], P]) -> list[str | 
             children.append(child.tail)
 
     return children
+
 
 def encode(root: Element, children: list[str | P | HTMLTag[P]], encode_payload: Callable[[P], Element]) -> None:
     if not children:
