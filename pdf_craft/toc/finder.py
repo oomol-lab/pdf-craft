@@ -1,29 +1,61 @@
 import ahocorasick
 
 from typing import Iterable, Callable
-from dataclasses import dataclass
 
 from .text import normalize_text
 
-@dataclass
-class PageAbstract:
-    body: str
-    titles: list[str]
 
-def find_toc_page_indexes(iter_pages: Callable[[], Iterable[PageAbstract]]):
-    matcher = SubstringMatcher()
-    for page in iter_pages():
-        for title in page.titles:
-            matcher.register_substring(
-                substring=normalize_text(title)
-            )
-    for page in iter_pages():
-        match_result = matcher.match(normalize_text(page.body))
-        for _, (count, _) in match_result.items():
-            if count >= 2:
-                yield page
+_MAX_TOC_RAGES = 0.1
+_MIN_TOC_LIMIT = 3
 
-class SubstringMatcher:
+
+# 使用统计学方式寻找文档中目录页所在页数范围。
+# 目录页中的文本，会大规模与后续书页中的章节标题匹配，本函数使用此特征来锁定目录页。
+def find_toc_page_indexes(
+        iter_titles: Callable[[], Iterable[str]],
+        iter_page_bodies: Callable[[], Iterable[str]],
+    ) -> list[int]:
+
+    matcher = _SubstringMatcher()
+    page_scores: list[tuple[int, float]] = []  # (page_index, score)
+
+    for title in iter_titles():
+        matcher.register_substring(
+            substring=normalize_text(title)
+        )
+    for page_index, body in enumerate(iter_page_bodies(), start=1):
+        match_result = matcher.match(normalize_text(body))
+        # 每一个匹配的子串提供的分数为：该页匹配次数 / 该子串在文档中出现的总次数
+        # 若匹配越多，当然说明此页更有可能是目录页。
+        # 但若该子串在文档中大规模出现，例如书籍标题可能反复出现在页眉页脚，此时应该降低权重
+        score = 0.0
+        for _, (matched_count, ids) in match_result.items():
+            count_in_document = len(ids)
+            score += matched_count / count_in_document
+        page_scores.append((page_index, score))
+
+    total_pages = len(page_scores)
+    max_toc_pages = max(_MIN_TOC_LIMIT, int(total_pages * _MAX_TOC_RAGES))
+
+    if total_pages <= 1:
+        return [] # 仅一页没有抽离目录的必要
+
+    page_scores.sort(key=lambda x: x[1], reverse=True)
+    max_diff = 0.0
+    cut_position = 0
+
+    for i in range(len(page_scores) - 1):
+        diff = page_scores[i][1] - page_scores[i + 1][1]
+        if diff > max_diff:
+            max_diff = diff
+            cut_position = i + 1
+
+    cut_position = min(cut_position, max_toc_pages)
+    toc_pages = page_scores[:cut_position]
+
+    return sorted([i for i, _ in toc_pages])
+
+class _SubstringMatcher:
     def __init__(self):
         self._automaton = ahocorasick.Automaton()
         self._next_id = 0
