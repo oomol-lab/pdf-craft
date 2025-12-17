@@ -3,8 +3,8 @@ import re
 from pathlib import Path
 from typing import Generator
 
-from ..common import save_xml, XMLReader
-from ..sequence import decode, Chapter, Reference
+from ...common import save_xml, XMLReader
+from ...sequence import decode, Chapter, Reference
 from .item import encode
 from .analyse import analyse_toc, RawChapter
 

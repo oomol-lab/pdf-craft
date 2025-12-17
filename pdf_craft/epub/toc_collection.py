@@ -2,7 +2,7 @@ from pathlib import Path
 from epub_generator import TocItem, ChapterGetter
 
 from ..common import read_xml
-from ..toc import decode, TocItem as RawTocItem
+from ..toc.postprocess import decode, TocItem as RawTocItem
 
 
 class TocCollection:

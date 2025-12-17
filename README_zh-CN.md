@@ -228,3 +228,4 @@ transform_markdown(
 
 - [DeepSeekOCR](https://github.com/deepseek-ai/DeepSeek-OCR)
 - [doc-page-extractor](https://github.com/Moskize91/doc-page-extractor)
+- [pyahocorasick](https://github.com/WojciechMula/pyahocorasick)

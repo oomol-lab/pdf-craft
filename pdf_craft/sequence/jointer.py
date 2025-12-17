@@ -5,7 +5,7 @@ from typing import cast, Generator, Iterable
 
 from ..expression import parse_latex_expressions, ExpressionKind, ParsedItem
 
-from ..pdf import PageLayout
+from ..pdf import TITLE_TAGS, PageLayout
 from ..common import ASSET_TAGS
 from ..language import is_latin_letter
 from ..markdown.paragraph import parse_raw_markdown
@@ -14,8 +14,6 @@ from .chapter import ParagraphLayout, AssetLayout, BlockLayout, InlineExpression
 from .content import first, last, expand_text_in_content, Content
 from .reading_serials import split_reading_serials
 
-
-TITLE_TAGS = ("title", "sub_title")
 
 _ASSET_CAPTION_TAGS = tuple(f"{t}_caption" for t in ASSET_TAGS)
 
@@ -41,6 +39,7 @@ _TABLE_PATTERN = re.compile(r"<table[^>]*>.*?</table>", re.IGNORECASE | re.DOTAL
 class _LastTail:
     page_para: ParagraphLayout
     override: list[AssetLayout]
+
 
 class Jointer:
     def __init__(self, layouts: Iterable[tuple[int, list[PageLayout]]]) -> None:
