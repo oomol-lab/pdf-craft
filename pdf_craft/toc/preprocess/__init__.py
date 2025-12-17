@@ -1,1 +1,1 @@
-from .analysing import analyse_toc_range
+from .analysing import analyse_toc

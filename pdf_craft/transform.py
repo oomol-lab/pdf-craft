@@ -8,7 +8,7 @@ from .common import EnsureFolder
 from .to_path import to_path
 from .pdf import OCR, OCREvent, PDFHandler, DeepSeekOCRSize
 from .sequence import generate_chapter_files
-from .toc.preprocess import analyse_toc_range
+from .toc.preprocess import analyse_toc
 from .toc.postprocess import generate_toc_file
 from .epub import render_epub_file
 from .error import is_inline_error, to_interrupted_error
@@ -203,19 +203,15 @@ class Transform:
             metering.input_tokens += event.input_tokens
             metering.output_tokens += event.output_tokens
 
-        toc_page_indexes = [
-            ref.page_index
-            # TODO: 目录分析和剔除目录页操作是可选的，由用户决定
-            #       因此 toc_pages_path 可能为 None
-            for ref in analyse_toc_range(
-                pages_path=pages_path,
-                toc_pages_path=toc_pages_path,
-            )
-        ]
+        toc = analyse_toc(
+            pages_path=pages_path,
+            toc_pages_path=toc_pages_path,
+            focus_toc=True, # TODO:
+        )
         generate_chapter_files(
             pages_path=pages_path,
             chapters_path=chapters_path,
-            toc_page_indexes=toc_page_indexes,
+            toc=toc,
         )
         toc_analysed_path = generate_toc_file(
             pages_path=pages_path,

@@ -11,7 +11,7 @@ from .reference import References
 from .mark import search_marks, Mark
 
 
-def generate_chapter_files(pages_path: Path, chapters_path: Path, toc_page_indexes: Iterable[int] | None):
+def generate_chapter_files(pages_path: Path, chapters_path: Path, toc: list[Toc]):
     chapters_path.mkdir(parents=True, exist_ok=True)
     for chapter_file in chapters_path.glob("chapter_*.xml"):
         chapter_file.unlink()
