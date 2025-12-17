@@ -16,6 +16,7 @@
     "files.trimTrailingWhitespace": true,
     "cSpell.words": [
         "ahocorasick",
+        "analysed",
         "analysing",
         "clazz",
         "CUDA",
@@ -25,6 +26,7 @@
         "gundam",
         "LOCALAPPDATA",
         "MATHML",
+        "metas",
         "Nonspacing",
         "OOMOL",
         "pdfinfo",
@@ -36,6 +38,7 @@
         "pylint",
         "pypdf",
         "pytest",
+        "REGX",
         "SSOHH'mm",
         "tagfilter",
         "torchvision",

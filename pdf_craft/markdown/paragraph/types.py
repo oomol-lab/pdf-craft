@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from typing import TypeVar, Generic, Generator, Callable
+from typing import TypeVar, Generic, Generator, Iterable, Callable
 
 from xml.etree.ElementTree import Element
 
@@ -16,11 +16,11 @@ class HTMLTag(Generic[P]):
     children: list["str | P | HTMLTag[P]"]
 
 
-def search_payloads(children: list[str | P | HTMLTag[P]]) -> Generator[P, None, None]:
+def flatten(children: Iterable[str | P | HTMLTag[P]]) -> Generator[str | P, None, None]:
     for child in children:
         if isinstance(child, HTMLTag):
-            yield from search_payloads(child.children)
-        elif not isinstance(child, str):
+            yield from flatten(child.children)
+        else:
             yield child
 
 

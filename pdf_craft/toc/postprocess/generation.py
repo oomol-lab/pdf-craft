@@ -4,25 +4,37 @@ from pathlib import Path
 from typing import Generator
 
 from ...common import save_xml, XMLReader
-from ...sequence import decode, Chapter, Reference
+from ...sequence import decode as decode_chapter, Chapter, Reference
+
 from .item import encode
+from .toc_levels import analyse_toc_levels
 from .analyse import analyse_toc, RawChapter
 
 
-def generate_toc_file(chapters_path: Path, toc_path: Path) -> Path | None:
+def generate_toc_file(
+        pages_path: Path,
+        chapters_path: Path,
+        toc_pages_path: Path,
+        toc_analysed_path: Path,
+    ) -> Path | None:
+
+    ref2level = analyse_toc_levels(pages_path, toc_pages_path)
     chapters: XMLReader[Chapter] = XMLReader(
         prefix="chapter",
         dir_path=chapters_path,
-        decode=decode,
+        decode=decode_chapter,
     )
+    for chapter in chapters.read():
+        pass
+
     raw_chapters = (_to_raw_chapter(p) for p in enumerate(chapters.read()))
     toc_element = encode(analyse_toc(
         chapters=(c for c in raw_chapters if c is not None),
     ))
     if toc_element is None:
         return None
-    save_xml(toc_element, toc_path)
-    return toc_path
+    save_xml(toc_element, toc_analysed_path)
+    return toc_analysed_path
 
 
 def _to_raw_chapter(pair: tuple[int, Chapter]) -> RawChapter | None:

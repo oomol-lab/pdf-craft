@@ -4,7 +4,7 @@ from xml.etree.ElementTree import Element
 
 from ..common import indent, AssetRef, ASSET_TAGS
 from ..expression import ExpressionKind, decode_expression_kind, encode_expression_kind
-from ..markdown.paragraph import decode as decode_content, encode as encode_content, search_payloads, HTMLTag
+from ..markdown.paragraph import decode as decode_content, encode as encode_content, flatten, HTMLTag
 
 from .mark import Mark
 
@@ -51,6 +51,7 @@ RefIdMap = dict[tuple[int, int], int]
 @dataclass
 class BlockLayout:
     page_index: int
+    order: int
     det: tuple[int, int, int, int]
     content: list[str | BlockMember | HTMLTag[BlockMember]]
 
@@ -129,11 +130,11 @@ def encode(chapter: Chapter) -> Element:
 def _search_parts_in_chapter(chapter: Chapter):
     if chapter.title is not None:
         for block in chapter.title.blocks:
-            yield from search_payloads(block.content)
+            yield from flatten(block.content)
     for layout in chapter.layouts:
         if isinstance(layout, ParagraphLayout):
             for block in layout.blocks:
-                yield from search_payloads(block.content)
+                yield from flatten(block.content)
 
 def _decode_asset(element: Element) -> AssetLayout:
     ref_attr = element.get("ref")
@@ -243,6 +244,14 @@ def _decode_block_elements(
         except ValueError as e:
             raise ValueError(f"<{context_tag}><block> attribute 'page_index' must be int, got: {page_index_attr}") from e
 
+        order_attr = block_el.get("order")
+        if order_attr is None:
+            raise ValueError(f"<{context_tag}><block> missing required attribute 'order'")
+        try:
+            order = int(order_attr)
+        except ValueError as e:
+            raise ValueError(f"<{context_tag}><block> attribute 'order' must be int, got: {order_attr}") from e
+
         det_str = block_el.get("det")
         if det_str is None:
             raise ValueError(f"<{context_tag}><block> missing required attribute 'det'")
@@ -285,6 +294,7 @@ def _decode_block_elements(
 
         blocks.append(BlockLayout(
             page_index=page_index,
+            order=order,
             det=det,
             content=decode_content(block_el, decode_block_member),
         ))
@@ -294,6 +304,7 @@ def _decode_block_elements(
 def _encode_block_element(block: BlockLayout) -> Element:
     block_el = Element("block")
     block_el.set("page_index", str(block.page_index))
+    block_el.set("order", str(block.order))
     block_el.set("det", ",".join(map(str, block.det)))
     encode_content(
         root=block_el,

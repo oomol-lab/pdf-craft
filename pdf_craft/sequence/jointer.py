@@ -160,6 +160,7 @@ class Jointer:
                     ref=layout.ref,
                     blocks=[BlockLayout(
                         page_index=page_index,
+                        order=layout.order,
                         det=layout.det,
                         content=_parse_block_content(layout.text),
                     )],

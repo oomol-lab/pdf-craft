@@ -97,11 +97,20 @@ class PageExtractorNode:
                     hash: str | None = None
                     if ref in ASSET_TAGS:
                         hash = asset_hub.clip(image, det)
+
+                    if step_index == 1:
+                        order = len(body_layouts)
+                    elif step_index == 2 and ref not in ASSET_TAGS:
+                        order = len(footnotes_layouts)
+                    else:
+                        continue
+
                     page_layout = PageLayout(
                         ref=ref,
                         det=det,
                         text=text,
                         hash=hash,
+                        order=order,
                     )
                     if step_index == 1:
                         body_layouts.append(page_layout)

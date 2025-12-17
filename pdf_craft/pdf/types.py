@@ -24,6 +24,7 @@ class PageLayout:
     ref: str
     det: tuple[int, int, int, int]
     text: str
+    order: int
     hash: str | None
 
 @dataclass
@@ -44,14 +45,14 @@ def decode(element: Element) -> Page:
     body_layouts = []
     body_element = element.find("body")
     if body_element is not None:
-        for layout_element in body_element.findall("layout"):
-            body_layouts.append(_decode_layout(layout_element))
+        for order, layout_element in enumerate(body_element.findall("layout")):
+            body_layouts.append(_decode_layout(layout_element, order))
 
     footnotes_layouts = []
     footnotes_element = element.find("footnotes")
     if footnotes_element is not None:
-        for layout_element in footnotes_element.findall("layout"):
-            footnotes_layouts.append(_decode_layout(layout_element))
+        for order, layout_element in enumerate(footnotes_element.findall("layout")):
+            footnotes_layouts.append(_decode_layout(layout_element, order))
 
     return Page(
         index=index,
@@ -69,17 +70,19 @@ def encode(page: Page) -> Element:
     page_element.set("output_tokens", str(page.output_tokens))
     if page.body_layouts:
         body_element = Element("body")
-        for layout in page.body_layouts:
+        for i, layout in enumerate(page.body_layouts):
+            assert layout.order == i, f"body_layouts[{i}].order should be {i}, got {layout.order}"
             body_element.append(_encode_layout(layout))
         page_element.append(body_element)
     if page.footnotes_layouts:
         footnotes_element = Element("footnotes")
-        for layout in page.footnotes_layouts:
+        for i, layout in enumerate(page.footnotes_layouts):
+            assert layout.order == i, f"footnotes_layouts[{i}].order should be {i}, got {layout.order}"
             footnotes_element.append(_encode_layout(layout))
         page_element.append(footnotes_element)
     return indent(page_element)
 
-def _decode_layout(element: Element) -> PageLayout:
+def _decode_layout(element: Element, order: int) -> PageLayout:
     ref = element.get("ref", "")
     det_str = element.get("det", "0,0,0,0")
     det_list = list(map(int, det_str.split(",")))
@@ -92,7 +95,8 @@ def _decode_layout(element: Element) -> PageLayout:
         ref=ref,
         det=det,
         text=text,
-        hash=hash_value
+        order=order,
+        hash=hash_value,
     )
 
 def _encode_layout(layout: PageLayout) -> Element:
