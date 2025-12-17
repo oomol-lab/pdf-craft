@@ -9,7 +9,6 @@ from ...sequence import decode as decode_chapter, Chapter, Reference
 from .item import encode
 from .toc_levels import analyse_toc_levels
 from .analyse import analyse_toc, RawChapter
-from .analyse2 import analyse_toc2
 
 
 def generate_toc_file(
@@ -25,10 +24,9 @@ def generate_toc_file(
         dir_path=chapters_path,
         decode=decode_chapter,
     )
-    analyse_toc2(
-        iter_chapters=lambda: (c for c in chapters.read()),
-        ref2level=ref2level,
-    )
+    for chapter in chapters.read():
+        pass
+
     raw_chapters = (_to_raw_chapter(p) for p in enumerate(chapters.read()))
     toc_element = encode(analyse_toc(
         chapters=(c for c in raw_chapters if c is not None),

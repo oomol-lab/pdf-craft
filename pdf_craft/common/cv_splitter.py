@@ -69,8 +69,6 @@ def split_by_cv(
         groups[max_cv_group_index] = _Group(items=group1_items)
         groups.insert(max_cv_group_index + 1, _Group(items=group2_items))
 
-    print("Final groups CVs:", [group.cv for group in groups])
-
     return [
         [payload for _, payload in group.items]
         for group in sorted(groups, key=lambda g: g.size)
