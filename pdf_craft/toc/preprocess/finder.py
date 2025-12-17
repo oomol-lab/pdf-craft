@@ -95,7 +95,7 @@ _P = TypeVar("_P")
 
 class _SubstringMatcher(Generic[_P]):
     def __init__(self):
-        self._automaton = ahocorasick.Automaton()
+        self._automaton = ahocorasick.Automaton()  # type: ignore[attr-defined]
         self._substrings_count: int = 0
         self._substring_to_payloads: dict[str, list[_P]] = {}
         self._finalized = False
