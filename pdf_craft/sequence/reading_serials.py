@@ -94,7 +94,7 @@ def _group_projects(raw_projections: Iterable[_Projection[_T]]) -> Generator[lis
             projections.remove(project)
         if next_group:
             for sub_group in split_by_cv(
-                payload_items=[(p.size, p) for p in projections],
+                payload_items=[(p.size, p) for p in next_group],
                 max_cv=_CV,
             ):
                 yield [p.payload for p in sub_group]
