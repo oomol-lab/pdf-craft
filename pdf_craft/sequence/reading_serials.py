@@ -3,6 +3,7 @@ from dataclasses import dataclass
 from enum import auto, Enum
 
 from ..pdf import PageLayout
+from ..common import split_by_cv
 
 
 _T = TypeVar("_T")
@@ -190,43 +191,8 @@ def _classify_window(
         return _WindowClass.OTHER
 
 
-def _split_projections_by_size_cv(projections: list[_Projection[_T]], max_cv: float = _CV):
-    if len(projections) <= 2:
-        yield projections
-        return
-
-    sizes = [p.size for p in projections]
-    if _calculate_cv(sizes) <= max_cv:
-        yield projections
-        return
-
-    sorted_items = sorted(zip(sizes, projections), key=lambda x: x[0])
-    gaps: list[tuple[float, int]] = []
-
-    for i in range(len(sorted_items) - 1):
-        gap = sorted_items[i + 1][0] - sorted_items[i][0]
-        gaps.append((gap, i))
-
-    if not gaps:
-        yield projections
-        return
-
-    _, split_index = max(gaps, key=lambda x: x[0])
-    group1 = [proj for _, proj in sorted_items[:split_index + 1]]
-    group2 = [proj for _, proj in sorted_items[split_index + 1:]]
-
-    if group1:
-        yield from _split_projections_by_size_cv(group1, max_cv)
-    if group2:
-        yield from _split_projections_by_size_cv(group2, max_cv)
-
-
-def _calculate_cv(values: list[float]) -> float:
-    if not values or len(values) < 2:
-        return 0.0
-    mean = sum(values) / len(values)
-    if mean == 0:
-        return float("inf")
-    variance = sum((x - mean) ** 2 for x in values) / len(values)
-    std = variance ** 0.5
-    return std / mean
+def _split_projections_by_size_cv(projections: list[_Projection[_T]]):
+    yield from split_by_cv(
+        payload_items=[(p.size, p) for p in projections],
+        max_cv=_CV,
+    )
