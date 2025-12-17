@@ -4,7 +4,7 @@ from xml.etree.ElementTree import Element
 
 from ..common import indent, AssetRef, ASSET_TAGS
 from ..expression import ExpressionKind, decode_expression_kind, encode_expression_kind
-from ..markdown.paragraph import decode as decode_content, encode as encode_content, search_payloads, HTMLTag
+from ..markdown.paragraph import decode as decode_content, encode as encode_content, flatten, HTMLTag
 
 from .mark import Mark
 
@@ -129,11 +129,11 @@ def encode(chapter: Chapter) -> Element:
 def _search_parts_in_chapter(chapter: Chapter):
     if chapter.title is not None:
         for block in chapter.title.blocks:
-            yield from search_payloads(block.content)
+            yield from flatten(block.content)
     for layout in chapter.layouts:
         if isinstance(layout, ParagraphLayout):
             for block in layout.blocks:
-                yield from search_payloads(block.content)
+                yield from flatten(block.content)
 
 def _decode_asset(element: Element) -> AssetLayout:
     ref_attr = element.get("ref")
