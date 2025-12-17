@@ -93,13 +93,18 @@ def _group_projects(raw_projections: Iterable[_Projection[_T]]) -> Generator[lis
         for project in next_group:
             projections.remove(project)
         if next_group:
-            for sub_group in _split_projections_by_size_cv(next_group):
+            for sub_group in split_by_cv(
+                payload_items=[(p.size, p) for p in projections],
+                max_cv=_CV,
+            ):
                 yield [p.payload for p in sub_group]
 
     if projections:
-        for sub_group in _split_projections_by_size_cv(projections):
+        for sub_group in split_by_cv(
+            payload_items=[(p.size, p) for p in projections],
+            max_cv=_CV,
+        ):
             yield [p.payload for p in sub_group]
-
 
 @dataclass
 class _Rect:
@@ -189,10 +194,3 @@ def _classify_window(
         return _WindowClass.AT_VALLEY
     else:
         return _WindowClass.OTHER
-
-
-def _split_projections_by_size_cv(projections: list[_Projection[_T]]):
-    yield from split_by_cv(
-        payload_items=[(p.size, p) for p in projections],
-        max_cv=_CV,
-    )

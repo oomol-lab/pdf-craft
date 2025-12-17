@@ -35,7 +35,7 @@ class _Group(Generic[P]):
 
 def split_by_cv(
         payload_items: list[tuple[float, P]],
-        max_cv: float,
+        max_cv: float = 0.0,
         max_groups: int = sys.maxsize,
     ) -> list[list[P]]:
     """通过控制 CV （变异系数）将 payload 分组，返回分组后的 payload 列表"""
