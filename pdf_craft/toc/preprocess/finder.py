@@ -30,6 +30,9 @@ def find_toc_page_indexes(
                 id = matcher.register_substring(title)
                 id2page[id] = page_index
 
+    if matcher.substrings_count == 0:
+        return []
+
     for page_index, body in enumerate(iter_page_bodies(), start=1):
         match_result = matcher.match(normalize_text(body))
         # 每一个匹配的子串提供的分数为：该页匹配次数 / 该子串在文档中出现的总次数
@@ -77,12 +80,18 @@ class _SubstringMatcher:
     def __init__(self):
         self._automaton = ahocorasick.Automaton()
         self._next_id = 0
+        self._substrings_count: int = 0
         self._substring_to_ids: dict[str, list[int]] = {}
         self._finalized = False
+
+    @property
+    def substrings_count(self) -> int:
+        return self._substrings_count
 
     def register_substring(self, substring: str) -> int:
         current_id = self._next_id
         self._next_id += 1
+        self._substrings_count += 1
 
         if substring not in self._substring_to_ids:
             self._substring_to_ids[substring] = []
