@@ -9,7 +9,7 @@ from ..common import encode as encode_toc, decode as decode_toc, PageRef
 from .finder import find_toc_pages
 
 
-_TITLE_MARKDOWN_HEAD_PATTERN = re.compile(r"^\s*#{1,6}\s*")
+_TITLE_HEAD_REGX = re.compile(r"^\s*#{1,6}\s*")
 
 def analyse_toc_range(pages_path: Path, toc_pages_path: Path) -> list[PageRef]:
     if toc_pages_path.exists():
@@ -29,10 +29,10 @@ def analyse_toc_range(pages_path: Path, toc_pages_path: Path) -> list[PageRef]:
 
     return toc_pages
 
-def _search_titles(pages: XMLReader[Page]) -> Generator[list[str], None, None]:
+def _search_titles(pages: XMLReader[Page]) -> Generator[list[tuple[int, str]], None, None]:
     for page in pages.read():
         yield list(
-            _TITLE_MARKDOWN_HEAD_PATTERN.sub("", layout.text)
+            (layout.order, _TITLE_HEAD_REGX.sub("", layout.text))
             for layout in page.body_layouts
             if layout.ref in TITLE_TAGS
         )

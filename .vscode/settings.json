@@ -36,6 +36,7 @@
         "pylint",
         "pypdf",
         "pytest",
+        "REGX",
         "SSOHH'mm",
         "tagfilter",
         "torchvision",

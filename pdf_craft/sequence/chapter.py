@@ -51,6 +51,7 @@ RefIdMap = dict[tuple[int, int], int]
 @dataclass
 class BlockLayout:
     page_index: int
+    order: int
     det: tuple[int, int, int, int]
     content: list[str | BlockMember | HTMLTag[BlockMember]]
 
@@ -243,6 +244,14 @@ def _decode_block_elements(
         except ValueError as e:
             raise ValueError(f"<{context_tag}><block> attribute 'page_index' must be int, got: {page_index_attr}") from e
 
+        order_attr = block_el.get("order")
+        if order_attr is None:
+            raise ValueError(f"<{context_tag}><block> missing required attribute 'order'")
+        try:
+            order = int(order_attr)
+        except ValueError as e:
+            raise ValueError(f"<{context_tag}><block> attribute 'order' must be int, got: {order_attr}") from e
+
         det_str = block_el.get("det")
         if det_str is None:
             raise ValueError(f"<{context_tag}><block> missing required attribute 'det'")
@@ -285,6 +294,7 @@ def _decode_block_elements(
 
         blocks.append(BlockLayout(
             page_index=page_index,
+            order=order,
             det=det,
             content=decode_content(block_el, decode_block_member),
         ))
@@ -294,6 +304,7 @@ def _decode_block_elements(
 def _encode_block_element(block: BlockLayout) -> Element:
     block_el = Element("block")
     block_el.set("page_index", str(block.page_index))
+    block_el.set("order", str(block.order))
     block_el.set("det", ",".join(map(str, block.det)))
     encode_content(
         root=block_el,

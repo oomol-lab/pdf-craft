@@ -14,7 +14,7 @@ class TestSplitReadingSerials(unittest.TestCase):
     def test_single_layout(self):
         """测试单个布局"""
         layouts = [
-            PageLayout(ref="1", det=(100, 100, 200, 150), text="Single", hash=None),
+            PageLayout(ref="1", det=(100, 100, 200, 150), text="Single", hash=None, order=0),
         ]
         result = list(split_reading_serials(layouts))
         self.assertEqual(len(result), 1)
@@ -24,9 +24,9 @@ class TestSplitReadingSerials(unittest.TestCase):
     def test_single_column(self):
         """测试单列布局 - 所有元素应该在一个组中"""
         layouts = [
-            PageLayout(ref="1", det=(100, 100, 200, 150), text="Text 1", hash=None),
-            PageLayout(ref="2", det=(100, 200, 200, 250), text="Text 2", hash=None),
-            PageLayout(ref="3", det=(100, 300, 200, 350), text="Text 3", hash=None),
+            PageLayout(ref="1", det=(100, 100, 200, 150), text="Text 1", hash=None, order=0),
+            PageLayout(ref="2", det=(100, 200, 200, 250), text="Text 2", hash=None, order=1),
+            PageLayout(ref="3", det=(100, 300, 200, 350), text="Text 3", hash=None, order=2),
         ]
         result = list(split_reading_serials(layouts))
 
@@ -42,9 +42,9 @@ class TestSplitReadingSerials(unittest.TestCase):
     def test_order_preservation(self):
         """测试顺序保持 - 输出的所有布局应该保持原始顺序"""
         layouts = [
-            PageLayout(ref="1", det=(100, 100, 200, 150), text="First", hash=None),
-            PageLayout(ref="2", det=(100, 200, 200, 250), text="Second", hash=None),
-            PageLayout(ref="3", det=(100, 300, 200, 350), text="Third", hash=None),
+            PageLayout(ref="1", det=(100, 100, 200, 150), text="First", hash=None, order=0),
+            PageLayout(ref="2", det=(100, 200, 200, 250), text="Second", hash=None, order=1),
+            PageLayout(ref="3", det=(100, 300, 200, 350), text="Third", hash=None, order=2),
         ]
         result = list(split_reading_serials(layouts))
 
@@ -60,7 +60,7 @@ class TestSplitReadingSerials(unittest.TestCase):
     def test_generator_returns_all_layouts(self):
         """测试生成器返回所有输入的布局"""
         layouts = [
-            PageLayout(ref=str(i), det=(i*10, 100, i*10+100, 150), text=f"Text {i}", hash=None)
+            PageLayout(ref=str(i), det=(i*10, 100, i*10+100, 150), text=f"Text {i}", hash=None, order=i)
             for i in range(5)
         ]
         result = list(split_reading_serials(layouts))
@@ -76,10 +76,10 @@ class TestSplitReadingSerials(unittest.TestCase):
     def test_different_positions(self):
         """测试不同位置的布局都能被正确处理"""
         layouts = [
-            PageLayout(ref="1", det=(50, 50, 100, 100), text="TopLeft", hash=None),
-            PageLayout(ref="2", det=(200, 50, 250, 100), text="TopRight", hash=None),
-            PageLayout(ref="3", det=(50, 200, 100, 250), text="BottomLeft", hash=None),
-            PageLayout(ref="4", det=(200, 200, 250, 250), text="BottomRight", hash=None),
+            PageLayout(ref="1", det=(50, 50, 100, 100), text="TopLeft", hash=None, order=0),
+            PageLayout(ref="2", det=(200, 50, 250, 100), text="TopRight", hash=None, order=1),
+            PageLayout(ref="3", det=(50, 200, 100, 250), text="BottomLeft", hash=None, order=2),
+            PageLayout(ref="4", det=(200, 200, 250, 250), text="BottomRight", hash=None, order=3),
         ]
         result = list(split_reading_serials(layouts))
 
@@ -94,9 +94,9 @@ class TestSplitReadingSerials(unittest.TestCase):
     def test_various_sizes(self):
         """测试不同大小的布局"""
         layouts = [
-            PageLayout(ref="1", det=(100, 100, 200, 150), text="Small", hash=None),
-            PageLayout(ref="2", det=(100, 200, 400, 300), text="Large", hash=None),
-            PageLayout(ref="3", det=(100, 350, 150, 370), text="Tiny", hash=None),
+            PageLayout(ref="1", det=(100, 100, 200, 150), text="Small", hash=None, order=0),
+            PageLayout(ref="2", det=(100, 200, 400, 300), text="Large", hash=None, order=1),
+            PageLayout(ref="3", det=(100, 350, 150, 370), text="Tiny", hash=None, order=2),
         ]
         result = list(split_reading_serials(layouts))
 
@@ -117,13 +117,13 @@ class TestSplitReadingSerials(unittest.TestCase):
         # 左列 - 5个元素
         for i in range(5):
             layouts.append(
-                PageLayout(ref=f"L{i}", det=(50, 100+i*100, 150, 180+i*100), text=f"Left{i}", hash=None)
+                PageLayout(ref=f"L{i}", det=(50, 100+i*100, 150, 180+i*100), text=f"Left{i}", hash=None, order=i)
             )
 
         # 右列 - 5个元素，位置远离左列
         for i in range(5):
             layouts.append(
-                PageLayout(ref=f"R{i}", det=(400, 100+i*100, 500, 180+i*100), text=f"Right{i}", hash=None)
+                PageLayout(ref=f"R{i}", det=(400, 100+i*100, 500, 180+i*100), text=f"Right{i}", hash=None, order=i+5)
             )
 
         result = list(split_reading_serials(layouts))

@@ -16,15 +16,15 @@ _MIN_NON_LATIN_TITLE_LENGTH = 3
 # 使用统计学方式寻找文档中目录页所在页数范围。
 # 目录页中的文本，会大规模与后续书页中的章节标题匹配，本函数使用此特征来锁定目录页。
 def find_toc_pages(
-        iter_titles: Callable[[], Iterable[list[str]]],
+        iter_titles: Callable[[], Iterable[list[tuple[int, str]]]],
         iter_page_bodies: Callable[[], Iterable[str]],
     ) -> list[PageRef]:
 
     matcher: _SubstringMatcher[tuple[int, int]] = _SubstringMatcher() # (page_index, order)
     page_refs: list[PageRef] = []
 
-    for page_index, titles in enumerate(iter_titles(), start=1):
-        for order, title in enumerate(titles):
+    for page_index, titles_items in enumerate(iter_titles(), start=1):
+        for order, title in titles_items:
             title = normalize_text(title)
             if _valid_title(title):
                 matcher.register_substring(

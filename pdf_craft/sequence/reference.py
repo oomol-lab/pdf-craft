@@ -75,6 +75,7 @@ class References:
                     ref=to_split_layout.ref,
                     blocks=[BlockLayout(
                         page_index=block.page_index,
+                        order=block.order,
                         det=block.det,
                         content=content,
                     )],

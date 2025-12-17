@@ -228,5 +228,6 @@ class OCR:
             det=(0, 0, 100, 100),
             text=text,
             hash=None,
+            order=0,
         ))
         return page
