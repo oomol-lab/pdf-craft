@@ -2,8 +2,8 @@ from dataclasses import dataclass
 from pathlib import Path
 
 
-from ...common import read_xml, split_by_cv, XMLReader
-from ...pdf import decode as decode_as_page, TITLE_TAGS, Page, PageLayout
+from ..common import read_xml, split_by_cv, XMLReader
+from ..pdf import decode as decode_as_page, TITLE_TAGS, Page, PageLayout
 
 from .toc_pages import PageRef
 from .text import normalize_text

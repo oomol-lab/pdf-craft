@@ -2,8 +2,8 @@ import re
 
 from pathlib import Path
 
-from ...common import save_xml, read_xml, XMLReader
-from ...pdf import decode as decode_pdf, Page, TITLE_TAGS
+from ..common import save_xml, read_xml, XMLReader
+from ..pdf import decode as decode_pdf, Page, TITLE_TAGS
 
 from .types import encode as encode_toc, decode as decode_toc, Toc
 from .toc_pages import find_toc_pages

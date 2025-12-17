@@ -1,7 +1,7 @@
 from dataclasses import dataclass
 from xml.etree.ElementTree import Element
 
-from ...common import indent
+from ..common import indent
 
 
 @dataclass

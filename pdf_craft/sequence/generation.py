@@ -1,8 +1,9 @@
 from pathlib import Path
-from typing import Generator, Iterable
+from typing import Generator
 
 from ..common import save_xml, XMLReader
 from ..pdf import decode, Page, TITLE_TAGS
+from ..toc import Toc
 
 from .jointer import Jointer
 from .content import join_texts_in_content, expand_text_in_content
@@ -18,7 +19,7 @@ def generate_chapter_files(pages_path: Path, chapters_path: Path, toc: list[Toc]
 
     for i, chapter in enumerate(_generate_chapters(
         pages_path=pages_path,
-        toc_page_indexes=set(toc_page_indexes) if toc_page_indexes else set(),
+        toc_page_indexes=set(),
     )):
         chapter_file = chapters_path / f"chapter_{i + 1}.xml"
         chapter_element = encode(chapter)

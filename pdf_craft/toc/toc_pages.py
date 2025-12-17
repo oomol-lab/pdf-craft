@@ -3,7 +3,7 @@ import ahocorasick
 from typing import Iterable, Callable, TypeVar, Generic
 from dataclasses import dataclass
 
-from ...language import is_latin_letter
+from ..language import is_latin_letter
 from .text import normalize_text
 
 
