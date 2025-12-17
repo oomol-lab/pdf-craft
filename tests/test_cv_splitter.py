@@ -136,10 +136,6 @@ class TestSplitByCV(unittest.TestCase):
             (50.0, "B1"),
             (500.0, "B2"),
         ]
-
-        # 不限制组数，看看会分成几组
-        result_unlimited = split_by_cv(pairs, max_cv=0.05)
-
         # 限制为 2 组
         result_limited = split_by_cv(pairs, max_cv=0.05, max_groups=2)
         self.assertLessEqual(len(result_limited), 2)

@@ -1,14 +1,8 @@
-from dataclasses import dataclass
 from typing import Generator
 
 
-@dataclass
-class RawChapter:
-    id: int
-    title: str
-    det: list[tuple[int, int, int, int]]
-
 _MAX_LEVELS = 6
+
 
 def calculate_levels(heights: list[float]) -> list[int]:
     if len(heights) <= 1:
@@ -27,6 +21,7 @@ def calculate_levels(heights: list[float]) -> list[int]:
                 height_to_level[h] = i + 1
 
     return [height_to_level[h] for h in heights]
+
 
 def _cluster_heights(heights: list[float], max_clusters: int) -> Generator[list[float], None, None]:
     if len(heights) <= max_clusters:
