@@ -211,6 +211,7 @@ class Transform:
         generate_chapter_files(
             pages_path=pages_path,
             chapters_path=chapters_path,
+            toc_page_indexes=toc_page_indexes,
         )
         if cover_path and not cover_path.exists():
             cover_path = None

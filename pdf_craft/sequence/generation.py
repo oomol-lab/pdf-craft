@@ -1,5 +1,5 @@
 from pathlib import Path
-from typing import Generator
+from typing import Generator, Iterable
 
 from ..common import save_xml, XMLReader
 from ..pdf import decode, Page, TITLE_TAGS
@@ -11,19 +11,22 @@ from .reference import References
 from .mark import search_marks, Mark
 
 
-def generate_chapter_files(pages_path: Path, chapters_path: Path):
+def generate_chapter_files(pages_path: Path, chapters_path: Path, toc_page_indexes: Iterable[int] | None):
     chapters_path.mkdir(parents=True, exist_ok=True)
     for chapter_file in chapters_path.glob("chapter_*.xml"):
         chapter_file.unlink()
 
-    for i, chapter in enumerate(_generate_chapters(pages_path)):
+    for i, chapter in enumerate(_generate_chapters(
+        pages_path=pages_path,
+        toc_page_indexes=set(toc_page_indexes) if toc_page_indexes else set(),
+    )):
         chapter_file = chapters_path / f"chapter_{i + 1}.xml"
         chapter_element = encode(chapter)
         save_xml(chapter_element, chapter_file)
 
-def _generate_chapters(pages_path: Path):
+def _generate_chapters(pages_path: Path, toc_page_indexes: set[int]):
     chapter: Chapter | None = None
-    for layout in _extract_body_layouts(pages_path):
+    for layout in _extract_body_layouts(pages_path, toc_page_indexes):
         if isinstance(layout, ParagraphLayout) and layout.ref in TITLE_TAGS:
             if chapter:
                 yield chapter
@@ -36,14 +39,14 @@ def _generate_chapters(pages_path: Path):
     if chapter:
         yield chapter
 
-def _extract_body_layouts(pages_path: Path):
+def _extract_body_layouts(pages_path: Path, toc_page_indexes: set[int]):
     pages: XMLReader[Page] = XMLReader(
         prefix="page",
         dir_path=pages_path,
         decode=decode,
     )
-    body_jointer = Jointer(((p.index, p.body_layouts) for p in pages.read()))
-    footnotes_jointer = Jointer(((p.index, p.footnotes_layouts) for p in pages.read()))
+    body_jointer = Jointer(((p.index, p.body_layouts) for p in pages.read() if p.index not in toc_page_indexes))
+    footnotes_jointer = Jointer(((p.index, p.footnotes_layouts) for p in pages.read() if p.index not in toc_page_indexes))
     references_generator = _extract_page_references(footnotes_jointer)
     current_references: References | None = next(references_generator, None)
 

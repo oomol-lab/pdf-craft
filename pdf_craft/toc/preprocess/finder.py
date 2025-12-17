@@ -2,27 +2,34 @@ import ahocorasick
 
 from typing import Iterable, Callable
 
+from ...language import is_latin_letter
 from .text import normalize_text
 
 
 _MAX_TOC_RAGES = 0.1
 _MIN_TOC_LIMIT = 3
+_MIN_LATIN_TITLE_LENGTH = 6
+_MIN_NON_LATIN_TITLE_LENGTH = 3
 
 
 # 使用统计学方式寻找文档中目录页所在页数范围。
 # 目录页中的文本，会大规模与后续书页中的章节标题匹配，本函数使用此特征来锁定目录页。
 def find_toc_page_indexes(
-        iter_titles: Callable[[], Iterable[str]],
+        iter_titles: Callable[[], Iterable[list[str]]],
         iter_page_bodies: Callable[[], Iterable[str]],
     ) -> list[int]:
 
     matcher = _SubstringMatcher()
     page_scores: list[tuple[int, float]] = []  # (page_index, score)
+    id2page: dict[int, int] = {}
 
-    for title in iter_titles():
-        matcher.register_substring(
-            substring=normalize_text(title)
-        )
+    for page_index, titles in enumerate(iter_titles(), start=1):
+        for title in titles:
+            title = normalize_text(title)
+            if _valid_title(title):
+                id = matcher.register_substring(title)
+                id2page[id] = page_index
+
     for page_index, body in enumerate(iter_page_bodies(), start=1):
         match_result = matcher.match(normalize_text(body))
         # 每一个匹配的子串提供的分数为：该页匹配次数 / 该子串在文档中出现的总次数
@@ -30,8 +37,12 @@ def find_toc_page_indexes(
         # 但若该子串在文档中大规模出现，例如书籍标题可能反复出现在页眉页脚，此时应该降低权重
         score = 0.0
         for _, (matched_count, ids) in match_result.items():
-            count_in_document = len(ids)
-            score += matched_count / count_in_document
+            count_in_document = 0
+            for id in ids:
+                if page_index != id2page[id]:
+                    count_in_document += 1
+            if count_in_document > 0:
+                score += matched_count / count_in_document
         page_scores.append((page_index, score))
 
     total_pages = len(page_scores)
@@ -54,6 +65,13 @@ def find_toc_page_indexes(
     toc_pages = page_scores[:cut_position]
 
     return sorted([i for i, _ in toc_pages])
+
+def _valid_title(title: str) -> bool:
+    title = title.strip()
+    if any(is_latin_letter(c) for c in title):
+        return len(title) >= _MIN_LATIN_TITLE_LENGTH
+    else:
+        return len(title) >= _MIN_NON_LATIN_TITLE_LENGTH
 
 class _SubstringMatcher:
     def __init__(self):
