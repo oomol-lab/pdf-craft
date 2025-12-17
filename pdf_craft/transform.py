@@ -174,7 +174,7 @@ class Transform:
         asserts_path = analysing_path / "assets"
         pages_path = analysing_path / "ocr"
         chapters_path = analysing_path / "chapters"
-        toc_range_path = analysing_path / "toc-range.json"
+        toc_pages_path = analysing_path / "toc-pages.xml"
 
         cover_path: Path | None = None
         plot_path: Path | None = None
@@ -204,10 +204,13 @@ class Transform:
             metering.input_tokens += event.input_tokens
             metering.output_tokens += event.output_tokens
 
-        toc_page_indexes = analyse_toc_range(
-            pages_path=pages_path,
-            toc_path=toc_range_path,
-        )
+        toc_page_indexes = [
+            ref.page_index
+            for ref in analyse_toc_range(
+                pages_path=pages_path,
+                toc_pages_path=toc_pages_path,
+            )
+        ]
         generate_chapter_files(
             pages_path=pages_path,
             chapters_path=chapters_path,

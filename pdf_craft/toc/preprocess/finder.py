@@ -1,9 +1,9 @@
 import ahocorasick
 
-from dataclasses import dataclass
 from typing import Iterable, Callable, TypeVar, Generic
 
 from ...language import is_latin_letter
+from .types import PageRef, MatchedTitle, TitleReference
 from .text import normalize_text
 
 
@@ -13,25 +13,12 @@ _MIN_LATIN_TITLE_LENGTH = 6
 _MIN_NON_LATIN_TITLE_LENGTH = 3
 
 
-@dataclass
-class PageRef:
-    page_index: int
-    score: float
-    matched_titles: list["MatchedTitle"]
-
-@dataclass
-class MatchedTitle:
-    text: str
-    score: float
-    references: list[tuple[int, int]]  # (page_index, order)
-
-
 # 使用统计学方式寻找文档中目录页所在页数范围。
 # 目录页中的文本，会大规模与后续书页中的章节标题匹配，本函数使用此特征来锁定目录页。
-def find_toc_page_indexes(
+def find_toc_pages(
         iter_titles: Callable[[], Iterable[list[str]]],
         iter_page_bodies: Callable[[], Iterable[str]],
-    ) -> list[int]:
+    ) -> list[PageRef]:
 
     matcher: _SubstringMatcher[tuple[int, int]] = _SubstringMatcher() # (page_index, order)
     page_refs: list[PageRef] = []
@@ -56,16 +43,16 @@ def find_toc_page_indexes(
         # 若匹配越多，当然说明此页更有可能是目录页。
         # 但若该子串在文档中大规模出现，例如书籍标题可能反复出现在页眉页脚，此时应该降低权重
         for substring, (matched_count, payloads) in matched_substrings.items():
-            matched_payloads: list[tuple[int, int]] = [
-                (index, order)
+            references: list[TitleReference] = [
+                TitleReference(page_index=index, order=order)
                 for index, order in payloads
                 if index != page_index
             ]
-            if matched_payloads:
+            if references:
                 matched_title = MatchedTitle(
                     text=substring,
-                    score=matched_count / len(matched_payloads),
-                    references=matched_payloads,
+                    score=matched_count / len(references),
+                    references=references,
                 )
                 matched_titles.append(matched_title)
 
@@ -92,9 +79,10 @@ def find_toc_page_indexes(
             cut_position = i + 1
 
     cut_position = min(cut_position, max_toc_pages)
-    toc_pages = page_refs[:cut_position]
+    toc_page_refs = page_refs[:cut_position]
+    toc_page_refs.sort(key=lambda x: x.page_index)
 
-    return sorted([page.page_index for page in toc_pages])
+    return toc_page_refs
 
 def _valid_title(title: str) -> bool:
     title = title.strip()

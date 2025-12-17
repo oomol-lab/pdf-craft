@@ -1,34 +1,33 @@
-import json
 import re
 
 from pathlib import Path
 from typing import Generator
 
-from ...common import XMLReader
-from ...pdf import decode, Page, TITLE_TAGS
-from .finder import find_toc_page_indexes
+from ...common import save_xml, read_xml, XMLReader
+from ...pdf import decode as decode_pdf, Page, TITLE_TAGS
+from .finder import find_toc_pages
+from .types import encode as encode_toc, decode as decode_toc, PageRef
+
 
 _TITLE_MARKDOWN_HEAD_PATTERN = re.compile(r"^\s*#{1,6}\s*")
 
-def analyse_toc_range(pages_path: Path, toc_path: Path) -> list[int]:
-    if toc_path.exists():
-        with open(toc_path, "r", encoding="utf-8") as f:
-            return json.load(f)
+def analyse_toc_range(pages_path: Path, toc_pages_path: Path) -> list[PageRef]:
+    if toc_pages_path.exists():
+        return decode_toc(read_xml(toc_pages_path))
 
     pages: XMLReader[Page] = XMLReader(
         prefix="page",
         dir_path=pages_path,
-        decode=decode,
+        decode=decode_pdf,
     )
-    page_indexes = find_toc_page_indexes(
+    toc_pages = find_toc_pages(
         iter_titles=lambda:_search_titles(pages),
         iter_page_bodies=lambda:_search_body(pages),
     )
-    toc_path.parent.mkdir(parents=True, exist_ok=True)
-    with open(toc_path, "w", encoding="utf-8") as f:
-        json.dump(page_indexes, f)
+    toc_pages_path.parent.mkdir(parents=True, exist_ok=True)
+    save_xml(encode_toc(toc_pages), toc_pages_path)
 
-    return page_indexes
+    return toc_pages
 
 def _search_titles(pages: XMLReader[Page]) -> Generator[list[str], None, None]:
     for page in pages.read():
