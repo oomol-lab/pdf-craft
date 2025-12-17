@@ -1,6 +1,6 @@
 import ahocorasick
 
-from typing import Iterable, Callable
+from typing import Iterable, Callable, TypeVar, Generic
 
 from ...language import is_latin_letter
 from .text import normalize_text
@@ -19,16 +19,14 @@ def find_toc_page_indexes(
         iter_page_bodies: Callable[[], Iterable[str]],
     ) -> list[int]:
 
-    matcher = _SubstringMatcher()
+    matcher = _SubstringMatcher[int]()
     page_scores: list[tuple[int, float]] = []  # (page_index, score)
-    id2page: dict[int, int] = {}
 
     for page_index, titles in enumerate(iter_titles(), start=1):
         for title in titles:
             title = normalize_text(title)
             if _valid_title(title):
-                id = matcher.register_substring(title)
-                id2page[id] = page_index
+                matcher.register_substring(title, page_index)
 
     if matcher.substrings_count == 0:
         return []
@@ -39,10 +37,10 @@ def find_toc_page_indexes(
         # 若匹配越多，当然说明此页更有可能是目录页。
         # 但若该子串在文档中大规模出现，例如书籍标题可能反复出现在页眉页脚，此时应该降低权重
         score = 0.0
-        for _, (matched_count, ids) in match_result.items():
+        for _, (matched_count, page_indexes) in match_result.items():
             count_in_document = 0
-            for id in ids:
-                if page_index != id2page[id]:
+            for title_page_index in page_indexes:
+                if page_index != title_page_index:
                     count_in_document += 1
             if count_in_document > 0:
                 score += matched_count / count_in_document
@@ -76,33 +74,30 @@ def _valid_title(title: str) -> bool:
     else:
         return len(title) >= _MIN_NON_LATIN_TITLE_LENGTH
 
-class _SubstringMatcher:
+_P = TypeVar("_P")
+
+class _SubstringMatcher(Generic[_P]):
     def __init__(self):
         self._automaton = ahocorasick.Automaton()
-        self._next_id = 0
         self._substrings_count: int = 0
-        self._substring_to_ids: dict[str, list[int]] = {}
+        self._substring_to_payloads: dict[str, list[_P]] = {}
         self._finalized = False
 
     @property
     def substrings_count(self) -> int:
         return self._substrings_count
 
-    def register_substring(self, substring: str) -> int:
-        current_id = self._next_id
-        self._next_id += 1
+    def register_substring(self, substring: str, payload: _P) -> None:
         self._substrings_count += 1
 
-        if substring not in self._substring_to_ids:
-            self._substring_to_ids[substring] = []
+        if substring not in self._substring_to_payloads:
+            self._substring_to_payloads[substring] = []
             self._automaton.add_word(substring, substring)
 
-        self._substring_to_ids[substring].append(current_id)
+        self._substring_to_payloads[substring].append(payload)
         self._finalized = False
 
-        return current_id
-
-    def match(self, text: str) -> dict[str, tuple[int, list[int]]]:
+    def match(self, text: str) -> dict[str, tuple[int, list[_P]]]:
         if not self._finalized:
             self._automaton.make_automaton()
             self._finalized = True
@@ -111,8 +106,8 @@ class _SubstringMatcher:
         for _, substring in self._automaton.iter(text):
             match_counts[substring] = match_counts.get(substring, 0) + 1
 
-        match_result: dict[str, tuple[int, list[int]]] = {}
+        match_result: dict[str, tuple[int, list[_P]]] = {}
         for substring, count in match_counts.items():
-            match_result[substring] = (count, self._substring_to_ids[substring])
+            match_result[substring] = (count, self._substring_to_payloads[substring])
 
         return match_result
