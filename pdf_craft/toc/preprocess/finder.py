@@ -1,5 +1,6 @@
 import ahocorasick
 
+from dataclasses import dataclass
 from typing import Iterable, Callable, TypeVar, Generic
 
 from ...language import is_latin_letter
@@ -12,6 +13,19 @@ _MIN_LATIN_TITLE_LENGTH = 6
 _MIN_NON_LATIN_TITLE_LENGTH = 3
 
 
+@dataclass
+class PageRef:
+    page_index: int
+    score: float
+    matched_titles: list["MatchedTitle"]
+
+@dataclass
+class MatchedTitle:
+    text: str
+    score: float
+    references: list[tuple[int, int]]  # (page_index, order)
+
+
 # 使用统计学方式寻找文档中目录页所在页数范围。
 # 目录页中的文本，会大规模与后续书页中的章节标题匹配，本函数使用此特征来锁定目录页。
 def find_toc_page_indexes(
@@ -19,53 +33,68 @@ def find_toc_page_indexes(
         iter_page_bodies: Callable[[], Iterable[str]],
     ) -> list[int]:
 
-    matcher = _SubstringMatcher[int]()
-    page_scores: list[tuple[int, float]] = []  # (page_index, score)
+    matcher: _SubstringMatcher[tuple[int, int]] = _SubstringMatcher() # (page_index, order)
+    page_refs: list[PageRef] = []
 
     for page_index, titles in enumerate(iter_titles(), start=1):
-        for title in titles:
+        for order, title in enumerate(titles):
             title = normalize_text(title)
             if _valid_title(title):
-                matcher.register_substring(title, page_index)
+                matcher.register_substring(
+                    substring=title,
+                    payload=(page_index, order),
+                )
 
     if matcher.substrings_count == 0:
         return []
 
     for page_index, body in enumerate(iter_page_bodies(), start=1):
-        match_result = matcher.match(normalize_text(body))
+        matched_titles: list[MatchedTitle] = []
+        matched_substrings = matcher.match(normalize_text(body))
+
         # 每一个匹配的子串提供的分数为：该页匹配次数 / 该子串在文档中出现的总次数
         # 若匹配越多，当然说明此页更有可能是目录页。
         # 但若该子串在文档中大规模出现，例如书籍标题可能反复出现在页眉页脚，此时应该降低权重
-        score = 0.0
-        for _, (matched_count, page_indexes) in match_result.items():
-            count_in_document = 0
-            for title_page_index in page_indexes:
-                if page_index != title_page_index:
-                    count_in_document += 1
-            if count_in_document > 0:
-                score += matched_count / count_in_document
-        page_scores.append((page_index, score))
+        for substring, (matched_count, payloads) in matched_substrings.items():
+            matched_payloads: list[tuple[int, int]] = [
+                (index, order)
+                for index, order in payloads
+                if index != page_index
+            ]
+            if matched_payloads:
+                matched_title = MatchedTitle(
+                    text=substring,
+                    score=matched_count / len(matched_payloads),
+                    references=matched_payloads,
+                )
+                matched_titles.append(matched_title)
 
-    total_pages = len(page_scores)
+        page_refs.append(PageRef(
+            page_index=page_index,
+            matched_titles=matched_titles,
+            score=sum(m.score for m in matched_titles),
+        ))
+
+    total_pages = len(page_refs)
     max_toc_pages = max(_MIN_TOC_LIMIT, int(total_pages * _MAX_TOC_RATIO))
 
     if total_pages <= 1:
         return [] # 仅一页没有抽离目录的必要
 
-    page_scores.sort(key=lambda x: x[1], reverse=True)
+    page_refs.sort(key=lambda x: x.score, reverse=True)
     max_diff = 0.0
     cut_position = 0
 
-    for i in range(len(page_scores) - 1):
-        diff = page_scores[i][1] - page_scores[i + 1][1]
+    for i in range(len(page_refs) - 1):
+        diff = page_refs[i].score - page_refs[i + 1].score
         if diff > max_diff:
             max_diff = diff
             cut_position = i + 1
 
     cut_position = min(cut_position, max_toc_pages)
-    toc_pages = page_scores[:cut_position]
+    toc_pages = page_refs[:cut_position]
 
-    return sorted([i for i, _ in toc_pages])
+    return sorted([page.page_index for page in toc_pages])
 
 def _valid_title(title: str) -> bool:
     title = title.strip()
