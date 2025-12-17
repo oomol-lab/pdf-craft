@@ -7,7 +7,7 @@ from ..pdf import decode as decode_pdf, Page, TITLE_TAGS
 
 from .types import encode as encode_toc, decode as decode_toc, Toc
 from .toc_pages import find_toc_pages
-from .toc_levels import analyse_toc_levels, analyse_title_levels, Ref2Level
+from .toc_levels import analyse_toc_toc, analyse_title_toc, Ref2Toc
 
 
 _TITLE_HEAD_REGX = re.compile(r"^\s*#{1,6}\s*")
@@ -28,7 +28,7 @@ def _do_analyse_toc(pages_path: Path, focus_toc: bool) -> list[Toc]:
         dir_path=pages_path,
         decode=decode_pdf,
     )
-    ref2level: Ref2Level
+    ref2toc: Ref2Toc
     if focus_toc:
         toc_pages = find_toc_pages(
             iter_titles=lambda:(
@@ -44,24 +44,33 @@ def _do_analyse_toc(pages_path: Path, focus_toc: bool) -> list[Toc]:
                 for page in pages.read()
             ),
         )
-        ref2level = analyse_toc_levels(
+        ref2toc = analyse_toc_toc(
             pages=pages,
             pages_path=pages_path,
             toc_pages=toc_pages,
         )
     else:
-        ref2level = analyse_title_levels(pages)
+        ref2toc = analyse_title_toc(pages)
 
-    return _structure_toc_by_levels(ref2level)
+    return _structure_toc_by_levels(ref2toc)
 
-def _structure_toc_by_levels(ref2level: Ref2Level) -> list[Toc]:
+def _structure_toc_by_levels(ref2toc: Ref2Toc) -> list[Toc]:
+     # 虚拟根节点
+    root = Toc(
+        id=-1,
+        toc_page_index=-1,
+        page_index=-1,
+        order=-1,
+        level=-1,
+        children=[],
+    )
     next_id: int = 1
-    root = Toc(id=-1, page_index=-1, order=-1, level=-1, children=[]) # 虚拟根节点
     stack: list[Toc] = [root]
 
-    for (page_index, order), level in sorted(ref2level.items(), key=lambda x: x[0]):
+    for (page_index, order), (toc_page_index, level) in sorted(ref2toc.items(), key=lambda x: x[0]):
         toc = Toc(
             id=next_id,
+            toc_page_index=toc_page_index,
             page_index=page_index,
             order=order,
             level=level,

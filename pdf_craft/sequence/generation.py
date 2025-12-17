@@ -3,7 +3,7 @@ from typing import Generator
 
 from ..common import save_xml, XMLReader
 from ..pdf import decode, Page, TITLE_TAGS
-from ..toc import Toc
+from ..toc import iter_toc, Toc
 
 from .jointer import Jointer
 from .content import join_texts_in_content, expand_text_in_content
@@ -17,35 +17,48 @@ def generate_chapter_files(pages_path: Path, chapters_path: Path, toc: list[Toc]
     for chapter_file in chapters_path.glob("chapter_*.xml"):
         chapter_file.unlink()
 
-    for i, chapter in enumerate(_generate_chapters(
+    for id, chapter in _generate_chapters(
         pages_path=pages_path,
-        toc_page_indexes=set(),
-    )):
-        chapter_file = chapters_path / f"chapter_{i + 1}.xml"
+        toc=toc,
+    ):
+        tail = "head" if id is None else f"{id}"
+        chapter_file = chapters_path / f"chapter_{tail}.xml"
         chapter_element = encode(chapter)
         save_xml(chapter_element, chapter_file)
 
-def _generate_chapters(pages_path: Path, toc_page_indexes: set[int]):
+def _generate_chapters(pages_path: Path, toc: list[Toc]) -> Generator[tuple[int | None, Chapter], None, None]:
     chapter: Chapter | None = None
-    for layout in _extract_body_layouts(pages_path, toc_page_indexes):
-        if isinstance(layout, ParagraphLayout) and layout.ref in TITLE_TAGS:
-            if chapter:
-                yield chapter
-            chapter = Chapter(title=layout, layouts=[])
-        else:
+    ref2toc: dict[tuple[int, int], Toc] = {}
+
+    for item in iter_toc(toc):
+        ref2toc[(item.page_index, item.order)] = item
+
+    for layout in _extract_body_layouts(pages_path, toc):
+        matched_toc = False
+        if isinstance(layout, ParagraphLayout) and layout.blocks and layout.ref in TITLE_TAGS:
+            block = layout.blocks[0]
+            item = ref2toc.get((block.page_index, block.order), None)
+            if item:
+                if chapter:
+                    yield item.id, chapter
+                chapter = Chapter(title=layout, layouts=[])
+                matched_toc = True
+
+        if not matched_toc:
             if chapter is None:
                 chapter = Chapter(title=None, layouts=[])
             chapter.layouts.append(layout)
 
     if chapter:
-        yield chapter
+        yield None, chapter
 
-def _extract_body_layouts(pages_path: Path, toc_page_indexes: set[int]):
+def _extract_body_layouts(pages_path: Path, toc: list[Toc]):
     pages: XMLReader[Page] = XMLReader(
         prefix="page",
         dir_path=pages_path,
         decode=decode,
     )
+    toc_page_indexes = set(t.toc_page_index for t in iter_toc(toc))
     body_jointer = Jointer(((p.index, p.body_layouts) for p in pages.read() if p.index not in toc_page_indexes))
     footnotes_jointer = Jointer(((p.index, p.footnotes_layouts) for p in pages.read() if p.index not in toc_page_indexes))
     references_generator = _extract_page_references(footnotes_jointer)
