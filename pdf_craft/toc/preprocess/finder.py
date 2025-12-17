@@ -6,7 +6,7 @@ from ...language import is_latin_letter
 from .text import normalize_text
 
 
-_MAX_TOC_RAGES = 0.1
+_MAX_TOC_RATIO = 0.1
 _MIN_TOC_LIMIT = 3
 _MIN_LATIN_TITLE_LENGTH = 6
 _MIN_NON_LATIN_TITLE_LENGTH = 3
@@ -46,7 +46,7 @@ def find_toc_page_indexes(
         page_scores.append((page_index, score))
 
     total_pages = len(page_scores)
-    max_toc_pages = max(_MIN_TOC_LIMIT, int(total_pages * _MAX_TOC_RAGES))
+    max_toc_pages = max(_MIN_TOC_LIMIT, int(total_pages * _MAX_TOC_RATIO))
 
     if total_pages <= 1:
         return [] # 仅一页没有抽离目录的必要

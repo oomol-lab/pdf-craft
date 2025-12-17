@@ -8,7 +8,7 @@ from ...common import XMLReader
 from ...pdf import decode, Page, TITLE_TAGS
 from .finder import find_toc_page_indexes
 
-_TITLE_MARKDOWN_HEAD_PATTER = re.compile(r"^\s*#{1,6}\s*")
+_TITLE_MARKDOWN_HEAD_PATTERN = re.compile(r"^\s*#{1,6}\s*")
 
 def analyse_toc_range(pages_path: Path, toc_path: Path) -> list[int]:
     if toc_path.exists():
@@ -33,7 +33,7 @@ def analyse_toc_range(pages_path: Path, toc_path: Path) -> list[int]:
 def _search_titles(pages: XMLReader[Page]) -> Generator[list[str], None, None]:
     for page in pages.read():
         yield list(
-            _TITLE_MARKDOWN_HEAD_PATTER.sub("", layout.text)
+            _TITLE_MARKDOWN_HEAD_PATTERN.sub("", layout.text)
             for layout in page.body_layouts
             if layout.ref in TITLE_TAGS
         )
