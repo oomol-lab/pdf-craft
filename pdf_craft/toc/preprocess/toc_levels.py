@@ -5,8 +5,8 @@ from pathlib import Path
 from ...common import read_xml, split_by_cv, XMLReader
 from ...pdf import decode as decode_as_page, TITLE_TAGS, Page, PageLayout
 
-from ..common import decode as decode_as_ref, PageRef
-from ..preprocess import normalize_text
+from ..common import PageRef
+from .text import normalize_text
 
 
 _MAX_TOC_LEVELS = 4
@@ -14,16 +14,16 @@ _MAX_TOC_CV = 0.75 # 不宜过小导致过多分组
 
 Ref2Level = dict[tuple[int, int], int]  # key: (page_index, order) value: level
 
-def analyse_title_levels(pages_path: Path) -> Ref2Level:
-    return _extract_title_levels(pages_path)
+def analyse_title_levels(pages: XMLReader[Page]) -> Ref2Level:
+    return _extract_title_levels(pages)
 
-def analyse_toc_levels(pages_path: Path, toc_pages_path: Path) -> Ref2Level:
+def analyse_toc_levels(pages: XMLReader[Page], pages_path: Path, toc_pages: list[PageRef]) -> Ref2Level:
     ref2meta, toc_page_indexes = _extract_ref2meta(
         pages_path=pages_path,
-        toc_pages_path=toc_pages_path,
+        toc_pages=toc_pages,
     )
     ref2global_level = _extract_title_levels(
-        pages_path=pages_path,
+        pages=pages,
         disable_page_indexes=toc_page_indexes,
         ref2meta=ref2meta,
     )
@@ -51,11 +51,11 @@ class _TitleMeta:
 
 _Ref2Meta = dict[tuple[int, int], _TitleMeta]
 
-def _extract_ref2meta(pages_path: Path, toc_pages_path: Path) -> tuple[_Ref2Meta, set[int]]:
+def _extract_ref2meta(pages_path: Path, toc_pages: list[PageRef]) -> tuple[_Ref2Meta, set[int]]:
     ref2meta: _Ref2Meta = {} # key: (page_index, order)
     toc_page_indexes: set[int] = set()
 
-    for ref in decode_as_ref(read_xml(toc_pages_path)):
+    for ref in toc_pages:
         toc_page_indexes.add(ref.page_index)
         grouped_hooks = _analyse_toc_page_hooks(
             ref=ref,
@@ -107,17 +107,12 @@ def _analyse_toc_page_hooks(ref: PageRef, page_path: Path) -> list[list[_Hook]]:
     return hooks
 
 def _extract_title_levels(
-        pages_path: Path,
+        pages: XMLReader[Page],
         disable_page_indexes: set[int] | None = None,
         ref2meta: _Ref2Meta | None = None,
     ) -> Ref2Level:
 
     title_items: list[tuple[float, tuple[int, int]]] = []
-    pages: XMLReader[Page] = XMLReader(
-        prefix="page",
-        dir_path=pages_path,
-        decode=decode_as_page,
-    )
     for page in pages.read():
         if disable_page_indexes and page.index in disable_page_indexes:
             continue
