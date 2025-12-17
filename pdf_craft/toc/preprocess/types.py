@@ -1,6 +1,8 @@
 from dataclasses import dataclass
 from xml.etree.ElementTree import Element
 
+from ...common import indent
+
 
 @dataclass
 class Toc:
@@ -27,7 +29,8 @@ def encode(toc_list: list[Toc]) -> Element:
 
     for toc in toc_list:
         encode_item(toc, root)
-    return root
+
+    return indent(root)
 
 
 def decode(element: Element) -> list[Toc]:

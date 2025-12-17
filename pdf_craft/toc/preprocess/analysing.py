@@ -12,13 +12,13 @@ from .toc_levels import analyse_toc_levels, analyse_title_levels, Ref2Level
 
 _TITLE_HEAD_REGX = re.compile(r"^\s*#{1,6}\s*")
 
-def analyse_toc(pages_path: Path, toc_pages_path: Path, focus_toc: bool) -> list[Toc]:
-    if toc_pages_path.exists():
-        return decode_toc(read_xml(toc_pages_path))
+def analyse_toc(pages_path: Path, toc_path: Path, focus_toc: bool) -> list[Toc]:
+    if toc_path.exists():
+        return decode_toc(read_xml(toc_path))
 
-    toc_pages_path.parent.mkdir(parents=True, exist_ok=True)
+    toc_path.parent.mkdir(parents=True, exist_ok=True)
     toc_list = _do_analyse_toc(pages_path, focus_toc)
-    save_xml(encode_toc(toc_list), toc_pages_path)
+    save_xml(encode_toc(toc_list), toc_path)
 
     return toc_list
 

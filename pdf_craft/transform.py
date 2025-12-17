@@ -9,7 +9,6 @@ from .to_path import to_path
 from .pdf import OCR, OCREvent, PDFHandler, DeepSeekOCRSize
 from .sequence import generate_chapter_files
 from .toc.preprocess import analyse_toc
-from .toc.postprocess import generate_toc_file
 from .epub import render_epub_file
 from .error import is_inline_error, to_interrupted_error
 from .metering import AbortedCheck, OCRTokensMetering
@@ -115,7 +114,7 @@ class Transform:
                 path=to_path(analysing_path) if analysing_path is not None else None,
             ) as analysing_path:
                 pdf_path = Path(pdf_path)
-                asserts_path, chapters_path, toc_analysed_path, cover_path, metering = self._extract_from_pdf(
+                asserts_path, chapters_path, toc_path, cover_path, metering = self._extract_from_pdf(
                     pdf_path=pdf_path,
                     analysing_path=analysing_path,
                     ocr_size=ocr_size,
@@ -132,7 +131,7 @@ class Transform:
 
                 render_epub_file(
                     chapters_path=chapters_path,
-                    toc_path=toc_analysed_path,
+                    toc_path=toc_path,
                     assets_path=asserts_path,
                     epub_path=Path(epub_path),
                     book_meta=book_meta,
@@ -172,8 +171,7 @@ class Transform:
         asserts_path = analysing_path / "assets"
         pages_path = analysing_path / "ocr"
         chapters_path = analysing_path / "chapters"
-        toc_pages_path = analysing_path / "toc-pages.xml"
-        toc_analysed_path = analysing_path / "toc-analysed.xml"
+        toc_path = analysing_path / "toc.xml"
 
         cover_path: Path | None = None
         plot_path: Path | None = None
@@ -205,7 +203,7 @@ class Transform:
 
         toc = analyse_toc(
             pages_path=pages_path,
-            toc_pages_path=toc_pages_path,
+            toc_path=toc_path,
             focus_toc=True, # TODO:
         )
         generate_chapter_files(
@@ -213,16 +211,10 @@ class Transform:
             chapters_path=chapters_path,
             toc=toc,
         )
-        toc_analysed_path = generate_toc_file(
-            pages_path=pages_path,
-            chapters_path=chapters_path,
-            toc_pages_path=toc_pages_path,
-            toc_analysed_path=toc_analysed_path,
-        )
         if cover_path and not cover_path.exists():
             cover_path = None
 
-        return asserts_path, chapters_path, toc_analysed_path, cover_path, metering
+        return asserts_path, chapters_path, toc_path, cover_path, metering
 
     def _extract_book_meta(self, pdf_path: Path) -> BookMeta:
         pdf_metadata = self._ocr.metadata(pdf_path)
