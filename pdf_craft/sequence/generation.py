@@ -2,9 +2,9 @@ from pathlib import Path
 from typing import Generator
 
 from ..common import save_xml, XMLReader
-from ..pdf import decode, Page
+from ..pdf import decode, Page, TITLE_TAGS
 
-from .jointer import TITLE_TAGS, Jointer
+from .jointer import Jointer
 from .content import join_texts_in_content, expand_text_in_content
 from .chapter import encode, Reference, Chapter, AssetLayout, ParagraphLayout, BlockLayout
 from .reference import References

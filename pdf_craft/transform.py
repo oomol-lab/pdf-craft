@@ -8,6 +8,7 @@ from .common import EnsureFolder
 from .to_path import to_path
 from .pdf import OCR, OCREvent, PDFHandler, DeepSeekOCRSize
 from .sequence import generate_chapter_files
+from .toc.preprocess import analyse_toc_range
 from .toc.postprocess import generate_toc_file
 from .epub import render_epub_file
 from .error import is_inline_error, to_interrupted_error
@@ -173,6 +174,7 @@ class Transform:
         asserts_path = analysing_path / "assets"
         pages_path = analysing_path / "ocr"
         chapters_path = analysing_path / "chapters"
+        toc_range_path = analysing_path / "toc-range.json"
 
         cover_path: Path | None = None
         plot_path: Path | None = None
@@ -202,6 +204,10 @@ class Transform:
             metering.input_tokens += event.input_tokens
             metering.output_tokens += event.output_tokens
 
+        toc_page_indexes = analyse_toc_range(
+            pages_path=pages_path,
+            toc_path=toc_range_path,
+        )
         generate_chapter_files(
             pages_path=pages_path,
             chapters_path=chapters_path,
