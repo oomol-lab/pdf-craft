@@ -42,6 +42,7 @@ class _LastTail:
     page_para: ParagraphLayout
     override: list[AssetLayout]
 
+
 class Jointer:
     def __init__(self, layouts: Iterable[tuple[int, list[PageLayout]]]) -> None:
         self._layouts = layouts

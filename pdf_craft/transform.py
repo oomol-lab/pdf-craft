@@ -8,7 +8,7 @@ from .common import EnsureFolder
 from .to_path import to_path
 from .pdf import OCR, OCREvent, PDFHandler, DeepSeekOCRSize
 from .sequence import generate_chapter_files
-from .toc import generate_toc_file
+from .toc.postprocess import generate_toc_file
 from .epub import render_epub_file
 from .error import is_inline_error, to_interrupted_error
 from .metering import AbortedCheck, OCRTokensMetering

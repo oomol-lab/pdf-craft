@@ -1,5 +1,6 @@
 import unittest
-from pdf_craft.toc.text import normalize_text
+
+from pdf_craft.toc.preprocess.text import normalize_text
 
 
 class TestNormalizeText(unittest.TestCase):
