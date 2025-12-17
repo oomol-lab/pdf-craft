@@ -59,7 +59,7 @@ class Transform:
             with EnsureFolder(
                 path=to_path(analysing_path) if analysing_path is not None else None,
             ) as analysing_path:
-                asserts_path, chapters_path, _, metering = self._extract_from_pdf(
+                asserts_path, chapters_path, _, _, metering = self._extract_from_pdf(
                     pdf_path=Path(pdf_path),
                     analysing_path=analysing_path,
                     ocr_size=ocr_size,
@@ -115,8 +115,7 @@ class Transform:
                 path=to_path(analysing_path) if analysing_path is not None else None,
             ) as analysing_path:
                 pdf_path = Path(pdf_path)
-                toc_path: Path | None = analysing_path / "toc.xml"
-                asserts_path, chapters_path, cover_path, metering = self._extract_from_pdf(
+                asserts_path, chapters_path, toc_analysed_path, cover_path, metering = self._extract_from_pdf(
                     pdf_path=pdf_path,
                     analysing_path=analysing_path,
                     ocr_size=ocr_size,
@@ -129,12 +128,11 @@ class Transform:
                     max_output_tokens=max_ocr_output_tokens,
                     on_ocr_event=on_ocr_event,
                 )
-                toc_path = generate_toc_file(chapters_path, toc_path)
                 book_meta = book_meta or self._extract_book_meta(pdf_path)
 
                 render_epub_file(
                     chapters_path=chapters_path,
-                    toc_path=toc_path,
+                    toc_path=toc_analysed_path,
                     assets_path=asserts_path,
                     epub_path=Path(epub_path),
                     book_meta=book_meta,
@@ -175,6 +173,7 @@ class Transform:
         pages_path = analysing_path / "ocr"
         chapters_path = analysing_path / "chapters"
         toc_pages_path = analysing_path / "toc-pages.xml"
+        toc_analysed_path = analysing_path / "toc-analysed.xml"
 
         cover_path: Path | None = None
         plot_path: Path | None = None
@@ -206,6 +205,8 @@ class Transform:
 
         toc_page_indexes = [
             ref.page_index
+            # TODO: 目录分析和剔除目录页操作是可选的，由用户决定
+            #       因此 toc_pages_path 可能为 None
             for ref in analyse_toc_range(
                 pages_path=pages_path,
                 toc_pages_path=toc_pages_path,
@@ -216,10 +217,15 @@ class Transform:
             chapters_path=chapters_path,
             toc_page_indexes=toc_page_indexes,
         )
+        toc_analysed_path = generate_toc_file(
+            chapters_path=chapters_path,
+            toc_pages_path=toc_pages_path,
+            toc_analysed_path=toc_analysed_path,
+        )
         if cover_path and not cover_path.exists():
             cover_path = None
 
-        return asserts_path, chapters_path, cover_path, metering
+        return asserts_path, chapters_path, toc_analysed_path, cover_path, metering
 
     def _extract_book_meta(self, pdf_path: Path) -> BookMeta:
         pdf_metadata = self._ocr.metadata(pdf_path)

@@ -3,17 +3,28 @@ import re
 from pathlib import Path
 from typing import Generator
 
-from ...common import save_xml, XMLReader
-from ...sequence import decode, Chapter, Reference
+from ...common import read_xml, save_xml, XMLReader
+from ...sequence import decode as decode_chapter, Chapter, Reference
+
+from ..common import decode as decode_toc
 from .item import encode
 from .analyse import analyse_toc, RawChapter
+from .analyse2 import analyse_toc2
 
 
-def generate_toc_file(chapters_path: Path, toc_path: Path) -> Path | None:
+def generate_toc_file(
+        chapters_path: Path,
+        toc_pages_path: Path,
+        toc_analysed_path: Path,
+    ) -> Path | None:
     chapters: XMLReader[Chapter] = XMLReader(
         prefix="chapter",
         dir_path=chapters_path,
-        decode=decode,
+        decode=decode_chapter,
+    )
+    analyse_toc2(
+        iter_chapters=lambda: (c for c in chapters.read()),
+        toc_page_refs=decode_toc(read_xml(toc_pages_path)),
     )
     raw_chapters = (_to_raw_chapter(p) for p in enumerate(chapters.read()))
     toc_element = encode(analyse_toc(
@@ -21,8 +32,8 @@ def generate_toc_file(chapters_path: Path, toc_path: Path) -> Path | None:
     ))
     if toc_element is None:
         return None
-    save_xml(toc_element, toc_path)
-    return toc_path
+    save_xml(toc_element, toc_analysed_path)
+    return toc_analysed_path
 
 
 def _to_raw_chapter(pair: tuple[int, Chapter]) -> RawChapter | None:
