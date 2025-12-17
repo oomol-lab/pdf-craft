@@ -218,6 +218,7 @@ class Transform:
             toc_page_indexes=toc_page_indexes,
         )
         toc_analysed_path = generate_toc_file(
+            pages_path=pages_path,
             chapters_path=chapters_path,
             toc_pages_path=toc_pages_path,
             toc_analysed_path=toc_analysed_path,

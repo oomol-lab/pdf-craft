@@ -3,18 +3,18 @@ from typing import Iterable, Callable
 from ...common import split_by_cv
 from ...sequence import Chapter, BlockLayout
 
-from ..common import PageRef, TitleReference
+from .toc_levels import Ref2Level
 
 
 _MAX_TOC_LEVELS = 4
 
 def analyse_toc2(
         iter_chapters: Callable[[], Iterable[Chapter]],
-        toc_page_refs: list[PageRef] | None,
+        ref2level: Ref2Level | None,
     ):
-    print(toc_page_refs)
     result = _split_titles_from_chapters(iter_chapters())
 
+    print(ref2level)
     print("\n\n")
     for level, titles in enumerate(result, start=1):
         print(f"Level {level}:")

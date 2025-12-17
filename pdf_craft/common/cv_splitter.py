@@ -10,6 +10,7 @@ class _Group(Generic[P]):
     def __init__(self, items: list[tuple[float, P]]):
         self._items: list[tuple[float, P]] = items
         self._cached_cv: float | None = None
+        self._cached_size: float | None = None
 
     @property
     def items(self) -> list[tuple[float, P]]:
@@ -22,6 +23,16 @@ class _Group(Generic[P]):
                 values=[size for size, _ in self._items],
             )
         return self._cached_cv
+
+    @property
+    def size(self) -> float:
+        if self._cached_size is None:
+            if self._items:
+                self._cached_size = sum(size for size, _ in self._items) / len(self._items)
+            else:
+                self._cached_size = 0.0
+        return self._cached_size
+
 
     def _calculate_cv(self, values: list[float]) -> float:
         if not values or len(values) < 2:
@@ -60,7 +71,10 @@ def split_by_cv(
 
     print("Final groups CVs:", [group.cv for group in groups])
 
-    return [[payload for _, payload in group.items] for group in groups]
+    return [
+        [payload for _, payload in group.items]
+        for group in sorted(groups, key=lambda g: g.size)
+    ]
 
 def _find_max_cv_group_index(
         groups: list[_Group[P]],
