@@ -5,8 +5,8 @@ from typing import Generator
 
 from ...common import save_xml, read_xml, XMLReader
 from ...pdf import decode as decode_pdf, Page, TITLE_TAGS
+from ..common import encode as encode_toc, decode as decode_toc, PageRef
 from .finder import find_toc_pages
-from .types import encode as encode_toc, decode as decode_toc, PageRef
 
 
 _TITLE_MARKDOWN_HEAD_PATTERN = re.compile(r"^\s*#{1,6}\s*")

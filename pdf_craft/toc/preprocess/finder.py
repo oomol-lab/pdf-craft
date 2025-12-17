@@ -3,7 +3,7 @@ import ahocorasick
 from typing import Iterable, Callable, TypeVar, Generic
 
 from ...language import is_latin_letter
-from .types import PageRef, MatchedTitle, TitleReference
+from ..common import PageRef, MatchedTitle, TitleReference
 from .text import normalize_text
 
 
