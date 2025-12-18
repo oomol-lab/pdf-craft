@@ -6,7 +6,7 @@ from typing import cast, Generator, Iterable
 from ..expression import parse_latex_expressions, ExpressionKind, ParsedItem
 
 from ..pdf import TITLE_TAGS, PageLayout
-from ..common import ASSET_TAGS
+from ..common import ASSET_TAGS, AssetRef
 from ..language import is_latin_letter
 from ..markdown.paragraph import parse_raw_markdown
 
@@ -40,6 +40,16 @@ class _LastTail:
     page_para: ParagraphLayout
     override: list[AssetLayout]
 
+@dataclass
+class _AssetHolder:
+    page_index: int
+    ref: AssetRef
+    det: tuple[int, int, int, int]
+    title: str | None
+    content: str
+    caption: str | None
+    hash: str | None
+
 
 class Jointer:
     def __init__(self, layouts: Iterable[tuple[int, list[PageLayout]]]) -> None:
@@ -52,7 +62,7 @@ class Jointer:
             # 此处为完成如下业务要求：
             # 1. 当阅读序列跨越 group（跨页、跨分栏、跨因图片而挤变形拆分的段落）时，必须对连接处验证。若它们是被拆分的自然段，则拼起来。
             # 2. 因为插图、表格而拆分的自然段，需将插图存起来接到完整的自然段最后，而不是任其分割自然段。
-            layouts = self._transform_and_join_asset_layouts(page_index, raw_layouts)
+            layouts = list(self._join_and_handle_asset_layouts(page_index, raw_layouts))
             head, body, tail = self._split_layouts(layouts)
 
             if not body:
@@ -126,14 +136,38 @@ class Jointer:
 
         return head, body, tail
 
-    def _transform_and_join_asset_layouts(self, page_index, layouts: list[PageLayout]):
-        last_asset: AssetLayout | None = None
-        jointed_layouts: list[ParagraphLayout | AssetLayout] = []
+    def _join_and_handle_asset_layouts(self, page_index, layouts: list[PageLayout]) -> Generator[ParagraphLayout | AssetLayout, None, None]:
+        # layout 可能被后续处理，必须等待所有 layout 处理完毕
+        for layout in list(self._join_asset_layouts(
+            page_index=page_index,
+            layouts=layouts,
+        )):
+            if not isinstance(layout, _AssetHolder):
+                yield layout
+                continue
+
+            if layout.ref == "equation":
+                _normalize_equation(layout)
+            if layout.ref == "table":
+                _normalize_table(layout)
+
+            yield AssetLayout(
+                page_index=page_index,
+                ref=layout.ref,
+                det=layout.det,
+                title=layout.title,
+                content=layout.content,
+                caption=layout.caption,
+                hash=layout.hash,
+            )
+
+    def _join_asset_layouts(self, page_index, layouts: list[PageLayout]):
+        last_asset: _AssetHolder | None = None
         for layout in layouts:
             if layout.ref in ASSET_TAGS:
                 if last_asset:
-                    jointed_layouts.append(last_asset)
-                last_asset = AssetLayout(
+                    yield last_asset
+                last_asset = _AssetHolder(
                     page_index=page_index,
                     ref=layout.ref,
                     det=layout.det,
@@ -150,13 +184,13 @@ class Jointer:
                         last_asset.caption = layout.text
             else:
                 if last_asset:
-                    jointed_layouts.append(last_asset)
+                    yield last_asset
                     last_asset = None
                 if layout.ref in TITLE_TAGS:
                     # 将 Markdown 标题前的 `##` 之类的符号删除，DeepSeek OCR 总会生成这种符号
                     layout.text = _MARKDOWN_HEAD_PATTERN.sub("", layout.text)
 
-                jointed_layouts.append(ParagraphLayout(
+                yield ParagraphLayout(
                     ref=layout.ref,
                     level=-1,
                     blocks=[BlockLayout(
@@ -165,18 +199,9 @@ class Jointer:
                         det=layout.det,
                         content=_parse_block_content(layout.text),
                     )],
-                ))
-
+                )
         if last_asset:
-            jointed_layouts.append(last_asset)
-
-        for layout in jointed_layouts:
-            if isinstance(layout, AssetLayout):
-                if layout.ref == "equation":
-                    _normalize_equation(layout)
-                if layout.ref == "table":
-                    _normalize_table(layout)
-        return jointed_layouts
+            yield last_asset
 
     # too see https://github.com/opendatalab/MinerU/blob/fa1149cd4abf9db5e0f13e4e074cdb568be189f4/mineru/backend/pipeline/para_split.py#L253
     def _can_merge_paragraphs(self, para1: ParagraphLayout, para2: ParagraphLayout) -> bool:
@@ -228,7 +253,7 @@ class Jointer:
 
         return True
 
-def _normalize_equation(layout: AssetLayout):
+def _normalize_equation(layout: _AssetHolder):
     if layout.ref != "equation" or not layout.content:
         return
 
@@ -264,7 +289,7 @@ def _normalize_equation(layout: AssetLayout):
         layout.caption = "".join(item.reverse() for item in tail_items)
 
 
-def _normalize_table(layout: AssetLayout):
+def _normalize_table(layout: _AssetHolder):
     found_table_content: str | None = None
     head_buffer: list[str] = []
     tail_buffer: list[str] = []
