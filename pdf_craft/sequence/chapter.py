@@ -12,6 +12,7 @@ from .mark import Mark
 @dataclass
 class Chapter:
     id: int | None
+    level: int
     layouts: list["ParagraphLayout | AssetLayout"]
 
 @dataclass
@@ -27,6 +28,7 @@ class AssetLayout:
 @dataclass
 class ParagraphLayout:
     ref: str
+    level: int
     blocks: list["BlockLayout"]
 
 @dataclass
@@ -81,6 +83,10 @@ def decode(element: Element) -> Chapter:
 
     id_attr = element.get("id")
     id_value = int(id_attr) if id_attr is not None else None
+
+    level_attr = element.get("level")
+    level = int(level_attr) if level_attr is not None else -1
+
     body_el = element.find("body")
     if body_el is None:
         raise ValueError("<chapter> missing required <body> element")
@@ -95,6 +101,7 @@ def decode(element: Element) -> Chapter:
 
     return Chapter(
         id=id_value,
+        level=level,
         layouts=layouts,
     )
 
@@ -103,6 +110,9 @@ def encode(chapter: Chapter) -> Element:
 
     if chapter.id is not None:
         root.set("id", str(chapter.id))
+
+    if chapter.level != -1:
+        root.set("level", str(chapter.level))
 
     body_el = Element("body")
     for layout in chapter.layouts:
@@ -198,16 +208,21 @@ def _decode_paragraph(element: Element, references_map: dict[tuple[int, int], Re
     if ref_attr is None:
         raise ValueError("<paragraph> missing required attribute 'ref'")
 
+    level_attr = element.get("level")
+    level = int(level_attr) if level_attr is not None else -1
+
     blocks = _decode_block_elements(
         parent=element,
         context_tag="paragraph",
         references_map=references_map,
     )
-    return ParagraphLayout(ref=ref_attr, blocks=blocks)
+    return ParagraphLayout(ref=ref_attr, level=level, blocks=blocks)
 
 def _encode_paragraph(layout: ParagraphLayout) -> Element:
     el = Element("paragraph")
     el.set("ref", layout.ref)
+    if layout.level != -1:
+        el.set("level", str(layout.level))
     for block in layout.blocks:
         el.append(_encode_block_element(block))
     return el

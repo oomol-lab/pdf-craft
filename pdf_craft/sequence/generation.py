@@ -48,12 +48,21 @@ def _generate_chapters(pages_path: Path, toc: list[Toc]) -> Generator[Chapter, N
             if item:
                 if chapter:
                     yield chapter
-                chapter = Chapter(id=item.id, layouts=[layout])
+                chapter = Chapter(
+                    id=item.id,
+                    level=item.level,
+                    layouts=[layout],
+                )
                 matched_toc = True
 
         if not matched_toc:
             if chapter is None:
-                chapter = Chapter(id=None, layouts=[])
+                max_level= max((t.level for t in iter_toc(toc)), default=0)
+                chapter = Chapter(
+                    id=None,
+                    level=max_level, # 防止章节标题盖过其他
+                    layouts=[],
+                )
             chapter.layouts.append(layout)
 
     if chapter:
