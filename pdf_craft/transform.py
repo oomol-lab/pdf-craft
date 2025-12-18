@@ -5,6 +5,7 @@ from typing import Callable, Literal
 from epub_generator import BookMeta, TableRender, LaTeXRender
 
 from .common import EnsureFolder
+from .error import PDFError
 from .to_path import to_path
 from .pdf import OCR, OCREvent, PDFHandler, DeepSeekOCRSize
 from .sequence import generate_chapter_files
@@ -221,15 +222,19 @@ class Transform:
 
         return asserts_path, chapters_path, toc_path, cover_path, metering
 
-    def _extract_book_meta(self, pdf_path: Path) -> BookMeta:
-        pdf_metadata = self._ocr.metadata(pdf_path)
-        return BookMeta(
-            title=pdf_metadata.title or pdf_path.stem,
-            description=pdf_metadata.description,
-            publisher=pdf_metadata.publisher,
-            isbn=pdf_metadata.isbn,
-            authors=pdf_metadata.authors,
-            editors=pdf_metadata.editors,
-            translators=pdf_metadata.translators,
-            modified=pdf_metadata.modified,
-        )
+    def _extract_book_meta(self, pdf_path: Path) -> BookMeta | None:
+        try:
+            pdf_metadata = self._ocr.metadata(pdf_path)
+            return BookMeta(
+                title=pdf_metadata.title or pdf_path.stem,
+                description=pdf_metadata.description,
+                publisher=pdf_metadata.publisher,
+                isbn=pdf_metadata.isbn,
+                authors=pdf_metadata.authors,
+                editors=pdf_metadata.editors,
+                translators=pdf_metadata.translators,
+                modified=pdf_metadata.modified,
+            )
+        except PDFError:
+            print("Warning: Failed to extract PDF metadata.")
+            return None
