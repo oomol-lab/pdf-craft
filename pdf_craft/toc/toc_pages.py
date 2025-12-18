@@ -1,9 +1,9 @@
 import ahocorasick
 
 from typing import Iterable, Callable, TypeVar, Generic
+from dataclasses import dataclass
 
-from ...language import is_latin_letter
-from ..common import PageRef, MatchedTitle, TitleReference
+from ..language import is_latin_letter
 from .text import normalize_text
 
 
@@ -12,6 +12,25 @@ _MIN_TOC_LIMIT = 3
 _MIN_LATIN_TITLE_LENGTH = 6
 _MIN_NON_LATIN_TITLE_LENGTH = 3
 
+
+@dataclass
+class PageRef:
+    page_index: int
+    score: float
+    matched_titles: list["MatchedTitle"]
+
+
+@dataclass
+class MatchedTitle:
+    text: str
+    score: float
+    references: list["TitleReference"]
+
+
+@dataclass
+class TitleReference:
+    page_index: int
+    order: int
 
 # 使用统计学方式寻找文档中目录页所在页数范围。
 # 目录页中的文本，会大规模与后续书页中的章节标题匹配，本函数使用此特征来锁定目录页。

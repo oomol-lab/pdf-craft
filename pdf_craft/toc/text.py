@@ -1,7 +1,7 @@
 import re
 import unicodedata
 
-from ...language import is_latin_letter
+from ..language import is_latin_letter
 
 
 _LINK_FLAGS = frozenset(["-", "—", "–"])

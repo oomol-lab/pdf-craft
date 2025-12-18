@@ -2,12 +2,12 @@ from pathlib import Path
 from epub_generator import TocItem, ChapterGetter
 
 from ..common import read_xml
-from ..toc.postprocess import decode, TocItem as RawTocItem
+from ..toc import decode, Toc
 
 
 class TocCollection:
     def __init__(self, toc_path: Path | None) -> None:
-        self._root: list[RawTocItem]
+        self._root: list[Toc]
         self._root_toc_items: list[TocItem] = []
         self._extra_toc_items: list[TocItem] = []
         self._id_to_toc_item: dict[int, TocItem] = {}
@@ -40,10 +40,10 @@ class TocCollection:
             self._extra_toc_items.append(toc_item)
             self._id_to_toc_item[id] = toc_item
 
-    def _find_raw_toc_item_stack(self, id: int) -> list[RawTocItem]:
+    def _find_raw_toc_item_stack(self, id: int) -> list[Toc]:
         index: int = 0
-        current_toc_items: list[RawTocItem] = self._root
-        stack: list[tuple[int, list[RawTocItem], RawTocItem]] = []
+        current_toc_items: list[Toc] = self._root
+        stack: list[tuple[int, list[Toc], Toc]] = []
         while True:
             if index >= len(current_toc_items):
                 if not stack:
