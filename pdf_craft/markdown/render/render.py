@@ -49,6 +49,7 @@ def render_markdown_file(
                 assets_path=assets_path,
                 output_assets_path=output_assets_path,
                 asset_ref_path=assets_ref_path,
+                toc_level=chapter.level,
                 ref_id_to_number=ref_id_to_number,
             ):
                 f.write(part)
@@ -79,5 +80,6 @@ def _render_footnotes_section(
             layouts=ref.layouts,
             assets_path=assets_path,
             output_assets_path=output_assets_path,
+            toc_level=0,
             asset_ref_path=asset_ref_path,
         )
