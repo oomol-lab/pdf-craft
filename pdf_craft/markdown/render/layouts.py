@@ -1,6 +1,6 @@
 from pathlib import Path
 from shutil import copy2
-from typing import Iterable, Generator
+from typing import Iterable, Generator, Callable
 
 from ...pdf import TITLE_TAGS
 from ..paragraph import render_markdown_paragraph
@@ -36,14 +36,13 @@ def render_layouts(
         else:
             yield "\n\n"
         if isinstance(layout, AssetLayout):
-            asset_markdown = _render_asset(
+            yield from _render_asset(
                 asset=layout,
                 assets_path=assets_path,
                 output_assets_path=output_assets_path,
                 asset_ref_path=asset_ref_path,
+                ref_id_to_number=ref_id_to_number,
             )
-            if asset_markdown:
-                yield asset_markdown
         elif isinstance(layout, ParagraphLayout):
             yield from render_paragraph(
                 paragraph=layout,
@@ -83,49 +82,141 @@ def render_paragraph(paragraph: ParagraphLayout, toc_level: int, ref_id_to_numbe
             render_payload=render_member,
         )
 
+_MemberRender = Callable[[BlockMember | str], Iterable[str]]
+
 def _render_asset(
     asset: AssetLayout,
     assets_path: Path,
     output_assets_path: Path,
     asset_ref_path: Path,
-) -> str:
+    ref_id_to_number: RefIdMap | None = None,
+) -> Generator[str, None, None]:
+
+    def render_member(part: BlockMember | str) -> Generator[str, None, None]:
+        if isinstance(part, str):
+            yield to_markdown_string(
+                kind=ExpressionKind.TEXT,
+                content=part,
+            )
+        elif isinstance(part, InlineExpression):
+            latex_content = part.content.strip()
+            if latex_content:
+                yield to_markdown_string(
+                    kind=part.kind,
+                    content=latex_content,
+                )
+        elif ref_id_to_number and isinstance(part, Reference):
+            ref_number = ref_id_to_number.get(part.id, 1)
+            yield "[^"
+            yield str(ref_number)
+            yield "]"
+
+    has_content = False
+
+    if asset.title:
+        title_str = "".join(render_markdown_paragraph(
+            children=asset.title,
+            render_payload=render_member,
+        )).strip()
+        if title_str:
+            yield title_str
+            has_content = True
+
+    yield from _render_asset_content(
+        asset=asset,
+        assets_path=assets_path,
+        output_assets_path=output_assets_path,
+        asset_ref_path=asset_ref_path,
+        render_member=render_member,
+        has_content_before=has_content,
+    )
+    if asset.ref in ("equation", "table"):
+        if asset.content:
+            has_content = True
+    elif asset.ref == "image":
+        if asset.hash:
+            has_content = True
+
+    if asset.caption:
+        caption_str = "".join(render_markdown_paragraph(
+            children=asset.caption,
+            render_payload=render_member,
+        )).strip()
+        if caption_str:
+            if has_content:
+                yield "\n\n"
+            yield caption_str
+
+def _render_asset_content(
+    asset: AssetLayout,
+    assets_path: Path,
+    output_assets_path: Path,
+    asset_ref_path: Path,
+    render_member: _MemberRender,
+    has_content_before: bool,
+) -> Generator[str, None, None]:
 
     if asset.ref == "equation":
-        latex_content = asset.content.strip()
+        content_str = "".join(render_markdown_paragraph(
+            children=asset.content,
+            render_payload=render_member,
+        ))
+        latex_content = content_str.strip()
         if latex_content:
-            latex_content = to_markdown_string(
+            if has_content_before:
+                yield "\n\n"
+            yield to_markdown_string(
                 kind=ExpressionKind.DISPLAY_BRACKET,
                 content=latex_content,
             )
-        return latex_content
 
-    elif asset.ref in ("image", "table"):
-        alt_parts: list[str] = []
-        if asset.title:
-            alt_parts.append(asset.title)
-        if asset.caption:
-            alt_parts.append(asset.caption)
-        alt_text = " - ".join(alt_parts) if alt_parts else ""
+    elif asset.ref == "table":
+        if asset.content:
+            if has_content_before:
+                yield "\n\n"
+            yield from render_markdown_paragraph(
+                children=asset.content,
+                render_payload=render_member,
+            )
 
-        if asset.hash is None:
-            return ""
+    elif asset.ref == "image":
+        yield from _render_image(
+            asset=asset,
+            assets_path=assets_path,
+            output_assets_path=output_assets_path,
+            asset_ref_path=asset_ref_path,
+            has_content_before=has_content_before,
+        )
 
-        source_file = assets_path / f"{asset.hash}.png"
-        if not source_file.exists():
-            return ""
+def _render_image(
+    asset: AssetLayout,
+    assets_path: Path,
+    output_assets_path: Path,
+    asset_ref_path: Path,
+    has_content_before: bool,
+) -> Generator[str, None, None]:
+    # 渲染图片
+    if asset.hash is None:
+        return
 
-        target_file = output_assets_path / f"{asset.hash}.png"
-        if not target_file.exists():
-            copy2(source_file, target_file)
+    source_file = assets_path / f"{asset.hash}.png"
+    if not source_file.exists():
+        return
 
-        if asset_ref_path.is_absolute():
-            image_path = target_file
-        else:
-            image_path = asset_ref_path / f"{asset.hash}.png"
+    target_file = output_assets_path / f"{asset.hash}.png"
+    if not target_file.exists():
+        copy2(source_file, target_file)
 
-        # 使用 POSIX 风格路径(markdown 标准)
-        image_path_str = str(image_path).replace("\\", "/")
+    if asset_ref_path.is_absolute():
+        image_path = target_file
+    else:
+        image_path = asset_ref_path / f"{asset.hash}.png"
 
-        return f"![{alt_text}]({image_path_str})\n"
+    # 使用 POSIX 风格路径(markdown 标准)
+    image_path_str = str(image_path).replace("\\", "/")
 
-    return ""
+    # 图片的 alt 保持空
+    if has_content_before:
+        yield "\n\n"
+    yield f"![]({image_path_str})"
+
