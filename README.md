@@ -54,7 +54,7 @@ transform_markdown(
 )
 ```
 
-![](docs/images/pdf2md-en.png)
+![mdmd](https://github.com/user-attachments/assets/d7082496-13b8-4728-9e79-44e2888e57fd)
 
 #### Convert to EPUB
 
@@ -71,7 +71,7 @@ transform_epub(
 )
 ```
 
-![](docs/images/pdf2epub-en.png)
+![20251218-144958](https://github.com/user-attachments/assets/c66ebdf6-cf8f-4f1c-a0ba-0c44edaae664)
 
 ## Detailed Usage
 
