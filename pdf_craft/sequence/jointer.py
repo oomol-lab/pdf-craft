@@ -158,6 +158,7 @@ class Jointer:
 
                 jointed_layouts.append(ParagraphLayout(
                     ref=layout.ref,
+                    level=-1,
                     blocks=[BlockLayout(
                         page_index=page_index,
                         order=layout.order,

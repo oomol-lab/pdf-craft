@@ -62,7 +62,11 @@ class References:
     def _split_paragraph_by_marks(self, to_split_layout: ParagraphLayout):
         mark_layout: tuple[Mark | str | None, ParagraphLayout] = (
             None,
-            ParagraphLayout(ref=to_split_layout.ref, blocks=[]),
+            ParagraphLayout(
+                ref=to_split_layout.ref,
+                level=-1,
+                blocks=[],
+            ),
         )
         for block in to_split_layout.blocks:
             mark, content = self._extract_head_mark(block.content)
@@ -73,6 +77,7 @@ class References:
                     yield mark_layout
                 mark_layout = (mark, ParagraphLayout(
                     ref=to_split_layout.ref,
+                    level=-1,
                     blocks=[BlockLayout(
                         page_index=block.page_index,
                         order=block.order,

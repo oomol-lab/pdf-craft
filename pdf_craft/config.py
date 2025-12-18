@@ -1,0 +1,1 @@
+MAX_TITLE_CV = 0.15

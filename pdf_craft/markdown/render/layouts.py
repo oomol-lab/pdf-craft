@@ -14,16 +14,22 @@ from ...sequence import (
     RefIdMap,
 )
 
+_MAX_TOC_LEVELS = 3
+_MAX_TITLE_LEVELS = 6
+
 
 def render_layouts(
         layouts: Iterable[ParagraphLayout | AssetLayout],
         assets_path: Path,
         output_assets_path: Path,
         asset_ref_path: Path,
+        toc_level: int,
         ref_id_to_number: RefIdMap | None = None,
     ) -> Generator[str, None, None]:
 
     is_first_layout = True
+    toc_level = min(toc_level, _MAX_TOC_LEVELS - 1)
+
     for layout in layouts:
         if is_first_layout:
             is_first_layout = False
@@ -41,12 +47,16 @@ def render_layouts(
         elif isinstance(layout, ParagraphLayout):
             yield from render_paragraph(
                 paragraph=layout,
+                toc_level=toc_level,
                 ref_id_to_number=ref_id_to_number,
             )
 
-def render_paragraph(paragraph: ParagraphLayout, ref_id_to_number: RefIdMap | None = None) -> Generator[str, None, None]:
-    if paragraph.ref in TITLE_TAGS:
-        yield "# "
+def render_paragraph(paragraph: ParagraphLayout, toc_level: int, ref_id_to_number: RefIdMap | None = None) -> Generator[str, None, None]:
+    if paragraph.level >= 0 and paragraph.ref in TITLE_TAGS:
+        level = min(toc_level + paragraph.level, _MAX_TITLE_LEVELS)
+        for _ in range(level + 1): # level 0 对应 1 个 #
+            yield "#"
+        yield " "
 
     def render_member(part: BlockMember | str) -> Generator[str, None, None]:
         if isinstance(part, str):

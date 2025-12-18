@@ -3,7 +3,7 @@ from dataclasses import dataclass
 from enum import auto, Enum
 
 from ..pdf import PageLayout
-from ..common import split_by_cv
+from ..common import avg, split_by_cv
 
 
 _T = TypeVar("_T")
@@ -73,7 +73,7 @@ def _wrap_projection(index: int, layout: PageLayout) -> _Projection[tuple[int, P
 
 def _group_projects(raw_projections: Iterable[_Projection[_T]]) -> Generator[list[_T], None, None]:
     projections = list(raw_projections)
-    avg_size = sum(p.size for p in projections) / len(projections)
+    avg_size = avg(p.size for p in projections)
     min_size_threshold = avg_size * _MIN_SIZE_RATE
 
     rectangles: list[_Rect] = []

@@ -8,6 +8,7 @@ from ..toc import iter_toc, Toc
 from .jointer import Jointer
 from .content import join_texts_in_content, expand_text_in_content
 from .chapter import encode, Reference, Chapter, AssetLayout, ParagraphLayout, BlockLayout
+from .analyse_level import analyse_chapter_internal_levels
 from .reference import References
 from .mark import search_marks, Mark
 
@@ -26,6 +27,8 @@ def generate_chapter_files(pages_path: Path, chapters_path: Path, toc: list[Toc]
             tail = "head"
         else:
             tail = f"{chapter.id}"
+
+        chapter = analyse_chapter_internal_levels(chapter)
         chapter_file = chapters_path / f"chapter_{tail}.xml"
         chapter_element = encode(chapter)
         save_xml(chapter_element, chapter_file)
@@ -48,12 +51,21 @@ def _generate_chapters(pages_path: Path, toc: list[Toc]) -> Generator[Chapter, N
             if item:
                 if chapter:
                     yield chapter
-                chapter = Chapter(id=item.id, layouts=[layout])
+                chapter = Chapter(
+                    id=item.id,
+                    level=item.level,
+                    layouts=[layout],
+                )
                 matched_toc = True
 
         if not matched_toc:
             if chapter is None:
-                chapter = Chapter(id=None, layouts=[])
+                max_level= max((t.level for t in iter_toc(toc)), default=0)
+                chapter = Chapter(
+                    id=None,
+                    level=max_level, # 防止章节标题盖过其他
+                    layouts=[],
+                )
             chapter.layouts.append(layout)
 
     if chapter:
