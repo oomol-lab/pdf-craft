@@ -1,4 +1,4 @@
-![20251218-165308](https://github.com/user-attachments/assets/48ec3904-8468-46d7-b310-ea912a664af8)<div align=center>
+<div align=center>
   <h1>PDF Craft</h1>
   <p>
     <a href="https://github.com/oomol-lab/pdf-craft/actions/workflows/merge-build.yml" target="_blank"><img src="https://img.shields.io/github/actions/workflow/status/oomol-lab/pdf-craft/merge-build.yml" alt"ci" /></a>
