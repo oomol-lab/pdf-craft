@@ -8,6 +8,7 @@ from ..toc import iter_toc, Toc
 from .jointer import Jointer
 from .content import join_texts_in_content, expand_text_in_content
 from .chapter import encode, Reference, Chapter, AssetLayout, ParagraphLayout, BlockLayout
+from .analyse_level import analyse_chapter_internal_levels
 from .reference import References
 from .mark import search_marks, Mark
 
@@ -26,6 +27,8 @@ def generate_chapter_files(pages_path: Path, chapters_path: Path, toc: list[Toc]
             tail = "head"
         else:
             tail = f"{chapter.id}"
+
+        chapter = analyse_chapter_internal_levels(chapter)
         chapter_file = chapters_path / f"chapter_{tail}.xml"
         chapter_element = encode(chapter)
         save_xml(chapter_element, chapter_file)
