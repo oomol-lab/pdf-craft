@@ -12,17 +12,17 @@ from .toc_levels import analyse_toc_toc, analyse_title_toc, Ref2Level
 
 _TITLE_HEAD_REGX = re.compile(r"^\s*#{1,6}\s*")
 
-def analyse_toc(pages_path: Path, toc_path: Path, focus_toc: bool) -> TocInfo:
+def analyse_toc(pages_path: Path, toc_path: Path, toc_assumed: bool) -> TocInfo:
     if toc_path.exists():
         return decode_toc(read_xml(toc_path))
 
     toc_path.parent.mkdir(parents=True, exist_ok=True)
-    toc_info = _do_analyse_toc(pages_path, focus_toc)
+    toc_info = _do_analyse_toc(pages_path, toc_assumed)
     save_xml(encode_toc(toc_info), toc_path)
 
     return toc_info
 
-def _do_analyse_toc(pages_path: Path, focus_toc: bool) -> TocInfo:
+def _do_analyse_toc(pages_path: Path, toc_assumed: bool) -> TocInfo:
     pages: XMLReader[Page] = XMLReader(
         prefix="page",
         dir_path=pages_path,
@@ -30,7 +30,7 @@ def _do_analyse_toc(pages_path: Path, focus_toc: bool) -> TocInfo:
     )
     ref2level: Ref2Level
     toc_page_indexes: list[int] = []
-    if focus_toc:
+    if toc_assumed:
         toc_pages = find_toc_pages(
             iter_titles=lambda:(
                 list(

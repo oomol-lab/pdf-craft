@@ -43,6 +43,7 @@ class Transform:
         ocr_size: DeepSeekOCRSize = "gundam",
         includes_footnotes: bool = False,
         generate_plot: bool = False,
+        toc_assumed: bool = False,
         ignore_pdf_errors: bool = False,
         aborted: AbortedCheck = lambda: False,
         max_ocr_tokens: int | None = None,
@@ -66,6 +67,7 @@ class Transform:
                     includes_footnotes=includes_footnotes,
                     ignore_pdf_errors=ignore_pdf_errors,
                     generate_plot=generate_plot,
+                    toc_assumed=toc_assumed,
                     aborted=aborted,
                     max_tokens=max_ocr_tokens,
                     max_output_tokens=max_ocr_output_tokens,
@@ -99,6 +101,7 @@ class Transform:
         includes_footnotes: bool = False,
         ignore_pdf_errors: bool = False,
         generate_plot: bool = False,
+        toc_assumed: bool = True,
         book_meta: BookMeta | None = None,
         lan: Literal["zh", "en"] = "zh",
         table_render: TableRender = TableRender.HTML,
@@ -122,6 +125,7 @@ class Transform:
                     includes_footnotes=includes_footnotes,
                     ignore_pdf_errors=ignore_pdf_errors,
                     generate_plot=generate_plot,
+                    toc_assumed=toc_assumed,
                     aborted=aborted,
                     max_tokens=max_ocr_tokens,
                     max_output_tokens=max_ocr_output_tokens,
@@ -162,6 +166,7 @@ class Transform:
         includes_footnotes: bool,
         ignore_pdf_errors: bool,
         generate_plot: bool,
+        toc_assumed: bool,
         aborted: AbortedCheck,
         max_tokens: int | None,
         max_output_tokens: int | None,
@@ -204,7 +209,7 @@ class Transform:
         toc = analyse_toc(
             pages_path=pages_path,
             toc_path=toc_path,
-            focus_toc=True, # TODO:
+            toc_assumed=toc_assumed,
         )
         generate_chapter_files(
             pages_path=pages_path,
