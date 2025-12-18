@@ -155,9 +155,9 @@ class Jointer:
                 page_index=page_index,
                 ref=layout.ref,
                 det=layout.det,
-                title=layout.title,
-                content=layout.content,
-                caption=layout.caption,
+                title=_parse_block_content(layout.title),
+                content=_parse_block_content(layout.content),
+                caption=_parse_block_content(layout.caption),
                 hash=layout.hash,
             )
 
@@ -364,7 +364,10 @@ def _normalize_paragraph_content(paragraph: ParagraphLayout):
     # 极端情况下 block2 会因为单词被移走而被清空。此时要将其整个删去。
     paragraph.blocks = [block for block in paragraph.blocks if block.content]
 
-def _parse_block_content(text: str) -> Content:
+def _parse_block_content(text: str | None) -> Content:
+    if not text:
+        return []
+
     root_content: Content = parse_raw_markdown(text)
 
     def expand_text(text: str):

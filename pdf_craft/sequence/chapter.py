@@ -16,16 +16,6 @@ class Chapter:
     layouts: list["ParagraphLayout | AssetLayout"]
 
 @dataclass
-class AssetLayout:
-    page_index: int
-    ref: AssetRef
-    det: tuple[int, int, int, int]
-    title: str | None
-    content: str
-    caption: str | None
-    hash: str | None
-
-@dataclass
 class ParagraphLayout:
     ref: str
     level: int
@@ -41,7 +31,7 @@ class Reference:
     page_index: int
     order: int
     mark: str | Mark
-    layouts: list[AssetLayout | ParagraphLayout]
+    layouts: list["AssetLayout | ParagraphLayout"]
 
     @property
     def id(self) -> tuple[int, int]:
@@ -49,6 +39,17 @@ class Reference:
 
 BlockMember = InlineExpression | Reference
 RefIdMap = dict[tuple[int, int], int]
+
+
+@dataclass
+class AssetLayout:
+    page_index: int
+    ref: AssetRef
+    det: tuple[int, int, int, int]
+    title: list[str | BlockMember | HTMLTag[BlockMember]]
+    content: list[str | BlockMember | HTMLTag[BlockMember]]
+    caption: list[str | BlockMember | HTMLTag[BlockMember]]
+    hash: str | None
 
 @dataclass
 class BlockLayout:
@@ -160,14 +161,27 @@ def _decode_asset(element: Element) -> AssetLayout:
 
     hash_value = element.get("hash")
 
+    def decode_block_member(child: Element) -> BlockMember:
+        if child.tag == "ref":
+            raise ValueError("<asset> cannot contain <ref> elements")
+        elif child.tag == "inline_expr":
+            kind_attr = child.get("kind")
+            if kind_attr is None:
+                raise ValueError("<asset><inline_expr> missing required attribute 'kind'")
+            kind = decode_expression_kind(kind_attr)
+            expr_text = child.text if child.text is not None else ""
+            return InlineExpression(kind=kind, content=expr_text)
+        else:
+            raise ValueError(f"<asset> contains unknown element: <{child.tag}>")
+
     title_el = element.find("title")
-    title = title_el.text if title_el is not None else None
+    title = decode_content(title_el, decode_block_member) if title_el is not None else []
 
     content_el = element.find("content")
-    content = content_el.text if content_el is not None and content_el.text is not None else ""
+    content = decode_content(content_el, decode_block_member) if content_el is not None else []
 
     caption_el = element.find("caption")
-    caption = caption_el.text if caption_el is not None else None
+    caption = decode_content(caption_el, decode_block_member) if caption_el is not None else []
 
     return AssetLayout(
         page_index=page_index,
@@ -187,18 +201,31 @@ def _encode_asset(layout: AssetLayout) -> Element:
     if layout.hash is not None:
         el.set("hash", layout.hash)
 
-    if layout.title is not None:
+    if layout.title:
         title_el = Element("title")
-        title_el.text = layout.title
+        encode_content(
+            root=title_el,
+            children=layout.title,
+            encode_payload=_encode_block_member,
+        )
         el.append(title_el)
 
-    content_el = Element("content")
-    content_el.text = layout.content
-    el.append(content_el)
+    if layout.content:
+        content_el = Element("content")
+        encode_content(
+            root=content_el,
+            children=layout.content,
+            encode_payload=_encode_block_member,
+        )
+        el.append(content_el)
 
-    if layout.caption is not None:
+    if layout.caption:
         caption_el = Element("caption")
-        caption_el.text = layout.caption
+        encode_content(
+            root=caption_el,
+            children=layout.caption,
+            encode_payload=_encode_block_member,
+        )
         el.append(caption_el)
 
     return el
