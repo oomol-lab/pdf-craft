@@ -128,6 +128,7 @@ def _convert_chapter_to_epub(
             if paragraph_content:
                 elements.append(TextBlock(
                     kind=TextKind.HEADLINE if layout.ref in TITLE_TAGS else TextKind.BODY,
+                    level=layout.level,
                     content=paragraph_content,
                 ))
 
@@ -205,6 +206,7 @@ def _convert_reference_to_footnote_contents(
             if content_parts:
                 yield TextBlock(
                     kind=TextKind.BODY,
+                    level=layout.level,
                     content=content_parts,
                 )
 
