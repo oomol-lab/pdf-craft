@@ -17,16 +17,20 @@ def generate_chapter_files(pages_path: Path, chapters_path: Path, toc: list[Toc]
     for chapter_file in chapters_path.glob("chapter_*.xml"):
         chapter_file.unlink()
 
-    for id, chapter in _generate_chapters(
+    for chapter in _generate_chapters(
         pages_path=pages_path,
         toc=toc,
     ):
-        tail = "head" if id is None else f"{id}"
+        tail: str
+        if chapter.id is None:
+            tail = "head"
+        else:
+            tail = f"{chapter.id}"
         chapter_file = chapters_path / f"chapter_{tail}.xml"
         chapter_element = encode(chapter)
         save_xml(chapter_element, chapter_file)
 
-def _generate_chapters(pages_path: Path, toc: list[Toc]) -> Generator[tuple[int | None, Chapter], None, None]:
+def _generate_chapters(pages_path: Path, toc: list[Toc]) -> Generator[Chapter, None, None]:
     chapter: Chapter | None = None
     ref2toc: dict[tuple[int, int], Toc] = {}
 
@@ -36,21 +40,24 @@ def _generate_chapters(pages_path: Path, toc: list[Toc]) -> Generator[tuple[int 
     for layout in _extract_body_layouts(pages_path, toc):
         matched_toc = False
         if isinstance(layout, ParagraphLayout) and layout.blocks and layout.ref in TITLE_TAGS:
-            block = layout.blocks[0]
-            item = ref2toc.get((block.page_index, block.order), None)
+            item: Toc | None = None
+            for block in layout.blocks:
+                item = ref2toc.get((block.page_index, block.order), None)
+                if item:
+                    break
             if item:
                 if chapter:
-                    yield item.id, chapter
-                chapter = Chapter(title=layout, layouts=[])
+                    yield chapter
+                chapter = Chapter(id=item.id, layouts=[layout])
                 matched_toc = True
 
         if not matched_toc:
             if chapter is None:
-                chapter = Chapter(title=None, layouts=[])
+                chapter = Chapter(id=None, layouts=[])
             chapter.layouts.append(layout)
 
     if chapter:
-        yield None, chapter
+        yield chapter
 
 def _extract_body_layouts(pages_path: Path, toc: list[Toc]):
     pages: XMLReader[Page] = XMLReader(

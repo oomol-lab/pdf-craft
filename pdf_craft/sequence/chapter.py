@@ -11,7 +11,7 @@ from .mark import Mark
 
 @dataclass
 class Chapter:
-    title: "ParagraphLayout | None"
+    id: int | None
     layouts: list["ParagraphLayout | AssetLayout"]
 
 @dataclass
@@ -79,8 +79,8 @@ def decode(element: Element) -> Chapter:
             reference = _decode_reference(ref_el)
             references_map[reference.id] = reference
 
-    title_el = element.find("title")
-    title = _decode_paragraph(title_el, references_map) if title_el is not None else None
+    id_attr = element.get("id")
+    id_value = int(id_attr) if id_attr is not None else None
     body_el = element.find("body")
     if body_el is None:
         raise ValueError("<chapter> missing required <body> element")
@@ -94,19 +94,15 @@ def decode(element: Element) -> Chapter:
             layouts.append(_decode_paragraph(child, references_map))
 
     return Chapter(
-        title=title,
+        id=id_value,
         layouts=layouts,
     )
 
 def encode(chapter: Chapter) -> Element:
     root = Element("chapter")
 
-    if chapter.title is not None:
-        title_el = Element("title")
-        title_el.set("ref", chapter.title.ref)
-        for block in chapter.title.blocks:
-            title_el.append(_encode_block_element(block))
-        root.append(title_el)
+    if chapter.id is not None:
+        root.set("id", str(chapter.id))
 
     body_el = Element("body")
     for layout in chapter.layouts:
@@ -128,9 +124,6 @@ def encode(chapter: Chapter) -> Element:
     return indent(root, skip_tags=("block",))
 
 def _search_parts_in_chapter(chapter: Chapter):
-    if chapter.title is not None:
-        for block in chapter.title.blocks:
-            yield from flatten(block.content)
     for layout in chapter.layouts:
         if isinstance(layout, ParagraphLayout):
             for block in layout.blocks:

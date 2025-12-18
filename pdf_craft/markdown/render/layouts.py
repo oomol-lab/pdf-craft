@@ -2,6 +2,7 @@ from pathlib import Path
 from shutil import copy2
 from typing import Iterable, Generator
 
+from ...pdf import TITLE_TAGS
 from ..paragraph import render_markdown_paragraph
 from ...expression import to_markdown_string, ExpressionKind
 from ...sequence import (
@@ -44,6 +45,9 @@ def render_layouts(
             )
 
 def render_paragraph(paragraph: ParagraphLayout, ref_id_to_number: RefIdMap | None = None) -> Generator[str, None, None]:
+    if paragraph.ref in TITLE_TAGS:
+        yield "# "
+
     def render_member(part: BlockMember | str) -> Generator[str, None, None]:
         if isinstance(part, str):
             yield to_markdown_string(

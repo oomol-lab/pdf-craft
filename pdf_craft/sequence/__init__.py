@@ -1,3 +1,4 @@
+from .reader import create_chapters_reader
 from .generation import generate_chapter_files
 from .content import Content
 from .mark import Mark, NumberClass, NumberStyle
