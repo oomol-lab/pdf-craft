@@ -15,15 +15,11 @@ def main() -> None:
         epub_path=analysing_dir_path / "output.epub",
         analysing_path=analysing_dir_path,
         models_cache_path=project_root / "models-cache",
-        # includes_footnotes=True,
+        includes_footnotes=True,
         generate_plot=True,
         table_render=TableRender.HTML,
         latex_render=LaTeXRender.MATHML,
         on_ocr_event=lambda e: print(f"OCR {OCREventKind(e.kind).name} - Page {e.page_index}/{e.total_pages} - {_format_duration(e.cost_time_ms)}"),
-        book_meta=BookMeta(
-            title="Sample Book",
-            authors=["Tao Zeyu"],
-        ),
     )
 
 def _format_duration(ms: int) -> str:
