@@ -20,11 +20,11 @@ from epub_generator import (
 from .toc_collection import TocCollection
 from .latex_to_text import latex_to_plain_text
 
-from ..common import XMLReader
-from ..markdown.paragraph import HTMLTag
+from ..markdown.paragraph import flatten, HTMLTag
 from ..metering import check_aborted, AbortedCheck
+from ..pdf import TITLE_TAGS
 from ..sequence import (
-    decode,
+    create_chapters_reader,
     search_references_in_chapter,
     references_to_map,
     Content,
@@ -50,13 +50,9 @@ def render_epub_file(
         aborted: AbortedCheck,
     ):
 
-    chapters: XMLReader[Chapter] = XMLReader(
-        prefix="chapter",
-        dir_path=chapters_path,
-        decode=decode,
-    )
+    read_chapters = create_chapters_reader(chapters_path)
     references: list[Reference] = []
-    for chapter in chapters.read():
+    for chapter in read_chapters():
         references.extend(search_references_in_chapter(chapter))
 
     references.sort(key=lambda ref: (ref.page_index, ref.order))
@@ -64,7 +60,7 @@ def render_epub_file(
     get_head: ChapterGetter | None = None
     toc_collection = TocCollection(toc_path)
 
-    for i, chapter in enumerate(chapters.read()):
+    for chapter in read_chapters():
         def get_chapter(ch=chapter):
             return _convert_chapter_to_epub(
                 chapter=ch,
@@ -72,19 +68,25 @@ def render_epub_file(
                 inline_latex=inline_latex,
                 ref_id_to_number=ref_id_to_number,
             )
-        if chapter.title is None:
+        if chapter.id is None:
             get_head = get_chapter
-        else:
-            toc_collection.collect(
-                id=i + 1,
-                title=_extract_chapter_title(chapter),
-                get_chapter=get_chapter,
-            )
+        elif chapter.layouts:
+            first_layout = chapter.layouts[0]
+            if isinstance(first_layout, ParagraphLayout) and first_layout.ref in TITLE_TAGS:
+                title = "".join(_iter_text_in_title(first_layout)).strip()
+                if not title:
+                    title = "Untitled"
+                toc_collection.collect(
+                    toc_id=chapter.id,
+                    title=title,
+                    have_body=len(chapter.layouts) > 1,
+                    get_chapter=get_chapter,
+                )
 
     epub_data = EpubData(
         meta=book_meta,
         get_head=get_head,
-        chapters=toc_collection.target,
+        chapters=toc_collection.normalize().target,
         cover_image_path=cover_path,
     )
     check_aborted(aborted)
@@ -97,15 +99,11 @@ def render_epub_file(
         assert_not_aborted=lambda: check_aborted(aborted),
     )
 
-def _extract_chapter_title(chapter: Chapter) -> str:
-    if chapter.title is not None:
-        text_parts = []
-        for line in chapter.title.blocks:
-            for part in line.content:
-                if isinstance(part, str):
-                    text_parts.append(part)
-        return " ".join(text_parts).strip() if text_parts else "Untitled"
-    return "Untitled"
+def _iter_text_in_title(title_layout: ParagraphLayout):
+    for block in title_layout.blocks:
+        for item in flatten(block.content):
+            if isinstance(item, str):
+                yield item
 
 def _convert_chapter_to_epub(
     chapter: Chapter,
@@ -115,18 +113,6 @@ def _convert_chapter_to_epub(
 ) -> ChapterRecord:
     elements = []
     footnotes = []
-
-    if chapter.title is not None:
-        title_content = _render_paragraph_layout_with_marks(
-            layout=chapter.title,
-            inline_latex=inline_latex,
-            ref_id_to_number=ref_id_to_number,
-        )
-        if title_content:
-            elements.append(TextBlock(
-                kind=TextKind.HEADLINE,
-                content=title_content,
-            ))
 
     for layout in chapter.layouts:
         if isinstance(layout, AssetLayout):
@@ -141,7 +127,7 @@ def _convert_chapter_to_epub(
             )
             if paragraph_content:
                 elements.append(TextBlock(
-                    kind=TextKind.BODY,
+                    kind=TextKind.HEADLINE if layout.ref in TITLE_TAGS else TextKind.BODY,
                     content=paragraph_content,
                 ))
 
