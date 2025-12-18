@@ -56,53 +56,56 @@ class DefaultPDFDocument:
         return self._pages_count
 
     def metadata(self) -> PDFDocumentMetadata:
-        metadata = self._reader.metadata
-        title = str(metadata.get("/Title")) if metadata and metadata.get("/Title") else None
-        description = str(metadata.get("/Subject")) if metadata and metadata.get("/Subject") else None
-        authors: list[str] = []
+        try:
+            metadata = self._reader.metadata
+            title = str(metadata.get("/Title")) if metadata and metadata.get("/Title") else None
+            description = str(metadata.get("/Subject")) if metadata and metadata.get("/Subject") else None
+            authors: list[str] = []
 
-        if metadata and "/Author" in metadata:
-            author_obj = metadata["/Author"]
-            if author_obj:
-                author_str = str(author_obj)
-                for sep in (";", ",", "&"):
-                    if sep in author_str:
-                        authors = [a.strip() for a in author_str.split(sep) if a.strip()]
-                        break
-                if not authors:
-                    authors = [author_str.strip()]
+            if metadata and "/Author" in metadata:
+                author_obj = metadata["/Author"]
+                if author_obj:
+                    author_str = str(author_obj)
+                    for sep in (";", ",", "&"):
+                        if sep in author_str:
+                            authors = [a.strip() for a in author_str.split(sep) if a.strip()]
+                            break
+                    if not authors:
+                        authors = [author_str.strip()]
 
-        modified = datetime.now(timezone.utc)
-        if metadata and "/ModDate" in metadata:
-            try:
-                mod_date_obj = metadata["/ModDate"]
-                if mod_date_obj:
-                    mod_date_str = str(mod_date_obj)
-                    # PDF 日期格式: D:YYYYMMDDHHmmSSOHH'mm'
-                    if mod_date_str.startswith("D:"):
-                        mod_date_str = mod_date_str[2:]
-                    # 简化处理：只取年月日时分秒
-                    if len(mod_date_str) >= 14:
-                        year = int(mod_date_str[0:4])
-                        month = int(mod_date_str[4:6])
-                        day = int(mod_date_str[6:8])
-                        hour = int(mod_date_str[8:10])
-                        minute = int(mod_date_str[10:12])
-                        second = int(mod_date_str[12:14])
-                        modified = datetime(year, month, day, hour, minute, second, tzinfo=timezone.utc)
-            except (ValueError, IndexError):
-                pass  # 解析失败则使用当前时间
+            modified = datetime.now(timezone.utc)
+            if metadata and "/ModDate" in metadata:
+                try:
+                    mod_date_obj = metadata["/ModDate"]
+                    if mod_date_obj:
+                        mod_date_str = str(mod_date_obj)
+                        # PDF 日期格式: D:YYYYMMDDHHmmSSOHH'mm'
+                        if mod_date_str.startswith("D:"):
+                            mod_date_str = mod_date_str[2:]
+                        # 简化处理：只取年月日时分秒
+                        if len(mod_date_str) >= 14:
+                            year = int(mod_date_str[0:4])
+                            month = int(mod_date_str[4:6])
+                            day = int(mod_date_str[6:8])
+                            hour = int(mod_date_str[8:10])
+                            minute = int(mod_date_str[10:12])
+                            second = int(mod_date_str[12:14])
+                            modified = datetime(year, month, day, hour, minute, second, tzinfo=timezone.utc)
+                except (ValueError, IndexError):
+                    pass  # 解析失败则使用当前时间
 
-        return PDFDocumentMetadata(
-            title=title,
-            description=description,
-            publisher=None,  # PDF 标准元数据中通常没有 publisher
-            isbn=None,  # PDF 标准元数据中通常没有 ISBN
-            authors=authors,
-            editors=[],  # PDF 标准元数据中通常没有 editors
-            translators=[],  # PDF 标准元数据中通常没有 translators
-            modified=modified,
-        )
+            return PDFDocumentMetadata(
+                title=title,
+                description=description,
+                publisher=None,  # PDF 标准元数据中通常没有 publisher
+                isbn=None,  # PDF 标准元数据中通常没有 ISBN
+                authors=authors,
+                editors=[],  # PDF 标准元数据中通常没有 editors
+                translators=[],  # PDF 标准元数据中通常没有 translators
+                modified=modified,
+            )
+        except Exception as error:
+            raise PDFError("Failed to extract PDF metadata.", page_index=None) from error
 
     def render_page(self, page_index: int, dpi: int) -> Image.Image:
         from pdf2image import convert_from_path

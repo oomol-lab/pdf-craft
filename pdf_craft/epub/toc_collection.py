@@ -14,7 +14,7 @@ class TocCollection:
         self._having_body_toc_set: set[int] = set()
 
         if toc_path:
-            self._root = decode(read_xml(toc_path))
+            self._root = decode(read_xml(toc_path)).content
         else:
             self._root = []
 

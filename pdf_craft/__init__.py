@@ -5,6 +5,7 @@ from .pdf import (
     DeepSeekOCRSize,
     PDFDocument,
     PDFHandler,
+    PDFDocumentMetadata,
     DefaultPDFHandler,
     DefaultPDFDocument,
     OCREvent,

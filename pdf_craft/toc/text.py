@@ -4,7 +4,7 @@ import unicodedata
 from ..language import is_latin_letter
 
 
-_LINK_FLAGS = frozenset(["-", "—", "–"])
+_LINK_FLAGS = frozenset(["‐", "‑", "‒", "–", "—", "―"])
 
 # 全面的标点符号列表，包含多语言支持
 # 参考资料：
@@ -22,7 +22,7 @@ _LINK_FLAGS = frozenset(["-", "—", "–"])
 # - https://lingoculture.com/blog/grammar/french-punctuation-marks/
 _PUNCTUATIONS = frozenset([
     # 基本 ASCII 标点符号
-    "!", "\"", "#", "%", "&", "'", "(", ")", "*", ",", ".", "/", ":",
+    "!", "\"", "#", "%", "&", "'", "(", ")", "*", ",", "-", ".", "/", ":",
     ";", "?", "@", "[", "\\", "]", "^", "_", "`", "{", "|", "}", "~",
 
     # 拉丁文补充区标点符号

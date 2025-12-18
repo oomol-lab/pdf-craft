@@ -3,7 +3,7 @@ from typing import Generator
 
 from ..common import save_xml, XMLReader
 from ..pdf import decode, Page, TITLE_TAGS
-from ..toc import iter_toc, Toc
+from ..toc import iter_toc, Toc, TocInfo
 
 from .jointer import Jointer
 from .content import join_texts_in_content, expand_text_in_content
@@ -13,7 +13,7 @@ from .reference import References
 from .mark import search_marks, Mark
 
 
-def generate_chapter_files(pages_path: Path, chapters_path: Path, toc: list[Toc]):
+def generate_chapter_files(pages_path: Path, chapters_path: Path, toc: TocInfo):
     chapters_path.mkdir(parents=True, exist_ok=True)
     for chapter_file in chapters_path.glob("chapter_*.xml"):
         chapter_file.unlink()
@@ -33,11 +33,11 @@ def generate_chapter_files(pages_path: Path, chapters_path: Path, toc: list[Toc]
         chapter_element = encode(chapter)
         save_xml(chapter_element, chapter_file)
 
-def _generate_chapters(pages_path: Path, toc: list[Toc]) -> Generator[Chapter, None, None]:
+def _generate_chapters(pages_path: Path, toc: TocInfo) -> Generator[Chapter, None, None]:
     chapter: Chapter | None = None
     ref2toc: dict[tuple[int, int], Toc] = {}
 
-    for item in iter_toc(toc):
+    for item in iter_toc(toc.content):
         ref2toc[(item.page_index, item.order)] = item
 
     for layout in _extract_body_layouts(pages_path, toc):
@@ -60,7 +60,7 @@ def _generate_chapters(pages_path: Path, toc: list[Toc]) -> Generator[Chapter, N
 
         if not matched_toc:
             if chapter is None:
-                max_level= max((t.level for t in iter_toc(toc)), default=0)
+                max_level= max((t.level for t in iter_toc(toc.content)), default=0)
                 chapter = Chapter(
                     id=None,
                     level=max_level, # 防止章节标题盖过其他
@@ -71,13 +71,13 @@ def _generate_chapters(pages_path: Path, toc: list[Toc]) -> Generator[Chapter, N
     if chapter:
         yield chapter
 
-def _extract_body_layouts(pages_path: Path, toc: list[Toc]):
+def _extract_body_layouts(pages_path: Path, toc: TocInfo):
     pages: XMLReader[Page] = XMLReader(
         prefix="page",
         dir_path=pages_path,
         decode=decode,
     )
-    toc_page_indexes = set(t.toc_page_index for t in iter_toc(toc))
+    toc_page_indexes = set(toc.page_indexes)
     body_jointer = Jointer(((p.index, p.body_layouts) for p in pages.read() if p.index not in toc_page_indexes))
     footnotes_jointer = Jointer(((p.index, p.footnotes_layouts) for p in pages.read() if p.index not in toc_page_indexes))
     references_generator = _extract_page_references(footnotes_jointer)

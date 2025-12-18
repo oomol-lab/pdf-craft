@@ -5,6 +5,7 @@ from typing import Callable, Literal
 from epub_generator import BookMeta, TableRender, LaTeXRender
 
 from .common import EnsureFolder
+from .error import PDFError
 from .to_path import to_path
 from .pdf import OCR, OCREvent, PDFHandler, DeepSeekOCRSize
 from .sequence import generate_chapter_files
@@ -43,6 +44,7 @@ class Transform:
         ocr_size: DeepSeekOCRSize = "gundam",
         includes_footnotes: bool = False,
         generate_plot: bool = False,
+        toc_assumed: bool = False,
         ignore_pdf_errors: bool = False,
         aborted: AbortedCheck = lambda: False,
         max_ocr_tokens: int | None = None,
@@ -66,6 +68,7 @@ class Transform:
                     includes_footnotes=includes_footnotes,
                     ignore_pdf_errors=ignore_pdf_errors,
                     generate_plot=generate_plot,
+                    toc_assumed=toc_assumed,
                     aborted=aborted,
                     max_tokens=max_ocr_tokens,
                     max_output_tokens=max_ocr_output_tokens,
@@ -99,6 +102,7 @@ class Transform:
         includes_footnotes: bool = False,
         ignore_pdf_errors: bool = False,
         generate_plot: bool = False,
+        toc_assumed: bool = True,
         book_meta: BookMeta | None = None,
         lan: Literal["zh", "en"] = "zh",
         table_render: TableRender = TableRender.HTML,
@@ -122,6 +126,7 @@ class Transform:
                     includes_footnotes=includes_footnotes,
                     ignore_pdf_errors=ignore_pdf_errors,
                     generate_plot=generate_plot,
+                    toc_assumed=toc_assumed,
                     aborted=aborted,
                     max_tokens=max_ocr_tokens,
                     max_output_tokens=max_ocr_output_tokens,
@@ -162,6 +167,7 @@ class Transform:
         includes_footnotes: bool,
         ignore_pdf_errors: bool,
         generate_plot: bool,
+        toc_assumed: bool,
         aborted: AbortedCheck,
         max_tokens: int | None,
         max_output_tokens: int | None,
@@ -204,7 +210,7 @@ class Transform:
         toc = analyse_toc(
             pages_path=pages_path,
             toc_path=toc_path,
-            focus_toc=True, # TODO:
+            toc_assumed=toc_assumed,
         )
         generate_chapter_files(
             pages_path=pages_path,
@@ -216,15 +222,19 @@ class Transform:
 
         return asserts_path, chapters_path, toc_path, cover_path, metering
 
-    def _extract_book_meta(self, pdf_path: Path) -> BookMeta:
-        pdf_metadata = self._ocr.metadata(pdf_path)
-        return BookMeta(
-            title=pdf_metadata.title or pdf_path.stem,
-            description=pdf_metadata.description,
-            publisher=pdf_metadata.publisher,
-            isbn=pdf_metadata.isbn,
-            authors=pdf_metadata.authors,
-            editors=pdf_metadata.editors,
-            translators=pdf_metadata.translators,
-            modified=pdf_metadata.modified,
-        )
+    def _extract_book_meta(self, pdf_path: Path) -> BookMeta | None:
+        try:
+            pdf_metadata = self._ocr.metadata(pdf_path)
+            return BookMeta(
+                title=pdf_metadata.title or pdf_path.stem,
+                description=pdf_metadata.description,
+                publisher=pdf_metadata.publisher,
+                isbn=pdf_metadata.isbn,
+                authors=pdf_metadata.authors,
+                editors=pdf_metadata.editors,
+                translators=pdf_metadata.translators,
+                modified=pdf_metadata.modified,
+            )
+        except PDFError:
+            print("Warning: Failed to extract PDF metadata.")
+            return None

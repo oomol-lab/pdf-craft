@@ -28,7 +28,7 @@ _LINE_CONTINUE_FLAGS = (
 )
 
 _LINK_FLAGS = (
-    "-", "—", "–",
+    "‐", "‑", "‒", "–", "—", "―",
 )
 
 _MARKDOWN_HEAD_PATTERN = re.compile(r"^#+\s+")
