@@ -13,13 +13,12 @@ from .text import normalize_text
 _MAX_LEVELS = 4
 _MAX_TOC_CV = 0.75 # 不宜过小导致过多分组
 
-Ref2Toc = dict[tuple[int, int], tuple[int, int]]  # key: (page_index, order) value: (toc_page_index, level)
+Ref2Level = dict[tuple[int, int], int]  # key: (page_index, order) value: level
 
-def analyse_title_toc(pages: XMLReader[Page]) -> Ref2Toc:
-    ref2level = _extract_title_levels(pages)
-    return _merge_toc(ref2level)
+def analyse_title_toc(pages: XMLReader[Page]) -> Ref2Level:
+    return _extract_title_levels(pages)
 
-def analyse_toc_toc(pages: XMLReader[Page], pages_path: Path, toc_pages: list[PageRef]) -> Ref2Toc:
+def analyse_toc_toc(pages: XMLReader[Page], pages_path: Path, toc_pages: list[PageRef]) -> Ref2Level:
     ref2meta, toc_page_indexes = _extract_ref2meta(
         pages_path=pages_path,
         toc_pages=toc_pages,
@@ -33,13 +32,13 @@ def analyse_toc_toc(pages: XMLReader[Page], pages_path: Path, toc_pages: list[Pa
         ref2meta=ref2meta,
         ref2level=ref2global_level,
     )
-    ref2level: _Ref2Level = {}
+    ref2level: Ref2Level = {}
     for (page_index, order), meta in ref2meta.items():
         level_offset = toc_level_offset[meta.toc_page_index]
         global_level = meta.relative_level + level_offset
         ref2level[(page_index, order)] = global_level
 
-    return _merge_toc(ref2level, ref2meta)
+    return ref2level
 
 @dataclass
 class _Hook:
@@ -53,7 +52,6 @@ class _TitleMeta:
     collected_global_levels: list[int]
 
 _Ref2Meta = dict[tuple[int, int], _TitleMeta]
-_Ref2Level = dict[tuple[int, int], int]  # key: (page_index, order) value: level
 
 def _extract_ref2meta(pages_path: Path, toc_pages: list[PageRef]) -> tuple[_Ref2Meta, set[int]]:
     ref2meta: _Ref2Meta = {} # key: (page_index, order)
@@ -114,7 +112,7 @@ def _extract_title_levels(
         pages: XMLReader[Page],
         disable_page_indexes: set[int] | None = None,
         ref2meta: _Ref2Meta | None = None,
-    ) -> _Ref2Level:
+    ) -> Ref2Level:
 
     title_items: list[tuple[float, tuple[int, int]]] = []
     for page in pages.read():
@@ -130,7 +128,7 @@ def _extract_title_levels(
             height = bottom - top
             title_items.append((height, ref))
 
-    title2levels: _Ref2Level = {}
+    title2levels: Ref2Level = {}
     for level, refs in enumerate(reversed(split_by_cv( # 字体最大的是 Level 0，故颠倒
         payload_items=title_items,
         max_groups=_MAX_LEVELS,
@@ -141,7 +139,7 @@ def _extract_title_levels(
 
     return title2levels
 
-def _extract_toc_level_offset(ref2meta: _Ref2Meta, ref2level: _Ref2Level) -> dict[int, int]:
+def _extract_toc_level_offset(ref2meta: _Ref2Meta, ref2level: Ref2Level) -> dict[int, int]:
     # 目录可能有多页，每页自己的 Level 只能表示相对关系，这里计算出全局目录的 level
     for page_index, order in sorted(ref2level.keys()):
         meta = ref2meta[(page_index, order)]
@@ -175,15 +173,3 @@ def _extract_toc_level_offset(ref2meta: _Ref2Meta, ref2level: _Ref2Level) -> dic
             toc_level_offset[page_index] = offset
 
     return toc_level_offset
-
-def _merge_toc(ref2level: _Ref2Level, ref2meta: _Ref2Meta | None = None) -> Ref2Toc:
-    ref2toc: Ref2Toc = {}
-    for ref, level in ref2level.items():
-        meta: _TitleMeta | None = None
-        if ref2meta:
-            meta = ref2meta.get(ref, None)
-        toc_page_index = -1
-        if meta:
-            toc_page_index = meta.toc_page_index
-        ref2toc[ref] = (toc_page_index, level)
-    return ref2toc
