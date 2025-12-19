@@ -90,6 +90,7 @@ transform_markdown(
     includes_footnotes=True,  # Optional: include footnotes
     ignore_pdf_errors=False,  # Optional: continue on PDF rendering errors
     generate_plot=False,  # Optional: generate visualization charts
+    toc_assumed=False,  # Optional: assume PDF contains a table of contents page
 )
 ```
 
@@ -108,6 +109,7 @@ transform_epub(
     includes_footnotes=True,  # Optional: include footnotes
     ignore_pdf_errors=False,  # Optional: continue on PDF rendering errors
     generate_plot=False,  # Optional: generate visualization charts
+    toc_assumed=True,  # Optional: assume PDF contains a table of contents page
     book_meta=BookMeta(
         title="Book Title",
         authors=["Author 1", "Author 2"],
@@ -193,6 +195,15 @@ The `ocr_size` parameter accepts a `DeepSeekOCRSize` type:
 ### Inline LaTeX
 
 The `inline_latex` parameter (EPUB only, default: `True`) controls whether to preserve inline LaTeX expressions in the output. When enabled, inline mathematical formulas are preserved as LaTeX code, which can be rendered by compatible EPUB readers.
+
+### Table of Contents Detection
+
+The `toc_assumed` parameter controls whether pdf-craft should assume the PDF contains a table of contents page:
+
+- When `True` (default for EPUB): pdf-craft attempts to locate and extract the table of contents from within the PDF, using it to build the document structure
+- When `False` (default for Markdown): pdf-craft generates the table of contents based on document headings only
+
+For books with a dedicated table of contents section, setting `toc_assumed=True` typically produces better chapter organization.
 
 ### Custom PDF Handler
 
