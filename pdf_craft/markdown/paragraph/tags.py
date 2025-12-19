@@ -79,6 +79,19 @@ _FILTERED_TAGS = frozenset([
 
 
 # ============================================================================
+# Ignored Tags
+# ============================================================================
+
+# These tags are completely removed from the output, but their children content
+# is preserved and recursively processed. The tags themselves disappear without
+# being escaped.
+
+_IGNORE_TAGS = frozenset([
+    "center",     # Deprecated HTML alignment tag
+])
+
+
+# ============================================================================
 # Universal Attributes
 # ============================================================================
 
@@ -472,6 +485,9 @@ def tag_definition(tag_name: str) -> HTMLTagDefinition | None:
 
 def is_tag_filtered(tag_name: str) -> bool:
     return tag_name.lower() in _FILTERED_TAGS
+
+def is_tag_ignored(tag_name: str) -> bool:
+    return tag_name.lower() in _IGNORE_TAGS
 
 def is_protocol_allowed(url: str) -> bool:
     if not url:
