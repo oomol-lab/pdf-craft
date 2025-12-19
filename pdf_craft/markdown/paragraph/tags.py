@@ -87,7 +87,9 @@ _FILTERED_TAGS = frozenset([
 # being escaped.
 
 _IGNORE_TAGS = frozenset([
-    "center",     # Deprecated HTML alignment tag
+    "left",
+    "center",
+    "right",
 ])
 
 
