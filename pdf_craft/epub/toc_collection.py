@@ -22,7 +22,7 @@ class TocCollection:
     def target(self) -> list[TocItem]:
         return self._root_toc_items + self._extra_toc_items
 
-    def collect(self, toc_id: int, title: str, have_body: bool, get_chapter: ChapterGetter) -> None:
+    def collect(self, toc_id: int, title: str, have_body: bool, get_chapter: ChapterGetter | None) -> None:
         toc_item: TocItem | None = None
         stack = self._find_raw_toc_item_stack(toc_id)
 
@@ -93,7 +93,7 @@ class TocCollection:
             toc_item = toc_items[index]
             self._clean_no_content_items(toc_item.children)
 
-            if id(toc_item) not in self._having_body_toc_set and toc_item.children:
+            if id(toc_item) not in self._having_body_toc_set and not toc_item.children:
                 # 有子节点同时自己也没有内容，变为仅存在于目录中的章节有助于更好的阅读体验
                 toc_item.get_chapter = None
                 should_keep = False

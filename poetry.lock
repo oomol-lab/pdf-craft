@@ -565,14 +565,14 @@ files = [
 
 [[package]]
 name = "epub-generator"
-version = "0.1.4"
+version = "0.1.5"
 description = "A simple Python EPUB 3.0 generator with a single API call"
 optional = false
 python-versions = "<3.14,>=3.10"
 groups = ["main"]
 files = [
-    {file = "epub_generator-0.1.4-py3-none-any.whl", hash = "sha256:70bb572c640edd497c24651eea2b053071688d00508404b9f38cf0c301bfb8e7"},
-    {file = "epub_generator-0.1.4.tar.gz", hash = "sha256:7576e17942969fdac03a050ab4cfd887ba75605d3fd98670ed53759bc2670b73"},
+    {file = "epub_generator-0.1.5-py3-none-any.whl", hash = "sha256:c979e62dd8a84603b41cdcb7d2e8ff64b096f1e490b77353b286d2ad2900e99b"},
+    {file = "epub_generator-0.1.5.tar.gz", hash = "sha256:2b6eeb9c936f8ae1808a9b0eeca6cbdc00742a92894468c282813fbde9c82018"},
 ]
 
 [package.dependencies]
@@ -2708,4 +2708,4 @@ zstd = ["zstandard (>=0.18.0)"]
 [metadata]
 lock-version = "2.1"
 python-versions = ">=3.10,<3.14"
-content-hash = "54f09fb2966797c1d887cf085563b50772ea853a473732bf77b198335b2a5a36"
+content-hash = "6d41ba041169f419c2e3cb08a1c406e94b8a1baca94790c966fa1ab91ae95a15"

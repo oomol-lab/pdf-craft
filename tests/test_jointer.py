@@ -1,5 +1,5 @@
 import unittest
-from pdf_craft.sequence.jointer import _normalize_equation, _normalize_table, _parse_block_content, AssetLayout
+from pdf_craft.sequence.jointer import _normalize_equation, _normalize_table, _parse_block_content, _AssetHolder
 from pdf_craft.sequence.chapter import InlineExpression
 
 
@@ -8,7 +8,7 @@ class TestNormalizeEquation(unittest.TestCase):
 
     def test_equation_with_bracket_notation(self):
         r"""测试 \[...\] 格式的 LaTeX 代码"""
-        layout = AssetLayout(
+        layout = _AssetHolder(
             page_index=0,
             ref="equation",
             det=(0, 0, 100, 100),
@@ -24,7 +24,7 @@ class TestNormalizeEquation(unittest.TestCase):
 
     def test_equation_with_double_dollar(self):
         """测试 $$...$$ 格式的 LaTeX 代码"""
-        layout = AssetLayout(
+        layout = _AssetHolder(
             page_index=0,
             ref="equation",
             det=(0, 0, 100, 100),
@@ -40,7 +40,7 @@ class TestNormalizeEquation(unittest.TestCase):
 
     def test_equation_with_parenthesis_notation(self):
         r"""测试 \(...\) 格式的 LaTeX 代码"""
-        layout = AssetLayout(
+        layout = _AssetHolder(
             page_index=0,
             ref="equation",
             det=(0, 0, 100, 100),
@@ -56,7 +56,7 @@ class TestNormalizeEquation(unittest.TestCase):
 
     def test_equation_with_single_dollar(self):
         """测试 $...$ 格式的 LaTeX 代码"""
-        layout = AssetLayout(
+        layout = _AssetHolder(
             page_index=0,
             ref="equation",
             det=(0, 0, 100, 100),
@@ -72,7 +72,7 @@ class TestNormalizeEquation(unittest.TestCase):
 
     def test_equation_without_title(self):
         """测试没有 title 的情况"""
-        layout = AssetLayout(
+        layout = _AssetHolder(
             page_index=0,
             ref="equation",
             det=(0, 0, 100, 100),
@@ -88,7 +88,7 @@ class TestNormalizeEquation(unittest.TestCase):
 
     def test_equation_without_caption(self):
         """测试没有 caption 的情况"""
-        layout = AssetLayout(
+        layout = _AssetHolder(
             page_index=0,
             ref="equation",
             det=(0, 0, 100, 100),
@@ -104,7 +104,7 @@ class TestNormalizeEquation(unittest.TestCase):
 
     def test_equation_only_latex(self):
         """测试只有 LaTeX 代码的情况"""
-        layout = AssetLayout(
+        layout = _AssetHolder(
             page_index=0,
             ref="equation",
             det=(0, 0, 100, 100),
@@ -120,7 +120,7 @@ class TestNormalizeEquation(unittest.TestCase):
 
     def test_equation_with_existing_title(self):
         """测试已存在 title 的情况"""
-        layout = AssetLayout(
+        layout = _AssetHolder(
             page_index=0,
             ref="equation",
             det=(0, 0, 100, 100),
@@ -136,7 +136,7 @@ class TestNormalizeEquation(unittest.TestCase):
 
     def test_equation_with_existing_caption(self):
         """测试已存在 caption 的情况"""
-        layout = AssetLayout(
+        layout = _AssetHolder(
             page_index=0,
             ref="equation",
             det=(0, 0, 100, 100),
@@ -152,7 +152,7 @@ class TestNormalizeEquation(unittest.TestCase):
 
     def test_equation_empty_content(self):
         """测试空内容"""
-        layout = AssetLayout(
+        layout = _AssetHolder(
             page_index=0,
             ref="equation",
             det=(0, 0, 100, 100),
@@ -168,7 +168,7 @@ class TestNormalizeEquation(unittest.TestCase):
 
     def test_equation_no_latex_found(self):
         """测试没有找到 LaTeX 代码的情况"""
-        layout = AssetLayout(
+        layout = _AssetHolder(
             page_index=0,
             ref="equation",
             det=(0, 0, 100, 100),
@@ -188,7 +188,7 @@ class TestNormalizeTable(unittest.TestCase):
 
     def test_table_with_title_and_caption(self):
         """测试带有 title 和 caption 的表格"""
-        layout = AssetLayout(
+        layout = _AssetHolder(
             page_index=0,
             ref="table",
             det=(0, 0, 100, 100),
@@ -204,7 +204,7 @@ class TestNormalizeTable(unittest.TestCase):
 
     def test_table_without_title(self):
         """测试没有 title 的表格"""
-        layout = AssetLayout(
+        layout = _AssetHolder(
             page_index=0,
             ref="table",
             det=(0, 0, 100, 100),
@@ -220,7 +220,7 @@ class TestNormalizeTable(unittest.TestCase):
 
     def test_table_without_caption(self):
         """测试没有 caption 的表格"""
-        layout = AssetLayout(
+        layout = _AssetHolder(
             page_index=0,
             ref="table",
             det=(0, 0, 100, 100),
@@ -236,7 +236,7 @@ class TestNormalizeTable(unittest.TestCase):
 
     def test_table_only_html(self):
         """测试只有 HTML 的表格"""
-        layout = AssetLayout(
+        layout = _AssetHolder(
             page_index=0,
             ref="table",
             det=(0, 0, 100, 100),
@@ -252,7 +252,7 @@ class TestNormalizeTable(unittest.TestCase):
 
     def test_table_with_attributes(self):
         """测试带属性的表格标签"""
-        layout = AssetLayout(
+        layout = _AssetHolder(
             page_index=0,
             ref="table",
             det=(0, 0, 100, 100),
@@ -278,7 +278,7 @@ class TestNormalizeTable(unittest.TestCase):
   </tr>
 </table>
 Footer text"""
-        layout = AssetLayout(
+        layout = _AssetHolder(
             page_index=0,
             ref="table",
             det=(0, 0, 100, 100),
@@ -295,7 +295,7 @@ Footer text"""
 
     def test_table_case_insensitive(self):
         """测试大小写不敏感"""
-        layout = AssetLayout(
+        layout = _AssetHolder(
             page_index=0,
             ref="table",
             det=(0, 0, 100, 100),
@@ -311,7 +311,7 @@ Footer text"""
 
     def test_table_with_existing_title(self):
         """测试已存在 title 的情况"""
-        layout = AssetLayout(
+        layout = _AssetHolder(
             page_index=0,
             ref="table",
             det=(0, 0, 100, 100),
@@ -327,7 +327,7 @@ Footer text"""
 
     def test_table_with_existing_caption(self):
         """测试已存在 caption 的情况"""
-        layout = AssetLayout(
+        layout = _AssetHolder(
             page_index=0,
             ref="table",
             det=(0, 0, 100, 100),
@@ -343,7 +343,7 @@ Footer text"""
 
     def test_table_empty_content(self):
         """测试空内容"""
-        layout = AssetLayout(
+        layout = _AssetHolder(
             page_index=0,
             ref="table",
             det=(0, 0, 100, 100),
@@ -359,7 +359,7 @@ Footer text"""
 
     def test_table_no_table_found(self):
         """测试没有找到表格的情况"""
-        layout = AssetLayout(
+        layout = _AssetHolder(
             page_index=0,
             ref="table",
             det=(0, 0, 100, 100),
