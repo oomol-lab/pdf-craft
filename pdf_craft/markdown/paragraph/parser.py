@@ -3,7 +3,7 @@ import re
 from html import escape, unescape
 
 from .types import P, HTMLTag
-from .tags import tag_definition, is_tag_filtered, is_protocol_allowed
+from .tags import tag_definition, is_tag_filtered, is_tag_ignored, is_protocol_allowed
 
 
 def parse_raw_markdown(input: str) -> list[str | P | HTMLTag[P]]:
@@ -107,7 +107,7 @@ def _parse_html_construct(input: str, pos: int) -> tuple[str | HTMLTag | list[st
     return _parse_tag(input, pos)
 
 
-def _parse_tag(input: str, pos: int) -> tuple[str | HTMLTag[P] | list[str | HTMLTag[P]] | None, int]:
+def _parse_tag(input: str, pos: int) -> tuple[str | HTMLTag[P] | list[str | P | HTMLTag[P]] | None, int]:
     """
     Parse an HTML tag (opening, closing, or self-closing).
 
@@ -167,6 +167,23 @@ def _parse_tag(input: str, pos: int) -> tuple[str | HTMLTag[P] | list[str | HTML
         # Replace the leading "<" with "&lt;" to break the tag
         return "&lt;" + input[pos + 1:pos_after_attrs], pos_after_attrs
 
+    # Check if this tag should be ignored (removed but children preserved)
+    if is_tag_ignored(tag_name):
+        # If self-closing, just remove it entirely
+        if is_self_closing:
+            return "", pos_after_attrs
+
+        # For opening tags, find content and closing tag
+        content, closing_tag_end = _parse_tag_content_and_closing(input, pos_after_attrs, tag_name)
+
+        if content is not None:
+            # Found closing tag, recursively parse content only (tags disappear)
+            children = parse_raw_markdown(content) if content else []
+            return children, closing_tag_end
+        else:
+            # No closing tag found, just remove the opening tag
+            return "", closing_tag_end
+
     # Check if tag is in whitelist
     tag_def = tag_definition(tag_name)
 
@@ -183,24 +200,11 @@ def _parse_tag(input: str, pos: int) -> tuple[str | HTMLTag[P] | list[str | HTML
             ), pos_after_attrs
 
         # For opening tags, find the closing tag and parse content
-        content_start = pos_after_attrs
-        closing_pos = _find_closing_tag(input, content_start, tag_name)
+        content, closing_tag_end = _parse_tag_content_and_closing(input, pos_after_attrs, tag_name)
 
-        if closing_pos != -1:
-            # Found closing tag
-            content = input[content_start:closing_pos]
-            # Calculate the end position (need to skip past the closing tag)
-            closing_tag_start = closing_pos
-            # Find the ">" of the closing tag
-            closing_tag_end = input.find(">", closing_tag_start)
-            if closing_tag_end == -1:
-                closing_tag_end = closing_tag_start + len(f"</{tag_name}>")
-            else:
-                closing_tag_end += 1
-
-            # Recursively parse the content
+        if content is not None:
+            # Found closing tag, recursively parse the content
             children: list[str | P | HTMLTag[P]] = parse_raw_markdown(content) if content else []
-
             return HTMLTag(
                 definition=tag_def,
                 attributes=filtered_attrs,
@@ -212,7 +216,7 @@ def _parse_tag(input: str, pos: int) -> tuple[str | HTMLTag[P] | list[str | HTML
                 definition=tag_def,
                 attributes=filtered_attrs,
                 children=[]
-            ), pos_after_attrs
+            ), closing_tag_end
     else:
         # Tag is not allowed, escape the tag but expose children
         # Get the full tag text
@@ -224,25 +228,48 @@ def _parse_tag(input: str, pos: int) -> tuple[str | HTMLTag[P] | list[str | HTML
 
         # For opening tags, we need to find the content and closing tag
         # Then escape the opening tag, recursively parse content, and escape closing tag
-        content_start = pos_after_attrs
-        closing_tag = f"</{tag_name}>"
-        closing_pos = _find_closing_tag(input, content_start, tag_name)
+        content, closing_tag_end = _parse_tag_content_and_closing(input, pos_after_attrs, tag_name)
 
-        if closing_pos != -1:
-            # Found closing tag
-            content = input[content_start:closing_pos]
-            closing_end = closing_pos + len(closing_tag)
-
-            # Escape opening and closing tags, but recursively parse content
-            result: list[str | HTMLTag] = [escape(tag_text)]
+        if content is not None:
+            # Found closing tag - escape opening and closing tags, but recursively parse content
+            closing_tag = f"</{tag_name}>"
+            result: list[str | P | HTMLTag[P]] = [escape(tag_text)]
             if content:
                 result.extend(parse_raw_markdown(content))
             result.append(escape(closing_tag))
-
-            return result, closing_end
+            return result, closing_tag_end
         else:
             # No closing tag found, just escape the opening tag
-            return escape(tag_text), pos_after_attrs
+            return escape(tag_text), closing_tag_end
+
+
+def _parse_tag_content_and_closing(
+    input: str,
+    content_start: int,
+    tag_name: str
+) -> tuple[str, int] | tuple[None, int]:
+    """
+    Find and extract content between opening and closing tags.
+
+    Returns:
+        Tuple of (content, closing_tag_end) if closing tag found
+        Tuple of (None, content_start) if closing tag not found
+    """
+    closing_pos = _find_closing_tag(input, content_start, tag_name)
+
+    if closing_pos != -1:
+        # Found closing tag
+        content = input[content_start:closing_pos]
+        # Calculate the end position (skip past the closing tag)
+        closing_tag_end = input.find(">", closing_pos)
+        if closing_tag_end == -1:
+            closing_tag_end = closing_pos + len(f"</{tag_name}>")
+        else:
+            closing_tag_end += 1
+        return content, closing_tag_end
+    else:
+        # No closing tag found
+        return None, content_start
 
 
 def _parse_attributes(input: str, pos: int) -> tuple[list[tuple[str, str]], int | None, bool]:
