@@ -4,7 +4,7 @@ build-backend = "poetry.core.masonry.api"
 
 [tool.poetry]
 name = "pdf-craft"
-version = "1.0.3"
+version = "1.0.4"
 description = "PDF craft can convert PDF files into various other formats. This project will focus on processing PDF files of scanned books."
 license = "MIT"
 authors = ["Tao Zeyu <i@taozeyu.com>"]
