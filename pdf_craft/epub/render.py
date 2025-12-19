@@ -1,5 +1,5 @@
 from pathlib import Path
-from typing import Literal
+from typing import Literal, Generator
 from epub_generator import (
     generate_epub,
     EpubData,
@@ -10,6 +10,7 @@ from epub_generator import (
     ChapterGetter,
     TextBlock,
     Image,
+    Table,
     Formula,
     Footnote,
     Mark,
@@ -124,16 +125,18 @@ def _convert_chapter_to_epub(
             if asset_element:
                 elements.append(asset_element)
         elif isinstance(layout, ParagraphLayout):
-            paragraph_content = _render_paragraph_layout_with_marks(
-                layout=layout,
-                inline_latex=inline_latex,
-                ref_id_to_number=ref_id_to_number,
-            )
-            if paragraph_content:
+            content: list[str | Formula | Mark | EpubHTMLTag] = []
+            for block in layout.blocks:
+                content.extend(_transform_content(
+                    content=block.content,
+                    inline_latex=inline_latex,
+                    ref_id_to_number=None,
+                ))
+            if content:
                 elements.append(TextBlock(
                     kind=TextKind.HEADLINE if layout.ref in TITLE_TAGS else TextKind.BODY,
                     level=layout.level,
-                    content=paragraph_content,
+                    content=content,
                 ))
 
     chapter_refs = search_references_in_chapter(chapter)
@@ -167,13 +170,22 @@ def _convert_asset_to_epub(
     inline_latex: bool = False,
     ref_id_to_number: dict | None = None,
 ):
+
+    title = list(_transform_content(
+        content=asset.title,
+        inline_latex=inline_latex,
+        ref_id_to_number=ref_id_to_number,
+    ))
+    caption = list(_transform_content(
+        content=asset.caption,
+        inline_latex=inline_latex,
+        ref_id_to_number=ref_id_to_number,
+    ))
     if asset.ref == "equation":
         latex_expression = _extract_text_from_content(asset.content)
         if not latex_expression:
             return None
 
-        title = _convert_asset_content_to_epub(asset.title, inline_latex, ref_id_to_number)
-        caption = _convert_asset_content_to_epub(asset.caption, inline_latex, ref_id_to_number)
 
         return Formula(
             latex_expression=latex_expression,
@@ -189,9 +201,6 @@ def _convert_asset_to_epub(
         if not image_file.exists():
             return None
 
-        title = _convert_asset_content_to_epub(asset.title, inline_latex, ref_id_to_number)
-        caption = _convert_asset_content_to_epub(asset.caption, inline_latex, ref_id_to_number)
-
         return Image(
             path=image_file,
             title=title,
@@ -202,18 +211,31 @@ def _convert_asset_to_epub(
         if asset.hash is None:
             return None
 
-        table_file = assets_path / f"{asset.hash}.png"
-        if not table_file.exists():
-            return None
+        html_content: EpubHTMLTag | None = None
+        for item in _transform_content(
+            content=asset.content,
+            inline_latex=inline_latex,
+            ref_id_to_number=ref_id_to_number,
+        ):
+            if isinstance(item, EpubHTMLTag):
+                html_content = item
+                break
 
-        title = _convert_asset_content_to_epub(asset.title, inline_latex, ref_id_to_number)
-        caption = _convert_asset_content_to_epub(asset.caption, inline_latex, ref_id_to_number)
-
-        return Image(
-            path=table_file,
-            title=title,
-            caption=caption,
-        )
+        if html_content is None:
+            table_file = assets_path / f"{asset.hash}.png"
+            if not table_file.exists():
+                return None
+            return Image(
+                path=table_file,
+                title=title,
+                caption=caption,
+            )
+        else:
+            return Table(
+                title=title,
+                caption=caption,
+                html_content=html_content,
+            )
 
     return None
 
@@ -233,64 +255,47 @@ def _convert_reference_to_footnote_contents(
             if asset_element:
                 yield asset_element
         elif isinstance(layout, ParagraphLayout):
-            content_parts = _render_paragraph_layout_with_marks(
-                layout=layout,
-                inline_latex=inline_latex,
-            )
-            if content_parts:
+            content: list[str | Formula | Mark | EpubHTMLTag] = []
+            for block in layout.blocks:
+                content.extend(_transform_content(
+                    content=block.content,
+                    inline_latex=inline_latex,
+                    ref_id_to_number=None,
+                ))
+            if content:
                 yield TextBlock(
                     kind=TextKind.BODY,
                     level=layout.level,
-                    content=content_parts,
+                    content=content,
                 )
 
-def _render_paragraph_layout_with_marks(
-        layout: ParagraphLayout,
-        inline_latex: bool,
-        ref_id_to_number: dict | None = None,
-    ) -> list[str | Formula | Mark | EpubHTMLTag]:
-
-    content_parts: list[str | Formula | Mark | EpubHTMLTag] = []
-    for block in layout.blocks:
-        content_parts.extend(
-            _convert_asset_content_to_epub(
-                content=block.content,
-                inline_latex=inline_latex,
-                ref_id_to_number=ref_id_to_number,
-            )
-        )
-    return content_parts
-
-
-def _convert_asset_content_to_epub(
+def _transform_content(
     content: list[str | InlineExpression | Reference | HTMLTag],
     inline_latex: bool,
     ref_id_to_number: dict | None = None,
-) -> list[str | Formula | Mark | EpubHTMLTag]:
-    """Convert asset title/caption content to epub_generator format."""
-    result: list[str | Formula | Mark | EpubHTMLTag] = []
+) -> Generator[str | Formula | Mark | EpubHTMLTag, None, None]:
 
-    def render_content(items: list[str | InlineExpression | Reference | HTMLTag]):
-        for item in items:
-            if isinstance(item, str):
-                yield item
+    for item in content:
+        if isinstance(item, str):
+            yield item
 
-            elif isinstance(item, InlineExpression):
-                if inline_latex:
-                    yield Formula(latex_expression=item.content.strip())
-                else:
-                    yield latex_to_plain_text(latex_content=item.content.strip())
+        elif isinstance(item, InlineExpression):
+            if inline_latex:
+                yield Formula(latex_expression=item.content.strip())
+            else:
+                yield latex_to_plain_text(latex_content=item.content.strip())
 
-            elif ref_id_to_number and isinstance(item, Reference):
-                ref_number = ref_id_to_number.get(item.id, 1)
-                yield Mark(id=ref_number)
+        elif ref_id_to_number and isinstance(item, Reference):
+            ref_number = ref_id_to_number.get(item.id, 1)
+            yield Mark(id=ref_number)
 
-            elif isinstance(item, HTMLTag):
-                yield EpubHTMLTag(
-                    name=item.definition.name,
-                    attributes=item.attributes,
-                    content=list(render_content(item.children)),
-                )
-
-    result.extend(render_content(content))
-    return result
+        elif isinstance(item, HTMLTag):
+            yield EpubHTMLTag(
+                name=item.definition.name,
+                attributes=item.attributes,
+                content=list(_transform_content(
+                    content=item.children,
+                    inline_latex=inline_latex,
+                    ref_id_to_number=ref_id_to_number,
+                )),
+            )
