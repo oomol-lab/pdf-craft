@@ -76,11 +76,12 @@ def render_epub_file(
                 title = "".join(_iter_text_in_title(first_layout)).strip()
                 if not title:
                     title = "Untitled"
+                have_body = len(chapter.layouts) > 1
                 toc_collection.collect(
                     toc_id=chapter.id,
                     title=title,
-                    have_body=len(chapter.layouts) > 1,
-                    get_chapter=get_chapter,
+                    have_body=have_body,
+                    get_chapter=get_chapter if have_body else None,
                 )
 
     epub_data = EpubData(

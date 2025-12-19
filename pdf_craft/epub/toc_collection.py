@@ -22,7 +22,7 @@ class TocCollection:
     def target(self) -> list[TocItem]:
         return self._root_toc_items + self._extra_toc_items
 
-    def collect(self, toc_id: int, title: str, have_body: bool, get_chapter: ChapterGetter) -> None:
+    def collect(self, toc_id: int, title: str, have_body: bool, get_chapter: ChapterGetter | None) -> None:
         toc_item: TocItem | None = None
         stack = self._find_raw_toc_item_stack(toc_id)
 
