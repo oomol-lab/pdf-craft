@@ -132,7 +132,7 @@ def encode(chapter: Chapter) -> Element:
             references_el.append(_encode_reference(ref))
         root.append(references_el)
 
-    return indent(root, skip_tags=("block",))
+    return indent(root)
 
 def _search_parts_in_chapter(chapter: Chapter):
     for layout in chapter.layouts:
