@@ -15,10 +15,10 @@ _MAX_TOC_CV = 0.75 # 不宜过小导致过多分组
 
 Ref2Level = dict[tuple[int, int], int]  # key: (page_index, order) value: level
 
-def analyse_title_toc(pages: XMLReader[Page]) -> Ref2Level:
+def analyse_title_levels(pages: XMLReader[Page]) -> Ref2Level:
     return _extract_content_title_levels(pages)
 
-def analyse_toc_toc(pages: XMLReader[Page], pages_path: Path, toc_pages: list[PageRef]) -> Ref2Level:
+def analyse_toc_levels(pages: XMLReader[Page], pages_path: Path, toc_pages: list[PageRef]) -> Ref2Level:
     ref2meta, toc_page_indexes = _extract_ref2meta(
         pages_path=pages_path,
         toc_pages=toc_pages,
@@ -34,9 +34,10 @@ def analyse_toc_toc(pages: XMLReader[Page], pages_path: Path, toc_pages: list[Pa
     )
     ref2level: Ref2Level = {}
     for (page_index, order), meta in ref2meta.items():
-        level_offset = toc_level_offset[meta.toc_page_index]
-        global_level = meta.relative_level + level_offset
-        ref2level[(page_index, order)] = global_level
+        level_offset = toc_level_offset.get(meta.toc_page_index, None)
+        if level_offset is not None: # toc_level_offset 比 ref2meta 范围小，目录页子圈会被排除
+            global_level = meta.relative_level + level_offset
+            ref2level[(page_index, order)] = global_level
 
     return ref2level
 
@@ -147,12 +148,6 @@ def _extract_toc_level_offset(ref2meta: _Ref2Meta, ref2level: Ref2Level) -> dict
         meta.collected_global_levels.append(level)
 
     page2metas: dict[int, list[_TitleMeta]] = {}
-    ref2meta = dict(
-        # ref2meta 中的某些 ref 被目录页本身引用，这些需要排除
-        # 这导致他们无法搜集到来自非目录页的全局 level，此处必须排除他们避免扰乱后续逻辑
-        (ref, meta) for ref, meta in ref2meta.items()
-        if meta.collected_global_levels
-    )
     for meta in ref2meta.values():
         metas = page2metas.get(meta.toc_page_index, None)
         if metas is None:
@@ -165,8 +160,9 @@ def _extract_toc_level_offset(ref2meta: _Ref2Meta, ref2level: Ref2Level) -> dict
         metas.sort(key=lambda x: x.relative_level)
         meta = metas[0]
         levels = metas[0].collected_global_levels
-        avg_level = avg(levels)
-        avg_level_items.append((avg_level, page_index))
+        if levels:
+            avg_level = avg(levels)
+            avg_level_items.append((avg_level, page_index))
 
     toc_level_offset: dict[int, int] = {}
     for offset, page_indexes in enumerate(split_by_cv(

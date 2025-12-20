@@ -7,7 +7,7 @@ from ..pdf import decode as decode_pdf, Page, TITLE_TAGS
 
 from .types import encode as encode_toc, decode as decode_toc, Toc, TocInfo
 from .toc_pages import find_toc_pages
-from .toc_levels import analyse_toc_toc, analyse_title_toc, Ref2Level
+from .toc_levels import analyse_toc_levels, analyse_title_levels, Ref2Level
 
 
 _TITLE_HEAD_REGX = re.compile(r"^\s*#{1,6}\s*")
@@ -45,14 +45,14 @@ def _do_analyse_toc(pages_path: Path, toc_assumed: bool) -> TocInfo:
                 for page in pages.read()
             ),
         )
-        ref2level = analyse_toc_toc(
+        ref2level = analyse_toc_levels(
             pages=pages,
             pages_path=pages_path,
             toc_pages=toc_pages,
         )
         toc_page_indexes.extend(ref.page_index for ref in toc_pages)
     else:
-        ref2level = analyse_title_toc(pages)
+        ref2level = analyse_title_levels(pages)
 
     return TocInfo(
         content=_structure_toc_by_levels(ref2level),
