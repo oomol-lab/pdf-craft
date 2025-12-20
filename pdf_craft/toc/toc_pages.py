@@ -8,6 +8,7 @@ from .text import normalize_text
 
 
 _MAX_TOC_RATIO = 0.1
+_TOC_HEAD_RATIO = 0.18
 _MIN_TOC_LIMIT = 3
 _MIN_LATIN_TITLE_LENGTH = 6
 _MIN_NON_LATIN_TITLE_LENGTH = 3
@@ -81,12 +82,6 @@ def find_toc_pages(
             score=sum(m.score for m in matched_titles),
         ))
 
-    total_pages = len(page_refs)
-    max_toc_pages = max(_MIN_TOC_LIMIT, int(total_pages * _MAX_TOC_RATIO))
-
-    if total_pages <= 1:
-        return [] # 仅一页没有抽离目录的必要
-
     page_refs.sort(key=lambda x: x.score, reverse=True)
     max_diff = 0.0
     cut_position = 0
@@ -97,11 +92,13 @@ def find_toc_pages(
             max_diff = diff
             cut_position = i + 1
 
-    cut_position = min(cut_position, max_toc_pages)
     toc_page_refs = page_refs[:cut_position]
     toc_page_refs.sort(key=lambda x: x.page_index)
 
-    return toc_page_refs
+    return _human_like_toc_filter(
+        toc_page_refs=toc_page_refs,
+        total_pages=len(page_refs),
+    )
 
 def _valid_title(title: str) -> bool:
     title = title.strip()
@@ -109,6 +106,32 @@ def _valid_title(title: str) -> bool:
         return len(title) >= _MIN_LATIN_TITLE_LENGTH
     else:
         return len(title) >= _MIN_NON_LATIN_TITLE_LENGTH
+
+def _human_like_toc_filter(toc_page_refs: list[PageRef], total_pages: int) -> list[PageRef]:
+    max_toc_pages = max(_MIN_TOC_LIMIT, int(total_pages * _MAX_TOC_RATIO))
+    max_toc_page_index = round(total_pages * _TOC_HEAD_RATIO)
+    toc_page_refs = [
+        ref for ref in toc_page_refs
+        if ref.page_index <= max_toc_page_index
+    ]
+    if len(toc_page_refs) > max_toc_pages:
+        toc_page_refs = toc_page_refs[:max_toc_pages]
+
+    if not toc_page_refs:
+        return toc_page_refs
+
+    serial_refs: list[PageRef] = [toc_page_refs[0]]
+    last_page_index = serial_refs[0].page_index
+
+    for i in range(1, len(toc_page_refs)):
+        ref = toc_page_refs[i]
+        if ref.page_index == last_page_index + 1:
+            serial_refs.append(ref)
+            last_page_index = ref.page_index
+        else:
+            break
+
+    return toc_page_refs
 
 _P = TypeVar("_P")
 
