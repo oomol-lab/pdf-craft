@@ -16,14 +16,14 @@ _MAX_TOC_CV = 0.75 # 不宜过小导致过多分组
 Ref2Level = dict[tuple[int, int], int]  # key: (page_index, order) value: level
 
 def analyse_title_toc(pages: XMLReader[Page]) -> Ref2Level:
-    return _extract_title_levels(pages)
+    return _extract_content_title_levels(pages)
 
 def analyse_toc_toc(pages: XMLReader[Page], pages_path: Path, toc_pages: list[PageRef]) -> Ref2Level:
     ref2meta, toc_page_indexes = _extract_ref2meta(
         pages_path=pages_path,
         toc_pages=toc_pages,
     )
-    ref2global_level = _extract_title_levels(
+    ref2global_level = _extract_content_title_levels(
         pages=pages,
         disable_page_indexes=toc_page_indexes,
         ref2meta=ref2meta,
@@ -108,7 +108,7 @@ def _analyse_toc_page_hooks(ref: PageRef, page_path: Path) -> list[list[_Hook]]:
     hooks.reverse() # 字体最大的是 Level 0，故颠倒
     return hooks
 
-def _extract_title_levels(
+def _extract_content_title_levels(
         pages: XMLReader[Page],
         disable_page_indexes: set[int] | None = None,
         ref2meta: _Ref2Meta | None = None,
@@ -147,6 +147,12 @@ def _extract_toc_level_offset(ref2meta: _Ref2Meta, ref2level: Ref2Level) -> dict
         meta.collected_global_levels.append(level)
 
     page2metas: dict[int, list[_TitleMeta]] = {}
+    ref2meta = dict(
+        # ref2meta 中的某些 ref 被目录页本身引用，这些需要排除
+        # 这导致他们无法搜集到来自非目录页的全局 level，此处必须排除他们避免扰乱后续逻辑
+        (ref, meta) for ref, meta in ref2meta.items()
+        if meta.collected_global_levels
+    )
     for meta in ref2meta.values():
         metas = page2metas.get(meta.toc_page_index, None)
         if metas is None:
