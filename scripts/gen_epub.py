@@ -1,5 +1,5 @@
 from pathlib import Path
-from pdf_craft import transform_epub, OCREventKind, TableRender, LaTeXRender, BookMeta
+from pdf_craft import transform_epub, OCREventKind, TableRender, LaTeXRender
 
 
 _IMAGE_STEM = "newton"

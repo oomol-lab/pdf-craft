@@ -2,6 +2,9 @@
     "[xml]": {
         "editor.wordWrap": "on"
     },
+    "[xhtml]": {
+        "editor.wordWrap": "on"
+    },
     "[python]": {
         "editor.formatOnSave": false,
         "editor.codeActionsOnSave": {

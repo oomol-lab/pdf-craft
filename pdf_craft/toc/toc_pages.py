@@ -9,6 +9,7 @@ from .text import normalize_text
 
 _MAX_TOC_RATIO = 0.1
 _TOC_HEAD_RATIO = 0.18
+_TOC_SCORE_MIN_RATIO = 3.0 # 经验估计，以后再调整吧
 _MIN_TOC_LIMIT = 3
 _MIN_LATIN_TITLE_LENGTH = 6
 _MIN_NON_LATIN_TITLE_LENGTH = 3
@@ -95,9 +96,24 @@ def find_toc_pages(
     toc_page_refs = page_refs[:cut_position]
     toc_page_refs.sort(key=lambda x: x.page_index)
 
+    max_content_score = 0.0
+    if cut_position < len(page_refs):
+        max_content_score = page_refs[cut_position].score
+
+    # DEBUG: 显示内容
+    # for i, ref in enumerate(page_refs):
+    #     if i == cut_position:
+    #         print("\n----- TOC CANDIDATE CUT -----\n")
+    #     print(f"[TOC PAGE] page_index={ref.page_index}, score={ref.score:.4f}")
+    #     for title in ref.matched_titles:
+    #         print(f"  [TITLE] score={title.score:.4f}, text={title.text}")
+    #         for reference in title.references:
+    #             print(f"    [REF] page_index={reference.page_index}, order={reference.order}")
+
     return _human_like_toc_filter(
         toc_page_refs=toc_page_refs,
         total_pages=len(page_refs),
+        max_content_score=max_content_score,
     )
 
 def _valid_title(title: str) -> bool:
@@ -107,7 +123,12 @@ def _valid_title(title: str) -> bool:
     else:
         return len(title) >= _MIN_NON_LATIN_TITLE_LENGTH
 
-def _human_like_toc_filter(toc_page_refs: list[PageRef], total_pages: int) -> list[PageRef]:
+def _human_like_toc_filter(
+        toc_page_refs: list[PageRef],
+        total_pages: int,
+        max_content_score: float,
+    ) -> list[PageRef]:
+
     max_toc_pages = max(_MIN_TOC_LIMIT, int(total_pages * _MAX_TOC_RATIO))
     max_toc_page_index = round(total_pages * _TOC_HEAD_RATIO)
     toc_page_refs = [
@@ -130,6 +151,18 @@ def _human_like_toc_filter(toc_page_refs: list[PageRef], total_pages: int) -> li
             last_page_index = ref.page_index
         else:
             break
+
+    if not serial_refs:
+        return serial_refs
+
+    serial_page_indexes = {ref.page_index for ref in serial_refs}
+    for ref in toc_page_refs:
+        if ref.page_index not in serial_page_indexes:
+            max_content_score = max(max_content_score, ref.score)
+
+    max_toc_score = serial_refs[0].score
+    if max_toc_score < _TOC_SCORE_MIN_RATIO * max_content_score:
+        return [] # 说明目录页不足以与非目录页拉开差距，不可贸然判断
 
     return serial_refs
 
