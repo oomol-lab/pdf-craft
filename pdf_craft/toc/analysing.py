@@ -6,7 +6,7 @@ from ..common import save_xml, read_xml, XMLReader
 from ..pdf import decode as decode_pdf, Page, TITLE_TAGS
 
 from .types import encode as encode_toc, decode as decode_toc, Toc, TocInfo
-from .toc_pages import find_toc_pages
+from .toc_pages import find_toc_pages, PageRef
 from .toc_levels import analyse_toc_levels, analyse_title_levels, Ref2Level
 
 
@@ -30,6 +30,7 @@ def _do_analyse_toc(pages_path: Path, toc_assumed: bool) -> TocInfo:
     )
     ref2level: Ref2Level
     toc_page_indexes: list[int] = []
+    toc_pages: list[PageRef] = []
     if toc_assumed:
         toc_pages = find_toc_pages(
             iter_titles=lambda:(
@@ -45,6 +46,8 @@ def _do_analyse_toc(pages_path: Path, toc_assumed: bool) -> TocInfo:
                 for page in pages.read()
             ),
         )
+
+    if toc_pages:
         ref2level = analyse_toc_levels(
             pages=pages,
             pages_path=pages_path,
