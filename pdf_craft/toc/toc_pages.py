@@ -131,7 +131,7 @@ def _human_like_toc_filter(toc_page_refs: list[PageRef], total_pages: int) -> li
         else:
             break
 
-    return toc_page_refs
+    return serial_refs
 
 _P = TypeVar("_P")
 
