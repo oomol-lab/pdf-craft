@@ -95,6 +95,16 @@ def find_toc_pages(
     toc_page_refs = page_refs[:cut_position]
     toc_page_refs.sort(key=lambda x: x.page_index)
 
+    # DEBUG: 显示内容
+    # for i, ref in enumerate(page_refs):
+    #     if i == cut_position:
+    #         print("\n----- TOC CANDIDATE CUT -----\n")
+    #     print(f"[TOC PAGE] page_index={ref.page_index}, score={ref.score:.4f}")
+    #     for title in ref.matched_titles:
+    #         print(f"  [TITLE] score={title.score:.4f}, text={title.text}")
+    #         for reference in title.references:
+    #             print(f"    [REF] page_index={reference.page_index}, order={reference.order}")
+
     return _human_like_toc_filter(
         toc_page_refs=toc_page_refs,
         total_pages=len(page_refs),
