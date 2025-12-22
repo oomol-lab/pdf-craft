@@ -64,6 +64,9 @@ class PageRefContext:
                 page_index=i + 1,
             )
 
+_PNG_COMPRESSION_RATIO = 0.5  # Conservative estimate for document images
+_BYTES_PER_PIXEL = 3  # RGB
+
 class PageRef:
     def __init__(
             self,
@@ -77,11 +80,20 @@ class PageRef:
     def page_index(self) -> int:
         return self._page_index
 
-    def render(self) -> Image:
+    def render(self, dpi: int, max_image_file_size: int | None = None) -> Image:
         try:
+            if max_image_file_size is not None:
+                width_inch, height_inch = self._document.page_size(self._page_index)
+                max_dpi = round(self._dpi_with_size(
+                    file_size=max_image_file_size,
+                    width_inch=width_inch,
+                    height_inch=height_inch,
+                ))
+                dpi = min(dpi, max_dpi)
+
             return self._document.render_page(
                 page_index=self._page_index,
-                dpi=300, # Render page at 300 DPI for scanned book pages
+                dpi=dpi,
             )
         except PDFError as error:
             error.page_index = self._page_index
@@ -89,3 +101,8 @@ class PageRef:
 
         except Exception as error:
             raise PDFError(f"Failed to render page {self._page_index}.", page_index=self._page_index) from error
+
+    def _dpi_with_size(self, file_size: int, width_inch: float, height_inch: float) -> float:
+        # Formula: file_size = width_px * height_px * bytes_per_pixel * compression_ratio
+        # where width_px = width_inch * dpi, height_px = height_inch * dpi
+        return (file_size / (width_inch * height_inch * _BYTES_PER_PIXEL * _PNG_COMPRESSION_RATIO)) ** 0.5
