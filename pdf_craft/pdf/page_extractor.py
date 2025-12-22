@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import Iterable
 from PIL.Image import Image
 
-from ..common import ASSET_TAGS, AssetHub
+from ..common import remove_surrogates, ASSET_TAGS, AssetHub
 from ..error import OCRError
 from ..metering import check_aborted, AbortedCheck
 from .types import Page, PageLayout, DeepSeekOCRSize
@@ -138,6 +138,7 @@ class PageExtractorNode:
     def _normalize_text(self, text: str | None) -> str:
         if text is None:
             return ""
+        text = remove_surrogates(text)
         text = re.sub(r"\s+", " ", text)
         return text.strip()
 

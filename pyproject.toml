@@ -34,7 +34,7 @@ python = ">=3.10,<3.14"
 pdf2image = "^1.17.0"
 pypdf = "^6.4.1"
 doc-page-extractor = "==1.0.12"
-epub-generator = "==0.1.5"
+epub-generator = "==0.1.6"
 pylatexenc = "^2.10"
 pyahocorasick = "^2.2.0"
 
