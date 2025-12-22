@@ -88,6 +88,8 @@ transform_markdown(
     analysing_path="temp",  # Optional: specify temporary folder
     ocr_size="gundam",  # Optional: tiny, small, base, large, gundam
     models_cache_path="models",  # Optional: model cache path
+    dpi=300,  # Optional: DPI for rendering PDF pages (default: 300)
+    max_page_image_file_size=None,  # Optional: max image file size in bytes, auto-adjust DPI if exceeded
     includes_footnotes=True,  # Optional: include footnotes
     ignore_pdf_errors=False,  # Optional: continue on PDF rendering errors
     ignore_ocr_errors=False,  # Optional: continue on OCR recognition errors
@@ -107,6 +109,8 @@ transform_epub(
     analysing_path="temp",  # Optional: specify temporary folder
     ocr_size="gundam",  # Optional: tiny, small, base, large, gundam
     models_cache_path="models",  # Optional: model cache path
+    dpi=300,  # Optional: DPI for rendering PDF pages (default: 300)
+    max_page_image_file_size=None,  # Optional: max image file size in bytes, auto-adjust DPI if exceeded
     includes_cover=True,  # Optional: include cover
     includes_footnotes=True,  # Optional: include footnotes
     ignore_pdf_errors=False,  # Optional: continue on PDF rendering errors
