@@ -70,6 +70,8 @@ class OCR:
             asset_path: Path,
             ocr_path: Path,
             ocr_size: DeepSeekOCRSize = "gundam",
+            dpi: int | None = None,
+            max_page_image_file_size: int | None = None,
             includes_footnotes: bool = False,
             ignore_pdf_errors: bool = False,
             ignore_ocr_errors: bool = False,
@@ -144,12 +146,16 @@ class OCR:
                     recognized_error: Exception | None = None
 
                     try:
-                        image = ref.render()
+                        image = ref.render(
+                            dpi=dpi if dpi is not None else 300, # DPI=300 for scanned page
+                            max_image_file_size=max_page_image_file_size,
+                        )
                     except PDFError as error:
                         if not ignore_pdf_errors:
                             raise
                         recognized_error = error
 
+                    # FIXME: lose warn page
                     if image is None:
                         page = self._create_warn_page(
                             page_index=ref.page_index,
