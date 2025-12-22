@@ -90,6 +90,7 @@ transform_markdown(
     models_cache_path="models",  # 可选：模型缓存路径
     includes_footnotes=True,  # 可选：包含脚注
     ignore_pdf_errors=False,  # 可选：遇到 PDF 渲染错误时继续处理
+    ignore_ocr_errors=False,  # 可选：遇到 OCR 识别错误时继续处理
     generate_plot=False,  # 可选：生成可视化图表
     toc_assumed=False,  # 可选：假设 PDF 包含目录页
 )
@@ -109,6 +110,7 @@ transform_epub(
     includes_cover=True,  # 可选：包含封面
     includes_footnotes=True,  # 可选：包含脚注
     ignore_pdf_errors=False,  # 可选：遇到 PDF 渲染错误时继续处理
+    ignore_ocr_errors=False,  # 可选：遇到 OCR 识别错误时继续处理
     generate_plot=False,  # 可选：生成可视化图表
     toc_assumed=True,  # 可选：假设 PDF 包含目录页
     book_meta=BookMeta(
@@ -226,6 +228,8 @@ transform_markdown(
 ### 错误处理
 
 你可以使用 `ignore_pdf_errors=True` 参数，在遇到单个页面渲染失败时继续处理，为失败的页面插入占位符消息，而不是停止整个转换过程。
+
+类似地，`ignore_ocr_errors=True` 参数允许在单个页面 OCR 识别失败时继续处理，插入占位符消息而不是中断转换。
 
 ## 相关开源库
 

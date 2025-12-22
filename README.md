@@ -90,6 +90,7 @@ transform_markdown(
     models_cache_path="models",  # Optional: model cache path
     includes_footnotes=True,  # Optional: include footnotes
     ignore_pdf_errors=False,  # Optional: continue on PDF rendering errors
+    ignore_ocr_errors=False,  # Optional: continue on OCR recognition errors
     generate_plot=False,  # Optional: generate visualization charts
     toc_assumed=False,  # Optional: assume PDF contains a table of contents page
 )
@@ -109,6 +110,7 @@ transform_epub(
     includes_cover=True,  # Optional: include cover
     includes_footnotes=True,  # Optional: include footnotes
     ignore_pdf_errors=False,  # Optional: continue on PDF rendering errors
+    ignore_ocr_errors=False,  # Optional: continue on OCR recognition errors
     generate_plot=False,  # Optional: generate visualization charts
     toc_assumed=True,  # Optional: assume PDF contains a table of contents page
     book_meta=BookMeta(
@@ -226,6 +228,8 @@ If not specified, pdf-craft will use Poppler from your system PATH. For advanced
 ### Error Handling
 
 You can use `ignore_pdf_errors=True` to continue processing when individual pages fail to render, inserting a placeholder message for failed pages instead of stopping the entire conversion.
+
+Similarly, `ignore_ocr_errors=True` allows processing to continue when OCR recognition fails on individual pages, inserting a placeholder message instead of halting the conversion.
 
 ## Related Open Source Libraries
 
