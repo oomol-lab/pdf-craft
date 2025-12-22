@@ -17,6 +17,9 @@ class PDFDocument(Protocol):
     def metadata(self) -> PDFDocumentMetadata:
         ...
 
+    def page_size(self, page_index: int) -> tuple[float, float]:
+        ...
+
     def render_page(self, page_index: int, dpi: int) -> Image.Image:
         ...
 
@@ -41,7 +44,11 @@ class DefaultPDFHandler:
             poppler_path=self._poppler_path,
         )
 
+
+_POINTS_PER_INCH = 72.0
+
 class DefaultPDFDocument:
+
     def __init__(self, pdf_path: Path, poppler_path: Path | None) -> None:
         import pypdf
         self._pdf_path = pdf_path
@@ -49,11 +56,13 @@ class DefaultPDFDocument:
         self._reader = pypdf.PdfReader(str(pdf_path))
         self._pages_count: int | None = None
 
+
     @property
     def pages_count(self) -> int:
         if self._pages_count is None:
             self._pages_count = len(self._reader.pages)
         return self._pages_count
+
 
     def metadata(self) -> PDFDocumentMetadata:
         try:
@@ -106,6 +115,17 @@ class DefaultPDFDocument:
             )
         except Exception as error:
             raise PDFError("Failed to extract PDF metadata.", page_index=None) from error
+
+
+    def page_size(self, page_index: int) -> tuple[float, float]:
+        try:
+            page = self._reader.pages[page_index - 1]
+            width_inch = float(page.mediabox.width) / _POINTS_PER_INCH
+            height_inch = float(page.mediabox.height) / _POINTS_PER_INCH
+            return (width_inch, height_inch)
+        except Exception as error:
+            raise PDFError(f"Failed to get page size for page {page_index}.", page_index=page_index) from error
+
 
     def render_page(self, page_index: int, dpi: int) -> Image.Image:
         from pdf2image import convert_from_path
