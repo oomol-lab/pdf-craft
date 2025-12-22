@@ -4,7 +4,7 @@ from typing import Callable, Literal
 
 from epub_generator import BookMeta, TableRender, LaTeXRender
 
-from .common import EnsureFolder
+from .common import remove_surrogates, EnsureFolder
 from .error import PDFError
 from .to_path import to_path
 from .pdf import OCR, OCREvent, PDFHandler, DeepSeekOCRSize
@@ -244,15 +244,20 @@ class Transform:
         try:
             pdf_metadata = self._ocr.metadata(pdf_path)
             return BookMeta(
-                title=pdf_metadata.title or pdf_path.stem,
-                description=pdf_metadata.description,
-                publisher=pdf_metadata.publisher,
-                isbn=pdf_metadata.isbn,
-                authors=pdf_metadata.authors,
-                editors=pdf_metadata.editors,
-                translators=pdf_metadata.translators,
+                title=self._normalize_text_in_meta(pdf_metadata.title) or pdf_path.stem,
+                description=self._normalize_text_in_meta(pdf_metadata.description),
+                publisher=self._normalize_text_in_meta(pdf_metadata.publisher),
+                isbn=self._normalize_text_in_meta(pdf_metadata.isbn),
+                authors=[remove_surrogates(s) for s in pdf_metadata.authors],
+                editors=[remove_surrogates(s) for s in pdf_metadata.editors],
+                translators=[remove_surrogates(s) for s in pdf_metadata.translators],
                 modified=pdf_metadata.modified,
             )
         except PDFError:
             print("Warning: Failed to extract PDF metadata.")
             return None
+
+    def _normalize_text_in_meta(self, text: str | None) -> str | None:
+        if text is None:
+            return None
+        return remove_surrogates(text)
