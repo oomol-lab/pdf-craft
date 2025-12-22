@@ -45,14 +45,14 @@ For CUDA environments, you need to install PyTorch manually first to ensure the 
 
 ##### Step 1: Install PyTorch with CUDA
 
-For CUDA 12.1:
-```shell
-pip install torch torchvision --index-url https://download.pytorch.org/whl/cu121
-```
-
 For CUDA 11.8:
 ```shell
 pip install torch torchvision --index-url https://download.pytorch.org/whl/cu118
+```
+
+For CUDA 12.1:
+```shell
+pip install torch torchvision --index-url https://download.pytorch.org/whl/cu121
 ```
 
 For CUDA 12.4:
