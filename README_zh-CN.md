@@ -88,6 +88,8 @@ transform_markdown(
     analysing_path="temp",  # 可选：指定临时文件夹
     ocr_size="gundam",  # 可选：tiny, small, base, large, gundam
     models_cache_path="models",  # 可选：模型缓存路径
+    dpi=300,  # 可选：渲染 PDF 页面的 DPI（默认：300）
+    max_page_image_file_size=None,  # 可选：最大图像文件大小（字节），超出时自动调整 DPI
     includes_footnotes=True,  # 可选：包含脚注
     ignore_pdf_errors=False,  # 可选：遇到 PDF 渲染错误时继续处理
     ignore_ocr_errors=False,  # 可选：遇到 OCR 识别错误时继续处理
@@ -107,6 +109,8 @@ transform_epub(
     analysing_path="temp",  # 可选：指定临时文件夹
     ocr_size="gundam",  # 可选：tiny, small, base, large, gundam
     models_cache_path="models",  # 可选：模型缓存路径
+    dpi=300,  # 可选：渲染 PDF 页面的 DPI（默认：300）
+    max_page_image_file_size=None,  # 可选：最大图像文件大小（字节），超出时自动调整 DPI
     includes_cover=True,  # 可选：包含封面
     includes_footnotes=True,  # 可选：包含脚注
     ignore_pdf_errors=False,  # 可选：遇到 PDF 渲染错误时继续处理
