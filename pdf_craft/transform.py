@@ -44,6 +44,7 @@ class Transform:
         ocr_size: DeepSeekOCRSize = "gundam",
         dpi: int | None = None,
         max_page_image_file_size: int | None = None,
+        includes_cover: bool = False,
         includes_footnotes: bool = False,
         generate_plot: bool = False,
         toc_assumed: bool = False,
@@ -63,13 +64,13 @@ class Transform:
             with EnsureFolder(
                 path=to_path(analysing_path) if analysing_path is not None else None,
             ) as analysing_path:
-                asserts_path, chapters_path, _, _, metering = self._extract_from_pdf(
+                asserts_path, chapters_path, _, cover_path, metering = self._extract_from_pdf(
                     pdf_path=Path(pdf_path),
                     analysing_path=analysing_path,
                     ocr_size=ocr_size,
                     dpi=dpi,
                     max_page_image_file_size=max_page_image_file_size,
-                    includes_cover=False,
+                    includes_cover=includes_cover,
                     includes_footnotes=includes_footnotes,
                     ignore_pdf_errors=ignore_pdf_errors,
                     ignore_ocr_errors=ignore_ocr_errors,
@@ -85,6 +86,7 @@ class Transform:
                     assets_path=asserts_path,
                     output_path=Path(markdown_path),
                     output_assets_path=markdown_assets_path,
+                    cover_path=cover_path,
                     aborted=aborted,
                 )
                 return metering

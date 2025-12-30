@@ -1,5 +1,6 @@
 from pathlib import Path
 from typing import Generator
+from shutil import copy
 
 from ...metering import check_aborted, AbortedCheck
 from ...sequence import (
@@ -17,6 +18,7 @@ def render_markdown_file(
         assets_path: Path,
         output_path: Path,
         output_assets_path: Path,
+        cover_path: Path | None,
         aborted: AbortedCheck,
     ):
 
@@ -63,6 +65,12 @@ def render_markdown_file(
             asset_ref_path=assets_ref_path,
         ):
             f.write(part)
+
+    if cover_path is not None:
+        copy(
+            src=cover_path,
+            dst=output_assets_path / cover_path.name,
+        )
 
 def _render_footnotes_section(
         references: list[Reference],
