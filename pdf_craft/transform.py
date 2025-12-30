@@ -2,6 +2,7 @@ from os import PathLike
 from pathlib import Path
 from typing import Callable, Literal
 
+from shutil import copy
 from epub_generator import BookMeta, TableRender, LaTeXRender
 
 from .common import remove_surrogates, EnsureFolder
@@ -64,7 +65,7 @@ class Transform:
             with EnsureFolder(
                 path=to_path(analysing_path) if analysing_path is not None else None,
             ) as analysing_path:
-                asserts_path, chapters_path, _, _, metering = self._extract_from_pdf(
+                asserts_path, chapters_path, _, cover_path, metering = self._extract_from_pdf(
                     pdf_path=Path(pdf_path),
                     analysing_path=analysing_path,
                     ocr_size=ocr_size,
@@ -81,6 +82,10 @@ class Transform:
                     max_output_tokens=max_ocr_output_tokens,
                     on_ocr_event=on_ocr_event,
                 )
+                if cover_path is not None:
+                    asserts_path.mkdir(parents=True, exist_ok=True)
+                    copy(cover_path, asserts_path / "cover.png")
+
                 render_markdown_file(
                     chapters_path=chapters_path,
                     assets_path=asserts_path,

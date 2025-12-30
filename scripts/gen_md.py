@@ -17,6 +17,7 @@ def main() -> None:
         analysing_path=analysing_dir_path,
         models_cache_path=project_root / "models-cache",
         includes_footnotes=True,
+        includes_cover=True,
         generate_plot=True,
         on_ocr_event=lambda e: print(f"OCR {OCREventKind(e.kind).name} - Page {e.page_index}/{e.total_pages} - {_format_duration(e.cost_time_ms)}"),
     )
