@@ -2,7 +2,6 @@ from os import PathLike
 from pathlib import Path
 from typing import Callable, Literal
 
-from shutil import copy
 from epub_generator import BookMeta, TableRender, LaTeXRender
 
 from .common import remove_surrogates, EnsureFolder
@@ -82,15 +81,12 @@ class Transform:
                     max_output_tokens=max_ocr_output_tokens,
                     on_ocr_event=on_ocr_event,
                 )
-                if cover_path is not None:
-                    asserts_path.mkdir(parents=True, exist_ok=True)
-                    copy(cover_path, asserts_path / "cover.png")
-
                 render_markdown_file(
                     chapters_path=chapters_path,
                     assets_path=asserts_path,
                     output_path=Path(markdown_path),
                     output_assets_path=markdown_assets_path,
+                    cover_path=cover_path,
                     aborted=aborted,
                 )
                 return metering
