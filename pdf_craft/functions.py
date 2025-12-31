@@ -6,6 +6,7 @@ from epub_generator import BookMeta, TableRender, LaTeXRender
 from .pdf import OCR, OCREvent, PDFHandler, DeepSeekOCRSize
 from .transform import Transform
 from .metering import AbortedCheck, OCRTokensMetering
+from .error import IgnorePDFErrorsChecker, IgnoreOCRErrorsChecker
 
 
 def predownload_models(
@@ -34,8 +35,8 @@ def transform_markdown(
     max_page_image_file_size: int | None = None,
     includes_cover: bool = False,
     includes_footnotes: bool = False,
-    ignore_pdf_errors: bool = False,
-    ignore_ocr_errors: bool = False,
+    ignore_pdf_errors: IgnorePDFErrorsChecker = False,
+    ignore_ocr_errors: IgnoreOCRErrorsChecker = False,
     generate_plot: bool = False,
     toc_assumed: bool = False,
     aborted: AbortedCheck = lambda: False,
@@ -83,8 +84,8 @@ def transform_epub(
     includes_footnotes: bool = False,
     generate_plot: bool = False,
     toc_assumed: bool = True,
-    ignore_pdf_errors: bool = False,
-    ignore_ocr_errors: bool = False,
+    ignore_pdf_errors: IgnorePDFErrorsChecker = False,
+    ignore_ocr_errors: IgnoreOCRErrorsChecker = False,
     book_meta: BookMeta | None = None,
     lan: Literal["zh", "en"] = "zh",
     table_render: TableRender = TableRender.HTML,

@@ -13,6 +13,6 @@ from .pdf import (
 )
 
 from .transform import Transform, OCRTokensMetering
-from .error import InterruptedError, PDFError, OCRError
+from .error import InterruptedError, PDFError, OCRError, IgnoreOCRErrorsChecker, IgnorePDFErrorsChecker
 from .metering import AbortedCheck, InterruptedKind
 from .functions import transform_markdown, transform_epub, predownload_models
