@@ -1,3 +1,4 @@
+from typing import Callable
 from .metering import OCRTokensMetering, InterruptedKind
 
 
@@ -15,6 +16,9 @@ class OCRError(Exception):
 
 def is_inline_error(error: Exception) -> bool:
     return isinstance(error, (PDFError, OCRError))
+
+IgnorePDFErrorsChecker = bool | Callable[[PDFError], bool]
+IgnoreOCRErrorsChecker = bool | Callable[[OCRError], bool]
 
 
 # 不可直接用 doc-page-extractor 的 Error，该库的一切都是懒加载，若暴露，则无法懒加载

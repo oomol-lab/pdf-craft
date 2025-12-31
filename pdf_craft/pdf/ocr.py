@@ -2,7 +2,7 @@ from dataclasses import dataclass
 import sys
 import time
 
-from typing import Container, Generator
+from typing import Container, Generator, TypeVar, Callable
 from threading import Lock
 from enum import auto, Enum
 from pathlib import Path
@@ -10,7 +10,7 @@ from os import PathLike
 
 from ..common import save_xml, AssetHub
 from ..to_path import to_path
-from ..error import PDFError, OCRError
+from ..error import PDFError, OCRError, IgnorePDFErrorsChecker, IgnoreOCRErrorsChecker
 from ..metering import check_aborted, AbortedCheck
 from .page_extractor import Page, PageLayout, PageExtractorNode
 from .page_ref import PageRefContext
@@ -72,8 +72,8 @@ class OCR:
             dpi: int | None = None,
             max_page_image_file_size: int | None = None,
             includes_footnotes: bool = False,
-            ignore_pdf_errors: bool = False,
-            ignore_ocr_errors: bool = False,
+            ignore_pdf_errors: IgnorePDFErrorsChecker = False,
+            ignore_ocr_errors: IgnoreOCRErrorsChecker = False,
             plot_path: Path | None = None,
             cover_path: Path | None = None,
             aborted: AbortedCheck = lambda: False,
@@ -170,12 +170,12 @@ class OCR:
                             aborted=aborted,
                         )
                     except PDFError as error:
-                        if not ignore_pdf_errors:
+                        if not _check_ignore_error(ignore_pdf_errors, error):
                             raise
                         recognized_error = error
 
                     except OCRError as error:
-                        if not ignore_ocr_errors:
+                        if not _check_ignore_error(ignore_ocr_errors, error):
                             raise
                         recognized_error = error
 
@@ -236,3 +236,11 @@ class OCR:
             order=0,
         ))
         return page
+
+_T =  TypeVar("_T", bound=Exception)
+
+def _check_ignore_error(check: bool | Callable[[_T], bool], error: _T) -> bool:
+    if isinstance(check, bool):
+        return check
+    else:
+        return check(error)

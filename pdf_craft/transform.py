@@ -14,6 +14,7 @@ from .epub import render_epub_file
 from .error import is_inline_error, to_interrupted_error
 from .metering import AbortedCheck, OCRTokensMetering
 from .markdown.render import render_markdown_file
+from .error import IgnorePDFErrorsChecker, IgnoreOCRErrorsChecker
 
 
 class Transform:
@@ -48,8 +49,8 @@ class Transform:
         includes_footnotes: bool = False,
         generate_plot: bool = False,
         toc_assumed: bool = False,
-        ignore_pdf_errors: bool = False,
-        ignore_ocr_errors: bool = False,
+        ignore_pdf_errors: IgnorePDFErrorsChecker = False,
+        ignore_ocr_errors: IgnoreOCRErrorsChecker = False,
         aborted: AbortedCheck = lambda: False,
         max_ocr_tokens: int | None = None,
         max_ocr_output_tokens: int | None = None,
@@ -110,8 +111,8 @@ class Transform:
         max_page_image_file_size: int | None = None,
         includes_cover: bool = True,
         includes_footnotes: bool = False,
-        ignore_pdf_errors: bool = False,
-        ignore_ocr_errors: bool = False,
+        ignore_pdf_errors: IgnorePDFErrorsChecker = False,
+        ignore_ocr_errors: IgnoreOCRErrorsChecker = False,
         generate_plot: bool = False,
         toc_assumed: bool = True,
         book_meta: BookMeta | None = None,
@@ -181,8 +182,8 @@ class Transform:
         max_page_image_file_size: int | None,
         includes_cover: bool,
         includes_footnotes: bool,
-        ignore_pdf_errors: bool,
-        ignore_ocr_errors: bool,
+        ignore_pdf_errors: IgnorePDFErrorsChecker,
+        ignore_ocr_errors: IgnoreOCRErrorsChecker,
         generate_plot: bool,
         toc_assumed: bool,
         aborted: AbortedCheck,
