@@ -72,7 +72,7 @@ transform_epub(
 )
 ```
 
-![20251218-144958](https://github.com/user-attachments/assets/c66ebdf6-cf8f-4f1c-a0ba-0c44edaae664)
+![20251218-162533](https://github.com/user-attachments/assets/7f6df04a-1fa7-48b3-aa5e-d2d056304ad6)
 
 ## Detailed Usage
 
