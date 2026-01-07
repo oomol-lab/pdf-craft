@@ -43,6 +43,7 @@ def transform_markdown(
     max_ocr_tokens: int | None = None,
     max_ocr_output_tokens: int | None = None,
     on_ocr_event: Callable[[OCREvent], None] = lambda _: None,
+    page_indexes: range | None = None,
 ) -> OCRTokensMetering:
 
     return Transform(
@@ -67,6 +68,7 @@ def transform_markdown(
         max_ocr_tokens=max_ocr_tokens,
         max_ocr_output_tokens=max_ocr_output_tokens,
         on_ocr_event=on_ocr_event,
+        page_indexes=page_indexes,
     )
 
 
@@ -95,6 +97,7 @@ def transform_epub(
     max_ocr_tokens: int | None = None,
     max_ocr_output_tokens: int | None = None,
     on_ocr_event: Callable[[OCREvent], None] = lambda _: None,
+    page_indexes: range | None = None,
 ) -> OCRTokensMetering:
 
     return Transform(
@@ -123,4 +126,5 @@ def transform_epub(
         max_ocr_tokens=max_ocr_tokens,
         max_ocr_output_tokens=max_ocr_output_tokens,
         on_ocr_event=on_ocr_event,
+        page_indexes=page_indexes,
     )
