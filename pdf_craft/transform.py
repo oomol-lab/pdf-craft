@@ -149,6 +149,7 @@ class Transform:
                     max_tokens=max_ocr_tokens,
                     max_output_tokens=max_ocr_output_tokens,
                     on_ocr_event=on_ocr_event,
+                    page_indexes=page_indexes,
                 )
                 book_meta = book_meta or self._extract_book_meta(pdf_path)
 
