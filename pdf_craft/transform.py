@@ -55,6 +55,7 @@ class Transform:
         max_ocr_tokens: int | None = None,
         max_ocr_output_tokens: int | None = None,
         on_ocr_event: Callable[[OCREvent], None] = lambda _: None,
+        page_indexes: range | None = None,
     ) -> OCRTokensMetering: # pyright: ignore[reportReturnType]
 
         if markdown_assets_path is None:
@@ -81,6 +82,7 @@ class Transform:
                     max_tokens=max_ocr_tokens,
                     max_output_tokens=max_ocr_output_tokens,
                     on_ocr_event=on_ocr_event,
+                    page_indexes=page_indexes,
                 )
                 render_markdown_file(
                     chapters_path=chapters_path,
@@ -124,6 +126,7 @@ class Transform:
         max_ocr_tokens: int | None = None,
         max_ocr_output_tokens: int | None = None,
         on_ocr_event: Callable[[OCREvent], None] = lambda _: None,
+        page_indexes: range | None = None,
     ) -> OCRTokensMetering:  # pyright: ignore[reportReturnType]
         try:
             with EnsureFolder(
@@ -190,6 +193,7 @@ class Transform:
         max_tokens: int | None,
         max_output_tokens: int | None,
         on_ocr_event: Callable[[OCREvent], None],
+        page_indexes: range | None = None,
     ):
 
         asserts_path = analysing_path / "assets"
@@ -208,22 +212,26 @@ class Transform:
             input_tokens=0,
             output_tokens=0,
         )
-        for event in self._ocr.recognize(
-            pdf_path=pdf_path,
-            asset_path=asserts_path,
-            ocr_path=pages_path,
-            ocr_size=ocr_size,
-            dpi=dpi,
-            max_page_image_file_size=max_page_image_file_size,
-            includes_footnotes=includes_footnotes,
-            ignore_pdf_errors=ignore_pdf_errors,
-            ignore_ocr_errors=ignore_ocr_errors,
-            plot_path=plot_path,
-            cover_path=cover_path,
-            aborted=aborted,
-            max_tokens=max_tokens,
-            max_output_tokens=max_output_tokens,
-        ):
+        recognize_kwargs = {
+            "pdf_path": pdf_path,
+            "asset_path": asserts_path,
+            "ocr_path": pages_path,
+            "ocr_size": ocr_size,
+            "dpi": dpi,
+            "max_page_image_file_size": max_page_image_file_size,
+            "includes_footnotes": includes_footnotes,
+            "ignore_pdf_errors": ignore_pdf_errors,
+            "ignore_ocr_errors": ignore_ocr_errors,
+            "plot_path": plot_path,
+            "cover_path": cover_path,
+            "aborted": aborted,
+            "max_tokens": max_tokens,
+            "max_output_tokens": max_output_tokens,
+        }
+        if page_indexes is not None:
+            recognize_kwargs["page_indexes"] = page_indexes
+
+        for event in self._ocr.recognize(**recognize_kwargs):
             on_ocr_event(event)
             metering.input_tokens += event.input_tokens
             metering.output_tokens += event.output_tokens
