@@ -43,6 +43,7 @@ pylint = "^3.3.7"
 pytest = "^8.0.0"
 pytest-cov = "^6.0.0"
 pyright = "^1.1.407"
+ruff = "^0.14.11"
 
 [tool.pyright]
 reportUnnecessaryTypeIgnoreComment = "none"
