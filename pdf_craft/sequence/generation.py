@@ -1,16 +1,22 @@
 from pathlib import Path
 from typing import Generator
 
-from ..common import save_xml, XMLReader
-from ..pdf import decode, Page, TITLE_TAGS
-from ..toc import iter_toc, Toc, TocInfo
-
-from .jointer import Jointer
-from .content import join_texts_in_content, expand_text_in_content
-from .chapter import encode, Reference, Chapter, AssetLayout, ParagraphLayout, BlockLayout
+from ..common import XMLReader, save_xml
+from ..pdf import TITLE_TAGS, Page, decode
+from ..toc import Toc, TocInfo, iter_toc
 from .analyse_level import analyse_chapter_internal_levels
+from .chapter import (
+    AssetLayout,
+    BlockLayout,
+    Chapter,
+    ParagraphLayout,
+    Reference,
+    encode,
+)
+from .content import expand_text_in_content, join_texts_in_content
+from .jointer import Jointer
+from .mark import Mark, search_marks
 from .reference import References
-from .mark import search_marks, Mark
 
 
 def generate_chapter_files(pages_path: Path, chapters_path: Path, toc: TocInfo):
@@ -33,7 +39,10 @@ def generate_chapter_files(pages_path: Path, chapters_path: Path, toc: TocInfo):
         chapter_element = encode(chapter)
         save_xml(chapter_element, chapter_file)
 
-def _generate_chapters(pages_path: Path, toc: TocInfo) -> Generator[Chapter, None, None]:
+
+def _generate_chapters(
+    pages_path: Path, toc: TocInfo
+) -> Generator[Chapter, None, None]:
     chapter: Chapter | None = None
     ref2toc: dict[tuple[int, int], Toc] = {}
 
@@ -42,7 +51,11 @@ def _generate_chapters(pages_path: Path, toc: TocInfo) -> Generator[Chapter, Non
 
     for layout in _extract_body_layouts(pages_path, toc):
         matched_toc = False
-        if isinstance(layout, ParagraphLayout) and layout.blocks and layout.ref in TITLE_TAGS:
+        if (
+            isinstance(layout, ParagraphLayout)
+            and layout.blocks
+            and layout.ref in TITLE_TAGS
+        ):
             item: Toc | None = None
             for block in layout.blocks:
                 item = ref2toc.get((block.page_index, block.order), None)
@@ -60,16 +73,17 @@ def _generate_chapters(pages_path: Path, toc: TocInfo) -> Generator[Chapter, Non
 
         if not matched_toc:
             if chapter is None:
-                max_level= max((t.level for t in iter_toc(toc.content)), default=0)
+                max_level = max((t.level for t in iter_toc(toc.content)), default=0)
                 chapter = Chapter(
                     id=None,
-                    level=max_level, # 防止章节标题盖过其他
+                    level=max_level,  # 防止章节标题盖过其他
                     layouts=[],
                 )
             chapter.layouts.append(layout)
 
     if chapter:
         yield chapter
+
 
 def _extract_body_layouts(pages_path: Path, toc: TocInfo):
     pages: XMLReader[Page] = XMLReader(
@@ -78,16 +92,34 @@ def _extract_body_layouts(pages_path: Path, toc: TocInfo):
         decode=decode,
     )
     toc_page_indexes = set(toc.page_indexes)
-    body_jointer = Jointer(((p.index, p.body_layouts) for p in pages.read() if p.index not in toc_page_indexes))
-    footnotes_jointer = Jointer(((p.index, p.footnotes_layouts) for p in pages.read() if p.index not in toc_page_indexes))
+    body_jointer = Jointer(
+        (
+            (p.index, p.body_layouts)
+            for p in pages.read()
+            if p.index not in toc_page_indexes
+        )
+    )
+    footnotes_jointer = Jointer(
+        (
+            (p.index, p.footnotes_layouts)
+            for p in pages.read()
+            if p.index not in toc_page_indexes
+        )
+    )
     references_generator = _extract_page_references(footnotes_jointer)
     current_references: References | None = next(references_generator, None)
 
     def get_references(page_index: int) -> References | None:
         nonlocal current_references
-        while current_references is not None and current_references.page_index < page_index:
+        while (
+            current_references is not None
+            and current_references.page_index < page_index
+        ):
             current_references = next(references_generator, None)
-        if current_references is not None and current_references.page_index == page_index:
+        if (
+            current_references is not None
+            and current_references.page_index == page_index
+        ):
             return current_references
         return None
 
@@ -100,6 +132,7 @@ def _extract_body_layouts(pages_path: Path, toc: TocInfo):
                 join_texts_in_content(block.content)
 
         yield layout
+
 
 def _extract_page_references(jointer: Jointer) -> Generator[References, None, None]:
     last_page_index: int = -1
@@ -123,6 +156,7 @@ def _extract_page_references(jointer: Jointer) -> Generator[References, None, No
             layouts=layout_buffer,
         )
 
+
 def _page_index_from_layout(layout: AssetLayout | ParagraphLayout) -> int:
     if isinstance(layout, ParagraphLayout):
         if not layout.blocks:
@@ -144,6 +178,7 @@ def _replace_mark_with_reference(references: References, block: BlockLayout):
                 yield reference
             else:
                 yield str(item)
+
     expand_text_in_content(
         content=block.content,
         expand=expand,

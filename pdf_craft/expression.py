@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from enum import auto, Enum
+from enum import Enum, auto
 from typing import Generator
 
 
@@ -64,6 +64,7 @@ def to_markdown_string(kind: ExpressionKind, content: str) -> str:
         content = content.replace("$", "\\$")
         return content
 
+
 def parse_latex_expressions(text: str) -> Generator[ParsedItem, None, None]:
     if not text:
         return
@@ -104,7 +105,7 @@ def parse_latex_expressions(text: str) -> Generator[ParsedItem, None, None]:
                 continue
 
             # Try to match \[ ... \] (display formula)
-            if i + 1 < n and text[i:i+2] == "\\[":
+            if i + 1 < n and text[i : i + 2] == "\\[":
                 # Check backslashes before \[
                 backslash_count = 0
                 j = i - 1
@@ -118,14 +119,18 @@ def parse_latex_expressions(text: str) -> Generator[ParsedItem, None, None]:
                     if result is not None:
                         end_pos, latex_content = result
                         if buffer:
-                            yield ParsedItem(kind=ExpressionKind.TEXT, content="".join(buffer))
+                            yield ParsedItem(
+                                kind=ExpressionKind.TEXT, content="".join(buffer)
+                            )
                             buffer = []
-                        yield ParsedItem(kind=ExpressionKind.DISPLAY_BRACKET, content=latex_content)
+                        yield ParsedItem(
+                            kind=ExpressionKind.DISPLAY_BRACKET, content=latex_content
+                        )
                         i = end_pos
                         continue
 
             # Try to match \( ... \) (inline formula)
-            if i + 1 < n and text[i:i+2] == "\\(":
+            if i + 1 < n and text[i : i + 2] == "\\(":
                 backslash_count = 0
                 j = i - 1
                 while j >= 0 and text[j] == "\\":
@@ -137,22 +142,30 @@ def parse_latex_expressions(text: str) -> Generator[ParsedItem, None, None]:
                     if result is not None:
                         end_pos, latex_content = result
                         if buffer:
-                            yield ParsedItem(kind=ExpressionKind.TEXT, content="".join(buffer))
+                            yield ParsedItem(
+                                kind=ExpressionKind.TEXT, content="".join(buffer)
+                            )
                             buffer = []
-                        yield ParsedItem(kind=ExpressionKind.INLINE_PAREN, content=latex_content)
+                        yield ParsedItem(
+                            kind=ExpressionKind.INLINE_PAREN, content=latex_content
+                        )
                         i = end_pos
                         continue
 
         # Check for $$ ... $$ (display formula, higher priority than single $)
-        if i + 1 < n and text[i:i+2] == "$$":
+        if i + 1 < n and text[i : i + 2] == "$$":
             if not _is_escaped(text, i):
                 result = _find_latex_end(text, i + 2, "$$", allow_newline=True)
                 if result is not None:
                     end_pos, latex_content = result
                     if buffer:
-                        yield ParsedItem(kind=ExpressionKind.TEXT, content="".join(buffer))
+                        yield ParsedItem(
+                            kind=ExpressionKind.TEXT, content="".join(buffer)
+                        )
                         buffer = []
-                    yield ParsedItem(kind=ExpressionKind.DISPLAY_DOUBLE_DOLLAR, content=latex_content)
+                    yield ParsedItem(
+                        kind=ExpressionKind.DISPLAY_DOUBLE_DOLLAR, content=latex_content
+                    )
                     i = end_pos
                     continue
 
@@ -163,9 +176,13 @@ def parse_latex_expressions(text: str) -> Generator[ParsedItem, None, None]:
                 if result is not None:
                     end_pos, latex_content = result
                     if buffer:
-                        yield ParsedItem(kind=ExpressionKind.TEXT, content="".join(buffer))
+                        yield ParsedItem(
+                            kind=ExpressionKind.TEXT, content="".join(buffer)
+                        )
                         buffer = []
-                    yield ParsedItem(kind=ExpressionKind.INLINE_DOLLAR, content=latex_content)
+                    yield ParsedItem(
+                        kind=ExpressionKind.INLINE_DOLLAR, content=latex_content
+                    )
                     i = end_pos
                     continue
 
@@ -186,10 +203,7 @@ def _is_escaped(text: str, pos: int) -> bool:
 
 
 def _find_latex_end(
-    text: str,
-    start: int,
-    end_delimiter: str,
-    allow_newline: bool
+    text: str, start: int, end_delimiter: str, allow_newline: bool
 ) -> tuple[int, str] | None:
     n = len(text)
     i = start
@@ -198,7 +212,7 @@ def _find_latex_end(
     while i < n:
         if not allow_newline and text[i] == "\n":
             return None
-        if i + delimiter_len <= n and text[i:i+delimiter_len] == end_delimiter:
+        if i + delimiter_len <= n and text[i : i + delimiter_len] == end_delimiter:
             if not _is_escaped(text, i):
                 latex_content = text[start:i]
                 return (i + delimiter_len, latex_content)

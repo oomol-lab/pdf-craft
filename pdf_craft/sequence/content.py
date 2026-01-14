@@ -1,9 +1,10 @@
 from typing import Callable, Generator, Iterable
+
 from ..markdown.paragraph import HTMLTag
 from .chapter import BlockMember
 
-
 Content = list[str | BlockMember | HTMLTag[BlockMember]]
+
 
 def first(content: Content) -> None | str | BlockMember:
     if not content:
@@ -14,6 +15,7 @@ def first(content: Content) -> None | str | BlockMember:
     else:
         return element
 
+
 def last(content: Content) -> None | str | BlockMember:
     if not content:
         return None
@@ -22,6 +24,7 @@ def last(content: Content) -> None | str | BlockMember:
         return last(element.children)
     else:
         return element
+
 
 def join_texts_in_content(content: Content) -> None:
     for sub_content in _search_content(content):
@@ -35,9 +38,10 @@ def join_texts_in_content(content: Content) -> None:
             else:
                 i += 1
 
+
 def expand_text_in_content(
-        content: Content,
-        expand: Callable[[str], Iterable[str | BlockMember]],
+    content: Content,
+    expand: Callable[[str], Iterable[str | BlockMember]],
 ) -> None:
     for sub_content in _search_content(content):
         i: int = 0
@@ -50,6 +54,7 @@ def expand_text_in_content(
                     i += 1
             else:
                 i += 1
+
 
 def _search_content(content: Content) -> Generator[Content, None, None]:
     for child in content:

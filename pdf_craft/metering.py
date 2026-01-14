@@ -1,14 +1,16 @@
 from dataclasses import dataclass
-from enum import auto, Enum
+from enum import Enum, auto
 from typing import Callable
 
-
 AbortedCheck = Callable[[], bool]
+
 
 def check_aborted(aborted_check: AbortedCheck) -> None:
     if aborted_check():
         from doc_page_extractor import AbortError
+
         raise AbortError()
+
 
 @dataclass
 class OCRTokensMetering:

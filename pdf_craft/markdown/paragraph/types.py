@@ -1,10 +1,8 @@
 from dataclasses import dataclass
-from typing import TypeVar, Generic, Generator, Iterable, Callable
-
+from typing import Callable, Generator, Generic, Iterable, TypeVar
 from xml.etree.ElementTree import Element
 
 from .tags import HTMLTagDefinition, tag_definition
-
 
 P = TypeVar("P")
 
@@ -24,7 +22,9 @@ def flatten(children: Iterable[str | P | HTMLTag[P]]) -> Generator[str | P, None
             yield child
 
 
-def decode(root: Element, decode_payload: Callable[[Element], P]) -> list[str | P | HTMLTag[P]]:
+def decode(
+    root: Element, decode_payload: Callable[[Element], P]
+) -> list[str | P | HTMLTag[P]]:
     children: list[str | P | HTMLTag[P]] = []
     if root.text:
         children.append(root.text)
@@ -33,11 +33,13 @@ def decode(root: Element, decode_payload: Callable[[Element], P]) -> list[str | 
         tag_def = tag_definition(child.tag)
         if tag_def is not None:
             attributes = list(child.attrib.items())
-            children.append(HTMLTag(
-                definition=tag_def,
-                attributes=attributes,
-                children=decode(child, decode_payload)
-            ))
+            children.append(
+                HTMLTag(
+                    definition=tag_def,
+                    attributes=attributes,
+                    children=decode(child, decode_payload),
+                )
+            )
         else:
             children.append(decode_payload(child))
 
@@ -47,7 +49,11 @@ def decode(root: Element, decode_payload: Callable[[Element], P]) -> list[str | 
     return children
 
 
-def encode(root: Element, children: list[str | P | HTMLTag[P]], encode_payload: Callable[[P], Element]) -> None:
+def encode(
+    root: Element,
+    children: list[str | P | HTMLTag[P]],
+    encode_payload: Callable[[P], Element],
+) -> None:
     if not children:
         return
 

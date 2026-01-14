@@ -1,9 +1,9 @@
 def has_repetitive_ngrams(
-        text: str,
-        min_ngram: int,
-        max_ngram: int,
-        repeat_threshold: int,
-    ) -> bool:
+    text: str,
+    min_ngram: int,
+    max_ngram: int,
+    repeat_threshold: int,
+) -> bool:
     """
     检测文本中是否存在大量重复的 n-gram 模式（字符级别）。
 
@@ -24,11 +24,11 @@ def has_repetitive_ngrams(
 
     for n in range(min_ngram, min(max_ngram + 1, len(chars) // repeat_threshold + 1)):
         for i in range(len(chars) - n * repeat_threshold + 1):
-            ngram = tuple(chars[i:i + n])
+            ngram = tuple(chars[i : i + n])
             consecutive_count = 1
             pos = i + n
             while pos + n <= len(chars):
-                next_ngram = tuple(chars[pos:pos + n])
+                next_ngram = tuple(chars[pos : pos + n])
                 if next_ngram == ngram:
                     consecutive_count += 1
                     pos += n

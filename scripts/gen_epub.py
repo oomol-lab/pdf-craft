@@ -1,8 +1,9 @@
 from pathlib import Path
-from pdf_craft import transform_epub, OCREventKind, TableRender, LaTeXRender
 
+from pdf_craft import LaTeXRender, OCREventKind, TableRender, transform_epub
 
 _IMAGE_STEM = "newton"
+
 
 def main() -> None:
     project_root = Path(__file__).parent.parent
@@ -19,8 +20,11 @@ def main() -> None:
         generate_plot=True,
         table_render=TableRender.HTML,
         latex_render=LaTeXRender.MATHML,
-        on_ocr_event=lambda e: print(f"OCR {OCREventKind(e.kind).name} - Page {e.page_index}/{e.total_pages} - {_format_duration(e.cost_time_ms)}"),
+        on_ocr_event=lambda e: print(
+            f"OCR {OCREventKind(e.kind).name} - Page {e.page_index}/{e.total_pages} - {_format_duration(e.cost_time_ms)}"
+        ),
     )
+
 
 def _format_duration(ms: int) -> str:
     if ms < 1000:
@@ -32,6 +36,7 @@ def _format_duration(ms: int) -> str:
         minutes = ms // 60000
         seconds = (ms % 60000) / 1000
         return f"{minutes}m {seconds:.2f}s"
+
 
 if __name__ == "__main__":
     main()

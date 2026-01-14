@@ -1,6 +1,12 @@
 import unittest
-from pdf_craft.sequence.jointer import _normalize_equation, _normalize_table, _parse_block_content, _AssetHolder
+
 from pdf_craft.sequence.chapter import InlineExpression
+from pdf_craft.sequence.jointer import (
+    _AssetHolder,
+    _normalize_equation,
+    _normalize_table,
+    _parse_block_content,
+)
 
 
 class TestNormalizeEquation(unittest.TestCase):
@@ -15,7 +21,7 @@ class TestNormalizeEquation(unittest.TestCase):
             title=None,
             content=r"This is a formula: \[x^2 + y^2 = z^2\] and some text after",
             caption=None,
-            hash=None
+            hash=None,
         )
         _normalize_equation(layout)
         self.assertEqual(layout.content, r"x^2 + y^2 = z^2")
@@ -31,7 +37,7 @@ class TestNormalizeEquation(unittest.TestCase):
             title=None,
             content="Equation: $$E = mc^2$$ Einstein's formula",
             caption=None,
-            hash=None
+            hash=None,
         )
         _normalize_equation(layout)
         self.assertEqual(layout.content, "E = mc^2")
@@ -47,7 +53,7 @@ class TestNormalizeEquation(unittest.TestCase):
             title=None,
             content=r"Inline math \(a + b = c\) in text",
             caption=None,
-            hash=None
+            hash=None,
         )
         _normalize_equation(layout)
         self.assertEqual(layout.content, r"a + b = c")
@@ -63,7 +69,7 @@ class TestNormalizeEquation(unittest.TestCase):
             title=None,
             content="Simple $x = y$ equation",
             caption=None,
-            hash=None
+            hash=None,
         )
         _normalize_equation(layout)
         self.assertEqual(layout.content, "x = y")
@@ -79,7 +85,7 @@ class TestNormalizeEquation(unittest.TestCase):
             title=None,
             content=r"\[a^2 + b^2 = c^2\] This is caption",
             caption=None,
-            hash=None
+            hash=None,
         )
         _normalize_equation(layout)
         self.assertEqual(layout.content, r"a^2 + b^2 = c^2")
@@ -95,7 +101,7 @@ class TestNormalizeEquation(unittest.TestCase):
             title=None,
             content=r"Title text \[f(x) = x^2\]",
             caption=None,
-            hash=None
+            hash=None,
         )
         _normalize_equation(layout)
         self.assertEqual(layout.content, r"f(x) = x^2")
@@ -111,10 +117,12 @@ class TestNormalizeEquation(unittest.TestCase):
             title=None,
             content=r"\[\int_0^\infty e^{-x^2} dx = \frac{\sqrt{\pi}}{2}\]",
             caption=None,
-            hash=None
+            hash=None,
         )
         _normalize_equation(layout)
-        self.assertEqual(layout.content, r"\int_0^\infty e^{-x^2} dx = \frac{\sqrt{\pi}}{2}")
+        self.assertEqual(
+            layout.content, r"\int_0^\infty e^{-x^2} dx = \frac{\sqrt{\pi}}{2}"
+        )
         self.assertIsNone(layout.title)
         self.assertIsNone(layout.caption)
 
@@ -127,7 +135,7 @@ class TestNormalizeEquation(unittest.TestCase):
             title="Existing title",
             content=r"More title \[x = y\] caption text",
             caption=None,
-            hash=None
+            hash=None,
         )
         _normalize_equation(layout)
         self.assertEqual(layout.content, r"x = y")
@@ -143,7 +151,7 @@ class TestNormalizeEquation(unittest.TestCase):
             title=None,
             content=r"Title \[a = b\] more caption",
             caption="Existing caption",
-            hash=None
+            hash=None,
         )
         _normalize_equation(layout)
         self.assertEqual(layout.content, r"a = b")
@@ -159,7 +167,7 @@ class TestNormalizeEquation(unittest.TestCase):
             title=None,
             content="",
             caption=None,
-            hash=None
+            hash=None,
         )
         _normalize_equation(layout)
         self.assertEqual(layout.content, "")
@@ -175,7 +183,7 @@ class TestNormalizeEquation(unittest.TestCase):
             title=None,
             content="Just plain text without any latex",
             caption=None,
-            hash=None
+            hash=None,
         )
         _normalize_equation(layout)
         self.assertEqual(layout.content, "Just plain text without any latex")
@@ -195,7 +203,7 @@ class TestNormalizeTable(unittest.TestCase):
             title=None,
             content="Table 1: Sample Data<table><tr><td>A</td><td>B</td></tr></table>Source: Test",
             caption=None,
-            hash=None
+            hash=None,
         )
         _normalize_table(layout)
         self.assertEqual(layout.content, "<table><tr><td>A</td><td>B</td></tr></table>")
@@ -211,7 +219,7 @@ class TestNormalizeTable(unittest.TestCase):
             title=None,
             content="<table><tr><td>X</td></tr></table>Note: Important",
             caption=None,
-            hash=None
+            hash=None,
         )
         _normalize_table(layout)
         self.assertEqual(layout.content, "<table><tr><td>X</td></tr></table>")
@@ -227,7 +235,7 @@ class TestNormalizeTable(unittest.TestCase):
             title=None,
             content="Results:<table><tr><td>1</td><td>2</td></tr></table>",
             caption=None,
-            hash=None
+            hash=None,
         )
         _normalize_table(layout)
         self.assertEqual(layout.content, "<table><tr><td>1</td><td>2</td></tr></table>")
@@ -243,7 +251,7 @@ class TestNormalizeTable(unittest.TestCase):
             title=None,
             content="<table><tr><td>Data</td></tr></table>",
             caption=None,
-            hash=None
+            hash=None,
         )
         _normalize_table(layout)
         self.assertEqual(layout.content, "<table><tr><td>Data</td></tr></table>")
@@ -259,10 +267,12 @@ class TestNormalizeTable(unittest.TestCase):
             title=None,
             content='Title<table class="data" id="t1"><tr><td>A</td></tr></table>Caption',
             caption=None,
-            hash=None
+            hash=None,
         )
         _normalize_table(layout)
-        self.assertEqual(layout.content, '<table class="data" id="t1"><tr><td>A</td></tr></table>')
+        self.assertEqual(
+            layout.content, '<table class="data" id="t1"><tr><td>A</td></tr></table>'
+        )
         self.assertEqual(layout.title, "Title")
         self.assertEqual(layout.caption, "Caption")
 
@@ -285,7 +295,7 @@ Footer text"""
             title=None,
             content=content,
             caption=None,
-            hash=None
+            hash=None,
         )
         _normalize_table(layout)
         self.assertIn("<table>", layout.content)
@@ -302,7 +312,7 @@ Footer text"""
             title=None,
             content="Text<TABLE><TR><TD>Data</TD></TR></TABLE>More",
             caption=None,
-            hash=None
+            hash=None,
         )
         _normalize_table(layout)
         self.assertEqual(layout.content, "<TABLE><TR><TD>Data</TD></TR></TABLE>")
@@ -318,7 +328,7 @@ Footer text"""
             title="Existing title",
             content="More title<table><tr><td>A</td></tr></table>Caption",
             caption=None,
-            hash=None
+            hash=None,
         )
         _normalize_table(layout)
         self.assertEqual(layout.content, "<table><tr><td>A</td></tr></table>")
@@ -334,7 +344,7 @@ Footer text"""
             title=None,
             content="Title<table><tr><td>B</td></tr></table>More caption",
             caption="Existing caption",
-            hash=None
+            hash=None,
         )
         _normalize_table(layout)
         self.assertEqual(layout.content, "<table><tr><td>B</td></tr></table>")
@@ -350,7 +360,7 @@ Footer text"""
             title=None,
             content="",
             caption=None,
-            hash=None
+            hash=None,
         )
         _normalize_table(layout)
         self.assertEqual(layout.content, "")
@@ -366,7 +376,7 @@ Footer text"""
             title=None,
             content="Just text without any table",
             caption=None,
-            hash=None
+            hash=None,
         )
         _normalize_table(layout)
         self.assertEqual(layout.content, "Just text without any table")
@@ -475,7 +485,9 @@ class TestParseLineContent(unittest.TestCase):
 
     def test_complex_latex_content(self):
         """测试复杂的 LaTeX 内容"""
-        result = _parse_block_content(r"The integral $\int_0^\infty e^{-x^2} dx$ converges")
+        result = _parse_block_content(
+            r"The integral $\int_0^\infty e^{-x^2} dx$ converges"
+        )
         self.assertEqual(len(result), 3)
         self.assertEqual(result[0], "The integral ")
         self.assertIsInstance(result[1], InlineExpression)

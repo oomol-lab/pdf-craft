@@ -1,7 +1,5 @@
 import sys
-
-from typing import TypeVar, Generic
-
+from typing import Generic, TypeVar
 
 P = TypeVar("P")
 
@@ -28,11 +26,12 @@ class _Group(Generic[P]):
     def size(self) -> float:
         if self._cached_size is None:
             if self._items:
-                self._cached_size = sum(size for size, _ in self._items) / len(self._items)
+                self._cached_size = sum(size for size, _ in self._items) / len(
+                    self._items
+                )
             else:
                 self._cached_size = 0.0
         return self._cached_size
-
 
     def _calculate_cv(self, values: list[float]) -> float:
         if not values or len(values) < 2:
@@ -41,14 +40,15 @@ class _Group(Generic[P]):
         if mean == 0:
             return float("inf")
         variance = sum((x - mean) ** 2 for x in values) / len(values)
-        std = variance ** 0.5
+        std = variance**0.5
         return std / mean
 
+
 def split_by_cv(
-        payload_items: list[tuple[float, P]],
-        max_cv: float = 0.0,
-        max_groups: int = sys.maxsize,
-    ) -> list[list[P]]:
+    payload_items: list[tuple[float, P]],
+    max_cv: float = 0.0,
+    max_groups: int = sys.maxsize,
+) -> list[list[P]]:
     """通过控制 CV （变异系数）将 payload 分组，返回分组后的 payload 列表"""
 
     if len(payload_items) <= 2:
@@ -74,11 +74,11 @@ def split_by_cv(
         for group in sorted(groups, key=lambda g: g.size)
     ]
 
-def _find_max_cv_group_index(
-        groups: list[_Group[P]],
-        max_cv: float,
-    ) -> int:
 
+def _find_max_cv_group_index(
+    groups: list[_Group[P]],
+    max_cv: float,
+) -> int:
     max_cv_group_index = -1
     max_cv_value = max_cv
 
@@ -94,9 +94,8 @@ def _find_max_cv_group_index(
 
 
 def _split_group_by_max_gap(
-        group: list[tuple[float, P]],
-    ) -> tuple[list[tuple[float, P]], list[tuple[float, P]]] | None:
-
+    group: list[tuple[float, P]],
+) -> tuple[list[tuple[float, P]], list[tuple[float, P]]] | None:
     sorted_items = sorted(group, key=lambda x: x[0])
     gaps: list[tuple[float, int]] = []
 
@@ -108,7 +107,7 @@ def _split_group_by_max_gap(
         return None
 
     _, split_index = max(gaps, key=lambda x: x[0])
-    group1 = sorted_items[:split_index + 1]
-    group2 = sorted_items[split_index + 1:]
+    group1 = sorted_items[: split_index + 1]
+    group2 = sorted_items[split_index + 1 :]
 
     return group1, group2

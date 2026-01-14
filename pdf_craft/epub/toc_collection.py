@@ -1,8 +1,9 @@
 from pathlib import Path
-from epub_generator import TocItem, ChapterGetter
+
+from epub_generator import ChapterGetter, TocItem
 
 from ..common import read_xml
-from ..toc import decode, Toc
+from ..toc import Toc, decode
 
 
 class TocCollection:
@@ -22,7 +23,13 @@ class TocCollection:
     def target(self) -> list[TocItem]:
         return self._root_toc_items + self._extra_toc_items
 
-    def collect(self, toc_id: int, title: str, have_body: bool, get_chapter: ChapterGetter | None) -> None:
+    def collect(
+        self,
+        toc_id: int,
+        title: str,
+        have_body: bool,
+        get_chapter: ChapterGetter | None,
+    ) -> None:
         toc_item: TocItem | None = None
         stack = self._find_raw_toc_item_stack(toc_id)
 
@@ -76,7 +83,9 @@ class TocCollection:
             if toc_item in toc_items:
                 return toc_item
             else:
-                raise RuntimeError(f"TOC item with ID {id} already exists in another branch.")
+                raise RuntimeError(
+                    f"TOC item with ID {id} already exists in another branch."
+                )
         else:
             toc_item = TocItem(
                 title="unknown",

@@ -1,8 +1,8 @@
 from pathlib import Path
-from typing import Generator, Callable, Iterable
+from typing import Callable, Generator, Iterable
 
-from ..common import read_xml, XMLReader
-from .chapter import decode, Chapter
+from ..common import XMLReader, read_xml
+from .chapter import Chapter, decode
 
 
 def create_chapters_reader(chapters_path: Path) -> Callable[[], Iterable[Chapter]]:

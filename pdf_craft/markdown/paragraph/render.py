@@ -1,13 +1,13 @@
-from typing import Generator, Callable, Iterable
+from typing import Callable, Generator, Iterable
 
 from ...language import is_chinese_char
-from .types import P, HTMLTag
+from .types import HTMLTag, P
 
 
 def render_markdown_paragraph(
-        children: list[str | P | HTMLTag[P]],
-        render_payload: Callable[[P | str], Iterable[str]],
-    ) -> Generator[str, None, None]:
+    children: list[str | P | HTMLTag[P]],
+    render_payload: Callable[[P | str], Iterable[str]],
+) -> Generator[str, None, None]:
     yield from _normalize_paragraph(
         parts=_render_markdown_children(
             children=children,
@@ -15,10 +15,11 @@ def render_markdown_paragraph(
         ),
     )
 
+
 def _render_markdown_children(
-        children: list[str | P | HTMLTag[P]],
-        render_payload: Callable[[P | str], Iterable[str]],
-    ) -> Generator[str, None, None]:
+    children: list[str | P | HTMLTag[P]],
+    render_payload: Callable[[P | str], Iterable[str]],
+) -> Generator[str, None, None]:
     for child in children:
         if isinstance(child, HTMLTag):
             yield from _render_html_tag(child, render_payload)
@@ -26,7 +27,9 @@ def _render_markdown_children(
             yield from render_payload(child)
 
 
-def _render_html_tag(tag: HTMLTag[P], render_payload: Callable[[P | str], Iterable[str]]) -> Generator[str, None, None]:
+def _render_html_tag(
+    tag: HTMLTag[P], render_payload: Callable[[P | str], Iterable[str]]
+) -> Generator[str, None, None]:
     tag_name = tag.definition.name
 
     if not tag.children:
@@ -70,6 +73,7 @@ def _escape_attribute(value: str) -> Generator[str, None, None]:
         else:
             yield char
 
+
 def _normalize_paragraph(parts: Iterable[str]) -> Generator[str, None, None]:
     last_char: str | None = None
     is_line_head = True
@@ -78,9 +82,10 @@ def _normalize_paragraph(parts: Iterable[str]) -> Generator[str, None, None]:
             if is_line_head:
                 is_line_head = False
                 part = part.lstrip()
-                if part and last_char is not None and (
-                    not is_chinese_char(last_char) or \
-                    not is_chinese_char(part[0])
+                if (
+                    part
+                    and last_char is not None
+                    and (not is_chinese_char(last_char) or not is_chinese_char(part[0]))
                 ):
                     yield " "
             if part:

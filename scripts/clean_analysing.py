@@ -8,8 +8,8 @@ import argparse
 import shutil
 from pathlib import Path
 
-
 _KEEP_FILES = {"assets", "ocr", "plots", "cover.png"}
+
 
 def clean_analysing_folder():
     """删除 analysing 文件夹中除了指定目录之外的所有内容"""
@@ -60,9 +60,7 @@ if __name__ == "__main__":
     # 解析命令行参数
     parser = argparse.ArgumentParser(description="清理 analysing 目录")
     parser.add_argument(
-        "-y", "--yes",
-        action="store_true",
-        help="跳过确认提示，直接执行清理"
+        "-y", "--yes", action="store_true", help="跳过确认提示，直接执行清理"
     )
     args = parser.parse_args()
 
@@ -71,7 +69,7 @@ if __name__ == "__main__":
         clean_analysing_folder()
     else:
         response = input("⚠️  确认要清理 analysing 目录吗? (y/n): ")
-        if response.lower() in ('y', 'yes'):
+        if response.lower() in ("y", "yes"):
             clean_analysing_folder()
         else:
             print("❌ 操作已取消")

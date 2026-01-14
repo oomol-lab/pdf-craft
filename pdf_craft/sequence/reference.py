@@ -1,18 +1,21 @@
 import re
-
 from typing import Iterable
 
-from .chapter import Reference, BlockLayout, AssetLayout, ParagraphLayout
+from .chapter import AssetLayout, BlockLayout, ParagraphLayout, Reference
 from .content import Content
-from .mark import transform2mark, Mark
-
+from .mark import Mark, transform2mark
 
 _START_PREFIX_PATTERN = re.compile(r"^\*{1,6}\s+")
 
+
 class References:
-    def __init__(self, page_index: int, layouts: Iterable[AssetLayout | ParagraphLayout]) -> None:
+    def __init__(
+        self, page_index: int, layouts: Iterable[AssetLayout | ParagraphLayout]
+    ) -> None:
         self._page_index: int = page_index
-        self._references: list[Reference] = list(self._extract_references(page_index, layouts))
+        self._references: list[Reference] = list(
+            self._extract_references(page_index, layouts)
+        )
         self._mark2reference: dict[str | Mark, Reference] = {}
         for reference in self._references:
             mark = reference.mark
@@ -26,7 +29,9 @@ class References:
     def get(self, mark: str | Mark) -> Reference | None:
         return self._mark2reference.get(mark, None)
 
-    def _extract_references(self, page_index: int, layouts: Iterable[AssetLayout | ParagraphLayout]):
+    def _extract_references(
+        self, page_index: int, layouts: Iterable[AssetLayout | ParagraphLayout]
+    ):
         order: int = 1
         reference: Reference | None = None
         for item in self._iter_and_inject_marks(layouts):
@@ -75,16 +80,21 @@ class References:
             else:
                 if mark_layout[1].blocks:
                     yield mark_layout
-                mark_layout = (mark, ParagraphLayout(
-                    ref=to_split_layout.ref,
-                    level=-1,
-                    blocks=[BlockLayout(
-                        page_index=block.page_index,
-                        order=block.order,
-                        det=block.det,
-                        content=content,
-                    )],
-                ))
+                mark_layout = (
+                    mark,
+                    ParagraphLayout(
+                        ref=to_split_layout.ref,
+                        level=-1,
+                        blocks=[
+                            BlockLayout(
+                                page_index=block.page_index,
+                                order=block.order,
+                                det=block.det,
+                                content=content,
+                            )
+                        ],
+                    ),
+                )
         if mark_layout[1].blocks:
             yield mark_layout
 
@@ -103,7 +113,7 @@ class References:
         if matched:
             prefix = matched.group(0)
             mark = prefix.strip()
-            rest = head_text[matched.end():].lstrip()
+            rest = head_text[matched.end() :].lstrip()
         else:
             mark = transform2mark(head_text[0])
             if mark is not None:

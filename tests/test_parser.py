@@ -1,7 +1,7 @@
 import unittest
-
 from typing import cast
-from pdf_craft.markdown.paragraph import parse_raw_markdown, HTMLTag
+
+from pdf_craft.markdown.paragraph import HTMLTag, parse_raw_markdown
 
 
 class TestParseRawMarkdown(unittest.TestCase):
@@ -70,7 +70,7 @@ class TestParseRawMarkdown(unittest.TestCase):
 
     def test_processing_instruction_removal(self):
         """测试处理指令移除"""
-        result = parse_raw_markdown("Hello <?xml version=\"1.0\"?> World")
+        result = parse_raw_markdown('Hello <?xml version="1.0"?> World')
         self.assertEqual(result, ["Hello ", " World"])
 
     def test_cdata_section_removal(self):
@@ -85,17 +85,17 @@ class TestParseRawMarkdown(unittest.TestCase):
 
     def test_gfm_tagfilter_script(self):
         """测试 GFM tagfilter 过滤 script 标签"""
-        result = parse_raw_markdown("<script>alert(\"XSS\")</script>")
+        result = parse_raw_markdown('<script>alert("XSS")</script>')
         self.assertEqual(len(result), 3)
         self.assertIsInstance(result[0], str)
         self.assertIn("&lt;script", cast(str, result[0]))
-        self.assertEqual(result[1], "alert(\"XSS\")")
+        self.assertEqual(result[1], 'alert("XSS")')
         self.assertIsInstance(result[2], str)
         self.assertIn("&lt;/script", cast(str, result[2]))
 
     def test_gfm_tagfilter_iframe(self):
         """测试 GFM tagfilter 过滤 iframe 标签"""
-        result = parse_raw_markdown("<iframe src=\"evil.com\"></iframe>")
+        result = parse_raw_markdown('<iframe src="evil.com"></iframe>')
         self.assertIsInstance(result[0], str)
         self.assertIn("&lt;iframe", cast(str, result[0]))
 
@@ -107,7 +107,7 @@ class TestParseRawMarkdown(unittest.TestCase):
 
     def test_allowed_attributes(self):
         """测试允许的属性"""
-        result = parse_raw_markdown("<div id=\"test\" title=\"Test Div\">Content</div>")
+        result = parse_raw_markdown('<div id="test" title="Test Div">Content</div>')
         self.assertEqual(len(result), 1)
         tag = result[0]
         self.assertIsInstance(tag, HTMLTag)
@@ -118,7 +118,7 @@ class TestParseRawMarkdown(unittest.TestCase):
 
     def test_disallowed_attributes_filtered(self):
         """测试不允许的属性被过滤"""
-        result = parse_raw_markdown("<div id=\"test\" onclick=\"alert()\">Content</div>")
+        result = parse_raw_markdown('<div id="test" onclick="alert()">Content</div>')
         self.assertEqual(len(result), 1)
         tag = result[0]
         self.assertIsInstance(tag, HTMLTag)
@@ -129,7 +129,7 @@ class TestParseRawMarkdown(unittest.TestCase):
 
     def test_allowed_url_protocol_https(self):
         """测试允许的 URL 协议 https"""
-        result = parse_raw_markdown("<a href=\"https://example.com\">Link</a>")
+        result = parse_raw_markdown('<a href="https://example.com">Link</a>')
         self.assertEqual(len(result), 1)
         tag = result[0]
         self.assertIsInstance(tag, HTMLTag)
@@ -138,7 +138,7 @@ class TestParseRawMarkdown(unittest.TestCase):
 
     def test_allowed_url_protocol_http(self):
         """测试允许的 URL 协议 http"""
-        result = parse_raw_markdown("<a href=\"http://example.com\">Link</a>")
+        result = parse_raw_markdown('<a href="http://example.com">Link</a>')
         self.assertEqual(len(result), 1)
         tag = result[0]
         self.assertIsInstance(tag, HTMLTag)
@@ -147,7 +147,7 @@ class TestParseRawMarkdown(unittest.TestCase):
 
     def test_allowed_url_protocol_mailto(self):
         """测试允许的 URL 协议 mailto"""
-        result = parse_raw_markdown("<a href=\"mailto:test@example.com\">Email</a>")
+        result = parse_raw_markdown('<a href="mailto:test@example.com">Email</a>')
         self.assertEqual(len(result), 1)
         tag = result[0]
         self.assertIsInstance(tag, HTMLTag)
@@ -156,7 +156,7 @@ class TestParseRawMarkdown(unittest.TestCase):
 
     def test_allowed_relative_url(self):
         """测试允许的相对 URL"""
-        result = parse_raw_markdown("<a href=\"/path/to/page\">Link</a>")
+        result = parse_raw_markdown('<a href="/path/to/page">Link</a>')
         self.assertEqual(len(result), 1)
         tag = result[0]
         self.assertIsInstance(tag, HTMLTag)
@@ -165,7 +165,7 @@ class TestParseRawMarkdown(unittest.TestCase):
 
     def test_disallowed_url_protocol_javascript(self):
         """测试不允许的 URL 协议 javascript"""
-        result = parse_raw_markdown("<a href=\"javascript:alert()\">Link</a>")
+        result = parse_raw_markdown('<a href="javascript:alert()">Link</a>')
         self.assertEqual(len(result), 1)
         tag = result[0]
         self.assertIsInstance(tag, HTMLTag)
@@ -175,7 +175,9 @@ class TestParseRawMarkdown(unittest.TestCase):
 
     def test_disallowed_url_protocol_data(self):
         """测试不允许的 URL 协议 data"""
-        result = parse_raw_markdown("<a href=\"data:text/html,<script>alert()</script>\">Link</a>")
+        result = parse_raw_markdown(
+            '<a href="data:text/html,<script>alert()</script>">Link</a>'
+        )
         self.assertEqual(len(result), 1)
         tag = result[0]
         self.assertIsInstance(tag, HTMLTag)
@@ -204,7 +206,9 @@ class TestParseRawMarkdown(unittest.TestCase):
 
     def test_img_tag_with_src(self):
         """测试图片标签"""
-        result = parse_raw_markdown("<img src=\"https://example.com/image.png\" alt=\"Test Image\" />")
+        result = parse_raw_markdown(
+            '<img src="https://example.com/image.png" alt="Test Image" />'
+        )
         self.assertEqual(len(result), 1)
         tag = result[0]
         self.assertIsInstance(tag, HTMLTag)
@@ -230,7 +234,9 @@ class TestParseRawMarkdown(unittest.TestCase):
 
     def test_blockquote_with_cite(self):
         """测试引用标签与 cite 属性"""
-        result = parse_raw_markdown("<blockquote cite=\"https://example.com\">Quote</blockquote>")
+        result = parse_raw_markdown(
+            '<blockquote cite="https://example.com">Quote</blockquote>'
+        )
         self.assertEqual(len(result), 1)
         tag = result[0]
         self.assertIsInstance(tag, HTMLTag)
@@ -240,7 +246,9 @@ class TestParseRawMarkdown(unittest.TestCase):
 
     def test_details_summary(self):
         """测试 details 和 summary 标签"""
-        result = parse_raw_markdown("<details><summary>Title</summary>Content</details>")
+        result = parse_raw_markdown(
+            "<details><summary>Title</summary>Content</details>"
+        )
         self.assertEqual(len(result), 1)
         details_tag = result[0]
         self.assertIsInstance(details_tag, HTMLTag)
@@ -290,7 +298,7 @@ class TestParseRawMarkdown(unittest.TestCase):
 
     def test_html_entities_in_attributes(self):
         """测试属性中的 HTML 实体"""
-        result = parse_raw_markdown("<div title=\"&lt;Test&gt;\">Content</div>")
+        result = parse_raw_markdown('<div title="&lt;Test&gt;">Content</div>')
         self.assertEqual(len(result), 1)
         tag = result[0]
         self.assertIsInstance(tag, HTMLTag)
@@ -309,7 +317,7 @@ class TestParseRawMarkdown(unittest.TestCase):
 
     def test_whitespace_in_tags(self):
         """测试标签中的空白"""
-        result = parse_raw_markdown("<div   id=\"test\"   >Content</div>")
+        result = parse_raw_markdown('<div   id="test"   >Content</div>')
         self.assertEqual(len(result), 1)
         tag = result[0]
         self.assertIsInstance(tag, HTMLTag)
@@ -348,7 +356,7 @@ class TestParseRawMarkdown(unittest.TestCase):
 
     def test_video_tag_with_attributes(self):
         """测试 video 标签"""
-        html = "<video src=\"https://example.com/video.mp4\" controls width=\"640\">Content</video>"
+        html = '<video src="https://example.com/video.mp4" controls width="640">Content</video>'
         result = parse_raw_markdown(html)
         self.assertEqual(len(result), 1)
         tag = result[0]
@@ -376,7 +384,7 @@ class TestParseRawMarkdown(unittest.TestCase):
 
     def test_multiple_attributes_filtering(self):
         """测试多个属性的过滤"""
-        html = "<div id=\"test\" class=\"container\" onclick=\"alert()\" data-value=\"123\">Content</div>"
+        html = '<div id="test" class="container" onclick="alert()" data-value="123">Content</div>'
         result = parse_raw_markdown(html)
         self.assertEqual(len(result), 1)
         tag = result[0]
