@@ -232,9 +232,45 @@ If not specified, pdf-craft will use Poppler from your system PATH. For advanced
 
 ### Error Handling
 
-You can use `ignore_pdf_errors=True` to continue processing when individual pages fail to render, inserting a placeholder message for failed pages instead of stopping the entire conversion.
+The `ignore_pdf_errors` and `ignore_ocr_errors` parameters provide flexible error handling options. You can use them in two ways:
 
-Similarly, `ignore_ocr_errors=True` allows processing to continue when OCR recognition fails on individual pages, inserting a placeholder message instead of halting the conversion.
+**1. Boolean Mode** - Simple on/off control:
+
+```python
+from pdf_craft import transform_markdown
+
+transform_markdown(
+    pdf_path="input.pdf",
+    markdown_path="output.md",
+    ignore_pdf_errors=True,  # Ignore all PDF rendering errors
+    ignore_ocr_errors=True,  # Ignore all OCR recognition errors
+)
+```
+
+When set to `True`, processing continues when errors occur on individual pages, inserting a placeholder message instead of stopping the entire conversion.
+
+**2. Custom Function Mode** - Fine-grained control:
+
+```python
+from pdf_craft import transform_markdown, OCRError, PDFError
+
+def should_ignore_ocr_error(error: OCRError) -> bool:
+    # Only ignore specific types of OCR errors
+    return error.kind == "recognition_failed"
+
+def should_ignore_pdf_error(error: PDFError) -> bool:
+    # Custom logic to decide which PDF errors to ignore
+    return "timeout" in str(error)
+
+transform_markdown(
+    pdf_path="input.pdf",
+    markdown_path="output.md",
+    ignore_ocr_errors=should_ignore_ocr_error,  # Pass custom function
+    ignore_pdf_errors=should_ignore_pdf_error,  # Pass custom function
+)
+```
+
+This allows you to implement custom logic for deciding which specific errors should be ignored during conversion.
 
 ## Related Open Source Libraries
 

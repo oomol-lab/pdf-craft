@@ -232,9 +232,45 @@ transform_markdown(
 
 ### 错误处理
 
-你可以使用 `ignore_pdf_errors=True` 参数，在遇到单个页面渲染失败时继续处理，为失败的页面插入占位符消息，而不是停止整个转换过程。
+`ignore_pdf_errors` 和 `ignore_ocr_errors` 参数提供了灵活的错误处理选项。你可以通过两种方式使用它们：
 
-类似地，`ignore_ocr_errors=True` 参数允许在单个页面 OCR 识别失败时继续处理，插入占位符消息而不是中断转换。
+**1. 布尔模式** - 简单的开关控制：
+
+```python
+from pdf_craft import transform_markdown
+
+transform_markdown(
+    pdf_path="input.pdf",
+    markdown_path="output.md",
+    ignore_pdf_errors=True,  # 忽略所有 PDF 渲染错误
+    ignore_ocr_errors=True,  # 忽略所有 OCR 识别错误
+)
+```
+
+当设置为 `True` 时，在单个页面出现错误时继续处理，插入占位符消息而不是停止整个转换过程。
+
+**2. 自定义函数模式** - 细粒度控制：
+
+```python
+from pdf_craft import transform_markdown, OCRError, PDFError
+
+def should_ignore_ocr_error(error: OCRError) -> bool:
+    # 仅忽略特定类型的 OCR 错误
+    return error.kind == "recognition_failed"
+
+def should_ignore_pdf_error(error: PDFError) -> bool:
+    # 自定义逻辑来决定忽略哪些 PDF 错误
+    return "timeout" in str(error)
+
+transform_markdown(
+    pdf_path="input.pdf",
+    markdown_path="output.md",
+    ignore_ocr_errors=should_ignore_ocr_error,  # 传递自定义函数
+    ignore_pdf_errors=should_ignore_pdf_error,  # 传递自定义函数
+)
+```
+
+这允许你实现自定义逻辑，以决定在转换过程中应该忽略哪些特定错误。
 
 ## 相关开源库
 
