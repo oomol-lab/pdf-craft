@@ -1,6 +1,5 @@
-import unittest
 import sys
-
+import unittest
 
 try:
     loader = unittest.TestLoader()

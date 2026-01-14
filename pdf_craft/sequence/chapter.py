@@ -1,11 +1,12 @@
 from dataclasses import dataclass
-from typing import cast, Generator, Iterable
+from typing import Generator, Iterable, cast
 from xml.etree.ElementTree import Element
 
-from ..common import indent, AssetRef, ASSET_TAGS
+from ..common import ASSET_TAGS, AssetRef, indent
 from ..expression import ExpressionKind, decode_expression_kind, encode_expression_kind
-from ..markdown.paragraph import decode as decode_content, encode as encode_content, flatten, HTMLTag
-
+from ..markdown.paragraph import HTMLTag, flatten
+from ..markdown.paragraph import decode as decode_content
+from ..markdown.paragraph import encode as encode_content
 from .mark import Mark
 
 
@@ -15,16 +16,19 @@ class Chapter:
     level: int
     layouts: list["ParagraphLayout | AssetLayout"]
 
+
 @dataclass
 class ParagraphLayout:
     ref: str
     level: int
     blocks: list["BlockLayout"]
 
+
 @dataclass
 class InlineExpression:
     kind: ExpressionKind
     content: str
+
 
 @dataclass
 class Reference:
@@ -36,6 +40,7 @@ class Reference:
     @property
     def id(self) -> tuple[int, int]:
         return (self.page_index, self.order)
+
 
 BlockMember = InlineExpression | Reference
 RefIdMap = dict[tuple[int, int], int]
@@ -51,12 +56,14 @@ class AssetLayout:
     caption: list[str | BlockMember | HTMLTag[BlockMember]]
     hash: str | None
 
+
 @dataclass
 class BlockLayout:
     page_index: int
     order: int
     det: tuple[int, int, int, int]
     content: list[str | BlockMember | HTMLTag[BlockMember]]
+
 
 def search_references_in_chapter(chapter: Chapter) -> Generator[Reference, None, None]:
     seen: set[tuple[int, int]] = set()
@@ -66,6 +73,7 @@ def search_references_in_chapter(chapter: Chapter) -> Generator[Reference, None,
             if ref_id not in seen:
                 seen.add(ref_id)
                 yield part
+
 
 def references_to_map(references: Iterable[Reference]) -> RefIdMap:
     ref_id_to_number = {}
@@ -106,6 +114,7 @@ def decode(element: Element) -> Chapter:
         layouts=layouts,
     )
 
+
 def encode(chapter: Chapter) -> Element:
     root = Element("chapter")
 
@@ -134,25 +143,31 @@ def encode(chapter: Chapter) -> Element:
 
     return indent(root)
 
+
 def _search_parts_in_chapter(chapter: Chapter):
     for layout in chapter.layouts:
         if isinstance(layout, ParagraphLayout):
             for block in layout.blocks:
                 yield from flatten(block.content)
 
+
 def _decode_asset(element: Element) -> AssetLayout:
     ref_attr = element.get("ref")
     if ref_attr is None:
         raise ValueError("<asset> missing required attribute 'ref'")
     if ref_attr not in ASSET_TAGS:
-        raise ValueError(f"<asset> attribute 'ref' must be one of {ASSET_TAGS}, got: {ref_attr}")
+        raise ValueError(
+            f"<asset> attribute 'ref' must be one of {ASSET_TAGS}, got: {ref_attr}"
+        )
     page_index_attr = element.get("page_index")
     if page_index_attr is None:
         raise ValueError("<asset> missing required attribute 'page_index'")
     try:
         page_index = int(page_index_attr)
     except ValueError as e:
-        raise ValueError(f"<asset> attribute 'page_index' must be int, got: {page_index_attr}") from e
+        raise ValueError(
+            f"<asset> attribute 'page_index' must be int, got: {page_index_attr}"
+        ) from e
 
     det_str = element.get("det")
     if det_str is None:
@@ -167,7 +182,9 @@ def _decode_asset(element: Element) -> AssetLayout:
         elif child.tag == "inline_expr":
             kind_attr = child.get("kind")
             if kind_attr is None:
-                raise ValueError("<asset><inline_expr> missing required attribute 'kind'")
+                raise ValueError(
+                    "<asset><inline_expr> missing required attribute 'kind'"
+                )
             kind = decode_expression_kind(kind_attr)
             expr_text = child.text if child.text is not None else ""
             return InlineExpression(kind=kind, content=expr_text)
@@ -175,13 +192,23 @@ def _decode_asset(element: Element) -> AssetLayout:
             raise ValueError(f"<asset> contains unknown element: <{child.tag}>")
 
     title_el = element.find("title")
-    title = decode_content(title_el, decode_block_member) if title_el is not None else []
+    title = (
+        decode_content(title_el, decode_block_member) if title_el is not None else []
+    )
 
     content_el = element.find("content")
-    content = decode_content(content_el, decode_block_member) if content_el is not None else []
+    content = (
+        decode_content(content_el, decode_block_member)
+        if content_el is not None
+        else []
+    )
 
     caption_el = element.find("caption")
-    caption = decode_content(caption_el, decode_block_member) if caption_el is not None else []
+    caption = (
+        decode_content(caption_el, decode_block_member)
+        if caption_el is not None
+        else []
+    )
 
     return AssetLayout(
         page_index=page_index,
@@ -192,6 +219,7 @@ def _decode_asset(element: Element) -> AssetLayout:
         caption=caption,
         hash=hash_value,
     )
+
 
 def _encode_asset(layout: AssetLayout) -> Element:
     el = Element("asset")
@@ -230,7 +258,10 @@ def _encode_asset(layout: AssetLayout) -> Element:
 
     return el
 
-def _decode_paragraph(element: Element, references_map: dict[tuple[int, int], Reference] | None = None) -> ParagraphLayout:
+
+def _decode_paragraph(
+    element: Element, references_map: dict[tuple[int, int], Reference] | None = None
+) -> ParagraphLayout:
     ref_attr = element.get("ref")
     if ref_attr is None:
         raise ValueError("<paragraph> missing required attribute 'ref'")
@@ -245,6 +276,7 @@ def _decode_paragraph(element: Element, references_map: dict[tuple[int, int], Re
     )
     return ParagraphLayout(ref=ref_attr, level=level, blocks=blocks)
 
+
 def _encode_paragraph(layout: ParagraphLayout) -> Element:
     el = Element("paragraph")
     el.set("ref", layout.ref)
@@ -254,38 +286,49 @@ def _encode_paragraph(layout: ParagraphLayout) -> Element:
         el.append(_encode_block_element(block))
     return el
 
+
 def _parse_det(det_str: str, context: str) -> tuple[int, int, int, int]:
     try:
         det_list = list(map(int, det_str.split(",")))
     except Exception as e:
-        raise ValueError(f"{context}: det must be comma-separated integers, got: {det_str}") from e
+        raise ValueError(
+            f"{context}: det must be comma-separated integers, got: {det_str}"
+        ) from e
     if len(det_list) != 4:
         raise ValueError(f"{context}: det must have 4 values, got {len(det_list)}")
     return (det_list[0], det_list[1], det_list[2], det_list[3])
 
-def _decode_block_elements(
-        parent: Element,
-        context_tag: str,
-        references_map: dict[tuple[int, int], Reference] | None = None
-    ) -> list[BlockLayout]:
 
+def _decode_block_elements(
+    parent: Element,
+    context_tag: str,
+    references_map: dict[tuple[int, int], Reference] | None = None,
+) -> list[BlockLayout]:
     blocks: list[BlockLayout] = []
     for block_el in parent.findall("block"):
         page_index_attr = block_el.get("page_index")
         if page_index_attr is None:
-            raise ValueError(f"<{context_tag}><block> missing required attribute 'page_index'")
+            raise ValueError(
+                f"<{context_tag}><block> missing required attribute 'page_index'"
+            )
         try:
             page_index = int(page_index_attr)
         except ValueError as e:
-            raise ValueError(f"<{context_tag}><block> attribute 'page_index' must be int, got: {page_index_attr}") from e
+            raise ValueError(
+                f"<{context_tag}><block> attribute 'page_index' must be int, got: {page_index_attr}"
+            ) from e
 
         order_attr = block_el.get("order")
         if order_attr is None:
-            raise ValueError(f"<{context_tag}><block> missing required attribute 'order'")
+            raise ValueError(
+                f"<{context_tag}><block> missing required attribute 'order'"
+            )
         try:
             order = int(order_attr)
         except ValueError as e:
-            raise ValueError(f"<{context_tag}><block> attribute 'order' must be int, got: {order_attr}") from e
+            raise ValueError(
+                f"<{context_tag}><block> attribute 'order' must be int, got: {order_attr}"
+            ) from e
 
         det_str = block_el.get("det")
         if det_str is None:
@@ -296,45 +339,62 @@ def _decode_block_elements(
             if child.tag == "ref":
                 ref_id = child.get("id")
                 if ref_id is None:
-                    raise ValueError(f"<{context_tag}><block><ref> missing required attribute 'id'")
+                    raise ValueError(
+                        f"<{context_tag}><block><ref> missing required attribute 'id'"
+                    )
 
                 try:
-                    parts = ref_id.split('-')
+                    parts = ref_id.split("-")
                     if len(parts) != 2:
-                        raise ValueError(f"<{context_tag}><block><ref> attribute 'id' must be in format 'page-order'")
+                        raise ValueError(
+                            f"<{context_tag}><block><ref> attribute 'id' must be in format 'page-order'"
+                        )
                     ref_page_index = int(parts[0])
                     ref_order = int(parts[1])
                 except ValueError as e:
-                    raise ValueError(f"<{context_tag}><block><ref> attribute 'id' must contain valid integers") from e
+                    raise ValueError(
+                        f"<{context_tag}><block><ref> attribute 'id' must contain valid integers"
+                    ) from e
 
                 if references_map is not None:
                     ref_key = (ref_page_index, ref_order)
                     if ref_key in references_map:
                         return references_map[ref_key]
                     else:
-                        raise ValueError(f"<{context_tag}><block><ref> references undefined reference: {ref_id}")
+                        raise ValueError(
+                            f"<{context_tag}><block><ref> references undefined reference: {ref_id}"
+                        )
                 else:
-                    raise ValueError(f"<{context_tag}><block><ref> cannot resolve reference without references_map")
+                    raise ValueError(
+                        f"<{context_tag}><block><ref> cannot resolve reference without references_map"
+                    )
 
             elif child.tag == "inline_expr":
                 kind_attr = child.get("kind")
                 if kind_attr is None:
-                    raise ValueError(f"<{context_tag}><block><inline_expr> missing required attribute 'kind'")
+                    raise ValueError(
+                        f"<{context_tag}><block><inline_expr> missing required attribute 'kind'"
+                    )
                 kind = decode_expression_kind(kind_attr)
                 expr_text = child.text if child.text is not None else ""
                 return InlineExpression(kind=kind, content=expr_text)
 
             else:
-                raise ValueError(f"<{context_tag}><block> contains unknown element: <{child.tag}>")
+                raise ValueError(
+                    f"<{context_tag}><block> contains unknown element: <{child.tag}>"
+                )
 
-        blocks.append(BlockLayout(
-            page_index=page_index,
-            order=order,
-            det=det,
-            content=decode_content(block_el, decode_block_member),
-        ))
+        blocks.append(
+            BlockLayout(
+                page_index=page_index,
+                order=order,
+                det=det,
+                content=decode_content(block_el, decode_block_member),
+            )
+        )
 
     return blocks
+
 
 def _encode_block_element(block: BlockLayout) -> Element:
     block_el = Element("block")
@@ -347,6 +407,7 @@ def _encode_block_element(block: BlockLayout) -> Element:
         encode_payload=_encode_block_member,
     )
     return block_el
+
 
 def _encode_block_member(part: BlockMember) -> Element:
     if isinstance(part, InlineExpression):
@@ -362,6 +423,7 @@ def _encode_block_member(part: BlockMember) -> Element:
 
     else:
         raise ValueError("Unknown BlockMember type")
+
 
 def _encode_reference(ref: Reference) -> Element:
     ref_el = Element("ref")
@@ -379,19 +441,24 @@ def _encode_reference(ref: Reference) -> Element:
 
     return ref_el
 
+
 def _decode_reference(element: Element) -> Reference:
     ref_id = element.get("id")
     if ref_id is None:
         raise ValueError("<references><ref> missing required attribute 'id'")
 
     try:
-        parts = ref_id.split('-')
+        parts = ref_id.split("-")
         if len(parts) != 2:
-            raise ValueError("<references><ref> attribute 'id' must be in format 'page-order'")
+            raise ValueError(
+                "<references><ref> attribute 'id' must be in format 'page-order'"
+            )
         page_index = int(parts[0])
         order = int(parts[1])
     except ValueError as e:
-        raise ValueError("<references><ref> attribute 'id' must contain valid integers") from e
+        raise ValueError(
+            "<references><ref> attribute 'id' must contain valid integers"
+        ) from e
 
     mark_el = element.find("mark")
     if mark_el is None or mark_el.text is None:
@@ -399,6 +466,7 @@ def _decode_reference(element: Element) -> Reference:
     mark_text = mark_el.text
 
     from .mark import transform2mark
+
     mark = transform2mark(mark_text)
     if mark is None:
         # 如果不是特殊标记，就使用原始字符串

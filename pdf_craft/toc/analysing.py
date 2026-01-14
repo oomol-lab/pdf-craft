@@ -1,16 +1,17 @@
 import re
-
 from pathlib import Path
 
-from ..common import save_xml, read_xml, XMLReader
-from ..pdf import decode as decode_pdf, Page, TITLE_TAGS
-
-from .types import encode as encode_toc, decode as decode_toc, Toc, TocInfo
-from .toc_pages import find_toc_pages, PageRef
-from .toc_levels import analyse_toc_levels, analyse_title_levels, Ref2Level
-
+from ..common import XMLReader, read_xml, save_xml
+from ..pdf import TITLE_TAGS, Page
+from ..pdf import decode as decode_pdf
+from .toc_levels import Ref2Level, analyse_title_levels, analyse_toc_levels
+from .toc_pages import PageRef, find_toc_pages
+from .types import Toc, TocInfo
+from .types import decode as decode_toc
+from .types import encode as encode_toc
 
 _TITLE_HEAD_REGX = re.compile(r"^\s*#{1,6}\s*")
+
 
 def analyse_toc(pages_path: Path, toc_path: Path, toc_assumed: bool) -> TocInfo:
     if toc_path.exists():
@@ -21,6 +22,7 @@ def analyse_toc(pages_path: Path, toc_path: Path, toc_assumed: bool) -> TocInfo:
     save_xml(encode_toc(toc_info), toc_path)
 
     return toc_info
+
 
 def _do_analyse_toc(pages_path: Path, toc_assumed: bool) -> TocInfo:
     pages: XMLReader[Page] = XMLReader(
@@ -33,7 +35,7 @@ def _do_analyse_toc(pages_path: Path, toc_assumed: bool) -> TocInfo:
     toc_pages: list[PageRef] = []
     if toc_assumed:
         toc_pages = find_toc_pages(
-            iter_titles=lambda:(
+            iter_titles=lambda: (
                 list(
                     (layout.order, _TITLE_HEAD_REGX.sub("", layout.text))
                     for layout in page.body_layouts
@@ -41,7 +43,7 @@ def _do_analyse_toc(pages_path: Path, toc_assumed: bool) -> TocInfo:
                 )
                 for page in pages.read()
             ),
-            iter_page_bodies=lambda:(
+            iter_page_bodies=lambda: (
                 "".join(layout.text for layout in page.body_layouts)
                 for page in pages.read()
             ),
@@ -62,8 +64,9 @@ def _do_analyse_toc(pages_path: Path, toc_assumed: bool) -> TocInfo:
         page_indexes=sorted(toc_page_indexes),
     )
 
+
 def _structure_toc_by_levels(ref2level: Ref2Level) -> list[Toc]:
-     # 虚拟根节点
+    # 虚拟根节点
     root = Toc(
         id=-1,
         page_index=-1,
@@ -87,7 +90,7 @@ def _structure_toc_by_levels(ref2level: Ref2Level) -> list[Toc]:
             stack.pop()
 
         if not stack:
-            break # 防御性
+            break  # 防御性
 
         stack[-1].children.append(toc)
         stack.append(toc)

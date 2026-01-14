@@ -1,9 +1,8 @@
 import re
-
 from html import escape, unescape
 
-from .types import P, HTMLTag
-from .tags import tag_definition, is_tag_filtered, is_tag_ignored, is_protocol_allowed
+from .tags import is_protocol_allowed, is_tag_filtered, is_tag_ignored, tag_definition
+from .types import HTMLTag, P
 
 
 def parse_raw_markdown(input: str) -> list[str | P | HTMLTag[P]]:
@@ -57,7 +56,9 @@ def parse_raw_markdown(input: str) -> list[str | P | HTMLTag[P]]:
     return result
 
 
-def _parse_html_construct(input: str, pos: int) -> tuple[str | HTMLTag | list[str | HTMLTag] | None, int]:
+def _parse_html_construct(
+    input: str, pos: int
+) -> tuple[str | HTMLTag | list[str | HTMLTag] | None, int]:
     """
     Try to parse an HTML construct starting at position pos.
 
@@ -107,7 +108,9 @@ def _parse_html_construct(input: str, pos: int) -> tuple[str | HTMLTag | list[st
     return _parse_tag(input, pos)
 
 
-def _parse_tag(input: str, pos: int) -> tuple[str | HTMLTag[P] | list[str | P | HTMLTag[P]] | None, int]:
+def _parse_tag(
+    input: str, pos: int
+) -> tuple[str | HTMLTag[P] | list[str | P | HTMLTag[P]] | None, int]:
     """
     Parse an HTML tag (opening, closing, or self-closing).
 
@@ -144,7 +147,7 @@ def _parse_tag(input: str, pos: int) -> tuple[str | HTMLTag[P] | list[str | P | 
             # Check if this tag should be filtered by GFM tagfilter
             if is_tag_filtered(tag_name):
                 # Replace the leading "<" with "&lt;" to break the tag
-                return "&lt;" + input[pos + 1:end_pos], end_pos
+                return "&lt;" + input[pos + 1 : end_pos], end_pos
 
             # Check if tag is in whitelist
             tag_def = tag_definition(tag_name)
@@ -157,7 +160,9 @@ def _parse_tag(input: str, pos: int) -> tuple[str | HTMLTag[P] | list[str | P | 
         return None, pos
 
     # For opening tags, parse attributes
-    attributes, pos_after_attrs, is_self_closing = _parse_attributes(input, pos_after_name)
+    attributes, pos_after_attrs, is_self_closing = _parse_attributes(
+        input, pos_after_name
+    )
 
     if pos_after_attrs is None:
         return None, pos
@@ -165,7 +170,7 @@ def _parse_tag(input: str, pos: int) -> tuple[str | HTMLTag[P] | list[str | P | 
     # Check if this tag should be filtered by GFM tagfilter
     if is_tag_filtered(tag_name):
         # Replace the leading "<" with "&lt;" to break the tag
-        return "&lt;" + input[pos + 1:pos_after_attrs], pos_after_attrs
+        return "&lt;" + input[pos + 1 : pos_after_attrs], pos_after_attrs
 
     # Check if this tag should be ignored (removed but children preserved)
     if is_tag_ignored(tag_name):
@@ -174,7 +179,9 @@ def _parse_tag(input: str, pos: int) -> tuple[str | HTMLTag[P] | list[str | P | 
             return "", pos_after_attrs
 
         # For opening tags, find content and closing tag
-        content, closing_tag_end = _parse_tag_content_and_closing(input, pos_after_attrs, tag_name)
+        content, closing_tag_end = _parse_tag_content_and_closing(
+            input, pos_after_attrs, tag_name
+        )
 
         if content is not None:
             # Found closing tag, recursively parse content only (tags disappear)
@@ -194,28 +201,26 @@ def _parse_tag(input: str, pos: int) -> tuple[str | HTMLTag[P] | list[str | P | 
         # For self-closing tags, return HTMLTag with no children
         if is_self_closing:
             return HTMLTag(
-                definition=tag_def,
-                attributes=filtered_attrs,
-                children=[]
+                definition=tag_def, attributes=filtered_attrs, children=[]
             ), pos_after_attrs
 
         # For opening tags, find the closing tag and parse content
-        content, closing_tag_end = _parse_tag_content_and_closing(input, pos_after_attrs, tag_name)
+        content, closing_tag_end = _parse_tag_content_and_closing(
+            input, pos_after_attrs, tag_name
+        )
 
         if content is not None:
             # Found closing tag, recursively parse the content
-            children: list[str | P | HTMLTag[P]] = parse_raw_markdown(content) if content else []
+            children: list[str | P | HTMLTag[P]] = (
+                parse_raw_markdown(content) if content else []
+            )
             return HTMLTag(
-                definition=tag_def,
-                attributes=filtered_attrs,
-                children=children
+                definition=tag_def, attributes=filtered_attrs, children=children
             ), closing_tag_end
         else:
             # No closing tag found, treat as self-closing
             return HTMLTag(
-                definition=tag_def,
-                attributes=filtered_attrs,
-                children=[]
+                definition=tag_def, attributes=filtered_attrs, children=[]
             ), closing_tag_end
     else:
         # Tag is not allowed, escape the tag but expose children
@@ -228,7 +233,9 @@ def _parse_tag(input: str, pos: int) -> tuple[str | HTMLTag[P] | list[str | P | 
 
         # For opening tags, we need to find the content and closing tag
         # Then escape the opening tag, recursively parse content, and escape closing tag
-        content, closing_tag_end = _parse_tag_content_and_closing(input, pos_after_attrs, tag_name)
+        content, closing_tag_end = _parse_tag_content_and_closing(
+            input, pos_after_attrs, tag_name
+        )
 
         if content is not None:
             # Found closing tag - escape opening and closing tags, but recursively parse content
@@ -244,9 +251,7 @@ def _parse_tag(input: str, pos: int) -> tuple[str | HTMLTag[P] | list[str | P | 
 
 
 def _parse_tag_content_and_closing(
-    input: str,
-    content_start: int,
-    tag_name: str
+    input: str, content_start: int, tag_name: str
 ) -> tuple[str, int] | tuple[None, int]:
     """
     Find and extract content between opening and closing tags.
@@ -272,7 +277,9 @@ def _parse_tag_content_and_closing(
         return None, content_start
 
 
-def _parse_attributes(input: str, pos: int) -> tuple[list[tuple[str, str]], int | None, bool]:
+def _parse_attributes(
+    input: str, pos: int
+) -> tuple[list[tuple[str, str]], int | None, bool]:
     """
     Parse HTML attributes from an opening tag.
 
@@ -362,7 +369,9 @@ def _parse_attributes(input: str, pos: int) -> tuple[list[tuple[str, str]], int 
     return attributes, None, False
 
 
-def _filter_attributes(tag_def, attributes: list[tuple[str, str]]) -> list[tuple[str, str]]:
+def _filter_attributes(
+    tag_def, attributes: list[tuple[str, str]]
+) -> list[tuple[str, str]]:
     """
     Filter attributes according to the tag's whitelist.
 

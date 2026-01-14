@@ -86,6 +86,7 @@ def decode(element: Element) -> TocInfo:
             level=int(level_str),
             children=children,
         )
+
     return TocInfo(
         content=[decode_item(item) for item in element],
         page_indexes=page_indexes,

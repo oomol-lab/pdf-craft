@@ -1,27 +1,25 @@
 from pathlib import Path
-from typing import Generator
 from shutil import copy
+from typing import Generator
 
-from ...metering import check_aborted, AbortedCheck
+from ...metering import AbortedCheck, check_aborted
 from ...sequence import (
-    create_chapters_reader,
-    search_references_in_chapter,
-    references_to_map,
     Reference,
+    create_chapters_reader,
+    references_to_map,
+    search_references_in_chapter,
 )
-
 from .layouts import render_layouts
 
 
 def render_markdown_file(
-        chapters_path: Path,
-        assets_path: Path,
-        output_path: Path,
-        output_assets_path: Path,
-        cover_path: Path | None,
-        aborted: AbortedCheck,
-    ):
-
+    chapters_path: Path,
+    assets_path: Path,
+    output_path: Path,
+    output_assets_path: Path,
+    cover_path: Path | None,
+    aborted: AbortedCheck,
+):
     assets_ref_path = output_assets_path
     if not assets_ref_path.is_absolute():
         output_assets_path = output_path.parent / output_assets_path
@@ -72,12 +70,13 @@ def render_markdown_file(
             dst=output_assets_path / cover_path.name,
         )
 
+
 def _render_footnotes_section(
-        references: list[Reference],
-        assets_path: Path,
-        output_assets_path: Path,
-        asset_ref_path: Path,
-    ) -> Generator[str, None, None]:
+    references: list[Reference],
+    assets_path: Path,
+    output_assets_path: Path,
+    asset_ref_path: Path,
+) -> Generator[str, None, None]:
     if not references:
         return
     yield "\n\n---\n\n## References"

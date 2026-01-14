@@ -1,5 +1,6 @@
 import unittest
-from pdf_craft.expression import parse_latex_expressions, ExpressionKind
+
+from pdf_craft.expression import ExpressionKind, parse_latex_expressions
 
 
 class TestParseLatexExpressions(unittest.TestCase):
@@ -99,7 +100,6 @@ class TestParseLatexExpressions(unittest.TestCase):
         self.assertEqual(result[0].kind, ExpressionKind.TEXT)
         self.assertEqual(result[0].content, "Price is $100")
 
-
     def test_double_dollar_priority(self):
         """测试 $$ 优先于单 $ 匹配"""
         text = "$$a$$"
@@ -197,7 +197,9 @@ class TestParseLatexExpressions(unittest.TestCase):
         result = list(parse_latex_expressions(text))
         self.assertEqual(len(result), 1)
         self.assertEqual(result[0].kind, ExpressionKind.DISPLAY_DOUBLE_DOLLAR)
-        self.assertEqual(result[0].content, r"\int_0^\infty e^{-x^2} dx = \frac{\sqrt{\pi}}{2}")
+        self.assertEqual(
+            result[0].content, r"\int_0^\infty e^{-x^2} dx = \frac{\sqrt{\pi}}{2}"
+        )
 
     def test_formula_with_dollar_inside(self):
         r"""测试公式内包含美元符号"""

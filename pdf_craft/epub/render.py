@@ -1,55 +1,58 @@
 from pathlib import Path
-from typing import Literal, Generator
+from typing import Generator, Literal
+
 from epub_generator import (
-    generate_epub,
-    EpubData,
     BookMeta,
-    TableRender,
-    LaTeXRender,
-    Chapter as ChapterRecord,
     ChapterGetter,
-    TextBlock,
-    Image,
-    Table,
-    Formula,
+    EpubData,
     Footnote,
+    Formula,
+    Image,
+    LaTeXRender,
     Mark,
+    Table,
+    TableRender,
+    TextBlock,
     TextKind,
+    generate_epub,
+)
+from epub_generator import (
+    Chapter as ChapterRecord,
+)
+from epub_generator import (
     HTMLTag as EpubHTMLTag,
 )
 
-from .toc_collection import TocCollection
-from .latex_to_text import latex_to_plain_text
-
-from ..markdown.paragraph import flatten, HTMLTag
-from ..metering import check_aborted, AbortedCheck
+from ..markdown.paragraph import HTMLTag, flatten
+from ..metering import AbortedCheck, check_aborted
 from ..pdf import TITLE_TAGS
 from ..sequence import (
-    create_chapters_reader,
-    search_references_in_chapter,
-    references_to_map,
-    InlineExpression,
-    Reference,
-    Chapter,
     AssetLayout,
+    Chapter,
+    InlineExpression,
     ParagraphLayout,
+    Reference,
+    create_chapters_reader,
+    references_to_map,
+    search_references_in_chapter,
 )
+from .latex_to_text import latex_to_plain_text
+from .toc_collection import TocCollection
 
 
 def render_epub_file(
-        chapters_path: Path,
-        toc_path: Path | None,
-        assets_path: Path,
-        epub_path: Path,
-        cover_path: Path | None,
-        book_meta: BookMeta | None,
-        lan: Literal["zh", "en"],
-        table_render: TableRender,
-        latex_render: LaTeXRender,
-        inline_latex: bool,
-        aborted: AbortedCheck,
-    ):
-
+    chapters_path: Path,
+    toc_path: Path | None,
+    assets_path: Path,
+    epub_path: Path,
+    cover_path: Path | None,
+    book_meta: BookMeta | None,
+    lan: Literal["zh", "en"],
+    table_render: TableRender,
+    latex_render: LaTeXRender,
+    inline_latex: bool,
+    aborted: AbortedCheck,
+):
     read_chapters = create_chapters_reader(chapters_path)
     references: list[Reference] = []
     for chapter in read_chapters():
@@ -61,6 +64,7 @@ def render_epub_file(
     toc_collection = TocCollection(toc_path)
 
     for chapter in read_chapters():
+
         def get_chapter(ch=chapter):
             return _convert_chapter_to_epub(
                 chapter=ch,
@@ -68,11 +72,15 @@ def render_epub_file(
                 inline_latex=inline_latex,
                 ref_id_to_number=ref_id_to_number,
             )
+
         if chapter.id is None:
             get_head = get_chapter
         elif chapter.layouts:
             first_layout = chapter.layouts[0]
-            if isinstance(first_layout, ParagraphLayout) and first_layout.ref in TITLE_TAGS:
+            if (
+                isinstance(first_layout, ParagraphLayout)
+                and first_layout.ref in TITLE_TAGS
+            ):
                 title = "".join(_iter_text_in_title(first_layout)).strip()
                 if not title:
                     title = "Untitled"
@@ -100,11 +108,13 @@ def render_epub_file(
         assert_not_aborted=lambda: check_aborted(aborted),
     )
 
+
 def _iter_text_in_title(title_layout: ParagraphLayout):
     for block in title_layout.blocks:
         for item in flatten(block.content):
             if isinstance(item, str):
                 yield item
+
 
 def _convert_chapter_to_epub(
     chapter: Chapter,
@@ -128,30 +138,39 @@ def _convert_chapter_to_epub(
         elif isinstance(layout, ParagraphLayout):
             content: list[str | Formula | Mark | EpubHTMLTag] = []
             for block in layout.blocks:
-                content.extend(_transform_content(
-                    content=block.content,
-                    inline_latex=inline_latex,
-                    ref_id_to_number=None,
-                ))
+                content.extend(
+                    _transform_content(
+                        content=block.content,
+                        inline_latex=inline_latex,
+                        ref_id_to_number=None,
+                    )
+                )
             if content:
-                elements.append(TextBlock(
-                    kind=TextKind.HEADLINE if layout.ref in TITLE_TAGS else TextKind.BODY,
-                    level=layout.level,
-                    content=content,
-                ))
+                elements.append(
+                    TextBlock(
+                        kind=TextKind.HEADLINE
+                        if layout.ref in TITLE_TAGS
+                        else TextKind.BODY,
+                        level=layout.level,
+                        content=content,
+                    )
+                )
 
     chapter_refs = search_references_in_chapter(chapter)
     for ref in chapter_refs:
-        footnotes.append(Footnote(
-            id=ref_id_to_number.get(ref.id, 1),
-            contents=list(_convert_reference_to_footnote_contents(
-                ref=ref,
-                inline_latex=inline_latex,
-                assets_path=assets_path
-            )),
-        ))
+        footnotes.append(
+            Footnote(
+                id=ref_id_to_number.get(ref.id, 1),
+                contents=list(
+                    _convert_reference_to_footnote_contents(
+                        ref=ref, inline_latex=inline_latex, assets_path=assets_path
+                    )
+                ),
+            )
+        )
 
     return ChapterRecord(elements=elements, footnotes=footnotes)
+
 
 def _extract_text_from_content(
     content: list[str | InlineExpression | Reference | HTMLTag],
@@ -165,28 +184,31 @@ def _extract_text_from_content(
             parts.append(item.content)
     return "".join(parts).strip()
 
+
 def _convert_asset_to_epub(
     asset: AssetLayout,
     assets_path: Path,
     inline_latex: bool = False,
     ref_id_to_number: dict | None = None,
 ):
-
-    title = list(_transform_content(
-        content=asset.title,
-        inline_latex=inline_latex,
-        ref_id_to_number=ref_id_to_number,
-    ))
-    caption = list(_transform_content(
-        content=asset.caption,
-        inline_latex=inline_latex,
-        ref_id_to_number=ref_id_to_number,
-    ))
+    title = list(
+        _transform_content(
+            content=asset.title,
+            inline_latex=inline_latex,
+            ref_id_to_number=ref_id_to_number,
+        )
+    )
+    caption = list(
+        _transform_content(
+            content=asset.caption,
+            inline_latex=inline_latex,
+            ref_id_to_number=ref_id_to_number,
+        )
+    )
     if asset.ref == "equation":
         latex_expression = _extract_text_from_content(asset.content)
         if not latex_expression:
             return None
-
 
         return Formula(
             latex_expression=latex_expression,
@@ -240,11 +262,12 @@ def _convert_asset_to_epub(
 
     return None
 
+
 def _convert_reference_to_footnote_contents(
-        ref: Reference,
-        assets_path: Path,
-        inline_latex: bool,
-    ):
+    ref: Reference,
+    assets_path: Path,
+    inline_latex: bool,
+):
     for layout in ref.layouts:
         if isinstance(layout, AssetLayout):
             asset_element = _convert_asset_to_epub(
@@ -258,11 +281,13 @@ def _convert_reference_to_footnote_contents(
         elif isinstance(layout, ParagraphLayout):
             content: list[str | Formula | Mark | EpubHTMLTag] = []
             for block in layout.blocks:
-                content.extend(_transform_content(
-                    content=block.content,
-                    inline_latex=inline_latex,
-                    ref_id_to_number=None,
-                ))
+                content.extend(
+                    _transform_content(
+                        content=block.content,
+                        inline_latex=inline_latex,
+                        ref_id_to_number=None,
+                    )
+                )
             if content:
                 yield TextBlock(
                     kind=TextKind.BODY,
@@ -270,12 +295,12 @@ def _convert_reference_to_footnote_contents(
                     content=content,
                 )
 
+
 def _transform_content(
     content: list[str | InlineExpression | Reference | HTMLTag],
     inline_latex: bool,
     ref_id_to_number: dict | None = None,
 ) -> Generator[str | Formula | Mark | EpubHTMLTag, None, None]:
-
     for item in content:
         if isinstance(item, str):
             yield item
@@ -294,9 +319,11 @@ def _transform_content(
             yield EpubHTMLTag(
                 name=item.definition.name,
                 attributes=item.attributes,
-                content=list(_transform_content(
-                    content=item.children,
-                    inline_latex=inline_latex,
-                    ref_id_to_number=ref_id_to_number,
-                )),
+                content=list(
+                    _transform_content(
+                        content=item.children,
+                        inline_latex=inline_latex,
+                        ref_id_to_number=ref_id_to_number,
+                    )
+                ),
             )

@@ -52,6 +52,7 @@ from dataclasses import dataclass
 @dataclass
 class HTMLTagDefinition:
     """Definition of an HTML tag with its allowed attributes and type."""
+
     name: str
     attributes: frozenset[str]
     is_block: bool
@@ -65,17 +66,19 @@ class HTMLTagDefinition:
 # replaced with '&lt;' to prevent them from being rendered as HTML.
 # Reference: https://github.github.com/gfm/ (Section 6.11: Disallowed Raw HTML)
 
-_FILTERED_TAGS = frozenset([
-    "title",      # Changes document title
-    "textarea",   # Form input that interprets content differently
-    "style",      # Can inject CSS that affects the entire page
-    "xmp",        # Deprecated tag that displays content as preformatted text
-    "iframe",     # Can embed external content (security risk)
-    "noembed",    # Fallback for embed elements
-    "noframes",   # Fallback for frames
-    "script",     # Can execute JavaScript (XSS risk)
-    "plaintext",  # Deprecated tag that treats rest of page as plain text
-])
+_FILTERED_TAGS = frozenset(
+    [
+        "title",  # Changes document title
+        "textarea",  # Form input that interprets content differently
+        "style",  # Can inject CSS that affects the entire page
+        "xmp",  # Deprecated tag that displays content as preformatted text
+        "iframe",  # Can embed external content (security risk)
+        "noembed",  # Fallback for embed elements
+        "noframes",  # Fallback for frames
+        "script",  # Can execute JavaScript (XSS risk)
+        "plaintext",  # Deprecated tag that treats rest of page as plain text
+    ]
+)
 
 
 # ============================================================================
@@ -86,11 +89,13 @@ _FILTERED_TAGS = frozenset([
 # is preserved and recursively processed. The tags themselves disappear without
 # being escaped.
 
-_IGNORE_TAGS = frozenset([
-    "left",
-    "center",
-    "right",
-])
+_IGNORE_TAGS = frozenset(
+    [
+        "left",
+        "center",
+        "right",
+    ]
+)
 
 
 # ============================================================================
@@ -100,89 +105,89 @@ _IGNORE_TAGS = frozenset([
 # These attributes are allowed on most HTML elements in the whitelist.
 # Based on: https://github.com/gjtorikian/html-pipeline/blob/main/lib/html_pipeline/sanitization_filter.rb
 
-UNIVERSAL_ATTRIBUTES = frozenset([
-    # Standard HTML attributes
-    "abbr",
-    "accept",
-    "accept-charset",
-    "accesskey",
-    "action",
-    "align",
-    "alt",
-    "axis",
-    "border",
-    "cellpadding",
-    "cellspacing",
-    "char",
-    "charoff",
-    "charset",
-    "checked",
-    "clear",
-    "cols",
-    "colspan",
-    "color",
-    "compact",
-    "coords",
-    "datetime",
-    "dir",
-    "disabled",
-    "enctype",
-    "for",
-    "frame",
-    "headers",
-    "height",
-    "hreflang",
-    "hspace",
-    "id",
-    "ismap",
-    "label",
-    "lang",
-    "longdesc",
-    "maxlength",
-    "media",
-    "method",
-    "multiple",
-    "name",
-    "nohref",
-    "noshade",
-    "nowrap",
-    "open",
-    "prompt",
-    "readonly",
-    "rel",
-    "rev",
-    "rows",
-    "rowspan",
-    "rules",
-    "scope",
-    "selected",
-    "shape",
-    "size",
-    "span",
-    "start",
-    "summary",
-    "tabindex",
-    "target",
-    "title",
-    "type",
-    "usemap",
-    "valign",
-    "value",
-    "vspace",
-    "width",
-
-    # ARIA attributes for accessibility
-    "aria-describedby",
-    "aria-hidden",
-    "aria-label",
-    "aria-labelledby",
-    "role",
-
-    # Microdata attributes
-    "itemprop",
-    "itemscope",
-    "itemtype",
-])
+UNIVERSAL_ATTRIBUTES = frozenset(
+    [
+        # Standard HTML attributes
+        "abbr",
+        "accept",
+        "accept-charset",
+        "accesskey",
+        "action",
+        "align",
+        "alt",
+        "axis",
+        "border",
+        "cellpadding",
+        "cellspacing",
+        "char",
+        "charoff",
+        "charset",
+        "checked",
+        "clear",
+        "cols",
+        "colspan",
+        "color",
+        "compact",
+        "coords",
+        "datetime",
+        "dir",
+        "disabled",
+        "enctype",
+        "for",
+        "frame",
+        "headers",
+        "height",
+        "hreflang",
+        "hspace",
+        "id",
+        "ismap",
+        "label",
+        "lang",
+        "longdesc",
+        "maxlength",
+        "media",
+        "method",
+        "multiple",
+        "name",
+        "nohref",
+        "noshade",
+        "nowrap",
+        "open",
+        "prompt",
+        "readonly",
+        "rel",
+        "rev",
+        "rows",
+        "rowspan",
+        "rules",
+        "scope",
+        "selected",
+        "shape",
+        "size",
+        "span",
+        "start",
+        "summary",
+        "tabindex",
+        "target",
+        "title",
+        "type",
+        "usemap",
+        "valign",
+        "value",
+        "vspace",
+        "width",
+        # ARIA attributes for accessibility
+        "aria-describedby",
+        "aria-hidden",
+        "aria-label",
+        "aria-labelledby",
+        "role",
+        # Microdata attributes
+        "itemprop",
+        "itemscope",
+        "itemtype",
+    ]
+)
 
 
 # ============================================================================
@@ -211,12 +216,14 @@ ELEMENT_SPECIFIC_ATTRIBUTES = {
 # ============================================================================
 
 # URL schemes allowed in href, src, and cite attributes
-ALLOWED_PROTOCOLS = frozenset([
-    "http",
-    "https",
-    "mailto",
-    # Relative URLs are also allowed (no protocol)
-])
+ALLOWED_PROTOCOLS = frozenset(
+    [
+        "http",
+        "https",
+        "mailto",
+        # Relative URLs are also allowed (no protocol)
+    ]
+)
 
 
 # ============================================================================
@@ -280,19 +287,41 @@ HTML_H6 = HTMLTagDefinition(name="h6", attributes=UNIVERSAL_ATTRIBUTES, is_block
 # Text formatting elements (inline)
 HTML_B = HTMLTagDefinition(name="b", attributes=UNIVERSAL_ATTRIBUTES, is_block=False)
 HTML_I = HTMLTagDefinition(name="i", attributes=UNIVERSAL_ATTRIBUTES, is_block=False)
-HTML_STRONG = HTMLTagDefinition(name="strong", attributes=UNIVERSAL_ATTRIBUTES, is_block=False)
+HTML_STRONG = HTMLTagDefinition(
+    name="strong", attributes=UNIVERSAL_ATTRIBUTES, is_block=False
+)
 HTML_EM = HTMLTagDefinition(name="em", attributes=UNIVERSAL_ATTRIBUTES, is_block=False)
-HTML_SMALL = HTMLTagDefinition(name="small", attributes=UNIVERSAL_ATTRIBUTES, is_block=False)
-HTML_MARK = HTMLTagDefinition(name="mark", attributes=UNIVERSAL_ATTRIBUTES, is_block=False)
+HTML_SMALL = HTMLTagDefinition(
+    name="small", attributes=UNIVERSAL_ATTRIBUTES, is_block=False
+)
+HTML_MARK = HTMLTagDefinition(
+    name="mark", attributes=UNIVERSAL_ATTRIBUTES, is_block=False
+)
 HTML_S = HTMLTagDefinition(name="s", attributes=UNIVERSAL_ATTRIBUTES, is_block=False)
-HTML_STRIKE = HTMLTagDefinition(name="strike", attributes=UNIVERSAL_ATTRIBUTES, is_block=False)
-HTML_ABBR = HTMLTagDefinition(name="abbr", attributes=UNIVERSAL_ATTRIBUTES, is_block=False)
-HTML_CITE = HTMLTagDefinition(name="cite", attributes=UNIVERSAL_ATTRIBUTES, is_block=False)
-HTML_DFN = HTMLTagDefinition(name="dfn", attributes=UNIVERSAL_ATTRIBUTES, is_block=False)
-HTML_KBD = HTMLTagDefinition(name="kbd", attributes=UNIVERSAL_ATTRIBUTES, is_block=False)
-HTML_SAMP = HTMLTagDefinition(name="samp", attributes=UNIVERSAL_ATTRIBUTES, is_block=False)
-HTML_VAR = HTMLTagDefinition(name="var", attributes=UNIVERSAL_ATTRIBUTES, is_block=False)
-HTML_CODE = HTMLTagDefinition(name="code", attributes=UNIVERSAL_ATTRIBUTES, is_block=False)
+HTML_STRIKE = HTMLTagDefinition(
+    name="strike", attributes=UNIVERSAL_ATTRIBUTES, is_block=False
+)
+HTML_ABBR = HTMLTagDefinition(
+    name="abbr", attributes=UNIVERSAL_ATTRIBUTES, is_block=False
+)
+HTML_CITE = HTMLTagDefinition(
+    name="cite", attributes=UNIVERSAL_ATTRIBUTES, is_block=False
+)
+HTML_DFN = HTMLTagDefinition(
+    name="dfn", attributes=UNIVERSAL_ATTRIBUTES, is_block=False
+)
+HTML_KBD = HTMLTagDefinition(
+    name="kbd", attributes=UNIVERSAL_ATTRIBUTES, is_block=False
+)
+HTML_SAMP = HTMLTagDefinition(
+    name="samp", attributes=UNIVERSAL_ATTRIBUTES, is_block=False
+)
+HTML_VAR = HTMLTagDefinition(
+    name="var", attributes=UNIVERSAL_ATTRIBUTES, is_block=False
+)
+HTML_CODE = HTMLTagDefinition(
+    name="code", attributes=UNIVERSAL_ATTRIBUTES, is_block=False
+)
 HTML_PRE = HTMLTagDefinition(name="pre", attributes=UNIVERSAL_ATTRIBUTES, is_block=True)
 HTML_TT = HTMLTagDefinition(name="tt", attributes=UNIVERSAL_ATTRIBUTES, is_block=False)
 HTML_Q = HTMLTagDefinition(
@@ -300,7 +329,9 @@ HTML_Q = HTMLTagDefinition(
     attributes=UNIVERSAL_ATTRIBUTES | ELEMENT_SPECIFIC_ATTRIBUTES["q"],
     is_block=False,
 )
-HTML_BDO = HTMLTagDefinition(name="bdo", attributes=UNIVERSAL_ATTRIBUTES, is_block=False)
+HTML_BDO = HTMLTagDefinition(
+    name="bdo", attributes=UNIVERSAL_ATTRIBUTES, is_block=False
+)
 HTML_INS = HTMLTagDefinition(
     name="ins",
     attributes=UNIVERSAL_ATTRIBUTES | ELEMENT_SPECIFIC_ATTRIBUTES["ins"],
@@ -311,9 +342,15 @@ HTML_DEL = HTMLTagDefinition(
     attributes=UNIVERSAL_ATTRIBUTES | ELEMENT_SPECIFIC_ATTRIBUTES["del"],
     is_block=False,
 )
-HTML_SUP = HTMLTagDefinition(name="sup", attributes=UNIVERSAL_ATTRIBUTES, is_block=False)
-HTML_SUB = HTMLTagDefinition(name="sub", attributes=UNIVERSAL_ATTRIBUTES, is_block=False)
-HTML_SPAN = HTMLTagDefinition(name="span", attributes=UNIVERSAL_ATTRIBUTES, is_block=False)
+HTML_SUP = HTMLTagDefinition(
+    name="sup", attributes=UNIVERSAL_ATTRIBUTES, is_block=False
+)
+HTML_SUB = HTMLTagDefinition(
+    name="sub", attributes=UNIVERSAL_ATTRIBUTES, is_block=False
+)
+HTML_SPAN = HTMLTagDefinition(
+    name="span", attributes=UNIVERSAL_ATTRIBUTES, is_block=False
+)
 
 
 # List elements
@@ -339,9 +376,15 @@ HTML_TABLE = HTMLTagDefinition(
     attributes=UNIVERSAL_ATTRIBUTES | {"summary"},
     is_block=True,
 )
-HTML_THEAD = HTMLTagDefinition(name="thead", attributes=UNIVERSAL_ATTRIBUTES, is_block=True)
-HTML_TBODY = HTMLTagDefinition(name="tbody", attributes=UNIVERSAL_ATTRIBUTES, is_block=True)
-HTML_TFOOT = HTMLTagDefinition(name="tfoot", attributes=UNIVERSAL_ATTRIBUTES, is_block=True)
+HTML_THEAD = HTMLTagDefinition(
+    name="thead", attributes=UNIVERSAL_ATTRIBUTES, is_block=True
+)
+HTML_TBODY = HTMLTagDefinition(
+    name="tbody", attributes=UNIVERSAL_ATTRIBUTES, is_block=True
+)
+HTML_TFOOT = HTMLTagDefinition(
+    name="tfoot", attributes=UNIVERSAL_ATTRIBUTES, is_block=True
+)
 HTML_TR = HTMLTagDefinition(name="tr", attributes=UNIVERSAL_ATTRIBUTES, is_block=True)
 HTML_TD = HTMLTagDefinition(
     name="td",
@@ -353,7 +396,9 @@ HTML_TH = HTMLTagDefinition(
     attributes=UNIVERSAL_ATTRIBUTES | {"colspan", "rowspan", "headers", "scope"},
     is_block=True,
 )
-HTML_CAPTION = HTMLTagDefinition(name="caption", attributes=UNIVERSAL_ATTRIBUTES, is_block=True)
+HTML_CAPTION = HTMLTagDefinition(
+    name="caption", attributes=UNIVERSAL_ATTRIBUTES, is_block=True
+)
 
 
 # Media elements
@@ -392,11 +437,15 @@ HTML_TIME = HTMLTagDefinition(
     attributes=UNIVERSAL_ATTRIBUTES | ELEMENT_SPECIFIC_ATTRIBUTES["time"],
     is_block=False,
 )
-HTML_WBR = HTMLTagDefinition(name="wbr", attributes=UNIVERSAL_ATTRIBUTES, is_block=False)
+HTML_WBR = HTMLTagDefinition(
+    name="wbr", attributes=UNIVERSAL_ATTRIBUTES, is_block=False
+)
 
 
 # Ruby annotation elements (for East Asian typography)
-HTML_RUBY = HTMLTagDefinition(name="ruby", attributes=UNIVERSAL_ATTRIBUTES, is_block=False)
+HTML_RUBY = HTMLTagDefinition(
+    name="ruby", attributes=UNIVERSAL_ATTRIBUTES, is_block=False
+)
 HTML_RT = HTMLTagDefinition(name="rt", attributes=UNIVERSAL_ATTRIBUTES, is_block=False)
 HTML_RP = HTMLTagDefinition(name="rp", attributes=UNIVERSAL_ATTRIBUTES, is_block=False)
 
@@ -482,14 +531,18 @@ ALLOWED_TAGS = frozenset(_TAG_DEFINITIONS.keys())
 # Helper Functions
 # ============================================================================
 
+
 def tag_definition(tag_name: str) -> HTMLTagDefinition | None:
     return _TAG_DEFINITIONS.get(tag_name.lower(), None)
+
 
 def is_tag_filtered(tag_name: str) -> bool:
     return tag_name.lower() in _FILTERED_TAGS
 
+
 def is_tag_ignored(tag_name: str) -> bool:
     return tag_name.lower() in _IGNORE_TAGS
+
 
 def is_protocol_allowed(url: str) -> bool:
     if not url:

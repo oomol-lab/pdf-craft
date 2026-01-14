@@ -1,13 +1,14 @@
 from dataclasses import dataclass
-from typing import Literal
 from datetime import datetime
+from typing import Literal
 from xml.etree.ElementTree import Element
+
 from PIL.Image import Image
 
 from ..common import indent
 
-
 DeepSeekOCRSize = Literal["tiny", "small", "base", "large", "gundam"]
+
 
 @dataclass
 class Page:
@@ -27,6 +28,7 @@ class PageLayout:
     order: int
     hash: str | None
 
+
 @dataclass
 class PDFDocumentMetadata:
     title: str | None
@@ -37,6 +39,7 @@ class PDFDocumentMetadata:
     editors: list[str]
     translators: list[str]
     modified: datetime
+
 
 def decode(element: Element) -> Page:
     index = int(element.get("index", "0"))
@@ -60,8 +63,9 @@ def decode(element: Element) -> Page:
         body_layouts=body_layouts,
         footnotes_layouts=footnotes_layouts,
         input_tokens=input_tokens,
-        output_tokens=output_tokens
+        output_tokens=output_tokens,
     )
+
 
 def encode(page: Page) -> Element:
     page_element = Element("page")
@@ -71,16 +75,21 @@ def encode(page: Page) -> Element:
     if page.body_layouts:
         body_element = Element("body")
         for i, layout in enumerate(page.body_layouts):
-            assert layout.order == i, f"body_layouts[{i}].order should be {i}, got {layout.order}"
+            assert layout.order == i, (
+                f"body_layouts[{i}].order should be {i}, got {layout.order}"
+            )
             body_element.append(_encode_layout(layout))
         page_element.append(body_element)
     if page.footnotes_layouts:
         footnotes_element = Element("footnotes")
         for i, layout in enumerate(page.footnotes_layouts):
-            assert layout.order == i, f"footnotes_layouts[{i}].order should be {i}, got {layout.order}"
+            assert layout.order == i, (
+                f"footnotes_layouts[{i}].order should be {i}, got {layout.order}"
+            )
             footnotes_element.append(_encode_layout(layout))
         page_element.append(footnotes_element)
     return indent(page_element)
+
 
 def _decode_layout(element: Element, order: int) -> PageLayout:
     ref = element.get("ref", "")
@@ -98,6 +107,7 @@ def _decode_layout(element: Element, order: int) -> PageLayout:
         order=order,
         hash=hash_value,
     )
+
 
 def _encode_layout(layout: PageLayout) -> Element:
     layout_element = Element("layout")

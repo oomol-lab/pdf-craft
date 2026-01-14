@@ -1,32 +1,31 @@
 from pathlib import Path
 from shutil import copy2
-from typing import Iterable, Generator, Callable
+from typing import Callable, Generator, Iterable
 
+from ...expression import ExpressionKind, to_markdown_string
 from ...pdf import TITLE_TAGS
-from ..paragraph import render_markdown_paragraph
-from ...expression import to_markdown_string, ExpressionKind
 from ...sequence import (
-    Reference,
     AssetLayout,
-    ParagraphLayout,
-    InlineExpression,
     BlockMember,
+    InlineExpression,
+    ParagraphLayout,
+    Reference,
     RefIdMap,
 )
+from ..paragraph import render_markdown_paragraph
 
 _MAX_TOC_LEVELS = 3
 _MAX_TITLE_LEVELS = 6
 
 
 def render_layouts(
-        layouts: Iterable[ParagraphLayout | AssetLayout],
-        assets_path: Path,
-        output_assets_path: Path,
-        asset_ref_path: Path,
-        toc_level: int,
-        ref_id_to_number: RefIdMap | None = None,
-    ) -> Generator[str, None, None]:
-
+    layouts: Iterable[ParagraphLayout | AssetLayout],
+    assets_path: Path,
+    output_assets_path: Path,
+    asset_ref_path: Path,
+    toc_level: int,
+    ref_id_to_number: RefIdMap | None = None,
+) -> Generator[str, None, None]:
     is_first_layout = True
     toc_level = min(toc_level, _MAX_TOC_LEVELS - 1)
 
@@ -50,10 +49,13 @@ def render_layouts(
                 ref_id_to_number=ref_id_to_number,
             )
 
-def render_paragraph(paragraph: ParagraphLayout, toc_level: int, ref_id_to_number: RefIdMap | None = None) -> Generator[str, None, None]:
+
+def render_paragraph(
+    paragraph: ParagraphLayout, toc_level: int, ref_id_to_number: RefIdMap | None = None
+) -> Generator[str, None, None]:
     if paragraph.level >= 0 and paragraph.ref in TITLE_TAGS:
         level = min(toc_level + paragraph.level, _MAX_TITLE_LEVELS)
-        for _ in range(level + 1): # level 0 对应 1 个 #
+        for _ in range(level + 1):  # level 0 对应 1 个 #
             yield "#"
         yield " "
 
@@ -82,7 +84,9 @@ def render_paragraph(paragraph: ParagraphLayout, toc_level: int, ref_id_to_numbe
             render_payload=render_member,
         )
 
+
 _MemberRender = Callable[[BlockMember | str], Iterable[str]]
+
 
 def _render_asset(
     asset: AssetLayout,
@@ -91,7 +95,6 @@ def _render_asset(
     asset_ref_path: Path,
     ref_id_to_number: RefIdMap | None = None,
 ) -> Generator[str, None, None]:
-
     def render_member(part: BlockMember | str) -> Generator[str, None, None]:
         if isinstance(part, str):
             yield to_markdown_string(
@@ -114,10 +117,12 @@ def _render_asset(
     has_content = False
 
     if asset.title:
-        title_str = "".join(render_markdown_paragraph(
-            children=asset.title,
-            render_payload=render_member,
-        )).strip()
+        title_str = "".join(
+            render_markdown_paragraph(
+                children=asset.title,
+                render_payload=render_member,
+            )
+        ).strip()
         if title_str:
             yield title_str
             has_content = True
@@ -138,14 +143,17 @@ def _render_asset(
             has_content = True
 
     if asset.caption:
-        caption_str = "".join(render_markdown_paragraph(
-            children=asset.caption,
-            render_payload=render_member,
-        )).strip()
+        caption_str = "".join(
+            render_markdown_paragraph(
+                children=asset.caption,
+                render_payload=render_member,
+            )
+        ).strip()
         if caption_str:
             if has_content:
                 yield "\n\n"
             yield caption_str
+
 
 def _render_asset_content(
     asset: AssetLayout,
@@ -155,12 +163,13 @@ def _render_asset_content(
     render_member: _MemberRender,
     has_content_before: bool,
 ) -> Generator[str, None, None]:
-
     if asset.ref == "equation":
-        content_str = "".join(render_markdown_paragraph(
-            children=asset.content,
-            render_payload=render_member,
-        ))
+        content_str = "".join(
+            render_markdown_paragraph(
+                children=asset.content,
+                render_payload=render_member,
+            )
+        )
         latex_content = content_str.strip()
         if latex_content:
             if has_content_before:
@@ -187,6 +196,7 @@ def _render_asset_content(
             asset_ref_path=asset_ref_path,
             has_content_before=has_content_before,
         )
+
 
 def _render_image(
     asset: AssetLayout,
@@ -219,4 +229,3 @@ def _render_image(
     if has_content_before:
         yield "\n\n"
     yield f"![]({image_path_str})"
-

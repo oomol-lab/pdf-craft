@@ -13,6 +13,7 @@ def avg(values: Iterable[float]) -> float:
 
     return total / count
 
+
 def median(values: Iterable[float]) -> float:
     values = list(values)
     if not values:

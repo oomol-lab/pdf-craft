@@ -1,16 +1,17 @@
 import re
-
 from pathlib import Path
-from typing import Generator, Callable, Generic, TypeVar
+from typing import Callable, Generator, Generic, TypeVar
 from xml.etree.ElementTree import Element
-from .xml import read_xml
 
+from .xml import read_xml
 
 T = TypeVar("T")
 
 
 class XMLReader(Generic[T]):
-    def __init__(self, prefix: str, dir_path: Path, decode: Callable[[Element], T]) -> None:
+    def __init__(
+        self, prefix: str, dir_path: Path, decode: Callable[[Element], T]
+    ) -> None:
         dir_path = Path(dir_path)
         file_pattern = f"{prefix}_*.xml"
         regex = re.compile(rf"^{re.escape(prefix)}_(\d+)\.xml$")

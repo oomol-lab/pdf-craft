@@ -1,15 +1,14 @@
-import ahocorasick
-
-from typing import Iterable, Callable, TypeVar, Generic
 from dataclasses import dataclass
+from typing import Callable, Generic, Iterable, TypeVar
+
+import ahocorasick
 
 from ..language import is_latin_letter
 from .text import normalize_text
 
-
 _MAX_TOC_RATIO = 0.1
 _TOC_HEAD_RATIO = 0.18
-_TOC_SCORE_MIN_RATIO = 3.0 # 经验估计，以后再调整吧
+_TOC_SCORE_MIN_RATIO = 3.0  # 经验估计，以后再调整吧
 _MIN_TOC_LIMIT = 3
 _MIN_LATIN_TITLE_LENGTH = 6
 _MIN_NON_LATIN_TITLE_LENGTH = 3
@@ -34,14 +33,16 @@ class TitleReference:
     page_index: int
     order: int
 
+
 # 使用统计学方式寻找文档中目录页所在页数范围。
 # 目录页中的文本，会大规模与后续书页中的章节标题匹配，本函数使用此特征来锁定目录页。
 def find_toc_pages(
-        iter_titles: Callable[[], Iterable[list[tuple[int, str]]]],
-        iter_page_bodies: Callable[[], Iterable[str]],
-    ) -> list[PageRef]:
-
-    matcher: _SubstringMatcher[tuple[int, int]] = _SubstringMatcher() # (page_index, order)
+    iter_titles: Callable[[], Iterable[list[tuple[int, str]]]],
+    iter_page_bodies: Callable[[], Iterable[str]],
+) -> list[PageRef]:
+    matcher: _SubstringMatcher[tuple[int, int]] = (
+        _SubstringMatcher()
+    )  # (page_index, order)
     page_refs: list[PageRef] = []
 
     for page_index, titles_items in enumerate(iter_titles(), start=1):
@@ -77,11 +78,13 @@ def find_toc_pages(
                 )
                 matched_titles.append(matched_title)
 
-        page_refs.append(PageRef(
-            page_index=page_index,
-            matched_titles=matched_titles,
-            score=sum(m.score for m in matched_titles),
-        ))
+        page_refs.append(
+            PageRef(
+                page_index=page_index,
+                matched_titles=matched_titles,
+                score=sum(m.score for m in matched_titles),
+            )
+        )
 
     page_refs.sort(key=lambda x: x.score, reverse=True)
     max_diff = 0.0
@@ -116,6 +119,7 @@ def find_toc_pages(
         max_content_score=max_content_score,
     )
 
+
 def _valid_title(title: str) -> bool:
     title = title.strip()
     if any(is_latin_letter(c) for c in title):
@@ -123,17 +127,16 @@ def _valid_title(title: str) -> bool:
     else:
         return len(title) >= _MIN_NON_LATIN_TITLE_LENGTH
 
-def _human_like_toc_filter(
-        toc_page_refs: list[PageRef],
-        total_pages: int,
-        max_content_score: float,
-    ) -> list[PageRef]:
 
+def _human_like_toc_filter(
+    toc_page_refs: list[PageRef],
+    total_pages: int,
+    max_content_score: float,
+) -> list[PageRef]:
     max_toc_pages = max(_MIN_TOC_LIMIT, int(total_pages * _MAX_TOC_RATIO))
     max_toc_page_index = round(total_pages * _TOC_HEAD_RATIO)
     toc_page_refs = [
-        ref for ref in toc_page_refs
-        if ref.page_index <= max_toc_page_index
+        ref for ref in toc_page_refs if ref.page_index <= max_toc_page_index
     ]
     if len(toc_page_refs) > max_toc_pages:
         toc_page_refs = toc_page_refs[:max_toc_pages]
@@ -162,11 +165,13 @@ def _human_like_toc_filter(
 
     max_toc_score = serial_refs[0].score
     if max_toc_score < _TOC_SCORE_MIN_RATIO * max_content_score:
-        return [] # 说明目录页不足以与非目录页拉开差距，不可贸然判断
+        return []  # 说明目录页不足以与非目录页拉开差距，不可贸然判断
 
     return serial_refs
 
+
 _P = TypeVar("_P")
+
 
 class _SubstringMatcher(Generic[_P]):
     def __init__(self):

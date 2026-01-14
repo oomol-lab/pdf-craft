@@ -1,34 +1,56 @@
-from dataclasses import dataclass
 import re
+from dataclasses import dataclass
+from typing import Generator, Iterable, cast
 
-from typing import cast, Generator, Iterable
-
-from ..expression import parse_latex_expressions, ExpressionKind, ParsedItem
-
-from ..pdf import TITLE_TAGS, PageLayout
 from ..common import ASSET_TAGS, AssetRef
+from ..expression import ExpressionKind, ParsedItem, parse_latex_expressions
 from ..language import is_latin_letter
 from ..markdown.paragraph import parse_raw_markdown
-
-from .chapter import ParagraphLayout, AssetLayout, BlockLayout, InlineExpression
-from .content import first, last, expand_text_in_content, Content
+from ..pdf import TITLE_TAGS, PageLayout
+from .chapter import AssetLayout, BlockLayout, InlineExpression, ParagraphLayout
+from .content import Content, expand_text_in_content, first, last
 from .reading_serials import split_reading_serials
-
 
 _ASSET_CAPTION_TAGS = tuple(f"{t}_caption" for t in ASSET_TAGS)
 
 # to see https://github.com/opendatalab/MinerU/blob/fa1149cd4abf9db5e0f13e4e074cdb568be189f4/mineru/utils/span_pre_proc.py#L247
 _LINE_STOP_FLAGS = (
-    ".", "!", "?", "。", "！", "？", ")", "）", """, """, ";", "；",
-    "]", "】", "}", ">", "》",
+    ".",
+    "!",
+    "?",
+    "。",
+    "！",
+    "？",
+    ")",
+    "）",
+    """, """,
+    ";",
+    "；",
+    "]",
+    "】",
+    "}",
+    ">",
+    "》",
 )
 
 _LINE_CONTINUE_FLAGS = (
-    "[", "【", "{", "<", "《", "、", ",", "，",
+    "[",
+    "【",
+    "{",
+    "<",
+    "《",
+    "、",
+    ",",
+    "，",
 )
 
 _LINK_FLAGS = (
-    "‐", "‑", "‒", "–", "—", "―",
+    "‐",
+    "‑",
+    "‒",
+    "–",
+    "—",
+    "―",
 )
 
 _MARKDOWN_HEAD_PATTERN = re.compile(r"^#+\s+")
@@ -39,6 +61,7 @@ _TABLE_PATTERN = re.compile(r"<table[^>]*>.*?</table>", re.IGNORECASE | re.DOTAL
 class _LastTail:
     page_para: ParagraphLayout
     override: list[AssetLayout]
+
 
 @dataclass
 class _AssetHolder:
@@ -75,7 +98,9 @@ class Jointer:
                 continue
 
             first_layout = cast(ParagraphLayout, body[0])
-            if last_tail and self._can_merge_paragraphs(last_tail.page_para, first_layout):
+            if last_tail and self._can_merge_paragraphs(
+                last_tail.page_para, first_layout
+            ):
                 last_tail.page_para.blocks.extend(first_layout.blocks)
                 del body[0]
 
@@ -109,7 +134,9 @@ class Jointer:
             yield last_tail.page_para
             yield from last_tail.override
 
-    def _iter_layout_serials(self) -> Generator[tuple[int, list[PageLayout]], None, None]:
+    def _iter_layout_serials(
+        self,
+    ) -> Generator[tuple[int, list[PageLayout]], None, None]:
         for page_index, raw_layouts in self._layouts:
             for layouts in split_reading_serials(raw_layouts):
                 yield page_index, layouts
@@ -132,16 +159,20 @@ class Jointer:
             tail.append(layout)
 
         tail.reverse()
-        body = layouts[len(head):len(layouts) - len(tail)]
+        body = layouts[len(head) : len(layouts) - len(tail)]
 
         return head, body, tail
 
-    def _join_and_handle_asset_layouts(self, page_index, layouts: list[PageLayout]) -> Generator[ParagraphLayout | AssetLayout, None, None]:
+    def _join_and_handle_asset_layouts(
+        self, page_index, layouts: list[PageLayout]
+    ) -> Generator[ParagraphLayout | AssetLayout, None, None]:
         # layout 可能被后续处理，必须等待所有 layout 处理完毕
-        for layout in list(self._join_asset_layouts(
-            page_index=page_index,
-            layouts=layouts,
-        )):
+        for layout in list(
+            self._join_asset_layouts(
+                page_index=page_index,
+                layouts=layouts,
+            )
+        ):
             if not isinstance(layout, _AssetHolder):
                 yield layout
                 continue
@@ -193,18 +224,22 @@ class Jointer:
                 yield ParagraphLayout(
                     ref=layout.ref,
                     level=-1,
-                    blocks=[BlockLayout(
-                        page_index=page_index,
-                        order=layout.order,
-                        det=layout.det,
-                        content=_parse_block_content(layout.text),
-                    )],
+                    blocks=[
+                        BlockLayout(
+                            page_index=page_index,
+                            order=layout.order,
+                            det=layout.det,
+                            content=_parse_block_content(layout.text),
+                        )
+                    ],
                 )
         if last_asset:
             yield last_asset
 
     # too see https://github.com/opendatalab/MinerU/blob/fa1149cd4abf9db5e0f13e4e074cdb568be189f4/mineru/backend/pipeline/para_split.py#L253
-    def _can_merge_paragraphs(self, para1: ParagraphLayout, para2: ParagraphLayout) -> bool:
+    def _can_merge_paragraphs(
+        self, para1: ParagraphLayout, para2: ParagraphLayout
+    ) -> bool:
         if para1.ref != "text":
             return False
         if para1.ref != para2.ref:
@@ -245,13 +280,17 @@ class Jointer:
 
         # 条件5：如果 para1 结尾是拉丁字母 + `-`，para2 开头是拉丁字母，则允许合并（跨段单词拼接）
         if is_latin_letter(text2[0]):
-            if len(text1) >= 2 and text1[-1] in _LINK_FLAGS and \
-               is_latin_letter(text1[-2]):
+            if (
+                len(text1) >= 2
+                and text1[-1] in _LINK_FLAGS
+                and is_latin_letter(text1[-2])
+            ):
                 return True
             if is_latin_letter(text1[-1]):
                 return False
 
         return True
+
 
 def _normalize_equation(layout: _AssetHolder):
     if layout.ref != "equation" or not layout.content:
@@ -330,6 +369,7 @@ def _normalize_table(layout: _AssetHolder):
     layout.caption = tail if tail else None
     layout.content = found_table_content
 
+
 # 将单词的连接符 `-` 删去，并将后半节单词移到前面一段拼接
 def _normalize_paragraph_content(paragraph: ParagraphLayout):
     if len(paragraph.blocks) < 2:
@@ -364,6 +404,7 @@ def _normalize_paragraph_content(paragraph: ParagraphLayout):
     # 极端情况下 block2 会因为单词被移走而被清空。此时要将其整个删去。
     paragraph.blocks = [block for block in paragraph.blocks if block.content]
 
+
 def _parse_block_content(text: str | None) -> Content:
     if not text:
         return []
@@ -377,7 +418,7 @@ def _parse_block_content(text: str | None) -> Content:
                     kind=item.kind,
                     content=item.content,
                 )
-            elif item.content: # Only add non-empty strings
+            elif item.content:  # Only add non-empty strings
                 yield item.content
 
     expand_text_in_content(
@@ -386,9 +427,11 @@ def _parse_block_content(text: str | None) -> Content:
     )
     return root_content
 
+
 def _is_splitted_word(text1: str, text2: str) -> bool:
     return (
-        len(text1) >= 2 and text1[-1] in _LINK_FLAGS and \
-        is_latin_letter(text1[-2]) and \
-        is_latin_letter(text2[0])
+        len(text1) >= 2
+        and text1[-1] in _LINK_FLAGS
+        and is_latin_letter(text1[-2])
+        and is_latin_letter(text2[0])
     )

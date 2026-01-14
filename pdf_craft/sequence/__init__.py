@@ -1,19 +1,19 @@
-from .reader import create_chapters_reader
-from .generation import generate_chapter_files
-from .content import Content
-from .mark import Mark, NumberClass, NumberStyle
 from .chapter import (
-    decode,
-    encode,
-    search_references_in_chapter,
-    references_to_map,
-    Chapter,
     AssetLayout,
     AssetRef,
-    ParagraphLayout,
     BlockLayout,
     BlockMember,
+    Chapter,
+    InlineExpression,
+    ParagraphLayout,
     Reference,
     RefIdMap,
-    InlineExpression,
+    decode,
+    encode,
+    references_to_map,
+    search_references_in_chapter,
 )
+from .content import Content
+from .generation import generate_chapter_files
+from .mark import Mark, NumberClass, NumberStyle
+from .reader import create_chapters_reader

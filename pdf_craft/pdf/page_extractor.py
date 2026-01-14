@@ -1,15 +1,15 @@
 import re
 import tempfile
-
 from pathlib import Path
 from typing import Iterable
+
 from PIL.Image import Image
 
-from ..common import remove_surrogates, ASSET_TAGS, AssetHub
+from ..common import ASSET_TAGS, AssetHub, remove_surrogates
 from ..error import OCRError
-from ..metering import check_aborted, AbortedCheck
-from .types import Page, PageLayout, DeepSeekOCRSize
+from ..metering import AbortedCheck, check_aborted
 from .ngrams import has_repetitive_ngrams
+from .types import DeepSeekOCRSize, Page, PageLayout
 
 
 class PageExtractorNode:
@@ -28,6 +28,7 @@ class PageExtractorNode:
         if not self._page_extractor:
             # 尽可能推迟 doc-page-extractor 的加载时间
             from doc_page_extractor import create_page_extractor
+
             self._page_extractor = create_page_extractor(
                 model_path=self._model_path,
                 local_only=self._local_only,
@@ -42,21 +43,21 @@ class PageExtractorNode:
         self._get_page_extractor().load_models()
 
     def image2page(
-            self,
-            image: Image,
-            page_index: int,
-            asset_hub: AssetHub,
-            ocr_size: DeepSeekOCRSize,
-            includes_footnotes: bool,
-            includes_raw_image: bool,
-            plot_path: Path | None,
-            max_tokens: int | None,
-            max_output_tokens: int | None,
-            device_number: int | None,
-            aborted: AbortedCheck,
-        ) -> Page:
+        self,
+        image: Image,
+        page_index: int,
+        asset_hub: AssetHub,
+        ocr_size: DeepSeekOCRSize,
+        includes_footnotes: bool,
+        includes_raw_image: bool,
+        plot_path: Path | None,
+        max_tokens: int | None,
+        max_output_tokens: int | None,
+        device_number: int | None,
+        aborted: AbortedCheck,
+    ) -> Page:
+        from doc_page_extractor import ExtractionContext, plot
 
-        from doc_page_extractor import plot, ExtractionContext
         body_layouts: list[PageLayout] = []
         footnotes_layouts: list[PageLayout] = []
         raw_image: Image | None = None
@@ -86,7 +87,11 @@ class PageExtractorNode:
                 except StopIteration:
                     break
                 except Exception as error:
-                    raise OCRError(f"Failed to extract page {page_index} layout at stage {step_index}.", page_index=page_index, step_index=step_index) from error
+                    raise OCRError(
+                        f"Failed to extract page {page_index} layout at stage {step_index}.",
+                        page_index=page_index,
+                        step_index=step_index,
+                    ) from error
 
                 for layout in layouts:
                     ref = self._normalize_text(layout.ref)
@@ -97,11 +102,15 @@ class PageExtractorNode:
                         continue
 
                     # 检测短模式重复（如 "1.1.1.1."）
-                    if has_repetitive_ngrams(text, min_ngram=2, max_ngram=5, repeat_threshold=16):
+                    if has_repetitive_ngrams(
+                        text, min_ngram=2, max_ngram=5, repeat_threshold=16
+                    ):
                         continue
 
                     # 检测长模式重复（保守策略）
-                    if has_repetitive_ngrams(text, min_ngram=6, max_ngram=20, repeat_threshold=8):
+                    if has_repetitive_ngrams(
+                        text, min_ngram=6, max_ngram=20, repeat_threshold=8
+                    ):
                         continue
 
                     hash: str | None = None
@@ -129,7 +138,9 @@ class PageExtractorNode:
 
                 check_aborted(aborted)
                 if plot_path is not None:
-                    plot_file_path = plot_path / f"page_{page_index}_stage_{step_index}.png"
+                    plot_file_path = (
+                        plot_path / f"page_{page_index}_stage_{step_index}.png"
+                    )
                     image = plot(image.copy(), layouts)
                     image.save(plot_file_path, format="PNG")
                     check_aborted(aborted)
@@ -153,11 +164,10 @@ class PageExtractorNode:
         return text.strip()
 
     def _normalize_layout_det(
-            self,
-            size: tuple[int, int],
-            det: tuple[int, int, int, int],
-        ) -> tuple[int, int, int, int] | None:
-
+        self,
+        size: tuple[int, int],
+        det: tuple[int, int, int, int],
+    ) -> tuple[int, int, int, int] | None:
         width, height = size
         left, top, right, bottom = det
         left = max(0, min(left, width))
