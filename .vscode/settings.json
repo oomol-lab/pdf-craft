@@ -31,6 +31,8 @@
         "MATHML",
         "mediabox",
         "metas",
+        "ngram",
+        "ngrams",
         "noembed",
         "noframes",
         "Nonspacing",
