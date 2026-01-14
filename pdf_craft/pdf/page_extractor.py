@@ -9,6 +9,7 @@ from ..common import remove_surrogates, ASSET_TAGS, AssetHub
 from ..error import OCRError
 from ..metering import check_aborted, AbortedCheck
 from .types import Page, PageLayout, DeepSeekOCRSize
+from .ngrams import has_repetitive_ngrams
 
 
 class PageExtractorNode:
@@ -91,7 +92,16 @@ class PageExtractorNode:
                     ref = self._normalize_text(layout.ref)
                     text = self._normalize_text(layout.text)
                     det = self._normalize_layout_det(image.size, layout.det)
+
                     if det is None:
+                        continue
+
+                    # 检测短模式重复（如 "1.1.1.1."）
+                    if has_repetitive_ngrams(text, min_ngram=2, max_ngram=5, repeat_threshold=16):
+                        continue
+
+                    # 检测长模式重复（保守策略）
+                    if has_repetitive_ngrams(text, min_ngram=6, max_ngram=20, repeat_threshold=8):
                         continue
 
                     hash: str | None = None

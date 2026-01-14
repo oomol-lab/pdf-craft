@@ -6,12 +6,18 @@
         "editor.wordWrap": "on"
     },
     "[python]": {
-        "editor.formatOnSave": false,
+        "editor.formatOnSave": true,
+        "editor.defaultFormatter": "charliermarsh.ruff",
         "editor.codeActionsOnSave": {
-            "source.organizeImports": "never"
+            "source.organizeImports.ruff": "explicit",
+            "source.fixAll.ruff": "explicit"
         },
         "files.trimTrailingWhitespace": true
     },
+    "ruff.nativeServer": "on",
+    "ruff.path": [
+        "${workspaceFolder}/.venv/bin/ruff"
+    ],
     "python.analysis.diagnosticSeverityOverrides": {
         "reportUnnecessaryTypeIgnoreComment": "none"
     },
@@ -31,6 +37,8 @@
         "MATHML",
         "mediabox",
         "metas",
+        "ngram",
+        "ngrams",
         "noembed",
         "noframes",
         "Nonspacing",
