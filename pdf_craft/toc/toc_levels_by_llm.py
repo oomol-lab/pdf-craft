@@ -60,9 +60,8 @@ class TocLevelsSchema(BaseModel):
 
 
 class LLMAnalysisError(Exception):
-    """Raised when LLM analysis fails after all retries"""
-
-    pass
+    def __init__(self, message: str) -> None:
+        super().__init__(message)
 
 
 def analyse_toc_levels_by_llm(toc_pages: list[PageRef], llm: LLM) -> Ref2Level:
@@ -84,9 +83,7 @@ def analyse_toc_levels_by_llm(toc_pages: list[PageRef], llm: LLM) -> Ref2Level:
 
     # Build initial conversation with the task prompt
     initial_prompt = _build_llm_prompt(title_items)
-    messages: list[Message] = [
-        Message(role=MessageRole.USER, message=initial_prompt)
-    ]
+    messages: list[Message] = [Message(role=MessageRole.USER, message=initial_prompt)]
     last_error = None
 
     for attempt in range(_MAX_RETRIES):
