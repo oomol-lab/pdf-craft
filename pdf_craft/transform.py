@@ -13,12 +13,13 @@ from .error import (
     is_inline_error,
     to_interrupted_error,
 )
+from .llm import LLM
 from .markdown.render import render_markdown_file
 from .metering import AbortedCheck, OCRTokensMetering
 from .pdf import OCR, DeepSeekOCRSize, OCREvent, PDFHandler
 from .sequence import generate_chapter_files
 from .to_path import to_path
-from .toc import analyse_toc
+from .toc import TocExtractionMode, analyse_toc
 
 
 class Transform:
@@ -52,7 +53,8 @@ class Transform:
         includes_cover: bool = False,
         includes_footnotes: bool = False,
         generate_plot: bool = False,
-        toc_assumed: bool = False,
+        toc_mode: TocExtractionMode = TocExtractionMode.NO_TOC_PAGE,
+        toc_llm: LLM | None = None,
         ignore_pdf_errors: IgnorePDFErrorsChecker = False,
         ignore_ocr_errors: IgnoreOCRErrorsChecker = False,
         aborted: AbortedCheck = lambda: False,
@@ -80,7 +82,8 @@ class Transform:
                         ignore_pdf_errors=ignore_pdf_errors,
                         ignore_ocr_errors=ignore_ocr_errors,
                         generate_plot=generate_plot,
-                        toc_assumed=toc_assumed,
+                        toc_mode=toc_mode,
+                        toc_llm=toc_llm,
                         aborted=aborted,
                         max_tokens=max_ocr_tokens,
                         max_output_tokens=max_ocr_output_tokens,
@@ -121,7 +124,8 @@ class Transform:
         ignore_pdf_errors: IgnorePDFErrorsChecker = False,
         ignore_ocr_errors: IgnoreOCRErrorsChecker = False,
         generate_plot: bool = False,
-        toc_assumed: bool = True,
+        toc_mode: TocExtractionMode = TocExtractionMode.AUTO_DETECT,
+        toc_llm: LLM | None = None,
         book_meta: BookMeta | None = None,
         lan: Literal["zh", "en"] = "zh",
         table_render: TableRender = TableRender.HTML,
@@ -149,7 +153,8 @@ class Transform:
                         ignore_pdf_errors=ignore_pdf_errors,
                         ignore_ocr_errors=ignore_ocr_errors,
                         generate_plot=generate_plot,
-                        toc_assumed=toc_assumed,
+                        toc_mode=toc_mode,
+                        toc_llm=toc_llm,
                         aborted=aborted,
                         max_tokens=max_ocr_tokens,
                         max_output_tokens=max_ocr_output_tokens,
@@ -196,7 +201,8 @@ class Transform:
         ignore_pdf_errors: IgnorePDFErrorsChecker,
         ignore_ocr_errors: IgnoreOCRErrorsChecker,
         generate_plot: bool,
-        toc_assumed: bool,
+        toc_mode: TocExtractionMode,
+        toc_llm: LLM | None,
         aborted: AbortedCheck,
         max_tokens: int | None,
         max_output_tokens: int | None,
@@ -241,7 +247,8 @@ class Transform:
         toc = analyse_toc(
             pages_path=pages_path,
             toc_path=toc_path,
-            toc_assumed=toc_assumed,
+            mode=toc_mode,
+            llm=toc_llm,
         )
         generate_chapter_files(
             pages_path=pages_path,

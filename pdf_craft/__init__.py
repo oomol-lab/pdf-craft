@@ -8,6 +8,7 @@ from .error import (
     PDFError,
 )
 from .functions import predownload_models, transform_epub, transform_markdown
+from .llm import LLM
 from .metering import AbortedCheck, InterruptedKind
 from .pdf import (
     DeepSeekOCRSize,
@@ -20,4 +21,5 @@ from .pdf import (
     PDFHandler,
     pdf_pages_count,
 )
+from .toc import TocExtractionMode
 from .transform import OCRTokensMetering, Transform
