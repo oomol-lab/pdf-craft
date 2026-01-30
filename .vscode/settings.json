@@ -55,6 +55,7 @@
         "REGX",
         "SSOHH'mm",
         "tagfilter",
+        "tiktoken",
         "torchvision",
         "venv",
         "virtualenvs",
