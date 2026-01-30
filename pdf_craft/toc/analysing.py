@@ -1,3 +1,4 @@
+import logging
 import re
 from enum import Enum, auto
 from pathlib import Path
@@ -7,11 +8,13 @@ from ..llm import LLM
 from ..pdf import TITLE_TAGS, Page
 from ..pdf import decode as decode_pdf
 from .toc_levels import Ref2Level, analyse_title_levels, analyse_toc_levels
-from .toc_levels_by_llm import analyse_toc_levels_by_llm
+from .toc_levels_by_llm import LLMAnalysisError, analyse_toc_levels_by_llm
 from .toc_pages import PageRef, find_toc_pages
 from .types import Toc, TocInfo
 from .types import decode as decode_toc
 from .types import encode as encode_toc
+
+logger = logging.getLogger(__name__)
 
 _TITLE_HEAD_REGX = re.compile(r"^\s*#{1,6}\s*")
 
@@ -81,11 +84,25 @@ def _do_analyse_toc(
     elif toc_pages and mode == TocExtractionMode.LLM_ENHANCED:
         if llm is None:
             raise ValueError("LLM instance is required for LLM_ENHANCED mode")
-        ref2level = analyse_toc_levels_by_llm(
-            toc_pages=toc_pages,
-            llm=llm,
-        )
-        toc_page_indexes.extend(ref.page_index for ref in toc_pages)
+
+        # Try LLM analysis with fallback to statistical method
+        try:
+            ref2level = analyse_toc_levels_by_llm(
+                toc_pages=toc_pages,
+                llm=llm,
+            )
+            toc_page_indexes.extend(ref.page_index for ref in toc_pages)
+        except LLMAnalysisError as e:
+            # LLM analysis failed, fallback to statistical method
+            logger.warning(
+                f"LLM analysis failed, falling back to statistical method: {e}"
+            )
+            ref2level = analyse_toc_levels(
+                pages=pages,
+                pages_path=pages_path,
+                toc_pages=toc_pages,
+            )
+            toc_page_indexes.extend(ref.page_index for ref in toc_pages)
     else:
         ref2level = analyse_title_levels(pages)
 

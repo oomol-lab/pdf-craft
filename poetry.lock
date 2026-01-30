@@ -1084,6 +1084,18 @@ files = [
 ]
 
 [[package]]
+name = "json-repair"
+version = "0.55.1"
+description = "A package to repair broken json strings"
+optional = false
+python-versions = ">=3.10"
+groups = ["main"]
+files = [
+    {file = "json_repair-0.55.1-py3-none-any.whl", hash = "sha256:a1bcc151982a12bc3ef9e9528198229587b1074999cfe08921ab6333b0c8e206"},
+    {file = "json_repair-0.55.1.tar.gz", hash = "sha256:b27aa0f6bf2e5bf58554037468690446ef26f32ca79c8753282adb3df25fb888"},
+]
+
+[[package]]
 name = "kiwisolver"
 version = "1.4.9"
 description = "A fast implementation of the Cassowary constraint solver"
@@ -3237,4 +3249,4 @@ zstd = ["zstandard (>=0.18.0)"]
 [metadata]
 lock-version = "2.1"
 python-versions = ">=3.10,<3.14"
-content-hash = "a6e29876549aca95a1a7233097d3557a1b464cdda019af5b05ff345eeb8d34ff"
+content-hash = "bf56938cc0ceada85e76a607f471754a077ef907cb578d937816105ba0c86309"
