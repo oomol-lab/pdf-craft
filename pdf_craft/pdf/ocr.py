@@ -7,6 +7,8 @@ from pathlib import Path
 from threading import Lock
 from typing import Callable, Container, Generator, TypeVar
 
+from PIL.Image import Image
+
 from ..common import AssetHub, save_xml
 from ..error import IgnoreOCRErrorsChecker, IgnorePDFErrorsChecker, OCRError, PDFError
 from ..metering import AbortedCheck, check_aborted
@@ -141,6 +143,7 @@ class OCR:
                         raise TokenLimitError()
 
                     page: Page | None = None
+                    image: Image | None = None
                     recognized_error: Exception | None = None
 
                     try:
@@ -182,9 +185,10 @@ class OCR:
                         recognized_error = error
 
                     if page is None:
-                        page = self._create_warn_page(
+                        page = self._create_fallback_page(
+                            asset_hub=asset_hub,
                             page_index=ref.page_index,
-                            text=f"[[Page {ref.page_index} extraction failed due to PDF rendering error]]",
+                            image=image,
                         )
 
                     save_xml(encode(page), file_path)
@@ -223,25 +227,40 @@ class OCR:
                 self._pdf_handler = DefaultPDFHandler()
             return self._pdf_handler
 
-    def _create_warn_page(self, page_index: int, text: str) -> Page:
-        page = Page(
+    def _create_fallback_page(
+        self,
+        asset_hub: AssetHub,
+        page_index: int,
+        image: Image | None,
+    ) -> Page:
+        layout: PageLayout
+        if image is not None:
+            width, height = image.size
+            full_page_det = (0, 0, width, height)
+            image_hash = asset_hub.clip(image, full_page_det)
+            layout = PageLayout(
+                ref="image",
+                det=full_page_det,
+                text="",
+                hash=image_hash,
+                order=0,
+            )
+        else:
+            layout = PageLayout(
+                ref="text",
+                det=(0, 0, 100, 100),
+                text=f"[[Page {page_index} extraction failed due to PDF rendering error]]",
+                hash=None,
+                order=0,
+            )
+        return Page(
             index=page_index,
-            image=None,
-            body_layouts=[],
+            image=image,
+            body_layouts=[layout],
             footnotes_layouts=[],
             input_tokens=0,
             output_tokens=0,
         )
-        page.body_layouts.append(
-            PageLayout(
-                ref="text",
-                det=(0, 0, 100, 100),
-                text=text,
-                hash=None,
-                order=0,
-            )
-        )
-        return page
 
 
 _T = TypeVar("_T", bound=Exception)
