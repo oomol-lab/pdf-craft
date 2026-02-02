@@ -1,0 +1,11 @@
+{
+  "key": "<YOUR_API_KEY>",
+  "url": "https://sample-llm.com/v1",
+  "model": "sample-llm-model",
+  "token_encoding": "o200k_base",
+  "timeout": 360.0,
+  "retry_times": 10,
+  "retry_interval_seconds": 0.75,
+  "temperature": 0.6,
+  "top_p": 0.6
+}
