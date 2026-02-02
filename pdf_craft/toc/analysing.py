@@ -7,6 +7,7 @@ from ..common import XMLReader, read_xml, save_xml
 from ..llm import LLM
 from ..pdf import TITLE_TAGS, Page
 from ..pdf import decode as decode_pdf
+from .llm_analyser import LLMAnalysisError, analyse_toc_by_llm
 from .toc_levels import Ref2Level, analyse_title_levels, analyse_toc_levels
 from .toc_pages import PageRef, find_toc_pages
 from .types import Toc, TocInfo
@@ -19,9 +20,9 @@ _TITLE_HEAD_REGX = re.compile(r"^\s*#{1,6}\s*")
 
 
 class TocExtractionMode(Enum):
-    NO_TOC_PAGE = auto()  # 不检测目录页，从正文标题提取
-    AUTO_DETECT = auto()  # 检测目录页并用统计学分析
-    LLM_ENHANCED = auto()  # 检测目录页并用 LLM 分析
+    NO_TOC_PAGE = auto()  # Do not detect TOC pages, extract from body titles
+    AUTO_DETECT = auto()  # Detect TOC pages and use statistical analysis
+    LLM_ENHANCED = auto()  # Detect TOC pages and use LLM analysis
 
 
 def analyse_toc(
@@ -50,8 +51,6 @@ def _do_analyse_toc(
         dir_path=pages_path,
         decode=decode_pdf,
     )
-    ref2level: Ref2Level
-    toc_page_indexes: list[int] = []
     toc_pages: list[PageRef] = []
 
     # Try to find TOC pages if mode is not NO_TOC_PAGE
@@ -71,23 +70,14 @@ def _do_analyse_toc(
             ),
         )
 
-    # Analyze TOC hierarchy based on mode
-    if toc_pages and mode == TocExtractionMode.AUTO_DETECT:
-        ref2level = analyse_toc_levels(
-            pages=pages,
-            pages_path=pages_path,
-            toc_pages=toc_pages,
-        )
-        toc_page_indexes.extend(ref.page_index for ref in toc_pages)
+    ref2level: Ref2Level | None = None
+    toc_page_indexes: list[int] = []
 
-    elif toc_pages and mode == TocExtractionMode.LLM_ENHANCED:
+    if toc_pages and mode == TocExtractionMode.LLM_ENHANCED:
         if llm is None:
-            raise ValueError("LLM instance is required for LLM_ENHANCED mode")
-
-        from .toc_levels_by_llm import LLMAnalysisError, analyse_toc_levels_by_llm
-
+            raise ValueError("LLM instance must be provided for LLM_ENHANCED mode.")
         try:
-            ref2level = analyse_toc_levels_by_llm(
+            ref2level = analyse_toc_by_llm(
                 llm=llm,
                 toc_page_refs=toc_pages,
                 toc_page_contents=list(
@@ -96,18 +86,20 @@ def _do_analyse_toc(
                     )
                 ),
             )
-            toc_page_indexes.extend(ref.page_index for ref in toc_pages)
-
         except LLMAnalysisError as e:
             print(f"LLM analysis failed, falling back to statistical method: {e}")
-            ref2level = analyse_toc_levels(
-                pages=pages,
-                pages_path=pages_path,
-                toc_pages=toc_pages,
-            )
-            toc_page_indexes.extend(ref.page_index for ref in toc_pages)
-    else:
+
+    if ref2level is None and toc_pages and mode == TocExtractionMode.AUTO_DETECT:
+        ref2level = analyse_toc_levels(
+            pages=pages,
+            pages_path=pages_path,
+            toc_pages=toc_pages,
+        )
+
+    if ref2level is None:
         ref2level = analyse_title_levels(pages)
+    else:
+        toc_page_indexes.extend(ref.page_index for ref in toc_pages)
 
     return TocInfo(
         content=_structure_toc_by_levels(ref2level),
@@ -116,7 +108,7 @@ def _do_analyse_toc(
 
 
 def _structure_toc_by_levels(ref2level: Ref2Level) -> list[Toc]:
-    # 虚拟根节点
+    # virtual root
     root = Toc(
         id=-1,
         page_index=-1,
@@ -140,7 +132,7 @@ def _structure_toc_by_levels(ref2level: Ref2Level) -> list[Toc]:
             stack.pop()
 
         if not stack:
-            break  # 防御性
+            break
 
         stack[-1].children.append(toc)
         stack.append(toc)
