@@ -5,6 +5,7 @@ from json_repair import repair_json
 from pydantic import BaseModel, ValidationError, field_validator
 
 from ..llm import LLM, Message, MessageRole
+from ..pdf import Page
 from .toc_levels import Ref2Level
 from .toc_pages import PageRef
 
@@ -64,26 +65,89 @@ class LLMAnalysisError(Exception):
         super().__init__(message)
 
 
-def analyse_toc_levels_by_llm(toc_pages: list[PageRef], llm: LLM) -> Ref2Level:
+# Type alias for TOC entries with layout info
+# Format: (text, references_or_none, indent, font_size, is_matched)
+# - references_or_none: None if not matched to content, otherwise list of (page_index, order)
+# - is_matched: True if this entry needs to be mapped to Ref2Level
+TocEntry = tuple[str, list[tuple[int, int]] | None, float, float, bool]
+
+
+def _extract_all_toc_entries(toc_page_contents: list[Page]) -> list[TocEntry]:
+    """
+    Extract ALL entries from TOC pages with layout information.
+
+    This includes both matched titles (that appear in content) and unmatched titles.
+    The LLM needs to see the complete TOC structure to understand hierarchy.
+
+    Returns:
+        List of (text, references_or_none, indent, font_size, is_matched) tuples
+    """
+    all_entries: list[TocEntry] = []
+
+    for page in toc_page_contents:
+        # Extract ALL body layouts from this TOC page
+        for layout in page.body_layouts:
+            text = layout.text.strip()
+            if not text:
+                continue
+
+            # Extract layout information
+            left, top, _, bottom = layout.det
+            indent = left
+            font_size = bottom - top
+
+            # We don't match here - let LLM do the matching
+            all_entries.append(
+                (
+                    text,
+                    None,  # Will be filled by LLM's response
+                    indent,
+                    font_size,
+                    False,  # Not used in new approach
+                )
+            )
+
+    return all_entries
+
+
+def analyse_toc_levels_by_llm(
+    llm: LLM,
+    toc_page_refs: list[PageRef],
+    toc_page_contents: list[Page],
+) -> Ref2Level:
     """
     Analyze TOC hierarchy levels using LLM with validation and retry mechanism.
+
+    This function extracts ALL entries from TOC pages (not just matched titles)
+    to provide complete context for the LLM to understand hierarchy structure.
 
     Raises:
         LLMAnalysisError: If analysis fails after all retries
     """
-    title_items: list[tuple[str, list[tuple[int, int]]]] = []  # (text, references)
-    for ref in toc_pages:
-        for title in ref.matched_titles:
-            references = [(r.page_index, r.order) for r in title.references]
-            if references:
-                title_items.append((title.text, references))
+    # Extract ALL TOC entries from pages
+    all_entries = _extract_all_toc_entries(toc_page_contents)
 
-    if not title_items:
+    if not all_entries:
+        return {}
+
+    # Collect all matched titles that need evaluation
+    matched_titles_list: list[tuple[str, list[tuple[int, int]]]] = []
+    for page_ref in toc_page_refs:
+        for matched_title in page_ref.matched_titles:
+            references = [(r.page_index, r.order) for r in matched_title.references]
+            if references:
+                matched_titles_list.append((matched_title.text, references))
+
+    if not matched_titles_list:
         return {}
 
     # Build initial conversation with the task prompt
-    initial_prompt = _build_llm_prompt(title_items)
-    messages: list[Message] = [Message(role=MessageRole.USER, message=initial_prompt)]
+    system_prompt = _build_system_prompt()
+    user_prompt = _build_user_prompt(all_entries, matched_titles_list)
+    messages: list[Message] = [
+        Message(role=MessageRole.SYSTEM, message=system_prompt),
+        Message(role=MessageRole.USER, message=user_prompt),
+    ]
     last_error = None
 
     for attempt in range(_MAX_RETRIES):
@@ -91,12 +155,12 @@ def analyse_toc_levels_by_llm(toc_pages: list[PageRef], llm: LLM) -> Ref2Level:
             response = llm.request(input=messages)
 
             # Validate and parse response
-            levels, error_msg = _validate_and_parse(response, title_items)
+            levels, error_msg = _validate_and_parse(response, matched_titles_list)
 
             if levels is not None:
                 # Success! Map to Ref2Level
                 print(f"LLM analysis succeeded on attempt {attempt + 1}")
-                return _map_to_ref2level(levels, title_items)
+                return _map_to_ref2level(levels, matched_titles_list)
 
             # Validation failed
             last_error = error_msg
@@ -105,11 +169,12 @@ def analyse_toc_levels_by_llm(toc_pages: list[PageRef], llm: LLM) -> Ref2Level:
             )
 
             # Build conversation history for next attempt
-            # Only keep: initial prompt + last assistant response + last error feedback
+            # Only keep: system + initial user prompt + last assistant response + last error feedback
             if attempt < _MAX_RETRIES - 1:
                 error_feedback = _build_error_feedback(error_msg or "Unknown error")
                 messages = [
-                    messages[0],  # Keep initial user prompt
+                    messages[0],  # Keep system prompt
+                    messages[1],  # Keep initial user prompt
                     Message(role=MessageRole.ASSISTANT, message=response),
                     Message(role=MessageRole.USER, message=error_feedback),
                 ]
@@ -129,32 +194,112 @@ def analyse_toc_levels_by_llm(toc_pages: list[PageRef], llm: LLM) -> Ref2Level:
     )
 
 
-def _build_llm_prompt(title_items: list[tuple[str, list[tuple[int, int]]]]) -> str:
-    """Build LLM prompt to analyze title hierarchy structure"""
+def _build_system_prompt() -> str:
+    """Build system prompt with task instructions and rules"""
     prompt_lines = [
-        "You are a table of contents (TOC) hierarchy analyzer. Given a list of TOC entries below, analyze the hierarchy level of each entry.",
+        "You are analyzing a table of contents (TOC) from a book.",
         "",
-        "Hierarchy levels:",
-        '- Level 0: Top-level chapters (e.g., "Chapter 1", "Part I")',
-        '- Level 1: Sections (e.g., "1.1 Introduction", "Section A")',
-        '- Level 2: Subsections (e.g., "1.1.1 Background", "1.1.2 Methodology")',
-        "- Higher numbers indicate deeper nesting",
+        "TASK (2 steps):",
         "",
-        "TOC entries (indexed from 0):",
+        "STEP 1 - Analyze the complete TOC structure:",
+        "- Review all entries provided by the user",
+        "- Identify which are actual TOC items (chapters/sections) vs. noise (headers/footers/page numbers)",
+        "- Assign hierarchy levels to ALL actual TOC items",
+        "- Output your analysis in any format you prefer (this is your draft/scratch work)",
+        "",
+        "STEP 2 - Extract results for TARGET TITLES:",
+        "- Find each TARGET TITLE in your analysis",
+        "- Extract their levels",
+        "- Return a JSON object mapping each title ID to its level",
+        "",
+        "Understanding hierarchy:",
+        "- Hierarchy levels represent parent-child relationships between entries",
+        "- If entry A contains entry B as a subsection, then B's level = A's level + 1",
+        "- Entries at the same level are siblings (neither is a child of the other)",
+        "- The specific level numbers (0, 1, 2, ...) are relative - what matters is the relationships",
+        "- Start numbering from the shallowest level you identify (typically 0 or 1)",
+        "",
+        "How to determine hierarchy:",
+        "- Indent values are an important clue about hierarchy",
+        "- Font size may indicate hierarchy",
+        "- Text patterns (numbering, structural markers) reveal relationships",
+        "- Semantic meaning helps understand the logical structure",
+        "",
+        "Think about:",
+        "- What patterns do you see in the indent values?",
+        "- How might the editor have decided to indent different levels?",
+        "- Which entries logically belong together as siblings?",
+        "- Which entries are children of which parents?",
+        "",
+        "Important considerations:",
+        "- When indent patterns conflict with your semantic interpretation, pause and reconsider",
+        "- Could there be multiple valid ways to interpret the structure?",
+        "- Book structures can be unconventional - the semantic meaning you assume might not be the only possibility",
+        "- If you notice conflicting signals, explore whether alternative interpretations exist",
+        "",
+        "Your response format:",
+        "ANALYSIS:",
+        "(your analysis of the complete TOC structure - use any format you like)",
+        "",
+        "RESULT:",
+        '{"A": level, "B": level, "C": level, ...}',
     ]
+    return "\n".join(prompt_lines)
 
-    for idx, (title_text, _) in enumerate(title_items):
-        prompt_lines.append(f"{idx}: {title_text}")
+
+def _index_to_letter_id(index: int) -> str:
+    """
+    Convert a zero-based index to a letter ID (A, B, C, ..., Z, AA, AB, ...).
+
+    Similar to Excel column naming:
+    - 0 -> A
+    - 25 -> Z
+    - 26 -> AA
+    - 27 -> AB
+    - 51 -> AZ
+    - 52 -> BA
+
+    Args:
+        index: Zero-based index
+
+    Returns:
+        Letter ID string
+    """
+    result = ""
+    index += 1  # Convert to 1-based for easier calculation
+
+    while index > 0:
+        index -= 1  # Adjust for 0-based alphabet
+        result = chr(ord("A") + (index % 26)) + result
+        index //= 26
+
+    return result
+
+
+def _build_user_prompt(
+    all_entries: list[TocEntry],
+    matched_titles: list[tuple[str, list[tuple[int, int]]]],
+) -> str:
+    """Build user prompt with TOC data"""
+    prompt_lines = ["COMPLETE TOC (all entries):"]
+
+    for idx, (text, _, indent, font_size, _) in enumerate(all_entries):
+        prompt_lines.append(
+            f"  {idx}: [Indent:{indent:.1f}, Size:{font_size:.1f}] {text}"
+        )
 
     prompt_lines.extend(
         [
             "",
-            "Return ONLY a JSON array of integers representing the level for each entry.",
-            "Example: [0, 1, 2, 1, 0]",
-            "",
-            "Your response (JSON array only, no explanation):",
+            f"TARGET TITLES (need levels for these {len(matched_titles)} titles):",
         ]
     )
+
+    # Use letters A, B, C, ... for TARGET TITLES to avoid confusion with numeric IDs
+    for idx, (title, _) in enumerate(matched_titles):
+        letter_id = _index_to_letter_id(idx)
+        prompt_lines.append(f"  {letter_id}: {title}")
+
     return "\n".join(prompt_lines)
 
 
@@ -164,23 +309,34 @@ def _build_error_feedback(error_message: str) -> str:
         "Your previous response had an error:",
         error_message,
         "",
-        "Please correct the response. Remember:",
-        "- Return ONLY a JSON array of integers",
+        "Please correct the response. Remember the format:",
+        "ANALYSIS:",
+        "(your analysis)",
+        "",
+        "RESULT:",
+        '{"A": level, "B": level, ...}',
+        "",
+        "Requirements:",
         "- All values must be between 0 and 5",
         "- Level changes should not jump more than 2 at once",
         "- TOCs typically start at level 0",
-        "",
-        "Corrected response (JSON array only):",
     ]
     return "\n".join(prompt_lines)
 
 
 def _validate_and_parse(
     response: str,
-    title_items: list[tuple[str, list[tuple[int, int]]]],
+    matched_titles: list[tuple[str, list[tuple[int, int]]]],
 ) -> tuple[list[int] | None, str | None]:
     """
     Validate and parse LLM response.
+
+    Expects response format:
+    ANALYSIS:
+    (LLM's analysis)
+
+    RESULT:
+    {"A": level, "B": level, ...}
 
     Returns:
         (levels, error_message)
@@ -188,39 +344,79 @@ def _validate_and_parse(
         - If failed: (None, error_message_for_llm)
     """
     try:
-        # Step 1: Repair JSON format issues
-        repaired = repair_json(response.strip())
+        # Step 1: Extract RESULT section
+        result_marker = "RESULT:"
+        if result_marker in response:
+            # Find the LAST occurrence of RESULT: to avoid matching it in ANALYSIS section
+            result_start = response.rindex(result_marker) + len(result_marker)
+            result_section = response[result_start:].strip()
+        else:
+            # Missing RESULT section is an error
+            return None, (
+                "Response is missing the RESULT section. "
+                "Please follow the format:\n"
+                "ANALYSIS:\n"
+                "(your analysis)\n\n"
+                "RESULT:\n"
+                '{"A": level, "B": level, ...}'
+            )
 
-        # Step 2: Parse JSON
+        # Step 2: Repair JSON format issues
+        repaired = repair_json(result_section)
+
+        # Step 3: Parse JSON
         data = json.loads(repaired)
 
-        # Step 3: Type check
-        if not isinstance(data, list):
+        # Step 4: Type check - expect dict/object
+        if not isinstance(data, dict):
             return None, (
-                "Response must be a JSON array of integers, e.g., [0, 1, 2]. "
+                'Response must be a JSON object mapping IDs to levels, e.g., {"A": 1, "B": 0}. '
                 f"You returned: {type(data).__name__}"
             )
 
-        # Step 4: Validate with Pydantic (types, ranges, transitions)
-        schema = TocLevelsSchema(levels=data)
+        # Step 5: Generate expected letter IDs (A, B, C, ...)
+        expected_ids = [_index_to_letter_id(i) for i in range(len(matched_titles))]
+        expected_ids_set = set(expected_ids)
+        actual_ids_set = set(data.keys())
 
-        # Step 5: Context-aware validation (length match)
-        expected_len = len(title_items)
-        actual_len = len(schema.levels)
-        if actual_len != expected_len:
+        # Step 6: Check for missing IDs
+        missing_ids = expected_ids_set - actual_ids_set
+        if missing_ids:
+            missing_str = ", ".join(sorted(missing_ids))
             return None, (
-                f"Array length mismatch: you provided {actual_len} levels, "
-                f"but there are {expected_len} TOC entries. "
-                f"You must provide exactly one level for each entry (0 to {expected_len - 1})."
+                f"Missing IDs in response: {missing_str}. "
+                f"You must provide levels for all TARGET TITLES: {', '.join(expected_ids)}"
             )
 
+        # Step 7: Check for unexpected IDs
+        unexpected_ids = actual_ids_set - expected_ids_set
+        if unexpected_ids:
+            unexpected_str = ", ".join(sorted(unexpected_ids))
+            return None, (
+                f"Unexpected IDs in response: {unexpected_str}. "
+                f"Valid IDs are: {', '.join(expected_ids)}"
+            )
+
+        # Step 8: Extract levels in order (A, B, C, ...)
+        levels = [data[letter_id] for letter_id in expected_ids]
+
+        # Step 9: Validate with Pydantic (types, ranges, transitions)
+        schema = TocLevelsSchema(levels=levels)
+
+        # Step 10: Normalize levels to ensure minimum is 0
+        min_level = min(schema.levels)
+        if min_level != 0:
+            normalized_levels = [level - min_level for level in schema.levels]
+        else:
+            normalized_levels = schema.levels
+
         # Success!
-        return schema.levels, None
+        return normalized_levels, None
 
     except json.JSONDecodeError as e:
         return None, (
             f"Invalid JSON syntax: {str(e)}. "
-            f"Please return a valid JSON array like [0, 1, 2, 1, 0]."
+            'Please return a valid JSON object in the RESULT section like {"A": 1, "B": 0, "C": 1}.'
         )
 
     except ValidationError as e:
@@ -236,12 +432,16 @@ def _validate_and_parse(
 
 def _map_to_ref2level(
     levels: list[int],
-    title_items: list[tuple[str, list[tuple[int, int]]]],
+    matched_titles: list[tuple[str, list[tuple[int, int]]]],
 ) -> Ref2Level:
-    """Map validated levels to Ref2Level dictionary"""
+    """
+    Map validated levels to Ref2Level dictionary.
+
+    The levels list contains levels for matched_titles (in order).
+    """
     ref2level: Ref2Level = {}
 
-    for idx, (_, references) in enumerate(title_items):
+    for idx, (_, references) in enumerate(matched_titles):
         level = levels[idx]
         for page_index, order in references:
             ref2level[(page_index, order)] = level
