@@ -88,10 +88,14 @@ def _do_analyse_toc(
 
         try:
             ref2level = analyse_toc_levels_by_llm(
-                toc_pages=toc_pages,
                 llm=llm,
+                toc_page_refs=toc_pages,
+                toc_page_contents=list(pages.read(
+                    page_indexes={toc_page.page_index for toc_page in toc_pages},
+                )),
             )
             toc_page_indexes.extend(ref.page_index for ref in toc_pages)
+
         except LLMAnalysisError as e:
             print(f"LLM analysis failed, falling back to statistical method: {e}")
             ref2level = analyse_toc_levels(

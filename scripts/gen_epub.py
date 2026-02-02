@@ -31,6 +31,7 @@ def main() -> None:
             retry_interval_seconds=llm_config["retry_interval_seconds"],
             temperature=llm_config["temperature"],
             top_p=llm_config["top_p"],
+            log_dir_path=analysing_dir_path / "logs",
         )
     else:
         print("Warning: format.json not found, TOC LLM enhancement disabled.")
