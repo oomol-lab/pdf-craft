@@ -400,8 +400,15 @@ def _validate_and_parse(
         # Step 9: Validate with Pydantic (types, ranges, transitions)
         schema = TocLevelsSchema(levels=levels)
 
+        # Step 10: Normalize levels to ensure minimum is 0
+        min_level = min(schema.levels)
+        if min_level != 0:
+            normalized_levels = [level - min_level for level in schema.levels]
+        else:
+            normalized_levels = schema.levels
+
         # Success!
-        return schema.levels, None
+        return normalized_levels, None
 
     except json.JSONDecodeError as e:
         return None, (
