@@ -211,26 +211,32 @@ def _build_system_prompt() -> str:
         "STEP 2 - Extract results for TARGET TITLES:",
         "- Find each TARGET TITLE in your analysis",
         "- Extract their levels",
-        "- Return a JSON array",
+        "- Return a JSON object mapping each title ID to its level",
         "",
-        "Hierarchy levels:",
-        '- Level 0: Top-level volumes/books (e.g., "第一卷", "第二卷", "Volume I")',
-        '- Level 1: Major parts/sections (e.g., "第 I 部分", "第 II 部分", "Part A")',
-        '- Level 2: Subsections (e.g., "1.1 Introduction", "1.2 Methods")',
-        '- Level 3+: Deeper subsections',
+        "Understanding hierarchy:",
+        "- Level 0 = top-most structural units in this TOC",
+        "- Level 1 = direct children of Level 0",
+        "- Level 2 = direct children of Level 1",
+        "- And so on...",
         "",
-        "Analysis clues:",
-        '- Text patterns: "第一卷/第二卷" (volumes) > "第 I/II/III 部分" (parts) > subsections',
-        '- Numbering: Roman numerals (I, II, III) often indicate parts/sections',
-        '- Font size: Larger = higher level (but not always reliable)',
-        '- Indent: Larger indent = deeper level (but not always reliable)',
+        "How to determine hierarchy:",
+        "- Indent values are an important clue about hierarchy",
+        "- Font size may indicate hierarchy",
+        "- Text patterns (numbering, structural markers) reveal relationships",
+        "- Semantic meaning helps understand the logical structure",
+        "",
+        "Think about:",
+        "- What patterns do you see in the indent values?",
+        "- How might the editor have decided to indent different levels?",
+        "- Which entries logically belong together as siblings?",
+        "- Which entries are children of which parents?",
         "",
         "Your response format:",
         "ANALYSIS:",
         "(your analysis of the complete TOC structure - use any format you like)",
         "",
         "RESULT:",
-        "[array of integers for TARGET TITLES, in order]",
+        '{"A": level, "B": level, "C": level, ...}',
     ]
     return "\n".join(prompt_lines)
 
@@ -250,8 +256,10 @@ def _build_user_prompt(
         f"TARGET TITLES (need levels for these {len(matched_titles)} titles):",
     ])
 
+    # Use letters A, B, C, ... for TARGET TITLES to avoid confusion with numeric IDs
     for idx, (title, _) in enumerate(matched_titles):
-        prompt_lines.append(f"  {idx}: {title}")
+        letter_id = chr(ord('A') + idx)  # A, B, C, D, ...
+        prompt_lines.append(f"  {letter_id}: {title}")
 
     return "\n".join(prompt_lines)
 
@@ -267,7 +275,7 @@ def _build_error_feedback(error_message: str) -> str:
         "(your analysis)",
         "",
         "RESULT:",
-        "[array of integers]",
+        '{"A": level, "B": level, ...}',
         "",
         "Requirements:",
         "- All values must be between 0 and 5",
@@ -289,7 +297,7 @@ def _validate_and_parse(
     (LLM's analysis)
 
     RESULT:
-    [array of integers]
+    {"A": level, "B": level, ...}
 
     Returns:
         (levels, error_message)
@@ -313,25 +321,41 @@ def _validate_and_parse(
         # Step 3: Parse JSON
         data = json.loads(repaired)
 
-        # Step 4: Type check
-        if not isinstance(data, list):
+        # Step 4: Type check - expect dict/object
+        if not isinstance(data, dict):
             return None, (
-                "Response must be a JSON array of integers, e.g., [0, 1, 2]. "
+                'Response must be a JSON object mapping IDs to levels, e.g., {"A": 1, "B": 0}. '
                 f"You returned: {type(data).__name__}"
             )
 
-        # Step 5: Validate with Pydantic (types, ranges, transitions)
-        schema = TocLevelsSchema(levels=data)
+        # Step 5: Generate expected letter IDs (A, B, C, ...)
+        expected_ids = [chr(ord('A') + i) for i in range(len(matched_titles))]
+        expected_ids_set = set(expected_ids)
+        actual_ids_set = set(data.keys())
 
-        # Step 6: Context-aware validation (length match)
-        expected_len = len(matched_titles)
-        actual_len = len(schema.levels)
-        if actual_len != expected_len:
+        # Step 6: Check for missing IDs
+        missing_ids = expected_ids_set - actual_ids_set
+        if missing_ids:
+            missing_str = ", ".join(sorted(missing_ids))
             return None, (
-                f"Array length mismatch: you provided {actual_len} levels, "
-                f"but there are {expected_len} TARGET TITLES. "
-                f"You must provide exactly one level for each TARGET TITLE."
+                f"Missing IDs in response: {missing_str}. "
+                f"You must provide levels for all TARGET TITLES: {', '.join(expected_ids)}"
             )
+
+        # Step 7: Check for unexpected IDs
+        unexpected_ids = actual_ids_set - expected_ids_set
+        if unexpected_ids:
+            unexpected_str = ", ".join(sorted(unexpected_ids))
+            return None, (
+                f"Unexpected IDs in response: {unexpected_str}. "
+                f"Valid IDs are: {', '.join(expected_ids)}"
+            )
+
+        # Step 8: Extract levels in order (A, B, C, ...)
+        levels = [data[letter_id] for letter_id in expected_ids]
+
+        # Step 9: Validate with Pydantic (types, ranges, transitions)
+        schema = TocLevelsSchema(levels=levels)
 
         # Success!
         return schema.levels, None
@@ -339,7 +363,7 @@ def _validate_and_parse(
     except json.JSONDecodeError as e:
         return None, (
             f"Invalid JSON syntax: {str(e)}. "
-            f"Please return a valid JSON array in the RESULT section like [0, 1, 2, 1, 0]."
+            'Please return a valid JSON object in the RESULT section like {"A": 1, "B": 0, "C": 1}.'
         )
 
     except ValidationError as e:
