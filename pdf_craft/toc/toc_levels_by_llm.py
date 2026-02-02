@@ -143,8 +143,12 @@ def analyse_toc_levels_by_llm(
         return {}
 
     # Build initial conversation with the task prompt
-    initial_prompt = _build_llm_prompt(all_entries, matched_titles_list)
-    messages: list[Message] = [Message(role=MessageRole.USER, message=initial_prompt)]
+    system_prompt = _build_system_prompt()
+    user_prompt = _build_user_prompt(all_entries, matched_titles_list)
+    messages: list[Message] = [
+        Message(role=MessageRole.SYSTEM, message=system_prompt),
+        Message(role=MessageRole.USER, message=user_prompt),
+    ]
     last_error = None
 
     for attempt in range(_MAX_RETRIES):
@@ -166,11 +170,12 @@ def analyse_toc_levels_by_llm(
             )
 
             # Build conversation history for next attempt
-            # Only keep: initial prompt + last assistant response + last error feedback
+            # Only keep: system + initial user prompt + last assistant response + last error feedback
             if attempt < _MAX_RETRIES - 1:
                 error_feedback = _build_error_feedback(error_msg or "Unknown error")
                 messages = [
-                    messages[0],  # Keep initial user prompt
+                    messages[0],  # Keep system prompt
+                    messages[1],  # Keep initial user prompt
                     Message(role=MessageRole.ASSISTANT, message=response),
                     Message(role=MessageRole.USER, message=error_feedback),
                 ]
@@ -190,18 +195,15 @@ def analyse_toc_levels_by_llm(
     )
 
 
-def _build_llm_prompt(
-    all_entries: list[TocEntry],
-    matched_titles: list[tuple[str, list[tuple[int, int]]]],
-) -> str:
-    """Build LLM prompt with complete TOC content and matched titles to evaluate"""
+def _build_system_prompt() -> str:
+    """Build system prompt with task instructions and rules"""
     prompt_lines = [
         "You are analyzing a table of contents (TOC) from a book.",
         "",
         "TASK (2 steps):",
         "",
         "STEP 1 - Analyze the complete TOC structure:",
-        "- Review all entries below",
+        "- Review all entries provided by the user",
         "- Identify which are actual TOC items (chapters/sections) vs. noise (headers/footers/page numbers)",
         "- Assign hierarchy levels to ALL actual TOC items",
         "- Output your analysis in any format you prefer (this is your draft/scratch work)",
@@ -223,8 +225,22 @@ def _build_llm_prompt(
         '- Font size: Larger = higher level (but not always reliable)',
         '- Indent: Larger indent = deeper level (but not always reliable)',
         "",
-        "COMPLETE TOC (all entries):",
+        "Your response format:",
+        "ANALYSIS:",
+        "(your analysis of the complete TOC structure - use any format you like)",
+        "",
+        "RESULT:",
+        "[array of integers for TARGET TITLES, in order]",
     ]
+    return "\n".join(prompt_lines)
+
+
+def _build_user_prompt(
+    all_entries: list[TocEntry],
+    matched_titles: list[tuple[str, list[tuple[int, int]]]],
+) -> str:
+    """Build user prompt with TOC data"""
+    prompt_lines = ["COMPLETE TOC (all entries):"]
 
     for idx, (text, _, indent, font_size, _) in enumerate(all_entries):
         prompt_lines.append(f"  {idx}: [Indent:{indent:.1f}, Size:{font_size:.1f}] {text}")
@@ -237,15 +253,6 @@ def _build_llm_prompt(
     for idx, (title, _) in enumerate(matched_titles):
         prompt_lines.append(f"  {idx}: {title}")
 
-    prompt_lines.extend([
-        "",
-        "Your response format:",
-        "ANALYSIS:",
-        "(your analysis of the complete TOC structure - use any format you like)",
-        "",
-        "RESULT:",
-        f"[{len(matched_titles)} integers for TARGET TITLES, in order]",
-    ])
     return "\n".join(prompt_lines)
 
 
