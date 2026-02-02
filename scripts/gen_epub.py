@@ -1,7 +1,14 @@
 import json
 from pathlib import Path
 
-from pdf_craft import LaTeXRender, OCREventKind, TableRender, TocExtractionMode, LLM, transform_epub
+from pdf_craft import (
+    LLM,
+    LaTeXRender,
+    OCREventKind,
+    TableRender,
+    TocExtractionMode,
+    transform_epub,
+)
 
 _IMAGE_STEM = "newton"
 

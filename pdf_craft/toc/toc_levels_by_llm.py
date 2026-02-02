@@ -72,10 +72,7 @@ class LLMAnalysisError(Exception):
 TocEntry = tuple[str, list[tuple[int, int]] | None, float, float, bool]
 
 
-def _extract_all_toc_entries(
-    toc_page_refs: list[PageRef],
-    toc_page_contents: list[Page],
-) -> list[TocEntry]:
+def _extract_all_toc_entries(toc_page_contents: list[Page]) -> list[TocEntry]:
     """
     Extract ALL entries from TOC pages with layout information.
 
@@ -100,22 +97,24 @@ def _extract_all_toc_entries(
             font_size = bottom - top
 
             # We don't match here - let LLM do the matching
-            all_entries.append((
-                text,
-                None,  # Will be filled by LLM's response
-                indent,
-                font_size,
-                False,  # Not used in new approach
-            ))
+            all_entries.append(
+                (
+                    text,
+                    None,  # Will be filled by LLM's response
+                    indent,
+                    font_size,
+                    False,  # Not used in new approach
+                )
+            )
 
     return all_entries
 
 
 def analyse_toc_levels_by_llm(
-        llm: LLM,
-        toc_page_refs: list[PageRef],
-        toc_page_contents: list[Page],
-    ) -> Ref2Level:
+    llm: LLM,
+    toc_page_refs: list[PageRef],
+    toc_page_contents: list[Page],
+) -> Ref2Level:
     """
     Analyze TOC hierarchy levels using LLM with validation and retry mechanism.
 
@@ -126,7 +125,7 @@ def analyse_toc_levels_by_llm(
         LLMAnalysisError: If analysis fails after all retries
     """
     # Extract ALL TOC entries from pages
-    all_entries = _extract_all_toc_entries(toc_page_refs, toc_page_contents)
+    all_entries = _extract_all_toc_entries(toc_page_contents)
 
     if not all_entries:
         return {}
@@ -271,7 +270,7 @@ def _index_to_letter_id(index: int) -> str:
 
     while index > 0:
         index -= 1  # Adjust for 0-based alphabet
-        result = chr(ord('A') + (index % 26)) + result
+        result = chr(ord("A") + (index % 26)) + result
         index //= 26
 
     return result
@@ -285,12 +284,16 @@ def _build_user_prompt(
     prompt_lines = ["COMPLETE TOC (all entries):"]
 
     for idx, (text, _, indent, font_size, _) in enumerate(all_entries):
-        prompt_lines.append(f"  {idx}: [Indent:{indent:.1f}, Size:{font_size:.1f}] {text}")
+        prompt_lines.append(
+            f"  {idx}: [Indent:{indent:.1f}, Size:{font_size:.1f}] {text}"
+        )
 
-    prompt_lines.extend([
-        "",
-        f"TARGET TITLES (need levels for these {len(matched_titles)} titles):",
-    ])
+    prompt_lines.extend(
+        [
+            "",
+            f"TARGET TITLES (need levels for these {len(matched_titles)} titles):",
+        ]
+    )
 
     # Use letters A, B, C, ... for TARGET TITLES to avoid confusion with numeric IDs
     for idx, (title, _) in enumerate(matched_titles):
@@ -350,11 +353,11 @@ def _validate_and_parse(
         else:
             # Missing RESULT section is an error
             return None, (
-                'Response is missing the RESULT section. '
-                'Please follow the format:\n'
-                'ANALYSIS:\n'
-                '(your analysis)\n\n'
-                'RESULT:\n'
+                "Response is missing the RESULT section. "
+                "Please follow the format:\n"
+                "ANALYSIS:\n"
+                "(your analysis)\n\n"
+                "RESULT:\n"
                 '{"A": level, "B": level, ...}'
             )
 

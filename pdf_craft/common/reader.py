@@ -1,6 +1,6 @@
 import re
 from pathlib import Path
-from typing import Callable, Generator, Generic, TypeVar, Container
+from typing import Callable, Container, Generator, Generic, TypeVar
 from xml.etree.ElementTree import Element
 
 from .xml import read_xml
@@ -28,7 +28,9 @@ class XMLReader(Generic[T]):
         self._indexed_files: list[tuple[int, Path]] = indexed_files
         self._decode: Callable[[Element], T] = decode
 
-    def read(self, page_indexes: Container[int] | None = None) -> Generator[T, None, None]:
+    def read(
+        self, page_indexes: Container[int] | None = None
+    ) -> Generator[T, None, None]:
         for page_index, xml_path in self._indexed_files:
             if page_indexes is not None and page_index not in page_indexes:
                 continue

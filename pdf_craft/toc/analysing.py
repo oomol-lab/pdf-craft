@@ -90,9 +90,11 @@ def _do_analyse_toc(
             ref2level = analyse_toc_levels_by_llm(
                 llm=llm,
                 toc_page_refs=toc_pages,
-                toc_page_contents=list(pages.read(
-                    page_indexes={toc_page.page_index for toc_page in toc_pages},
-                )),
+                toc_page_contents=list(
+                    pages.read(
+                        page_indexes={toc_page.page_index for toc_page in toc_pages},
+                    )
+                ),
             )
             toc_page_indexes.extend(ref.page_index for ref in toc_pages)
 
