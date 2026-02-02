@@ -6,6 +6,7 @@ from pathlib import Path
 from ..common import XMLReader, read_xml, save_xml
 from ..llm import LLM
 from ..pdf import TITLE_TAGS, Page
+from .llm_analyser import analyse_toc_by_llm, LLMAnalysisError
 from ..pdf import decode as decode_pdf
 from .toc_levels import Ref2Level, analyse_title_levels, analyse_toc_levels
 from .toc_pages import PageRef, find_toc_pages
@@ -50,8 +51,6 @@ def _do_analyse_toc(
         dir_path=pages_path,
         decode=decode_pdf,
     )
-    ref2level: Ref2Level
-    toc_page_indexes: list[int] = []
     toc_pages: list[PageRef] = []
 
     # Try to find TOC pages if mode is not NO_TOC_PAGE
@@ -71,21 +70,12 @@ def _do_analyse_toc(
             ),
         )
 
-    # Analyze TOC hierarchy based on mode
-    if toc_pages and mode == TocExtractionMode.AUTO_DETECT:
-        ref2level = analyse_toc_levels(
-            pages=pages,
-            pages_path=pages_path,
-            toc_pages=toc_pages,
-        )
-        toc_page_indexes.extend(ref.page_index for ref in toc_pages)
+    ref2level: Ref2Level | None = None
+    toc_page_indexes: list[int] = []
 
-    elif toc_pages and mode == TocExtractionMode.LLM_ENHANCED:
+    if toc_pages and mode == TocExtractionMode.LLM_ENHANCED:
         if llm is None:
-            raise ValueError("LLM instance is required for LLM_ENHANCED mode")
-
-        from .llm_analyser import LLMAnalysisError, analyse_toc_by_llm
-
+            raise ValueError("LLM instance must be provided for LLM_ENHANCED mode.")
         try:
             ref2level = analyse_toc_by_llm(
                 llm=llm,
@@ -96,18 +86,20 @@ def _do_analyse_toc(
                     )
                 ),
             )
-            toc_page_indexes.extend(ref.page_index for ref in toc_pages)
-
         except LLMAnalysisError as e:
             print(f"LLM analysis failed, falling back to statistical method: {e}")
-            ref2level = analyse_toc_levels(
-                pages=pages,
-                pages_path=pages_path,
-                toc_pages=toc_pages,
-            )
-            toc_page_indexes.extend(ref.page_index for ref in toc_pages)
-    else:
+
+    if ref2level is None and toc_pages and mode == TocExtractionMode.AUTO_DETECT:
+        ref2level = analyse_toc_levels(
+            pages=pages,
+            pages_path=pages_path,
+            toc_pages=toc_pages,
+        )
+
+    if ref2level is None:
         ref2level = analyse_title_levels(pages)
+    else:
+        toc_page_indexes.extend(ref.page_index for ref in toc_pages)
 
     return TocInfo(
         content=_structure_toc_by_levels(ref2level),
