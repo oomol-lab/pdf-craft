@@ -198,16 +198,18 @@ def _build_llm_prompt(
     prompt_lines = [
         "You are analyzing a table of contents (TOC) from a book.",
         "",
-        "TASK:",
-        "Below you will see:",
-        "1. TARGET TITLES - titles that appear in the book content and need hierarchy levels",
-        "2. COMPLETE TOC - all entries from TOC pages (for context)",
+        "TASK (2 steps):",
         "",
-        "Your job:",
-        "1. Understand the complete TOC structure",
-        "2. For each TARGET TITLE, find the matching entry in COMPLETE TOC",
-        "3. Assign a hierarchy level (0, 1, 2, 3, ...) to each TARGET TITLE",
-        "4. Return a JSON array of levels (in the same order as TARGET TITLES)",
+        "STEP 1 - Analyze the complete TOC structure:",
+        "- Review all entries below",
+        "- Identify which are actual TOC items (chapters/sections) vs. noise (headers/footers/page numbers)",
+        "- Assign hierarchy levels to ALL actual TOC items",
+        "- Output your analysis in any format you prefer (this is your draft/scratch work)",
+        "",
+        "STEP 2 - Extract results for TARGET TITLES:",
+        "- Find each TARGET TITLE in your analysis",
+        "- Extract their levels",
+        "- Return a JSON array",
         "",
         "Hierarchy levels:",
         '- Level 0: Top-level volumes/books (e.g., "第一卷", "第二卷", "Volume I")',
@@ -221,26 +223,28 @@ def _build_llm_prompt(
         '- Font size: Larger = higher level (but not always reliable)',
         '- Indent: Larger indent = deeper level (but not always reliable)',
         "",
-        f"TARGET TITLES (need to evaluate {len(matched_titles)} titles):",
+        "COMPLETE TOC (all entries):",
     ]
-
-    for idx, (title, _) in enumerate(matched_titles):
-        prompt_lines.append(f"  {idx}: {title}")
-
-    prompt_lines.extend([
-        "",
-        "COMPLETE TOC (for context):",
-    ])
 
     for idx, (text, _, indent, font_size, _) in enumerate(all_entries):
         prompt_lines.append(f"  {idx}: [Indent:{indent:.1f}, Size:{font_size:.1f}] {text}")
 
     prompt_lines.extend([
         "",
-        f"Return ONLY a JSON array of {len(matched_titles)} integers (levels for TARGET TITLES, in order).",
-        "Example format: [0, 1, 2, 1, 0]",
+        f"TARGET TITLES (need levels for these {len(matched_titles)} titles):",
+    ])
+
+    for idx, (title, _) in enumerate(matched_titles):
+        prompt_lines.append(f"  {idx}: {title}")
+
+    prompt_lines.extend([
         "",
-        "Your response (JSON array only, no explanation):",
+        "Your response format:",
+        "ANALYSIS:",
+        "(your analysis of the complete TOC structure - use any format you like)",
+        "",
+        "RESULT:",
+        f"[{len(matched_titles)} integers for TARGET TITLES, in order]",
     ])
     return "\n".join(prompt_lines)
 
@@ -251,13 +255,17 @@ def _build_error_feedback(error_message: str) -> str:
         "Your previous response had an error:",
         error_message,
         "",
-        "Please correct the response. Remember:",
-        "- Return ONLY a JSON array of integers",
+        "Please correct the response. Remember the format:",
+        "ANALYSIS:",
+        "(your analysis)",
+        "",
+        "RESULT:",
+        "[array of integers]",
+        "",
+        "Requirements:",
         "- All values must be between 0 and 5",
         "- Level changes should not jump more than 2 at once",
         "- TOCs typically start at level 0",
-        "",
-        "Corrected response (JSON array only):",
     ]
     return "\n".join(prompt_lines)
 
@@ -269,29 +277,46 @@ def _validate_and_parse(
     """
     Validate and parse LLM response.
 
+    Expects response format:
+    ANALYSIS:
+    (LLM's analysis)
+
+    RESULT:
+    [array of integers]
+
     Returns:
         (levels, error_message)
         - If successful: (levels, None)
         - If failed: (None, error_message_for_llm)
     """
     try:
-        # Step 1: Repair JSON format issues
-        repaired = repair_json(response.strip())
+        # Step 1: Extract RESULT section
+        result_marker = "RESULT:"
+        if result_marker in response:
+            # Find the RESULT section
+            result_start = response.index(result_marker) + len(result_marker)
+            result_section = response[result_start:].strip()
+        else:
+            # Fallback: try to parse the entire response as JSON
+            result_section = response.strip()
 
-        # Step 2: Parse JSON
+        # Step 2: Repair JSON format issues
+        repaired = repair_json(result_section)
+
+        # Step 3: Parse JSON
         data = json.loads(repaired)
 
-        # Step 3: Type check
+        # Step 4: Type check
         if not isinstance(data, list):
             return None, (
                 "Response must be a JSON array of integers, e.g., [0, 1, 2]. "
                 f"You returned: {type(data).__name__}"
             )
 
-        # Step 4: Validate with Pydantic (types, ranges, transitions)
+        # Step 5: Validate with Pydantic (types, ranges, transitions)
         schema = TocLevelsSchema(levels=data)
 
-        # Step 5: Context-aware validation (length match)
+        # Step 6: Context-aware validation (length match)
         expected_len = len(matched_titles)
         actual_len = len(schema.levels)
         if actual_len != expected_len:
@@ -307,7 +332,7 @@ def _validate_and_parse(
     except json.JSONDecodeError as e:
         return None, (
             f"Invalid JSON syntax: {str(e)}. "
-            f"Please return a valid JSON array like [0, 1, 2, 1, 0]."
+            f"Please return a valid JSON array in the RESULT section like [0, 1, 2, 1, 0]."
         )
 
     except ValidationError as e:
