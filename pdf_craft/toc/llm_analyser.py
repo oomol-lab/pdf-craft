@@ -106,27 +106,23 @@ def analyse_toc_by_llm(
         ),
     ]
     for attempt in range(_MAX_RETRIES):
-        try:
-            response = llm.request(input=head_messages + tail_messages)
-            levels, error_msg = _validate_and_parse(
-                response=response,
-                matched_titles_count=len(matched_title2references),
-            )
-            if levels is not None:
-                return _map_to_ref2level(levels, matched_title2references)
+        response = llm.request(input=head_messages + tail_messages)
+        levels, error_msg = _validate_and_parse(
+            response=response,
+            matched_titles_count=len(matched_title2references),
+        )
+        if levels is not None:
+            return _map_to_ref2level(levels, matched_title2references)
 
-            if attempt < _MAX_RETRIES - 1:
-                tail_messages = [
-                    Message(role=MessageRole.ASSISTANT, message=response),
-                    Message(
-                        role=MessageRole.USER,
-                        message=_build_error_feedback(error_msg or "Unknown error"),
-                    ),
-                ]
-            last_error = error_msg
-
-        except Exception as e:
-            last_error = str(e)
+        if attempt < _MAX_RETRIES - 1:
+            tail_messages = [
+                Message(role=MessageRole.ASSISTANT, message=response),
+                Message(
+                    role=MessageRole.USER,
+                    message=_build_error_feedback(error_msg or "Unknown error"),
+                ),
+            ]
+        last_error = error_msg
 
     error_detail = f"Last error: {last_error}" if last_error else "Unknown error"
     raise LLMAnalysisError(
