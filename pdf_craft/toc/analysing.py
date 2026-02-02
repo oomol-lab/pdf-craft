@@ -84,7 +84,7 @@ def _do_analyse_toc(
         if llm is None:
             raise ValueError("LLM instance is required for LLM_ENHANCED mode")
 
-        from .toc_levels_by_llm import LLMAnalysisError, analyse_toc_levels_by_llm
+        from .llm_analyser import LLMAnalysisError, analyse_toc_levels_by_llm
 
         try:
             ref2level = analyse_toc_levels_by_llm(
