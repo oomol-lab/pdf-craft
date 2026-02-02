@@ -6,8 +6,8 @@ from pathlib import Path
 from ..common import XMLReader, read_xml, save_xml
 from ..llm import LLM
 from ..pdf import TITLE_TAGS, Page
-from .llm_analyser import analyse_toc_by_llm, LLMAnalysisError
 from ..pdf import decode as decode_pdf
+from .llm_analyser import LLMAnalysisError, analyse_toc_by_llm
 from .toc_levels import Ref2Level, analyse_title_levels, analyse_toc_levels
 from .toc_pages import PageRef, find_toc_pages
 from .types import Toc, TocInfo
@@ -20,9 +20,9 @@ _TITLE_HEAD_REGX = re.compile(r"^\s*#{1,6}\s*")
 
 
 class TocExtractionMode(Enum):
-    NO_TOC_PAGE = auto()  # 不检测目录页，从正文标题提取
-    AUTO_DETECT = auto()  # 检测目录页并用统计学分析
-    LLM_ENHANCED = auto()  # 检测目录页并用 LLM 分析
+    NO_TOC_PAGE = auto()  # Do not detect TOC pages, extract from body titles
+    AUTO_DETECT = auto()  # Detect TOC pages and use statistical analysis
+    LLM_ENHANCED = auto()  # Detect TOC pages and use LLM analysis
 
 
 def analyse_toc(
@@ -108,7 +108,7 @@ def _do_analyse_toc(
 
 
 def _structure_toc_by_levels(ref2level: Ref2Level) -> list[Toc]:
-    # 虚拟根节点
+    # virtual root
     root = Toc(
         id=-1,
         page_index=-1,
@@ -132,7 +132,7 @@ def _structure_toc_by_levels(ref2level: Ref2Level) -> list[Toc]:
             stack.pop()
 
         if not stack:
-            break  # 防御性
+            break
 
         stack[-1].children.append(toc)
         stack.append(toc)
