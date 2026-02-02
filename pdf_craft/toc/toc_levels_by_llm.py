@@ -241,6 +241,35 @@ def _build_system_prompt() -> str:
     return "\n".join(prompt_lines)
 
 
+def _index_to_letter_id(index: int) -> str:
+    """
+    Convert a zero-based index to a letter ID (A, B, C, ..., Z, AA, AB, ...).
+
+    Similar to Excel column naming:
+    - 0 -> A
+    - 25 -> Z
+    - 26 -> AA
+    - 27 -> AB
+    - 51 -> AZ
+    - 52 -> BA
+
+    Args:
+        index: Zero-based index
+
+    Returns:
+        Letter ID string
+    """
+    result = ""
+    index += 1  # Convert to 1-based for easier calculation
+
+    while index > 0:
+        index -= 1  # Adjust for 0-based alphabet
+        result = chr(ord('A') + (index % 26)) + result
+        index //= 26
+
+    return result
+
+
 def _build_user_prompt(
     all_entries: list[TocEntry],
     matched_titles: list[tuple[str, list[tuple[int, int]]]],
@@ -258,7 +287,7 @@ def _build_user_prompt(
 
     # Use letters A, B, C, ... for TARGET TITLES to avoid confusion with numeric IDs
     for idx, (title, _) in enumerate(matched_titles):
-        letter_id = chr(ord('A') + idx)  # A, B, C, D, ...
+        letter_id = _index_to_letter_id(idx)
         prompt_lines.append(f"  {letter_id}: {title}")
 
     return "\n".join(prompt_lines)
@@ -308,12 +337,19 @@ def _validate_and_parse(
         # Step 1: Extract RESULT section
         result_marker = "RESULT:"
         if result_marker in response:
-            # Find the RESULT section
-            result_start = response.index(result_marker) + len(result_marker)
+            # Find the LAST occurrence of RESULT: to avoid matching it in ANALYSIS section
+            result_start = response.rindex(result_marker) + len(result_marker)
             result_section = response[result_start:].strip()
         else:
-            # Fallback: try to parse the entire response as JSON
-            result_section = response.strip()
+            # Missing RESULT section is an error
+            return None, (
+                'Response is missing the RESULT section. '
+                'Please follow the format:\n'
+                'ANALYSIS:\n'
+                '(your analysis)\n\n'
+                'RESULT:\n'
+                '{"A": level, "B": level, ...}'
+            )
 
         # Step 2: Repair JSON format issues
         repaired = repair_json(result_section)
@@ -329,7 +365,7 @@ def _validate_and_parse(
             )
 
         # Step 5: Generate expected letter IDs (A, B, C, ...)
-        expected_ids = [chr(ord('A') + i) for i in range(len(matched_titles))]
+        expected_ids = [_index_to_letter_id(i) for i in range(len(matched_titles))]
         expected_ids_set = set(expected_ids)
         actual_ids_set = set(data.keys())
 
