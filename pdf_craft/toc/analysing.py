@@ -73,33 +73,37 @@ def _do_analyse_toc(
     ref2level: Ref2Level | None = None
     toc_page_indexes: list[int] = []
 
-    if toc_pages and mode == TocExtractionMode.LLM_ENHANCED:
-        if llm is None:
-            raise ValueError("LLM instance must be provided for LLM_ENHANCED mode.")
-        try:
-            ref2level = analyse_toc_by_llm(
-                llm=llm,
-                toc_page_refs=toc_pages,
-                toc_page_contents=list(
-                    pages.read(
-                        page_indexes={toc_page.page_index for toc_page in toc_pages},
-                    )
-                ),
-            )
-        except LLMAnalysisError as e:
-            print(f"LLM analysis failed, falling back to statistical method: {e}")
+    if toc_pages:
+        if mode == TocExtractionMode.LLM_ENHANCED:
+            if llm is None:
+                raise ValueError("LLM instance must be provided for LLM_ENHANCED mode.")
+            try:
+                ref2level = analyse_toc_by_llm(
+                    llm=llm,
+                    toc_page_refs=toc_pages,
+                    toc_page_contents=list(
+                        pages.read(
+                            page_indexes={
+                                toc_page.page_index for toc_page in toc_pages
+                            },
+                        )
+                    ),
+                )
+            except LLMAnalysisError as e:
+                print(f"LLM analysis failed, falling back to statistical method: {e}")
 
-    if ref2level is None and toc_pages and mode == TocExtractionMode.AUTO_DETECT:
-        ref2level = analyse_toc_levels(
-            pages=pages,
-            pages_path=pages_path,
-            toc_pages=toc_pages,
-        )
+        if ref2level is None and mode == TocExtractionMode.AUTO_DETECT:
+            ref2level = analyse_toc_levels(
+                pages=pages,
+                pages_path=pages_path,
+                toc_pages=toc_pages,
+            )
+
+        if ref2level is not None:
+            toc_page_indexes.extend(ref.page_index for ref in toc_pages)
 
     if ref2level is None:
         ref2level = analyse_title_levels(pages)
-    else:
-        toc_page_indexes.extend(ref.page_index for ref in toc_pages)
 
     return TocInfo(
         content=_structure_toc_by_levels(ref2level),
