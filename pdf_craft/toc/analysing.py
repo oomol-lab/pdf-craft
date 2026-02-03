@@ -1,6 +1,5 @@
 import logging
 import re
-from enum import Enum, auto
 from pathlib import Path
 
 from ..common import XMLReader, read_xml, save_xml
@@ -19,23 +18,17 @@ logger = logging.getLogger(__name__)
 _TITLE_HEAD_REGX = re.compile(r"^\s*#{1,6}\s*")
 
 
-class TocExtractionMode(Enum):
-    NO_TOC_PAGE = auto()  # Do not detect TOC pages, extract from body titles
-    AUTO_DETECT = auto()  # Detect TOC pages and use statistical analysis
-    LLM_ENHANCED = auto()  # Detect TOC pages and use LLM analysis
-
-
 def analyse_toc(
     pages_path: Path,
     toc_path: Path,
-    mode: TocExtractionMode,
-    llm: LLM | None = None,
+    toc_assumed: bool,
+    toc_llm: LLM | None = None,
 ) -> TocInfo:
     if toc_path.exists():
         return decode_toc(read_xml(toc_path))
 
     toc_path.parent.mkdir(parents=True, exist_ok=True)
-    toc_info = _do_analyse_toc(pages_path, mode, llm)
+    toc_info = _do_analyse_toc(pages_path, toc_llm, toc_assumed)
     save_xml(encode_toc(toc_info), toc_path)
 
     return toc_info
@@ -43,8 +36,8 @@ def analyse_toc(
 
 def _do_analyse_toc(
     pages_path: Path,
-    mode: TocExtractionMode,
-    llm: LLM | None,
+    toc_llm: LLM | None,
+    toc_assumed: bool,
 ) -> TocInfo:
     pages: XMLReader[Page] = XMLReader(
         prefix="page",
@@ -75,11 +68,11 @@ def _do_analyse_toc(
 
     if toc_pages:
         if mode == TocExtractionMode.LLM_ENHANCED:
-            if llm is None:
+            if toc_llm is None:
                 raise ValueError("LLM instance must be provided for LLM_ENHANCED mode.")
             try:
                 ref2level = analyse_toc_by_llm(
-                    llm=llm,
+                    llm=toc_llm,
                     toc_page_refs=toc_pages,
                     toc_page_contents=list(
                         pages.read(

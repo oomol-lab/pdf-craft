@@ -6,7 +6,6 @@ from pdf_craft import (
     LaTeXRender,
     OCREventKind,
     TableRender,
-    TocExtractionMode,
     transform_epub,
 )
 
@@ -21,13 +20,9 @@ def main() -> None:
     format_json_path = project_root / "format.json"
 
     toc_llm: LLM | None = None
-    toc_mode = TocExtractionMode.AUTO_DETECT
-
     if format_json_path.exists():
         with open(project_root / "format.json", "r", encoding="utf-8") as f:
             llm_config = json.load(f)
-
-        toc_mode = TocExtractionMode.LLM_ENHANCED
         toc_llm = LLM(
             key=llm_config["key"],
             url=llm_config["url"],
@@ -50,7 +45,6 @@ def main() -> None:
         models_cache_path=project_root / "models-cache",
         includes_footnotes=True,
         generate_plot=True,
-        toc_mode=toc_mode,
         toc_llm=toc_llm,
         table_render=TableRender.HTML,
         latex_render=LaTeXRender.MATHML,
