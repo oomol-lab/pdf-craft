@@ -71,10 +71,14 @@ def analyse_title_levels_by_llm(llm: LLM, pages: XMLReader[Page]) -> Ref2Level:
             ),
         ),
     )
-    return _map_titles_to_ref2level(
-        levels=levels,
-        titles=titles,
-    )
+    ref2level: Ref2Level = {}
+
+    for idx, title in enumerate(titles):
+        level = levels[idx]
+        if level >= 0:  # Only include non-noise titles
+            ref2level[title.ref] = level
+
+    return ref2level
 
 
 def analyse_toc_levels_by_llm(
@@ -116,10 +120,14 @@ def analyse_toc_levels_by_llm(
             ),
         ),
     )
-    return _map_to_ref2level(
-        levels=levels,
-        matched_titles=matched_title2references,
-    )
+    ref2level: Ref2Level = {}
+
+    for idx, (_, references) in enumerate(matched_title2references):
+        level = levels[idx]
+        for page_index, order in references:
+            ref2level[(page_index, order)] = level
+
+    return ref2level
 
 
 def _extract_toc_entries(
@@ -225,18 +233,6 @@ def _build_title_user_prompt(
     return "\n".join(prompt_lines)
 
 
-def _map_titles_to_ref2level(
-    levels: list[int],
-    titles: list["_Title"],
-) -> Ref2Level:
-    ref2level: Ref2Level = {}
-    for idx, title in enumerate(titles):
-        level = levels[idx]
-        if level >= 0:  # Only include non-noise titles
-            ref2level[title.ref] = level
-    return ref2level
-
-
 def _validate_title_response(
     response: str, titles_count: int
 ) -> tuple[list[int] | None, str | None]:
@@ -315,7 +311,12 @@ def _validate_title_response(
         else:
             normalized_levels = schema.levels
 
-        return normalized_levels, None
+        max_allowed_level = MAX_LEVELS - 1
+        capped_levels = [
+            min(level, max_allowed_level) if level >= 0 else -1
+            for level in normalized_levels
+        ]
+        return capped_levels, None
 
     except json.JSONDecodeError as e:
         return None, (
@@ -409,18 +410,6 @@ def _build_toc_user_prompt(
     return "\n".join(prompt_lines)
 
 
-def _map_to_ref2level(
-    levels: list[int],
-    matched_titles: list[tuple[str, list[tuple[int, int]]]],
-) -> Ref2Level:
-    ref2level: Ref2Level = {}
-    for idx, (_, references) in enumerate(matched_titles):
-        level = levels[idx]
-        for page_index, order in references:
-            ref2level[(page_index, order)] = level
-    return ref2level
-
-
 def _validate_toc_response(
     response: str, matched_titles_count: int
 ) -> tuple[list[int] | None, str | None]:
@@ -492,7 +481,10 @@ def _validate_toc_response(
         else:
             normalized_levels = schema.levels
 
-        return normalized_levels, None
+        max_allowed_level = MAX_LEVELS - 1
+        capped_levels = [min(level, max_allowed_level) for level in normalized_levels]
+
+        return capped_levels, None
 
     except json.JSONDecodeError as e:
         return None, (
@@ -612,50 +604,6 @@ class _TocEntry:
     is_matched: bool
 
 
-class _TocLevelsSchema(BaseModel):
-    levels: list[int]
-
-    @field_validator("levels")
-    @classmethod
-    def validate_levels(cls, v: list[int]) -> list[int]:
-        # Rule 1: Check all are valid integers in range
-        for i, level in enumerate(v):
-            if not isinstance(level, int):
-                raise ValueError(
-                    f"Level at index {i} is not an integer: {level}. "
-                    f"All values must be integers."
-                )
-            if level < 0:
-                raise ValueError(
-                    f"Level at index {i} is negative: {level}. "
-                    f"All levels must be non-negative (0, 1, 2, ...)."
-                )
-            if level > 5:
-                raise ValueError(
-                    f"Level at index {i} is too deep: {level}. "
-                    f"Maximum level is 5. Most TOCs have 3-4 levels."
-                )
-
-        # Rule 2: Check for reasonable transitions (no jump > 2)
-        for i in range(1, len(v)):
-            jump = v[i] - v[i - 1]
-            if jump > 2:
-                raise ValueError(
-                    f"Level jump too large at index {i}: "
-                    f"from {v[i - 1]} to {v[i]} (jump of {jump}). "
-                    f"Level changes should not exceed 2 at once."
-                )
-
-        # Rule 3: First level should typically be 0
-        if v and v[0] > 1:
-            raise ValueError(
-                f"First level is {v[0]}, but TOCs typically start at level 0. "
-                f"Consider starting with 0 for the first chapter."
-            )
-
-        return v
-
-
 class _TitleLevelsSchema(BaseModel):
     levels: list[int]
 
@@ -700,6 +648,50 @@ class _TitleLevelsSchema(BaseModel):
         if first_valid_level is not None and first_valid_level > 1:
             raise ValueError(
                 f"First valid level is {first_valid_level}, but books typically start at level 0. "
+                f"Consider starting with 0 for the first chapter."
+            )
+
+        return v
+
+
+class _TocLevelsSchema(BaseModel):
+    levels: list[int]
+
+    @field_validator("levels")
+    @classmethod
+    def validate_levels(cls, v: list[int]) -> list[int]:
+        # Rule 1: Check all are valid integers in range
+        for i, level in enumerate(v):
+            if not isinstance(level, int):
+                raise ValueError(
+                    f"Level at index {i} is not an integer: {level}. "
+                    f"All values must be integers."
+                )
+            if level < 0:
+                raise ValueError(
+                    f"Level at index {i} is negative: {level}. "
+                    f"All levels must be non-negative (0, 1, 2, ...)."
+                )
+            if level > 5:
+                raise ValueError(
+                    f"Level at index {i} is too deep: {level}. "
+                    f"Maximum level is 5. Most TOCs have 3-4 levels."
+                )
+
+        # Rule 2: Check for reasonable transitions (no jump > 2)
+        for i in range(1, len(v)):
+            jump = v[i] - v[i - 1]
+            if jump > 2:
+                raise ValueError(
+                    f"Level jump too large at index {i}: "
+                    f"from {v[i - 1]} to {v[i]} (jump of {jump}). "
+                    f"Level changes should not exceed 2 at once."
+                )
+
+        # Rule 3: First level should typically be 0
+        if v and v[0] > 1:
+            raise ValueError(
+                f"First level is {v[0]}, but TOCs typically start at level 0. "
                 f"Consider starting with 0 for the first chapter."
             )
 
