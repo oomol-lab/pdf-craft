@@ -6,7 +6,8 @@ from typing import Callable, Generator, Generic, Iterable, TypeVar
 from json_repair import repair_json
 from pydantic import BaseModel, ValidationError, field_validator
 
-from ..common import XMLReader
+from ..common import XMLReader, split_by_cv
+from ..config import MAX_LEVELS, MAX_TITLE_CV
 from ..llm import LLM, Message, MessageRole
 from ..pdf import TITLE_TAGS, Page
 from .toc_levels import Ref2Level
@@ -37,9 +38,43 @@ def analyse_title_levels_by_llm(llm: LLM, pages: XMLReader[Page]) -> Ref2Level:
                 )
             )
 
-    # TODO:
+    if not titles:
+        return {}
 
-    raise NotImplementedError
+    # Use CV to group titles by font size (preliminary grouping)
+    grouped_titles = list(
+        reversed(
+            split_by_cv(  # 字体最大的是 Level 0，故颠倒
+                payload_items=[(title.height, title) for title in titles],
+                max_groups=MAX_LEVELS,
+                max_cv=MAX_TITLE_CV,
+            )
+        )
+    )
+    analyser = _LLMAnalyser(
+        llm=llm,
+        validate=_validate_title_response,
+    )
+    levels = analyser.request(
+        payload=len(titles),
+        messages=(
+            Message(
+                role=MessageRole.SYSTEM,
+                message=_build_title_system_prompt(),
+            ),
+            Message(
+                role=MessageRole.USER,
+                message=_build_title_user_prompt(
+                    titles=titles,
+                    grouped_titles=grouped_titles,
+                ),
+            ),
+        ),
+    )
+    return _map_titles_to_ref2level(
+        levels=levels,
+        titles=titles,
+    )
 
 
 def analyse_toc_levels_by_llm(
@@ -106,6 +141,196 @@ def _extract_toc_entries(
                 font_size=font_size,
                 is_matched=False,  # Not used in new approach
             )
+
+
+def _build_title_system_prompt() -> str:
+    prompt_lines = [
+        "You are analyzing the structure of a book by examining its headings/titles.",
+        "",
+        "TASK (2 steps):",
+        "",
+        "STEP 1 - Understand the document structure:",
+        "- You are seeing all the headings extracted from a book",
+        "- Some may be actual chapter/section titles that form the book's hierarchy",
+        "- Some may be noise (figure captions, exercise numbers, page headers, index entries, etc.)",
+        "- Your goal is to identify which headings are part of the main structural hierarchy",
+        "- Output your thinking process - what patterns do you see? What helps you distinguish structure from noise?",
+        "",
+        "STEP 2 - Assign hierarchy levels:",
+        "- For each heading ID provided, determine its level in the hierarchy",
+        "- Return a JSON object mapping each ID to its level (0-based, where 0 is the top level)",
+        "- If a heading is noise (not part of the main structure), assign it level -1",
+        "",
+        "Understanding hierarchy:",
+        "- Hierarchy represents parent-child relationships between headings",
+        "- If heading A contains heading B as a subsection, then B's level = A's level + 1",
+        "- Headings at the same level are siblings",
+        "- Top-level chapters/parts are level 0",
+        "",
+        "What helps you determine hierarchy:",
+        "- Font size is a strong signal (we've grouped headings by similar font sizes for your reference)",
+        "- Numbering patterns (1, 1.1, 1.1.1 vs Chapter 1, Section 1.1)",
+        '- Semantic meaning ("Chapter" vs "Section" vs "Subsection")',
+        "- Position in the document (early vs late pages)",
+        '- Density (a page with dozens of "headings" might be an index)',
+        "",
+        "Think about:",
+        "- What is the purpose of this book's structure?",
+        "- What patterns indicate a heading is structural vs decorative?",
+        "- Are there headings that don't fit the main narrative flow?",
+        "- How does the author organize ideas hierarchically?",
+        "",
+        "Your response format:",
+        "ANALYSIS:",
+        "(your thinking process about the structure - what patterns you observe, what you consider noise, how you determined the hierarchy)",
+        "",
+        "RESULT:",
+        '{"0": level, "1": level, "2": level, ...}',
+        "",
+        "Remember: Use -1 for headings that are noise (not part of the structural hierarchy).",
+    ]
+    return "\n".join(prompt_lines)
+
+
+def _build_title_user_prompt(
+    titles: list["_Title"],
+    grouped_titles: list[list["_Title"]],
+) -> str:
+    prompt_lines = ["HEADINGS (grouped by font size):"]
+    prompt_lines.append("")
+
+    for group_idx, group in enumerate(grouped_titles):
+        if not group:
+            continue
+        sample_title = group[0]
+        prompt_lines.append(
+            f"Group {group_idx} (Font size ~{sample_title.height:.1f}, {len(group)} headings):"
+        )
+
+    prompt_lines.append("")
+    prompt_lines.append(f"ALL HEADINGS (total: {len(titles)}):")
+
+    for idx, title in enumerate(titles):
+        # Find which group this title belongs to
+        group_num = -1
+        for group_idx, group in enumerate(grouped_titles):
+            if title in group:
+                group_num = group_idx
+                break
+
+        prompt_lines.append(
+            f"  {idx}: [Group:{group_num}, Page:{title.ref[0]}, Size:{title.height:.1f}] {title.text}"
+        )
+
+    return "\n".join(prompt_lines)
+
+
+def _map_titles_to_ref2level(
+    levels: list[int],
+    titles: list["_Title"],
+) -> Ref2Level:
+    ref2level: Ref2Level = {}
+    for idx, title in enumerate(titles):
+        level = levels[idx]
+        if level >= 0:  # Only include non-noise titles
+            ref2level[title.ref] = level
+    return ref2level
+
+
+def _validate_title_response(
+    response: str, titles_count: int
+) -> tuple[list[int] | None, str | None]:
+    """
+    Validate and parse LLM response for title analysis.
+
+    Expects response format:
+    ANALYSIS:
+    (LLM's analysis)
+
+    RESULT:
+    {"0": level, "1": level, ...}
+
+    Returns:
+        (levels, error_message)
+        - If successful: (levels, None)
+        - If failed: (None, error_message_for_llm)
+    """
+    try:
+        result_marker = "RESULT:"
+        if result_marker in response:
+            result_start = response.rindex(result_marker) + len(result_marker)
+            result_section = response[result_start:].strip()
+        else:
+            return None, (
+                "Response is missing the RESULT section. "
+                "Please follow the format:\n"
+                "ANALYSIS:\n"
+                "(your analysis)\n\n"
+                "RESULT:\n"
+                '{"0": level, "1": level, ...}'
+            )
+
+        repaired = repair_json(result_section)
+        data = json.loads(repaired)
+
+        if not isinstance(data, dict):
+            return None, (
+                'Response must be a JSON object mapping IDs to levels, e.g., {"0": 0, "1": 1}. '
+                f"You returned: {type(data).__name__}"
+            )
+
+        expected_ids = [str(i) for i in range(titles_count)]
+        expected_ids_set = set(expected_ids)
+        actual_ids_set = set(data.keys())
+        missing_ids = expected_ids_set - actual_ids_set
+
+        if missing_ids:
+            missing_str = ", ".join(sorted(missing_ids, key=int))
+            return None, (
+                f"Missing IDs in response: {missing_str}. "
+                f"You must provide levels for all headings (0 to {titles_count - 1})"
+            )
+
+        unexpected_ids = actual_ids_set - expected_ids_set
+        if unexpected_ids:
+            unexpected_str = ", ".join(sorted(unexpected_ids))
+            return None, (
+                f"Unexpected IDs in response: {unexpected_str}. "
+                f"Valid IDs are: 0 to {titles_count - 1}"
+            )
+
+        levels = [data[str(i)] for i in range(titles_count)]
+        schema = _TitleLevelsSchema(levels=levels)
+
+        # Normalize levels: exclude -1 (noise), then normalize others
+        valid_levels = [level for level in schema.levels if level >= 0]
+        if valid_levels:
+            min_level = min(valid_levels)
+            if min_level != 0:
+                normalized_levels = [
+                    level - min_level if level >= 0 else -1 for level in schema.levels
+                ]
+            else:
+                normalized_levels = schema.levels
+        else:
+            normalized_levels = schema.levels
+
+        return normalized_levels, None
+
+    except json.JSONDecodeError as e:
+        return None, (
+            f"Invalid JSON syntax: {str(e)}. "
+            'Please return a valid JSON object in the RESULT section like {"0": 0, "1": 1, "2": -1}.'
+        )
+
+    except ValidationError as e:
+        errors = e.errors()
+        if errors and "msg" in errors[0]:
+            return None, errors[0]["msg"]
+        return None, str(e)
+
+    except Exception as e:
+        return None, f"Unexpected error: {str(e)}"
 
 
 def _build_toc_system_prompt() -> str:
@@ -425,6 +650,56 @@ class _TocLevelsSchema(BaseModel):
         if v and v[0] > 1:
             raise ValueError(
                 f"First level is {v[0]}, but TOCs typically start at level 0. "
+                f"Consider starting with 0 for the first chapter."
+            )
+
+        return v
+
+
+class _TitleLevelsSchema(BaseModel):
+    levels: list[int]
+
+    @field_validator("levels")
+    @classmethod
+    def validate_levels(cls, v: list[int]) -> list[int]:
+        # Rule 1: Check all are valid integers in range
+        for i, level in enumerate(v):
+            if not isinstance(level, int):
+                raise ValueError(
+                    f"Level at index {i} is not an integer: {level}. "
+                    f"All values must be integers."
+                )
+            if level < -1:
+                raise ValueError(
+                    f"Level at index {i} is invalid: {level}. "
+                    f"Levels must be -1 (noise) or non-negative (0, 1, 2, ...)."
+                )
+            if level > 5:
+                raise ValueError(
+                    f"Level at index {i} is too deep: {level}. "
+                    f"Maximum level is 5. Most books have 3-4 levels."
+                )
+
+        # Rule 2: Check for reasonable transitions (no jump > 2), excluding -1
+        last_valid_level = None
+        for i, level in enumerate(v):
+            if level == -1:
+                continue
+            if last_valid_level is not None:
+                jump = level - last_valid_level
+                if jump > 2:
+                    raise ValueError(
+                        f"Level jump too large at index {i}: "
+                        f"from {last_valid_level} to {level} (jump of {jump}). "
+                        f"Level changes should not exceed 2 at once."
+                    )
+            last_valid_level = level
+
+        # Rule 3: First non-noise level should typically be 0
+        first_valid_level = next((level for level in v if level >= 0), None)
+        if first_valid_level is not None and first_valid_level > 1:
+            raise ValueError(
+                f"First valid level is {first_valid_level}, but books typically start at level 0. "
                 f"Consider starting with 0 for the first chapter."
             )
 

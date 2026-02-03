@@ -2,13 +2,12 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from ..common import XMLReader, avg, read_xml, split_by_cv
-from ..config import MAX_TITLE_CV
+from ..config import MAX_LEVELS, MAX_TITLE_CV
 from ..pdf import TITLE_TAGS, Page, PageLayout
 from ..pdf import decode as decode_as_page
 from .text import normalize_text
 from .toc_pages import PageRef
 
-_MAX_LEVELS = 4
 _MAX_TOC_CV = 0.75  # 不宜过小导致过多分组
 
 Ref2Level = dict[tuple[int, int], int]  # key: (page_index, order) value: level
@@ -118,7 +117,7 @@ def _analyse_toc_page_hooks(ref: PageRef, page_path: Path) -> list[list[_Hook]]:
         )
     hooks = split_by_cv(
         payload_items=hooks_items,
-        max_groups=_MAX_LEVELS,
+        max_groups=MAX_LEVELS,
         max_cv=_MAX_TOC_CV,
     )
     hooks.reverse()  # 字体最大的是 Level 0，故颠倒
@@ -149,7 +148,7 @@ def _extract_content_title_levels(
         reversed(
             split_by_cv(  # 字体最大的是 Level 0，故颠倒
                 payload_items=title_items,
-                max_groups=_MAX_LEVELS,
+                max_groups=MAX_LEVELS,
                 max_cv=MAX_TITLE_CV,
             )
         )
@@ -190,7 +189,7 @@ def _extract_toc_level_offset(
     for offset, page_indexes in enumerate(
         split_by_cv(
             payload_items=avg_level_items,
-            max_groups=_MAX_LEVELS,
+            max_groups=MAX_LEVELS,
             max_cv=_MAX_TOC_CV,
         )
     ):

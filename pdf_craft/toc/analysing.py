@@ -82,8 +82,10 @@ def _do_analyse_toc(
                         )
                     ),
                 )
-            except LLMAnalysisError as e:
-                print(f"LLM analysis failed, falling back to statistical method: {e}")
+            except LLMAnalysisError as error:
+                print(
+                    f"LLM analysis toc failed, falling back to statistical method: {error}"
+                )
 
         if ref2level is None:
             ref2level = analyse_toc_levels(
@@ -91,19 +93,24 @@ def _do_analyse_toc(
                 pages_path=pages_path,
                 toc_pages=toc_pages,
             )
+        toc_page_indexes.extend(ref.page_index for ref in toc_pages)
+        toc_page_indexes.sort()
 
-        if ref2level is not None:
-            toc_page_indexes.extend(ref.page_index for ref in toc_pages)
+    else:
+        if toc_llm is not None:
+            try:
+                ref2level = analyse_title_levels_by_llm(toc_llm, pages)
+            except LLMAnalysisError as error:
+                print(
+                    f"LLM analysis title failed, falling back to statistical method: {error}"
+                )
 
-    if ref2level is None:
-        if toc_llm is None:
+        if ref2level is None:
             ref2level = analyse_title_levels(pages)
-        else:
-            ref2level = analyse_title_levels_by_llm(toc_llm, pages)
 
     return TocInfo(
         content=_structure_toc_by_levels(ref2level),
-        page_indexes=sorted(toc_page_indexes),
+        page_indexes=toc_page_indexes,
     )
 
 
