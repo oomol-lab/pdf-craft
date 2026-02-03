@@ -7,7 +7,6 @@ from .error import IgnoreOCRErrorsChecker, IgnorePDFErrorsChecker
 from .llm import LLM
 from .metering import AbortedCheck, OCRTokensMetering
 from .pdf import OCR, DeepSeekOCRSize, OCREvent, PDFHandler
-from .toc import TocExtractionMode
 from .transform import Transform
 
 
@@ -40,8 +39,8 @@ def transform_markdown(
     ignore_pdf_errors: IgnorePDFErrorsChecker = False,
     ignore_ocr_errors: IgnoreOCRErrorsChecker = False,
     generate_plot: bool = False,
-    toc_mode: TocExtractionMode = TocExtractionMode.NO_TOC_PAGE,
     toc_llm: LLM | None = None,
+    toc_assumed: bool = False,
     aborted: AbortedCheck = lambda: False,
     max_ocr_tokens: int | None = None,
     max_ocr_output_tokens: int | None = None,
@@ -64,8 +63,8 @@ def transform_markdown(
         ignore_pdf_errors=ignore_pdf_errors,
         ignore_ocr_errors=ignore_ocr_errors,
         generate_plot=generate_plot,
-        toc_mode=toc_mode,
         toc_llm=toc_llm,
+        toc_assumed=toc_assumed,
         aborted=aborted,
         max_ocr_tokens=max_ocr_tokens,
         max_ocr_output_tokens=max_ocr_output_tokens,
@@ -86,8 +85,8 @@ def transform_epub(
     includes_cover: bool = True,
     includes_footnotes: bool = False,
     generate_plot: bool = False,
-    toc_mode: TocExtractionMode = TocExtractionMode.AUTO_DETECT,
     toc_llm: LLM | None = None,
+    toc_assumed: bool = False,
     ignore_pdf_errors: IgnorePDFErrorsChecker = False,
     ignore_ocr_errors: IgnoreOCRErrorsChecker = False,
     book_meta: BookMeta | None = None,
@@ -114,8 +113,8 @@ def transform_epub(
         includes_cover=includes_cover,
         includes_footnotes=includes_footnotes,
         generate_plot=generate_plot,
-        toc_mode=toc_mode,
         toc_llm=toc_llm,
+        toc_assumed=toc_assumed,
         ignore_pdf_errors=ignore_pdf_errors,
         ignore_ocr_errors=ignore_ocr_errors,
         book_meta=book_meta,

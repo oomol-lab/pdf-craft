@@ -21,5 +21,4 @@ from .pdf import (
     PDFHandler,
     pdf_pages_count,
 )
-from .toc import TocExtractionMode
 from .transform import OCRTokensMetering, Transform
