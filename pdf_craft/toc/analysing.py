@@ -6,7 +6,11 @@ from ..common import XMLReader, read_xml, save_xml
 from ..llm import LLM
 from ..pdf import TITLE_TAGS, Page
 from ..pdf import decode as decode_pdf
-from .llm_analyser import LLMAnalysisError, analyse_toc_by_llm
+from .llm_analyser import (
+    LLMAnalysisError,
+    analyse_title_levels_by_llm,
+    analyse_toc_levels_by_llm,
+)
 from .toc_levels import Ref2Level, analyse_title_levels, analyse_toc_levels
 from .toc_pages import PageRef, find_toc_pages
 from .types import Toc, TocInfo
@@ -45,9 +49,7 @@ def _do_analyse_toc(
         decode=decode_pdf,
     )
     toc_pages: list[PageRef] = []
-
-    # Try to find TOC pages if mode is not NO_TOC_PAGE
-    if mode != TocExtractionMode.NO_TOC_PAGE:
+    if toc_assumed:
         toc_pages = find_toc_pages(
             iter_titles=lambda: (
                 list(
@@ -67,11 +69,9 @@ def _do_analyse_toc(
     toc_page_indexes: list[int] = []
 
     if toc_pages:
-        if mode == TocExtractionMode.LLM_ENHANCED:
-            if toc_llm is None:
-                raise ValueError("LLM instance must be provided for LLM_ENHANCED mode.")
+        if toc_llm is not None:
             try:
-                ref2level = analyse_toc_by_llm(
+                ref2level = analyse_toc_levels_by_llm(
                     llm=toc_llm,
                     toc_page_refs=toc_pages,
                     toc_page_contents=list(
@@ -85,7 +85,7 @@ def _do_analyse_toc(
             except LLMAnalysisError as e:
                 print(f"LLM analysis failed, falling back to statistical method: {e}")
 
-        if ref2level is None and mode == TocExtractionMode.AUTO_DETECT:
+        if ref2level is None:
             ref2level = analyse_toc_levels(
                 pages=pages,
                 pages_path=pages_path,
@@ -96,7 +96,10 @@ def _do_analyse_toc(
             toc_page_indexes.extend(ref.page_index for ref in toc_pages)
 
     if ref2level is None:
-        ref2level = analyse_title_levels(pages)
+        if toc_llm is None:
+            ref2level = analyse_title_levels(pages)
+        else:
+            ref2level = analyse_title_levels_by_llm(toc_llm, pages)
 
     return TocInfo(
         content=_structure_toc_by_levels(ref2level),

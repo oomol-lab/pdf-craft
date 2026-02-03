@@ -1,69 +1,20 @@
 import json
+import re
 from dataclasses import dataclass
-from typing import Generator
+from typing import Callable, Generator, Generic, Iterable, TypeVar
 
 from json_repair import repair_json
 from pydantic import BaseModel, ValidationError, field_validator
 
+from ..common import XMLReader
 from ..llm import LLM, Message, MessageRole
-from ..pdf import Page
+from ..pdf import TITLE_TAGS, Page
 from .toc_levels import Ref2Level
 from .toc_pages import PageRef
 
 _MAX_RETRIES = 3
-
-
-class _TocLevelsSchema(BaseModel):
-    levels: list[int]
-
-    @field_validator("levels")
-    @classmethod
-    def validate_levels(cls, v: list[int]) -> list[int]:
-        # Rule 1: Check all are valid integers in range
-        for i, level in enumerate(v):
-            if not isinstance(level, int):
-                raise ValueError(
-                    f"Level at index {i} is not an integer: {level}. "
-                    f"All values must be integers."
-                )
-            if level < 0:
-                raise ValueError(
-                    f"Level at index {i} is negative: {level}. "
-                    f"All levels must be non-negative (0, 1, 2, ...)."
-                )
-            if level > 5:
-                raise ValueError(
-                    f"Level at index {i} is too deep: {level}. "
-                    f"Maximum level is 5. Most TOCs have 3-4 levels."
-                )
-
-        # Rule 2: Check for reasonable transitions (no jump > 2)
-        for i in range(1, len(v)):
-            jump = v[i] - v[i - 1]
-            if jump > 2:
-                raise ValueError(
-                    f"Level jump too large at index {i}: "
-                    f"from {v[i - 1]} to {v[i]} (jump of {jump}). "
-                    f"Level changes should not exceed 2 at once."
-                )
-
-        # Rule 3: First level should typically be 0
-        if v and v[0] > 1:
-            raise ValueError(
-                f"First level is {v[0]}, but TOCs typically start at level 0. "
-                f"Consider starting with 0 for the first chapter."
-            )
-
-        return v
-
-
-@dataclass
-class _TocEntry:
-    text: str
-    references: list[tuple[int, int]] | None
-    indent: float
-    font_size: float
-    is_matched: bool
+_P = TypeVar("_P")
+_R = TypeVar("_R")
 
 
 class LLMAnalysisError(Exception):
@@ -71,7 +22,27 @@ class LLMAnalysisError(Exception):
         super().__init__(message)
 
 
-def analyse_toc_by_llm(
+def analyse_title_levels_by_llm(llm: LLM, pages: XMLReader[Page]) -> Ref2Level:
+    titles: list[_Title] = []
+    for page in pages.read():
+        for layout in page.body_layouts:
+            if layout.ref not in TITLE_TAGS:
+                continue
+            _, top, _, bottom = layout.det
+            titles.append(
+                _Title(
+                    text=re.sub(r"\s+", " ", layout.text).strip(),
+                    ref=(page.index, layout.order),
+                    height=bottom - top,
+                )
+            )
+
+    # TODO:
+
+    raise NotImplementedError
+
+
+def analyse_toc_levels_by_llm(
     llm: LLM,
     toc_page_refs: list[PageRef],
     toc_page_contents: list[Page],
@@ -90,49 +61,35 @@ def analyse_toc_by_llm(
     if not matched_title2references:
         return {}
 
-    last_error: str | None = None
-    tail_messages: list[Message] = []
-    head_messages: list[Message] = [
-        Message(
-            role=MessageRole.SYSTEM,
-            message=_build_system_prompt(),
-        ),
-        Message(
-            role=MessageRole.USER,
-            message=_build_user_prompt(
-                toc_entries=toc_entries,
-                matched_titles=matched_title2references,
+    analyser = _LLMAnalyser(
+        llm=llm,
+        validate=_validate_toc_response,
+    )
+    levels = analyser.request(
+        payload=len(matched_title2references),
+        messages=(
+            Message(
+                role=MessageRole.SYSTEM,
+                message=_build_toc_system_prompt(),
+            ),
+            Message(
+                role=MessageRole.USER,
+                message=_build_toc_user_prompt(
+                    toc_entries=toc_entries,
+                    matched_titles=matched_title2references,
+                ),
             ),
         ),
-    ]
-    for attempt in range(_MAX_RETRIES):
-        response = llm.request(input=head_messages + tail_messages)
-        levels, error_msg = _validate_and_parse(
-            response=response,
-            matched_titles_count=len(matched_title2references),
-        )
-        if levels is not None:
-            return _map_to_ref2level(levels, matched_title2references)
-
-        if attempt < _MAX_RETRIES - 1:
-            tail_messages = [
-                Message(role=MessageRole.ASSISTANT, message=response),
-                Message(
-                    role=MessageRole.USER,
-                    message=_build_error_feedback(error_msg or "Unknown error"),
-                ),
-            ]
-        last_error = error_msg
-
-    error_detail = f"Last error: {last_error}" if last_error else "Unknown error"
-    raise LLMAnalysisError(
-        f"LLM analysis failed after {_MAX_RETRIES} attempts. {error_detail}"
+    )
+    return _map_to_ref2level(
+        levels=levels,
+        matched_titles=matched_title2references,
     )
 
 
 def _extract_toc_entries(
     toc_page_contents: list[Page],
-) -> Generator[_TocEntry, None, None]:
+) -> Generator["_TocEntry", None, None]:
     for page in toc_page_contents:
         for layout in page.body_layouts:
             text = layout.text.strip()
@@ -151,7 +108,7 @@ def _extract_toc_entries(
             )
 
 
-def _build_system_prompt() -> str:
+def _build_toc_system_prompt() -> str:
     prompt_lines = [
         "You are analyzing a table of contents (TOC) from a book.",
         "",
@@ -203,8 +160,8 @@ def _build_system_prompt() -> str:
     return "\n".join(prompt_lines)
 
 
-def _build_user_prompt(
-    toc_entries: list[_TocEntry],
+def _build_toc_user_prompt(
+    toc_entries: list["_TocEntry"],
     matched_titles: list[tuple[str, list[tuple[int, int]]]],
 ) -> str:
     prompt_lines = ["COMPLETE TOC (all entries):"]
@@ -227,36 +184,19 @@ def _build_user_prompt(
     return "\n".join(prompt_lines)
 
 
-def _index_to_letter_id(index: int) -> str:
-    """
-    Convert a zero-based index to a letter ID (A, B, C, ..., Z, AA, AB, ...).
-
-    Similar to Excel column naming:
-    - 0 -> A
-    - 25 -> Z
-    - 26 -> AA
-    - 27 -> AB
-    - 51 -> AZ
-    - 52 -> BA
-
-    Args:
-        index: Zero-based index
-
-    Returns:
-        Letter ID string
-    """
-    result = ""
-    index += 1  # Convert to 1-based for easier calculation
-
-    while index > 0:
-        index -= 1  # Adjust for 0-based alphabet
-        result = chr(ord("A") + (index % 26)) + result
-        index //= 26
-
-    return result
+def _map_to_ref2level(
+    levels: list[int],
+    matched_titles: list[tuple[str, list[tuple[int, int]]]],
+) -> Ref2Level:
+    ref2level: Ref2Level = {}
+    for idx, (_, references) in enumerate(matched_titles):
+        level = levels[idx]
+        for page_index, order in references:
+            ref2level[(page_index, order)] = level
+    return ref2level
 
 
-def _validate_and_parse(
+def _validate_toc_response(
     response: str, matched_titles_count: int
 ) -> tuple[list[int] | None, str | None]:
     """
@@ -345,16 +285,33 @@ def _validate_and_parse(
         return None, f"Unexpected error: {str(e)}"
 
 
-def _map_to_ref2level(
-    levels: list[int],
-    matched_titles: list[tuple[str, list[tuple[int, int]]]],
-) -> Ref2Level:
-    ref2level: Ref2Level = {}
-    for idx, (_, references) in enumerate(matched_titles):
-        level = levels[idx]
-        for page_index, order in references:
-            ref2level[(page_index, order)] = level
-    return ref2level
+def _index_to_letter_id(index: int) -> str:
+    """
+    Convert a zero-based index to a letter ID (A, B, C, ..., Z, AA, AB, ...).
+
+    Similar to Excel column naming:
+    - 0 -> A
+    - 25 -> Z
+    - 26 -> AA
+    - 27 -> AB
+    - 51 -> AZ
+    - 52 -> BA
+
+    Args:
+        index: Zero-based index
+
+    Returns:
+        Letter ID string
+    """
+    result = ""
+    index += 1  # Convert to 1-based for easier calculation
+
+    while index > 0:
+        index -= 1  # Adjust for 0-based alphabet
+        result = chr(ord("A") + (index % 26)) + result
+        index //= 26
+
+    return result
 
 
 def _build_error_feedback(error_message: str) -> str:
@@ -376,3 +333,99 @@ def _build_error_feedback(error_message: str) -> str:
             "- TOCs typically start at level 0",
         )
     )
+
+
+class _LLMAnalyser(Generic[_P, _R]):
+    def __init__(
+        self,
+        llm: LLM,
+        validate: Callable[[str, _P], tuple[_R | None, str | None]],
+    ) -> None:
+        self._llm = llm
+        self._validate: Callable[[str, _P], tuple[_R | None, str | None]] = validate
+
+    def request(self, payload: _P, messages: Iterable[Message]) -> _R:
+        last_error: str | None = None
+        head_messages = list(messages)
+        tail_messages: list[Message] = []
+
+        for attempt in range(_MAX_RETRIES):
+            response = self._llm.request(input=head_messages + tail_messages)
+            result, error_msg = self._validate(response, payload)
+            if result is not None:
+                return result
+
+            if attempt < _MAX_RETRIES - 1:
+                tail_messages = [
+                    Message(role=MessageRole.ASSISTANT, message=response),
+                    Message(
+                        role=MessageRole.USER,
+                        message=_build_error_feedback(error_msg or "Unknown error"),
+                    ),
+                ]
+            last_error = error_msg
+
+        error_detail = f"Last error: {last_error}" if last_error else "Unknown error"
+        raise LLMAnalysisError(
+            f"LLM analysis failed after {_MAX_RETRIES} attempts. {error_detail}"
+        )
+
+
+@dataclass
+class _Title:
+    text: str
+    ref: tuple[int, int]
+    height: int
+
+
+@dataclass
+class _TocEntry:
+    text: str
+    references: list[tuple[int, int]] | None
+    indent: float
+    font_size: float
+    is_matched: bool
+
+
+class _TocLevelsSchema(BaseModel):
+    levels: list[int]
+
+    @field_validator("levels")
+    @classmethod
+    def validate_levels(cls, v: list[int]) -> list[int]:
+        # Rule 1: Check all are valid integers in range
+        for i, level in enumerate(v):
+            if not isinstance(level, int):
+                raise ValueError(
+                    f"Level at index {i} is not an integer: {level}. "
+                    f"All values must be integers."
+                )
+            if level < 0:
+                raise ValueError(
+                    f"Level at index {i} is negative: {level}. "
+                    f"All levels must be non-negative (0, 1, 2, ...)."
+                )
+            if level > 5:
+                raise ValueError(
+                    f"Level at index {i} is too deep: {level}. "
+                    f"Maximum level is 5. Most TOCs have 3-4 levels."
+                )
+
+        # Rule 2: Check for reasonable transitions (no jump > 2)
+        for i in range(1, len(v)):
+            jump = v[i] - v[i - 1]
+            if jump > 2:
+                raise ValueError(
+                    f"Level jump too large at index {i}: "
+                    f"from {v[i - 1]} to {v[i]} (jump of {jump}). "
+                    f"Level changes should not exceed 2 at once."
+                )
+
+        # Rule 3: First level should typically be 0
+        if v and v[0] > 1:
+            raise ValueError(
+                f"First level is {v[0]}, but TOCs typically start at level 0. "
+                f"Consider starting with 0 for the first chapter."
+            )
+
+        return v
