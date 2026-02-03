@@ -95,8 +95,8 @@ transform_markdown(
     ignore_pdf_errors=False,  # Optional: continue on PDF rendering errors
     ignore_ocr_errors=False,  # Optional: continue on OCR recognition errors
     generate_plot=False,  # Optional: generate visualization charts
-    toc_mode=TocExtractionMode.NO_TOC_PAGE,  # Optional: TOC extraction mode
     toc_llm=None,  # Optional: LLM instance for enhanced TOC extraction
+    toc_assumed=False,  # Optional: whether to assume TOC pages exist (default: False)
 )
 ```
 
@@ -118,8 +118,8 @@ transform_epub(
     ignore_pdf_errors=False,  # Optional: continue on PDF rendering errors
     ignore_ocr_errors=False,  # Optional: continue on OCR recognition errors
     generate_plot=False,  # Optional: generate visualization charts
-    toc_mode=TocExtractionMode.AUTO_DETECT,  # Optional: TOC extraction mode
     toc_llm=None,  # Optional: LLM instance for enhanced TOC extraction
+    toc_assumed=True,  # Optional: whether to assume TOC pages exist (default: True for EPUB)
     book_meta=BookMeta(
         title="Book Title",
         authors=["Author 1", "Author 2"],
@@ -208,20 +208,19 @@ The `inline_latex` parameter (EPUB only, default: `True`) controls whether to pr
 
 ### Table of Contents Detection
 
-The `toc_mode` parameter controls how pdf-craft extracts table of contents information:
+The `toc_assumed` parameter controls how pdf-craft handles table of contents extraction:
 
-- `TocExtractionMode.NO_TOC_PAGE` (default for Markdown): Generates TOC based on document headings only, without detecting TOC pages
-- `TocExtractionMode.AUTO_DETECT` (default for EPUB): Detects TOC pages using statistical analysis and extracts chapter structure
-- `TocExtractionMode.LLM_ENHANCED`: Detects TOC pages and uses LLM to extract hierarchical chapter structure with improved accuracy. **Requires `toc_llm` parameter to be configured.**
+- `False` (default for Markdown): Assumes no TOC pages exist. The conversion generates TOC based on document headings only, without detecting or processing TOC pages.
+- `True` (default for EPUB): Assumes TOC pages exist. The conversion uses statistical analysis to detect TOC pages and extract chapter structure.
 
-For books with complex chapter hierarchies, `LLM_ENHANCED` mode provides the most accurate results.
+For books with complex chapter hierarchies, you can configure the optional `toc_llm` parameter to enable LLM-powered chapter title analysis, which provides more accurate TOC hierarchy detection.
 
 #### LLM-Enhanced TOC Extraction
 
 To use LLM-enhanced TOC extraction, you need to configure an LLM instance:
 
 ```python
-from pdf_craft import transform_epub, BookMeta, LLM, TocExtractionMode
+from pdf_craft import transform_epub, BookMeta, LLM
 
 # Configure LLM for TOC extraction
 toc_llm = LLM(
@@ -237,8 +236,8 @@ toc_llm = LLM(
 transform_epub(
     pdf_path="input.pdf",
     epub_path="output.epub",
-    toc_mode=TocExtractionMode.LLM_ENHANCED,
-    toc_llm=toc_llm,
+    toc_assumed=True,  # Enable TOC detection
+    toc_llm=toc_llm,  # Enable LLM-powered chapter title analysis
     book_meta=BookMeta(
         title="Book Title",
         authors=["Author"],

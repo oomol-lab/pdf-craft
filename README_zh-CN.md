@@ -95,8 +95,8 @@ transform_markdown(
     ignore_pdf_errors=False,  # 可选：遇到 PDF 渲染错误时继续处理
     ignore_ocr_errors=False,  # 可选：遇到 OCR 识别错误时继续处理
     generate_plot=False,  # 可选：生成可视化图表
-    toc_mode=TocExtractionMode.NO_TOC_PAGE,  # 可选：目录提取模式
     toc_llm=None,  # 可选：用于增强目录提取的 LLM 实例
+    toc_assumed=False,  # 可选：是否假定存在目录页（默认：False）
 )
 ```
 
@@ -118,8 +118,8 @@ transform_epub(
     ignore_pdf_errors=False,  # 可选：遇到 PDF 渲染错误时继续处理
     ignore_ocr_errors=False,  # 可选：遇到 OCR 识别错误时继续处理
     generate_plot=False,  # 可选：生成可视化图表
-    toc_mode=TocExtractionMode.AUTO_DETECT,  # 可选：目录提取模式
     toc_llm=None,  # 可选：用于增强目录提取的 LLM 实例
+    toc_assumed=True,  # 可选：是否假定存在目录页（EPUB 默认：True）
     book_meta=BookMeta(
         title="书名",
         authors=["作者1", "作者2"],
@@ -208,20 +208,19 @@ transform_markdown(
 
 ### 目录检测
 
-`toc_mode` 参数控制 pdf-craft 如何提取目录信息：
+`toc_assumed` 参数控制 pdf-craft 如何处理目录提取：
 
-- `TocExtractionMode.NO_TOC_PAGE`（Markdown 默认值）：仅基于文档标题生成目录，不检测目录页
-- `TocExtractionMode.AUTO_DETECT`（EPUB 默认值）：使用统计分析检测目录页并提取章节结构
-- `TocExtractionMode.LLM_ENHANCED`：检测目录页并使用 LLM 提取层级化的章节结构，准确度更高。**需要配置 `toc_llm` 参数。**
+- `False`（Markdown 默认值）：假定不存在目录页。转换过程仅基于文档标题生成目录，不检测或处理目录页。
+- `True`（EPUB 默认值）：假定存在目录页。转换过程使用统计分析检测目录页并提取章节结构。
 
-对于具有复杂章节层级的书籍，`LLM_ENHANCED` 模式能提供最准确的结果。
+对于具有复杂章节层级的书籍，你可以配置可选的 `toc_llm` 参数来启用 LLM 驱动的章节标题分析，这能提供更准确的目录层级检测。
 
 #### LLM 增强目录提取
 
 要使用 LLM 增强的目录提取功能，你需要配置一个 LLM 实例：
 
 ```python
-from pdf_craft import transform_epub, BookMeta, LLM, TocExtractionMode
+from pdf_craft import transform_epub, BookMeta, LLM
 
 # 配置用于目录提取的 LLM
 toc_llm = LLM(
@@ -237,8 +236,8 @@ toc_llm = LLM(
 transform_epub(
     pdf_path="input.pdf",
     epub_path="output.epub",
-    toc_mode=TocExtractionMode.LLM_ENHANCED,
-    toc_llm=toc_llm,
+    toc_assumed=True,  # 启用目录检测
+    toc_llm=toc_llm,  # 启用 LLM 驱动的章节标题分析
     book_meta=BookMeta(
         title="书名",
         authors=["作者"],
