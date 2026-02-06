@@ -13,6 +13,7 @@ from ...sequence import (
     RefIdMap,
 )
 from ..paragraph import render_markdown_paragraph
+from .table import render_table_content
 
 _MAX_TOC_LEVELS = 3
 _MAX_TITLE_LEVELS = 6
@@ -183,9 +184,13 @@ def _render_asset_content(
         if asset.content:
             if has_content_before:
                 yield "\n\n"
-            yield from render_markdown_paragraph(
-                children=asset.content,
-                render_payload=render_member,
+            yield render_table_content(
+                html_string="".join(
+                    render_markdown_paragraph(
+                        children=asset.content,
+                        render_payload=render_member,
+                    )
+                )
             )
 
     elif asset.ref == "image":
