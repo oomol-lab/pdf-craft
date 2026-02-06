@@ -56,7 +56,12 @@ class PageExtractorNode:
         device_number: int | None,
         aborted: AbortedCheck,
     ) -> Page:
-        from doc_page_extractor import ExtractionContext, plot
+        from doc_page_extractor import (
+            AbortError,
+            ExtractionContext,
+            TokenLimitError,
+            plot,
+        )
 
         body_layouts: list[PageLayout] = []
         footnotes_layouts: list[PageLayout] = []
@@ -86,6 +91,10 @@ class PageExtractorNode:
                     image, layouts = next(generator)
                 except StopIteration:
                     break
+                except AbortError:
+                    raise
+                except TokenLimitError:
+                    raise
                 except Exception as error:
                     raise OCRError(
                         f"Failed to extract page {page_index} layout at stage {step_index}.",
