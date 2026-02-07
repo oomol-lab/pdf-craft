@@ -28,10 +28,18 @@ IgnoreOCRErrorsChecker = bool | Callable[[OCRError], bool]
 class InterruptedError(Exception):
     """Raised when the operation is interrupted by the user."""
 
-    def __init__(self, metering: OCRTokensMetering) -> None:
+    def __init__(self, kind: InterruptedKind, metering: OCRTokensMetering) -> None:
         super().__init__()
-        self._kind: InterruptedKind
+        self._kind: InterruptedKind = kind
         self._metering: OCRTokensMetering = metering
+
+    @property
+    def kind(self) -> InterruptedKind:
+        return self._kind
+
+    @property
+    def metering(self) -> OCRTokensMetering:
+        return self._metering
 
 
 def to_interrupted_error(error: Exception) -> InterruptedError | None:
@@ -43,11 +51,13 @@ def to_interrupted_error(error: Exception) -> InterruptedError | None:
             kind = InterruptedKind.ABORT
         elif isinstance(error, TokenLimitError):
             kind = InterruptedKind.TOKEN_LIMIT_EXCEEDED
+
         if kind is not None:
             return InterruptedError(
-                OCRTokensMetering(
+                kind=kind,
+                metering=OCRTokensMetering(
                     input_tokens=error.input_tokens,
                     output_tokens=error.output_tokens,
-                )
+                ),
             )
     return None
