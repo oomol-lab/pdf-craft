@@ -35,21 +35,21 @@ class _GFMTableConverter(MarkdownConverter):
         super().__init__(**options)
         self._tbody_count = 0
 
-    def convert_td(self, el: "Tag", text: str, parent_tags: list[str]) -> str:
+    def convert_td(self, el: "Tag", text: str, parent_tags: set[str]) -> str:
         self._check_cell_complexity(el)
-        return super().convert_td(el, text, parent_tags)  # type: ignore[misc]
+        return super().convert_td(el, text, parent_tags)  # type: ignore[attr-defined]
 
-    def convert_th(self, el: "Tag", text: str, parent_tags: list[str]) -> str:
+    def convert_th(self, el: "Tag", text: str, parent_tags: set[str]) -> str:
         self._check_cell_complexity(el)
-        return super().convert_th(el, text, parent_tags)  # type: ignore[misc]
+        return super().convert_th(el, text, parent_tags)  # type: ignore[attr-defined]
 
-    def convert_table(self, el: "Tag", text: str, parent_tags: list[str]) -> str:
+    def convert_table(self, el: "Tag", text: str, parent_tags: set[str]) -> str:
         self._tbody_count = len(el.find_all("tbody", recursive=False))
         if self._tbody_count > 1:
             raise _TableComplexityException(
                 f"Table has {self._tbody_count} tbody sections (GFM only supports 1)"
             )
-        return super().convert_table(el, text, parent_tags)  # type: ignore[misc]
+        return super().convert_table(el, text, parent_tags)  # type: ignore[attr-defined]
 
     def _check_cell_complexity(self, el: "Tag") -> None:
         colspan = el.get("colspan", "1")
