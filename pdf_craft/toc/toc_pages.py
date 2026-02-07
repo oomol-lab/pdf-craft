@@ -175,7 +175,8 @@ _P = TypeVar("_P")
 
 class _SubstringMatcher(Generic[_P]):
     def __init__(self):
-        self._automaton = ahocorasick.Automaton()  # type: ignore[attr-defined]
+        # ahocorasick is a C extension module, static analyzers cannot introspect it at analysis time
+        self._automaton = ahocorasick.Automaton()  # type: ignore[attr-defined]  # pylint: disable=c-extension-no-member
         self._substrings_count: int = 0
         self._substring_to_payloads: dict[str, list[_P]] = {}
         self._finalized = False
