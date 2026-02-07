@@ -9,7 +9,7 @@ from .error import (
 )
 from .functions import predownload_models, transform_epub, transform_markdown
 from .llm import LLM
-from .metering import AbortedCheck, InterruptedKind
+from .metering import AbortedCheck, InterruptedKind, OCRTokensMetering
 from .pdf import (
     DeepSeekOCRSize,
     DefaultPDFDocument,
@@ -21,4 +21,4 @@ from .pdf import (
     PDFHandler,
     pdf_pages_count,
 )
-from .transform import OCRTokensMetering, Transform
+from .transform import Transform
