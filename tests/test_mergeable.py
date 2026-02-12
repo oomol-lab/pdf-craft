@@ -21,6 +21,26 @@ _REAL_BUG_CASES: Iterable[tuple[_Content, _Content, bool, str]] = (
         False,
         "冒号结尾+编号段落（带空白）",
     ),
+    (
+        [
+            (
+                "They have been realigning the entire dialectic of the pleasure principle "
+                "and reality principle on the object relation, and basing all "
+                "analytic furtherance around what might be called a rectifying of the subject's"
+            )
+        ],
+        [
+            (
+                "relation to the object, regarded as a dual relationship, as a relationship that would be "
+                "- so we are told when they speak about the analytic situation "
+                "- exceedingly straightforward.1 Well, this relationship between subject and object "
+                "that is increasingly tending to occupy the centre stage of analytic theory is the very "
+                "thing that we are going to put to the test."
+            )
+        ],
+        True,
+        "被错误分割的完整自然段",
+    ),
 )
 
 _CONSTRUCTED_TEST_CASES: Iterable[tuple[_Content, _Content, bool, str]] = (
@@ -48,8 +68,6 @@ _CONSTRUCTED_TEST_CASES: Iterable[tuple[_Content, _Content, bool, str]] = (
     (["Text"], ["(1)"], True, "只有编号没有内容"),
     # 不应合并的情况
     (["Complete sentence."], ["New sentence"], False, "句号结尾"),
-    (["lowercase ending"], ["Uppercase start"], False, "大写字母开头"),
-    (["word"], ["another"], False, "拉丁字母连续无连字符"),
     (["这是一句话。"], ["这是另一句话"], False, "中文句号"),
     # 边界情况
     ([""], ["text"], False, "空内容"),
