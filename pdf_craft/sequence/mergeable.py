@@ -102,24 +102,19 @@ def check_mergeable(
     if text1_stripped.endswith(_LINE_CONTINUE_FLAGS):
         return True
 
-    # 条件3：下一个段落如果以编号开头，说明是新的编号段落，不应合并
+    # 条件3：如果 text1 结尾是拉丁字母 + `-`，text2 开头是拉丁字母，则允许合并（跨段单词拼接）
+    if (
+        is_latin_letter(text2[0])
+        and len(text1) >= 2
+        and text1[-1] in LINK_FLAGS
+        and is_latin_letter(text1[-2])
+    ):
+        return True
+
+    # 条件4：下一个段落如果以编号开头，说明是新的编号段落，不应合并
     for pattern in _NUMBERING_PATTERNS:
         match = pattern.match(text2_stripped)
         if match and (len(content2) > 1 or bool(text2_stripped[match.end() :].strip())):
-            return False
-
-    first_char = text2_stripped[0]
-
-    # 条件4：下一个段落的第一个字符不是大写字母
-    # 如果以大写字母开头，可能是新段落的开始（特别是英文）
-    if first_char.isupper():
-        return False
-
-    # 条件5：如果 text1 结尾是拉丁字母 + `-`，text2 开头是拉丁字母，则允许合并（跨段单词拼接）
-    if is_latin_letter(text2[0]):
-        if len(text1) >= 2 and text1[-1] in LINK_FLAGS and is_latin_letter(text1[-2]):
-            return True
-        if is_latin_letter(text1[-1]):
             return False
 
     return True
