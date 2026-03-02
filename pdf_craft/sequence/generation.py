@@ -16,6 +16,7 @@ from .chapter import (
 from .content import expand_text_in_content, join_texts_in_content
 from .jointer import Jointer
 from .mark import Mark, search_marks
+from .punctuation import normalize_punctuation_in_chapter
 from .reference import References
 
 
@@ -34,6 +35,7 @@ def generate_chapter_files(pages_path: Path, chapters_path: Path, toc: TocInfo):
         else:
             tail = f"{chapter.id}"
 
+        chapter = normalize_punctuation_in_chapter(chapter)
         chapter = analyse_chapter_internal_levels(chapter)
         chapter_file = chapters_path / f"chapter_{tail}.xml"
         chapter_element = encode(chapter)
