@@ -26,9 +26,9 @@ However, the new version has also removed the LLM text correction feature. If yo
 
 ### Online Version
 
-If you'd like to explore pdf-craft without setting it up locally, you can try [Inkora](https://pdf.oomol.com/), an online app built around the same PDF conversion workflow. It lets you upload PDF files and try the main experience directly in your browser.
+If you'd like to explore pdf-craft without setting it up locally, you can try [Inkora](https://inkora.oomol.com/pdf-craft/), an online app built around the same PDF conversion workflow. It lets you upload PDF files and try the main experience directly in your browser.
 
-[![PDF Craft Online Version](docs/images/website-en.png)](https://pdf.oomol.com/)
+[![PDF Craft Online Version](docs/images/website-en.png)](https://inkora.oomol.com/pdf-craft/)
 
 ## Quick Start
 
