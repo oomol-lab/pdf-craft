@@ -7,7 +7,7 @@ from .error import (
     OCRError,
     PDFError,
 )
-from .functions import predownload_models, transform_epub, transform_markdown
+from .functions import predownload_models, transform_epub, transform_markdown, transform_markdown_parallel
 from .llm import LLM
 from .metering import AbortedCheck, InterruptedKind, OCRTokensMetering
 from .pdf import (
