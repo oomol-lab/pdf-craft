@@ -1,6 +1,8 @@
 import unittest
+from typing import cast
 
 from pdf_craft.llm.types import Message, MessageRole
+from pdf_craft.llm.core import LLM
 from pdf_craft.toc.llm_analyser import LLMAnalysisError, _LLMAnalyser
 
 
@@ -12,8 +14,8 @@ class _BrokenLLM:
 class TestLLMAnalyser(unittest.TestCase):
     def test_wraps_llm_request_errors_as_analysis_error(self):
         analyser = _LLMAnalyser(
-            llm=_BrokenLLM(),
-            validate=lambda response, payload: (response, payload),  # pragma: no cover
+            llm=cast(LLM, _BrokenLLM()),
+            validate=lambda response, payload: (response, None),  # pragma: no cover
         )
 
         with self.assertRaises(LLMAnalysisError) as context:
