@@ -567,7 +567,13 @@ class _LLMAnalyser(Generic[_P, _R]):
         tail_messages: list[Message] = []
 
         for attempt in range(_MAX_RETRIES):
-            response = self._llm.request(input=head_messages + tail_messages)
+            try:
+                response = self._llm.request(input=head_messages + tail_messages)
+            except Exception as error:
+                raise LLMAnalysisError(
+                    f"LLM request failed at attempt {attempt + 1}: {error}"
+                ) from error
+
             result, error_msg = self._validate(response, payload)
             if result is not None:
                 return result
