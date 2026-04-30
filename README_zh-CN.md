@@ -304,9 +304,10 @@ transform_markdown(
 
 这允许你实现自定义逻辑，以决定在转换过程中应该忽略哪些特定错误。
 
-## 相关开源库
+## 相关项目
 
-[epub-translator](https://github.com/oomol-lab/epub-translator) 利用 AI 大模型自动翻译 EPUB 电子书，并 100% 保留原书的格式、插图、目录和排版，同时生成 双语对照版本，方便语言学习或国际分享。与本库搭配，可将扫描 PDF 书籍转换并翻译。搭配使用可参考 [视频：PDF 扫描件书籍转 EPUB 格式，翻译成双语书](https://www.bilibili.com/video/BV1tMQZY5EYY)。
+- [EPUB Translator](https://github.com/oomol-lab/epub-translator)：如果你想把 PDF Craft 生成的 EPUB 继续翻译成双语版本，EPUB Translator 可以在保留原始排版、插图和目录的前提下完成转换。完整流程可参考这个[演示视频](https://www.bilibili.com/video/BV1tMQZY5EYY/)。
+- [SpineDigest](https://github.com/oomol-lab/spinedigest)：如果你想进一步把转换后的书提炼成结构化摘要，SpineDigest 可以基于 EPUB 或 Markdown 生成摘要、章节拓扑和知识图谱。
 
 ## 许可证
 
