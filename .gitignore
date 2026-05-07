@@ -3,6 +3,7 @@
 /.venv
 /analysing
 /models-cache
+/.hf-cache
 /format.json
 
 # Byte-compiled / optimized / DLL files
