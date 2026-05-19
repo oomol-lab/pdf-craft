@@ -296,7 +296,16 @@ def _parse_det(det_str: str, context: str) -> tuple[int, int, int, int]:
         ) from e
     if len(det_list) != 4:
         raise ValueError(f"{context}: det must have 4 values, got {len(det_list)}")
-    return (det_list[0], det_list[1], det_list[2], det_list[3])
+    if any(v < 0 for v in det_list):
+        raise ValueError(
+            f"{context}: det values must be non-negative, got: {det_list}"
+        )
+    x1, y1, x2, y2 = det_list
+    if x1 >= x2 or y1 >= y2:
+        raise ValueError(
+            f"{context}: det must satisfy x1 < x2 and y1 < y2, got: {det_list}"
+        )
+    return (x1, y1, x2, y2)
 
 
 def _decode_block_elements(
