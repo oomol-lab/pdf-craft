@@ -3,7 +3,6 @@ import re
 from dataclasses import dataclass
 from typing import Callable, Generator, Generic, Iterable, TypeVar
 
-from json_repair import repair_json
 from pydantic import BaseModel, ValidationError, field_validator
 
 from ..common import XMLReader, split_by_cv
@@ -268,8 +267,13 @@ def _validate_title_response(
                 '{"0": level, "1": level, ...}'
             )
 
-        repaired = repair_json(result_section)
-        data = json.loads(repaired)
+        try:
+            data = json.loads(result_section)
+        except json.JSONDecodeError as e:
+            return None, (
+                f"RESULT section is not valid JSON: {str(e)}. "
+                'Please return a properly formatted JSON object like {"0": 0, "1": 1, "2": -1}.'
+            )
 
         if not isinstance(data, dict):
             return None, (
@@ -319,12 +323,6 @@ def _validate_title_response(
             for level in normalized_levels
         ]
         return capped_levels, None
-
-    except json.JSONDecodeError as e:
-        return None, (
-            f"Invalid JSON syntax: {str(e)}. "
-            'Please return a valid JSON object in the RESULT section like {"0": 0, "1": 1, "2": -1}.'
-        )
 
     except ValidationError as e:
         errors = e.errors()
@@ -448,8 +446,13 @@ def _validate_toc_response(
                 '{"A": level, "B": level, ...}'
             )
 
-        repaired = repair_json(result_section)
-        data = json.loads(repaired)
+        try:
+            data = json.loads(result_section)
+        except json.JSONDecodeError as e:
+            return None, (
+                f"RESULT section is not valid JSON: {str(e)}. "
+                'Please return a properly formatted JSON object like {"A": 1, "B": 0, "C": 1}.'
+            )
 
         if not isinstance(data, dict):
             return None, (
@@ -489,12 +492,6 @@ def _validate_toc_response(
         capped_levels = [min(level, max_allowed_level) for level in normalized_levels]
 
         return capped_levels, None
-
-    except json.JSONDecodeError as e:
-        return None, (
-            f"Invalid JSON syntax: {str(e)}. "
-            'Please return a valid JSON object in the RESULT section like {"A": 1, "B": 0, "C": 1}.'
-        )
 
     except ValidationError as e:
         errors = e.errors()

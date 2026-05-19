@@ -5,6 +5,8 @@ from xml.etree.ElementTree import Element, tostring
 
 from defusedxml.ElementTree import fromstring
 
+_MAX_XML_BYTES = 100 * 1024 * 1024  # 100 MB
+
 
 def indent(elem: Element, level: int = 0) -> Element:
     indent_str = "  " * level
@@ -24,7 +26,14 @@ def indent(elem: Element, level: int = 0) -> Element:
 
 def read_xml(file_path: Path) -> Element:
     try:
+        size = file_path.stat().st_size
+        if size > _MAX_XML_BYTES:
+            raise ValueError(
+                f"XML file exceeds size limit ({size} > {_MAX_XML_BYTES} bytes): {file_path}"
+            )
         return fromstring(file_path.read_text(encoding="utf-8"))
+    except ValueError:
+        raise
     except Exception as error:
         raise ValueError(f"Failed to parse XML file: {file_path}") from error
 
