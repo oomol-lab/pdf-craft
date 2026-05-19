@@ -47,6 +47,7 @@ class Transform:
         markdown_path: PathLike | str,
         markdown_assets_path: PathLike | str | None = None,
         analysing_path: PathLike | str | None = None,
+        safe_root: PathLike | str | None = None,
         ocr_size: DeepSeekOCRSize = "gundam",
         dpi: int | None = None,
         max_page_image_file_size: int | None = None,
@@ -69,6 +70,7 @@ class Transform:
         try:
             with EnsureFolder(
                 path=to_path(analysing_path) if analysing_path is not None else None,
+                safe_root=to_path(safe_root) if safe_root is not None else None,
             ) as analysing_path:
                 asserts_path, chapters_path, _, cover_path, metering = (
                     self._extract_from_pdf(
@@ -116,6 +118,7 @@ class Transform:
         pdf_path: PathLike | str,
         epub_path: PathLike | str,
         analysing_path: PathLike | str | None = None,
+        safe_root: PathLike | str | None = None,
         ocr_size: DeepSeekOCRSize = "gundam",
         dpi: int | None = None,
         max_page_image_file_size: int | None = None,
@@ -139,6 +142,7 @@ class Transform:
         try:
             with EnsureFolder(
                 path=to_path(analysing_path) if analysing_path is not None else None,
+                safe_root=to_path(safe_root) if safe_root is not None else None,
             ) as analysing_path:
                 pdf_path = Path(pdf_path)
                 asserts_path, chapters_path, toc_path, cover_path, metering = (
