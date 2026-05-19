@@ -1,4 +1,5 @@
 import json
+import os
 from pathlib import Path
 
 from pdf_craft import LLM, OCREventKind, transform_markdown
@@ -18,7 +19,7 @@ def main() -> None:
         with open(project_root / "format.json", "r", encoding="utf-8") as f:
             llm_config = json.load(f)
         toc_llm = LLM(
-            key=llm_config["key"],
+            key=os.environ.get("PDF_CRAFT_API_KEY", llm_config["key"]),
             url=llm_config["url"],
             model=llm_config["model"],
             token_encoding=llm_config["token_encoding"],

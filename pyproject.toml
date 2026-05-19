@@ -41,6 +41,7 @@ epub-generator = "==0.1.7"
 pylatexenc = "^2.10"
 pyahocorasick = "^2.2.0"
 markdownify = "^1.2.2"
+defusedxml = ">=0.7.1,<1.0.0"
 
 [tool.poetry.group.dev.dependencies]
 pylint = "^3.3.7"

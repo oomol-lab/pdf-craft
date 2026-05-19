@@ -1,5 +1,7 @@
 from pathlib import Path
-from xml.etree.ElementTree import Element, fromstring, tostring
+from xml.etree.ElementTree import Element, tostring
+
+from defusedxml.ElementTree import fromstring
 
 
 def indent(elem: Element, level: int = 0) -> Element:
