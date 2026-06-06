@@ -424,6 +424,23 @@ class TestParseRawMarkdown(unittest.TestCase):
         self.assertEqual(inner_div.definition.name, "div")
         self.assertEqual(inner_div.children, ["Inner"])
 
+    def test_empty_input(self):
+        """测试空字符串输入"""
+        result = parse_raw_markdown("")
+        self.assertIsInstance(result, list)
+        self.assertEqual(len(result), 0)
+
+    def test_single_quoted_attributes(self):
+        """测试单引号属性值"""
+        result = parse_raw_markdown("<div id='test' title='Test Div'>Content</div>")
+        self.assertEqual(len(result), 1)
+        tag = result[0]
+        self.assertIsInstance(tag, HTMLTag)
+        assert isinstance(tag, HTMLTag)
+        attr_dict = dict(tag.attributes)
+        self.assertEqual(attr_dict["id"], "test")
+        self.assertEqual(attr_dict["title"], "Test Div")
+
 
 if __name__ == "__main__":
     unittest.main()
