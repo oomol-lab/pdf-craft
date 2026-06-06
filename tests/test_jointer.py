@@ -450,6 +450,13 @@ class TestParseLineContent(unittest.TestCase):
     def test_empty_string(self):
         """测试空字符串"""
         result = _parse_block_content("")
+        self.assertIsInstance(result, list)
+        self.assertEqual(len(result), 0)
+
+    def test_none_input(self):
+        """测试 None 输入"""
+        result = _parse_block_content(None)
+        self.assertIsInstance(result, list)
         self.assertEqual(len(result), 0)
 
     def test_formula_only(self):
