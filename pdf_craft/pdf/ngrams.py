@@ -1,3 +1,27 @@
+_HASH_BASE = 131
+_HASH_MOD = (1 << 61) - 1  # Mersenne prime — low collision probability
+
+
+def _rolling_hashes(text: str, n: int) -> list[int]:
+    length = len(text)
+    if length < n:
+        return []
+
+    power = pow(_HASH_BASE, n, _HASH_MOD)
+    hashes: list[int] = [0] * (length - n + 1)
+
+    h = 0
+    for ch in text[:n]:
+        h = (h * _HASH_BASE + ord(ch)) % _HASH_MOD
+    hashes[0] = h
+
+    for i in range(1, length - n + 1):
+        h = (h * _HASH_BASE - ord(text[i - 1]) * power + ord(text[i + n - 1])) % _HASH_MOD
+        hashes[i] = h
+
+    return hashes
+
+
 def has_repetitive_ngrams(
     text: str,
     min_ngram: int,
@@ -18,24 +42,25 @@ def has_repetitive_ngrams(
     if not text:
         return False
 
-    chars = list(text)
-    if len(chars) < min_ngram * repeat_threshold:
+    length = len(text)
+    if length < min_ngram * repeat_threshold:
         return False
 
-    for n in range(min_ngram, min(max_ngram + 1, len(chars) // repeat_threshold + 1)):
-        for i in range(len(chars) - n * repeat_threshold + 1):
-            ngram = tuple(chars[i : i + n])
-            consecutive_count = 1
+    for n in range(min_ngram, min(max_ngram + 1, length // repeat_threshold + 1)):
+        hashes = _rolling_hashes(text, n)
+        for i in range(length - n * repeat_threshold + 1):
+            ref_hash = hashes[i]
+            ref = text[i : i + n]
+            consecutive = 1
             pos = i + n
-            while pos + n <= len(chars):
-                next_ngram = tuple(chars[pos : pos + n])
-                if next_ngram == ngram:
-                    consecutive_count += 1
+            while pos + n <= length:
+                # O(1) hash check; O(n) string compare only on a hash match
+                if hashes[pos] == ref_hash and text[pos : pos + n] == ref:
+                    consecutive += 1
                     pos += n
+                    if consecutive >= repeat_threshold:
+                        return True
                 else:
                     break
-
-            if consecutive_count >= repeat_threshold:
-                return True
 
     return False

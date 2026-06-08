@@ -1,4 +1,6 @@
 import datetime
+import os
+import sys
 import threading
 from collections.abc import Generator
 from logging import DEBUG, FileHandler, Formatter, Logger, getLogger
@@ -123,6 +125,9 @@ class LLM:
         handler.setLevel(DEBUG)
         handler.setFormatter(Formatter("%(asctime)s    %(message)s", "%H:%M:%S"))
         logger.addHandler(handler)
+        # Restrict log file to owner-only on POSIX; logs contain verbatim PDF text.
+        if sys.platform != "win32":
+            os.chmod(file_path, 0o600)
 
         return logger
 
