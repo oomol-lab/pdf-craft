@@ -16,6 +16,15 @@ from ..ocr_config import (
 from .ngrams import has_repetitive_ngrams
 from .types import DeepSeekOCRSize, Page, PageLayout
 
+_LAYOUT_KIND_TO_REF = {
+    "text": "text",
+    "title": "sub_title",
+    "image": "image",
+    "table": "table",
+    "equation": "equation",
+    "footnote": "text",
+}
+
 
 class PageExtractorNode:
     def __init__(self, ocr: OCRConfig) -> None:
@@ -111,7 +120,7 @@ class PageExtractorNode:
                 output_dir_path=temp_dir_path,
             )
             step_index: int = 1
-            generator = self._get_page_extractor().extract(
+            generator = self._get_page_extractor().extract_page_results(
                 image=image,
                 size=ocr_size,
                 stages=2 if includes_footnotes else 1,
@@ -120,7 +129,7 @@ class PageExtractorNode:
             )
             while True:
                 try:
-                    image, layouts = next(generator)
+                    image, page_result = next(generator)
                 except StopIteration:
                     break
                 except AbortError:
@@ -134,47 +143,17 @@ class PageExtractorNode:
                         step_index=step_index,
                     ) from error
 
-                for layout in layouts:
-                    ref = self._normalize_text(layout.ref)
-                    text = self._normalize_text(layout.text)
-                    det = self._normalize_layout_det(image.size, layout.det)
-
-                    if det is None:
-                        continue
-
-                    # 检测短模式重复（如 "1.1.1.1."）
-                    if has_repetitive_ngrams(
-                        text, min_ngram=2, max_ngram=5, repeat_threshold=16
-                    ):
-                        continue
-
-                    # 检测长模式重复（保守策略）
-                    if has_repetitive_ngrams(
-                        text, min_ngram=6, max_ngram=20, repeat_threshold=8
-                    ):
-                        continue
-
-                    hash: str | None = None
-                    if ref in ASSET_TAGS:
-                        hash = asset_hub.clip(image, det)
-
-                    if step_index == 1:
-                        order = len(body_layouts)
-                    elif step_index == 2 and ref not in ASSET_TAGS:
-                        order = len(footnotes_layouts)
-                    else:
-                        continue
-
-                    page_layout = PageLayout(
-                        ref=ref,
-                        det=det,
-                        text=text,
-                        hash=hash,
-                        order=order,
-                    )
+                for page_layout in self._iter_page_layouts(
+                    image=image,
+                    structured=page_result.structured,
+                    asset_hub=asset_hub,
+                    stage_index=step_index,
+                    body_layouts=body_layouts,
+                    footnotes_layouts=footnotes_layouts,
+                ):
                     if step_index == 1:
                         body_layouts.append(page_layout)
-                    elif step_index == 2 and ref not in ASSET_TAGS:
+                    elif page_layout.ref not in ASSET_TAGS:
                         footnotes_layouts.append(page_layout)
 
                 check_aborted(aborted)
@@ -182,7 +161,7 @@ class PageExtractorNode:
                     plot_file_path = (
                         plot_path / f"page_{page_index}_stage_{step_index}.png"
                     )
-                    image = plot(image.copy(), layouts)
+                    image = plot(image.copy(), page_result.layouts)
                     image.save(plot_file_path, format="PNG")
                     check_aborted(aborted)
 
@@ -196,6 +175,74 @@ class PageExtractorNode:
                 input_tokens=context.input_tokens,
                 output_tokens=context.output_tokens,
             )
+
+    def _iter_page_layouts(
+        self,
+        image: Image,
+        structured,
+        asset_hub: AssetHub,
+        stage_index: int,
+        body_layouts: list[PageLayout],
+        footnotes_layouts: list[PageLayout],
+    ):
+        if structured is None:
+            return
+
+        for block in structured.blocks:
+            ref = _LAYOUT_KIND_TO_REF.get(str(block.kind.value), "unknown")
+            if ref == "unknown":
+                continue
+
+            text = self._normalize_block_text(block)
+            det = self._normalize_layout_det(image.size, block.det)
+            if det is None:
+                continue
+
+            # 检测短模式重复（如 "1.1.1.1."）
+            if has_repetitive_ngrams(
+                text, min_ngram=2, max_ngram=5, repeat_threshold=16
+            ):
+                continue
+
+            # 检测长模式重复（保守策略）
+            if has_repetitive_ngrams(
+                text, min_ngram=6, max_ngram=20, repeat_threshold=8
+            ):
+                continue
+
+            hash: str | None = None
+            if ref in ASSET_TAGS:
+                hash = asset_hub.clip(image, det)
+
+            if stage_index == 1:
+                order = len(body_layouts)
+            elif ref not in ASSET_TAGS:
+                order = len(footnotes_layouts)
+            else:
+                continue
+
+            yield PageLayout(
+                ref=ref,
+                det=det,
+                text=text,
+                hash=hash,
+                order=order,
+            )
+
+    def _normalize_block_text(self, block) -> str:
+        parts: list[str] = []
+        text = block.html if block.html is not None else block.text
+        text = self._normalize_text(text)
+        if text:
+            parts.append(text)
+
+        for child in block.children:
+            child_text = child.html if child.html is not None else child.text
+            child_text = self._normalize_text(child_text)
+            if child_text:
+                parts.append(child_text)
+
+        return "\n".join(parts)
 
     def _normalize_text(self, text: str | None) -> str:
         if text is None:
