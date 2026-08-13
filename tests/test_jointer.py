@@ -1,7 +1,7 @@
 import unittest
 
-from pdf_craft.pdf import PageLayout
 from pdf_craft.markdown.paragraph import HTMLTag
+from pdf_craft.pdf import PageLayout
 from pdf_craft.sequence.chapter import AssetLayout, ParagraphLayout
 from pdf_craft.sequence.chapter import InlineExpression
 from pdf_craft.sequence.jointer import (
@@ -655,6 +655,70 @@ class TestParseLineContent(unittest.TestCase):
         assert isinstance(result[1], InlineExpression)
         self.assertEqual(result[1].content, r"\int_0^\infty e^{-x^2} dx")
         self.assertEqual(result[2], " converges")
+
+    def test_inline_formula_with_angle_brackets(self):
+        """测试公式内的 < 不会被 HTML 解析破坏边界"""
+        result = _parse_block_content(
+            r"A non-trivial zero of $ L(s,\chi) $ is any $ s\in C $ "
+            r"such that $ L(s,\chi)=0 $ and $ 0<\Re(s)<1 $ . "
+            r"(In particular, a zero at s=0 is called “trivial”.)"
+        )
+        formulas = [item for item in result if isinstance(item, InlineExpression)]
+        texts = [item for item in result if isinstance(item, str)]
+
+        self.assertEqual(
+            [formula.content for formula in formulas],
+            [r" L(s,\chi) ", r" s\in C ", r" L(s,\chi)=0 ", r" 0<\Re(s)<1 "],
+        )
+        self.assertTrue(
+            any(
+                "(In particular, a zero at s=0 is called “trivial”.)" in text
+                for text in texts
+            )
+        )
+
+    def test_latex_protection_keeps_html_table_parsing(self):
+        """测试保护公式时不回退 HTML/table 解析"""
+        result = _parse_block_content(
+            r"<table><tr><td>$ 0<\Re(s)<1 $</td></tr></table>"
+        )
+
+        self.assertEqual(len(result), 1)
+        table = result[0]
+        self.assertIsInstance(table, HTMLTag)
+        assert isinstance(table, HTMLTag)
+        self.assertEqual(table.definition.name, "table")
+        row = table.children[0]
+        self.assertIsInstance(row, HTMLTag)
+        assert isinstance(row, HTMLTag)
+        cell = row.children[0]
+        self.assertIsInstance(cell, HTMLTag)
+        assert isinstance(cell, HTMLTag)
+        self.assertEqual(cell.definition.name, "td")
+        self.assertEqual(len(cell.children), 1)
+        expression = cell.children[0]
+        self.assertIsInstance(expression, InlineExpression)
+        assert isinstance(expression, InlineExpression)
+        self.assertEqual(expression.content, r" 0<\Re(s)<1 ")
+
+    def test_literal_latex_placeholder_text_without_formula(self):
+        """测试普通文本中的占位符形状内容不会被当作公式"""
+        text = "\uE000PDF_CRAFT_LATEX_0_0\uE001"
+        result = _parse_block_content(text)
+
+        self.assertEqual(result, [text])
+
+    def test_literal_latex_placeholder_text_with_formula(self):
+        """测试普通占位符形状文本和真实公式不会互相串扰"""
+        literal = "\uE000PDF_CRAFT_LATEX_0_0\uE001"
+        result = _parse_block_content(f"{literal} and $x<y$")
+
+        self.assertEqual(len(result), 2)
+        self.assertEqual(result[0], literal + " and ")
+        expression = result[1]
+        self.assertIsInstance(expression, InlineExpression)
+        assert isinstance(expression, InlineExpression)
+        self.assertEqual(expression.content, "x<y")
 
 
 def _page_layout(
