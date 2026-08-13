@@ -25,7 +25,7 @@ _TABLE_CAPTION_PATTERN = re.compile(
     re.IGNORECASE,
 )
 _FOOTNOTE_PATTERN = re.compile(
-    r"^\s*(?:\d{1,2}|[a-z]|[①-⑳]|[¹²³⁴⁵⁶⁷⁸⁹⁰]+)[\).、]?\s+",
+    r"^\s*(?:\d{1,2}[\).、]|[a-z][\).、]|[①-⑳]|[¹²³⁴⁵⁶⁷⁸⁹⁰]+)\s+",
     re.IGNORECASE,
 )
 

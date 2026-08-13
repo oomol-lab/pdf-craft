@@ -470,7 +470,7 @@ class TestJoinTableAdjacentText(unittest.TestCase):
             _page_layout(
                 ref="text",
                 det=(105, 270, 500, 300),
-                text="1 The mean length of stay was 5.3 days.",
+                text="1. The mean length of stay was 5.3 days.",
             ),
         ]
 
@@ -480,7 +480,36 @@ class TestJoinTableAdjacentText(unittest.TestCase):
         self.assertIsInstance(result[0], AssetLayout)
         asset = result[0]
         assert isinstance(asset, AssetLayout)
-        self.assertEqual(asset.caption, ["1 The mean length of stay was 5.3 days."])
+        self.assertEqual(asset.caption, ["1. The mean length of stay was 5.3 days."])
+
+    def test_numeric_leading_body_text_is_not_attached_to_table_caption(self):
+        layouts = [
+            _page_layout(
+                ref="table",
+                det=(100, 120, 500, 260),
+                text="<table><tr><td>A</td></tr></table>",
+            ),
+            _page_layout(
+                ref="text",
+                det=(105, 270, 500, 300),
+                text="12 patients were excluded from the trial.",
+            ),
+        ]
+
+        result = list(Jointer([(0, layouts)]).execute())
+
+        self.assertEqual(len(result), 2)
+        self.assertIsInstance(result[0], AssetLayout)
+        self.assertIsInstance(result[1], ParagraphLayout)
+        asset = result[0]
+        paragraph = result[1]
+        assert isinstance(asset, AssetLayout)
+        assert isinstance(paragraph, ParagraphLayout)
+        self.assertEqual(asset.caption, [])
+        self.assertEqual(
+            paragraph.blocks[0].content,
+            ["12 patients were excluded from the trial."],
+        )
 
     def test_normal_following_paragraph_is_not_attached_to_table_caption(self):
         layouts = [
