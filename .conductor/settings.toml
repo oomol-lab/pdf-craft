@@ -19,6 +19,12 @@ poetry config virtualenvs.in-project true
 poetry install --with dev
 
 if [ ! -f .env ]; then
-  cp .env.template .env
+  SOURCE_ENV="$CONDUCTOR_ROOT_PATH/.env"
+
+  if [ -n "$CONDUCTOR_ROOT_PATH" ] && [ -f "$SOURCE_ENV" ]; then
+    cp "$SOURCE_ENV" .env
+  else
+    cp .env.template .env
+  fi
 fi
 '''
