@@ -181,6 +181,42 @@ class TestOCRConfig(unittest.TestCase):
             ),
         )
 
+    def test_create_ocr_config_from_upstream_legacy_vendor_env(self):
+        env = {
+            "DOC_PAGE_EXTRACTOR_BACKEND": "vendor",
+            "DOC_PAGE_EXTRACTOR_DEEPSEEK_VENDOR_BASE_URL": "https://example.com",
+            "DOC_PAGE_EXTRACTOR_DEEPSEEK_VENDOR_API_KEY": "key",
+            "DOC_PAGE_EXTRACTOR_DEEPSEEK_VENDOR_MODEL": "model",
+        }
+        with patch.dict(os.environ, env, clear=True):
+            config = create_ocr_config_from_env()
+
+        self.assertEqual(
+            config,
+            VendorDeepSeekOCRConfig(
+                base_url="https://example.com",
+                api_key="key",
+                model="model",
+            ),
+        )
+
+    def test_create_ocr_config_from_upstream_legacy_baidu_env(self):
+        env = {
+            "DOC_PAGE_EXTRACTOR_BACKEND": "baidu",
+            "DOC_PAGE_EXTRACTOR_BAIDU_AK": "ak",
+            "DOC_PAGE_EXTRACTOR_BAIDU_SK": "sk",
+        }
+        with patch.dict(os.environ, env, clear=True):
+            config = create_ocr_config_from_env()
+
+        self.assertEqual(
+            config,
+            VendorUnlimitedOCRConfig(
+                ak="ak",
+                sk="sk",
+            ),
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

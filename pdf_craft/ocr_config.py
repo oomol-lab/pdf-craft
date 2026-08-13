@@ -132,7 +132,17 @@ OCRMode: TypeAlias = Literal["local-deepseek", "vendor-deepseek", "vendor-unlimi
 
 
 def create_ocr_config_from_env() -> OCRConfig:
-    mode = _env_str("PDF_CRAFT_OCR_MODE", default="local-deepseek")
+    mode = _env_str("PDF_CRAFT_OCR_MODE")
+    if not mode:
+        legacy_mode = _env_str("DOC_PAGE_EXTRACTOR_BACKEND")
+        if legacy_mode == "vendor":
+            mode = "vendor-deepseek"
+        elif legacy_mode == "baidu":
+            mode = "vendor-unlimited"
+        elif legacy_mode in {"local", "cuda"}:
+            mode = "local-deepseek"
+        else:
+            mode = "local-deepseek"
     if mode == "local-deepseek":
         return LocalDeepSeekOCRConfig.from_env()
     if mode == "vendor-deepseek":
