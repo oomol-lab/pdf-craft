@@ -1,0 +1,3 @@
+[scripts]
+setup = "poetry config virtualenvs.in-project true && poetry install --with dev"
+archive = "rm -rf .venv .pytest_cache .ruff_cache .pyright .coverage htmlcov cover analysing models-cache dist build *.egg-info"

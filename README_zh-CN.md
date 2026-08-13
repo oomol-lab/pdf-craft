@@ -304,6 +304,10 @@ transform_markdown(
 
 这允许你实现自定义逻辑，以决定在转换过程中应该忽略哪些特定错误。
 
+## 开发
+
+本地贡献者环境、验证命令、手动转换检查和 VGE worktree 说明，请参考[开发指南](docs/DEVELOPMENT_zh-CN.md)。
+
 ## 相关项目
 
 - [EPUB Translator](https://github.com/oomol-lab/epub-translator)：如果你想把 PDF Craft 生成的 EPUB 继续翻译成双语版本，EPUB Translator 可以在保留原始排版、插图和目录的前提下完成转换。完整流程可参考这个[演示视频](https://www.bilibili.com/video/BV1tMQZY5EYY/)。

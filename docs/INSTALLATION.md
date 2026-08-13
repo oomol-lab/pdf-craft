@@ -2,7 +2,7 @@
 
 ## System Requirements
 
-- Python >= 3.10, < 3.14 (3.11.16 recommended)
+- Python >= 3.11, < 3.14 (3.11.16 recommended)
 - Poppler (required for PDF parsing and rendering)
 - NVIDIA GPU with CUDA 11.8 or 12.1 support
 - 16 GB or more VRAM (24 GB or higher recommended, see [DeepSeek OCR Hardware Requirements Discussion](https://huggingface.co/deepseek-ai/DeepSeek-OCR/discussions/31))
