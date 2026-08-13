@@ -1,7 +1,11 @@
 import unittest
 
+from pdf_craft.pdf import PageLayout
+from pdf_craft.markdown.paragraph import HTMLTag
+from pdf_craft.sequence.chapter import AssetLayout, ParagraphLayout
 from pdf_craft.sequence.chapter import InlineExpression
 from pdf_craft.sequence.jointer import (
+    Jointer,
     _AssetHolder,
     _normalize_equation,
     _normalize_table,
@@ -384,6 +388,127 @@ Footer text"""
         self.assertIsNone(layout.caption)
 
 
+class TestJoinTableAdjacentText(unittest.TestCase):
+    def test_table_internal_title_and_caption_still_normalized(self):
+        layouts = [
+            _page_layout(
+                ref="table",
+                det=(100, 120, 500, 260),
+                text="Table 1: Sample<table><tr><td>A</td></tr></table>Note: sample",
+            )
+        ]
+
+        result = list(Jointer([(0, layouts)]).execute())
+
+        self.assertEqual(len(result), 1)
+        self.assertIsInstance(result[0], AssetLayout)
+        asset = result[0]
+        assert isinstance(asset, AssetLayout)
+        self.assertEqual(asset.title, ["Table 1: Sample"])
+        self.assertIsInstance(asset.content[0], HTMLTag)
+        table_content = asset.content[0]
+        assert isinstance(table_content, HTMLTag)
+        self.assertEqual(table_content.definition.name, "table")
+        self.assertEqual(asset.caption, ["Note: sample"])
+
+    def test_adjacent_title_paragraph_is_attached_to_table(self):
+        layouts = [
+            _page_layout(
+                ref="text",
+                det=(105, 80, 495, 110),
+                text="Table 1: Emergency visits",
+            ),
+            _page_layout(
+                ref="table",
+                det=(100, 120, 500, 260),
+                text="<table><tr><td>A</td></tr></table>",
+            ),
+        ]
+
+        result = list(Jointer([(0, layouts)]).execute())
+
+        self.assertEqual(len(result), 1)
+        self.assertIsInstance(result[0], AssetLayout)
+        asset = result[0]
+        assert isinstance(asset, AssetLayout)
+        self.assertEqual(asset.title, ["Table 1: Emergency visits"])
+        self.assertIsInstance(asset.content[0], HTMLTag)
+        table_content = asset.content[0]
+        assert isinstance(table_content, HTMLTag)
+        self.assertEqual(table_content.definition.name, "table")
+        self.assertEqual(asset.caption, [])
+
+    def test_adjacent_note_paragraph_is_attached_to_table_caption(self):
+        layouts = [
+            _page_layout(
+                ref="table",
+                det=(100, 120, 500, 260),
+                text="<table><tr><td>A</td></tr></table>",
+            ),
+            _page_layout(
+                ref="text",
+                det=(105, 270, 500, 300),
+                text="Note: Numbers may not add to totals because of rounding.",
+            ),
+        ]
+
+        result = list(Jointer([(0, layouts)]).execute())
+
+        self.assertEqual(len(result), 1)
+        self.assertIsInstance(result[0], AssetLayout)
+        asset = result[0]
+        assert isinstance(asset, AssetLayout)
+        self.assertEqual(asset.caption, ["Note: Numbers may not add to totals because of rounding."])
+
+    def test_adjacent_footnote_paragraph_is_attached_to_table_caption(self):
+        layouts = [
+            _page_layout(
+                ref="table",
+                det=(100, 120, 500, 260),
+                text="<table><tr><td>A</td></tr></table>",
+            ),
+            _page_layout(
+                ref="text",
+                det=(105, 270, 500, 300),
+                text="1 The mean length of stay was 5.3 days.",
+            ),
+        ]
+
+        result = list(Jointer([(0, layouts)]).execute())
+
+        self.assertEqual(len(result), 1)
+        self.assertIsInstance(result[0], AssetLayout)
+        asset = result[0]
+        assert isinstance(asset, AssetLayout)
+        self.assertEqual(asset.caption, ["1 The mean length of stay was 5.3 days."])
+
+    def test_normal_following_paragraph_is_not_attached_to_table_caption(self):
+        layouts = [
+            _page_layout(
+                ref="table",
+                det=(100, 120, 500, 260),
+                text="<table><tr><td>A</td></tr></table>",
+            ),
+            _page_layout(
+                ref="text",
+                det=(105, 270, 500, 310),
+                text="This paragraph starts the next section and discusses the result.",
+            ),
+        ]
+
+        result = list(Jointer([(0, layouts)]).execute())
+
+        self.assertEqual(len(result), 2)
+        self.assertIsInstance(result[0], AssetLayout)
+        self.assertIsInstance(result[1], ParagraphLayout)
+        asset = result[0]
+        paragraph = result[1]
+        assert isinstance(asset, AssetLayout)
+        assert isinstance(paragraph, ParagraphLayout)
+        self.assertEqual(asset.caption, [])
+        self.assertEqual(paragraph.blocks[0].content, ["This paragraph starts the next section and discusses the result."])
+
+
 class TestParseLineContent(unittest.TestCase):
     """测试 _parse_line_content 函数"""
 
@@ -501,6 +626,22 @@ class TestParseLineContent(unittest.TestCase):
         assert isinstance(result[1], InlineExpression)
         self.assertEqual(result[1].content, r"\int_0^\infty e^{-x^2} dx")
         self.assertEqual(result[2], " converges")
+
+
+def _page_layout(
+    ref: str,
+    det: tuple[int, int, int, int],
+    text: str,
+    order: int = 0,
+    hash: str | None = None,
+):
+    return PageLayout(
+        ref=ref,
+        det=det,
+        text=text,
+        order=order,
+        hash=hash,
+    )
 
 
 if __name__ == "__main__":
