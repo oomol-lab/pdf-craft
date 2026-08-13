@@ -57,21 +57,26 @@ class TestStructuredPageMapping(unittest.TestCase):
         )
 
         with TemporaryDirectory() as temp_dir:
+            asset_path = Path(temp_dir)
             layouts = list(
                 node._iter_page_layouts(  # pylint: disable=protected-access
                     image=image,
                     structured=structured,
-                    asset_hub=AssetHub(Path(temp_dir)),
+                    asset_hub=AssetHub(asset_path),
                     stage_index=1,
                     body_layouts=[],
                     footnotes_layouts=[],
                 )
             )
 
-        self.assertEqual(len(layouts), 1)
-        self.assertEqual(layouts[0].ref, "image")
-        self.assertEqual(layouts[0].text, "Figure 1. Caption")
-        self.assertIsNotNone(layouts[0].hash)
+            self.assertEqual(len(layouts), 1)
+            self.assertEqual(layouts[0].ref, "image")
+            self.assertEqual(layouts[0].text, "Figure 1. Caption")
+            self.assertIsNotNone(layouts[0].hash)
+            files = list(asset_path.iterdir())
+            self.assertEqual(len(files), 1)
+            self.assertEqual(files[0].suffix, ".png")
+            self.assertEqual(files[0].stem, layouts[0].hash)
 
     def test_stage_two_asset_does_not_create_asset_file(self):
         node = PageExtractorNode(LocalDeepSeekOCRConfig())
