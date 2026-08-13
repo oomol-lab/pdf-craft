@@ -13,7 +13,15 @@ poetry config virtualenvs.in-project true
 poetry install --with dev
 ```
 
-只有当任务需要覆盖 import 行为或真实 OCR 行为时，才按当前环境单独安装 `torch` 和 `torchvision`。
+开发 lock file 当前会通过 `doc-page-extractor` 安装 `torch`。只有当任务需要指定 CPU 或 CUDA wheel 时，才按当前环境覆盖安装 `torch` 和 `torchvision`。
+
+真实 OCR 有三种配置入口：
+
+- `LocalDeepSeekOCRConfig`：本地 DeepSeek-OCR，真实转换需要 CUDA。
+- `VendorDeepSeekOCRConfig`：DeepSeek OCR 供应商模式。
+- `VendorUnlimitedOCRConfig`：百度 Unlimited OCR 供应商模式。
+
+库代码不得自动读取 `.env`。手动脚本可以加载 `.env` 后调用 `create_ocr_config_from_env()`。
 
 ## 默认验证
 
@@ -29,7 +37,7 @@ poetry run python test.py
 
 ## VGE Worktree 行为
 
-本项目没有长期运行的开发服务，因此 `.conductor/settings.toml` 不应定义 `scripts.run`，除非未来项目新增 watcher 或 server。VGE setup 只应安装依赖，并确保当前 worktree 中的 pdf-craft 及其 `doc-page-extractor` 依赖可以被导入和测试。
+本项目没有长期运行的开发服务，因此 `.conductor/settings.toml` 不应定义 `scripts.run`，除非未来项目新增 watcher 或 server。VGE setup 只应安装依赖，确保当前 worktree 中的 pdf-craft 及其 `doc-page-extractor` 依赖可以被导入和测试，并在缺少 `.env` 时从 `.env.template` 创建一份本地配置。
 
 默认不配置 `scripts.archive`。VGE 会负责释放 worktree；项目级 Cleanup 只适合需要保留现场后执行额外归档或收尾动作的项目，本仓库当前没有这种需求。
 

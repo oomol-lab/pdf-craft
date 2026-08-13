@@ -79,7 +79,7 @@ transform_epub(
 ### 转换为 Markdown
 
 ```python
-from pdf_craft import transform_markdown
+from pdf_craft import LocalDeepSeekOCRConfig, transform_markdown
 
 transform_markdown(
     pdf_path="input.pdf",
@@ -87,7 +87,7 @@ transform_markdown(
     markdown_assets_path="images",
     analysing_path="temp",  # 可选：指定临时文件夹
     ocr_size="gundam",  # 可选：tiny, small, base, large, gundam
-    models_cache_path="models",  # 可选：模型缓存路径
+    ocr=LocalDeepSeekOCRConfig(models_cache_path="models"),
     dpi=300,  # 可选：渲染 PDF 页面的 DPI（默认：300）
     max_page_image_file_size=None,  # 可选：最大图像文件大小（字节），超出时自动调整 DPI
     includes_cover=False,  # 可选：包含封面
@@ -103,14 +103,20 @@ transform_markdown(
 ### 转换为 EPUB
 
 ```python
-from pdf_craft import transform_epub, BookMeta, TableRender, LaTeXRender
+from pdf_craft import (
+    BookMeta,
+    LaTeXRender,
+    LocalDeepSeekOCRConfig,
+    TableRender,
+    transform_epub,
+)
 
 transform_epub(
     pdf_path="input.pdf",
     epub_path="output.epub",
     analysing_path="temp",  # 可选：指定临时文件夹
     ocr_size="gundam",  # 可选：tiny, small, base, large, gundam
-    models_cache_path="models",  # 可选：模型缓存路径
+    ocr=LocalDeepSeekOCRConfig(models_cache_path="models"),
     dpi=300,  # 可选：渲染 PDF 页面的 DPI（默认：300）
     max_page_image_file_size=None,  # 可选：最大图像文件大小（字节），超出时自动调整 DPI
     includes_cover=True,  # 可选：包含封面
@@ -133,19 +139,58 @@ transform_epub(
 )
 ```
 
+### OCR 配置
+
+pdf-craft 支持三种 OCR 配置：
+
+- `LocalDeepSeekOCRConfig`：本地 DeepSeek-OCR 模型。真实转换需要 CUDA。
+- `VendorDeepSeekOCRConfig`：通过 OpenAI-compatible endpoint 使用 DeepSeek OCR。
+- `VendorUnlimitedOCRConfig`：百度 Unlimited OCR。
+
+通过 `ocr` 参数传入其中一种配置：
+
+```python
+from pdf_craft import (
+    VendorDeepSeekOCRConfig,
+    VendorUnlimitedOCRConfig,
+    transform_markdown,
+)
+
+transform_markdown(
+    pdf_path="input.pdf",
+    markdown_path="output.md",
+    ocr=VendorDeepSeekOCRConfig(
+        base_url="https://example.com",
+        api_key="...",
+        model="deepseek-ocr",
+    ),
+)
+
+transform_markdown(
+    pdf_path="input.pdf",
+    markdown_path="output.md",
+    ocr=VendorUnlimitedOCRConfig(
+        ak="...",
+        sk="...",
+    ),
+)
+```
+
+旧的 `models_cache_path` 和 `local_only` 参数仍然可用，并映射为 `LocalDeepSeekOCRConfig`。不要把它们和 `ocr` 同时传入。
+
 ### 模型管理
 
-pdf-craft 依赖 DeepSeek OCR 模型，首次运行时会自动从 Hugging Face 下载。你可以通过 `models_cache_path` 和 `local_only` 参数控制模型的存储和加载行为。
+本地 DeepSeek OCR 模型首次运行时会自动从 Hugging Face 下载。你可以通过 `LocalDeepSeekOCRConfig` 控制模型的存储和加载行为。
 
 #### 预下载模型
 
 在生产环境中，建议提前下载模型，避免首次运行时下载：
 
 ```python
-from pdf_craft import predownload_models
+from pdf_craft import LocalDeepSeekOCRConfig, predownload_models
 
 predownload_models(
-    models_cache_path="models",  # 指定模型缓存目录
+    ocr=LocalDeepSeekOCRConfig(models_cache_path="models"),
     revision=None,  # 可选：指定模型版本
 )
 ```
@@ -155,12 +200,12 @@ predownload_models(
 默认情况下，模型会下载到系统的 Hugging Face 缓存目录。你可以通过 `models_cache_path` 参数自定义缓存位置：
 
 ```python
-from pdf_craft import transform_markdown
+from pdf_craft import LocalDeepSeekOCRConfig, transform_markdown
 
 transform_markdown(
     pdf_path="input.pdf",
     markdown_path="output.md",
-    models_cache_path="./my_models",  # 自定义模型缓存目录
+    ocr=LocalDeepSeekOCRConfig(models_cache_path="./my_models"),
 )
 ```
 
@@ -169,13 +214,15 @@ transform_markdown(
 如果你已经预先下载了模型，可以使用 `local_only=True` 禁止网络下载，确保仅使用本地模型：
 
 ```python
-from pdf_craft import transform_markdown
+from pdf_craft import LocalDeepSeekOCRConfig, transform_markdown
 
 transform_markdown(
     pdf_path="input.pdf",
     markdown_path="output.md",
-    models_cache_path="./my_models",
-    local_only=True,  # 仅使用本地模型，不从网络下载
+    ocr=LocalDeepSeekOCRConfig(
+        models_cache_path="./my_models",
+        local_only=True,
+    ),
 )
 ```
 

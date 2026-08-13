@@ -13,6 +13,7 @@
 - `predownload_models`
 - `Transform`
 - `LLM`
+- `LocalDeepSeekOCRConfig`、`VendorDeepSeekOCRConfig`、`VendorUnlimitedOCRConfig`
 - `PDFHandler`、`PDFDocument`、`DefaultPDFHandler`、`DefaultPDFDocument`
 - `BookMeta`、`TableRender`、`LaTeXRender`
 
@@ -29,5 +30,7 @@
 ## 外部包边界
 
 `doc-page-extractor` 和 `epub-generator` 是被 pin 住的运行时依赖。它们内部的问题通常应在各自仓库修复，再通过版本升级或明确的本地联调引入。本仓库 `scripts/` 下的同步脚本会覆盖 `.venv` 中已安装的依赖源码；这些脚本只是手动本地联调辅助，不是普通项目 setup。
+
+pdf-craft 对外只暴露自己的 OCR 配置对象，不暴露 `doc-page-extractor` 的 `PageExtractor`、`OCRAdapter` 或 factory 注入口。需要新增 OCR 后端时，优先在 `doc-page-extractor` 增加官方构造入口，再在 pdf-craft 映射成封闭配置对象。
 
 `torch` 和 `torchvision` 有意不作为本包运行时依赖，因为用户必须按自己的环境选择 CPU 或 CUDA wheel。不要轻易把它们加入运行时依赖。

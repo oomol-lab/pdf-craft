@@ -43,7 +43,11 @@ class InterruptedError(Exception):
 
 
 def to_interrupted_error(error: Exception) -> InterruptedError | None:
-    from doc_page_extractor import AbortError, ExtractionAbortedError, TokenLimitError
+    from doc_page_extractor.extraction_context import (
+        AbortError,
+        ExtractionAbortedError,
+        TokenLimitError,
+    )
 
     if isinstance(error, ExtractionAbortedError):
         kind: InterruptedKind | None = None

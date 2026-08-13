@@ -1,13 +1,16 @@
 import json
 from pathlib import Path
 
-from pdf_craft import LLM, OCREventKind, transform_markdown
+from pdf_craft import LLM, OCREventKind, create_ocr_config_from_env, transform_markdown
+
+from env_loader import load_env
 
 _IMAGE_STEM = "newton"
 
 
 def main() -> None:
     project_root = Path(__file__).parent.parent
+    load_env(project_root / ".env")
     assets_dir_path = project_root / "tests" / "assets"
     analysing_dir_path = project_root / "analysing"
     pdf_file_name = f"{_IMAGE_STEM}.pdf"
@@ -37,7 +40,7 @@ def main() -> None:
         markdown_path=analysing_dir_path / "output.md",
         markdown_assets_path=Path("images"),
         analysing_path=analysing_dir_path,
-        models_cache_path=project_root / "models-cache",
+        ocr=create_ocr_config_from_env(),
         includes_footnotes=True,
         includes_cover=True,
         generate_plot=True,

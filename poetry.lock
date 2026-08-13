@@ -502,14 +502,14 @@ files = [
 
 [[package]]
 name = "doc-page-extractor"
-version = "1.0.12"
-description = "Document page extraction tool powered by DeepSeek-OCR"
+version = "1.1.0"
+description = "Document page extraction tool with DeepSeek-OCR and Baidu OCR adapters"
 optional = false
 python-versions = "<3.14,>=3.10"
 groups = ["main"]
 files = [
-    {file = "doc_page_extractor-1.0.12-py3-none-any.whl", hash = "sha256:6bd5b4203d39c0544082de611c36f17d37be5eabac0ba8061b9c692cb410bcdb"},
-    {file = "doc_page_extractor-1.0.12.tar.gz", hash = "sha256:28d45f2f48a3a61801512bd9a919fb1860632f0291ffbbeb8016c53322589ae9"},
+    {file = "doc_page_extractor-1.1.0-py3-none-any.whl", hash = "sha256:011765b9e839c48460cca0c7c5c0d52712201f1eb029c511b8b12346f1fe1d5b"},
+    {file = "doc_page_extractor-1.1.0.tar.gz", hash = "sha256:547240cb95e76b6c0a2caf6216826da61fe589c4e405113035f3579ca997efb3"},
 ]
 
 [package.dependencies]
@@ -517,7 +517,9 @@ accelerate = ">=0.26.0"
 addict = ">=2.4.0"
 easydict = ">=1.13"
 einops = ">=0.8.0"
+Pillow = ">=10.0.1,<=15.0"
 readerwriterlock = ">=1.0.9,<2.0.0"
+requests = ">=2.32.0,<3.0.0"
 transformers = ">=4.46.0,<4.48.0"
 
 [[package]]
@@ -3046,4 +3048,4 @@ zstd = ["zstandard (>=0.18.0)"]
 [metadata]
 lock-version = "2.1"
 python-versions = ">=3.11,<3.14"
-content-hash = "6b72bd5269c07c2ba726bfb6b027f5b2cbcb05125f724bb1ae102bbf436eb159"
+content-hash = "b6981844ff98588244ef260b3c962e414535fba1ab55e7d212ffb36a41559184"

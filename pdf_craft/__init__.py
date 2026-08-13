@@ -10,6 +10,14 @@ from .error import (
 from .functions import predownload_models, transform_epub, transform_markdown
 from .llm import LLM
 from .metering import AbortedCheck, InterruptedKind, OCRTokensMetering
+from .ocr_config import (
+    LocalDeepSeekOCRConfig,
+    OCRConfig,
+    VendorDeepSeekOCRConfig,
+    VendorOCRConfig,
+    VendorUnlimitedOCRConfig,
+    create_ocr_config_from_env,
+)
 from .pdf import (
     DeepSeekOCRSize,
     DefaultPDFDocument,

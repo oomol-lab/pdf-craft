@@ -31,9 +31,11 @@
 
 ## 重型运行时边界
 
-`PageExtractorNode` 会延迟导入 `doc-page-extractor`，并且只在需要 OCR 时触发模型加载。除非任务明确要求 eager loading，否则应保持这种延迟加载行为。
+`PageExtractorNode` 会延迟导入 `doc-page-extractor`，并且只在需要 OCR 时根据 pdf-craft 的 OCR 配置创建上游 extractor。除非任务明确要求 eager loading，否则应保持这种延迟加载行为。
 
-完整 OCR 转换可能需要 Poppler、支持 CUDA 的 PyTorch、大型模型下载和较高显存。普通单元测试应保持不依赖这些资源也能运行。
+OCR 配置是封闭公共面：`LocalDeepSeekOCRConfig`、`VendorDeepSeekOCRConfig`、`VendorUnlimitedOCRConfig`。不要把 `doc-page-extractor` 的 `PageExtractor`、`OCRAdapter` 或 factory 作为 pdf-craft 公共注入口。
+
+本地 DeepSeek OCR 可能需要 Poppler、支持 CUDA 的 PyTorch、大型模型下载和较高显存；供应商 OCR 不需要本地 CUDA，但需要网络和密钥。普通单元测试应保持不依赖这些资源也能运行。
 
 ## 错误与恢复语义
 

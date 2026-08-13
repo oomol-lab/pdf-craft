@@ -7,7 +7,7 @@ AbortedCheck = Callable[[], bool]
 
 def check_aborted(aborted_check: AbortedCheck) -> None:
     if aborted_check():
-        from doc_page_extractor import AbortError
+        from doc_page_extractor.extraction_context import AbortError
 
         raise AbortError()
 

@@ -79,7 +79,7 @@ transform_epub(
 ### Convert to Markdown
 
 ```python
-from pdf_craft import transform_markdown
+from pdf_craft import LocalDeepSeekOCRConfig, transform_markdown
 
 transform_markdown(
     pdf_path="input.pdf",
@@ -87,7 +87,7 @@ transform_markdown(
     markdown_assets_path="images",
     analysing_path="temp",  # Optional: specify temporary folder
     ocr_size="gundam",  # Optional: tiny, small, base, large, gundam
-    models_cache_path="models",  # Optional: model cache path
+    ocr=LocalDeepSeekOCRConfig(models_cache_path="models"),
     dpi=300,  # Optional: DPI for rendering PDF pages (default: 300)
     max_page_image_file_size=None,  # Optional: max image file size in bytes, auto-adjust DPI if exceeded
     includes_cover=False,  # Optional: include cover
@@ -103,14 +103,20 @@ transform_markdown(
 ### Convert to EPUB
 
 ```python
-from pdf_craft import transform_epub, BookMeta, TableRender, LaTeXRender
+from pdf_craft import (
+    BookMeta,
+    LaTeXRender,
+    LocalDeepSeekOCRConfig,
+    TableRender,
+    transform_epub,
+)
 
 transform_epub(
     pdf_path="input.pdf",
     epub_path="output.epub",
     analysing_path="temp",  # Optional: specify temporary folder
     ocr_size="gundam",  # Optional: tiny, small, base, large, gundam
-    models_cache_path="models",  # Optional: model cache path
+    ocr=LocalDeepSeekOCRConfig(models_cache_path="models"),
     dpi=300,  # Optional: DPI for rendering PDF pages (default: 300)
     max_page_image_file_size=None,  # Optional: max image file size in bytes, auto-adjust DPI if exceeded
     includes_cover=True,  # Optional: include cover
@@ -133,19 +139,58 @@ transform_epub(
 )
 ```
 
+### OCR Configuration
+
+pdf-craft supports three OCR configurations:
+
+- `LocalDeepSeekOCRConfig`: local DeepSeek-OCR model. Real conversion requires CUDA.
+- `VendorDeepSeekOCRConfig`: DeepSeek OCR through an OpenAI-compatible endpoint.
+- `VendorUnlimitedOCRConfig`: Baidu Unlimited OCR.
+
+Pass one of these configs through the `ocr` parameter:
+
+```python
+from pdf_craft import (
+    VendorDeepSeekOCRConfig,
+    VendorUnlimitedOCRConfig,
+    transform_markdown,
+)
+
+transform_markdown(
+    pdf_path="input.pdf",
+    markdown_path="output.md",
+    ocr=VendorDeepSeekOCRConfig(
+        base_url="https://example.com",
+        api_key="...",
+        model="deepseek-ocr",
+    ),
+)
+
+transform_markdown(
+    pdf_path="input.pdf",
+    markdown_path="output.md",
+    ocr=VendorUnlimitedOCRConfig(
+        ak="...",
+        sk="...",
+    ),
+)
+```
+
+The legacy `models_cache_path` and `local_only` parameters are still accepted and map to `LocalDeepSeekOCRConfig`. Do not combine them with `ocr`.
+
 ### Model Management
 
-pdf-craft depends on DeepSeek OCR models, which are automatically downloaded from Hugging Face on first run. You can control model storage and loading behavior through the `models_cache_path` and `local_only` parameters.
+Local DeepSeek OCR models are automatically downloaded from Hugging Face on first run. You can control model storage and loading behavior through `LocalDeepSeekOCRConfig`.
 
 #### Pre-download Models
 
 In production environments, it is recommended to download models in advance to avoid downloading on first run:
 
 ```python
-from pdf_craft import predownload_models
+from pdf_craft import LocalDeepSeekOCRConfig, predownload_models
 
 predownload_models(
-    models_cache_path="models",  # Specify model cache directory
+    ocr=LocalDeepSeekOCRConfig(models_cache_path="models"),
     revision=None,  # Optional: specify model version
 )
 ```
@@ -155,12 +200,12 @@ predownload_models(
 By default, models are downloaded to the system's Hugging Face cache directory. You can customize the cache location through the `models_cache_path` parameter:
 
 ```python
-from pdf_craft import transform_markdown
+from pdf_craft import LocalDeepSeekOCRConfig, transform_markdown
 
 transform_markdown(
     pdf_path="input.pdf",
     markdown_path="output.md",
-    models_cache_path="./my_models",  # Custom model cache directory
+    ocr=LocalDeepSeekOCRConfig(models_cache_path="./my_models"),
 )
 ```
 
@@ -169,13 +214,15 @@ transform_markdown(
 If you have pre-downloaded the models, you can use `local_only=True` to disable network downloads and ensure only local models are used:
 
 ```python
-from pdf_craft import transform_markdown
+from pdf_craft import LocalDeepSeekOCRConfig, transform_markdown
 
 transform_markdown(
     pdf_path="input.pdf",
     markdown_path="output.md",
-    models_cache_path="./my_models",
-    local_only=True,  # Use local models only, do not download from network
+    ocr=LocalDeepSeekOCRConfig(
+        models_cache_path="./my_models",
+        local_only=True,
+    ),
 )
 ```
 

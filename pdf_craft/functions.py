@@ -6,6 +6,7 @@ from epub_generator import BookMeta, LaTeXRender, TableRender
 from .error import IgnoreOCRErrorsChecker, IgnorePDFErrorsChecker
 from .llm import LLM
 from .metering import AbortedCheck, OCRTokensMetering
+from .ocr_config import OCRConfig, ensure_ocr_config
 from .pdf import OCR, DeepSeekOCRSize, OCREvent, PDFHandler
 from .transform import Transform
 
@@ -14,13 +15,13 @@ def predownload_models(
     models_cache_path: PathLike | None = None,
     pdf_handler: PDFHandler | None = None,
     revision: str | None = None,
+    ocr: OCRConfig | None = None,
 ) -> None:
-    ocr = OCR(
-        model_path=models_cache_path,
+    recognizer = OCR(
+        ocr=ensure_ocr_config(ocr, models_cache_path, False),
         pdf_handler=pdf_handler,
-        local_only=False,
     )
-    ocr.predownload(revision)
+    recognizer.predownload(revision)
 
 
 def transform_markdown(
@@ -45,11 +46,13 @@ def transform_markdown(
     max_ocr_tokens: int | None = None,
     max_ocr_output_tokens: int | None = None,
     on_ocr_event: Callable[[OCREvent], None] = lambda _: None,
+    ocr: OCRConfig | None = None,
 ) -> OCRTokensMetering:
     return Transform(
         models_cache_path=models_cache_path,
         pdf_handler=pdf_handler,
         local_only=local_only,
+        ocr=ocr,
     ).transform_markdown(
         pdf_path=pdf_path,
         markdown_path=markdown_path,
@@ -98,11 +101,13 @@ def transform_epub(
     max_ocr_tokens: int | None = None,
     max_ocr_output_tokens: int | None = None,
     on_ocr_event: Callable[[OCREvent], None] = lambda _: None,
+    ocr: OCRConfig | None = None,
 ) -> OCRTokensMetering:
     return Transform(
         models_cache_path=models_cache_path,
         pdf_handler=pdf_handler,
         local_only=local_only,
+        ocr=ocr,
     ).transform_epub(
         pdf_path=pdf_path,
         epub_path=epub_path,

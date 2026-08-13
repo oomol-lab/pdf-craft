@@ -2,7 +2,6 @@ import sys
 import time
 from dataclasses import dataclass
 from enum import Enum, auto
-from os import PathLike
 from pathlib import Path
 from threading import Lock
 from typing import Callable, Container, Generator, TypeVar
@@ -12,7 +11,7 @@ from PIL.Image import Image
 from ..common import AssetHub, save_xml
 from ..error import IgnoreOCRErrorsChecker, IgnorePDFErrorsChecker, OCRError, PDFError
 from ..metering import AbortedCheck, check_aborted
-from ..to_path import to_path
+from ..ocr_config import OCRConfig
 from .handler import DefaultPDFHandler, PDFHandler
 from .page_extractor import Page, PageExtractorNode, PageLayout
 from .page_ref import PageRefContext
@@ -42,16 +41,12 @@ class OCREvent:
 class OCR:
     def __init__(
         self,
-        model_path: PathLike | str | None,
+        ocr: OCRConfig,
         pdf_handler: PDFHandler | None,
-        local_only: bool,
     ) -> None:
         self._pdf_handler = pdf_handler
         self._pdf_handler_lock = Lock()
-        self._extractor = PageExtractorNode(
-            model_path=to_path(model_path) if model_path is not None else None,
-            local_only=local_only,
-        )
+        self._extractor = PageExtractorNode(ocr=ocr)
 
     def predownload(self, revision: str | None) -> None:
         self._extractor.download_models(revision)
@@ -135,7 +130,7 @@ class OCR:
                         cost_time_ms=elapsed_ms,
                     )
                 else:
-                    from doc_page_extractor import TokenLimitError
+                    from doc_page_extractor.extraction_context import TokenLimitError
 
                     if remain_tokens is not None and remain_tokens <= 0:
                         raise TokenLimitError()

@@ -16,6 +16,7 @@ from .error import (
 from .llm import LLM
 from .markdown.render import render_markdown_file
 from .metering import AbortedCheck, OCRTokensMetering
+from .ocr_config import OCRConfig, ensure_ocr_config
 from .pdf import OCR, DeepSeekOCRSize, OCREvent, PDFHandler
 from .sequence import generate_chapter_files
 from .to_path import to_path
@@ -28,11 +29,11 @@ class Transform:
         models_cache_path: PathLike | str | None = None,
         pdf_handler: PDFHandler | None = None,
         local_only: bool = False,
+        ocr: OCRConfig | None = None,
     ) -> None:
         self._ocr: OCR = OCR(
-            model_path=models_cache_path,
+            ocr=ensure_ocr_config(ocr, models_cache_path, local_only),
             pdf_handler=pdf_handler,
-            local_only=local_only,
         )
 
     def predownload(self, revision: str | None = None) -> None:
