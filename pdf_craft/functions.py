@@ -86,7 +86,7 @@ def transform_epub(
     includes_footnotes: bool = False,
     generate_plot: bool = False,
     toc_llm: LLM | None = None,
-    toc_assumed: bool = False,
+    toc_assumed: bool = True,
     ignore_pdf_errors: IgnorePDFErrorsChecker = False,
     ignore_ocr_errors: IgnoreOCRErrorsChecker = False,
     book_meta: BookMeta | None = None,

@@ -1,141 +1,106 @@
 # Development Guide
 
-## Setup
+This guide is for human contributors. Agent-facing project routing lives in `AGENTS.md` and `references/`.
 
-### 0. System Dependencies (WSL/Linux)
+## Requirements
 
-If you're developing on WSL or Linux, install poppler-utils first:
+- Python >= 3.11, < 3.14 (3.11.16 recommended)
+- Poetry 2.x
+- Poppler, only when running PDF rendering or conversion checks
+- PyTorch, only when importing or running OCR-related dependencies
+- CUDA-capable PyTorch and an NVIDIA GPU, only when running real DeepSeek OCR conversion
+
+The published package does not depend on `torch` or `torchvision`. Install them separately for your environment.
+
+## Setup For Ordinary Development
+
+Create an in-project virtual environment and install project dependencies:
 
 ```shell
-sudo apt-get update
-sudo apt-get install poppler-utils
+poetry config virtualenvs.in-project true
+poetry install --with dev
 ```
 
-Verify installation:
-```shell
-pdfinfo --version
-```
+For code reading, type checking, and the lightweight unit tests, this is usually enough.
 
-### 1. Create Python Environment
-
-Setup Python env
-```shell
-python -m venv .venv
-. ./.venv/bin/activate
-```
-
-### 2. Install Dependencies
-
-#### Option 1: Quick Start (CPU Environment)
-
-For quick development setup on macOS or Linux without GPU:
+If a task needs PyTorch imports but not CUDA OCR, install CPU PyTorch:
 
 ```shell
 poetry run pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
 ```
 
-This will install:
-- Main dependencies (PyMuPDF, doc-page-extractor, epub-generator)
-- PyTorch CPU version (torch, torchvision)
-- Dev dependencies (pylint)
+## Setup For Real OCR Conversion
 
-#### Option 2: CUDA Environment (Manual Setup)
+Real PDF conversion uses DeepSeek OCR and requires CUDA-capable PyTorch. Install the PyTorch build that matches your system before running conversion scripts.
 
-For CUDA environments, you need to install PyTorch manually first to ensure the correct CUDA version.
-
-##### Step 1: Install PyTorch with CUDA
-
-For CUDA 11.8:
-```shell
-pip install torch torchvision --index-url https://download.pytorch.org/whl/cu118
-```
-
-For CUDA 12.1:
-```shell
-pip install torch torchvision --index-url https://download.pytorch.org/whl/cu121
-```
-
-For CUDA 12.4:
-```shell
-pip install torch torchvision --index-url https://download.pytorch.org/whl/cu124
-```
-
-##### Step 2: Install Project Dependencies
+Examples:
 
 ```shell
-poetry install
+poetry run pip install torch torchvision --index-url https://download.pytorch.org/whl/cu118
+poetry run pip install torch torchvision --index-url https://download.pytorch.org/whl/cu121
+poetry run pip install torch torchvision --index-url https://download.pytorch.org/whl/cu124
 ```
 
-This will install:
-- Main dependencies (PyMuPDF, doc-page-extractor, epub-generator)
-- Dev dependencies (pylint)
-
-**Why manual setup for CUDA?**
-- Poetry cannot handle multiple PyTorch sources in one lock file
-- Different CUDA versions require different PyTorch builds
-- Installing PyTorch first ensures the correct CUDA version for your hardware
-
-### 3. Verify Installation
-
-Check if PyTorch is correctly installed:
+Install Poppler when running PDF rendering or conversion:
 
 ```shell
-python -c "import torch; print(f'PyTorch version: {torch.__version__}'); print(f'CUDA available: {torch.cuda.is_available()}')"
+# Ubuntu/Debian
+sudo apt-get update
+sudo apt-get install poppler-utils
+
+# macOS
+brew install poppler
 ```
 
-Expected output for CPU environment:
-```
-PyTorch version: 2.5.x+cpu
-CUDA available: False
-```
-
-Expected output for CUDA environment:
-```
-PyTorch version: 2.5.x+cu121
-CUDA available: True
-```
-
-## Development Workflow
-
-### Run Tests
+Verify the environment:
 
 ```shell
+poetry run python -c "import torch; print(f'PyTorch version: {torch.__version__}'); print(f'CUDA available: {torch.cuda.is_available()}')"
+pdfinfo -v
+```
+
+## Validation
+
+The CI checks are the default validation contract:
+
+```shell
+poetry run pyright pdf_craft tests
+poetry run pylint pdf_craft tests
 poetry run python test.py
 ```
 
-### Run Lint
-
-Check code quality with pylint:
+You can run one test module by passing the file stem or file name:
 
 ```shell
-python lint.py
+poetry run python test.py test_parser
+poetry run python test.py test_parser.py
 ```
 
-Or directly:
+Build the package with:
 
 ```shell
-poetry run pylint pdf_craft
+poetry build
 ```
 
-### Build Package
+## Manual Conversion Checks
 
-Clean old builds and create distribution files:
+The scripts in `scripts/` are manual checks for local conversion work. They may require Poppler, PyTorch, model downloads, and CUDA:
 
 ```shell
-python build.py
+poetry run python scripts/gen_md.py
+poetry run python scripts/gen_epub.py
 ```
 
-## Before Submitting PR
+They write conversion output under `analysing/` and use `models-cache/` for local model storage.
 
-Make sure all checks pass:
+If `format.json` exists at the repository root, these scripts use it to configure optional LLM-enhanced TOC analysis. The template is `format.template.json`; do not commit local secrets.
 
-```shell
-poetry run python test.py
-python lint.py
-```
+## VGE Worktree Development
 
-## Notes
+This repository includes `.conductor/settings.toml` for VGE worktrees. It defines setup only. There is no long-lived development server, watcher, or app process, so no `run` script is configured. There is also no cleanup/archive script; VGE is expected to release the worktree itself.
 
-- The published package does NOT include torch/torchvision as dependencies
-- End users must install torch/torchvision separately based on their environment
-- For development, always install PyTorch BEFORE running `poetry install`
+Worktree-local generated files include `.venv/`, `analysing/`, `models-cache/`, test caches, and build artifacts. Do not commit them.
+
+## Dependency Sync Helpers
+
+`scripts/sync-doc-page-extractor.sh` and `scripts/sync-epub-generator.sh` copy sibling repository source code into `.venv`. Use them only for deliberate local integration testing with those repositories checked out next to this one. They are not part of normal setup, CI, or VGE worktree setup.
