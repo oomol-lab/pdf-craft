@@ -101,7 +101,9 @@ If `format.json` exists at the repository root, these scripts use it to configur
 
 ## VGE Worktree Development
 
-This repository includes `.conductor/settings.toml` for VGE worktrees. It defines setup only and creates `.env` from `.env.template` when missing. There is no long-lived development server, watcher, or app process, so no `run` script is configured. There is also no cleanup/archive script; VGE is expected to release the worktree itself.
+This repository includes `.conductor/settings.toml` for VGE worktrees. It defines setup only. There is no long-lived development server, watcher, or app process, so no `run` script is configured. There is also no cleanup/archive script; VGE is expected to release the worktree itself.
+
+`.env` is worktree-private runtime configuration and is ignored by Git. When the current worktree does not have `.env`, VGE setup first copies the existing `.env` from the source workspace so vendor OCR credentials and local development settings remain available inside the worktree. If the source workspace has no `.env`, setup falls back to creating one from `.env.template`.
 
 Worktree-local generated files include `.venv/`, `analysing/`, `models-cache/`, test caches, and build artifacts. Do not commit them.
 
