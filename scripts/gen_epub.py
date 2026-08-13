@@ -1,4 +1,5 @@
 import json
+import os
 from pathlib import Path
 
 from pdf_craft import (
@@ -6,6 +7,7 @@ from pdf_craft import (
     LaTeXRender,
     OCREventKind,
     TableRender,
+    create_ocr_config_from_env,
     transform_epub,
 )
 
@@ -14,6 +16,7 @@ _IMAGE_STEM = "newton"
 
 def main() -> None:
     project_root = Path(__file__).parent.parent
+    _load_env(project_root / ".env")
     assets_dir_path = project_root / "tests" / "assets"
     analysing_dir_path = project_root / "analysing"
     pdf_file_name = f"{_IMAGE_STEM}.pdf"
@@ -42,7 +45,7 @@ def main() -> None:
         pdf_path=assets_dir_path / pdf_file_name,
         epub_path=analysing_dir_path / "output.epub",
         analysing_path=analysing_dir_path,
-        models_cache_path=project_root / "models-cache",
+        ocr=create_ocr_config_from_env(),
         includes_footnotes=True,
         generate_plot=True,
         toc_llm=toc_llm,
@@ -64,6 +67,18 @@ def _format_duration(ms: int) -> str:
         minutes = ms // 60000
         seconds = (ms % 60000) / 1000
         return f"{minutes}m {seconds:.2f}s"
+
+
+def _load_env(path: Path) -> None:
+    if not path.exists():
+        return
+    with open(path, "r", encoding="utf-8") as file:
+        for raw_line in file:
+            line = raw_line.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            name, value = line.split("=", 1)
+            os.environ.setdefault(name.strip(), value.strip().strip("\"'"))
 
 
 if __name__ == "__main__":

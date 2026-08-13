@@ -31,7 +31,9 @@ poetry run pip install torch torchvision --index-url https://download.pytorch.or
 
 ## Setup For Real OCR Conversion
 
-Real PDF conversion uses DeepSeek OCR and requires CUDA-capable PyTorch. If the default locked wheel is not the CUDA build you need, reinstall the PyTorch build that matches your system before running conversion scripts.
+Real PDF conversion can run through either a local CUDA model or vendor OCR.
+
+Local DeepSeek OCR requires CUDA-capable PyTorch. If the default locked wheel is not the CUDA build you need, reinstall the PyTorch build that matches your system before running conversion scripts.
 
 Examples:
 
@@ -59,6 +61,8 @@ poetry run python -c "import torch; print(f'PyTorch version: {torch.__version__}
 pdfinfo -v
 ```
 
+Vendor OCR does not require local CUDA. Copy `.env.template` to `.env`, set `PDF_CRAFT_OCR_MODE` to `vendor-deepseek` or `vendor-unlimited`, and fill the matching credentials. Library code does not automatically read `.env`; the manual scripts load it before calling `create_ocr_config_from_env()`.
+
 ## Validation
 
 The CI checks are the default validation contract:
@@ -84,20 +88,20 @@ poetry build
 
 ## Manual Conversion Checks
 
-The scripts in `scripts/` are manual checks for local conversion work. They may require Poppler, PyTorch, model downloads, and CUDA:
+The scripts in `scripts/` are manual checks for conversion work. They require Poppler and an OCR configuration from `.env`. `local-deepseek` requires model downloads and CUDA; vendor modes require credentials:
 
 ```shell
 poetry run python scripts/gen_md.py
 poetry run python scripts/gen_epub.py
 ```
 
-They write conversion output under `analysing/` and use `models-cache/` for local model storage.
+They write conversion output under `analysing/` and use `models-cache/` for local model storage when `PDF_CRAFT_OCR_MODE=local-deepseek`.
 
 If `format.json` exists at the repository root, these scripts use it to configure optional LLM-enhanced TOC analysis. The template is `format.template.json`; do not commit local secrets.
 
 ## VGE Worktree Development
 
-This repository includes `.conductor/settings.toml` for VGE worktrees. It defines setup only. There is no long-lived development server, watcher, or app process, so no `run` script is configured. There is also no cleanup/archive script; VGE is expected to release the worktree itself.
+This repository includes `.conductor/settings.toml` for VGE worktrees. It defines setup only and creates `.env` from `.env.template` when missing. There is no long-lived development server, watcher, or app process, so no `run` script is configured. There is also no cleanup/archive script; VGE is expected to release the worktree itself.
 
 Worktree-local generated files include `.venv/`, `analysing/`, `models-cache/`, test caches, and build artifacts. Do not commit them.
 

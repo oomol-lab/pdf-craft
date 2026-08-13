@@ -17,4 +17,8 @@ export PATH="$VIRTUAL_ENV/bin:$PATH"
 
 poetry config virtualenvs.in-project true
 poetry install --with dev
+
+if [ ! -f .env ]; then
+  cp .env.template .env
+fi
 '''

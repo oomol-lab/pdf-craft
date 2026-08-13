@@ -1,45 +1,80 @@
 import re
 import tempfile
 from pathlib import Path
-from typing import Iterable
 
 from PIL.Image import Image
 
 from ..common import ASSET_TAGS, AssetHub, remove_surrogates
 from ..error import OCRError
 from ..metering import AbortedCheck, check_aborted
+from ..ocr_config import (
+    LocalDeepSeekOCRConfig,
+    OCRConfig,
+    VendorDeepSeekOCRConfig,
+    VendorUnlimitedOCRConfig,
+)
 from .ngrams import has_repetitive_ngrams
 from .types import DeepSeekOCRSize, Page, PageLayout
 
 
 class PageExtractorNode:
-    def __init__(
-        self,
-        model_path: Path | None = None,
-        local_only: bool = False,
-        enable_devices_numbers: Iterable[int] | None = None,
-    ) -> None:
-        self._model_path: Path | None = model_path
-        self._local_only: bool = local_only
-        self._enable_devices_numbers: Iterable[int] | None = enable_devices_numbers
+    def __init__(self, ocr: OCRConfig) -> None:
+        self._ocr = ocr
         self._page_extractor = None
 
     def _get_page_extractor(self):
         if not self._page_extractor:
-            # 尽可能推迟 doc-page-extractor 的加载时间
-            from doc_page_extractor.extractor import create_page_extractor
-
-            self._page_extractor = create_page_extractor(
-                model_path=self._model_path,
-                local_only=self._local_only,
-                enable_devices_numbers=self._enable_devices_numbers,
-            )
+            self._page_extractor = self._create_page_extractor()
         return self._page_extractor
 
+    def _create_page_extractor(self):
+        # 尽可能推迟 doc-page-extractor 的加载时间
+        if isinstance(self._ocr, LocalDeepSeekOCRConfig):
+            from doc_page_extractor.extractor import create_page_extractor
+
+            return create_page_extractor(
+                model_path=self._ocr.models_cache_path,
+                local_only=self._ocr.local_only,
+                enable_devices_numbers=self._ocr.enable_devices_numbers,
+            )
+        if isinstance(self._ocr, VendorDeepSeekOCRConfig):
+            from doc_page_extractor.adapters.deepseek import DeepSeekVendorOCRConfig
+            from doc_page_extractor.extractor import create_deepseek_vendor_page_extractor
+
+            return create_deepseek_vendor_page_extractor(
+                DeepSeekVendorOCRConfig(
+                    base_url=self._ocr.base_url,
+                    api_key=self._ocr.api_key,
+                    model=self._ocr.model,
+                    temperature=self._ocr.temperature,
+                    top_p=self._ocr.top_p,
+                    max_tokens=self._ocr.max_tokens,
+                    timeout_seconds=self._ocr.timeout_seconds,
+                )
+            )
+        if isinstance(self._ocr, VendorUnlimitedOCRConfig):
+            from doc_page_extractor.adapters.baidu import BaiduCloudOCRConfig
+            from doc_page_extractor.extractor import create_baidu_page_extractor
+
+            return create_baidu_page_extractor(
+                BaiduCloudOCRConfig(
+                    ak=self._ocr.ak,
+                    sk=self._ocr.sk,
+                    base_url=self._ocr.base_url,
+                    poll_interval_seconds=self._ocr.poll_interval_seconds,
+                    timeout_seconds=self._ocr.timeout_seconds,
+                )
+            )
+        raise TypeError(f"Unsupported OCR config: {type(self._ocr).__name__}")
+
     def download_models(self, revision: str | None) -> None:
+        if not isinstance(self._ocr, LocalDeepSeekOCRConfig):
+            raise RuntimeError("download_models is only available for local DeepSeek OCR.")
         self._get_page_extractor().download_models(revision)
 
     def load_models(self) -> None:
+        if not isinstance(self._ocr, LocalDeepSeekOCRConfig):
+            raise RuntimeError("load_models is only available for local DeepSeek OCR.")
         self._get_page_extractor().load_models()
 
     def image2page(
