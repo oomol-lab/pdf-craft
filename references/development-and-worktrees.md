@@ -1,6 +1,6 @@
 # 开发与 Worktree
 
-**约束范围：** setup、验证、VGE worktree 行为、清理和发布命令。**不约束：** 包架构或转换内部逻辑。**何时阅读：** 选择命令、编辑项目配置或修改开发文档时。
+**约束范围：** setup、验证、VGE worktree 行为和发布命令。**不约束：** 包架构或转换内部逻辑。**何时阅读：** 选择命令、编辑项目配置或修改开发文档时。
 
 ## 环境
 
@@ -29,7 +29,9 @@ poetry run python test.py
 
 ## VGE Worktree 行为
 
-本项目没有长期运行的开发服务，因此 `.conductor/settings.toml` 不应定义 `scripts.run`，除非未来项目新增 watcher 或 server。VGE setup 只应安装依赖。Cleanup 应清理 worktree 本地虚拟环境、测试缓存、构建产物和转换输出。
+本项目没有长期运行的开发服务，因此 `.conductor/settings.toml` 不应定义 `scripts.run`，除非未来项目新增 watcher 或 server。VGE setup 只应安装依赖，并确保当前 worktree 中的 pdf-craft 及其 `doc-page-extractor` 依赖可以被导入和测试。
+
+默认不配置 `scripts.archive`。VGE 会负责释放 worktree；项目级 Cleanup 只适合需要保留现场后执行额外归档或收尾动作的项目，本仓库当前没有这种需求。
 
 生成的转换输出应留在当前 worktree 的 `analysing/` 下。模型缓存可能很大；只有在有意进行本地 OCR 工作时才使用 `models-cache/`，不要提交它，也不要假设其中已有内容。
 

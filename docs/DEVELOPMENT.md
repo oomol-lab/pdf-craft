@@ -97,7 +97,7 @@ If `format.json` exists at the repository root, these scripts use it to configur
 
 ## VGE Worktree Development
 
-This repository includes `.conductor/settings.toml` for VGE worktrees. It defines setup and cleanup commands only. There is no long-lived development server, watcher, or app process, so no `run` script is configured.
+This repository includes `.conductor/settings.toml` for VGE worktrees. It defines setup only. There is no long-lived development server, watcher, or app process, so no `run` script is configured. There is also no cleanup/archive script; VGE is expected to release the worktree itself.
 
 Worktree-local generated files include `.venv/`, `analysing/`, `models-cache/`, test caches, and build artifacts. Do not commit them.
 

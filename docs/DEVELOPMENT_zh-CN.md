@@ -97,7 +97,7 @@ poetry run python scripts/gen_epub.py
 
 ## VGE Worktree 开发
 
-本仓库包含 `.conductor/settings.toml` 供 VGE worktree 使用。它只定义 setup 和 cleanup 命令。项目没有长期运行的开发服务、watcher 或应用进程，因此没有配置 `run` 脚本。
+本仓库包含 `.conductor/settings.toml` 供 VGE worktree 使用。它只定义 setup。项目没有长期运行的开发服务、watcher 或应用进程，因此没有配置 `run` 脚本；也没有配置 cleanup/archive 脚本，由 VGE 自行释放 worktree。
 
 Worktree 本地产物包括 `.venv/`、`analysing/`、`models-cache/`、测试缓存和构建产物。不要提交这些文件。
 
