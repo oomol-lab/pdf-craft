@@ -1,4 +1,4 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from os import PathLike
 from pathlib import Path
 from typing import Iterable, Literal, TypeAlias
@@ -10,7 +10,7 @@ from .to_path import to_path
 class LocalDeepSeekOCRConfig:
     models_cache_path: Path | None = None
     local_only: bool = False
-    enable_devices_numbers: Iterable[int] | None = None
+    enable_devices_numbers: tuple[int, ...] | None = None
 
     def __init__(
         self,
@@ -24,7 +24,11 @@ class LocalDeepSeekOCRConfig:
             to_path(models_cache_path) if models_cache_path is not None else None,
         )
         object.__setattr__(self, "local_only", local_only)
-        object.__setattr__(self, "enable_devices_numbers", enable_devices_numbers)
+        object.__setattr__(
+            self,
+            "enable_devices_numbers",
+            tuple(enable_devices_numbers) if enable_devices_numbers is not None else None,
+        )
 
     @classmethod
     def from_env(cls) -> "LocalDeepSeekOCRConfig":
@@ -46,7 +50,7 @@ class LocalDeepSeekOCRConfig:
 @dataclass(frozen=True)
 class VendorDeepSeekOCRConfig:
     base_url: str
-    api_key: str
+    api_key: str = field(repr=False)
     model: str
     temperature: float | None = None
     top_p: float | None = None
@@ -91,8 +95,8 @@ class VendorDeepSeekOCRConfig:
 
 @dataclass(frozen=True)
 class VendorUnlimitedOCRConfig:
-    ak: str
-    sk: str
+    ak: str = field(repr=False)
+    sk: str = field(repr=False)
     base_url: str = "https://aip.baidubce.com"
     poll_interval_seconds: float = 2.0
     timeout_seconds: int = 180

@@ -33,7 +33,6 @@ def transform_markdown(
     ocr_size: DeepSeekOCRSize = "gundam",
     models_cache_path: PathLike | str | None = None,
     local_only: bool = False,
-    ocr: OCRConfig | None = None,
     dpi: int | None = None,
     max_page_image_file_size: int | None = None,
     includes_cover: bool = False,
@@ -47,6 +46,7 @@ def transform_markdown(
     max_ocr_tokens: int | None = None,
     max_ocr_output_tokens: int | None = None,
     on_ocr_event: Callable[[OCREvent], None] = lambda _: None,
+    ocr: OCRConfig | None = None,
 ) -> OCRTokensMetering:
     return Transform(
         models_cache_path=models_cache_path,
@@ -83,7 +83,6 @@ def transform_epub(
     ocr_size: DeepSeekOCRSize = "gundam",
     models_cache_path: PathLike | str | None = None,
     local_only: bool = False,
-    ocr: OCRConfig | None = None,
     dpi: int | None = None,
     max_page_image_file_size: int | None = None,
     includes_cover: bool = True,
@@ -102,6 +101,7 @@ def transform_epub(
     max_ocr_tokens: int | None = None,
     max_ocr_output_tokens: int | None = None,
     on_ocr_event: Callable[[OCREvent], None] = lambda _: None,
+    ocr: OCRConfig | None = None,
 ) -> OCRTokensMetering:
     return Transform(
         models_cache_path=models_cache_path,

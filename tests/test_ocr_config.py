@@ -24,6 +24,28 @@ class TestOCRConfig(unittest.TestCase):
         self.assertEqual(config.models_cache_path, (Path.cwd() / "models").resolve())
         self.assertTrue(config.local_only)
 
+    def test_local_deepseek_device_numbers_are_immutable_tuple(self):
+        devices = [0, 1]
+        config = LocalDeepSeekOCRConfig(enable_devices_numbers=devices)
+        devices.append(2)
+
+        self.assertEqual(config.enable_devices_numbers, (0, 1))
+
+    def test_vendor_config_repr_hides_credentials(self):
+        deepseek = VendorDeepSeekOCRConfig(
+            base_url="https://example.com",
+            api_key="secret-key",
+            model="model",
+        )
+        unlimited = VendorUnlimitedOCRConfig(
+            ak="secret-ak",
+            sk="secret-sk",
+        )
+
+        self.assertNotIn("secret-key", repr(deepseek))
+        self.assertNotIn("secret-ak", repr(unlimited))
+        self.assertNotIn("secret-sk", repr(unlimited))
+
     def test_ocr_config_cannot_mix_with_legacy_options(self):
         config = VendorDeepSeekOCRConfig(
             base_url="https://example.com",
@@ -55,7 +77,7 @@ class TestOCRConfig(unittest.TestCase):
         factory.assert_called_once_with(
             model_path=(Path.cwd() / "models").resolve(),
             local_only=True,
-            enable_devices_numbers=[0],
+            enable_devices_numbers=(0,),
         )
         extractor.load_models.assert_called_once_with()
 

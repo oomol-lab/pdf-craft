@@ -26,7 +26,7 @@ poetry install --with dev
 如果任务需要指定 CPU 版 PyTorch wheel，可以显式重装：
 
 ```shell
-poetry run pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
+poetry run pip install --force-reinstall torch torchvision --index-url https://download.pytorch.org/whl/cpu
 ```
 
 ## 真实 OCR 转换环境
@@ -38,9 +38,9 @@ poetry run pip install torch torchvision --index-url https://download.pytorch.or
 示例：
 
 ```shell
-poetry run pip install torch torchvision --index-url https://download.pytorch.org/whl/cu118
-poetry run pip install torch torchvision --index-url https://download.pytorch.org/whl/cu121
-poetry run pip install torch torchvision --index-url https://download.pytorch.org/whl/cu124
+poetry run pip install --force-reinstall torch torchvision --index-url https://download.pytorch.org/whl/cu118
+poetry run pip install --force-reinstall torch torchvision --index-url https://download.pytorch.org/whl/cu121
+poetry run pip install --force-reinstall torch torchvision --index-url https://download.pytorch.org/whl/cu124
 ```
 
 运行 PDF 渲染或转换时还需要安装 Poppler：
