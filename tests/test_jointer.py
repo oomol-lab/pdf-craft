@@ -701,6 +701,25 @@ class TestParseLineContent(unittest.TestCase):
         assert isinstance(expression, InlineExpression)
         self.assertEqual(expression.content, r" 0<\Re(s)<1 ")
 
+    def test_literal_latex_placeholder_text_without_formula(self):
+        """测试普通文本中的占位符形状内容不会被当作公式"""
+        text = "\uE000PDF_CRAFT_LATEX_0_0\uE001"
+        result = _parse_block_content(text)
+
+        self.assertEqual(result, [text])
+
+    def test_literal_latex_placeholder_text_with_formula(self):
+        """测试普通占位符形状文本和真实公式不会互相串扰"""
+        literal = "\uE000PDF_CRAFT_LATEX_0_0\uE001"
+        result = _parse_block_content(f"{literal} and $x<y$")
+
+        self.assertEqual(len(result), 2)
+        self.assertEqual(result[0], literal + " and ")
+        expression = result[1]
+        self.assertIsInstance(expression, InlineExpression)
+        assert isinstance(expression, InlineExpression)
+        self.assertEqual(expression.content, "x<y")
+
 
 def _page_layout(
     ref: str,

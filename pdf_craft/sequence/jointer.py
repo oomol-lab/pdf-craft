@@ -495,12 +495,12 @@ def _parse_block_content(text: str | None) -> Content:
     if not text:
         return []
 
-    protected_text, expressions = _protect_latex_expressions(text)
+    protected_text, expressions, placeholder_pattern = _protect_latex_expressions(text)
     root_content: Content = parse_raw_markdown(protected_text)
 
     def expand_text(text: str):
         pos = 0
-        for match in _LATEX_PLACEHOLDER_PATTERN.finditer(text):
+        for match in placeholder_pattern.finditer(text):
             if match.start() > pos:
                 yield text[pos : match.start()]
             expression = expressions[int(match.group(1))]
@@ -519,19 +519,30 @@ def _parse_block_content(text: str | None) -> Content:
     return root_content
 
 
-def _protect_latex_expressions(text: str) -> tuple[str, list[ParsedItem]]:
+def _protect_latex_expressions(text: str) -> tuple[str, list[ParsedItem], re.Pattern]:
     expressions: list[ParsedItem] = []
     parts: list[str] = []
+    placeholder_prefix = _create_latex_placeholder_prefix(text)
 
     for item in parse_latex_expressions(text):
         if item.kind == ExpressionKind.TEXT:
             parts.append(item.content)
             continue
 
-        parts.append(f"\uE000PDF_CRAFT_LATEX_{len(expressions)}\uE001")
+        parts.append(f"{placeholder_prefix}{len(expressions)}\uE001")
         expressions.append(item)
 
-    return "".join(parts), expressions
+    placeholder_pattern = re.compile(f"{re.escape(placeholder_prefix)}(\\d+)\uE001")
+    return "".join(parts), expressions, placeholder_pattern
+
+
+def _create_latex_placeholder_prefix(text: str) -> str:
+    index = 0
+    while True:
+        prefix = f"{_LATEX_PLACEHOLDER_MARKER}_{index}_"
+        if prefix not in text:
+            return prefix
+        index += 1
 
 
 def _is_splitted_word(text1: str, text2: str) -> bool:
