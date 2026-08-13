@@ -1,23 +1,23 @@
-# Development And Worktrees
+# 开发与 Worktree
 
-**Scope:** setup, validation, VGE worktree behavior, cleanup, and release commands. **Not scope:** package architecture or conversion internals. **Read when:** choosing commands, editing project configuration, or changing development documentation.
+**约束范围：** setup、验证、VGE worktree 行为、清理和发布命令。**不约束：** 包架构或转换内部逻辑。**何时阅读：** 选择命令、编辑项目配置或修改开发文档时。
 
-## Environment
+## 环境
 
-Use Python `>=3.11,<3.14`; Python 3.11 is the default development version. This repository uses Poetry 2.x and keeps the virtual environment inside the worktree when configured with `poetry config virtualenvs.in-project true`.
+使用 Python `>=3.11,<3.14`；默认开发版本是 Python 3.11。本仓库使用 Poetry 2.x；配置 `poetry config virtualenvs.in-project true` 时，虚拟环境应位于当前 worktree 内。
 
-For ordinary development, install dependencies with:
+普通开发安装依赖：
 
 ```bash
 poetry config virtualenvs.in-project true
 poetry install --with dev
 ```
 
-Install `torch` and `torchvision` separately only when a task needs import coverage or real OCR behavior for the selected environment.
+只有当任务需要覆盖 import 行为或真实 OCR 行为时，才按当前环境单独安装 `torch` 和 `torchvision`。
 
-## Default Validation
+## 默认验证
 
-Prefer the smallest command set that crosses the changed boundary:
+优先选择能跨越改动边界的最小命令集：
 
 ```bash
 poetry run pyright pdf_craft tests
@@ -25,18 +25,18 @@ poetry run pylint pdf_craft tests
 poetry run python test.py
 ```
 
-`poetry build` validates packaging. Full conversion scripts in `scripts/` are manual checks and may require Poppler, PyTorch, model cache, and CUDA.
+`poetry build` 用于验证打包。`scripts/` 中的完整转换脚本是手动检查，可能需要 Poppler、PyTorch、模型缓存和 CUDA。
 
-## VGE Worktree Behavior
+## VGE Worktree 行为
 
-This project has no long-lived development service, so `.conductor/settings.toml` should not define `scripts.run` unless the project later gains a watcher or server. VGE setup should install dependencies only. Cleanup should remove worktree-local virtualenvs, test caches, build artifacts, and conversion outputs.
+本项目没有长期运行的开发服务，因此 `.conductor/settings.toml` 不应定义 `scripts.run`，除非未来项目新增 watcher 或 server。VGE setup 只应安装依赖。Cleanup 应清理 worktree 本地虚拟环境、测试缓存、构建产物和转换输出。
 
-Generated conversion output should stay worktree-local under `analysing/`. Model caches may be large; use `models-cache/` only for deliberate local OCR work and avoid committing or assuming its contents.
+生成的转换输出应留在当前 worktree 的 `analysing/` 下。模型缓存可能很大；只有在有意进行本地 OCR 工作时才使用 `models-cache/`，不要提交它，也不要假设其中已有内容。
 
-## Human Documentation
+## 人类阅读文档
 
-Human-facing development instructions live in `docs/DEVELOPMENT.md` and `docs/DEVELOPMENT_zh-CN.md`. Keep README files focused on users of the library. Keep agent-facing routing and project constraints in `AGENTS.md` and this `references/` tree.
+面向人类贡献者的开发说明位于 `docs/DEVELOPMENT.md` 和 `docs/DEVELOPMENT_zh-CN.md`。README 文件应聚焦库使用者。Agent 面向的路由和项目约束保留在 `AGENTS.md` 和 `references/` 中。
 
-## Release
+## 发布
 
-Release instructions live in `docs/RELEASE.md`. Do not change package version, dependency pins, or release metadata as part of ordinary worktree enablement unless the task explicitly asks for a release or dependency update.
+发布说明位于 `docs/RELEASE.md`。除非任务明确要求发布或升级依赖，否则普通 worktree 支持改造不应修改包版本、依赖 pin 或发布元数据。
