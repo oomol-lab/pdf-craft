@@ -31,6 +31,7 @@ _FOOTNOTE_PATTERN = re.compile(
 
 _MAX_TABLE_TITLE_CHARS = 180
 _MAX_TABLE_CAPTION_CHARS = 260
+_LATEX_PLACEHOLDER_MARKER = "\uE000PDF_CRAFT_LATEX"
 
 
 @dataclass
@@ -494,23 +495,43 @@ def _parse_block_content(text: str | None) -> Content:
     if not text:
         return []
 
-    root_content: Content = parse_raw_markdown(text)
+    protected_text, expressions = _protect_latex_expressions(text)
+    root_content: Content = parse_raw_markdown(protected_text)
 
     def expand_text(text: str):
-        for item in parse_latex_expressions(text):
-            if item.kind != ExpressionKind.TEXT:
-                yield InlineExpression(
-                    kind=item.kind,
-                    content=item.content,
-                )
-            elif item.content:  # Only add non-empty strings
-                yield item.content
+        pos = 0
+        for match in _LATEX_PLACEHOLDER_PATTERN.finditer(text):
+            if match.start() > pos:
+                yield text[pos : match.start()]
+            expression = expressions[int(match.group(1))]
+            yield InlineExpression(
+                kind=expression.kind,
+                content=expression.content,
+            )
+            pos = match.end()
+        if pos < len(text):
+            yield text[pos:]
 
     expand_text_in_content(
         content=root_content,
         expand=expand_text,
     )
     return root_content
+
+
+def _protect_latex_expressions(text: str) -> tuple[str, list[ParsedItem]]:
+    expressions: list[ParsedItem] = []
+    parts: list[str] = []
+
+    for item in parse_latex_expressions(text):
+        if item.kind == ExpressionKind.TEXT:
+            parts.append(item.content)
+            continue
+
+        parts.append(f"\uE000PDF_CRAFT_LATEX_{len(expressions)}\uE001")
+        expressions.append(item)
+
+    return "".join(parts), expressions
 
 
 def _is_splitted_word(text1: str, text2: str) -> bool:
