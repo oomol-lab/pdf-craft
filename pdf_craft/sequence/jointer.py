@@ -16,6 +16,21 @@ _ASSET_CAPTION_TAGS = tuple(f"{t}_caption" for t in ASSET_TAGS)
 
 _MARKDOWN_HEAD_PATTERN = re.compile(r"^#+\s+")
 _TABLE_PATTERN = re.compile(r"<table[^>]*>.*?</table>", re.IGNORECASE | re.DOTALL)
+_TABLE_TITLE_PATTERN = re.compile(
+    r"^\s*(?:table|tab\.?|表|表格)\s*[\d一二三四五六七八九十ivxlcdm]+[\s.:：、-]",
+    re.IGNORECASE,
+)
+_TABLE_CAPTION_PATTERN = re.compile(
+    r"^\s*(?:source|sources|note|notes|资料来源|来源|注|备注)\s*[:：]",
+    re.IGNORECASE,
+)
+_FOOTNOTE_PATTERN = re.compile(
+    r"^\s*(?:\d{1,2}[\).、]|[a-z][\).、]|[①-⑳]|[¹²³⁴⁵⁶⁷⁸⁹⁰]+)\s+",
+    re.IGNORECASE,
+)
+
+_MAX_TABLE_TITLE_CHARS = 180
+_MAX_TABLE_CAPTION_CHARS = 260
 
 
 @dataclass
@@ -33,6 +48,12 @@ class _AssetHolder:
     content: str
     caption: str | None
     hash: str | None
+
+
+@dataclass
+class _PendingParagraph:
+    source: PageLayout
+    paragraph: ParagraphLayout
 
 
 class Jointer:
@@ -155,34 +176,74 @@ class Jointer:
 
     def _join_asset_layouts(self, page_index, layouts: list[PageLayout]):
         last_asset: _AssetHolder | None = None
+        pending_paragraph: _PendingParagraph | None = None
+
+        def flush_pending_paragraph():
+            nonlocal pending_paragraph
+            if pending_paragraph:
+                pending = pending_paragraph
+                pending_paragraph = None
+                return pending.paragraph
+            return None
+
         for layout in layouts:
             if layout.ref in ASSET_TAGS:
+                pending_title: str | None = None
+                if pending_paragraph:
+                    if layout.ref == "table" and _can_join_table_title(
+                        pending_paragraph.source, layout
+                    ):
+                        pending_title = pending_paragraph.source.text
+                        pending_paragraph = None
+                    else:
+                        pending = flush_pending_paragraph()
+                        if pending:
+                            yield pending
                 if last_asset:
                     yield last_asset
                 last_asset = _AssetHolder(
                     page_index=page_index,
                     ref=layout.ref,
                     det=layout.det,
-                    title=None,
+                    title=pending_title,
                     content=layout.text,
                     caption=None,
                     hash=layout.hash,
                 )
             elif layout.ref in _ASSET_CAPTION_TAGS:
+                pending = flush_pending_paragraph()
+                if pending:
+                    yield pending
                 if last_asset:
                     if last_asset.caption:
                         last_asset.caption += "\n" + layout.text
                     else:
                         last_asset.caption = layout.text
             else:
+                if (
+                    last_asset
+                    and last_asset.ref == "table"
+                    and _can_join_table_caption(last_asset, layout)
+                ):
+                    if last_asset.caption:
+                        last_asset.caption += "\n" + layout.text
+                    else:
+                        last_asset.caption = layout.text
+                    continue
+
                 if last_asset:
                     yield last_asset
                     last_asset = None
+
+                pending = flush_pending_paragraph()
+                if pending:
+                    yield pending
+
                 if layout.ref in TITLE_TAGS:
                     # 将 Markdown 标题前的 `##` 之类的符号删除，DeepSeek OCR 总会生成这种符号
                     layout.text = _MARKDOWN_HEAD_PATTERN.sub("", layout.text)
 
-                yield ParagraphLayout(
+                paragraph = ParagraphLayout(
                     ref=layout.ref,
                     level=-1,
                     blocks=[
@@ -194,8 +255,18 @@ class Jointer:
                         )
                     ],
                 )
+                if _can_wait_for_table_title(layout):
+                    pending_paragraph = _PendingParagraph(
+                        source=layout,
+                        paragraph=paragraph,
+                    )
+                else:
+                    yield paragraph
         if last_asset:
             yield last_asset
+        pending = flush_pending_paragraph()
+        if pending:
+            yield pending
 
     def _can_merge_paragraphs(
         self, para1: ParagraphLayout, para2: ParagraphLayout
@@ -287,6 +358,101 @@ def _normalize_table(layout: _AssetHolder):
     layout.title = head if head else None
     layout.caption = tail if tail else None
     layout.content = found_table_content
+
+
+def _can_wait_for_table_title(layout: PageLayout) -> bool:
+    if layout.ref in TITLE_TAGS:
+        return False
+    return _is_table_title_text(layout.text)
+
+
+def _can_join_table_title(text_layout: PageLayout, table_layout: PageLayout) -> bool:
+    if not _is_table_title_text(text_layout.text):
+        return False
+    if not _is_block_above(text_layout.det, table_layout.det):
+        return False
+    if not _is_close_to_table(text_layout.det, table_layout.det):
+        return False
+    return _is_horizontally_related(text_layout.det, table_layout.det)
+
+
+def _can_join_table_caption(asset: _AssetHolder, text_layout: PageLayout) -> bool:
+    if not _is_table_caption_text(text_layout.text):
+        return False
+    if not _is_block_below(asset.det, text_layout.det):
+        return False
+    if not _is_close_to_table(asset.det, text_layout.det):
+        return False
+    return _is_horizontally_related(text_layout.det, asset.det)
+
+
+def _is_table_title_text(text: str) -> bool:
+    normalized = _normalize_table_adjacent_text(text)
+    if not normalized or len(normalized) > _MAX_TABLE_TITLE_CHARS:
+        return False
+    if "\n\n" in normalized:
+        return False
+    return bool(_TABLE_TITLE_PATTERN.search(normalized)) or normalized.endswith((":", "："))
+
+
+def _is_table_caption_text(text: str) -> bool:
+    normalized = _normalize_table_adjacent_text(text)
+    if not normalized or len(normalized) > _MAX_TABLE_CAPTION_CHARS:
+        return False
+    if "\n\n" in normalized:
+        return False
+    return bool(
+        _TABLE_CAPTION_PATTERN.search(normalized)
+        or _FOOTNOTE_PATTERN.search(normalized)
+        or normalized.lower() == "category not applicable."
+    )
+
+
+def _normalize_table_adjacent_text(text: str) -> str:
+    return " ".join(text.strip().split())
+
+
+def _is_block_above(block_det, table_det) -> bool:
+    return block_det[3] <= table_det[1]
+
+
+def _is_block_below(table_det, block_det) -> bool:
+    return table_det[3] <= block_det[1]
+
+
+def _is_close_to_table(det1, det2) -> bool:
+    vertical_gap = max(det1[1], det2[1]) - min(det1[3], det2[3])
+    if vertical_gap < 0:
+        return False
+
+    table_height = max(_height(det1), _height(det2))
+    return vertical_gap <= max(30, int(table_height * 0.12))
+
+
+def _is_horizontally_related(text_det, table_det) -> bool:
+    text_width = _width(text_det)
+    table_width = _width(table_det)
+    if text_width <= 0 or table_width <= 0:
+        return False
+
+    overlap = max(0, min(text_det[2], table_det[2]) - max(text_det[0], table_det[0]))
+    overlap_ratio = overlap / min(text_width, table_width)
+    width_ratio = min(text_width, table_width) / max(text_width, table_width)
+    center_distance = abs(
+        (text_det[0] + text_det[2]) / 2 - (table_det[0] + table_det[2]) / 2
+    )
+
+    return overlap_ratio >= 0.6 or (
+        width_ratio >= 0.75 and center_distance <= table_width * 0.2
+    )
+
+
+def _width(det) -> int:
+    return max(0, det[2] - det[0])
+
+
+def _height(det) -> int:
+    return max(0, det[3] - det[1])
 
 
 # 将单词的连接符 `-` 删去，并将后半节单词移到前面一段拼接
