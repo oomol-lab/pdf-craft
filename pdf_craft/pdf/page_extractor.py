@@ -27,7 +27,7 @@ class PageExtractorNode:
     def _get_page_extractor(self):
         if not self._page_extractor:
             # 尽可能推迟 doc-page-extractor 的加载时间
-            from doc_page_extractor import create_page_extractor
+            from doc_page_extractor.extractor import create_page_extractor
 
             self._page_extractor = create_page_extractor(
                 model_path=self._model_path,
@@ -56,12 +56,9 @@ class PageExtractorNode:
         device_number: int | None,
         aborted: AbortedCheck,
     ) -> Page:
-        from doc_page_extractor import (
-            AbortError,
-            ExtractionContext,
-            TokenLimitError,
-            plot,
-        )
+        from doc_page_extractor.extraction_context import AbortError, TokenLimitError
+        from doc_page_extractor.plot import plot
+        from doc_page_extractor.types import ExtractionContext
 
         body_layouts: list[PageLayout] = []
         footnotes_layouts: list[PageLayout] = []

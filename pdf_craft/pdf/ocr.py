@@ -135,7 +135,7 @@ class OCR:
                         cost_time_ms=elapsed_ms,
                     )
                 else:
-                    from doc_page_extractor import TokenLimitError
+                    from doc_page_extractor.extraction_context import TokenLimitError
 
                     if remain_tokens is not None and remain_tokens <= 0:
                         raise TokenLimitError()
