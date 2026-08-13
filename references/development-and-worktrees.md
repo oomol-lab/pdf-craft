@@ -13,7 +13,7 @@ poetry config virtualenvs.in-project true
 poetry install --with dev
 ```
 
-只有当任务需要覆盖 import 行为或真实 OCR 行为时，才按当前环境单独安装 `torch` 和 `torchvision`。
+开发 lock file 当前会通过 `doc-page-extractor` 安装 `torch`。只有当任务需要指定 CPU 或 CUDA wheel 时，才按当前环境覆盖安装 `torch` 和 `torchvision`。
 
 ## 默认验证
 

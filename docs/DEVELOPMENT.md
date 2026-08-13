@@ -7,10 +7,10 @@ This guide is for human contributors. Agent-facing project routing lives in `AGE
 - Python >= 3.11, < 3.14 (3.11.16 recommended)
 - Poetry 2.x
 - Poppler, only when running PDF rendering or conversion checks
-- PyTorch, only when importing or running OCR-related dependencies
+- PyTorch, installed from the lock file through `doc-page-extractor`
 - CUDA-capable PyTorch and an NVIDIA GPU, only when running real DeepSeek OCR conversion
 
-The published package does not depend on `torch` or `torchvision`. Install them separately for your environment.
+The published `pdf-craft` package does not declare `torch` or `torchvision` directly, but the development lock file currently installs `torch` through `doc-page-extractor`. Override the PyTorch wheel only when you need a specific CPU or CUDA build.
 
 ## Setup For Ordinary Development
 
@@ -23,7 +23,7 @@ poetry install --with dev
 
 For code reading, type checking, and the lightweight unit tests, this is usually enough.
 
-If a task needs PyTorch imports but not CUDA OCR, install CPU PyTorch:
+If a task needs a specific CPU PyTorch wheel, reinstall it explicitly:
 
 ```shell
 poetry run pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
@@ -31,7 +31,7 @@ poetry run pip install torch torchvision --index-url https://download.pytorch.or
 
 ## Setup For Real OCR Conversion
 
-Real PDF conversion uses DeepSeek OCR and requires CUDA-capable PyTorch. Install the PyTorch build that matches your system before running conversion scripts.
+Real PDF conversion uses DeepSeek OCR and requires CUDA-capable PyTorch. If the default locked wheel is not the CUDA build you need, reinstall the PyTorch build that matches your system before running conversion scripts.
 
 Examples:
 

@@ -7,10 +7,10 @@
 - Python >= 3.11, < 3.14（推荐 3.11.16）
 - Poetry 2.x
 - Poppler，仅在运行 PDF 渲染或转换检查时需要
-- PyTorch，仅在需要导入或运行 OCR 相关依赖时需要
+- PyTorch，会通过 `doc-page-extractor` 从 lock file 安装
 - 支持 CUDA 的 PyTorch 和 NVIDIA GPU，仅在运行真实 DeepSeek OCR 转换时需要
 
-发布包不会依赖 `torch` 或 `torchvision`。请根据本机环境单独安装。
+发布的 `pdf-craft` 包不会直接声明 `torch` 或 `torchvision`，但开发 lock file 目前会通过 `doc-page-extractor` 安装 `torch`。只有需要指定 CPU 或 CUDA wheel 时，才覆盖安装 PyTorch。
 
 ## 普通开发环境
 
@@ -23,7 +23,7 @@ poetry install --with dev
 
 对于阅读代码、类型检查和轻量单元测试，通常这就足够了。
 
-如果任务需要 PyTorch import，但不需要 CUDA OCR，可以安装 CPU 版 PyTorch：
+如果任务需要指定 CPU 版 PyTorch wheel，可以显式重装：
 
 ```shell
 poetry run pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
@@ -31,7 +31,7 @@ poetry run pip install torch torchvision --index-url https://download.pytorch.or
 
 ## 真实 OCR 转换环境
 
-真实 PDF 转换使用 DeepSeek OCR，需要支持 CUDA 的 PyTorch。运行转换脚本前，请安装与系统匹配的 PyTorch 版本。
+真实 PDF 转换使用 DeepSeek OCR，需要支持 CUDA 的 PyTorch。如果默认锁定的 wheel 不是你需要的 CUDA 构建，运行转换脚本前请重装与系统匹配的 PyTorch 版本。
 
 示例：
 
