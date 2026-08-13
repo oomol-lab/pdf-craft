@@ -73,6 +73,35 @@ class TestStructuredPageMapping(unittest.TestCase):
         self.assertEqual(layouts[0].text, "Figure 1. Caption")
         self.assertIsNotNone(layouts[0].hash)
 
+    def test_stage_two_asset_does_not_create_asset_file(self):
+        node = PageExtractorNode(LocalDeepSeekOCRConfig())
+        image = Image.new("RGB", (100, 100), "white")
+        structured = _Structured(
+            blocks=[
+                _Block(
+                    kind="image",
+                    det=(10, 10, 80, 80),
+                    text="Discarded stage two image",
+                )
+            ]
+        )
+
+        with TemporaryDirectory() as temp_dir:
+            asset_path = Path(temp_dir)
+            layouts = list(
+                node._iter_page_layouts(  # pylint: disable=protected-access
+                    image=image,
+                    structured=structured,
+                    asset_hub=AssetHub(asset_path),
+                    stage_index=2,
+                    body_layouts=[],
+                    footnotes_layouts=[],
+                )
+            )
+
+            self.assertEqual(layouts, [])
+            self.assertEqual(list(asset_path.iterdir()), [])
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -37,7 +37,7 @@ poetry run python test.py
 
 ## VGE Worktree 行为
 
-本项目没有长期运行的开发服务，因此 `.conductor/settings.toml` 不应定义 `scripts.run`，除非未来项目新增 watcher 或 server。VGE setup 只应安装依赖，确保当前 worktree 中的 pdf-craft 及其 `doc-page-extractor` 依赖可以被导入和测试。
+本项目没有长期运行的开发服务，因此 `.conductor/settings.toml` 不应定义 `scripts.run`，除非未来项目新增 watcher 或 server。VGE setup 同时负责安装依赖并初始化当前 worktree 的 `.env`，确保当前 worktree 中的 pdf-craft 及其 `doc-page-extractor` 依赖可以被导入和测试。
 
 `.env` 是 worktree 私有运行配置，不提交到 Git。VGE setup 在当前 worktree 缺少 `.env` 时，应优先从源工作区的 `.env` 复制，以便继承供应商 OCR 密钥和本机开发配置；只有源工作区也没有 `.env` 时，才从 `.env.template` 创建空配置。
 

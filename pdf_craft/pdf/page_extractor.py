@@ -210,10 +210,6 @@ class PageExtractorNode:
             ):
                 continue
 
-            hash: str | None = None
-            if ref in ASSET_TAGS:
-                hash = asset_hub.clip(image, det)
-
             if stage_index == 1:
                 order = len(body_layouts)
             elif ref not in ASSET_TAGS:
@@ -221,11 +217,15 @@ class PageExtractorNode:
             else:
                 continue
 
+            asset_hash: str | None = None
+            if ref in ASSET_TAGS:
+                asset_hash = asset_hub.clip(image, det)
+
             yield PageLayout(
                 ref=ref,
                 det=det,
                 text=text,
-                hash=hash,
+                hash=asset_hash,
                 order=order,
             )
 
