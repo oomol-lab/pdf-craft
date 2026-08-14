@@ -1,0 +1,122 @@
+name: Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to release, without the leading v. Example: 1.0.14"
+        required: true
+        type: string
+
+permissions:
+  contents: write
+  id-token: write
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    environment: pypi
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Setup Poetry
+        uses: abatilo/actions-poetry@v3
+        with:
+          poetry-version: "2.1.3"
+
+      - name: Configure Poetry
+        run: |
+          poetry config virtualenvs.create true
+          poetry config virtualenvs.in-project true
+
+      - name: Check release inputs
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+
+          if [[ "${GITHUB_REF}" != "refs/heads/main" ]]; then
+            echo "Release workflow must run from main. Current ref: ${GITHUB_REF}"
+            exit 1
+          fi
+
+          if [[ ! "${VERSION}" =~ ^[0-9]+\.[0-9]+\.[0-9]+([A-Za-z0-9.-]+)?$ ]]; then
+            echo "Version must be provided without the leading v, for example: 1.0.14"
+            exit 1
+          fi
+
+          TAG="v${VERSION}"
+          PROJECT_VERSION="$(poetry version -s)"
+          CHANGELOG_PATH="docs/changelog/${TAG}.md"
+
+          if [[ "${PROJECT_VERSION}" != "${VERSION}" ]]; then
+            echo "pyproject.toml version is ${PROJECT_VERSION}, expected ${VERSION}"
+            exit 1
+          fi
+
+          if [[ ! -s "${CHANGELOG_PATH}" ]]; then
+            echo "Missing or empty changelog: ${CHANGELOG_PATH}"
+            exit 1
+          fi
+
+          if git ls-remote --exit-code --tags origin "refs/tags/${TAG}" >/dev/null 2>&1; then
+            echo "Remote tag already exists: ${TAG}"
+            exit 1
+          fi
+
+          echo "tag=${TAG}" >> "${GITHUB_OUTPUT}"
+          echo "changelog_path=${CHANGELOG_PATH}" >> "${GITHUB_OUTPUT}"
+        id: release-inputs
+
+      - name: Install dependencies
+        run: poetry install --with dev
+
+      - name: Run pyright checking
+        run: poetry run pyright pdf_craft tests
+
+      - name: Run linting
+        run: poetry run pylint pdf_craft tests
+
+      - name: Run tests
+        run: poetry run python test.py
+
+      - name: Build package
+        run: poetry build
+
+      - name: Publish to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
+
+      - name: Push release tag
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.release-inputs.outputs.tag }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag "${TAG}" "${GITHUB_SHA}"
+          git push "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" "${TAG}"
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.release-inputs.outputs.tag }}
+          CHANGELOG_PATH: ${{ steps.release-inputs.outputs.changelog_path }}
+        run: |
+          gh release create "${TAG}" dist/* \
+            --title "${TAG}" \
+            --notes-file "${CHANGELOG_PATH}" \
+            --verify-tag
