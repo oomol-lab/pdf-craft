@@ -2,11 +2,6 @@ name: Release
 
 on:
   workflow_dispatch:
-    inputs:
-      version:
-        description: "Version to release, without the leading v. Example: 1.0.14"
-        required: true
-        type: string
 
 permissions:
   contents: write
@@ -43,9 +38,7 @@ jobs:
           poetry config virtualenvs.create true
           poetry config virtualenvs.in-project true
 
-      - name: Check release inputs
-        env:
-          VERSION: ${{ inputs.version }}
+      - name: Check release state
         run: |
           set -euo pipefail
 
@@ -54,19 +47,15 @@ jobs:
             exit 1
           fi
 
+          VERSION="$(poetry version -s)"
+
           if [[ ! "${VERSION}" =~ ^[0-9]+\.[0-9]+\.[0-9]+([A-Za-z0-9.-]+)?$ ]]; then
-            echo "Version must be provided without the leading v, for example: 1.0.14"
+            echo "pyproject.toml version must be a release version without the leading v, for example: 1.0.14"
             exit 1
           fi
 
           TAG="v${VERSION}"
-          PROJECT_VERSION="$(poetry version -s)"
           CHANGELOG_PATH="docs/changelog/${TAG}.md"
-
-          if [[ "${PROJECT_VERSION}" != "${VERSION}" ]]; then
-            echo "pyproject.toml version is ${PROJECT_VERSION}, expected ${VERSION}"
-            exit 1
-          fi
 
           if [[ ! -s "${CHANGELOG_PATH}" ]]; then
             echo "Missing or empty changelog: ${CHANGELOG_PATH}"

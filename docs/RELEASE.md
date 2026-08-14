@@ -27,10 +27,4 @@ Use the existing files in `docs/changelog/` as the changelog style reference.
 
 After the release PR is merged to `main`, open the GitHub Actions `Release` workflow and run it manually from `main`.
 
-Enter the version without the leading `v`, for example:
-
-```text
-1.0.14
-```
-
-The workflow checks that the repository is ready, builds the package, publishes it to PyPI, pushes the `v1.0.14` tag, and creates the GitHub Release using `docs/changelog/v1.0.14.md` as the release notes.
+The workflow reads the version from `pyproject.toml`, checks that the repository is ready, builds the package, publishes it to PyPI, pushes the matching `vX.Y.Z` tag, and creates the GitHub Release using `docs/changelog/vX.Y.Z.md` as the release notes.
