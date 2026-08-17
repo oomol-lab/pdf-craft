@@ -3,6 +3,7 @@
 /.venv
 /analysing
 /models-cache
+/.hf-cache
 /format.json
 /.env
 
