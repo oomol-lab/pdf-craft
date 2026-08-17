@@ -5,7 +5,7 @@
 ## 环境要求
 
 - Python >= 3.11, < 3.14（推荐 3.11.16）
-- Poetry 2.x
+- uv 0.12.5
 - Poppler，仅在运行 PDF 渲染或转换检查时需要
 - PyTorch，会通过 `doc-page-extractor` 从 lock file 安装
 - 支持 CUDA 的 PyTorch 和 NVIDIA GPU，仅在运行真实 DeepSeek OCR 转换时需要
@@ -14,11 +14,10 @@
 
 ## 普通开发环境
 
-创建项目内虚拟环境并安装依赖：
+创建项目内虚拟环境并安装锁定的项目依赖：
 
 ```shell
-poetry config virtualenvs.in-project true
-poetry install --with dev
+uv sync --locked
 ```
 
 对于阅读代码、类型检查和轻量单元测试，通常这就足够了。
@@ -26,7 +25,7 @@ poetry install --with dev
 如果任务需要指定 CPU 版 PyTorch wheel，可以显式重装：
 
 ```shell
-poetry run pip install --force-reinstall torch torchvision --index-url https://download.pytorch.org/whl/cpu
+uv pip install --python .venv --reinstall torch torchvision --default-index https://download.pytorch.org/whl/cpu
 ```
 
 ## 真实 OCR 转换环境
@@ -38,9 +37,9 @@ poetry run pip install --force-reinstall torch torchvision --index-url https://d
 示例：
 
 ```shell
-poetry run pip install --force-reinstall torch torchvision --index-url https://download.pytorch.org/whl/cu118
-poetry run pip install --force-reinstall torch torchvision --index-url https://download.pytorch.org/whl/cu121
-poetry run pip install --force-reinstall torch torchvision --index-url https://download.pytorch.org/whl/cu124
+uv pip install --python .venv --reinstall torch torchvision --default-index https://download.pytorch.org/whl/cu118
+uv pip install --python .venv --reinstall torch torchvision --default-index https://download.pytorch.org/whl/cu121
+uv pip install --python .venv --reinstall torch torchvision --default-index https://download.pytorch.org/whl/cu124
 ```
 
 运行 PDF 渲染或转换时还需要安装 Poppler：
@@ -57,7 +56,7 @@ brew install poppler
 验证环境：
 
 ```shell
-poetry run python -c "import torch; print(f'PyTorch version: {torch.__version__}'); print(f'CUDA available: {torch.cuda.is_available()}')"
+uv run python -c "import torch; print(f'PyTorch version: {torch.__version__}'); print(f'CUDA available: {torch.cuda.is_available()}')"
 pdfinfo -v
 ```
 
@@ -68,22 +67,22 @@ pdfinfo -v
 CI 检查是默认验证契约：
 
 ```shell
-poetry run pyright pdf_craft tests
-poetry run pylint pdf_craft tests
-poetry run python test.py
+uv run pyright pdf_craft tests
+uv run pylint pdf_craft tests
+uv run python test.py
 ```
 
 可以传入文件 stem 或文件名，只运行一个测试模块：
 
 ```shell
-poetry run python test.py test_parser
-poetry run python test.py test_parser.py
+uv run python test.py test_parser
+uv run python test.py test_parser.py
 ```
 
 构建发布包：
 
 ```shell
-poetry build
+uv build
 ```
 
 ## 手动转换检查
@@ -91,8 +90,8 @@ poetry build
 `scripts/` 中的脚本用于转换联调。它们需要 Poppler，并从 `.env` 读取 OCR 配置。`local-deepseek` 需要模型下载和 CUDA；供应商模式需要对应密钥：
 
 ```shell
-poetry run python scripts/gen_md.py
-poetry run python scripts/gen_epub.py
+uv run python scripts/gen_md.py
+uv run python scripts/gen_epub.py
 ```
 
 脚本会把转换结果写入 `analysing/`。当 `PDF_CRAFT_OCR_MODE=local-deepseek` 时，脚本使用 `models-cache/` 存放本地模型。

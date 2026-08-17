@@ -16,10 +16,11 @@ jobs:
         with:
           python-version: "3.11"
 
-      - name: Setup Poetry
-        uses: abatilo/actions-poetry@v3
+      - name: Setup uv
+        uses: astral-sh/setup-uv@v7
         with:
-          poetry-version: "2.1.3"
+          version: "0.12.5"
+          enable-cache: true
 
       - name: Build package
-        run: poetry build
+        run: uv build

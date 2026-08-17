@@ -18,28 +18,20 @@ jobs:
         with:
           python-version: "3.11"
 
-      - name: Setup Poetry
-        uses: abatilo/actions-poetry@v3
+      - name: Setup uv
+        uses: astral-sh/setup-uv@v7
         with:
-          poetry-version: "2.1.3"
-
-      - name: Configure Poetry
-        run: |
-          poetry config virtualenvs.create true
-          poetry config virtualenvs.in-project true
+          version: "0.12.5"
+          enable-cache: true
 
       - name: Install dependencies
-        run: |
-          poetry install --with dev
+        run: uv sync --locked
 
       - name: Run pyright checking
-        run: |
-          poetry run pyright pdf_craft tests
+        run: uv run pyright pdf_craft tests
 
       - name: Run linting
-        run: |
-          poetry run pylint pdf_craft tests
+        run: uv run pylint pdf_craft tests
 
       - name: Run tests
-        run: |
-          poetry run python test.py
+        run: uv run python test.py

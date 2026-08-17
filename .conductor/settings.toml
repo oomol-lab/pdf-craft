@@ -1,22 +1,11 @@
 [scripts]
 setup = '''
-if ! command -v poetry >/dev/null 2>&1; then
-  pipx install poetry==2.1.3
+UV_VERSION="$(uv --version 2>/dev/null | awk '{print $2}')"
+if [ "$UV_VERSION" != "0.12.5" ]; then
+  pipx install --force uv==0.12.5
 fi
 
-PYTHON_BIN="$(command -v python3.11 || pyenv which python3 2>/dev/null || command -v python3)"
-"$PYTHON_BIN" - <<'PY'
-import sys
-if not ((3, 11) <= sys.version_info < (3, 14)):
-    raise SystemExit(f"Python >=3.11,<3.14 is required, got {sys.version.split()[0]}")
-PY
-
-"$PYTHON_BIN" -m venv .venv
-export VIRTUAL_ENV="$PWD/.venv"
-export PATH="$VIRTUAL_ENV/bin:$PATH"
-
-poetry config virtualenvs.in-project true
-poetry install --with dev
+uv sync --locked
 
 if [ ! -f .env ]; then
   SOURCE_ENV="$CONDUCTOR_ROOT_PATH/.env"

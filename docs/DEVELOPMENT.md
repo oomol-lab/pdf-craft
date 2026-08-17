@@ -5,7 +5,7 @@ This guide is for human contributors. Agent-facing project routing lives in `AGE
 ## Requirements
 
 - Python >= 3.11, < 3.14 (3.11.16 recommended)
-- Poetry 2.x
+- uv 0.12.5
 - Poppler, only when running PDF rendering or conversion checks
 - PyTorch, installed from the lock file through `doc-page-extractor`
 - CUDA-capable PyTorch and an NVIDIA GPU, only when running real DeepSeek OCR conversion
@@ -14,11 +14,10 @@ The published `pdf-craft` package does not declare `torch` or `torchvision` dire
 
 ## Setup For Ordinary Development
 
-Create an in-project virtual environment and install project dependencies:
+Create the in-project virtual environment and install the locked project dependencies:
 
 ```shell
-poetry config virtualenvs.in-project true
-poetry install --with dev
+uv sync --locked
 ```
 
 For code reading, type checking, and the lightweight unit tests, this is usually enough.
@@ -26,7 +25,7 @@ For code reading, type checking, and the lightweight unit tests, this is usually
 If a task needs a specific CPU PyTorch wheel, reinstall it explicitly:
 
 ```shell
-poetry run pip install --force-reinstall torch torchvision --index-url https://download.pytorch.org/whl/cpu
+uv pip install --python .venv --reinstall torch torchvision --default-index https://download.pytorch.org/whl/cpu
 ```
 
 ## Setup For Real OCR Conversion
@@ -38,9 +37,9 @@ Local DeepSeek OCR requires CUDA-capable PyTorch. If the default locked wheel is
 Examples:
 
 ```shell
-poetry run pip install --force-reinstall torch torchvision --index-url https://download.pytorch.org/whl/cu118
-poetry run pip install --force-reinstall torch torchvision --index-url https://download.pytorch.org/whl/cu121
-poetry run pip install --force-reinstall torch torchvision --index-url https://download.pytorch.org/whl/cu124
+uv pip install --python .venv --reinstall torch torchvision --default-index https://download.pytorch.org/whl/cu118
+uv pip install --python .venv --reinstall torch torchvision --default-index https://download.pytorch.org/whl/cu121
+uv pip install --python .venv --reinstall torch torchvision --default-index https://download.pytorch.org/whl/cu124
 ```
 
 Install Poppler when running PDF rendering or conversion:
@@ -57,7 +56,7 @@ brew install poppler
 Verify the environment:
 
 ```shell
-poetry run python -c "import torch; print(f'PyTorch version: {torch.__version__}'); print(f'CUDA available: {torch.cuda.is_available()}')"
+uv run python -c "import torch; print(f'PyTorch version: {torch.__version__}'); print(f'CUDA available: {torch.cuda.is_available()}')"
 pdfinfo -v
 ```
 
@@ -68,22 +67,22 @@ Vendor OCR does not require local CUDA. Copy `.env.template` to `.env`, set `PDF
 The CI checks are the default validation contract:
 
 ```shell
-poetry run pyright pdf_craft tests
-poetry run pylint pdf_craft tests
-poetry run python test.py
+uv run pyright pdf_craft tests
+uv run pylint pdf_craft tests
+uv run python test.py
 ```
 
 You can run one test module by passing the file stem or file name:
 
 ```shell
-poetry run python test.py test_parser
-poetry run python test.py test_parser.py
+uv run python test.py test_parser
+uv run python test.py test_parser.py
 ```
 
 Build the package with:
 
 ```shell
-poetry build
+uv build
 ```
 
 ## Manual Conversion Checks
@@ -91,8 +90,8 @@ poetry build
 The scripts in `scripts/` are manual checks for conversion work. They require Poppler and an OCR configuration from `.env`. `local-deepseek` requires model downloads and CUDA; vendor modes require credentials:
 
 ```shell
-poetry run python scripts/gen_md.py
-poetry run python scripts/gen_epub.py
+uv run python scripts/gen_md.py
+uv run python scripts/gen_epub.py
 ```
 
 They write conversion output under `analysing/` and use `models-cache/` for local model storage when `PDF_CRAFT_OCR_MODE=local-deepseek`.
