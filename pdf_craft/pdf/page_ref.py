@@ -68,6 +68,7 @@ class PageRefContext:
 
 _PNG_COMPRESSION_RATIO = 0.5  # Conservative estimate for document images
 _BYTES_PER_PIXEL = 3  # RGB
+_MAX_DPI = 600  # Cap to prevent excessive memory allocation from crafted page dimensions
 
 
 class PageRef:
@@ -115,7 +116,8 @@ class PageRef:
     ) -> float:
         # Formula: file_size = width_px * height_px * bytes_per_pixel * compression_ratio
         # where width_px = width_inch * dpi, height_px = height_inch * dpi
-        return (
+        computed = (
             file_size
             / (width_inch * height_inch * _BYTES_PER_PIXEL * _PNG_COMPRESSION_RATIO)
         ) ** 0.5
+        return min(computed, _MAX_DPI)

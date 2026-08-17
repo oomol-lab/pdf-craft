@@ -27,7 +27,7 @@ class LLMContext:
         self._cache_seed_content = cache_seed_content
         self._top_p: Increaser = top_p.context()
         self._temperature: Increaser = temperature.context()
-        self._context_id = uuid.uuid4().hex[:12]
+        self._context_id = uuid.uuid4().hex
         self._temp_files: set[Path] = set()
 
     def __enter__(self) -> Self:
