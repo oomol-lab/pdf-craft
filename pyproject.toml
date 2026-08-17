@@ -1,25 +1,21 @@
-[build-system]
-requires = ["poetry-core>=2.0.0,<3.0.0"]
-build-backend = "poetry.core.masonry.api"
-
-[tool.poetry]
+[project]
 name = "pdf-craft"
 version = "1.0.14"
 description = "PDF craft can convert PDF files into various other formats. This project will focus on processing PDF files of scanned books."
-license = "MIT"
-authors = ["Tao Zeyu <i@taozeyu.com>"]
-maintainers = ["Tao Zeyu <i@taozeyu.com>"]
 readme = "README.md"
-homepage = "https://hub.oomol.com/package/pdf-craft"
-repository = "https://github.com/oomol-lab/pdf-craft"
-keywords = ["pdf", "epub", "markdown"]
-packages = [
-    {include = "pdf_craft" }
+requires-python = ">=3.11,<3.14"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [
+    { name = "Tao Zeyu", email = "i@taozeyu.com" },
 ]
+maintainers = [
+    { name = "Tao Zeyu", email = "i@taozeyu.com" },
+]
+keywords = ["pdf", "epub", "markdown"]
 classifiers = [
     "Development Status :: 4 - Beta",
     "Intended Audience :: Developers",
-    "License :: OSI Approved :: MIT License",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
@@ -27,27 +23,39 @@ classifiers = [
     "Topic :: Software Development :: Libraries :: Python Modules",
     "Topic :: Text Processing",
 ]
+dependencies = [
+    "pdf2image>=1.17.0,<2.0.0",
+    "pypdf>=6.6.0,<7.0.0",
+    "tiktoken>=0.12.0,<1.0.0",
+    "openai>=2.14.0,<3.0.0",
+    "json-repair>=0.55.0,<0.56.0",
+    "pydantic>=2.12.5,<3.0.0",
+    "doc-page-extractor==1.1.1",
+    "epub-generator==0.1.7",
+    "pylatexenc>=2.10,<3.0",
+    "pyahocorasick>=2.2.0,<3.0.0",
+    "markdownify>=1.2.2,<2.0.0",
+]
 
-[tool.poetry.dependencies]
-python = ">=3.11,<3.14"
-pdf2image = "^1.17.0"
-pypdf = "^6.6.0"
-tiktoken = ">=0.12.0,<1.0.0"
-openai = ">=2.14.0,<3.0.0"
-json-repair = ">=0.55.0,<0.56.0"
-pydantic = ">=2.12.5,<3.0.0"
-doc-page-extractor = "1.1.1"
-epub-generator = "==0.1.7"
-pylatexenc = "^2.10"
-pyahocorasick = "^2.2.0"
-markdownify = "^1.2.2"
+[project.urls]
+Homepage = "https://hub.oomol.com/package/pdf-craft"
+Repository = "https://github.com/oomol-lab/pdf-craft"
 
-[tool.poetry.group.dev.dependencies]
-pylint = "^3.3.7"
-pytest = "^8.0.0"
-pytest-cov = "^6.0.0"
-pyright = "^1.1.407"
-ruff = "^0.14.11"
+[dependency-groups]
+dev = [
+    "pylint>=3.3.7,<4.0.0",
+    "pytest>=8.0.0,<9.0.0",
+    "pytest-cov>=6.0.0,<7.0.0",
+    "pyright>=1.1.407,<2.0.0",
+    "ruff>=0.14.11,<0.15.0",
+]
+
+[build-system]
+requires = ["uv_build>=0.12.5,<0.13.0"]
+build-backend = "uv_build"
+
+[tool.uv.build-backend]
+module-root = ""
 
 [tool.pyright]
 reportUnnecessaryTypeIgnoreComment = "none"

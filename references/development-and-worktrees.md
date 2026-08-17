@@ -4,13 +4,12 @@
 
 ## 环境
 
-使用 Python `>=3.11,<3.14`；默认开发版本是 Python 3.11。本仓库使用 Poetry 2.x；配置 `poetry config virtualenvs.in-project true` 时，虚拟环境应位于当前 worktree 内。
+使用 Python `>=3.11,<3.14`；默认开发版本是 Python 3.11。本仓库使用 uv 0.12.5，并通过 `.python-version` 固定默认版本。虚拟环境位于当前 worktree 的 `.venv` 内。
 
 普通开发安装依赖：
 
 ```bash
-poetry config virtualenvs.in-project true
-poetry install --with dev
+uv sync --locked
 ```
 
 开发 lock file 当前会通过 `doc-page-extractor` 安装 `torch`。只有当任务需要指定 CPU 或 CUDA wheel 时，才按当前环境覆盖安装 `torch` 和 `torchvision`。
@@ -28,12 +27,12 @@ poetry install --with dev
 优先选择能跨越改动边界的最小命令集：
 
 ```bash
-poetry run pyright pdf_craft tests
-poetry run pylint pdf_craft tests
-poetry run python test.py
+uv run pyright pdf_craft tests
+uv run pylint pdf_craft tests
+uv run python test.py
 ```
 
-`poetry build` 用于验证打包。`scripts/` 中的完整转换脚本是手动检查，可能需要 Poppler、PyTorch、模型缓存和 CUDA。
+`uv build` 用于验证打包。`scripts/` 中的完整转换脚本是手动检查，可能需要 Poppler、PyTorch、模型缓存和 CUDA。
 
 ## VGE Worktree 行为
 
