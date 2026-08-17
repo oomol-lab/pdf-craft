@@ -25,7 +25,7 @@ For code reading, type checking, and the lightweight unit tests, this is usually
 If a task needs a specific CPU PyTorch wheel, reinstall it explicitly:
 
 ```shell
-uv pip install --reinstall torch torchvision --default-index https://download.pytorch.org/whl/cpu
+uv pip install --python .venv --reinstall torch torchvision --default-index https://download.pytorch.org/whl/cpu
 ```
 
 ## Setup For Real OCR Conversion
@@ -37,9 +37,9 @@ Local DeepSeek OCR requires CUDA-capable PyTorch. If the default locked wheel is
 Examples:
 
 ```shell
-uv pip install --reinstall torch torchvision --default-index https://download.pytorch.org/whl/cu118
-uv pip install --reinstall torch torchvision --default-index https://download.pytorch.org/whl/cu121
-uv pip install --reinstall torch torchvision --default-index https://download.pytorch.org/whl/cu124
+uv pip install --python .venv --reinstall torch torchvision --default-index https://download.pytorch.org/whl/cu118
+uv pip install --python .venv --reinstall torch torchvision --default-index https://download.pytorch.org/whl/cu121
+uv pip install --python .venv --reinstall torch torchvision --default-index https://download.pytorch.org/whl/cu124
 ```
 
 Install Poppler when running PDF rendering or conversion:

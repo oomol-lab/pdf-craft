@@ -25,7 +25,7 @@ uv sync --locked
 如果任务需要指定 CPU 版 PyTorch wheel，可以显式重装：
 
 ```shell
-uv pip install --reinstall torch torchvision --default-index https://download.pytorch.org/whl/cpu
+uv pip install --python .venv --reinstall torch torchvision --default-index https://download.pytorch.org/whl/cpu
 ```
 
 ## 真实 OCR 转换环境
@@ -37,9 +37,9 @@ uv pip install --reinstall torch torchvision --default-index https://download.py
 示例：
 
 ```shell
-uv pip install --reinstall torch torchvision --default-index https://download.pytorch.org/whl/cu118
-uv pip install --reinstall torch torchvision --default-index https://download.pytorch.org/whl/cu121
-uv pip install --reinstall torch torchvision --default-index https://download.pytorch.org/whl/cu124
+uv pip install --python .venv --reinstall torch torchvision --default-index https://download.pytorch.org/whl/cu118
+uv pip install --python .venv --reinstall torch torchvision --default-index https://download.pytorch.org/whl/cu121
+uv pip install --python .venv --reinstall torch torchvision --default-index https://download.pytorch.org/whl/cu124
 ```
 
 运行 PDF 渲染或转换时还需要安装 Poppler：
