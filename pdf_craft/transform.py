@@ -68,6 +68,24 @@ class Transform:
         max_ocr_output_tokens: int | None = None,
         on_ocr_event: Callable[[OCREvent], None] = lambda _: None,
     ) -> OCRTokensMetering:  # pyright: ignore[reportReturnType]
+        # Compatibility wrapper.  PDFCraft owns the production workflow.
+        from .craft import ExtractionOptions, PDFCraft
+        if markdown_assets_path is None:
+            markdown_assets_path = Path(".") / "assets"
+        with EnsureFolder(path=to_path(analysing_path) if analysing_path is not None else None) as package_path:
+            return PDFCraft.from_engine(self).convert_pdf_to_markdown(
+                pdf_path, markdown_path, package_path=package_path,
+                assets_path=markdown_assets_path,
+                extraction=ExtractionOptions(
+                    ocr_size=ocr_size, dpi=dpi,
+                    max_page_image_file_size=max_page_image_file_size,
+                    includes_cover=includes_cover, includes_footnotes=includes_footnotes,
+                    generate_plot=generate_plot, toc_assumed=toc_assumed, toc_llm=toc_llm,
+                    ignore_pdf_errors=ignore_pdf_errors, ignore_ocr_errors=ignore_ocr_errors,
+                    aborted=aborted, max_ocr_tokens=max_ocr_tokens,
+                    max_ocr_output_tokens=max_ocr_output_tokens, on_ocr_event=on_ocr_event,
+                ),
+            )
         if markdown_assets_path is None:
             markdown_assets_path = Path(".") / "assets"
         else:
@@ -133,6 +151,22 @@ class Transform:
         max_ocr_output_tokens: int | None = None,
         on_ocr_event: Callable[[OCREvent], None] = lambda _: None,
     ) -> OCRTokensMetering:  # pyright: ignore[reportReturnType]
+        from .craft import ExtractionOptions, PDFCraft
+        with EnsureFolder(path=to_path(analysing_path) if analysing_path is not None else None) as package_path:
+            return PDFCraft.from_engine(self).convert_pdf_to_epub(
+                pdf_path, epub_path, package_path=package_path,
+                book_meta=book_meta, lan=lan, table_render=table_render,
+                latex_render=latex_render, inline_latex=inline_latex,
+                extraction=ExtractionOptions(
+                    ocr_size=ocr_size, dpi=dpi,
+                    max_page_image_file_size=max_page_image_file_size,
+                    includes_cover=includes_cover, includes_footnotes=includes_footnotes,
+                    generate_plot=generate_plot, toc_assumed=toc_assumed, toc_llm=toc_llm,
+                    ignore_pdf_errors=ignore_pdf_errors, ignore_ocr_errors=ignore_ocr_errors,
+                    aborted=aborted, max_ocr_tokens=max_ocr_tokens,
+                    max_ocr_output_tokens=max_ocr_output_tokens, on_ocr_event=on_ocr_event,
+                ),
+            )
         try:
             with EnsureFolder(
                 path=to_path(analysing_path) if analysing_path is not None else None,
