@@ -243,7 +243,7 @@ class Transform:
         if cover_path and not cover_path.exists():
             cover_path = None
 
-        page_pixel_sizes = self._ocr.page_pixel_sizes(pdf_path, dpi)
+        page_pixel_sizes = self._ocr.page_pixel_sizes(pdf_path, dpi, max_page_image_file_size)
         DocumentPackage(chapters_path, asserts_path, toc_path, cover_path).write_metadata(
             dpi=dpi if dpi is not None else 300, page_pixel_sizes=page_pixel_sizes
         )

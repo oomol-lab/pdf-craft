@@ -3,7 +3,7 @@ from pathlib import Path
 import json
 
 
-@dataclass(frozen=True)
+@dataclass
 class DocumentPackage:
     """Stable renderer input produced by an Extractor."""
 
@@ -39,6 +39,7 @@ class DocumentPackage:
     def write_metadata(self, *, dpi: int | None = None,
                        page_pixel_sizes: dict[int, tuple[int, int]] | None = None) -> None:
         path = self.metadata_path or self.chapters_path.parent / "document.json"
+        self.metadata_path = path
         path.parent.mkdir(parents=True, exist_ok=True)
         payload = {"schema": 1, "bbox_coordinate_space": "ocr_pixels",
                    "page_index_base": 1, "dpi": dpi,

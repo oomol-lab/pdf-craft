@@ -12,6 +12,8 @@ from pdf_craft.transformer import ChapterXMLTransformer
 from pdf_craft.renderer import EpubRenderer, MarkdownRenderer
 from pdf_craft.sequence.chapter import BlockLayout, Chapter, InlineExpression, ParagraphLayout, Reference
 from pdf_craft.expression import ExpressionKind
+from pdf_craft.pdf.ocr import OCR
+from pdf_craft.pdf.handler import PDFHandler
 
 
 class _FakeTransform:
@@ -46,6 +48,26 @@ class _FakeDocument:
 class _FakeHandler:
     def open(self, _path):
         return _FakeDocument()
+
+
+class _SizedDocument:
+    pages_count: int = 1
+
+    def page_size(self, _index):
+        return (10.0, 10.0)
+
+    def render_page(self, _page_index, dpi):
+        class Image:
+            size = (dpi * 10, dpi * 10)
+        return Image()
+
+    def close(self):
+        pass
+
+
+class _SizedHandler:
+    def open(self, _path):
+        return _SizedDocument()
 
 
 class _DeterministicXMLTranslator:
@@ -99,3 +121,24 @@ class TestComposableBoundaries(unittest.TestCase):
             self.assertIn("$T:x$", replacement.text)
             self.assertIn("[1]", replacement.text)
             self.assertIn("T:heading", patcher.replacements[1].text)
+
+    def test_metadata_path_is_retained_for_direct_package_and_ocr_size_limit(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            package = DocumentPackage(root / "chapters", root / "assets")
+            package.write_metadata(dpi=300, page_pixel_sizes={1: (30, 30)})
+            self.assertEqual(package.page_pixel_sizes(), {1: (30, 30)})
+            ocr = object.__new__(OCR)
+            with patch.object(OCR, "_get_pdf_handler", return_value=cast(PDFHandler, _SizedHandler())):
+                self.assertEqual(ocr.page_pixel_sizes(root / "input.pdf", 300, 15_000), {1: (100, 100)})
+
+    def test_epub_renderer_rejects_unsupported_language(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            package = DocumentPackage.from_path(root)
+            package.chapters_path.mkdir()
+            package.assets_path.mkdir()
+            assert package.toc_path is not None
+            package.toc_path.write_text("<toc/>")
+            with self.assertRaises(ValueError):
+                EpubRenderer().render(package, root / "book.epub", lan="fr")  # type: ignore[arg-type]

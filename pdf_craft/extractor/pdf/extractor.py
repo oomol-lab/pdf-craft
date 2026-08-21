@@ -24,6 +24,7 @@ class PDFExtractor:
             "max_output_tokens": None, "on_ocr_event": lambda _: None,
         }
         defaults.update(kwargs)
+        defaults["analysing_path"] = package_path
         _, _, _, _, metering = self._transform.extract_package(pdf_path=pdf_path,
             **defaults)
         package = DocumentPackage.from_path(package_path)
