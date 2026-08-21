@@ -312,6 +312,20 @@ transform_epub(
 )
 ```
 
+你也可以使用 [OrcaRouter](https://www.orcarouter.ai)（一个 OpenAI 兼容的模型网关）作为 LLM 提供商，只需改动端点、API Key 和模型：
+
+```python
+toc_llm = LLM(
+    key="sk-orca-...",                    # 你的 OrcaRouter API Key
+    url="https://api.orcarouter.ai/v1",   # OrcaRouter API 地址
+    model="orcarouter/auto",              # 经 OrcaRouter 路由到前沿模型
+    token_encoding="o200k_base",
+    timeout=60.0,
+    retry_times=3,
+    retry_interval_seconds=5.0,
+)
+```
+
 ### 自定义 PDF 处理器
 
 默认情况下，pdf-craft 使用本地 Poppler（通过 `pdf2image`）进行 PDF 解析和渲染。如果 Poppler 不在系统 PATH 中，你可以指定自定义路径：
