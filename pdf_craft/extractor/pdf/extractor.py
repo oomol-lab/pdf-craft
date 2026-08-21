@@ -22,6 +22,7 @@ class PDFExtractor:
             "toc_llm": None, "toc_assumed": False,
             "aborted": lambda: False, "max_tokens": None,
             "max_output_tokens": None, "on_ocr_event": lambda _: None,
+            "page_indexes": None,
         }
         defaults.update(kwargs)
         defaults["analysing_path"] = package_path

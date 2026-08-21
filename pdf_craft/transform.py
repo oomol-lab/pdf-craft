@@ -1,6 +1,6 @@
 from os import PathLike
 from pathlib import Path
-from typing import Callable, Literal
+from typing import Callable, Container, Literal
 
 from epub_generator import BookMeta, LaTeXRender, TableRender
 
@@ -192,6 +192,7 @@ class Transform:
         max_tokens: int | None,
         max_output_tokens: int | None,
         on_ocr_event: Callable[[OCREvent], None],
+        page_indexes: Container[int] | None = None,
     ):
         asserts_path = analysing_path / "assets"
         pages_path = analysing_path / "ocr"
@@ -225,6 +226,7 @@ class Transform:
             aborted=aborted,
             max_tokens=max_tokens,
             max_output_tokens=max_output_tokens,
+            page_indexes=page_indexes if page_indexes is not None else range(1, 2**31),
         ):
             on_ocr_event(event)
             metering.input_tokens += event.input_tokens
