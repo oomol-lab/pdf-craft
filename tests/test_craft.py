@@ -2,13 +2,15 @@ import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import Mock, patch
+from xml.etree.ElementTree import tostring
 
-from pdf_craft.craft import ExtractionOptions, PDFCraft, PDFOptions
+from pdf_craft.craft import ExtractionOptions, PDFCraft, PDFOptions, TranslationStep
 from pdf_craft.document import DocumentPackage
 from pdf_craft.error import InterruptedError as PDFInterruptedError, PDFError
 from pdf_craft.metering import InterruptedKind, OCRTokensMetering
+from pdf_craft.sequence.chapter import BlockLayout, Chapter, ParagraphLayout, encode
 from pdf_craft.transform import Transform
-from pdf_craft.transformer import SubmitKind
+from pdf_craft.transformer import ChapterPackageTransformer, SubmitKind
 
 
 class _Engine:
@@ -30,6 +32,43 @@ class _Engine:
 
 
 class TestPDFCraft(unittest.TestCase):
+    def test_package_step_creates_independent_package(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = DocumentPackage.from_path(root / "source")
+            source.chapters_path.mkdir(parents=True)
+            source.assets_path.mkdir()
+            source.toc_path.write_text("<toc page_indexes=\"1\" />")
+            source.write_metadata(page_pixel_sizes={1: (10, 10)})
+            chapter = Chapter(
+                None, -1, [ParagraphLayout(
+                    "text", 0, [BlockLayout(1, 1, (1, 1, 5, 5), ["original"])]
+                )]
+            )
+            (source.chapters_path / "chapter_1.xml").write_text(
+                '<?xml version="1.0" encoding="UTF-8"?>\n'
+                + tostring(encode(chapter), encoding="unicode")
+            )
+
+            class Upper:
+                def transform(self, value):
+                    value.layouts[0].blocks[0].content = ["translated"]
+                    return value
+
+            target = ChapterPackageTransformer(Upper()).transform(source, root / "target")
+            self.assertEqual(target.page_pixel_sizes(), {1: (10, 10)})
+            self.assertIn("original", (source.chapters_path / "chapter_1.xml").read_text())
+            self.assertIn("translated", (target.chapters_path / "chapter_1.xml").read_text())
+
+    def test_pdf_rejects_append_block_steps_before_transforming(self):
+        craft = PDFCraft.from_engine(_Engine())
+        step = TranslationStep(Mock(), SubmitKind.APPEND_BLOCK)
+        with self.assertRaisesRegex(ValueError, "APPEND_BLOCK"):
+            craft.translate_pdf(
+                "source.pdf", DocumentPackage(Path("chapters"), Path("assets")),
+                "out.pdf", lambda text: text, steps=[step]
+            )
+
     def test_epub_only_facade_needs_no_pdf_options(self):
         craft = PDFCraft()
         with patch("pdf_craft.craft.run_epub_translation") as translate:

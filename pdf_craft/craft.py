@@ -1,6 +1,6 @@
 """Public facade that composes pdf-craft's independent components."""
 
-from collections.abc import Callable, Container
+from collections.abc import Callable, Container, Sequence
 from dataclasses import dataclass
 from os import PathLike
 from pathlib import Path
@@ -18,7 +18,15 @@ from .pdf import DeepSeekOCRSize, OCREvent, PDFHandler
 from .pipeline.epub import translate_epub as run_epub_translation
 from .pipeline.pdf import PDFTranslationPipeline
 from .renderer import EpubRenderer, MarkdownRenderer
-from .transformer import ChapterTransformer, SubmitKind
+from .transformer import ChapterTransformer, PackageTransformer, SubmitKind
+
+
+@dataclass(frozen=True)
+class TranslationStep:
+    """A user-requested content transformation inserted before rendering."""
+
+    transformer: PackageTransformer
+    mode: SubmitKind = SubmitKind.REPLACE
 
 
 @dataclass(frozen=True)
@@ -104,6 +112,19 @@ class PDFCraft:
                                   Path(assets_path) if assets_path is not None else None,
                                   aborted=aborted)
 
+    def transform_package(
+        self, package: DocumentPackage, output_path: PathLike | str,
+        steps: Sequence[TranslationStep | PackageTransformer],
+    ) -> DocumentPackage:
+        current = package
+        for step in steps:
+            transformer = step.transformer if isinstance(step, TranslationStep) else step
+            if isinstance(step, TranslationStep) and step.mode != SubmitKind.REPLACE and hasattr(transformer, "with_mode"):
+                transformer = transformer.with_mode(step.mode)
+            current = transformer.transform(current, Path(output_path))
+            output_path = Path(output_path).with_name(Path(output_path).name + ".next")
+        return current
+
     def render_epub(
         self, package: DocumentPackage, output: PathLike | str, *,
         book_meta: BookMeta | None = None, lan: Literal["zh", "en"] = "zh",
@@ -119,7 +140,12 @@ class PDFCraft:
     def translate_pdf(
         self, source: PathLike | str, package: DocumentPackage,
         output: PathLike | str, transformer: ChapterTransformer | Callable[[str], str],
+        *, steps: Sequence[TranslationStep | PackageTransformer] = (),
     ) -> None:
+        for step in steps:
+            if isinstance(step, TranslationStep) and step.mode == SubmitKind.APPEND_BLOCK:
+                raise ValueError("PDF output does not support APPEND_BLOCK")
+        package = self._apply_steps(package, steps)
         PDFTranslationPipeline(
             pdf_handler=self._pdf.pdf_handler if self._pdf else None
         ).translate(Path(source), Path(output), package, transformer)
@@ -133,8 +159,10 @@ class PDFCraft:
         self, source: PathLike | str, output: PathLike | str, *,
         package_path: PathLike | str, extraction: ExtractionOptions | None = None,
         assets_path: PathLike | str | None = None,
+        steps: Sequence[TranslationStep | PackageTransformer] = (),
     ) -> OCRTokensMetering:
         package, metering = self.extract_pdf_with_metering(source, package_path, extraction)
+        package = self._apply_steps(package, steps)
         self.render_markdown(package, output, assets_path, aborted=(extraction or ExtractionOptions()).aborted)
         return metering
 
@@ -145,15 +173,30 @@ class PDFCraft:
         table_render: TableRender = TableRender.HTML,
         latex_render: LaTeXRender = LaTeXRender.MATHML,
         inline_latex: bool = True,
+        steps: Sequence[TranslationStep | PackageTransformer] = (),
     ) -> OCRTokensMetering:
         extraction = extraction or ExtractionOptions()
         package, metering = self.extract_pdf_with_metering(source, package_path, extraction)
+        package = self._apply_steps(package, steps)
         if book_meta is None:
             book_meta = self._extract_book_meta(Path(source))
         self.render_epub(package, output, book_meta=book_meta, lan=lan,
                          table_render=table_render, latex_render=latex_render,
                          inline_latex=inline_latex, aborted=extraction.aborted)
         return metering
+
+    def _apply_steps(
+        self, package: DocumentPackage,
+        steps: Sequence[TranslationStep | PackageTransformer],
+    ) -> DocumentPackage:
+        current = package
+        for index, step in enumerate(steps):
+            transformer = step.transformer if isinstance(step, TranslationStep) else step
+            if isinstance(step, TranslationStep) and step.mode != SubmitKind.REPLACE and hasattr(transformer, "with_mode"):
+                transformer = transformer.with_mode(step.mode)
+            output = package.chapters_path.parent / f"transformed-{index}"
+            current = transformer.transform(current, output)
+        return current
 
     def _pdf_engine(self):
         if self._engine is not None:
