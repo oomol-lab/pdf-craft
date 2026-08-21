@@ -21,6 +21,8 @@ from .pdf import OCR, DeepSeekOCRSize, OCREvent, PDFHandler
 from .sequence import generate_chapter_files
 from .to_path import to_path
 from .toc import analyse_toc
+from .document import DocumentPackage
+from .renderer import EpubRenderer, MarkdownRenderer
 
 
 class Transform:
@@ -91,14 +93,10 @@ class Transform:
                         on_ocr_event=on_ocr_event,
                     )
                 )
-                render_markdown_file(
-                    chapters_path=chapters_path,
-                    assets_path=asserts_path,
-                    output_path=Path(markdown_path),
-                    output_assets_path=markdown_assets_path,
-                    cover_path=cover_path,
-                    aborted=aborted,
-                )
+                package = DocumentPackage(asserts_path.parent / "chapters", asserts_path,
+                                          asserts_path.parent / "toc.xml", cover_path)
+                MarkdownRenderer().render(package, Path(markdown_path),
+                                           Path(markdown_assets_path), cover_path, aborted)
                 return metering
 
         except Exception as raw_error:
@@ -164,19 +162,11 @@ class Transform:
                 )
                 book_meta = book_meta or self._extract_book_meta(pdf_path)
 
-                render_epub_file(
-                    chapters_path=chapters_path,
-                    toc_path=toc_path,
-                    assets_path=asserts_path,
-                    epub_path=Path(epub_path),
-                    book_meta=book_meta,
-                    lan=lan,
-                    cover_path=cover_path,
-                    table_render=table_render,
-                    latex_render=latex_render,
-                    inline_latex=inline_latex,
-                    aborted=aborted,
-                )
+                package = DocumentPackage(chapters_path, asserts_path, toc_path, cover_path)
+                EpubRenderer().render(package, Path(epub_path), book_meta=book_meta,
+                                       lan=lan, table_render=table_render,
+                                       latex_render=latex_render, inline_latex=inline_latex,
+                                       aborted=aborted)
                 return metering
 
         except Exception as raw_error:
@@ -258,6 +248,8 @@ class Transform:
         )
         if cover_path and not cover_path.exists():
             cover_path = None
+
+        DocumentPackage(chapters_path, asserts_path, toc_path, cover_path).write_metadata(dpi=dpi)
 
         return asserts_path, chapters_path, toc_path, cover_path, metering
 

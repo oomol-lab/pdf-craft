@@ -5,6 +5,7 @@ from pdf_craft.sequence.chapter import Chapter, ParagraphLayout
 from pdf_craft.sequence.reader import create_chapters_reader
 from pdf_craft.pdf.handler import PDFHandler
 from pdf_craft.pipeline.pdf.patcher import PDFPatcher, PDFReplacement
+from pdf_craft.transformer import ChapterTransformer
 
 
 class PDFTranslationPipeline:
@@ -20,7 +21,7 @@ class PDFTranslationPipeline:
         pdf_path: Path,
         target_path: Path,
         chapters_path: Path,
-        transformer: Callable[[str], str],
+        transformer: Callable[[str], str] | ChapterTransformer,
     ) -> None:
         document = self.pdf_handler.open(pdf_path) if self.pdf_handler else None
         replacements: list[PDFReplacement] = []
@@ -28,7 +29,9 @@ class PDFTranslationPipeline:
             pages: dict[int, tuple[int, int]] = {}
             reader = create_chapters_reader(chapters_path)
             for chapter in reader():
-                self._collect_chapter(chapter, transformer, document, pages, replacements)
+                transformed = transformer.transform(chapter) if not callable(transformer) else chapter
+                callback = transformer if callable(transformer) else (lambda text: text)
+                self._collect_chapter(transformed, callback, document, pages, replacements)
         finally:
             if document:
                 document.close()
