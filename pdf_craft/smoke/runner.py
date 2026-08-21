@@ -3,6 +3,7 @@ import platform
 import shutil
 import traceback
 import uuid
+from copy import deepcopy
 from dataclasses import asdict, dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -12,7 +13,7 @@ from typing import Any, Literal, cast
 from pdf_craft.craft import ExtractionOptions, PDFCraft, PDFOptions, TranslationStep
 from pdf_craft.ocr_config import OCRConfig, OCRMode
 from pdf_craft.transformer import SubmitKind
-from pdf_craft.sequence.chapter import HTMLTag
+from pdf_craft.sequence.chapter import BlockLayout, BlockMember, Chapter, HTMLTag, ParagraphLayout
 from pdf_craft.llm import LLM
 
 from .assets import SmokeAsset, discover_assets
@@ -194,15 +195,33 @@ def _run_pdf(
 class _DeterministicChapterTransformer:
     def __init__(self, marker: str) -> None:
         self.marker = marker
+        self.mode = SubmitKind.REPLACE
 
-    def transform(self, chapter):
+    def with_mode(self, mode: SubmitKind) -> "_DeterministicChapterTransformer":
+        transformer = _DeterministicChapterTransformer(self.marker)
+        transformer.mode = mode
+        return transformer
+
+    def transform(self, chapter: Chapter) -> Chapter:
         for layout in chapter.layouts:
-            blocks = getattr(layout, "blocks", ())
-            for block in blocks:
-                block.content = [self._transform_item(item) for item in block.content]
+            if not isinstance(layout, ParagraphLayout):
+                continue
+            transformed_blocks: list[BlockLayout] = []
+            for block in layout.blocks:
+                translated = BlockLayout(
+                    page_index=block.page_index,
+                    order=block.order,
+                    det=block.det,
+                    content=[self._transform_item(item) for item in deepcopy(block.content)],
+                )
+                if self.mode == SubmitKind.APPEND_BLOCK:
+                    transformed_blocks.extend((block, translated))
+                else:
+                    transformed_blocks.append(translated)
+            layout.blocks = transformed_blocks
         return chapter
 
-    def _transform_item(self, item):
+    def _transform_item(self, item: str | BlockMember | HTMLTag[BlockMember]):
         if isinstance(item, str):
             return item + self.marker
         if isinstance(item, HTMLTag):

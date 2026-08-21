@@ -154,13 +154,16 @@ class TestSmokeMatrix(unittest.TestCase):
 
             fake = FakeCraft()
             run = SmokeRun(
-                "double_column.pdf", "markdown", translation={"package_marker": "[translated]"}
+                "double_column.pdf", "markdown",
+                translation={"package_marker": "[translated]", "package_submit": "APPEND_BLOCK"},
             )
             asset = SmokeAsset("double_column.pdf", "pdf", Path("source.pdf"))
             with patch("pdf_craft.smoke.runner.PDFCraft", return_value=fake):
                 status, errors, details = _run_pdf(run, asset, root, cast(OCRConfig, None))
             self.assertEqual(status, "passed", errors)
-            self.assertIn("[translated]", (root / "output" / "book.md").read_text())
+            rendered = (root / "output" / "book.md").read_text()
+            self.assertIn("original", rendered)
+            self.assertIn("original[translated]", rendered)
             self.assertEqual(details["outputs"], [str(root / "output" / "book.md")])
             self.assertEqual(len(fake.steps), 1)
 
