@@ -73,9 +73,9 @@ class DocumentPackage:
                 not isinstance(raw_size, list | tuple)
                 or len(raw_size) != 2
                 or not all(
-                    isinstance(value, int | float)
+                    isinstance(value, int)
                     and not isinstance(value, bool)
-                    and float(value) > 0
+                    and value > 0
                     for value in raw_size
                 )
             ):

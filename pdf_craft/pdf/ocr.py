@@ -239,10 +239,21 @@ class OCR:
             raw_sizes = json.loads(path.read_text(encoding="utf-8"))
             if not isinstance(raw_sizes, dict):
                 raise ValueError("must be a mapping")
-            sizes = {
-                int(index): (int(size[0]), int(size[1]))
-                for index, size in raw_sizes.items()
-            }
+            sizes: dict[int, tuple[int, int]] = {}
+            for raw_index, raw_size in raw_sizes.items():
+                index = int(raw_index)
+                if (
+                    not isinstance(raw_size, list | tuple)
+                    or len(raw_size) != 2
+                    or not all(
+                        isinstance(value, int)
+                        and not isinstance(value, bool)
+                        and value > 0
+                        for value in raw_size
+                    )
+                ):
+                    raise ValueError("invalid page size")
+                sizes[index] = (raw_size[0], raw_size[1])
         except (IndexError, TypeError, ValueError, json.JSONDecodeError) as error:
             raise ValueError(f"invalid OCR page geometry cache: {path}") from error
         if any(index < 1 or width < 1 or height < 1

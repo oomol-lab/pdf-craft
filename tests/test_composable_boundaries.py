@@ -169,3 +169,16 @@ class TestComposableBoundaries(unittest.TestCase):
             package.metadata_path.write_text('{"schema": 1, "page_pixel_sizes": {"1": [1]}}')
             with self.assertRaisesRegex(ValueError, "page_pixel_sizes"):
                 package.validate()
+            package.metadata_path.write_text('{"schema": 1, "page_pixel_sizes": {"1": [1.5, 2]}}')
+            with self.assertRaisesRegex(ValueError, "page_pixel_sizes"):
+                package.validate()
+
+    def test_ocr_rejects_malformed_geometry_cache(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            ocr_path = root / "ocr"
+            ocr_path.mkdir()
+            (ocr_path / "page_pixel_sizes.json").write_text('{"1": [1.5, 100]}')
+            ocr = OCR(DeepSeekOCRLocalConfig(local_only=True), cast(PDFHandler, _FakeHandler()))
+            with self.assertRaisesRegex(ValueError, "geometry cache"):
+                list(ocr.recognize(root / "input.pdf", root / "assets", ocr_path))
