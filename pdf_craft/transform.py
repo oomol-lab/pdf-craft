@@ -8,7 +8,7 @@ from .common import EnsureFolder, remove_surrogates
 from .error import (
     IgnoreOCRErrorsChecker,
     IgnorePDFErrorsChecker,
-    InterruptedError,
+    InterruptedError as PDFInterruptedError,
     PDFError,
     is_inline_error,
     to_interrupted_error,
@@ -137,7 +137,7 @@ class Transform:
     def _raise_compatibility_error(
         self, error: Exception, source: PathLike | str, target: str,
     ) -> NoReturn:
-        if isinstance(error, InterruptedError):
+        if isinstance(error, PDFInterruptedError):
             raise error
         interrupted = to_interrupted_error(error)
         if interrupted is not None:

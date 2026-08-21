@@ -5,7 +5,7 @@ from unittest.mock import Mock, patch
 
 from pdf_craft.craft import ExtractionOptions, PDFCraft, PDFOptions
 from pdf_craft.document import DocumentPackage
-from pdf_craft.error import InterruptedError, PDFError
+from pdf_craft.error import InterruptedError as PDFInterruptedError, PDFError
 from pdf_craft.metering import InterruptedKind, OCRTokensMetering
 from pdf_craft.transform import Transform
 from pdf_craft.transformer import SubmitKind
@@ -119,11 +119,11 @@ class TestPDFCraft(unittest.TestCase):
                 Transform().transform_markdown("source.pdf", "book.md")
 
     def test_legacy_transform_preserves_public_interrupted_error(self):
-        error = InterruptedError(InterruptedKind.ABORT, OCRTokensMetering(1, 2))
+        error = PDFInterruptedError(InterruptedKind.ABORT, OCRTokensMetering(1, 2))
         facade = Mock()
         facade.convert_pdf_to_epub.side_effect = error
         with patch("pdf_craft.craft.PDFCraft.from_engine", return_value=facade):
-            with self.assertRaises(InterruptedError) as raised:
+            with self.assertRaises(PDFInterruptedError) as raised:
                 Transform().transform_epub("source.pdf", "book.epub")
         self.assertIs(raised.exception, error)
 
