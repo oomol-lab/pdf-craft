@@ -5,7 +5,6 @@ from typing import Callable, Literal
 from epub_generator import BookMeta, LaTeXRender, TableRender
 
 from .common import EnsureFolder, remove_surrogates
-from .epub import render_epub_file
 from .error import (
     IgnoreOCRErrorsChecker,
     IgnorePDFErrorsChecker,
@@ -14,13 +13,15 @@ from .error import (
     to_interrupted_error,
 )
 from .llm import LLM
-from .markdown.render import render_markdown_file
 from .metering import AbortedCheck, OCRTokensMetering
 from .ocr_config import OCRConfig, ensure_ocr_config
 from .pdf import OCR, DeepSeekOCRSize, OCREvent, PDFHandler
 from .sequence import generate_chapter_files
 from .to_path import to_path
 from .toc import analyse_toc
+from .document import DocumentPackage
+from .renderer import EpubRenderer, MarkdownRenderer
+from .extractor import PDFExtractor
 
 
 class Transform:
@@ -41,6 +42,10 @@ class Transform:
 
     def load_models(self) -> None:
         self._ocr.load_models()
+
+    def extract_package(self, **kwargs):
+        """Compatibility extraction hook used by the public PDFExtractor."""
+        return self._extract_from_pdf(**kwargs)
 
     def transform_markdown(
         self,
@@ -71,10 +76,8 @@ class Transform:
             with EnsureFolder(
                 path=to_path(analysing_path) if analysing_path is not None else None,
             ) as analysing_path:
-                asserts_path, chapters_path, _, cover_path, metering = (
-                    self._extract_from_pdf(
-                        pdf_path=Path(pdf_path),
-                        analysing_path=analysing_path,
+                package, metering = PDFExtractor(self).extract_with_metering(
+                        pdf_path=Path(pdf_path), package_path=analysing_path,
                         ocr_size=ocr_size,
                         dpi=dpi,
                         max_page_image_file_size=max_page_image_file_size,
@@ -89,16 +92,9 @@ class Transform:
                         max_tokens=max_ocr_tokens,
                         max_output_tokens=max_ocr_output_tokens,
                         on_ocr_event=on_ocr_event,
-                    )
                 )
-                render_markdown_file(
-                    chapters_path=chapters_path,
-                    assets_path=asserts_path,
-                    output_path=Path(markdown_path),
-                    output_assets_path=markdown_assets_path,
-                    cover_path=cover_path,
-                    aborted=aborted,
-                )
+                MarkdownRenderer().render(package, Path(markdown_path),
+                                           Path(markdown_assets_path), package.cover_path, aborted)
                 return metering
 
         except Exception as raw_error:
@@ -142,10 +138,8 @@ class Transform:
                 path=to_path(analysing_path) if analysing_path is not None else None,
             ) as analysing_path:
                 pdf_path = Path(pdf_path)
-                asserts_path, chapters_path, toc_path, cover_path, metering = (
-                    self._extract_from_pdf(
-                        pdf_path=pdf_path,
-                        analysing_path=analysing_path,
+                package, metering = PDFExtractor(self).extract_with_metering(
+                        pdf_path=pdf_path, package_path=analysing_path,
                         ocr_size=ocr_size,
                         dpi=dpi,
                         max_page_image_file_size=max_page_image_file_size,
@@ -160,23 +154,13 @@ class Transform:
                         max_tokens=max_ocr_tokens,
                         max_output_tokens=max_ocr_output_tokens,
                         on_ocr_event=on_ocr_event,
-                    )
                 )
                 book_meta = book_meta or self._extract_book_meta(pdf_path)
 
-                render_epub_file(
-                    chapters_path=chapters_path,
-                    toc_path=toc_path,
-                    assets_path=asserts_path,
-                    epub_path=Path(epub_path),
-                    book_meta=book_meta,
-                    lan=lan,
-                    cover_path=cover_path,
-                    table_render=table_render,
-                    latex_render=latex_render,
-                    inline_latex=inline_latex,
-                    aborted=aborted,
-                )
+                EpubRenderer().render(package, Path(epub_path), book_meta=book_meta,
+                                       lan=lan, table_render=table_render,
+                                       latex_render=latex_render, inline_latex=inline_latex,
+                                       aborted=aborted)
                 return metering
 
         except Exception as raw_error:
@@ -225,6 +209,7 @@ class Transform:
             input_tokens=0,
             output_tokens=0,
         )
+        existing_page_pixel_sizes = DocumentPackage.from_path(analysing_path).page_pixel_sizes()
         for event in self._ocr.recognize(
             pdf_path=pdf_path,
             asset_path=asserts_path,
@@ -258,6 +243,11 @@ class Transform:
         )
         if cover_path and not cover_path.exists():
             cover_path = None
+
+        page_pixel_sizes = existing_page_pixel_sizes | self._ocr.last_page_pixel_sizes
+        DocumentPackage(chapters_path, asserts_path, toc_path, cover_path).write_metadata(
+            dpi=dpi if dpi is not None else 300, page_pixel_sizes=page_pixel_sizes
+        )
 
         return asserts_path, chapters_path, toc_path, cover_path, metering
 

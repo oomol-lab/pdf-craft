@@ -1,5 +1,6 @@
 import sys
 import time
+import json
 from dataclasses import dataclass
 from enum import Enum, auto
 from pathlib import Path
@@ -47,6 +48,7 @@ class OCR:
         self._pdf_handler = pdf_handler
         self._pdf_handler_lock = Lock()
         self._extractor = PageExtractorNode(ocr=ocr)
+        self._last_page_pixel_sizes: dict[int, tuple[int, int]] = {}
 
     def predownload(self, revision: str | None) -> None:
         self._extractor.download_models(revision)
@@ -81,6 +83,8 @@ class OCR:
         device_number: int | None = None,
     ) -> Generator[OCREvent, None, None]:
         ocr_path.mkdir(parents=True, exist_ok=True)
+        geometry_path = ocr_path / "page_pixel_sizes.json"
+        self._last_page_pixel_sizes = self._load_page_pixel_sizes(geometry_path)
         if plot_path is not None:
             plot_path.mkdir(parents=True, exist_ok=True)
 
@@ -148,6 +152,7 @@ class OCR:
                             else 300,  # DPI=300 for scanned page
                             max_image_file_size=max_page_image_file_size,
                         )
+                        self._last_page_pixel_sizes[ref.page_index] = image.size
                         yield OCREvent(
                             kind=OCREventKind.RENDERED,
                             page_index=ref.page_index,
@@ -187,6 +192,7 @@ class OCR:
                         )
 
                     save_xml(encode(page), file_path)
+                    self._save_page_pixel_sizes(geometry_path)
 
                     if cover_path and page.image:
                         cover_path.parent.mkdir(parents=True, exist_ok=True)
@@ -213,6 +219,10 @@ class OCR:
         if not did_ignore_any:
             done_path.touch()
 
+    @property
+    def last_page_pixel_sizes(self) -> dict[int, tuple[int, int]]:
+        return self._last_page_pixel_sizes.copy()
+
     def _get_pdf_handler(self) -> PDFHandler:
         if self._pdf_handler is not None:
             return self._pdf_handler
@@ -221,6 +231,46 @@ class OCR:
             if self._pdf_handler is None:
                 self._pdf_handler = DefaultPDFHandler()
             return self._pdf_handler
+
+    def _load_page_pixel_sizes(self, path: Path) -> dict[int, tuple[int, int]]:
+        if not path.exists():
+            return {}
+        try:
+            raw_sizes = json.loads(path.read_text(encoding="utf-8"))
+            if not isinstance(raw_sizes, dict):
+                raise ValueError("must be a mapping")
+            sizes: dict[int, tuple[int, int]] = {}
+            for raw_index, raw_size in raw_sizes.items():
+                index = int(raw_index)
+                if (
+                    not isinstance(raw_size, list | tuple)
+                    or len(raw_size) != 2
+                    or not all(
+                        isinstance(value, int)
+                        and not isinstance(value, bool)
+                        and value > 0
+                        for value in raw_size
+                    )
+                ):
+                    raise ValueError("invalid page size")
+                sizes[index] = (raw_size[0], raw_size[1])
+        except (IndexError, TypeError, ValueError, json.JSONDecodeError) as error:
+            raise ValueError(f"invalid OCR page geometry cache: {path}") from error
+        if any(index < 1 or width < 1 or height < 1
+               for index, (width, height) in sizes.items()):
+            raise ValueError(f"invalid OCR page geometry cache: {path}")
+        return sizes
+
+    def _save_page_pixel_sizes(self, path: Path) -> None:
+        temporary_path = path.with_suffix(".json.tmp")
+        temporary_path.write_text(
+            json.dumps(
+                {str(index): list(size) for index, size in self._last_page_pixel_sizes.items()},
+                ensure_ascii=False,
+            ),
+            encoding="utf-8",
+        )
+        temporary_path.replace(path)
 
     def _create_fallback_page(
         self,

@@ -2,9 +2,14 @@ from collections.abc import Callable
 from pathlib import Path
 
 from pdf_craft.sequence.chapter import Chapter, ParagraphLayout
+from pdf_craft.sequence.chapter import InlineExpression, Reference
 from pdf_craft.sequence.reader import create_chapters_reader
+from pdf_craft.markdown.paragraph import HTMLTag
+from pdf_craft.expression import to_markdown_string
+from pdf_craft.document import DocumentPackage
 from pdf_craft.pdf.handler import PDFHandler
 from pdf_craft.pipeline.pdf.patcher import PDFPatcher, PDFReplacement
+from pdf_craft.transformer import ChapterTransformer
 
 
 class PDFTranslationPipeline:
@@ -19,31 +24,36 @@ class PDFTranslationPipeline:
         self,
         pdf_path: Path,
         target_path: Path,
-        chapters_path: Path,
-        transformer: Callable[[str], str],
+        package: DocumentPackage | Path,
+        transformer: Callable[[str], str] | ChapterTransformer,
     ) -> None:
+        package = package if isinstance(package, DocumentPackage) else DocumentPackage.from_path(package)
+        package.validate()
         document = self.pdf_handler.open(pdf_path) if self.pdf_handler else None
         replacements: list[PDFReplacement] = []
         try:
-            pages: dict[int, tuple[int, int]] = {}
-            reader = create_chapters_reader(chapters_path)
+            pages = package.page_pixel_sizes()
+            reader = create_chapters_reader(package.chapters_path)
             for chapter in reader():
-                self._collect_chapter(chapter, transformer, document, pages, replacements)
+                structured = not callable(transformer)
+                transformed = transformer.transform(chapter) if structured else chapter
+                callback = transformer if callable(transformer) else (lambda text: text)
+                self._collect_chapter(transformed, callback, document, pages, replacements, structured)
         finally:
             if document:
                 document.close()
         self.patcher.patch(pdf_path, target_path, replacements)
 
-    def _collect_chapter(self, chapter: Chapter, transformer, document, pages, replacements) -> None:
+    def _collect_chapter(self, chapter: Chapter, transformer, document, pages, replacements, structured: bool = False) -> None:
         for layout in chapter.layouts:
             if not isinstance(layout, ParagraphLayout) or layout.ref not in {"text", "sub_title"}:
                 continue
             for block in layout.blocks:
-                source = "".join(item for item in block.content if isinstance(item, str)).strip()
+                source = _to_patch_text(block.content).strip()
                 if not source:
                     continue
                 translated = transformer(source)
-                if not translated or translated == source:
+                if not translated or (translated == source and not structured):
                     continue
                 if block.page_index not in pages:
                     if document is None:
@@ -51,3 +61,24 @@ class PDFTranslationPipeline:
                     image = document.render_page(block.page_index, self.dpi)
                     pages[block.page_index] = image.size
                 replacements.append(PDFReplacement(block.page_index, block.det, translated, pages[block.page_index], self.dpi))
+
+
+def _to_patch_text(items) -> str:
+    """Serialize structured Chapter content without silently dropping nodes.
+
+    The patcher can only draw text, so formulas retain their Markdown delimiters,
+    references retain their printed mark, and HTML wrappers retain their children.
+    """
+    parts: list[str] = []
+    for item in items:
+        if isinstance(item, str):
+            parts.append(item)
+        elif isinstance(item, InlineExpression):
+            parts.append(to_markdown_string(item.kind, item.content))
+        elif isinstance(item, Reference):
+            parts.append(str(item.mark))
+        elif isinstance(item, HTMLTag):
+            parts.append(_to_patch_text(item.children))
+        else:
+            raise TypeError(f"unsupported chapter content for PDF patching: {type(item).__name__}")
+    return "".join(parts)

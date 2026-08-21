@@ -37,3 +37,6 @@ from .pdf import (
     pdf_pages_count,
 )
 from .transform import Transform
+from .document import DocumentPackage, SourceLocation
+from .extractor import PDFExtractor
+from .renderer import EpubRenderer, MarkdownRenderer
