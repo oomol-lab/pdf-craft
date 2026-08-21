@@ -9,9 +9,9 @@ from pdf_craft import (
     transform_epub,
 )
 
-try:
+if __package__:
     from .env_loader import create_ocr_config_from_env, load_env
-except ImportError:
+else:
     from env_loader import create_ocr_config_from_env, load_env
 
 _IMAGE_STEM = "newton"
