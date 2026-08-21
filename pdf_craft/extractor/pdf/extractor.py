@@ -27,6 +27,5 @@ class PDFExtractor:
         _, _, _, _, metering = self._transform.extract_package(pdf_path=pdf_path,
             **defaults)
         package = DocumentPackage.from_path(package_path)
-        package.write_metadata(dpi=kwargs.get("dpi"))
         package.validate()
         return package, metering

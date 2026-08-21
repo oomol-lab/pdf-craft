@@ -35,15 +35,16 @@ class PDFTranslationPipeline:
             pages = package.page_pixel_sizes()
             reader = create_chapters_reader(package.chapters_path)
             for chapter in reader():
-                transformed = transformer.transform(chapter) if not callable(transformer) else chapter
+                structured = not callable(transformer)
+                transformed = transformer.transform(chapter) if structured else chapter
                 callback = transformer if callable(transformer) else (lambda text: text)
-                self._collect_chapter(transformed, callback, document, pages, replacements)
+                self._collect_chapter(transformed, callback, document, pages, replacements, structured)
         finally:
             if document:
                 document.close()
         self.patcher.patch(pdf_path, target_path, replacements)
 
-    def _collect_chapter(self, chapter: Chapter, transformer, document, pages, replacements) -> None:
+    def _collect_chapter(self, chapter: Chapter, transformer, document, pages, replacements, structured: bool = False) -> None:
         for layout in chapter.layouts:
             if not isinstance(layout, ParagraphLayout) or layout.ref not in {"text", "sub_title"}:
                 continue
@@ -52,7 +53,7 @@ class PDFTranslationPipeline:
                 if not source:
                     continue
                 translated = transformer(source)
-                if not translated or translated == source:
+                if not translated or (translated == source and not structured):
                     continue
                 if block.page_index not in pages:
                     if document is None:

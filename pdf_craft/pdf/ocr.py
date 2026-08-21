@@ -213,6 +213,16 @@ class OCR:
         if not did_ignore_any:
             done_path.touch()
 
+    def page_pixel_sizes(self, pdf_path: Path, dpi: int | None) -> dict[int, tuple[int, int]]:
+        """Record the same rendered canvas geometry used for OCR BBoxes."""
+        document = self._get_pdf_handler().open(pdf_path)
+        try:
+            actual_dpi = dpi if dpi is not None else 300
+            return {index: document.render_page(index, actual_dpi).size
+                    for index in range(1, document.pages_count + 1)}
+        finally:
+            document.close()
+
     def _get_pdf_handler(self) -> PDFHandler:
         if self._pdf_handler is not None:
             return self._pdf_handler

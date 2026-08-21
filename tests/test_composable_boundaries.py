@@ -8,6 +8,7 @@ from pdf_craft.document import DocumentPackage
 from pdf_craft.extractor import PDFExtractor
 from pdf_craft.pipeline.pdf.pipeline import PDFTranslationPipeline
 from pdf_craft.pipeline.pdf import PDFPatcher
+from pdf_craft.transformer import ChapterXMLTransformer
 from pdf_craft.renderer import EpubRenderer, MarkdownRenderer
 from pdf_craft.sequence.chapter import BlockLayout, Chapter, InlineExpression, ParagraphLayout, Reference
 from pdf_craft.expression import ExpressionKind
@@ -18,6 +19,9 @@ class _FakeTransform:
         (analysing_path / "chapters").mkdir(parents=True)
         (analysing_path / "assets").mkdir()
         (analysing_path / "toc.xml").write_text("<toc/>")
+        DocumentPackage.from_path(analysing_path).write_metadata(
+            dpi=300, page_pixel_sizes={1: (100, 100)}
+        )
         return None, None, None, None, "metering"
 
 
@@ -44,6 +48,16 @@ class _FakeHandler:
         return _FakeDocument()
 
 
+class _DeterministicXMLTranslator:
+    def translate_element(self, task, **_kwargs):
+        for node in task.element.iter():
+            if node.text:
+                node.text = "T:" + node.text
+            if node.tail:
+                node.tail = "T:" + node.tail
+        return task.element, task.payload
+
+
 class TestComposableBoundaries(unittest.TestCase):
     def test_extractor_produces_package_consumed_by_renderers_without_ocr_cache(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -51,7 +65,7 @@ class TestComposableBoundaries(unittest.TestCase):
             package, metering = PDFExtractor(_FakeTransform()).extract_with_metering(root / "input.pdf", root / "package")
             self.assertEqual(metering, "metering")
             self.assertFalse((root / "package" / "ocr").exists())
-            self.assertEqual(package.page_pixel_sizes(), {})
+            self.assertEqual(package.page_pixel_sizes(), {1: (100, 100)})
             with patch("pdf_craft.renderer.markdown.renderer.render_markdown_file") as markdown:
                 MarkdownRenderer().render(package, root / "book.md")
             self.assertEqual(markdown.call_args.args[0], package.chapters_path)
@@ -67,14 +81,21 @@ class TestComposableBoundaries(unittest.TestCase):
             package.assets_path.mkdir()
             package.write_metadata(dpi=300, page_pixel_sizes={1: (100, 100)})
             reference = Reference(1, 2, "[1]", [])
-            chapter = Chapter(None, -1, [ParagraphLayout("text", 0, [BlockLayout(
-                1, 1, (1, 1, 50, 50), ["text ", InlineExpression(ExpressionKind.INLINE_DOLLAR, "x"), reference]
-            )])])
+            chapter = Chapter(None, -1, [
+                ParagraphLayout("text", 0, [BlockLayout(
+                    1, 1, (1, 1, 50, 50), ["text ", InlineExpression(ExpressionKind.INLINE_DOLLAR, "x"), reference]
+                )]),
+                ParagraphLayout("sub_title", 1, [BlockLayout(1, 2, (1, 50, 50, 90), ["heading"])]),
+            ])
             patcher = _CapturePatcher()
             with patch("pdf_craft.pipeline.pdf.pipeline.create_chapters_reader", return_value=lambda: iter([chapter])):
-                PDFTranslationPipeline(patcher=cast(PDFPatcher, patcher)).translate(root / "input.pdf", root / "out.pdf", package, lambda value: "T:" + value)
-            self.assertEqual(len(patcher.replacements), 1)
+                PDFTranslationPipeline(patcher=cast(PDFPatcher, patcher)).translate(
+                    root / "input.pdf", root / "out.pdf", package,
+                    ChapterXMLTransformer(_DeterministicXMLTranslator())
+                )
+            self.assertEqual(len(patcher.replacements), 2)
             replacement = patcher.replacements[0]
             self.assertEqual(replacement.page_pixel_size, (100, 100))
-            self.assertIn("$x$", replacement.text)
+            self.assertIn("$T:x$", replacement.text)
             self.assertIn("[1]", replacement.text)
+            self.assertIn("T:heading", patcher.replacements[1].text)
