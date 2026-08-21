@@ -9,5 +9,5 @@ class MarkdownRenderer:
                aborted=lambda: False) -> None:
         package.validate()
         render_markdown_file(package.chapters_path, package.assets_path, output_path,
-                             assets_path or output_path.parent / "assets",
+                             assets_path or Path("assets"),
                              cover_path or package.cover_path, aborted)

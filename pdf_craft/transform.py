@@ -74,7 +74,7 @@ class Transform:
         # Compatibility wrapper.  PDFCraft owns the production workflow.
         from .craft import ExtractionOptions, PDFCraft
         if markdown_assets_path is None:
-            markdown_assets_path = Path(markdown_path).parent / "assets"
+            markdown_assets_path = Path("assets")
         try:
             with EnsureFolder(path=to_path(analysing_path) if analysing_path is not None else None) as package_path:
                 return PDFCraft.from_engine(self).convert_pdf_to_markdown(

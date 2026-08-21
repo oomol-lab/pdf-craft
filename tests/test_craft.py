@@ -228,8 +228,8 @@ class TestPDFCraft(unittest.TestCase):
                 Transform().transform_epub("source.pdf", "book.epub")
         self.assertIs(raised.exception, error)
 
-    def test_legacy_markdown_uses_output_directory_for_default_assets(self):
+    def test_legacy_markdown_uses_assets_relative_to_markdown_output(self):
         facade = Mock()
         with patch("pdf_craft.craft.PDFCraft.from_engine", return_value=facade):
             Transform().transform_markdown("source.pdf", "output/book.md")
-        self.assertEqual(facade.convert_pdf_to_markdown.call_args.kwargs["assets_path"], Path("output/assets"))
+        self.assertEqual(facade.convert_pdf_to_markdown.call_args.kwargs["assets_path"], Path("assets"))

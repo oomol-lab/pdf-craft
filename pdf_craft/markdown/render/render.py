@@ -1,4 +1,5 @@
 from pathlib import Path
+from os.path import relpath
 from shutil import copy
 from typing import Generator
 
@@ -20,12 +21,17 @@ def render_markdown_file(
     cover_path: Path | None,
     aborted: AbortedCheck,
 ):
-    assets_ref_path = output_assets_path
-    if not assets_ref_path.is_absolute():
-        output_assets_path = output_path.parent / output_assets_path
+    # ``output_assets_path`` is a destination relative to the Markdown file,
+    # unless it is absolute.  Keep the copy destination and emitted Markdown
+    # reference separate so neither depends on the process working directory.
+    if output_assets_path.is_absolute():
+        assets_destination = output_assets_path
+    else:
+        assets_destination = output_path.parent / output_assets_path
+    assets_ref_path = Path(relpath(assets_destination, output_path.parent))
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    output_assets_path.mkdir(parents=True, exist_ok=True)
+    assets_destination.mkdir(parents=True, exist_ok=True)
     read_chapters = create_chapters_reader(chapters_path)
 
     references: list[Reference] = []
@@ -47,7 +53,7 @@ def render_markdown_file(
             for part in render_layouts(
                 layouts=chapter.layouts,
                 assets_path=assets_path,
-                output_assets_path=output_assets_path,
+                output_assets_path=assets_destination,
                 asset_ref_path=assets_ref_path,
                 toc_level=chapter.level,
                 ref_id_to_number=ref_id_to_number,
@@ -59,7 +65,7 @@ def render_markdown_file(
         for part in _render_footnotes_section(
             references=references,
             assets_path=assets_path,
-            output_assets_path=output_assets_path,
+            output_assets_path=assets_destination,
             asset_ref_path=assets_ref_path,
         ):
             f.write(part)
@@ -67,7 +73,7 @@ def render_markdown_file(
     if cover_path is not None:
         copy(
             src=cover_path,
-            dst=output_assets_path / cover_path.name,
+            dst=assets_destination / cover_path.name,
         )
 
 
