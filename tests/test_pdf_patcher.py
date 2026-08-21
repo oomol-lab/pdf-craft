@@ -13,7 +13,7 @@ class TestPDFPatcher(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
             source = root / "source.pdf"
-            target = root / "target.pdf"
+            target = root / "nested" / "target.pdf"
             doc = canvas.Canvas(str(source), pagesize=(200, 200))
             doc.setFont("Helvetica", 12)
             doc.drawString(20, 160, "Original")
@@ -33,3 +33,21 @@ class TestPDFPatcher(unittest.TestCase):
     def test_rejects_invalid_bbox(self):
         with self.assertRaises(ValueError):
             PDFPatcher().validate(PDFReplacement(1, (4, 4, 2, 3), "text", (100, 100)))
+
+    def test_rejects_bbox_outside_page_pixels(self):
+        with self.assertRaises(ValueError):
+            PDFPatcher().validate(PDFReplacement(1, (1, 1, 101, 20), "text", (100, 100)))
+
+    def test_rejects_missing_source_page(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            source = root / "source.pdf"
+            doc = canvas.Canvas(str(source), pagesize=(200, 200))
+            doc.save()
+
+            with self.assertRaises(ValueError):
+                PDFPatcher().patch(
+                    source,
+                    root / "target.pdf",
+                    [PDFReplacement(2, (1, 1, 10, 10), "text", (100, 100))],
+                )

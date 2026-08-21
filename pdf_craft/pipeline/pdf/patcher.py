@@ -1,5 +1,6 @@
 from dataclasses import dataclass
 from pathlib import Path
+from tempfile import NamedTemporaryFile
 from typing import Iterable
 
 
@@ -31,42 +32,45 @@ class PDFPatcher:
         except ImportError as error:
             raise RuntimeError("PDF patching requires the optional 'reportlab' dependency") from error
 
+        reader = pypdf.PdfReader(str(source_path))
+        target_path.parent.mkdir(parents=True, exist_ok=True)
         replacements_by_page: dict[int, list[PDFReplacement]] = {}
         for replacement in replacements:
-            self.validate(replacement)
+            self.validate(replacement, pages_count=len(reader.pages))
             replacements_by_page.setdefault(replacement.page_index, []).append(replacement)
 
-        reader = pypdf.PdfReader(str(source_path))
         writer = pypdf.PdfWriter()
         for index, page in enumerate(reader.pages, 1):
             page_replacements = replacements_by_page.get(index, [])
             if page_replacements:
                 width = float(page.mediabox.width)
                 height = float(page.mediabox.height)
-                overlay_path = target_path.with_suffix(f".page-{index}.overlay.pdf")
-                overlay = canvas.Canvas(str(overlay_path), pagesize=(width, height))
-                for replacement in page_replacements:
-                    self._draw_replacement(overlay, replacement, width, height)
-                overlay.save()
-                overlay_reader = pypdf.PdfReader(str(overlay_path))
-                page.merge_page(overlay_reader.pages[0])
-                overlay_path.unlink(missing_ok=True)
+                with NamedTemporaryFile(suffix=".pdf") as overlay_file:
+                    overlay = canvas.Canvas(overlay_file.name, pagesize=(width, height))
+                    for replacement in page_replacements:
+                        self._draw_replacement(overlay, replacement, width, height)
+                    overlay.save()
+                    overlay_reader = pypdf.PdfReader(overlay_file.name)
+                    page.merge_page(overlay_reader.pages[0])
             writer.add_page(page)
 
-        target_path.parent.mkdir(parents=True, exist_ok=True)
         with target_path.open("wb") as output:
             writer.write(output)
 
-    def validate(self, replacement: PDFReplacement) -> None:
+    def validate(self, replacement: PDFReplacement, pages_count: int | None = None) -> None:
         left, top, right, bottom = replacement.bbox
         if replacement.page_index < 1:
             raise ValueError("page_index must be positive")
+        if pages_count is not None and replacement.page_index > pages_count:
+            raise ValueError(f"page_index {replacement.page_index} exceeds source page count {pages_count}")
         if left < 0 or top < 0 or right <= left or bottom <= top:
             raise ValueError(f"invalid bbox: {replacement.bbox}")
         if not replacement.text.strip():
             raise ValueError("replacement text must not be empty")
         if replacement.page_pixel_size[0] <= 0 or replacement.page_pixel_size[1] <= 0:
             raise ValueError("page_pixel_size must be positive")
+        if right > replacement.page_pixel_size[0] or bottom > replacement.page_pixel_size[1]:
+            raise ValueError("bbox exceeds page_pixel_size")
 
     def _draw_replacement(self, overlay, replacement: PDFReplacement, width: float, height: float) -> None:
         pixel_width, pixel_height = replacement.page_pixel_size
