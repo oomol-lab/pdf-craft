@@ -5,7 +5,7 @@ from importlib.metadata import version as get_package_version
 from os import PathLike
 from pathlib import Path
 
-from pdf_craft.transformer.xml_translator.epub import (
+from pdf_craft.pipeline.epub.adapter import (
     MetadataContext,
     TocContext,
     Zip,

@@ -6,8 +6,8 @@ EPUB 数据结构与 XML 的编码/解码转换
 
 from xml.etree.ElementTree import Element
 
-from pdf_craft.transformer.xml_translator.epub import Toc
-from pdf_craft.transformer.xml_translator.epub.metadata import MetadataField
+from pdf_craft.pipeline.epub.adapter import Toc
+from pdf_craft.pipeline.epub.adapter.metadata import MetadataField
 
 
 def encode_toc(toc: Toc) -> Element:

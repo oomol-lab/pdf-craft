@@ -1,1 +1,1 @@
-from pdf_craft.sequence import *  # noqa: F403
+"""Chapter extraction namespace."""

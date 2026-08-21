@@ -1,5 +1,5 @@
-from pdf_craft.pdf import *  # noqa: F403
-from pdf_craft.sequence import *  # noqa: F403
-from pdf_craft.toc import *  # noqa: F403
+"""PDF extraction boundary.
 
-from .pdf import *  # noqa: F403
+The legacy public API remains available from :mod:`pdf_craft` while new
+Extractor-facing contracts live in :mod:`pdf_craft.document`.
+"""

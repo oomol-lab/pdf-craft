@@ -6,7 +6,7 @@ from bs4 import BeautifulSoup
 from mathml2latex.mathml import process_mathml  # pyright: ignore[reportMissingImports]
 
 from pdf_craft.transformer.xml_translator.segment import TextSegment, combine_text_segments, find_block_depth
-from ..utils import ensure_list, normalize_whitespace
+from pdf_craft.transformer.xml_translator.utils import ensure_list, normalize_whitespace
 from pdf_craft.transformer.xml_translator.xml import DISPLAY_ATTRIBUTE, clone_element, is_inline_element
 
 _ID_KEY = "__XML_INTERRUPTER_ID"

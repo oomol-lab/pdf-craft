@@ -1,4 +1,4 @@
-from pdf_craft.transformer.xml_translator.translation.translator import translate
+from .translation.translator import translate
 
 translate_epub = translate
 
