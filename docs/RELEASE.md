@@ -16,10 +16,10 @@ Configure the PyPI trusted publisher for this repository:
 
 ## 2. Prepare a release PR
 
-For a target version such as `2.0.0`, prepare and merge a PR that includes:
+For a target version such as `1.0.14`, prepare and merge a PR that includes:
 
-- `pyproject.toml` version set to `2.0.0`
-- `docs/changelog/v2.0.0.md` with the release notes
+- `pyproject.toml` version set to `1.0.14`
+- `docs/changelog/v1.0.14.md` with the release notes
 
 Use the existing files in `docs/changelog/` as the changelog style reference.
 

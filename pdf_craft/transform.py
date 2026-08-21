@@ -9,8 +9,6 @@ from .error import (
     IgnoreOCRErrorsChecker,
     IgnorePDFErrorsChecker,
     PDFError,
-    is_inline_error,
-    to_interrupted_error,
 )
 from .llm import LLM
 from .metering import AbortedCheck, OCRTokensMetering
@@ -20,8 +18,6 @@ from .sequence import generate_chapter_files
 from .to_path import to_path
 from .toc import analyse_toc
 from .document import DocumentPackage
-from .renderer import EpubRenderer, MarkdownRenderer
-from .extractor import PDFExtractor
 
 
 class Transform:
@@ -86,46 +82,6 @@ class Transform:
                     max_ocr_output_tokens=max_ocr_output_tokens, on_ocr_event=on_ocr_event,
                 ),
             )
-        if markdown_assets_path is None:
-            markdown_assets_path = Path(".") / "assets"
-        else:
-            markdown_assets_path = Path(markdown_assets_path)
-        try:
-            with EnsureFolder(
-                path=to_path(analysing_path) if analysing_path is not None else None,
-            ) as analysing_path:
-                package, metering = PDFExtractor(self).extract_with_metering(
-                        pdf_path=Path(pdf_path), package_path=analysing_path,
-                        ocr_size=ocr_size,
-                        dpi=dpi,
-                        max_page_image_file_size=max_page_image_file_size,
-                        includes_cover=includes_cover,
-                        includes_footnotes=includes_footnotes,
-                        ignore_pdf_errors=ignore_pdf_errors,
-                        ignore_ocr_errors=ignore_ocr_errors,
-                        generate_plot=generate_plot,
-                        toc_llm=toc_llm,
-                        toc_assumed=toc_assumed,
-                        aborted=aborted,
-                        max_tokens=max_ocr_tokens,
-                        max_output_tokens=max_ocr_output_tokens,
-                        on_ocr_event=on_ocr_event,
-                )
-                MarkdownRenderer().render(package, Path(markdown_path),
-                                           Path(markdown_assets_path), package.cover_path, aborted)
-                return metering
-
-        except Exception as raw_error:
-            error = to_interrupted_error(raw_error)
-            if error:
-                raise error from raw_error
-            elif is_inline_error(raw_error):
-                raise
-            else:
-                raise RuntimeError(
-                    f"transform {pdf_path} to markdown failed"
-                ) from raw_error
-
     def transform_epub(
         self,
         pdf_path: PathLike | str,
@@ -167,47 +123,6 @@ class Transform:
                     max_ocr_output_tokens=max_ocr_output_tokens, on_ocr_event=on_ocr_event,
                 ),
             )
-        try:
-            with EnsureFolder(
-                path=to_path(analysing_path) if analysing_path is not None else None,
-            ) as analysing_path:
-                pdf_path = Path(pdf_path)
-                package, metering = PDFExtractor(self).extract_with_metering(
-                        pdf_path=pdf_path, package_path=analysing_path,
-                        ocr_size=ocr_size,
-                        dpi=dpi,
-                        max_page_image_file_size=max_page_image_file_size,
-                        includes_cover=includes_cover,
-                        includes_footnotes=includes_footnotes,
-                        ignore_pdf_errors=ignore_pdf_errors,
-                        ignore_ocr_errors=ignore_ocr_errors,
-                        generate_plot=generate_plot,
-                        toc_llm=toc_llm,
-                        toc_assumed=toc_assumed,
-                        aborted=aborted,
-                        max_tokens=max_ocr_tokens,
-                        max_output_tokens=max_ocr_output_tokens,
-                        on_ocr_event=on_ocr_event,
-                )
-                book_meta = book_meta or self._extract_book_meta(pdf_path)
-
-                EpubRenderer().render(package, Path(epub_path), book_meta=book_meta,
-                                       lan=lan, table_render=table_render,
-                                       latex_render=latex_render, inline_latex=inline_latex,
-                                       aborted=aborted)
-                return metering
-
-        except Exception as raw_error:
-            error = to_interrupted_error(raw_error)
-            if error:
-                raise error from raw_error
-            elif is_inline_error(raw_error):
-                raise
-            else:
-                raise RuntimeError(
-                    f"transform {pdf_path} to epub failed"
-                ) from raw_error
-
     def _extract_from_pdf(
         self,
         pdf_path: Path,
