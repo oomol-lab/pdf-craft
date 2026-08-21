@@ -3,51 +3,69 @@ import unittest
 from pathlib import Path
 from unittest.mock import Mock, patch
 
+import pdf_craft
 from pdf_craft import (
-    LocalDeepSeekOCRConfig,
-    VendorDeepSeekOCRConfig,
-    VendorUnlimitedOCRConfig,
-    create_ocr_config_from_env,
+    DeepSeekOCR2LocalConfig,
+    DeepSeekOCR2VendorConfig,
+    DeepSeekOCRLocalConfig,
+    DeepSeekOCRVendorConfig,
+    UnlimitedOCRLocalConfig,
+    UnlimitedOCRVendorConfig,
 )
 from pdf_craft.functions import predownload_models
 from pdf_craft.ocr_config import ensure_ocr_config
 from pdf_craft.pdf.page_extractor import PageExtractorNode
 from pdf_craft.transform import Transform
+from scripts.env_loader import create_ocr_config_from_env
 
 
 class TestOCRConfig(unittest.TestCase):
-    def test_legacy_options_create_local_deepseek_config(self):
+    def test_options_create_deepseek_ocr_local_config(self):
         config = ensure_ocr_config(None, "models", True)
 
-        self.assertIsInstance(config, LocalDeepSeekOCRConfig)
-        assert isinstance(config, LocalDeepSeekOCRConfig)
+        self.assertIsInstance(config, DeepSeekOCRLocalConfig)
+        assert isinstance(config, DeepSeekOCRLocalConfig)
         self.assertEqual(config.models_cache_path, (Path.cwd() / "models").resolve())
         self.assertTrue(config.local_only)
 
-    def test_local_deepseek_device_numbers_are_immutable_tuple(self):
+    def test_local_device_numbers_are_immutable_tuple(self):
         devices = [0, 1]
-        config = LocalDeepSeekOCRConfig(enable_devices_numbers=devices)
-        devices.append(2)
+        for config_cls in (
+            DeepSeekOCRLocalConfig,
+            DeepSeekOCR2LocalConfig,
+            UnlimitedOCRLocalConfig,
+        ):
+            with self.subTest(config_cls=config_cls.__name__):
+                config = config_cls(enable_devices_numbers=devices)
+                self.assertEqual(config.enable_devices_numbers, (0, 1))
 
-        self.assertEqual(config.enable_devices_numbers, (0, 1))
+        devices.append(2)
+        config = DeepSeekOCRLocalConfig(enable_devices_numbers=devices)
+        self.assertEqual(config.enable_devices_numbers, (0, 1, 2))
 
     def test_vendor_config_repr_hides_credentials(self):
-        deepseek = VendorDeepSeekOCRConfig(
+        deepseek = DeepSeekOCRVendorConfig(
             base_url="https://example.com",
             api_key="secret-key",
             model="model",
         )
-        unlimited = VendorUnlimitedOCRConfig(
+        deepseek2 = DeepSeekOCR2VendorConfig(
+            base_url="https://example.com",
+            api_key="secret-key-2",
+            model="model",
+        )
+        unlimited = UnlimitedOCRVendorConfig(
             ak="secret-ak",
             sk="secret-sk",
         )
 
         self.assertNotIn("secret-key", repr(deepseek))
+        self.assertNotIn("secret-key-2", repr(deepseek2))
         self.assertNotIn("secret-ak", repr(unlimited))
         self.assertNotIn("secret-sk", repr(unlimited))
 
-    def test_ocr_config_cannot_mix_with_legacy_options(self):
-        config = VendorDeepSeekOCRConfig(
+    def test_ocr_config_cannot_mix_with_models_cache_options(self):
+        config = DeepSeekOCRVendorConfig(
             base_url="https://example.com",
             api_key="key",
             model="model",
@@ -59,14 +77,14 @@ class TestOCRConfig(unittest.TestCase):
                 ocr=config,
             )
 
-    def test_local_deepseek_uses_doc_page_extractor_local_factory(self):
+    def test_local_deepseek_ocr_uses_doc_page_extractor_factory(self):
         extractor = Mock()
         with patch(
-            "doc_page_extractor.extractor.create_page_extractor",
+            "doc_page_extractor.extractor.create_deepseek_ocr_page_extractor",
             return_value=extractor,
         ) as factory:
             node = PageExtractorNode(
-                LocalDeepSeekOCRConfig(
+                DeepSeekOCRLocalConfig(
                     models_cache_path="models",
                     local_only=True,
                     enable_devices_numbers=[0],
@@ -75,20 +93,66 @@ class TestOCRConfig(unittest.TestCase):
             node.load_models()
 
         factory.assert_called_once_with(
+            ocr_model="deepseek-ocr",
             model_path=(Path.cwd() / "models").resolve(),
             local_only=True,
             enable_devices_numbers=(0,),
         )
-        extractor.load_models.assert_called_once_with()
+        extractor.load_ocr_model.assert_called_once_with()
 
-    def test_vendor_deepseek_uses_doc_page_extractor_vendor_factory(self):
+    def test_local_deepseek_ocr2_uses_doc_page_extractor_factory(self):
         extractor = Mock()
         with patch(
-            "doc_page_extractor.extractor.create_deepseek_vendor_page_extractor",
+            "doc_page_extractor.extractor.create_deepseek_ocr_page_extractor",
             return_value=extractor,
         ) as factory:
             node = PageExtractorNode(
-                VendorDeepSeekOCRConfig(
+                DeepSeekOCR2LocalConfig(
+                    models_cache_path="models",
+                    local_only=True,
+                    enable_devices_numbers=[1],
+                )
+            )
+            node.load_models()
+
+        factory.assert_called_once_with(
+            ocr_model="deepseek-ocr2",
+            model_path=(Path.cwd() / "models").resolve(),
+            local_only=True,
+            enable_devices_numbers=(1,),
+        )
+        extractor.load_ocr_model.assert_called_once_with()
+
+    def test_local_unlimited_ocr_uses_doc_page_extractor_factory(self):
+        extractor = Mock()
+        with patch(
+            "doc_page_extractor.extractor.create_unlimited_ocr_page_extractor",
+            return_value=extractor,
+        ) as factory:
+            node = PageExtractorNode(
+                UnlimitedOCRLocalConfig(
+                    models_cache_path="models",
+                    local_only=True,
+                    enable_devices_numbers=[0, 1],
+                )
+            )
+            node.load_models()
+
+        factory.assert_called_once_with(
+            model_path=(Path.cwd() / "models").resolve(),
+            local_only=True,
+            enable_devices_numbers=(0, 1),
+        )
+        extractor.load_ocr_model.assert_called_once_with()
+
+    def test_vendor_deepseek_ocr_uses_doc_page_extractor_factory(self):
+        extractor = Mock()
+        with patch(
+            "doc_page_extractor.extractor.create_deepseek_ocr_vendor_page_extractor",
+            return_value=extractor,
+        ) as factory:
+            node = PageExtractorNode(
+                DeepSeekOCRVendorConfig(
                     base_url="https://example.com",
                     api_key="key",
                     model="model",
@@ -111,17 +175,47 @@ class TestOCRConfig(unittest.TestCase):
         self.assertEqual(upstream_config.max_tokens, 123)
         self.assertEqual(upstream_config.timeout_seconds, 45)
 
-    def test_vendor_unlimited_uses_doc_page_extractor_baidu_factory(self):
+    def test_vendor_deepseek_ocr2_uses_doc_page_extractor_factory(self):
         extractor = Mock()
         with patch(
-            "doc_page_extractor.extractor.create_baidu_page_extractor",
+            "doc_page_extractor.extractor.create_deepseek_ocr2_vendor_page_extractor",
             return_value=extractor,
         ) as factory:
             node = PageExtractorNode(
-                VendorUnlimitedOCRConfig(
+                DeepSeekOCR2VendorConfig(
+                    base_url="https://example.com",
+                    api_key="key",
+                    model="model",
+                    temperature=0.1,
+                    top_p=0.9,
+                    max_tokens=123,
+                    timeout_seconds=45,
+                )
+            )
+            # pylint: disable=protected-access
+            self.assertIs(node._get_page_extractor(), extractor)
+
+        factory.assert_called_once()
+        upstream_config = factory.call_args.args[0]
+        self.assertEqual(upstream_config.base_url, "https://example.com")
+        self.assertEqual(upstream_config.api_key, "key")
+        self.assertEqual(upstream_config.model, "model")
+        self.assertEqual(upstream_config.temperature, 0.1)
+        self.assertEqual(upstream_config.top_p, 0.9)
+        self.assertEqual(upstream_config.max_tokens, 123)
+        self.assertEqual(upstream_config.timeout_seconds, 45)
+
+    def test_vendor_unlimited_ocr_uses_doc_page_extractor_factory(self):
+        extractor = Mock()
+        with patch(
+            "doc_page_extractor.extractor.create_unlimited_ocr_vendor_page_extractor",
+            return_value=extractor,
+        ) as factory:
+            node = PageExtractorNode(
+                UnlimitedOCRVendorConfig(
                     ak="ak",
                     sk="sk",
-                    base_url="https://baidu.example.com",
+                    base_url="https://unlimited.example.com",
                     poll_interval_seconds=1.5,
                     timeout_seconds=60,
                 )
@@ -133,50 +227,83 @@ class TestOCRConfig(unittest.TestCase):
         upstream_config = factory.call_args.args[0]
         self.assertEqual(upstream_config.ak, "ak")
         self.assertEqual(upstream_config.sk, "sk")
-        self.assertEqual(upstream_config.base_url, "https://baidu.example.com")
+        self.assertEqual(upstream_config.base_url, "https://unlimited.example.com")
         self.assertEqual(upstream_config.poll_interval_seconds, 1.5)
         self.assertEqual(upstream_config.timeout_seconds, 60)
 
     def test_vendor_config_cannot_download_or_load_models(self):
         node = PageExtractorNode(
-            VendorUnlimitedOCRConfig(
+            UnlimitedOCRVendorConfig(
                 ak="ak",
                 sk="sk",
             )
         )
 
-        with self.assertRaisesRegex(RuntimeError, "local DeepSeek OCR"):
+        with self.assertRaisesRegex(RuntimeError, "local OCR"):
             node.download_models(None)
-        with self.assertRaisesRegex(RuntimeError, "local DeepSeek OCR"):
+        with self.assertRaisesRegex(RuntimeError, "local OCR"):
             node.load_models()
 
     def test_predownload_models_accepts_local_config(self):
         extractor = Mock()
         with patch(
-            "doc_page_extractor.extractor.create_page_extractor",
+            "doc_page_extractor.extractor.create_deepseek_ocr_page_extractor",
             return_value=extractor,
         ):
             predownload_models(
-                ocr=LocalDeepSeekOCRConfig(models_cache_path="models"),
+                ocr=DeepSeekOCRLocalConfig(models_cache_path="models"),
                 revision="rev",
             )
 
-        extractor.download_models.assert_called_once_with("rev")
+        extractor.download_ocr_model.assert_called_once_with("rev")
 
-    def test_create_ocr_config_from_env_deepseek(self):
+    def test_pdf_craft_package_does_not_export_env_loader(self):
+        self.assertFalse(hasattr(pdf_craft, "create_ocr_config_from_env"))
+        self.assertTrue(hasattr(pdf_craft, "OCRMode"))
+
+    def test_script_env_loader_defaults_to_deepseek_ocr_local(self):
+        with patch.dict(os.environ, {}, clear=True):
+            config = create_ocr_config_from_env()
+
+        self.assertEqual(
+            config,
+            DeepSeekOCRLocalConfig(
+                models_cache_path="models-cache",
+                local_only=True,
+            ),
+        )
+
+    def test_script_env_loader_creates_deepseek_ocr2_local_config(self):
         env = {
-            "PDF_CRAFT_OCR_MODE": "vendor-deepseek",
-            "PDF_CRAFT_DEEPSEEK_BASE_URL": "https://example.com",
-            "PDF_CRAFT_DEEPSEEK_API_KEY": "key",
-            "PDF_CRAFT_DEEPSEEK_MODEL": "model",
-            "PDF_CRAFT_DEEPSEEK_MAX_TOKENS": "123",
+            "OCR_MODE": "deepseek-ocr2-local",
+            "DEEPSEEK_LOCAL_MODEL_PATH": "models",
+            "DEEPSEEK_LOCAL_ONLY": "false",
         }
         with patch.dict(os.environ, env, clear=True):
             config = create_ocr_config_from_env()
 
         self.assertEqual(
             config,
-            VendorDeepSeekOCRConfig(
+            DeepSeekOCR2LocalConfig(
+                models_cache_path="models",
+                local_only=False,
+            ),
+        )
+
+    def test_script_env_loader_creates_deepseek_ocr_vendor_config(self):
+        env = {
+            "OCR_MODE": "deepseek-ocr-vendor",
+            "DEEPSEEK_OCR_BASE_URL": "https://example.com",
+            "DEEPSEEK_OCR_API_KEY": "key",
+            "DEEPSEEK_OCR_MODEL": "model",
+            "DEEPSEEK_OCR_MAX_TOKENS": "123",
+        }
+        with patch.dict(os.environ, env, clear=True):
+            config = create_ocr_config_from_env()
+
+        self.assertEqual(
+            config,
+            DeepSeekOCRVendorConfig(
                 base_url="https://example.com",
                 api_key="key",
                 model="model",
@@ -184,58 +311,64 @@ class TestOCRConfig(unittest.TestCase):
             ),
         )
 
-    def test_create_ocr_config_from_env_unlimited(self):
+    def test_script_env_loader_creates_deepseek_ocr2_vendor_config(self):
         env = {
-            "PDF_CRAFT_OCR_MODE": "vendor-unlimited",
-            "PDF_CRAFT_UNLIMITED_AK": "ak",
-            "PDF_CRAFT_UNLIMITED_SK": "sk",
-            "PDF_CRAFT_UNLIMITED_POLL_INTERVAL_SECONDS": "1.5",
+            "OCR_MODE": "deepseek-ocr2-vendor",
+            "DEEPSEEK_OCR2_BASE_URL": "https://example.com",
+            "DEEPSEEK_OCR2_API_KEY": "key",
+            "DEEPSEEK_OCR2_MODEL": "model",
+            "DEEPSEEK_OCR2_TEMPERATURE": "0.1",
+            "DEEPSEEK_OCR2_TOP_P": "0.9",
         }
         with patch.dict(os.environ, env, clear=True):
             config = create_ocr_config_from_env()
 
         self.assertEqual(
             config,
-            VendorUnlimitedOCRConfig(
-                ak="ak",
-                sk="sk",
-                poll_interval_seconds=1.5,
-            ),
-        )
-
-    def test_create_ocr_config_from_upstream_legacy_vendor_env(self):
-        env = {
-            "DOC_PAGE_EXTRACTOR_BACKEND": "vendor",
-            "DOC_PAGE_EXTRACTOR_DEEPSEEK_VENDOR_BASE_URL": "https://example.com",
-            "DOC_PAGE_EXTRACTOR_DEEPSEEK_VENDOR_API_KEY": "key",
-            "DOC_PAGE_EXTRACTOR_DEEPSEEK_VENDOR_MODEL": "model",
-        }
-        with patch.dict(os.environ, env, clear=True):
-            config = create_ocr_config_from_env()
-
-        self.assertEqual(
-            config,
-            VendorDeepSeekOCRConfig(
+            DeepSeekOCR2VendorConfig(
                 base_url="https://example.com",
                 api_key="key",
                 model="model",
+                temperature=0.1,
+                top_p=0.9,
             ),
         )
 
-    def test_create_ocr_config_from_upstream_legacy_baidu_env(self):
+    def test_script_env_loader_creates_unlimited_ocr_local_config(self):
         env = {
-            "DOC_PAGE_EXTRACTOR_BACKEND": "baidu",
-            "DOC_PAGE_EXTRACTOR_BAIDU_AK": "ak",
-            "DOC_PAGE_EXTRACTOR_BAIDU_SK": "sk",
+            "OCR_MODE": "unlimited-ocr-local",
+            "UNLIMITED_LOCAL_MODEL_PATH": "models",
+            "UNLIMITED_LOCAL_ONLY": "true",
         }
         with patch.dict(os.environ, env, clear=True):
             config = create_ocr_config_from_env()
 
         self.assertEqual(
             config,
-            VendorUnlimitedOCRConfig(
+            UnlimitedOCRLocalConfig(
+                models_cache_path="models",
+                local_only=True,
+            ),
+        )
+
+    def test_script_env_loader_creates_unlimited_ocr_vendor_config(self):
+        env = {
+            "OCR_MODE": "unlimited-ocr-vendor",
+            "UNLIMITED_OCR_ACCESS_KEY": "ak",
+            "UNLIMITED_OCR_SECRET_KEY": "sk",
+            "UNLIMITED_OCR_BASE_URL": "https://unlimited.example.com",
+            "UNLIMITED_OCR_POLL_INTERVAL_SECONDS": "1.5",
+        }
+        with patch.dict(os.environ, env, clear=True):
+            config = create_ocr_config_from_env()
+
+        self.assertEqual(
+            config,
+            UnlimitedOCRVendorConfig(
                 ak="ak",
                 sk="sk",
+                base_url="https://unlimited.example.com",
+                poll_interval_seconds=1.5,
             ),
         )
 

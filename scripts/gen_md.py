@@ -1,9 +1,12 @@
 import json
 from pathlib import Path
 
-from pdf_craft import LLM, OCREventKind, create_ocr_config_from_env, transform_markdown
+from pdf_craft import LLM, OCREventKind, transform_markdown
 
-from env_loader import load_env
+if __package__:
+    from .env_loader import create_ocr_config_from_env, load_env
+else:
+    from env_loader import create_ocr_config_from_env, load_env
 
 _IMAGE_STEM = "newton"
 

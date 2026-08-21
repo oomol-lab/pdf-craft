@@ -4,16 +4,16 @@
 
 - Python >= 3.11, < 3.14 (3.11.16 recommended)
 - Poppler (required for PDF parsing and rendering)
-- NVIDIA GPU with CUDA 11.8 or 12.1 support
-- 16 GB or more VRAM (24 GB or higher recommended, see [DeepSeek OCR Hardware Requirements Discussion](https://huggingface.co/deepseek-ai/DeepSeek-OCR/discussions/31))
+- NVIDIA GPU with CUDA 11.8 or newer support, only when using local OCR
+- 16 GB or more VRAM for local OCR (24 GB or higher recommended for the largest DeepSeek OCR models)
 
 ## Installation Steps
 
-This project uses DeepSeek OCR for document recognition, which **must run in a CUDA environment**. If you need to actually use pdf-craft for PDF conversion, please follow the CUDA environment installation steps below.
+pdf-craft uses `doc-page-extractor` for document recognition. Vendor OCR backends do not require local CUDA; local OCR backends require a CUDA-capable PyTorch environment.
 
-If you only need to develop code, get IDE type hints, or read the source code, you can choose the CPU environment installation as an alternative, but it will not be able to perform actual OCR recognition.
+CPU environments cannot run local OCR. They can run vendor OCR when network access, valid credentials, and Poppler are available.
 
-### CUDA Environment Installation (Recommended)
+### CUDA Environment Installation
 
 #### 1. Configure CUDA Environment
 
@@ -82,7 +82,7 @@ pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
 pip install pdf-craft
 ```
 
-**Note:** Even for development-only setups, you still need to install Poppler following step 4 above if you want to test PDF-related functionality.
+**Note:** Even for development-only setups, you still need to install Poppler following step 4 above if you want to test PDF-related functionality. For the repository's manual scripts, copy `.env.template` to `.env`, populate a vendor OCR configuration, and then run the script.
 
 ## Troubleshooting
 
@@ -96,7 +96,7 @@ If you encounter an error like "Poppler not found in PATH" when running pdf-craf
 
 ### CUDA Not Available Error
 
-When you try to use pdf-craft, if you see a RuntimeWarning similar to the following:
+When you try to use a local OCR config, if you see a RuntimeWarning similar to the following:
 
 ```
 CUDA is not available! This package requires CUDA to run,
@@ -107,7 +107,7 @@ This indicates that the CUDA environment is not properly configured. Possible re
 
 1. **Installed the CPU version of PyTorch** - Need to reinstall PyTorch with CUDA support following the CUDA environment installation steps above
 2. **NVIDIA driver is outdated or not installed** - Visit [NVIDIA Driver Download Page](https://www.nvidia.com/download/index.aspx) to update drivers
-3. **No CUDA-compatible GPU** - This project must run on NVIDIA GPUs
+3. **No CUDA-compatible GPU** - Local OCR must run on NVIDIA GPUs
 
 You can run the `nvidia-smi` command to check your system's GPU and driver status.
 
