@@ -132,17 +132,23 @@ def _run_pdf(
     package_path = run_path / "package"
     output_path = run_path / "output"
     craft = PDFCraft(pdf=PDFOptions(ocr=ocr))
-    package, metering = craft.extract_pdf_with_metering(
-        asset.path, package_path, ExtractionOptions(
-            page_indexes=run.page_indexes, ocr_size=cast(Any, run.ocr_size), dpi=run.dpi,
-            max_page_image_file_size=run.max_page_image_file_size,
-            max_ocr_tokens=run.max_ocr_tokens,
-            max_ocr_output_tokens=run.max_ocr_output_tokens,
-            includes_cover=run.includes_cover,
-            includes_footnotes=run.includes_footnotes,
-            generate_plot=run.generate_plot, toc_assumed=run.toc_assumed,
+    try:
+        package, metering = craft.extract_pdf_with_metering(
+            asset.path, package_path, ExtractionOptions(
+                page_indexes=run.page_indexes, ocr_size=cast(Any, run.ocr_size), dpi=run.dpi,
+                max_page_image_file_size=run.max_page_image_file_size,
+                max_ocr_tokens=run.max_ocr_tokens,
+                max_ocr_output_tokens=run.max_ocr_output_tokens,
+                includes_cover=run.includes_cover,
+                includes_footnotes=run.includes_footnotes,
+                generate_plot=run.generate_plot, toc_assumed=run.toc_assumed,
+            )
         )
-    )
+    except Exception as error:
+        unavailable = _unavailable_ocr_reason(error)
+        if unavailable is not None:
+            return "skipped", [unavailable], {"package": str(package_path)}
+        raise
     details = {
         "package": str(package_path),
         "metering": {"input_tokens": metering.input_tokens, "output_tokens": metering.output_tokens},
@@ -190,6 +196,16 @@ def _run_pdf(
     details["outputs"] = [str(target)]
     status, errors = _result_from_errors(errors)
     return status, errors, details
+
+
+def _unavailable_ocr_reason(error: Exception) -> str | None:
+    """Recognise infrastructure gaps without hiding extraction failures."""
+    current: BaseException | None = error
+    while current is not None:
+        if "No CUDA devices available" in str(current):
+            return "OCR backend unavailable: local OCR requires CUDA, but no CUDA device is available"
+        current = current.__cause__ or current.__context__
+    return None
 
 
 class _DeterministicChapterTransformer:

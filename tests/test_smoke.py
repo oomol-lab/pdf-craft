@@ -122,6 +122,30 @@ class TestSmokeMatrix(unittest.TestCase):
                 errors = check_pdf_patch_geometry(package)
             self.assertEqual(errors, ["PDF patch geometry missing for replacement pages: [2]"])
 
+    def test_pdf_route_skips_when_local_ocr_has_no_cuda_device(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "package").mkdir()
+            (root / "output").mkdir()
+
+            class UnavailableCraft:
+                def extract_pdf_with_metering(self, *_args, **_kwargs):
+                    try:
+                        raise RuntimeError("No CUDA devices available")
+                    except RuntimeError as cause:
+                        raise ValueError("OCR extraction failed") from cause
+
+            run = SmokeRun("double_column.pdf", "markdown")
+            asset = SmokeAsset("double_column.pdf", "pdf", Path("source.pdf"))
+            with patch("pdf_craft.smoke.runner.PDFCraft", return_value=UnavailableCraft()):
+                status, errors, details = _run_pdf(run, asset, root, cast(OCRConfig, None))
+            self.assertEqual(status, "skipped")
+            self.assertEqual(
+                errors,
+                ["OCR backend unavailable: local OCR requires CUDA, but no CUDA device is available"],
+            )
+            self.assertEqual(details["package"], str(root / "package"))
+
     def test_markdown_route_inserts_deterministic_package_step(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
