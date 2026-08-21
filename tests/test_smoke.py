@@ -137,35 +137,23 @@ class TestSmokeMatrix(unittest.TestCase):
             ])])
             save_xml(encode_chapter(chapter), package_path / "chapters" / "chapter_1.xml")
 
-            class FakeCraft:
-                def __init__(self):
-                    self.steps = ()
-
-                def extract_pdf_with_metering(self, *_args, **_kwargs):
-                    return package, OCRTokensMetering(0, 0)
-
-                def transform_package(self, source, output, steps):
-                    self.steps = steps
-                    from pdf_craft.craft import PDFCraft
-                    return PDFCraft().transform_package(source, output, steps)
-
-                def render_markdown(self, transformed, output, _assets):
-                    output.write_text((transformed.chapters_path / "chapter_1.xml").read_text())
-
-            fake = FakeCraft()
             run = SmokeRun(
                 "double_column.pdf", "markdown",
                 translation={"package_marker": "[translated]", "package_submit": "APPEND_BLOCK"},
             )
             asset = SmokeAsset("double_column.pdf", "pdf", Path("source.pdf"))
-            with patch("pdf_craft.smoke.runner.PDFCraft", return_value=fake):
+            from pdf_craft.craft import PDFCraft
+            craft = PDFCraft()
+            with patch("pdf_craft.smoke.runner.PDFCraft", return_value=craft), \
+                    patch.object(craft, "extract_pdf_with_metering", return_value=(
+                        package, OCRTokensMetering(0, 0)
+                    )):
                 status, errors, details = _run_pdf(run, asset, root, cast(OCRConfig, None))
             self.assertEqual(status, "passed", errors)
             rendered = (root / "output" / "book.md").read_text()
             self.assertIn("original", rendered)
             self.assertIn("original[translated]", rendered)
             self.assertEqual(details["outputs"], [str(root / "output" / "book.md")])
-            self.assertEqual(len(fake.steps), 1)
 
 
 def _write_epub(path: Path, files: dict[str, str]) -> Path:

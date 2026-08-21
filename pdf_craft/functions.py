@@ -1,4 +1,5 @@
 from os import PathLike
+from collections.abc import Sequence
 from typing import Callable, Literal
 
 from epub_generator import BookMeta, LaTeXRender, TableRender
@@ -9,6 +10,8 @@ from .metering import AbortedCheck, OCRTokensMetering
 from .ocr_config import OCRConfig, ensure_ocr_config
 from .pdf import OCR, DeepSeekOCRSize, OCREvent, PDFHandler
 from .transform import Transform
+from .transformer import PackageTransformer
+from .craft import TranslationStep
 
 
 def predownload_models(
@@ -47,6 +50,7 @@ def transform_markdown(
     max_ocr_output_tokens: int | None = None,
     on_ocr_event: Callable[[OCREvent], None] = lambda _: None,
     ocr: OCRConfig | None = None,
+    steps: Sequence[TranslationStep | PackageTransformer] = (),
 ) -> OCRTokensMetering:
     return Transform(
         models_cache_path=models_cache_path,
@@ -72,6 +76,7 @@ def transform_markdown(
         max_ocr_tokens=max_ocr_tokens,
         max_ocr_output_tokens=max_ocr_output_tokens,
         on_ocr_event=on_ocr_event,
+        steps=steps,
     )
 
 
@@ -102,6 +107,7 @@ def transform_epub(
     max_ocr_output_tokens: int | None = None,
     on_ocr_event: Callable[[OCREvent], None] = lambda _: None,
     ocr: OCRConfig | None = None,
+    steps: Sequence[TranslationStep | PackageTransformer] = (),
 ) -> OCRTokensMetering:
     return Transform(
         models_cache_path=models_cache_path,
@@ -131,4 +137,5 @@ def transform_epub(
         max_ocr_tokens=max_ocr_tokens,
         max_ocr_output_tokens=max_ocr_output_tokens,
         on_ocr_event=on_ocr_event,
+        steps=steps,
     )

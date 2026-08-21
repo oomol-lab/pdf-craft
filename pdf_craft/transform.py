@@ -1,5 +1,6 @@
 from os import PathLike
 from pathlib import Path
+from collections.abc import Sequence
 from typing import Callable, Container, Literal, NoReturn
 
 from epub_generator import BookMeta, LaTeXRender, TableRender
@@ -21,6 +22,8 @@ from .sequence import generate_chapter_files
 from .to_path import to_path
 from .toc import analyse_toc
 from .document import DocumentPackage
+from .craft import TranslationStep
+from .transformer import PackageTransformer
 
 
 class Transform:
@@ -66,6 +69,7 @@ class Transform:
         max_ocr_tokens: int | None = None,
         max_ocr_output_tokens: int | None = None,
         on_ocr_event: Callable[[OCREvent], None] = lambda _: None,
+        steps: Sequence[TranslationStep | PackageTransformer] = (),
     ) -> OCRTokensMetering:  # pyright: ignore[reportReturnType]
         # Compatibility wrapper.  PDFCraft owns the production workflow.
         from .craft import ExtractionOptions, PDFCraft
@@ -85,6 +89,7 @@ class Transform:
                         aborted=aborted, max_ocr_tokens=max_ocr_tokens,
                         max_ocr_output_tokens=max_ocr_output_tokens, on_ocr_event=on_ocr_event,
                     ),
+                    steps=steps,
                 )
         except Exception as error:
             self._raise_compatibility_error(error, pdf_path, "markdown")
@@ -113,6 +118,7 @@ class Transform:
         max_ocr_tokens: int | None = None,
         max_ocr_output_tokens: int | None = None,
         on_ocr_event: Callable[[OCREvent], None] = lambda _: None,
+        steps: Sequence[TranslationStep | PackageTransformer] = (),
     ) -> OCRTokensMetering:  # pyright: ignore[reportReturnType]
         from .craft import ExtractionOptions, PDFCraft
         try:
@@ -130,6 +136,7 @@ class Transform:
                         aborted=aborted, max_ocr_tokens=max_ocr_tokens,
                         max_ocr_output_tokens=max_ocr_output_tokens, on_ocr_event=on_ocr_event,
                     ),
+                    steps=steps,
                 )
         except Exception as error:
             self._raise_compatibility_error(error, pdf_path, "epub")
