@@ -4,6 +4,18 @@
 
 ## 包公共面
 
+## 新模块边界
+
+`pdf_craft` 的主要业务模块围绕可组合的文档处理阶段组织：
+
+- `extractor/`：PDF 页面、OCR、目录和章节分析的适配入口；产出 Document Package。
+- `document/`：渲染就绪工件的路径契约和来源位置（页码、bbox、阅读顺序）。
+- `renderer/`：Document Package 到 Markdown 或 EPUB 的格式渲染入口。
+- `transformer/`：格式无关的 XML 内容变换，包括 LLM 翻译、结构填充和校验。
+- `pipeline/`：格式专属编排。EPUB Pipeline 将 EPUB XHTML/目录/元数据交给 Transformer；PDF Pipeline 以 replace-only 方式将 Chapter 来源区域写回 PDF。
+
+提取后的渲染工件为 `chapters/`、`assets/`、`toc.xml` 和可选 `cover.png`。`ocr/`、`plots/` 与 `done` 仅是可丢弃的分析缓存。
+
 `pdf_craft/__init__.py` 是公共导入面。`pdf_craft/functions.py` 提供便利函数，负责创建 `Transform` 并转发到实例方法。`pdf_craft/transform.py` 是完整 Markdown 和 EPUB 转换的编排边界。
 
 除非任务明确要求破坏性 API 变更，否则把以下名称和默认值视为公共 API：

@@ -79,6 +79,20 @@ class LLM:
                 top_p=top_p,
             )
 
+    def template(self, template_name: str) -> Template:
+        template = self._templates.get(template_name)
+        if template is None:
+            template_path = (
+                Path(__file__).parent.parent
+                / "transformer"
+                / "xml_translator"
+                / "data"
+                / f"{template_name}.jinja"
+            )
+            template = Template(template_path.read_text(encoding="utf-8"))
+            self._templates[template_name] = template
+        return template
+
     def _ensure_dir_path(self, path: PathLike | str | None) -> Path | None:
         if path is None:
             return None

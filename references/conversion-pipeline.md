@@ -4,6 +4,10 @@
 
 ## 运行时流程
 
+## 组合流程
+
+Extractor 生成 Document Package 后，Renderer 可直接生成 Markdown 或 EPUB。可选 Transformer 可以在渲染前修改结构化文本；`pipeline/epub` 也可把既有 EPUB 的 XHTML、目录和元数据交给同一个 XML Transformer。PDF Translation Pipeline 只支持替换已记录来源 bbox 内的文本，不支持 append 语义。
+
 `Transform.transform_markdown()` 和 `Transform.transform_epub()` 都会先调用 `_extract_from_pdf()`，再渲染目标输出。提取流程是：
 
 1. 通过 `PDFHandler` 渲染 PDF 页面。
