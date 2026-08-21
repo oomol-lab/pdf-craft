@@ -10,7 +10,7 @@ from .error import (
 from .functions import predownload_models, transform_epub, transform_markdown
 from .craft import ExtractionOptions, PDFCraft, PDFOptions, TranslationStep
 from .pipeline.epub import translate_epub
-from .pipeline.pdf import PDFPatcher, PDFReplacement, PDFTranslationPipeline
+from .pipeline.pdf import PDFPatcher, PDFReplacement, PDFSkippedReplacement, PDFTranslationPipeline, PatchTextOptions
 from .transformer import (
     ChapterPackageTransformer,
     FillFailedEvent,
