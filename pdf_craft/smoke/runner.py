@@ -3,15 +3,17 @@ import platform
 import shutil
 import traceback
 import uuid
+from copy import deepcopy
 from dataclasses import asdict, dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 from time import perf_counter
 from typing import Any, Literal, cast
 
-from pdf_craft.craft import ExtractionOptions, PDFCraft, PDFOptions
+from pdf_craft.craft import ExtractionOptions, PDFCraft, PDFOptions, TranslationStep
 from pdf_craft.ocr_config import OCRConfig, OCRMode
 from pdf_craft.transformer import SubmitKind
+from pdf_craft.sequence.chapter import BlockLayout, BlockMember, Chapter, HTMLTag, ParagraphLayout
 from pdf_craft.llm import LLM
 
 from .assets import SmokeAsset, discover_assets
@@ -130,17 +132,23 @@ def _run_pdf(
     package_path = run_path / "package"
     output_path = run_path / "output"
     craft = PDFCraft(pdf=PDFOptions(ocr=ocr))
-    package, metering = craft.extract_pdf_with_metering(
-        asset.path, package_path, ExtractionOptions(
-            page_indexes=run.page_indexes, ocr_size=cast(Any, run.ocr_size), dpi=run.dpi,
-            max_page_image_file_size=run.max_page_image_file_size,
-            max_ocr_tokens=run.max_ocr_tokens,
-            max_ocr_output_tokens=run.max_ocr_output_tokens,
-            includes_cover=run.includes_cover,
-            includes_footnotes=run.includes_footnotes,
-            generate_plot=run.generate_plot, toc_assumed=run.toc_assumed,
+    try:
+        package, metering = craft.extract_pdf_with_metering(
+            asset.path, package_path, ExtractionOptions(
+                page_indexes=run.page_indexes, ocr_size=cast(Any, run.ocr_size), dpi=run.dpi,
+                max_page_image_file_size=run.max_page_image_file_size,
+                max_ocr_tokens=run.max_ocr_tokens,
+                max_ocr_output_tokens=run.max_ocr_output_tokens,
+                includes_cover=run.includes_cover,
+                includes_footnotes=run.includes_footnotes,
+                generate_plot=run.generate_plot, toc_assumed=run.toc_assumed,
+            )
         )
-    )
+    except Exception as error:
+        unavailable = _unavailable_ocr_reason(error)
+        if unavailable is not None:
+            return "skipped", [unavailable], {"package": str(package_path)}
+        raise
     details = {
         "package": str(package_path),
         "metering": {"input_tokens": metering.input_tokens, "output_tokens": metering.output_tokens},
@@ -156,13 +164,22 @@ def _run_pdf(
     if run.route == "markdown":
         markdown = output_path / "book.md"
         markdown_assets = output_path / "assets"
+        steps = _package_steps(run)
+        if steps:
+            package = craft.transform_package(package, run_path / "translated", steps)
         craft.render_markdown(package, markdown, markdown_assets)
         errors.extend(check_markdown(markdown, markdown_assets))
+        marker = (run.translation or {}).get("package_marker")
+        if isinstance(marker, str) and marker not in markdown.read_text(encoding="utf-8"):
+            errors.append(f"Package translation marker missing from Markdown: {marker}")
         details["outputs"] = [str(markdown)]
         status, errors = _result_from_errors(errors)
         return status, errors, details
     if run.route == "epub":
         epub = output_path / "book.epub"
+        steps = _package_steps(run)
+        if steps:
+            package = craft.transform_package(package, run_path / "translated", steps)
         craft.render_epub(package, epub)
         errors.extend(check_epub(epub))
         details["outputs"] = [str(epub)]
@@ -179,6 +196,63 @@ def _run_pdf(
     details["outputs"] = [str(target)]
     status, errors = _result_from_errors(errors)
     return status, errors, details
+
+
+def _unavailable_ocr_reason(error: Exception) -> str | None:
+    """Recognise infrastructure gaps without hiding extraction failures."""
+    current: BaseException | None = error
+    while current is not None:
+        if "No CUDA devices available" in str(current):
+            return "OCR backend unavailable: local OCR requires CUDA, but no CUDA device is available"
+        current = current.__cause__ or current.__context__
+    return None
+
+
+class _DeterministicChapterTransformer:
+    def __init__(self, marker: str) -> None:
+        self.marker = marker
+        self.mode = SubmitKind.REPLACE
+
+    def with_mode(self, mode: SubmitKind) -> "_DeterministicChapterTransformer":
+        transformer = _DeterministicChapterTransformer(self.marker)
+        transformer.mode = mode
+        return transformer
+
+    def transform(self, chapter: Chapter) -> Chapter:
+        for layout in chapter.layouts:
+            if not isinstance(layout, ParagraphLayout):
+                continue
+            transformed_blocks: list[BlockLayout] = []
+            for block in layout.blocks:
+                translated = BlockLayout(
+                    page_index=block.page_index,
+                    order=block.order,
+                    det=block.det,
+                    content=[self._transform_item(item) for item in deepcopy(block.content)],
+                )
+                if self.mode == SubmitKind.APPEND_BLOCK:
+                    transformed_blocks.extend((block, translated))
+                else:
+                    transformed_blocks.append(translated)
+            layout.blocks = transformed_blocks
+        return chapter
+
+    def _transform_item(self, item: str | BlockMember | HTMLTag[BlockMember]):
+        if isinstance(item, str):
+            return item + self.marker
+        if isinstance(item, HTMLTag):
+            item.children = [self._transform_item(child) for child in item.children]
+        return item
+
+
+def _package_steps(run: SmokeRun):
+    translation = run.translation or {}
+    marker = translation.get("package_marker")
+    if not isinstance(marker, str):
+        return ()
+    mode = SubmitKind[translation.get("package_submit", "REPLACE").upper()]
+    from pdf_craft.transformer import ChapterPackageTransformer
+    return (TranslationStep(ChapterPackageTransformer(_DeterministicChapterTransformer(marker)), mode),)
 
 
 def _result_from_errors(errors: list[str]) -> tuple[str, list[str]]:

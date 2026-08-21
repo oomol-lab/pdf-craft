@@ -1,0 +1,18 @@
+{
+  "defaults": {
+    "page_indexes": [1],
+    "ocr_size": "tiny",
+    "translation": {
+      "package_marker": "[smoke-translated]",
+      "package_submit": "REPLACE"
+    }
+  },
+  "runs": [
+    {
+      "asset": "double_column.pdf",
+      "route": "markdown",
+      "backend": "deepseek-ocr-local",
+      "ocr": {}
+    }
+  ]
+}
