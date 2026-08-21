@@ -98,9 +98,11 @@ class PDFCraft:
     def render_markdown(
         self, package: DocumentPackage, output: PathLike | str,
         assets_path: PathLike | str | None = None,
+        *, aborted: AbortedCheck = lambda: False,
     ) -> None:
         MarkdownRenderer().render(package, Path(output),
-                                  Path(assets_path) if assets_path is not None else None)
+                                  Path(assets_path) if assets_path is not None else None,
+                                  aborted=aborted)
 
     def render_epub(
         self, package: DocumentPackage, output: PathLike | str, *,
@@ -108,10 +110,11 @@ class PDFCraft:
         table_render: TableRender = TableRender.HTML,
         latex_render: LaTeXRender = LaTeXRender.MATHML,
         inline_latex: bool = True,
+        aborted: AbortedCheck = lambda: False,
     ) -> None:
         EpubRenderer().render(package, Path(output), book_meta=book_meta, lan=lan,
                               table_render=table_render, latex_render=latex_render,
-                              inline_latex=inline_latex)
+                              inline_latex=inline_latex, aborted=aborted)
 
     def translate_pdf(
         self, source: PathLike | str, package: DocumentPackage,
@@ -132,7 +135,7 @@ class PDFCraft:
         assets_path: PathLike | str | None = None,
     ) -> OCRTokensMetering:
         package, metering = self.extract_pdf_with_metering(source, package_path, extraction)
-        self.render_markdown(package, output, assets_path)
+        self.render_markdown(package, output, assets_path, aborted=(extraction or ExtractionOptions()).aborted)
         return metering
 
     def convert_pdf_to_epub(
@@ -143,10 +146,13 @@ class PDFCraft:
         latex_render: LaTeXRender = LaTeXRender.MATHML,
         inline_latex: bool = True,
     ) -> OCRTokensMetering:
+        extraction = extraction or ExtractionOptions()
         package, metering = self.extract_pdf_with_metering(source, package_path, extraction)
+        if book_meta is None:
+            book_meta = self._extract_book_meta(Path(source))
         self.render_epub(package, output, book_meta=book_meta, lan=lan,
                          table_render=table_render, latex_render=latex_render,
-                         inline_latex=inline_latex)
+                         inline_latex=inline_latex, aborted=extraction.aborted)
         return metering
 
     def _pdf_engine(self):
@@ -159,3 +165,8 @@ class PDFCraft:
         return Transform(models_cache_path=self._pdf.models_cache_path,
                          pdf_handler=self._pdf.pdf_handler,
                          local_only=self._pdf.local_only, ocr=self._pdf.ocr)
+
+    def _extract_book_meta(self, source: Path) -> BookMeta | None:
+        engine = self._pdf_engine()
+        extract = getattr(engine, "_extract_book_meta", None)
+        return extract(source) if extract is not None else None

@@ -11,6 +11,7 @@ from pdf_craft.transformer import SubmitKind
 class _Engine:
     def __init__(self):
         self.kwargs = None
+        self.metadata_source = None
 
     def extract_package(self, *, analysing_path, **kwargs):
         self.kwargs = kwargs
@@ -19,6 +20,10 @@ class _Engine:
         (analysing_path / "toc.xml").write_text("<toc/>")
         DocumentPackage.from_path(analysing_path).write_metadata(page_pixel_sizes={1: (10, 10)})
         return None, None, None, None, "metering"
+
+    def _extract_book_meta(self, source):
+        self.metadata_source = source
+        return "detected metadata"
 
 
 class TestPDFCraft(unittest.TestCase):
@@ -62,6 +67,32 @@ class TestPDFCraft(unittest.TestCase):
         self.assertEqual(result, "metering")
         extract.assert_called_once()
         render.assert_called_once()
+
+    def test_epub_workflow_detects_metadata_and_forwards_aborted(self):
+        engine = _Engine()
+        craft = PDFCraft.from_engine(engine)
+        stopped = lambda: False
+        with patch.object(craft, "extract_pdf_with_metering", return_value=(object(), "metering")), \
+             patch.object(craft, "render_epub") as render:
+            result = craft.convert_pdf_to_epub(
+                "source.pdf", "book.epub", package_path="package",
+                extraction=ExtractionOptions(aborted=stopped),
+            )
+        self.assertEqual(result, "metering")
+        self.assertEqual(engine.metadata_source, Path("source.pdf"))
+        self.assertEqual(render.call_args.kwargs["book_meta"], "detected metadata")
+        self.assertIs(render.call_args.kwargs["aborted"], stopped)
+
+    def test_markdown_workflow_forwards_aborted_to_renderer_step(self):
+        craft = PDFCraft.from_engine(_Engine())
+        stopped = lambda: False
+        with patch.object(craft, "extract_pdf_with_metering", return_value=(object(), "metering")), \
+             patch.object(craft, "render_markdown") as render:
+            craft.convert_pdf_to_markdown(
+                "source.pdf", "book.md", package_path="package",
+                extraction=ExtractionOptions(aborted=stopped),
+            )
+        self.assertIs(render.call_args.kwargs["aborted"], stopped)
 
     def test_pdf_options_are_accepted_without_eager_pdf_initialization(self):
         PDFCraft(pdf=PDFOptions())
