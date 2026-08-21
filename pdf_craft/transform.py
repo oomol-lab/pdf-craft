@@ -8,6 +8,7 @@ from .common import EnsureFolder, remove_surrogates
 from .error import (
     IgnoreOCRErrorsChecker,
     IgnorePDFErrorsChecker,
+    InterruptedError,
     PDFError,
     is_inline_error,
     to_interrupted_error,
@@ -69,7 +70,7 @@ class Transform:
         # Compatibility wrapper.  PDFCraft owns the production workflow.
         from .craft import ExtractionOptions, PDFCraft
         if markdown_assets_path is None:
-            markdown_assets_path = Path(".") / "assets"
+            markdown_assets_path = Path(markdown_path).parent / "assets"
         try:
             with EnsureFolder(path=to_path(analysing_path) if analysing_path is not None else None) as package_path:
                 return PDFCraft.from_engine(self).convert_pdf_to_markdown(
@@ -136,6 +137,8 @@ class Transform:
     def _raise_compatibility_error(
         self, error: Exception, source: PathLike | str, target: str,
     ) -> NoReturn:
+        if isinstance(error, InterruptedError):
+            raise error
         interrupted = to_interrupted_error(error)
         if interrupted is not None:
             raise interrupted from error
