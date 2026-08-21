@@ -18,14 +18,14 @@ from .pdf import DeepSeekOCRSize, OCREvent, PDFHandler
 from .pipeline.epub import translate_epub as run_epub_translation
 from .pipeline.pdf import PDFTranslationPipeline
 from .renderer import EpubRenderer, MarkdownRenderer
-from .transformer import ChapterTransformer, PackageTransformer, SubmitKind
+from .transformer import ChapterPackageTransformer, ChapterTransformer, PackageTransformer, SubmitKind
 
 
 @dataclass(frozen=True)
 class TranslationStep:
     """A user-requested content transformation inserted before rendering."""
 
-    transformer: PackageTransformer
+    transformer: ChapterTransformer | PackageTransformer
     mode: SubmitKind = SubmitKind.REPLACE
 
 
@@ -118,9 +118,7 @@ class PDFCraft:
     ) -> DocumentPackage:
         current = package
         for step in steps:
-            transformer = step.transformer if isinstance(step, TranslationStep) else step
-            if isinstance(step, TranslationStep) and step.mode != SubmitKind.REPLACE and hasattr(transformer, "with_mode"):
-                transformer = transformer.with_mode(step.mode)
+            transformer = self._as_package_transformer(step)
             current = transformer.transform(current, Path(output_path))
             output_path = Path(output_path).with_name(Path(output_path).name + ".next")
         return current
@@ -191,12 +189,23 @@ class PDFCraft:
     ) -> DocumentPackage:
         current = package
         for index, step in enumerate(steps):
-            transformer = step.transformer if isinstance(step, TranslationStep) else step
-            if isinstance(step, TranslationStep) and step.mode != SubmitKind.REPLACE and hasattr(transformer, "with_mode"):
-                transformer = transformer.with_mode(step.mode)
+            transformer = self._as_package_transformer(step)
             output = package.chapters_path.parent / f"transformed-{index}"
             current = transformer.transform(current, output)
         return current
+
+    @staticmethod
+    def _as_package_transformer(step: TranslationStep | PackageTransformer):
+        if not isinstance(step, TranslationStep):
+            return step
+        transformer = step.transformer
+        if isinstance(transformer, ChapterPackageTransformer):
+            if step.mode != SubmitKind.REPLACE and transformer.mode != step.mode:
+                return ChapterPackageTransformer(
+                    transformer.chapter_transformer, mode=step.mode
+                )
+            return transformer
+        return ChapterPackageTransformer(transformer, mode=step.mode)
 
     def _pdf_engine(self):
         if self._engine is not None:
