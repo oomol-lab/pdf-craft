@@ -7,10 +7,10 @@ This guide is for human contributors. Agent-facing project routing lives in `AGE
 - Python >= 3.11, < 3.14 (3.11.16 recommended)
 - Poetry 2.x
 - Poppler, only when running PDF rendering or conversion checks
-- PyTorch, installed from the lock file through `doc-page-extractor`
-- CUDA-capable PyTorch and an NVIDIA GPU, only when running real DeepSeek OCR conversion
+- PyTorch, installed through `doc-page-extractor[local]` for local OCR conversion
+- CUDA-capable PyTorch and an NVIDIA GPU, only when running real local OCR conversion
 
-The published `pdf-craft` package does not declare `torch` or `torchvision` directly, but the development lock file currently installs `torch` through `doc-page-extractor`. Override the PyTorch wheel only when you need a specific CPU or CUDA build.
+pdf-craft depends on `doc-page-extractor[local]`, so installs include the upstream local OCR runtime stack. pdf-craft still does not declare `torch` or `torchvision` directly; reinstall or override the PyTorch wheel when you need a specific CPU or CUDA build.
 
 ## Setup For Ordinary Development
 
@@ -33,7 +33,7 @@ poetry run pip install --force-reinstall torch torchvision --index-url https://d
 
 Real PDF conversion can run through either a local CUDA model or vendor OCR.
 
-Local DeepSeek OCR requires CUDA-capable PyTorch. If the default locked wheel is not the CUDA build you need, reinstall the PyTorch build that matches your system before running conversion scripts.
+Local OCR requires CUDA-capable PyTorch. Reinstall the PyTorch build that matches your system before running conversion scripts if the installed wheel does not match your CUDA environment.
 
 Examples:
 
@@ -61,7 +61,7 @@ poetry run python -c "import torch; print(f'PyTorch version: {torch.__version__}
 pdfinfo -v
 ```
 
-Vendor OCR does not require local CUDA. Copy `.env.template` to `.env`, set `PDF_CRAFT_OCR_MODE` to `vendor-deepseek` or `vendor-unlimited`, and fill the matching credentials. Library code does not automatically read `.env`; the manual scripts load it before calling `create_ocr_config_from_env()`.
+Vendor OCR does not require local CUDA. Copy `.env.template` to `.env`, set `OCR_MODE` to `deepseek-ocr-vendor`, `deepseek-ocr2-vendor`, or `unlimited-ocr-vendor`, and fill the matching credentials. Local modes use `DEEPSEEK_LOCAL_MODEL_PATH` and `DEEPSEEK_LOCAL_ONLY` for DeepSeek OCR / DeepSeek OCR 2, and `UNLIMITED_LOCAL_MODEL_PATH` and `UNLIMITED_LOCAL_ONLY` for Unlimited OCR. Library code does not automatically read `.env`; only the manual scripts load it.
 
 ## Validation
 
@@ -88,14 +88,14 @@ poetry build
 
 ## Manual Conversion Checks
 
-The scripts in `scripts/` are manual checks for conversion work. They require Poppler and an OCR configuration from `.env`. `local-deepseek` requires model downloads and CUDA; vendor modes require credentials:
+The scripts in `scripts/` are manual checks for conversion work. They require Poppler and an OCR configuration from `.env`. Local modes require model downloads and CUDA; vendor modes require credentials:
 
 ```shell
 poetry run python scripts/gen_md.py
 poetry run python scripts/gen_epub.py
 ```
 
-They write conversion output under `analysing/` and use `models-cache/` for local model storage when `PDF_CRAFT_OCR_MODE=local-deepseek`.
+They write conversion output under `analysing/` and use the configured local model path from `DEEPSEEK_LOCAL_MODEL_PATH` or `UNLIMITED_LOCAL_MODEL_PATH` when `OCR_MODE` is a local OCR mode.
 
 If `format.json` exists at the repository root, these scripts use it to configure optional LLM-enhanced TOC analysis. The template is `format.template.json`; do not commit local secrets.
 

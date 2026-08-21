@@ -4,16 +4,16 @@
 
 - Python >= 3.11, < 3.14（推荐 3.11.16）
 - Poppler（用于 PDF 解析和渲染）
-- NVIDIA GPU，支持 CUDA 11.8 或 12.1
-- 显存 16 GB 以上（推荐 24 GB 或更高，详见 [DeepSeek OCR 硬件需求讨论](https://huggingface.co/deepseek-ai/DeepSeek-OCR/discussions/31)）
+- NVIDIA GPU，支持 CUDA 11.8 或更新版本，仅本地 OCR 需要
+- 本地 OCR 需要 16 GB 以上显存（最大的 DeepSeek OCR 模型推荐 24 GB 或更高）
 
 ## 安装步骤
 
-本项目使用 DeepSeek OCR 进行文档识别，**必须在 CUDA 环境下运行**。如果你需要实际使用 pdf-craft 进行 PDF 转换，请按照下方 CUDA 环境安装步骤操作。
+pdf-craft 使用 `doc-page-extractor` 进行文档识别。供应商 OCR 后端不需要本地 CUDA；本地 OCR 后端需要支持 CUDA 的 PyTorch 环境。
 
 如果你仅需进行代码开发、IDE 类型提示或阅读源码，可以选择 CPU 环境安装作为替代方案，但无法执行实际的 OCR 识别。
 
-### CUDA 环境安装（推荐）
+### CUDA 环境安装
 
 #### 1. 配置 CUDA 环境
 
@@ -82,7 +82,7 @@ pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
 pip install pdf-craft
 ```
 
-**注意：** 即使是仅用于开发的环境，如果你想测试与 PDF 相关的功能，仍需按照上述步骤 4 安装 Poppler。
+**注意：** 即使是仅用于开发的环境，如果你想测试与 PDF 相关的功能，仍需按照上述步骤 4 安装 Poppler。如需使用供应商 OCR 转换，请在代码中配置供应商 OCR config，或让手动脚本读取 `.env.template` 对应的变量。
 
 ## 常见问题
 
@@ -96,7 +96,7 @@ pip install pdf-craft
 
 ### CUDA 不可用报错
 
-当你尝试使用 pdf-craft 时，如果看到类似以下的 RuntimeWarning：
+当你使用本地 OCR config 时，如果看到类似以下的 RuntimeWarning：
 
 ```
 CUDA is not available! This package requires CUDA to run,
@@ -107,7 +107,7 @@ but torch.cuda.is_available() returned False.
 
 1. **安装了 CPU 版本的 PyTorch** - 需要重新按照上述 CUDA 环境安装步骤，安装支持 CUDA 的 PyTorch 版本
 2. **NVIDIA 驱动过旧或未安装** - 访问 [NVIDIA 驱动下载页](https://www.nvidia.com/download/index.aspx) 更新驱动
-3. **没有 CUDA 兼容的 GPU** - 本项目必须在 NVIDIA GPU 上运行
+3. **没有 CUDA 兼容的 GPU** - 本地 OCR 必须在 NVIDIA GPU 上运行
 
 你可以运行 `nvidia-smi` 命令来检查系统的 GPU 和驱动状态。
 

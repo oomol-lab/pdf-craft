@@ -39,7 +39,7 @@ pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
 pip install pdf-craft
 ```
 
-上述命令仅用于快速安装。要真正使用 pdf-craft，你需要**安装 Poppler** 用于 PDF 解析（所有使用场景都需要）以及**配置 CUDA 环境**用于 OCR 识别（实际转换时需要）。详细说明请参考[安装指南](docs/INSTALLATION_zh-CN.md)。
+上述命令仅用于快速安装。要真正使用 pdf-craft，你需要**安装 Poppler** 用于 PDF 解析。本地 OCR 还需要支持 CUDA 的 PyTorch 环境；供应商 OCR 不需要本地 CUDA。详细说明请参考[安装指南](docs/INSTALLATION_zh-CN.md)。
 
 ### 快速开始
 
@@ -79,7 +79,7 @@ transform_epub(
 ### 转换为 Markdown
 
 ```python
-from pdf_craft import LocalDeepSeekOCRConfig, transform_markdown
+from pdf_craft import DeepSeekOCRLocalConfig, transform_markdown
 
 transform_markdown(
     pdf_path="input.pdf",
@@ -87,7 +87,7 @@ transform_markdown(
     markdown_assets_path="images",
     analysing_path="temp",  # 可选：指定临时文件夹
     ocr_size="gundam",  # 可选：tiny, small, base, large, gundam
-    ocr=LocalDeepSeekOCRConfig(models_cache_path="models"),
+    ocr=DeepSeekOCRLocalConfig(models_cache_path="models"),
     dpi=300,  # 可选：渲染 PDF 页面的 DPI（默认：300）
     max_page_image_file_size=None,  # 可选：最大图像文件大小（字节），超出时自动调整 DPI
     includes_cover=False,  # 可选：包含封面
@@ -106,7 +106,7 @@ transform_markdown(
 from pdf_craft import (
     BookMeta,
     LaTeXRender,
-    LocalDeepSeekOCRConfig,
+    DeepSeekOCRLocalConfig,
     TableRender,
     transform_epub,
 )
@@ -116,7 +116,7 @@ transform_epub(
     epub_path="output.epub",
     analysing_path="temp",  # 可选：指定临时文件夹
     ocr_size="gundam",  # 可选：tiny, small, base, large, gundam
-    ocr=LocalDeepSeekOCRConfig(models_cache_path="models"),
+    ocr=DeepSeekOCRLocalConfig(models_cache_path="models"),
     dpi=300,  # 可选：渲染 PDF 页面的 DPI（默认：300）
     max_page_image_file_size=None,  # 可选：最大图像文件大小（字节），超出时自动调整 DPI
     includes_cover=True,  # 可选：包含封面
@@ -141,25 +141,31 @@ transform_epub(
 
 ### OCR 配置
 
-pdf-craft 支持三种 OCR 配置：
+pdf-craft 支持 `doc-page-extractor` 提供的全部 OCR 后端：
 
-- `LocalDeepSeekOCRConfig`：本地 DeepSeek-OCR 模型。真实转换需要 CUDA。
-- `VendorDeepSeekOCRConfig`：通过 OpenAI-compatible endpoint 使用 DeepSeek OCR。
-- `VendorUnlimitedOCRConfig`：百度 Unlimited OCR。
+- `DeepSeekOCRLocalConfig`：本地 DeepSeek OCR 模型。真实转换需要 CUDA。
+- `DeepSeekOCR2LocalConfig`：本地 DeepSeek OCR 2 模型。真实转换需要 CUDA。
+- `UnlimitedOCRLocalConfig`：本地 Unlimited OCR 模型。真实转换需要 CUDA。
+- `DeepSeekOCRVendorConfig`：通过 OpenAI-compatible endpoint 使用 DeepSeek OCR。
+- `DeepSeekOCR2VendorConfig`：通过 OpenAI-compatible endpoint 使用 DeepSeek OCR 2。
+- `UnlimitedOCRVendorConfig`：Unlimited OCR 云端后端。
 
-通过 `ocr` 参数传入其中一种配置：
+通过 `ocr` 参数传入其中一种配置。OCR mode 字符串为
+`deepseek-ocr-local`、`deepseek-ocr2-local`、`unlimited-ocr-local`、
+`deepseek-ocr-vendor`、`deepseek-ocr2-vendor` 和 `unlimited-ocr-vendor`。
 
 ```python
 from pdf_craft import (
-    VendorDeepSeekOCRConfig,
-    VendorUnlimitedOCRConfig,
+    DeepSeekOCR2VendorConfig,
+    DeepSeekOCRVendorConfig,
+    UnlimitedOCRVendorConfig,
     transform_markdown,
 )
 
 transform_markdown(
     pdf_path="input.pdf",
     markdown_path="output.md",
-    ocr=VendorDeepSeekOCRConfig(
+    ocr=DeepSeekOCRVendorConfig(
         base_url="https://example.com",
         api_key="...",
         model="deepseek-ocr",
@@ -169,28 +175,38 @@ transform_markdown(
 transform_markdown(
     pdf_path="input.pdf",
     markdown_path="output.md",
-    ocr=VendorUnlimitedOCRConfig(
+    ocr=DeepSeekOCR2VendorConfig(
+        base_url="https://example.com",
+        api_key="...",
+        model="deepseek-ocr2",
+    ),
+)
+
+transform_markdown(
+    pdf_path="input.pdf",
+    markdown_path="output.md",
+    ocr=UnlimitedOCRVendorConfig(
         ak="...",
         sk="...",
     ),
 )
 ```
 
-旧的 `models_cache_path` 和 `local_only` 参数仍然可用，并映射为 `LocalDeepSeekOCRConfig`。不要把它们和 `ocr` 同时传入。
-
 ### 模型管理
 
-本地 DeepSeek OCR 模型首次运行时会自动从 Hugging Face 下载。你可以通过 `LocalDeepSeekOCRConfig` 控制模型的存储和加载行为。
+本地 OCR 模型首次运行时会自动从 Hugging Face 下载。你可以通过本地 OCR
+配置控制模型的存储和加载行为。Unlimited OCR local 仅支持 `base` 和
+`gundam` 这两个 `ocr_size` preset。
 
 #### 预下载模型
 
 在生产环境中，建议提前下载模型，避免首次运行时下载：
 
 ```python
-from pdf_craft import LocalDeepSeekOCRConfig, predownload_models
+from pdf_craft import DeepSeekOCRLocalConfig, predownload_models
 
 predownload_models(
-    ocr=LocalDeepSeekOCRConfig(models_cache_path="models"),
+    ocr=DeepSeekOCRLocalConfig(models_cache_path="models"),
     revision=None,  # 可选：指定模型版本
 )
 ```
@@ -200,12 +216,12 @@ predownload_models(
 默认情况下，模型会下载到系统的 Hugging Face 缓存目录。你可以通过 `models_cache_path` 参数自定义缓存位置：
 
 ```python
-from pdf_craft import LocalDeepSeekOCRConfig, transform_markdown
+from pdf_craft import DeepSeekOCRLocalConfig, transform_markdown
 
 transform_markdown(
     pdf_path="input.pdf",
     markdown_path="output.md",
-    ocr=LocalDeepSeekOCRConfig(models_cache_path="./my_models"),
+    ocr=DeepSeekOCRLocalConfig(models_cache_path="./my_models"),
 )
 ```
 
@@ -214,12 +230,12 @@ transform_markdown(
 如果你已经预先下载了模型，可以使用 `local_only=True` 禁止网络下载，确保仅使用本地模型：
 
 ```python
-from pdf_craft import LocalDeepSeekOCRConfig, transform_markdown
+from pdf_craft import DeepSeekOCRLocalConfig, transform_markdown
 
 transform_markdown(
     pdf_path="input.pdf",
     markdown_path="output.md",
-    ocr=LocalDeepSeekOCRConfig(
+    ocr=DeepSeekOCRLocalConfig(
         models_cache_path="./my_models",
         local_only=True,
     ),

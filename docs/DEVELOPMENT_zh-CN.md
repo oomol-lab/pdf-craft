@@ -7,10 +7,10 @@
 - Python >= 3.11, < 3.14（推荐 3.11.16）
 - Poetry 2.x
 - Poppler，仅在运行 PDF 渲染或转换检查时需要
-- PyTorch，会通过 `doc-page-extractor` 从 lock file 安装
-- 支持 CUDA 的 PyTorch 和 NVIDIA GPU，仅在运行真实 DeepSeek OCR 转换时需要
+- PyTorch，通过 `doc-page-extractor[local]` 安装，用于本地 OCR 转换
+- 支持 CUDA 的 PyTorch 和 NVIDIA GPU，仅在运行真实本地 OCR 转换时需要
 
-发布的 `pdf-craft` 包不会直接声明 `torch` 或 `torchvision`，但开发 lock file 目前会通过 `doc-page-extractor` 安装 `torch`。只有需要指定 CPU 或 CUDA wheel 时，才覆盖安装 PyTorch。
+pdf-craft 依赖 `doc-page-extractor[local]`，因此安装时会包含上游本地 OCR 运行时栈。pdf-craft 仍不会直接声明 `torch` 或 `torchvision`；当你需要指定 CPU 或 CUDA 构建时，再重装或覆盖 PyTorch wheel。
 
 ## 普通开发环境
 
@@ -33,7 +33,7 @@ poetry run pip install --force-reinstall torch torchvision --index-url https://d
 
 真实 PDF 转换可以使用本地 CUDA 模型，也可以使用供应商 OCR。
 
-本地 DeepSeek OCR 需要支持 CUDA 的 PyTorch。如果默认锁定的 wheel 不是你需要的 CUDA 构建，运行转换脚本前请重装与系统匹配的 PyTorch 版本。
+本地 OCR 需要支持 CUDA 的 PyTorch。如果已安装的 wheel 与当前 CUDA 环境不匹配，运行转换脚本前请重装与系统匹配的 PyTorch 版本。
 
 示例：
 
@@ -61,7 +61,7 @@ poetry run python -c "import torch; print(f'PyTorch version: {torch.__version__}
 pdfinfo -v
 ```
 
-供应商 OCR 不需要本地 CUDA。复制 `.env.template` 为 `.env`，把 `PDF_CRAFT_OCR_MODE` 设为 `vendor-deepseek` 或 `vendor-unlimited`，再填写对应密钥。库代码不会自动读取 `.env`；手动脚本会先加载它，再调用 `create_ocr_config_from_env()`。
+供应商 OCR 不需要本地 CUDA。复制 `.env.template` 为 `.env`，把 `OCR_MODE` 设为 `deepseek-ocr-vendor`、`deepseek-ocr2-vendor` 或 `unlimited-ocr-vendor`，再填写对应密钥。本地模式使用 `DEEPSEEK_LOCAL_MODEL_PATH` 和 `DEEPSEEK_LOCAL_ONLY` 作为 DeepSeek OCR / DeepSeek OCR 2 的路径配置，使用 `UNLIMITED_LOCAL_MODEL_PATH` 和 `UNLIMITED_LOCAL_ONLY` 作为 Unlimited OCR 的路径配置。库代码不会自动读取 `.env`；只有手动脚本会加载它。
 
 ## 验证
 
@@ -88,14 +88,14 @@ poetry build
 
 ## 手动转换检查
 
-`scripts/` 中的脚本用于转换联调。它们需要 Poppler，并从 `.env` 读取 OCR 配置。`local-deepseek` 需要模型下载和 CUDA；供应商模式需要对应密钥：
+`scripts/` 中的脚本用于转换联调。它们需要 Poppler，并从 `.env` 读取 OCR 配置。本地模式需要模型下载和 CUDA；供应商模式需要对应密钥：
 
 ```shell
 poetry run python scripts/gen_md.py
 poetry run python scripts/gen_epub.py
 ```
 
-脚本会把转换结果写入 `analysing/`。当 `PDF_CRAFT_OCR_MODE=local-deepseek` 时，脚本使用 `models-cache/` 存放本地模型。
+脚本会把转换结果写入 `analysing/`。当 `OCR_MODE` 是本地 OCR 模式时，脚本使用 `DEEPSEEK_LOCAL_MODEL_PATH` 或 `UNLIMITED_LOCAL_MODEL_PATH` 指定的本地模型路径。
 
 如果仓库根目录存在 `format.json`，脚本会用它配置可选的 LLM 增强目录分析。模板是 `format.template.json`；不要提交本地密钥。
 

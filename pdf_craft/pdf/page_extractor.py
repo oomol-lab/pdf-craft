@@ -8,10 +8,13 @@ from ..common import ASSET_TAGS, AssetHub, remove_surrogates
 from ..error import OCRError
 from ..metering import AbortedCheck, check_aborted
 from ..ocr_config import (
-    LocalDeepSeekOCRConfig,
+    DeepSeekOCR2LocalConfig,
+    DeepSeekOCR2VendorConfig,
+    DeepSeekOCRLocalConfig,
+    DeepSeekOCRVendorConfig,
     OCRConfig,
-    VendorDeepSeekOCRConfig,
-    VendorUnlimitedOCRConfig,
+    UnlimitedOCRLocalConfig,
+    UnlimitedOCRVendorConfig,
 )
 from .ngrams import has_repetitive_ngrams
 from .types import DeepSeekOCRSize, Page, PageLayout
@@ -20,10 +23,20 @@ _LAYOUT_KIND_TO_REF = {
     "text": "text",
     "title": "sub_title",
     "image": "image",
+    "image_caption": "image_caption",
     "table": "table",
+    "table_caption": "table_caption",
     "equation": "equation",
+    "equation_caption": "equation_caption",
     "footnote": "text",
+    "aside": "text",
 }
+
+_LOCAL_OCR_CONFIG_TYPES = (
+    DeepSeekOCRLocalConfig,
+    DeepSeekOCR2LocalConfig,
+    UnlimitedOCRLocalConfig,
+)
 
 
 class PageExtractorNode:
@@ -38,20 +51,42 @@ class PageExtractorNode:
 
     def _create_page_extractor(self):
         # 尽可能推迟 doc-page-extractor 的加载时间
-        if isinstance(self._ocr, LocalDeepSeekOCRConfig):
-            from doc_page_extractor.extractor import create_page_extractor
+        if isinstance(self._ocr, DeepSeekOCRLocalConfig):
+            from doc_page_extractor.extractor import create_deepseek_ocr_page_extractor
 
-            return create_page_extractor(
+            return create_deepseek_ocr_page_extractor(
+                ocr_model="deepseek-ocr",
                 model_path=self._ocr.models_cache_path,
                 local_only=self._ocr.local_only,
                 enable_devices_numbers=self._ocr.enable_devices_numbers,
             )
-        if isinstance(self._ocr, VendorDeepSeekOCRConfig):
-            from doc_page_extractor.adapters.deepseek import DeepSeekVendorOCRConfig
-            from doc_page_extractor.extractor import create_deepseek_vendor_page_extractor
+        if isinstance(self._ocr, DeepSeekOCR2LocalConfig):
+            from doc_page_extractor.extractor import create_deepseek_ocr_page_extractor
 
-            return create_deepseek_vendor_page_extractor(
-                DeepSeekVendorOCRConfig(
+            return create_deepseek_ocr_page_extractor(
+                ocr_model="deepseek-ocr2",
+                model_path=self._ocr.models_cache_path,
+                local_only=self._ocr.local_only,
+                enable_devices_numbers=self._ocr.enable_devices_numbers,
+            )
+        if isinstance(self._ocr, UnlimitedOCRLocalConfig):
+            from doc_page_extractor.extractor import create_unlimited_ocr_page_extractor
+
+            return create_unlimited_ocr_page_extractor(
+                model_path=self._ocr.models_cache_path,
+                local_only=self._ocr.local_only,
+                enable_devices_numbers=self._ocr.enable_devices_numbers,
+            )
+        if isinstance(self._ocr, DeepSeekOCRVendorConfig):
+            from doc_page_extractor.adapters.deepseek import (
+                DeepSeekOCRVendorConfig as UpstreamDeepSeekOCRVendorConfig,
+            )
+            from doc_page_extractor.extractor import (
+                create_deepseek_ocr_vendor_page_extractor,
+            )
+
+            return create_deepseek_ocr_vendor_page_extractor(
+                UpstreamDeepSeekOCRVendorConfig(
                     base_url=self._ocr.base_url,
                     api_key=self._ocr.api_key,
                     model=self._ocr.model,
@@ -61,12 +96,35 @@ class PageExtractorNode:
                     timeout_seconds=self._ocr.timeout_seconds,
                 )
             )
-        if isinstance(self._ocr, VendorUnlimitedOCRConfig):
-            from doc_page_extractor.adapters.baidu import BaiduCloudOCRConfig
-            from doc_page_extractor.extractor import create_baidu_page_extractor
+        if isinstance(self._ocr, DeepSeekOCR2VendorConfig):
+            from doc_page_extractor.adapters.deepseek import (
+                DeepSeekOCR2VendorConfig as UpstreamDeepSeekOCR2VendorConfig,
+            )
+            from doc_page_extractor.extractor import (
+                create_deepseek_ocr2_vendor_page_extractor,
+            )
 
-            return create_baidu_page_extractor(
-                BaiduCloudOCRConfig(
+            return create_deepseek_ocr2_vendor_page_extractor(
+                UpstreamDeepSeekOCR2VendorConfig(
+                    base_url=self._ocr.base_url,
+                    api_key=self._ocr.api_key,
+                    model=self._ocr.model,
+                    temperature=self._ocr.temperature,
+                    top_p=self._ocr.top_p,
+                    max_tokens=self._ocr.max_tokens,
+                    timeout_seconds=self._ocr.timeout_seconds,
+                )
+            )
+        if isinstance(self._ocr, UnlimitedOCRVendorConfig):
+            from doc_page_extractor.adapters.unlimited import (
+                UnlimitedOCRVendorConfig as UpstreamUnlimitedOCRVendorConfig,
+            )
+            from doc_page_extractor.extractor import (
+                create_unlimited_ocr_vendor_page_extractor,
+            )
+
+            return create_unlimited_ocr_vendor_page_extractor(
+                UpstreamUnlimitedOCRVendorConfig(
                     ak=self._ocr.ak,
                     sk=self._ocr.sk,
                     base_url=self._ocr.base_url,
@@ -77,14 +135,14 @@ class PageExtractorNode:
         raise TypeError(f"Unsupported OCR config: {type(self._ocr).__name__}")
 
     def download_models(self, revision: str | None) -> None:
-        if not isinstance(self._ocr, LocalDeepSeekOCRConfig):
-            raise RuntimeError("download_models is only available for local DeepSeek OCR.")
-        self._get_page_extractor().download_models(revision)
+        if not isinstance(self._ocr, _LOCAL_OCR_CONFIG_TYPES):
+            raise RuntimeError("download_models is only available for local OCR.")
+        self._get_page_extractor().download_ocr_model(revision)
 
     def load_models(self) -> None:
-        if not isinstance(self._ocr, LocalDeepSeekOCRConfig):
-            raise RuntimeError("load_models is only available for local DeepSeek OCR.")
-        self._get_page_extractor().load_models()
+        if not isinstance(self._ocr, _LOCAL_OCR_CONFIG_TYPES):
+            raise RuntimeError("load_models is only available for local OCR.")
+        self._get_page_extractor().load_ocr_model()
 
     def image2page(
         self,
@@ -143,15 +201,18 @@ class PageExtractorNode:
                         step_index=step_index,
                     ) from error
 
-                for page_layout in self._iter_page_layouts(
+                for page_layout, is_footnote in self._iter_page_layouts(
                     image=image,
                     structured=page_result.structured,
                     asset_hub=asset_hub,
                     stage_index=step_index,
                     body_layouts=body_layouts,
                     footnotes_layouts=footnotes_layouts,
+                    includes_footnotes=includes_footnotes,
                 ):
-                    if step_index == 1:
+                    if is_footnote:
+                        footnotes_layouts.append(page_layout)
+                    elif step_index == 1:
                         body_layouts.append(page_layout)
                     elif page_layout.ref not in ASSET_TAGS:
                         footnotes_layouts.append(page_layout)
@@ -184,13 +245,18 @@ class PageExtractorNode:
         stage_index: int,
         body_layouts: list[PageLayout],
         footnotes_layouts: list[PageLayout],
+        includes_footnotes: bool,
     ):
         if structured is None:
             return
 
         for block in structured.blocks:
-            ref = _LAYOUT_KIND_TO_REF.get(str(block.kind.value), "unknown")
+            kind = str(block.kind.value)
+            ref = _LAYOUT_KIND_TO_REF.get(kind, "unknown")
             if ref == "unknown":
+                continue
+            is_footnote = kind == "footnote"
+            if is_footnote and not includes_footnotes:
                 continue
 
             text = self._normalize_block_text(block)
@@ -211,7 +277,7 @@ class PageExtractorNode:
                 continue
 
             if stage_index == 1:
-                order = len(body_layouts)
+                order = len(footnotes_layouts) if is_footnote else len(body_layouts)
             elif ref not in ASSET_TAGS:
                 order = len(footnotes_layouts)
             else:
@@ -227,7 +293,7 @@ class PageExtractorNode:
                 text=text,
                 hash=asset_hash,
                 order=order,
-            )
+            ), is_footnote
 
     def _normalize_block_text(self, block) -> str:
         parts: list[str] = []

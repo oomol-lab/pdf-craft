@@ -11,12 +11,16 @@ from .functions import predownload_models, transform_epub, transform_markdown
 from .llm import LLM
 from .metering import AbortedCheck, InterruptedKind, OCRTokensMetering
 from .ocr_config import (
-    LocalDeepSeekOCRConfig,
+    DeepSeekOCR2LocalConfig,
+    DeepSeekOCR2VendorConfig,
+    DeepSeekOCRLocalConfig,
+    DeepSeekOCRVendorConfig,
+    LocalOCRConfig,
     OCRConfig,
-    VendorDeepSeekOCRConfig,
+    OCRMode,
     VendorOCRConfig,
-    VendorUnlimitedOCRConfig,
-    create_ocr_config_from_env,
+    UnlimitedOCRLocalConfig,
+    UnlimitedOCRVendorConfig,
 )
 from .pdf import (
     DeepSeekOCRSize,

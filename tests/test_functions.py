@@ -1,7 +1,7 @@
 import unittest
 from unittest.mock import patch
 
-from pdf_craft import LocalDeepSeekOCRConfig
+from pdf_craft import DeepSeekOCRLocalConfig
 from pdf_craft import functions
 
 
@@ -17,7 +17,7 @@ class TestConvenienceFunctions(unittest.TestCase):
         _, kwargs = transform_cls.return_value.transform_markdown.call_args
         self.assertFalse(kwargs["toc_assumed"])
 
-    def test_transform_markdown_preserves_legacy_positional_parameters(self):
+    def test_transform_markdown_preserves_positional_parameters(self):
         with patch.object(functions, "Transform") as transform_cls:
             functions.transform_markdown(
                 "input.pdf",
@@ -37,7 +37,7 @@ class TestConvenienceFunctions(unittest.TestCase):
         self.assertEqual(method_kwargs["dpi"], 300)
 
     def test_transform_markdown_accepts_ocr_as_last_keyword(self):
-        config = LocalDeepSeekOCRConfig()
+        config = DeepSeekOCRLocalConfig()
         with patch.object(functions, "Transform") as transform_cls:
             functions.transform_markdown(
                 pdf_path="input.pdf",
@@ -59,7 +59,7 @@ class TestConvenienceFunctions(unittest.TestCase):
         _, kwargs = transform_cls.return_value.transform_epub.call_args
         self.assertTrue(kwargs["toc_assumed"])
 
-    def test_transform_epub_preserves_legacy_positional_parameters(self):
+    def test_transform_epub_preserves_positional_parameters(self):
         with patch.object(functions, "Transform") as transform_cls:
             functions.transform_epub(
                 "input.pdf",

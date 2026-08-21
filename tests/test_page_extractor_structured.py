@@ -6,7 +6,7 @@ from PIL import Image
 
 from pdf_craft.common import AssetHub
 from pdf_craft.pdf.page_extractor import PageExtractorNode
-from pdf_craft.ocr_config import LocalDeepSeekOCRConfig
+from pdf_craft.ocr_config import DeepSeekOCRLocalConfig
 
 
 class _Kind:
@@ -37,7 +37,7 @@ class _Structured:
 
 class TestStructuredPageMapping(unittest.TestCase):
     def test_asset_block_includes_structured_caption(self):
-        node = PageExtractorNode(LocalDeepSeekOCRConfig())
+        node = PageExtractorNode(DeepSeekOCRLocalConfig())
         image = Image.new("RGB", (100, 100), "white")
         structured = _Structured(
             blocks=[
@@ -66,8 +66,10 @@ class TestStructuredPageMapping(unittest.TestCase):
                     stage_index=1,
                     body_layouts=[],
                     footnotes_layouts=[],
+                    includes_footnotes=False,
                 )
             )
+            layouts = [layout for layout, _ in layouts]
 
             self.assertEqual(len(layouts), 1)
             self.assertEqual(layouts[0].ref, "image")
@@ -79,7 +81,7 @@ class TestStructuredPageMapping(unittest.TestCase):
             self.assertEqual(files[0].stem, layouts[0].hash)
 
     def test_stage_two_asset_does_not_create_asset_file(self):
-        node = PageExtractorNode(LocalDeepSeekOCRConfig())
+        node = PageExtractorNode(DeepSeekOCRLocalConfig())
         image = Image.new("RGB", (100, 100), "white")
         structured = _Structured(
             blocks=[
@@ -101,11 +103,104 @@ class TestStructuredPageMapping(unittest.TestCase):
                     stage_index=2,
                     body_layouts=[],
                     footnotes_layouts=[],
+                    includes_footnotes=False,
                 )
             )
 
             self.assertEqual(layouts, [])
             self.assertEqual(list(asset_path.iterdir()), [])
+
+    def test_caption_kind_preserves_asset_caption_ref(self):
+        node = PageExtractorNode(DeepSeekOCRLocalConfig())
+        image = Image.new("RGB", (100, 100), "white")
+        structured = _Structured(
+            blocks=[
+                _Block(
+                    kind="table_caption",
+                    det=(10, 82, 80, 94),
+                    text="Table 1: Caption",
+                )
+            ]
+        )
+
+        with TemporaryDirectory() as temp_dir:
+            layouts = list(
+                node._iter_page_layouts(  # pylint: disable=protected-access
+                    image=image,
+                    structured=structured,
+                    asset_hub=AssetHub(Path(temp_dir)),
+                    stage_index=1,
+                    body_layouts=[],
+                    footnotes_layouts=[],
+                    includes_footnotes=False,
+                )
+            )
+
+        self.assertEqual(len(layouts), 1)
+        layout, is_footnote = layouts[0]
+        self.assertEqual(layout.ref, "table_caption")
+        self.assertEqual(layout.text, "Table 1: Caption")
+        self.assertFalse(is_footnote)
+
+    def test_footnote_kind_is_excluded_when_footnotes_are_disabled(self):
+        node = PageExtractorNode(DeepSeekOCRLocalConfig())
+        image = Image.new("RGB", (100, 100), "white")
+        structured = _Structured(
+            blocks=[
+                _Block(
+                    kind="footnote",
+                    det=(10, 82, 80, 94),
+                    text="1. Footnote",
+                )
+            ]
+        )
+
+        with TemporaryDirectory() as temp_dir:
+            layouts = list(
+                node._iter_page_layouts(  # pylint: disable=protected-access
+                    image=image,
+                    structured=structured,
+                    asset_hub=AssetHub(Path(temp_dir)),
+                    stage_index=1,
+                    body_layouts=[],
+                    footnotes_layouts=[],
+                    includes_footnotes=False,
+                )
+            )
+
+        self.assertEqual(layouts, [])
+
+    def test_footnote_kind_uses_footnote_bucket_when_enabled(self):
+        node = PageExtractorNode(DeepSeekOCRLocalConfig())
+        image = Image.new("RGB", (100, 100), "white")
+        structured = _Structured(
+            blocks=[
+                _Block(
+                    kind="footnote",
+                    det=(10, 82, 80, 94),
+                    text="1. Footnote",
+                )
+            ]
+        )
+
+        with TemporaryDirectory() as temp_dir:
+            layouts = list(
+                node._iter_page_layouts(  # pylint: disable=protected-access
+                    image=image,
+                    structured=structured,
+                    asset_hub=AssetHub(Path(temp_dir)),
+                    stage_index=1,
+                    body_layouts=[],
+                    footnotes_layouts=[],
+                    includes_footnotes=True,
+                )
+            )
+
+        self.assertEqual(len(layouts), 1)
+        layout, is_footnote = layouts[0]
+        self.assertEqual(layout.ref, "text")
+        self.assertEqual(layout.text, "1. Footnote")
+        self.assertTrue(is_footnote)
 
 
 if __name__ == "__main__":

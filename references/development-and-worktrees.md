@@ -13,15 +13,18 @@ poetry config virtualenvs.in-project true
 poetry install --with dev
 ```
 
-开发 lock file 当前会通过 `doc-page-extractor` 安装 `torch`。只有当任务需要指定 CPU 或 CUDA wheel 时，才按当前环境覆盖安装 `torch` 和 `torchvision`。
+本包通过 `doc-page-extractor[local]` 获得上游本地 OCR 运行时栈，但不直接声明 `torch` 或 `torchvision`。只有当任务需要指定 CPU 或 CUDA wheel 时，才按当前环境覆盖安装 `torch` 和 `torchvision`。
 
-真实 OCR 有三种配置入口：
+真实 OCR 有六种配置入口：
 
-- `LocalDeepSeekOCRConfig`：本地 DeepSeek-OCR，真实转换需要 CUDA。
-- `VendorDeepSeekOCRConfig`：DeepSeek OCR 供应商模式。
-- `VendorUnlimitedOCRConfig`：百度 Unlimited OCR 供应商模式。
+- `DeepSeekOCRLocalConfig`：本地 DeepSeek OCR，真实转换需要 CUDA。
+- `DeepSeekOCR2LocalConfig`：本地 DeepSeek OCR 2，真实转换需要 CUDA。
+- `UnlimitedOCRLocalConfig`：本地 Unlimited OCR，真实转换需要 CUDA。
+- `DeepSeekOCRVendorConfig`：DeepSeek OCR 供应商模式。
+- `DeepSeekOCR2VendorConfig`：DeepSeek OCR 2 供应商模式。
+- `UnlimitedOCRVendorConfig`：Unlimited OCR 供应商模式。
 
-库代码不得自动读取 `.env`。手动脚本可以加载 `.env` 后调用 `create_ocr_config_from_env()`。
+库代码不得自动读取 `.env`。手动脚本可以加载 `.env` 后调用脚本内的 `create_ocr_config_from_env()`；脚本会读取 `DEEPSEEK_LOCAL_MODEL_PATH`、`DEEPSEEK_LOCAL_ONLY`、`UNLIMITED_LOCAL_MODEL_PATH`、`UNLIMITED_LOCAL_ONLY`、`DEEPSEEK_OCR_*`、`DEEPSEEK_OCR2_*` 和 `UNLIMITED_OCR_*`。
 
 ## 默认验证
 

@@ -6,11 +6,10 @@ from pdf_craft import (
     LaTeXRender,
     OCREventKind,
     TableRender,
-    create_ocr_config_from_env,
     transform_epub,
 )
 
-from env_loader import load_env
+from env_loader import create_ocr_config_from_env, load_env
 
 _IMAGE_STEM = "newton"
 
