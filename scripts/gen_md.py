@@ -3,7 +3,10 @@ from pathlib import Path
 
 from pdf_craft import LLM, OCREventKind, transform_markdown
 
-from env_loader import create_ocr_config_from_env, load_env
+try:
+    from .env_loader import create_ocr_config_from_env, load_env
+except ImportError:
+    from env_loader import create_ocr_config_from_env, load_env
 
 _IMAGE_STEM = "newton"
 

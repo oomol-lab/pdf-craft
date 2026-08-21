@@ -11,7 +11,7 @@
 
 pdf-craft uses `doc-page-extractor` for document recognition. Vendor OCR backends do not require local CUDA; local OCR backends require a CUDA-capable PyTorch environment.
 
-If you only need to develop code, get IDE type hints, or read the source code, you can choose the CPU environment installation as an alternative, but it will not be able to perform actual OCR recognition.
+CPU environments cannot run local OCR. They can run vendor OCR when network access, valid credentials, and Poppler are available.
 
 ### CUDA Environment Installation
 
@@ -82,7 +82,7 @@ pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
 pip install pdf-craft
 ```
 
-**Note:** Even for development-only setups, you still need to install Poppler following step 4 above if you want to test PDF-related functionality. For vendor OCR conversion, configure one of the vendor OCR configs in code or use `.env.template` with the manual scripts.
+**Note:** Even for development-only setups, you still need to install Poppler following step 4 above if you want to test PDF-related functionality. For the repository's manual scripts, copy `.env.template` to `.env`, populate a vendor OCR configuration, and then run the script.
 
 ## Troubleshooting
 

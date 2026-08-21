@@ -11,7 +11,7 @@
 
 pdf-craft 使用 `doc-page-extractor` 进行文档识别。供应商 OCR 后端不需要本地 CUDA；本地 OCR 后端需要支持 CUDA 的 PyTorch 环境。
 
-如果你仅需进行代码开发、IDE 类型提示或阅读源码，可以选择 CPU 环境安装作为替代方案，但无法执行实际的 OCR 识别。
+CPU 环境无法运行本地 OCR；在具备网络、有效凭据和 Poppler 时，仍可运行供应商 OCR。
 
 ### CUDA 环境安装
 
@@ -82,7 +82,7 @@ pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
 pip install pdf-craft
 ```
 
-**注意：** 即使是仅用于开发的环境，如果你想测试与 PDF 相关的功能，仍需按照上述步骤 4 安装 Poppler。如需使用供应商 OCR 转换，请在代码中配置供应商 OCR config，或让手动脚本读取 `.env.template` 对应的变量。
+**注意：** 即使是仅用于开发的环境，如果你想测试与 PDF 相关的功能，仍需按照上述步骤 4 安装 Poppler。使用仓库中的手动脚本时，请将 `.env.template` 复制为 `.env`，填写供应商 OCR 配置后再运行脚本。
 
 ## 常见问题
 

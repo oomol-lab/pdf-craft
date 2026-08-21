@@ -153,6 +153,9 @@ pdf-craft supports every OCR backend exposed by `doc-page-extractor`:
 Pass one of these configs through the `ocr` parameter. The OCR mode strings are
 `deepseek-ocr-local`, `deepseek-ocr2-local`, `unlimited-ocr-local`,
 `deepseek-ocr-vendor`, `deepseek-ocr2-vendor`, and `unlimited-ocr-vendor`.
+They are used only by this repository's manual scripts through `.env`; the
+library API accepts configuration objects and does not read environment
+variables.
 
 ```python
 from pdf_craft import (
@@ -194,7 +197,11 @@ transform_markdown(
 
 ### Model Management
 
-Local OCR models are automatically downloaded from Hugging Face on first run.
+Local OCR models are automatically downloaded from Hugging Face on first run
+when `local_only=False` (the default for the library configuration objects).
+The repository's manual scripts default `DEEPSEEK_LOCAL_ONLY` and
+`UNLIMITED_LOCAL_ONLY` to `true`, so set the relevant variable to `false` to
+allow a missing model to download.
 You can control model storage and loading behavior through the local OCR
 configs. Unlimited OCR local supports the `base` and `gundam` `ocr_size`
 presets.

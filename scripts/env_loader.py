@@ -1,5 +1,6 @@
 import os
 from pathlib import Path
+from typing import cast
 
 from pdf_craft import (
     DeepSeekOCR2LocalConfig,
@@ -7,6 +8,7 @@ from pdf_craft import (
     DeepSeekOCRLocalConfig,
     DeepSeekOCRVendorConfig,
     OCRConfig,
+    OCRMode,
     UnlimitedOCRLocalConfig,
     UnlimitedOCRVendorConfig,
 )
@@ -25,7 +27,7 @@ def load_env(path: Path) -> None:
 
 
 def create_ocr_config_from_env() -> OCRConfig:
-    mode = _env_str("OCR_MODE", default="deepseek-ocr-local")
+    mode = cast(OCRMode, _env_str("OCR_MODE", default="deepseek-ocr-local"))
     if mode == "deepseek-ocr-local":
         return DeepSeekOCRLocalConfig(
             models_cache_path=_env_str(

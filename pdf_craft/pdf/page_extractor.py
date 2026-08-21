@@ -206,15 +206,16 @@ class PageExtractorNode:
                     structured=page_result.structured,
                     asset_hub=asset_hub,
                     stage_index=step_index,
-                    body_layouts=body_layouts,
-                    footnotes_layouts=footnotes_layouts,
                     includes_footnotes=includes_footnotes,
                 ):
                     if is_footnote:
+                        page_layout.order = len(footnotes_layouts)
                         footnotes_layouts.append(page_layout)
                     elif step_index == 1:
+                        page_layout.order = len(body_layouts)
                         body_layouts.append(page_layout)
                     elif page_layout.ref not in ASSET_TAGS:
+                        page_layout.order = len(footnotes_layouts)
                         footnotes_layouts.append(page_layout)
 
                 check_aborted(aborted)
@@ -243,8 +244,6 @@ class PageExtractorNode:
         structured,
         asset_hub: AssetHub,
         stage_index: int,
-        body_layouts: list[PageLayout],
-        footnotes_layouts: list[PageLayout],
         includes_footnotes: bool,
     ):
         if structured is None:
@@ -276,11 +275,7 @@ class PageExtractorNode:
             ):
                 continue
 
-            if stage_index == 1:
-                order = len(footnotes_layouts) if is_footnote else len(body_layouts)
-            elif ref not in ASSET_TAGS:
-                order = len(footnotes_layouts)
-            else:
+            if stage_index != 1 and ref in ASSET_TAGS:
                 continue
 
             asset_hash: str | None = None
@@ -292,7 +287,7 @@ class PageExtractorNode:
                 det=det,
                 text=text,
                 hash=asset_hash,
-                order=order,
+                order=0,
             ), is_footnote
 
     def _normalize_block_text(self, block) -> str:

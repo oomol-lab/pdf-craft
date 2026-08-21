@@ -64,8 +64,6 @@ class TestStructuredPageMapping(unittest.TestCase):
                     structured=structured,
                     asset_hub=AssetHub(asset_path),
                     stage_index=1,
-                    body_layouts=[],
-                    footnotes_layouts=[],
                     includes_footnotes=False,
                 )
             )
@@ -101,8 +99,6 @@ class TestStructuredPageMapping(unittest.TestCase):
                     structured=structured,
                     asset_hub=AssetHub(asset_path),
                     stage_index=2,
-                    body_layouts=[],
-                    footnotes_layouts=[],
                     includes_footnotes=False,
                 )
             )
@@ -130,8 +126,6 @@ class TestStructuredPageMapping(unittest.TestCase):
                     structured=structured,
                     asset_hub=AssetHub(Path(temp_dir)),
                     stage_index=1,
-                    body_layouts=[],
-                    footnotes_layouts=[],
                     includes_footnotes=False,
                 )
             )
@@ -162,15 +156,13 @@ class TestStructuredPageMapping(unittest.TestCase):
                     structured=structured,
                     asset_hub=AssetHub(Path(temp_dir)),
                     stage_index=1,
-                    body_layouts=[],
-                    footnotes_layouts=[],
                     includes_footnotes=False,
                 )
             )
 
         self.assertEqual(layouts, [])
 
-    def test_footnote_kind_uses_footnote_bucket_when_enabled(self):
+    def test_footnote_kind_is_marked_when_enabled(self):
         node = PageExtractorNode(DeepSeekOCRLocalConfig())
         image = Image.new("RGB", (100, 100), "white")
         structured = _Structured(
@@ -190,8 +182,6 @@ class TestStructuredPageMapping(unittest.TestCase):
                     structured=structured,
                     asset_hub=AssetHub(Path(temp_dir)),
                     stage_index=1,
-                    body_layouts=[],
-                    footnotes_layouts=[],
                     includes_footnotes=True,
                 )
             )

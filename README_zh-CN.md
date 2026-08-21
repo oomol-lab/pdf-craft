@@ -153,6 +153,8 @@ pdf-craft 支持 `doc-page-extractor` 提供的全部 OCR 后端：
 通过 `ocr` 参数传入其中一种配置。OCR mode 字符串为
 `deepseek-ocr-local`、`deepseek-ocr2-local`、`unlimited-ocr-local`、
 `deepseek-ocr-vendor`、`deepseek-ocr2-vendor` 和 `unlimited-ocr-vendor`。
+这些字符串仅供本仓库的手动脚本通过 `.env` 使用；库 API 接收配置对象，
+不会读取环境变量。
 
 ```python
 from pdf_craft import (
@@ -194,9 +196,11 @@ transform_markdown(
 
 ### 模型管理
 
-本地 OCR 模型首次运行时会自动从 Hugging Face 下载。你可以通过本地 OCR
-配置控制模型的存储和加载行为。Unlimited OCR local 仅支持 `base` 和
-`gundam` 这两个 `ocr_size` preset。
+当 `local_only=False` 时（库配置对象的默认值），本地 OCR 模型首次运行会
+自动从 Hugging Face 下载。本仓库手动脚本中 `DEEPSEEK_LOCAL_ONLY` 和
+`UNLIMITED_LOCAL_ONLY` 默认均为 `true`；要下载缺失模型，请将相应变量设为
+`false`。你可以通过本地 OCR 配置控制模型的存储和加载行为。Unlimited OCR
+local 仅支持 `base` 和 `gundam` 这两个 `ocr_size` preset。
 
 #### 预下载模型
 
