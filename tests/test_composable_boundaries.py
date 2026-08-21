@@ -3,6 +3,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 from typing import cast
+from PIL import Image
 
 from pdf_craft.document import DocumentPackage
 from pdf_craft.extractor import PDFExtractor
@@ -12,6 +13,10 @@ from pdf_craft.transformer import ChapterXMLTransformer
 from pdf_craft.renderer import EpubRenderer, MarkdownRenderer
 from pdf_craft.sequence.chapter import BlockLayout, Chapter, InlineExpression, ParagraphLayout, Reference
 from pdf_craft.expression import ExpressionKind
+from pdf_craft.ocr_config import DeepSeekOCRLocalConfig
+from pdf_craft.pdf.ocr import OCR
+from pdf_craft.pdf.handler import PDFHandler
+from pdf_craft.pdf.types import Page
 
 
 class _FakeTransform:
@@ -34,18 +39,34 @@ class _CapturePatcher:
 
 
 class _FakeDocument:
-    def render_page(self, _page_index, _dpi):
-        class Image:
-            size = (100, 100)
-        return Image()
+    pages_count = 1
+
+    def metadata(self):
+        raise AssertionError("metadata is not used by this OCR test")
+
+    def page_size(self, page_index):
+        del page_index
+        return (1.0, 1.0)
+
+    def render_page(self, *, page_index, dpi):
+        del page_index, dpi
+        self.render_count += 1
+        return Image.new("RGB", (100, 100))
+
+    def __init__(self):
+        self.render_count = 0
 
     def close(self):
         pass
 
 
 class _FakeHandler:
-    def open(self, _path):
-        return _FakeDocument()
+    def __init__(self):
+        self.document = _FakeDocument()
+
+    def open(self, pdf_path):
+        del pdf_path
+        return self.document
 
 
 class _DeterministicXMLTranslator:
@@ -118,3 +139,33 @@ class TestComposableBoundaries(unittest.TestCase):
             package.toc_path.write_text("<toc/>")
             with self.assertRaises(ValueError):
                 EpubRenderer().render(package, root / "book.epub", lan="fr")  # type: ignore[arg-type]
+
+    def test_ocr_geometry_cache_survives_interrupted_resume_without_rerendering(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            handler = _FakeHandler()
+            first = OCR(DeepSeekOCRLocalConfig(local_only=True), cast(PDFHandler, handler))
+            page = Page(1, None, [], [], 0, 0)
+            with patch.object(first._extractor, "image2page", return_value=page):
+                events = first.recognize(root / "input.pdf", root / "assets", root / "ocr")
+                while next(events).kind.name != "COMPLETE":
+                    pass
+                events.close()
+            self.assertEqual(first.last_page_pixel_sizes, {1: (100, 100)})
+            self.assertEqual(handler.document.render_count, 1)
+
+            resumed = OCR(DeepSeekOCRLocalConfig(local_only=True), cast(PDFHandler, handler))
+            list(resumed.recognize(root / "input.pdf", root / "assets", root / "ocr"))
+            self.assertEqual(resumed.last_page_pixel_sizes, {1: (100, 100)})
+            self.assertEqual(handler.document.render_count, 1)
+
+    def test_package_rejects_malformed_page_geometry(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            package = DocumentPackage.from_path(root)
+            package.chapters_path.mkdir()
+            package.assets_path.mkdir()
+            assert package.metadata_path is not None
+            package.metadata_path.write_text('{"schema": 1, "page_pixel_sizes": {"1": [1]}}')
+            with self.assertRaisesRegex(ValueError, "page_pixel_sizes"):
+                package.validate()

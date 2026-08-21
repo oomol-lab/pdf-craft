@@ -1,5 +1,6 @@
 import sys
 import time
+import json
 from dataclasses import dataclass
 from enum import Enum, auto
 from pathlib import Path
@@ -81,8 +82,9 @@ class OCR:
         max_output_tokens: int | None = None,
         device_number: int | None = None,
     ) -> Generator[OCREvent, None, None]:
-        self._last_page_pixel_sizes = {}
         ocr_path.mkdir(parents=True, exist_ok=True)
+        geometry_path = ocr_path / "page_pixel_sizes.json"
+        self._last_page_pixel_sizes = self._load_page_pixel_sizes(geometry_path)
         if plot_path is not None:
             plot_path.mkdir(parents=True, exist_ok=True)
 
@@ -190,6 +192,7 @@ class OCR:
                         )
 
                     save_xml(encode(page), file_path)
+                    self._save_page_pixel_sizes(geometry_path)
 
                     if cover_path and page.image:
                         cover_path.parent.mkdir(parents=True, exist_ok=True)
@@ -228,6 +231,35 @@ class OCR:
             if self._pdf_handler is None:
                 self._pdf_handler = DefaultPDFHandler()
             return self._pdf_handler
+
+    def _load_page_pixel_sizes(self, path: Path) -> dict[int, tuple[int, int]]:
+        if not path.exists():
+            return {}
+        try:
+            raw_sizes = json.loads(path.read_text(encoding="utf-8"))
+            if not isinstance(raw_sizes, dict):
+                raise ValueError("must be a mapping")
+            sizes = {
+                int(index): (int(size[0]), int(size[1]))
+                for index, size in raw_sizes.items()
+            }
+        except (IndexError, TypeError, ValueError, json.JSONDecodeError) as error:
+            raise ValueError(f"invalid OCR page geometry cache: {path}") from error
+        if any(index < 1 or width < 1 or height < 1
+               for index, (width, height) in sizes.items()):
+            raise ValueError(f"invalid OCR page geometry cache: {path}")
+        return sizes
+
+    def _save_page_pixel_sizes(self, path: Path) -> None:
+        temporary_path = path.with_suffix(".json.tmp")
+        temporary_path.write_text(
+            json.dumps(
+                {str(index): list(size) for index, size in self._last_page_pixel_sizes.items()},
+                ensure_ascii=False,
+            ),
+            encoding="utf-8",
+        )
+        temporary_path.replace(path)
 
     def _create_fallback_page(
         self,

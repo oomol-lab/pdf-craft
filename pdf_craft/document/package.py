@@ -1,6 +1,7 @@
 from dataclasses import dataclass
 from pathlib import Path
 import json
+from typing import Any
 
 
 @dataclass
@@ -35,6 +36,7 @@ class DocumentPackage:
             data = json.loads(self.metadata_path.read_text(encoding="utf-8"))
             if data.get("schema") != 1:
                 raise ValueError("unsupported document package schema")
+            self._parse_page_pixel_sizes(data)
         return self
 
     def write_metadata(self, *, dpi: int | None = None,
@@ -52,8 +54,36 @@ class DocumentPackage:
         if self.metadata_path is None or not self.metadata_path.exists():
             return {}
         payload = json.loads(self.metadata_path.read_text(encoding="utf-8"))
-        return {int(index): (int(size[0]), int(size[1]))
-                for index, size in payload.get("page_pixel_sizes", {}).items()}
+        return self._parse_page_pixel_sizes(payload)
+
+    @staticmethod
+    def _parse_page_pixel_sizes(payload: dict[str, Any]) -> dict[int, tuple[int, int]]:
+        raw_sizes = payload.get("page_pixel_sizes", {})
+        if not isinstance(raw_sizes, dict):
+            raise ValueError("page_pixel_sizes must be a mapping")
+        sizes: dict[int, tuple[int, int]] = {}
+        for raw_index, raw_size in raw_sizes.items():
+            try:
+                page_index = int(raw_index)
+            except (TypeError, ValueError) as error:
+                raise ValueError("page_pixel_sizes keys must be page indexes") from error
+            if page_index < 1:
+                raise ValueError("page_pixel_sizes page indexes must be positive")
+            if (
+                not isinstance(raw_size, list | tuple)
+                or len(raw_size) != 2
+                or not all(
+                    isinstance(value, int | float)
+                    and not isinstance(value, bool)
+                    and float(value) > 0
+                    for value in raw_size
+                )
+            ):
+                raise ValueError(
+                    "page_pixel_sizes values must be two positive numeric dimensions"
+                )
+            sizes[page_index] = (int(raw_size[0]), int(raw_size[1]))
+        return sizes
 
     def has_toc(self) -> bool:
         return self.toc_path is not None and self.toc_path.exists()
