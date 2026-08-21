@@ -1,0 +1,1 @@
+"""OCR source adapter namespace."""

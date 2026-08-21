@@ -1,0 +1,1 @@
+"""Chapter extraction namespace."""

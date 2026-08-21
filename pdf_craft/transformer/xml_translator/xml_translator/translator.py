@@ -1,0 +1,241 @@
+from collections.abc import Callable, Generator, Iterable
+from dataclasses import dataclass
+from typing import Generic, TypeVar
+from xml.etree.ElementTree import Element
+
+from pdf_craft.llm import LLM, Message, MessageRole
+from pdf_craft.transformer.xml_translator.segment import BlockSegment, InlineSegment, TextSegment
+from pdf_craft.transformer.xml_translator.xml import decode_friendly, encode_friendly
+from .callbacks import Callbacks, FillFailedEvent, warp_callbacks
+from .hill_climbing import HillClimbing
+from .stream_mapper import InlineSegmentMapping, XMLStreamMapper
+from .submitter import SubmitKind, submit
+
+T = TypeVar("T")
+
+
+@dataclass
+class TranslationTask(Generic[T]):
+    element: Element
+    action: SubmitKind
+    payload: T
+
+
+class XMLTranslator:
+    def __init__(
+        self,
+        translation_llm: LLM,
+        fill_llm: LLM,
+        target_language: str,
+        user_prompt: str | None,
+        ignore_translated_error: bool,
+        max_retries: int,
+        max_fill_displaying_errors: int,
+        max_group_score: int,
+        cache_seed_content: str | None = None,
+    ) -> None:
+        self._translation_llm: LLM = translation_llm
+        self._fill_llm: LLM = fill_llm
+        self._target_language: str = target_language
+        self._user_prompt: str | None = user_prompt
+        self._ignore_translated_error: bool = ignore_translated_error
+        self._max_retries: int = max_retries
+        self._max_fill_displaying_errors: int = max_fill_displaying_errors
+        self._cache_seed_content: str | None = cache_seed_content
+        self._stream_mapper: XMLStreamMapper = XMLStreamMapper(
+            encoding=translation_llm.encoding,
+            max_group_score=max_group_score,
+        )
+
+    def translate_element(
+        self,
+        task: TranslationTask[T],
+        concurrency: int = 1,
+        interrupt_source_text_segments: Callable[[Iterable[TextSegment]], Iterable[TextSegment]] | None = None,
+        interrupt_translated_text_segments: Callable[[Iterable[TextSegment]], Iterable[TextSegment]] | None = None,
+        interrupt_block_element: Callable[[Element], Element] | None = None,
+        on_fill_failed: Callable[[FillFailedEvent], None] | None = None,
+    ) -> tuple[Element, T]:
+        for translated in self.translate_elements(
+            tasks=((task),),
+            concurrency=concurrency,
+            interrupt_source_text_segments=interrupt_source_text_segments,
+            interrupt_translated_text_segments=interrupt_translated_text_segments,
+            interrupt_block_element=interrupt_block_element,
+            on_fill_failed=on_fill_failed,
+        ):
+            return translated
+
+        raise RuntimeError("Translation failed unexpectedly")
+
+    def translate_elements(
+        self,
+        tasks: Iterable[TranslationTask[T]],
+        concurrency: int = 1,
+        interrupt_source_text_segments: Callable[[Iterable[TextSegment]], Iterable[TextSegment]] | None = None,
+        interrupt_translated_text_segments: Callable[[Iterable[TextSegment]], Iterable[TextSegment]] | None = None,
+        interrupt_block_element: Callable[[Element], Element] | None = None,
+        on_fill_failed: Callable[[FillFailedEvent], None] | None = None,
+    ) -> Generator[tuple[Element, T], None, None]:
+        element2task: dict[int, TranslationTask[T]] = {}
+        callbacks = warp_callbacks(
+            interrupt_source_text_segments=interrupt_source_text_segments,
+            interrupt_translated_text_segments=interrupt_translated_text_segments,
+            interrupt_block_element=interrupt_block_element,
+            on_fill_failed=on_fill_failed,
+        )
+
+        def generate_elements():
+            for task in tasks:
+                element2task[id(task.element)] = task
+                yield task.element
+
+        for element, mappings in self._stream_mapper.map_stream(
+            elements=generate_elements(),
+            callbacks=callbacks,
+            concurrency=concurrency,
+            map=lambda inline_segments: self._translate_inline_segments(
+                inline_segments=inline_segments,
+                callbacks=callbacks,
+            ),
+        ):
+            task = element2task.get(id(element), None)
+            if task:
+                translated_element = submit(
+                    element=element,
+                    action=task.action,
+                    mappings=mappings,
+                )
+                yield translated_element, task.payload
+
+    def _translate_inline_segments(
+        self,
+        inline_segments: list[InlineSegment],
+        callbacks: Callbacks,
+    ) -> list[InlineSegmentMapping | None]:
+        hill_climbing = HillClimbing(
+            encoding=self._fill_llm.encoding,
+            max_fill_displaying_errors=self._max_fill_displaying_errors,
+            block_segment=BlockSegment(
+                root_tag="xml",
+                inline_segments=inline_segments,
+            ),
+        )
+        source_text = "".join(self._render_source_text_parts(inline_segments))
+        translated_text = self._translate_text(source_text)
+
+        self._request_and_submit(
+            hill_climbing=hill_climbing,
+            source_text=source_text,
+            translated_text=translated_text,
+            callbacks=callbacks,
+        )
+        mappings: list[InlineSegmentMapping | None] = []
+        for mapping in hill_climbing.gen_mappings():
+            if mapping:
+                _, text_segments = mapping
+                if not text_segments:
+                    mapping = None
+            mappings.append(mapping)
+
+        return mappings
+
+    def _render_source_text_parts(self, inline_segments: list[InlineSegment]):
+        for i, inline_segment in enumerate(inline_segments):
+            if i > 0:
+                yield "\n\n"
+            for text_segment in inline_segment:
+                yield text_segment.text
+
+    def _translate_text(self, text: str) -> str:
+        with self._translation_llm.context(cache_seed_content=self._cache_seed_content) as ctx:
+            return ctx.request(
+                input=[
+                    Message(
+                        role=MessageRole.SYSTEM,
+                        message=self._translation_llm.template("translate").render(
+                            target_language=self._target_language,
+                            user_prompt=self._user_prompt,
+                        ),
+                    ),
+                    Message(role=MessageRole.USER, message=text),
+                ]
+            )
+
+    def _request_and_submit(
+        self,
+        hill_climbing: HillClimbing,
+        source_text: str,
+        translated_text: str,
+        callbacks: Callbacks,
+    ) -> None:
+        user_message = (
+            f"Source text:\n{source_text}\n\n"
+            f"XML template:\n```XML\n{encode_friendly(hill_climbing.request_element())}\n```\n\n"
+            f"Translated text:\n{translated_text}"
+        )
+        fixed_messages: list[Message] = [
+            Message(
+                role=MessageRole.SYSTEM,
+                message=self._fill_llm.template("fill").render(),
+            ),
+            Message(
+                role=MessageRole.USER,
+                message=user_message,
+            ),
+        ]
+        conversation_history: list[Message] = []
+
+        with self._fill_llm.context(cache_seed_content=self._cache_seed_content) as llm_context:
+            error_message: str | None = None
+
+            for retry_count in range(self._max_retries):
+                response = llm_context.request(fixed_messages + conversation_history)
+                validated_element = self._extract_xml_element(response)
+                error_message = None
+                if isinstance(validated_element, str):
+                    error_message = validated_element
+                elif isinstance(validated_element, Element):
+                    error_message = hill_climbing.submit(validated_element)
+
+                if error_message is None:
+                    break
+
+                callbacks.on_fill_failed(
+                    FillFailedEvent(
+                        error_message=error_message,
+                        retried_count=retry_count + 1,
+                        over_maximum_retries=False,
+                    )
+                )
+                conversation_history = [
+                    Message(role=MessageRole.ASSISTANT, message=response),
+                    Message(role=MessageRole.USER, message=error_message),
+                ]
+            if error_message is not None:
+                callbacks.on_fill_failed(
+                    FillFailedEvent(
+                        error_message=error_message,
+                        retried_count=self._max_retries,
+                        over_maximum_retries=True,
+                    )
+                )
+
+    def _extract_xml_element(self, text: str) -> Element | str:
+        first_xml_element: Element | None = None
+        all_xml_elements: int = 0
+
+        for xml_element in decode_friendly(text, tags="xml"):
+            if first_xml_element is None:
+                first_xml_element = xml_element
+            all_xml_elements += 1
+
+        if first_xml_element is None:
+            return "No complete <xml>...</xml> block found. Please ensure you have properly closed the XML with </xml> tag."  # noqa: E501
+
+        if all_xml_elements > 1:
+            return (
+                f"Found {all_xml_elements} <xml>...</xml> blocks. "
+                "Please return only one XML block without any examples or explanations."
+            )
+        return first_xml_element
