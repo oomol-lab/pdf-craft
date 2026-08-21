@@ -3,15 +3,20 @@ import tempfile
 import unittest
 import zipfile
 from pathlib import Path
+from typing import cast
 from unittest.mock import patch
 
 from pdf_craft.document import DocumentPackage
 from pdf_craft.extractor import PDFExtractor
+from pdf_craft.metering import OCRTokensMetering
+from pdf_craft.ocr_config import OCRConfig
 from pdf_craft.smoke.assets import discover_assets
 from pdf_craft.smoke.checks import check_epub
 from pdf_craft.smoke.checks import check_pdf_patch_geometry
-from pdf_craft.smoke.runner import SmokeRun, expand_matrix, run_smoke
+from pdf_craft.smoke.runner import SmokeAsset, SmokeRun, _run_pdf, expand_matrix, run_smoke
+from pdf_craft.common.xml import save_xml
 from pdf_craft.sequence.chapter import BlockLayout, Chapter, ParagraphLayout
+from pdf_craft.sequence.chapter import encode as encode_chapter
 
 
 class _CaptureTransform:
@@ -116,6 +121,48 @@ class TestSmokeMatrix(unittest.TestCase):
             with patch("pdf_craft.smoke.checks.create_chapters_reader", return_value=lambda: iter([chapter])):
                 errors = check_pdf_patch_geometry(package)
             self.assertEqual(errors, ["PDF patch geometry missing for replacement pages: [2]"])
+
+    def test_markdown_route_inserts_deterministic_package_step(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "output").mkdir()
+            package_path = root / "package"
+            package_path.joinpath("chapters").mkdir(parents=True)
+            package_path.joinpath("assets").mkdir()
+            package_path.joinpath("toc.xml").write_text("<toc />")
+            package = DocumentPackage.from_path(package_path)
+            package.write_metadata(page_pixel_sizes={1: (10, 10)})
+            chapter = Chapter(None, -1, [ParagraphLayout("text", 0, [
+                BlockLayout(1, 1, (1, 1, 2, 2), ["original"])
+            ])])
+            save_xml(encode_chapter(chapter), package_path / "chapters" / "chapter_1.xml")
+
+            class FakeCraft:
+                def __init__(self):
+                    self.steps = ()
+
+                def extract_pdf_with_metering(self, *_args, **_kwargs):
+                    return package, OCRTokensMetering(0, 0)
+
+                def transform_package(self, source, output, steps):
+                    self.steps = steps
+                    from pdf_craft.craft import PDFCraft
+                    return PDFCraft().transform_package(source, output, steps)
+
+                def render_markdown(self, transformed, output, _assets):
+                    output.write_text((transformed.chapters_path / "chapter_1.xml").read_text())
+
+            fake = FakeCraft()
+            run = SmokeRun(
+                "double_column.pdf", "markdown", translation={"package_marker": "[translated]"}
+            )
+            asset = SmokeAsset("double_column.pdf", "pdf", Path("source.pdf"))
+            with patch("pdf_craft.smoke.runner.PDFCraft", return_value=fake):
+                status, errors, details = _run_pdf(run, asset, root, cast(OCRConfig, None))
+            self.assertEqual(status, "passed", errors)
+            self.assertIn("[translated]", (root / "output" / "book.md").read_text())
+            self.assertEqual(details["outputs"], [str(root / "output" / "book.md")])
+            self.assertEqual(len(fake.steps), 1)
 
 
 def _write_epub(path: Path, files: dict[str, str]) -> Path:

@@ -9,9 +9,10 @@ from pathlib import Path
 from time import perf_counter
 from typing import Any, Literal, cast
 
-from pdf_craft.craft import ExtractionOptions, PDFCraft, PDFOptions
+from pdf_craft.craft import ExtractionOptions, PDFCraft, PDFOptions, TranslationStep
 from pdf_craft.ocr_config import OCRConfig, OCRMode
 from pdf_craft.transformer import SubmitKind
+from pdf_craft.sequence.chapter import HTMLTag
 from pdf_craft.llm import LLM
 
 from .assets import SmokeAsset, discover_assets
@@ -156,13 +157,22 @@ def _run_pdf(
     if run.route == "markdown":
         markdown = output_path / "book.md"
         markdown_assets = output_path / "assets"
+        steps = _package_steps(run)
+        if steps:
+            package = craft.transform_package(package, run_path / "translated", steps)
         craft.render_markdown(package, markdown, markdown_assets)
         errors.extend(check_markdown(markdown, markdown_assets))
+        marker = (run.translation or {}).get("package_marker")
+        if isinstance(marker, str) and marker not in markdown.read_text(encoding="utf-8"):
+            errors.append(f"Package translation marker missing from Markdown: {marker}")
         details["outputs"] = [str(markdown)]
         status, errors = _result_from_errors(errors)
         return status, errors, details
     if run.route == "epub":
         epub = output_path / "book.epub"
+        steps = _package_steps(run)
+        if steps:
+            package = craft.transform_package(package, run_path / "translated", steps)
         craft.render_epub(package, epub)
         errors.extend(check_epub(epub))
         details["outputs"] = [str(epub)]
@@ -179,6 +189,35 @@ def _run_pdf(
     details["outputs"] = [str(target)]
     status, errors = _result_from_errors(errors)
     return status, errors, details
+
+
+class _DeterministicChapterTransformer:
+    def __init__(self, marker: str) -> None:
+        self.marker = marker
+
+    def transform(self, chapter):
+        for layout in chapter.layouts:
+            blocks = getattr(layout, "blocks", ())
+            for block in blocks:
+                block.content = [self._transform_item(item) for item in block.content]
+        return chapter
+
+    def _transform_item(self, item):
+        if isinstance(item, str):
+            return item + self.marker
+        if isinstance(item, HTMLTag):
+            item.children = [self._transform_item(child) for child in item.children]
+        return item
+
+
+def _package_steps(run: SmokeRun):
+    translation = run.translation or {}
+    marker = translation.get("package_marker")
+    if not isinstance(marker, str):
+        return ()
+    mode = SubmitKind[translation.get("package_submit", "REPLACE").upper()]
+    from pdf_craft.transformer import ChapterPackageTransformer
+    return (TranslationStep(ChapterPackageTransformer(_DeterministicChapterTransformer(marker)), mode),)
 
 
 def _result_from_errors(errors: list[str]) -> tuple[str, list[str]]:

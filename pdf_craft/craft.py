@@ -4,7 +4,7 @@ from collections.abc import Callable, Container, Sequence
 from dataclasses import dataclass
 from os import PathLike
 from pathlib import Path
-from typing import Literal
+from typing import Literal, cast
 
 from epub_generator import BookMeta, LaTeXRender, TableRender
 
@@ -141,7 +141,8 @@ class PDFCraft:
         *, steps: Sequence[TranslationStep | PackageTransformer] = (),
     ) -> None:
         for step in steps:
-            if isinstance(step, TranslationStep) and step.mode == SubmitKind.APPEND_BLOCK:
+            mode = step.mode if isinstance(step, TranslationStep) else getattr(step, "mode", None)
+            if mode == SubmitKind.APPEND_BLOCK:
                 raise ValueError("PDF output does not support APPEND_BLOCK")
         package = self._apply_steps(package, steps)
         PDFTranslationPipeline(
@@ -205,7 +206,7 @@ class PDFCraft:
                     transformer.chapter_transformer, mode=step.mode
                 )
             return transformer
-        return ChapterPackageTransformer(transformer, mode=step.mode)
+        return ChapterPackageTransformer(cast(ChapterTransformer, transformer), mode=step.mode)
 
     def _pdf_engine(self):
         if self._engine is not None:

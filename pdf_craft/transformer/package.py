@@ -9,6 +9,7 @@ from xml.etree.ElementTree import Element
 from pdf_craft.common.xml import read_xml, save_xml
 from pdf_craft.document import DocumentPackage
 from pdf_craft.sequence.chapter import decode, encode
+from pdf_craft.transformer.protocol import ChapterTransformer
 from pdf_craft.transformer.xml_translator.xml_translator import SubmitKind
 
 
@@ -23,13 +24,13 @@ class ChapterPackageTransformer:
 
     def __init__(
         self,
-        chapter_transformer: Callable,
+        chapter_transformer: ChapterTransformer,
         *,
         mode: SubmitKind = SubmitKind.REPLACE,
         toc_transformer: Callable[[Element], Element] | None = None,
     ) -> None:
         if mode != SubmitKind.REPLACE and hasattr(chapter_transformer, "with_mode"):
-            chapter_transformer = chapter_transformer.with_mode(mode)
+            chapter_transformer = getattr(chapter_transformer, "with_mode")(mode)
         self.chapter_transformer = chapter_transformer
         self.mode = mode
         self.toc_transformer = toc_transformer

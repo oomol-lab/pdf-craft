@@ -38,6 +38,7 @@ class TestPDFCraft(unittest.TestCase):
             source = DocumentPackage.from_path(root / "source")
             source.chapters_path.mkdir(parents=True)
             source.assets_path.mkdir()
+            assert source.toc_path is not None
             source.toc_path.write_text("<toc page_indexes=\"1\" />")
             source.write_metadata(page_pixel_sizes={1: (10, 10)})
             chapter = Chapter(
@@ -51,14 +52,42 @@ class TestPDFCraft(unittest.TestCase):
             )
 
             class Upper:
-                def transform(self, value):
-                    value.layouts[0].blocks[0].content = ["translated"]
-                    return value
+                def transform(self, chapter: Chapter) -> Chapter:
+                    layout = chapter.layouts[0]
+                    assert isinstance(layout, ParagraphLayout)
+                    layout.blocks[0].content = ["translated"]
+                    return chapter
 
             target = ChapterPackageTransformer(Upper()).transform(source, root / "target")
             self.assertEqual(target.page_pixel_sizes(), {1: (10, 10)})
             self.assertIn("original", (source.chapters_path / "chapter_1.xml").read_text())
             self.assertIn("translated", (target.chapters_path / "chapter_1.xml").read_text())
+            assert target.toc_path is not None
+            self.assertEqual(source.toc_path.read_text(), target.toc_path.read_text())
+
+    def test_package_toc_transform_is_explicit(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = DocumentPackage.from_path(root / "source")
+            source.chapters_path.mkdir(parents=True)
+            source.assets_path.mkdir()
+            assert source.toc_path is not None
+            source.toc_path.write_text('<toc page_indexes="1"><item /></toc>')
+            source.write_metadata(page_pixel_sizes={1: (10, 10)})
+
+            class Identity:
+                def transform(self, chapter: Chapter) -> Chapter:
+                    return chapter
+
+            def translate_toc(element):
+                element.set("translated", "yes")
+                return element
+
+            target = ChapterPackageTransformer(
+                Identity(), toc_transformer=translate_toc
+            ).transform(source, root / "target")
+            assert target.toc_path is not None
+            self.assertIn('translated="yes"', target.toc_path.read_text())
 
     def test_pdf_rejects_append_block_steps_before_transforming(self):
         craft = PDFCraft.from_engine(_Engine())
@@ -67,6 +96,15 @@ class TestPDFCraft(unittest.TestCase):
             craft.translate_pdf(
                 "source.pdf", DocumentPackage(Path("chapters"), Path("assets")),
                 "out.pdf", lambda text: text, steps=[step]
+            )
+
+    def test_pdf_rejects_append_block_package_transformer(self):
+        craft = PDFCraft.from_engine(_Engine())
+        transformer = ChapterPackageTransformer(Mock(), mode=SubmitKind.APPEND_BLOCK)
+        with self.assertRaisesRegex(ValueError, "APPEND_BLOCK"):
+            craft.translate_pdf(
+                "source.pdf", DocumentPackage(Path("chapters"), Path("assets")),
+                "out.pdf", lambda text: text, steps=[transformer]
             )
 
     def test_epub_only_facade_needs_no_pdf_options(self):
