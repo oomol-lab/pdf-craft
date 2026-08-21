@@ -13,7 +13,14 @@ from pdf_craft.ocr_config import OCRConfig
 from pdf_craft.smoke.assets import discover_assets
 from pdf_craft.smoke.checks import check_epub
 from pdf_craft.smoke.checks import check_pdf_patch_geometry
-from pdf_craft.smoke.runner import SmokeAsset, SmokeRun, _run_pdf, expand_matrix, run_smoke
+from pdf_craft.smoke.runner import (
+    SmokeAsset,
+    SmokeRun,
+    _epub_contains_marker,
+    _run_pdf,
+    expand_matrix,
+    run_smoke,
+)
 from pdf_craft.common.xml import save_xml
 from pdf_craft.sequence.chapter import BlockLayout, Chapter, ParagraphLayout
 from pdf_craft.sequence.chapter import encode as encode_chapter
@@ -73,6 +80,11 @@ class TestSmokeMatrix(unittest.TestCase):
 
     def test_epub_check_validates_epub3_navigation_fixture(self):
         self.assertEqual(check_epub(Path("tests/assets/epub/DeepSeek OCR.epub")), [])
+
+    def test_epub_marker_check_rejects_renderer_output_without_translation(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = _write_epub(Path(directory), {"chapter.xhtml": "<p>original</p>"})
+            self.assertFalse(_epub_contains_marker(path, "[translated]"))
 
     def test_epub_check_rejects_malformed_container(self):
         with tempfile.TemporaryDirectory() as directory:

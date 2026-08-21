@@ -3,6 +3,7 @@ import platform
 import shutil
 import traceback
 import uuid
+import zipfile
 from copy import deepcopy
 from dataclasses import asdict, dataclass
 from datetime import UTC, datetime
@@ -170,7 +171,7 @@ def _run_pdf(
         craft.render_markdown(package, markdown, markdown_assets)
         errors.extend(check_markdown(markdown, markdown_assets))
         marker = (run.translation or {}).get("package_marker")
-        if isinstance(marker, str) and marker not in markdown.read_text(encoding="utf-8"):
+        if isinstance(marker, str) and markdown.is_file() and marker not in markdown.read_text(encoding="utf-8"):
             errors.append(f"Package translation marker missing from Markdown: {marker}")
         details["outputs"] = [str(markdown)]
         status, errors = _result_from_errors(errors)
@@ -182,6 +183,9 @@ def _run_pdf(
             package = craft.transform_package(package, run_path / "translated", steps)
         craft.render_epub(package, epub)
         errors.extend(check_epub(epub))
+        marker = (run.translation or {}).get("package_marker")
+        if isinstance(marker, str) and not _epub_contains_marker(epub, marker):
+            errors.append(f"Package translation marker missing from EPUB: {marker}")
         details["outputs"] = [str(epub)]
         status, errors = _result_from_errors(errors)
         return status, errors, details
@@ -206,6 +210,18 @@ def _unavailable_ocr_reason(error: Exception) -> str | None:
             return "OCR backend unavailable: local OCR requires CUDA, but no CUDA device is available"
         current = current.__cause__ or current.__context__
     return None
+
+
+def _epub_contains_marker(epub: Path, marker: str) -> bool:
+    if not zipfile.is_zipfile(epub):
+        return False
+    encoded_marker = marker.encode("utf-8")
+    with zipfile.ZipFile(epub) as archive:
+        return any(
+            encoded_marker in archive.read(name)
+            for name in archive.namelist()
+            if name.lower().endswith((".xhtml", ".html"))
+        )
 
 
 class _DeterministicChapterTransformer:

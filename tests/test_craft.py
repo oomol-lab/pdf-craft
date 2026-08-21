@@ -107,6 +107,20 @@ class TestPDFCraft(unittest.TestCase):
                 "out.pdf", lambda text: text, steps=[transformer]
             )
 
+    def test_pdf_rejects_append_block_custom_package_step(self):
+        class CustomPackageTransformer:
+            def transform(self, package: DocumentPackage, output_path: Path) -> DocumentPackage:
+                del output_path
+                return package
+
+        craft = PDFCraft.from_engine(_Engine())
+        with self.assertRaisesRegex(ValueError, "APPEND_BLOCK"):
+            craft.translate_pdf(
+                "source.pdf", DocumentPackage(Path("chapters"), Path("assets")),
+                "out.pdf", lambda text: text,
+                steps=[TranslationStep(CustomPackageTransformer(), SubmitKind.APPEND_BLOCK)],
+            )
+
     def test_epub_only_facade_needs_no_pdf_options(self):
         craft = PDFCraft()
         with patch("pdf_craft.craft.run_epub_translation") as translate:

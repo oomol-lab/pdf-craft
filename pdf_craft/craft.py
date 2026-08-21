@@ -2,6 +2,7 @@
 
 from collections.abc import Callable, Container, Sequence
 from dataclasses import dataclass
+from inspect import signature
 from os import PathLike
 from pathlib import Path
 from typing import Literal, cast
@@ -141,7 +142,7 @@ class PDFCraft:
         *, steps: Sequence[TranslationStep | PackageTransformer] = (),
     ) -> None:
         for step in steps:
-            mode = step.mode if isinstance(step, TranslationStep) else getattr(step, "mode", None)
+            mode = _step_mode(step, self._as_package_transformer(step))
             if mode == SubmitKind.APPEND_BLOCK:
                 raise ValueError("PDF output does not support APPEND_BLOCK")
         package = self._apply_steps(package, steps)
@@ -196,7 +197,7 @@ class PDFCraft:
         return current
 
     @staticmethod
-    def _as_package_transformer(step: TranslationStep | PackageTransformer):
+    def _as_package_transformer(step: TranslationStep | PackageTransformer) -> PackageTransformer:
         if not isinstance(step, TranslationStep):
             return step
         transformer = step.transformer
@@ -206,6 +207,8 @@ class PDFCraft:
                     transformer.chapter_transformer, mode=step.mode
                 )
             return transformer
+        if _accepts_package(transformer):
+            return cast(PackageTransformer, transformer)
         return ChapterPackageTransformer(cast(ChapterTransformer, transformer), mode=step.mode)
 
     def _pdf_engine(self):
@@ -223,3 +226,17 @@ class PDFCraft:
         engine = self._pdf_engine()
         extract = getattr(engine, "_extract_book_meta", None)
         return extract(source) if extract is not None else None
+
+
+def _accepts_package(transformer: ChapterTransformer | PackageTransformer) -> bool:
+    """Distinguish the two public transformer contracts by their bound method."""
+    try:
+        return len(signature(transformer.transform).parameters) >= 2
+    except (TypeError, ValueError):
+        return False
+
+
+def _step_mode(step: TranslationStep | PackageTransformer, transformer: PackageTransformer) -> SubmitKind | None:
+    if isinstance(step, TranslationStep):
+        return step.mode if step.mode != SubmitKind.REPLACE else getattr(transformer, "mode", step.mode)
+    return getattr(transformer, "mode", None)
