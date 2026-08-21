@@ -11,7 +11,13 @@ from .functions import predownload_models, transform_epub, transform_markdown
 from .craft import ExtractionOptions, PDFCraft, PDFOptions, TranslationStep
 from .pipeline.epub import translate_epub
 from .pipeline.pdf import PDFPatcher, PDFReplacement, PDFTranslationPipeline
-from .transformer import FillFailedEvent, SubmitKind, XMLTranslator
+from .transformer import (
+    ChapterPackageTransformer,
+    FillFailedEvent,
+    PackageTransformer,
+    SubmitKind,
+    XMLTranslator,
+)
 from .llm import LLM
 from .metering import AbortedCheck, InterruptedKind, OCRTokensMetering
 from .ocr_config import (
