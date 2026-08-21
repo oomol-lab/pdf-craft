@@ -45,6 +45,14 @@ class DocumentPackage:
                    "page_pixel_sizes": {str(k): list(v) for k, v in (page_pixel_sizes or {}).items()}}
         path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
 
+    def page_pixel_sizes(self) -> dict[int, tuple[int, int]]:
+        """Return OCR canvas sizes recorded by the Extractor, without OCR cache."""
+        if self.metadata_path is None or not self.metadata_path.exists():
+            return {}
+        payload = json.loads(self.metadata_path.read_text(encoding="utf-8"))
+        return {int(index): (int(size[0]), int(size[1]))
+                for index, size in payload.get("page_pixel_sizes", {}).items()}
+
     def has_toc(self) -> bool:
         return self.toc_path is not None and self.toc_path.exists()
 

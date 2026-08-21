@@ -1,0 +1,80 @@
+import tempfile
+import unittest
+from pathlib import Path
+from unittest.mock import patch
+from typing import cast
+
+from pdf_craft.document import DocumentPackage
+from pdf_craft.extractor import PDFExtractor
+from pdf_craft.pipeline.pdf.pipeline import PDFTranslationPipeline
+from pdf_craft.pipeline.pdf import PDFPatcher
+from pdf_craft.renderer import EpubRenderer, MarkdownRenderer
+from pdf_craft.sequence.chapter import BlockLayout, Chapter, InlineExpression, ParagraphLayout, Reference
+from pdf_craft.expression import ExpressionKind
+
+
+class _FakeTransform:
+    def extract_package(self, *, analysing_path, **_kwargs):
+        (analysing_path / "chapters").mkdir(parents=True)
+        (analysing_path / "assets").mkdir()
+        (analysing_path / "toc.xml").write_text("<toc/>")
+        return None, None, None, None, "metering"
+
+
+class _CapturePatcher:
+    def __init__(self):
+        self.replacements = []
+
+    def patch(self, _source, _target, replacements):
+        self.replacements = list(replacements)
+
+
+class _FakeDocument:
+    def render_page(self, _page_index, _dpi):
+        class Image:
+            size = (100, 100)
+        return Image()
+
+    def close(self):
+        pass
+
+
+class _FakeHandler:
+    def open(self, _path):
+        return _FakeDocument()
+
+
+class TestComposableBoundaries(unittest.TestCase):
+    def test_extractor_produces_package_consumed_by_renderers_without_ocr_cache(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            package, metering = PDFExtractor(_FakeTransform()).extract_with_metering(root / "input.pdf", root / "package")
+            self.assertEqual(metering, "metering")
+            self.assertFalse((root / "package" / "ocr").exists())
+            self.assertEqual(package.page_pixel_sizes(), {})
+            with patch("pdf_craft.renderer.markdown.renderer.render_markdown_file") as markdown:
+                MarkdownRenderer().render(package, root / "book.md")
+            self.assertEqual(markdown.call_args.args[0], package.chapters_path)
+            with patch("pdf_craft.renderer.epub.renderer.render_epub_file") as epub:
+                EpubRenderer().render(package, root / "book.epub")
+            self.assertEqual(epub.call_args.args[0], package.chapters_path)
+
+    def test_pdf_pipeline_preserves_structured_content_and_uses_package_metadata(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            package = DocumentPackage.from_path(root)
+            package.chapters_path.mkdir(parents=True)
+            package.assets_path.mkdir()
+            package.write_metadata(dpi=300, page_pixel_sizes={1: (100, 100)})
+            reference = Reference(1, 2, "[1]", [])
+            chapter = Chapter(None, -1, [ParagraphLayout("text", 0, [BlockLayout(
+                1, 1, (1, 1, 50, 50), ["text ", InlineExpression(ExpressionKind.INLINE_DOLLAR, "x"), reference]
+            )])])
+            patcher = _CapturePatcher()
+            with patch("pdf_craft.pipeline.pdf.pipeline.create_chapters_reader", return_value=lambda: iter([chapter])):
+                PDFTranslationPipeline(patcher=cast(PDFPatcher, patcher)).translate(root / "input.pdf", root / "out.pdf", package, lambda value: "T:" + value)
+            self.assertEqual(len(patcher.replacements), 1)
+            replacement = patcher.replacements[0]
+            self.assertEqual(replacement.page_pixel_size, (100, 100))
+            self.assertIn("$x$", replacement.text)
+            self.assertIn("[1]", replacement.text)

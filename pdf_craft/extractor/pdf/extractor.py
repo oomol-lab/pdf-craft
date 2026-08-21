@@ -8,6 +8,10 @@ class PDFExtractor:
         self._transform = transform
 
     def extract(self, pdf_path: Path, package_path: Path, **kwargs: Any) -> DocumentPackage:
+        package, _ = self.extract_with_metering(pdf_path, package_path, **kwargs)
+        return package
+
+    def extract_with_metering(self, pdf_path: Path, package_path: Path, **kwargs: Any):
         package_path.mkdir(parents=True, exist_ok=True)
         defaults = {
             "analysing_path": package_path,
@@ -20,9 +24,9 @@ class PDFExtractor:
             "max_output_tokens": None, "on_ocr_event": lambda _: None,
         }
         defaults.update(kwargs)
-        self._transform._extract_from_pdf(pdf_path=pdf_path,
+        _, _, _, _, metering = self._transform.extract_package(pdf_path=pdf_path,
             **defaults)
         package = DocumentPackage.from_path(package_path)
         package.write_metadata(dpi=kwargs.get("dpi"))
         package.validate()
-        return package
+        return package, metering
