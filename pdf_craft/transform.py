@@ -209,6 +209,7 @@ class Transform:
             input_tokens=0,
             output_tokens=0,
         )
+        existing_page_pixel_sizes = DocumentPackage.from_path(analysing_path).page_pixel_sizes()
         for event in self._ocr.recognize(
             pdf_path=pdf_path,
             asset_path=asserts_path,
@@ -243,7 +244,7 @@ class Transform:
         if cover_path and not cover_path.exists():
             cover_path = None
 
-        page_pixel_sizes = self._ocr.page_pixel_sizes(pdf_path, dpi, max_page_image_file_size)
+        page_pixel_sizes = existing_page_pixel_sizes | self._ocr.last_page_pixel_sizes
         DocumentPackage(chapters_path, asserts_path, toc_path, cover_path).write_metadata(
             dpi=dpi if dpi is not None else 300, page_pixel_sizes=page_pixel_sizes
         )

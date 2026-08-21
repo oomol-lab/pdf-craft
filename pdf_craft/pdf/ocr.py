@@ -47,6 +47,7 @@ class OCR:
         self._pdf_handler = pdf_handler
         self._pdf_handler_lock = Lock()
         self._extractor = PageExtractorNode(ocr=ocr)
+        self._last_page_pixel_sizes: dict[int, tuple[int, int]] = {}
 
     def predownload(self, revision: str | None) -> None:
         self._extractor.download_models(revision)
@@ -80,6 +81,7 @@ class OCR:
         max_output_tokens: int | None = None,
         device_number: int | None = None,
     ) -> Generator[OCREvent, None, None]:
+        self._last_page_pixel_sizes = {}
         ocr_path.mkdir(parents=True, exist_ok=True)
         if plot_path is not None:
             plot_path.mkdir(parents=True, exist_ok=True)
@@ -148,6 +150,7 @@ class OCR:
                             else 300,  # DPI=300 for scanned page
                             max_image_file_size=max_page_image_file_size,
                         )
+                        self._last_page_pixel_sizes[ref.page_index] = image.size
                         yield OCREvent(
                             kind=OCREventKind.RENDERED,
                             page_index=ref.page_index,
@@ -213,24 +216,9 @@ class OCR:
         if not did_ignore_any:
             done_path.touch()
 
-    def page_pixel_sizes(
-        self, pdf_path: Path, dpi: int | None, max_page_image_file_size: int | None = None
-    ) -> dict[int, tuple[int, int]]:
-        """Record the same rendered canvas geometry used for OCR BBoxes."""
-        document = self._get_pdf_handler().open(pdf_path)
-        try:
-            actual_dpi = dpi if dpi is not None else 300
-            sizes: dict[int, tuple[int, int]] = {}
-            for index in range(1, document.pages_count + 1):
-                page_dpi = actual_dpi
-                if max_page_image_file_size is not None:
-                    width, height = document.page_size(index)
-                    max_dpi = round((max_page_image_file_size / (width * height * 3 * 0.5)) ** 0.5)
-                    page_dpi = min(page_dpi, max_dpi)
-                sizes[index] = document.render_page(index, page_dpi).size
-            return sizes
-        finally:
-            document.close()
+    @property
+    def last_page_pixel_sizes(self) -> dict[int, tuple[int, int]]:
+        return self._last_page_pixel_sizes.copy()
 
     def _get_pdf_handler(self) -> PDFHandler:
         if self._pdf_handler is not None:

@@ -15,11 +15,12 @@ class DocumentPackage:
 
     @classmethod
     def from_path(cls, path: Path) -> "DocumentPackage":
+        cover_path = path / "cover.png"
         return cls(
             chapters_path=path / "chapters",
             assets_path=path / "assets",
             toc_path=path / "toc.xml",
-            cover_path=path / "cover.png",
+            cover_path=cover_path if cover_path.exists() else None,
             metadata_path=path / "document.json",
         )
 
