@@ -3,12 +3,15 @@ import tempfile
 import unittest
 import zipfile
 from pathlib import Path
+from unittest.mock import patch
 
 from pdf_craft.document import DocumentPackage
 from pdf_craft.extractor import PDFExtractor
 from pdf_craft.smoke.assets import discover_assets
 from pdf_craft.smoke.checks import check_epub
+from pdf_craft.smoke.checks import check_pdf_patch_geometry
 from pdf_craft.smoke.runner import SmokeRun, expand_matrix, run_smoke
+from pdf_craft.sequence.chapter import BlockLayout, Chapter, ParagraphLayout
 
 
 class _CaptureTransform:
@@ -99,6 +102,20 @@ class TestSmokeMatrix(unittest.TestCase):
             kwargs = transform.kwargs
             assert kwargs is not None
             self.assertEqual(kwargs["page_indexes"], (2, 4))
+
+    def test_pdf_patch_geometry_rejects_partial_page_metadata(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            package = DocumentPackage.from_path(root)
+            package.chapters_path.mkdir()
+            package.assets_path.mkdir()
+            package.write_metadata(page_pixel_sizes={1: (100, 100)})
+            chapter = Chapter(None, -1, [ParagraphLayout("text", 0, [
+                BlockLayout(2, 1, (1, 1, 20, 20), ["will be replaced"])
+            ])])
+            with patch("pdf_craft.smoke.checks.create_chapters_reader", return_value=lambda: iter([chapter])):
+                errors = check_pdf_patch_geometry(package)
+            self.assertEqual(errors, ["PDF patch geometry missing for replacement pages: [2]"])
 
 
 def _write_epub(path: Path, files: dict[str, str]) -> Path:

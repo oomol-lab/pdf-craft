@@ -19,7 +19,7 @@ from pdf_craft.transformer import SubmitKind
 from pdf_craft.llm import LLM
 
 from .assets import SmokeAsset, discover_assets
-from .checks import check_epub, check_markdown, check_package
+from .checks import check_epub, check_markdown, check_package, check_pdf_patch_geometry
 from .ocr import create_ocr_config
 
 SmokeRoute = Literal["package", "markdown", "epub", "pdf-patch", "epub-check", "epub-translate"]
@@ -152,6 +152,8 @@ def _run_pdf(
         "metering": {"input_tokens": metering.input_tokens, "output_tokens": metering.output_tokens},
     }
     errors = check_package(package, require_geometry=run.route == "pdf-patch")
+    if run.route == "pdf-patch":
+        errors.extend(check_pdf_patch_geometry(package))
     if errors and run.route == "pdf-patch":
         return "failed", errors, details
     if run.route == "package":

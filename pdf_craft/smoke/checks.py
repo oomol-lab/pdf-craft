@@ -1,3 +1,4 @@
+import json
 import re
 import zipfile
 from posixpath import normpath
@@ -7,6 +8,8 @@ from xml.etree import ElementTree
 import pypdf
 
 from pdf_craft.document import DocumentPackage
+from pdf_craft.sequence.chapter import ParagraphLayout
+from pdf_craft.sequence.reader import create_chapters_reader
 
 
 def check_package(package: DocumentPackage, require_geometry: bool = False) -> list[str]:
@@ -28,6 +31,30 @@ def check_package(package: DocumentPackage, require_geometry: bool = False) -> l
     if require_geometry and not package.page_pixel_sizes():
         errors.append("DocumentPackage lacks required page geometry metadata")
     return errors
+
+
+def check_pdf_patch_geometry(package: DocumentPackage) -> list[str]:
+    """Require package-owned geometry for every block a PDF patch may replace.
+
+    The PDF pipeline can otherwise re-render a source page when geometry is
+    absent. Smoke runs must reject that fallback so their package contract is
+    explicit and reproducible.
+    """
+    if package.metadata_path is None or not package.metadata_path.exists():
+        return ["PDF patch requires DocumentPackage document.json geometry metadata"]
+    try:
+        page_sizes = package.page_pixel_sizes()
+    except (OSError, ValueError, json.JSONDecodeError) as error:
+        return [f"PDF patch has invalid DocumentPackage geometry metadata: {error}"]
+    needed_pages: set[int] = set()
+    for chapter in create_chapters_reader(package.chapters_path)():
+        for layout in chapter.layouts:
+            if isinstance(layout, ParagraphLayout) and layout.ref in {"text", "sub_title"}:
+                needed_pages.update(block.page_index for block in layout.blocks if block.content)
+    missing = sorted(needed_pages - set(page_sizes))
+    if missing:
+        return [f"PDF patch geometry missing for replacement pages: {missing}"]
+    return []
 
 
 def check_markdown(path: Path, assets_path: Path) -> list[str]:
