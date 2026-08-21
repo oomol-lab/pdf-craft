@@ -316,6 +316,20 @@ transform_epub(
 )
 ```
 
+You can also use [OrcaRouter](https://www.orcarouter.ai) — an OpenAI-compatible model gateway — as the provider. Only the endpoint, API key, and model change:
+
+```python
+toc_llm = LLM(
+    key="sk-orca-...",                    # Your OrcaRouter API key
+    url="https://api.orcarouter.ai/v1",   # OrcaRouter API base
+    model="orcarouter/auto",              # Routed to a frontier model
+    token_encoding="o200k_base",
+    timeout=60.0,
+    retry_times=3,
+    retry_interval_seconds=5.0,
+)
+```
+
 ### Custom PDF Handler
 
 By default, pdf-craft uses Poppler (via `pdf2image`) for PDF parsing and rendering. If Poppler is not in your system PATH, you can specify a custom path:
