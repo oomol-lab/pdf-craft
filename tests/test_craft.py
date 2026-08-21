@@ -1,10 +1,12 @@
 import tempfile
 import unittest
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 from pdf_craft.craft import ExtractionOptions, PDFCraft, PDFOptions
 from pdf_craft.document import DocumentPackage
+from pdf_craft.error import PDFError
+from pdf_craft.transform import Transform
 from pdf_craft.transformer import SubmitKind
 
 
@@ -96,3 +98,21 @@ class TestPDFCraft(unittest.TestCase):
 
     def test_pdf_options_are_accepted_without_eager_pdf_initialization(self):
         PDFCraft(pdf=PDFOptions())
+
+    def test_legacy_transform_wraps_facade_errors_for_both_outputs(self):
+        facade = Mock()
+        facade.convert_pdf_to_markdown.side_effect = ValueError("broken")
+        facade.convert_pdf_to_epub.side_effect = ValueError("broken")
+        with patch("pdf_craft.craft.PDFCraft.from_engine", return_value=facade):
+            transform = Transform()
+            with self.assertRaisesRegex(RuntimeError, "transform source.pdf to markdown failed"):
+                transform.transform_markdown("source.pdf", "book.md")
+            with self.assertRaisesRegex(RuntimeError, "transform source.pdf to epub failed"):
+                transform.transform_epub("source.pdf", "book.epub")
+
+    def test_legacy_transform_preserves_inline_pdf_error(self):
+        facade = Mock()
+        facade.convert_pdf_to_markdown.side_effect = PDFError("page failed", page_index=1)
+        with patch("pdf_craft.craft.PDFCraft.from_engine", return_value=facade):
+            with self.assertRaises(PDFError):
+                Transform().transform_markdown("source.pdf", "book.md")
