@@ -57,12 +57,22 @@ def check_pdf_patch_geometry(package: DocumentPackage) -> list[str]:
     return []
 
 
-def check_markdown(path: Path, assets_path: Path) -> list[str]:
+def check_markdown(path: Path, _assets_path: Path | None = None) -> list[str]:
+    """Validate local image links relative to the Markdown document.
+
+    ``assets_path`` is retained as an ignored compatibility parameter.  The
+    target path in Markdown is always interpreted from ``path.parent``.
+    """
     if not path.is_file() or not path.read_text(encoding="utf-8").strip():
         return ["Markdown output is missing or empty"]
     errors: list[str] = []
     for target in re.findall(r"!\[[^]]*\]\(([^)]+)\)", path.read_text(encoding="utf-8")):
-        target_path = assets_path / target
+        target = target.strip().split(maxsplit=1)[0].strip("<>")
+        if not target or target.startswith(("#", "data:", "http://", "https://")):
+            continue
+        target_path = Path(target)
+        if not target_path.is_absolute():
+            target_path = path.parent / target_path
         if not target_path.exists():
             errors.append(f"Markdown image reference is missing: {target}")
     return errors

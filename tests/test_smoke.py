@@ -8,22 +8,25 @@ from unittest.mock import patch
 
 from pdf_craft.document import DocumentPackage
 from pdf_craft.extractor import PDFExtractor
+from pdf_craft.common import save_xml
+from pdf_craft.markdown.render import render_markdown_file
 from pdf_craft.metering import OCRTokensMetering
 from pdf_craft.ocr_config import OCRConfig
+from pdf_craft.pdf import OCREvent, OCREventKind
 from pdf_craft.smoke.assets import discover_assets
-from pdf_craft.smoke.checks import check_epub
-from pdf_craft.smoke.checks import check_pdf_patch_geometry
+from pdf_craft.smoke.checks import check_epub, check_markdown, check_pdf_patch_geometry
 from pdf_craft.smoke.runner import (
     SmokeAsset,
     SmokeRun,
+    _redact,
     _epub_contains_marker,
     _run_pdf,
     expand_matrix,
     run_smoke,
 )
-from pdf_craft.common.xml import save_xml
-from pdf_craft.sequence.chapter import BlockLayout, Chapter, ParagraphLayout
-from pdf_craft.sequence.chapter import encode as encode_chapter
+from pdf_craft.sequence.chapter import AssetLayout, BlockLayout, Chapter, ParagraphLayout, encode
+
+encode_chapter = encode
 
 
 class _CaptureTransform:
@@ -68,6 +71,90 @@ class TestSmokeMatrix(unittest.TestCase):
             self.assertEqual(manifest["run"]["ocr"]["api_key"], "[redacted]")
             self.assertTrue((run_path / "checks.json").exists())
             self.assertTrue((run_path / "logs").is_dir())
+
+    def test_redact_covers_nested_vendor_credentials_without_hiding_limits(self):
+        value = {
+            "deepseek": {"api_key": "key", "max_tokens": 1200},
+            "unlimited": [{"ak": "access", "sk": "secret", "max_ocr_tokens": 900}],
+            "nested": {"access_key": "access", "secret_key": "secret", "password": "pw"},
+        }
+        redacted = _redact(value)
+        self.assertEqual(redacted["deepseek"]["api_key"], "[redacted]")
+        self.assertEqual(redacted["unlimited"][0]["ak"], "[redacted]")
+        self.assertEqual(redacted["unlimited"][0]["sk"], "[redacted]")
+        self.assertEqual(redacted["nested"]["access_key"], "[redacted]")
+        self.assertEqual(redacted["nested"]["secret_key"], "[redacted]")
+        self.assertEqual(redacted["nested"]["password"], "[redacted]")
+        self.assertEqual(redacted["deepseek"]["max_tokens"], 1200)
+        self.assertEqual(redacted["unlimited"][0]["max_ocr_tokens"], 900)
+
+    def test_markdown_assets_are_copied_and_resolved_from_book_parent(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            package = _package_with_image(root / "package")
+            markdown = root / "output" / "book.md"
+            render_markdown_file(package.chapters_path, package.assets_path, markdown,
+                                 Path("assets"), package.cover_path, lambda: False)
+            self.assertTrue((root / "output" / "assets" / "image.png").is_file())
+            self.assertTrue((root / "output" / "assets" / "cover.png").is_file())
+            self.assertIn("![](assets/image.png)", markdown.read_text())
+            self.assertEqual(check_markdown(markdown), [])
+
+    def test_markdown_absolute_asset_destination_has_resolvable_relative_link(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            package = _package_with_image(root / "package")
+            markdown = root / "output" / "book.md"
+            destination = root / "external-assets"
+            render_markdown_file(package.chapters_path, package.assets_path, markdown,
+                                 destination, None, lambda: False)
+            self.assertTrue((destination / "image.png").is_file())
+            self.assertIn("![](../external-assets/image.png)", markdown.read_text())
+            self.assertEqual(check_markdown(markdown), [])
+
+    def test_markdown_without_resources_still_validates(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            package = _package_without_assets(root / "package")
+            markdown = root / "output" / "book.md"
+            render_markdown_file(package.chapters_path, package.assets_path, markdown,
+                                 Path("assets"), None, lambda: False)
+            self.assertEqual(check_markdown(markdown), [])
+
+    def test_pdf_run_records_ocr_events_and_stage_timeline(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            package = _package_without_assets(root / "fixture-package")
+            metering = OCRTokensMetering(5, 7)
+            with patch("pdf_craft.smoke.runner.PDFCraft") as craft_class:
+                craft = craft_class.return_value
+                def extract(_source, _path, options):
+                    options.on_ocr_event(OCREvent(OCREventKind.COMPLETE, 1, 1, 12, 5, 7))
+                    return package, metering
+                craft.extract_pdf_with_metering.side_effect = extract
+                run_path = run_smoke(
+                    SmokeRun("double_column.pdf", "package", "deepseek-ocr-local", ocr={}),
+                    assets_root=Path("tests/assets"), output_root=root,
+                )
+            manifest = json.loads((run_path / "manifest.json").read_text())
+            self.assertEqual(manifest["status"], "passed")
+            self.assertEqual([item["stage"] for item in manifest["timeline"]],
+                             ["configure", "extract", "render", "check", "finish"])
+            self.assertEqual(manifest["ocr_events"], [{"kind": "complete", "page_index": 1,
+                "total_pages": 1, "cost_time_ms": 12, "input_tokens": 5, "output_tokens": 7}])
+
+    def test_failed_configuration_records_stage_and_traceback_path(self):
+        with tempfile.TemporaryDirectory() as directory:
+            with patch("pdf_craft.smoke.runner.create_ocr_config", side_effect=ValueError("bad OCR")):
+                run_path = run_smoke(
+                    SmokeRun("double_column.pdf", "package", "deepseek-ocr-vendor", ocr={"api_key": "secret"}),
+                    assets_root=Path("tests/assets"), output_root=Path(directory),
+                )
+            manifest = json.loads((run_path / "manifest.json").read_text())
+            self.assertEqual(manifest["failure"]["stage"], "configure")
+            self.assertEqual(manifest["failure"]["exception_type"], "ValueError")
+            self.assertEqual(manifest["failure"]["traceback_path"], "logs/traceback.txt")
+            self.assertTrue((run_path / "logs" / "traceback.txt").is_file())
 
     def test_epub_check_copies_and_validates_real_fixture(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -215,3 +302,23 @@ def _container() -> str:
 
 def _opf(manifest: str, spine: str, spine_attrs: str) -> str:
     return f'<package version="2.0"><manifest>{manifest}</manifest><spine {spine_attrs}>{spine}</spine></package>'
+
+
+def _package_with_image(root: Path) -> DocumentPackage:
+    package = _package_without_assets(root)
+    (package.assets_path / "image.png").write_bytes(b"image")
+    cover = root / "cover.png"
+    cover.write_bytes(b"cover")
+    package = DocumentPackage(package.chapters_path, package.assets_path, None, cover, package.metadata_path)
+    chapter = Chapter(None, -1, [AssetLayout(1, "image", (0, 0, 1, 1), [], [], [], "image")])
+    save_xml(encode(chapter), package.chapters_path / "chapter_head.xml")
+    return package
+
+
+def _package_without_assets(root: Path) -> DocumentPackage:
+    package = DocumentPackage.from_path(root)
+    package.chapters_path.mkdir(parents=True)
+    package.assets_path.mkdir()
+    chapter = Chapter(None, -1, [ParagraphLayout("text", 0, [BlockLayout(1, 1, (0, 0, 1, 1), ["content"])])])
+    save_xml(encode(chapter), package.chapters_path / "chapter_head.xml")
+    return package
