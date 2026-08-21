@@ -410,6 +410,25 @@ def _is_secret_key(key: str) -> bool:
     )
 
 
+def _secret_values(run: SmokeRun) -> list[str]:
+    values: list[str] = []
+
+    def visit(value: Any) -> None:
+        if isinstance(value, dict):
+            for key, item in value.items():
+                if _is_secret_key(key) and isinstance(item, str) and item:
+                    values.append(item)
+                else:
+                    visit(item)
+        elif isinstance(value, list | tuple):
+            for item in value:
+                visit(item)
+
+    visit(run.ocr)
+    visit(run.translation)
+    return sorted(set(values), key=len, reverse=True)
+
+
 def _run_id(run: SmokeRun) -> str:
     stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
     return f"{stamp}-{Path(run.asset).stem}-{run.route}-{uuid.uuid4().hex[:8]}"

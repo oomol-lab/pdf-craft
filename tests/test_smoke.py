@@ -121,6 +121,16 @@ class TestSmokeMatrix(unittest.TestCase):
                                  Path("assets"), None, lambda: False)
             self.assertEqual(check_markdown(markdown), [])
 
+    def test_markdown_check_skips_urls_and_protocol_relative_links(self):
+        with tempfile.TemporaryDirectory() as directory:
+            markdown = Path(directory) / "book.md"
+            markdown.write_text(
+                "![](mailto:reader@example.com)\n![](ftp://example.com/image.png)\n"
+                "![](//cdn.example.com/image.png)\n![](assets/missing.png)\n",
+                encoding="utf-8",
+            )
+            self.assertEqual(check_markdown(markdown), ["Markdown image reference is missing: assets/missing.png"])
+
     def test_pdf_run_records_ocr_events_and_stage_timeline(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -155,6 +165,33 @@ class TestSmokeMatrix(unittest.TestCase):
             self.assertEqual(manifest["failure"]["exception_type"], "ValueError")
             self.assertEqual(manifest["failure"]["traceback_path"], "logs/traceback.txt")
             self.assertTrue((run_path / "logs" / "traceback.txt").is_file())
+
+    def test_persisted_errors_redact_vendor_credentials(self):
+        with tempfile.TemporaryDirectory() as directory:
+            secrets = {"api_key": "api-secret", "ak": "access-secret", "sk": "signing-secret"}
+            with patch("pdf_craft.smoke.runner.create_ocr_config"), \
+                 patch("pdf_craft.smoke.runner.PDFCraft") as craft_class:
+                craft = craft_class.return_value
+
+                def extract(_source, _path, options):
+                    options.on_ocr_event(OCREvent(
+                        OCREventKind.FAILED, 1, 1,
+                        error=ValueError("OCR rejected api-secret and access-secret"),
+                    ))
+                    raise ValueError("request failed with signing-secret")
+
+                craft.extract_pdf_with_metering.side_effect = extract
+                run_path = run_smoke(
+                    SmokeRun("double_column.pdf", "package", "deepseek-ocr-vendor", ocr=secrets),
+                    assets_root=Path("tests/assets"), output_root=Path(directory),
+                )
+            persisted = "\n".join((run_path / name).read_text() for name in (
+                "manifest.json", "checks.json", "logs/traceback.txt",
+            ))
+            self.assertNotIn("api-secret", persisted)
+            self.assertNotIn("access-secret", persisted)
+            self.assertNotIn("signing-secret", persisted)
+            self.assertIn("[redacted]", persisted)
 
     def test_epub_check_copies_and_validates_real_fixture(self):
         with tempfile.TemporaryDirectory() as directory:

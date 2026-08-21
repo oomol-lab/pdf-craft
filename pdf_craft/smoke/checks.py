@@ -4,6 +4,7 @@ import zipfile
 from posixpath import normpath
 from pathlib import Path
 from xml.etree import ElementTree
+from urllib.parse import urlparse
 
 import pypdf
 
@@ -68,7 +69,8 @@ def check_markdown(path: Path, _assets_path: Path | None = None) -> list[str]:
     errors: list[str] = []
     for target in re.findall(r"!\[[^]]*\]\(([^)]+)\)", path.read_text(encoding="utf-8")):
         target = target.strip().split(maxsplit=1)[0].strip("<>")
-        if not target or target.startswith(("#", "data:", "http://", "https://")):
+        parsed = urlparse(target)
+        if not target or target.startswith("#") or parsed.scheme or parsed.netloc:
             continue
         target_path = Path(target)
         if not target_path.is_absolute():
