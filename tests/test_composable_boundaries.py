@@ -146,7 +146,7 @@ class TestComposableBoundaries(unittest.TestCase):
             handler = _FakeHandler()
             first = OCR(DeepSeekOCRLocalConfig(local_only=True), cast(PDFHandler, handler))
             page = Page(1, None, [], [], 0, 0)
-            with patch.object(first._extractor, "image2page", return_value=page):
+            with patch("pdf_craft.pdf.ocr.PageExtractorNode.image2page", return_value=page):
                 events = first.recognize(root / "input.pdf", root / "assets", root / "ocr")
                 while next(events).kind.name != "COMPLETE":
                     pass
