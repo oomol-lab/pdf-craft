@@ -99,6 +99,33 @@ They write conversion output under `analysing/` and use the configured local mod
 
 If `format.json` exists at the repository root, these scripts use it to configure optional LLM-enhanced TOC analysis. The template is `format.template.json`; do not commit local secrets.
 
+## Parameterized Smoke Matrix
+
+The smoke runner records real conversion artifacts without treating OCR or translation quality as an automated assertion. List the available PDF and EPUB fixtures with:
+
+```shell
+poetry run python -m pdf_craft.smoke --list-assets
+```
+
+Pass a JSON file with explicit runs. `page_indexes` is forwarded to OCR, so it limits the pages that are recognized rather than trimming output later:
+
+```json
+{
+  "defaults": {"page_indexes": [1], "max_ocr_tokens": 4000},
+  "runs": [
+    {
+      "asset": "double_column.pdf",
+      "route": "markdown",
+      "backend": "deepseek-ocr-vendor",
+      "ocr": {"base_url": "...", "api_key": "...", "model": "..."}
+    },
+    {"asset": "epub/Cambridge.epub", "route": "epub-check"}
+  ]
+}
+```
+
+Use `--dry-run` to validate and expand a matrix without network, models, or OCR. Actual results are isolated below `analysing/smoke/<run-id>/` with a manifest, package, output, logs, and structural checks. Explicit EPUB translation configuration is required for the `epub-translate` route; without it the route is recorded as skipped.
+
 ## VGE Worktree Development
 
 This repository includes `.conductor/settings.toml` for VGE worktrees. It defines setup only. There is no long-lived development server, watcher, or app process, so no `run` script is configured. There is also no cleanup/archive script; VGE is expected to release the worktree itself.
