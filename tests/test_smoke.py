@@ -86,6 +86,14 @@ class TestSmokeMatrix(unittest.TestCase):
             path = _write_epub(Path(directory), {"chapter.xhtml": "<p>original</p>"})
             self.assertFalse(_epub_contains_marker(path, "[translated]"))
 
+    def test_epub_marker_check_accepts_xhtml_and_html_content(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = _write_epub(Path(directory), {
+                "chapter.xhtml": "<p>[translated]</p>",
+                "appendix.html": "<p>[translated]</p>",
+            })
+            self.assertTrue(_epub_contains_marker(path, "[translated]"))
+
     def test_epub_check_rejects_malformed_container(self):
         with tempfile.TemporaryDirectory() as directory:
             path = _write_epub(Path(directory), {"META-INF/container.xml": "<container>"})

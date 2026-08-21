@@ -229,11 +229,18 @@ class PDFCraft:
 
 
 def _accepts_package(transformer: ChapterTransformer | PackageTransformer) -> bool:
-    """Distinguish the two public transformer contracts by their bound method."""
+    """Recognise the public PackageTransformer method shape explicitly."""
     try:
-        return len(signature(transformer.transform).parameters) >= 2
+        parameters = list(signature(transformer.transform).parameters.values())
     except (TypeError, ValueError):
         return False
+    positional = [
+        parameter for parameter in parameters
+        if parameter.kind in (parameter.POSITIONAL_ONLY, parameter.POSITIONAL_OR_KEYWORD)
+    ]
+    return len(positional) == 2 and [parameter.name for parameter in positional] == [
+        "package", "output_path"
+    ]
 
 
 def _step_mode(step: TranslationStep | PackageTransformer, transformer: PackageTransformer) -> SubmitKind | None:

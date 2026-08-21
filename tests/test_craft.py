@@ -121,6 +121,16 @@ class TestPDFCraft(unittest.TestCase):
                 steps=[TranslationStep(CustomPackageTransformer(), SubmitKind.APPEND_BLOCK)],
             )
 
+    def test_optional_chapter_transformer_is_not_treated_as_package_transformer(self):
+        class OptionalChapterTransformer:
+            def transform(self, chapter: Chapter, *, trace: bool = False) -> Chapter:
+                del trace
+                return chapter
+
+        step = TranslationStep(OptionalChapterTransformer())
+        transformer = getattr(PDFCraft, "_as_package_transformer")(step)
+        self.assertIsInstance(transformer, ChapterPackageTransformer)
+
     def test_epub_only_facade_needs_no_pdf_options(self):
         craft = PDFCraft()
         with patch("pdf_craft.craft.run_epub_translation") as translate:
