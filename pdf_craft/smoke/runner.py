@@ -7,14 +7,10 @@ from dataclasses import asdict, dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 from time import perf_counter
-from typing import Any, Literal
+from typing import Any, Literal, cast
 
-from pdf_craft.extractor import PDFExtractor
+from pdf_craft.craft import ExtractionOptions, PDFCraft, PDFOptions
 from pdf_craft.ocr_config import OCRConfig, OCRMode
-from pdf_craft.renderer import EpubRenderer, MarkdownRenderer
-from pdf_craft.transform import Transform
-from pdf_craft.pipeline.pdf import PDFTranslationPipeline
-from pdf_craft.pipeline.epub import translate_epub
 from pdf_craft.transformer import SubmitKind
 from pdf_craft.llm import LLM
 
@@ -109,7 +105,7 @@ def _execute(run: SmokeRun, asset: SmokeAsset, run_path: Path) -> tuple[str, lis
             return "skipped", ["EPUB translation requires translation.llm with explicit credentials"], {}
         llm = LLM(**run.translation["llm"])
         submit = SubmitKind[run.translation.get("submit", "REPLACE").upper()]
-        translate_epub(
+        PDFCraft().translate_epub(
             asset.path,
             output,
             target_language=run.translation.get("target_language", "zh"),
@@ -133,19 +129,17 @@ def _run_pdf(
 ) -> tuple[str, list[str], dict[str, Any]]:
     package_path = run_path / "package"
     output_path = run_path / "output"
-    package, metering = PDFExtractor(Transform(ocr=ocr)).extract_with_metering(
-        asset.path,
-        package_path,
-        page_indexes=run.page_indexes,
-        ocr_size=run.ocr_size,
-        dpi=run.dpi,
-        max_page_image_file_size=run.max_page_image_file_size,
-        max_tokens=run.max_ocr_tokens,
-        max_output_tokens=run.max_ocr_output_tokens,
-        includes_cover=run.includes_cover,
-        includes_footnotes=run.includes_footnotes,
-        generate_plot=run.generate_plot,
-        toc_assumed=run.toc_assumed,
+    craft = PDFCraft(pdf=PDFOptions(ocr=ocr))
+    package, metering = craft.extract_pdf_with_metering(
+        asset.path, package_path, ExtractionOptions(
+            page_indexes=run.page_indexes, ocr_size=cast(Any, run.ocr_size), dpi=run.dpi,
+            max_page_image_file_size=run.max_page_image_file_size,
+            max_ocr_tokens=run.max_ocr_tokens,
+            max_ocr_output_tokens=run.max_ocr_output_tokens,
+            includes_cover=run.includes_cover,
+            includes_footnotes=run.includes_footnotes,
+            generate_plot=run.generate_plot, toc_assumed=run.toc_assumed,
+        )
     )
     details = {
         "package": str(package_path),
@@ -162,14 +156,14 @@ def _run_pdf(
     if run.route == "markdown":
         markdown = output_path / "book.md"
         markdown_assets = output_path / "assets"
-        MarkdownRenderer().render(package, markdown, markdown_assets)
+        craft.render_markdown(package, markdown, markdown_assets)
         errors.extend(check_markdown(markdown, markdown_assets))
         details["outputs"] = [str(markdown)]
         status, errors = _result_from_errors(errors)
         return status, errors, details
     if run.route == "epub":
         epub = output_path / "book.epub"
-        EpubRenderer().render(package, epub)
+        craft.render_epub(package, epub)
         errors.extend(check_epub(epub))
         details["outputs"] = [str(epub)]
         status, errors = _result_from_errors(errors)
@@ -178,7 +172,7 @@ def _run_pdf(
     if not isinstance(prefix, str):
         return "skipped", errors + ["PDF patching requires translation.patch_prefix or an application transformer"], details
     target = output_path / "book.pdf"
-    PDFTranslationPipeline().translate(asset.path, target, package, lambda text: prefix + text)
+    craft.translate_pdf(asset.path, package, target, lambda text: prefix + text)
     from .checks import check_pdf
     import pypdf
     errors.extend(check_pdf(target, len(pypdf.PdfReader(str(asset.path)).pages)))

@@ -8,6 +8,7 @@ from .error import (
     PDFError,
 )
 from .functions import predownload_models, transform_epub, transform_markdown
+from .craft import ExtractionOptions, PDFCraft, PDFOptions
 from .pipeline.epub import translate_epub
 from .pipeline.pdf import PDFPatcher, PDFReplacement, PDFTranslationPipeline
 from .transformer import FillFailedEvent, SubmitKind, XMLTranslator
