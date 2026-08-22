@@ -20,7 +20,9 @@ def _is_openai_retry_error(err: Exception) -> bool:
     if isinstance(err, openai.APIConnectionError):
         return True
     if isinstance(err, openai.InternalServerError):
-        return err.status_code in (502, 503, 504)
+        return err.status_code in (500, 502, 503, 504, 520, 522, 524, 529)
+    if isinstance(err, openai.APIStatusError):
+        return err.status_code in (408, 409, 425, 429, 500, 502, 503, 504, 520, 522, 524, 529)
     return False
 
 

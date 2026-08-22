@@ -1,14 +1,15 @@
 import json
 import re
 from dataclasses import dataclass
-from typing import Callable, Generator, Generic, Iterable, TypeVar
+from typing import Any, Callable, Generator, Generic, Iterable, TypeVar, cast
 
 from json_repair import repair_json
-from pydantic import BaseModel, ValidationError, field_validator
+from pydantic import BaseModel, RootModel, ValidationError, field_validator
 
 from ..common import XMLReader, split_by_cv
 from ..config import MAX_LEVELS, MAX_TITLE_CV
-from ..llm import LLM, Message, MessageRole
+from ..llm import LLM, Message, MessageRole, runtime_for
+from ..llm.guaranteed import GuaranteedOptions, request_guaranteed_json
 from ..pdf import TITLE_TAGS, Page
 from .toc_levels import Ref2Level
 from .toc_pages import PageRef
@@ -256,6 +257,8 @@ def _validate_title_response(
         if result_marker in response:
             result_start = response.rindex(result_marker) + len(result_marker)
             result_section = response[result_start:].strip()
+        elif response.lstrip().startswith("{"):
+            result_section = response.strip()
         else:
             return None, (
                 "Response is missing the RESULT section. "
@@ -434,6 +437,8 @@ def _validate_toc_response(
             # Find the LAST occurrence of RESULT: to avoid matching it in ANALYSIS section
             result_start = response.rindex(result_marker) + len(result_marker)
             result_section = response[result_start:].strip()
+        elif response.lstrip().startswith("{"):
+            result_section = response.strip()
         else:
             return None, (
                 "Response is missing the RESULT section. "
@@ -560,38 +565,36 @@ class _LLMAnalyser(Generic[_P, _R]):
     ) -> None:
         self._llm = llm
         self._validate: Callable[[str, _P], tuple[_R | None, str | None]] = validate
+        self._runtime = runtime_for(llm, protocol_version="toc-json-v1") if isinstance(llm, LLM) else None
 
     def request(self, payload: _P, messages: Iterable[Message]) -> _R:
-        last_error: str | None = None
-        head_messages = list(messages)
-        tail_messages: list[Message] = []
+        class _AnyResponse(RootModel[object]):
+            pass
 
-        for attempt in range(_MAX_RETRIES):
-            try:
-                response = self._llm.request(input=head_messages + tail_messages)
-            except Exception as error:
-                raise LLMAnalysisError(
-                    f"LLM request failed at attempt {attempt + 1}: {error}"
-                ) from error
+        def parse(data, index, maximum):
+            result, error_msg = self._validate(json.dumps(data.root, ensure_ascii=False), payload)
+            if result is None:
+                raise ValueError(error_msg or "Unknown validation error")
+            return result
 
-            result, error_msg = self._validate(response, payload)
-            if result is not None:
-                return result
-
-            if attempt < _MAX_RETRIES - 1:
-                tail_messages = [
-                    Message(role=MessageRole.ASSISTANT, message=response),
-                    Message(
-                        role=MessageRole.USER,
-                        message=_build_error_feedback(error_msg or "Unknown error"),
-                    ),
-                ]
-            last_error = error_msg
-
-        error_detail = f"Last error: {last_error}" if last_error else "Unknown error"
-        raise LLMAnalysisError(
-            f"LLM analysis failed after {_MAX_RETRIES} attempts. {error_detail}"
-        )
+        # The business validators already extract RESULT and enforce their own
+        # schema. The guaranteed layer supplies typed retries and bounded history.
+        try:
+            return request_guaranteed_json(GuaranteedOptions(
+                messages=list(messages),
+                request=lambda current, index, maximum: (
+                    self._runtime.request(current, retry_index=index, retry_max=maximum, use_cache=False)
+                    if self._runtime is not None
+                    else cast(Any, self._llm).request(input=current)
+                ),
+                schema=_AnyResponse,
+                parse=parse,
+                max_retries=_MAX_RETRIES - 1,
+            ))
+        except Exception as error:
+            if isinstance(error, LLMAnalysisError):
+                raise
+            raise LLMAnalysisError(f"LLM request failed at attempt 1: {error}") from error
 
 
 @dataclass

@@ -11,6 +11,11 @@ class _BrokenLLM:
         raise RuntimeError("blocked by upstream")
 
 
+class _JsonLLM:
+    def request(self, input):  # pylint: disable=redefined-builtin,unused-argument
+        return '{"0": 0, "1": 1}'
+
+
 class TestLLMAnalyser(unittest.TestCase):
     def test_wraps_llm_request_errors_as_analysis_error(self):
         analyser = _LLMAnalyser(
@@ -29,6 +34,17 @@ class TestLLMAnalyser(unittest.TestCase):
 
         self.assertIn("LLM request failed at attempt 1", str(context.exception))
         self.assertIsInstance(context.exception.__cause__, RuntimeError)
+
+    def test_accepts_json_extracted_by_guaranteed_layer(self):
+        analyser = _LLMAnalyser(
+            llm=cast(LLM, _JsonLLM()),
+            validate=lambda response, payload: ([0, 1], None)
+            if response == '{"0": 0, "1": 1}' else (None, "unexpected response"),
+        )
+        self.assertEqual(
+            analyser.request(payload=None, messages=[Message(MessageRole.USER, "json")]),
+            [0, 1],
+        )
 
 
 if __name__ == "__main__":
