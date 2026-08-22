@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from typing import Any, Callable, Generator, Generic, Iterable, TypeVar, cast
 
 from json_repair import repair_json
-from pydantic import BaseModel, RootModel, ValidationError, field_validator
+from pydantic import BaseModel, ValidationError, field_validator
 
 from ...common import XMLReader, split_by_cv
 from .config import MAX_LEVELS, MAX_TITLE_CV
@@ -568,11 +568,20 @@ class _LLMAnalyser(Generic[_P, _R]):
         self._runtime = runtime_for(llm, protocol_version="toc-json-v1") if isinstance(llm, LLM) else None
 
     def request(self, payload: _P, messages: Iterable[Message]) -> _R:
-        class _AnyResponse(RootModel[object]):
-            pass
+        class _ResponseSchema(BaseModel):
+            """Transport schema; TOC validator owns RESULT and ID semantics."""
+            model_config = {"extra": "allow"}
+
+            payload: dict[str, Any]
+
+            @classmethod
+            def model_validate(cls, obj, *args, **kwargs):  # type: ignore[override]
+                if not isinstance(obj, dict):
+                    raise ValueError("TOC response must be a JSON object")
+                return cls(payload=obj)
 
         def parse(data, _index, _maximum):
-            result, error_msg = self._validate(json.dumps(data.root, ensure_ascii=False), payload)
+            result, error_msg = self._validate(json.dumps(data.payload, ensure_ascii=False), payload)
             if result is None:
                 raise ValueError(error_msg or "Unknown validation error")
             return result
@@ -587,7 +596,7 @@ class _LLMAnalyser(Generic[_P, _R]):
                     if self._runtime is not None
                     else cast(Any, self._llm).request(input=current)
                 ),
-                schema=_AnyResponse,
+                schema=_ResponseSchema,
                 parse=parse,
                 max_retries=_MAX_RETRIES - 1,
             ))

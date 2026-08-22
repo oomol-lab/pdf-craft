@@ -10,6 +10,8 @@ from json_repair import repair_json
 from pydantic import BaseModel, ValidationError
 
 from .types import Message, MessageRole
+from .loop import (ProtocolFailure, ProtocolRetry, ProtocolSuccess, RepairLoopOptions,
+                   ResponseProtocol, run_repair_loop)
 
 TData = TypeVar("TData")
 TResult = TypeVar("TResult")
@@ -48,42 +50,44 @@ class GuaranteedOptions(Generic[TData, TResult]):
     schema: type[BaseModel]
     parse: Callable[[TData, int, int], TResult]
     max_retries: int = 12
+    extractor: Callable[[str], str] | None = None
 
 
 def request_guaranteed_json(options: GuaranteedOptions[TData, TResult]) -> TResult:
-    initial = list(options.messages)
-    current = list(initial)
-    last_response: str | None = None
-    for index in range(options.max_retries + 1):
-        response = options.request(current, index, options.max_retries)
-        last_response = response
-        if not response or not response.strip():
-            if index >= options.max_retries:
-                raise GuaranteedEmptyResponseError("LLM returned empty response after all retries", attempts=index + 1)
-            continue
-        try:
-            data = json.loads(repair_json(_extract_json(response)))
-        except (ValueError, json.JSONDecodeError) as error:
-            if _looks_like_refusal(response) and index >= min(1, options.max_retries):
-                raise GuaranteedProtocolError("LLM returned natural language instead of JSON", attempts=index + 1, response=response) from error
-            if index >= options.max_retries:
-                raise GuaranteedExhaustedError("JSON syntax remained invalid after retries", attempts=index + 1, response=response, cause=error) from error
-            current = _retry_messages(initial, response, "Return complete valid JSON only; do not explain or use markdown fences.", include_response=True)
-            continue
-        try:
-            validated = options.schema.model_validate(data)
-        except ValidationError as error:
-            if index >= options.max_retries:
-                raise GuaranteedSchemaError("JSON schema validation failed after retries", attempts=index + 1, response=response, cause=error) from error
-            current = _retry_messages(initial, response, _schema_feedback(error), include_response=True)
-            continue
-        try:
-            return options.parse(cast(TData, validated), index, options.max_retries)
-        except Exception as error:
-            if index >= options.max_retries:
-                raise GuaranteedBusinessError("JSON business validation failed after retries", attempts=index + 1, response=response, cause=error) from error
-            current = _retry_messages(initial, response, f"Fix the business validation error and return complete JSON:\n{error}", include_response=True)
-    raise GuaranteedExhaustedError("Guaranteed JSON request failed", attempts=options.max_retries + 1, response=last_response)
+    class _JsonProtocol:
+        def __init__(self) -> None:
+            self.last_error: GuaranteedRequestError | None = None
+
+        def validate(self, response: str, state: None, attempt: int, max_attempts: int):
+            try:
+                extractor = options.extractor or _extract_json
+                data = json.loads(repair_json(extractor(response)))
+            except (ValueError, json.JSONDecodeError) as error:
+                if _looks_like_refusal(response) and attempt >= min(1, options.max_retries):
+                    return ProtocolFailure(GuaranteedProtocolError("LLM returned natural language instead of JSON", attempts=attempt + 1, response=response, cause=error), state)
+                self.last_error = GuaranteedExhaustedError("JSON syntax remained invalid after retries", attempts=attempt + 1, response=response, cause=error)
+                return ProtocolRetry("Return complete valid JSON only; do not explain or use markdown fences.", state)
+            try:
+                validated = options.schema.model_validate(data)
+            except ValidationError as error:
+                self.last_error = GuaranteedSchemaError("JSON schema validation failed after retries", attempts=attempt + 1, response=response, cause=error)
+                return ProtocolRetry(_schema_feedback(error), state)
+            try:
+                return ProtocolSuccess(options.parse(cast(TData, validated), attempt, max_attempts), state)
+            except Exception as error:
+                self.last_error = GuaranteedBusinessError("JSON business validation failed after retries", attempts=attempt + 1, response=response, cause=error)
+                return ProtocolRetry(f"Fix the business validation error and return complete JSON:\n{error}", state)
+
+        def empty(self, state: None, attempt: int, max_attempts: int):
+            return ProtocolRetry("Return a non-empty complete JSON response.", state)
+
+        def exhausted(self, state: None, attempts: int, response: str | None) -> TResult:
+            if self.last_error is not None:
+                raise self.last_error
+            raise GuaranteedEmptyResponseError("LLM returned empty response after all retries", attempts=attempts, response=response)
+
+    return run_repair_loop(RepairLoopOptions(messages=options.messages, request=options.request,
+        protocol=_JsonProtocol(), state=None, max_attempts=options.max_retries + 1))
 
 
 def _extract_json(response: str) -> str:
