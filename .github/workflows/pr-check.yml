@@ -28,6 +28,9 @@ jobs:
           poetry config virtualenvs.create true
           poetry config virtualenvs.in-project true
 
+      - name: Install Poppler
+        run: sudo apt-get update && sudo apt-get install --yes poppler-utils
+
       - name: Install dependencies
         run: |
           poetry install --with dev
