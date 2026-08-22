@@ -13,7 +13,12 @@ from typing import Any, Literal, cast
 
 from pdf_craft.craft import ExtractionOptions, PDFCraft, PDFOptions, TranslationStep
 from pdf_craft.ocr_config import OCRConfig, OCRMode
-from pdf_craft.transformer import SubmitKind
+from pdf_craft.transformer import (
+    ChapterPackageTransformer,
+    ChapterXMLTransformer,
+    SubmitKind,
+    XMLTranslator,
+)
 from pdf_craft.sequence.chapter import BlockLayout, BlockMember, Chapter, HTMLTag, ParagraphLayout
 from pdf_craft.llm import LLM
 from pdf_craft.pdf import OCREvent
@@ -45,6 +50,7 @@ class SmokeRun:
     toc_assumed: bool = False
     ocr: dict[str, Any] | None = None
     translation: dict[str, Any] | None = None
+    configuration_error: str | None = None
 
 
 @dataclass
@@ -132,6 +138,13 @@ def run_smoke(
     manifest = _manifest(run, asset, dry_run)
     _write_json(run_path / "manifest.json", manifest)
     (run_path / "logs").mkdir()
+    if run.configuration_error:
+        report = _ExecutionReport()
+        for stage in ("configure", "extract", "render", "check"):
+            report.skipped(stage, run.configuration_error)
+        manifest["timeline"] = report.stages
+        _finish(run_path, manifest, "skipped", [run.configuration_error])
+        return run_path
     if dry_run:
         _finish(run_path, manifest, "planned", [])
         return run_path
@@ -145,7 +158,7 @@ def run_smoke(
         message = report.redact_text(str(error))
         status, errors, details = "failed", [message], {
             "failure": {"stage": report.current_stage, "exception_type": type(error).__name__,
-                        "message": message, "traceback_path": str(traceback_path.relative_to(run_path))}
+                        "message": message, "traceback_path": traceback_path.relative_to(run_path).as_posix()}
         }
     manifest["elapsed_seconds"] = round(perf_counter() - started, 3)
     manifest.update(details)
@@ -175,12 +188,14 @@ def _execute(run: SmokeRun, asset: SmokeAsset, run_path: Path,
             return "skipped", ["EPUB translation requires translation.llm with explicit credentials"], {}
         with report.stage("render"):
             llm = LLM(**run.translation["llm"])
+            fill_llm = LLM(**run.translation["fill_llm"]) if isinstance(run.translation.get("fill_llm"), dict) else llm
             submit = SubmitKind[run.translation.get("submit", "REPLACE").upper()]
             PDFCraft().translate_epub(asset.path, output, target_language=run.translation.get("target_language", "zh"),
                                       submit=submit, user_prompt=run.translation.get("user_prompt"),
                                       max_retries=run.translation.get("max_retries", 5),
                                       max_group_tokens=run.translation.get("max_group_tokens", 2600),
-                                      concurrency=run.translation.get("concurrency", 1), llm=llm)
+                                      concurrency=run.translation.get("concurrency", 1),
+                                      translation_llm=llm, fill_llm=fill_llm)
         with report.stage("check"):
             status, errors = _result_from_errors(check_epub(output))
         return status, errors, {"outputs": [str(output)]}
@@ -236,7 +251,7 @@ def _run_pdf(
     if run.route == "markdown":
         markdown = output_path / "book.md"
         markdown_assets = Path("assets")
-        steps = _package_steps(run)
+        steps = _package_steps(run, run_path)
         with report.stage("render"):
             if steps:
                 package = craft.transform_package(package, run_path / "translated", steps)
@@ -252,7 +267,7 @@ def _run_pdf(
         return status, errors, details
     if run.route == "epub":
         epub = output_path / "book.epub"
-        steps = _package_steps(run)
+        steps = _package_steps(run, run_path)
         with report.stage("render"):
             if steps:
                 package = craft.transform_package(package, run_path / "translated", steps)
@@ -266,16 +281,20 @@ def _run_pdf(
         details["outputs"] = [str(epub)]
         status, errors = _result_from_errors(errors)
         return status, errors, details
+    translation_transformer = _xml_translation_transformer(run, run_path)
     prefix = (run.translation or {}).get("patch_prefix")
-    if not isinstance(prefix, str):
+    if translation_transformer is None and not isinstance(prefix, str):
         report.skipped("render", "missing PDF patch transformer")
         with report.stage("check"):
             errors = check_package(package, require_geometry=True)
             errors.extend(check_pdf_patch_geometry(package))
-        return "skipped", errors + ["PDF patching requires translation.patch_prefix or an application transformer"], details
+        return "skipped", errors + [
+            "PDF patching requires translation.patch_prefix or translation.llm"
+        ], details
     target = output_path / "book.pdf"
     with report.stage("render"):
-        craft.translate_pdf(asset.path, package, target, lambda text: prefix + text)
+        transformer = translation_transformer if translation_transformer is not None else lambda text: prefix + text
+        craft.translate_pdf(asset.path, package, target, transformer)
     from .checks import check_pdf
     import pypdf
     with report.stage("check"):
@@ -346,14 +365,41 @@ class _DeterministicChapterTransformer:
         return item
 
 
-def _package_steps(run: SmokeRun):
+def _package_steps(run: SmokeRun, run_path: Path):
+    translation_transformer = _xml_translation_transformer(run, run_path)
+    if translation_transformer is not None:
+        translation = run.translation or {}
+        mode = SubmitKind[translation.get("submit", "REPLACE").upper()]
+        return (TranslationStep(ChapterPackageTransformer(translation_transformer), mode),)
+
     translation = run.translation or {}
     marker = translation.get("package_marker")
     if not isinstance(marker, str):
         return ()
     mode = SubmitKind[translation.get("package_submit", "REPLACE").upper()]
-    from pdf_craft.transformer import ChapterPackageTransformer
     return (TranslationStep(ChapterPackageTransformer(_DeterministicChapterTransformer(marker)), mode),)
+
+
+def _xml_translation_transformer(run: SmokeRun, run_path: Path) -> ChapterXMLTransformer | None:
+    translation = run.translation or {}
+    llm_values = translation.get("llm")
+    if not isinstance(llm_values, dict):
+        return None
+    translation_llm = LLM(**llm_values)
+    fill_values = translation.get("fill_llm")
+    fill_llm = LLM(**fill_values) if isinstance(fill_values, dict) else translation_llm
+    translator = XMLTranslator(
+        translation_llm=translation_llm,
+        fill_llm=fill_llm,
+        target_language=translation.get("target_language", "zh"),
+        user_prompt=translation.get("user_prompt"),
+        ignore_translated_error=False,
+        max_retries=translation.get("max_retries", 5),
+        max_fill_displaying_errors=translation.get("max_fill_displaying_errors", 3),
+        max_group_score=translation.get("max_group_tokens", 2600),
+        cache_seed_content=f"pdf-craft-smoke:{run.asset}:{run.route}:{run.backend}:{run_path.name}",
+    )
+    return ChapterXMLTransformer(cast(Any, translator), SubmitKind[translation.get("submit", "REPLACE").upper()])
 
 
 def _result_from_errors(errors: list[str]) -> tuple[str, list[str]]:
@@ -393,6 +439,8 @@ def _redact(value: Any) -> Any:
         }
     if isinstance(value, list | tuple):
         return [_redact(item) for item in value]
+    if isinstance(value, Path):
+        return str(value)
     return value
 
 

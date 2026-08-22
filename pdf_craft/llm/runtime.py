@@ -163,6 +163,7 @@ class LLMContext(AbstractContextManager["LLMContext"]):
             "model": self.runtime.config.model, "cache_key": key,
             **({"error": type(error).__name__} if error else {}),
         }, ensure_ascii=False))
+        _close_file_handlers(self.runtime._logger)
 
 
 def runtime_for(config: LLM, *, protocol_version: str = "1") -> LLMRuntime:
@@ -179,3 +180,9 @@ def _create_logger(path):
         handler.setFormatter(logging.Formatter("%(message)s"))
         logger.addHandler(handler)
     return logger
+
+
+def _close_file_handlers(logger: logging.Logger) -> None:
+    for handler in logger.handlers:
+        if isinstance(handler, logging.FileHandler):
+            handler.close()
