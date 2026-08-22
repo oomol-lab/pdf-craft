@@ -16,7 +16,7 @@ from pdf_craft.functions import predownload_models
 from pdf_craft.ocr_config import ensure_ocr_config
 from pdf_craft.pdf.page_extractor import PageExtractorNode
 from pdf_craft.transform import Transform
-from scripts.env_loader import create_ocr_config_from_env
+from scripts.runtime import create_ocr_config_from_env
 
 
 class TestOCRConfig(unittest.TestCase):
@@ -275,9 +275,9 @@ class TestOCRConfig(unittest.TestCase):
 
     def test_script_env_loader_creates_deepseek_ocr2_local_config(self):
         env = {
-            "OCR_MODE": "deepseek-ocr2-local",
-            "DEEPSEEK_LOCAL_MODEL_PATH": "models",
-            "DEEPSEEK_LOCAL_ONLY": "false",
+            "PDF_CRAFT_OCR_MODE": "deepseek-ocr2-local",
+            "PDF_CRAFT_DEEPSEEK_MODELS_CACHE_PATH": "models",
+            "PDF_CRAFT_DEEPSEEK_LOCAL_ONLY": "false",
         }
         with patch.dict(os.environ, env, clear=True):
             config = create_ocr_config_from_env()
@@ -292,11 +292,11 @@ class TestOCRConfig(unittest.TestCase):
 
     def test_script_env_loader_creates_deepseek_ocr_vendor_config(self):
         env = {
-            "OCR_MODE": "deepseek-ocr-vendor",
-            "DEEPSEEK_OCR_BASE_URL": "https://example.com",
-            "DEEPSEEK_OCR_API_KEY": "key",
-            "DEEPSEEK_OCR_MODEL": "model",
-            "DEEPSEEK_OCR_MAX_TOKENS": "123",
+            "PDF_CRAFT_OCR_MODE": "deepseek-ocr-vendor",
+            "PDF_CRAFT_DEEPSEEK_OCR_BASE_URL": "https://example.com",
+            "PDF_CRAFT_DEEPSEEK_OCR_API_KEY": "key",
+            "PDF_CRAFT_DEEPSEEK_OCR_MODEL": "model",
+            "PDF_CRAFT_DEEPSEEK_OCR_MAX_TOKENS": "123",
         }
         with patch.dict(os.environ, env, clear=True):
             config = create_ocr_config_from_env()
@@ -313,12 +313,12 @@ class TestOCRConfig(unittest.TestCase):
 
     def test_script_env_loader_creates_deepseek_ocr2_vendor_config(self):
         env = {
-            "OCR_MODE": "deepseek-ocr2-vendor",
-            "DEEPSEEK_OCR2_BASE_URL": "https://example.com",
-            "DEEPSEEK_OCR2_API_KEY": "key",
-            "DEEPSEEK_OCR2_MODEL": "model",
-            "DEEPSEEK_OCR2_TEMPERATURE": "0.1",
-            "DEEPSEEK_OCR2_TOP_P": "0.9",
+            "PDF_CRAFT_OCR_MODE": "deepseek-ocr2-vendor",
+            "PDF_CRAFT_DEEPSEEK_OCR2_BASE_URL": "https://example.com",
+            "PDF_CRAFT_DEEPSEEK_OCR2_API_KEY": "key",
+            "PDF_CRAFT_DEEPSEEK_OCR2_MODEL": "model",
+            "PDF_CRAFT_DEEPSEEK_OCR2_TEMPERATURE": "0.1",
+            "PDF_CRAFT_DEEPSEEK_OCR2_TOP_P": "0.9",
         }
         with patch.dict(os.environ, env, clear=True):
             config = create_ocr_config_from_env()
@@ -336,9 +336,9 @@ class TestOCRConfig(unittest.TestCase):
 
     def test_script_env_loader_creates_unlimited_ocr_local_config(self):
         env = {
-            "OCR_MODE": "unlimited-ocr-local",
-            "UNLIMITED_LOCAL_MODEL_PATH": "models",
-            "UNLIMITED_LOCAL_ONLY": "true",
+            "PDF_CRAFT_OCR_MODE": "unlimited-ocr-local",
+            "PDF_CRAFT_UNLIMITED_MODELS_CACHE_PATH": "models",
+            "PDF_CRAFT_UNLIMITED_LOCAL_ONLY": "true",
         }
         with patch.dict(os.environ, env, clear=True):
             config = create_ocr_config_from_env()
@@ -353,11 +353,11 @@ class TestOCRConfig(unittest.TestCase):
 
     def test_script_env_loader_creates_unlimited_ocr_vendor_config(self):
         env = {
-            "OCR_MODE": "unlimited-ocr-vendor",
-            "UNLIMITED_OCR_ACCESS_KEY": "ak",
-            "UNLIMITED_OCR_SECRET_KEY": "sk",
-            "UNLIMITED_OCR_BASE_URL": "https://unlimited.example.com",
-            "UNLIMITED_OCR_POLL_INTERVAL_SECONDS": "1.5",
+            "PDF_CRAFT_OCR_MODE": "unlimited-ocr-vendor",
+            "PDF_CRAFT_UNLIMITED_OCR_ACCESS_KEY": "ak",
+            "PDF_CRAFT_UNLIMITED_OCR_SECRET_KEY": "sk",
+            "PDF_CRAFT_UNLIMITED_OCR_BASE_URL": "https://unlimited.example.com",
+            "PDF_CRAFT_UNLIMITED_OCR_POLL_INTERVAL_SECONDS": "1.5",
         }
         with patch.dict(os.environ, env, clear=True):
             config = create_ocr_config_from_env()

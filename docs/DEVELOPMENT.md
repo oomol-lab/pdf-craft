@@ -61,7 +61,7 @@ poetry run python -c "import torch; print(f'PyTorch version: {torch.__version__}
 pdfinfo -v
 ```
 
-Vendor OCR does not require local CUDA. Copy `.env.template` to `.env`, set `OCR_MODE` to `deepseek-ocr-vendor`, `deepseek-ocr2-vendor`, or `unlimited-ocr-vendor`, and fill the matching credentials. Local modes use `DEEPSEEK_LOCAL_MODEL_PATH` and `DEEPSEEK_LOCAL_ONLY` for DeepSeek OCR / DeepSeek OCR 2, and `UNLIMITED_LOCAL_MODEL_PATH` and `UNLIMITED_LOCAL_ONLY` for Unlimited OCR. Library code does not automatically read `.env`; only the manual scripts load it.
+Vendor OCR does not require local CUDA. Copy `.env.template` to `.env`, set `PDF_CRAFT_OCR_MODE` to `deepseek-ocr-vendor`, `deepseek-ocr2-vendor`, or `unlimited-ocr-vendor`, and fill the matching `PDF_CRAFT_*` credentials. Local modes use the `PDF_CRAFT_DEEPSEEK_*` and `PDF_CRAFT_UNLIMITED_*` model-path settings. Library code does not automatically read `.env`; only the manual scripts load it.
 
 ## Validation
 
@@ -91,13 +91,12 @@ poetry build
 The scripts in `scripts/` are manual checks for conversion work. They require Poppler and an OCR configuration from `.env`. Local modes require model downloads and CUDA; vendor modes require credentials:
 
 ```shell
-poetry run python scripts/gen_md.py
-poetry run python scripts/gen_epub.py
+poetry run python scripts/convert_pdf.py tests/assets/citation.pdf --format markdown --pages 1,2,3
+poetry run python scripts/convert_pdf.py tests/assets/citation.pdf --format epub
+poetry run python scripts/translate_pdf.py tests/assets/citation.pdf zh --pages 1,2,3
 ```
 
-They write conversion output under `analysing/` and use the configured local model path from `DEEPSEEK_LOCAL_MODEL_PATH` or `UNLIMITED_LOCAL_MODEL_PATH` when `OCR_MODE` is a local OCR mode.
-
-If `format.json` exists at the repository root, these scripts use it to configure optional LLM-enhanced TOC analysis. The template is `format.template.json`; do not commit local secrets.
+Each invocation creates an isolated run directory under `analysing/manual/`, containing its `package/` and rendered output. `--pages` always uses 1-based PDF page indexes. `translate_pdf.py` additionally requires the dedicated `PDF_CRAFT_TRANSLATION_*` chat-completion configuration; OCR credentials are not used as an LLM fallback.
 
 ## VGE Worktree Development
 

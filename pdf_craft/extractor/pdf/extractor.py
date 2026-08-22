@@ -28,6 +28,9 @@ class PDFExtractor:
         defaults["analysing_path"] = package_path
         _, _, _, _, metering = self._transform.extract_package(pdf_path=pdf_path,
             **defaults)
+        # A DocumentPackage always owns an assets directory, even when the
+        # selected pages contain no extracted images.
+        (package_path / "assets").mkdir(exist_ok=True)
         package = DocumentPackage.from_path(package_path)
         package.validate()
         return package, metering

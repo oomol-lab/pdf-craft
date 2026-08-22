@@ -61,7 +61,7 @@ poetry run python -c "import torch; print(f'PyTorch version: {torch.__version__}
 pdfinfo -v
 ```
 
-供应商 OCR 不需要本地 CUDA。复制 `.env.template` 为 `.env`，把 `OCR_MODE` 设为 `deepseek-ocr-vendor`、`deepseek-ocr2-vendor` 或 `unlimited-ocr-vendor`，再填写对应密钥。本地模式使用 `DEEPSEEK_LOCAL_MODEL_PATH` 和 `DEEPSEEK_LOCAL_ONLY` 作为 DeepSeek OCR / DeepSeek OCR 2 的路径配置，使用 `UNLIMITED_LOCAL_MODEL_PATH` 和 `UNLIMITED_LOCAL_ONLY` 作为 Unlimited OCR 的路径配置。库代码不会自动读取 `.env`；只有手动脚本会加载它。
+供应商 OCR 不需要本地 CUDA。复制 `.env.template` 为 `.env`，把 `PDF_CRAFT_OCR_MODE` 设为 `deepseek-ocr-vendor`、`deepseek-ocr2-vendor` 或 `unlimited-ocr-vendor`，再填写对应的 `PDF_CRAFT_*` 凭据。本地模式使用 `PDF_CRAFT_DEEPSEEK_*` 和 `PDF_CRAFT_UNLIMITED_*` 中的模型路径配置。库代码不会自动读取 `.env`；只有手动脚本会加载它。
 
 ## 验证
 
@@ -91,13 +91,12 @@ poetry build
 `scripts/` 中的脚本用于转换联调。它们需要 Poppler，并从 `.env` 读取 OCR 配置。本地模式需要模型下载和 CUDA；供应商模式需要对应密钥：
 
 ```shell
-poetry run python scripts/gen_md.py
-poetry run python scripts/gen_epub.py
+poetry run python scripts/convert_pdf.py tests/assets/citation.pdf --format markdown --pages 1,2,3
+poetry run python scripts/convert_pdf.py tests/assets/citation.pdf --format epub
+poetry run python scripts/translate_pdf.py tests/assets/citation.pdf zh --pages 1,2,3
 ```
 
-脚本会把转换结果写入 `analysing/`。当 `OCR_MODE` 是本地 OCR 模式时，脚本使用 `DEEPSEEK_LOCAL_MODEL_PATH` 或 `UNLIMITED_LOCAL_MODEL_PATH` 指定的本地模型路径。
-
-如果仓库根目录存在 `format.json`，脚本会用它配置可选的 LLM 增强目录分析。模板是 `format.template.json`；不要提交本地密钥。
+每次运行都会在 `analysing/manual/` 下创建独立目录，其中包含 `package/` 和渲染结果。`--pages` 始终使用从 1 开始的 PDF 页码。`translate_pdf.py` 还要求配置独立的 `PDF_CRAFT_TRANSLATION_*` chat-completion 服务；不会把 OCR 凭据误当成翻译 LLM。
 
 ## VGE Worktree 开发
 

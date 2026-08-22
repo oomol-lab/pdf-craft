@@ -24,7 +24,7 @@ poetry install --with dev
 - `DeepSeekOCR2VendorConfig`：DeepSeek OCR 2 供应商模式。
 - `UnlimitedOCRVendorConfig`：Unlimited OCR 供应商模式。
 
-库代码不得自动读取 `.env`。手动脚本可以加载 `.env` 后调用脚本内的 `create_ocr_config_from_env()`；脚本会读取 `DEEPSEEK_LOCAL_MODEL_PATH`、`DEEPSEEK_LOCAL_ONLY`、`UNLIMITED_LOCAL_MODEL_PATH`、`UNLIMITED_LOCAL_ONLY`、`DEEPSEEK_OCR_*`、`DEEPSEEK_OCR2_*` 和 `UNLIMITED_OCR_*`。
+库代码不得自动读取 `.env`。手动脚本通过 `scripts/runtime.py` 加载工作区 `.env` 并创建显式配置对象。所有手动运行时变量使用 `PDF_CRAFT_` 前缀：OCR 使用 `PDF_CRAFT_OCR_MODE` 和对应的 `PDF_CRAFT_*_OCR_*` 配置；PDF 翻译使用独立的 `PDF_CRAFT_TRANSLATION_*` 文本 LLM 配置，不能复用 OCR-only endpoint。
 
 ## 默认验证
 
