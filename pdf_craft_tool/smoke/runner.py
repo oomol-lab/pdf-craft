@@ -2,7 +2,6 @@ import json
 import platform
 import shutil
 import traceback
-import uuid
 import zipfile
 from copy import deepcopy
 from contextlib import contextmanager
@@ -22,6 +21,7 @@ from pdf_craft.pdf import OCREvent
 from .assets import SmokeAsset, discover_assets
 from .checks import check_epub, check_markdown, check_package, check_pdf_patch_geometry
 from .ocr import create_ocr_config
+from ..paths import DEFAULT_OUTPUT_ROOT, create_run_directory
 
 SmokeRoute = Literal["package", "markdown", "epub", "pdf-patch", "epub-check", "epub-translate"]
 PDF_ROUTES = {"package", "markdown", "epub", "pdf-patch"}
@@ -119,15 +119,14 @@ def run_smoke(
     run: SmokeRun,
     *,
     assets_root: Path,
-    output_root: Path = Path("analysing/smoke"),
+    output_root: Path = DEFAULT_OUTPUT_ROOT / "smoke",
     dry_run: bool = False,
 ) -> Path:
     assets = {asset.name: asset for asset in discover_assets(assets_root)}
     asset = assets.get(run.asset)
     if asset is None:
         raise ValueError(f"unknown smoke asset: {run.asset}")
-    run_path = output_root / _run_id(run)
-    run_path.mkdir(parents=True, exist_ok=False)
+    run_path = create_run_directory(output_root, f"{Path(run.asset).stem}-{run.route}")
     (run_path / "package").mkdir()
     (run_path / "output").mkdir()
     manifest = _manifest(run, asset, dry_run)
@@ -427,8 +426,3 @@ def _secret_values(run: SmokeRun) -> list[str]:
     visit(run.ocr)
     visit(run.translation)
     return sorted(set(values), key=len, reverse=True)
-
-
-def _run_id(run: SmokeRun) -> str:
-    stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
-    return f"{stamp}-{Path(run.asset).stem}-{run.route}-{uuid.uuid4().hex[:8]}"

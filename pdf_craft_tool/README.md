@@ -17,8 +17,10 @@ poetry run python -m pdf_craft_tool --help
 ## 工作目录
 
 `pdf extract`、`pdf convert` 和 `pdf translate` 每次都会创建独立的工作目录，
-默认位置是 `analysing/manual/`。通过 `--work-dir` 指定位置时，目标必须不存在。
-工作目录保存中间 `package/`、翻译缓存和日志，方便人工检查或后续单独渲染。
+默认位置是 Git 忽略的 `pdf-craft-output/manual/`。目录以来源、操作、日期和当日
+序号命名，例如 `citation-convert-20260822-001/`；同一次调用绝不会覆盖已有目录。
+`package render` 和 `epub translate` 也使用此规则。通过 `--work-dir` 指定位置时，
+目标必须不存在。工作目录保存中间 `package/`、翻译缓存和日志，方便人工检查或后续单独渲染。
 
 所有 `--pages` 参数使用从 1 开始的 PDF 页码，例如 `--pages 1,2,3`。
 
@@ -27,11 +29,11 @@ poetry run python -m pdf_craft_tool --help
 ```shell
 # PDF -> 可复用 DocumentPackage
 poetry run python -m pdf_craft_tool pdf extract tests/assets/citation.pdf \
-  --ocr-mode deepseek-ocr-vendor --pages 1 --work-dir analysing/citation-extract
+  --ocr-mode deepseek-ocr-vendor --pages 1 --work-dir pdf-craft-output/citation-extract
 
 # Package -> Markdown 或 EPUB；此命令不需要 OCR 配置
-poetry run python -m pdf_craft_tool package render analysing/citation-extract/package \
-  --format markdown --output analysing/citation-extract/book.md
+poetry run python -m pdf_craft_tool package render pdf-craft-output/citation-extract/package \
+  --format markdown --work-dir pdf-craft-output/citation-render
 
 # PDF -> Markdown 或 EPUB
 poetry run python -m pdf_craft_tool pdf convert tests/assets/citation.pdf \
@@ -65,7 +67,7 @@ poetry run python -m pdf_craft_tool pdf translate tests/assets/citation.pdf zh \
 
 # EPUB -> EPUB，支持 replace 与 append-block
 poetry run python -m pdf_craft_tool epub translate tests/assets/epub/Cambridge.epub zh \
-  --output analysing/cambridge-zh.epub --submit append-block
+  --submit append-block
 ```
 
 翻译命令可用 `--prompt`、`--max-retries`、`--max-group-tokens` 和 `--concurrency`
@@ -81,7 +83,9 @@ poetry run python -m pdf_craft_tool epub translate tests/assets/epub/Cambridge.e
 poetry run python -m pdf_craft_tool smoke assets
 ```
 
-`smoke run` 将一条参数化通路写入 `analysing/smoke/` 下独立目录。目录包含
+`smoke run` 将一条参数化通路写入 Git 忽略的 `pdf-craft-output/smoke/` 下独立目录。
+目录同样以来源、route、日期和当日序号命名。通过 `--output-root DIR` 可替换这个根目录。
+目录包含
 `manifest.json`、`checks.json`、`logs/`、提取的 `package/` 和渲染产物；凭据会
 从报告和 traceback 中脱敏。
 

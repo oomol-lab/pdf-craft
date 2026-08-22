@@ -96,7 +96,7 @@ poetry run python -m pdf_craft_tool pdf convert tests/assets/citation.pdf --form
 poetry run python -m pdf_craft_tool pdf translate tests/assets/citation.pdf zh --pages 1,2,3
 ```
 
-Each invocation creates an isolated run directory under `analysing/manual/`, containing its `package/` and rendered output. `--pages` always uses 1-based PDF page indexes. Text LLM profiles are separate from OCR configuration; the default profile retrieves the local OOMOL connection at runtime without persisting its credential. See [`pdf_craft_tool/README.md`](../pdf_craft_tool/README.md) for the complete command and smoke-matrix reference.
+Each invocation creates an isolated run directory under the Git-ignored `pdf-craft-output/manual/`, with a date-and-sequence suffix, containing its `package/` and rendered output. `--work-dir` and the smoke runner's `--output-root` override those defaults. `--pages` always uses 1-based PDF page indexes. Text LLM profiles are separate from OCR configuration; the default profile retrieves the local OOMOL connection at runtime without persisting its credential. See [`pdf_craft_tool/README.md`](../pdf_craft_tool/README.md) for the complete command and smoke-matrix reference.
 
 ## VGE Worktree Development
 
@@ -104,7 +104,7 @@ This repository includes `.conductor/settings.toml` for VGE worktrees. It define
 
 `.env` is worktree-private runtime configuration and is ignored by Git. When the current worktree does not have `.env`, VGE setup first copies the existing `.env` from the source workspace so vendor OCR credentials and local development settings remain available inside the worktree. If the source workspace has no `.env`, setup falls back to creating one from `.env.template`.
 
-Worktree-local generated files include `.venv/`, `analysing/`, `models-cache/`, test caches, and build artifacts. Do not commit them.
+Worktree-local generated files include `.venv/`, `analysing/`, `pdf-craft-output/`, `models-cache/`, test caches, and build artifacts. Do not commit them.
 
 ## Dependency Sync Helpers
 

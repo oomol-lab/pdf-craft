@@ -71,6 +71,7 @@ class TestSmokeMatrix(unittest.TestCase):
             self.assertEqual(manifest["run"]["ocr"]["api_key"], "[redacted]")
             self.assertTrue((run_path / "checks.json").exists())
             self.assertTrue((run_path / "logs").is_dir())
+            self.assertRegex(run_path.name, r"^double_column-package-\d{8}-\d{3}$")
 
     def test_redact_covers_nested_vendor_credentials_without_hiding_limits(self):
         value = {

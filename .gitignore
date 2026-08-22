@@ -2,6 +2,7 @@
 
 /.venv
 /analysing
+/pdf-craft-output
 /models-cache
 /format.json
 /.env

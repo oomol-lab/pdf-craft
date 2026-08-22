@@ -96,7 +96,7 @@ poetry run python -m pdf_craft_tool pdf convert tests/assets/citation.pdf --form
 poetry run python -m pdf_craft_tool pdf translate tests/assets/citation.pdf zh --pages 1,2,3
 ```
 
-每次运行都会在 `analysing/manual/` 下创建独立目录，其中包含 `package/` 和渲染结果。`--pages` 始终使用从 1 开始的 PDF 页码。文本 LLM profile 与 OCR 配置独立；默认 profile 在运行时获取本机 OOMOL 连接，不会把凭据写入文件。完整的命令和冒烟矩阵说明见 [`pdf_craft_tool/README.md`](../pdf_craft_tool/README.md)。
+每次运行都会在 Git 忽略的 `pdf-craft-output/manual/` 下创建带日期和序号后缀的独立目录，其中包含 `package/` 和渲染结果。`--work-dir` 和冒烟执行器的 `--output-root` 可覆盖默认目录。`--pages` 始终使用从 1 开始的 PDF 页码。文本 LLM profile 与 OCR 配置独立；默认 profile 在运行时获取本机 OOMOL 连接，不会把凭据写入文件。完整的命令和冒烟矩阵说明见 [`pdf_craft_tool/README.md`](../pdf_craft_tool/README.md)。
 
 ## VGE Worktree 开发
 
@@ -104,7 +104,7 @@ poetry run python -m pdf_craft_tool pdf translate tests/assets/citation.pdf zh -
 
 `.env` 是 worktree 私有运行配置，不提交到 Git。VGE setup 在当前 worktree 缺少 `.env` 时，会优先从源工作区复制现有 `.env`，让供应商 OCR 密钥和本机开发配置在 worktree 中可用；如果源工作区没有 `.env`，才从 `.env.template` 创建空配置。
 
-Worktree 本地产物包括 `.venv/`、`analysing/`、`models-cache/`、测试缓存和构建产物。不要提交这些文件。
+Worktree 本地产物包括 `.venv/`、`analysing/`、`pdf-craft-output/`、`models-cache/`、测试缓存和构建产物。不要提交这些文件。
 
 ## 依赖同步辅助脚本
 

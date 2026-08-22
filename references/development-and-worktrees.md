@@ -46,7 +46,7 @@ poetry run python test.py
 
 默认不配置 `scripts.archive`。VGE 会负责释放 worktree；项目级 Cleanup 只适合需要保留现场后执行额外归档或收尾动作的项目，本仓库当前没有这种需求。
 
-生成的转换输出应留在当前 worktree 的 `analysing/` 下。模型缓存可能很大；只有在有意进行本地 OCR 工作时才使用 `models-cache/`，不要提交它，也不要假设其中已有内容。
+`pdf_craft_tool` 生成的转换输出默认留在当前 worktree 的 Git 忽略目录 `pdf-craft-output/` 下。模型缓存可能很大；只有在有意进行本地 OCR 工作时才使用 `models-cache/`，不要提交它，也不要假设其中已有内容。
 
 ## 人类阅读文档
 

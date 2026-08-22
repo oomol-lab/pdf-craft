@@ -3,7 +3,6 @@
 import argparse
 import json
 from dataclasses import dataclass
-from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, cast
 
@@ -29,6 +28,7 @@ from .runtime import (
     ocr_values_from_env,
     llm_values_from_env,
 )
+from .paths import DEFAULT_OUTPUT_ROOT, create_run_directory
 from .smoke import SmokeRun, expand_matrix, run_smoke
 from .smoke.assets import discover_assets
 
@@ -81,7 +81,8 @@ def _parser() -> argparse.ArgumentParser:
     render = package_commands.add_parser("render", help="DocumentPackage -> Markdown or EPUB")
     render.add_argument("package", type=Path)
     render.add_argument("--format", choices=("markdown", "epub"), required=True)
-    render.add_argument("--output", type=Path, required=True)
+    render.add_argument("--output", type=Path, help="rendered file; defaults inside --work-dir")
+    _add_work_dir(render, "isolated run directory")
     render.set_defaults(handler=_render_package)
 
     epub = commands.add_parser("epub", help="translate an existing EPUB")
@@ -89,7 +90,8 @@ def _parser() -> argparse.ArgumentParser:
     epub_translate = epub_commands.add_parser("translate", help="EPUB -> translated EPUB")
     epub_translate.add_argument("source", type=Path)
     epub_translate.add_argument("target_language")
-    epub_translate.add_argument("--output", type=Path, required=True)
+    epub_translate.add_argument("--output", type=Path, help="translated file; defaults inside --work-dir")
+    _add_work_dir(epub_translate, "isolated run directory")
     _add_translation_options(epub_translate)
     epub_translate.set_defaults(handler=_translate_epub)
 
@@ -103,7 +105,7 @@ def _parser() -> argparse.ArgumentParser:
     run.add_argument("--asset", required=True, help="path relative to --assets-root")
     run.add_argument("--route", choices=("package", "markdown", "epub", "pdf-patch", "epub-check", "epub-translate"), required=True)
     run.add_argument("--assets-root", type=Path, default=Path("tests/assets"))
-    run.add_argument("--output-root", type=Path, default=Path("analysing/smoke"))
+    run.add_argument("--output-root", type=Path, default=DEFAULT_OUTPUT_ROOT / "smoke")
     run.add_argument("--dry-run", action="store_true")
     run.add_argument("--ocr-mode", choices=_ocr_modes())
     _add_smoke_options(run)
@@ -112,7 +114,7 @@ def _parser() -> argparse.ArgumentParser:
     matrix = smoke_commands.add_parser("matrix", help="run a JSON matrix config")
     matrix.add_argument("--config", type=Path, required=True)
     matrix.add_argument("--assets-root", type=Path, default=Path("tests/assets"))
-    matrix.add_argument("--output-root", type=Path, default=Path("analysing/smoke"))
+    matrix.add_argument("--output-root", type=Path, default=DEFAULT_OUTPUT_ROOT / "smoke")
     matrix.add_argument("--dry-run", action="store_true")
     matrix.set_defaults(handler=_run_matrix)
     return parser
@@ -120,8 +122,12 @@ def _parser() -> argparse.ArgumentParser:
 
 def _add_pdf_source(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("source", type=Path)
-    parser.add_argument("--work-dir", type=Path, help="isolated run directory; defaults under analysing/manual")
+    _add_work_dir(parser, "isolated run directory")
     parser.add_argument("--ocr-mode", choices=_ocr_modes(), help="overrides PDF_CRAFT_OCR_MODE")
+
+
+def _add_work_dir(parser: argparse.ArgumentParser, help_text: str) -> None:
+    parser.add_argument("--work-dir", type=Path, help=f"{help_text}; defaults under {DEFAULT_OUTPUT_ROOT}/manual")
 
 
 def _add_extraction_options(parser: argparse.ArgumentParser) -> None:
@@ -211,30 +217,33 @@ def _translate_pdf(args: argparse.Namespace) -> None:
 
 
 def _render_package(args: argparse.Namespace) -> None:
+    work_dir = _work_dir(args.package, args.work_dir, "render")
     package = DocumentPackage.from_path(args.package).validate()
-    args.output.parent.mkdir(parents=True, exist_ok=True)
-    _render(PDFCraft(), package, args.format, args.output)
-    print(f"Output: {args.output}")
+    output = args.output or work_dir / ("book.md" if args.format == "markdown" else "book.epub")
+    output.parent.mkdir(parents=True, exist_ok=True)
+    _render(PDFCraft(), package, args.format, output)
+    print(f"Output: {output}")
 
 
 def _translate_epub(args: argparse.Namespace) -> None:
     load_project_env(_project_root())
-    if args.output.exists():
-        raise SystemExit(f"Output already exists: {args.output}")
-    args.output.parent.mkdir(parents=True, exist_ok=True)
-    work_dir = args.output.parent / f".{args.output.stem}-translation"
+    work_dir = _work_dir(args.source, args.work_dir, "translate")
+    output = args.output or work_dir / "book.epub"
+    if output.exists():
+        raise SystemExit(f"Output already exists: {output}")
+    output.parent.mkdir(parents=True, exist_ok=True)
     translation_llm = create_llm_from_env(args.translation_llm,
         cache_path=work_dir / "translation-cache", log_dir_path=work_dir / "translation-logs")
     fill_llm = translation_llm if args.fill_llm == args.translation_llm else create_llm_from_env(args.fill_llm,
         cache_path=work_dir / "fill-cache", log_dir_path=work_dir / "fill-logs")
     PDFCraft().translate_epub(
-        args.source, args.output, target_language=args.target_language,
+        args.source, output, target_language=args.target_language,
         submit=SubmitKind[args.submit.replace("-", "_").upper()],
         user_prompt=args.prompt, max_retries=args.max_retries,
         max_group_tokens=args.max_group_tokens, concurrency=args.concurrency,
         translation_llm=translation_llm, fill_llm=fill_llm,
     )
-    print(f"Output: {args.output}")
+    print(f"Output: {output}")
 
 
 def _list_assets(args: argparse.Namespace) -> None:
@@ -328,11 +337,9 @@ def _render(craft: PDFCraft, package: DocumentPackage, format_name: str, output:
 def _work_dir(source: Path, requested: Path | None, operation: str) -> Path:
     if requested is not None:
         path = requested
-    else:
-        stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
-        path = Path("analysing") / "manual" / f"{stamp}-{source.stem}-{operation}"
-    path.mkdir(parents=True, exist_ok=False)
-    return path
+        path.mkdir(parents=True, exist_ok=False)
+        return path
+    return create_run_directory(DEFAULT_OUTPUT_ROOT / "manual", f"{source.stem}-{operation}")
 
 
 def _page_indexes(value: str | None) -> tuple[int, ...] | None:
