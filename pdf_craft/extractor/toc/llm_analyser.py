@@ -598,11 +598,20 @@ class _LLMAnalyser(Generic[_P, _R]):
                 schema=_ResponseSchema,
                 parse=parse,
                 max_retries=_MAX_RETRIES - 1,
+                extractor=_extract_result_json,
             ))
         except Exception as error:
             if isinstance(error, LLMAnalysisError):
                 raise
             raise LLMAnalysisError(f"LLM request failed at attempt 1: {error}") from error
+
+
+def _extract_result_json(response: str) -> str:
+    """Extract the JSON object after the final RESULT marker."""
+    marker = "RESULT:"
+    section = response[response.rfind(marker) + len(marker):].strip() if marker in response else response.strip()
+    match = re.search(r"\{[\s\S]*\}", section)
+    return match.group(0) if match else section
 
 
 @dataclass

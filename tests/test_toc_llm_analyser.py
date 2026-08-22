@@ -26,6 +26,11 @@ class _SequenceLLM:
         return next(self.responses)
 
 
+class _ResultLLM:
+    def request(self, input):  # pylint: disable=redefined-builtin,unused-argument
+        return 'ANALYSIS: example {"A": 99}\nRESULT: {"A": 0, "B": 1}\nRESULT: {"A": 2, "B": 3}'
+
+
 class TestLLMAnalyser(unittest.TestCase):
     def test_wraps_llm_request_errors_as_analysis_error(self):
         analyser = _LLMAnalyser(
@@ -75,6 +80,15 @@ class TestLLMAnalyser(unittest.TestCase):
             analyser.request(payload=None, messages=[Message(MessageRole.USER, "json")])
         self.assertIn("schema validation failed", str(context.exception))
         self.assertEqual(llm.calls, 3)
+
+    def test_toc_validator_receives_last_result_section(self):
+        received = []
+        analyser = _LLMAnalyser(
+            llm=cast(LLM, _ResultLLM()),
+            validate=lambda response, payload: (received.append(response) or ([2, 3], None)),
+        )
+        self.assertEqual(analyser.request(payload=None, messages=[Message(MessageRole.USER, "toc")]), [2, 3])
+        self.assertEqual(received, ['{"A": 2, "B": 3}'])
 
 
 if __name__ == "__main__":

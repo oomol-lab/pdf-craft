@@ -75,6 +75,46 @@ class TestRepairLoop(unittest.TestCase):
         self.assertEqual(len(seen[2]), 3)
         self.assertEqual(seen[2][0].message, "system")
 
+    def test_max_attempts_is_total_requests_and_transport_errors_propagate(self):
+        calls = []
+
+        class Protocol:
+            def validate(self, response, state, attempt, max_attempts):
+                return ProtocolRetry("retry", state)
+
+            def empty(self, state, attempt, max_attempts):
+                return ProtocolRetry("retry", state)
+
+            def exhausted(self, state, attempts, response):
+                return attempts
+
+        result = run_repair_loop(RepairLoopOptions(
+            messages=[], request=lambda messages, attempt, maximum: (calls.append((attempt, maximum)) or "bad"),
+            protocol=Protocol(), state=None, max_attempts=3,
+        ))
+        self.assertEqual(result, 3)
+        self.assertEqual(calls, [(0, 2), (1, 2), (2, 2)])
+
+        def broken(messages, attempt, maximum):
+            raise RuntimeError("transport")
+
+        with self.assertRaisesRegex(RuntimeError, "transport"):
+            run_repair_loop(RepairLoopOptions(messages=[], request=broken, protocol=Protocol(), state=None, max_attempts=3))
+
+    def test_protocol_callback_exceptions_propagate(self):
+        class Protocol:
+            def validate(self, response, state, attempt, max_attempts):
+                raise ValueError("protocol")
+
+            def empty(self, state, attempt, max_attempts):
+                raise ValueError("protocol-empty")
+
+            def exhausted(self, state, attempts, response):
+                raise AssertionError("unexpected exhaustion")
+
+        with self.assertRaisesRegex(ValueError, "protocol"):
+            run_repair_loop(RepairLoopOptions(messages=[], request=lambda *args: "response", protocol=Protocol(), state=None))
+
 
 if __name__ == "__main__":
     unittest.main()
