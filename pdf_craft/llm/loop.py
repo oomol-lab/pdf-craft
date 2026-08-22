@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Generic, Protocol, TypeVar
 
 from .types import Message, MessageRole
@@ -61,6 +61,7 @@ class RepairLoopOptions(Generic[T, S]):
 def run_repair_loop(options: RepairLoopOptions[T, S]) -> T:
     initial = list(options.messages)
     current = list(initial)
+    retry_history: list[Message] = []
     state = options.state
     last_response: str | None = None
     attempts = max(1, options.max_attempts)
@@ -77,8 +78,10 @@ def run_repair_loop(options: RepairLoopOptions[T, S]) -> T:
             raise result.error
         if attempt + 1 >= attempts:
             break
-        base = initial if result.reset_history else current
+        if result.reset_history:
+            retry_history = []
         additions = ([Message(MessageRole.ASSISTANT, response)] if result.include_response and response else [])
         additions.append(Message(MessageRole.USER, result.feedback))
-        current = [*base, *additions][-max(1, options.history_limit + len(initial)):]
+        retry_history = [*retry_history, *additions][-max(1, options.history_limit):]
+        current = [*initial, *retry_history]
     return options.protocol.exhausted(state, attempts, last_response)

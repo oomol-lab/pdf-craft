@@ -1,3 +1,4 @@
+# pylint: disable=unused-argument
 from __future__ import annotations
 
 import json
@@ -11,7 +12,7 @@ from pydantic import BaseModel, ValidationError
 
 from .types import Message, MessageRole
 from .loop import (ProtocolFailure, ProtocolRetry, ProtocolSuccess, RepairLoopOptions,
-                   ResponseProtocol, run_repair_loop)
+                   run_repair_loop)
 
 TData = TypeVar("TData")
 TResult = TypeVar("TResult")

@@ -1,3 +1,4 @@
+# pylint: disable=protected-access,unused-argument
 from collections.abc import Callable, Generator, Iterable
 from dataclasses import dataclass
 from typing import Generic, TypeVar
@@ -189,23 +190,30 @@ class XMLTranslator:
         ]
         with self._fill_runtime.context(cache_seed_content=self._cache_seed_content) as llm_context:
             translator = self
+            last_error: str | None = None
             class _XMLProtocol:
                 def validate(self, response: str, state, attempt: int, max_attempts: int):
+                    nonlocal last_error
                     validated = translator._extract_xml_element(response)
                     error = validated if isinstance(validated, str) else hill_climbing.submit(validated)
                     if error is None:
+                        last_error = None
                         return ProtocolSuccess(None, state)
+                    last_error = error
                     callbacks.on_fill_failed(FillFailedEvent(error, attempt + 1, False))
                     return ProtocolRetry(error, state, include_response=True, reset_history=True)
 
                 def empty(self, state, attempt: int, max_attempts: int):
+                    nonlocal last_error
                     error = "LLM returned an empty XML response. Please return one complete <xml> block."
+                    last_error = error
                     callbacks.on_fill_failed(FillFailedEvent(error, attempt + 1, False))
                     return ProtocolRetry(error, state)
 
                 def exhausted(self, state, attempts: int, response: str | None):
+                    error = last_error or "XML fill exhausted retries; no usable response was produced."
                     callbacks.on_fill_failed(FillFailedEvent(
-                        "XML fill exhausted retries; returning the best available partial mapping.",
+                        error,
                         attempts, True,
                     ))
                     return None
