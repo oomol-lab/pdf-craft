@@ -2,7 +2,7 @@ import unittest
 
 from pdf_craft.expression import ExpressionKind
 from pdf_craft.markdown.paragraph import parse_raw_markdown, render_markdown_paragraph
-from pdf_craft.sequence.chapter import (
+from pdf_craft.extractor.chapter.chapter import (
     AssetLayout,
     BlockLayout,
     Chapter,
@@ -10,7 +10,7 @@ from pdf_craft.sequence.chapter import (
     ParagraphLayout,
     Reference,
 )
-from pdf_craft.sequence.punctuation import normalize_punctuation_in_chapter
+from pdf_craft.extractor.chapter.punctuation import normalize_punctuation_in_chapter
 
 
 def _create_paragraph(content, page_index: int = 1, order: int = 0) -> ParagraphLayout:

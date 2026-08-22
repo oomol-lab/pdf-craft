@@ -3,7 +3,7 @@ from typing import Callable, Generic, Iterable, TypeVar
 
 import ahocorasick
 
-from ..language import is_latin_letter
+from ...language import is_latin_letter
 from .text import normalize_text
 
 _MAX_TOC_RATIO = 0.1

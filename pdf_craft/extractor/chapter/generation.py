@@ -1,8 +1,8 @@
 from pathlib import Path
 from typing import Generator
 
-from ..common import XMLReader, save_xml
-from ..pdf import TITLE_TAGS, Page, decode
+from ...common import XMLReader, save_xml
+from ...pdf import TITLE_TAGS, Page, decode
 from ..toc import Toc, TocInfo, iter_toc
 from .analyse_level import analyse_chapter_internal_levels
 from .chapter import (

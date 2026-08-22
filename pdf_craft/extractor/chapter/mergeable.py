@@ -1,8 +1,8 @@
 import re
 
-from ..language import is_latin_letter
-from ..markdown.paragraph import HTMLTag
-from ..sequence import BlockMember
+from ...language import is_latin_letter
+from ...markdown.paragraph import HTMLTag
+from .chapter import BlockMember
 from .content import first, last
 
 # 句尾标识符号

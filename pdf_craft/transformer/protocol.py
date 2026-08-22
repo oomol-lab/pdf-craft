@@ -1,5 +1,5 @@
 from typing import Protocol
-from pdf_craft.sequence.chapter import Chapter
+from pdf_craft.extractor.chapter.chapter import Chapter
 
 class ChapterTransformer(Protocol):
     """Format-neutral transformation contract used by document pipelines."""

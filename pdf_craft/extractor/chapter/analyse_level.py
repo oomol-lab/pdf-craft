@@ -1,6 +1,6 @@
-from ..common import median, split_by_cv
-from ..config import MAX_TITLE_CV
-from ..pdf import TITLE_TAGS
+from ...common import median, split_by_cv
+from ..toc.config import MAX_TITLE_CV
+from ...pdf import TITLE_TAGS
 from .chapter import Chapter, ParagraphLayout
 
 # markdown 最大支持 6 级标题，减去作为标题的 1 级

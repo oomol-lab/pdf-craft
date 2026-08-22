@@ -1,7 +1,7 @@
 import unittest
 
 from pdf_craft.pdf import PageLayout
-from pdf_craft.sequence.reading_serials import split_reading_serials
+from pdf_craft.extractor.chapter.reading_serials import split_reading_serials
 
 
 class TestSplitReadingSerials(unittest.TestCase):

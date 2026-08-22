@@ -1,10 +1,10 @@
 from dataclasses import dataclass
 from pathlib import Path
 
-from ..common import XMLReader, avg, read_xml, split_by_cv
-from ..config import MAX_LEVELS, MAX_TITLE_CV
-from ..pdf import TITLE_TAGS, Page, PageLayout
-from ..pdf import decode as decode_as_page
+from ...common import XMLReader, avg, read_xml, split_by_cv
+from .config import MAX_LEVELS, MAX_TITLE_CV
+from ...pdf import TITLE_TAGS, Page, PageLayout
+from ...pdf import decode as decode_as_page
 from .text import normalize_text
 from .toc_pages import PageRef
 

@@ -1,6 +1,6 @@
 from typing import Callable, Generator, Iterable
 
-from ..markdown.paragraph import HTMLTag
+from ...markdown.paragraph import HTMLTag
 from .chapter import BlockMember
 
 Content = list[str | BlockMember | HTMLTag[BlockMember]]

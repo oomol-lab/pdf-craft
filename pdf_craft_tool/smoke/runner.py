@@ -19,7 +19,7 @@ from pdf_craft.transformer import (
     SubmitKind,
     XMLTranslator,
 )
-from pdf_craft.sequence.chapter import BlockLayout, BlockMember, Chapter, HTMLTag, ParagraphLayout
+from pdf_craft.extractor.chapter.chapter import BlockLayout, BlockMember, Chapter, HTMLTag, ParagraphLayout
 from pdf_craft.llm import LLM
 from pdf_craft.pdf import OCREvent
 

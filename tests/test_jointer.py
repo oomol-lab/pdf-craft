@@ -2,9 +2,9 @@ import unittest
 
 from pdf_craft.markdown.paragraph import HTMLTag
 from pdf_craft.pdf import PageLayout
-from pdf_craft.sequence.chapter import AssetLayout, ParagraphLayout
-from pdf_craft.sequence.chapter import InlineExpression
-from pdf_craft.sequence.jointer import (
+from pdf_craft.extractor.chapter.chapter import AssetLayout, ParagraphLayout
+from pdf_craft.extractor.chapter.chapter import InlineExpression
+from pdf_craft.extractor.chapter.jointer import (
     Jointer,
     _AssetHolder,
     _normalize_equation,

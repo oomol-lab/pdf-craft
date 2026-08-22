@@ -1,0 +1,4 @@
+"""Constants used by TOC detection and hierarchy analysis."""
+
+MAX_TITLE_CV = 0.025
+MAX_LEVELS = 4

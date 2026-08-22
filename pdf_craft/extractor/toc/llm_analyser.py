@@ -6,11 +6,11 @@ from typing import Any, Callable, Generator, Generic, Iterable, TypeVar, cast
 from json_repair import repair_json
 from pydantic import BaseModel, RootModel, ValidationError, field_validator
 
-from ..common import XMLReader, split_by_cv
-from ..config import MAX_LEVELS, MAX_TITLE_CV
-from ..llm import LLM, Message, MessageRole, runtime_for
-from ..llm.guaranteed import GuaranteedOptions, request_guaranteed_json
-from ..pdf import TITLE_TAGS, Page
+from ...common import XMLReader, split_by_cv
+from .config import MAX_LEVELS, MAX_TITLE_CV
+from ...llm import LLM, Message, MessageRole, runtime_for
+from ...llm.guaranteed import GuaranteedOptions, request_guaranteed_json
+from ...pdf import TITLE_TAGS, Page
 from .toc_levels import Ref2Level
 from .toc_pages import PageRef
 

@@ -1,7 +1,7 @@
 from pathlib import Path
 from typing import Literal
 from ...document import DocumentPackage
-from ...epub.render import render_epub_file
+from .render import render_epub_file
 from epub_generator import LaTeXRender, TableRender
 
 class EpubRenderer:

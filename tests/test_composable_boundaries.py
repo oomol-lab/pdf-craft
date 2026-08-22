@@ -11,7 +11,7 @@ from pdf_craft.pipeline.pdf.pipeline import PDFTranslationPipeline
 from pdf_craft.pipeline.pdf import PDFPatcher
 from pdf_craft.transformer import ChapterXMLTransformer
 from pdf_craft.renderer import EpubRenderer, MarkdownRenderer
-from pdf_craft.sequence.chapter import BlockLayout, Chapter, InlineExpression, ParagraphLayout, Reference
+from pdf_craft.extractor.chapter.chapter import BlockLayout, Chapter, InlineExpression, ParagraphLayout, Reference
 from pdf_craft.expression import ExpressionKind
 from pdf_craft.ocr_config import DeepSeekOCRLocalConfig
 from pdf_craft.pdf.ocr import OCR

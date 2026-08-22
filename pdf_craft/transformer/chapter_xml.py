@@ -1,7 +1,7 @@
 from typing import Protocol
 from xml.etree.ElementTree import Element
 
-from pdf_craft.sequence.chapter import Chapter, decode, encode
+from pdf_craft.extractor.chapter.chapter import Chapter, decode, encode
 from .xml_translator.xml_translator import SubmitKind, TranslationTask
 
 

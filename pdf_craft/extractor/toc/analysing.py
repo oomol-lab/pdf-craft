@@ -2,10 +2,10 @@ import logging
 import re
 from pathlib import Path
 
-from ..common import XMLReader, read_xml, save_xml
-from ..llm import LLM
-from ..pdf import TITLE_TAGS, Page
-from ..pdf import decode as decode_pdf
+from ...common import XMLReader, read_xml, save_xml
+from ...llm import LLM
+from ...pdf import TITLE_TAGS, Page
+from ...pdf import decode as decode_pdf
 from .llm_analyser import (
     LLMAnalysisError,
     analyse_title_levels_by_llm,
