@@ -86,6 +86,7 @@ class TestSmokeMatrix(unittest.TestCase):
         self.assertEqual(redacted["nested"]["access_key"], "[redacted]")
         self.assertEqual(redacted["nested"]["secret_key"], "[redacted]")
         self.assertEqual(redacted["nested"]["password"], "[redacted]")
+        self.assertEqual(_redact({"cache_path": Path("models-cache")})["cache_path"], str(Path("models-cache")))
         self.assertEqual(redacted["deepseek"]["max_tokens"], 1200)
         self.assertEqual(redacted["unlimited"][0]["max_ocr_tokens"], 900)
 

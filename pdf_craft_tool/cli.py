@@ -2,7 +2,7 @@
 
 import argparse
 import json
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any, cast
 
@@ -291,8 +291,62 @@ def _run_smoke(args: argparse.Namespace) -> None:
 
 def _run_matrix(args: argparse.Namespace) -> None:
     config = json.loads(args.config.read_text(encoding="utf-8"))
-    for run in expand_matrix(config, args.assets_root):
+    runs = expand_matrix(config, args.assets_root)
+    env_error: str | None = None
+    if any(_matrix_run_needs_env(run) for run in runs):
+        try:
+            load_project_env(_project_root())
+        except SystemExit as error:
+            env_error = str(error)
+    for run in runs:
+        if env_error and _matrix_run_needs_env(run):
+            run = replace(run, configuration_error=env_error)
+        else:
+            try:
+                run = _resolve_matrix_runtime(run, args.output_root)
+            except SystemExit as error:
+                run = replace(run, configuration_error=str(error))
         print(run_smoke(run, assets_root=args.assets_root, output_root=args.output_root, dry_run=args.dry_run))
+
+
+def _matrix_run_needs_env(run: SmokeRun) -> bool:
+    if run.backend and run.ocr is None:
+        return True
+    translation = run.translation or {}
+    return any(
+        key in translation
+        for key in ("llm_profile", "translation_llm_profile", "fill_llm_profile")
+    )
+
+
+def _resolve_matrix_runtime(run: SmokeRun, output_root: Path) -> SmokeRun:
+    ocr = run.ocr
+    if run.backend and ocr is None:
+        ocr = ocr_values_from_env(run.backend)
+    translation = _resolve_translation_profiles(run.translation, output_root)
+    return replace(run, ocr=ocr, translation=translation)
+
+
+def _resolve_translation_profiles(translation: dict[str, Any] | None, output_root: Path) -> dict[str, Any] | None:
+    if not translation:
+        return translation
+    resolved = dict(translation)
+    profile = resolved.pop("llm_profile", None)
+    translation_profile = resolved.pop("translation_llm_profile", profile)
+    fill_profile = resolved.pop("fill_llm_profile", profile)
+    if translation_profile and "llm" not in resolved:
+        resolved["llm"] = llm_values_from_env(
+            str(translation_profile),
+            cache_path=output_root / "_c" / "t",
+            log_dir_path=output_root / "_l" / "t",
+        )
+    if fill_profile and fill_profile != translation_profile and "fill_llm" not in resolved:
+        resolved["fill_llm"] = llm_values_from_env(
+            str(fill_profile),
+            cache_path=output_root / "_c" / "f",
+            log_dir_path=output_root / "_l" / "f",
+        )
+    return resolved
 
 
 def _extract(args: argparse.Namespace, package_path: Path) -> _ExtractionResult:

@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 from pathlib import Path
-from tempfile import NamedTemporaryFile
+from tempfile import NamedTemporaryFile, TemporaryDirectory
 from typing import Iterable
 
 from pdf_craft.pdf.handler import DefaultPDFHandler, PDFHandler
@@ -107,8 +107,9 @@ class PDFPatcher:
             for index, page in enumerate(reader.pages, 1):
                 width = float(page.mediabox.width)
                 height = float(page.mediabox.height)
-                with NamedTemporaryFile(suffix=".pdf") as overlay_file:
-                    overlay = canvas.Canvas(overlay_file.name, pagesize=(width, height))
+                with TemporaryDirectory() as temp_dir:
+                    overlay_path = Path(temp_dir) / "overlay.pdf"
+                    overlay = canvas.Canvas(str(overlay_path), pagesize=(width, height))
                     page_layouts = layouts.get(index, [])
                     render_dpi = page_layouts[0][0].dpi if page_layouts else self.dpi
                     raw_page = document.render_page(index, render_dpi)
@@ -118,7 +119,7 @@ class PDFPatcher:
                     for replacement, fitted in page_layouts:
                         self._draw_text(overlay, replacement, fitted, width, height)
                     overlay.save()
-                    overlay_reader = pypdf.PdfReader(overlay_file.name)
+                    overlay_reader = pypdf.PdfReader(str(overlay_path))
                     writer.add_page(overlay_reader.pages[0])
         finally:
             document.close()

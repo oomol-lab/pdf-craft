@@ -1,0 +1,275 @@
+{
+  "defaults": {
+    "asset": "table&formula.pdf",
+    "ocr_size": "gundam",
+    "includes_cover": true,
+    "includes_footnotes": true,
+    "generate_plot": true
+  },
+  "runs": [
+    {
+      "route": "markdown",
+      "backend": "deepseek-ocr-local"
+    },
+    {
+      "route": "markdown",
+      "backend": "deepseek-ocr-local",
+      "translation": {
+        "llm_profile": "translation",
+        "fill_llm_profile": "fill",
+        "target_language": "Simplified Chinese",
+        "submit": "REPLACE",
+        "max_retries": 5,
+        "max_group_tokens": 2600
+      }
+    },
+    {
+      "route": "epub",
+      "backend": "deepseek-ocr-local"
+    },
+    {
+      "route": "epub",
+      "backend": "deepseek-ocr-local",
+      "translation": {
+        "llm_profile": "translation",
+        "fill_llm_profile": "fill",
+        "target_language": "Simplified Chinese",
+        "submit": "REPLACE",
+        "max_retries": 5,
+        "max_group_tokens": 2600
+      }
+    },
+    {
+      "route": "pdf-patch",
+      "backend": "deepseek-ocr-local",
+      "translation": {
+        "llm_profile": "translation",
+        "fill_llm_profile": "fill",
+        "target_language": "Simplified Chinese",
+        "submit": "REPLACE",
+        "max_retries": 5,
+        "max_group_tokens": 2600
+      }
+    },
+    {
+      "route": "markdown",
+      "backend": "deepseek-ocr2-local"
+    },
+    {
+      "route": "markdown",
+      "backend": "deepseek-ocr2-local",
+      "translation": {
+        "llm_profile": "translation",
+        "fill_llm_profile": "fill",
+        "target_language": "Simplified Chinese",
+        "submit": "REPLACE",
+        "max_retries": 5,
+        "max_group_tokens": 2600
+      }
+    },
+    {
+      "route": "epub",
+      "backend": "deepseek-ocr2-local"
+    },
+    {
+      "route": "epub",
+      "backend": "deepseek-ocr2-local",
+      "translation": {
+        "llm_profile": "translation",
+        "fill_llm_profile": "fill",
+        "target_language": "Simplified Chinese",
+        "submit": "REPLACE",
+        "max_retries": 5,
+        "max_group_tokens": 2600
+      }
+    },
+    {
+      "route": "pdf-patch",
+      "backend": "deepseek-ocr2-local",
+      "translation": {
+        "llm_profile": "translation",
+        "fill_llm_profile": "fill",
+        "target_language": "Simplified Chinese",
+        "submit": "REPLACE",
+        "max_retries": 5,
+        "max_group_tokens": 2600
+      }
+    },
+    {
+      "route": "markdown",
+      "backend": "unlimited-ocr-local"
+    },
+    {
+      "route": "markdown",
+      "backend": "unlimited-ocr-local",
+      "translation": {
+        "llm_profile": "translation",
+        "fill_llm_profile": "fill",
+        "target_language": "Simplified Chinese",
+        "submit": "REPLACE",
+        "max_retries": 5,
+        "max_group_tokens": 2600
+      }
+    },
+    {
+      "route": "epub",
+      "backend": "unlimited-ocr-local"
+    },
+    {
+      "route": "epub",
+      "backend": "unlimited-ocr-local",
+      "translation": {
+        "llm_profile": "translation",
+        "fill_llm_profile": "fill",
+        "target_language": "Simplified Chinese",
+        "submit": "REPLACE",
+        "max_retries": 5,
+        "max_group_tokens": 2600
+      }
+    },
+    {
+      "route": "pdf-patch",
+      "backend": "unlimited-ocr-local",
+      "translation": {
+        "llm_profile": "translation",
+        "fill_llm_profile": "fill",
+        "target_language": "Simplified Chinese",
+        "submit": "REPLACE",
+        "max_retries": 5,
+        "max_group_tokens": 2600
+      }
+    },
+    {
+      "route": "markdown",
+      "backend": "deepseek-ocr-vendor"
+    },
+    {
+      "route": "markdown",
+      "backend": "deepseek-ocr-vendor",
+      "translation": {
+        "llm_profile": "translation",
+        "fill_llm_profile": "fill",
+        "target_language": "Simplified Chinese",
+        "submit": "REPLACE",
+        "max_retries": 5,
+        "max_group_tokens": 2600
+      }
+    },
+    {
+      "route": "epub",
+      "backend": "deepseek-ocr-vendor"
+    },
+    {
+      "route": "epub",
+      "backend": "deepseek-ocr-vendor",
+      "translation": {
+        "llm_profile": "translation",
+        "fill_llm_profile": "fill",
+        "target_language": "Simplified Chinese",
+        "submit": "REPLACE",
+        "max_retries": 5,
+        "max_group_tokens": 2600
+      }
+    },
+    {
+      "route": "pdf-patch",
+      "backend": "deepseek-ocr-vendor",
+      "translation": {
+        "llm_profile": "translation",
+        "fill_llm_profile": "fill",
+        "target_language": "Simplified Chinese",
+        "submit": "REPLACE",
+        "max_retries": 5,
+        "max_group_tokens": 2600
+      }
+    },
+    {
+      "route": "markdown",
+      "backend": "deepseek-ocr2-vendor"
+    },
+    {
+      "route": "markdown",
+      "backend": "deepseek-ocr2-vendor",
+      "translation": {
+        "llm_profile": "translation",
+        "fill_llm_profile": "fill",
+        "target_language": "Simplified Chinese",
+        "submit": "REPLACE",
+        "max_retries": 5,
+        "max_group_tokens": 2600
+      }
+    },
+    {
+      "route": "epub",
+      "backend": "deepseek-ocr2-vendor"
+    },
+    {
+      "route": "epub",
+      "backend": "deepseek-ocr2-vendor",
+      "translation": {
+        "llm_profile": "translation",
+        "fill_llm_profile": "fill",
+        "target_language": "Simplified Chinese",
+        "submit": "REPLACE",
+        "max_retries": 5,
+        "max_group_tokens": 2600
+      }
+    },
+    {
+      "route": "pdf-patch",
+      "backend": "deepseek-ocr2-vendor",
+      "translation": {
+        "llm_profile": "translation",
+        "fill_llm_profile": "fill",
+        "target_language": "Simplified Chinese",
+        "submit": "REPLACE",
+        "max_retries": 5,
+        "max_group_tokens": 2600
+      }
+    },
+    {
+      "route": "markdown",
+      "backend": "unlimited-ocr-vendor"
+    },
+    {
+      "route": "markdown",
+      "backend": "unlimited-ocr-vendor",
+      "translation": {
+        "llm_profile": "translation",
+        "fill_llm_profile": "fill",
+        "target_language": "Simplified Chinese",
+        "submit": "REPLACE",
+        "max_retries": 5,
+        "max_group_tokens": 2600
+      }
+    },
+    {
+      "route": "epub",
+      "backend": "unlimited-ocr-vendor"
+    },
+    {
+      "route": "epub",
+      "backend": "unlimited-ocr-vendor",
+      "translation": {
+        "llm_profile": "translation",
+        "fill_llm_profile": "fill",
+        "target_language": "Simplified Chinese",
+        "submit": "REPLACE",
+        "max_retries": 5,
+        "max_group_tokens": 2600
+      }
+    },
+    {
+      "route": "pdf-patch",
+      "backend": "unlimited-ocr-vendor",
+      "translation": {
+        "llm_profile": "translation",
+        "fill_llm_profile": "fill",
+        "target_language": "Simplified Chinese",
+        "submit": "REPLACE",
+        "max_retries": 5,
+        "max_group_tokens": 2600
+      }
+    }
+  ]
+}

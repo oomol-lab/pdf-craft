@@ -1,10 +1,12 @@
+import json
 import unittest
+from argparse import Namespace
 from datetime import datetime
 from pathlib import Path
 import tempfile
 from unittest.mock import patch
 
-from pdf_craft_tool.cli import _page_indexes, _work_dir
+from pdf_craft_tool.cli import _page_indexes, _run_matrix, _work_dir
 from pdf_craft_tool.paths import create_run_directory
 from pdf_craft_tool.runtime import create_llm_from_env, ocr_mode_from_env
 
@@ -40,3 +42,28 @@ class TestPDFCraftTool(unittest.TestCase):
     def test_ocr_mode_uses_the_prefixed_runtime_variable(self):
         with patch.dict("os.environ", {"PDF_CRAFT_OCR_MODE": "unlimited-ocr-vendor"}, clear=True):
             self.assertEqual(ocr_mode_from_env(), "unlimited-ocr-vendor")
+
+    def test_matrix_records_missing_profile_as_skipped_run(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            config = root / "matrix.json"
+            config.write_text(json.dumps({"runs": [{
+                "asset": "epub/Cambridge.epub",
+                "route": "epub-translate",
+                "translation": {"llm_profile": "custom"},
+            }]}), encoding="utf-8")
+
+            with patch("pdf_craft_tool.cli.load_project_env"), \
+                    patch("pdf_craft_tool.cli.llm_values_from_env",
+                          side_effect=SystemExit("missing LLM profile")):
+                _run_matrix(Namespace(
+                    config=config,
+                    assets_root=Path("tests/assets"),
+                    output_root=root / "output",
+                    dry_run=True,
+                ))
+
+            run_path = next((root / "output").iterdir())
+            checks = json.loads((run_path / "checks.json").read_text(encoding="utf-8"))
+            self.assertEqual(checks["status"], "skipped")
+            self.assertEqual(checks["errors"], ["missing LLM profile"])
