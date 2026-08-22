@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from typing import Any, Callable, Generator, Generic, Iterable, TypeVar, cast
 
 from json_repair import repair_json
-from pydantic import BaseModel, RootModel, ValidationError, field_validator
+from pydantic import BaseModel, StrictInt, ValidationError, field_validator, model_validator
 
 from ...common import XMLReader, split_by_cv
 from .config import MAX_LEVELS, MAX_TITLE_CV
@@ -568,11 +568,19 @@ class _LLMAnalyser(Generic[_P, _R]):
         self._runtime = runtime_for(llm, protocol_version="toc-json-v1") if isinstance(llm, LLM) else None
 
     def request(self, payload: _P, messages: Iterable[Message]) -> _R:
-        class _AnyResponse(RootModel[object]):
-            pass
+        class _ResponseSchema(BaseModel):
+            """Transport schema; TOC validator owns RESULT and ID semantics."""
+            payload: dict[str, Any]
+
+            @model_validator(mode="before")
+            @classmethod
+            def wrap_object(cls, value: Any) -> dict[str, Any]:
+                if not isinstance(value, dict):
+                    raise ValueError("TOC response must be a JSON object")
+                return {"payload": value}
 
         def parse(data, _index, _maximum):
-            result, error_msg = self._validate(json.dumps(data.root, ensure_ascii=False), payload)
+            result, error_msg = self._validate(json.dumps(data.payload, ensure_ascii=False), payload)
             if result is None:
                 raise ValueError(error_msg or "Unknown validation error")
             return result
@@ -587,14 +595,23 @@ class _LLMAnalyser(Generic[_P, _R]):
                     if self._runtime is not None
                     else cast(Any, self._llm).request(input=current)
                 ),
-                schema=_AnyResponse,
+                schema=_ResponseSchema,
                 parse=parse,
                 max_retries=_MAX_RETRIES - 1,
+                extractor=_extract_result_json,
             ))
         except Exception as error:
             if isinstance(error, LLMAnalysisError):
                 raise
             raise LLMAnalysisError(f"LLM request failed at attempt 1: {error}") from error
+
+
+def _extract_result_json(response: str) -> str:
+    """Extract the JSON object after the final RESULT marker."""
+    marker = "RESULT:"
+    section = response[response.rfind(marker) + len(marker):].strip() if marker in response else response.strip()
+    match = re.search(r"\{[\s\S]*\}", section)
+    return match.group(0) if match else section
 
 
 @dataclass
@@ -614,11 +631,11 @@ class _TocEntry:
 
 
 class _TitleLevelsSchema(BaseModel):
-    levels: list[int]
+    levels: list[StrictInt]
 
     @field_validator("levels")
     @classmethod
-    def validate_levels(cls, v: list[int]) -> list[int]:
+    def validate_levels(cls, v: list[StrictInt]) -> list[StrictInt]:
         # Rule 1: Check all are valid integers in range
         for i, level in enumerate(v):
             if not isinstance(level, int):
@@ -664,11 +681,11 @@ class _TitleLevelsSchema(BaseModel):
 
 
 class _TocLevelsSchema(BaseModel):
-    levels: list[int]
+    levels: list[StrictInt]
 
     @field_validator("levels")
     @classmethod
-    def validate_levels(cls, v: list[int]) -> list[int]:
+    def validate_levels(cls, v: list[StrictInt]) -> list[StrictInt]:
         # Rule 1: Check all are valid integers in range
         for i, level in enumerate(v):
             if not isinstance(level, int):

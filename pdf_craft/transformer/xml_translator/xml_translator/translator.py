@@ -1,9 +1,11 @@
+# pylint: disable=protected-access,unused-argument
 from collections.abc import Callable, Generator, Iterable
 from dataclasses import dataclass
 from typing import Generic, TypeVar
 from xml.etree.ElementTree import Element
 
 from pdf_craft.llm import LLM, Message, MessageRole, runtime_for
+from pdf_craft.llm.loop import ProtocolRetry, ProtocolSuccess, RepairLoopOptions, run_repair_loop
 from pdf_craft.transformer.xml_translator.segment import BlockSegment, InlineSegment, TextSegment
 from pdf_craft.transformer.xml_translator.xml import decode_friendly, encode_friendly
 from .callbacks import Callbacks, FillFailedEvent, warp_callbacks
@@ -186,42 +188,43 @@ class XMLTranslator:
                 message=user_message,
             ),
         ]
-        conversation_history: list[Message] = []
-
         with self._fill_runtime.context(cache_seed_content=self._cache_seed_content) as llm_context:
-            error_message: str | None = None
+            translator = self
+            last_error: str | None = None
+            class _XMLProtocol:
+                def validate(self, response: str, state, attempt: int, max_attempts: int):
+                    nonlocal last_error
+                    validated = translator._extract_xml_element(response)
+                    error = validated if isinstance(validated, str) else hill_climbing.submit(validated)
+                    if error is None:
+                        last_error = None
+                        return ProtocolSuccess(None, state)
+                    last_error = error
+                    callbacks.on_fill_failed(FillFailedEvent(error, attempt + 1, False))
+                    return ProtocolRetry(error, state, include_response=True, reset_history=True)
 
-            for retry_count in range(self._max_retries):
-                response = llm_context.request(fixed_messages + conversation_history)
-                validated_element = self._extract_xml_element(response)
-                error_message = None
-                if isinstance(validated_element, str):
-                    error_message = validated_element
-                elif isinstance(validated_element, Element):
-                    error_message = hill_climbing.submit(validated_element)
+                def empty(self, state, attempt: int, max_attempts: int):
+                    nonlocal last_error
+                    error = "LLM returned an empty XML response. Please return one complete <xml> block."
+                    last_error = error
+                    callbacks.on_fill_failed(FillFailedEvent(error, attempt + 1, False))
+                    return ProtocolRetry(error, state)
 
-                if error_message is None:
-                    break
+                def exhausted(self, state, attempts: int, response: str | None):
+                    error = last_error or "XML fill exhausted retries; no usable response was produced."
+                    callbacks.on_fill_failed(FillFailedEvent(
+                        error,
+                        attempts, True,
+                    ))
+                    return None
 
-                callbacks.on_fill_failed(
-                    FillFailedEvent(
-                        error_message=error_message,
-                        retried_count=retry_count + 1,
-                        over_maximum_retries=False,
-                    )
-                )
-                conversation_history = [
-                    Message(role=MessageRole.ASSISTANT, message=response),
-                    Message(role=MessageRole.USER, message=error_message),
-                ]
-            if error_message is not None:
-                callbacks.on_fill_failed(
-                    FillFailedEvent(
-                        error_message=error_message,
-                        retried_count=self._max_retries,
-                        over_maximum_retries=True,
-                    )
-                )
+            run_repair_loop(RepairLoopOptions(
+                messages=fixed_messages,
+                request=lambda current, index, maximum: llm_context.request(
+                    current, retry_index=index, retry_max=maximum, use_cache=False),
+                protocol=_XMLProtocol(), state=None,
+                max_attempts=max(1, self._max_retries),
+            ))
 
     def _extract_xml_element(self, text: str) -> Element | str:
         first_xml_element: Element | None = None

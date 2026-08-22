@@ -3,7 +3,12 @@ from typing import cast
 
 from pdf_craft.llm.types import Message, MessageRole
 from pdf_craft.llm.core import LLM
-from pdf_craft.extractor.toc.llm_analyser import LLMAnalysisError, _LLMAnalyser
+from pdf_craft.extractor.toc.llm_analyser import (
+    LLMAnalysisError,
+    _LLMAnalyser,
+    _validate_title_response,
+    _validate_toc_response,
+)
 
 
 class _BrokenLLM:
@@ -14,6 +19,21 @@ class _BrokenLLM:
 class _JsonLLM:
     def request(self, input):  # pylint: disable=redefined-builtin,unused-argument
         return '{"0": 0, "1": 1}'
+
+
+class _SequenceLLM:
+    def __init__(self, responses):
+        self.responses = iter(responses)
+        self.calls = 0
+
+    def request(self, input):  # pylint: disable=redefined-builtin,unused-argument
+        self.calls += 1
+        return next(self.responses)
+
+
+class _ResultLLM:
+    def request(self, input):  # pylint: disable=redefined-builtin,unused-argument
+        return 'ANALYSIS: example {"A": 99}\nRESULT: {"A": 0, "B": 1}\nRESULT: {"A": 2, "B": 3}'
 
 
 class TestLLMAnalyser(unittest.TestCase):
@@ -45,6 +65,49 @@ class TestLLMAnalyser(unittest.TestCase):
             analyser.request(payload=None, messages=[Message(MessageRole.USER, "json")]),
             [0, 1],
         )
+
+    def test_non_object_response_is_schema_retry(self):
+        llm = _SequenceLLM(["[1, 2]", '{"0": 0, "1": 1}'])
+        analyser = _LLMAnalyser(
+            llm=cast(LLM, llm),
+            validate=lambda response, payload: ([0, 1], None),
+        )
+        self.assertEqual(analyser.request(payload=None, messages=[Message(MessageRole.USER, "json")]), [0, 1])
+        self.assertEqual(llm.calls, 2)
+
+    def test_non_object_response_exhausts_as_typed_schema_failure(self):
+        llm = _SequenceLLM(["[1, 2]"] * 3)
+        analyser = _LLMAnalyser(
+            llm=cast(LLM, llm),
+            validate=lambda response, payload: ([0, 1], None),
+        )
+        with self.assertRaises(LLMAnalysisError) as context:
+            analyser.request(payload=None, messages=[Message(MessageRole.USER, "json")])
+        self.assertIn("schema validation failed", str(context.exception))
+        self.assertEqual(llm.calls, 3)
+
+    def test_toc_validator_receives_last_result_section(self):
+        received = []
+        analyser = _LLMAnalyser(
+            llm=cast(LLM, _ResultLLM()),
+            validate=lambda response, payload: (received.append(response) or ([2, 3], None)),
+        )
+        self.assertEqual(analyser.request(payload=None, messages=[Message(MessageRole.USER, "toc")]), [2, 3])
+        self.assertEqual(received, ['{"A": 2, "B": 3}'])
+
+    def test_title_and_toc_levels_reject_string_and_boolean_integers(self):
+        for response, validator in (
+            ('{"0": "1"}', _validate_title_response),
+            ('{"0": true}', _validate_title_response),
+        ):
+            result, error = validator(response, 1)
+            self.assertIsNone(result)
+            self.assertIn("integer", error or "")
+
+        for response in ('{"A": "1"}', '{"A": false}'):
+            result, error = _validate_toc_response(response, 1)
+            self.assertIsNone(result)
+            self.assertIn("integer", error or "")
 
 
 if __name__ == "__main__":
