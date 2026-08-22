@@ -24,7 +24,7 @@ poetry install --with dev
 - `DeepSeekOCR2VendorConfig`：DeepSeek OCR 2 供应商模式。
 - `UnlimitedOCRVendorConfig`：Unlimited OCR 供应商模式。
 
-库代码不得自动读取 `.env`。手动脚本可以加载 `.env` 后调用脚本内的 `create_ocr_config_from_env()`；脚本会读取 `DEEPSEEK_LOCAL_MODEL_PATH`、`DEEPSEEK_LOCAL_ONLY`、`UNLIMITED_LOCAL_MODEL_PATH`、`UNLIMITED_LOCAL_ONLY`、`DEEPSEEK_OCR_*`、`DEEPSEEK_OCR2_*` 和 `UNLIMITED_OCR_*`。
+库代码不得自动读取 `.env`。未发布的 `pdf_craft_tool` CLI 通过 `pdf_craft_tool/runtime.py` 加载工作区 `.env` 并创建显式配置对象。所有手动运行时变量使用 `PDF_CRAFT_` 前缀：OCR 使用 `PDF_CRAFT_OCR_MODE` 和对应的 `PDF_CRAFT_*_OCR_*` 配置；文本 LLM 通过可复用的 `PDF_CRAFT_LLM_<PROFILE>_*` profile 配置。默认 profile 可在运行时从 `oo llm config --json` 获取 OOMOL 凭据，不能复用 OCR-only endpoint。
 
 ## 默认验证
 
@@ -46,7 +46,7 @@ poetry run python test.py
 
 默认不配置 `scripts.archive`。VGE 会负责释放 worktree；项目级 Cleanup 只适合需要保留现场后执行额外归档或收尾动作的项目，本仓库当前没有这种需求。
 
-生成的转换输出应留在当前 worktree 的 `analysing/` 下。模型缓存可能很大；只有在有意进行本地 OCR 工作时才使用 `models-cache/`，不要提交它，也不要假设其中已有内容。
+`pdf_craft_tool` 生成的转换输出默认留在当前 worktree 的 Git 忽略目录 `pdf-craft-output/` 下。模型缓存可能很大；只有在有意进行本地 OCR 工作时才使用 `models-cache/`，不要提交它，也不要假设其中已有内容。
 
 ## 人类阅读文档
 

@@ -17,7 +17,7 @@ class PDFTranslationPipeline:
 
     def __init__(self, pdf_handler: PDFHandler | None = None, patcher: PDFPatcher | None = None, dpi: int = 300) -> None:
         self.pdf_handler = pdf_handler
-        self.patcher = patcher or PDFPatcher()
+        self.patcher = patcher or PDFPatcher(pdf_handler=pdf_handler)
         self.dpi = dpi
 
     def translate(
@@ -60,7 +60,10 @@ class PDFTranslationPipeline:
                         raise ValueError("PDF handler is required to resolve page dimensions")
                     image = document.render_page(block.page_index, self.dpi)
                     pages[block.page_index] = image.size
-                replacements.append(PDFReplacement(block.page_index, block.det, translated, pages[block.page_index], self.dpi))
+                replacements.append(PDFReplacement(
+                    block.page_index, block.det, translated, pages[block.page_index], self.dpi,
+                    reading_order=block.order,
+                ))
 
 
 def _to_patch_text(items) -> str:

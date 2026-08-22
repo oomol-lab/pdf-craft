@@ -8,8 +8,8 @@ pdf-craft 是一个把扫描书籍 PDF 转换为 Markdown 或 EPUB 的 Python �
 - `tests/` 包含轻量单元测试和小型 PDF fixture。普通代码改动默认以这些测试作为验证面。
 - `docs/`、`README.md` 和 `README_zh-CN.md` 是读者/贡献者阅读的文档。不要把这些说明复制到 Agent 文档里。
 - `references/` 是 Agent 面向的引用文档。只阅读当前任务需要的引用文档。
-- `scripts/` 包含本地手动转换和依赖源码同步辅助脚本。不要把这些脚本当作默认开发流程。
-- `analysing/`、`models-cache/`、`.venv/`、`dist/`、`build/` 和 `*.egg-info` 是生成产物或本地运行产物。
+- `pdf_craft_tool/` 是未发布的本地 CLI，承载手动转换、翻译和冒烟矩阵；`scripts/` 只保留依赖源码同步辅助脚本。不要把它们当作默认开发流程。
+- `analysing/`、`pdf-craft-output/`、`models-cache/`、`.venv/`、`dist/`、`build/` 和 `*.egg-info` 是生成产物或本地运行产物。
 
 ## 仅在需要时阅读
 
@@ -22,5 +22,5 @@ pdf-craft 是一个把扫描书籍 PDF 转换为 Markdown 或 EPUB 的 Python �
 
 - 这是库项目。除非未来任务引入长期服务，否则不要启动常驻开发服务器。
 - 普通验证应避免 CUDA、模型下载、网络请求和完整 PDF 转换，除非任务明确触及这些行为。
-- 模型缓存和转换输出不得进入提交内容。VGE worktree 中优先使用每个 worktree 自己的 `analysing/` 输出；只有任务明确需要 OCR 时，才考虑共享外部模型缓存。
+- 模型缓存和转换输出不得进入提交内容。`pdf_craft_tool` 的产物默认写入每个 worktree 自己的 `pdf-craft-output/`；只有任务明确需要 OCR 时，才考虑共享外部模型缓存。
 - 纯文档任务不得修改包代码或依赖版本。

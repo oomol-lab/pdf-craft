@@ -61,7 +61,7 @@ poetry run python -c "import torch; print(f'PyTorch version: {torch.__version__}
 pdfinfo -v
 ```
 
-Vendor OCR does not require local CUDA. Copy `.env.template` to `.env`, set `OCR_MODE` to `deepseek-ocr-vendor`, `deepseek-ocr2-vendor`, or `unlimited-ocr-vendor`, and fill the matching credentials. Local modes use `DEEPSEEK_LOCAL_MODEL_PATH` and `DEEPSEEK_LOCAL_ONLY` for DeepSeek OCR / DeepSeek OCR 2, and `UNLIMITED_LOCAL_MODEL_PATH` and `UNLIMITED_LOCAL_ONLY` for Unlimited OCR. Library code does not automatically read `.env`; only the manual scripts load it.
+Vendor OCR does not require local CUDA. Copy `.env.template` to `.env`, set `PDF_CRAFT_OCR_MODE` to `deepseek-ocr-vendor`, `deepseek-ocr2-vendor`, or `unlimited-ocr-vendor`, and fill the matching `PDF_CRAFT_*` credentials. Local modes use the `PDF_CRAFT_DEEPSEEK_*` and `PDF_CRAFT_UNLIMITED_*` model-path settings. Library code does not automatically read `.env`; only the manual scripts load it.
 
 ## Validation
 
@@ -88,16 +88,15 @@ poetry build
 
 ## Manual Conversion Checks
 
-The scripts in `scripts/` are manual checks for conversion work. They require Poppler and an OCR configuration from `.env`. Local modes require model downloads and CUDA; vendor modes require credentials:
+The repository-local `pdf_craft_tool` CLI is the manual conversion and smoke-test entry point. It requires Poppler and an OCR configuration from `.env`. Local modes require model downloads and CUDA; vendor modes require credentials:
 
 ```shell
-poetry run python scripts/gen_md.py
-poetry run python scripts/gen_epub.py
+poetry run python -m pdf_craft_tool pdf convert tests/assets/citation.pdf --format markdown --pages 1,2,3
+poetry run python -m pdf_craft_tool pdf convert tests/assets/citation.pdf --format epub
+poetry run python -m pdf_craft_tool pdf translate tests/assets/citation.pdf zh --pages 1,2,3
 ```
 
-They write conversion output under `analysing/` and use the configured local model path from `DEEPSEEK_LOCAL_MODEL_PATH` or `UNLIMITED_LOCAL_MODEL_PATH` when `OCR_MODE` is a local OCR mode.
-
-If `format.json` exists at the repository root, these scripts use it to configure optional LLM-enhanced TOC analysis. The template is `format.template.json`; do not commit local secrets.
+Each invocation creates an isolated run directory under the Git-ignored `pdf-craft-output/manual/`, with a date-and-sequence suffix, containing its `package/` and rendered output. `--work-dir` and the smoke runner's `--output-root` override those defaults. `--pages` always uses 1-based PDF page indexes. Text LLM profiles are separate from OCR configuration; the default profile retrieves the local OOMOL connection at runtime without persisting its credential. See [`pdf_craft_tool/README.md`](../pdf_craft_tool/README.md) for the complete command and smoke-matrix reference.
 
 ## VGE Worktree Development
 
@@ -105,7 +104,7 @@ This repository includes `.conductor/settings.toml` for VGE worktrees. It define
 
 `.env` is worktree-private runtime configuration and is ignored by Git. When the current worktree does not have `.env`, VGE setup first copies the existing `.env` from the source workspace so vendor OCR credentials and local development settings remain available inside the worktree. If the source workspace has no `.env`, setup falls back to creating one from `.env.template`.
 
-Worktree-local generated files include `.venv/`, `analysing/`, `models-cache/`, test caches, and build artifacts. Do not commit them.
+Worktree-local generated files include `.venv/`, `analysing/`, `pdf-craft-output/`, `models-cache/`, test caches, and build artifacts. Do not commit them.
 
 ## Dependency Sync Helpers
 

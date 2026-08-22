@@ -30,6 +30,15 @@ class _FakeTransform:
         return None, None, None, None, "metering"
 
 
+class _NoAssetTransform:
+    def extract_package(self, *, analysing_path, **_kwargs):
+        (analysing_path / "chapters").mkdir(parents=True)
+        DocumentPackage.from_path(analysing_path).write_metadata(
+            dpi=300, page_pixel_sizes={1: (100, 100)}
+        )
+        return None, None, None, None, "metering"
+
+
 class _CapturePatcher:
     def __init__(self):
         self.replacements = []
@@ -80,6 +89,14 @@ class _DeterministicXMLTranslator:
 
 
 class TestComposableBoundaries(unittest.TestCase):
+    def test_extractor_creates_empty_assets_directory_for_asset_free_pages(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            package, _ = PDFExtractor(_NoAssetTransform()).extract_with_metering(
+                root / "input.pdf", root / "package"
+            )
+            self.assertTrue(package.assets_path.is_dir())
+
     def test_extractor_produces_package_consumed_by_renderers_without_ocr_cache(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
