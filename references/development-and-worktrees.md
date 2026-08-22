@@ -24,7 +24,7 @@ poetry install --with dev
 - `DeepSeekOCR2VendorConfig`：DeepSeek OCR 2 供应商模式。
 - `UnlimitedOCRVendorConfig`：Unlimited OCR 供应商模式。
 
-库代码不得自动读取 `.env`。手动脚本通过 `scripts/runtime.py` 加载工作区 `.env` 并创建显式配置对象。所有手动运行时变量使用 `PDF_CRAFT_` 前缀：OCR 使用 `PDF_CRAFT_OCR_MODE` 和对应的 `PDF_CRAFT_*_OCR_*` 配置；PDF 翻译使用独立的 `PDF_CRAFT_TRANSLATION_*` 文本 LLM 配置，不能复用 OCR-only endpoint。
+库代码不得自动读取 `.env`。未发布的 `pdf_craft_tool` CLI 通过 `pdf_craft_tool/runtime.py` 加载工作区 `.env` 并创建显式配置对象。所有手动运行时变量使用 `PDF_CRAFT_` 前缀：OCR 使用 `PDF_CRAFT_OCR_MODE` 和对应的 `PDF_CRAFT_*_OCR_*` 配置；文本 LLM 通过可复用的 `PDF_CRAFT_LLM_<PROFILE>_*` profile 配置。默认 profile 可在运行时从 `oo llm config --json` 获取 OOMOL 凭据，不能复用 OCR-only endpoint。
 
 ## 默认验证
 

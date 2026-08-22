@@ -1,12 +1,15 @@
-"""Private runtime configuration for repository manual scripts.
+"""Private runtime configuration for the repository development CLI.
 
 This module is deliberately outside :mod:`pdf_craft`: library callers pass
 configuration objects explicitly and never load a repository ``.env``.
 """
 
 import os
+import json
+import subprocess
+from dataclasses import asdict
 from pathlib import Path
-from typing import cast
+from typing import Any, cast
 
 from pdf_craft import (
     DeepSeekOCR2LocalConfig,
@@ -22,7 +25,7 @@ from pdf_craft import (
 
 
 def load_project_env(project_root: Path) -> Path:
-    """Load the worktree-private ``.env`` used by manual scripts."""
+    """Load the worktree-private ``.env`` used by the development CLI."""
     path = project_root / ".env"
     if not path.is_file():
         raise SystemExit(f"Missing {path}; copy .env.template and configure it first")
@@ -42,9 +45,9 @@ def load_env(path: Path) -> None:
         os.environ.setdefault(name.strip(), value.strip().strip("\"'"))
 
 
-def create_ocr_config_from_env() -> OCRConfig:
+def create_ocr_config_from_env(mode: OCRMode | None = None) -> OCRConfig:
     """Create an explicit pdf-craft OCR config from ``PDF_CRAFT_*`` settings."""
-    mode = cast(OCRMode, _str("PDF_CRAFT_OCR_MODE", default="deepseek-ocr-local"))
+    mode = mode or cast(OCRMode, _str("PDF_CRAFT_OCR_MODE", default="deepseek-ocr-local"))
     if mode == "deepseek-ocr-local":
         return DeepSeekOCRLocalConfig(
             models_cache_path=_str("PDF_CRAFT_DEEPSEEK_MODELS_CACHE_PATH", default="models-cache"),
@@ -91,20 +94,66 @@ def create_ocr_config_from_env() -> OCRConfig:
     raise SystemExit(f"Unsupported PDF_CRAFT_OCR_MODE: {mode}")
 
 
-def create_translation_llm_from_env(*, cache_path: Path, log_dir_path: Path) -> LLM:
-    """Create the LLM used for text translation, distinct from OCR vendors."""
+def ocr_mode_from_env() -> OCRMode:
+    """Return the selected OCR mode without initializing its backend."""
+    return cast(OCRMode, _str("PDF_CRAFT_OCR_MODE", default="deepseek-ocr-local"))
+
+
+def ocr_values_from_env(mode: OCRMode) -> dict[str, object]:
+    """Return the explicit values used by a smoke run without exposing secrets."""
+    return asdict(create_ocr_config_from_env(mode))
+
+
+def create_llm_from_env(profile: str, *, cache_path: Path, log_dir_path: Path) -> LLM:
+    """Create a named local-tool LLM profile without leaking credentials to disk."""
     return LLM(
-        key=_required("PDF_CRAFT_TRANSLATION_API_KEY"),
-        url=_required("PDF_CRAFT_TRANSLATION_BASE_URL"),
-        model=_required("PDF_CRAFT_TRANSLATION_MODEL"),
-        token_encoding=_str("PDF_CRAFT_TRANSLATION_TOKEN_ENCODING", default="o200k_base"),
-        timeout=_float("PDF_CRAFT_TRANSLATION_TIMEOUT_SECONDS", default=180.0),
-        temperature=_optional_float("PDF_CRAFT_TRANSLATION_TEMPERATURE"),
-        top_p=_optional_float("PDF_CRAFT_TRANSLATION_TOP_P"),
-        retry_times=_int("PDF_CRAFT_TRANSLATION_RETRY_TIMES", default=3),
-        cache_path=cache_path,
-        log_dir_path=log_dir_path,
+        **cast(Any, llm_values_from_env(profile, cache_path=cache_path, log_dir_path=log_dir_path))
     )
+
+
+def llm_values_from_env(profile: str, *, cache_path: Path, log_dir_path: Path) -> dict[str, Any]:
+    """Return LLM constructor values for a named local-tool profile."""
+    normalized = profile.upper().replace("-", "_")
+    selected = _str(f"PDF_CRAFT_LLM_{normalized}_PROFILE", default=profile)
+    if selected != profile:
+        return llm_values_from_env(selected, cache_path=cache_path, log_dir_path=log_dir_path)
+    prefix = f"PDF_CRAFT_LLM_{normalized}"
+    if _str(f"{prefix}_PROVIDER", default="openai") == "oomol":
+        values = _oomol_llm_values()
+    else:
+        values = {
+            "key": _required(f"{prefix}_API_KEY"),
+            "url": _required(f"{prefix}_BASE_URL"),
+            "model": _required(f"{prefix}_MODEL"),
+        }
+    return values | {
+        "token_encoding": _str(f"{prefix}_TOKEN_ENCODING", default="o200k_base"),
+        "timeout": _float(f"{prefix}_TIMEOUT_SECONDS", default=180.0),
+        "temperature": _optional_float(f"{prefix}_TEMPERATURE"),
+        "top_p": _optional_float(f"{prefix}_TOP_P"),
+        "retry_times": _int(f"{prefix}_RETRY_TIMES", default=3),
+        "cache_path": str(cache_path),
+        "log_dir_path": str(log_dir_path),
+    }
+
+
+def _oomol_llm_values() -> dict[str, str]:
+    """Obtain ephemeral OOMOL credentials without persisting or logging them."""
+    try:
+        result = subprocess.run(
+            ["oo", "llm", "config", "--json"], check=True, capture_output=True, text=True
+        )
+        config = json.loads(result.stdout)
+    except (OSError, subprocess.CalledProcessError, json.JSONDecodeError) as error:
+        raise SystemExit("Unable to load OOMOL LLM configuration; run `oo auth login`") from error
+    required = {key: config.get(key) for key in ("apiKey", "baseUrl", "model")}
+    if not all(isinstance(value, str) and value for value in required.values()):
+        raise SystemExit("OOMOL LLM configuration is incomplete; run `oo auth login`")
+    return {
+        "key": cast(str, required["apiKey"]),
+        "url": cast(str, required["baseUrl"]),
+        "model": cast(str, required["model"]),
+    }
 
 
 def _str(name: str, default: str | None = None) -> str:

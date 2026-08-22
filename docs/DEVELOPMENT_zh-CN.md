@@ -88,15 +88,15 @@ poetry build
 
 ## 手动转换检查
 
-`scripts/` 中的脚本用于转换联调。它们需要 Poppler，并从 `.env` 读取 OCR 配置。本地模式需要模型下载和 CUDA；供应商模式需要对应密钥：
+仓库内的 `pdf_craft_tool` CLI 是手动转换和冒烟测试入口。它需要 Poppler，并从 `.env` 读取 OCR 配置。本地模式需要模型下载和 CUDA；供应商模式需要对应密钥：
 
 ```shell
-poetry run python scripts/convert_pdf.py tests/assets/citation.pdf --format markdown --pages 1,2,3
-poetry run python scripts/convert_pdf.py tests/assets/citation.pdf --format epub
-poetry run python scripts/translate_pdf.py tests/assets/citation.pdf zh --pages 1,2,3
+poetry run python -m pdf_craft_tool pdf convert tests/assets/citation.pdf --format markdown --pages 1,2,3
+poetry run python -m pdf_craft_tool pdf convert tests/assets/citation.pdf --format epub
+poetry run python -m pdf_craft_tool pdf translate tests/assets/citation.pdf zh --pages 1,2,3
 ```
 
-每次运行都会在 `analysing/manual/` 下创建独立目录，其中包含 `package/` 和渲染结果。`--pages` 始终使用从 1 开始的 PDF 页码。`translate_pdf.py` 还要求配置独立的 `PDF_CRAFT_TRANSLATION_*` chat-completion 服务；不会把 OCR 凭据误当成翻译 LLM。
+每次运行都会在 `analysing/manual/` 下创建独立目录，其中包含 `package/` 和渲染结果。`--pages` 始终使用从 1 开始的 PDF 页码。文本 LLM profile 与 OCR 配置独立；默认 profile 在运行时获取本机 OOMOL 连接，不会把凭据写入文件。完整的命令和冒烟矩阵说明见 [`pdf_craft_tool/README.md`](../pdf_craft_tool/README.md)。
 
 ## VGE Worktree 开发
 

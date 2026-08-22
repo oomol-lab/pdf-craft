@@ -13,9 +13,9 @@ from pdf_craft.markdown.render import render_markdown_file
 from pdf_craft.metering import OCRTokensMetering
 from pdf_craft.ocr_config import OCRConfig
 from pdf_craft.pdf import OCREvent, OCREventKind
-from pdf_craft.smoke.assets import discover_assets
-from pdf_craft.smoke.checks import check_epub, check_markdown, check_pdf_patch_geometry
-from pdf_craft.smoke.runner import (
+from pdf_craft_tool.smoke.assets import discover_assets
+from pdf_craft_tool.smoke.checks import check_epub, check_markdown, check_pdf_patch_geometry
+from pdf_craft_tool.smoke.runner import (
     SmokeAsset,
     SmokeRun,
     _redact,
@@ -136,7 +136,7 @@ class TestSmokeMatrix(unittest.TestCase):
             root = Path(directory)
             package = _package_without_assets(root / "fixture-package")
             metering = OCRTokensMetering(5, 7)
-            with patch("pdf_craft.smoke.runner.PDFCraft") as craft_class:
+            with patch("pdf_craft_tool.smoke.runner.PDFCraft") as craft_class:
                 craft = craft_class.return_value
                 def extract(_source, _path, options):
                     options.on_ocr_event(OCREvent(OCREventKind.COMPLETE, 1, 1, 12, 5, 7))
@@ -155,7 +155,7 @@ class TestSmokeMatrix(unittest.TestCase):
 
     def test_failed_configuration_records_stage_and_traceback_path(self):
         with tempfile.TemporaryDirectory() as directory:
-            with patch("pdf_craft.smoke.runner.create_ocr_config", side_effect=ValueError("bad OCR")):
+            with patch("pdf_craft_tool.smoke.runner.create_ocr_config", side_effect=ValueError("bad OCR")):
                 run_path = run_smoke(
                     SmokeRun("double_column.pdf", "package", "deepseek-ocr-vendor", ocr={"api_key": "secret"}),
                     assets_root=Path("tests/assets"), output_root=Path(directory),
@@ -169,8 +169,8 @@ class TestSmokeMatrix(unittest.TestCase):
     def test_persisted_errors_redact_vendor_credentials(self):
         with tempfile.TemporaryDirectory() as directory:
             secrets = {"api_key": "api-secret", "ak": "access-secret", "sk": "signing-secret"}
-            with patch("pdf_craft.smoke.runner.create_ocr_config"), \
-                 patch("pdf_craft.smoke.runner.PDFCraft") as craft_class:
+            with patch("pdf_craft_tool.smoke.runner.create_ocr_config"), \
+                 patch("pdf_craft_tool.smoke.runner.PDFCraft") as craft_class:
                 craft = craft_class.return_value
 
                 def extract(_source, _path, options):
@@ -262,7 +262,7 @@ class TestSmokeMatrix(unittest.TestCase):
             chapter = Chapter(None, -1, [ParagraphLayout("text", 0, [
                 BlockLayout(2, 1, (1, 1, 20, 20), ["will be replaced"])
             ])])
-            with patch("pdf_craft.smoke.checks.create_chapters_reader", return_value=lambda: iter([chapter])):
+            with patch("pdf_craft_tool.smoke.checks.create_chapters_reader", return_value=lambda: iter([chapter])):
                 errors = check_pdf_patch_geometry(package)
             self.assertEqual(errors, ["PDF patch geometry missing for replacement pages: [2]"])
 
@@ -281,7 +281,7 @@ class TestSmokeMatrix(unittest.TestCase):
 
             run = SmokeRun("double_column.pdf", "markdown")
             asset = SmokeAsset("double_column.pdf", "pdf", Path("source.pdf"))
-            with patch("pdf_craft.smoke.runner.PDFCraft", return_value=UnavailableCraft()):
+            with patch("pdf_craft_tool.smoke.runner.PDFCraft", return_value=UnavailableCraft()):
                 status, errors, details = _run_pdf(run, asset, root, cast(OCRConfig, None))
             self.assertEqual(status, "skipped")
             self.assertEqual(
@@ -312,7 +312,7 @@ class TestSmokeMatrix(unittest.TestCase):
             asset = SmokeAsset("double_column.pdf", "pdf", Path("source.pdf"))
             from pdf_craft.craft import PDFCraft
             craft = PDFCraft()
-            with patch("pdf_craft.smoke.runner.PDFCraft", return_value=craft), \
+            with patch("pdf_craft_tool.smoke.runner.PDFCraft", return_value=craft), \
                     patch.object(craft, "extract_pdf_with_metering", return_value=(
                         package, OCRTokensMetering(0, 0)
                     )):

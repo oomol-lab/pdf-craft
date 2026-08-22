@@ -88,15 +88,15 @@ poetry build
 
 ## Manual Conversion Checks
 
-The scripts in `scripts/` are manual checks for conversion work. They require Poppler and an OCR configuration from `.env`. Local modes require model downloads and CUDA; vendor modes require credentials:
+The repository-local `pdf_craft_tool` CLI is the manual conversion and smoke-test entry point. It requires Poppler and an OCR configuration from `.env`. Local modes require model downloads and CUDA; vendor modes require credentials:
 
 ```shell
-poetry run python scripts/convert_pdf.py tests/assets/citation.pdf --format markdown --pages 1,2,3
-poetry run python scripts/convert_pdf.py tests/assets/citation.pdf --format epub
-poetry run python scripts/translate_pdf.py tests/assets/citation.pdf zh --pages 1,2,3
+poetry run python -m pdf_craft_tool pdf convert tests/assets/citation.pdf --format markdown --pages 1,2,3
+poetry run python -m pdf_craft_tool pdf convert tests/assets/citation.pdf --format epub
+poetry run python -m pdf_craft_tool pdf translate tests/assets/citation.pdf zh --pages 1,2,3
 ```
 
-Each invocation creates an isolated run directory under `analysing/manual/`, containing its `package/` and rendered output. `--pages` always uses 1-based PDF page indexes. `translate_pdf.py` additionally requires the dedicated `PDF_CRAFT_TRANSLATION_*` chat-completion configuration; OCR credentials are not used as an LLM fallback.
+Each invocation creates an isolated run directory under `analysing/manual/`, containing its `package/` and rendered output. `--pages` always uses 1-based PDF page indexes. Text LLM profiles are separate from OCR configuration; the default profile retrieves the local OOMOL connection at runtime without persisting its credential. See [`pdf_craft_tool/README.md`](../pdf_craft_tool/README.md) for the complete command and smoke-matrix reference.
 
 ## VGE Worktree Development
 

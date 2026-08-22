@@ -16,7 +16,7 @@ from pdf_craft.functions import predownload_models
 from pdf_craft.ocr_config import ensure_ocr_config
 from pdf_craft.pdf.page_extractor import PageExtractorNode
 from pdf_craft.transform import Transform
-from scripts.runtime import create_ocr_config_from_env
+from pdf_craft_tool.runtime import create_ocr_config_from_env
 
 
 class TestOCRConfig(unittest.TestCase):
