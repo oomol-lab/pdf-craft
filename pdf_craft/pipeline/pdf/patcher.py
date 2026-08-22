@@ -3,6 +3,8 @@ from pathlib import Path
 from tempfile import NamedTemporaryFile
 from typing import Iterable
 
+from pdf_craft.pdf.handler import DefaultPDFHandler, PDFHandler
+
 from .text_layout import BoxTextLayout, PatchTextOptions
 
 
@@ -13,6 +15,7 @@ class PDFReplacement:
     text: str
     page_pixel_size: tuple[int, int]
     dpi: int = 300
+    reading_order: int = 0
 
 
 @dataclass(frozen=True)
@@ -37,6 +40,8 @@ class PDFPatcher:
         font_name: str | None = None,
         font_size: float | None = None,
         options: PatchTextOptions | None = None,
+        pdf_handler: PDFHandler | None = None,
+        dpi: int = 300,
     ) -> None:
         """Create a patcher.
 
@@ -57,11 +62,14 @@ class PDFPatcher:
             )
         self.options = options
         self._layout = BoxTextLayout(options)
+        self._pdf_handler = pdf_handler or DefaultPDFHandler()
+        self.dpi = dpi
         self.skipped_replacements: tuple[PDFSkippedReplacement, ...] = ()
 
     def patch(self, source_path: Path, target_path: Path, replacements: Iterable[PDFReplacement]) -> None:
         try:
             import pypdf
+            from reportlab.lib.utils import ImageReader
             from reportlab.pdfgen import canvas
         except ImportError as error:
             raise RuntimeError("PDF patching requires the optional 'reportlab' dependency") from error
@@ -72,6 +80,8 @@ class PDFPatcher:
         for replacement in replacements:
             self.validate(replacement, pages_count=len(reader.pages))
             replacements_by_page.setdefault(replacement.page_index, []).append(replacement)
+        for page_replacements in replacements_by_page.values():
+            page_replacements.sort(key=lambda replacement: replacement.reading_order)
 
         # Preflight all pages before drawing any white rectangles or creating a
         # target file. A failed fit must not masquerade as a successful patch.
@@ -92,19 +102,26 @@ class PDFPatcher:
                 layouts.setdefault(index, []).append((replacement, fitted))
 
         writer = pypdf.PdfWriter()
-        for index, page in enumerate(reader.pages, 1):
-            page_layouts = layouts.get(index, [])
-            if page_layouts:
+        document = self._pdf_handler.open(source_path)
+        try:
+            for index, page in enumerate(reader.pages, 1):
                 width = float(page.mediabox.width)
                 height = float(page.mediabox.height)
                 with NamedTemporaryFile(suffix=".pdf") as overlay_file:
                     overlay = canvas.Canvas(overlay_file.name, pagesize=(width, height))
+                    page_layouts = layouts.get(index, [])
+                    render_dpi = page_layouts[0][0].dpi if page_layouts else self.dpi
+                    raw_page = document.render_page(index, render_dpi)
+                    overlay.drawImage(ImageReader(raw_page), 0, 0, width=width, height=height)
+                    for replacement, _ in page_layouts:
+                        self._draw_background(overlay, replacement, width, height)
                     for replacement, fitted in page_layouts:
-                        self._draw_replacement(overlay, replacement, fitted, width, height)
+                        self._draw_text(overlay, replacement, fitted, width, height)
                     overlay.save()
                     overlay_reader = pypdf.PdfReader(overlay_file.name)
-                    page.merge_page(overlay_reader.pages[0])
-            writer.add_page(page)
+                    writer.add_page(overlay_reader.pages[0])
+        finally:
+            document.close()
 
         target_path.parent.mkdir(parents=True, exist_ok=True)
         with NamedTemporaryFile(dir=target_path.parent, suffix=".pdf", delete=False) as output:
@@ -142,11 +159,13 @@ class PDFPatcher:
         y = height - bottom * scale_y
         return x, y, (right - left) * scale_x, (bottom - top) * scale_y
 
-    def _draw_replacement(self, overlay, replacement: PDFReplacement, fitted, width: float, height: float) -> None:
+    def _draw_background(self, overlay, replacement: PDFReplacement, width: float, height: float) -> None:
         x, y, box_width, box_height = self._box_in_points(replacement, width, height)
-
         overlay.setFillColorRGB(1, 1, 1)
         overlay.rect(x, y, box_width, box_height, stroke=0, fill=1)
+
+    def _draw_text(self, overlay, replacement: PDFReplacement, fitted, width: float, height: float) -> None:
+        x, y, _, box_height = self._box_in_points(replacement, width, height)
         overlay.setFillColorRGB(0, 0, 0)
         fitted.paragraph.drawOn(
             overlay,

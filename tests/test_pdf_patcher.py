@@ -30,6 +30,7 @@ class TestPDFPatcher(unittest.TestCase):
             self.assertEqual(len(reader.pages), 1)
             page = list(reader.pages)[0]
             self.assertIn("Translated", page.extract_text())
+            self.assertNotIn("Original", page.extract_text())
 
     def test_rejects_invalid_bbox(self):
         with self.assertRaises(ValueError):
