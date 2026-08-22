@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from typing import Any, Callable, Generator, Generic, Iterable, TypeVar, cast
 
 from json_repair import repair_json
-from pydantic import BaseModel, ValidationError, field_validator, model_validator
+from pydantic import BaseModel, StrictInt, ValidationError, field_validator, model_validator
 
 from ...common import XMLReader, split_by_cv
 from .config import MAX_LEVELS, MAX_TITLE_CV
@@ -631,11 +631,11 @@ class _TocEntry:
 
 
 class _TitleLevelsSchema(BaseModel):
-    levels: list[int]
+    levels: list[StrictInt]
 
     @field_validator("levels")
     @classmethod
-    def validate_levels(cls, v: list[int]) -> list[int]:
+    def validate_levels(cls, v: list[StrictInt]) -> list[StrictInt]:
         # Rule 1: Check all are valid integers in range
         for i, level in enumerate(v):
             if not isinstance(level, int):
@@ -681,11 +681,11 @@ class _TitleLevelsSchema(BaseModel):
 
 
 class _TocLevelsSchema(BaseModel):
-    levels: list[int]
+    levels: list[StrictInt]
 
     @field_validator("levels")
     @classmethod
-    def validate_levels(cls, v: list[int]) -> list[int]:
+    def validate_levels(cls, v: list[StrictInt]) -> list[StrictInt]:
         # Rule 1: Check all are valid integers in range
         for i, level in enumerate(v):
             if not isinstance(level, int):

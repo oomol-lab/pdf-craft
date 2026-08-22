@@ -3,7 +3,12 @@ from typing import cast
 
 from pdf_craft.llm.types import Message, MessageRole
 from pdf_craft.llm.core import LLM
-from pdf_craft.extractor.toc.llm_analyser import LLMAnalysisError, _LLMAnalyser
+from pdf_craft.extractor.toc.llm_analyser import (
+    LLMAnalysisError,
+    _LLMAnalyser,
+    _validate_title_response,
+    _validate_toc_response,
+)
 
 
 class _BrokenLLM:
@@ -89,6 +94,20 @@ class TestLLMAnalyser(unittest.TestCase):
         )
         self.assertEqual(analyser.request(payload=None, messages=[Message(MessageRole.USER, "toc")]), [2, 3])
         self.assertEqual(received, ['{"A": 2, "B": 3}'])
+
+    def test_title_and_toc_levels_reject_string_and_boolean_integers(self):
+        for response, validator in (
+            ('{"0": "1"}', _validate_title_response),
+            ('{"0": true}', _validate_title_response),
+        ):
+            result, error = validator(response, 1)
+            self.assertIsNone(result)
+            self.assertIn("integer", error or "")
+
+        for response in ('{"A": "1"}', '{"A": false}'):
+            result, error = _validate_toc_response(response, 1)
+            self.assertIsNone(result)
+            self.assertIn("integer", error or "")
 
 
 if __name__ == "__main__":
