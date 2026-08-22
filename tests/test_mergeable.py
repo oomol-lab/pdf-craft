@@ -2,8 +2,8 @@ import unittest
 from typing import Iterable
 
 from pdf_craft.markdown.paragraph import HTMLTag
-from pdf_craft.sequence import BlockMember
-from pdf_craft.sequence.mergeable import check_mergeable
+from pdf_craft.extractor.chapter import BlockMember
+from pdf_craft.extractor.chapter.mergeable import check_mergeable
 
 _Content = list[str | BlockMember | HTMLTag[BlockMember]]
 

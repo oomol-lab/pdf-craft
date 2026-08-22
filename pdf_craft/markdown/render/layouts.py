@@ -4,7 +4,7 @@ from typing import Callable, Generator, Iterable
 
 from ...expression import ExpressionKind, to_markdown_string
 from ...pdf import TITLE_TAGS
-from ...sequence import (
+from ...extractor.chapter import (
     AssetLayout,
     BlockMember,
     InlineExpression,

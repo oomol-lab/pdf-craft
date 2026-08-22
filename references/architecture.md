@@ -33,10 +33,10 @@
 ## 模块归属
 
 - `pdf_craft/pdf/` 负责 PDF 元数据、渲染、页引用、通过 `doc-page-extractor` 接入 OCR 后端，以及 OCR 页 XML 数据。
-- `pdf_craft/toc/` 负责目录页检测和标题层级分析，包括可选的 LLM 辅助分析。
-- `pdf_craft/sequence/` 负责根据 OCR 页 XML 和 TOC 事实生成章节结构。
+- `pdf_craft/extractor/toc/` 负责目录页检测和标题层级分析，包括可选的 LLM 辅助分析。
+- `pdf_craft/extractor/chapter/` 负责根据 OCR 页 XML 和 TOC 事实生成章节结构。
 - `pdf_craft/markdown/` 负责 Markdown 段落解析和 Markdown 输出渲染。
-- `pdf_craft/epub/` 负责把章节数据转换为 `epub-generator` 的记录并生成 EPUB。
+- `pdf_craft/renderer/epub/` 负责把章节数据转换为 `epub-generator` 的记录并生成 EPUB。
 - `pdf_craft/llm/` 负责增强目录分析所需的可选 LLM 调用。核心转换应保持不依赖该增强能力也可使用。
 - `pdf_craft/common/` 负责可复用的文件系统、XML、资源和统计辅助逻辑。
 

@@ -3,7 +3,7 @@ from typing import cast
 
 from pdf_craft.llm.types import Message, MessageRole
 from pdf_craft.llm.core import LLM
-from pdf_craft.toc.llm_analyser import LLMAnalysisError, _LLMAnalyser
+from pdf_craft.extractor.toc.llm_analyser import LLMAnalysisError, _LLMAnalyser
 
 
 class _BrokenLLM:

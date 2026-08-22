@@ -18,9 +18,9 @@ from .llm import LLM
 from .metering import AbortedCheck, OCRTokensMetering
 from .ocr_config import OCRConfig, ensure_ocr_config
 from .pdf import OCR, DeepSeekOCRSize, OCREvent, PDFHandler
-from .sequence import generate_chapter_files
+from .extractor.chapter import generate_chapter_files
 from .to_path import to_path
-from .toc import analyse_toc
+from .extractor.toc import analyse_toc
 from .document import DocumentPackage
 from .craft import TranslationStep
 from .transformer import PackageTransformer

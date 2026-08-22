@@ -1,9 +1,9 @@
 from collections.abc import Callable
 from pathlib import Path
 
-from pdf_craft.sequence.chapter import Chapter, ParagraphLayout
-from pdf_craft.sequence.chapter import InlineExpression, Reference
-from pdf_craft.sequence.reader import create_chapters_reader
+from pdf_craft.extractor.chapter.chapter import Chapter, ParagraphLayout
+from pdf_craft.extractor.chapter.chapter import InlineExpression, Reference
+from pdf_craft.extractor.chapter.reader import create_chapters_reader
 from pdf_craft.markdown.paragraph import HTMLTag
 from pdf_craft.expression import to_markdown_string
 from pdf_craft.document import DocumentPackage

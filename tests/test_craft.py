@@ -8,7 +8,7 @@ from pdf_craft.craft import ExtractionOptions, PDFCraft, PDFOptions, Translation
 from pdf_craft.document import DocumentPackage
 from pdf_craft.error import InterruptedError as PDFInterruptedError, PDFError
 from pdf_craft.metering import InterruptedKind, OCRTokensMetering
-from pdf_craft.sequence.chapter import BlockLayout, Chapter, ParagraphLayout, encode
+from pdf_craft.extractor.chapter.chapter import BlockLayout, Chapter, ParagraphLayout, encode
 from pdf_craft.transform import Transform
 from pdf_craft.transformer import ChapterPackageTransformer, SubmitKind
 

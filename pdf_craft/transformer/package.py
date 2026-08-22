@@ -8,7 +8,7 @@ from xml.etree.ElementTree import Element
 
 from pdf_craft.common.xml import read_xml, save_xml
 from pdf_craft.document import DocumentPackage
-from pdf_craft.sequence.chapter import decode, encode
+from pdf_craft.extractor.chapter.chapter import decode, encode
 from pdf_craft.transformer.protocol import ChapterTransformer
 from pdf_craft.transformer.xml_translator.xml_translator import SubmitKind
 

@@ -23,10 +23,10 @@ from epub_generator import (
     HTMLTag as EpubHTMLTag,
 )
 
-from ..markdown.paragraph import HTMLTag, flatten
-from ..metering import AbortedCheck, check_aborted
-from ..pdf import TITLE_TAGS
-from ..sequence import (
+from ...markdown.paragraph import HTMLTag, flatten
+from ...metering import AbortedCheck, check_aborted
+from ...pdf import TITLE_TAGS
+from ...extractor.chapter import (
     AssetLayout,
     Chapter,
     InlineExpression,

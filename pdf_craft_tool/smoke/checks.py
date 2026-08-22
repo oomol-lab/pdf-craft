@@ -9,8 +9,8 @@ from urllib.parse import urlparse
 import pypdf
 
 from pdf_craft.document import DocumentPackage
-from pdf_craft.sequence.chapter import ParagraphLayout
-from pdf_craft.sequence.reader import create_chapters_reader
+from pdf_craft.extractor.chapter.chapter import ParagraphLayout
+from pdf_craft.extractor.chapter.reader import create_chapters_reader
 
 
 def check_package(package: DocumentPackage, require_geometry: bool = False) -> list[str]:

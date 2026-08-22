@@ -2,11 +2,11 @@ from dataclasses import dataclass
 from typing import Generator, Iterable, cast
 from xml.etree.ElementTree import Element
 
-from ..common import ASSET_TAGS, AssetRef, indent
-from ..expression import ExpressionKind, decode_expression_kind, encode_expression_kind
-from ..markdown.paragraph import HTMLTag, flatten
-from ..markdown.paragraph import decode as decode_content
-from ..markdown.paragraph import encode as encode_content
+from ...common import ASSET_TAGS, AssetRef, indent
+from ...expression import ExpressionKind, decode_expression_kind, encode_expression_kind
+from ...markdown.paragraph import HTMLTag, flatten
+from ...markdown.paragraph import decode as decode_content
+from ...markdown.paragraph import encode as encode_content
 from .mark import Mark
 
 

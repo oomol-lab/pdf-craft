@@ -2,11 +2,11 @@ import re
 from dataclasses import dataclass
 from typing import Generator, Iterable, cast
 
-from ..common import ASSET_TAGS, AssetRef
-from ..expression import ExpressionKind, ParsedItem, parse_latex_expressions
-from ..language import is_latin_letter
-from ..markdown.paragraph import parse_raw_markdown
-from ..pdf import TITLE_TAGS, PageLayout
+from ...common import ASSET_TAGS, AssetRef
+from ...expression import ExpressionKind, ParsedItem, parse_latex_expressions
+from ...language import is_latin_letter
+from ...markdown.paragraph import parse_raw_markdown
+from ...pdf import TITLE_TAGS, PageLayout
 from .chapter import AssetLayout, BlockLayout, InlineExpression, ParagraphLayout
 from .content import Content, expand_text_in_content, first, last
 from .mergeable import LINK_FLAGS, check_mergeable

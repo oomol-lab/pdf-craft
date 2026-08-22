@@ -2,8 +2,8 @@ from dataclasses import dataclass
 from enum import Enum, auto
 from typing import Generator, Generic, Iterable, TypeVar
 
-from ..common import avg, split_by_cv
-from ..pdf import PageLayout
+from ...common import avg, split_by_cv
+from ...pdf import PageLayout
 
 _T = TypeVar("_T")
 _CV = 0.1  # Coefficient of Variation

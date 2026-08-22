@@ -24,7 +24,7 @@ from pdf_craft_tool.smoke.runner import (
     expand_matrix,
     run_smoke,
 )
-from pdf_craft.sequence.chapter import AssetLayout, BlockLayout, Chapter, ParagraphLayout, encode
+from pdf_craft.extractor.chapter.chapter import AssetLayout, BlockLayout, Chapter, ParagraphLayout, encode
 
 encode_chapter = encode
 

@@ -4,7 +4,7 @@ from shutil import copy
 from typing import Generator
 
 from ...metering import AbortedCheck, check_aborted
-from ...sequence import (
+from ...extractor.chapter import (
     Reference,
     create_chapters_reader,
     references_to_map,

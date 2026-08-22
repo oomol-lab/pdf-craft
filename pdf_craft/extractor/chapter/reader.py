@@ -1,7 +1,7 @@
 from pathlib import Path
 from typing import Callable, Generator, Iterable
 
-from ..common import XMLReader, read_xml
+from ...common import XMLReader, read_xml
 from .chapter import Chapter, decode
 
 
