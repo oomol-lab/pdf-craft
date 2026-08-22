@@ -3,7 +3,7 @@ from dataclasses import dataclass
 from typing import Generic, TypeVar
 from xml.etree.ElementTree import Element
 
-from pdf_craft.llm import LLM, Message, MessageRole
+from pdf_craft.llm import LLM, Message, MessageRole, runtime_for
 from pdf_craft.transformer.xml_translator.segment import BlockSegment, InlineSegment, TextSegment
 from pdf_craft.transformer.xml_translator.xml import decode_friendly, encode_friendly
 from .callbacks import Callbacks, FillFailedEvent, warp_callbacks
@@ -36,6 +36,8 @@ class XMLTranslator:
     ) -> None:
         self._translation_llm: LLM = translation_llm
         self._fill_llm: LLM = fill_llm
+        self._translation_runtime = runtime_for(translation_llm, protocol_version="xml-translation-v1")
+        self._fill_runtime = runtime_for(fill_llm, protocol_version="xml-fill-v1")
         self._target_language: str = target_language
         self._user_prompt: str | None = user_prompt
         self._ignore_translated_error: bool = ignore_translated_error
@@ -148,7 +150,7 @@ class XMLTranslator:
                 yield text_segment.text
 
     def _translate_text(self, text: str) -> str:
-        with self._translation_llm.context(cache_seed_content=self._cache_seed_content) as ctx:
+        with self._translation_runtime.context(cache_seed_content=self._cache_seed_content) as ctx:
             return ctx.request(
                 input=[
                     Message(
@@ -186,7 +188,7 @@ class XMLTranslator:
         ]
         conversation_history: list[Message] = []
 
-        with self._fill_llm.context(cache_seed_content=self._cache_seed_content) as llm_context:
+        with self._fill_runtime.context(cache_seed_content=self._cache_seed_content) as llm_context:
             error_message: str | None = None
 
             for retry_count in range(self._max_retries):
