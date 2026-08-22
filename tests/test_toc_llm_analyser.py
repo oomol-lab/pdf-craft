@@ -16,6 +16,16 @@ class _JsonLLM:
         return '{"0": 0, "1": 1}'
 
 
+class _SequenceLLM:
+    def __init__(self, responses):
+        self.responses = iter(responses)
+        self.calls = 0
+
+    def request(self, input):  # pylint: disable=redefined-builtin,unused-argument
+        self.calls += 1
+        return next(self.responses)
+
+
 class TestLLMAnalyser(unittest.TestCase):
     def test_wraps_llm_request_errors_as_analysis_error(self):
         analyser = _LLMAnalyser(
@@ -45,6 +55,26 @@ class TestLLMAnalyser(unittest.TestCase):
             analyser.request(payload=None, messages=[Message(MessageRole.USER, "json")]),
             [0, 1],
         )
+
+    def test_non_object_response_is_schema_retry(self):
+        llm = _SequenceLLM(["[1, 2]", '{"0": 0, "1": 1}'])
+        analyser = _LLMAnalyser(
+            llm=cast(LLM, llm),
+            validate=lambda response, payload: ([0, 1], None),
+        )
+        self.assertEqual(analyser.request(payload=None, messages=[Message(MessageRole.USER, "json")]), [0, 1])
+        self.assertEqual(llm.calls, 2)
+
+    def test_non_object_response_exhausts_as_typed_schema_failure(self):
+        llm = _SequenceLLM(["[1, 2]"] * 3)
+        analyser = _LLMAnalyser(
+            llm=cast(LLM, llm),
+            validate=lambda response, payload: ([0, 1], None),
+        )
+        with self.assertRaises(LLMAnalysisError) as context:
+            analyser.request(payload=None, messages=[Message(MessageRole.USER, "json")])
+        self.assertIn("schema validation failed", str(context.exception))
+        self.assertEqual(llm.calls, 3)
 
 
 if __name__ == "__main__":

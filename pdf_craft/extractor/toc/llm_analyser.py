@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from typing import Any, Callable, Generator, Generic, Iterable, TypeVar, cast
 
 from json_repair import repair_json
-from pydantic import BaseModel, ValidationError, field_validator
+from pydantic import BaseModel, ValidationError, field_validator, model_validator
 
 from ...common import XMLReader, split_by_cv
 from .config import MAX_LEVELS, MAX_TITLE_CV
@@ -570,15 +570,14 @@ class _LLMAnalyser(Generic[_P, _R]):
     def request(self, payload: _P, messages: Iterable[Message]) -> _R:
         class _ResponseSchema(BaseModel):
             """Transport schema; TOC validator owns RESULT and ID semantics."""
-            model_config = {"extra": "allow"}
-
             payload: dict[str, Any]
 
+            @model_validator(mode="before")
             @classmethod
-            def model_validate(cls, obj, *args, **kwargs):  # type: ignore[override]
-                if not isinstance(obj, dict):
+            def wrap_object(cls, value: Any) -> dict[str, Any]:
+                if not isinstance(value, dict):
                     raise ValueError("TOC response must be a JSON object")
-                return cls(payload=obj)
+                return {"payload": value}
 
         def parse(data, _index, _maximum):
             result, error_msg = self._validate(json.dumps(data.payload, ensure_ascii=False), payload)
