@@ -1,3 +1,4 @@
+# pylint: disable=protected-access
 import tempfile
 import unittest
 from pathlib import Path
@@ -19,7 +20,7 @@ class TestLLMRuntime(unittest.TestCase):
             runtime = runtime_for(_config(root))
             calls = 0
 
-            def invoke(*args):
+            def invoke(*_args):
                 nonlocal calls
                 calls += 1
                 return "ok"

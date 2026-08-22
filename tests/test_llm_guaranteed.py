@@ -15,7 +15,7 @@ class TestGuaranteedJson(unittest.TestCase):
     def test_repairs_json_and_retries_schema_feedback(self):
         calls = []
 
-        def request(messages, index, maximum):
+        def request(messages, index, _maximum):
             calls.append(messages)
             return '{"value":}' if index == 0 else '{"value": 3}'
 

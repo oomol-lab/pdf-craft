@@ -571,7 +571,7 @@ class _LLMAnalyser(Generic[_P, _R]):
         class _AnyResponse(RootModel[object]):
             pass
 
-        def parse(data, index, maximum):
+        def parse(data, _index, _maximum):
             result, error_msg = self._validate(json.dumps(data.root, ensure_ascii=False), payload)
             if result is None:
                 raise ValueError(error_msg or "Unknown validation error")
