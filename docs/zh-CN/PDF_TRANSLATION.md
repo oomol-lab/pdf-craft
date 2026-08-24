@@ -19,8 +19,10 @@ pdf-craft 的 PDF 能力可以按使用目标分成三类：
 
 ## 创建 PDFCraft
 
-所有需要读取 PDF 的流程都从 `PDFCraft` 开始。`PDFOptions` 保存一次会长期复用的 PDF
-基础设施配置；它不会在构造 `PDFCraft` 时立即加载 OCR 模型。
+通过 `PDFCraft` 门面 API 读取 PDF 的流程从 `PDFCraft` 开始。本文后面介绍的
+`PDFTranslationPipeline` / `PDFPatcher` 是可直接读取并写回 PDF 的低层入口，不经过该门面。
+`PDFOptions` 保存一次会长期复用的 PDF 基础设施配置；它不会在构造 `PDFCraft` 时立即加载 OCR
+模型。
 
 ```python
 from pdf_craft import DeepSeekOCRVendorConfig, PDFCraft, PDFOptions
@@ -40,7 +42,7 @@ OCR 配置的具体选择和字段不在本文展开，请参考 OCR backend 配
 情况：此时 pdf-craft 会构造 `DeepSeekOCRLocalConfig`，将 `models_cache_path` 作为本地模型
 缓存目录，并把 `local_only=True` 传给本地模型加载流程。后者适合模型已在缓存中、希望避免
 运行时下载的环境；缓存不完整时，实际加载仍会失败。若已经显式传入任一种 `ocr` 配置（无论
-本地还是供应商），就不能同时传入非空的 `models_cache_path`，也不能启用
+本地还是供应商），就不能传入 `models_cache_path`（即值不是 `None`），也不能启用
 `local_only=True`，否则构造提取引擎时会抛出 `ValueError`；显式传入默认值
 `local_only=False` 不会触发该错误。应将这两个设置直接放进对应的本地 OCR 配置，或只使用
 `PDFOptions` 的默认本地配置二者之一。
