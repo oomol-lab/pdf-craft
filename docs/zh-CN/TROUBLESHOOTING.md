@@ -7,8 +7,8 @@
 
 1. 确认输入文件确实存在，并且当前进程对它有读取权限。
 2. 确认系统可以找到 Poppler。pdf-craft 通过它把 PDF 页面渲染成 OCR 所需的图像。
-3. 确认你选择的 OCR 运行位置与设备匹配：local OCR 需要支持 CUDA 的 NVIDIA GPU；vendor
-   OCR 需要网络、服务地址和凭据。
+3. 确认你选择的 OCR 运行位置与设备匹配：local OCR 需要支持 CUDA 的 NVIDIA GPU，且需要
+   安装 `pdf-craft[local]` 可选依赖；vendor OCR 需要网络、服务地址和凭据。
 
 如果问题只发生在翻译流程，再单独检查文本 LLM 配置。OCR 服务和翻译 LLM 是两套独立配置，
 OCR 请求成功并不代表翻译 LLM 已经配置正确。
@@ -19,6 +19,7 @@ OCR 请求成功并不代表翻译 LLM 已经配置正确。
 | --- | --- |
 | `Poppler not found in PATH` | Poppler 是否安装、命令是否在 PATH 中 |
 | local OCR 报 CUDA 不可用 | PyTorch 是否为 CUDA 版本、驱动和 GPU 是否可见 |
+| local OCR 提示缺少运行时 | 是否安装了 `pdf-craft[local]` |
 | local OCR 报找不到模型 | 模型缓存路径、`local_only` 和模型是否已下载 |
 | vendor OCR 请求失败 | endpoint、模型名、API key、网络和供应商配额 |
 | EPUB/PDF 翻译时报 LLM 错误 | 文本 LLM 的 URL、模型、密钥和 token 编码 |
@@ -50,6 +51,12 @@ OCR 也有对应的 `ignore_ocr_errors` 选项，既可以设为 `True`，也可
 因此应在输出中检查这些页面，而不是把“流程完成”当成“每页都识别成功”。
 
 ## local OCR 问题
+
+### 提示缺少 local OCR 运行时
+
+local backend 的依赖没有随基础安装自动安装。若异常明确要求安装 `pdf-craft[local]`，说明
+运行时包尚未安装；请在当前 Poetry 或虚拟环境中安装这个可选依赖，然后重新运行。安装了
+该依赖但仍然失败，再继续检查 CUDA，而不要把两类问题混为一谈。
 
 ### CUDA 不可用
 
@@ -83,13 +90,38 @@ local OCR 首次运行可能需要从 Hugging Face 下载模型。检查：
 
 ### OCR preset 不适用于当前 backend
 
-`ocr_size` 的可用值由 backend 决定，不要假设所有模型都支持同一组 preset：
+`ocr_size` 的默认值是 `gundam`，但可用值由 backend 决定，不要假设所有模型都支持同一组
+preset：
 
 - Unlimited OCR local 支持 `base` 和 `gundam`；
 - DeepSeek OCR 2 local 的已验证路径使用 `base`；
-- DeepSeek OCR 2 local 显式使用 `tiny` 会在上游模型代码阶段快速失败。
+- DeepSeek OCR 2 local 显式使用 `tiny` 会被 pdf-craft 的前置校验拒绝，并提示使用 `base`；
+  这不是上游模型已经开始运行后才发生的错误。
 
 遇到 preset 错误时，先切换到该 backend 已验证的 preset，再判断是否存在其他问题。
+
+### 分辨率、页面范围或 OCR token 设置不合适
+
+这些 `ExtractionOptions` 会直接改变运行时间、显存占用和生成结果：
+
+- `page_indexes` 只处理指定页。排查复杂输入时先给一个小范围，确认单页流程后再扩大范围；
+  页码使用 pdf-craft 的页索引。
+- `dpi` 默认按 300 DPI 渲染扫描页。显存不足或渲染过慢时可降低它；文字过小、识别质量明显
+  下降时则应恢复较高分辨率。
+- `max_page_image_file_size` 限制单页渲染图像大小。页面被过度压缩或渲染失败时，检查是否
+  设置得过小；不确定时可先恢复默认值 `None`。
+- `max_ocr_tokens` 和 `max_ocr_output_tokens` 分别限制 OCR 请求的输入、输出 token 总量。
+  任务在处理到后续页面前耗尽额度时，降低页数或提高对应上限；提高上限也会增加供应商费用
+  或本地显存压力。
+
+### 目录识别或输出结构异常
+
+`toc_assumed=True` 会把输入视为已经有目录信息；如果输入并没有可用目录，章节划分可能不符合
+预期。需要用 LLM 分析目录时传入 `toc_llm`，并检查它的 endpoint、模型和凭据。目录分析失败
+时，先关闭 `toc_assumed` 或缩小 `page_indexes` 验证目录页，再处理 OCR 本身的问题。
+
+`generate_plot=True` 会额外生成图表相关资源并写入 package 的 `plots` 目录；输出体积突然
+变大或目录中出现额外资源时，这是预期行为。若磁盘空间不足，先关闭该选项。
 
 ### 处理过程中被中断
 
@@ -109,7 +141,10 @@ vendor OCR 使用远程服务，常见问题通常发生在配置或网络层，
 ### 请求超时、限流或余额不足
 
 确认网络可以访问 endpoint，并检查供应商控制台中的余额、配额和限流状态。减少一次提交的页面
-数量可以帮助判断是单页问题还是请求规模问题；如果服务支持，适当调整配置中的 timeout。
+数量可以帮助判断是单页问题还是请求规模问题。DeepSeek OCR 和 DeepSeek OCR 2 使用
+`timeout_seconds` 控制单次请求超时；百度 Unlimited OCR 还可以用 `poll_interval_seconds`
+控制轮询间隔，并用 `timeout_seconds` 控制等待上限。只调整适用 backend 的字段，避免把
+一个 backend 的配置名套用到另一个 backend。
 
 DeepSeek OCR 和 DeepSeek OCR 2 使用 OpenAI-compatible 配置；百度 Unlimited OCR 使用独立的
 AK/SK 配置。不要把两种认证格式混用。
