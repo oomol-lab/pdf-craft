@@ -6,10 +6,7 @@ from xml.etree.ElementTree import tostring
 
 from pdf_craft.craft import ExtractionOptions, PDFCraft, PDFOptions, TranslationStep
 from pdf_craft.document import DocumentPackage
-from pdf_craft.error import InterruptedError as PDFInterruptedError, PDFError
-from pdf_craft.metering import InterruptedKind, OCRTokensMetering
 from pdf_craft.extractor.chapter.chapter import BlockLayout, Chapter, ParagraphLayout, encode
-from pdf_craft.transform import Transform
 from pdf_craft.transformer import ChapterPackageTransformer, SubmitKind
 
 
@@ -213,6 +210,39 @@ class TestPDFCraft(unittest.TestCase):
         extract.assert_called_once()
         render.assert_called_once()
 
+    def test_one_shot_markdown_workflow_cleans_implicit_workspace(self):
+        craft = PDFCraft.from_engine(_Engine())
+        workspaces = []
+
+        def extract(*args):
+            workspaces.append(Path(args[1]))
+            self.assertTrue(workspaces[-1].is_dir())
+            return object(), "metering"
+
+        with patch.object(craft, "extract_pdf_with_metering", side_effect=extract), \
+             patch.object(craft, "render_markdown"):
+            result = craft.convert_pdf_to_markdown("source.pdf", "book.md")
+
+        self.assertEqual(result, "metering")
+        self.assertEqual(len(workspaces), 1)
+        self.assertFalse(workspaces[0].exists())
+
+    def test_one_shot_epub_workflow_cleans_implicit_workspace_on_error(self):
+        craft = PDFCraft.from_engine(_Engine())
+        workspaces = []
+
+        def extract(*args):
+            workspaces.append(Path(args[1]))
+            return object(), "metering"
+
+        with patch.object(craft, "extract_pdf_with_metering", side_effect=extract), \
+             patch.object(craft, "render_epub", side_effect=RuntimeError("render failed")), \
+             self.assertRaisesRegex(RuntimeError, "render failed"):
+            craft.convert_pdf_to_epub("source.pdf", "book.epub")
+
+        self.assertEqual(len(workspaces), 1)
+        self.assertFalse(workspaces[0].exists())
+
     def test_epub_workflow_detects_metadata_and_forwards_aborted(self):
         engine = _Engine()
         craft = PDFCraft.from_engine(engine)
@@ -241,36 +271,3 @@ class TestPDFCraft(unittest.TestCase):
 
     def test_pdf_options_are_accepted_without_eager_pdf_initialization(self):
         PDFCraft(pdf=PDFOptions())
-
-    def test_legacy_transform_wraps_facade_errors_for_both_outputs(self):
-        facade = Mock()
-        facade.convert_pdf_to_markdown.side_effect = ValueError("broken")
-        facade.convert_pdf_to_epub.side_effect = ValueError("broken")
-        with patch("pdf_craft.craft.PDFCraft.from_engine", return_value=facade):
-            transform = Transform()
-            with self.assertRaisesRegex(RuntimeError, "transform source.pdf to markdown failed"):
-                transform.transform_markdown("source.pdf", "book.md")
-            with self.assertRaisesRegex(RuntimeError, "transform source.pdf to epub failed"):
-                transform.transform_epub("source.pdf", "book.epub")
-
-    def test_legacy_transform_preserves_inline_pdf_error(self):
-        facade = Mock()
-        facade.convert_pdf_to_markdown.side_effect = PDFError("page failed", page_index=1)
-        with patch("pdf_craft.craft.PDFCraft.from_engine", return_value=facade):
-            with self.assertRaises(PDFError):
-                Transform().transform_markdown("source.pdf", "book.md")
-
-    def test_legacy_transform_preserves_public_interrupted_error(self):
-        error = PDFInterruptedError(InterruptedKind.ABORT, OCRTokensMetering(1, 2))
-        facade = Mock()
-        facade.convert_pdf_to_epub.side_effect = error
-        with patch("pdf_craft.craft.PDFCraft.from_engine", return_value=facade):
-            with self.assertRaises(PDFInterruptedError) as raised:
-                Transform().transform_epub("source.pdf", "book.epub")
-        self.assertIs(raised.exception, error)
-
-    def test_legacy_markdown_uses_assets_relative_to_markdown_output(self):
-        facade = Mock()
-        with patch("pdf_craft.craft.PDFCraft.from_engine", return_value=facade):
-            Transform().transform_markdown("source.pdf", "output/book.md")
-        self.assertEqual(facade.convert_pdf_to_markdown.call_args.kwargs["assets_path"], Path("assets"))

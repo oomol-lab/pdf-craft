@@ -1,8 +1,4 @@
-"""PDF extraction boundary.
-
-The legacy public API remains available from :mod:`pdf_craft` while new
-Extractor-facing contracts live in :mod:`pdf_craft.document`.
-"""
+"""PDF extraction boundary used by the public :class:`pdf_craft.PDFCraft`."""
 from .pdf import PDFExtractor
 
 __all__ = ["PDFExtractor"]

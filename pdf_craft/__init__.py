@@ -7,7 +7,7 @@ from .error import (
     OCRError,
     PDFError,
 )
-from .functions import predownload_models, transform_epub, transform_markdown
+from .functions import predownload_models
 from .craft import ExtractionOptions, PDFCraft, PDFOptions, TranslationStep
 from .pipeline.epub import translate_epub
 from .pipeline.pdf import PDFPatcher, PDFReplacement, PDFSkippedReplacement, PDFTranslationPipeline, PatchTextOptions
@@ -44,7 +44,6 @@ from .pdf import (
     PDFHandler,
     pdf_pages_count,
 )
-from .transform import Transform
 from .document import DocumentPackage, SourceLocation
 from .extractor import PDFExtractor
 from .renderer import EpubRenderer, MarkdownRenderer

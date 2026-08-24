@@ -12,51 +12,54 @@
   <p><a href="./README.md">English</a> | 中文</p>
 </div>
 
-## pdf-craft 是什么
+## pdf-craft 是什么?
 
-pdf-craft 面向扫描版书籍，把 PDF 转换为 Markdown、EPUB 或翻译后的 PDF。一次提取
-会生成可复用的 `DocumentPackage`，后续可以继续渲染、翻译或写回 PDF，不必每次重新
-OCR。
+pdf-craft 是以 PDF 文件格式为中心构建的转换库，支持将 PDF 转换为 Markdown 或 EPUB，
+也支持对转换后的内容进行翻译。它尤其擅长处理扫描件：可以把原本只能翻页阅读的扫描 PDF 转换成可编辑、
+可检索的 Markdown 或 EPUB，也可以在转换时直接完成翻译。
 
-项目提供三种本地 OCR 和三种 vendor OCR。vendor OCR 通过远程服务识别页面，不要求
-本机 CUDA；local OCR 在本机运行模型，需要 CUDA。翻译使用独立的文本 LLM 配置，
-与 OCR backend 分开。
+pdf-craft 围绕书籍和学术、技术文档的结构设计，支持识别正文、目录、脚注、表格、公式
+和图片等内容。OCR 支持 [DeepSeek OCR](https://github.com/deepseek-ai/DeepSeek-OCR)、
+[DeepSeek OCR 2](https://github.com/deepseek-ai/DeepSeek-OCR-2) 和百度
+[Unlimited OCR](https://github.com/baidu/Unlimited-OCR)。你可以利用本地设备（如果你的显卡支持）的算力运行 OCR，也可以配置远端供应商完成 OCR 工作。
 
-核心流程是：
+若涉及翻译等操作，需要配置 LLM。
 
-~~~text
-PDF → DocumentPackage
-DocumentPackage → translated DocumentPackage
-原始 PDF + translated DocumentPackage → PDF
-~~~
+## 在线版本
+
+如果你希望在不进行本地安装的情况下体验 pdf-craft，可以试试 [Inkora - PDF Craft](https://inkora.oomol.com/pdf-craft/)，这是一个基于相同 PDF 转换流程构建的在线应用。你可以直接上传 PDF 文件，在浏览器中体验主要功能。
+
+[![PDF Craft 在线版本](docs/images/website-cn.png)](https://inkora.oomol.com/pdf-craft/)
 
 ## 安装
 
-项目支持 Python 3.11、3.12 和 3.13。所有 PDF 路径都需要系统安装 Poppler；请参考
-[安装指南](docs/INSTALLATION_zh-CN.md)。
-
-### 默认安装：vendor、渲染和 package 操作
+如果你只是想开始使用 pdf-craft，安装这一版即可：
 
 ~~~bash
 pip install pdf-craft
 ~~~
 
-默认安装包含 vendor OCR、DocumentPackage、Markdown/EPUB 渲染和 PDF patch 所需的
-基础依赖，不主动安装 local OCR 的模型运行时。vendor OCR 还需要 endpoint 和凭据；
-库 API 通过配置对象接收它们，不读取 .env。
+这个安装包包含远程 OCR、Markdown/EPUB 渲染和 PDF 翻译所需的依赖。远程 OCR 使用服务
+端的计算资源，因此本机不需要准备 CUDA；你只需要在代码中的配置对象里填写服务地址、
+模型名和访问密钥。
 
-### local OCR 安装
+只有在你明确希望让 OCR 模型运行在自己的 NVIDIA 显卡上时，才需要额外安装本地 OCR
+依赖；如果你不确定，请使用上面的默认安装：
 
 ~~~bash
 pip install "pdf-craft[local]"
 ~~~
 
-local extra 提供 Hugging Face、Transformers 等 local OCR 运行时。真实 local OCR
-还需要 CUDA-capable PyTorch、模型缓存和足够显存；没有 CUDA 时请使用 vendor OCR。
+这项安装会增加 Hugging Face、Transformers 等本地模型运行时；实际运行还需要支持 CUDA
+的 PyTorch、模型缓存和足够的显存。没有这类设备时，使用前面的默认安装。
+
+项目支持 Python 3.11、3.12 和 3.13。处理 PDF 前还需要安装 Poppler，完整步骤请参考
+[安装指南](docs/zh-CN/INSTALLATION.md)。如果遇到问题，可以先查看[故障排查指南](docs/zh-CN/TROUBLESHOOTING.md)。
 
 ## 快速开始
 
-下面示例使用 vendor OCR。请把 endpoint、模型名和密钥替换成你的服务配置。
+下面的例子会把一个扫描版 PDF 转换成 Markdown 文件。代码使用远程 OCR 识别页面，因此
+你只需要把示例中的服务地址、模型名和访问密钥替换成自己的配置。
 
 ~~~python
 from pdf_craft import DeepSeekOCRVendorConfig, PDFCraft, PDFOptions
@@ -68,11 +71,21 @@ craft = PDFCraft(pdf=PDFOptions(ocr=DeepSeekOCRVendorConfig(
 )))
 craft.convert_pdf_to_markdown(
     "input.pdf", "output.md",
-    package_path="work/package", assets_path="work/assets",
 )
 ~~~
 
-转换为 EPUB：
+转换过程会自动使用系统临时目录，并在完成或发生异常后清理。如果需要保留中间结果以便
+调试或重复使用，可以显式传入 `package_path`。
+
+完整的 PDF 转换说明和库定制选项，请参阅 [PDF 转换与翻译指南](docs/zh-CN/PDF_TRANSLATION.md)
+和 [API 参考](docs/zh-CN/API_REFERENCE.md)。
+
+## 高级功能
+
+### 将 PDF 转换为 EPUB
+
+如果你希望得到 EPUB，请使用 `convert_pdf_to_epub`。下面是一个完整的
+示例：
 
 ~~~python
 from pdf_craft import (
@@ -90,151 +103,120 @@ ocr_config = DeepSeekOCRVendorConfig(
 craft = PDFCraft(pdf=PDFOptions(ocr=ocr_config))
 craft.convert_pdf_to_epub(
     "input.pdf", "output.epub",
-    package_path="work/package",
     book_meta=BookMeta(title="书名", authors=["作者"]),
 )
 ~~~
 
-PDFCraft 是 2.0 的公共 facade。旧的 transform_markdown 和 transform_epub 仍作为
-兼容包装保留；新代码建议使用 PDFCraft。
+`book_meta` 用于填写 EPUB 的书名和作者信息；如果不提供，pdf-craft 会尝试读取 PDF
+自身的元数据。
 
-## DocumentPackage：可复用的中间文档
+### 转换 PDF 时同时翻译
 
-DocumentPackage 是一个文件夹，通常包含：
-
-~~~text
-package/
-├── chapters/       # 章节 XML、文字、结构和页面坐标
-├── assets/         # 图片等资源
-├── toc.xml         # 可选目录
-├── cover.png       # 可选封面
-└── document.json   # 页面几何和 package 元数据
-~~~
-
-库层的原子操作如下：
+如果你希望 PDF 在转换为 Markdown 或 EPUB 的同时完成翻译，可以给转换方法增加翻译步骤。
+`translator` 是一个章节翻译器，负责把章节文字交给文本 LLM 并返回译文；准备好它以后，
+用 `TranslationStep` 将翻译步骤传给转换方法。同一个翻译步骤可以用于两种输出格式：
 
 ~~~python
-from pdf_craft import PDFCraft, PDFOptions, SubmitKind
+from pdf_craft import TranslationStep
 
-# 复用上例中的 OCR 配置
-craft = PDFCraft(pdf=PDFOptions(ocr=ocr_config))
-package = craft.extract_pdf("input.pdf", "work/package")
+translation = TranslationStep(translator)
 
-# translator 实现 ChapterTransformer；这里不会重新 OCR 或读取 PDF。
-translated = craft.translate_package(
-    package, "work/translated-package", translator,
-    submit=SubmitKind.REPLACE,
+craft.convert_pdf_to_markdown(
+    "input.pdf", "translated.md", steps=[translation],
 )
-
-# 写回只使用原始 PDF 和已有 package，不调用 OCR/LLM。
-PDFCraft().patch_pdf_with_package(
-    "input.pdf", translated, "translated.pdf",
+craft.convert_pdf_to_epub(
+    "input.pdf", "translated.epub", steps=[translation],
 )
 ~~~
 
-patch_pdf_with_package 使用 package 中的页面几何信息修改匹配的原始 PDF。它不是
-通用 PDF 排版器，不能脱离原始 PDF 仅凭 package 生成新页面；package 与原始 PDF
-不匹配时会提前失败。
+### 翻译 PDF
 
-## 翻译
+如果你的目标是得到翻译后的 PDF，使用 PDFCraft 的 PDF 翻译流程。它会识别 PDF 内容、
+翻译文字，并把翻译结果写回原始页面。翻译使用独立的文本 LLM 配置，不要把 OCR 服务
+地址当作翻译服务地址。
 
-库 API 的 PDFCraft.translate_pdf 要求调用者先准备好 DocumentPackage；它负责把翻译
-package 写回原始 PDF。CLI 的 pdf translate 才会把 PDF 提取、package 翻译和 PDF patch
-组合成一条命令。PDF 写回只支持替换式提交；Markdown 和 EPUB 还可以使用 append-block。
+下面的例子把 `input.pdf` 翻译成中文并保存为 `translated.pdf`。`translator` 需要连接
+你的文本 LLM，并接收一段文字后返回译文：
 
 ~~~python
-package = craft.extract_pdf("input.pdf", "work/package")
+from pdf_craft import DeepSeekOCRVendorConfig, PDFCraft, PDFOptions
+
+craft = PDFCraft(pdf=PDFOptions(ocr=DeepSeekOCRVendorConfig(
+    base_url="https://example.com/v1",
+    api_key="your-ocr-api-key",
+    model="deepseek-ocr",
+)))
+
+# 请替换为你自己的文本 LLM 调用。
+def translator(text: str) -> str:
+    return text  # 这里只是占位；实际应调用文本 LLM，将 text 翻译成中文
+
+package = craft.extract_pdf("input.pdf", "work/cache")
 craft.translate_pdf("input.pdf", package, "translated.pdf", translator)
 ~~~
 
-已有 EPUB 可以直接翻译：
+### 翻译 EPUB
+
+如果手头已经有 EPUB 文件，可以直接指定输入文件、输出文件、目标语言和文本 LLM：
 
 ~~~python
-from pdf_craft import PDFCraft, SubmitKind
+from pdf_craft import LLM, PDFCraft, SubmitKind
+
+llm = LLM(
+    key="your-api-key",
+    url="https://api.openai.com/v1",
+    model="gpt-4.1-mini",
+    token_encoding="o200k_base",
+)
 
 PDFCraft().translate_epub(
     "input.epub", "translated.epub",
-    target_language="zh", submit=SubmitKind.REPLACE,
+    target_language="zh", submit=SubmitKind.REPLACE, llm=llm,
 )
 ~~~
 
-OCR 只负责页面识别；章节翻译和可选的目录层级增强需要文本 chat-completion LLM。
-不要把 OCR endpoint 当作翻译 LLM 使用。
+这里的 `target_language="zh"` 表示翻译成中文。`REPLACE` 用译文替换原文，适合只保留
+目标语言；`APPEND_BLOCK` 保留原文，并把译文追加为新的文本块，适合双语对照阅读；
+`APPEND_TEXT` 则将译文直接接在原文后。译文会尽量保留原 EPUB 的排版、插图和目录结构。
 
-## OCR backend
+提示词、并发、缓存恢复、进度回调、失败处理及双 LLM 配置，请参考
+[EPUB 翻译指南](docs/zh-CN/EPUB_TRANSLATION.md)。
 
-pdf-craft 支持 doc-page-extractor 提供的六种 backend：
+## OCR backend 与模型缓存
 
-- DeepSeekOCRLocalConfig：本地 DeepSeek OCR，需要 CUDA。
-- DeepSeekOCR2LocalConfig：本地 DeepSeek OCR 2，需要 CUDA。
-- UnlimitedOCRLocalConfig：本地 Unlimited OCR，需要 CUDA。
-- DeepSeekOCRVendorConfig：OpenAI-compatible DeepSeek OCR endpoint。
-- DeepSeekOCR2VendorConfig：OpenAI-compatible DeepSeek OCR 2 endpoint。
-- UnlimitedOCRVendorConfig：Unlimited OCR vendor backend。
+OCR（光学字符识别）负责把 PDF 页面图片识别成文字。pdf-craft 提供六种 OCR 方式，
+先按下面的规则决定运行位置，再决定使用哪一家模型：
 
-库 API 的 ocr 参数接收配置对象，不读取环境变量。CLI 使用以下 backend 名称：
+- **没有 CUDA、希望少配置本机环境**：选择 vendor OCR。识别会上传到远程服务并使用
+  远端的计算资源，需要网络连接、服务地址和访问密钥。
+- **有支持 CUDA 的 NVIDIA 显卡、希望在本机运行**：选择 local OCR。模型会下载到本地
+  缓存，并直接使用本机显卡；可以减少数据外发，但需要自行准备 CUDA、显存和模型文件。
 
-~~~text
-deepseek-ocr-local
-deepseek-ocr2-local
-unlimited-ocr-local
-deepseek-ocr-vendor
-deepseek-ocr2-vendor
-unlimited-ocr-vendor
-~~~
+三种模型的归属如下：[DeepSeek OCR](https://github.com/deepseek-ai/DeepSeek-OCR) 和
+[DeepSeek OCR 2](https://github.com/deepseek-ai/DeepSeek-OCR-2) 来自 DeepSeek，
+[Unlimited OCR](https://github.com/baidu/Unlimited-OCR) 来自百度。每个模型都有本地运行
+和远程服务两种配置，因此一共是六种 backend。
 
-这些字符串由 pdf_craft_tool 从 .env 选择；--ocr-mode 只选择本次运行的 backend，
-不会修改 .env。六种 backend 的配置可以同时存在。
+| 选择 | 模型归属 | 运行位置 | 什么时候选 | 需要准备 |
+| --- | --- | --- | --- | --- |
+| `DeepSeekOCRLocalConfig` | DeepSeek | 本机 GPU | 有 CUDA，想在本机运行 DeepSeek OCR | CUDA、显存、模型缓存 |
+| `DeepSeekOCR2LocalConfig` | DeepSeek | 本机 GPU | 有 CUDA，想使用 DeepSeek OCR 2 | CUDA、显存、模型缓存；推荐 `base` preset |
+| `UnlimitedOCRLocalConfig` | 百度 | 本机 GPU | 有 CUDA，想使用百度 Unlimited OCR | CUDA、显存、模型缓存 |
+| `DeepSeekOCRVendorConfig` | DeepSeek | 远程服务 | 没有 CUDA，或希望直接调用远程 DeepSeek OCR | 服务地址、模型名、访问密钥、网络 |
+| `DeepSeekOCR2VendorConfig` | DeepSeek | 远程服务 | 没有 CUDA，或希望直接调用远程 DeepSeek OCR 2 | 服务地址、模型名、访问密钥、网络 |
+| `UnlimitedOCRVendorConfig` | 百度 | 远程服务 | 没有 CUDA，或希望直接调用百度 Unlimited OCR | 服务地址、模型名、访问密钥、网络 |
+
+如果你只是想先把流程跑通，优先选择自己已有凭据的 vendor OCR；如果你要离线运行，
+再选择对应的 local OCR。库 API 的 `ocr` 参数接收上表中的配置对象，不读取环境变量。完整配置示例请参考
+[OCR backend 配置指南](docs/zh-CN/OCR_BACKENDS.md)。
 
 Unlimited OCR local 仅支持 base 和 gundam；DeepSeek OCR 2 local 的已验证路径使用
 base，显式使用 tiny 会快速失败并提示改用 base。
 
-## CLI：从命令行复现流程
+### 模型缓存与常用参数
 
-pdf_craft_tool 是仓库内的本地 CLI，不包含在发布的 pdf-craft Python 包中。它从
-仓库根目录运行，并通过 .env.template/.env 配置 OCR backend 和文本 LLM：
-
-~~~shell
-poetry run python -m pdf_craft_tool --help
-~~~
-
-~~~shell
-# PDF → 可复用 DocumentPackage
-poetry run python -m pdf_craft_tool pdf extract input.pdf \
-  --ocr-mode deepseek-ocr-vendor --pages 1 \
-  --work-dir pdf-craft-output/extract
-
-# package → 翻译 package
-poetry run python -m pdf_craft_tool package translate \
-  pdf-craft-output/extract/package zh \
-  --output-package pdf-craft-output/translated-package
-
-# package → Markdown（不需要 OCR）
-poetry run python -m pdf_craft_tool package render \
-  pdf-craft-output/translated-package --format markdown
-
-# 原始 PDF + translated package → patched PDF（不需要 OCR/LLM）
-poetry run python -m pdf_craft_tool package patch-pdf \
-  input.pdf pdf-craft-output/translated-package \
-  --output translated.pdf
-
-# 一键 PDF 翻译
-poetry run python -m pdf_craft_tool pdf translate input.pdf zh \
-  --format pdf --submit replace --ocr-mode deepseek-ocr-vendor --pages 1
-
-# EPUB → EPUB
-poetry run python -m pdf_craft_tool epub translate input.epub zh \
-  --submit replace
-~~~
-
-所有 --pages 都使用从 1 开始的 PDF 页码。--work-dir 用于复用 package、缓存和日志，
-也方便中断后恢复。完整 CLI 参数、smoke 矩阵和 .env 字段请看
-[pdf_craft_tool/README.md](pdf_craft_tool/README.md)。
-
-## 模型缓存与常用参数
-
-local OCR 默认可以从 Hugging Face 下载模型。生产环境可以先预下载，再使用
-local_only=True：
+本地 OCR 默认会从 Hugging Face 下载模型。你也可以提前下载并指定模型缓存目录，之后
+使用 `local_only=True`，让运行过程只读取本地文件：
 
 ~~~python
 from pdf_craft import DeepSeekOCRLocalConfig, predownload_models
@@ -249,30 +231,10 @@ ocr_size 可使用 tiny、small、base、large 和 gundam，但不同 backend �
 相同。Markdown 默认 toc_assumed=False，EPUB 默认 toc_assumed=True；复杂目录可以
 传入 toc_llm。
 
-pdf-craft 默认通过 pdf2image 使用系统 PATH 中的 Poppler。也可以向 PDFOptions 传入
-自定义 PDFHandler。ignore_pdf_errors 和 ignore_ocr_errors 支持布尔值或自定义判断函数，
-用于决定是否跳过单页错误。
-
-## 兼容 API
-
-transform_markdown、transform_epub 和 predownload_models 仍可从顶层导入。前两个是旧
-API 的便利包装；新代码建议使用 PDFCraft facade。DocumentPackage 的正式操作是
-extract_pdf、translate_package、render_markdown、render_epub 和 patch_pdf_with_package。
-
-## 开发
-
-本地贡献者环境、验证命令、手动转换检查和 VGE worktree 说明，请参考[开发指南](docs/DEVELOPMENT_zh-CN.md)。
-
-## 在线版本
-
-如果你希望在不进行本地安装的情况下体验 pdf-craft，可以试试 [Inkora - PDF Craft](https://inkora.oomol.com/pdf-craft/)，这是一个基于相同 PDF 转换流程构建的在线应用。你可以直接上传 PDF 文件，在浏览器中体验主要功能。
-
-[![PDF Craft 在线版本](docs/images/website-cn.png)](https://inkora.oomol.com/pdf-craft/)
 
 ## 相关项目
 
-- [EPUB Translator](https://github.com/oomol-lab/epub-translator)：如果你想把 PDF Craft 生成的 EPUB 继续翻译成双语版本，EPUB Translator 可以在保留原始排版、插图和目录的前提下完成转换。完整流程可参考这个[演示视频](https://www.bilibili.com/video/BV1tMQZY5EYY/)。
-- [SpineDigest](https://github.com/oomol-lab/spinedigest)：如果你想进一步把转换后的书提炼成结构化摘要，SpineDigest 可以基于 EPUB 或 Markdown 生成摘要、章节拓扑和知识图谱。
+- [Wiki Graph](https://github.com/oomol-lab/wiki-graph)：如果你想进一步把转换后的书提炼成结构化摘要，Wiki Graph 可以基于 EPUB 或 Markdown 生成摘要、章节拓扑和知识图谱。
 
 ## 许可证
 
