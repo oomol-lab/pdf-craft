@@ -7,7 +7,6 @@ from pathlib import Path
 from typing import Any, cast
 
 from pdf_craft import (
-    ChapterPackageTransformer,
     ChapterXMLTransformer,
     DocumentPackage,
     ExtractionOptions,
@@ -16,7 +15,6 @@ from pdf_craft import (
     PDFCraft,
     PDFOptions,
     SubmitKind,
-    TranslationStep,
     XMLTranslator,
 )
 
@@ -79,6 +77,25 @@ def _parser() -> argparse.ArgumentParser:
 
     package = commands.add_parser("package", help="operate on an existing DocumentPackage")
     package_commands = package.add_subparsers(dest="package_command", required=True)
+    package_translate = package_commands.add_parser(
+        "translate", help="translate an existing DocumentPackage"
+    )
+    package_translate.add_argument("package", type=Path)
+    package_translate.add_argument("target_language")
+    package_translate.add_argument("--output-package", type=Path)
+    _add_work_dir(package_translate, "isolated run directory")
+    _add_translation_options(package_translate)
+    package_translate.set_defaults(handler=_translate_package)
+
+    package_patch = package_commands.add_parser(
+        "patch-pdf", help="patch an original PDF with an existing DocumentPackage"
+    )
+    package_patch.add_argument("source", type=Path)
+    package_patch.add_argument("package", type=Path)
+    package_patch.add_argument("--output", type=Path, help="patched PDF; defaults inside --work-dir")
+    _add_work_dir(package_patch, "isolated run directory")
+    package_patch.set_defaults(handler=_patch_package_pdf)
+
     render = package_commands.add_parser("render", help="DocumentPackage -> Markdown or EPUB")
     render.add_argument("package", type=Path)
     render.add_argument("--format", choices=("markdown", "epub"), required=True)
@@ -217,8 +234,8 @@ def _translate_pdf(args: argparse.Namespace) -> None:
         result.craft.translate_pdf(args.source, result.package, output, transformer)
     else:
         mode = SubmitKind[args.submit.replace("-", "_").upper()]
-        translated = result.craft.transform_package(
-            result.package, work_dir / "translated", (TranslationStep(ChapterPackageTransformer(transformer), mode),)
+        translated = result.craft.translate_package(
+            result.package, work_dir / "translated", transformer, submit=mode,
         )
         output = args.output or work_dir / ("book.md" if args.format == "markdown" else "book.epub")
         output.parent.mkdir(parents=True, exist_ok=True)
@@ -226,6 +243,28 @@ def _translate_pdf(args: argparse.Namespace) -> None:
     print(f"Package: {result.package.chapters_path.parent}")
     print(f"Output: {output}")
     _print_metering(result.metering)
+
+
+def _translate_package(args: argparse.Namespace) -> None:
+    load_project_env(_project_root())
+    work_dir = _work_dir(args.package, args.work_dir, "package-translate")
+    package = DocumentPackage.from_path(args.package).validate()
+    output_package = args.output_package or work_dir / "translated-package"
+    transformer = _xml_transformer(args, work_dir)
+    mode = SubmitKind[args.submit.replace("-", "_").upper()]
+    translated = PDFCraft().translate_package(
+        package, output_package, transformer, submit=mode,
+    )
+    print(f"Package: {translated.chapters_path.parent}")
+
+
+def _patch_package_pdf(args: argparse.Namespace) -> None:
+    work_dir = _work_dir(args.source, args.work_dir, "package-patch")
+    package = DocumentPackage.from_path(args.package).validate()
+    output = args.output or work_dir / f"{args.source.stem}-patched.pdf"
+    output.parent.mkdir(parents=True, exist_ok=True)
+    PDFCraft().patch_pdf_with_package(args.source, package, output)
+    print(f"Output: {output}")
 
 
 def _render_package(args: argparse.Namespace) -> None:
@@ -394,7 +433,7 @@ def _extract(args: argparse.Namespace, package_path: Path) -> _ExtractionResult:
     craft = PDFCraft(pdf=PDFOptions(ocr=create_ocr_config_from_env(ocr_mode)))
     package, metering = craft.extract_pdf_with_metering(
         args.source, package_path, ExtractionOptions(
-            page_indexes=_page_indexes(args.pages), ocr_size=ocr_size, dpi=args.dpi,
+            page_indexes=_page_indexes(args.pages), ocr_size=cast(Any, ocr_size), dpi=args.dpi,
             max_page_image_file_size=args.max_page_image_file_size,
             max_ocr_tokens=args.max_ocr_tokens, max_ocr_output_tokens=args.max_ocr_output_tokens,
             includes_cover=args.cover, includes_footnotes=args.footnotes,

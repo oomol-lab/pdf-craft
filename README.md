@@ -80,6 +80,26 @@ The `transform_markdown` and `transform_epub` functions remain available as
 compatibility convenience wrappers. New integrations should use `PDFCraft` so
 extraction, rendering, and translation workflows share one public facade.
 
+### Reuse a DocumentPackage
+
+PDF extraction produces a reusable `DocumentPackage` directory. It can be
+translated without running OCR again, then written back to the matching source
+PDF:
+
+```python
+from pdf_craft import PDFCraft, PDFOptions, SubmitKind
+
+craft = PDFCraft(pdf=PDFOptions())
+package = craft.extract_pdf("input.pdf", "package")
+translated = craft.translate_package(
+    package, "translated-package", translator, submit=SubmitKind.REPLACE
+)
+craft.patch_pdf_with_package("input.pdf", translated, "translated.pdf")
+```
+
+`patch_pdf_with_package` patches the existing PDF using the package's page
+geometry; it does not perform OCR, translation, or arbitrary PDF re-layout.
+
 ![20251218-162533](https://github.com/user-attachments/assets/7f6df04a-1fa7-48b3-aa5e-d2d056304ad6)
 
 ## Detailed Usage

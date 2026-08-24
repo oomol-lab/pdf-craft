@@ -44,6 +44,34 @@ class PDFTranslationPipeline:
                 document.close()
         self.patcher.patch(pdf_path, target_path, replacements)
 
+    def patch(
+        self,
+        pdf_path: Path,
+        target_path: Path,
+        package: DocumentPackage | Path,
+    ) -> None:
+        """Write the text already present in ``package`` back to ``pdf_path``.
+
+        This is deliberately separate from :meth:`translate`: the package is
+        already the source of the replacement text, so no OCR or LLM
+        transformer is involved.
+        """
+        package = package if isinstance(package, DocumentPackage) else DocumentPackage.from_path(package)
+        package.validate()
+        document = self.pdf_handler.open(pdf_path) if self.pdf_handler else None
+        replacements: list[PDFReplacement] = []
+        try:
+            pages = package.page_pixel_sizes()
+            reader = create_chapters_reader(package.chapters_path)
+            for chapter in reader():
+                self._collect_chapter(
+                    chapter, lambda text: text, document, pages, replacements, structured=True,
+                )
+        finally:
+            if document:
+                document.close()
+        self.patcher.patch(pdf_path, target_path, replacements)
+
     def _collect_chapter(self, chapter: Chapter, transformer, document, pages, replacements, structured: bool = False) -> None:
         for layout in chapter.layouts:
             if not isinstance(layout, ParagraphLayout) or layout.ref not in {"text", "sub_title"}:

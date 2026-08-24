@@ -32,6 +32,47 @@ class _Engine:
 
 
 class TestPDFCraft(unittest.TestCase):
+    def test_translate_package_is_the_public_package_translation_entry(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = DocumentPackage.from_path(root / "source")
+            source.chapters_path.mkdir(parents=True)
+            source.assets_path.mkdir()
+            source.write_metadata(page_pixel_sizes={1: (10, 10)})
+            chapter = Chapter(
+                None, -1, [ParagraphLayout(
+                    "text", 0, [BlockLayout(1, 1, (1, 1, 5, 5), ["original"])]
+                )]
+            )
+            (source.chapters_path / "chapter_1.xml").write_text(
+                '<?xml version="1.0" encoding="UTF-8"?>\n'
+                + tostring(encode(chapter), encoding="unicode")
+            )
+
+            class Upper:
+                def transform(self, chapter: Chapter) -> Chapter:
+                    layout = chapter.layouts[0]
+                    assert isinstance(layout, ParagraphLayout)
+                    layout.blocks[0].content = ["translated"]
+                    return chapter
+
+            target = PDFCraft().translate_package(source, root / "target", Upper())
+            self.assertEqual(target.page_pixel_sizes(), {1: (10, 10)})
+            self.assertIn("translated", (target.chapters_path / "chapter_1.xml").read_text())
+            self.assertFalse(hasattr(PDFCraft, "transform_package"))
+
+    def test_patch_pdf_with_package_delegates_to_pdf_patch_pipeline(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            package = DocumentPackage.from_path(root / "package")
+            package.chapters_path.mkdir(parents=True)
+            package.assets_path.mkdir()
+            with patch("pdf_craft.craft._validate_package_for_pdf") as validate, \
+                    patch("pdf_craft.craft.PDFTranslationPipeline.patch") as patch_pdf:
+                PDFCraft().patch_pdf_with_package("source.pdf", package, "target.pdf")
+            validate.assert_called_once()
+            patch_pdf.assert_called_once()
+
     def test_package_step_creates_independent_package(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
