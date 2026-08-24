@@ -71,9 +71,11 @@ craft = PDFCraft(pdf=PDFOptions(ocr=DeepSeekOCRVendorConfig(
 )))
 craft.convert_pdf_to_markdown(
     "input.pdf", "output.md",
-    package_path="work/cache", assets_path="work/assets",
+    package_path="work/cache",
 )
 ~~~
+
+`package_path` 是转换过程使用的工作目录，填写一个可写的路径即可。
 
 ## 高级功能
 
@@ -109,7 +111,8 @@ craft.convert_pdf_to_epub(
 ### 转换 PDF 时同时翻译
 
 如果你希望 PDF 在转换为 Markdown 或 EPUB 的同时完成翻译，可以给转换方法增加翻译步骤。
-下面的 `translator` 代表你接入的文本 LLM 翻译器；同一个翻译步骤可以用于两种输出格式：
+`translator` 是一个章节翻译器，负责把章节文字交给文本 LLM 并返回译文；准备好它以后，
+用 `TranslationStep` 将翻译步骤传给转换方法。同一个翻译步骤可以用于两种输出格式：
 
 ~~~python
 from pdf_craft import TranslationStep
@@ -146,7 +149,7 @@ craft = PDFCraft(pdf=PDFOptions(ocr=DeepSeekOCRVendorConfig(
 
 # 请替换为你自己的文本 LLM 调用。
 def translator(text: str) -> str:
-    return text  # 调用文本 LLM，将 text 翻译成中文
+    return text  # 这里只是占位；实际应调用文本 LLM，将 text 翻译成中文
 
 package = craft.extract_pdf("input.pdf", "work/cache")
 craft.translate_pdf("input.pdf", package, "translated.pdf", translator)
@@ -227,9 +230,6 @@ ocr_size 可使用 tiny、small、base、large 和 gundam，但不同 backend �
 相同。Markdown 默认 toc_assumed=False，EPUB 默认 toc_assumed=True；复杂目录可以
 传入 toc_llm。
 
-pdf-craft 默认通过 pdf2image 使用系统 PATH 中的 Poppler。也可以向 PDFOptions 传入
-自定义 PDFHandler。ignore_pdf_errors 和 ignore_ocr_errors 支持布尔值或自定义判断函数，
-用于决定是否跳过单页错误。
 
 ## 开发
 
