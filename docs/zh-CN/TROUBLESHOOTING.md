@@ -113,6 +113,9 @@ preset：
 - `max_ocr_tokens` 和 `max_ocr_output_tokens` 分别限制 OCR 请求的输入、输出 token 总量。
   任务在处理到后续页面前耗尽额度时，降低页数或提高对应上限；提高上限也会增加供应商费用
   或本地显存压力。
+- `includes_cover=True` 才会把识别到的封面图写入 package；`includes_footnotes=True` 才会
+  请求并保留脚注内容。遇到“正文有了但封面或脚注缺失”时，先检查这两个选项，而不是重复
+  下载模型或更换 OCR backend。
 
 ### 目录识别或输出结构异常
 
@@ -122,6 +125,21 @@ preset：
 
 `generate_plot=True` 会额外生成图表相关资源并写入 package 的 `plots` 目录；输出体积突然
 变大或目录中出现额外资源时，这是预期行为。若磁盘空间不足，先关闭该选项。
+
+### 用 OCR 事件定位具体页面
+
+需要判断任务卡在哪一页时，可通过 `on_ocr_event` 注册回调，记录每个 `OCREvent` 的
+`page_index`、`total_pages`、`kind`、耗时以及 `input_tokens`/`output_tokens`。常见事件包括：
+
+- `START`：开始处理一个页面；
+- `RENDERED`：页面已渲染成图像，尚未完成 OCR；
+- `COMPLETE`：页面识别完成；
+- `FAILED`：页面识别失败，`error` 字段包含异常；
+- `SKIP`：页面已有缓存结果而跳过 OCR；`IGNORE`：页面不在 `page_indexes` 范围内而不执行识别。
+
+把这些事件与失败页面的 PDF 页码、异常消息一起记录，能快速区分“没有选中该页”“渲染失败”
+和“OCR 服务失败”。`COMPLETE` 事件中的 token 字段也可用来核对计量是否异常；事件回调只
+用于观测，不会自动修复失败页面。
 
 ### 处理过程中被中断
 
