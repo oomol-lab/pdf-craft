@@ -5,11 +5,14 @@ from dataclasses import dataclass
 from inspect import signature
 from os import PathLike
 from pathlib import Path
+from tempfile import TemporaryDirectory
 from typing import Literal, cast
 
 from epub_generator import BookMeta, LaTeXRender, TableRender
 
 from .document import DocumentPackage
+from .extractor.chapter.chapter import Chapter, ParagraphLayout
+from .extractor.chapter.reader import create_chapters_reader
 from .error import IgnoreOCRErrorsChecker, IgnorePDFErrorsChecker
 from .extractor import PDFExtractor
 from .llm import LLM
@@ -18,6 +21,7 @@ from .ocr_config import OCRConfig
 from .pdf import DeepSeekOCRSize, OCREvent, PDFHandler
 from .pipeline.epub import translate_epub as run_epub_translation
 from .pipeline.pdf import PDFTranslationPipeline
+from .pipeline.pdf.pipeline import _to_patch_text
 from .renderer import EpubRenderer, MarkdownRenderer
 from .transformer import ChapterPackageTransformer, ChapterTransformer, PackageTransformer, SubmitKind
 
@@ -113,16 +117,19 @@ class PDFCraft:
                                   Path(assets_path) if assets_path is not None else None,
                                   aborted=aborted)
 
-    def transform_package(
+    def translate_package(
         self, package: DocumentPackage, output_path: PathLike | str,
-        steps: Sequence[TranslationStep | PackageTransformer],
+        translator: ChapterTransformer,
+        *, submit: SubmitKind = SubmitKind.REPLACE,
     ) -> DocumentPackage:
-        current = package
-        for step in steps:
-            transformer = self._as_package_transformer(step)
-            current = transformer.transform(current, Path(output_path))
-            output_path = Path(output_path).with_name(Path(output_path).name + ".next")
-        return current
+        """Translate one render-ready package into another package.
+
+        The public operation is intentionally singular and translation-focused;
+        arbitrary package transformation chains remain an internal composition
+        detail used by the compatibility workflows.
+        """
+        package_transformer = ChapterPackageTransformer(translator, mode=submit)
+        return package_transformer.transform(package, Path(output_path))
 
     def render_epub(
         self, package: DocumentPackage, output: PathLike | str, *,
@@ -145,10 +152,23 @@ class PDFCraft:
             mode = _step_mode(step, self._as_package_transformer(step))
             if mode == SubmitKind.APPEND_BLOCK:
                 raise ValueError("PDF output does not support APPEND_BLOCK")
-        package = self._apply_steps(package, steps)
+        with TemporaryDirectory(prefix="pdf-craft-translated-package-") as directory:
+            translated = self._translate_for_pdf(package, Path(directory), transformer, steps)
+            self.patch_pdf_with_package(source, translated, output)
+
+    def patch_pdf_with_package(
+        self,
+        source: PathLike | str,
+        package: DocumentPackage | PathLike | str,
+        output: PathLike | str,
+    ) -> None:
+        """Patch an existing PDF with text and geometry from a DocumentPackage."""
+        package = package if isinstance(package, DocumentPackage) else DocumentPackage.from_path(Path(package))
+        package.validate()
+        _validate_package_for_pdf(Path(source), package)
         PDFTranslationPipeline(
             pdf_handler=self._pdf.pdf_handler if self._pdf else None
-        ).translate(Path(source), Path(output), package, transformer)
+        ).patch(Path(source), Path(output), package)
 
     def translate_epub(self, source: PathLike | str, output: PathLike | str, *,
                        target_language: str, submit: SubmitKind,
@@ -194,6 +214,21 @@ class PDFCraft:
             transformer = self._as_package_transformer(step)
             output = package.chapters_path.parent / f"transformed-{index}"
             current = transformer.transform(current, output)
+        return current
+
+    def _translate_for_pdf(
+        self,
+        package: DocumentPackage,
+        output_root: Path,
+        transformer: ChapterTransformer | Callable[[str], str],
+        steps: Sequence[TranslationStep | PackageTransformer],
+    ) -> DocumentPackage:
+        current = package
+        if callable(transformer):
+            transformer = _TextChapterTransformer(transformer)
+        current = self.translate_package(current, output_root / "translated", transformer)
+        if steps:
+            current = self._apply_steps(current, steps)
         return current
 
     @staticmethod
@@ -247,3 +282,52 @@ def _step_mode(step: TranslationStep | PackageTransformer, transformer: PackageT
     if isinstance(step, TranslationStep):
         return step.mode if step.mode != SubmitKind.REPLACE else getattr(transformer, "mode", step.mode)
     return getattr(transformer, "mode", None)
+
+
+class _TextChapterTransformer:
+    """Adapt the legacy block-text callback to the package transformer shape."""
+
+    def __init__(self, callback: Callable[[str], str]) -> None:
+        self._callback = callback
+
+    def transform(self, chapter: Chapter) -> Chapter:
+        for layout in chapter.layouts:
+            if not isinstance(layout, ParagraphLayout):
+                continue
+            for block in layout.blocks:
+                text = _to_patch_text(block.content)
+                translated = self._callback(text)
+                if translated != text:
+                    block.content = [translated]
+        return chapter
+
+
+def _validate_package_for_pdf(source: Path, package: DocumentPackage) -> None:
+    """Fail before patching when package geometry cannot match the PDF."""
+    try:
+        import pypdf
+    except ImportError as error:
+        raise RuntimeError("PDF patching requires the optional 'pypdf' dependency") from error
+    page_sizes = package.page_pixel_sizes()
+    if not page_sizes:
+        raise ValueError("DocumentPackage is missing page geometry metadata required for PDF patching")
+    page_count = len(pypdf.PdfReader(str(source)).pages)
+    chapter_pages = {
+        block.page_index
+        for chapter in create_chapters_reader(package.chapters_path)()
+        for layout in chapter.layouts
+        if isinstance(layout, ParagraphLayout)
+        for block in layout.blocks
+    }
+    invalid = sorted(page for page in set(page_sizes) | chapter_pages if page > page_count)
+    if invalid:
+        raise ValueError(
+            "DocumentPackage page geometry exceeds source PDF page count: "
+            f"pages {invalid} of {page_count}"
+        )
+    missing = sorted(page for page in chapter_pages if page not in page_sizes)
+    if missing:
+        raise ValueError(
+            "DocumentPackage is missing page geometry for chapter pages: "
+            f"{missing}"
+        )

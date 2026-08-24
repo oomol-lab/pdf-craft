@@ -79,6 +79,25 @@ craft.convert_pdf_to_epub(
 `transform_markdown` 和 `transform_epub` 仍作为兼容性的便利包装保留。新集成建议使用
 `PDFCraft`，这样提取、渲染和翻译流程都通过同一个公共 facade。
 
+### 复用 DocumentPackage
+
+PDF 提取会产生一个可复用的 `DocumentPackage` 文件夹。它可以在不重新 OCR
+的情况下翻译，然后写回对应的原始 PDF：
+
+```python
+from pdf_craft import PDFCraft, PDFOptions, SubmitKind
+
+craft = PDFCraft(pdf=PDFOptions())
+package = craft.extract_pdf("input.pdf", "package")
+translated = craft.translate_package(
+    package, "translated-package", translator, submit=SubmitKind.REPLACE
+)
+craft.patch_pdf_with_package("input.pdf", translated, "translated.pdf")
+```
+
+`patch_pdf_with_package` 使用 package 中的页面几何信息修改已有 PDF；它不会重新
+执行 OCR、翻译，也不会脱离原始 PDF 重新排版生成 PDF。
+
 ![](docs/images/pdf2epub-cn.png)
 
 ## 详细使用

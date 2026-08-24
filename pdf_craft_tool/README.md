@@ -54,9 +54,19 @@ run 的 `backend` 字段中选择。local backend 使用自己的模型缓存、
 poetry run python -m pdf_craft_tool pdf extract tests/assets/citation.pdf \
   --ocr-mode deepseek-ocr-vendor --pages 1 --work-dir pdf-craft-output/citation-extract
 
+# DocumentPackage -> 翻译后的 DocumentPackage
+poetry run python -m pdf_craft_tool package translate \
+  pdf-craft-output/citation-extract/package zh \
+  --output-package pdf-craft-output/citation-zh-package
+
 # Package -> Markdown 或 EPUB；此命令不需要 OCR 配置
 poetry run python -m pdf_craft_tool package render pdf-craft-output/citation-extract/package \
   --format markdown --work-dir pdf-craft-output/citation-render
+
+# 原始 PDF + translated DocumentPackage -> patched PDF；此命令不需要 OCR/LLM
+poetry run python -m pdf_craft_tool package patch-pdf \
+  tests/assets/citation.pdf pdf-craft-output/citation-zh-package \
+  --output pdf-craft-output/citation-zh.pdf
 
 # PDF -> Markdown 或 EPUB
 poetry run python -m pdf_craft_tool pdf convert tests/assets/citation.pdf \
@@ -73,6 +83,10 @@ PDF 提取参数可在以上三个 PDF 命令中组合使用：
 
 `--ocr-mode` 覆盖 `.env` 内的 `PDF_CRAFT_OCR_MODE`；不传时使用 `.env` 的默认值。
 它只决定本次运行使用哪个已配置 backend，不会改写 `.env`。
+
+`package translate` 只读取已有 DocumentPackage，不会重新运行 OCR；
+`package patch-pdf` 只把已有 package 的文字按页面几何信息写回指定原始 PDF，
+不会调用 OCR 或 LLM。
 
 ## 翻译
 
