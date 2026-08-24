@@ -110,8 +110,10 @@ preset：
   下降时则应恢复较高分辨率。
 - `max_page_image_file_size` 限制单页渲染图像大小。页面被过度压缩或渲染失败时，检查是否
   设置得过小；不确定时可先恢复默认值 `None`。
-- `max_ocr_tokens` 和 `max_ocr_output_tokens` 分别限制 OCR 请求的输入、输出 token 总量。
-  任务在处理到后续页面前耗尽额度时，降低页数或提高对应上限；提高上限也会增加供应商费用
+- `max_ocr_tokens` 是跨页面累计的 OCR token 总预算：每页的输入 token 和输出 token 都会从
+  这个预算中扣除；`max_ocr_output_tokens` 则只累计限制输出 token。预算在进入下一页前耗尽
+  时，提取会以 token-limit 中断，而不是继续处理剩余页面。此时先查看 `InterruptedError`
+  的 `kind` 和 `metering`，再减少 `page_indexes` 或提高相应上限；提高上限也会增加供应商费用
   或本地显存压力。
 - `includes_cover=True` 才会把识别到的封面图写入 package；`includes_footnotes=True` 才会
   请求并保留脚注内容。遇到“正文有了但封面或脚注缺失”时，先检查这两个选项，而不是重复
