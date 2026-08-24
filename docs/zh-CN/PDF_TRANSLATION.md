@@ -40,12 +40,12 @@ OCR 配置的具体选择和字段不在本文展开，请参考 OCR backend 配
 
 `PDFOptions` 还提供 `models_cache_path` 与 `local_only`，但它们只用于未显式传入 `ocr` 的
 情况：此时 pdf-craft 会构造 `DeepSeekOCRLocalConfig`，将 `models_cache_path` 作为本地模型
-缓存目录，并把 `local_only=True` 传给本地模型加载流程。后者适合模型已在缓存中、希望避免
-运行时下载的环境；缓存不完整时，实际加载仍会失败。若已经显式传入任一种 `ocr` 配置（无论
-本地还是供应商），就不能传入 `models_cache_path`（即值不是 `None`），也不能启用
-`local_only=True`，否则构造提取引擎时会抛出 `ValueError`；显式传入默认值
-`local_only=False` 不会触发该错误。应将这两个设置直接放进对应的本地 OCR 配置，或只使用
-`PDFOptions` 的默认本地配置二者之一。
+缓存目录，并原样传递 `local_only`。默认 `local_only=False`，即本地模型加载允许下载缺失
+文件；显式设为 `True` 时只使用本地缓存，适合模型已完整缓存、希望避免运行时下载的环境，
+缓存不完整时实际加载会失败。若已经显式传入任一种 `ocr` 配置（无论本地还是供应商），就不能
+传入 `models_cache_path`（即值不是 `None`），也不能启用 `local_only=True`，否则构造提取引擎
+时会抛出 `ValueError`；显式传入默认值 `local_only=False` 不会触发该错误。应将这两个设置直接
+放进对应的本地 OCR 配置，或只使用 `PDFOptions` 的默认本地配置二者之一。
 
 ## PDF 转换为 Markdown
 
@@ -249,12 +249,12 @@ pipeline.translate(Path("input.pdf"), Path("translated.pdf"), package, translato
 
 ### 自定义 PDFHandler 与写回 DPI
 
-`PDFHandler` 是 PDF 文件访问层的公开协议：它需要提供 `open(Path) -> PDFDocument`，而打开的
-文档需要能读取页数、页面尺寸和元数据，并能通过 `render_page(page_index, dpi)` 将页面渲染为
-图像，还必须实现 `close()`。pdf-craft 会在提取与写回的 `finally` 中调用 `close()`，因此自定义
-handler 返回的文档必须在该方法中释放它持有的文件、渲染器等资源。默认实现是
-`DefaultPDFHandler`。只有需要替换 PDF 渲染实现、指定 Poppler 位置，或让应用统一管理 PDF
-文件访问时，才需要注入自定义 handler；通常无需自行实现它。
+`PDFHandler` 是 PDF 文件访问层的公开协议，它本身只需要提供
+`open(Path) -> PDFDocument`。其返回的 `PDFDocument` 则需要能读取页数、页面尺寸和元数据，
+通过 `render_page(page_index, dpi)` 将页面渲染为图像，并实现 `close()`。pdf-craft 会在提取与
+写回的 `finally` 中调用文档的 `close()`，因此自定义 handler 返回的文档必须在该方法中释放它
+持有的文件、渲染器等资源。默认实现是 `DefaultPDFHandler`。只有需要替换 PDF 渲染实现、指定
+Poppler 位置，或让应用统一管理 PDF 文件访问时，才需要注入自定义 handler；通常无需自行实现它。
 
 在门面 API 中，将 handler 放进 `PDFOptions.pdf_handler`。它会用于 PDF 提取；在
 `translate_pdf` / `patch_pdf_with_package` 中也会传入 PDF 写回链路：
