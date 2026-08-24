@@ -14,13 +14,14 @@
 
 ## pdf-craft 是什么
 
-pdf-craft 是一个专门处理扫描版书籍的 PDF 转换库。它可以把原本只能翻页阅读的扫描
-PDF，转换成可编辑、可检索的 Markdown 或 EPUB；也可以在转换时翻译内容，直接得到翻译
-后的 Markdown、EPUB 或 PDF。
+pdf-craft 是一个围绕 PDF 文件构建的转换库，支持 PDF 与 Markdown、EPUB 以及翻译后
+PDF 之间的转换。它尤其擅长处理扫描件：可以把原本只能翻页阅读的扫描 PDF 转换成可编辑、
+可检索的 Markdown 或 EPUB，也可以在转换时直接完成翻译。
 
 pdf-craft 围绕书籍和学术、技术文档的结构设计，支持识别正文、目录、脚注、表格、公式
-和图片等内容。页面识别可以调用远程 OCR 服务，也可以在具备 CUDA 的设备上使用本地
-GPU；翻译则使用独立的文本 LLM。
+和图片等内容。OCR 支持 DeepSeek OCR、DeepSeek OCR 2 和百度 Unlimited OCR：显卡条件
+满足时可以完全在本地 GPU 上运行；显卡条件不足时，也可以改用调用供应商远程资源的方案。
+翻译则使用独立的文本 LLM。
 
 ## 在线版本
 
