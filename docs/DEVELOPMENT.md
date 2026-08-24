@@ -75,7 +75,7 @@ poetry run python -c "import torch; print(f'PyTorch version: {torch.__version__}
 pdfinfo -v
 ```
 
-Vendor OCR does not require local CUDA. Copy `.env.template` to `.env`, set `PDF_CRAFT_OCR_MODE` to `deepseek-ocr-vendor`, `deepseek-ocr2-vendor`, or `unlimited-ocr-vendor`, and fill the matching `PDF_CRAFT_*` credentials. Local modes use the `PDF_CRAFT_DEEPSEEK_*` and `PDF_CRAFT_UNLIMITED_*` model-path settings. Library code does not automatically read `.env`; only the manual scripts load it.
+Vendor OCR does not require local CUDA. Copy `.env.template` to `.env` and fill every backend's configuration group once. `PDF_CRAFT_OCR_MODE` selects only the default backend; CLI and smoke can select any of the six modes per run without editing `.env`. The three local modes each have independent `*_MODELS_CACHE_PATH`, `*_LOCAL_ONLY`, and optional `*_ENABLE_DEVICES_NUMBERS` settings; vendor modes each have their own credentials and endpoint settings. Library code does not automatically read `.env`; only the manual scripts load it.
 
 ## Validation
 
