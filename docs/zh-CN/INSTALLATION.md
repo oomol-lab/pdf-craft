@@ -31,8 +31,10 @@ CUDA 环境安装匹配的 PyTorch。没有可用 CUDA 设备时，使用标准�
 ## 系统要求
 
 - Python `>=3.11,<3.14`。
-- Poppler：PDF 页面渲染和 OCR 提取需要它。
-- PDF 修补等只读取并写回 PDF 的流程使用 pypdf，不依赖 Poppler。
+- Poppler：PDF 页面渲染、OCR 提取以及公开的 PDF patch/translation 流程默认需要它，
+  因为这些流程会渲染页面来生成或合成内容。
+- 只有纯粹使用 pypdf 读取并写回 PDF 的自定义流程才不需要 Poppler；这不是
+  `PDFCraft.patch_pdf_with_package` 和 `PDFCraft.translate_pdf` 的默认路径。
 - vendor OCR：网络连接和有效的供应商配置；只要运行 OCR 提取，还需要 Poppler；本机不需要 CUDA。
 - local OCR：支持 CUDA 的 NVIDIA GPU、匹配的 PyTorch、模型缓存、足够的显存和 Poppler。
 
@@ -186,5 +188,5 @@ README 的快速开始示例创建对应的 OCR 配置对象。
 - local OCR 需要本机 CUDA、PyTorch、模型文件和显存。
 - OCR 只负责页面识别；翻译需要单独的文本 LLM 配置。
 
-安装完成后即可按 README 的快速开始示例运行。运行时遇到 Poppler、CUDA、模型下载或
-远程请求错误时，应先检查本指南对应的安装条件和配置字段。
+安装完成后即可按 README 的快速开始示例运行。运行 PDF 转换、PDF patch 或 PDF translation
+时遇到 Poppler、CUDA、模型下载或远程请求错误，应先检查本指南对应的安装条件和配置字段。
