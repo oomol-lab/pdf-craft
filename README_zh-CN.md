@@ -165,19 +165,30 @@ PDFCraft().translate_epub(
 
 ## OCR backend 与模型缓存
 
-OCR（光学字符识别）负责把页面图片识别成文字。pdf-craft 提供六种 OCR 方式，你可以
-根据设备和服务条件选择其中一种：
+OCR（光学字符识别）负责把 PDF 页面图片识别成文字。你不需要同时配置六种方式，
+每次运行只选择一种即可。先按下面的规则决定运行位置，再决定使用哪一家模型：
 
-- DeepSeekOCRLocalConfig：本地 DeepSeek OCR，需要 CUDA。
-- DeepSeekOCR2LocalConfig：本地 DeepSeek OCR 2，需要 CUDA。
-- UnlimitedOCRLocalConfig：本地 Unlimited OCR，需要 CUDA。
-- DeepSeekOCRVendorConfig：OpenAI-compatible DeepSeek OCR endpoint。
-- DeepSeekOCR2VendorConfig：OpenAI-compatible DeepSeek OCR 2 endpoint。
-- UnlimitedOCRVendorConfig：Unlimited OCR vendor backend。
+- **没有 CUDA、希望少配置本机环境**：选择 vendor OCR。识别会上传到远程服务并使用
+  远端的计算资源，需要网络连接、服务地址和访问密钥。
+- **有支持 CUDA 的 NVIDIA 显卡、希望在本机运行**：选择 local OCR。模型会下载到本地
+  缓存，并直接使用本机显卡；可以减少数据外发，但需要自行准备 CUDA、显存和模型文件。
 
-库 API 的 `ocr` 参数接收配置对象，不读取环境变量。
-如果不希望在本机准备 CUDA，请选择 vendor OCR；只有希望在本机运行模型时，才需要选择
-local OCR。
+三种模型的归属如下：[DeepSeek OCR](https://github.com/deepseek-ai/DeepSeek-OCR) 和
+[DeepSeek OCR 2](https://github.com/deepseek-ai/DeepSeek-OCR-2) 来自 DeepSeek，
+[Unlimited OCR](https://github.com/baidu/Unlimited-OCR) 来自百度。每个模型都有本地运行
+和远程服务两种配置，因此一共是六种 backend。
+
+| 选择 | 模型归属 | 运行位置 | 什么时候选 | 需要准备 |
+| --- | --- | --- | --- | --- |
+| `DeepSeekOCRLocalConfig` | DeepSeek | 本机 GPU | 有 CUDA，想在本机运行 DeepSeek OCR | CUDA、显存、模型缓存 |
+| `DeepSeekOCR2LocalConfig` | DeepSeek | 本机 GPU | 有 CUDA，想使用 DeepSeek OCR 2 | CUDA、显存、模型缓存；推荐 `base` preset |
+| `UnlimitedOCRLocalConfig` | 百度 | 本机 GPU | 有 CUDA，想使用百度 Unlimited OCR | CUDA、显存、模型缓存 |
+| `DeepSeekOCRVendorConfig` | DeepSeek | 远程服务 | 没有 CUDA，或希望直接调用远程 DeepSeek OCR | 服务地址、模型名、访问密钥、网络 |
+| `DeepSeekOCR2VendorConfig` | DeepSeek | 远程服务 | 没有 CUDA，或希望直接调用远程 DeepSeek OCR 2 | 服务地址、模型名、访问密钥、网络 |
+| `UnlimitedOCRVendorConfig` | 百度 | 远程服务 | 没有 CUDA，或希望直接调用百度 Unlimited OCR | 服务地址、模型名、访问密钥、网络 |
+
+如果你只是想先把流程跑通，优先选择自己已有凭据的 vendor OCR；如果你要离线运行，
+再选择对应的 local OCR。库 API 的 `ocr` 参数接收上表中的配置对象，不读取环境变量。
 
 Unlimited OCR local 仅支持 base 和 gundam；DeepSeek OCR 2 local 的已验证路径使用
 base，显式使用 tiny 会快速失败并提示改用 base。
