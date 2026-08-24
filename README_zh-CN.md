@@ -28,28 +28,28 @@ pdf-craft 面向扫描版书籍，把 PDF 转换为 Markdown、EPUB 或翻译后
 
 ## 安装
 
-项目支持 Python 3.11、3.12 和 3.13。开始处理 PDF 前，请先安装 Poppler；完整安装步骤
-请参考[安装指南](docs/INSTALLATION_zh-CN.md)。
-
-### 默认安装：适合大多数用户
+如果你只是想开始使用 pdf-craft，安装这一版即可：
 
 ~~~bash
 pip install pdf-craft
 ~~~
 
-默认安装包含远程 OCR、Markdown/EPUB 渲染和 PDF 翻译所需的依赖。本地 OCR 运行时通过
-下面的 `[local]` extra 安装。使用远程 OCR 时，还需要准备服务地址、模型名和访问密钥；
-这些信息会在代码中的配置对象里填写。
+这个安装包包含远程 OCR、Markdown/EPUB 渲染和 PDF 翻译所需的依赖。远程 OCR 使用服务
+端的计算资源，因此本机不需要准备 CUDA；你只需要在代码中的配置对象里填写服务地址、
+模型名和访问密钥。
 
-### 本地 OCR 安装（可选）
+只有在你明确希望让 OCR 模型运行在自己的 NVIDIA 显卡上时，才需要额外安装本地 OCR
+依赖；如果你不确定，请使用上面的默认安装：
 
 ~~~bash
 pip install "pdf-craft[local]"
 ~~~
 
-这项安装适用于希望在自己的设备上运行 OCR 模型的用户。本地 OCR 还需要支持 CUDA 的
-PyTorch、模型缓存和足够的显存；没有 CUDA 时，请使用上面
-默认安装提供的远程 OCR。
+这项安装会增加 Hugging Face、Transformers 等本地模型运行时；实际运行还需要支持 CUDA
+的 PyTorch、模型缓存和足够的显存。没有这类设备时，使用前面的默认安装。
+
+项目支持 Python 3.11、3.12 和 3.13。处理 PDF 前还需要安装 Poppler，完整步骤请参考
+[安装指南](docs/INSTALLATION_zh-CN.md)。
 
 ## 快速开始
 
