@@ -152,7 +152,7 @@ package = craft.extract_pdf("input.pdf", "work/cache")
 craft.translate_pdf("input.pdf", package, "translated.pdf", translator)
 ~~~
 
-### 翻译 EPUB
+### EPUB → 翻译后的 EPUB
 
 如果手头已经有 EPUB 文件，可以直接指定输入文件、输出文件和目标语言：
 
@@ -227,7 +227,7 @@ pdf-craft 默认通过 pdf2image 使用系统 PATH 中的 Poppler。也可以向
 ## 相关项目
 
 - [EPUB Translator](https://github.com/oomol-lab/epub-translator)：如果你想把 PDF Craft 生成的 EPUB 继续翻译成双语版本，EPUB Translator 可以在保留原始排版、插图和目录的前提下完成转换。完整流程可参考这个[演示视频](https://www.bilibili.com/video/BV1tMQZY5EYY/)。
-- [SpineDigest](https://github.com/oomol-lab/spinedigest)：如果你想进一步把转换后的书提炼成结构化摘要，SpineDigest 可以基于 EPUB 或 Markdown 生成摘要、章节拓扑和知识图谱。
+- [Wiki Graph](https://github.com/oomol-lab/wiki-graph)：如果你想进一步把转换后的书提炼成结构化摘要，Wiki Graph 可以基于 EPUB 或 Markdown 生成摘要、章节拓扑和知识图谱。
 
 ## 许可证
 
