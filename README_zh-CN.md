@@ -14,9 +14,7 @@
 
 ## pdf-craft 是什么
 
-pdf-craft 面向扫描版书籍，把 PDF 转换为 Markdown、EPUB 或翻译后的 PDF。一次提取
-会生成可复用的 `DocumentPackage`，后续可以继续渲染、翻译或写回 PDF，不必每次重新
-OCR。
+pdf-craft 面向扫描版书籍，把 PDF 转换为 Markdown、EPUB 或翻译后的 PDF。
 
 项目提供三种本地 OCR 和三种 vendor OCR。vendor OCR 通过远程服务识别页面，不要求
 本机 CUDA；local OCR 在本机运行模型，需要 CUDA。翻译使用独立的文本 LLM 配置，
@@ -28,27 +26,19 @@ OCR。
 
 [![PDF Craft 在线版本](docs/images/website-cn.png)](https://inkora.oomol.com/pdf-craft/)
 
-核心流程是：
-
-~~~text
-PDF → DocumentPackage
-DocumentPackage → translated DocumentPackage
-原始 PDF + translated DocumentPackage → PDF
-~~~
-
 ## 安装
 
 项目支持 Python 3.11、3.12 和 3.13。所有 PDF 路径都需要系统安装 Poppler；请参考
 [安装指南](docs/INSTALLATION_zh-CN.md)。
 
-### 默认安装：vendor、渲染和 package 操作
+### 默认安装：vendor OCR 与渲染
 
 ~~~bash
 pip install pdf-craft
 ~~~
 
-默认安装包含 vendor OCR、DocumentPackage、Markdown/EPUB 渲染和 PDF patch 所需的
-基础依赖，不主动安装 local OCR 的模型运行时。vendor OCR 还需要 endpoint 和凭据；
+默认安装包含 vendor OCR、Markdown/EPUB 渲染和 PDF 翻译所需的基础依赖，不主动安装
+local OCR 的模型运行时。vendor OCR 还需要 endpoint 和凭据；
 库 API 通过配置对象接收它们，不读取 .env。
 
 ### local OCR 安装
@@ -74,7 +64,7 @@ craft = PDFCraft(pdf=PDFOptions(ocr=DeepSeekOCRVendorConfig(
 )))
 craft.convert_pdf_to_markdown(
     "input.pdf", "output.md",
-    package_path="work/package", assets_path="work/assets",
+    package_path="work/cache", assets_path="work/assets",
 )
 ~~~
 
@@ -96,61 +86,16 @@ ocr_config = DeepSeekOCRVendorConfig(
 craft = PDFCraft(pdf=PDFOptions(ocr=ocr_config))
 craft.convert_pdf_to_epub(
     "input.pdf", "output.epub",
-    package_path="work/package",
+    package_path="work/cache",
     book_meta=BookMeta(title="书名", authors=["作者"]),
 )
 ~~~
 
 PDFCraft 是 2.0 的公共 facade，提取、渲染和翻译流程都从这里调用。
 
-## DocumentPackage：可复用的中间文档
-
-DocumentPackage 是一个文件夹，通常包含：
-
-~~~text
-package/
-├── chapters/       # 章节 XML、文字、结构和页面坐标
-├── assets/         # 图片等资源
-├── toc.xml         # 可选目录
-├── cover.png       # 可选封面
-└── document.json   # 页面几何和 package 元数据
-~~~
-
-库层的原子操作如下：
-
-~~~python
-from pdf_craft import PDFCraft, PDFOptions, SubmitKind
-
-# 复用上例中的 OCR 配置
-craft = PDFCraft(pdf=PDFOptions(ocr=ocr_config))
-package = craft.extract_pdf("input.pdf", "work/package")
-
-# translator 实现 ChapterTransformer；这里不会重新 OCR 或读取 PDF。
-translated = craft.translate_package(
-    package, "work/translated-package", translator,
-    submit=SubmitKind.REPLACE,
-)
-
-# 写回只使用原始 PDF 和已有 package，不调用 OCR/LLM。
-PDFCraft().patch_pdf_with_package(
-    "input.pdf", translated, "translated.pdf",
-)
-~~~
-
-patch_pdf_with_package 使用 package 中的页面几何信息修改匹配的原始 PDF。它不是
-通用 PDF 排版器，不能脱离原始 PDF 仅凭 package 生成新页面；package 与原始 PDF
-不匹配时会提前失败。
-
 ## 翻译
 
-库 API 的 PDFCraft.translate_pdf 要求调用者先准备好 DocumentPackage；它负责把翻译
-package 写回原始 PDF。CLI 的 pdf translate 才会把 PDF 提取、package 翻译和 PDF patch
-组合成一条命令。PDF 写回只支持替换式提交；Markdown 和 EPUB 还可以使用 append-block。
-
-~~~python
-package = craft.extract_pdf("input.pdf", "work/package")
-craft.translate_pdf("input.pdf", package, "translated.pdf", translator)
-~~~
+CLI 的 `pdf translate` 会自动完成 PDF 提取、翻译和 PDF 写回，适合直接运行完整流程。
 
 已有 EPUB 可以直接翻译：
 
@@ -204,24 +149,11 @@ poetry run python -m pdf_craft_tool --help
 ~~~
 
 ~~~shell
-# PDF → 可复用 DocumentPackage
-poetry run python -m pdf_craft_tool pdf extract input.pdf \
+# PDF → Markdown
+poetry run python -m pdf_craft_tool pdf convert input.pdf \
   --ocr-mode deepseek-ocr-vendor --pages 1 \
-  --work-dir pdf-craft-output/extract
-
-# package → 翻译 package
-poetry run python -m pdf_craft_tool package translate \
-  pdf-craft-output/extract/package zh \
-  --output-package pdf-craft-output/translated-package
-
-# package → Markdown（不需要 OCR）
-poetry run python -m pdf_craft_tool package render \
-  pdf-craft-output/translated-package --format markdown
-
-# 原始 PDF + translated package → patched PDF（不需要 OCR/LLM）
-poetry run python -m pdf_craft_tool package patch-pdf \
-  input.pdf pdf-craft-output/translated-package \
-  --output translated.pdf
+  --work-dir pdf-craft-output/convert \
+  --format markdown --output output.md
 
 # 一键 PDF 翻译
 poetry run python -m pdf_craft_tool pdf translate input.pdf zh \
@@ -232,8 +164,8 @@ poetry run python -m pdf_craft_tool epub translate input.epub zh \
   --submit replace
 ~~~
 
-所有 --pages 都使用从 1 开始的 PDF 页码。--work-dir 用于复用 package、缓存和日志，
-也方便中断后恢复。完整 CLI 参数、smoke 矩阵和 .env 字段请看
+所有 --pages 都使用从 1 开始的 PDF 页码。--work-dir 用于缓存和日志，也方便中断后恢复。
+完整 CLI 参数、smoke 矩阵和 .env 字段请看
 [pdf_craft_tool/README.md](pdf_craft_tool/README.md)。
 
 ## 模型缓存与常用参数
