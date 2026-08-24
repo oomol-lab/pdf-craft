@@ -6,12 +6,26 @@ from pathlib import Path
 import tempfile
 from unittest.mock import patch
 
-from pdf_craft_tool.cli import _page_indexes, _parser, _run_matrix, _work_dir
+from pdf_craft_tool.cli import _page_indexes, _parser, _run_matrix, _smoke_exit_code, _work_dir
 from pdf_craft_tool.paths import create_run_directory
 from pdf_craft_tool.runtime import create_llm_from_env, ocr_mode_from_env
 
 
 class TestPDFCraftTool(unittest.TestCase):
+    def test_smoke_exit_code_rejects_failed_and_skipped_reports(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            for status, expected in (("passed", 0), ("planned", 0), ("failed", 1), ("skipped", 1)):
+                with self.subTest(status=status):
+                    path = root / status
+                    path.mkdir()
+                    (path / "checks.json").write_text(json.dumps({"status": status}), encoding="utf-8")
+                    self.assertEqual(_smoke_exit_code(path), expected)
+
+    def test_smoke_exit_code_rejects_missing_report(self):
+        with tempfile.TemporaryDirectory() as directory:
+            self.assertEqual(_smoke_exit_code(Path(directory)), 1)
+
     def test_smoke_parser_exposes_package_render_and_translation_profiles(self):
         args = _parser().parse_args([
             "smoke", "run", "--asset", "citation.pdf", "--route", "package-markdown",
@@ -75,7 +89,7 @@ class TestPDFCraftTool(unittest.TestCase):
             with patch("pdf_craft_tool.cli.load_project_env"), \
                     patch("pdf_craft_tool.cli.llm_values_from_env",
                           side_effect=SystemExit("missing LLM profile")):
-                _run_matrix(Namespace(
+                exit_code = _run_matrix(Namespace(
                     config=config,
                     assets_root=Path("tests/assets"),
                     output_root=root / "output",
@@ -86,3 +100,4 @@ class TestPDFCraftTool(unittest.TestCase):
             checks = json.loads((run_path / "checks.json").read_text(encoding="utf-8"))
             self.assertEqual(checks["status"], "skipped")
             self.assertEqual(checks["errors"], ["missing LLM profile"])
+            self.assertEqual(exit_code, 1)

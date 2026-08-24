@@ -89,6 +89,10 @@ poetry run python -m pdf_craft_tool smoke assets
 `manifest.json`、`checks.json`、`logs/`、提取的 `package/` 和渲染产物；凭据会
 从报告和 traceback 中脱敏。
 
+smoke 命令的进程退出码与报告状态一致：`passed` 和 `planned` 返回 0，`failed`
+或 `skipped` 返回非 0。矩阵命令会聚合所有 run，只要有一个 run 失败或跳过就返回
+非 0，避免 CI 或 Agent 把未执行的必需路径误判为成功。
+
 ```shell
 # 先确认参数展开和产物目录，不调用 OCR
 poetry run python -m pdf_craft_tool smoke run \

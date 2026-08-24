@@ -40,13 +40,14 @@ class _ExtractionResult:
     metering: OCRTokensMetering
 
 
-def main() -> None:
+def main() -> int:
     parser = _parser()
     args = parser.parse_args()
     if not hasattr(args, "handler"):
         parser.print_help()
-        return
-    args.handler(args)
+        return 0
+    result = args.handler(args)
+    return result if isinstance(result, int) else 0
 
 
 def _parser() -> argparse.ArgumentParser:
@@ -261,7 +262,7 @@ def _list_assets(args: argparse.Namespace) -> None:
     ], ensure_ascii=False, indent=2))
 
 
-def _run_smoke(args: argparse.Namespace) -> None:
+def _run_smoke(args: argparse.Namespace) -> int:
     translation: dict[str, Any] = {}
     if args.marker:
         translation["package_marker"] = args.marker
@@ -301,10 +302,12 @@ def _run_smoke(args: argparse.Namespace) -> None:
         ocr=ocr_values_from_env(ocr_mode) if ocr_mode and not args.dry_run else None,
         translation=translation or None,
     )
-    print(run_smoke(run, assets_root=args.assets_root, output_root=args.output_root, dry_run=args.dry_run))
+    run_path = run_smoke(run, assets_root=args.assets_root, output_root=args.output_root, dry_run=args.dry_run)
+    print(run_path)
+    return _smoke_exit_code(run_path)
 
 
-def _run_matrix(args: argparse.Namespace) -> None:
+def _run_matrix(args: argparse.Namespace) -> int:
     config = json.loads(args.config.read_text(encoding="utf-8"))
     runs = expand_matrix(config, args.assets_root)
     env_error: str | None = None
@@ -313,6 +316,7 @@ def _run_matrix(args: argparse.Namespace) -> None:
             load_project_env(_project_root())
         except SystemExit as error:
             env_error = str(error)
+    exit_code = 0
     for run in runs:
         if env_error and _matrix_run_needs_env(run):
             run = replace(run, configuration_error=env_error)
@@ -321,7 +325,19 @@ def _run_matrix(args: argparse.Namespace) -> None:
                 run = _resolve_matrix_runtime(run, args.output_root)
             except SystemExit as error:
                 run = replace(run, configuration_error=str(error))
-        print(run_smoke(run, assets_root=args.assets_root, output_root=args.output_root, dry_run=args.dry_run))
+        run_path = run_smoke(run, assets_root=args.assets_root, output_root=args.output_root, dry_run=args.dry_run)
+        print(run_path)
+        exit_code = max(exit_code, _smoke_exit_code(run_path))
+    return exit_code
+
+
+def _smoke_exit_code(run_path: Path) -> int:
+    """Return a non-zero code for failed or skipped required smoke runs."""
+    try:
+        status = json.loads((run_path / "checks.json").read_text(encoding="utf-8"))["status"]
+    except (OSError, KeyError, json.JSONDecodeError):
+        return 1
+    return 0 if status in {"passed", "planned"} else 1
 
 
 def _matrix_run_needs_env(run: SmokeRun) -> bool:
