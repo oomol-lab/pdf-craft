@@ -20,7 +20,7 @@ This project is based on [DeepSeek OCR](https://github.com/deepseek-ai/DeepSeek-
 
 ## Lightweight and Fast
 
-Starting from the official v1.0.0 release, pdf-craft fully embraces [DeepSeek OCR](https://github.com/deepseek-ai/DeepSeek-OCR) and no longer relies on LLM for text correction. This change brings significant performance improvements: the entire conversion process is completed locally without network requests, eliminating the long waits and occasional network failures of the old version.
+Starting from the official v1.0.0 release, pdf-craft fully embraces [DeepSeek OCR](https://github.com/deepseek-ai/DeepSeek-OCR) and no longer relies on an LLM for text correction. Local OCR conversion can run without network requests after models are cached; vendor OCR remains available when a remote backend is preferred.
 
 However, the new version has also removed the LLM text correction feature. If your use case still requires this functionality, you can continue using the old version [v0.2.8](https://github.com/oomol-lab/pdf-craft/tree/v0.2.8).
 
@@ -35,11 +35,18 @@ If you'd like to explore pdf-craft without setting it up locally, you can try [I
 ### Installation
 
 ```bash
-pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
 pip install pdf-craft
 ```
 
-The above commands are for quick setup only. To actually use pdf-craft, you need to **install Poppler** for PDF parsing. Local OCR also requires a CUDA-capable PyTorch environment; vendor OCR does not. Please refer to the [Installation Guide](docs/INSTALLATION.md) for detailed instructions.
+The default installation supports vendor OCR and does not install the local
+model runtime. To actually use PDF conversion, install **Poppler** for PDF
+parsing. For local OCR, install a CUDA-compatible PyTorch build first, then:
+
+```bash
+pip install "pdf-craft[local]"
+```
+
+Please refer to the [Installation Guide](docs/INSTALLATION.md) for details.
 
 ### Quick Start
 

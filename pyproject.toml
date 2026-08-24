@@ -2,20 +2,15 @@
 requires = ["poetry-core>=2.0.0,<3.0.0"]
 build-backend = "poetry.core.masonry.api"
 
-[tool.poetry]
+[project]
 name = "pdf-craft"
-version = "1.0.14"
+version = "2.0.0"
 description = "PDF craft can convert PDF files into various other formats. This project will focus on processing PDF files of scanned books."
-license = "MIT"
-authors = ["Tao Zeyu <i@taozeyu.com>"]
-maintainers = ["Tao Zeyu <i@taozeyu.com>"]
+license = {text = "MIT"}
+authors = [{name = "Tao Zeyu", email = "i@taozeyu.com"}]
+maintainers = [{name = "Tao Zeyu", email = "i@taozeyu.com"}]
 readme = "README.md"
-homepage = "https://hub.oomol.com/package/pdf-craft"
-repository = "https://github.com/oomol-lab/pdf-craft"
 keywords = ["pdf", "epub", "markdown"]
-packages = [
-    {include = "pdf_craft" }
-]
 classifiers = [
     "Development Status :: 4 - Beta",
     "Intended Audience :: Developers",
@@ -27,24 +22,36 @@ classifiers = [
     "Topic :: Software Development :: Libraries :: Python Modules",
     "Topic :: Text Processing",
 ]
+requires-python = ">=3.11,<3.14"
+dependencies = [
+    "pdf2image>=1.17.0,<2.0.0",
+    "pypdf>=6.6.0,<7.0.0",
+    "tiktoken>=0.12.0,<1.0.0",
+    "openai>=2.14.0,<3.0.0",
+    "json-repair>=0.55.0,<0.56.0",
+    "pydantic>=2.12.5,<3.0.0",
+    "doc-page-extractor>=1.2.0,<2.0.0",
+    "epub-generator==0.1.7",
+    "pylatexenc>=2.10,<3.0.0",
+    "pyahocorasick>=2.2.0,<3.0.0",
+    "markdownify>=1.2.2,<2.0.0",
+    "reportlab>=4.4.0,<5.0.0",
+    "jinja2>=3.1.6,<4.0.0",
+    "resource-segmentation>=0.0.7,<0.1.0",
+    "mathml2latex>=0.2.12,<0.3.0",
+]
 
-[tool.poetry.dependencies]
-python = ">=3.11,<3.14"
-pdf2image = "^1.17.0"
-pypdf = "^6.6.0"
-tiktoken = ">=0.12.0,<1.0.0"
-openai = ">=2.14.0,<3.0.0"
-json-repair = ">=0.55.0,<0.56.0"
-pydantic = ">=2.12.5,<3.0.0"
-doc-page-extractor = {version = "1.2.0", extras = ["local"]}
-epub-generator = "==0.1.7"
-pylatexenc = "^2.10"
-pyahocorasick = "^2.2.0"
-markdownify = "^1.2.2"
-reportlab = "^4.4.0"
-jinja2 = ">=3.1.6,<4.0.0"
-resource-segmentation = ">=0.0.7,<0.1.0"
-mathml2latex = ">=0.2.12,<0.3.0"
+[project.urls]
+Homepage = "https://hub.oomol.com/package/pdf-craft"
+Repository = "https://github.com/oomol-lab/pdf-craft"
+
+[project.optional-dependencies]
+# Keep the upstream local runtime as one dependency declaration so its
+# transformer/CUDA-related requirements remain owned by doc-page-extractor.
+local = ["doc-page-extractor[local]>=1.2.0,<2.0.0"]
+
+[tool.poetry]
+packages = [{include = "pdf_craft"}]
 
 [tool.poetry.group.dev.dependencies]
 pylint = "^3.3.7"

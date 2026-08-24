@@ -7,10 +7,11 @@
 - Python >= 3.11, < 3.14（推荐 3.11.16）
 - Poetry 2.x
 - Poppler，仅在运行 PDF 渲染或转换检查时需要
-- PyTorch，通过 `doc-page-extractor[local]` 安装，用于本地 OCR 转换
 - 支持 CUDA 的 PyTorch 和 NVIDIA GPU，仅在运行真实本地 OCR 转换时需要
 
-pdf-craft 依赖 `doc-page-extractor[local]`，因此安装时会包含上游本地 OCR 运行时栈。pdf-craft 仍不会直接声明 `torch` 或 `torchvision`；当你需要指定 CPU 或 CUDA 构建时，再重装或覆盖 PyTorch wheel。
+普通安装使用支持供应商 OCR 的基础 `doc-page-extractor` 运行时。可选的 `local`
+extra 才会安装上游 Hugging Face 本地 OCR 运行时。pdf-craft 不会直接声明 `torch` 或
+`torchvision`；启用本地 OCR 前，请安装或覆盖为所需的 CUDA PyTorch wheel。
 
 ## 普通开发环境
 
@@ -23,21 +24,17 @@ poetry install --with dev
 
 对于阅读代码、类型检查和轻量单元测试，通常这就足够了。
 
-如果任务需要指定 CPU 版 PyTorch wheel，可以显式重装：
-
-```shell
-poetry run pip install --force-reinstall torch torchvision --index-url https://download.pytorch.org/whl/cpu
-```
-
 ## 真实 OCR 转换环境
 
 真实 PDF 转换可以使用本地 CUDA 模型，也可以使用供应商 OCR。
 
-本地 OCR 需要支持 CUDA 的 PyTorch。如果已安装的 wheel 与当前 CUDA 环境不匹配，运行转换脚本前请重装与系统匹配的 PyTorch 版本。
+本地 OCR 需要可选运行时和支持 CUDA 的 PyTorch。先安装项目 extra，再安装或重装与系统
+匹配的 PyTorch wheel。
 
 示例：
 
 ```shell
+poetry install --with dev --extras local
 poetry run pip install --force-reinstall torch torchvision --index-url https://download.pytorch.org/whl/cu118
 poetry run pip install --force-reinstall torch torchvision --index-url https://download.pytorch.org/whl/cu121
 poetry run pip install --force-reinstall torch torchvision --index-url https://download.pytorch.org/whl/cu124
@@ -54,7 +51,7 @@ sudo apt-get install poppler-utils
 brew install poppler
 ```
 
-验证环境：
+验证本地 OCR 环境：
 
 ```shell
 poetry run python -c "import torch; print(f'PyTorch version: {torch.__version__}'); print(f'CUDA available: {torch.cuda.is_available()}')"
