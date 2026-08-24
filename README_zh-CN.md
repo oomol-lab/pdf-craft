@@ -12,7 +12,7 @@
   <p><a href="./README.md">English</a> | 中文</p>
 </div>
 
-## pdf-craft 是什么
+## pdf-craft 是什么?
 
 pdf-craft 是以 PDF 文件格式为中心构建的转换库，支持将 PDF 转换为 Markdown 或 EPUB，
 也支持对转换后的内容进行翻译。它尤其擅长处理扫描件：可以把原本只能翻页阅读的扫描 PDF 转换成可编辑、
