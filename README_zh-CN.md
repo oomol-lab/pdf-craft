@@ -101,6 +101,26 @@ craft.convert_pdf_to_epub(
 `book_meta` 用于填写 EPUB 的书名和作者信息；如果不提供，pdf-craft 会尝试读取 PDF
 自身的元数据。
 
+### 转换 PDF 时同时翻译
+
+如果你希望 PDF 在转换为 Markdown 或 EPUB 的同时完成翻译，可以给转换方法增加翻译步骤。
+下面的 `translator` 代表你接入的文本 LLM 翻译器；同一个翻译步骤可以用于两种输出格式：
+
+~~~python
+from pdf_craft import TranslationStep
+
+translation = TranslationStep(translator)
+
+craft.convert_pdf_to_markdown(
+    "input.pdf", "translated.md",
+    package_path="work/cache", steps=[translation],
+)
+craft.convert_pdf_to_epub(
+    "input.pdf", "translated.epub",
+    package_path="work/cache", steps=[translation],
+)
+~~~
+
 ### 翻译 PDF
 
 如果你的目标是得到翻译后的 PDF，使用 PDFCraft 的 PDF 翻译流程。它会识别 PDF 内容、
