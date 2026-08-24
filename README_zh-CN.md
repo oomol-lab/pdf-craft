@@ -20,7 +20,7 @@ pdf-craft 可以将 PDF 文件转换为各种其他格式，本项目专注于�
 
 ## 轻装上阵
 
-从 v1.0.0 正式版开始，pdf-craft 全面拥抱 [DeepSeek OCR](https://github.com/deepseek-ai/DeepSeek-OCR)，不再依赖 LLM 进行文本矫正。这一改变带来了显著的性能提升：整个转换流程在本地完成，无需网络请求，告别了旧版本中漫长的等待和偶发的网络失败。
+从 v1.0.0 正式版开始，pdf-craft 全面拥抱 [DeepSeek OCR](https://github.com/deepseek-ai/DeepSeek-OCR)，不再依赖 LLM 进行文本矫正。本地 OCR 在模型缓存完成后可以无需网络请求；如果更适合使用远程服务，也可以选择供应商 OCR。
 
 不过，新版本也移除了 LLM 文本矫正功能。如果你的使用场景仍然需要这一特性，可以继续使用 [v0.2.8](https://github.com/oomol-lab/pdf-craft/tree/v0.2.8) 旧版本。
 
@@ -35,11 +35,17 @@ pdf-craft 可以将 PDF 文件转换为各种其他格式，本项目专注于�
 ### 安装
 
 ```bash
-pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
 pip install pdf-craft
 ```
 
-上述命令仅用于快速安装。要真正使用 pdf-craft，你需要**安装 Poppler** 用于 PDF 解析。本地 OCR 还需要支持 CUDA 的 PyTorch 环境；供应商 OCR 不需要本地 CUDA。详细说明请参考[安装指南](docs/INSTALLATION_zh-CN.md)。
+默认安装支持供应商 OCR，不会安装本地模型运行时。要真正进行 PDF 转换，仍需**安装 Poppler**
+用于 PDF 解析。若要使用本地 OCR，请先安装与 CUDA 匹配的 PyTorch，再执行：
+
+```bash
+pip install "pdf-craft[local]"
+```
+
+详细说明请参考[安装指南](docs/INSTALLATION_zh-CN.md)。
 
 ### 快速开始
 

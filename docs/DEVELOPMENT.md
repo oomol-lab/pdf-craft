@@ -7,10 +7,12 @@ This guide is for human contributors. Agent-facing project routing lives in `AGE
 - Python >= 3.11, < 3.14 (3.11.16 recommended)
 - Poetry 2.x
 - Poppler, only when running PDF rendering or conversion checks
-- PyTorch, installed through `doc-page-extractor[local]` for local OCR conversion
 - CUDA-capable PyTorch and an NVIDIA GPU, only when running real local OCR conversion
 
-pdf-craft depends on `doc-page-extractor[local]`, so installs include the upstream local OCR runtime stack. pdf-craft still does not declare `torch` or `torchvision` directly; reinstall or override the PyTorch wheel when you need a specific CPU or CUDA build.
+Ordinary installs use the vendor-capable base `doc-page-extractor` runtime. The
+optional `local` extra adds the upstream Hugging Face local OCR runtime.
+pdf-craft does not declare `torch` or `torchvision` directly; install or
+override the PyTorch wheel for the CUDA build you need before enabling local OCR.
 
 ## Setup For Ordinary Development
 
@@ -37,21 +39,17 @@ is not valid for this project and must be recreated with a supported Python.
 
 For code reading, type checking, and the lightweight unit tests, this is usually enough.
 
-If a task needs a specific CPU PyTorch wheel, reinstall it explicitly:
-
-```shell
-poetry run pip install --force-reinstall torch torchvision --index-url https://download.pytorch.org/whl/cpu
-```
-
 ## Setup For Real OCR Conversion
 
 Real PDF conversion can run through either a local CUDA model or vendor OCR.
 
-Local OCR requires CUDA-capable PyTorch. Reinstall the PyTorch build that matches your system before running conversion scripts if the installed wheel does not match your CUDA environment.
+Local OCR requires the optional runtime and CUDA-capable PyTorch. Install the
+project extra, then install or reinstall the PyTorch build that matches your system.
 
 Examples:
 
 ```shell
+poetry install --with dev --extras local
 poetry run pip install --force-reinstall torch torchvision --index-url https://download.pytorch.org/whl/cu118
 poetry run pip install --force-reinstall torch torchvision --index-url https://download.pytorch.org/whl/cu121
 poetry run pip install --force-reinstall torch torchvision --index-url https://download.pytorch.org/whl/cu124
@@ -68,7 +66,7 @@ sudo apt-get install poppler-utils
 brew install poppler
 ```
 
-Verify the environment:
+Verify a local OCR environment:
 
 ```shell
 poetry run python -c "import torch; print(f'PyTorch version: {torch.__version__}'); print(f'CUDA available: {torch.cuda.is_available()}')"

@@ -13,6 +13,18 @@ pdf-craft 使用 `doc-page-extractor` 进行文档识别。供应商 OCR 后端�
 
 CPU 环境无法运行本地 OCR；在具备网络、有效凭据和 Poppler 时，仍可运行供应商 OCR。
 
+### 供应商 OCR 安装
+
+供应商 OCR 是默认安装路径，不会安装 PyTorch、Hugging Face Transformers 或 CUDA
+运行时依赖：
+
+```bash
+pip install pdf-craft
+```
+
+按下文安装 Poppler，然后在应用中配置供应商 OCR 后端（使用仓库内
+`pdf_craft_tool` 时在 `.env` 中配置）。
+
 ### CUDA 环境安装
 
 #### 1. 配置 CUDA 环境
@@ -35,10 +47,10 @@ nvidia-smi
 pip install torch torchvision --index-url https://download.pytorch.org/whl/cu121
 ```
 
-#### 3. 安装 pdf-craft
+#### 3. 安装 pdf-craft 本地运行时
 
 ```bash
-pip install pdf-craft
+pip install "pdf-craft[local]"
 ```
 
 #### 4. 安装 Poppler
@@ -75,14 +87,15 @@ pdfinfo -v
 
 应输出 Poppler 版本信息。如果命令未找到，请检查上述 Poppler 安装步骤。
 
-### CPU 环境安装（仅开发）
+### CPU 环境安装
 
 ```bash
-pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
 pip install pdf-craft
 ```
 
-**注意：** 即使是仅用于开发的环境，如果你想测试与 PDF 相关的功能，仍需按照上述步骤 4 安装 Poppler。使用仓库中的手动脚本时，请将 `.env.template` 复制为 `.env`，填写供应商 OCR 配置后再运行脚本。
+此安装可以运行供应商 OCR，但不能运行本地 OCR。如果需要处理 PDF，仍需按照上述步骤 4
+安装 Poppler。使用仓库中的手动脚本时，请将 `.env.template` 复制为 `.env`，填写供应商
+OCR 配置后再运行脚本。
 
 ## 常见问题
 

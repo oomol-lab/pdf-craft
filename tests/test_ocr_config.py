@@ -146,6 +146,15 @@ class TestOCRConfig(unittest.TestCase):
         )
         extractor.load_ocr_model.assert_called_once_with()
 
+    def test_local_ocr_missing_optional_runtime_has_install_hint(self):
+        with patch(
+            "doc_page_extractor.extractor.create_deepseek_ocr_page_extractor",
+            side_effect=ModuleNotFoundError("No module named 'transformers'"),
+        ):
+            node = PageExtractorNode(DeepSeekOCRLocalConfig())
+            with self.assertRaisesRegex(RuntimeError, "pdf-craft\\[local\\]"):
+                node.load_models()
+
     def test_local_deepseek_ocr2_rejects_tiny_before_upstream_model_code(self):
         node = PageExtractorNode(DeepSeekOCR2LocalConfig(models_cache_path="models"))
         with self.assertRaisesRegex(ValueError, "deepseek-ocr2-local.*tiny.*base"):

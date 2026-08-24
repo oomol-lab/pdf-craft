@@ -39,6 +39,17 @@ _LOCAL_OCR_CONFIG_TYPES = (
 )
 
 
+def _create_local_page_extractor(factory):
+    """Turn a missing optional local runtime into an actionable package error."""
+    try:
+        return factory()
+    except ModuleNotFoundError as error:
+        raise RuntimeError(
+            "Local OCR requires the optional local runtime. "
+            "Install it with: pip install 'pdf-craft[local]'"
+        ) from error
+
+
 class PageExtractorNode:
     def __init__(self, ocr: OCRConfig) -> None:
         self._ocr = ocr
@@ -52,30 +63,39 @@ class PageExtractorNode:
     def _create_page_extractor(self):
         # 尽可能推迟 doc-page-extractor 的加载时间
         if isinstance(self._ocr, DeepSeekOCRLocalConfig):
+            ocr = self._ocr
             from doc_page_extractor.extractor import create_deepseek_ocr_page_extractor
 
-            return create_deepseek_ocr_page_extractor(
-                ocr_model="deepseek-ocr",
-                model_path=self._ocr.models_cache_path,
-                local_only=self._ocr.local_only,
-                enable_devices_numbers=self._ocr.enable_devices_numbers,
+            return _create_local_page_extractor(
+                lambda: create_deepseek_ocr_page_extractor(
+                    ocr_model="deepseek-ocr",
+                    model_path=ocr.models_cache_path,
+                    local_only=ocr.local_only,
+                    enable_devices_numbers=ocr.enable_devices_numbers,
+                )
             )
         if isinstance(self._ocr, DeepSeekOCR2LocalConfig):
+            ocr = self._ocr
             from doc_page_extractor.extractor import create_deepseek_ocr_page_extractor
 
-            return create_deepseek_ocr_page_extractor(
-                ocr_model="deepseek-ocr2",
-                model_path=self._ocr.models_cache_path,
-                local_only=self._ocr.local_only,
-                enable_devices_numbers=self._ocr.enable_devices_numbers,
+            return _create_local_page_extractor(
+                lambda: create_deepseek_ocr_page_extractor(
+                    ocr_model="deepseek-ocr2",
+                    model_path=ocr.models_cache_path,
+                    local_only=ocr.local_only,
+                    enable_devices_numbers=ocr.enable_devices_numbers,
+                )
             )
         if isinstance(self._ocr, UnlimitedOCRLocalConfig):
+            ocr = self._ocr
             from doc_page_extractor.extractor import create_unlimited_ocr_page_extractor
 
-            return create_unlimited_ocr_page_extractor(
-                model_path=self._ocr.models_cache_path,
-                local_only=self._ocr.local_only,
-                enable_devices_numbers=self._ocr.enable_devices_numbers,
+            return _create_local_page_extractor(
+                lambda: create_unlimited_ocr_page_extractor(
+                    model_path=ocr.models_cache_path,
+                    local_only=ocr.local_only,
+                    enable_devices_numbers=ocr.enable_devices_numbers,
+                )
             )
         if isinstance(self._ocr, DeepSeekOCRVendorConfig):
             from doc_page_extractor.adapters.deepseek import (
