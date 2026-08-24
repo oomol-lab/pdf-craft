@@ -55,7 +55,7 @@ jobs:
           fi
 
           TAG="v${VERSION}"
-          CHANGELOG_PATH="docs/docs-change-log/${TAG}.md"
+          CHANGELOG_PATH="docs/changelog/${TAG}.md"
 
           if [[ ! -s "${CHANGELOG_PATH}" ]]; then
             echo "Missing or empty changelog: ${CHANGELOG_PATH}"
