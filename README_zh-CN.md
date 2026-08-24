@@ -54,7 +54,7 @@ pip install "pdf-craft[local]"
 的 PyTorch、模型缓存和足够的显存。没有这类设备时，使用前面的默认安装。
 
 项目支持 Python 3.11、3.12 和 3.13。处理 PDF 前还需要安装 Poppler，完整步骤请参考
-[安装指南](docs/INSTALLATION_zh-CN.md)。
+[安装指南](docs/zh-CN/INSTALLATION.md)。如果遇到问题，可以先查看[故障排查指南](docs/zh-CN/TROUBLESHOOTING.md)。
 
 ## 快速开始
 
@@ -76,6 +76,9 @@ craft.convert_pdf_to_markdown(
 
 转换过程会自动使用系统临时目录，并在完成或发生异常后清理。如果需要保留中间结果以便
 调试或重复使用，可以显式传入 `package_path`。
+
+完整的 PDF 转换说明和库定制选项，请参阅 [PDF 转换与翻译指南](docs/zh-CN/PDF_TRANSLATION.md)
+和 [API 参考](docs/zh-CN/API_REFERENCE.md)。
 
 ## 高级功能
 
@@ -177,7 +180,7 @@ PDFCraft().translate_epub(
 `APPEND_TEXT` 则将译文直接接在原文后。译文会尽量保留原 EPUB 的排版、插图和目录结构。
 
 提示词、并发、缓存恢复、进度回调、失败处理及双 LLM 配置，请参考
-[EPUB 翻译指南](docs/EPUB_TRANSLATION_zh-CN.md)。
+[EPUB 翻译指南](docs/zh-CN/EPUB_TRANSLATION.md)。
 
 ## OCR backend 与模型缓存
 
@@ -204,7 +207,8 @@ OCR（光学字符识别）负责把 PDF 页面图片识别成文字。pdf-craft
 | `UnlimitedOCRVendorConfig` | 百度 | 远程服务 | 没有 CUDA，或希望直接调用百度 Unlimited OCR | 服务地址、模型名、访问密钥、网络 |
 
 如果你只是想先把流程跑通，优先选择自己已有凭据的 vendor OCR；如果你要离线运行，
-再选择对应的 local OCR。库 API 的 `ocr` 参数接收上表中的配置对象，不读取环境变量。
+再选择对应的 local OCR。库 API 的 `ocr` 参数接收上表中的配置对象，不读取环境变量。完整配置示例请参考
+[OCR backend 配置指南](docs/zh-CN/OCR_BACKENDS.md)。
 
 Unlimited OCR local 仅支持 base 和 gundam；DeepSeek OCR 2 local 的已验证路径使用
 base，显式使用 tiny 会快速失败并提示改用 base。
@@ -227,10 +231,6 @@ ocr_size 可使用 tiny、small、base、large 和 gundam，但不同 backend �
 相同。Markdown 默认 toc_assumed=False，EPUB 默认 toc_assumed=True；复杂目录可以
 传入 toc_llm。
 
-
-## 开发
-
-本地贡献者环境、验证命令、手动转换检查和 VGE worktree 说明，请参考[开发指南](docs/DEVELOPMENT_zh-CN.md)。
 
 ## 相关项目
 

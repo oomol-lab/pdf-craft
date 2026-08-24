@@ -52,8 +52,9 @@ pip install "pdf-craft[local]"
 ```
 
 Local OCR also requires a CUDA-compatible PyTorch build, model storage, and enough
-GPU memory. Before processing PDFs, install Poppler; see the [Installation Guide](docs/INSTALLATION.md)
-for the supported Python versions and complete system setup.
+GPU memory. Before processing PDFs, install Poppler; see the [Installation Guide](docs/en/INSTALLATION.md)
+for the supported Python versions and complete system setup. If something goes wrong,
+start with the [Troubleshooting Guide](docs/en/TROUBLESHOOTING.md).
 
 ## Quick Start
 
@@ -76,6 +77,9 @@ craft.convert_pdf_to_markdown(
 The conversion uses a temporary working directory automatically and removes it
 when the conversion finishes or fails. Pass `package_path` only when you want to
 keep the intermediate work for debugging or reuse.
+
+For the complete PDF conversion workflow and customization options, see the
+[PDF Translation Guide](docs/en/PDF_TRANSLATION.md) and [API Reference](docs/en/API_REFERENCE.md).
 
 ## Advanced Features
 
@@ -161,7 +165,7 @@ PDFCraft().translate_epub(
 
 `REPLACE` creates a target-language-only edition. Use `APPEND_BLOCK` to keep the
 original and append the translation as a separate block, or `APPEND_TEXT` to place
-the translation directly after the original text. See the [EPUB translation guide](docs/EPUB_TRANSLATION.md)
+the translation directly after the original text. See the [EPUB translation guide](docs/en/EPUB_TRANSLATION.md)
 for prompts, retries, concurrency, caching, progress callbacks, and failure handling.
 
 ## OCR Backends and Model Cache
@@ -192,7 +196,8 @@ has local and vendor configurations:
 If you simply want to get the workflow running, start with the vendor you already
 have credentials for. Choose local OCR when you specifically want local execution.
 The library accepts these configuration objects through `PDFOptions(ocr=...)` and
-does not read environment variables.
+does not read environment variables. See the [OCR Backend Guide](docs/en/OCR_BACKENDS.md)
+for detailed configuration examples.
 
 Unlimited OCR local supports `base` and `gundam`. DeepSeek OCR 2 local is verified
 with `base`; an explicit `tiny` selection fails early with a clear message.
@@ -214,11 +219,6 @@ predownload_models(
 `ocr_size` supports `tiny`, `small`, `base`, `large`, and `gundam`, although presets
 vary by backend. Markdown defaults to `toc_assumed=False`; EPUB defaults to
 `toc_assumed=True`. Complex chapter hierarchies can use an optional `toc_llm`.
-
-## Development
-
-For contributor setup, validation commands, manual conversion checks, and VGE
-worktree notes, see the [Development Guide](docs/DEVELOPMENT.md).
 
 ## Related Projects
 
