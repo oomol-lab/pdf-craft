@@ -127,6 +127,26 @@ craft.convert_pdf_to_epub(
 翻译文字，并把翻译结果写回原始页面。翻译使用独立的文本 LLM 配置，不要把 OCR 服务
 地址当作翻译服务地址。
 
+下面的例子把 `input.pdf` 翻译成中文并保存为 `translated.pdf`。`translator` 需要连接
+你的文本 LLM，并接收一段文字后返回译文：
+
+~~~python
+from pdf_craft import DeepSeekOCRVendorConfig, PDFCraft, PDFOptions
+
+craft = PDFCraft(pdf=PDFOptions(ocr=DeepSeekOCRVendorConfig(
+    base_url="https://example.com/v1",
+    api_key="your-ocr-api-key",
+    model="deepseek-ocr",
+)))
+
+# 请替换为你自己的文本 LLM 调用。
+def translator(text: str) -> str:
+    return text  # 调用文本 LLM，将 text 翻译成中文
+
+package = craft.extract_pdf("input.pdf", "work/cache")
+craft.translate_pdf("input.pdf", package, "translated.pdf", translator)
+~~~
+
 ### 翻译 EPUB
 
 如果手头已经有 EPUB 文件，可以直接指定输入文件、输出文件和目标语言：
