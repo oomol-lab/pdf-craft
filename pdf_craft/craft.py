@@ -252,8 +252,8 @@ class PDFCraft:
         if self._pdf is None:
             raise ValueError("PDF extraction requires PDFCraft(pdf=PDFOptions(...))")
         # Import lazily so EPUB-only callers never import the historical adapter.
-        from .transform import Transform
-        return Transform(models_cache_path=self._pdf.models_cache_path,
+        from .transform import PDFExtractionEngine
+        return PDFExtractionEngine(models_cache_path=self._pdf.models_cache_path,
                          pdf_handler=self._pdf.pdf_handler,
                          local_only=self._pdf.local_only, ocr=self._pdf.ocr)
 

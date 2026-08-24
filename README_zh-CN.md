@@ -22,6 +22,12 @@ OCR。
 本机 CUDA；local OCR 在本机运行模型，需要 CUDA。翻译使用独立的文本 LLM 配置，
 与 OCR backend 分开。
 
+## 在线版本
+
+如果你希望在不进行本地安装的情况下体验 pdf-craft，可以试试 [Inkora - PDF Craft](https://inkora.oomol.com/pdf-craft/)，这是一个基于相同 PDF 转换流程构建的在线应用。你可以直接上传 PDF 文件，在浏览器中体验主要功能。
+
+[![PDF Craft 在线版本](docs/images/website-cn.png)](https://inkora.oomol.com/pdf-craft/)
+
 核心流程是：
 
 ~~~text
@@ -95,8 +101,7 @@ craft.convert_pdf_to_epub(
 )
 ~~~
 
-PDFCraft 是 2.0 的公共 facade。旧的 transform_markdown 和 transform_epub 仍作为
-兼容包装保留；新代码建议使用 PDFCraft。
+PDFCraft 是 2.0 的公共 facade，提取、渲染和翻译流程都从这里调用。
 
 ## DocumentPackage：可复用的中间文档
 
@@ -253,21 +258,9 @@ pdf-craft 默认通过 pdf2image 使用系统 PATH 中的 Poppler。也可以向
 自定义 PDFHandler。ignore_pdf_errors 和 ignore_ocr_errors 支持布尔值或自定义判断函数，
 用于决定是否跳过单页错误。
 
-## 兼容 API
-
-transform_markdown、transform_epub 和 predownload_models 仍可从顶层导入。前两个是旧
-API 的便利包装；新代码建议使用 PDFCraft facade。DocumentPackage 的正式操作是
-extract_pdf、translate_package、render_markdown、render_epub 和 patch_pdf_with_package。
-
 ## 开发
 
 本地贡献者环境、验证命令、手动转换检查和 VGE worktree 说明，请参考[开发指南](docs/DEVELOPMENT_zh-CN.md)。
-
-## 在线版本
-
-如果你希望在不进行本地安装的情况下体验 pdf-craft，可以试试 [Inkora - PDF Craft](https://inkora.oomol.com/pdf-craft/)，这是一个基于相同 PDF 转换流程构建的在线应用。你可以直接上传 PDF 文件，在浏览器中体验主要功能。
-
-[![PDF Craft 在线版本](docs/images/website-cn.png)](https://inkora.oomol.com/pdf-craft/)
 
 ## 相关项目
 

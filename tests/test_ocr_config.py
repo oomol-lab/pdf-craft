@@ -16,7 +16,6 @@ from pdf_craft import (
 from pdf_craft.functions import predownload_models
 from pdf_craft.ocr_config import ensure_ocr_config
 from pdf_craft.pdf.page_extractor import PageExtractorNode
-from pdf_craft.transform import Transform
 from pdf_craft_tool.runtime import create_ocr_config_from_env
 
 
@@ -73,10 +72,7 @@ class TestOCRConfig(unittest.TestCase):
         )
 
         with self.assertRaisesRegex(ValueError, "ocr cannot be combined"):
-            Transform(
-                models_cache_path="models",
-                ocr=config,
-            )
+            ensure_ocr_config(config, "models", False)
 
     def test_local_deepseek_ocr_uses_doc_page_extractor_factory(self):
         extractor = Mock()
