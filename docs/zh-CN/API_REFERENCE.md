@@ -15,17 +15,19 @@ from pdf_craft import PDFCraft, PDFOptions
 - `PDFCraft`、`PDFOptions`、`ExtractionOptions`、`TranslationStep`
 - `DocumentPackage`、`PDFExtractor`
 - 六种 OCR 配置对象和 `OCRConfig`
+- `predownload_models`
 - `LLM`
 - `PackageTransformer`、`ChapterPackageTransformer`、`ChapterXMLTransformer`、
   `XMLTranslator`、`SubmitKind`
 - `BookMeta`、`TableRender`、`LaTeXRender`
-- `OCRTokensMetering`、`InterruptedKind`、`OCREvent`、`OCREventKind`、`FillFailedEvent`
+- `OCRTokensMetering`、`OCREvent`、`OCREventKind`、`FillFailedEvent`
 - `PDFHandler`、`DefaultPDFHandler`、`PDFDocument`、`DefaultPDFDocument`、
   `PDFDocumentMetadata`
 - `PDFPatcher`、`PDFReplacement`、`PDFSkippedReplacement`、`PatchTextOptions`、
   `PDFTranslationPipeline`
-- `PDFError`、`OCRError`、`InterruptedError`、`IgnorePDFErrorsChecker`、
+- `PDFError`、`OCRError`、`IgnorePDFErrorsChecker`、
   `IgnoreOCRErrorsChecker`
+- `translate_epub`
 
 `ChapterTransformer` 是公共协议，但导入路径为
 `from pdf_craft.transformer import ChapterTransformer`，而不是包顶层。本文不把以下内容当作
@@ -195,7 +197,7 @@ def accepts_transformer(transformer: ChapterTransformer) -> None:
 请使用下一节的 `XMLTranslator` 和 `ChapterXMLTransformer` 组合，而不是自行猜测章节内部
 结构。也可以传入实现 `transform(package, output_path) -> DocumentPackage` 的 package
 transformer。多个步骤按列表顺序执行，每一步产生新的 package。`SubmitKind.REPLACE`、
-`SubmitKind.APPEND_TEXT` 和 `SubmitKind.APPEND_BLOCK` 的含义取决于变换器；PDF 写回不支持
+`SubmitKind.APPEND_TEXT` 和 `SubmitKind.APPEND_BLOCK` 的含义取决于变换器；PDF 写回仅拒绝
 `APPEND_BLOCK`。
 
 ### 翻译并写回 PDF
@@ -209,7 +211,8 @@ craft.translate_pdf(
 
 `translate_pdf` 会生成翻译后的临时 package，再调用 `patch_pdf_with_package`。写回只会
 替换 package 中记录了来源坐标的原始 PDF 文本，不是通用 PDF 排版器；输入 PDF 必须和 package
-来自同一份源文件，并且 package 要有页面几何元数据。PDF 输出只支持替换语义。
+来自同一份源文件，并且 package 要有页面几何元数据。PDF 写回不支持 `APPEND_BLOCK`；
+`APPEND_TEXT` 可以把双语内容放进原文本框，但更容易超过原有版面，通常优先选 `REPLACE`。
 
 如果已经有翻译后的 package，也可以单独写回：
 
@@ -317,7 +320,8 @@ craft.convert_pdf_to_markdown("input.pdf", "translated.md", steps=[translation])
 
 `translation_llm` 负责生成译文，`fill_llm` 负责在必要时修复 XML 结构。两个 LLM 可以使用
 不同的模型、提示参数、缓存或重试策略。若目标是双语 Markdown 或 EPUB，可把步骤模式设为
-`APPEND_TEXT` 或 `APPEND_BLOCK`；若目标是翻译后的 PDF，必须使用 `REPLACE`。
+`APPEND_TEXT` 或 `APPEND_BLOCK`；PDF 不支持 `APPEND_BLOCK`，而 `APPEND_TEXT` 虽可使用，
+但需要为双语文本的版面溢出承担处理成本，因此通常推荐 `REPLACE`。
 
 已有可复用 package 时，使用同一个 transformer 调用 `translate_package`，显式指定新的输出目录：
 
@@ -352,23 +356,39 @@ PDFCraft().translate_epub(
 `concurrency`、`translation_llm`、`fill_llm`、`on_progress` 和 `on_fill_failed`；完整行为
 和回调字段请参阅 EPUB 翻译专题文档。
 
+对于不需要保留 `PDFCraft` 实例的 EPUB-only 程序，也可直接从顶层导入同一能力：
+
+```python
+from pdf_craft import SubmitKind, translate_epub
+
+translate_epub(
+    "source.epub", "translated.epub",
+    target_language="zh", submit=SubmitKind.REPLACE, llm=llm,
+)
+```
+
+`PDFCraft().translate_epub()` 会将其翻译关键字参数转发给顶层 `translate_epub()`；两种调用都
+不需要 PDF OCR 配置。顶层函数显式接受前文列出的 EPUB 翻译参数。
+
 ## 低层 PDF 写回 API
 
 通常应使用 `PDFCraft.patch_pdf_with_package()` 或 `PDFCraft.translate_pdf()`。顶层也公开了较低层的
-写回组件，供已经能自行生成 OCR 坐标与替换文字的集成方使用：
+写回组件，供已经能自行生成替换坐标与文字的集成方使用：
 
 - `PDFReplacement` 描述一段待替换文本：`page_index`、像素坐标 `bbox`、`text`、OCR 画布尺寸
   `page_pixel_size`，以及可选的 `dpi`、`reading_order`。
 - `PDFPatcher(options=PatchTextOptions(...), pdf_handler=...)` 通过 `.patch(source_path,
-  target_path, replacements)` 写出 PDF。`PatchTextOptions` 控制字体、字号、内边距、对齐和
-  `overflow` 策略；`overflow="error"`（默认）在文字无法放入原框时失败，`"skip"` 则把对应
-  项记录在 `patcher.skipped_replacements` 中。
+  target_path, replacements)` 写出 PDF。它接受任意通过字段校验的 `PDFReplacement`，不要求这些
+  替换项来自 `DocumentPackage` 或 OCR；`page_pixel_size` 仅用于把像素 `bbox` 换算为 PDF 坐标，
+  patcher 不会验证它是否等于源页的实际渲染尺寸。调用方必须自行保证页码、坐标与尺寸对应源 PDF。
+  `PatchTextOptions` 控制字体、字号、内边距、对齐和 `overflow` 策略；`overflow="error"`（默认）
+  在文字无法放入原框时失败，`"skip"` 则把对应项记录在 `patcher.skipped_replacements` 中。
 - `PDFTranslationPipeline` 可将一个 `DocumentPackage` 与 `ChapterTransformer` 或
   `Callable[[str], str]` 直接写回 PDF；其 `.patch()` 则把 package 已有的文字写回。这是
-  facade 的底层组成部分，普通应用无需直接构造。
+  facade 的底层组成部分，普通应用无需直接构造。它只从 package 中带来源坐标的 `text` 和
+  `sub_title` 布局收集替换项。
 
-这些 API 只替换带 OCR 来源坐标的正文区域，并不重排 PDF 页面。输入的像素坐标、页码和页面尺寸
-必须匹配源 PDF；页码从 1 开始。
+它们都不会重排 PDF 页面；页码从 1 开始。
 
 ## OCR 配置对象
 
@@ -397,9 +417,10 @@ DeepSeekOCRVendorConfig(
 `base_url`、`poll_interval_seconds` 和 `timeout_seconds`。local 配置使用本机 CUDA 和模型
 缓存，vendor 配置使用远程服务；六种配置不能混用。
 
-`predownload_models(ocr=..., revision=None)` 可以提前下载 local 模型。`local_only=True`
-会禁止缺失模型联网下载。不同模型支持的 `ocr_size` preset 不完全相同，应以 OCR 配置指南
-和具体 backend 的约束为准。
+`predownload_models(models_cache_path=None, pdf_handler=None, revision=None, ocr=None)` 可以提前
+下载 local 模型。传入 `ocr` 时不能再同时传入 `models_cache_path`；`pdf_handler` 仅在需要替换
+默认 PDF handler 时使用。`local_only=True` 会禁止缺失模型联网下载。不同模型支持的 `ocr_size`
+preset 不完全相同，应以 OCR 配置指南和具体 backend 的约束为准。
 
 ## LLM
 
@@ -434,21 +455,10 @@ LLM(
 传 `True`、`False` 或 callable。`FillFailedEvent` 用于 EPUB XML 结构修复失败回调，包含
 `error_message`、`retried_count` 和 `over_maximum_retries`。
 
-当 `ExtractionOptions.aborted` 返回 `True`，或 `max_ocr_tokens` / `max_ocr_output_tokens`
-达到上限时，提取和一键 PDF 转换会抛出 `InterruptedError`。异常的 `kind` 为
-`InterruptedKind.ABORT` 或 `InterruptedKind.TOKEN_LIMIT_EXCEEDED`，并携带截至中断时已消耗的
-`OCRTokensMetering`，可用于保存进度或向调用方报告额度：
-
-```python
-from pdf_craft import InterruptedError, InterruptedKind
-
-try:
-    craft.convert_pdf_to_markdown("input.pdf", "book.md")
-except InterruptedError as error:
-    if error.kind is InterruptedKind.TOKEN_LIMIT_EXCEEDED:
-        print("OCR token limit reached")
-    print(error.metering.input_tokens, error.metering.output_tokens)
-```
+`ExtractionOptions.aborted` 返回 `True`，以及 `max_ocr_tokens` /
+`max_ocr_output_tokens` 达到上限时，当前 PDF facade 会透出 OCR backend 的中断异常；它尚未把
+这些异常适配为带 `OCRTokensMetering` 的 pdf-craft 统一异常。需要在中断前保留进度或 token
+统计时，应通过 `on_ocr_event` 持续记录事件，并按所选 backend 的异常类型处理。
 
 ## 组合建议
 
