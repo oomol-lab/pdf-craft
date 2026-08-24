@@ -12,8 +12,9 @@ python -m pip install pdf-craft
 ```
 
 标准版本包含 vendor OCR、Markdown/EPUB 渲染和 PDF 翻译所需的依赖。vendor OCR 使用
-远程服务的计算资源，本机不需要 CUDA；使用时在代码的 OCR 配置对象中填写服务地址、
-模型名和访问密钥即可。
+远程服务的计算资源，本机不需要 CUDA。DeepSeek OCR 和 DeepSeek OCR 2 的配置需要
+`base_url`、`model` 和 `api_key`；百度 Unlimited OCR 的配置需要 `ak` 和 `sk`，
+`base_url` 有默认值。
 
 只有在你明确希望让 OCR 模型运行在自己的 NVIDIA GPU 上时，才安装 local extra：
 
@@ -30,8 +31,9 @@ CUDA 环境安装匹配的 PyTorch。没有可用 CUDA 设备时，使用标准�
 ## 系统要求
 
 - Python `>=3.11,<3.14`。
-- Poppler：所有需要读取或渲染 PDF 的流程都需要它。
-- vendor OCR：网络连接、有效的服务配置和 Poppler；本机不需要 CUDA。
+- Poppler：PDF 页面渲染和 OCR 提取需要它。
+- PDF 修补等只读取并写回 PDF 的流程使用 pypdf，不依赖 Poppler。
+- vendor OCR：网络连接和有效的供应商配置；只要运行 OCR 提取，还需要 Poppler；本机不需要 CUDA。
 - local OCR：支持 CUDA 的 NVIDIA GPU、匹配的 PyTorch、模型缓存、足够的显存和 Poppler。
 
 local OCR 的显存需求取决于所选模型、`ocr_size` 和输入页面。不要把某个模型的显存
@@ -82,8 +84,15 @@ sudo apt-get install poppler-utils
 ### Windows
 
 下载适用于 Windows 的 Poppler 二进制包，将其中的 `bin` 目录加入系统 `PATH`，然后重新
-打开终端。也可以在应用层通过自定义 PDF handler 指定 Poppler 路径；这属于高级 API，
-不影响标准安装。
+打开终端。也可以在应用层通过 `DefaultPDFHandler(poppler_path=...)` 指定 Poppler 路径：
+
+```python
+from pdf_craft import DefaultPDFHandler, PDFCraft, PDFOptions
+
+craft = PDFCraft(pdf=PDFOptions(
+    pdf_handler=DefaultPDFHandler(poppler_path="C:/tools/poppler/bin"),
+))
+```
 
 ### 验证 Poppler
 
@@ -131,7 +140,32 @@ python -m pip install "pdf-craft[local]"
 ```
 
 该 extra 通过 `doc-page-extractor[local]` 提供本地 OCR 运行时。模型首次使用时可能会
-从模型仓库下载较大的文件；模型缓存位置和离线运行方式请参考 OCR backend 配置指南。
+从模型仓库下载较大的文件。你可以先下载模型并在之后完全离线运行：
+
+```python
+from pdf_craft import DeepSeekOCRLocalConfig, PDFCraft, PDFOptions, predownload_models
+
+download_ocr = DeepSeekOCRLocalConfig(
+    models_cache_path="models",
+    enable_devices_numbers=[0],
+)
+predownload_models(ocr=download_ocr)
+
+offline_ocr = DeepSeekOCRLocalConfig(
+    models_cache_path="models",
+    local_only=True,
+    enable_devices_numbers=[0],
+)
+craft = PDFCraft(pdf=PDFOptions(ocr=offline_ocr))
+```
+
+`models_cache_path` 指定模型缓存目录，`local_only=True` 禁止运行时下载模型，
+`enable_devices_numbers` 指定可使用的 GPU 编号。预下载阶段可以暂时将 `local_only`
+设为 `False` 或省略；模型下载完成后再用 `local_only=True` 运行。
+
+三种 local 配置都支持这些参数。`DeepSeekOCR2LocalConfig` 的已验证 `ocr_size` 是
+`base`，显式使用 `tiny` 会提前失败；`UnlimitedOCRLocalConfig` 只支持 `base` 和
+`gundam`。
 
 ## 验证 Python 包安装
 
@@ -147,9 +181,10 @@ README 的快速开始示例创建对应的 OCR 配置对象。
 ## 运行前的配置边界
 
 - 库 API 不会自动读取 `.env`；请在 Python 代码中显式传入 OCR 配置和翻译 LLM 配置。
-- vendor OCR 需要服务端点、模型名、访问密钥和网络连接。
+- DeepSeek vendor OCR 需要 `base_url`、`model`、`api_key` 和网络连接；Unlimited OCR
+  vendor 需要 `ak`、`sk` 和网络连接，`base_url` 可省略。
 - local OCR 需要本机 CUDA、PyTorch、模型文件和显存。
 - OCR 只负责页面识别；翻译需要单独的文本 LLM 配置。
 
-当安装本身没有问题、但运行时出现 Poppler、CUDA、模型下载或远程请求错误时，请转到
-故障排查指南继续处理。
+安装完成后即可按 README 的快速开始示例运行。运行时遇到 Poppler、CUDA、模型下载或
+远程请求错误时，应先检查本指南对应的安装条件和配置字段。
