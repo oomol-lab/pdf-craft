@@ -28,31 +28,33 @@ pdf-craft 面向扫描版书籍，把 PDF 转换为 Markdown、EPUB 或翻译后
 
 ## 安装
 
-项目支持 Python 3.11、3.12 和 3.13。所有 PDF 路径都需要系统安装 Poppler；请参考
-[安装指南](docs/INSTALLATION_zh-CN.md)。
+项目支持 Python 3.11、3.12 和 3.13。开始处理 PDF 前，请先安装 Poppler；完整安装步骤
+请参考[安装指南](docs/INSTALLATION_zh-CN.md)。
 
-### 默认安装：vendor OCR 与渲染
+### 默认安装：适合大多数用户
 
 ~~~bash
 pip install pdf-craft
 ~~~
 
-默认安装包含 vendor OCR、Markdown/EPUB 渲染和 PDF 翻译所需的基础依赖，不主动安装
-local OCR 的模型运行时。vendor OCR 还需要 endpoint 和凭据；
-库 API 通过配置对象接收它们，不读取 .env。
+默认安装包含远程 OCR、Markdown/EPUB 渲染和 PDF 翻译所需的依赖，不会安装本地 OCR
+模型的运行时。使用远程 OCR 时，还需要准备服务地址、模型名和访问密钥；这些信息会在
+代码中的配置对象里填写。
 
-### local OCR 安装
+### 本地 OCR 安装（可选）
 
 ~~~bash
 pip install "pdf-craft[local]"
 ~~~
 
-local extra 提供 Hugging Face、Transformers 等 local OCR 运行时。真实 local OCR
-还需要 CUDA-capable PyTorch、模型缓存和足够显存；没有 CUDA 时请使用 vendor OCR。
+这项安装适用于希望在自己的设备上运行 OCR 模型的用户。本地 OCR 还需要支持 CUDA 的
+PyTorch、模型缓存和足够的显存；没有 CUDA 时，请使用上面
+默认安装提供的远程 OCR。
 
 ## 快速开始
 
-下面示例使用 vendor OCR。请把 endpoint、模型名和密钥替换成你的服务配置。
+下面的例子会把一个扫描版 PDF 转换成 Markdown 文件。代码使用远程 OCR 识别页面，因此
+你只需要把示例中的服务地址、模型名和访问密钥替换成自己的配置。
 
 ~~~python
 from pdf_craft import DeepSeekOCRVendorConfig, PDFCraft, PDFOptions
@@ -70,7 +72,10 @@ craft.convert_pdf_to_markdown(
 
 ## 高级功能
 
-如果希望输出 EPUB，可以沿用上面的 OCR 配置，将转换方法改为：
+### 将 PDF 转换为 EPUB
+
+如果你希望得到 EPUB，而不是 Markdown，请使用 `convert_pdf_to_epub`。下面是一个完整的
+示例：
 
 ~~~python
 from pdf_craft import (
@@ -93,11 +98,18 @@ craft.convert_pdf_to_epub(
 )
 ~~~
 
-PDFCraft 是 2.0 的公共 facade，提取、渲染和翻译流程都从这里调用。
+`book_meta` 用于填写 EPUB 的书名和作者信息；如果不提供，pdf-craft 会尝试读取 PDF
+自身的元数据。
 
-如果需要翻译 PDF，使用 PDFCraft 的 PDF 翻译流程；它会将翻译结果写回原始 PDF。
+### 翻译 PDF
 
-已有 EPUB 可以直接翻译：
+如果你的目标是得到翻译后的 PDF，使用 PDFCraft 的 PDF 翻译流程。它会识别 PDF 内容、
+翻译文字，并把翻译结果写回原始页面。翻译使用独立的文本 LLM 配置，不要把 OCR 服务
+地址当作翻译服务地址。
+
+### 翻译 EPUB
+
+如果手头已经有 EPUB 文件，可以直接指定输入文件、输出文件和目标语言：
 
 ~~~python
 from pdf_craft import PDFCraft, SubmitKind
@@ -108,12 +120,13 @@ PDFCraft().translate_epub(
 )
 ~~~
 
-OCR 只负责页面识别；章节翻译和可选的目录层级增强需要文本 chat-completion LLM。
-不要把 OCR endpoint 当作翻译 LLM 使用。
+这里的 `target_language="zh"` 表示翻译成中文，`REPLACE` 表示用译文替换原文。章节翻译
+和可选的目录层级增强需要文本 LLM。
 
 ## OCR backend 与模型缓存
 
-pdf-craft 支持 doc-page-extractor 提供的六种 backend：
+OCR（光学字符识别）负责把页面图片识别成文字。pdf-craft 提供六种 OCR 方式，你可以
+根据设备和服务条件选择其中一种：
 
 - DeepSeekOCRLocalConfig：本地 DeepSeek OCR，需要 CUDA。
 - DeepSeekOCR2LocalConfig：本地 DeepSeek OCR 2，需要 CUDA。
@@ -122,15 +135,17 @@ pdf-craft 支持 doc-page-extractor 提供的六种 backend：
 - DeepSeekOCR2VendorConfig：OpenAI-compatible DeepSeek OCR 2 endpoint。
 - UnlimitedOCRVendorConfig：Unlimited OCR vendor backend。
 
-库 API 的 `ocr` 参数接收配置对象，不读取环境变量。六种 backend 可以按需选择。
+库 API 的 `ocr` 参数接收配置对象，不读取环境变量。
+如果不希望在本机准备 CUDA，请选择 vendor OCR；只有希望在本机运行模型时，才需要选择
+local OCR。
 
 Unlimited OCR local 仅支持 base 和 gundam；DeepSeek OCR 2 local 的已验证路径使用
 base，显式使用 tiny 会快速失败并提示改用 base。
 
 ### 模型缓存与常用参数
 
-local OCR 默认可以从 Hugging Face 下载模型。生产环境可以先预下载，再使用
-local_only=True：
+本地 OCR 默认会从 Hugging Face 下载模型。你也可以提前下载并指定模型缓存目录，之后
+使用 `local_only=True`，让运行过程只读取本地文件：
 
 ~~~python
 from pdf_craft import DeepSeekOCRLocalConfig, predownload_models
