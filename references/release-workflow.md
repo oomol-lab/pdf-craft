@@ -12,7 +12,7 @@ Agent 的工作应聚焦于准备仓库内的发版前置条件。发版准备�
 
 对于目标版本 `X.Y.Z`，准备仓库时要确保以下事实成立：
 
-- [pyproject.toml](../pyproject.toml) 中有 `tool.poetry.version = "X.Y.Z"`。
+- [pyproject.toml](../pyproject.toml) 中的 `[project].version` 为 `"X.Y.Z"`。
 - `docs/changelog/vX.Y.Z.md` 存在，并包含发布说明。
 - 变更日志应包含简洁摘要；在有帮助时按类别组织变更；在可取得时链接相关 PR 或 issue；并包含完整变更日志的 compare 链接。
 - 发版准备变更应先通过普通 PR 流程审查，再从 `main` 运行手动发版工作流。
