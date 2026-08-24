@@ -212,7 +212,9 @@ The repository's manual scripts default `DEEPSEEK_LOCAL_ONLY` and
 allow a missing model to download.
 You can control model storage and loading behavior through the local OCR
 configs. Unlimited OCR local supports the `base` and `gundam` `ocr_size`
-presets.
+presets. DeepSeek OCR 2 local is validated with the `base` preset; `tiny` is
+rejected with a clear error because the upstream cached Hugging Face remote
+code fails before extraction for that preset.
 
 #### Pre-download Models
 
@@ -269,6 +271,10 @@ The `ocr_size` parameter accepts a `DeepSeekOCRSize` type:
 - `base` - Base model
 - `large` - Large model
 - `gundam` - Largest model, highest quality (default)
+
+Backend notes: Unlimited OCR local supports only `base` and `gundam`.
+DeepSeek OCR 2 local should use `base`; `tiny` is not treated as a reliable
+local preset.
 
 ### Table Rendering Methods
 

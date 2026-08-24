@@ -207,7 +207,9 @@ transform_markdown(
 自动从 Hugging Face 下载。本仓库手动脚本中 `DEEPSEEK_LOCAL_ONLY` 和
 `UNLIMITED_LOCAL_ONLY` 默认均为 `true`；要下载缺失模型，请将相应变量设为
 `false`。你可以通过本地 OCR 配置控制模型的存储和加载行为。Unlimited OCR
-local 仅支持 `base` 和 `gundam` 这两个 `ocr_size` preset。
+local 仅支持 `base` 和 `gundam` 这两个 `ocr_size` preset。DeepSeek OCR 2
+local 的已验证本地路径使用 `base` preset；`tiny` 会被明确拒绝，因为上游
+缓存的 Hugging Face remote code 会在该 preset 下于提取前失败。
 
 #### 预下载模型
 
@@ -264,6 +266,9 @@ transform_markdown(
 - `base` - 基础模型
 - `large` - 大型模型
 - `gundam` - 最大模型，质量最高（默认）
+
+后端说明：Unlimited OCR local 仅支持 `base` 和 `gundam`。DeepSeek OCR 2
+local 应使用 `base`；`tiny` 不作为可靠的本地 preset。
 
 ### 表格渲染方式
 

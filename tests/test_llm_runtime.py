@@ -32,6 +32,18 @@ class TestLLMRuntime(unittest.TestCase):
             self.assertEqual(calls, 1)
             self.assertTrue(list((root / "logs").glob("*.log")))
 
+    def test_cache_key_is_short_enough_for_deep_windows_work_dirs(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            deep = root / ("nested-" + "x" * 40) / ("work-" + "y" * 40)
+            runtime = runtime_for(_config(deep))
+            runtime._invoke = lambda *_args: "ok"  # type: ignore[method-assign]
+
+            self.assertEqual(runtime.request("hello", cache_seed_content="seed"), "ok")
+            cached = list((deep / "cache").glob("*.txt"))
+            self.assertEqual(len(cached), 1)
+            self.assertLessEqual(len(cached[0].stem), 64)
+
     def test_empty_response_is_typed_after_retries(self):
         with tempfile.TemporaryDirectory() as directory:
             runtime = runtime_for(_config(Path(directory)))

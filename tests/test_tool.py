@@ -6,7 +6,16 @@ from pathlib import Path
 import tempfile
 from unittest.mock import patch
 
-from pdf_craft_tool.cli import _page_indexes, _parser, _run_matrix, _smoke_exit_code, _work_dir
+from pdf_craft_tool.cli import (
+    _page_indexes,
+    _parser,
+    _record_pdf_cache_owner,
+    _resolve_ocr_size,
+    _run_matrix,
+    _smoke_exit_code,
+    _validate_ocr_size,
+    _work_dir,
+)
 from pdf_craft_tool.paths import create_run_directory
 from pdf_craft_tool.runtime import create_llm_from_env, create_ocr_config_from_env, ocr_mode_from_env
 
@@ -58,7 +67,13 @@ class TestPDFCraftTool(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "chosen-output"
             self.assertEqual(_work_dir(Path("citation.pdf"), path, "convert"), path)
-            with self.assertRaises(FileExistsError):
+            self.assertEqual(_work_dir(Path("citation.pdf"), path, "convert"), path)
+
+    def test_explicit_work_directory_rejects_files(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "chosen-output"
+            path.write_text("not a directory", encoding="utf-8")
+            with self.assertRaisesRegex(SystemExit, "not a directory"):
                 _work_dir(Path("citation.pdf"), path, "convert")
 
     def test_page_indexes_are_explicitly_one_based(self):
@@ -103,7 +118,7 @@ class TestPDFCraftTool(unittest.TestCase):
             }, clear=True):
                 config = create_ocr_config_from_env()
                 self.assertEqual(type(config).__name__, expected_type)
-                self.assertEqual(str(getattr(config, "models_cache_path")), f"/{mode}")
+                self.assertEqual(getattr(config, "models_cache_path"), Path(f"/{mode}").resolve())
                 self.assertFalse(getattr(config, "local_only"))
                 self.assertEqual(getattr(config, "enable_devices_numbers"), (1, 3))
 
@@ -114,8 +129,64 @@ class TestPDFCraftTool(unittest.TestCase):
             "PDF_CRAFT_DEEPSEEK_LOCAL_ONLY": "false",
         }, clear=True):
             config = create_ocr_config_from_env()
-        self.assertEqual(str(getattr(config, "models_cache_path")), "/legacy-cache")
+        self.assertEqual(getattr(config, "models_cache_path"), Path("/legacy-cache").resolve())
         self.assertFalse(getattr(config, "local_only"))
+
+    def test_deepseek_ocr2_local_defaults_to_base_when_ocr_size_is_omitted(self):
+        self.assertEqual(_resolve_ocr_size(None, "deepseek-ocr2-local", "tiny"), "base")
+        self.assertEqual(_resolve_ocr_size(None, "deepseek-ocr-local", "tiny"), "tiny")
+        self.assertEqual(_resolve_ocr_size("tiny", "deepseek-ocr2-local", "base"), "tiny")
+
+    def test_deepseek_ocr2_local_rejects_tiny_with_clear_error(self):
+        with self.assertRaisesRegex(SystemExit, "deepseek-ocr2-local.*tiny.*base"):
+            _validate_ocr_size("deepseek-ocr2-local", "tiny")
+        _validate_ocr_size("deepseek-ocr2-local", "base")
+
+    def test_pdf_work_directory_records_and_validates_cache_owner(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = root / "source.pdf"
+            source.write_bytes(b"%PDF source")
+            other = root / "other.pdf"
+            other.write_bytes(b"%PDF other")
+            work_dir = root / "work"
+            work_dir.mkdir()
+            args = Namespace(
+                source=source,
+                dpi=None,
+                max_page_image_file_size=None,
+                footnotes=False,
+                max_ocr_tokens=None,
+                max_ocr_output_tokens=None,
+            )
+
+            _record_pdf_cache_owner(work_dir, args, "deepseek-ocr-local", "tiny")
+            _record_pdf_cache_owner(work_dir, args, "deepseek-ocr-local", "tiny")
+
+            changed_source = Namespace(**(args.__dict__ | {"source": other}))
+            with self.assertRaisesRegex(SystemExit, "different PDF/OCR settings.*source"):
+                _record_pdf_cache_owner(work_dir, changed_source, "deepseek-ocr-local", "tiny")
+            with self.assertRaisesRegex(SystemExit, "different PDF/OCR settings.*ocr_mode"):
+                _record_pdf_cache_owner(work_dir, args, "unlimited-ocr-local", "tiny")
+
+    def test_pdf_work_directory_rejects_legacy_ocr_cache_without_owner(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = root / "source.pdf"
+            source.write_bytes(b"%PDF source")
+            work_dir = root / "work"
+            (work_dir / "package" / "ocr").mkdir(parents=True)
+            args = Namespace(
+                source=source,
+                dpi=None,
+                max_page_image_file_size=None,
+                footnotes=False,
+                max_ocr_tokens=None,
+                max_ocr_output_tokens=None,
+            )
+
+            with self.assertRaisesRegex(SystemExit, "legacy OCR cache"):
+                _record_pdf_cache_owner(work_dir, args, "deepseek-ocr-local", "tiny")
 
     def test_each_vendor_backend_requires_only_its_own_environment_namespace(self):
         cases = (

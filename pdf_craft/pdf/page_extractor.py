@@ -158,6 +158,7 @@ class PageExtractorNode:
         device_number: int | None,
         aborted: AbortedCheck,
     ) -> Page:
+        self._validate_ocr_size(ocr_size)
         from doc_page_extractor.extraction_context import AbortError, TokenLimitError
         from doc_page_extractor.plot import plot
         from doc_page_extractor.types import ExtractionContext
@@ -311,6 +312,13 @@ class PageExtractorNode:
         text = remove_surrogates(text)
         text = re.sub(r"\s+", " ", text)
         return text.strip()
+
+    def _validate_ocr_size(self, ocr_size: DeepSeekOCRSize) -> None:
+        if isinstance(self._ocr, DeepSeekOCR2LocalConfig) and ocr_size == "tiny":
+            raise ValueError(
+                "deepseek-ocr2-local is not reliable with ocr_size='tiny'; "
+                "use ocr_size='base' for the validated local OCR2 path."
+            )
 
     def _normalize_layout_det(
         self,

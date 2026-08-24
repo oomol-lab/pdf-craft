@@ -155,7 +155,7 @@ class LLMContext(AbstractContextManager["LLMContext"]):
                    "seed": self.cache_seed_content, "temperature": temperature,
                    "top_p": top_p, "max_tokens": max_tokens,
                    "protocol": self.runtime.protocol_version}
-        return hashlib.sha512(json.dumps(payload, sort_keys=True, ensure_ascii=False).encode()).hexdigest()
+        return hashlib.sha256(json.dumps(payload, sort_keys=True, ensure_ascii=False).encode()).hexdigest()
 
     def _log(self, category: str, attempt: int, *, key: str | None, error: Exception | None = None) -> None:
         self.runtime._logger.info(json.dumps({

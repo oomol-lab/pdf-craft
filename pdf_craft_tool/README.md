@@ -31,13 +31,19 @@ backend 时不需要再修改 `.env`。翻译
 run 的 `backend` 字段中选择。local backend 使用自己的模型缓存、offline 和可选 CUDA device
 配置；vendor backend 使用自己的认证和 endpoint 配置。
 
+`deepseek-ocr2-local` 的本地实测路径使用 `--ocr-size base`；不要把 `tiny`
+当作该 backend 的可靠默认 preset。CLI 和库层都会在显式使用
+`deepseek-ocr2-local` + `tiny` 时给出清晰错误。
+
 ## 工作目录
 
 `pdf extract`、`pdf convert` 和 `pdf translate` 每次都会创建独立的工作目录，
 默认位置是 Git 忽略的 `pdf-craft-output/manual/`。目录以来源、操作、日期和当日
 序号命名，例如 `citation-convert-20260822-001/`；同一次调用绝不会覆盖已有目录。
 `package render` 和 `epub translate` 也使用此规则。通过 `--work-dir` 指定位置时，
-目标必须不存在。工作目录保存中间 `package/`、翻译缓存和日志，方便人工检查或后续单独渲染。
+目录不存在则创建，已存在则复用。PDF 命令会在工作目录内记录来源 PDF 和 OCR
+设置，防止不同输入或不同 OCR backend 错误复用已有 OCR 缓存。工作目录保存中间
+`package/`、翻译缓存和日志，方便人工检查、恢复或后续单独渲染。
 
 所有 `--pages` 参数使用从 1 开始的 PDF 页码，例如 `--pages 1,2,3`。
 

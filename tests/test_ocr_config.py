@@ -4,6 +4,7 @@ from pathlib import Path
 from unittest.mock import Mock, patch
 
 import pdf_craft
+from PIL import Image
 from pdf_craft import (
     DeepSeekOCR2LocalConfig,
     DeepSeekOCR2VendorConfig,
@@ -144,6 +145,23 @@ class TestOCRConfig(unittest.TestCase):
             enable_devices_numbers=(0, 1),
         )
         extractor.load_ocr_model.assert_called_once_with()
+
+    def test_local_deepseek_ocr2_rejects_tiny_before_upstream_model_code(self):
+        node = PageExtractorNode(DeepSeekOCR2LocalConfig(models_cache_path="models"))
+        with self.assertRaisesRegex(ValueError, "deepseek-ocr2-local.*tiny.*base"):
+            node.image2page(
+                image=Image.new("RGB", (10, 10)),
+                page_index=1,
+                asset_hub=Mock(),
+                ocr_size="tiny",
+                includes_footnotes=False,
+                includes_raw_image=False,
+                plot_path=None,
+                max_tokens=None,
+                max_output_tokens=None,
+                device_number=None,
+                aborted=lambda: False,
+            )
 
     def test_vendor_deepseek_ocr_uses_doc_page_extractor_factory(self):
         extractor = Mock()

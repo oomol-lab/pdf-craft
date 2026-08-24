@@ -140,7 +140,8 @@ def _add_work_dir(parser: argparse.ArgumentParser, help_text: str) -> None:
 
 def _add_extraction_options(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--pages", help="comma-separated 1-based PDF page indexes")
-    parser.add_argument("--ocr-size", choices=("tiny", "small", "base", "large", "gundam"), default="gundam")
+    parser.add_argument("--ocr-size", choices=("tiny", "small", "base", "large", "gundam"))
+    parser.set_defaults(default_ocr_size="gundam")
     parser.add_argument("--dpi", type=int)
     parser.add_argument("--max-page-image-file-size", type=int)
     parser.add_argument("--max-ocr-tokens", type=int)
@@ -164,7 +165,8 @@ def _add_translation_options(parser: argparse.ArgumentParser) -> None:
 
 def _add_smoke_options(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--pages", help="comma-separated 1-based PDF page indexes")
-    parser.add_argument("--ocr-size", choices=("tiny", "small", "base", "large", "gundam"), default="tiny")
+    parser.add_argument("--ocr-size", choices=("tiny", "small", "base", "large", "gundam"))
+    parser.set_defaults(default_ocr_size="tiny")
     parser.add_argument("--dpi", type=int)
     parser.add_argument("--max-page-image-file-size", type=int)
     parser.add_argument("--max-ocr-tokens", type=int)
@@ -277,6 +279,8 @@ def _run_smoke(args: argparse.Namespace) -> int:
     ocr_mode = cast(OCRMode | None, args.ocr_mode)
     if is_pdf_route:
         ocr_mode = ocr_mode or ocr_mode_from_env()
+    ocr_size = _resolve_ocr_size(args.ocr_size, ocr_mode, args.default_ocr_size)
+    _validate_ocr_size(cast(OCRMode | None, ocr_mode), ocr_size)
     if args.route == "epub-translate" or args.translation_llm_profile or args.fill_llm_profile:
         translation_profile = args.translation_llm_profile or "translation"
         fill_profile = args.fill_llm_profile or translation_profile
@@ -294,7 +298,7 @@ def _run_smoke(args: argparse.Namespace) -> int:
             translation = _resolve_translation_profiles(translation, args.output_root) or {}
     run = SmokeRun(
         asset=args.asset, route=args.route, backend=ocr_mode,
-        page_indexes=_page_indexes(args.pages), ocr_size=args.ocr_size, dpi=args.dpi,
+        page_indexes=_page_indexes(args.pages), ocr_size=ocr_size, dpi=args.dpi,
         max_page_image_file_size=args.max_page_image_file_size,
         max_ocr_tokens=args.max_ocr_tokens, max_ocr_output_tokens=args.max_ocr_output_tokens,
         includes_cover=args.cover, includes_footnotes=args.footnotes,
@@ -351,6 +355,7 @@ def _matrix_run_needs_env(run: SmokeRun) -> bool:
 
 
 def _resolve_matrix_runtime(run: SmokeRun, output_root: Path) -> SmokeRun:
+    _validate_ocr_size(run.backend, run.ocr_size)
     ocr = run.ocr
     if run.backend and ocr is None:
         ocr = ocr_values_from_env(run.backend)
@@ -382,10 +387,14 @@ def _resolve_translation_profiles(translation: dict[str, Any] | None, output_roo
 
 def _extract(args: argparse.Namespace, package_path: Path) -> _ExtractionResult:
     load_project_env(_project_root())
-    craft = PDFCraft(pdf=PDFOptions(ocr=create_ocr_config_from_env(cast(OCRMode | None, args.ocr_mode))))
+    ocr_mode = cast(OCRMode | None, args.ocr_mode) or ocr_mode_from_env()
+    ocr_size = _resolve_ocr_size(args.ocr_size, ocr_mode, args.default_ocr_size)
+    _validate_ocr_size(ocr_mode, ocr_size)
+    _record_pdf_cache_owner(package_path.parent, args, ocr_mode, ocr_size)
+    craft = PDFCraft(pdf=PDFOptions(ocr=create_ocr_config_from_env(ocr_mode)))
     package, metering = craft.extract_pdf_with_metering(
         args.source, package_path, ExtractionOptions(
-            page_indexes=_page_indexes(args.pages), ocr_size=args.ocr_size, dpi=args.dpi,
+            page_indexes=_page_indexes(args.pages), ocr_size=ocr_size, dpi=args.dpi,
             max_page_image_file_size=args.max_page_image_file_size,
             max_ocr_tokens=args.max_ocr_tokens, max_ocr_output_tokens=args.max_ocr_output_tokens,
             includes_cover=args.cover, includes_footnotes=args.footnotes,
@@ -422,9 +431,71 @@ def _render(craft: PDFCraft, package: DocumentPackage, format_name: str, output:
 def _work_dir(source: Path, requested: Path | None, operation: str) -> Path:
     if requested is not None:
         path = requested
-        path.mkdir(parents=True, exist_ok=False)
+        if path.exists() and not path.is_dir():
+            raise SystemExit(f"Work directory is not a directory: {path}")
+        path.mkdir(parents=True, exist_ok=True)
         return path
     return create_run_directory(DEFAULT_OUTPUT_ROOT / "manual", f"{source.stem}-{operation}")
+
+
+def _record_pdf_cache_owner(
+    work_dir: Path,
+    args: argparse.Namespace,
+    ocr_mode: OCRMode,
+    ocr_size: str,
+) -> None:
+    """Guard manual PDF work-dir reuse so OCR caches stay tied to one source/backend."""
+    path = work_dir / ".pdf-craft-tool-run.json"
+    source = args.source.resolve()
+    stat = source.stat()
+    current = {
+        "schema": 1,
+        "source": str(source),
+        "source_size": stat.st_size,
+        "source_mtime_ns": stat.st_mtime_ns,
+        "ocr_mode": ocr_mode,
+        "ocr_size": ocr_size,
+        "dpi": args.dpi,
+        "max_page_image_file_size": args.max_page_image_file_size,
+        "includes_footnotes": args.footnotes,
+        "max_ocr_tokens": args.max_ocr_tokens,
+        "max_ocr_output_tokens": args.max_ocr_output_tokens,
+    }
+    if path.exists():
+        previous = json.loads(path.read_text(encoding="utf-8"))
+        mismatched = [
+            key
+            for key, value in current.items()
+            if key != "schema" and previous.get(key) != value
+        ]
+        if mismatched:
+            raise SystemExit(
+                "Work directory already contains OCR cache for different PDF/OCR "
+                f"settings ({', '.join(mismatched)}): {work_dir}"
+            )
+        return
+    if (work_dir / "package" / "ocr").exists():
+        raise SystemExit(
+            "Work directory contains legacy OCR cache without ownership metadata; "
+            f"use a fresh directory or remove the stale cache: {work_dir}"
+        )
+    path.write_text(json.dumps(current, ensure_ascii=False, indent=2, sort_keys=True), encoding="utf-8")
+
+
+def _resolve_ocr_size(value: str | None, ocr_mode: OCRMode | None, default: str) -> str:
+    if value:
+        return value
+    if ocr_mode == "deepseek-ocr2-local":
+        return "base"
+    return default
+
+
+def _validate_ocr_size(ocr_mode: OCRMode | None, ocr_size: str) -> None:
+    if ocr_mode == "deepseek-ocr2-local" and ocr_size == "tiny":
+        raise SystemExit(
+            "deepseek-ocr2-local is not reliable with --ocr-size tiny; "
+            "use --ocr-size base for the validated local OCR2 path."
+        )
 
 
 def _page_indexes(value: str | None) -> tuple[int, ...] | None:
