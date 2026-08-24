@@ -46,6 +46,13 @@ OCR 配置的具体选择和字段不在本文展开，请参考 OCR backend 配
 craft.convert_pdf_to_markdown("input.pdf", "output.md")
 ```
 
+两个一次性转换入口都会返回 `OCRTokensMetering`，可据此记录本次 OCR 的输入与输出 token：
+
+```python
+metering = craft.convert_pdf_to_markdown("input.pdf", "output.md")
+print(metering.input_tokens, metering.output_tokens)
+```
+
 `package_path` 默认为 `None`。省略它时，pdf-craft 使用操作系统临时目录，并在转换完成
 或发生异常后清理。需要保留中间结果进行调试或再次渲染时，传入一个可写目录：
 
@@ -106,6 +113,8 @@ craft.convert_pdf_to_epub(
 )
 ```
 
+该方法同样返回 `OCRTokensMetering`。
+
 ### EPUB 输出选项
 
 - `book_meta`：EPUB 的标题、作者、出版社等元数据；省略时尝试读取源 PDF 元数据。
@@ -146,12 +155,31 @@ def translator(text: str) -> str:
 craft.translate_pdf("input.pdf", package, "translated.pdf", translator)
 ```
 
+还可以通过 `steps` 在主翻译完成后继续应用额外的章节或结果目录变换：
+
+```python
+from pdf_craft import TranslationStep
+
+craft.translate_pdf(
+    "input.pdf",
+    package,
+    "translated.pdf",
+    translator,
+    steps=[TranslationStep(additional_transformer)],
+)
+```
+
+步骤按列表顺序执行。PDF 输出不接受 `APPEND_BLOCK` 模式；如果某个 `TranslationStep` 或
+`PackageTransformer` 的模式为 `APPEND_BLOCK`，`translate_pdf` 会在变换开始前抛出
+`ValueError`。
+
 ### PDF 输出的限制
 
-- PDF 写回只支持替换式提交；`APPEND_BLOCK` 会被拒绝，因为 PDF pipeline 不能在原页面
-  中安全追加新的块级内容。
-- `source` 和 `package` 必须来自同一个 PDF。pdf-craft 会校验页面数量和页面几何元数据，
-  不匹配时在写回前失败。
+- PDF 写回明确不支持 `APPEND_BLOCK`，因为 PDF pipeline 不能在原页面中安全追加新的
+  块级内容；`REPLACE` 与 `APPEND_TEXT` 不会被该入口预先拒绝。
+- 写回前会检查结果是否带有页面几何元数据、章节和几何中涉及的页码是否落在源 PDF 页数
+  范围内，以及每个章节页面是否具有对应的几何记录。它不验证结果目录是否确实由该源 PDF
+  提取而来，因此调用方应自行确保二者匹配。
 - `patch_pdf_with_package` 是写回已有 PDF 的操作，不是通用 PDF 排版器，不能只凭提取结果
   生成一个没有原始页面的全新 PDF。
 - 写回只会修改已有来源区域；超出源 PDF 页面范围或缺少页面几何信息的结果不能写回。
@@ -169,7 +197,8 @@ craft.patch_pdf_with_package(
 ```
 
 传入路径时，该目录必须符合 pdf-craft 的渲染结果契约；也可以直接传入
-`DocumentPackage` 对象。这个入口不会调用 OCR 或 LLM。
+`DocumentPackage` 对象。这个入口不会调用 OCR 或 LLM。PDF 写回依赖可选的 `pypdf`
+依赖；未安装时会抛出 `RuntimeError`，提示需要该依赖。
 
 ## 原子 API
 
@@ -220,12 +249,14 @@ package, metering = craft.extract_pdf_with_metering(
 | `aborted` | 外部中断检查回调 |
 | `on_ocr_event` | 接收 OCR 页面事件的回调 |
 
-`ExtractionOptions` 同时适用于 Markdown 和 EPUB；但 `toc_assumed` 的默认值应根据输出
-格式选择：Markdown 默认为 `False`，EPUB 默认为 `True`。
+`ExtractionOptions` 同时适用于 Markdown 和 EPUB。`toc_assumed` 的公共默认值始终是
+`False`，包括 `convert_pdf_to_epub`；若你的 PDF 确实包含需要按目录页处理的目录，应显式
+传入 `ExtractionOptions(toc_assumed=True)`。
 
 ## 计量、进度与中断
 
-- `extract_pdf_with_metering` 返回 `OCRTokensMetering`，可用于记录 OCR token 使用量。
+- `extract_pdf_with_metering` 与两个 `convert_pdf_to_*` 入口都会返回 `OCRTokensMetering`，
+  可用于记录 OCR token 使用量。
 - `ExtractionOptions.on_ocr_event` 在 OCR 页面事件发生时回调，适合显示页面级进度。
 - `ExtractionOptions.aborted` 会在提取和渲染阶段被检查；返回 `True` 时当前操作中断。
 - PDF 写回和内容变换中的异常应由调用方捕获；`ignore_*_errors` 只针对提取阶段的页面级
