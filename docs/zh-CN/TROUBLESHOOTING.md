@@ -105,16 +105,15 @@ preset：
 这些 `ExtractionOptions` 会直接改变运行时间、显存占用和生成结果：
 
 - `page_indexes` 只处理指定页。排查复杂输入时先给一个小范围，确认单页流程后再扩大范围；
-  页码使用 pdf-craft 的页索引。
+  页码使用从 1 开始的页索引（不是从 0 开始）。
 - `dpi` 默认按 300 DPI 渲染扫描页。显存不足或渲染过慢时可降低它；文字过小、识别质量明显
   下降时则应恢复较高分辨率。
 - `max_page_image_file_size` 限制单页渲染图像大小。页面被过度压缩或渲染失败时，检查是否
   设置得过小；不确定时可先恢复默认值 `None`。
 - `max_ocr_tokens` 是跨页面累计的 OCR token 总预算：每页的输入 token 和输出 token 都会从
   这个预算中扣除；`max_ocr_output_tokens` 则只累计限制输出 token。预算在进入下一页前耗尽
-  时，提取会以 token-limit 中断，而不是继续处理剩余页面。此时先查看 `InterruptedError`
-  的 `kind` 和 `metering`，再减少 `page_indexes` 或提高相应上限；提高上限也会增加供应商费用
-  或本地显存压力。
+  时，提取会以 `TokenLimitError` 中断，而不是继续处理剩余页面。此时先记录异常和已发出的
+  OCR 事件，再减少 `page_indexes` 或提高相应上限；提高上限也会增加供应商费用或本地显存压力。
 - `includes_cover=True` 才会把识别到的封面图写入 package；`includes_footnotes=True` 才会
   请求并保留脚注内容。遇到“正文有了但封面或脚注缺失”时，先检查这两个选项，而不是重复
   下载模型或更换 OCR backend。
@@ -145,9 +144,11 @@ preset：
 
 ### 处理过程中被中断
 
-如果通过 `aborted` 回调主动停止任务，流程会以中断状态结束；`InterruptedError` 会携带中断类型
-以及当前计量信息。先检查回调是否把任务标记为中止，再决定是否从头重跑。对于单纯想缩小问题
-范围的情况，优先减少页数或先处理一小段输入，而不是在中断后直接复用不确定的输出。
+如果通过 `aborted` 回调主动停止任务，底层会直接抛出 `AbortError`；token 预算耗尽时则抛出
+`TokenLimitError`。这两个异常不会自动转换成 pdf-craft 导出的 `InterruptedError`，除非调用方
+显式使用 `to_interrupted_error` helper；普通调用应直接按实际异常类型捕获和记录。先检查回调
+是否把任务标记为中止，再决定是否从头重跑。对于单纯想缩小问题范围的情况，优先减少页数或先
+处理一小段输入，而不是在中断后直接复用不确定的输出。
 
 ## vendor OCR 问题
 
