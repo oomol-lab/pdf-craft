@@ -75,9 +75,18 @@ craft.convert_pdf_to_markdown(
 转换为 EPUB：
 
 ~~~python
-from pdf_craft import BookMeta, PDFCraft, PDFOptions
+from pdf_craft import (
+    BookMeta,
+    DeepSeekOCRVendorConfig,
+    PDFCraft,
+    PDFOptions,
+)
 
-# 复用上例中的 OCR 配置
+ocr_config = DeepSeekOCRVendorConfig(
+    base_url="https://example.com/v1",
+    api_key="your-api-key",
+    model="deepseek-ocr",
+)
 craft = PDFCraft(pdf=PDFOptions(ocr=ocr_config))
 craft.convert_pdf_to_epub(
     "input.pdf", "output.epub",
@@ -129,10 +138,12 @@ patch_pdf_with_package 使用 package 中的页面几何信息修改匹配的原
 
 ## 翻译
 
-PDFCraft.translate_pdf 和 CLI 的 pdf translate 会组合提取、package 翻译和 PDF
-patch。PDF 写回只支持替换式提交；Markdown 和 EPUB 还可以使用 append-block。
+库 API 的 PDFCraft.translate_pdf 要求调用者先准备好 DocumentPackage；它负责把翻译
+package 写回原始 PDF。CLI 的 pdf translate 才会把 PDF 提取、package 翻译和 PDF patch
+组合成一条命令。PDF 写回只支持替换式提交；Markdown 和 EPUB 还可以使用 append-block。
 
 ~~~python
+package = craft.extract_pdf("input.pdf", "work/package")
 craft.translate_pdf("input.pdf", package, "translated.pdf", translator)
 ~~~
 
