@@ -13,6 +13,18 @@ pdf-craft uses `doc-page-extractor` for document recognition. Vendor OCR backend
 
 CPU environments cannot run local OCR. They can run vendor OCR when network access, valid credentials, and Poppler are available.
 
+### Vendor OCR Installation
+
+Vendor OCR is the default installation path and does not install PyTorch, Hugging
+Face Transformers, or CUDA runtime dependencies:
+
+```bash
+pip install pdf-craft
+```
+
+Install Poppler as described below, then configure a vendor OCR backend in your
+application (or in `.env` when using the repository-local `pdf_craft_tool`).
+
 ### CUDA Environment Installation
 
 #### 1. Configure CUDA Environment
@@ -35,10 +47,10 @@ Please visit the [PyTorch official installation page](https://pytorch.org/get-st
 pip install torch torchvision --index-url https://download.pytorch.org/whl/cu121
 ```
 
-#### 3. Install pdf-craft
+#### 3. Install pdf-craft local runtime
 
 ```bash
-pip install pdf-craft
+pip install "pdf-craft[local]"
 ```
 
 #### 4. Install Poppler
@@ -75,14 +87,16 @@ pdfinfo -v
 
 Should output Poppler version information. If the command is not found, please check the Poppler installation steps above.
 
-### CPU Environment Installation (Development Only)
+### CPU Environment Installation
 
 ```bash
-pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
 pip install pdf-craft
 ```
 
-**Note:** Even for development-only setups, you still need to install Poppler following step 4 above if you want to test PDF-related functionality. For the repository's manual scripts, copy `.env.template` to `.env`, populate a vendor OCR configuration, and then run the script.
+This installation can run vendor OCR but not local OCR. You still need to install
+Poppler following step 4 above if you want to process PDFs. For the repository's
+manual scripts, copy `.env.template` to `.env`, populate a vendor OCR
+configuration, and then run the script.
 
 ## Troubleshooting
 
