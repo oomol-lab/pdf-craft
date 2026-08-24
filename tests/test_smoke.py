@@ -59,6 +59,16 @@ class TestSmokeMatrix(unittest.TestCase):
         self.assertEqual(runs[0].page_indexes, (1,))
         self.assertEqual(runs[1].backend, None)
 
+    def test_expands_package_renderer_routes_for_pdf_assets(self):
+        runs = expand_matrix(
+            {"runs": [
+                {"asset": "citation.pdf", "route": "package-markdown"},
+                {"asset": "citation.pdf", "route": "package-epub"},
+            ]},
+            Path("tests/assets"),
+        )
+        self.assertEqual([run.route for run in runs], ["package-markdown", "package-epub"])
+
     def test_dry_run_writes_isolated_plan_and_redacts_credentials(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

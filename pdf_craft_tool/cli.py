@@ -103,7 +103,14 @@ def _parser() -> argparse.ArgumentParser:
 
     run = smoke_commands.add_parser("run", help="run one matrix route from command-line arguments")
     run.add_argument("--asset", required=True, help="path relative to --assets-root")
-    run.add_argument("--route", choices=("package", "markdown", "epub", "pdf-patch", "epub-check", "epub-translate"), required=True)
+    run.add_argument(
+        "--route",
+        choices=(
+            "package", "package-markdown", "package-epub", "markdown", "epub",
+            "pdf-patch", "epub-check", "epub-translate",
+        ),
+        required=True,
+    )
     run.add_argument("--assets-root", type=Path, default=Path("tests/assets"))
     run.add_argument("--output-root", type=Path, default=DEFAULT_OUTPUT_ROOT / "smoke")
     run.add_argument("--dry-run", action="store_true")
@@ -173,6 +180,8 @@ def _add_smoke_options(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--max-retries", type=int, default=3)
     parser.add_argument("--max-group-tokens", type=int, default=2600)
     parser.add_argument("--concurrency", type=int, default=1)
+    parser.add_argument("--translation-llm-profile", metavar="PROFILE")
+    parser.add_argument("--fill-llm-profile", metavar="PROFILE")
 
 
 def _extract_pdf(args: argparse.Namespace) -> None:
@@ -259,16 +268,20 @@ def _run_smoke(args: argparse.Namespace) -> None:
         translation["package_submit"] = args.submit.replace("-", "_").upper()
     if args.patch_prefix:
         translation["patch_prefix"] = args.patch_prefix
-    is_pdf_route = args.route in {"package", "markdown", "epub", "pdf-patch"}
-    if is_pdf_route or args.route == "epub-translate":
+    is_pdf_route = args.route in {
+        "package", "package-markdown", "package-epub", "markdown", "epub", "pdf-patch",
+    }
+    if (is_pdf_route or args.route == "epub-translate") and not args.dry_run:
         load_project_env(_project_root())
     ocr_mode = cast(OCRMode | None, args.ocr_mode)
     if is_pdf_route:
         ocr_mode = ocr_mode or ocr_mode_from_env()
-    if args.route == "epub-translate":
+    if args.route == "epub-translate" or args.translation_llm_profile or args.fill_llm_profile:
+        translation_profile = args.translation_llm_profile or "translation"
+        fill_profile = args.fill_llm_profile or translation_profile
         translation.update({
-            "llm": llm_values_from_env("translation", cache_path=args.output_root / "translation-cache",
-                log_dir_path=args.output_root / "translation-logs"),
+            "translation_llm_profile": translation_profile,
+            "fill_llm_profile": fill_profile,
             "target_language": args.target_language,
             "user_prompt": args.prompt,
             "max_retries": args.max_retries,
@@ -276,6 +289,8 @@ def _run_smoke(args: argparse.Namespace) -> None:
             "concurrency": args.concurrency,
             "submit": args.submit.replace("-", "_").upper(),
         })
+        if not args.dry_run:
+            translation = _resolve_translation_profiles(translation, args.output_root) or {}
     run = SmokeRun(
         asset=args.asset, route=args.route, backend=ocr_mode,
         page_indexes=_page_indexes(args.pages), ocr_size=args.ocr_size, dpi=args.dpi,
@@ -283,7 +298,7 @@ def _run_smoke(args: argparse.Namespace) -> None:
         max_ocr_tokens=args.max_ocr_tokens, max_ocr_output_tokens=args.max_ocr_output_tokens,
         includes_cover=args.cover, includes_footnotes=args.footnotes,
         generate_plot=args.plot, toc_assumed=args.toc_assumed,
-        ocr=ocr_values_from_env(ocr_mode) if ocr_mode else None,
+        ocr=ocr_values_from_env(ocr_mode) if ocr_mode and not args.dry_run else None,
         translation=translation or None,
     )
     print(run_smoke(run, assets_root=args.assets_root, output_root=args.output_root, dry_run=args.dry_run))

@@ -1,0 +1,39 @@
+{
+  "defaults": {
+    "page_indexes": [1],
+    "ocr_size": "tiny"
+  },
+  "runs": [
+    {
+      "asset": "citation.pdf",
+      "route": "markdown",
+      "backend": "deepseek-ocr-vendor"
+    },
+    {
+      "asset": "citation.pdf",
+      "route": "markdown",
+      "backend": "deepseek-ocr-vendor",
+      "translation": {
+        "translation_llm_profile": "translation",
+        "fill_llm_profile": "fill",
+        "target_language": "zh",
+        "submit": "REPLACE",
+        "max_retries": 3,
+        "max_group_tokens": 2600
+      }
+    },
+    {
+      "asset": "epub/Cambridge.epub",
+      "route": "epub-translate",
+      "translation": {
+        "translation_llm_profile": "translation",
+        "fill_llm_profile": "fill",
+        "target_language": "zh",
+        "submit": "REPLACE",
+        "max_retries": 3,
+        "max_group_tokens": 2600,
+        "concurrency": 1
+      }
+    }
+  ]
+}

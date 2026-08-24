@@ -32,8 +32,11 @@ from .checks import check_epub, check_markdown, check_package, check_pdf_patch_g
 from .ocr import create_ocr_config
 from ..paths import DEFAULT_OUTPUT_ROOT, create_run_directory
 
-SmokeRoute = Literal["package", "markdown", "epub", "pdf-patch", "epub-check", "epub-translate"]
-PDF_ROUTES = {"package", "markdown", "epub", "pdf-patch"}
+SmokeRoute = Literal[
+    "package", "package-markdown", "package-epub", "markdown", "epub",
+    "pdf-patch", "epub-check", "epub-translate",
+]
+PDF_ROUTES = {"package", "package-markdown", "package-epub", "markdown", "epub", "pdf-patch"}
 EPUB_ROUTES = {"epub-check", "epub-translate"}
 
 
@@ -252,7 +255,7 @@ def _run_pdf(
             errors = check_package(package, require_geometry=False)
             status, errors = _result_from_errors(errors)
         return status, errors, details
-    if run.route == "markdown":
+    if run.route in {"package-markdown", "markdown"}:
         markdown = output_path / "book.md"
         markdown_assets = Path("assets")
         steps = _package_steps(run, run_path)
@@ -269,7 +272,7 @@ def _run_pdf(
         details["outputs"] = [str(markdown)]
         status, errors = _result_from_errors(errors)
         return status, errors, details
-    if run.route == "epub":
+    if run.route in {"package-epub", "epub"}:
         epub = output_path / "book.epub"
         steps = _package_steps(run, run_path)
         with report.stage("render"):

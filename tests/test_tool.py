@@ -6,12 +6,31 @@ from pathlib import Path
 import tempfile
 from unittest.mock import patch
 
-from pdf_craft_tool.cli import _page_indexes, _run_matrix, _work_dir
+from pdf_craft_tool.cli import _page_indexes, _parser, _run_matrix, _work_dir
 from pdf_craft_tool.paths import create_run_directory
 from pdf_craft_tool.runtime import create_llm_from_env, ocr_mode_from_env
 
 
 class TestPDFCraftTool(unittest.TestCase):
+    def test_smoke_parser_exposes_package_render_and_translation_profiles(self):
+        args = _parser().parse_args([
+            "smoke", "run", "--asset", "citation.pdf", "--route", "package-markdown",
+            "--translation-llm-profile", "translation", "--fill-llm-profile", "fill",
+        ])
+        self.assertEqual(args.route, "package-markdown")
+        self.assertEqual(args.translation_llm_profile, "translation")
+        self.assertEqual(args.fill_llm_profile, "fill")
+
+    def test_smoke_dry_run_does_not_require_project_env(self):
+        args = _parser().parse_args([
+            "smoke", "run", "--asset", "citation.pdf", "--route", "markdown",
+            "--dry-run",
+        ])
+        with patch("pdf_craft_tool.cli.load_project_env") as load_env:
+            from pdf_craft_tool.cli import _run_smoke
+            _run_smoke(args)
+        load_env.assert_not_called()
+
     def test_run_directories_use_a_date_and_shared_daily_sequence(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

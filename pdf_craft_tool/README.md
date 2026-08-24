@@ -111,10 +111,14 @@ poetry run python -m pdf_craft_tool smoke run \
 ```
 
 `--route` 可选 `package`、`markdown`、`epub`、`pdf-patch`、`epub-check`、
-`epub-translate`。PDF route 可使用同一组限制参数：`--pages`、`--ocr-size`、
+`epub-translate`，以及专门验证 Package renderer 分支的
+`package-markdown`、`package-epub`。PDF route 可使用同一组限制参数：
+`--pages`、`--ocr-size`、
 `--dpi`、token 限额、图片限额、`--cover`、`--footnotes`、`--plot` 和
 `--toc-assumed`。`markdown` 和 `epub` 使用 `--marker` / `--submit` 覆盖确定性的
 Package 变换；`pdf-patch` 使用 `--patch-prefix` 检验 patch 产物和 geometry。
+需要真实 LLM 翻译时，可以给 `smoke run` 传入 `--translation-llm-profile`
+和 `--fill-llm-profile`；`epub-translate` 默认使用 `translation` profile。
 
 对于需要稳定保存或批量执行的组合，使用 JSON 矩阵：
 
@@ -125,3 +129,14 @@ poetry run python -m pdf_craft_tool smoke matrix --config path/to/matrix.json
 
 矩阵结构为 `{ "defaults": {...}, "runs": [...] }`；每个 run 的字段与
 `SmokeRun` 一一对应。`tests/smoke/minimal.json` 是最小可运行示例。
+
+仓库还提供了不包含凭据的 vendor/LLM 真实运行矩阵：
+
+```shell
+poetry run python -m pdf_craft_tool smoke matrix \
+  --config tests/smoke/vendor_real.json
+```
+
+该矩阵读取当前工作区 `.env`，会产生真实 OCR 和文本 LLM 请求；执行前应确认
+`PDF_CRAFT_OCR_MODE`、对应 vendor OCR 配置以及 `translation`/`fill` LLM profile
+均已配置。local OCR route 在无 CUDA 环境中会记录为 skipped，不应伪装为 passed。
