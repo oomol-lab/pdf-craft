@@ -36,6 +36,14 @@ craft = PDFCraft(pdf=PDFOptions(
 
 OCR 配置的具体选择和字段不在本文展开，请参考 OCR backend 配置指南。
 
+`PDFOptions` 还提供 `models_cache_path` 与 `local_only`，但它们只用于未显式传入 `ocr` 的
+情况：此时 pdf-craft 会构造 `DeepSeekOCRLocalConfig`，将 `models_cache_path` 作为本地模型
+缓存目录，并把 `local_only=True` 传给本地模型加载流程。后者适合模型已在缓存中、希望避免
+运行时下载的环境；缓存不完整时，实际加载仍会失败。若已经显式传入任一种 `ocr` 配置（无论
+本地还是供应商），就不能再同时传入 `models_cache_path` 或 `local_only`，否则构造提取引擎时
+会抛出 `ValueError`。应将这两个设置直接放进对应的本地 OCR 配置，或只使用 `PDFOptions` 的
+默认本地配置二者之一。
+
 ## PDF 转换为 Markdown
 
 ### 一次性转换
@@ -240,8 +248,10 @@ pipeline.translate(Path("input.pdf"), Path("translated.pdf"), package, translato
 
 `PDFHandler` 是 PDF 文件访问层的公开协议：它需要提供 `open(Path) -> PDFDocument`，而打开的
 文档需要能读取页数、页面尺寸和元数据，并能通过 `render_page(page_index, dpi)` 将页面渲染为
-图像。默认实现是 `DefaultPDFHandler`。只有需要替换 PDF 渲染实现、指定 Poppler 位置，或让
-应用统一管理 PDF 文件访问时，才需要注入自定义 handler；通常无需自行实现它。
+图像，还必须实现 `close()`。pdf-craft 会在提取与写回的 `finally` 中调用 `close()`，因此自定义
+handler 返回的文档必须在该方法中释放它持有的文件、渲染器等资源。默认实现是
+`DefaultPDFHandler`。只有需要替换 PDF 渲染实现、指定 Poppler 位置，或让应用统一管理 PDF
+文件访问时，才需要注入自定义 handler；通常无需自行实现它。
 
 在门面 API 中，将 handler 放进 `PDFOptions.pdf_handler`。它会用于 PDF 提取；在
 `translate_pdf` / `patch_pdf_with_package` 中也会传入 PDF 写回链路：
@@ -312,25 +322,30 @@ package, metering = craft.extract_pdf_with_metering(
 
 将一次提取所需的选项集中传给 `extract_pdf*` 或 `convert_pdf_to_*` 的 `extraction` 参数：
 
-| 选项 | 用途 |
-| --- | --- |
-| `page_indexes` | 只处理指定的 1-based 页面索引 |
-| `ocr_size` | 选择 OCR preset |
-| `dpi` | 控制 PDF 页面渲染分辨率 |
-| `max_page_image_file_size` | 限制页面图片大小，必要时调整分辨率 |
-| `max_ocr_tokens` / `max_ocr_output_tokens` | 限制 OCR 请求的 token 数 |
-| `includes_cover` | 生成封面图片 |
-| `includes_footnotes` | 提取脚注内容 |
-| `generate_plot` | 生成图表相关资源 |
-| `toc_assumed` | 是否假定 PDF 中存在目录页 |
-| `toc_llm` | 使用文本 LLM 辅助分析复杂目录层级 |
-| `ignore_pdf_errors` / `ignore_ocr_errors` | 按布尔值或 callable 决定是否跳过页面级错误 |
-| `aborted` | 外部中断检查回调 |
-| `on_ocr_event` | 接收 OCR 页面事件的回调 |
+| 选项 | 默认值 | 用途 |
+| --- | --- | --- |
+| `page_indexes` | `None` | 只处理指定的 1-based 页面索引 |
+| `ocr_size` | `"gundam"` | 选择 OCR preset；不同 preset 的质量、速度和资源消耗取决于所选 backend |
+| `dpi` | `None` | 控制 PDF 页面渲染分辨率 |
+| `max_page_image_file_size` | `None` | 限制页面图片大小，必要时调整分辨率 |
+| `max_ocr_tokens` / `max_ocr_output_tokens` | `None` | 限制 OCR 请求的 token 数 |
+| `includes_cover` | `False` | 生成封面图片 |
+| `includes_footnotes` | `False` | 提取脚注内容 |
+| `generate_plot` | `False` | 生成图表相关资源 |
+| `toc_assumed` | `False` | 是否假定 PDF 中存在目录页 |
+| `toc_llm` | `None` | 使用文本 LLM 辅助分析复杂目录层级 |
+| `ignore_pdf_errors` / `ignore_ocr_errors` | `False` | 按布尔值或 callable 决定是否跳过页面级错误 |
+| `aborted` | 始终返回 `False` 的回调 | 外部中断检查回调 |
+| `on_ocr_event` | 无操作回调 | 接收 OCR 页面事件的回调 |
 
 `ExtractionOptions` 同时适用于 Markdown 和 EPUB。`toc_assumed` 的公共默认值始终是
 `False`，包括 `convert_pdf_to_epub`；若你的 PDF 确实包含需要按目录页处理的目录，应显式
 传入 `ExtractionOptions(toc_assumed=True)`。
+
+没有显式设置 `dpi` 时，提取时实际以 `300` DPI 渲染页面，且生成的 `document.json` 会记录
+`"dpi": 300`；`ExtractionOptions.dpi` 的 `None` 表示采用该默认值，不表示没有 DPI。提高
+提取 DPI 可能改善小字或细节的 OCR 输入，但同时增加图像尺寸、处理时间和资源消耗。页面像素
+尺寸会随提取 DPI 写入 `document.json`，供后续 PDF 写回将 OCR bbox 对齐到源页。
 
 ## 计量、进度与中断
 
