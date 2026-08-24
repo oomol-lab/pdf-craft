@@ -12,427 +12,229 @@
   <p>English | <a href="./README_zh-CN.md">中文</a></p>
 </div>
 
-## Introduction
+## What is pdf-craft?
 
-pdf-craft converts PDF files into various other formats, with a focus on handling scanned book PDFs.
+pdf-craft is a PDF-centered conversion library. It turns PDFs into Markdown or EPUB,
+and can translate the converted content or write a translated result back to PDF.
+It is especially useful for scanned documents: pages that are otherwise only readable
+as images become searchable, editable Markdown or EPUB.
 
-This project is based on [DeepSeek OCR](https://github.com/deepseek-ai/DeepSeek-OCR) for document recognition. It supports the recognition of complex content such as tables and formulas. With GPU acceleration, pdf-craft can complete the entire conversion process from PDF to Markdown or EPUB locally. During the conversion, pdf-craft automatically identifies document structure, accurately extracts body text, and filters out interfering elements like headers and footers. For academic or technical documents containing footnotes, formulas, and tables, pdf-craft handles them properly, preserving these important elements (including images and other assets within footnotes). When converting to EPUB, the table of contents is automatically generated. The final Markdown or EPUB files maintain the content integrity and readability of the original book.
+The pipeline is designed for books and academic or technical documents, including
+body text, tables of contents, footnotes, tables, formulas, and images. OCR can run
+entirely on a compatible local GPU, or use a vendor service that supplies remote
+compute. Translation uses a separate text LLM.
 
-## Lightweight and Fast
+## Online Version
 
-Starting from the official v1.0.0 release, pdf-craft fully embraces [DeepSeek OCR](https://github.com/deepseek-ai/DeepSeek-OCR) and no longer relies on an LLM for text correction. Local OCR conversion can run without network requests after models are cached; vendor OCR remains available when a remote backend is preferred.
-
-However, the new version has also removed the LLM text correction feature. If your use case still requires this functionality, you can continue using the old version [v0.2.8](https://github.com/oomol-lab/pdf-craft/tree/v0.2.8).
-
-### Online Version
-
-If you'd like to explore pdf-craft without setting it up locally, you can try [Inkora - PDF Craft](https://inkora.oomol.com/pdf-craft/), an online app built around the same PDF conversion workflow. It lets you upload PDF files and try the main experience directly in your browser.
+Want to try the workflow before installing anything? Open [Inkora - PDF Craft](https://inkora.oomol.com/pdf-craft/),
+the online version of the same core experience. Upload a PDF in your browser and see
+the main workflow in action.
 
 [![PDF Craft Online Version](docs/images/website-en.png)](https://inkora.oomol.com/pdf-craft/)
 
-## Quick Start
+## Installation
 
-### Installation
+If you are getting started, use the standard installation:
 
 ```bash
 pip install pdf-craft
 ```
 
-The default installation supports vendor OCR and does not install the local
-model runtime. To actually use PDF conversion, install **Poppler** for PDF
-parsing. For local OCR, install a CUDA-compatible PyTorch build first, then:
+This includes vendor OCR, Markdown/EPUB rendering, and PDF translation. Vendor OCR
+uses remote compute, so your machine does not need CUDA; you provide the service URL,
+model name, and API key in the OCR configuration.
+
+Only install the local extra when you explicitly want to run OCR models on your own
+NVIDIA GPU. If you are unsure, use the standard installation above:
 
 ```bash
 pip install "pdf-craft[local]"
 ```
 
-Please refer to the [Installation Guide](docs/INSTALLATION.md) for details.
+Local OCR also requires a CUDA-compatible PyTorch build, model storage, and enough
+GPU memory. Before processing PDFs, install Poppler; see the [Installation Guide](docs/INSTALLATION.md)
+for the supported Python versions and complete system setup.
 
-### Quick Start
+## Quick Start
 
-#### Convert to Markdown
+The following example converts a scanned PDF into a Markdown file. Replace the
+example OCR endpoint, model name, and API key with your own service configuration.
 
 ```python
-from pdf_craft import PDFCraft, PDFOptions
+from pdf_craft import DeepSeekOCRVendorConfig, PDFCraft, PDFOptions
 
-craft = PDFCraft(pdf=PDFOptions())
+craft = PDFCraft(pdf=PDFOptions(ocr=DeepSeekOCRVendorConfig(
+    base_url="https://example.com/v1",
+    api_key="your-api-key",
+    model="deepseek-ocr",
+)))
 craft.convert_pdf_to_markdown(
-    "input.pdf",
-    "output.md",
-    package_path="analysing",
-    assets_path="images",
+    "input.pdf", "output.md",
 )
 ```
 
-![mdmd](https://github.com/user-attachments/assets/d7082496-13b8-4728-9e79-44e2888e57fd)
+The conversion uses a temporary working directory automatically and removes it
+when the conversion finishes or fails. Pass `package_path` only when you want to
+keep the intermediate work for debugging or reuse.
 
-#### Convert to EPUB
+## Advanced Features
+
+### PDF → EPUB
+
+To produce an EPUB instead of Markdown, call `convert_pdf_to_epub`. This complete
+example also shows how to set the book title and author metadata:
 
 ```python
-from pdf_craft import BookMeta, PDFCraft, PDFOptions
+from pdf_craft import BookMeta, DeepSeekOCRVendorConfig, PDFCraft, PDFOptions
 
-craft = PDFCraft(pdf=PDFOptions())
+ocr_config = DeepSeekOCRVendorConfig(
+    base_url="https://example.com/v1",
+    api_key="your-api-key",
+    model="deepseek-ocr",
+)
+craft = PDFCraft(pdf=PDFOptions(ocr=ocr_config))
 craft.convert_pdf_to_epub(
-    "input.pdf",
-    "output.epub",
-    package_path="analysing",
-    book_meta=BookMeta(
-        title="Book Title",
-        authors=["Author"],
-    ),
+    "input.pdf", "output.epub",
+    book_meta=BookMeta(title="Book title", authors=["Author"]),
 )
 ```
 
-The `transform_markdown` and `transform_epub` functions remain available as
-compatibility convenience wrappers. New integrations should use `PDFCraft` so
-extraction, rendering, and translation workflows share one public facade.
+If `book_meta` is omitted, pdf-craft tries to read the metadata from the source PDF.
 
-### Reuse a DocumentPackage
+### PDF → translated Markdown or EPUB
 
-PDF extraction produces a reusable `DocumentPackage` directory. It can be
-translated without running OCR again, then written back to the matching source
-PDF:
+To translate while converting, pass a `TranslationStep` to either conversion method.
+The `translator` is a chapter transformer: it sends chapter text to your text LLM and
+returns the translated chapter. The same step can be used for Markdown and EPUB output.
 
 ```python
-from pdf_craft import PDFCraft, PDFOptions, SubmitKind
+from pdf_craft import TranslationStep
 
-craft = PDFCraft(pdf=PDFOptions())
-package = craft.extract_pdf("input.pdf", "package")
-translated = craft.translate_package(
-    package, "translated-package", translator, submit=SubmitKind.REPLACE
-)
-craft.patch_pdf_with_package("input.pdf", translated, "translated.pdf")
+translation = TranslationStep(translator)
+craft.convert_pdf_to_markdown("input.pdf", "translated.md", steps=[translation])
+craft.convert_pdf_to_epub("input.pdf", "translated.epub", steps=[translation])
 ```
 
-`patch_pdf_with_package` patches the existing PDF using the package's page
-geometry; it does not perform OCR, translation, or arbitrary PDF re-layout.
+### PDF → translated PDF
 
-![20251218-162533](https://github.com/user-attachments/assets/7f6df04a-1fa7-48b3-aa5e-d2d056304ad6)
-
-## Detailed Usage
-
-### Convert to Markdown
+Use the PDF translation workflow when you want to keep the original PDF layout. It
+extracts the page content, translates it, and writes the result back into the matching
+source pages. OCR and translation use separate configurations.
 
 ```python
-from pdf_craft import DeepSeekOCRLocalConfig, transform_markdown
+from pdf_craft import DeepSeekOCRVendorConfig, PDFCraft, PDFOptions
 
-transform_markdown(
-    pdf_path="input.pdf",
-    markdown_path="output.md",
-    markdown_assets_path="images",
-    analysing_path="temp",  # Optional: specify temporary folder
-    ocr_size="gundam",  # Optional: tiny, small, base, large, gundam
-    ocr=DeepSeekOCRLocalConfig(models_cache_path="models"),
-    dpi=300,  # Optional: DPI for rendering PDF pages (default: 300)
-    max_page_image_file_size=None,  # Optional: max image file size in bytes, auto-adjust DPI if exceeded
-    includes_cover=False,  # Optional: include cover
-    includes_footnotes=True,  # Optional: include footnotes
-    ignore_pdf_errors=False,  # Optional: continue on PDF rendering errors
-    ignore_ocr_errors=False,  # Optional: continue on OCR recognition errors
-    generate_plot=False,  # Optional: generate visualization charts
-    toc_llm=None,  # Optional: LLM instance for enhanced TOC extraction
-    toc_assumed=False,  # Optional: whether to assume TOC pages exist (default: False)
-)
+craft = PDFCraft(pdf=PDFOptions(ocr=DeepSeekOCRVendorConfig(
+    base_url="https://example.com/v1",
+    api_key="your-ocr-api-key",
+    model="deepseek-ocr",
+)))
+
+# Placeholder only: replace this with your text LLM call.
+def translator(text: str) -> str:
+    return text
+
+package = craft.extract_pdf("input.pdf", "work/cache")
+craft.translate_pdf("input.pdf", package, "translated.pdf", translator)
 ```
 
-### Convert to EPUB
+### EPUB → translated EPUB
+
+If you already have an EPUB, translate it directly by providing the target language
+and a text LLM:
 
 ```python
-from pdf_craft import (
-    BookMeta,
-    LaTeXRender,
-    DeepSeekOCRLocalConfig,
-    TableRender,
-    transform_epub,
+from pdf_craft import LLM, PDFCraft, SubmitKind
+
+llm = LLM(
+    key="your-api-key",
+    url="https://api.openai.com/v1",
+    model="gpt-4.1-mini",
+    token_encoding="o200k_base",
 )
 
-transform_epub(
-    pdf_path="input.pdf",
-    epub_path="output.epub",
-    analysing_path="temp",  # Optional: specify temporary folder
-    ocr_size="gundam",  # Optional: tiny, small, base, large, gundam
-    ocr=DeepSeekOCRLocalConfig(models_cache_path="models"),
-    dpi=300,  # Optional: DPI for rendering PDF pages (default: 300)
-    max_page_image_file_size=None,  # Optional: max image file size in bytes, auto-adjust DPI if exceeded
-    includes_cover=True,  # Optional: include cover
-    includes_footnotes=True,  # Optional: include footnotes
-    ignore_pdf_errors=False,  # Optional: continue on PDF rendering errors
-    ignore_ocr_errors=False,  # Optional: continue on OCR recognition errors
-    generate_plot=False,  # Optional: generate visualization charts
-    toc_llm=None,  # Optional: LLM instance for enhanced TOC extraction
-    toc_assumed=True,  # Optional: whether to assume TOC pages exist (default: True for EPUB)
-    book_meta=BookMeta(
-        title="Book Title",
-        authors=["Author 1", "Author 2"],
-        publisher="Publisher",
-        language="en",
-    ),
-    lan="en",  # Optional: language (zh/en)
-    table_render=TableRender.HTML,  # Optional: table rendering method
-    latex_render=LaTeXRender.MATHML,  # Optional: formula rendering method
-    inline_latex=True,  # Optional: preserve inline LaTeX expressions
+PDFCraft().translate_epub(
+    "input.epub", "translated.epub",
+    target_language="zh", submit=SubmitKind.REPLACE, llm=llm,
 )
 ```
 
-### OCR Configuration
+`REPLACE` creates a target-language-only edition. Use `APPEND_BLOCK` to keep the
+original and append the translation as a separate block, or `APPEND_TEXT` to place
+the translation directly after the original text. See the [EPUB translation guide](docs/EPUB_TRANSLATION.md)
+for prompts, retries, concurrency, caching, progress callbacks, and failure handling.
 
-pdf-craft supports every OCR backend exposed by `doc-page-extractor`:
+## OCR Backends and Model Cache
 
-- `DeepSeekOCRLocalConfig`: local DeepSeek OCR model. Real conversion requires CUDA.
-- `DeepSeekOCR2LocalConfig`: local DeepSeek OCR 2 model. Real conversion requires CUDA.
-- `UnlimitedOCRLocalConfig`: local Unlimited OCR model. Real conversion requires CUDA.
-- `DeepSeekOCRVendorConfig`: DeepSeek OCR through an OpenAI-compatible endpoint.
-- `DeepSeekOCR2VendorConfig`: DeepSeek OCR 2 through an OpenAI-compatible endpoint.
-- `UnlimitedOCRVendorConfig`: Unlimited OCR cloud backend.
+OCR turns page images into text. pdf-craft offers six backends; choose the runtime
+location first, then choose the model family:
 
-Pass one of these configs through the `ocr` parameter. The OCR mode strings are
-`deepseek-ocr-local`, `deepseek-ocr2-local`, `unlimited-ocr-local`,
-`deepseek-ocr-vendor`, `deepseek-ocr2-vendor`, and `unlimited-ocr-vendor`.
-They are used only by this repository's manual scripts through `.env`; the
-library API accepts configuration objects and does not read environment
-variables.
+- **No CUDA or minimal local setup:** choose vendor OCR. Pages are sent to a remote
+  service and processed with its compute resources, so you need network access, a
+  service URL, and credentials.
+- **A compatible NVIDIA GPU and local execution:** choose local OCR. Models are
+  cached locally and run on your GPU, which keeps processing on your machine but
+  requires CUDA, VRAM, and model files.
 
-```python
-from pdf_craft import (
-    DeepSeekOCR2VendorConfig,
-    DeepSeekOCRVendorConfig,
-    UnlimitedOCRVendorConfig,
-    transform_markdown,
-)
+DeepSeek OCR and DeepSeek OCR 2 are from [DeepSeek](https://github.com/deepseek-ai/DeepSeek-OCR);
+[Unlimited OCR](https://github.com/baidu/Unlimited-OCR) is from Baidu. Each model family
+has local and vendor configurations:
 
-transform_markdown(
-    pdf_path="input.pdf",
-    markdown_path="output.md",
-    ocr=DeepSeekOCRVendorConfig(
-        base_url="https://example.com",
-        api_key="...",
-        model="deepseek-ocr",
-    ),
-)
+| Backend | Owner | Runs on | Choose it when | You need |
+| --- | --- | --- | --- | --- |
+| `DeepSeekOCRLocalConfig` | DeepSeek | Local GPU | You want local DeepSeek OCR | CUDA, VRAM, model cache |
+| `DeepSeekOCR2LocalConfig` | DeepSeek | Local GPU | You want local DeepSeek OCR 2 | CUDA, VRAM, model cache; `base` is the verified preset |
+| `UnlimitedOCRLocalConfig` | Baidu | Local GPU | You want local Unlimited OCR | CUDA, VRAM, model cache |
+| `DeepSeekOCRVendorConfig` | DeepSeek | Remote service | You do not have CUDA or prefer remote DeepSeek OCR | URL, model, API key, network |
+| `DeepSeekOCR2VendorConfig` | DeepSeek | Remote service | You prefer remote DeepSeek OCR 2 | URL, model, API key, network |
+| `UnlimitedOCRVendorConfig` | Baidu | Remote service | You prefer remote Unlimited OCR | URL, credentials, network |
 
-transform_markdown(
-    pdf_path="input.pdf",
-    markdown_path="output.md",
-    ocr=DeepSeekOCR2VendorConfig(
-        base_url="https://example.com",
-        api_key="...",
-        model="deepseek-ocr2",
-    ),
-)
+If you simply want to get the workflow running, start with the vendor you already
+have credentials for. Choose local OCR when you specifically want local execution.
+The library accepts these configuration objects through `PDFOptions(ocr=...)` and
+does not read environment variables.
 
-transform_markdown(
-    pdf_path="input.pdf",
-    markdown_path="output.md",
-    ocr=UnlimitedOCRVendorConfig(
-        ak="...",
-        sk="...",
-    ),
-)
-```
+Unlimited OCR local supports `base` and `gundam`. DeepSeek OCR 2 local is verified
+with `base`; an explicit `tiny` selection fails early with a clear message.
 
-### Model Management
+### Model Cache and Common Parameters
 
-Local OCR models are automatically downloaded from Hugging Face on first run
-when `local_only=False` (the default for the library configuration objects).
-The repository's manual scripts default `DEEPSEEK_LOCAL_ONLY` and
-`UNLIMITED_LOCAL_ONLY` to `true`, so set the relevant variable to `false` to
-allow a missing model to download.
-You can control model storage and loading behavior through the local OCR
-configs. Unlimited OCR local supports the `base` and `gundam` `ocr_size`
-presets. DeepSeek OCR 2 local is validated with the `base` preset; `tiny` is
-rejected with a clear error because the upstream cached Hugging Face remote
-code fails before extraction for that preset.
-
-#### Pre-download Models
-
-In production environments, it is recommended to download models in advance to avoid downloading on first run:
+Local OCR models are downloaded from Hugging Face by default. You can pre-download
+one into a chosen cache directory and then run with `local_only=True`:
 
 ```python
 from pdf_craft import DeepSeekOCRLocalConfig, predownload_models
 
 predownload_models(
     ocr=DeepSeekOCRLocalConfig(models_cache_path="models"),
-    revision=None,  # Optional: specify model version
+    revision=None,
 )
 ```
 
-#### Specify Model Cache Path
-
-By default, models are downloaded to the system's Hugging Face cache directory. You can customize the cache location through the `models_cache_path` parameter:
-
-```python
-from pdf_craft import DeepSeekOCRLocalConfig, transform_markdown
-
-transform_markdown(
-    pdf_path="input.pdf",
-    markdown_path="output.md",
-    ocr=DeepSeekOCRLocalConfig(models_cache_path="./my_models"),
-)
-```
-
-#### Offline Mode
-
-If you have pre-downloaded the models, you can use `local_only=True` to disable network downloads and ensure only local models are used:
-
-```python
-from pdf_craft import DeepSeekOCRLocalConfig, transform_markdown
-
-transform_markdown(
-    pdf_path="input.pdf",
-    markdown_path="output.md",
-    ocr=DeepSeekOCRLocalConfig(
-        models_cache_path="./my_models",
-        local_only=True,
-    ),
-)
-```
-
-## API Reference
-
-### OCR Models
-
-The `ocr_size` parameter accepts a `DeepSeekOCRSize` type:
-
-- `tiny` - Smallest model, fastest speed
-- `small` - Small model
-- `base` - Base model
-- `large` - Large model
-- `gundam` - Largest model, highest quality (default)
-
-Backend notes: Unlimited OCR local supports only `base` and `gundam`.
-DeepSeek OCR 2 local should use `base`; `tiny` is not treated as a reliable
-local preset.
-
-### Table Rendering Methods
-
-- `TableRender.HTML` - HTML format (default)
-- `TableRender.CLIPPING` - Clipping format (directly clips table images from the original PDF scan)
-
-### Formula Rendering Methods
-
-- `LaTeXRender.MATHML` - MathML format (default)
-- `LaTeXRender.SVG` - SVG format
-- `LaTeXRender.CLIPPING` - Clipping format (directly clips formula images from the original PDF scan)
-
-### Inline LaTeX
-
-The `inline_latex` parameter (EPUB only, default: `True`) controls whether to preserve inline LaTeX expressions in the output. When enabled, inline mathematical formulas are preserved as LaTeX code, which can be rendered by compatible EPUB readers.
-
-### Table of Contents Detection
-
-The `toc_assumed` parameter controls how pdf-craft handles table of contents extraction:
-
-- `False` (default for Markdown): Assumes no TOC pages exist. The conversion generates TOC based on document headings only, without detecting or processing TOC pages.
-- `True` (default for EPUB): Assumes TOC pages exist. The conversion uses statistical analysis to detect TOC pages and extract chapter structure.
-
-For books with complex chapter hierarchies, you can configure the optional `toc_llm` parameter to enable LLM-powered chapter title analysis, which provides more accurate TOC hierarchy detection.
-
-#### LLM-Enhanced TOC Extraction
-
-To use LLM-enhanced TOC extraction, you need to configure an LLM instance:
-
-```python
-from pdf_craft import transform_epub, BookMeta, LLM
-
-# Configure LLM for TOC extraction
-toc_llm = LLM(
-    key="your-api-key",
-    url="https://api.openai.com/v1",  # Or your LLM provider URL
-    model="gpt-4",
-    token_encoding="cl100k_base",
-    timeout=60.0,
-    retry_times=3,
-    retry_interval_seconds=5.0,
-)
-
-transform_epub(
-    pdf_path="input.pdf",
-    epub_path="output.epub",
-    toc_assumed=True,  # Enable TOC detection
-    toc_llm=toc_llm,  # Enable LLM-powered chapter title analysis
-    book_meta=BookMeta(
-        title="Book Title",
-        authors=["Author"],
-    ),
-)
-```
-
-### Custom PDF Handler
-
-By default, pdf-craft uses Poppler (via `pdf2image`) for PDF parsing and rendering. If Poppler is not in your system PATH, you can specify a custom path:
-
-```python
-from pdf_craft import transform_markdown, DefaultPDFHandler
-
-# Specify custom Poppler path
-transform_markdown(
-    pdf_path="input.pdf",
-    markdown_path="output.md",
-    pdf_handler=DefaultPDFHandler(poppler_path="/path/to/poppler/bin"),
-)
-```
-
-If not specified, pdf-craft will use Poppler from your system PATH. For advanced use cases, you can also implement the `PDFHandler` protocol to use alternative PDF libraries.
-
-### Error Handling
-
-The `ignore_pdf_errors` and `ignore_ocr_errors` parameters provide flexible error handling options. You can use them in two ways:
-
-**1. Boolean Mode** - Simple on/off control:
-
-```python
-from pdf_craft import transform_markdown
-
-transform_markdown(
-    pdf_path="input.pdf",
-    markdown_path="output.md",
-    ignore_pdf_errors=True,  # Ignore all PDF rendering errors
-    ignore_ocr_errors=True,  # Ignore all OCR recognition errors
-)
-```
-
-When set to `True`, processing continues when errors occur on individual pages, inserting a placeholder message instead of stopping the entire conversion.
-
-**2. Custom Function Mode** - Fine-grained control:
-
-```python
-from pdf_craft import transform_markdown, OCRError, PDFError
-
-def should_ignore_ocr_error(error: OCRError) -> bool:
-    # Only ignore specific types of OCR errors
-    return error.kind == "recognition_failed"
-
-def should_ignore_pdf_error(error: PDFError) -> bool:
-    # Custom logic to decide which PDF errors to ignore
-    return "timeout" in str(error)
-
-transform_markdown(
-    pdf_path="input.pdf",
-    markdown_path="output.md",
-    ignore_ocr_errors=should_ignore_ocr_error,  # Pass custom function
-    ignore_pdf_errors=should_ignore_pdf_error,  # Pass custom function
-)
-```
-
-This allows you to implement custom logic for deciding which specific errors should be ignored during conversion.
+`ocr_size` supports `tiny`, `small`, `base`, `large`, and `gundam`, although presets
+vary by backend. Markdown defaults to `toc_assumed=False`; EPUB defaults to
+`toc_assumed=True`. Complex chapter hierarchies can use an optional `toc_llm`.
 
 ## Development
 
-For local contributor setup, validation commands, manual conversion checks, and VGE worktree notes, see the [Development Guide](docs/DEVELOPMENT.md).
+For contributor setup, validation commands, manual conversion checks, and VGE
+worktree notes, see the [Development Guide](docs/DEVELOPMENT.md).
 
 ## Related Projects
 
-- [EPUB Translator](https://github.com/oomol-lab/epub-translator): If you want to translate the EPUB generated by PDF Craft into a bilingual edition, EPUB Translator preserves the original layout, images, and table of contents. See this [demo video](https://www.bilibili.com/video/BV1tMQZY5EYY/) for the full scanned PDF to bilingual EPUB workflow.
-- [SpineDigest](https://github.com/oomol-lab/spinedigest): If you want to distill the converted book into a structured digest, SpineDigest can turn EPUB or Markdown into summaries, chapter topology, and a knowledge graph.
+- [Wiki Graph](https://github.com/oomol-lab/wiki-graph): turn a converted EPUB or Markdown book into structured summaries, chapter topology, and a knowledge graph.
 
 ## License
 
 This project is licensed under the MIT License. See the [LICENSE](./LICENSE) file for details.
 
-Starting from v1.0.0, pdf-craft has fully migrated to DeepSeek OCR (MIT license), removing the previous AGPL-3.0 dependency, allowing the entire project to be released under the more permissive MIT license. Note that pdf-craft has a transitive dependency on easydict (LGPLv3) via DeepSeek OCR. Thanks to the community for their support and contributions!
+Since v1.0.0, pdf-craft has used DeepSeek OCR under the MIT license and removed
+the previous AGPL-3.0 dependency. The project still receives `easydict` transitively
+through the OCR stack under the LGPLv3 license. Thanks to the community for their
+support and contributions.
 
 ## Acknowledgments
 
-- [DeepSeekOCR](https://github.com/deepseek-ai/DeepSeek-OCR)
+- [DeepSeek OCR](https://github.com/deepseek-ai/DeepSeek-OCR)
 - [doc-page-extractor](https://github.com/Moskize91/doc-page-extractor)
 - [pyahocorasick](https://github.com/WojciechMula/pyahocorasick)
