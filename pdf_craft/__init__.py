@@ -13,6 +13,7 @@ from .pipeline.epub import translate_epub
 from .pipeline.pdf import PDFPatcher, PDFReplacement, PDFSkippedReplacement, PDFTranslationPipeline, PatchTextOptions
 from .transformer import (
     ChapterPackageTransformer,
+    ChapterXMLTransformer,
     FillFailedEvent,
     PackageTransformer,
     SubmitKind,
