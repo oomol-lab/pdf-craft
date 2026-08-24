@@ -15,7 +15,8 @@ pdf-craft 的 OCR backend 分成两类：
   凭据，并会产生供应商侧的请求成本。
 
 一次 OCR 运行只配置一个 backend。模型归属与运行方式可以分开选择：DeepSeek OCR 和
-DeepSeek OCR 2 来自 [DeepSeek](https://github.com/deepseek-ai/DeepSeek-OCR)，
+DeepSeek OCR 2 来自 [DeepSeek](https://github.com/deepseek-ai/DeepSeek-OCR) 与
+[DeepSeek OCR 2](https://github.com/deepseek-ai/DeepSeek-OCR-2)，
 [Unlimited OCR](https://github.com/baidu/Unlimited-OCR) 来自百度。
 
 ## 六种配置对象
@@ -42,6 +43,18 @@ DeepSeek OCR 2 来自 [DeepSeek](https://github.com/deepseek-ai/DeepSeek-OCR)，
 | `models_cache_path` | 路径或 `None` | `None` | 模型缓存目录；`None` 使用上游模型库的默认缓存位置 |
 | `local_only` | `bool` | `False` | 只使用本地已有模型；设为 `True` 后禁止运行时下载 |
 | `enable_devices_numbers` | 整数可迭代对象或 `None` | `None` | 指定可使用的 GPU 编号；`None` 使用默认设备映射 |
+
+### 安装 local OCR 运行时
+
+local OCR 需要额外安装本地模型运行时：
+
+```bash
+pip install "pdf-craft[local]"
+```
+
+此外还需要按照设备和操作系统安装支持 CUDA 的 PyTorch，并准备 NVIDIA 驱动、足够的
+显存和 Poppler。`[local]` extra 只提供本地 OCR 所需的 Python 运行时，不会替你选择或
+安装适合设备的 CUDA PyTorch wheel。
 
 ### 基本配置
 
@@ -91,11 +104,19 @@ ocr = DeepSeekOCRLocalConfig(
 - DeepSeek OCR 2 local 的已验证路径使用 `base`；显式指定 `tiny` 会在提取前快速失败。
 - 选择其他 backend 时，应以该 backend 的实际支持范围和模型资源为准。
 
-例如：
+例如，下面的完整示例使用 DeepSeek OCR local，并将 preset 设置为 `base`：
 
 ```python
-from pdf_craft import ExtractionOptions
+from pdf_craft import (
+    DeepSeekOCRLocalConfig,
+    ExtractionOptions,
+    PDFCraft,
+    PDFOptions,
+)
 
+craft = PDFCraft(pdf=PDFOptions(ocr=DeepSeekOCRLocalConfig(
+    models_cache_path="models-cache",
+)))
 options = ExtractionOptions(ocr_size="base")
 craft.extract_pdf("input.pdf", "package", options)
 ```
