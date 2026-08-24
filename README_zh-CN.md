@@ -152,7 +152,7 @@ package = craft.extract_pdf("input.pdf", "work/cache")
 craft.translate_pdf("input.pdf", package, "translated.pdf", translator)
 ~~~
 
-### EPUB → 翻译后的 EPUB
+### 翻译 EPUB
 
 如果手头已经有 EPUB 文件，可以直接指定输入文件、输出文件和目标语言：
 
@@ -166,7 +166,12 @@ PDFCraft().translate_epub(
 ~~~
 
 这里的 `target_language="zh"` 表示翻译成中文，`REPLACE` 表示用译文替换原文。章节翻译
-和可选的目录层级增强需要文本 LLM。
+和可选的目录层级增强需要文本 LLM。如果你想制作双语 EPUB，可以将 `submit` 改为
+`SubmitKind.APPEND_BLOCK`：原文会保留，译文会作为新的文本块追加在原文后面。`REPLACE`
+适合只保留译文的场景，`APPEND_BLOCK` 适合需要对照阅读的场景。
+
+pdf-craft 的 EPUB 翻译能力整合自 [EPUB Translator](https://github.com/oomol-lab/epub-translator)。
+它会尽量保留原 EPUB 的排版、插图和目录结构，同时完成章节内容翻译。
 
 ## OCR backend 与模型缓存
 
