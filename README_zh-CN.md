@@ -68,7 +68,9 @@ craft.convert_pdf_to_markdown(
 )
 ~~~
 
-转换为 EPUB：
+## 高级功能
+
+如果希望输出 EPUB，可以沿用上面的 OCR 配置，将转换方法改为：
 
 ~~~python
 from pdf_craft import (
@@ -93,9 +95,7 @@ craft.convert_pdf_to_epub(
 
 PDFCraft 是 2.0 的公共 facade，提取、渲染和翻译流程都从这里调用。
 
-## 翻译
-
-CLI 的 `pdf translate` 会自动完成 PDF 提取、翻译和 PDF 写回，适合直接运行完整流程。
+如果需要翻译 PDF，使用 PDFCraft 的 PDF 翻译流程；它会将翻译结果写回原始 PDF。
 
 已有 EPUB 可以直接翻译：
 
@@ -111,7 +111,7 @@ PDFCraft().translate_epub(
 OCR 只负责页面识别；章节翻译和可选的目录层级增强需要文本 chat-completion LLM。
 不要把 OCR endpoint 当作翻译 LLM 使用。
 
-## OCR backend
+## OCR backend 与模型缓存
 
 pdf-craft 支持 doc-page-extractor 提供的六种 backend：
 
@@ -122,53 +122,12 @@ pdf-craft 支持 doc-page-extractor 提供的六种 backend：
 - DeepSeekOCR2VendorConfig：OpenAI-compatible DeepSeek OCR 2 endpoint。
 - UnlimitedOCRVendorConfig：Unlimited OCR vendor backend。
 
-库 API 的 ocr 参数接收配置对象，不读取环境变量。CLI 使用以下 backend 名称：
-
-~~~text
-deepseek-ocr-local
-deepseek-ocr2-local
-unlimited-ocr-local
-deepseek-ocr-vendor
-deepseek-ocr2-vendor
-unlimited-ocr-vendor
-~~~
-
-这些字符串由 pdf_craft_tool 从 .env 选择；--ocr-mode 只选择本次运行的 backend，
-不会修改 .env。六种 backend 的配置可以同时存在。
+库 API 的 `ocr` 参数接收配置对象，不读取环境变量。六种 backend 可以按需选择。
 
 Unlimited OCR local 仅支持 base 和 gundam；DeepSeek OCR 2 local 的已验证路径使用
 base，显式使用 tiny 会快速失败并提示改用 base。
 
-## CLI：从命令行复现流程
-
-pdf_craft_tool 是仓库内的本地 CLI，不包含在发布的 pdf-craft Python 包中。它从
-仓库根目录运行，并通过 .env.template/.env 配置 OCR backend 和文本 LLM：
-
-~~~shell
-poetry run python -m pdf_craft_tool --help
-~~~
-
-~~~shell
-# PDF → Markdown
-poetry run python -m pdf_craft_tool pdf convert input.pdf \
-  --ocr-mode deepseek-ocr-vendor --pages 1 \
-  --work-dir pdf-craft-output/convert \
-  --format markdown --output output.md
-
-# 一键 PDF 翻译
-poetry run python -m pdf_craft_tool pdf translate input.pdf zh \
-  --format pdf --submit replace --ocr-mode deepseek-ocr-vendor --pages 1
-
-# EPUB → EPUB
-poetry run python -m pdf_craft_tool epub translate input.epub zh \
-  --submit replace
-~~~
-
-所有 --pages 都使用从 1 开始的 PDF 页码。--work-dir 用于缓存和日志，也方便中断后恢复。
-完整 CLI 参数、smoke 矩阵和 .env 字段请看
-[pdf_craft_tool/README.md](pdf_craft_tool/README.md)。
-
-## 模型缓存与常用参数
+### 模型缓存与常用参数
 
 local OCR 默认可以从 Hugging Face 下载模型。生产环境可以先预下载，再使用
 local_only=True：
