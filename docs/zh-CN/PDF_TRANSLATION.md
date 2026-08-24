@@ -236,6 +236,49 @@ pipeline.translate(Path("input.pdf"), Path("translated.pdf"), package, translato
 并将原因记录在 `patcher.skipped_replacements`。低层 API 适用于愿意自行处理排版策略、
 跳过结果和输出文件生命周期的高级调用方。
 
+### 自定义 PDFHandler 与写回 DPI
+
+`PDFHandler` 是 PDF 文件访问层的公开协议：它需要提供 `open(Path) -> PDFDocument`，而打开的
+文档需要能读取页数、页面尺寸和元数据，并能通过 `render_page(page_index, dpi)` 将页面渲染为
+图像。默认实现是 `DefaultPDFHandler`。只有需要替换 PDF 渲染实现、指定 Poppler 位置，或让
+应用统一管理 PDF 文件访问时，才需要注入自定义 handler；通常无需自行实现它。
+
+在门面 API 中，将 handler 放进 `PDFOptions.pdf_handler`。它会用于 PDF 提取；在
+`translate_pdf` / `patch_pdf_with_package` 中也会传入 PDF 写回链路：
+
+```python
+from pdf_craft import DefaultPDFHandler, PDFCraft, PDFOptions
+
+craft = PDFCraft(pdf=PDFOptions(
+    ocr=ocr_config,
+    pdf_handler=DefaultPDFHandler(poppler_path="/opt/poppler/bin"),
+))
+```
+
+PDF 写回的低层入口还提供两个独立的注入点，签名和默认值如下：
+
+| 入口 | 参数 | 默认值 | 用途 |
+| --- | --- | --- | --- |
+| `PDFPatcher` | `pdf_handler`、`dpi` | `None`、`300` | 以 handler 将每个源页渲染为输出 PDF 的图像背景；没有任何替换项的页面使用其 `dpi`。 |
+| `PDFTranslationPipeline` | `pdf_handler`、`patcher`、`dpi` | `None`、`None`、`300` | 当结果目录缺少页面像素尺寸元数据时，用 handler 以该 `dpi` 渲染源页来解析尺寸；由它收集的替换项也携带该 `dpi`，供 patcher 渲染相应页面背景。 |
+
+`dpi` 越高，源页背景通常越清晰，但生成的 PDF 也会更大、写回更慢。若传入自定义
+`PDFPatcher`，应在它自身同时设置 `pdf_handler` 与 `dpi`；此时 pipeline 不会用自己的
+handler 或 dpi 重建该 patcher。保持二者使用同一 handler 和 dpi，能避免缺失页面尺寸元数据时
+的解析与最终背景渲染不一致：
+
+```python
+from pdf_craft import DefaultPDFHandler, PDFPatcher, PDFTranslationPipeline
+
+handler = DefaultPDFHandler(poppler_path="/opt/poppler/bin")
+patcher = PDFPatcher(pdf_handler=handler, dpi=200)
+pipeline = PDFTranslationPipeline(pdf_handler=handler, patcher=patcher, dpi=200)
+```
+
+门面 `PDFCraft` 不公开单独的 PDF 写回 dpi 参数；其标准写回链路使用默认 `300`。不要把
+`ExtractionOptions.dpi` 当作写回背景的设置：前者控制提取/OCR 时的页面渲染，并写入提取结果
+的页面像素元数据；需要控制写回背景清晰度时，使用上述低层 API。
+
 ## 原子 API
 
 需要分别控制提取、变换和渲染时，可以组合以下公开方法：
