@@ -154,24 +154,30 @@ craft.translate_pdf("input.pdf", package, "translated.pdf", translator)
 
 ### 翻译 EPUB
 
-如果手头已经有 EPUB 文件，可以直接指定输入文件、输出文件和目标语言：
+如果手头已经有 EPUB 文件，可以直接指定输入文件、输出文件、目标语言和文本 LLM：
 
 ~~~python
-from pdf_craft import PDFCraft, SubmitKind
+from pdf_craft import LLM, PDFCraft, SubmitKind
+
+llm = LLM(
+    key="your-api-key",
+    url="https://api.openai.com/v1",
+    model="gpt-4.1-mini",
+    token_encoding="o200k_base",
+)
 
 PDFCraft().translate_epub(
     "input.epub", "translated.epub",
-    target_language="zh", submit=SubmitKind.REPLACE,
+    target_language="zh", submit=SubmitKind.REPLACE, llm=llm,
 )
 ~~~
 
-这里的 `target_language="zh"` 表示翻译成中文，`REPLACE` 表示用译文替换原文。章节翻译
-和可选的目录层级增强需要文本 LLM。如果你想制作双语 EPUB，可以将 `submit` 改为
-`SubmitKind.APPEND_BLOCK`：原文会保留，译文会作为新的文本块追加在原文后面。`REPLACE`
-适合只保留译文的场景，`APPEND_BLOCK` 适合需要对照阅读的场景。
+这里的 `target_language="zh"` 表示翻译成中文。`REPLACE` 用译文替换原文，适合只保留
+目标语言；`APPEND_BLOCK` 保留原文，并把译文追加为新的文本块，适合双语对照阅读；
+`APPEND_TEXT` 则将译文直接接在原文后。译文会尽量保留原 EPUB 的排版、插图和目录结构。
 
-pdf-craft 的 EPUB 翻译能力整合自 [EPUB Translator](https://github.com/oomol-lab/epub-translator)。
-它会尽量保留原 EPUB 的排版、插图和目录结构，同时完成章节内容翻译。
+提示词、并发、缓存恢复、进度回调、失败处理及双 LLM 配置，请参考
+[EPUB 翻译指南](docs/EPUB_TRANSLATION_zh-CN.md)。
 
 ## OCR backend 与模型缓存
 
@@ -231,7 +237,6 @@ pdf-craft 默认通过 pdf2image 使用系统 PATH 中的 Poppler。也可以向
 
 ## 相关项目
 
-- [EPUB Translator](https://github.com/oomol-lab/epub-translator)：如果你想把 PDF Craft 生成的 EPUB 继续翻译成双语版本，EPUB Translator 可以在保留原始排版、插图和目录的前提下完成转换。完整流程可参考这个[演示视频](https://www.bilibili.com/video/BV1tMQZY5EYY/)。
 - [Wiki Graph](https://github.com/oomol-lab/wiki-graph)：如果你想进一步把转换后的书提炼成结构化摘要，Wiki Graph 可以基于 EPUB 或 Markdown 生成摘要、章节拓扑和知识图谱。
 
 ## 许可证
