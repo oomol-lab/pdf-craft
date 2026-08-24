@@ -61,7 +61,7 @@ poetry run python -c "import torch; print(f'PyTorch version: {torch.__version__}
 pdfinfo -v
 ```
 
-供应商 OCR 不需要本地 CUDA。复制 `.env.template` 为 `.env`，把 `PDF_CRAFT_OCR_MODE` 设为 `deepseek-ocr-vendor`、`deepseek-ocr2-vendor` 或 `unlimited-ocr-vendor`，再填写对应的 `PDF_CRAFT_*` 凭据。本地模式使用 `PDF_CRAFT_DEEPSEEK_*` 和 `PDF_CRAFT_UNLIMITED_*` 中的模型路径配置。库代码不会自动读取 `.env`；只有手动脚本会加载它。
+供应商 OCR 不需要本地 CUDA。复制 `.env.template` 为 `.env` 后，一次性填写全部 backend 配置分组。`PDF_CRAFT_OCR_MODE` 只选择默认 backend；CLI 和 smoke 可以在每次运行时选择六种 mode 中的任意一种，无需改写 `.env`。三种本地 mode 分别使用独立的 `*_MODELS_CACHE_PATH`、`*_LOCAL_ONLY` 和可选的 `*_ENABLE_DEVICES_NUMBERS` 设置；供应商 mode 各自使用独立的凭据和 endpoint。库代码不会自动读取 `.env`；只有手动脚本会加载它。
 
 ## 验证
 

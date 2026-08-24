@@ -10,9 +10,26 @@ Renderer、Pipeline 和 Transformer。
 poetry run python -m pdf_craft_tool --help
 ```
 
-先复制 `.env.template` 为 `.env`，根据需要填写 `PDF_CRAFT_*` OCR 配置。翻译
+先复制 `.env.template` 为 `.env`，一次性填写全部六种 `PDF_CRAFT_*` OCR 配置；切换
+backend 时不需要再修改 `.env`。翻译
 翻译或可选的 TOC 层级增强需要文本 chat-completion LLM profile；OCR-only endpoint
 不能代替它。默认 profile 使用本机 `oo llm config --json` 提供的 OOMOL 连接，凭据不写入 `.env`。
+
+## OCR backend 配置与选择
+
+`.env.template` 为以下六种 backend 分别保留配置分组：
+
+- `deepseek-ocr-local`
+- `deepseek-ocr2-local`
+- `unlimited-ocr-local`
+- `deepseek-ocr-vendor`
+- `deepseek-ocr2-vendor`
+- `unlimited-ocr-vendor`
+
+`PDF_CRAFT_OCR_MODE` 只是未传参数时的默认选择，不会启用、清空或覆盖其他 backend。
+所有 PDF CLI 命令和 `smoke run` 的 `--ocr-mode` 都可显式选择其中一个 backend；矩阵在每个
+run 的 `backend` 字段中选择。local backend 使用自己的模型缓存、offline 和可选 CUDA device
+配置；vendor backend 使用自己的认证和 endpoint 配置。
 
 ## 工作目录
 
@@ -49,6 +66,7 @@ PDF 提取参数可在以上三个 PDF 命令中组合使用：
 ```
 
 `--ocr-mode` 覆盖 `.env` 内的 `PDF_CRAFT_OCR_MODE`；不传时使用 `.env` 的默认值。
+它只决定本次运行使用哪个已配置 backend，不会改写 `.env`。
 
 ## 翻译
 
@@ -144,3 +162,13 @@ poetry run python -m pdf_craft_tool smoke matrix \
 该矩阵读取当前工作区 `.env`，会产生真实 OCR 和文本 LLM 请求；执行前应确认
 `PDF_CRAFT_OCR_MODE`、对应 vendor OCR 配置以及 `translation`/`fill` LLM profile
 均已配置。local OCR route 在无 CUDA 环境中会记录为 skipped，不应伪装为 passed。
+
+全部六种 OCR backend 的最小矩阵位于 `tests/smoke/all_ocr_backends.json`：
+
+```shell
+poetry run python -m pdf_craft_tool smoke matrix \
+  --config tests/smoke/all_ocr_backends.json
+```
+
+该矩阵会对每个 backend 分别报告 `passed`、`failed` 或 `skipped`。无 CUDA 的 local
+backend 应明确 `skipped`；不要把它当作 vendor backend 的失败或成功。

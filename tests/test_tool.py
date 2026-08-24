@@ -8,7 +8,7 @@ from unittest.mock import patch
 
 from pdf_craft_tool.cli import _page_indexes, _parser, _run_matrix, _smoke_exit_code, _work_dir
 from pdf_craft_tool.paths import create_run_directory
-from pdf_craft_tool.runtime import create_llm_from_env, ocr_mode_from_env
+from pdf_craft_tool.runtime import create_llm_from_env, create_ocr_config_from_env, ocr_mode_from_env
 
 
 class TestPDFCraftTool(unittest.TestCase):
@@ -75,6 +75,82 @@ class TestPDFCraftTool(unittest.TestCase):
     def test_ocr_mode_uses_the_prefixed_runtime_variable(self):
         with patch.dict("os.environ", {"PDF_CRAFT_OCR_MODE": "unlimited-ocr-vendor"}, clear=True):
             self.assertEqual(ocr_mode_from_env(), "unlimited-ocr-vendor")
+
+    def test_each_local_backend_reads_its_own_environment_namespace(self):
+        cases = (
+            (
+                "deepseek-ocr-local",
+                "PDF_CRAFT_DEEPSEEK_OCR",
+                "DeepSeekOCRLocalConfig",
+            ),
+            (
+                "deepseek-ocr2-local",
+                "PDF_CRAFT_DEEPSEEK_OCR2",
+                "DeepSeekOCR2LocalConfig",
+            ),
+            (
+                "unlimited-ocr-local",
+                "PDF_CRAFT_UNLIMITED_OCR",
+                "UnlimitedOCRLocalConfig",
+            ),
+        )
+        for mode, prefix, expected_type in cases:
+            with self.subTest(mode=mode), patch.dict("os.environ", {
+                "PDF_CRAFT_OCR_MODE": mode,
+                f"{prefix}_LOCAL_MODELS_CACHE_PATH": f"/{mode}",
+                f"{prefix}_LOCAL_ONLY": "false",
+                f"{prefix}_LOCAL_ENABLE_DEVICES_NUMBERS": "1, 3",
+            }, clear=True):
+                config = create_ocr_config_from_env()
+                self.assertEqual(type(config).__name__, expected_type)
+                self.assertEqual(str(getattr(config, "models_cache_path")), f"/{mode}")
+                self.assertFalse(getattr(config, "local_only"))
+                self.assertEqual(getattr(config, "enable_devices_numbers"), (1, 3))
+
+    def test_local_backend_selection_keeps_legacy_shared_settings_as_fallback(self):
+        with patch.dict("os.environ", {
+            "PDF_CRAFT_OCR_MODE": "deepseek-ocr2-local",
+            "PDF_CRAFT_DEEPSEEK_MODELS_CACHE_PATH": "/legacy-cache",
+            "PDF_CRAFT_DEEPSEEK_LOCAL_ONLY": "false",
+        }, clear=True):
+            config = create_ocr_config_from_env()
+        self.assertEqual(str(getattr(config, "models_cache_path")), "/legacy-cache")
+        self.assertFalse(getattr(config, "local_only"))
+
+    def test_each_vendor_backend_requires_only_its_own_environment_namespace(self):
+        cases = (
+            (
+                "deepseek-ocr-vendor",
+                {
+                    "PDF_CRAFT_DEEPSEEK_OCR_BASE_URL": "https://ocr.example/v1",
+                    "PDF_CRAFT_DEEPSEEK_OCR_API_KEY": "key",
+                    "PDF_CRAFT_DEEPSEEK_OCR_MODEL": "ocr",
+                },
+                "DeepSeekOCRVendorConfig",
+            ),
+            (
+                "deepseek-ocr2-vendor",
+                {
+                    "PDF_CRAFT_DEEPSEEK_OCR2_BASE_URL": "https://ocr2.example/v1",
+                    "PDF_CRAFT_DEEPSEEK_OCR2_API_KEY": "key",
+                    "PDF_CRAFT_DEEPSEEK_OCR2_MODEL": "ocr2",
+                },
+                "DeepSeekOCR2VendorConfig",
+            ),
+            (
+                "unlimited-ocr-vendor",
+                {
+                    "PDF_CRAFT_UNLIMITED_OCR_ACCESS_KEY": "ak",
+                    "PDF_CRAFT_UNLIMITED_OCR_SECRET_KEY": "sk",
+                },
+                "UnlimitedOCRVendorConfig",
+            ),
+        )
+        for mode, values, expected_type in cases:
+            with self.subTest(mode=mode), patch.dict("os.environ", {
+                "PDF_CRAFT_OCR_MODE": mode,
+            } | values, clear=True):
+                self.assertEqual(type(create_ocr_config_from_env()).__name__, expected_type)
 
     def test_matrix_records_missing_profile_as_skipped_run(self):
         with tempfile.TemporaryDirectory() as directory:

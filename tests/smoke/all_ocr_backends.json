@@ -1,0 +1,16 @@
+{
+  "defaults": {
+    "asset": "citation.pdf",
+    "route": "package",
+    "page_indexes": [1],
+    "ocr_size": "tiny"
+  },
+  "runs": [
+    {"backend": "deepseek-ocr-local"},
+    {"backend": "deepseek-ocr2-local"},
+    {"backend": "unlimited-ocr-local"},
+    {"backend": "deepseek-ocr-vendor"},
+    {"backend": "deepseek-ocr2-vendor"},
+    {"backend": "unlimited-ocr-vendor"}
+  ]
+}

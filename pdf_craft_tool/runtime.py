@@ -50,18 +50,51 @@ def create_ocr_config_from_env(mode: OCRMode | None = None) -> OCRConfig:
     mode = mode or cast(OCRMode, _str("PDF_CRAFT_OCR_MODE", default="deepseek-ocr-local"))
     if mode == "deepseek-ocr-local":
         return DeepSeekOCRLocalConfig(
-            models_cache_path=_str("PDF_CRAFT_DEEPSEEK_MODELS_CACHE_PATH", default="models-cache"),
-            local_only=_bool("PDF_CRAFT_DEEPSEEK_LOCAL_ONLY", default=True),
+            models_cache_path=_backend_str(
+                "PDF_CRAFT_DEEPSEEK_OCR_LOCAL_MODELS_CACHE_PATH",
+                "PDF_CRAFT_DEEPSEEK_MODELS_CACHE_PATH",
+                default="models-cache",
+            ),
+            local_only=_backend_bool(
+                "PDF_CRAFT_DEEPSEEK_OCR_LOCAL_ONLY",
+                "PDF_CRAFT_DEEPSEEK_LOCAL_ONLY",
+                default=True,
+            ),
+            enable_devices_numbers=_optional_ints(
+                "PDF_CRAFT_DEEPSEEK_OCR_LOCAL_ENABLE_DEVICES_NUMBERS"
+            ),
         )
     if mode == "deepseek-ocr2-local":
         return DeepSeekOCR2LocalConfig(
-            models_cache_path=_str("PDF_CRAFT_DEEPSEEK_MODELS_CACHE_PATH", default="models-cache"),
-            local_only=_bool("PDF_CRAFT_DEEPSEEK_LOCAL_ONLY", default=True),
+            models_cache_path=_backend_str(
+                "PDF_CRAFT_DEEPSEEK_OCR2_LOCAL_MODELS_CACHE_PATH",
+                "PDF_CRAFT_DEEPSEEK_MODELS_CACHE_PATH",
+                default="models-cache",
+            ),
+            local_only=_backend_bool(
+                "PDF_CRAFT_DEEPSEEK_OCR2_LOCAL_ONLY",
+                "PDF_CRAFT_DEEPSEEK_LOCAL_ONLY",
+                default=True,
+            ),
+            enable_devices_numbers=_optional_ints(
+                "PDF_CRAFT_DEEPSEEK_OCR2_LOCAL_ENABLE_DEVICES_NUMBERS"
+            ),
         )
     if mode == "unlimited-ocr-local":
         return UnlimitedOCRLocalConfig(
-            models_cache_path=_str("PDF_CRAFT_UNLIMITED_MODELS_CACHE_PATH", default="models-cache"),
-            local_only=_bool("PDF_CRAFT_UNLIMITED_LOCAL_ONLY", default=True),
+            models_cache_path=_backend_str(
+                "PDF_CRAFT_UNLIMITED_OCR_LOCAL_MODELS_CACHE_PATH",
+                "PDF_CRAFT_UNLIMITED_MODELS_CACHE_PATH",
+                default="models-cache",
+            ),
+            local_only=_backend_bool(
+                "PDF_CRAFT_UNLIMITED_OCR_LOCAL_ONLY",
+                "PDF_CRAFT_UNLIMITED_LOCAL_ONLY",
+                default=True,
+            ),
+            enable_devices_numbers=_optional_ints(
+                "PDF_CRAFT_UNLIMITED_OCR_LOCAL_ENABLE_DEVICES_NUMBERS"
+            ),
         )
     if mode == "deepseek-ocr-vendor":
         return DeepSeekOCRVendorConfig(
@@ -161,6 +194,11 @@ def _str(name: str, default: str | None = None) -> str:
     return value or (default or "")
 
 
+def _backend_str(name: str, legacy_name: str, default: str) -> str:
+    """Read a backend-specific setting, retaining the pre-six-backend alias."""
+    return _str(name) or _str(legacy_name, default)
+
+
 def _required(name: str) -> str:
     value = _str(name)
     if not value:
@@ -177,6 +215,26 @@ def _bool(name: str, default: bool) -> bool:
     if value.lower() in {"0", "false", "no", "off"}:
         return False
     raise SystemExit(f"{name} must be a boolean")
+
+
+def _backend_bool(name: str, legacy_name: str, default: bool) -> bool:
+    """Read a backend-specific boolean, retaining the pre-six-backend alias."""
+    if _str(name):
+        return _bool(name, default)
+    return _bool(legacy_name, default)
+
+
+def _optional_ints(name: str) -> tuple[int, ...] | None:
+    value = _str(name)
+    if not value:
+        return None
+    try:
+        values = tuple(int(item.strip()) for item in value.split(","))
+    except ValueError as error:
+        raise SystemExit(f"{name} must be comma-separated integers") from error
+    if not values:
+        return None
+    return values
 
 
 def _int(name: str, default: int) -> int:
