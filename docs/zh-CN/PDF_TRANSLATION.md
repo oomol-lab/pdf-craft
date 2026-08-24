@@ -11,7 +11,7 @@ pdf-craft 的 PDF 能力可以按使用目标分成三类：
 | --- | --- | --- |
 | 直接转换 | `convert_pdf_to_markdown` / `convert_pdf_to_epub` | Markdown 或 EPUB |
 | 转换时翻译 | 在上述入口传入 `steps` | 翻译后的 Markdown 或 EPUB |
-| 翻译并写回 PDF | `translate_pdf` | 保留原页面的翻译后 PDF |
+| 翻译并写回 PDF | `translate_pdf` | 以源页渲染图为背景、覆盖译文的新 PDF |
 
 如果只是想完成一次转换，优先使用两个 `convert_pdf_to_*` 方法。它们会在内部完成提取、
 可选内容变换和渲染。只有需要复用提取结果、分别控制每个阶段，或需要写回 PDF 时，才使用
@@ -180,9 +180,16 @@ craft.translate_pdf(
 - 写回前会检查结果是否带有页面几何元数据、章节和几何中涉及的页码是否落在源 PDF 页数
   范围内，以及每个章节页面是否具有对应的几何记录。它不验证结果目录是否确实由该源 PDF
   提取而来，因此调用方应自行确保二者匹配。
+- 每个源页会先被渲染成图像，再与覆盖后的译文一起写入输出 PDF。因此输出页以源页图像为
+  背景，不保留原 PDF 的矢量文字、链接、注释等页面对象；需要这些对象或可编辑矢量内容时，
+  应评估该流程是否适用。
+- 写回只处理 `ref` 为 `text` 或 `sub_title` 的 `ParagraphLayout`。图片、表格以及其他
+  布局不会成为可替换项。
+- 每段译文都必须在对应 OCR bbox 内排版。默认排版策略会在允许的字号范围内寻找可容纳的
+  字号；最小字号仍无法容纳时抛出 `ValueError`。所有 bbox 会先完成预检，因此失败时不会
+  留下部分输出文件。
 - `patch_pdf_with_package` 是写回已有 PDF 的操作，不是通用 PDF 排版器，不能只凭提取结果
   生成一个没有原始页面的全新 PDF。
-- 写回只会修改已有来源区域；超出源 PDF 页面范围或缺少页面几何信息的结果不能写回。
 
 ### `patch_pdf_with_package`
 
@@ -197,8 +204,37 @@ craft.patch_pdf_with_package(
 ```
 
 传入路径时，该目录必须符合 pdf-craft 的渲染结果契约；也可以直接传入
-`DocumentPackage` 对象。这个入口不会调用 OCR 或 LLM。PDF 写回依赖可选的 `pypdf`
-依赖；未安装时会抛出 `RuntimeError`，提示需要该依赖。
+`DocumentPackage` 对象。这个入口不会调用 OCR 或 LLM。PDF 写回使用 `pypdf` 和
+`reportlab`，它们是 pdf-craft 当前的直接运行时依赖；在依赖被移除或非标准安装的环境中，
+底层导入失败会抛出 `RuntimeError`。
+
+### 调整写回排版
+
+`PDFCraft.translate_pdf` 与 `PDFCraft.patch_pdf_with_package` 为简化调用而设计，不提供字体、
+字号、对齐、padding 或 overflow 策略参数。需要调整这些规则时，使用公开的低层
+`PDFPatcher` 与 `PatchTextOptions`，再交给 `PDFTranslationPipeline`：
+
+```python
+from pathlib import Path
+
+from pdf_craft import PDFPatcher, PDFTranslationPipeline, PatchTextOptions
+
+patcher = PDFPatcher(options=PatchTextOptions(
+    font_name="STSong-Light",
+    max_font_size=14,
+    min_font_size=5,
+    alignment="left",
+    horizontal_padding=1,
+    vertical_padding=1,
+    overflow="error",
+))
+pipeline = PDFTranslationPipeline(patcher=patcher)
+pipeline.translate(Path("input.pdf"), Path("translated.pdf"), package, translator)
+```
+
+`overflow="error"` 是默认策略，无法容纳的译文会失败；`overflow="skip"` 会跳过该 bbox，
+并将原因记录在 `patcher.skipped_replacements`。低层 API 适用于愿意自行处理排版策略、
+跳过结果和输出文件生命周期的高级调用方。
 
 ## 原子 API
 
