@@ -19,7 +19,9 @@ pdf-craft 是以 PDF 文件格式为中心构建的转换库，支持将 PDF 转
 可检索的 Markdown 或 EPUB，也可以在转换时直接完成翻译。
 
 pdf-craft 围绕书籍和学术、技术文档的结构设计，支持识别正文、目录、脚注、表格、公式
-和图片等内容。OCR 支持 DeepSeek OCR、DeepSeek OCR 2 和百度 Unlimited OCR。你可以利用本地设备（如果你的显卡支持）的算力运行 OCR，也可以配置远端供应商完成 OCR 工作。
+和图片等内容。OCR 支持 [DeepSeek OCR](https://github.com/deepseek-ai/DeepSeek-OCR)、
+[DeepSeek OCR 2](https://github.com/deepseek-ai/DeepSeek-OCR-2) 和百度
+[Unlimited OCR](https://github.com/baidu/Unlimited-OCR)。你可以利用本地设备（如果你的显卡支持）的算力运行 OCR，也可以配置远端供应商完成 OCR 工作。
 
 若涉及翻译等操作，需要配置 LLM。
 
