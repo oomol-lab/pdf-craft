@@ -16,8 +16,8 @@
 
 pdf-craft 面向扫描版书籍，把 PDF 转换为 Markdown、EPUB 或翻译后的 PDF。
 
-项目提供三种本地 OCR 和三种 vendor OCR。vendor OCR 通过远程服务识别页面，不要求
-本机 CUDA；local OCR 在本机运行模型，需要 CUDA。翻译使用独立的文本 LLM 配置，
+项目提供三种本地 OCR 和三种 vendor OCR。vendor OCR 通过远程服务识别页面；local OCR
+在本机运行模型，需要 CUDA。翻译使用独立的文本 LLM 配置，
 与 OCR backend 分开。
 
 ## 在线版本
@@ -37,9 +37,9 @@ pdf-craft 面向扫描版书籍，把 PDF 转换为 Markdown、EPUB 或翻译后
 pip install pdf-craft
 ~~~
 
-默认安装包含远程 OCR、Markdown/EPUB 渲染和 PDF 翻译所需的依赖，不会安装本地 OCR
-模型的运行时。使用远程 OCR 时，还需要准备服务地址、模型名和访问密钥；这些信息会在
-代码中的配置对象里填写。
+默认安装包含远程 OCR、Markdown/EPUB 渲染和 PDF 翻译所需的依赖。本地 OCR 运行时通过
+下面的 `[local]` extra 安装。使用远程 OCR 时，还需要准备服务地址、模型名和访问密钥；
+这些信息会在代码中的配置对象里填写。
 
 ### 本地 OCR 安装（可选）
 
@@ -74,7 +74,7 @@ craft.convert_pdf_to_markdown(
 
 ### 将 PDF 转换为 EPUB
 
-如果你希望得到 EPUB，而不是 Markdown，请使用 `convert_pdf_to_epub`。下面是一个完整的
+如果你希望得到 EPUB，请使用 `convert_pdf_to_epub`。下面是一个完整的
 示例：
 
 ~~~python
@@ -165,8 +165,8 @@ PDFCraft().translate_epub(
 
 ## OCR backend 与模型缓存
 
-OCR（光学字符识别）负责把 PDF 页面图片识别成文字。你不需要同时配置六种方式，
-每次运行只选择一种即可。先按下面的规则决定运行位置，再决定使用哪一家模型：
+OCR（光学字符识别）负责把 PDF 页面图片识别成文字。pdf-craft 提供六种 OCR 方式，
+先按下面的规则决定运行位置，再决定使用哪一家模型：
 
 - **没有 CUDA、希望少配置本机环境**：选择 vendor OCR。识别会上传到远程服务并使用
   远端的计算资源，需要网络连接、服务地址和访问密钥。
