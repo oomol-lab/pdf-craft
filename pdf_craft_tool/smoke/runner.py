@@ -11,17 +11,21 @@ from pathlib import Path
 from time import perf_counter
 from typing import Any, Literal, cast
 
-from pdf_craft.craft import ExtractionOptions, PDFCraft, PDFOptions, TranslationStep
-from pdf_craft.ocr_config import OCRConfig, OCRMode
-from pdf_craft.transformer import (
+from pdf_craft import (
     ChapterPackageTransformer,
     ChapterXMLTransformer,
+    ExtractionOptions,
+    LLM,
+    OCRConfig,
+    OCRMode,
+    OCREvent,
+    PDFCraft,
+    PDFOptions,
     SubmitKind,
+    TranslationStep,
     XMLTranslator,
 )
 from pdf_craft.extractor.chapter.chapter import BlockLayout, BlockMember, Chapter, HTMLTag, ParagraphLayout
-from pdf_craft.llm import LLM
-from pdf_craft.pdf import OCREvent
 
 from .assets import SmokeAsset, discover_assets
 from .checks import check_epub, check_markdown, check_package, check_pdf_patch_geometry

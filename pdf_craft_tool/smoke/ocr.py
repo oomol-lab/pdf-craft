@@ -1,6 +1,6 @@
 from typing import Any
 
-from pdf_craft.ocr_config import (
+from pdf_craft import (
     DeepSeekOCR2LocalConfig,
     DeepSeekOCR2VendorConfig,
     DeepSeekOCRLocalConfig,

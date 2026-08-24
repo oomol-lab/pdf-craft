@@ -46,12 +46,14 @@ The above commands are for quick setup only. To actually use pdf-craft, you need
 #### Convert to Markdown
 
 ```python
-from pdf_craft import transform_markdown
+from pdf_craft import PDFCraft, PDFOptions
 
-transform_markdown(
-    pdf_path="input.pdf",
-    markdown_path="output.md",
-    markdown_assets_path="images",
+craft = PDFCraft(pdf=PDFOptions())
+craft.convert_pdf_to_markdown(
+    "input.pdf",
+    "output.md",
+    package_path="analysing",
+    assets_path="images",
 )
 ```
 
@@ -60,17 +62,23 @@ transform_markdown(
 #### Convert to EPUB
 
 ```python
-from pdf_craft import transform_epub, BookMeta
+from pdf_craft import BookMeta, PDFCraft, PDFOptions
 
-transform_epub(
-    pdf_path="input.pdf",
-    epub_path="output.epub",
+craft = PDFCraft(pdf=PDFOptions())
+craft.convert_pdf_to_epub(
+    "input.pdf",
+    "output.epub",
+    package_path="analysing",
     book_meta=BookMeta(
         title="Book Title",
         authors=["Author"],
     ),
 )
 ```
+
+The `transform_markdown` and `transform_epub` functions remain available as
+compatibility convenience wrappers. New integrations should use `PDFCraft` so
+extraction, rendering, and translation workflows share one public facade.
 
 ![20251218-162533](https://github.com/user-attachments/assets/7f6df04a-1fa7-48b3-aa5e-d2d056304ad6)
 

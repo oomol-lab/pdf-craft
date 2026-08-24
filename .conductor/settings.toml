@@ -11,7 +11,22 @@ if not ((3, 11) <= sys.version_info < (3, 14)):
     raise SystemExit(f"Python >=3.11,<3.14 is required, got {sys.version.split()[0]}")
 PY
 
-"$PYTHON_BIN" -m venv .venv
+VENV_PYTHON="$PWD/.venv/bin/python"
+if [ -x "$VENV_PYTHON" ]; then
+  if ! "$VENV_PYTHON" - <<'PY'
+import sys
+if not ((3, 11) <= sys.version_info < (3, 14)):
+    raise SystemExit(1)
+PY
+  then
+    rm -rf "$PWD/.venv"
+  fi
+fi
+
+if [ ! -x "$VENV_PYTHON" ]; then
+  "$PYTHON_BIN" -m venv "$PWD/.venv"
+fi
+
 export VIRTUAL_ENV="$PWD/.venv"
 export PATH="$VIRTUAL_ENV/bin:$PATH"
 
