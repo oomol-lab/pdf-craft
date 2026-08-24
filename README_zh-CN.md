@@ -46,12 +46,14 @@ pip install pdf-craft
 #### 转换为 Markdown
 
 ```python
-from pdf_craft import transform_markdown
+from pdf_craft import PDFCraft, PDFOptions
 
-transform_markdown(
-    pdf_path="input.pdf",
-    markdown_path="output.md",
-    markdown_assets_path="images",
+craft = PDFCraft(pdf=PDFOptions())
+craft.convert_pdf_to_markdown(
+    "input.pdf",
+    "output.md",
+    package_path="analysing",
+    assets_path="images",
 )
 ```
 
@@ -60,17 +62,22 @@ transform_markdown(
 #### 转换为 EPUB
 
 ```python
-from pdf_craft import transform_epub, BookMeta
+from pdf_craft import BookMeta, PDFCraft, PDFOptions
 
-transform_epub(
-    pdf_path="input.pdf",
-    epub_path="output.epub",
+craft = PDFCraft(pdf=PDFOptions())
+craft.convert_pdf_to_epub(
+    "input.pdf",
+    "output.epub",
+    package_path="analysing",
     book_meta=BookMeta(
         title="书名",
         authors=["作者"],
     ),
 )
 ```
+
+`transform_markdown` 和 `transform_epub` 仍作为兼容性的便利包装保留。新集成建议使用
+`PDFCraft`，这样提取、渲染和翻译流程都通过同一个公共 facade。
 
 ![](docs/images/pdf2epub-cn.png)
 

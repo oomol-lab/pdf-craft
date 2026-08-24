@@ -17,9 +17,23 @@ pdf-craft depends on `doc-page-extractor[local]`, so installs include the upstre
 Create an in-project virtual environment and install project dependencies:
 
 ```shell
+PYTHON_BIN="$(command -v python3.11 || pyenv which python3 2>/dev/null || command -v python3)"
+"$PYTHON_BIN" - <<'PY'
+import sys
+if not ((3, 11) <= sys.version_info < (3, 14)):
+    raise SystemExit(f"Python >=3.11,<3.14 is required, got {sys.version.split()[0]}")
+PY
+
+"$PYTHON_BIN" -m venv .venv
+export VIRTUAL_ENV="$PWD/.venv"
+export PATH="$VIRTUAL_ENV/bin:$PATH"
 poetry config virtualenvs.in-project true
 poetry install --with dev
 ```
+
+The project supports Python 3.11 through 3.13. When reusing an existing
+`.venv`, verify its interpreter first; an environment created with Python 3.14
+is not valid for this project and must be recreated with a supported Python.
 
 For code reading, type checking, and the lightweight unit tests, this is usually enough.
 
