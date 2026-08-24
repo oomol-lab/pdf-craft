@@ -210,6 +210,39 @@ class TestPDFCraft(unittest.TestCase):
         extract.assert_called_once()
         render.assert_called_once()
 
+    def test_one_shot_markdown_workflow_cleans_implicit_workspace(self):
+        craft = PDFCraft.from_engine(_Engine())
+        workspaces = []
+
+        def extract(*args):
+            workspaces.append(Path(args[1]))
+            self.assertTrue(workspaces[-1].is_dir())
+            return object(), "metering"
+
+        with patch.object(craft, "extract_pdf_with_metering", side_effect=extract), \
+             patch.object(craft, "render_markdown"):
+            result = craft.convert_pdf_to_markdown("source.pdf", "book.md")
+
+        self.assertEqual(result, "metering")
+        self.assertEqual(len(workspaces), 1)
+        self.assertFalse(workspaces[0].exists())
+
+    def test_one_shot_epub_workflow_cleans_implicit_workspace_on_error(self):
+        craft = PDFCraft.from_engine(_Engine())
+        workspaces = []
+
+        def extract(*args):
+            workspaces.append(Path(args[1]))
+            return object(), "metering"
+
+        with patch.object(craft, "extract_pdf_with_metering", side_effect=extract), \
+             patch.object(craft, "render_epub", side_effect=RuntimeError("render failed")), \
+             self.assertRaisesRegex(RuntimeError, "render failed"):
+            craft.convert_pdf_to_epub("source.pdf", "book.epub")
+
+        self.assertEqual(len(workspaces), 1)
+        self.assertFalse(workspaces[0].exists())
+
     def test_epub_workflow_detects_metadata_and_forwards_aborted(self):
         engine = _Engine()
         craft = PDFCraft.from_engine(engine)

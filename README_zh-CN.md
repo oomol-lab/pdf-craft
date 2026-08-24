@@ -71,11 +71,11 @@ craft = PDFCraft(pdf=PDFOptions(ocr=DeepSeekOCRVendorConfig(
 )))
 craft.convert_pdf_to_markdown(
     "input.pdf", "output.md",
-    package_path="work/cache",
 )
 ~~~
 
-`package_path` 是转换过程使用的工作目录，填写一个可写的路径即可。
+转换过程会自动使用系统临时目录，并在完成或发生异常后清理。如果需要保留中间结果以便
+调试或重复使用，可以显式传入 `package_path`。
 
 ## 高级功能
 
@@ -100,7 +100,6 @@ ocr_config = DeepSeekOCRVendorConfig(
 craft = PDFCraft(pdf=PDFOptions(ocr=ocr_config))
 craft.convert_pdf_to_epub(
     "input.pdf", "output.epub",
-    package_path="work/cache",
     book_meta=BookMeta(title="书名", authors=["作者"]),
 )
 ~~~
@@ -120,12 +119,10 @@ from pdf_craft import TranslationStep
 translation = TranslationStep(translator)
 
 craft.convert_pdf_to_markdown(
-    "input.pdf", "translated.md",
-    package_path="work/cache", steps=[translation],
+    "input.pdf", "translated.md", steps=[translation],
 )
 craft.convert_pdf_to_epub(
-    "input.pdf", "translated.epub",
-    package_path="work/cache", steps=[translation],
+    "input.pdf", "translated.epub", steps=[translation],
 )
 ~~~
 

@@ -1,12 +1,13 @@
 """Public facade that composes pdf-craft's independent components."""
 
 from collections.abc import Callable, Container, Sequence
+from contextlib import contextmanager
 from dataclasses import dataclass
 from inspect import signature
 from os import PathLike
 from pathlib import Path
 from tempfile import TemporaryDirectory
-from typing import Literal, cast
+from typing import Iterator, Literal, cast
 
 from epub_generator import BookMeta, LaTeXRender, TableRender
 
@@ -177,18 +178,20 @@ class PDFCraft:
 
     def convert_pdf_to_markdown(
         self, source: PathLike | str, output: PathLike | str, *,
-        package_path: PathLike | str, extraction: ExtractionOptions | None = None,
+        package_path: PathLike | str | None = None, extraction: ExtractionOptions | None = None,
         assets_path: PathLike | str | None = None,
         steps: Sequence[TranslationStep | PackageTransformer] = (),
     ) -> OCRTokensMetering:
-        package, metering = self.extract_pdf_with_metering(source, package_path, extraction)
-        package = self._apply_steps(package, steps)
-        self.render_markdown(package, output, assets_path, aborted=(extraction or ExtractionOptions()).aborted)
-        return metering
+        with _package_workspace(package_path) as workspace:
+            package, metering = self.extract_pdf_with_metering(source, workspace, extraction)
+            package = self._apply_steps(package, steps)
+            self.render_markdown(package, output, assets_path,
+                                 aborted=(extraction or ExtractionOptions()).aborted)
+            return metering
 
     def convert_pdf_to_epub(
         self, source: PathLike | str, output: PathLike | str, *,
-        package_path: PathLike | str, extraction: ExtractionOptions | None = None,
+        package_path: PathLike | str | None = None, extraction: ExtractionOptions | None = None,
         book_meta: BookMeta | None = None, lan: Literal["zh", "en"] = "zh",
         table_render: TableRender = TableRender.HTML,
         latex_render: LaTeXRender = LaTeXRender.MATHML,
@@ -196,14 +199,15 @@ class PDFCraft:
         steps: Sequence[TranslationStep | PackageTransformer] = (),
     ) -> OCRTokensMetering:
         extraction = extraction or ExtractionOptions()
-        package, metering = self.extract_pdf_with_metering(source, package_path, extraction)
-        package = self._apply_steps(package, steps)
-        if book_meta is None:
-            book_meta = self._extract_book_meta(Path(source))
-        self.render_epub(package, output, book_meta=book_meta, lan=lan,
-                         table_render=table_render, latex_render=latex_render,
-                         inline_latex=inline_latex, aborted=extraction.aborted)
-        return metering
+        with _package_workspace(package_path) as workspace:
+            package, metering = self.extract_pdf_with_metering(source, workspace, extraction)
+            package = self._apply_steps(package, steps)
+            if book_meta is None:
+                book_meta = self._extract_book_meta(Path(source))
+            self.render_epub(package, output, book_meta=book_meta, lan=lan,
+                             table_render=table_render, latex_render=latex_render,
+                             inline_latex=inline_latex, aborted=extraction.aborted)
+            return metering
 
     def _apply_steps(
         self, package: DocumentPackage,
@@ -261,6 +265,16 @@ class PDFCraft:
         engine = self._pdf_engine()
         extract = getattr(engine, "_extract_book_meta", None)
         return extract(source) if extract is not None else None
+
+
+@contextmanager
+def _package_workspace(package_path: PathLike | str | None) -> Iterator[Path]:
+    """Provide a persistent package path or a cleaned-up temporary workspace."""
+    if package_path is not None:
+        yield Path(package_path)
+        return
+    with TemporaryDirectory(prefix="pdf-craft-package-") as directory:
+        yield Path(directory)
 
 
 def _accepts_package(transformer: ChapterTransformer | PackageTransformer) -> bool:
