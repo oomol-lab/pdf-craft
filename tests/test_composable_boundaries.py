@@ -3,15 +3,16 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 from typing import cast
+from xml.etree.ElementTree import tostring
 from PIL import Image
 
 from pdf_craft.document import DocumentPackage
 from pdf_craft.extractor import PDFExtractor
 from pdf_craft.pipeline.pdf.pipeline import PDFTranslationPipeline
 from pdf_craft.pipeline.pdf import PDFPatcher
-from pdf_craft.transformer import ChapterXMLTransformer
+from pdf_craft.transformer import ChapterPackageTransformer, ChapterXMLTransformer
 from pdf_craft.renderer import EpubRenderer, MarkdownRenderer
-from pdf_craft.extractor.chapter.chapter import BlockLayout, Chapter, InlineExpression, ParagraphLayout, Reference
+from pdf_craft.extractor.chapter.chapter import BlockLayout, Chapter, InlineExpression, ParagraphLayout, Reference, encode
 from pdf_craft.expression import ExpressionKind
 from pdf_craft.ocr_config import DeepSeekOCRLocalConfig
 from pdf_craft.pdf.ocr import OCR
@@ -79,7 +80,11 @@ class _FakeHandler:
 
 
 class _DeterministicXMLTranslator:
+    def __init__(self):
+        self.calls = 0
+
     def translate_element(self, task, **_kwargs):
+        self.calls += 1
         for node in task.element.iter():
             if node.text:
                 node.text = "T:" + node.text
@@ -89,6 +94,38 @@ class _DeterministicXMLTranslator:
 
 
 class TestComposableBoundaries(unittest.TestCase):
+    def test_package_translation_skips_empty_chapters(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = DocumentPackage.from_path(root / "source")
+            source.chapters_path.mkdir(parents=True)
+            source.assets_path.mkdir()
+            source.write_metadata(page_pixel_sizes={1: (100, 100)})
+            empty = Chapter(None, 0, [])
+            text = Chapter(None, 0, [ParagraphLayout(
+                "text", 0, [BlockLayout(1, 1, (1, 1, 50, 50), ["text"])]
+            )])
+            (source.chapters_path / "chapter_1.xml").write_text(
+                '<?xml version="1.0" encoding="UTF-8"?>\n'
+                + tostring(encode(empty), encoding="unicode")
+            )
+            (source.chapters_path / "chapter_2.xml").write_text(
+                '<?xml version="1.0" encoding="UTF-8"?>\n'
+                + tostring(encode(text), encoding="unicode")
+            )
+
+            translator = _DeterministicXMLTranslator()
+            target = ChapterPackageTransformer(
+                ChapterXMLTransformer(translator)
+            ).transform(source, root / "target")
+
+            self.assertEqual(translator.calls, 1)
+            self.assertEqual(
+                (target.chapters_path / "chapter_1.xml").read_text(),
+                (source.chapters_path / "chapter_1.xml").read_text(),
+            )
+            self.assertIn("T:text", (target.chapters_path / "chapter_2.xml").read_text())
+
     def test_extractor_creates_empty_assets_directory_for_asset_free_pages(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
