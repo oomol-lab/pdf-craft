@@ -16,6 +16,18 @@ class OCRError(Exception):
         self.step_index: int = step_index
 
 
+class NoUsableOCRPagesError(Exception):
+    """Raised when every requested OCR page failed after errors were ignored."""
+
+    def __init__(self, failed_page_indexes: tuple[int, ...]) -> None:
+        self.failed_page_indexes = failed_page_indexes
+        pages = ", ".join(str(index) for index in failed_page_indexes)
+        super().__init__(
+            "OCR produced no usable pages; all requested pages failed after "
+            f"errors were ignored: {pages}"
+        )
+
+
 def is_inline_error(error: Exception) -> bool:
     return isinstance(error, (PDFError, OCRError))
 
