@@ -4,6 +4,7 @@ from .error import (
     IgnoreOCRErrorsChecker,
     IgnorePDFErrorsChecker,
     InterruptedError,
+    NoUsableOCRPagesError,
     OCRError,
     PDFError,
 )

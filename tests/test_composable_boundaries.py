@@ -7,6 +7,7 @@ from xml.etree.ElementTree import tostring
 from PIL import Image
 
 from pdf_craft.document import DocumentPackage
+from pdf_craft.error import NoUsableOCRPagesError, OCRError
 from pdf_craft.extractor import PDFExtractor
 from pdf_craft.pipeline.pdf.pipeline import PDFTranslationPipeline
 from pdf_craft.pipeline.pdf import PDFPatcher
@@ -15,9 +16,10 @@ from pdf_craft.renderer import EpubRenderer, MarkdownRenderer
 from pdf_craft.extractor.chapter.chapter import BlockLayout, Chapter, InlineExpression, ParagraphLayout, Reference, encode
 from pdf_craft.expression import ExpressionKind
 from pdf_craft.ocr_config import DeepSeekOCRLocalConfig
-from pdf_craft.pdf.ocr import OCR
+from pdf_craft.pdf.ocr import OCR, OCREvent, OCREventKind
 from pdf_craft.pdf.handler import PDFHandler
 from pdf_craft.pdf.types import Page
+from pdf_craft.transform import PDFExtractionEngine
 
 
 class _FakeTransform:
@@ -46,6 +48,19 @@ class _CapturePatcher:
 
     def patch(self, _source, _target, replacements):
         self.replacements = list(replacements)
+
+
+class _AllPagesFailOCR:
+    last_page_pixel_sizes: dict[int, tuple[int, int]] = {}
+
+    def recognize(self, **_kwargs):
+        for page_index in (1, 2):
+            yield OCREvent(
+                OCREventKind.FAILED,
+                page_index,
+                2,
+                error=OCRError("vendor rejected the request", page_index, 0),
+            )
 
 
 class _FakeDocument:
@@ -94,6 +109,37 @@ class _DeterministicXMLTranslator:
 
 
 class TestComposableBoundaries(unittest.TestCase):
+    def test_extraction_rejects_all_pages_ignored_after_ocr_failures(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            engine = object.__new__(PDFExtractionEngine)
+            setattr(engine, "_ocr", cast(OCR, _AllPagesFailOCR()))
+
+            with patch("pdf_craft.transform.analyse_toc") as analyse_toc, self.assertRaisesRegex(
+                NoUsableOCRPagesError, "no usable pages"
+            ) as raised:
+                engine.extract_package(
+                    pdf_path=root / "input.pdf",
+                    analysing_path=root / "package",
+                    ocr_size="gundam",
+                    dpi=None,
+                    max_page_image_file_size=None,
+                    includes_cover=False,
+                    includes_footnotes=False,
+                    ignore_pdf_errors=False,
+                    ignore_ocr_errors=True,
+                    generate_plot=False,
+                    toc_llm=None,
+                    toc_assumed=False,
+                    aborted=lambda: False,
+                    max_tokens=None,
+                    max_output_tokens=None,
+                    on_ocr_event=lambda _: None,
+                )
+
+            self.assertEqual(raised.exception.failed_page_indexes, (1, 2))
+            analyse_toc.assert_not_called()
+
     def test_package_translation_skips_empty_chapters(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -212,6 +258,32 @@ class TestComposableBoundaries(unittest.TestCase):
             list(resumed.recognize(root / "input.pdf", root / "assets", root / "ocr"))
             self.assertEqual(resumed.last_page_pixel_sizes, {1: (100, 100)})
             self.assertEqual(handler.document.render_count, 1)
+
+    def test_ignored_ocr_failure_is_retried_instead_of_cached_as_success(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            handler = _FakeHandler()
+            first = OCR(DeepSeekOCRLocalConfig(local_only=True), cast(PDFHandler, handler))
+            error = OCRError("vendor rejected the request", 1, 0)
+            with patch(
+                "pdf_craft.pdf.ocr.PageExtractorNode.image2page", side_effect=error
+            ):
+                events = list(first.recognize(
+                    root / "input.pdf", root / "assets", root / "ocr", ignore_ocr_errors=True
+                ))
+            self.assertEqual(events[-1].kind, OCREventKind.FAILED)
+            self.assertTrue((root / "ocr" / "page_1.failed").exists())
+            self.assertFalse((root / "ocr" / "done").exists())
+
+            page = Page(1, None, [], [], 0, 0)
+            resumed = OCR(DeepSeekOCRLocalConfig(local_only=True), cast(PDFHandler, handler))
+            with patch("pdf_craft.pdf.ocr.PageExtractorNode.image2page", return_value=page):
+                events = list(resumed.recognize(
+                    root / "input.pdf", root / "assets", root / "ocr", ignore_ocr_errors=True
+                ))
+            self.assertEqual(events[-1].kind, OCREventKind.COMPLETE)
+            self.assertFalse((root / "ocr" / "page_1.failed").exists())
+            self.assertTrue((root / "ocr" / "done").exists())
 
     def test_package_rejects_malformed_page_geometry(self):
         with tempfile.TemporaryDirectory() as directory:

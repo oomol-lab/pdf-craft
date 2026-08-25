@@ -90,7 +90,8 @@ class OCR:
 
         done_path = ocr_path / "done"
         did_ignore_any: bool = False
-        if done_path.exists():
+        did_fail_any: bool = False
+        if done_path.exists() and not any(ocr_path.glob("page_*.failed")):
             return
 
         remain_tokens: int | None = max_tokens
@@ -124,8 +125,9 @@ class OCR:
 
                 filename = f"page_{ref.page_index}.xml"
                 file_path = ocr_path / filename
+                failure_path = ocr_path / f"page_{ref.page_index}.failed"
 
-                if file_path.exists():
+                if file_path.exists() and not failure_path.exists():
                     elapsed_ms = int((time.perf_counter() - start_time) * 1000)
                     yield OCREvent(
                         kind=OCREventKind.SKIP,
@@ -191,6 +193,14 @@ class OCR:
                             image=image,
                         )
 
+                    if recognized_error is not None:
+                        did_fail_any = True
+                        failure_path.write_text(
+                            type(recognized_error).__name__, encoding="utf-8"
+                        )
+                    else:
+                        failure_path.unlink(missing_ok=True)
+
                     save_xml(encode(page), file_path)
                     self._save_page_pixel_sizes(geometry_path)
 
@@ -216,7 +226,7 @@ class OCR:
                     if remain_output_tokens is not None:
                         remain_output_tokens -= page.output_tokens
 
-        if not did_ignore_any:
+        if not did_ignore_any and not did_fail_any:
             done_path.touch()
 
     @property

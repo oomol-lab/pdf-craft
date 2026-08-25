@@ -3,11 +3,16 @@ from os import PathLike
 from pathlib import Path
 
 from .common import remove_surrogates
-from .error import IgnoreOCRErrorsChecker, IgnorePDFErrorsChecker, PDFError
+from .error import (
+    IgnoreOCRErrorsChecker,
+    IgnorePDFErrorsChecker,
+    NoUsableOCRPagesError,
+    PDFError,
+)
 from .llm import LLM
 from .metering import AbortedCheck, OCRTokensMetering
 from .ocr_config import OCRConfig, ensure_ocr_config
-from .pdf import DeepSeekOCRSize, OCR, OCREvent, PDFHandler
+from .pdf import DeepSeekOCRSize, OCR, OCREvent, OCREventKind, PDFHandler
 from .extractor.chapter import generate_chapter_files
 from .extractor.toc import analyse_toc
 from .document import DocumentPackage
@@ -66,6 +71,8 @@ class PDFExtractionEngine:
         cover_path: Path | None = analysing_path / "cover.png" if includes_cover else None
         plot_path: Path | None = analysing_path / "plots" if generate_plot else None
         metering = OCRTokensMetering(input_tokens=0, output_tokens=0)
+        usable_pages = 0
+        failed_page_indexes: list[int] = []
         existing_page_pixel_sizes = DocumentPackage.from_path(analysing_path).page_pixel_sizes()
 
         for event in self._ocr.recognize(
@@ -88,6 +95,13 @@ class PDFExtractionEngine:
             on_ocr_event(event)
             metering.input_tokens += event.input_tokens
             metering.output_tokens += event.output_tokens
+            if event.kind in (OCREventKind.COMPLETE, OCREventKind.SKIP):
+                usable_pages += 1
+            elif event.kind == OCREventKind.FAILED:
+                failed_page_indexes.append(event.page_index)
+
+        if failed_page_indexes and usable_pages == 0:
+            raise NoUsableOCRPagesError(tuple(failed_page_indexes))
 
         toc = analyse_toc(
             pages_path=pages_path,
