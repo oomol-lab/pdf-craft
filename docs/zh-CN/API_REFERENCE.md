@@ -12,7 +12,7 @@ from pdf_craft import PDFCraft, PDFOptions
 `pdf_craft` 包顶层导出常用类型。最主要的入口是 `PDFCraft`，它把 PDF 提取、渲染、
 翻译和 PDF 写回组合成一组方法。下面这些对象可直接从 `pdf_craft` 导入：
 
-- `PDFCraft`、`PDFOptions`、`ExtractionOptions`、`TranslationStep`
+- `PDFCraft`、`PDFOptions`、`ExtractionOptions`
 - `DocumentPackage`、`PDFExtractor`
 - 六种 OCR 配置对象和 `OCRConfig`
 - `predownload_models`
@@ -165,7 +165,7 @@ craft.convert_pdf_to_epub(
 两个方法都返回 `OCRTokensMetering`。`convert_pdf_to_markdown` 另接受 `assets_path`，
 用于把渲染出的图片资源写到指定目录；EPUB 的 `lan`、`table_render`、`latex_render` 和
 `inline_latex` 控制 EPUB 输出格式。
-两个方法都可以通过 `on_translation_event` 接收 `steps` 中翻译变换产生的底层事件。
+两个方法都可以通过 `translator` 和 `on_translation_event` 在转换时完成一次翻译。
 
 ### 从已有 package 渲染
 
@@ -183,13 +183,15 @@ craft.render_epub(
 章节、目录、封面和调用时提供的 `book_meta`。`document.json` 的页面几何元数据不参与 EPUB
 渲染，但 PDF 写回需要它。
 
-### PDF 转换时应用翻译步骤
+### PDF 转换时翻译
 
-`TranslationStep` 把章节级或 package 级变换插入渲染前：
+PDF 转换入口可以传入一个章节翻译器和提交模式，在渲染前完成一次翻译：
 
 ```python
-translation = TranslationStep(translator, mode=SubmitKind.REPLACE)
-craft.convert_pdf_to_markdown("input.pdf", "translated.md", steps=[translation])
+craft.convert_pdf_to_markdown(
+    "input.pdf", "translated.md", translator=translator,
+    submit=SubmitKind.REPLACE,
+)
 ```
 
 自定义章节变换器可以实现 `ChapterTransformer` 协议：
@@ -203,10 +205,8 @@ def accepts_transformer(transformer: ChapterTransformer) -> None:
 
 这是低层协议：章节的具体 XML/布局对象不从包顶层导出。需要由文本 LLM 完成章节翻译时，
 请使用下一节的 `XMLTranslator` 和 `ChapterXMLTransformer` 组合，而不是自行猜测章节内部
-结构。也可以传入实现 `transform(package, output_path) -> DocumentPackage` 的 package
-transformer。多个步骤按列表顺序执行，每一步产生新的 package。`SubmitKind.REPLACE`、
-`SubmitKind.APPEND_TEXT` 和 `SubmitKind.APPEND_BLOCK` 的含义取决于变换器；PDF 写回仅拒绝
-`APPEND_BLOCK`。
+结构。`SubmitKind.REPLACE`、`SubmitKind.APPEND_TEXT` 和 `SubmitKind.APPEND_BLOCK` 的
+含义取决于变换器；PDF 写回仅拒绝 `APPEND_BLOCK`。
 
 ### 翻译并写回 PDF
 
@@ -258,7 +258,7 @@ package 可以重复渲染、翻译或写回；使用一键 `convert_pdf_to_*` �
 ### ChapterTransformer
 
 章节变换器实现一个 `transform(chapter) -> chapter` 方法。它可以修改章节文本、段落或布局，
-并被 `TranslationStep`、`translate_package` 和 `translate_pdf` 使用。实现该低层协议时，需从
+并被 `translate_package` 和 `translate_pdf` 使用。实现该低层协议时，需从
 它的实际定义处导入 `Chapter`：
 
 ```python
@@ -292,14 +292,13 @@ def transform(package: DocumentPackage, output_path: Path) -> DocumentPackage:
 
 `XMLTranslator` 是包顶层导出的结构化文本翻译器。它需要分别提供翻译文本和修复 XML
 结构的 LLM；同一个 `LLM` 可以同时承担两项工作。将它包装为 `ChapterXMLTransformer` 后，
-即可作为 `TranslationStep` 的 `transformer`：
+即可作为 `translator` 传给 PDF 转换或 package 翻译入口：
 
 ```python
 from pdf_craft import (
     ChapterXMLTransformer,
     LLM,
     SubmitKind,
-    TranslationStep,
     XMLTranslator,
 )
 
@@ -319,15 +318,15 @@ xml_translator = XMLTranslator(
     max_fill_displaying_errors=10,
     max_group_score=2600,
 )
-translation = TranslationStep(
-    ChapterXMLTransformer(xml_translator),
-    mode=SubmitKind.REPLACE,
+translator = ChapterXMLTransformer(xml_translator)
+craft.convert_pdf_to_markdown(
+    "input.pdf", "translated.md", translator=translator,
+    submit=SubmitKind.REPLACE,
 )
-craft.convert_pdf_to_markdown("input.pdf", "translated.md", steps=[translation])
 ```
 
 `translation_llm` 负责生成译文，`fill_llm` 负责在必要时修复 XML 结构。两个 LLM 可以使用
-不同的模型、提示参数、缓存或重试策略。若目标是双语 Markdown 或 EPUB，可把步骤模式设为
+不同的模型、提示参数、缓存或重试策略。若目标是双语 Markdown 或 EPUB，可把提交模式设为
 `APPEND_TEXT` 或 `APPEND_BLOCK`；PDF 不支持 `APPEND_BLOCK`，而 `APPEND_TEXT` 虽可使用，
 但需要为双语文本的版面溢出承担处理成本，因此通常推荐 `REPLACE`。
 
@@ -361,7 +360,7 @@ PDFCraft().translate_epub(
 
 `REPLACE` 只输出译文，`APPEND_TEXT` 在原文后追加内联译文，`APPEND_BLOCK` 追加独立译文
 块，适合双语阅读。`translate_epub` 还支持 `user_prompt`、`max_retries`、`max_group_tokens`、
-`concurrency`、`translation_llm`、`fill_llm`、`on_progress` 和 `on_fill_failed`；完整行为
+`concurrency`、`translation_llm`、`fill_llm`、`on_translation_event` 和 `on_fill_failed`；完整行为
 和回调字段请参阅 EPUB 翻译专题文档。
 
 对于不需要保留 `PDFCraft` 实例的 EPUB-only 程序，也可直接从顶层导入同一能力：

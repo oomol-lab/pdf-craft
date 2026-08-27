@@ -107,16 +107,16 @@ If `book_meta` is omitted, pdf-craft tries to read the metadata from the source 
 
 ### PDF → translated Markdown or EPUB
 
-To translate while converting, pass a `TranslationStep` to either conversion method.
-The `translator` is a chapter transformer: it sends chapter text to your text LLM and
-returns the translated chapter. The same step can be used for Markdown and EPUB output.
+To translate while converting, pass one chapter `translator` to either conversion method.
+The translator sends chapter text to your text LLM and returns the translated chapter.
 
 ```python
-from pdf_craft import TranslationStep
-
-translation = TranslationStep(translator)
-craft.convert_pdf_to_markdown("input.pdf", "translated.md", steps=[translation])
-craft.convert_pdf_to_epub("input.pdf", "translated.epub", steps=[translation])
+craft.convert_pdf_to_markdown(
+    "input.pdf", "translated.md", translator=translator,
+)
+craft.convert_pdf_to_epub(
+    "input.pdf", "translated.epub", translator=translator,
+)
 ```
 
 ### PDF → translated PDF

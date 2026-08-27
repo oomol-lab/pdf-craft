@@ -141,16 +141,16 @@ Supply `llm`, or supply both specialized configurations. A translation-only conf
 `on_translation_event` receives low-level `TranslationEvent` values as the translation
 scope and its TOC, metadata, and chapter items progress. Character counts are based on
 source text and are not token-based percentages. The same callback is supported by
-package and PDF translation workflows. The legacy `on_progress` float callback is kept
-only for compatibility.
+package and PDF translation workflows.
 
 `on_fill_failed` receives `FillFailedEvent` when an XML repair attempt fails. The final event with `over_maximum_retries=True` signals that no repair attempts remain and the output may need inspection.
 
 ```python
-from pdf_craft import FillFailedEvent
+from pdf_craft import FillFailedEvent, TranslationEventKind
 
-def show_progress(value: float) -> None:
-    print(f"{value:.0%}")
+def on_translation_event(event):
+    if event.kind == TranslationEventKind.PROGRESS:
+        print(event.completed_characters, event.total_characters)
 
 def report_fill_failure(event: FillFailedEvent) -> None:
     if event.over_maximum_retries:
@@ -159,7 +159,8 @@ def report_fill_failure(event: FillFailedEvent) -> None:
 PDFCraft().translate_epub(
     "source.epub", "translated.epub",
     target_language="zh", submit=SubmitKind.APPEND_BLOCK,
-    llm=llm, on_progress=show_progress, on_fill_failed=report_fill_failure,
+    llm=llm, on_translation_event=on_translation_event,
+    on_fill_failed=report_fill_failure,
 )
 ```
 
