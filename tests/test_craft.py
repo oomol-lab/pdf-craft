@@ -4,7 +4,7 @@ from pathlib import Path
 from unittest.mock import Mock, patch
 from xml.etree.ElementTree import tostring
 
-from pdf_craft.craft import ExtractionOptions, PDFCraft, PDFOptions, TranslationStep
+from pdf_craft.craft import ExtractionOptions, PDFCraft, PDFOptions
 from pdf_craft.document import DocumentPackage
 from pdf_craft.extractor.chapter.chapter import BlockLayout, Chapter, ParagraphLayout, encode
 from pdf_craft.transformer import ChapterPackageTransformer, SubmitKind
@@ -127,48 +127,6 @@ class TestPDFCraft(unittest.TestCase):
             assert target.toc_path is not None
             self.assertIn('translated="yes"', target.toc_path.read_text())
 
-    def test_pdf_rejects_append_block_steps_before_transforming(self):
-        craft = PDFCraft.from_engine(_Engine())
-        step = TranslationStep(Mock(), SubmitKind.APPEND_BLOCK)
-        with self.assertRaisesRegex(ValueError, "APPEND_BLOCK"):
-            craft.translate_pdf(
-                "source.pdf", DocumentPackage(Path("chapters"), Path("assets")),
-                "out.pdf", lambda text: text, steps=[step]
-            )
-
-    def test_pdf_rejects_append_block_package_transformer(self):
-        craft = PDFCraft.from_engine(_Engine())
-        transformer = ChapterPackageTransformer(Mock(), mode=SubmitKind.APPEND_BLOCK)
-        with self.assertRaisesRegex(ValueError, "APPEND_BLOCK"):
-            craft.translate_pdf(
-                "source.pdf", DocumentPackage(Path("chapters"), Path("assets")),
-                "out.pdf", lambda text: text, steps=[transformer]
-            )
-
-    def test_pdf_rejects_append_block_custom_package_step(self):
-        class CustomPackageTransformer:
-            def transform(self, package: DocumentPackage, output_path: Path) -> DocumentPackage:
-                del output_path
-                return package
-
-        craft = PDFCraft.from_engine(_Engine())
-        with self.assertRaisesRegex(ValueError, "APPEND_BLOCK"):
-            craft.translate_pdf(
-                "source.pdf", DocumentPackage(Path("chapters"), Path("assets")),
-                "out.pdf", lambda text: text,
-                steps=[TranslationStep(CustomPackageTransformer(), SubmitKind.APPEND_BLOCK)],
-            )
-
-    def test_optional_chapter_transformer_is_not_treated_as_package_transformer(self):
-        class OptionalChapterTransformer:
-            def transform(self, chapter: Chapter, *, trace: bool = False) -> Chapter:
-                del trace
-                return chapter
-
-        step = TranslationStep(OptionalChapterTransformer())
-        transformer = getattr(PDFCraft, "_as_package_transformer")(step)
-        self.assertIsInstance(transformer, ChapterPackageTransformer)
-
     def test_epub_only_facade_needs_no_pdf_options(self):
         craft = PDFCraft()
         with patch("pdf_craft.craft.run_epub_translation") as translate:
@@ -201,13 +159,20 @@ class TestPDFCraft(unittest.TestCase):
                 PDFCraft().render_markdown(package, root / "book.md")
             render.assert_called_once()
 
-    def test_one_shot_workflow_uses_public_steps(self):
+    def test_one_shot_workflow_supports_one_translator(self):
         craft = PDFCraft.from_engine(_Engine())
+        translator = Mock()
         with patch.object(craft, "extract_pdf_with_metering", return_value=(object(), "metering")) as extract, \
+             patch.object(craft, "translate_package", return_value=object()) as translate, \
              patch.object(craft, "render_markdown") as render:
-            result = craft.convert_pdf_to_markdown("source.pdf", "book.md", package_path="package")
+            result = craft.convert_pdf_to_markdown(
+                "source.pdf", "book.md", package_path="package",
+                translator=translator, submit=SubmitKind.APPEND_TEXT,
+            )
         self.assertEqual(result, "metering")
         extract.assert_called_once()
+        translate.assert_called_once()
+        self.assertEqual(translate.call_args.kwargs["submit"], SubmitKind.APPEND_TEXT)
         render.assert_called_once()
 
     def test_one_shot_markdown_workflow_cleans_implicit_workspace(self):
@@ -258,17 +223,18 @@ class TestPDFCraft(unittest.TestCase):
         self.assertEqual(render.call_args.kwargs["book_meta"], "detected metadata")
         self.assertIs(render.call_args.kwargs["aborted"], stopped)
 
-    def test_epub_conversion_forwards_translation_events_to_steps(self):
+    def test_epub_conversion_forwards_translation_events_to_translator(self):
         craft = PDFCraft.from_engine(_Engine())
         callback = Mock()
+        translator = Mock()
         with patch.object(craft, "extract_pdf_with_metering", return_value=(object(), "metering")), \
-             patch.object(craft, "_apply_steps", return_value=object()) as apply_steps, \
+             patch.object(craft, "translate_package", return_value=object()) as translate, \
              patch.object(craft, "render_epub"):
             craft.convert_pdf_to_epub(
                 "source.pdf", "book.epub", package_path="package",
-                on_translation_event=callback,
+                translator=translator, on_translation_event=callback,
             )
-        self.assertIs(apply_steps.call_args.kwargs["on_translation_event"], callback)
+        self.assertIs(translate.call_args.kwargs["on_translation_event"], callback)
 
     def test_markdown_workflow_forwards_aborted_to_renderer_step(self):
         craft = PDFCraft.from_engine(_Engine())

@@ -112,20 +112,15 @@ craft.convert_pdf_to_epub(
 
 ### 转换 PDF 时同时翻译
 
-如果你希望 PDF 在转换为 Markdown 或 EPUB 的同时完成翻译，可以给转换方法增加翻译步骤。
-`translator` 是一个章节翻译器，负责把章节文字交给文本 LLM 并返回译文；准备好它以后，
-用 `TranslationStep` 将翻译步骤传给转换方法。同一个翻译步骤可以用于两种输出格式：
+如果你希望 PDF 在转换为 Markdown 或 EPUB 的同时完成翻译，可以直接传入一个章节翻译器。
+`translator` 负责把章节文字交给文本 LLM 并返回译文：
 
 ~~~python
-from pdf_craft import TranslationStep
-
-translation = TranslationStep(translator)
-
 craft.convert_pdf_to_markdown(
-    "input.pdf", "translated.md", steps=[translation],
+    "input.pdf", "translated.md", translator=translator,
 )
 craft.convert_pdf_to_epub(
-    "input.pdf", "translated.epub", steps=[translation],
+    "input.pdf", "translated.epub", translator=translator,
 )
 ~~~
 

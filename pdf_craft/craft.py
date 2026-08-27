@@ -1,13 +1,12 @@
 """Public facade that composes pdf-craft's independent components."""
 
-from collections.abc import Callable, Container, Sequence
+from collections.abc import Callable, Container
 from contextlib import contextmanager
 from dataclasses import dataclass
-from inspect import signature
 from os import PathLike
 from pathlib import Path
 from tempfile import TemporaryDirectory
-from typing import Iterator, Literal, cast
+from typing import Iterator, Literal
 
 from epub_generator import BookMeta, LaTeXRender, TableRender
 
@@ -24,18 +23,7 @@ from .pipeline.epub import translate_epub as run_epub_translation
 from .pipeline.pdf import PDFTranslationPipeline
 from .pipeline.pdf.pipeline import _to_patch_text
 from .renderer import EpubRenderer, MarkdownRenderer
-from .transformer import (
-    ChapterPackageTransformer, ChapterTransformer, PackageTransformer, SubmitKind,
-    TranslationEvent,
-)
-
-
-@dataclass(frozen=True)
-class TranslationStep:
-    """A user-requested content transformation inserted before rendering."""
-
-    transformer: ChapterTransformer | PackageTransformer
-    mode: SubmitKind = SubmitKind.REPLACE
+from .transformer import ChapterPackageTransformer, ChapterTransformer, SubmitKind, TranslationEvent
 
 
 @dataclass(frozen=True)
@@ -135,7 +123,8 @@ class PDFCraft:
         """
         package_transformer = ChapterPackageTransformer(translator, mode=submit)
         return package_transformer.transform(
-            package, Path(output_path), on_translation_event=on_translation_event
+            package, Path(output_path), on_translation_event=on_translation_event,
+            emit_translation_events=True,
         )
 
     def render_epub(
@@ -153,16 +142,11 @@ class PDFCraft:
     def translate_pdf(
         self, source: PathLike | str, package: DocumentPackage,
         output: PathLike | str, transformer: ChapterTransformer | Callable[[str], str],
-        *, steps: Sequence[TranslationStep | PackageTransformer] = (),
-        on_translation_event: Callable[[TranslationEvent], None] | None = None,
+        *, on_translation_event: Callable[[TranslationEvent], None] | None = None,
     ) -> None:
-        for step in steps:
-            mode = _step_mode(step, self._as_package_transformer(step))
-            if mode == SubmitKind.APPEND_BLOCK:
-                raise ValueError("PDF output does not support APPEND_BLOCK")
         with TemporaryDirectory(prefix="pdf-craft-translated-package-") as directory:
             translated = self._translate_for_pdf(
-                package, Path(directory), transformer, steps,
+                package, Path(directory), transformer,
                 on_translation_event=on_translation_event,
             )
             self.patch_pdf_with_package(source, translated, output)
@@ -190,14 +174,17 @@ class PDFCraft:
         self, source: PathLike | str, output: PathLike | str, *,
         package_path: PathLike | str | None = None, extraction: ExtractionOptions | None = None,
         assets_path: PathLike | str | None = None,
-        steps: Sequence[TranslationStep | PackageTransformer] = (),
+        translator: ChapterTransformer | None = None,
+        submit: SubmitKind = SubmitKind.REPLACE,
         on_translation_event: Callable[[TranslationEvent], None] | None = None,
     ) -> OCRTokensMetering:
         with _package_workspace(package_path) as workspace:
             package, metering = self.extract_pdf_with_metering(source, workspace, extraction)
-            package = self._apply_steps(
-                package, steps, on_translation_event=on_translation_event
-            )
+            if translator is not None:
+                package = self.translate_package(
+                    package, workspace / "translated", translator,
+                    submit=submit, on_translation_event=on_translation_event,
+                )
             self.render_markdown(package, output, assets_path,
                                  aborted=(extraction or ExtractionOptions()).aborted)
             return metering
@@ -209,15 +196,18 @@ class PDFCraft:
         table_render: TableRender = TableRender.HTML,
         latex_render: LaTeXRender = LaTeXRender.MATHML,
         inline_latex: bool = True,
-        steps: Sequence[TranslationStep | PackageTransformer] = (),
+        translator: ChapterTransformer | None = None,
+        submit: SubmitKind = SubmitKind.REPLACE,
         on_translation_event: Callable[[TranslationEvent], None] | None = None,
     ) -> OCRTokensMetering:
         extraction = extraction or ExtractionOptions()
         with _package_workspace(package_path) as workspace:
             package, metering = self.extract_pdf_with_metering(source, workspace, extraction)
-            package = self._apply_steps(
-                package, steps, on_translation_event=on_translation_event
-            )
+            if translator is not None:
+                package = self.translate_package(
+                    package, workspace / "translated", translator,
+                    submit=submit, on_translation_event=on_translation_event,
+                )
             if book_meta is None:
                 book_meta = self._extract_book_meta(Path(source))
             self.render_epub(package, output, book_meta=book_meta, lan=lan,
@@ -225,29 +215,11 @@ class PDFCraft:
                              inline_latex=inline_latex, aborted=extraction.aborted)
             return metering
 
-    def _apply_steps(
-        self, package: DocumentPackage,
-        steps: Sequence[TranslationStep | PackageTransformer],
-        *, on_translation_event: Callable[[TranslationEvent], None] | None = None,
-    ) -> DocumentPackage:
-        current = package
-        for index, step in enumerate(steps):
-            transformer = self._as_package_transformer(step)
-            output = package.chapters_path.parent / f"transformed-{index}"
-            if isinstance(transformer, ChapterPackageTransformer):
-                current = transformer.transform(
-                    current, output, on_translation_event=on_translation_event
-                )
-            else:
-                current = transformer.transform(current, output)
-        return current
-
     def _translate_for_pdf(
         self,
         package: DocumentPackage,
         output_root: Path,
         transformer: ChapterTransformer | Callable[[str], str],
-        steps: Sequence[TranslationStep | PackageTransformer],
         *, on_translation_event: Callable[[TranslationEvent], None] | None = None,
     ) -> DocumentPackage:
         current = package
@@ -257,26 +229,7 @@ class PDFCraft:
             current, output_root / "translated", transformer,
             on_translation_event=on_translation_event,
         )
-        if steps:
-            current = self._apply_steps(
-                current, steps, on_translation_event=on_translation_event
-            )
         return current
-
-    @staticmethod
-    def _as_package_transformer(step: TranslationStep | PackageTransformer) -> PackageTransformer:
-        if not isinstance(step, TranslationStep):
-            return step
-        transformer = step.transformer
-        if isinstance(transformer, ChapterPackageTransformer):
-            if step.mode != SubmitKind.REPLACE and transformer.mode != step.mode:
-                return ChapterPackageTransformer(
-                    transformer.chapter_transformer, mode=step.mode
-                )
-            return transformer
-        if _accepts_package(transformer):
-            return cast(PackageTransformer, transformer)
-        return ChapterPackageTransformer(cast(ChapterTransformer, transformer), mode=step.mode)
 
     def _pdf_engine(self):
         if self._engine is not None:
@@ -303,27 +256,6 @@ def _package_workspace(package_path: PathLike | str | None) -> Iterator[Path]:
         return
     with TemporaryDirectory(prefix="pdf-craft-package-") as directory:
         yield Path(directory)
-
-
-def _accepts_package(transformer: ChapterTransformer | PackageTransformer) -> bool:
-    """Recognise the public PackageTransformer method shape explicitly."""
-    try:
-        parameters = list(signature(transformer.transform).parameters.values())
-    except (TypeError, ValueError):
-        return False
-    positional = [
-        parameter for parameter in parameters
-        if parameter.kind in (parameter.POSITIONAL_ONLY, parameter.POSITIONAL_OR_KEYWORD)
-    ]
-    return len(positional) == 2 and [parameter.name for parameter in positional] == [
-        "package", "output_path"
-    ]
-
-
-def _step_mode(step: TranslationStep | PackageTransformer, transformer: PackageTransformer) -> SubmitKind | None:
-    if isinstance(step, TranslationStep):
-        return step.mode if step.mode != SubmitKind.REPLACE else getattr(transformer, "mode", step.mode)
-    return getattr(transformer, "mode", None)
 
 
 class _TextChapterTransformer:

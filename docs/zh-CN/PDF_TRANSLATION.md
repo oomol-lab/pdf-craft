@@ -10,7 +10,7 @@ pdf-craft 的 PDF 能力可以按使用目标分成三类：
 | 目标 | 入口 | 结果 |
 | --- | --- | --- |
 | 直接转换 | `convert_pdf_to_markdown` / `convert_pdf_to_epub` | Markdown 或 EPUB |
-| 转换时翻译 | 在上述入口传入 `steps` | 翻译后的 Markdown 或 EPUB |
+| 转换时翻译 | 在上述入口传入一个 `translator` | 翻译后的 Markdown 或 EPUB |
 | 翻译并写回 PDF | `translate_pdf` | 以源页渲染图为背景、覆盖译文的新 PDF |
 
 如果只是想完成一次转换，优先使用两个 `convert_pdf_to_*` 方法。它们会在内部完成提取、
@@ -88,17 +88,16 @@ craft.convert_pdf_to_markdown(
 
 ### 转换时翻译
 
-通过 `steps` 可以在渲染前对章节内容执行变换。`TranslationStep` 包装一个章节变换器，
-并决定译文以替换方式还是追加方式提交：
+可以在渲染前传入一个章节翻译器，完成一次翻译，并决定译文以替换方式还是追加方式提交：
 
 ```python
-from pdf_craft import SubmitKind, TranslationStep
+from pdf_craft import SubmitKind
 
-translation = TranslationStep(translator, mode=SubmitKind.REPLACE)
 craft.convert_pdf_to_markdown(
     "input.pdf",
     "translated.md",
-    steps=[translation],
+    translator=translator,
+    submit=SubmitKind.REPLACE,
 )
 ```
 
@@ -106,8 +105,8 @@ craft.convert_pdf_to_markdown(
 文本 LLM 并返回修改后的章节。本文只说明 pdf-craft 如何接入变换器；LLM 客户端和具体
 提示词由你的应用负责准备。
 
-`steps` 也可以传入实现 `PackageTransformer` 的变换器。多个步骤会按列表顺序执行；每个
-步骤都会生成独立的变换结果，最后一个结果交给 Markdown 或 EPUB 渲染器。
+高层转换方法只执行一次翻译。需要额外 package 变换或更细粒度控制时，可以使用
+`extract_pdf()`、`translate_package()` 和 `render_*()` 自行组合。
 
 ## PDF 转换为 EPUB
 
@@ -136,7 +135,7 @@ craft.convert_pdf_to_epub(
   `LaTeXRender.CLIPPING`。
 - `inline_latex`：是否保留行内 LaTeX 表达式，默认值为 `True`。
 
-转换时翻译 EPUB 的方式与 Markdown 相同：将 `TranslationStep` 放入 `steps`。已有 EPUB
+转换时翻译 EPUB 的方式与 Markdown 相同：传入一个 `translator`。已有 EPUB
 文件的翻译属于另一条流程，请参考 EPUB 翻译指南。
 
 ## 翻译并写回 PDF
@@ -166,23 +165,7 @@ def translator(text: str) -> str:
 craft.translate_pdf("input.pdf", package, "translated.pdf", translator)
 ```
 
-还可以通过 `steps` 在主翻译完成后继续应用额外的章节或结果目录变换：
-
-```python
-from pdf_craft import TranslationStep
-
-craft.translate_pdf(
-    "input.pdf",
-    package,
-    "translated.pdf",
-    translator,
-    steps=[TranslationStep(additional_transformer)],
-)
-```
-
-步骤按列表顺序执行。PDF 输出不接受 `APPEND_BLOCK` 模式；如果某个 `TranslationStep` 或
-`PackageTransformer` 的模式为 `APPEND_BLOCK`，`translate_pdf` 会在变换开始前抛出
-`ValueError`。
+PDF 输出不接受 `APPEND_BLOCK` 模式，因为 PDF pipeline 不能在原页面中安全追加新的块级内容。
 
 ### PDF 输出的限制
 

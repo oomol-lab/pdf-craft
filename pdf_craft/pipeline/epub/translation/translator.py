@@ -51,7 +51,6 @@ def translate(
     llm: LLM | None = None,
     translation_llm: LLM | None = None,
     fill_llm: LLM | None = None,
-    on_progress: Callable[[float], None] | None = None,
     on_translation_event: Callable[[TranslationEvent], None] | None = None,
     on_fill_failed: Callable[[FillFailedEvent], None] | None = None,
 ) -> None:
@@ -90,19 +89,7 @@ def translate(
             metadata_context=metadata_context,
             submit=submit,
         ))
-        total_chapters = sum(
-            task.item_kind == TranslationItemKind.CHAPTER for task in tasks
-        )
-
-        # Calculate weights: TOC (5%), Metadata (5%), Chapters (90%)
-        toc_has_items = len(toc_list) > 0
-        metadata_has_items = len(metadata_fields) > 0
         interrupter = XMLInterrupter()
-        toc_weight = 0.05 if toc_has_items else 0
-        metadata_weight = 0.05 if metadata_has_items else 0
-        chapters_weight = 1.0 - toc_weight - metadata_weight
-        progress_per_chapter = chapters_weight / total_chapters if total_chapters > 0 else 0
-        current_progress = 0.0
 
         for translated_elem, context in translator.translate_elements(
             concurrency=concurrency,
@@ -119,19 +106,11 @@ def translate(
                 if context.toc_context is not None:
                     write_toc(zip, decoded_toc, context.toc_context)
 
-                current_progress += toc_weight
-                if on_progress:
-                    on_progress(current_progress)
-
             elif context.element_type == _ElementType.METADATA:
                 translated_elem = unwrap_french_quotes(translated_elem)
                 decoded_metadata = decode_metadata(translated_elem)
                 if context.metadata_context is not None:
                     write_metadata(zip, decoded_metadata, context.metadata_context)
-
-                current_progress += metadata_weight
-                if on_progress:
-                    on_progress(current_progress)
 
             elif context.element_type == _ElementType.CHAPTER:
                 if context.chapter_data is not None:
@@ -139,10 +118,6 @@ def translate(
                     deduplicate_ids_in_element(xml.element)
                     with zip.replace(chapter_path) as target_file:
                         xml.save(target_file)
-
-                current_progress += progress_per_chapter
-                if on_progress:
-                    on_progress(current_progress)
 
 
 def _generate_tasks_from_book(

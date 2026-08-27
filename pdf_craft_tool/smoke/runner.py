@@ -22,7 +22,6 @@ from pdf_craft import (
     PDFCraft,
     PDFOptions,
     SubmitKind,
-    TranslationStep,
     XMLTranslator,
 )
 from pdf_craft.extractor.chapter.chapter import BlockLayout, BlockMember, Chapter, HTMLTag, ParagraphLayout
@@ -258,10 +257,10 @@ def _run_pdf(
     if run.route in {"package-markdown", "markdown"}:
         markdown = output_path / "book.md"
         markdown_assets = Path("assets")
-        steps = _package_steps(run, run_path)
+        transformer = _package_translation(run, run_path)
         with report.stage("render"):
-            if steps:
-                package = _translate_package_steps(craft, package, run_path, steps)
+            if transformer is not None:
+                package = _translate_package(craft, package, run_path, transformer)
             craft.render_markdown(package, markdown, markdown_assets)
         with report.stage("check"):
             errors = check_package(package)
@@ -274,10 +273,10 @@ def _run_pdf(
         return status, errors, details
     if run.route in {"package-epub", "epub"}:
         epub = output_path / "book.epub"
-        steps = _package_steps(run, run_path)
+        transformer = _package_translation(run, run_path)
         with report.stage("render"):
-            if steps:
-                package = _translate_package_steps(craft, package, run_path, steps)
+            if transformer is not None:
+                package = _translate_package(craft, package, run_path, transformer)
             craft.render_epub(package, epub)
         with report.stage("check"):
             errors = check_package(package)
@@ -372,47 +371,36 @@ class _DeterministicChapterTransformer:
         return item
 
 
-def _package_steps(run: SmokeRun, run_path: Path):
+def _package_translation(run: SmokeRun, run_path: Path):
     translation_transformer = _xml_translation_transformer(run, run_path)
     if translation_transformer is not None:
         translation = run.translation or {}
         mode = SubmitKind[translation.get("submit", "REPLACE").upper()]
-        return (TranslationStep(ChapterPackageTransformer(translation_transformer), mode),)
+        return ChapterPackageTransformer(translation_transformer, mode=mode)
 
     translation = run.translation or {}
     marker = translation.get("package_marker")
     if not isinstance(marker, str):
-        return ()
+        return None
     mode = SubmitKind[translation.get("package_submit", "REPLACE").upper()]
-    return (TranslationStep(ChapterPackageTransformer(_DeterministicChapterTransformer(marker)), mode),)
+    return ChapterPackageTransformer(_DeterministicChapterTransformer(marker), mode=mode)
 
 
-def _translate_package_steps(
+def _translate_package(
     craft: PDFCraft,
     package,
     run_path: Path,
-    steps,
+    transformer,
 ):
-    """Run smoke package translations through the public facade method."""
-    current = package
-    for index, step in enumerate(steps):
-        if isinstance(step, TranslationStep):
-            transformer = step.transformer
-            mode = step.mode
-        else:
-            transformer = step
-            mode = getattr(step, "mode", SubmitKind.REPLACE)
-        if not isinstance(transformer, ChapterPackageTransformer):
-            raise TypeError("smoke package routes require a ChapterPackageTransformer")
-        if isinstance(step, TranslationStep) and mode == SubmitKind.REPLACE:
-            mode = transformer.mode
-        current = craft.translate_package(
-            current,
-            run_path / f"translated-{index}",
-            transformer.chapter_transformer,
-            submit=mode,
-        )
-    return current
+    """Run one smoke package translation through the public facade method."""
+    if not isinstance(transformer, ChapterPackageTransformer):
+        raise TypeError("smoke package routes require a ChapterPackageTransformer")
+    return craft.translate_package(
+        package,
+        run_path / "translated",
+        transformer.chapter_transformer,
+        submit=transformer.mode,
+    )
 
 
 def _xml_translation_transformer(run: SmokeRun, run_path: Path) -> ChapterXMLTransformer | None:

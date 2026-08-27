@@ -9,7 +9,7 @@ from .error import (
     PDFError,
 )
 from .functions import predownload_models
-from .craft import ExtractionOptions, PDFCraft, PDFOptions, TranslationStep
+from .craft import ExtractionOptions, PDFCraft, PDFOptions
 from .pipeline.epub import translate_epub
 from .pipeline.pdf import PDFPatcher, PDFReplacement, PDFSkippedReplacement, PDFTranslationPipeline, PatchTextOptions
 from .transformer import (

@@ -190,7 +190,7 @@ llm = LLM(
 
 `on_translation_event` 接收底层 `TranslationEvent` 事件，报告翻译范围以及 TOC、metadata、
 chapter item 的开始、完成和源文本字符统计。字符统计不是 token，也不是固定比例。相同回调
-也适用于 package 和 PDF 翻译流程。旧的 `on_progress` 浮点回调仅为兼容保留。
+也适用于 package 和 PDF 翻译流程。
 
 `on_fill_failed` 接收 `FillFailedEvent`。它描述 XML 结构修复过程中发生的错误：
 
@@ -201,10 +201,11 @@ chapter item 的开始、完成和源文本字符统计。字符统计不是 tok
   并检查输出。
 
 ~~~python
-from pdf_craft import FillFailedEvent
+from pdf_craft import FillFailedEvent, TranslationEventKind
 
-def on_progress(progress: float) -> None:
-    print(f"翻译进度：{progress:.0%}")
+def on_translation_event(event) -> None:
+    if event.kind == TranslationEventKind.PROGRESS:
+        print(event.completed_characters, event.total_characters)
 
 def on_fill_failed(event: FillFailedEvent) -> None:
     if event.over_maximum_retries:
@@ -215,7 +216,7 @@ PDFCraft().translate_epub(
     target_language="zh",
     submit=SubmitKind.APPEND_BLOCK,
     llm=llm,
-    on_progress=on_progress,
+    on_translation_event=on_translation_event,
     on_fill_failed=on_fill_failed,
 )
 ~~~

@@ -22,8 +22,8 @@ craft = PDFCraft(pdf=PDFOptions(ocr=your_ocr_config))
 | `extract_pdf_with_metering` | `extract_pdf_with_metering(source, package_path, options=None) -> tuple[DocumentPackage, OCRTokensMetering]` is the same extraction with OCR token accounting. |
 | `render_markdown` | `render_markdown(package, output, assets_path=None, *, aborted=...)` writes Markdown and optional assets. |
 | `render_epub` | `render_epub(package, output, *, book_meta=None, lan="zh", table_render=..., latex_render=..., inline_latex=True, aborted=...)` writes an EPUB. |
-| `convert_pdf_to_markdown` | `convert_pdf_to_markdown(source, output, *, package_path=None, extraction=None, assets_path=None, steps=(), on_translation_event=None) -> OCRTokensMetering` is the one-shot PDF-to-Markdown workflow. |
-| `convert_pdf_to_epub` | `convert_pdf_to_epub(source, output, *, package_path=None, extraction=None, book_meta=None, lan="zh", table_render=..., latex_render=..., inline_latex=True, steps=(), on_translation_event=None) -> OCRTokensMetering` is the one-shot PDF-to-EPUB workflow. |
+| `convert_pdf_to_markdown` | `convert_pdf_to_markdown(source, output, *, package_path=None, extraction=None, assets_path=None, translator=None, submit=SubmitKind.REPLACE, on_translation_event=None) -> OCRTokensMetering` is the one-shot PDF-to-Markdown workflow. |
+| `convert_pdf_to_epub` | `convert_pdf_to_epub(source, output, *, package_path=None, extraction=None, book_meta=None, lan="zh", table_render=..., latex_render=..., inline_latex=True, translator=None, submit=SubmitKind.REPLACE, on_translation_event=None) -> OCRTokensMetering` is the one-shot PDF-to-EPUB workflow. |
 
 The two `convert_pdf_to_*` methods clean up their temporary package workspace when `package_path` is omitted. Give `package_path` when you need to retain the package. `render_epub` accepts `epub_generator.BookMeta`, `TableRender`, and `LaTeXRender` values for output customization.
 
@@ -32,7 +32,7 @@ The two `convert_pdf_to_*` methods clean up their temporary package workspace wh
 | Method | Signature and purpose |
 | --- | --- |
 | `translate_package` | `translate_package(package, output_path, translator, *, submit=SubmitKind.REPLACE, on_translation_event=None) -> DocumentPackage` translates a package into a new package. `translator` is a chapter transformer. |
-| `translate_pdf` | `translate_pdf(source, package, output, transformer, *, steps=(), on_translation_event=None)` translates then patches text onto the source PDF. `transformer` may be a chapter transformer or `Callable[[str], str]`. |
+| `translate_pdf` | `translate_pdf(source, package, output, transformer, *, on_translation_event=None)` translates then patches text onto the source PDF. `transformer` may be a chapter transformer or `Callable[[str], str]`. |
 | `patch_pdf_with_package` | `patch_pdf_with_package(source, package, output)` patches a source PDF from a `DocumentPackage` or package path without OCR or LLM calls. |
 | `translate_epub` | `translate_epub(source, output, *, target_language, submit, **options)` translates an existing EPUB. See [EPUB translation](EPUB_TRANSLATION.md) for its options. |
 
@@ -93,8 +93,6 @@ See [OCR backends](OCR_BACKENDS.md) for model origin, runtime requirements, and 
 - `SubmitKind.APPEND_TEXT`: append translated text to the same text flow.
 - `SubmitKind.APPEND_BLOCK`: append translated content as a separate block. It is not supported for PDF patching.
 
-`TranslationStep(transformer, mode=SubmitKind.REPLACE)` is used in `steps=` for PDF conversion and `translate_pdf()`. A transformer can be a `ChapterTransformer` with `transform(chapter)`, or the public package-transformer shape described below.
-
 The following classes are exposed for applications that need custom structured transformations:
 
 | Type | Role |
@@ -110,7 +108,7 @@ Translation workflows also accept `on_translation_event`, a callback receiving
 `ITEM_COMPLETE`, `PROGRESS`, and `COMPLETE`; `TranslationItemKind` identifies TOC,
 metadata, or chapter items. Character counts are source-text character counts and
 are not token counts or percentages. The same event callback is available for
-EPUB translation, package translation, PDF translation, and PDF conversion steps.
+EPUB translation, package translation, PDF translation, and PDF conversion.
 
 ## `LLM`
 

@@ -7,11 +7,11 @@ This guide covers workflows that start with a PDF: converting it to Markdown or 
 | Goal | Start here | What it produces |
 | --- | --- | --- |
 | Convert a PDF once | `convert_pdf_to_markdown()` or `convert_pdf_to_epub()` | Markdown or EPUB |
-| Translate as the PDF is converted | Pass `TranslationStep` items to either conversion method | Translated Markdown or EPUB |
+| Translate as the PDF is converted | Pass one `translator` to either conversion method | Translated Markdown or EPUB |
 | Keep, inspect, or reuse OCR output | `extract_pdf()`, then render or translate the returned package | A durable `DocumentPackage` directory |
 | Produce a translated PDF | `translate_pdf()` or `patch_pdf_with_package()` | A new PDF with translated text over the source pages |
 
-For a one-off conversion, use the two `convert_pdf_to_*` methods. They extract the PDF, apply any requested transformation, and render the final file. Use the lower-level steps only when you need a persistent intermediate package or need to control each stage separately.
+For a one-off conversion, use the two `convert_pdf_to_*` methods. They extract the PDF, optionally translate it once, and render the final file. Use the lower-level package APIs only when you need a persistent intermediate package or need to control each stage separately.
 
 All PDF extraction requires a configured `PDFCraft` instance. The OCR configuration is independent of the text LLM used for translation.
 
@@ -75,22 +75,21 @@ If `book_meta` is omitted, pdf-craft attempts to read metadata from the source P
 
 ## Translate during conversion
 
-`TranslationStep` inserts a chapter transformation before Markdown or EPUB rendering. The transformer is supplied by your application; it is responsible for calling a text model and returning the transformed chapter.
+Pass one chapter translator before Markdown or EPUB rendering. The translator is supplied by your application; it is responsible for calling a text model and returning the transformed chapter.
 
 ```python
-from pdf_craft import SubmitKind, TranslationStep
+from pdf_craft import SubmitKind
 
 # translator implements transform(chapter).
-translation = TranslationStep(translator, mode=SubmitKind.REPLACE)
-
 craft.convert_pdf_to_markdown(
     "book.pdf",
     "book.zh.md",
-    steps=[translation],
+    translator=translator,
+    submit=SubmitKind.REPLACE,
 )
 ```
 
-Use `SubmitKind.REPLACE` for a target-language-only document. `APPEND_TEXT` appends translated text to the same text flow, while `APPEND_BLOCK` adds separate translated blocks, which is generally the clearer bilingual layout for Markdown and EPUB. Multiple steps run in list order. Advanced applications may also pass a public `PackageTransformer` as a step.
+Use `SubmitKind.REPLACE` for a target-language-only document. `APPEND_TEXT` appends translated text to the same text flow, while `APPEND_BLOCK` adds separate translated blocks, which is generally the clearer bilingual layout for Markdown and EPUB. The high-level conversion methods perform at most one translation; advanced applications that need additional package transformations should compose the lower-level package APIs explicitly.
 
 ## Work explicitly with a DocumentPackage
 
