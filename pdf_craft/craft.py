@@ -210,11 +210,14 @@ class PDFCraft:
         latex_render: LaTeXRender = LaTeXRender.MATHML,
         inline_latex: bool = True,
         steps: Sequence[TranslationStep | PackageTransformer] = (),
+        on_translation_event: Callable[[TranslationEvent], None] | None = None,
     ) -> OCRTokensMetering:
         extraction = extraction or ExtractionOptions()
         with _package_workspace(package_path) as workspace:
             package, metering = self.extract_pdf_with_metering(source, workspace, extraction)
-            package = self._apply_steps(package, steps)
+            package = self._apply_steps(
+                package, steps, on_translation_event=on_translation_event
+            )
             if book_meta is None:
                 book_meta = self._extract_book_meta(Path(source))
             self.render_epub(package, output, book_meta=book_meta, lan=lan,

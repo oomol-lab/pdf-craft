@@ -258,6 +258,18 @@ class TestPDFCraft(unittest.TestCase):
         self.assertEqual(render.call_args.kwargs["book_meta"], "detected metadata")
         self.assertIs(render.call_args.kwargs["aborted"], stopped)
 
+    def test_epub_conversion_forwards_translation_events_to_steps(self):
+        craft = PDFCraft.from_engine(_Engine())
+        callback = Mock()
+        with patch.object(craft, "extract_pdf_with_metering", return_value=(object(), "metering")), \
+             patch.object(craft, "_apply_steps", return_value=object()) as apply_steps, \
+             patch.object(craft, "render_epub"):
+            craft.convert_pdf_to_epub(
+                "source.pdf", "book.epub", package_path="package",
+                on_translation_event=callback,
+            )
+        self.assertIs(apply_steps.call_args.kwargs["on_translation_event"], callback)
+
     def test_markdown_workflow_forwards_aborted_to_renderer_step(self):
         craft = PDFCraft.from_engine(_Engine())
         stopped = lambda: False
