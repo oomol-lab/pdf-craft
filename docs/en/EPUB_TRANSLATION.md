@@ -138,7 +138,11 @@ Supply `llm`, or supply both specialized configurations. A translation-only conf
 
 ## Observe progress and structural failures
 
-`on_progress` receives a value from `0.0` to `1.0` as work completes. Chapter work receives most of the weight; a present table of contents and translatable metadata each receive five percent.
+`on_translation_event` receives low-level `TranslationEvent` values as the translation
+scope and its TOC, metadata, and chapter items progress. Character counts are based on
+source text and are not token-based percentages. The same callback is supported by
+package and PDF translation workflows. The legacy `on_progress` float callback is kept
+only for compatibility.
 
 `on_fill_failed` receives `FillFailedEvent` when an XML repair attempt fails. The final event with `over_maximum_retries=True` signals that no repair attempts remain and the output may need inspection.
 

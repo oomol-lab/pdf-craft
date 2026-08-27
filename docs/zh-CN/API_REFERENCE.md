@@ -20,7 +20,8 @@ from pdf_craft import PDFCraft, PDFOptions
 - `PackageTransformer`、`ChapterPackageTransformer`、`ChapterXMLTransformer`、
   `XMLTranslator`、`SubmitKind`
 - `BookMeta`、`TableRender`、`LaTeXRender`
-- `OCRTokensMetering`、`OCREvent`、`OCREventKind`、`FillFailedEvent`
+- `OCRTokensMetering`、`OCREvent`、`OCREventKind`、`TranslationEvent`、
+  `TranslationEventKind`、`TranslationItemKind`、`FillFailedEvent`
 - `PDFHandler`、`DefaultPDFHandler`、`PDFDocument`、`DefaultPDFDocument`、
   `PDFDocumentMetadata`
 - `PDFPatcher`、`PDFReplacement`、`PDFSkippedReplacement`、`PatchTextOptions`、
@@ -33,6 +34,12 @@ from pdf_craft import PDFCraft, PDFOptions
 `from pdf_craft.transformer import ChapterTransformer`，而不是包顶层。本文不把以下内容当作
 公共扩展点：内部 engine、`pdf_craft_tool` CLI、`pdf_craft` 的私有模块路径，以及
 `doc-page-extractor` 的内部 extractor/factory。
+
+所有翻译入口都可以接收 `on_translation_event`。事件类型与 `OCREvent` 风格一致，
+包含 `START`、`ITEM_START`、`ITEM_COMPLETE`、`PROGRESS` 和 `COMPLETE`；item 类型为
+TOC、metadata 或 chapter。字符统计是可翻译源文本的 Unicode 字符数，不是 token 数，
+也不是预先计算的百分比。chapter 可以来自 EPUB，也可以来自 PDF OCR 生成的
+`DocumentPackage`。
 
 ## PDFCraft
 
@@ -158,6 +165,7 @@ craft.convert_pdf_to_epub(
 两个方法都返回 `OCRTokensMetering`。`convert_pdf_to_markdown` 另接受 `assets_path`，
 用于把渲染出的图片资源写到指定目录；EPUB 的 `lan`、`table_render`、`latex_render` 和
 `inline_latex` 控制 EPUB 输出格式。
+两个方法都可以通过 `on_translation_event` 接收 `steps` 中翻译变换产生的底层事件。
 
 ### 从已有 package 渲染
 
