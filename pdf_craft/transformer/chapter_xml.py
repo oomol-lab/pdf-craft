@@ -35,6 +35,8 @@ class ChapterXMLTransformer:
         item_id: str | int | None = None,
         completed_characters: int = 0,
         total_characters: int | None = None,
+        emit_scope_events: bool = True,
+        emit_item_events: bool = True,
     ) -> Chapter:
         element = encode(chapter)
         # OCR can produce chapters for pages that contain no translatable text.
@@ -54,7 +56,7 @@ class ChapterXMLTransformer:
             on_translation_event=on_translation_event,
             completed_characters=completed_characters,
             total_characters=total_characters,
-            emit_scope_events=False,
-            emit_item_events=False,
+            emit_scope_events=emit_scope_events,
+            emit_item_events=emit_item_events,
         )
         return decode(translated)

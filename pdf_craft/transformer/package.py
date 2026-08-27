@@ -78,13 +78,13 @@ class ChapterPackageTransformer:
 
         completed_characters = 0
         for path, chapter, item_id, character_count in chapter_tasks:
-            if on_translation_event is not None:
+            is_xml_transformer = isinstance(self.chapter_transformer, ChapterXMLTransformer)
+            if on_translation_event is not None and not is_xml_transformer:
                 on_translation_event(TranslationEvent(
                     kind=TranslationEventKind.ITEM_START,
                     item_kind=TranslationItemKind.CHAPTER,
                     item_id=item_id,
                 ))
-            is_xml_transformer = isinstance(self.chapter_transformer, ChapterXMLTransformer)
             if is_xml_transformer:
                 transformed = cast(ChapterXMLTransformer, self.chapter_transformer).transform(
                     chapter,
@@ -92,18 +92,18 @@ class ChapterPackageTransformer:
                     item_id=item_id,
                     completed_characters=completed_characters,
                     total_characters=total_characters,
+                    emit_scope_events=False,
                 )
             else:
                 transformed = self.chapter_transformer.transform(chapter)
             save_xml(encode(transformed), path)
             completed_characters += character_count
-            if on_translation_event is not None:
-                if not is_xml_transformer:
-                    on_translation_event(TranslationEvent(
-                        kind=TranslationEventKind.PROGRESS,
-                        completed_characters=completed_characters,
-                        total_characters=total_characters,
-                    ))
+            if on_translation_event is not None and not is_xml_transformer:
+                on_translation_event(TranslationEvent(
+                    kind=TranslationEventKind.PROGRESS,
+                    completed_characters=completed_characters,
+                    total_characters=total_characters,
+                ))
                 on_translation_event(TranslationEvent(
                     kind=TranslationEventKind.ITEM_COMPLETE,
                     item_kind=TranslationItemKind.CHAPTER,

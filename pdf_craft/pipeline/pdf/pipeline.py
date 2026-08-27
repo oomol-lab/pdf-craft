@@ -1,5 +1,6 @@
 from collections.abc import Callable
 from pathlib import Path
+from typing import cast
 
 from pdf_craft.extractor.chapter.chapter import Chapter, ParagraphLayout, encode
 from pdf_craft.extractor.chapter.chapter import InlineExpression, Reference
@@ -8,6 +9,7 @@ from pdf_craft.markdown.paragraph import HTMLTag
 from pdf_craft.expression import to_markdown_string
 from pdf_craft.document import DocumentPackage
 from pdf_craft.transformer.events import TranslationEvent, TranslationEventKind, TranslationItemKind
+from pdf_craft.transformer.chapter_xml import ChapterXMLTransformer
 from pdf_craft.transformer.xml_translator.segment import search_text_segments
 from pdf_craft.pdf.handler import PDFHandler
 from pdf_craft.pipeline.pdf.patcher import PDFPatcher, PDFReplacement
@@ -57,17 +59,28 @@ class PDFTranslationPipeline:
             for chapter, character_count in chapter_tasks:
                 structured = not callable(transformer)
                 item_id = chapter.id if chapter.id is not None else "head"
-                if on_translation_event is not None:
+                is_xml_transformer = isinstance(transformer, ChapterXMLTransformer)
+                if on_translation_event is not None and not is_xml_transformer:
                     on_translation_event(TranslationEvent(
                         kind=TranslationEventKind.ITEM_START,
                         item_kind=TranslationItemKind.CHAPTER,
                         item_id=item_id,
                     ))
-                transformed = transformer.transform(chapter) if structured else chapter
+                if is_xml_transformer:
+                    transformed = cast(ChapterXMLTransformer, transformer).transform(
+                        chapter,
+                        on_translation_event=on_translation_event,
+                        item_id=item_id,
+                        completed_characters=completed_characters,
+                        total_characters=total_characters,
+                        emit_scope_events=False,
+                    )
+                else:
+                    transformed = transformer.transform(chapter) if structured else chapter
                 callback = transformer if callable(transformer) else (lambda text: text)
                 self._collect_chapter(transformed, callback, document, pages, replacements, structured)
                 completed_characters += character_count
-                if on_translation_event is not None:
+                if on_translation_event is not None and not is_xml_transformer:
                     on_translation_event(TranslationEvent(
                         kind=TranslationEventKind.PROGRESS,
                         completed_characters=completed_characters,
