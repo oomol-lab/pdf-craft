@@ -123,7 +123,8 @@ class PDFCraft:
         """
         package_transformer = ChapterPackageTransformer(translator, mode=submit)
         return package_transformer.transform(
-            package, Path(output_path), on_translation_event=on_translation_event
+            package, Path(output_path), on_translation_event=on_translation_event,
+            emit_translation_events=True,
         )
 
     def render_epub(

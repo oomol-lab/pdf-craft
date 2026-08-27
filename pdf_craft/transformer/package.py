@@ -44,6 +44,7 @@ class ChapterPackageTransformer:
         output_path: Path,
         *,
         on_translation_event: Callable[[TranslationEvent], None] | None = None,
+        emit_translation_events: bool = False,
     ) -> DocumentPackage:
         package.validate()
         if output_path.exists():
@@ -66,7 +67,7 @@ class ChapterPackageTransformer:
                 chapter_tasks.append((path, chapter, item_id, character_count))
 
         total_characters = sum(item[3] for item in chapter_tasks)
-        if on_translation_event is not None:
+        if emit_translation_events and on_translation_event is not None:
             on_translation_event(TranslationEvent(
                 kind=TranslationEventKind.START,
                 chapter_count=len(chapter_tasks),
@@ -79,7 +80,7 @@ class ChapterPackageTransformer:
         completed_characters = 0
         for path, chapter, item_id, character_count in chapter_tasks:
             is_xml_transformer = isinstance(self.chapter_transformer, ChapterXMLTransformer)
-            if on_translation_event is not None and not is_xml_transformer:
+            if emit_translation_events and on_translation_event is not None and not is_xml_transformer:
                 on_translation_event(TranslationEvent(
                     kind=TranslationEventKind.ITEM_START,
                     item_kind=TranslationItemKind.CHAPTER,
@@ -88,7 +89,7 @@ class ChapterPackageTransformer:
             if is_xml_transformer:
                 transformed = cast(ChapterXMLTransformer, self.chapter_transformer).transform(
                     chapter,
-                    on_translation_event=on_translation_event,
+                    on_translation_event=on_translation_event if emit_translation_events else None,
                     item_id=item_id,
                     completed_characters=completed_characters,
                     total_characters=total_characters,
@@ -98,7 +99,7 @@ class ChapterPackageTransformer:
                 transformed = self.chapter_transformer.transform(chapter)
             save_xml(encode(transformed), path)
             completed_characters += character_count
-            if on_translation_event is not None and not is_xml_transformer:
+            if emit_translation_events and on_translation_event is not None and not is_xml_transformer:
                 on_translation_event(TranslationEvent(
                     kind=TranslationEventKind.PROGRESS,
                     completed_characters=completed_characters,
@@ -114,7 +115,7 @@ class ChapterPackageTransformer:
 
         if self.toc_transformer is not None and package.toc_path is not None and package.toc_path.exists():
             save_xml(self.toc_transformer(read_xml(output_path / package.toc_path.name)), output_path / package.toc_path.name)
-        if on_translation_event is not None:
+        if emit_translation_events and on_translation_event is not None:
             on_translation_event(TranslationEvent(
                 kind=TranslationEventKind.COMPLETE,
                 completed_characters=completed_characters,

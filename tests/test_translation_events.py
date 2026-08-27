@@ -3,13 +3,38 @@ import unittest
 from pathlib import Path
 from xml.etree.ElementTree import tostring
 
-from pdf_craft import TranslationEventKind, TranslationItemKind
+from pdf_craft import ChapterPackageTransformer, TranslationEventKind, TranslationItemKind
 from pdf_craft.craft import PDFCraft
 from pdf_craft.document import DocumentPackage
 from pdf_craft.extractor.chapter.chapter import BlockLayout, Chapter, ParagraphLayout, encode
 
 
 class TestTranslationEvents(unittest.TestCase):
+    def test_direct_package_transform_does_not_claim_translation_events(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = DocumentPackage.from_path(root / "source")
+            source.chapters_path.mkdir(parents=True)
+            source.assets_path.mkdir()
+            source.write_metadata(page_pixel_sizes={1: (10, 10)})
+            chapter = Chapter(None, -1, [ParagraphLayout(
+                "text", 0, [BlockLayout(1, 1, (1, 1, 5, 5), ["source"])]
+            )])
+            (source.chapters_path / "chapter_head.xml").write_text(
+                '<?xml version="1.0" encoding="UTF-8"?>\n'
+                + tostring(encode(chapter), encoding="unicode")
+            )
+
+            class Identity:
+                def transform(self, chapter):
+                    return chapter
+
+            events = []
+            ChapterPackageTransformer(Identity()).transform(
+                source, root / "target", on_translation_event=events.append
+            )
+            self.assertEqual(events, [])
+
     def test_package_translation_reports_format_neutral_chapter_events(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
