@@ -16,6 +16,8 @@ from pdf_craft.pipeline.epub.adapter import (
     write_toc,
 )
 from pdf_craft.llm import LLM
+from pdf_craft.transformer.events import TranslationEvent, TranslationItemKind
+from pdf_craft.transformer.xml_translator.segment import search_text_segments
 from pdf_craft.transformer.xml_translator.xml import XMLLikeNode, deduplicate_ids_in_element, find_first
 from pdf_craft.transformer.xml_translator.xml_translator import FillFailedEvent, SubmitKind, TranslationTask, XMLTranslator
 from .epub_transcode import decode_metadata, decode_toc_list, encode_metadata, encode_toc_list
@@ -50,6 +52,7 @@ def translate(
     translation_llm: LLM | None = None,
     fill_llm: LLM | None = None,
     on_progress: Callable[[float], None] | None = None,
+    on_translation_event: Callable[[TranslationEvent], None] | None = None,
     on_fill_failed: Callable[[FillFailedEvent], None] | None = None,
 ) -> None:
     translation_llm = translation_llm or llm
@@ -77,18 +80,23 @@ def translate(
         # mimetype should be the first file in the EPUB ZIP
         zip.migrate(Path("mimetype"))
 
-        total_chapters = sum(1 for _, _ in search_spine_paths(zip))
         toc_list, toc_context = read_toc(zip)
         metadata_fields, metadata_context = read_metadata(zip)
+        tasks = list(_generate_tasks_from_book(
+            zip=zip,
+            toc_list=toc_list,
+            toc_context=toc_context,
+            metadata_fields=metadata_fields,
+            metadata_context=metadata_context,
+            submit=submit,
+        ))
+        total_chapters = sum(
+            task.item_kind == TranslationItemKind.CHAPTER for task in tasks
+        )
 
         # Calculate weights: TOC (5%), Metadata (5%), Chapters (90%)
         toc_has_items = len(toc_list) > 0
         metadata_has_items = len(metadata_fields) > 0
-        total_items = (1 if toc_has_items else 0) + (1 if metadata_has_items else 0) + total_chapters
-
-        if total_items == 0:
-            return
-
         interrupter = XMLInterrupter()
         toc_weight = 0.05 if toc_has_items else 0
         metadata_weight = 0.05 if metadata_has_items else 0
@@ -102,14 +110,8 @@ def translate(
             interrupt_translated_text_segments=interrupter.interrupt_translated_text_segments,
             interrupt_block_element=interrupter.interrupt_block_element,
             on_fill_failed=on_fill_failed,
-            tasks=_generate_tasks_from_book(
-                zip=zip,
-                toc_list=toc_list,
-                toc_context=toc_context,
-                metadata_fields=metadata_fields,
-                metadata_context=metadata_context,
-                submit=submit,
-            ),
+            on_translation_event=on_translation_event,
+            tasks=tasks,
         ):
             if context.element_type == _ElementType.TOC:
                 translated_elem = unwrap_french_quotes(translated_elem)
@@ -156,17 +158,25 @@ def _generate_tasks_from_book(
         head_submit = SubmitKind.APPEND_TEXT
 
     if toc_list:
+        element = encode_toc_list(toc_list)
         yield TranslationTask(
-            element=encode_toc_list(toc_list),
+            element=element,
             action=head_submit,
             payload=_ElementContext(element_type=_ElementType.TOC, toc_context=toc_context),
+            item_kind=TranslationItemKind.TOC,
+            item_id="toc",
+            character_count=sum(len(segment.text) for segment in search_text_segments(element)),
         )
 
     if metadata_fields:
+        element = encode_metadata(metadata_fields)
         yield TranslationTask(
-            element=encode_metadata(metadata_fields),
+            element=element,
             action=head_submit,
             payload=_ElementContext(element_type=_ElementType.METADATA, metadata_context=metadata_context),
+            item_kind=TranslationItemKind.METADATA,
+            item_id="metadata",
+            character_count=sum(len(segment.text) for segment in search_text_segments(element)),
         )
 
     for chapter_path, media_type in search_spine_paths(zip):
@@ -176,7 +186,9 @@ def _generate_tasks_from_book(
                 is_html_like=(media_type == "text/html"),
             )
         body_element = find_first(xml.element, "body")
-        if body_element is not None:
+        if body_element is not None and any(
+            segment.text.strip() for segment in search_text_segments(body_element)
+        ):
             yield TranslationTask(
                 element=body_element,
                 action=submit,
@@ -184,6 +196,9 @@ def _generate_tasks_from_book(
                     element_type=_ElementType.CHAPTER,
                     chapter_data=(chapter_path, xml),
                 ),
+                item_kind=TranslationItemKind.CHAPTER,
+                item_id=str(chapter_path),
+                character_count=sum(len(segment.text) for segment in search_text_segments(body_element)),
             )
 
 

@@ -19,6 +19,9 @@ from .transformer import (
     PackageTransformer,
     SubmitKind,
     XMLTranslator,
+    TranslationEvent,
+    TranslationEventKind,
+    TranslationItemKind,
 )
 from .llm import LLM
 from .metering import AbortedCheck, InterruptedKind, OCRTokensMetering

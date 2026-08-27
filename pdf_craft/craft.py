@@ -24,7 +24,10 @@ from .pipeline.epub import translate_epub as run_epub_translation
 from .pipeline.pdf import PDFTranslationPipeline
 from .pipeline.pdf.pipeline import _to_patch_text
 from .renderer import EpubRenderer, MarkdownRenderer
-from .transformer import ChapterPackageTransformer, ChapterTransformer, PackageTransformer, SubmitKind
+from .transformer import (
+    ChapterPackageTransformer, ChapterTransformer, PackageTransformer, SubmitKind,
+    TranslationEvent,
+)
 
 
 @dataclass(frozen=True)
@@ -122,6 +125,7 @@ class PDFCraft:
         self, package: DocumentPackage, output_path: PathLike | str,
         translator: ChapterTransformer,
         *, submit: SubmitKind = SubmitKind.REPLACE,
+        on_translation_event: Callable[[TranslationEvent], None] | None = None,
     ) -> DocumentPackage:
         """Translate one render-ready package into another package.
 
@@ -130,7 +134,9 @@ class PDFCraft:
         detail used by the compatibility workflows.
         """
         package_transformer = ChapterPackageTransformer(translator, mode=submit)
-        return package_transformer.transform(package, Path(output_path))
+        return package_transformer.transform(
+            package, Path(output_path), on_translation_event=on_translation_event
+        )
 
     def render_epub(
         self, package: DocumentPackage, output: PathLike | str, *,
@@ -148,13 +154,17 @@ class PDFCraft:
         self, source: PathLike | str, package: DocumentPackage,
         output: PathLike | str, transformer: ChapterTransformer | Callable[[str], str],
         *, steps: Sequence[TranslationStep | PackageTransformer] = (),
+        on_translation_event: Callable[[TranslationEvent], None] | None = None,
     ) -> None:
         for step in steps:
             mode = _step_mode(step, self._as_package_transformer(step))
             if mode == SubmitKind.APPEND_BLOCK:
                 raise ValueError("PDF output does not support APPEND_BLOCK")
         with TemporaryDirectory(prefix="pdf-craft-translated-package-") as directory:
-            translated = self._translate_for_pdf(package, Path(directory), transformer, steps)
+            translated = self._translate_for_pdf(
+                package, Path(directory), transformer, steps,
+                on_translation_event=on_translation_event,
+            )
             self.patch_pdf_with_package(source, translated, output)
 
     def patch_pdf_with_package(
@@ -181,10 +191,13 @@ class PDFCraft:
         package_path: PathLike | str | None = None, extraction: ExtractionOptions | None = None,
         assets_path: PathLike | str | None = None,
         steps: Sequence[TranslationStep | PackageTransformer] = (),
+        on_translation_event: Callable[[TranslationEvent], None] | None = None,
     ) -> OCRTokensMetering:
         with _package_workspace(package_path) as workspace:
             package, metering = self.extract_pdf_with_metering(source, workspace, extraction)
-            package = self._apply_steps(package, steps)
+            package = self._apply_steps(
+                package, steps, on_translation_event=on_translation_event
+            )
             self.render_markdown(package, output, assets_path,
                                  aborted=(extraction or ExtractionOptions()).aborted)
             return metering
@@ -197,11 +210,14 @@ class PDFCraft:
         latex_render: LaTeXRender = LaTeXRender.MATHML,
         inline_latex: bool = True,
         steps: Sequence[TranslationStep | PackageTransformer] = (),
+        on_translation_event: Callable[[TranslationEvent], None] | None = None,
     ) -> OCRTokensMetering:
         extraction = extraction or ExtractionOptions()
         with _package_workspace(package_path) as workspace:
             package, metering = self.extract_pdf_with_metering(source, workspace, extraction)
-            package = self._apply_steps(package, steps)
+            package = self._apply_steps(
+                package, steps, on_translation_event=on_translation_event
+            )
             if book_meta is None:
                 book_meta = self._extract_book_meta(Path(source))
             self.render_epub(package, output, book_meta=book_meta, lan=lan,
@@ -212,12 +228,18 @@ class PDFCraft:
     def _apply_steps(
         self, package: DocumentPackage,
         steps: Sequence[TranslationStep | PackageTransformer],
+        *, on_translation_event: Callable[[TranslationEvent], None] | None = None,
     ) -> DocumentPackage:
         current = package
         for index, step in enumerate(steps):
             transformer = self._as_package_transformer(step)
             output = package.chapters_path.parent / f"transformed-{index}"
-            current = transformer.transform(current, output)
+            if isinstance(transformer, ChapterPackageTransformer):
+                current = transformer.transform(
+                    current, output, on_translation_event=on_translation_event
+                )
+            else:
+                current = transformer.transform(current, output)
         return current
 
     def _translate_for_pdf(
@@ -226,13 +248,19 @@ class PDFCraft:
         output_root: Path,
         transformer: ChapterTransformer | Callable[[str], str],
         steps: Sequence[TranslationStep | PackageTransformer],
+        *, on_translation_event: Callable[[TranslationEvent], None] | None = None,
     ) -> DocumentPackage:
         current = package
         if callable(transformer):
             transformer = _TextChapterTransformer(transformer)
-        current = self.translate_package(current, output_root / "translated", transformer)
+        current = self.translate_package(
+            current, output_root / "translated", transformer,
+            on_translation_event=on_translation_event,
+        )
         if steps:
-            current = self._apply_steps(current, steps)
+            current = self._apply_steps(
+                current, steps, on_translation_event=on_translation_event
+            )
         return current
 
     @staticmethod

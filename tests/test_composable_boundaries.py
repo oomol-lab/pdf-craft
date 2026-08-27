@@ -11,7 +11,10 @@ from pdf_craft.error import NoUsableOCRPagesError, OCRError
 from pdf_craft.extractor import PDFExtractor
 from pdf_craft.pipeline.pdf.pipeline import PDFTranslationPipeline
 from pdf_craft.pipeline.pdf import PDFPatcher
-from pdf_craft.transformer import ChapterPackageTransformer, ChapterXMLTransformer
+from pdf_craft.transformer import (
+    ChapterPackageTransformer, ChapterXMLTransformer,
+    TranslationEvent, TranslationEventKind,
+)
 from pdf_craft.renderer import EpubRenderer, MarkdownRenderer
 from pdf_craft.extractor.chapter.chapter import BlockLayout, Chapter, InlineExpression, ParagraphLayout, Reference, encode
 from pdf_craft.expression import ExpressionKind
@@ -221,6 +224,45 @@ class TestComposableBoundaries(unittest.TestCase):
             self.assertIn("$T:x$", replacement.text)
             self.assertIn("[1]", replacement.text)
             self.assertIn("T:heading", patcher.replacements[1].text)
+
+    def test_pdf_pipeline_forwards_translation_events_to_structured_transformer(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            package = DocumentPackage.from_path(root)
+            package.chapters_path.mkdir(parents=True)
+            package.assets_path.mkdir()
+            package.write_metadata(page_pixel_sizes={1: (100, 100)})
+            chapter = Chapter(None, -1, [ParagraphLayout(
+                "text", 0, [BlockLayout(1, 1, (1, 1, 50, 50), ["text"])]
+            )])
+            observed = []
+            forwarded = []
+
+            class EventTranslator:
+                def translate_element(self, task, **kwargs):
+                    forwarded.append(kwargs["on_translation_event"])
+                    event = TranslationEvent(
+                        kind=TranslationEventKind.PROGRESS,
+                        completed_characters=4,
+                        total_characters=4,
+                    )
+                    kwargs["on_translation_event"](event)
+                    return task.element, task.payload
+
+            callback = observed.append
+            with patch("pdf_craft.pipeline.pdf.pipeline.create_chapters_reader", return_value=lambda: iter([chapter])):
+                PDFTranslationPipeline(patcher=cast(PDFPatcher, _CapturePatcher())).translate(
+                    root / "input.pdf", root / "out.pdf", package,
+                    ChapterXMLTransformer(EventTranslator()),
+                    on_translation_event=callback,
+                )
+
+            self.assertEqual(forwarded, [callback])
+            self.assertGreaterEqual(len(observed), 3)
+            self.assertIn(
+                TranslationEventKind.PROGRESS,
+                [event.kind for event in observed],
+            )
 
     def test_metadata_path_is_retained_for_direct_package(self):
         with tempfile.TemporaryDirectory() as directory:

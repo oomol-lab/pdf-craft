@@ -7,6 +7,7 @@ from xml.etree.ElementTree import Element
 from pdf_craft.llm import LLM, Message, MessageRole, runtime_for
 from pdf_craft.llm.loop import ProtocolRetry, ProtocolSuccess, RepairLoopOptions, run_repair_loop
 from pdf_craft.transformer.xml_translator.segment import BlockSegment, InlineSegment, TextSegment
+from pdf_craft.transformer.events import TranslationEvent, TranslationEventKind, TranslationItemKind
 from pdf_craft.transformer.xml_translator.xml import decode_friendly, encode_friendly
 from .callbacks import Callbacks, FillFailedEvent, warp_callbacks
 from .hill_climbing import HillClimbing
@@ -21,6 +22,9 @@ class TranslationTask(Generic[T]):
     element: Element
     action: SubmitKind
     payload: T
+    item_kind: TranslationItemKind | None = None
+    item_id: str | int | None = None
+    character_count: int | None = None
 
 
 class XMLTranslator:
@@ -59,15 +63,31 @@ class XMLTranslator:
         interrupt_translated_text_segments: Callable[[Iterable[TextSegment]], Iterable[TextSegment]] | None = None,
         interrupt_block_element: Callable[[Element], Element] | None = None,
         on_fill_failed: Callable[[FillFailedEvent], None] | None = None,
+        on_translation_event: Callable[[TranslationEvent], None] | None = None,
+        completed_characters: int = 0,
+        total_characters: int | None = None,
+        emit_scope_events: bool = True,
+        emit_item_events: bool = True,
     ) -> tuple[Element, T]:
-        for translated in self.translate_elements(
+        translated_elements = self.translate_elements(
             tasks=((task),),
             concurrency=concurrency,
             interrupt_source_text_segments=interrupt_source_text_segments,
             interrupt_translated_text_segments=interrupt_translated_text_segments,
             interrupt_block_element=interrupt_block_element,
             on_fill_failed=on_fill_failed,
-        ):
+            on_translation_event=on_translation_event,
+            completed_characters=completed_characters,
+            total_characters=total_characters,
+            emit_scope_events=emit_scope_events,
+            emit_item_events=emit_item_events,
+        )
+        translated = next(translated_elements, None)
+        if translated is not None:
+            # Exhaust the generator so scope completion is delivered to the
+            # callback even for this single-task convenience method.
+            for _ in translated_elements:
+                pass
             return translated
 
         raise RuntimeError("Translation failed unexpectedly")
@@ -80,6 +100,11 @@ class XMLTranslator:
         interrupt_translated_text_segments: Callable[[Iterable[TextSegment]], Iterable[TextSegment]] | None = None,
         interrupt_block_element: Callable[[Element], Element] | None = None,
         on_fill_failed: Callable[[FillFailedEvent], None] | None = None,
+        on_translation_event: Callable[[TranslationEvent], None] | None = None,
+        completed_characters: int = 0,
+        total_characters: int | None = None,
+        emit_scope_events: bool = True,
+        emit_item_events: bool = True,
     ) -> Generator[tuple[Element, T], None, None]:
         element2task: dict[int, TranslationTask[T]] = {}
         callbacks = warp_callbacks(
@@ -89,9 +114,33 @@ class XMLTranslator:
             on_fill_failed=on_fill_failed,
         )
 
+        task_list = list(tasks)
+        total = total_characters
+        if total is None:
+            total = sum(task.character_count or 0 for task in task_list)
+        if on_translation_event is not None and emit_scope_events:
+            chapter_count = sum(
+                task.item_kind == TranslationItemKind.CHAPTER for task in task_list
+            )
+            on_translation_event(TranslationEvent(
+                kind=TranslationEventKind.START,
+                chapter_count=chapter_count,
+                has_toc=any(task.item_kind == TranslationItemKind.TOC for task in task_list),
+                has_metadata=any(task.item_kind == TranslationItemKind.METADATA for task in task_list),
+                total_characters=total,
+                completed_characters=completed_characters,
+            ))
+
         def generate_elements():
-            for task in tasks:
+            for task in task_list:
                 element2task[id(task.element)] = task
+                if on_translation_event is not None and emit_item_events and task.item_kind is not None:
+                    on_translation_event(TranslationEvent(
+                        kind=TranslationEventKind.ITEM_START,
+                        item_kind=task.item_kind,
+                        item_id=task.item_id,
+                        total_characters=total,
+                    ))
                 yield task.element
 
         for element, mappings in self._stream_mapper.map_stream(
@@ -110,7 +159,29 @@ class XMLTranslator:
                     action=task.action,
                     mappings=mappings,
                 )
+                if on_translation_event is not None and task.item_kind is not None:
+                    completed_characters += task.character_count or 0
+                    on_translation_event(TranslationEvent(
+                        kind=TranslationEventKind.PROGRESS,
+                        completed_characters=completed_characters,
+                        total_characters=total,
+                    ))
+                    if emit_item_events:
+                        on_translation_event(TranslationEvent(
+                            kind=TranslationEventKind.ITEM_COMPLETE,
+                            item_kind=task.item_kind,
+                            item_id=task.item_id,
+                            completed_characters=completed_characters,
+                            total_characters=total,
+                        ))
                 yield translated_element, task.payload
+
+        if on_translation_event is not None and emit_scope_events:
+            on_translation_event(TranslationEvent(
+                kind=TranslationEventKind.COMPLETE,
+                completed_characters=completed_characters,
+                total_characters=total,
+            ))
 
     def _translate_inline_segments(
         self,
