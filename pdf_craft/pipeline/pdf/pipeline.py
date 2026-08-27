@@ -65,6 +65,8 @@ class PDFTranslationPipeline:
                         kind=TranslationEventKind.ITEM_START,
                         item_kind=TranslationItemKind.CHAPTER,
                         item_id=item_id,
+                        item_completed_characters=0,
+                        item_total_characters=character_count,
                     ))
                 if is_xml_transformer:
                     transformed = cast(ChapterXMLTransformer, transformer).transform(
@@ -83,6 +85,10 @@ class PDFTranslationPipeline:
                 if on_translation_event is not None and not is_xml_transformer:
                     on_translation_event(TranslationEvent(
                         kind=TranslationEventKind.PROGRESS,
+                        item_kind=TranslationItemKind.CHAPTER,
+                        item_id=item_id,
+                        item_completed_characters=character_count,
+                        item_total_characters=character_count,
                         completed_characters=completed_characters,
                         total_characters=total_characters,
                     ))
@@ -90,6 +96,8 @@ class PDFTranslationPipeline:
                         kind=TranslationEventKind.ITEM_COMPLETE,
                         item_kind=TranslationItemKind.CHAPTER,
                         item_id=item_id,
+                        item_completed_characters=character_count,
+                        item_total_characters=character_count,
                         completed_characters=completed_characters,
                         total_characters=total_characters,
                     ))

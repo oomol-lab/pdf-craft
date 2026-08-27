@@ -139,6 +139,8 @@ class XMLTranslator:
                         kind=TranslationEventKind.ITEM_START,
                         item_kind=task.item_kind,
                         item_id=task.item_id,
+                        item_completed_characters=0,
+                        item_total_characters=task.character_count or 0,
                         total_characters=total,
                     ))
                 yield task.element
@@ -163,6 +165,10 @@ class XMLTranslator:
                     completed_characters += task.character_count or 0
                     on_translation_event(TranslationEvent(
                         kind=TranslationEventKind.PROGRESS,
+                        item_kind=task.item_kind,
+                        item_id=task.item_id,
+                        item_completed_characters=task.character_count or 0,
+                        item_total_characters=task.character_count or 0,
                         completed_characters=completed_characters,
                         total_characters=total,
                     ))
@@ -171,6 +177,8 @@ class XMLTranslator:
                             kind=TranslationEventKind.ITEM_COMPLETE,
                             item_kind=task.item_kind,
                             item_id=task.item_id,
+                            item_completed_characters=task.character_count or 0,
+                            item_total_characters=task.character_count or 0,
                             completed_characters=completed_characters,
                             total_characters=total,
                         ))
