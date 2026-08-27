@@ -107,7 +107,9 @@ Translation workflows also accept `on_translation_event`, a callback receiving
 `TranslationEvent` values. `TranslationEventKind` reports `START`, `ITEM_START`,
 `ITEM_COMPLETE`, `PROGRESS`, and `COMPLETE`; `TranslationItemKind` identifies TOC,
 metadata, or chapter items. Character counts are source-text character counts and
-are not token counts or percentages. The same event callback is available for
+are not token counts or percentages. Item events include the current item's
+completed and total source characters, while scope events include the aggregate
+counts. The same event callback is available for
 EPUB translation, package translation, PDF translation, and PDF conversion.
 
 ## `LLM`

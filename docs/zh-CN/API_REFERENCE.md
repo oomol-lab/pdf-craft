@@ -41,6 +41,10 @@ TOC、metadata 或 chapter。字符统计是可翻译源文本的 Unicode 字符
 也不是预先计算的百分比。chapter 可以来自 EPUB，也可以来自 PDF OCR 生成的
 `DocumentPackage`。
 
+`ITEM_START`、`PROGRESS` 和 `ITEM_COMPLETE` 事件会提供当前 item 的已完成字符数和总字符数；
+范围事件会提供整个翻译范围的累计字符数。调用方可以据此自行计算 item 或整体百分比，库不
+提供固定比例。
+
 ## PDFCraft
 
 ### 创建实例

@@ -72,6 +72,11 @@ class TestTranslationEvents(unittest.TestCase):
             self.assertFalse(events[0].has_toc)
             self.assertFalse(events[0].has_metadata)
             self.assertEqual(events[0].total_characters, len("headchapter"))
+            item_starts = [event for event in events if event.kind == TranslationEventKind.ITEM_START]
+            self.assertEqual(
+                [(event.item_id, event.item_total_characters) for event in item_starts],
+                [(7, len("chapter")), ("head", len("head"))],
+            )
             self.assertEqual(
                 [(event.kind, event.item_kind, event.item_id) for event in events
                  if event.kind in (TranslationEventKind.ITEM_START, TranslationEventKind.ITEM_COMPLETE)],
@@ -84,3 +89,10 @@ class TestTranslationEvents(unittest.TestCase):
             )
             self.assertEqual(events[-1].kind, TranslationEventKind.COMPLETE)
             self.assertEqual(events[-1].completed_characters, len("headchapter"))
+
+            progress = [event for event in events if event.kind == TranslationEventKind.PROGRESS]
+            self.assertEqual(
+                [(event.item_id, event.item_completed_characters, event.item_total_characters)
+                 for event in progress],
+                [(7, len("chapter"), len("chapter")), ("head", len("head"), len("head"))],
+            )

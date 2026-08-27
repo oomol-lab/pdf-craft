@@ -36,5 +36,7 @@ class TranslationEvent:
     has_metadata: bool | None = None
     item_kind: TranslationItemKind | None = None
     item_id: str | int | None = None
+    item_completed_characters: int | None = None
+    item_total_characters: int | None = None
     completed_characters: int | None = None
     total_characters: int | None = None
