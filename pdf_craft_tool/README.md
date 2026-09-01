@@ -51,7 +51,7 @@ run 的 `backend` 字段中选择。local backend 使用自己的模型缓存、
 
 ```shell
 # PDF -> 可复用 DocumentPackage
-poetry run python -m pdf_craft_tool pdf extract tests/assets/citation.pdf \
+poetry run python -m pdf_craft_tool pdf extract tests/assets/pdf/citation.pdf \
   --ocr-mode deepseek-ocr-vendor --pages 1 --work-dir pdf-craft-output/citation-extract
 
 # DocumentPackage -> 翻译后的 DocumentPackage
@@ -65,11 +65,11 @@ poetry run python -m pdf_craft_tool package render pdf-craft-output/citation-ext
 
 # 原始 PDF + translated DocumentPackage -> patched PDF；此命令不需要 OCR/LLM
 poetry run python -m pdf_craft_tool package patch-pdf \
-  tests/assets/citation.pdf pdf-craft-output/citation-zh-package \
+  tests/assets/pdf/citation.pdf pdf-craft-output/citation-zh-package \
   --output pdf-craft-output/citation-zh.pdf
 
 # PDF -> Markdown 或 EPUB
-poetry run python -m pdf_craft_tool pdf convert tests/assets/citation.pdf \
+poetry run python -m pdf_craft_tool pdf convert tests/assets/pdf/citation.pdf \
   --ocr-mode deepseek-ocr-vendor --format epub --pages 1,2,3
 ```
 
@@ -92,15 +92,15 @@ PDF 提取参数可在以上三个 PDF 命令中组合使用：
 
 ```shell
 # PDF -> 已替换的译文 EPUB
-poetry run python -m pdf_craft_tool pdf translate tests/assets/citation.pdf zh \
+poetry run python -m pdf_craft_tool pdf translate tests/assets/pdf/citation.pdf zh \
   --format epub --submit replace --ocr-mode deepseek-ocr-vendor --pages 1
 
 # PDF -> 原文块后追加译文块的 Markdown
-poetry run python -m pdf_craft_tool pdf translate tests/assets/citation.pdf zh \
+poetry run python -m pdf_craft_tool pdf translate tests/assets/pdf/citation.pdf zh \
   --format markdown --submit append-block --ocr-mode deepseek-ocr-vendor --pages 1
 
 # PDF -> 替换式 PDF patch；PDF 不支持 append-block
-poetry run python -m pdf_craft_tool pdf translate tests/assets/citation.pdf zh \
+poetry run python -m pdf_craft_tool pdf translate tests/assets/pdf/citation.pdf zh \
   --format pdf --submit replace --ocr-mode deepseek-ocr-vendor --pages 1
 
 # EPUB -> EPUB，支持 replace 与 append-block
@@ -134,12 +134,12 @@ smoke 命令的进程退出码与报告状态一致：`passed` 和 `planned` 返
 ```shell
 # 先确认参数展开和产物目录，不调用 OCR
 poetry run python -m pdf_craft_tool smoke run \
-  --asset citation.pdf --route markdown --ocr-mode deepseek-ocr-vendor \
+  --asset pdf/citation.pdf --route markdown --ocr-mode deepseek-ocr-vendor \
   --pages 1 --ocr-size tiny --marker '[translated]' --dry-run
 
 # 运行真实 PDF -> Markdown 路径，并执行 Package / Markdown 检查
 poetry run python -m pdf_craft_tool smoke run \
-  --asset citation.pdf --route markdown --ocr-mode deepseek-ocr-vendor \
+  --asset pdf/citation.pdf --route markdown --ocr-mode deepseek-ocr-vendor \
   --pages 1 --ocr-size tiny --marker '[translated]'
 
 # 运行 EPUB 格式检查，不需要 OCR 或 .env

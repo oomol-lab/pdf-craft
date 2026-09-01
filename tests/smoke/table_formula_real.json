@@ -1,6 +1,6 @@
 {
   "defaults": {
-    "asset": "table&formula.pdf",
+    "asset": "pdf/table&formula.pdf",
     "ocr_size": "gundam",
     "includes_cover": true,
     "includes_footnotes": true,

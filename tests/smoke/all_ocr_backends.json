@@ -1,6 +1,6 @@
 {
   "defaults": {
-    "asset": "citation.pdf",
+    "asset": "pdf/citation.pdf",
     "route": "package",
     "page_indexes": [1],
     "ocr_size": "tiny"

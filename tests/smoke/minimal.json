@@ -9,7 +9,7 @@
   },
   "runs": [
     {
-      "asset": "double_column.pdf",
+      "asset": "pdf/double_column.pdf",
       "route": "markdown",
       "backend": "deepseek-ocr-local",
       "ocr": {}

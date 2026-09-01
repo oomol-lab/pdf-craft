@@ -37,7 +37,7 @@ class TestPDFCraftTool(unittest.TestCase):
 
     def test_smoke_parser_exposes_package_render_and_translation_profiles(self):
         args = _parser().parse_args([
-            "smoke", "run", "--asset", "citation.pdf", "--route", "package-markdown",
+            "smoke", "run", "--asset", "pdf/citation.pdf", "--route", "package-markdown",
             "--translation-llm-profile", "translation", "--fill-llm-profile", "fill",
         ])
         self.assertEqual(args.route, "package-markdown")
@@ -46,7 +46,7 @@ class TestPDFCraftTool(unittest.TestCase):
 
     def test_smoke_dry_run_does_not_require_project_env(self):
         args = _parser().parse_args([
-            "smoke", "run", "--asset", "citation.pdf", "--route", "markdown",
+            "smoke", "run", "--asset", "pdf/citation.pdf", "--route", "markdown",
             "--dry-run",
         ])
         with patch("pdf_craft_tool.cli.load_project_env") as load_env:
