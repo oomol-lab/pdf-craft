@@ -27,7 +27,7 @@ pdf-craft 围绕书籍和学术、技术文档的结构设计，支持识别正�
 
 ## 在线版本
 
-如果你希望在不进行本地安装的情况下体验 pdf-craft，可以试试 [Inkora - PDF Craft](https://inkora.oomol.com/pdf-craft/)，这是一个基于相同 PDF 转换流程构建的在线应用。你可以直接上传 PDF 文件，在浏览器中体验主要功能。
+如果你希望在不进行本地安装的情况下体验 pdf-craft，可以试试 [PDF Craft Online](https://inkora.oomol.com/pdf-craft/)，这是一个基于相同 PDF 转换流程构建的在线应用。你可以直接上传 PDF 文件，在浏览器中体验主要功能。
 
 [![PDF Craft 在线版本](docs/images/website-cn.png)](https://inkora.oomol.com/pdf-craft/)
 
@@ -74,6 +74,8 @@ craft.convert_pdf_to_markdown(
 )
 ~~~
 
+![PDF 转 Markdown 示例](docs/images/pdf2md-cn.png)
+
 转换过程会自动使用系统临时目录，并在完成或发生异常后清理。如果需要保留中间结果以便
 调试或重复使用，可以显式传入 `package_path`。
 
@@ -106,6 +108,8 @@ craft.convert_pdf_to_epub(
     book_meta=BookMeta(title="书名", authors=["作者"]),
 )
 ~~~
+
+![PDF 转 EPUB 示例](docs/images/pdf2epub-cn.png)
 
 `book_meta` 用于填写 EPUB 的书名和作者信息；如果不提供，pdf-craft 会尝试读取 PDF
 自身的元数据。
