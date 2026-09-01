@@ -74,6 +74,8 @@ craft.convert_pdf_to_markdown(
 )
 ```
 
+![PDF to Markdown example](docs/images/pdf2md-en.png)
+
 The conversion uses a temporary working directory automatically and removes it
 when the conversion finishes or fails. Pass `package_path` only when you want to
 keep the intermediate work for debugging or reuse.
@@ -102,6 +104,8 @@ craft.convert_pdf_to_epub(
     book_meta=BookMeta(title="Book title", authors=["Author"]),
 )
 ```
+
+![PDF to EPUB example](docs/images/pdf2epub-en.png)
 
 If `book_meta` is omitted, pdf-craft tries to read the metadata from the source PDF.
 
