@@ -27,7 +27,7 @@ pdf-craft 围绕书籍和学术、技术文档的结构设计，支持识别正�
 
 ## 在线版本
 
-如果你希望在不进行本地安装的情况下体验 pdf-craft，可以试试 [Inkora - PDF Craft](https://inkora.oomol.com/pdf-craft/)，这是一个基于相同 PDF 转换流程构建的在线应用。你可以直接上传 PDF 文件，在浏览器中体验主要功能。
+如果你希望在不进行本地安装的情况下体验 pdf-craft，可以试试 [PDF Craft Online](https://inkora.oomol.com/pdf-craft/)，这是一个基于相同 PDF 转换流程构建的在线应用。你可以直接上传 PDF 文件，在浏览器中体验主要功能。
 
 [![PDF Craft 在线版本](docs/images/website-cn.png)](https://inkora.oomol.com/pdf-craft/)
 

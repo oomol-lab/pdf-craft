@@ -26,7 +26,7 @@ compute. Translation uses a separate text LLM.
 
 ## Online Version
 
-Want to try the workflow before installing anything? Open [Inkora - PDF Craft](https://inkora.oomol.com/pdf-craft/),
+Want to try the workflow before installing anything? Open [PDF Craft Online](https://inkora.oomol.com/pdf-craft/),
 the online version of the same core experience. Upload a PDF in your browser and see
 the main workflow in action.
 
