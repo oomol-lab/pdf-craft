@@ -5,12 +5,12 @@
   },
   "runs": [
     {
-      "asset": "citation.pdf",
+      "asset": "pdf/citation.pdf",
       "route": "markdown",
       "backend": "deepseek-ocr-vendor"
     },
     {
-      "asset": "citation.pdf",
+      "asset": "pdf/citation.pdf",
       "route": "markdown",
       "backend": "deepseek-ocr-vendor",
       "translation": {

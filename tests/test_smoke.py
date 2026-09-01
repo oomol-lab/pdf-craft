@@ -45,13 +45,13 @@ class _CaptureTransform:
 class TestSmokeMatrix(unittest.TestCase):
     def test_discovers_pdf_and_migrated_epub_assets(self):
         assets = discover_assets(Path("tests/assets"))
-        self.assertIn("double_column.pdf", {asset.name for asset in assets})
+        self.assertIn("pdf/double_column.pdf", {asset.name for asset in assets})
         self.assertIn("epub/Cambridge.epub", {asset.name for asset in assets})
 
     def test_expands_config_without_fixed_profiles(self):
         runs = expand_matrix(
             {"defaults": {"page_indexes": [1], "ocr_size": "tiny"}, "runs": [
-                {"asset": "double_column.pdf", "route": "markdown", "backend": "deepseek-ocr-local"},
+                {"asset": "pdf/double_column.pdf", "route": "markdown", "backend": "deepseek-ocr-local"},
                 {"asset": "epub/Cambridge.epub", "route": "epub-check"},
             ]},
             Path("tests/assets"),
@@ -62,8 +62,8 @@ class TestSmokeMatrix(unittest.TestCase):
     def test_expands_package_renderer_routes_for_pdf_assets(self):
         runs = expand_matrix(
             {"runs": [
-                {"asset": "citation.pdf", "route": "package-markdown"},
-                {"asset": "citation.pdf", "route": "package-epub"},
+                {"asset": "pdf/citation.pdf", "route": "package-markdown"},
+                {"asset": "pdf/citation.pdf", "route": "package-epub"},
             ]},
             Path("tests/assets"),
         )
@@ -73,7 +73,7 @@ class TestSmokeMatrix(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             run_path = run_smoke(
-                SmokeRun("double_column.pdf", "package", "deepseek-ocr-vendor", ocr={"api_key": "secret"}),
+                SmokeRun("pdf/double_column.pdf", "package", "deepseek-ocr-vendor", ocr={"api_key": "secret"}),
                 assets_root=Path("tests/assets"), output_root=root, dry_run=True,
             )
             manifest = json.loads((run_path / "manifest.json").read_text())
@@ -155,7 +155,7 @@ class TestSmokeMatrix(unittest.TestCase):
                     return package, metering
                 craft.extract_pdf_with_metering.side_effect = extract
                 run_path = run_smoke(
-                    SmokeRun("double_column.pdf", "package", "deepseek-ocr-local", ocr={}),
+                    SmokeRun("pdf/double_column.pdf", "package", "deepseek-ocr-local", ocr={}),
                     assets_root=Path("tests/assets"), output_root=root,
                 )
             manifest = json.loads((run_path / "manifest.json").read_text())
@@ -169,7 +169,7 @@ class TestSmokeMatrix(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             with patch("pdf_craft_tool.smoke.runner.create_ocr_config", side_effect=ValueError("bad OCR")):
                 run_path = run_smoke(
-                    SmokeRun("double_column.pdf", "package", "deepseek-ocr-vendor", ocr={"api_key": "secret"}),
+                    SmokeRun("pdf/double_column.pdf", "package", "deepseek-ocr-vendor", ocr={"api_key": "secret"}),
                     assets_root=Path("tests/assets"), output_root=Path(directory),
                 )
             manifest = json.loads((run_path / "manifest.json").read_text())
@@ -194,7 +194,7 @@ class TestSmokeMatrix(unittest.TestCase):
 
                 craft.extract_pdf_with_metering.side_effect = extract
                 run_path = run_smoke(
-                    SmokeRun("double_column.pdf", "package", "deepseek-ocr-vendor", ocr=secrets),
+                    SmokeRun("pdf/double_column.pdf", "package", "deepseek-ocr-vendor", ocr=secrets),
                     assets_root=Path("tests/assets"), output_root=Path(directory),
                 )
             persisted = "\n".join((run_path / name).read_text() for name in (
@@ -291,8 +291,8 @@ class TestSmokeMatrix(unittest.TestCase):
                     except RuntimeError as cause:
                         raise ValueError("OCR extraction failed") from cause
 
-            run = SmokeRun("double_column.pdf", "markdown")
-            asset = SmokeAsset("double_column.pdf", "pdf", Path("source.pdf"))
+            run = SmokeRun("pdf/double_column.pdf", "markdown")
+            asset = SmokeAsset("pdf/double_column.pdf", "pdf", Path("source.pdf"))
             with patch("pdf_craft_tool.smoke.runner.PDFCraft", return_value=UnavailableCraft()):
                 status, errors, details = _run_pdf(run, asset, root, cast(OCRConfig, None))
             self.assertEqual(status, "skipped")
@@ -318,10 +318,10 @@ class TestSmokeMatrix(unittest.TestCase):
             save_xml(encode_chapter(chapter), package_path / "chapters" / "chapter_1.xml")
 
             run = SmokeRun(
-                "double_column.pdf", "markdown",
+                "pdf/double_column.pdf", "markdown",
                 translation={"package_marker": "[translated]", "package_submit": "APPEND_BLOCK"},
             )
-            asset = SmokeAsset("double_column.pdf", "pdf", Path("source.pdf"))
+            asset = SmokeAsset("pdf/double_column.pdf", "pdf", Path("source.pdf"))
             from pdf_craft.craft import PDFCraft
             craft = PDFCraft()
             with patch("pdf_craft_tool.smoke.runner.PDFCraft", return_value=craft), \
