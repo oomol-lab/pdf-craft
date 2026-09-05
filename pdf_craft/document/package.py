@@ -233,6 +233,7 @@ def write_pages(root: Path, *, render_dpi: int, page_pixel_sizes: dict[int, tupl
 def _validate_workspace(paths: ExtractionPaths, *, require_toc: bool = False) -> None:
     # Import lazily because the extractor package imports the public document API.
     from ..extractor.chapter.chapter import decode as decode_chapter
+    from ..extractor.toc.types import decode as decode_toc
 
     _read_manifest(paths.manifest)
     _, page_sizes = _read_pages(paths.pages)
@@ -243,7 +244,11 @@ def _validate_workspace(paths: ExtractionPaths, *, require_toc: bool = False) ->
     if require_toc and not paths.toc.is_file():
         raise ValueError("PDFCraftExtraction is missing toc.xml")
     if paths.toc.exists():
-        _require_xml_root(paths.toc, "toc")
+        toc_root = _require_xml_root(paths.toc, "toc")
+        try:
+            decode_toc(toc_root)
+        except ValueError as error:
+            raise ValueError(f"invalid toc schema in {paths.toc.name}: {error}") from error
     if paths.cover.exists() and not paths.cover.is_file():
         raise ValueError("PDFCraftExtraction cover.png is not a file")
     _validate_workspace_members(paths)

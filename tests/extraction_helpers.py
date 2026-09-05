@@ -6,8 +6,10 @@ from pathlib import Path
 
 from epub_generator import BookMeta
 
+from pdf_craft.common import save_xml
 from pdf_craft.document import PDFCraftExtraction
 from pdf_craft.document.package import write_manifest, write_pages
+from pdf_craft.extractor.toc.types import TocInfo, encode as encode_toc
 
 
 def make_extraction(
@@ -23,7 +25,7 @@ def make_extraction(
     (root / "chapters").mkdir(parents=True)
     (root / "assets").mkdir()
     if with_toc:
-        (root / "toc.xml").write_text("<toc/>", encoding="utf-8")
+        save_xml(encode_toc(TocInfo(content=[], page_indexes=[])), root / "toc.xml")
     write_pages(
         root,
         render_dpi=render_dpi,

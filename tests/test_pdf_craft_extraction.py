@@ -195,17 +195,22 @@ class TestPDFCraftExtraction(unittest.TestCase):
                     with self.assertRaisesRegex(ValueError, error_pattern):
                         PDFCraftExtraction.open(invalid)
 
-    def test_invalid_toc_xml_is_rejected_when_opened(self):
+    def test_invalid_toc_xml_and_schema_are_rejected_when_opened(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             extraction = make_extraction(root / "workspace", with_toc=True)
             valid = root / "valid.pcex"
             extraction.export(valid)
-            invalid = root / "invalid-toc.pcex"
-            _replace_archive_members(valid, invalid, {"toc.xml": b"<toc>"})
-
-            with self.assertRaisesRegex(ValueError, "invalid PDFCraftExtraction XML: toc.xml"):
-                PDFCraftExtraction.open(invalid)
+            cases = {
+                "malformed": (b"<toc>", "invalid PDFCraftExtraction XML: toc.xml"),
+                "missing-page-indexes": (b"<toc/>", "invalid toc schema"),
+            }
+            for name, (toc_xml, error_pattern) in cases.items():
+                with self.subTest(name=name):
+                    invalid = root / f"invalid-toc-{name}.pcex"
+                    _replace_archive_members(valid, invalid, {"toc.xml": toc_xml})
+                    with self.assertRaisesRegex(ValueError, error_pattern):
+                        PDFCraftExtraction.open(invalid)
 
     def test_noncanonical_asset_hash_cannot_escape_assets_directory(self):
         with tempfile.TemporaryDirectory() as directory:
