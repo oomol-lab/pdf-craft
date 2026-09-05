@@ -214,6 +214,8 @@ pdf-craft 自身总会写出 `created_at`，使用带 UTC 时区偏移的当前�
 | `modified` | string 或 null | 文档修改时间；字符串须为 ISO 8601 时间 |
 | `language` | string 或 null | 文档语言标识 |
 
+使用默认 PDF 读取器提取时，`modified` 并不在 `/ModDate` 缺失时写成 `null`：读取器先以“读取元数据时的当前 UTC 时间”作为默认值；只有 `/ModDate` 存在且其年月日时分秒可成功解析时，才用解析结果替换默认值。`/ModDate` 缺失、为空、长度不足或日期解析失败时，manifest 因而保留当前 UTC 时间。当前解析器取 PDF 日期的前 14 位年月日时分秒并标记为 UTC，不解释其后可能存在的 PDF 时区偏移。只有元数据读取整体抛出 `PDFError`、提取器无法取得任何 `BookMeta` 时，`modified` 才会随空元数据一起写为 `null`。
+
 `language` 当前不限制为特定语言代码，但 EPUB 渲染器只支持 `zh` 和 `en`。渲染 EPUB 时，调用参数 `lan` 优先，其次是此字段，最后默认为 `zh`。调用时显式传入的 `book_meta` 同样优先于 manifest 中转换得到的 `BookMeta`。
 
 从普通 PDF 提取时，pdf-craft 写入 PDF 书目元数据，但当前提取流程没有自动判定语言，因此 `language` 通常为 `null`。翻译 extraction 时不会自动改写 manifest 或语言。
@@ -526,6 +528,8 @@ Markdown 渲染会把封面复制到输出资源目录，但不会自动在 Mark
 ## 归档与安全约束
 
 `.pcex` 是普通 ZIP，pdf-craft 使用 Deflate 压缩写出。它没有额外的魔数、MIME 成员、整体签名或归档级校验和；格式识别同时依赖 `.pcex` 文件名和 ZIP 内容。
+
+归档是未加密 ZIP，格式本身不提供密码、访问控制或其他保密机制。包内可能含有完整 OCR 正文、书目元数据、章节到原 PDF 的页码与 bbox、图片/表格/公式资源以及封面；复制、上传、存储或共享 `.pcex` 时，应按原文档同等的敏感程度保护它，并在格式之外配置适当的存储权限与传输加密。
 
 加载归档时会在解压前检查：
 
