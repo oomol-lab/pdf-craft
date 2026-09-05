@@ -24,7 +24,7 @@ OCR 请求成功并不代表翻译 LLM 已经配置正确。
 | vendor OCR 请求失败 | endpoint、模型名、API key、网络和供应商配额 |
 | EPUB/PDF 翻译时报 LLM 错误 | 文本 LLM 的 URL、模型、密钥和 token 编码 |
 | 输出文件没有生成 | 输出目录权限、输入文件类型和前一步是否已经失败 |
-| PDF 写回时报 package 或页面错误 | 原始 PDF 是否与提取结果匹配、页面几何信息是否存在 |
+| PDF 写回时报 extraction 或页面错误 | 原始 PDF 是否与 `.pcex` 匹配、`pages.xml` 是否完整 |
 
 ## PDF 和 Poppler 问题
 
@@ -114,7 +114,7 @@ preset：
   这个预算中扣除；`max_ocr_output_tokens` 则只累计限制输出 token。预算在进入下一页前耗尽
   时，提取会以 `TokenLimitError` 中断，而不是继续处理剩余页面。此时先记录异常和已发出的
   OCR 事件，再减少 `page_indexes` 或提高相应上限；提高上限也会增加供应商费用或本地显存压力。
-- `includes_cover=True` 才会把识别到的封面图写入 package；`includes_footnotes=True` 才会
+- `includes_cover=True` 才会把识别到的封面图写入 extraction；`includes_footnotes=True` 才会
   请求并保留脚注内容。遇到“正文有了但封面或脚注缺失”时，先检查这两个选项，而不是重复
   下载模型或更换 OCR backend。
 
@@ -124,7 +124,7 @@ preset：
 预期。需要用 LLM 分析目录时传入 `toc_llm`，并检查它的 endpoint、模型和凭据。目录分析失败
 时，先关闭 `toc_assumed` 或缩小 `page_indexes` 验证目录页，再处理 OCR 本身的问题。
 
-`generate_plot=True` 会额外生成图表相关资源并写入 package 的 `plots` 目录；输出体积突然
+`generate_plot=True` 会额外生成分析图并写入 analysis 的 `plots` 目录；这些诊断信息不进入 `.pcex`。输出体积突然
 变大或目录中出现额外资源时，这是预期行为。若磁盘空间不足，先关闭该选项。
 
 ### 用 OCR 事件定位具体页面
@@ -205,8 +205,9 @@ EPUB 翻译要求 LLM 返回完整、可解析的结构化结果。使用 `on_fi
 
 ## 输出文件和临时目录问题
 
-`convert_pdf_to_markdown` 与 `convert_pdf_to_epub` 未传入 `package_path` 时，会创建系统临时工作
-目录，并在成功或异常后清理。需要调试中间结果时，显式传入一个可写的 `package_path`；该目录
+`convert_pdf_to_markdown` 与 `convert_pdf_to_epub` 默认创建系统临时 analysis 目录，并在成功或
+异常后清理。需要调试时传入可写的 `analysing_path`；需要复用中间结果时传入 `.pcex`
+`extraction_path`。后端不接受普通目录；调用方提供的 analysis 和 `.pcex`
 由调用者负责管理，不会自动删除。
 
 如果最终输出没有生成，先确认输出路径的父目录存在且可写，并检查异常是否发生在 OCR、翻译或
@@ -236,6 +237,6 @@ PDF 翻译写回需要原始 PDF 和与它匹配的提取结果。写回阶段�
 - 是否使用 CUDA、`torch.cuda.is_available()` 的结果和 GPU 型号；
 - 输入 PDF/EPUB 的页数或章节数，以及失败发生在哪一步；
 - 完整异常类型和消息（删除 API key、token、文件内容等敏感信息）；
-- 是否使用显式 `package_path`、`models_cache_path` 或 LLM `cache_path`。
+- 是否使用显式 `analysing_path`、`extraction_path`、`models_cache_path` 或 LLM `cache_path`。
 
 不要把真实密钥、完整 PDF、模型缓存或生成日志直接提交到代码仓库。

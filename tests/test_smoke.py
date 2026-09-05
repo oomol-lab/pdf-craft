@@ -1,3 +1,5 @@
+# pylint: disable=protected-access
+
 import json
 import tempfile
 import unittest
@@ -6,7 +8,7 @@ from pathlib import Path
 from typing import cast
 from unittest.mock import patch
 
-from pdf_craft.document import DocumentPackage
+from pdf_craft.document import ExtractionPaths, PDFCraftExtraction
 from pdf_craft.extractor import PDFExtractor
 from pdf_craft.common import save_xml
 from pdf_craft.markdown.render import render_markdown_file
@@ -25,6 +27,7 @@ from pdf_craft_tool.smoke.runner import (
     run_smoke,
 )
 from pdf_craft.extractor.chapter.chapter import AssetLayout, BlockLayout, Chapter, ParagraphLayout, encode
+from tests.extraction_helpers import make_extraction
 
 encode_chapter = encode
 
@@ -35,10 +38,9 @@ class _CaptureTransform:
 
     def extract_package(self, *, analysing_path, **kwargs):
         self.kwargs = kwargs
-        (analysing_path / "chapters").mkdir(parents=True)
-        (analysing_path / "assets").mkdir()
-        (analysing_path / "toc.xml").write_text("<toc/>")
-        DocumentPackage.from_path(analysing_path).write_metadata(page_pixel_sizes={1: (1, 1)})
+        make_extraction(
+            analysing_path / "extraction", page_pixel_sizes={1: (1, 1)}, with_toc=True
+        )
         return None, None, None, None, None
 
 
@@ -105,8 +107,8 @@ class TestSmokeMatrix(unittest.TestCase):
             root = Path(directory)
             package = _package_with_image(root / "package")
             markdown = root / "output" / "book.md"
-            render_markdown_file(package.chapters_path, package.assets_path, markdown,
-                                 Path("assets"), package.cover_path, lambda: False)
+            render_markdown_file(package.chapters, package.assets, markdown,
+                                 Path("assets"), package.cover, lambda: False)
             self.assertTrue((root / "output" / "assets" / "image.png").is_file())
             self.assertTrue((root / "output" / "assets" / "cover.png").is_file())
             self.assertIn("![](assets/image.png)", markdown.read_text())
@@ -118,7 +120,7 @@ class TestSmokeMatrix(unittest.TestCase):
             package = _package_with_image(root / "package")
             markdown = root / "output" / "book.md"
             destination = root / "external-assets"
-            render_markdown_file(package.chapters_path, package.assets_path, markdown,
+            render_markdown_file(package.chapters, package.assets, markdown,
                                  destination, None, lambda: False)
             self.assertTrue((destination / "image.png").is_file())
             self.assertIn("![](../external-assets/image.png)", markdown.read_text())
@@ -129,7 +131,7 @@ class TestSmokeMatrix(unittest.TestCase):
             root = Path(directory)
             package = _package_without_assets(root / "package")
             markdown = root / "output" / "book.md"
-            render_markdown_file(package.chapters_path, package.assets_path, markdown,
+            render_markdown_file(package.chapters, package.assets, markdown,
                                  Path("assets"), None, lambda: False)
             self.assertEqual(check_markdown(markdown), [])
 
@@ -146,11 +148,12 @@ class TestSmokeMatrix(unittest.TestCase):
     def test_pdf_run_records_ocr_events_and_stage_timeline(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            package = _package_without_assets(root / "fixture-package")
+            package_paths = _package_without_assets(root / "fixture-package")
+            package = PDFCraftExtraction._from_workspace(package_paths.root)
             metering = OCRTokensMetering(5, 7)
             with patch("pdf_craft_tool.smoke.runner.PDFCraft") as craft_class:
                 craft = craft_class.return_value
-                def extract(_source, _path, options):
+                def extract(_source, _path, options, **_kwargs):
                     options.on_ocr_event(OCREvent(OCREventKind.COMPLETE, 1, 1, 12, 5, 7))
                     return package, metering
                 craft.extract_pdf_with_metering.side_effect = extract
@@ -185,7 +188,7 @@ class TestSmokeMatrix(unittest.TestCase):
                  patch("pdf_craft_tool.smoke.runner.PDFCraft") as craft_class:
                 craft = craft_class.return_value
 
-                def extract(_source, _path, options):
+                def extract(_source, _path, options, **_kwargs):
                     options.on_ocr_event(OCREvent(
                         OCREventKind.FAILED, 1, 1,
                         error=ValueError("OCR rejected api-secret and access-secret"),
@@ -259,7 +262,9 @@ class TestSmokeMatrix(unittest.TestCase):
     def test_page_indexes_are_forwarded_to_public_extractor(self):
         with tempfile.TemporaryDirectory() as directory:
             transform = _CaptureTransform()
-            PDFExtractor(transform).extract(Path("source.pdf"), Path(directory), page_indexes=(2, 4))
+            PDFExtractor(transform).extract(
+                Path("source.pdf"), Path(directory) / "book.pcex", page_indexes=(2, 4)
+            )
             kwargs = transform.kwargs
             assert kwargs is not None
             self.assertEqual(kwargs["page_indexes"], (2, 4))
@@ -267,10 +272,7 @@ class TestSmokeMatrix(unittest.TestCase):
     def test_pdf_patch_geometry_rejects_partial_page_metadata(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            package = DocumentPackage.from_path(root)
-            package.chapters_path.mkdir()
-            package.assets_path.mkdir()
-            package.write_metadata(page_pixel_sizes={1: (100, 100)})
+            package = make_extraction(root, page_pixel_sizes={1: (100, 100)})
             chapter = Chapter(None, -1, [ParagraphLayout("text", 0, [
                 BlockLayout(2, 1, (1, 1, 20, 20), ["will be replaced"])
             ])])
@@ -281,7 +283,7 @@ class TestSmokeMatrix(unittest.TestCase):
     def test_pdf_route_skips_when_local_ocr_has_no_cuda_device(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            (root / "package").mkdir()
+            (root / "analysis").mkdir()
             (root / "output").mkdir()
 
             class UnavailableCraft:
@@ -300,18 +302,16 @@ class TestSmokeMatrix(unittest.TestCase):
                 errors,
                 ["OCR backend unavailable: local OCR requires CUDA, but no CUDA device is available"],
             )
-            self.assertEqual(details["package"], str(root / "package"))
+            self.assertEqual(details["package"], str(root / "book.pcex"))
 
     def test_markdown_route_inserts_deterministic_package_step(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             (root / "output").mkdir()
-            package_path = root / "package"
-            package_path.joinpath("chapters").mkdir(parents=True)
-            package_path.joinpath("assets").mkdir()
-            package_path.joinpath("toc.xml").write_text("<toc />")
-            package = DocumentPackage.from_path(package_path)
-            package.write_metadata(page_pixel_sizes={1: (10, 10)})
+            package_path = root / "fixture-extraction"
+            package = make_extraction(
+                package_path, page_pixel_sizes={1: (10, 10)}, with_toc=True
+            )
             chapter = Chapter(None, -1, [ParagraphLayout("text", 0, [
                 BlockLayout(1, 1, (1, 1, 2, 2), ["original"])
             ])])
@@ -353,21 +353,18 @@ def _opf(manifest: str, spine: str, spine_attrs: str) -> str:
     return f'<package version="2.0"><manifest>{manifest}</manifest><spine {spine_attrs}>{spine}</spine></package>'
 
 
-def _package_with_image(root: Path) -> DocumentPackage:
+def _package_with_image(root: Path) -> ExtractionPaths:
     package = _package_without_assets(root)
-    (package.assets_path / "image.png").write_bytes(b"image")
-    cover = root / "cover.png"
-    cover.write_bytes(b"cover")
-    package = DocumentPackage(package.chapters_path, package.assets_path, None, cover, package.metadata_path)
+    (package.assets / "image.png").write_bytes(b"image")
+    package.cover.write_bytes(b"cover")
     chapter = Chapter(None, -1, [AssetLayout(1, "image", (0, 0, 1, 1), [], [], [], "image")])
-    save_xml(encode(chapter), package.chapters_path / "chapter_head.xml")
+    save_xml(encode(chapter), package.chapters / "chapter_head.xml")
     return package
 
 
-def _package_without_assets(root: Path) -> DocumentPackage:
-    package = DocumentPackage.from_path(root)
-    package.chapters_path.mkdir(parents=True)
-    package.assets_path.mkdir()
+def _package_without_assets(root: Path) -> ExtractionPaths:
+    make_extraction(root)
+    package = ExtractionPaths.at(root)
     chapter = Chapter(None, -1, [ParagraphLayout("text", 0, [BlockLayout(1, 1, (0, 0, 1, 1), ["content"])])])
-    save_xml(encode(chapter), package.chapters_path / "chapter_head.xml")
+    save_xml(encode(chapter), package.chapters / "chapter_head.xml")
     return package

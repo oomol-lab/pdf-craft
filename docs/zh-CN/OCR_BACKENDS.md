@@ -118,7 +118,7 @@ craft = PDFCraft(pdf=PDFOptions(ocr=DeepSeekOCRLocalConfig(
     models_cache_path="models-cache",
 )))
 options = ExtractionOptions(ocr_size="base")
-craft.extract_pdf("input.pdf", "package", options)
+craft.extract_pdf("input.pdf", "book.pcex", options)
 ```
 
 ### 预下载模型

@@ -1,3 +1,5 @@
+# pylint: disable=protected-access
+
 from collections.abc import Callable, Container
 from os import PathLike
 from pathlib import Path
@@ -15,7 +17,7 @@ from .ocr_config import OCRConfig, ensure_ocr_config
 from .pdf import DeepSeekOCRSize, OCR, OCREvent, OCREventKind, PDFHandler
 from .extractor.chapter import generate_chapter_files
 from .extractor.toc import analyse_toc
-from .document import DocumentPackage
+from .document import ExtractionPaths, PDFCraftExtraction, write_manifest, write_pages
 
 
 class PDFExtractionEngine:
@@ -63,18 +65,18 @@ class PDFExtractionEngine:
         on_ocr_event: Callable[[OCREvent], None],
         page_indexes: Container[int] | None = None,
     ):
-        assets_path = analysing_path / "assets"
+        extraction_path = analysing_path / "extraction"
+        extraction_paths = ExtractionPaths.at(extraction_path)
+        assets_path = extraction_paths.assets
         pages_path = analysing_path / "ocr"
-        chapters_path = analysing_path / "chapters"
-        toc_path = analysing_path / "toc.xml"
+        chapters_path = extraction_paths.chapters
+        toc_path = extraction_paths.toc
 
-        cover_path: Path | None = analysing_path / "cover.png" if includes_cover else None
+        cover_path: Path | None = extraction_paths.cover if includes_cover else None
         plot_path: Path | None = analysing_path / "plots" if generate_plot else None
         metering = OCRTokensMetering(input_tokens=0, output_tokens=0)
         usable_pages = 0
         failed_page_indexes: list[int] = []
-        existing_page_pixel_sizes = DocumentPackage.from_path(analysing_path).page_pixel_sizes()
-
         for event in self._ocr.recognize(
             pdf_path=pdf_path,
             asset_path=assets_path,
@@ -113,11 +115,15 @@ class PDFExtractionEngine:
         if cover_path and not cover_path.exists():
             cover_path = None
 
-        page_pixel_sizes = existing_page_pixel_sizes | self._ocr.last_page_pixel_sizes
-        DocumentPackage(chapters_path, assets_path, toc_path, cover_path).write_metadata(
-            dpi=dpi if dpi is not None else 300,
-            page_pixel_sizes=page_pixel_sizes,
+        assets_path.mkdir(parents=True, exist_ok=True)
+        render_dpi = dpi if dpi is not None else 300
+        write_pages(
+            extraction_path,
+            render_dpi=render_dpi,
+            page_pixel_sizes=self._ocr.last_page_pixel_sizes,
         )
+        write_manifest(extraction_path, book_meta=self._extract_book_meta(pdf_path))
+        PDFCraftExtraction._from_workspace(extraction_path).validate()
         return assets_path, chapters_path, toc_path, cover_path, metering
 
     def _extract_book_meta(self, pdf_path: Path):
