@@ -42,30 +42,30 @@ run 的 `backend` 字段中选择。local backend 使用自己的模型缓存、
 序号命名，例如 `citation-convert-20260822-001/`；同一次调用绝不会覆盖已有目录。
 `package render` 和 `epub translate` 也使用此规则。通过 `--work-dir` 指定位置时，
 目录不存在则创建，已存在则复用。PDF 命令会在工作目录内记录来源 PDF 和 OCR
-设置，防止不同输入或不同 OCR backend 错误复用已有 OCR 缓存。工作目录保存中间
-`package/`、翻译缓存和日志，方便人工检查、恢复或后续单独渲染。
+设置，防止不同输入或不同 OCR backend 错误复用已有 OCR 缓存。工作目录保存
+`analysis/`、`book.pcex`、翻译缓存和日志，方便人工检查、恢复或后续单独渲染。
 
 所有 `--pages` 参数使用从 1 开始的 PDF 页码，例如 `--pages 1,2,3`。
 
-## PDF 与 Package
+## PDF 与 PDFCraftExtraction
 
 ```shell
-# PDF -> 可复用 DocumentPackage
+# PDF -> 可复用 .pcex
 poetry run python -m pdf_craft_tool pdf extract tests/assets/pdf/citation.pdf \
   --ocr-mode deepseek-ocr-vendor --pages 1 --work-dir pdf-craft-output/citation-extract
 
-# DocumentPackage -> 翻译后的 DocumentPackage
+# .pcex -> 翻译后的 .pcex
 poetry run python -m pdf_craft_tool package translate \
-  pdf-craft-output/citation-extract/package zh \
-  --output-package pdf-craft-output/citation-zh-package
+  pdf-craft-output/citation-extract/book.pcex zh \
+  --output-package pdf-craft-output/citation-zh.pcex
 
-# Package -> Markdown 或 EPUB；此命令不需要 OCR 配置
-poetry run python -m pdf_craft_tool package render pdf-craft-output/citation-extract/package \
+# .pcex -> Markdown 或 EPUB；此命令不需要 OCR 配置
+poetry run python -m pdf_craft_tool package render pdf-craft-output/citation-extract/book.pcex \
   --format markdown --work-dir pdf-craft-output/citation-render
 
-# 原始 PDF + translated DocumentPackage -> patched PDF；此命令不需要 OCR/LLM
+# 原始 PDF + translated .pcex -> patched PDF；此命令不需要 OCR/LLM
 poetry run python -m pdf_craft_tool package patch-pdf \
-  tests/assets/pdf/citation.pdf pdf-craft-output/citation-zh-package \
+  tests/assets/pdf/citation.pdf pdf-craft-output/citation-zh.pcex \
   --output pdf-craft-output/citation-zh.pdf
 
 # PDF -> Markdown 或 EPUB
@@ -84,8 +84,8 @@ PDF 提取参数可在以上三个 PDF 命令中组合使用：
 `--ocr-mode` 覆盖 `.env` 内的 `PDF_CRAFT_OCR_MODE`；不传时使用 `.env` 的默认值。
 它只决定本次运行使用哪个已配置 backend，不会改写 `.env`。
 
-`package translate` 只读取已有 DocumentPackage，不会重新运行 OCR；
-`package patch-pdf` 只把已有 package 的文字按页面几何信息写回指定原始 PDF，
+`package translate` 只读取已有 `.pcex`，不会重新运行 OCR；
+`package patch-pdf` 只把已有 extraction 的文字按页面几何信息写回指定原始 PDF，
 不会调用 OCR 或 LLM。
 
 ## 翻译
@@ -124,7 +124,7 @@ poetry run python -m pdf_craft_tool smoke assets
 `smoke run` 将一条参数化通路写入 Git 忽略的 `pdf-craft-output/smoke/` 下独立目录。
 目录同样以来源、route、日期和当日序号命名。通过 `--output-root DIR` 可替换这个根目录。
 目录包含
-`manifest.json`、`checks.json`、`logs/`、提取的 `package/` 和渲染产物；凭据会
+`manifest.json`、`checks.json`、`logs/`、提取的 `book.pcex`、`analysis/` 和渲染产物；凭据会
 从报告和 traceback 中脱敏。
 
 smoke 命令的进程退出码与报告状态一致：`passed` 和 `planned` 返回 0，`failed`

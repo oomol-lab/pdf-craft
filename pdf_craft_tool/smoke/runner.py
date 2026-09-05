@@ -12,7 +12,7 @@ from time import perf_counter
 from typing import Any, Literal, cast
 
 from pdf_craft import (
-    ChapterPackageTransformer,
+    ChapterExtractionTransformer,
     ChapterXMLTransformer,
     ExtractionOptions,
     LLM,
@@ -181,7 +181,7 @@ def _execute(run: SmokeRun, asset: SmokeAsset, run_path: Path,
     if asset.format == "epub":
         output = run_path / "output" / "book.epub"
         report.skipped("configure", "EPUB routes do not require OCR configuration")
-        report.skipped("extract", "EPUB routes do not extract a DocumentPackage")
+        report.skipped("extract", "EPUB routes do not extract a PDFCraftExtraction")
         if run.route == "epub-check":
             with report.stage("render"):
                 shutil.copy2(asset.path, output)
@@ -221,14 +221,14 @@ def _run_pdf(
     run: SmokeRun, asset: SmokeAsset, run_path: Path, ocr: OCRConfig,
     report: _ExecutionReport | None = None,
 ) -> tuple[str, list[str], dict[str, Any]]:
-    package_path = run_path / "package"
+    extraction_path = run_path / "book.pcex"
     output_path = run_path / "output"
     craft = PDFCraft(pdf=PDFOptions(ocr=ocr))
     try:
         report = report or _ExecutionReport()
         with report.stage("extract"):
             package, metering = craft.extract_pdf_with_metering(
-                asset.path, package_path, ExtractionOptions(
+                asset.path, extraction_path, ExtractionOptions(
                     page_indexes=run.page_indexes, ocr_size=cast(Any, run.ocr_size), dpi=run.dpi,
                     max_page_image_file_size=run.max_page_image_file_size,
                     max_ocr_tokens=run.max_ocr_tokens,
@@ -237,15 +237,16 @@ def _run_pdf(
                     includes_footnotes=run.includes_footnotes,
                 generate_plot=run.generate_plot, toc_assumed=run.toc_assumed,
                 on_ocr_event=report.on_ocr_event,
-                )
+                ),
+                analysing_path=run_path / "analysis",
             )
     except Exception as error:
         unavailable = _unavailable_ocr_reason(error)
         if unavailable is not None:
-            return "skipped", [unavailable], {"package": str(package_path)}
+            return "skipped", [unavailable], {"package": str(extraction_path)}
         raise
     details = {
-        "package": str(package_path),
+        "package": str(extraction_path),
         "metering": {"input_tokens": metering.input_tokens, "output_tokens": metering.output_tokens},
     }
     if run.route == "package":
@@ -376,14 +377,14 @@ def _package_translation(run: SmokeRun, run_path: Path):
     if translation_transformer is not None:
         translation = run.translation or {}
         mode = SubmitKind[translation.get("submit", "REPLACE").upper()]
-        return ChapterPackageTransformer(translation_transformer, mode=mode)
+        return ChapterExtractionTransformer(translation_transformer, mode=mode)
 
     translation = run.translation or {}
     marker = translation.get("package_marker")
     if not isinstance(marker, str):
         return None
     mode = SubmitKind[translation.get("package_submit", "REPLACE").upper()]
-    return ChapterPackageTransformer(_DeterministicChapterTransformer(marker), mode=mode)
+    return ChapterExtractionTransformer(_DeterministicChapterTransformer(marker), mode=mode)
 
 
 def _translate_package(
@@ -393,11 +394,11 @@ def _translate_package(
     transformer,
 ):
     """Run one smoke package translation through the public facade method."""
-    if not isinstance(transformer, ChapterPackageTransformer):
-        raise TypeError("smoke package routes require a ChapterPackageTransformer")
-    return craft.translate_package(
+    if not isinstance(transformer, ChapterExtractionTransformer):
+        raise TypeError("smoke extraction routes require a ChapterExtractionTransformer")
+    return craft.translate_extraction(
         package,
-        run_path / "translated",
+        run_path / "translated.pcex",
         transformer.chapter_transformer,
         submit=transformer.mode,
     )

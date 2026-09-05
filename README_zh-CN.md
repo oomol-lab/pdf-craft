@@ -76,8 +76,9 @@ craft.convert_pdf_to_markdown(
 
 ![PDF 转 Markdown 示例](docs/images/pdf2md-cn.png)
 
-转换过程会自动使用系统临时目录，并在完成或发生异常后清理。如果需要保留中间结果以便
-调试或重复使用，可以显式传入 `package_path`。
+转换过程会自动使用系统临时分析目录，并在完成或发生异常后清理。需要保留诊断信息时可传入
+`analysing_path`；需要复用、上传或跨机器交换中间结果时可传入
+`extraction_path="book.pcex"`。
 
 完整的 PDF 转换说明和库定制选项，请参阅 [PDF 转换与翻译指南](docs/zh-CN/PDF_TRANSLATION.md)
 和 [API 参考](docs/zh-CN/API_REFERENCE.md)。
@@ -111,8 +112,8 @@ craft.convert_pdf_to_epub(
 
 ![PDF 转 EPUB 示例](docs/images/pdf2epub-cn.png)
 
-`book_meta` 用于填写 EPUB 的书名和作者信息；如果不提供，pdf-craft 会尝试读取 PDF
-自身的元数据。
+`book_meta` 用于填写 EPUB 的书名和作者信息；如果不提供，pdf-craft 会使用 PDF 提取时写入
+PDFCraftExtraction manifest 的元数据。
 
 ### 转换 PDF 时同时翻译
 
@@ -150,8 +151,8 @@ craft = PDFCraft(pdf=PDFOptions(ocr=DeepSeekOCRVendorConfig(
 def translator(text: str) -> str:
     return text  # 这里只是占位；实际应调用文本 LLM，将 text 翻译成中文
 
-package = craft.extract_pdf("input.pdf", "work/cache")
-craft.translate_pdf("input.pdf", package, "translated.pdf", translator)
+extraction = craft.extract_pdf("input.pdf", "work/book.pcex")
+craft.translate_pdf("input.pdf", extraction, "translated.pdf", translator)
 ~~~
 
 ### 翻译 EPUB

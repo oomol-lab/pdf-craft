@@ -175,7 +175,7 @@ class TestPDFCraftTool(unittest.TestCase):
             source = root / "source.pdf"
             source.write_bytes(b"%PDF source")
             work_dir = root / "work"
-            (work_dir / "package" / "ocr").mkdir(parents=True)
+            (work_dir / "analysis" / "ocr").mkdir(parents=True)
             args = Namespace(
                 source=source,
                 dpi=None,

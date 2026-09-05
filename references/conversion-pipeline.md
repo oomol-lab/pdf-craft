@@ -6,30 +6,39 @@
 
 ## 组合流程
 
-Extractor 生成 Document Package 后，Renderer 可直接生成 Markdown 或 EPUB。可选 Transformer 可以在渲染前修改结构化文本；`pipeline/epub` 也可把既有 EPUB 的 XHTML、目录和元数据交给同一个 XML Transformer。PDF Translation Pipeline 只支持替换已记录来源 bbox 内的文本，不支持 append 语义。
+Extractor 生成 PDFCraftExtraction 后，Renderer 可直接生成 Markdown 或 EPUB。可选 Transformer
+可以在渲染前修改结构化文本；`pipeline/epub` 也可把既有 EPUB 的 XHTML、目录和元数据交给
+同一个 XML Transformer。PDF Translation Pipeline 只处理已记录来源 bbox 内的文本。
 
-`Transform.transform_markdown()` 和 `Transform.transform_epub()` 都会先调用 `_extract_from_pdf()`，再渲染目标输出。提取流程是：
+`PDFCraft.convert_pdf_to_markdown()` 和 `PDFCraft.convert_pdf_to_epub()` 会先提取到内部 workspace，
+再渲染目标输出。提取流程是：
 
 1. 通过 `PDFHandler` 渲染 PDF 页面。
 2. 通过 `OCR.recognize()` 识别页面布局。
-3. 在 `analysing_path` 下写入 OCR 页 XML 和资源文件。
+3. 在 `analysing_path/ocr/` 写入 OCR 页 XML 和恢复缓存，在
+   `analysing_path/extraction/assets/` 写入资源。
 4. 分析 TOC 数据。
-5. 生成章节 XML。
-6. 根据章节 XML 渲染 Markdown 或 EPUB。
+5. 在 `analysing_path/extraction/` 生成章节、TOC、页面几何和 manifest。
+6. 仅从该 extraction 渲染 Markdown 或 EPUB。
 
 当未传入 `analysing_path` 时，`EnsureFolder` 会创建临时目录。当传入该路径时，它会成为可持久复用的缓存和调试输出目录。
 
 ## 中间产物契约
 
-转换流水线期望 `analysing_path` 下存在或生成这些路径：
+analysis 与稳定 extraction 明确分离：
 
-- `assets/`：按内容 hash 存放裁剪出的图片、公式和表格。
 - `ocr/page_*.xml`：OCR 页数据。
 - `ocr/done`：表示所有选中页面已完成识别的标记。
-- `toc.xml`：TOC 分析结果。
-- `chapters/chapter_*.xml`：生成的章节记录。
-- `cover.png`：可选的首页封面。
 - `plots/`：启用 plot 生成时的可选可视化调试输出。
+- `extraction/manifest.json`：格式版本、producer、创建时间和文档元数据。
+- `extraction/pages.xml`：1-based OCR 像素坐标空间、实际渲染 DPI 和逐页像素宽高。
+- `extraction/assets/`：按内容 hash 存放裁剪出的图片、公式和表格。
+- `extraction/chapters/chapter_*.xml`：生成的章节记录及原 PDF page/bbox 映射。
+- `extraction/toc.xml`、`extraction/cover.png`：可选目录和封面。
+
+公共分段流程把 `extraction/` 打包为 `.pcex`；恢复后端只接受 `.pcex` 或已加载的
+`PDFCraftExtraction`。一键转换直接使用 workspace，只有显式 `extraction_path` 时才额外导出
+`.pcex`，避免压缩往返。翻译后的 `.pcex` 必须保留 manifest、pages、TOC、封面和资源。
 
 修改 XML schema、文件命名或跳过语义会影响多个模块，应视为跨流水线变更，并配套有针对性的测试。
 

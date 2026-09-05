@@ -76,9 +76,9 @@ craft.convert_pdf_to_markdown(
 
 ![PDF to Markdown example](docs/images/pdf2md-en.png)
 
-The conversion uses a temporary working directory automatically and removes it
-when the conversion finishes or fails. Pass `package_path` only when you want to
-keep the intermediate work for debugging or reuse.
+The conversion uses a temporary analysis workspace automatically and removes it
+when the conversion finishes or fails. Pass `analysing_path` to retain diagnostics,
+or `extraction_path="book.pcex"` to retain the portable intermediate extraction.
 
 For the complete PDF conversion workflow and customization options, see the
 [PDF Translation Guide](docs/en/PDF_TRANSLATION.md) and [API Reference](docs/en/API_REFERENCE.md).
@@ -107,7 +107,8 @@ craft.convert_pdf_to_epub(
 
 ![PDF to EPUB example](docs/images/pdf2epub-en.png)
 
-If `book_meta` is omitted, pdf-craft tries to read the metadata from the source PDF.
+If `book_meta` is omitted, pdf-craft uses metadata stored in the PDFCraftExtraction
+manifest when the PDF was extracted.
 
 ### PDF → translated Markdown or EPUB
 
@@ -142,8 +143,8 @@ craft = PDFCraft(pdf=PDFOptions(ocr=DeepSeekOCRVendorConfig(
 def translator(text: str) -> str:
     return text
 
-package = craft.extract_pdf("input.pdf", "work/cache")
-craft.translate_pdf("input.pdf", package, "translated.pdf", translator)
+extraction = craft.extract_pdf("input.pdf", "work/book.pcex")
+craft.translate_pdf("input.pdf", extraction, "translated.pdf", translator)
 ```
 
 ### EPUB → translated EPUB

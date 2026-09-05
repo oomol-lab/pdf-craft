@@ -13,10 +13,10 @@ from .craft import ExtractionOptions, PDFCraft, PDFOptions
 from .pipeline.epub import translate_epub
 from .pipeline.pdf import PDFPatcher, PDFReplacement, PDFSkippedReplacement, PDFTranslationPipeline, PatchTextOptions
 from .transformer import (
-    ChapterPackageTransformer,
+    ChapterExtractionTransformer,
     ChapterXMLTransformer,
+    ExtractionTransformer,
     FillFailedEvent,
-    PackageTransformer,
     SubmitKind,
     XMLTranslator,
     TranslationEvent,
@@ -48,6 +48,6 @@ from .pdf import (
     PDFHandler,
     pdf_pages_count,
 )
-from .document import DocumentPackage, SourceLocation
+from .document import PDFCraftExtraction, SourceLocation
 from .extractor import PDFExtractor
 from .renderer import EpubRenderer, MarkdownRenderer

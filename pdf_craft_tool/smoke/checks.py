@@ -1,4 +1,5 @@
-import json
+# pylint: disable=protected-access
+
 import re
 import zipfile
 from posixpath import normpath
@@ -8,50 +9,45 @@ from urllib.parse import urlparse
 
 import pypdf
 
-from pdf_craft.document import DocumentPackage
+from pdf_craft.document import PDFCraftExtraction
 from pdf_craft.extractor.chapter.chapter import ParagraphLayout
 from pdf_craft.extractor.chapter.reader import create_chapters_reader
 
 
-def check_package(package: DocumentPackage, require_geometry: bool = False) -> list[str]:
-    package.validate()
+def check_package(extraction: PDFCraftExtraction, require_geometry: bool = False) -> list[str]:
+    extraction.validate()
     errors: list[str] = []
-    chapters = sorted(package.chapters_path.glob("chapter*.xml"))
-    if not chapters:
-        errors.append("DocumentPackage contains no chapter XML")
-    for chapter in chapters:
-        try:
-            ElementTree.parse(chapter)
-        except ElementTree.ParseError as error:
-            errors.append(f"invalid chapter XML {chapter.name}: {error}")
-    if package.has_toc():
-        try:
-            ElementTree.parse(package.toc_path)  # type: ignore[arg-type]
-        except ElementTree.ParseError as error:
-            errors.append(f"invalid toc.xml: {error}")
-    if require_geometry and not package.page_pixel_sizes():
-        errors.append("DocumentPackage lacks required page geometry metadata")
+    with extraction._materialize() as paths:
+        chapters = sorted(paths.chapters.glob("chapter*.xml"))
+        if not chapters:
+            errors.append("PDFCraftExtraction contains no chapter XML")
+        for chapter in chapters:
+            try:
+                ElementTree.parse(chapter)
+            except ElementTree.ParseError as error:
+                errors.append(f"invalid chapter XML {chapter.name}: {error}")
+        if paths.toc.is_file():
+            try:
+                ElementTree.parse(paths.toc)
+            except ElementTree.ParseError as error:
+                errors.append(f"invalid toc.xml: {error}")
+    if require_geometry and not extraction.page_pixel_sizes():
+        errors.append("PDFCraftExtraction lacks required page geometry metadata")
     return errors
 
 
-def check_pdf_patch_geometry(package: DocumentPackage) -> list[str]:
-    """Require package-owned geometry for every block a PDF patch may replace.
-
-    The PDF pipeline can otherwise re-render a source page when geometry is
-    absent. Smoke runs must reject that fallback so their package contract is
-    explicit and reproducible.
-    """
-    if package.metadata_path is None or not package.metadata_path.exists():
-        return ["PDF patch requires DocumentPackage document.json geometry metadata"]
+def check_pdf_patch_geometry(extraction: PDFCraftExtraction) -> list[str]:
+    """Require extraction-owned geometry for every block a PDF patch may replace."""
     try:
-        page_sizes = package.page_pixel_sizes()
-    except (OSError, ValueError, json.JSONDecodeError) as error:
-        return [f"PDF patch has invalid DocumentPackage geometry metadata: {error}"]
+        page_sizes = extraction.page_pixel_sizes()
+    except (OSError, ValueError) as error:
+        return [f"PDF patch has invalid PDFCraftExtraction geometry metadata: {error}"]
     needed_pages: set[int] = set()
-    for chapter in create_chapters_reader(package.chapters_path)():
-        for layout in chapter.layouts:
-            if isinstance(layout, ParagraphLayout) and layout.ref in {"text", "sub_title"}:
-                needed_pages.update(block.page_index for block in layout.blocks if block.content)
+    with extraction._materialize() as paths:
+        for chapter in create_chapters_reader(paths.chapters)():
+            for layout in chapter.layouts:
+                if isinstance(layout, ParagraphLayout) and layout.ref in {"text", "sub_title"}:
+                    needed_pages.update(block.page_index for block in layout.blocks if block.content)
     missing = sorted(needed_pages - set(page_sizes))
     if missing:
         return [f"PDF patch geometry missing for replacement pages: {missing}"]
