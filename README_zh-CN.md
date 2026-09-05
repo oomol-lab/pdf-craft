@@ -81,7 +81,8 @@ craft.convert_pdf_to_markdown(
 `extraction_path="book.pcex"`。
 
 完整的 PDF 转换说明和库定制选项，请参阅 [PDF 转换与翻译指南](docs/zh-CN/PDF_TRANSLATION.md)
-和 [API 参考](docs/zh-CN/API_REFERENCE.md)。
+和 [API 参考](docs/zh-CN/API_REFERENCE.md)。PDFCraftExtraction 中间格式的逐字段定义，请参阅
+[PDFCraftExtraction（`.pcex`）格式参考](docs/zh-CN/PCEX_FORMAT.md)。
 
 ## 高级功能
 
