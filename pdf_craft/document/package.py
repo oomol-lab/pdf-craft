@@ -231,6 +231,9 @@ def write_pages(root: Path, *, render_dpi: int, page_pixel_sizes: dict[int, tupl
 
 
 def _validate_workspace(paths: ExtractionPaths, *, require_toc: bool = False) -> None:
+    # Import lazily because the extractor package imports the public document API.
+    from ..extractor.chapter.chapter import decode as decode_chapter
+
     _read_manifest(paths.manifest)
     _, page_sizes = _read_pages(paths.pages)
     if not paths.chapters.is_dir():
@@ -252,6 +255,10 @@ def _validate_workspace(paths: ExtractionPaths, *, require_toc: bool = False) ->
             if not suffix.isdigit():
                 raise ValueError(f"invalid chapter filename: {path.name}")
         root = _require_xml_root(path, "chapter")
+        try:
+            decode_chapter(root)
+        except ValueError as error:
+            raise ValueError(f"invalid chapter schema in {path.name}: {error}") from error
         for element in root.iter():
             page_index = element.get("page_index")
             det = element.get("det")
@@ -266,8 +273,11 @@ def _validate_workspace(paths: ExtractionPaths, *, require_toc: bool = False) ->
             if det is not None:
                 _validate_bbox(det, page_sizes[index], path.name)
             asset_hash = element.get("hash") if element.tag == "asset" else None
-            if asset_hash is not None and not (paths.assets / f"{asset_hash}.png").is_file():
-                raise ValueError(f"{path.name} references missing asset: {asset_hash}.png")
+            if asset_hash is not None:
+                if not _is_asset_hash(asset_hash):
+                    raise ValueError(f"invalid asset hash in {path.name}: {asset_hash}")
+                if not (paths.assets / f"{asset_hash}.png").is_file():
+                    raise ValueError(f"{path.name} references missing asset: {asset_hash}.png")
 
 
 def _read_manifest(path: Path) -> dict[str, Any]:
@@ -295,7 +305,7 @@ def _read_manifest(path: Path) -> dict[str, Any]:
         except ValueError as error:
             raise ValueError("manifest.json created_at must be ISO 8601") from error
     document = payload.get("document")
-    if not isinstance(document, dict) or set(document) - _DOCUMENT_FIELDS:
+    if not isinstance(document, dict) or set(document) != _DOCUMENT_FIELDS:
         raise ValueError("manifest.json has invalid document metadata")
     for key in ("title", "description", "publisher", "isbn", "modified", "language"):
         value = document.get(key)
@@ -393,8 +403,7 @@ def _validate_workspace_members(paths: ExtractionPaths) -> None:
             path.is_file()
             and not path.is_symlink()
             and path.name.endswith(".png")
-            and len(path.name) == 68
-            and all(character in "0123456789abcdef" for character in path.name[:-4])
+            and _is_asset_hash(path.name[:-4])
         )
         if not valid:
             raise ValueError(f"invalid asset member: {path.name}")
@@ -472,8 +481,7 @@ def _validate_archive_member(info: ZipInfo) -> None:
         len(pure.parts) == 2
         and pure.parts[0] == "assets"
         and pure.parts[1].endswith(".png")
-        and len(pure.parts[1]) == 68
-        and all(character in "0123456789abcdef" for character in pure.parts[1][:-4])
+        and _is_asset_hash(pure.parts[1][:-4])
     )
     if not allowed:
         raise ValueError(f"unsupported PDFCraftExtraction member: {name}")
@@ -495,9 +503,11 @@ def _optional_string(value: object) -> str | None:
     return value if isinstance(value, str) else None
 
 
+def _is_asset_hash(value: str) -> bool:
+    return len(value) == 64 and all(character in "0123456789abcdef" for character in value)
+
+
 def _string_list(value: object) -> list[str]:
-    if value is None:
-        return []
     if not isinstance(value, list) or not all(isinstance(item, str) for item in value):
         raise ValueError("document contributor metadata must be arrays of strings")
     return list(value)

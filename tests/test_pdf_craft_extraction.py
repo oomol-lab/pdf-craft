@@ -22,6 +22,17 @@ class _Identity:
         return chapter
 
 
+def _replace_archive_members(
+    source_path: Path,
+    target_path: Path,
+    replacements: dict[str, bytes],
+) -> None:
+    with ZipFile(source_path) as source, ZipFile(target_path, "w") as target:
+        for info in source.infolist():
+            content = replacements.get(info.filename, source.read(info.filename))
+            target.writestr(info, content)
+
+
 class TestPDFCraftExtraction(unittest.TestCase):
     def test_archive_remains_usable_after_analysis_workspace_is_gone(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -131,6 +142,93 @@ class TestPDFCraftExtraction(unittest.TestCase):
                     target.writestr(info, content)
             with self.assertRaisesRegex(ValueError, "format version"):
                 PDFCraftExtraction.open(unsupported)
+
+    def test_invalid_manifest_json_and_incomplete_document_are_rejected(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            extraction = make_extraction(root / "workspace")
+            valid = root / "valid.pcex"
+            extraction.export(valid)
+
+            invalid_json = root / "invalid-json.pcex"
+            _replace_archive_members(
+                valid,
+                invalid_json,
+                {"manifest.json": b"{"},
+            )
+            with self.assertRaisesRegex(ValueError, "invalid PDFCraftExtraction manifest.json"):
+                PDFCraftExtraction.open(invalid_json)
+
+            incomplete = root / "incomplete-document.pcex"
+            with ZipFile(valid) as archive:
+                manifest = json.loads(archive.read("manifest.json"))
+            manifest["document"] = {}
+            _replace_archive_members(
+                valid,
+                incomplete,
+                {"manifest.json": json.dumps(manifest).encode()},
+            )
+            with self.assertRaisesRegex(ValueError, "invalid document metadata"):
+                PDFCraftExtraction.open(incomplete)
+
+    def test_invalid_chapter_xml_and_schema_are_rejected_when_opened(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            workspace = root / "workspace"
+            extraction = make_extraction(workspace)
+            save_xml(encode(Chapter(None, -1, [])), workspace / "chapters/chapter_head.xml")
+            valid = root / "valid.pcex"
+            extraction.export(valid)
+
+            cases = {
+                "malformed": (b"<chapter>", "invalid PDFCraftExtraction XML"),
+                "missing-body": (b"<chapter/>", "invalid chapter schema"),
+            }
+            for name, (chapter_xml, error_pattern) in cases.items():
+                with self.subTest(name=name):
+                    invalid = root / f"{name}.pcex"
+                    _replace_archive_members(
+                        valid,
+                        invalid,
+                        {"chapters/chapter_head.xml": chapter_xml},
+                    )
+                    with self.assertRaisesRegex(ValueError, error_pattern):
+                        PDFCraftExtraction.open(invalid)
+
+    def test_invalid_toc_xml_is_rejected_when_opened(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            extraction = make_extraction(root / "workspace", with_toc=True)
+            valid = root / "valid.pcex"
+            extraction.export(valid)
+            invalid = root / "invalid-toc.pcex"
+            _replace_archive_members(valid, invalid, {"toc.xml": b"<toc>"})
+
+            with self.assertRaisesRegex(ValueError, "invalid PDFCraftExtraction XML: toc.xml"):
+                PDFCraftExtraction.open(invalid)
+
+    def test_noncanonical_asset_hash_cannot_escape_assets_directory(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            workspace = root / "workspace"
+            extraction = make_extraction(workspace)
+            save_xml(encode(Chapter(None, -1, [])), workspace / "chapters/chapter_head.xml")
+            (workspace / "cover.png").write_bytes(b"cover")
+            valid = root / "valid.pcex"
+            extraction.export(valid)
+            invalid = root / "invalid-hash.pcex"
+            chapter_xml = (
+                b'<chapter><body><asset ref="image" page_index="1" det="0,0,1,1" '
+                b'hash="../cover"/></body></chapter>'
+            )
+            _replace_archive_members(
+                valid,
+                invalid,
+                {"chapters/chapter_head.xml": chapter_xml},
+            )
+
+            with self.assertRaisesRegex(ValueError, "invalid asset hash"):
+                PDFCraftExtraction.open(invalid)
 
     def test_translation_preserves_manifest_pages_toc_cover_and_assets(self):
         with tempfile.TemporaryDirectory() as directory:
