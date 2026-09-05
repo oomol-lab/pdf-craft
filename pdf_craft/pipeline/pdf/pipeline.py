@@ -1,3 +1,5 @@
+# pylint: disable=protected-access
+
 from collections.abc import Callable
 from pathlib import Path
 from typing import cast
@@ -7,7 +9,7 @@ from pdf_craft.extractor.chapter.chapter import InlineExpression, Reference
 from pdf_craft.extractor.chapter.reader import create_chapters_reader
 from pdf_craft.markdown.paragraph import HTMLTag
 from pdf_craft.expression import to_markdown_string
-from pdf_craft.document import DocumentPackage
+from pdf_craft.document import PDFCraftExtraction
 from pdf_craft.transformer.events import TranslationEvent, TranslationEventKind, TranslationItemKind
 from pdf_craft.transformer.chapter_xml import ChapterXMLTransformer
 from pdf_craft.transformer.xml_translator.segment import search_text_segments
@@ -17,28 +19,26 @@ from pdf_craft.transformer import ChapterTransformer
 
 
 class PDFTranslationPipeline:
-    """Apply a replace-only text transformer to an extracted PDF package."""
+    """Apply a replace-only text transformer to a PDFCraftExtraction."""
 
     def __init__(self, pdf_handler: PDFHandler | None = None, patcher: PDFPatcher | None = None, dpi: int = 300) -> None:
-        self.pdf_handler = pdf_handler
-        self.patcher = patcher or PDFPatcher(pdf_handler=pdf_handler)
-        self.dpi = dpi
+        self.patcher = patcher or PDFPatcher(pdf_handler=pdf_handler, dpi=dpi)
 
     def translate(
         self,
         pdf_path: Path,
         target_path: Path,
-        package: DocumentPackage | Path,
+        extraction: PDFCraftExtraction | Path,
         transformer: Callable[[str], str] | ChapterTransformer,
         on_translation_event: Callable[[TranslationEvent], None] | None = None,
     ) -> None:
-        package = package if isinstance(package, DocumentPackage) else DocumentPackage.from_path(package)
-        package.validate()
-        document = self.pdf_handler.open(pdf_path) if self.pdf_handler else None
+        extraction = _ensure_extraction(extraction)
+        extraction.validate()
         replacements: list[PDFReplacement] = []
-        try:
-            pages = package.page_pixel_sizes()
-            reader = create_chapters_reader(package.chapters_path)
+        pages = extraction.page_pixel_sizes()
+        render_dpi = extraction.render_dpi()
+        with extraction._materialize() as paths:
+            reader = create_chapters_reader(paths.chapters)
             chapters = list(reader())
             chapter_tasks = []
             for chapter in chapters:
@@ -80,7 +80,9 @@ class PDFTranslationPipeline:
                 else:
                     transformed = transformer.transform(chapter) if structured else chapter
                 callback = transformer if callable(transformer) else (lambda text: text)
-                self._collect_chapter(transformed, callback, document, pages, replacements, structured)
+                self._collect_chapter(
+                    transformed, callback, pages, replacements, render_dpi, structured
+                )
                 completed_characters += character_count
                 if on_translation_event is not None and not is_xml_transformer:
                     on_translation_event(TranslationEvent(
@@ -101,9 +103,6 @@ class PDFTranslationPipeline:
                         completed_characters=completed_characters,
                         total_characters=total_characters,
                     ))
-        finally:
-            if document:
-                document.close()
         self.patcher.patch(pdf_path, target_path, replacements)
         if on_translation_event is not None:
             on_translation_event(TranslationEvent(
@@ -116,31 +115,31 @@ class PDFTranslationPipeline:
         self,
         pdf_path: Path,
         target_path: Path,
-        package: DocumentPackage | Path,
+        extraction: PDFCraftExtraction | Path,
     ) -> None:
-        """Write the text already present in ``package`` back to ``pdf_path``.
+        """Write text already present in ``extraction`` back to ``pdf_path``.
 
-        This is deliberately separate from :meth:`translate`: the package is
+        This is deliberately separate from :meth:`translate`: the extraction is
         already the source of the replacement text, so no OCR or LLM
         transformer is involved.
         """
-        package = package if isinstance(package, DocumentPackage) else DocumentPackage.from_path(package)
-        package.validate()
-        document = self.pdf_handler.open(pdf_path) if self.pdf_handler else None
+        extraction = _ensure_extraction(extraction)
+        extraction.validate()
         replacements: list[PDFReplacement] = []
-        try:
-            pages = package.page_pixel_sizes()
-            reader = create_chapters_reader(package.chapters_path)
+        pages = extraction.page_pixel_sizes()
+        render_dpi = extraction.render_dpi()
+        with extraction._materialize() as paths:
+            reader = create_chapters_reader(paths.chapters)
             for chapter in reader():
                 self._collect_chapter(
-                    chapter, lambda text: text, document, pages, replacements, structured=True,
+                    chapter, lambda text: text, pages, replacements, render_dpi, structured=True,
                 )
-        finally:
-            if document:
-                document.close()
         self.patcher.patch(pdf_path, target_path, replacements)
 
-    def _collect_chapter(self, chapter: Chapter, transformer, document, pages, replacements, structured: bool = False) -> None:
+    def _collect_chapter(
+        self, chapter: Chapter, transformer, pages, replacements,
+        render_dpi: int, structured: bool = False,
+    ) -> None:
         for layout in chapter.layouts:
             if not isinstance(layout, ParagraphLayout) or layout.ref not in {"text", "sub_title"}:
                 continue
@@ -152,12 +151,11 @@ class PDFTranslationPipeline:
                 if not translated or (translated == source and not structured):
                     continue
                 if block.page_index not in pages:
-                    if document is None:
-                        raise ValueError("PDF handler is required to resolve page dimensions")
-                    image = document.render_page(block.page_index, self.dpi)
-                    pages[block.page_index] = image.size
+                    raise ValueError(
+                        f"PDFCraftExtraction pages.xml is missing page {block.page_index}"
+                    )
                 replacements.append(PDFReplacement(
-                    block.page_index, block.det, translated, pages[block.page_index], self.dpi,
+                    block.page_index, block.det, translated, pages[block.page_index], render_dpi,
                     reading_order=block.order,
                 ))
 
@@ -181,3 +179,9 @@ def _to_patch_text(items) -> str:
         else:
             raise TypeError(f"unsupported chapter content for PDF patching: {type(item).__name__}")
     return "".join(parts)
+
+
+def _ensure_extraction(value: PDFCraftExtraction | Path) -> PDFCraftExtraction:
+    if isinstance(value, PDFCraftExtraction):
+        return value
+    return PDFCraftExtraction.open(value)

@@ -12,7 +12,7 @@ When a real conversion fails, first identify the layer: PDF reading and renderin
 | Vendor OCR returns an error | Endpoint, model, credential, network access, quota, and rate limits. |
 | EPUB/PDF translation reports an LLM error | Text LLM URL, model, key, and token encoding. |
 | No output file appears | Parent-directory permissions and the earlier exception. |
-| PDF patching rejects a package | The original PDF, page geometry, and translated package must correspond. |
+| PDF patching rejects an extraction | The original PDF, `pages.xml`, and translated `.pcex` must correspond. |
 
 ## PDF and Poppler
 
@@ -83,13 +83,20 @@ For EPUB XML-repair problems, register `on_fill_failed` and pay particular atten
 
 When `LLM(cache_path=...)` is used, successful requests can be reused after an interruption. Use separate cache directories for unrelated books or jobs, particularly while they may be writing concurrently. A rerun still creates a new EPUB output; it does not resume by appending to an incomplete destination file.
 
-## Outputs, package paths, and PDF patching
+## Outputs, extraction paths, and PDF patching
 
-`convert_pdf_to_markdown()` and `convert_pdf_to_epub()` use a temporary package directory when `package_path` is omitted, and clean it up in both success and exception paths. Pass a writable package path if you need OCR artifacts for debugging or reuse; pdf-craft will not delete that caller-owned directory.
+`convert_pdf_to_markdown()` and `convert_pdf_to_epub()` use a temporary analysis
+directory by default and clean it up after success or failure. Pass `analysing_path`
+to retain diagnostics, or `extraction_path` to export a portable `.pcex`. Back-end
+operations accept `.pcex`, not an analysis or ordinary extraction directory.
 
 If an output is absent, make sure its parent directory exists and is writable, then work backward to the first OCR, translation, or renderer exception. A partially created output is not a successful conversion.
 
-PDF patching requires the original PDF plus a package extracted from that same document. The package must include the relevant page geometry, and translated text must fit the original OCR bounding boxes. Patch output is rendered from page images, so it does not preserve source vector text, annotations, or links. `APPEND_BLOCK` is unsupported for PDF patching because it cannot add free-flowing content to a fixed page.
+PDF patching requires the original PDF plus a `.pcex` extracted from that same
+document. `pages.xml` must include the relevant page geometry; missing data is not
+recovered from OCR caches or by re-rendering. Translated text must fit the original
+OCR bounding boxes. Patch output is rendered from page images, so it does not
+preserve source vector text, annotations, or links. `APPEND_BLOCK` is unsupported.
 
 ## What to include in a bug report
 
@@ -100,6 +107,6 @@ Provide enough context to reproduce the failure without exposing secrets:
 - for local OCR: GPU model and `torch.cuda.is_available()` result;
 - input page or chapter count, and the workflow stage that failed;
 - full exception type and message, redacted of credentials and private content;
-- relevant `package_path`, model-cache path, or LLM-cache path choices.
+- relevant `analysing_path`, `extraction_path`, model-cache path, or LLM-cache path choices.
 
 Do not attach API keys, complete private documents, model caches, or unredacted logs to a public issue.

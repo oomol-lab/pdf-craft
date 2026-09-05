@@ -64,14 +64,16 @@ metering = craft.convert_pdf_to_markdown("input.pdf", "output.md")
 print(metering.input_tokens, metering.output_tokens)
 ```
 
-`package_path` 默认为 `None`。省略它时，pdf-craft 使用操作系统临时目录，并在转换完成
-或发生异常后清理。需要保留中间结果进行调试或再次渲染时，传入一个可写目录：
+默认情况下，pdf-craft 使用操作系统临时 analysis 目录，并在转换完成或发生异常后清理。
+需要保留诊断信息时传入 `analysing_path`；需要复用或跨机器交换中间结果时传入
+`extraction_path` 导出 `.pcex`：
 
 ```python
 craft.convert_pdf_to_markdown(
     "input.pdf",
     "output.md",
-    package_path="work/pdf-package",
+    analysing_path="work/analysis",
+    extraction_path="work/book.pcex",
 )
 ```
 
@@ -105,8 +107,8 @@ craft.convert_pdf_to_markdown(
 文本 LLM 并返回修改后的章节。本文只说明 pdf-craft 如何接入变换器；LLM 客户端和具体
 提示词由你的应用负责准备。
 
-高层转换方法只执行一次翻译。需要额外 package 变换或更细粒度控制时，可以使用
-`extract_pdf()`、`translate_package()` 和 `render_*()` 自行组合。
+高层转换方法只执行一次翻译。需要分段或更细粒度控制时，可以使用
+`extract_pdf()`、`translate_extraction()` 和 `render_*()` 自行组合。
 
 ## PDF 转换为 EPUB
 
@@ -146,10 +148,10 @@ craft.convert_pdf_to_epub(
 PDF 中与章节来源匹配的文字区域：
 
 ```python
-package = craft.extract_pdf("input.pdf", "work/pdf-package")
+extraction = craft.extract_pdf("input.pdf", "work/book.pcex")
 craft.translate_pdf(
     "input.pdf",
-    package,
+    extraction,
     "translated.pdf",
     translator,
 )
@@ -162,7 +164,7 @@ PDF 写回使用章节中的页面来源和边界框信息，因此不需要重�
 def translator(text: str) -> str:
     return call_text_llm(text)
 
-craft.translate_pdf("input.pdf", package, "translated.pdf", translator)
+craft.translate_pdf("input.pdf", extraction, "translated.pdf", translator)
 ```
 
 PDF 输出不接受 `APPEND_BLOCK` 模式，因为 PDF pipeline 不能在原页面中安全追加新的块级内容。
@@ -182,29 +184,29 @@ PDF 输出不接受 `APPEND_BLOCK` 模式，因为 PDF pipeline 不能在原页�
 - 每段译文都必须在对应 OCR bbox 内排版。默认排版策略会在允许的字号范围内寻找可容纳的
   字号；最小字号仍无法容纳时抛出 `ValueError`。所有 bbox 会先完成预检，因此失败时不会
   留下部分输出文件。
-- `patch_pdf_with_package` 是写回已有 PDF 的操作，不是通用 PDF 排版器，不能只凭提取结果
+- `patch_pdf_with_extraction` 是写回已有 PDF 的操作，不是通用 PDF 排版器，不能只凭提取结果
   生成一个没有原始页面的全新 PDF。
 
-### `patch_pdf_with_package`
+### `patch_pdf_with_extraction`
 
 如果译文已经由其他流程生成，可以跳过 `translate_pdf`，直接把一个结果写回原始 PDF：
 
 ```python
-craft.patch_pdf_with_package(
+craft.patch_pdf_with_extraction(
     "input.pdf",
-    "work/translated-package",
+    "work/translated.pcex",
     "translated.pdf",
 )
 ```
 
-传入路径时，该目录必须符合 pdf-craft 的渲染结果契约；也可以直接传入
-`DocumentPackage` 对象。这个入口不会调用 OCR 或 LLM。PDF 写回使用 `pypdf` 和
+传入路径时必须是通过校验的 `.pcex`；也可以直接传入 `PDFCraftExtraction` 对象。普通目录
+不是公开输入。这个入口不会调用 OCR 或 LLM。PDF 写回使用 `pypdf` 和
 `reportlab`，它们是 pdf-craft 当前的直接运行时依赖；在依赖被移除或非标准安装的环境中，
 底层导入失败会抛出 `RuntimeError`。
 
 ### 调整写回排版
 
-`PDFCraft.translate_pdf` 与 `PDFCraft.patch_pdf_with_package` 为简化调用而设计，不提供字体、
+`PDFCraft.translate_pdf` 与 `PDFCraft.patch_pdf_with_extraction` 为简化调用而设计，不提供字体、
 字号、对齐、padding 或 overflow 策略参数。需要调整这些规则时，使用公开的低层
 `PDFPatcher` 与 `PatchTextOptions`，再交给 `PDFTranslationPipeline`：
 
@@ -223,7 +225,7 @@ patcher = PDFPatcher(options=PatchTextOptions(
     overflow="error",
 ))
 pipeline = PDFTranslationPipeline(patcher=patcher)
-pipeline.translate(Path("input.pdf"), Path("translated.pdf"), package, translator)
+pipeline.translate(Path("input.pdf"), Path("translated.pdf"), extraction, translator)
 ```
 
 `overflow="error"` 是默认策略，无法容纳的译文会失败；`overflow="skip"` 会跳过该 bbox，
@@ -240,7 +242,7 @@ pipeline.translate(Path("input.pdf"), Path("translated.pdf"), package, translato
 Poppler 位置，或让应用统一管理 PDF 文件访问时，才需要注入自定义 handler；通常无需自行实现它。
 
 在门面 API 中，将 handler 放进 `PDFOptions.pdf_handler`。它会用于 PDF 提取；在
-`translate_pdf` / `patch_pdf_with_package` 中也会传入 PDF 写回链路：
+`translate_pdf` / `patch_pdf_with_extraction` 中也会传入 PDF 写回链路：
 
 ```python
 from pdf_craft import DefaultPDFHandler, PDFCraft, PDFOptions
@@ -256,12 +258,11 @@ PDF 写回的低层入口还提供两个独立的注入点，签名和默认值�
 | 入口 | 参数 | 默认值 | 用途 |
 | --- | --- | --- | --- |
 | `PDFPatcher` | `pdf_handler`、`dpi` | `None`、`300` | 以 handler 将每个源页渲染为输出 PDF 的图像背景；没有任何替换项的页面使用其 `dpi`。 |
-| `PDFTranslationPipeline` | `pdf_handler`、`patcher`、`dpi` | `None`、`None`、`300` | 当结果目录缺少页面像素尺寸元数据时，用 handler 以该 `dpi` 渲染源页来解析尺寸；由它收集的替换项也携带该 `dpi`，供 patcher 渲染相应页面背景。 |
+| `PDFTranslationPipeline` | `pdf_handler`、`patcher`、`dpi` | `None`、`None`、`300` | 构造默认 patcher；替换项的坐标 DPI 始终来自 extraction 的 `pages.xml`，缺失时直接失败。 |
 
 `dpi` 越高，源页背景通常越清晰，但生成的 PDF 也会更大、写回更慢。若传入自定义
 `PDFPatcher`，应在它自身同时设置 `pdf_handler` 与 `dpi`；此时 pipeline 不会用自己的
-handler 或 dpi 重建该 patcher。保持二者使用同一 handler 和 dpi，能避免缺失页面尺寸元数据时
-的解析与最终背景渲染不一致：
+handler 或 dpi 重建该 patcher。保持二者使用同一 handler 和 dpi，可统一源页背景渲染策略：
 
 ```python
 from pdf_craft import DefaultPDFHandler, PDFPatcher, PDFTranslationPipeline
@@ -281,28 +282,28 @@ pipeline = PDFTranslationPipeline(pdf_handler=handler, patcher=patcher, dpi=200)
 
 ### `extract_pdf` 与 `extract_pdf_with_metering`
 
-这两个方法将 PDF 提取为 `DocumentPackage`。`package_path` 是必填项，因为返回对象仍然
-依赖该目录中的文件；与一次性转换不同，提取方法不会自动创建并清理临时目录。
+这两个方法将 PDF 提取为 `PDFCraftExtraction`。`.pcex` 输出路径是必填项；该文件可以直接
+存储、上传或交给另一台机器上的后端。普通目录不能作为后端公开输入。
 
 `extract_pdf_with_metering` 额外返回 `OCRTokensMetering`，用于读取本次 OCR 的输入和输出
 token 计量：
 
 ```python
-package, metering = craft.extract_pdf_with_metering(
+extraction, metering = craft.extract_pdf_with_metering(
     "input.pdf",
-    "work/pdf-package",
+    "work/book.pcex",
 )
 ```
 
 ### `render_markdown` 与 `render_epub`
 
-这两个方法只负责渲染已有 `DocumentPackage`，不会重新 OCR。它们适合在提取或变换完成后
+这两个方法只负责渲染已有 `PDFCraftExtraction`，不会重新 OCR。它们适合在提取或变换完成后
 重复生成不同输出格式。
 
-### `translate_package`
+### `translate_extraction`
 
-`translate_package` 将一个结果目录中的章节交给章节变换器，并生成另一个结果目录。它是
-库中唯一面向结果目录翻译的公开入口；任意变换链不属于公共 API。
+`translate_extraction` 将一个 `.pcex` 中的章节交给章节变换器，并生成另一个 `.pcex`。输出会
+保留 manifest、pages、TOC、封面和 assets；任意变换链不属于公共 API。
 
 ## `ExtractionOptions`
 
@@ -328,10 +329,11 @@ package, metering = craft.extract_pdf_with_metering(
 `False`，包括 `convert_pdf_to_epub`；若你的 PDF 确实包含需要按目录页处理的目录，应显式
 传入 `ExtractionOptions(toc_assumed=True)`。
 
-没有显式设置 `dpi` 时，提取时实际以 `300` DPI 渲染页面，且生成的 `document.json` 会记录
-`"dpi": 300`；`ExtractionOptions.dpi` 的 `None` 表示采用该默认值，不表示没有 DPI。提高
+没有显式设置 `dpi` 时，提取时实际以 `300` DPI 渲染页面，且生成的 `pages.xml` 会记录
+该值；`ExtractionOptions.dpi` 的 `None` 表示采用默认值，不表示没有 DPI。提高
 提取 DPI 可能改善小字或细节的 OCR 输入，但同时增加图像尺寸、处理时间和资源消耗。页面像素
-尺寸会随提取 DPI 写入 `document.json`，供后续 PDF 写回将 OCR bbox 对齐到源页。
+尺寸会随提取 DPI 写入 `pages.xml`，供后续 PDF 写回将 OCR bbox 对齐到源页。缺少几何时
+后端会直接拒绝，不会读取 OCR 缓存或重新渲染 PDF 来补齐。
 
 ## 计量、进度与中断
 

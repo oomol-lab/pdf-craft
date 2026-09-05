@@ -34,7 +34,7 @@ CUDA 环境安装匹配的 PyTorch。没有可用 CUDA 设备时，使用标准�
 - Poppler：PDF 页面渲染、OCR 提取以及公开的 PDF patch/translation 流程默认需要它，
   因为这些流程会渲染页面来生成或合成内容。
 - 只有纯粹使用 pypdf 读取并写回 PDF 的自定义流程才不需要 Poppler；这不是
-  `PDFCraft.patch_pdf_with_package` 和 `PDFCraft.translate_pdf` 的默认路径。
+  `PDFCraft.patch_pdf_with_extraction` 和 `PDFCraft.translate_pdf` 的默认路径。
 - vendor OCR：网络连接和有效的供应商配置；只要运行 OCR 提取，还需要 Poppler；本机不需要 CUDA。
 - local OCR：支持 CUDA 的 NVIDIA GPU、匹配的 PyTorch、模型缓存、足够的显存和 Poppler。
 
