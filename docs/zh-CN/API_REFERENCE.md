@@ -13,11 +13,11 @@ from pdf_craft import PDFCraft, PDFOptions
 翻译和 PDF 写回组合成一组方法。下面这些对象可直接从 `pdf_craft` 导入：
 
 - `PDFCraft`、`PDFOptions`、`ExtractionOptions`
-- `DocumentPackage`、`PDFExtractor`
+- `PDFCraftExtraction`、`PDFExtractor`
 - 六种 OCR 配置对象和 `OCRConfig`
 - `predownload_models`
 - `LLM`
-- `PackageTransformer`、`ChapterPackageTransformer`、`ChapterXMLTransformer`、
+- `ExtractionTransformer`、`ChapterExtractionTransformer`、`ChapterXMLTransformer`、
   `XMLTranslator`、`SubmitKind`
 - `BookMeta`、`TableRender`、`LaTeXRender`
 - `OCRTokensMetering`、`OCREvent`、`OCREventKind`、`TranslationEvent`、
@@ -39,7 +39,7 @@ from pdf_craft import PDFCraft, PDFOptions
 包含 `START`、`ITEM_START`、`ITEM_COMPLETE`、`PROGRESS` 和 `COMPLETE`；item 类型为
 TOC、metadata 或 chapter。字符统计是可翻译源文本的 Unicode 字符数，不是 token 数，
 也不是预先计算的百分比。chapter 可以来自 EPUB，也可以来自 PDF OCR 生成的
-`DocumentPackage`。
+`PDFCraftExtraction`。
 
 `ITEM_START`、`PROGRESS` 和 `ITEM_COMPLETE` 事件会提供当前 item 的已完成字符数和总字符数；
 范围事件会提供整个翻译范围的累计字符数。调用方可以据此自行计算 item 或整体百分比，库不
@@ -53,7 +53,7 @@ TOC、metadata 或 chapter。字符统计是可翻译源文本的 Unicode 字符
 craft = PDFCraft(pdf=PDFOptions(...))
 ```
 
-`PDFCraft()` 本身不会初始化 OCR。只做 EPUB → EPUB 翻译，或只渲染一个已经存在的 package
+`PDFCraft()` 本身不会初始化 OCR。只做 EPUB → EPUB 翻译，或只渲染已有 extraction
 时，可以不传 `PDFOptions`。凡是需要从 PDF 提取内容的操作，都必须提供 PDF 配置，或者使用
 已经准备好的测试 engine（后者是测试用途，不属于普通应用集成方式）。
 
@@ -129,37 +129,40 @@ LLM，不是 OCR 配置，也不是章节翻译器。
 
 ## PDF 工作流
 
-### 提取为 DocumentPackage
+### 提取为 PDFCraftExtraction
 
 ```python
-package = craft.extract_pdf(
+extraction = craft.extract_pdf(
     "input.pdf",
-    "work/package",
+    "work/book.pcex",
     ExtractionOptions(page_indexes={1, 2}),
 )
 ```
 
-`extract_pdf` 要求显式提供 `package_path`，因为返回的 `DocumentPackage` 需要在调用结束
-后继续有效。带计量版本返回二元组：
+`extract_pdf` 要求显式提供 `.pcex` 输出路径，因为返回的 `PDFCraftExtraction` 是可长期保存和
+跨机器交换的中间产物。普通目录不是公开输入。带计量版本返回二元组：
 
 ```python
-package, metering = craft.extract_pdf_with_metering(
-    "input.pdf", "work/package", ExtractionOptions()
+extraction, metering = craft.extract_pdf_with_metering(
+    "input.pdf", "work/book.pcex", ExtractionOptions()
 )
 print(metering.input_tokens, metering.output_tokens)
 ```
 
-`PDFExtractor` 是面向已有提取 backend 的低层包装器，构造时需要传入一个能够生成 package 的
+`PDFExtractor` 是面向已有提取 backend 的低层包装器，构造时需要传入提取 backend；
 backend。常规应用不应自行构造它，而应通过 `PDFCraft.extract_pdf*()` 获得已正确配置 OCR、PDF
 handler 和中断处理的提取流程。
 
 ### 直接转换为 Markdown 或 EPUB
 
-一键转换方法会在未提供 `package_path` 时创建系统临时目录，并在成功或异常后清理；需要
-调试、复用或保留中间结果时再显式传入路径：
+一键转换方法默认创建系统临时分析目录，并在成功或异常后清理。`analysing_path` 可保留 OCR、
+图表等诊断信息；`extraction_path` 可额外导出稳定的 `.pcex`。完整转换在内部直接使用
+`analysing_path/extraction/`，不会为衔接前后端执行无意义的压缩与解压：
 
 ```python
-craft.convert_pdf_to_markdown("input.pdf", "book.md")
+craft.convert_pdf_to_markdown(
+    "input.pdf", "book.md", extraction_path="work/book.pcex"
+)
 craft.convert_pdf_to_epub(
     "input.pdf", "book.epub",
     book_meta=BookMeta(title="Book title", authors=["Author"]),
@@ -171,21 +174,19 @@ craft.convert_pdf_to_epub(
 `inline_latex` 控制 EPUB 输出格式。
 两个方法都可以通过 `translator` 和 `on_translation_event` 在转换时完成一次翻译。
 
-### 从已有 package 渲染
+### 从已有 extraction 渲染
 
 ```python
-craft.render_markdown(package, "book.md", assets_path="book-assets")
+craft.render_markdown(extraction, "book.md", assets_path="book-assets")
 craft.render_epub(
-    package, "book.epub",
+    extraction, "book.epub",
     book_meta=BookMeta(title="Book title", authors=["Author"]),
 )
 ```
 
-渲染不会重新 OCR，也不会读取 PDF。Markdown 要求 package 通过
-`DocumentPackage.validate()`；EPUB 要求 `DocumentPackage.validate(require_toc=True)`，
-因此缺少 `toc.xml` 的 package 无法渲染为 EPUB。Markdown 可选复制图片资源；EPUB 读取
-章节、目录、封面和调用时提供的 `book_meta`。`document.json` 的页面几何元数据不参与 EPUB
-渲染，但 PDF 写回需要它。
+渲染不会重新 OCR，也不会读取 PDF。Markdown 要求 extraction 校验通过；EPUB 额外要求
+`toc.xml`。Markdown 可选复制图片资源；EPUB 从 `manifest.json` 读取默认元数据和语言，调用时
+显式提供的 `book_meta` / `lan` 优先。
 
 ### PDF 转换时翻译
 
@@ -215,54 +216,47 @@ def accepts_transformer(transformer: ChapterTransformer) -> None:
 ### 翻译并写回 PDF
 
 ```python
-package = craft.extract_pdf("input.pdf", "work/package")
+extraction = craft.extract_pdf("input.pdf", "work/book.pcex")
 craft.translate_pdf(
-    "input.pdf", package, "translated.pdf", translator,
+    "input.pdf", extraction, "translated.pdf", translator,
 )
 ```
 
-`translate_pdf` 会生成翻译后的临时 package，再调用 `patch_pdf_with_package`。写回只会
-替换 package 中记录了来源坐标的原始 PDF 文本，不是通用 PDF 排版器；输入 PDF 必须和 package
-来自同一份源文件，并且 package 要有页面几何元数据。PDF 写回不支持 `APPEND_BLOCK`；
+`translate_pdf` 会生成翻译后的临时 extraction，再执行 PDF 写回。写回只会替换 extraction
+中记录了来源坐标的原始 PDF 文本，不是通用 PDF 排版器；输入 PDF 必须来自同一源文件，并且
+`pages.xml` 要包含完整页面几何。PDF 写回不支持 `APPEND_BLOCK`；
 `APPEND_TEXT` 可以把双语内容放进原文本框，但更容易超过原有版面，通常优先选 `REPLACE`。
 
-如果已经有翻译后的 package，也可以单独写回：
+如果已经有翻译后的 `.pcex`，也可以单独写回：
 
 ```python
-craft.patch_pdf_with_package("input.pdf", translated_package, "translated.pdf")
+craft.patch_pdf_with_extraction("input.pdf", "work/translated.pcex", "translated.pdf")
 ```
 
-## DocumentPackage
+## PDFCraftExtraction 与 `.pcex`
 
-`DocumentPackage` 是渲染器和变换器之间的稳定中间对象。它通常从目录读取：
+`PDFCraftExtraction` 是带原始 PDF 页码和 bbox 映射的结构化中间对象。公开持久化和交换格式
+统一为 `.pcex`（ZIP），通过以下方式加载：
 
 ```python
-package = DocumentPackage.from_path("work/package")
-package.validate()
+extraction = PDFCraftExtraction.open("work/book.pcex")
+extraction.validate()
 ```
 
-公开字段包括：
+归档固定包含 `manifest.json`、`pages.xml`、`chapters/`、`assets/`，并可选包含 `toc.xml` 与
+`cover.png`。manifest 保存格式版本、producer、创建时间及书名、作者、出版社、语言等文档
+元数据；pages 保存 1-based 页码、OCR 像素坐标空间、实际 DPI 和各页像素宽高。OCR 响应、
+plot 和 done 标记属于 analysis 诊断信息，不进入 `.pcex`。
 
-- `chapters_path`：章节 XML 目录，必需。
-- `assets_path`：图片和其他资源目录，必需。
-- `toc_path`：可选目录文件。
-- `cover_path`：可选封面图片。
-- `metadata_path`：可选 `document.json`，包含 schema 和页面几何信息。
-
-`validate(require_toc=True)` 可以额外要求目录存在。`has_toc()`、`has_cover()` 和
-`page_pixel_sizes()` 可用于检查 package 能否用于相应输出。`page_pixel_sizes()` 返回
-以 1-based 页码为键的 OCR 画布尺寸；PDF 写回依赖这些元数据。
-
-`DocumentPackage` 是目录工件，不是独立的 PDF 或 EPUB 文件。使用 `extract_pdf` 生成的
-package 可以重复渲染、翻译或写回；使用一键 `convert_pdf_to_*` 时的隐式临时 package 会
-在方法返回后删除。
+加载时会检查版本、ZIP 路径安全、必需组件、XML、页面引用、bbox 和资源引用；非法、损坏或
+不支持版本的包会被拒绝。所有后端只读取 extraction 内字段，不会回退读取 analysis/OCR 缓存。
 
 ## 翻译与变换接口
 
 ### ChapterTransformer
 
 章节变换器实现一个 `transform(chapter) -> chapter` 方法。它可以修改章节文本、段落或布局，
-并被 `translate_package` 和 `translate_pdf` 使用。实现该低层协议时，需从
+并被 `translate_extraction` 和 `translate_pdf` 使用。实现该低层协议时，需从
 它的实际定义处导入 `Chapter`：
 
 ```python
@@ -280,23 +274,22 @@ transformer: ChapterTransformer = KeepChapterStructure()
 章节布局类型不是顶层 facade 的日常 API。自行编辑它们时必须保留原有页面来源信息，否则 PDF
 写回无法定位原文；纯文本翻译应优先使用下一节的 `XMLTranslator`，避免依赖章节内部结构。
 
-### PackageTransformer
+### ExtractionTransformer
 
-package 变换器实现：
+extraction 变换器实现：
 
 ```python
-def transform(package: DocumentPackage, output_path: Path) -> DocumentPackage:
+def transform(extraction: PDFCraftExtraction, output_path: Path) -> PDFCraftExtraction:
     ...
 ```
 
-它负责把一个完整 package 写入新的输出目录，并返回新的 `DocumentPackage`。适合需要同时
-修改章节、目录、资源或元数据的高级流程。
+它负责把一个完整 extraction 写入新的 `.pcex`，并返回新的 `PDFCraftExtraction`。
 
 ### 使用 XMLTranslator 翻译 PDF 章节
 
 `XMLTranslator` 是包顶层导出的结构化文本翻译器。它需要分别提供翻译文本和修复 XML
 结构的 LLM；同一个 `LLM` 可以同时承担两项工作。将它包装为 `ChapterXMLTransformer` 后，
-即可作为 `translator` 传给 PDF 转换或 package 翻译入口：
+即可作为 `translator` 传给 PDF 转换或 extraction 翻译入口：
 
 ```python
 from pdf_craft import (
@@ -334,12 +327,12 @@ craft.convert_pdf_to_markdown(
 `APPEND_TEXT` 或 `APPEND_BLOCK`；PDF 不支持 `APPEND_BLOCK`，而 `APPEND_TEXT` 虽可使用，
 但需要为双语文本的版面溢出承担处理成本，因此通常推荐 `REPLACE`。
 
-已有可复用 package 时，使用同一个 transformer 调用 `translate_package`，显式指定新的输出目录：
+已有可复用 extraction 时，调用 `translate_extraction` 并显式指定新的 `.pcex`：
 
 ```python
-translated_package = craft.translate_package(
-    package,
-    "work/translated-package",
+translated_extraction = craft.translate_extraction(
+    extraction,
+    "work/translated.pcex",
     ChapterXMLTransformer(xml_translator),
     submit=SubmitKind.REPLACE,
 )
@@ -383,20 +376,20 @@ translate_epub(
 
 ## 低层 PDF 写回 API
 
-通常应使用 `PDFCraft.patch_pdf_with_package()` 或 `PDFCraft.translate_pdf()`。顶层也公开了较低层的
+通常应使用 `PDFCraft.patch_pdf_with_extraction()` 或 `PDFCraft.translate_pdf()`。顶层也公开了较低层的
 写回组件，供已经能自行生成替换坐标与文字的集成方使用：
 
 - `PDFReplacement` 描述一段待替换文本：`page_index`、像素坐标 `bbox`、`text`、OCR 画布尺寸
   `page_pixel_size`，以及可选的 `dpi`、`reading_order`。
 - `PDFPatcher(options=PatchTextOptions(...), pdf_handler=...)` 通过 `.patch(source_path,
   target_path, replacements)` 写出 PDF。它接受任意通过字段校验的 `PDFReplacement`，不要求这些
-  替换项来自 `DocumentPackage` 或 OCR；`page_pixel_size` 仅用于把像素 `bbox` 换算为 PDF 坐标，
+  替换项来自 `PDFCraftExtraction` 或 OCR；`page_pixel_size` 仅用于把像素 `bbox` 换算为 PDF 坐标，
   patcher 不会验证它是否等于源页的实际渲染尺寸。调用方必须自行保证页码、坐标与尺寸对应源 PDF。
   `PatchTextOptions` 控制字体、字号、内边距、对齐和 `overflow` 策略；`overflow="error"`（默认）
   在文字无法放入原框时失败，`"skip"` 则把对应项记录在 `patcher.skipped_replacements` 中。
-- `PDFTranslationPipeline` 可将一个 `DocumentPackage` 与 `ChapterTransformer` 或
-  `Callable[[str], str]` 直接写回 PDF；其 `.patch()` 则把 package 已有的文字写回。这是
-  facade 的底层组成部分，普通应用无需直接构造。它只从 package 中带来源坐标的 `text` 和
+- `PDFTranslationPipeline` 可将一个 `PDFCraftExtraction` 与 `ChapterTransformer` 或
+  `Callable[[str], str]` 直接写回 PDF；其 `.patch()` 则把 extraction 已有的文字写回。这是
+  facade 的底层组成部分，普通应用无需直接构造。它只从 extraction 中带来源坐标的 `text` 和
   `sub_title` 布局收集替换项。
 
 它们都不会重排 PDF 页面；页码从 1 开始。
@@ -473,10 +466,10 @@ LLM(
 
 ## 组合建议
 
-- 一次性 PDF → Markdown/EPUB：使用 `PDFCraft(pdf=PDFOptions(...)).convert_pdf_to_*`，不传
-  `package_path` 即可自动管理临时目录。
-- 需要重复渲染、翻译或写回：先用 `extract_pdf` 保存 package，再调用 `render_*`、
-  `translate_package` 或 `patch_pdf_with_package`。
-- PDF → 翻译 PDF：使用同一源 PDF 生成 package，再调用 `translate_pdf`；不要把 EPUB 的
+- 一次性 PDF → Markdown/EPUB：使用 `PDFCraft(pdf=PDFOptions(...)).convert_pdf_to_*`，默认
+  自动管理临时 analysis；需要中间产物时传 `extraction_path`。
+- 需要重复渲染、翻译或写回：先用 `extract_pdf` 保存 `.pcex`，再调用 `render_*`、
+  `translate_extraction` 或 `patch_pdf_with_extraction`。
+- PDF → 翻译 PDF：使用同一源 PDF 生成 extraction，再调用 `translate_pdf`；不要把 EPUB 的
   `APPEND_BLOCK` 语义用于 PDF。
 - EPUB → EPUB：使用 `PDFCraft().translate_epub`，只配置文本 LLM，不需要 OCR。

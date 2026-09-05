@@ -8,10 +8,10 @@ This guide covers workflows that start with a PDF: converting it to Markdown or 
 | --- | --- | --- |
 | Convert a PDF once | `convert_pdf_to_markdown()` or `convert_pdf_to_epub()` | Markdown or EPUB |
 | Translate as the PDF is converted | Pass one `translator` to either conversion method | Translated Markdown or EPUB |
-| Keep, inspect, or reuse OCR output | `extract_pdf()`, then render or translate the returned package | A durable `DocumentPackage` directory |
-| Produce a translated PDF | `translate_pdf()` or `patch_pdf_with_package()` | A new PDF with translated text over the source pages |
+| Reuse or move an extraction | `extract_pdf()`, then render or translate it | A portable `.pcex` file |
+| Produce a translated PDF | `translate_pdf()` or `patch_pdf_with_extraction()` | A new PDF with translated text over the source pages |
 
-For a one-off conversion, use the two `convert_pdf_to_*` methods. They extract the PDF, optionally translate it once, and render the final file. Use the lower-level package APIs only when you need a persistent intermediate package or need to control each stage separately.
+For a one-off conversion, use the two `convert_pdf_to_*` methods. They extract the PDF, optionally translate it once, and render the final file. Use the extraction APIs when you need a persistent intermediate artifact or need to control each stage separately.
 
 All PDF extraction requires a configured `PDFCraft` instance. The OCR configuration is independent of the text LLM used for translation.
 
@@ -36,18 +36,24 @@ metering = craft.convert_pdf_to_markdown("book.pdf", "book.md")
 print(metering.input_tokens, metering.output_tokens)
 ```
 
-The return value records OCR input and output tokens for the run. By default, pdf-craft creates a temporary `DocumentPackage` workspace and removes it on success or failure. If you want to inspect OCR XML, reuse it for another output format, or retain it after an error, provide `package_path` yourself:
+The return value records OCR input and output tokens for the run. By default,
+pdf-craft creates a temporary analysis workspace and removes it on success or
+failure. Retain diagnostics with `analysing_path`; independently export the stable
+intermediate format with `extraction_path`:
 
 ```python
 craft.convert_pdf_to_markdown(
     "book.pdf",
     "book.md",
-    package_path="work/book-package",
+    analysing_path="work/analysis",
+    extraction_path="work/book.pcex",
     assets_path="output/assets",
 )
 ```
 
-`assets_path` controls where Markdown images and other extracted assets are written. A caller-supplied package directory is persistent and is the caller's responsibility to manage.
+`assets_path` controls where Markdown images and other extracted assets are written.
+A caller-supplied analysis directory and `.pcex` file are persistent and are the
+caller's responsibility to manage.
 
 ## Convert a PDF to EPUB
 
@@ -89,20 +95,20 @@ craft.convert_pdf_to_markdown(
 )
 ```
 
-Use `SubmitKind.REPLACE` for a target-language-only document. `APPEND_TEXT` appends translated text to the same text flow, while `APPEND_BLOCK` adds separate translated blocks, which is generally the clearer bilingual layout for Markdown and EPUB. The high-level conversion methods perform at most one translation; advanced applications that need additional package transformations should compose the lower-level package APIs explicitly.
+Use `SubmitKind.REPLACE` for a target-language-only document. `APPEND_TEXT` appends translated text to the same text flow, while `APPEND_BLOCK` adds separate translated blocks, which is generally the clearer bilingual layout for Markdown and EPUB. The high-level conversion methods perform at most one translation; advanced applications should compose the extraction APIs explicitly.
 
-## Work explicitly with a DocumentPackage
+## Work explicitly with a PDFCraftExtraction
 
-A `DocumentPackage` is pdf-craft's on-disk, render-ready representation of an extracted document: chapters, assets, OCR metadata, and page geometry live together in one directory. It is intended for durable intermediate results, not as a separate plugin protocol.
+A `PDFCraftExtraction` is pdf-craft's source-mapped intermediate document. It contains chapters, assets, page geometry, document metadata, and optional TOC and cover. On disk it is exchanged as a `.pcex` ZIP file, so it can be stored or moved to another machine without carrying the analysis/OCR cache.
 
-Use an explicit package when the same extraction must feed more than one output, or when translation is a distinct operation:
+Use an explicit `.pcex` when the same extraction must feed more than one output, or when translation is a distinct operation:
 
 ```python
-package = craft.extract_pdf("book.pdf", "work/book-package")
+extraction = craft.extract_pdf("book.pdf", "work/book.pcex")
 
-translated = craft.translate_package(
-    package,
-    "work/book-package-zh",
+translated = craft.translate_extraction(
+    extraction,
+    "work/book.zh.pcex",
     translator,
     submit=SubmitKind.REPLACE,
 )
@@ -110,18 +116,18 @@ craft.render_markdown(translated, "book.zh.md", assets_path="output/assets")
 craft.render_epub(translated, "book.zh.epub", lan="zh")
 ```
 
-`extract_pdf()` deliberately requires a package path: its result is meant to survive after the method returns. `translate_package()` creates a new package at `output_path`; it does not overwrite the source package.
+`extract_pdf()` deliberately requires a `.pcex` path: its result is meant to survive after the method returns. `translate_extraction()` creates a new archive at `output_path`; it does not overwrite the source extraction. Rendering, translation, and PDF patching accept either the returned object or a `.pcex` path, but not an ordinary directory.
 
 ## Translate and patch a PDF
 
 To create a translated PDF, first extract the source and then ask pdf-craft to translate and patch it:
 
 ```python
-package = craft.extract_pdf("book.pdf", "work/book-package")
+extraction = craft.extract_pdf("book.pdf", "work/book.pcex")
 
 craft.translate_pdf(
     "book.pdf",
-    package,
+    extraction,
     "book.zh.pdf",
     translator,
 )
@@ -133,15 +139,15 @@ The `transformer` may be a chapter transformer or a simple `Callable[[str], str]
 def translate_text(text: str) -> str:
     return call_your_llm(text)
 
-craft.translate_pdf("book.pdf", package, "book.zh.pdf", translate_text)
+craft.translate_pdf("book.pdf", extraction, "book.zh.pdf", translate_text)
 ```
 
-If translation happened elsewhere, call `patch_pdf_with_package()` instead. It runs neither OCR nor an LLM; it uses the translated package's page geometry to patch the source PDF.
+If translation happened elsewhere, call `patch_pdf_with_extraction()` instead. It runs neither OCR nor an LLM; it uses the translated extraction's page geometry to patch the source PDF.
 
 ```python
-craft.patch_pdf_with_package(
+craft.patch_pdf_with_extraction(
     "book.pdf",
-    "work/book-package-zh",
+    "work/book.zh.pcex",
     "book.zh.pdf",
 )
 ```
@@ -150,7 +156,7 @@ craft.patch_pdf_with_package(
 
 PDF patching is a page-overlay workflow, not a general-purpose PDF layout engine. Each source page is rendered as an image and translated text is placed over its OCR bounding boxes. The output therefore does not retain the source PDF's selectable vector text, links, annotations, or other page objects. It replaces text and subtitle layouts only; tables and images are not translated in place.
 
-The source PDF and package must match. The package needs page geometry for every chapter page and its page numbers must be valid for the source file. `APPEND_BLOCK` is rejected for PDF output because new block-level content cannot safely be added to a fixed page. Text that cannot fit its original bounding box fails before a partial output PDF is left behind.
+The source PDF and extraction must match. `pages.xml` must contain geometry for every chapter page and its page numbers must be valid for the source file. There is no fallback to OCR caches or re-rendering to recover missing geometry. `APPEND_BLOCK` is rejected for PDF output because new block-level content cannot safely be added to a fixed page. Text that cannot fit its original bounding box fails before a partial output PDF is left behind.
 
 For custom fonts, fit rules, alignment, padding, or overflow handling, use the lower-level public `PDFPatcher`, `PatchTextOptions`, and `PDFTranslationPipeline` APIs described in the [API reference](API_REFERENCE.md).
 

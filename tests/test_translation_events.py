@@ -3,24 +3,22 @@ import unittest
 from pathlib import Path
 from xml.etree.ElementTree import tostring
 
-from pdf_craft import ChapterPackageTransformer, TranslationEventKind, TranslationItemKind
+from pdf_craft import ChapterExtractionTransformer, TranslationEventKind, TranslationItemKind
 from pdf_craft.craft import PDFCraft
-from pdf_craft.document import DocumentPackage
 from pdf_craft.extractor.chapter.chapter import BlockLayout, Chapter, ParagraphLayout, encode
+from tests.extraction_helpers import make_extraction
 
 
 class TestTranslationEvents(unittest.TestCase):
-    def test_direct_package_transform_does_not_claim_translation_events(self):
+    def test_direct_extraction_transform_does_not_claim_translation_events(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            source = DocumentPackage.from_path(root / "source")
-            source.chapters_path.mkdir(parents=True)
-            source.assets_path.mkdir()
-            source.write_metadata(page_pixel_sizes={1: (10, 10)})
+            source_root = root / "source"
+            source = make_extraction(source_root, page_pixel_sizes={1: (10, 10)})
             chapter = Chapter(None, -1, [ParagraphLayout(
                 "text", 0, [BlockLayout(1, 1, (1, 1, 5, 5), ["source"])]
             )])
-            (source.chapters_path / "chapter_head.xml").write_text(
+            (source_root / "chapters/chapter_head.xml").write_text(
                 '<?xml version="1.0" encoding="UTF-8"?>\n'
                 + tostring(encode(chapter), encoding="unicode")
             )
@@ -30,18 +28,16 @@ class TestTranslationEvents(unittest.TestCase):
                     return chapter
 
             events = []
-            ChapterPackageTransformer(Identity()).transform(
-                source, root / "target", on_translation_event=events.append
+            ChapterExtractionTransformer(Identity()).transform(
+                source, root / "target.pcex", on_translation_event=events.append
             )
             self.assertEqual(events, [])
 
-    def test_package_translation_reports_format_neutral_chapter_events(self):
+    def test_extraction_translation_reports_format_neutral_chapter_events(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            source = DocumentPackage.from_path(root / "source")
-            source.chapters_path.mkdir(parents=True)
-            source.assets_path.mkdir()
-            source.write_metadata(page_pixel_sizes={1: (10, 10)})
+            source_root = root / "source"
+            source = make_extraction(source_root, page_pixel_sizes={1: (10, 10)})
 
             chapters = [
                 Chapter(None, -1, [ParagraphLayout(
@@ -53,7 +49,7 @@ class TestTranslationEvents(unittest.TestCase):
                 Chapter(8, 1, []),
             ]
             for name, chapter in zip(("chapter_head.xml", "chapter_7.xml", "chapter_8.xml"), chapters):
-                (source.chapters_path / name).write_text(
+                (source_root / "chapters" / name).write_text(
                     '<?xml version="1.0" encoding="UTF-8"?>\n'
                     + tostring(encode(chapter), encoding="unicode")
                 )
@@ -63,8 +59,8 @@ class TestTranslationEvents(unittest.TestCase):
                     return chapter
 
             events = []
-            PDFCraft().translate_package(
-                source, root / "target", Identity(), on_translation_event=events.append
+            PDFCraft().translate_extraction(
+                source, root / "target.pcex", Identity(), on_translation_event=events.append
             )
 
             self.assertEqual(events[0].kind, TranslationEventKind.START)

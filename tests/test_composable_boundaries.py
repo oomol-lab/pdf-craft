@@ -1,3 +1,5 @@
+# pylint: disable=protected-access
+
 import tempfile
 import unittest
 from pathlib import Path
@@ -6,13 +8,12 @@ from typing import cast
 from xml.etree.ElementTree import tostring
 from PIL import Image
 
-from pdf_craft.document import DocumentPackage
 from pdf_craft.error import NoUsableOCRPagesError, OCRError
 from pdf_craft.extractor import PDFExtractor
 from pdf_craft.pipeline.pdf.pipeline import PDFTranslationPipeline
 from pdf_craft.pipeline.pdf import PDFPatcher
 from pdf_craft.transformer import (
-    ChapterPackageTransformer, ChapterXMLTransformer,
+    ChapterExtractionTransformer, ChapterXMLTransformer,
     TranslationEvent, TranslationEventKind,
 )
 from pdf_craft.renderer import EpubRenderer, MarkdownRenderer
@@ -23,25 +24,21 @@ from pdf_craft.pdf.ocr import OCR, OCREvent, OCREventKind
 from pdf_craft.pdf.handler import PDFHandler
 from pdf_craft.pdf.types import Page
 from pdf_craft.transform import PDFExtractionEngine
+from tests.extraction_helpers import make_extraction
 
 
 class _FakeTransform:
     def extract_package(self, *, analysing_path, **_kwargs):
-        (analysing_path / "chapters").mkdir(parents=True)
-        (analysing_path / "assets").mkdir()
-        (analysing_path / "toc.xml").write_text("<toc/>")
-        DocumentPackage.from_path(analysing_path).write_metadata(
-            dpi=300, page_pixel_sizes={1: (100, 100)}
+        make_extraction(
+            analysing_path / "extraction", page_pixel_sizes={1: (100, 100)},
+            with_toc=True,
         )
         return None, None, None, None, "metering"
 
 
 class _NoAssetTransform:
     def extract_package(self, *, analysing_path, **_kwargs):
-        (analysing_path / "chapters").mkdir(parents=True)
-        DocumentPackage.from_path(analysing_path).write_metadata(
-            dpi=300, page_pixel_sizes={1: (100, 100)}
-        )
+        make_extraction(analysing_path / "extraction", page_pixel_sizes={1: (100, 100)})
         return None, None, None, None, "metering"
 
 
@@ -143,68 +140,66 @@ class TestComposableBoundaries(unittest.TestCase):
             self.assertEqual(raised.exception.failed_page_indexes, (1, 2))
             analyse_toc.assert_not_called()
 
-    def test_package_translation_skips_empty_chapters(self):
+    def test_extraction_translation_skips_empty_chapters(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            source = DocumentPackage.from_path(root / "source")
-            source.chapters_path.mkdir(parents=True)
-            source.assets_path.mkdir()
-            source.write_metadata(page_pixel_sizes={1: (100, 100)})
+            source_root = root / "source"
+            source = make_extraction(source_root, page_pixel_sizes={1: (100, 100)})
             empty = Chapter(None, 0, [])
             text = Chapter(None, 0, [ParagraphLayout(
                 "text", 0, [BlockLayout(1, 1, (1, 1, 50, 50), ["text"])]
             )])
-            (source.chapters_path / "chapter_1.xml").write_text(
+            (source_root / "chapters/chapter_1.xml").write_text(
                 '<?xml version="1.0" encoding="UTF-8"?>\n'
                 + tostring(encode(empty), encoding="unicode")
             )
-            (source.chapters_path / "chapter_2.xml").write_text(
+            (source_root / "chapters/chapter_2.xml").write_text(
                 '<?xml version="1.0" encoding="UTF-8"?>\n'
                 + tostring(encode(text), encoding="unicode")
             )
 
             translator = _DeterministicXMLTranslator()
-            target = ChapterPackageTransformer(
+            target = ChapterExtractionTransformer(
                 ChapterXMLTransformer(translator)
-            ).transform(source, root / "target")
+            ).transform(source, root / "target.pcex")
 
             self.assertEqual(translator.calls, 1)
-            self.assertEqual(
-                (target.chapters_path / "chapter_1.xml").read_text(),
-                (source.chapters_path / "chapter_1.xml").read_text(),
-            )
-            self.assertIn("T:text", (target.chapters_path / "chapter_2.xml").read_text())
+            with target._materialize() as paths:
+                self.assertEqual(
+                    (paths.chapters / "chapter_1.xml").read_text(),
+                    (source_root / "chapters/chapter_1.xml").read_text(),
+                )
+                self.assertIn("T:text", (paths.chapters / "chapter_2.xml").read_text())
 
     def test_extractor_creates_empty_assets_directory_for_asset_free_pages(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            package, _ = PDFExtractor(_NoAssetTransform()).extract_with_metering(
-                root / "input.pdf", root / "package"
+            extraction, _ = PDFExtractor(_NoAssetTransform()).extract_with_metering(
+                root / "input.pdf", root / "book.pcex"
             )
-            self.assertTrue(package.assets_path.is_dir())
+            with extraction._materialize() as paths:
+                self.assertTrue(paths.assets.is_dir())
 
-    def test_extractor_produces_package_consumed_by_renderers_without_ocr_cache(self):
+    def test_extractor_produces_extraction_consumed_without_analysis_cache(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            package, metering = PDFExtractor(_FakeTransform()).extract_with_metering(root / "input.pdf", root / "package")
+            extraction, metering = PDFExtractor(_FakeTransform()).extract_with_metering(
+                root / "input.pdf", root / "book.pcex", analysing_path=root / "analysis"
+            )
             self.assertEqual(metering, "metering")
-            self.assertFalse((root / "package" / "ocr").exists())
-            self.assertIsNone(package.cover_path)
-            self.assertEqual(package.page_pixel_sizes(), {1: (100, 100)})
+            self.assertFalse((root / "analysis" / "extraction" / "ocr").exists())
+            self.assertEqual(extraction.page_pixel_sizes(), {1: (100, 100)})
             with patch("pdf_craft.renderer.markdown.renderer.render_markdown_file") as markdown:
-                MarkdownRenderer().render(package, root / "book.md")
-            self.assertEqual(markdown.call_args.args[0], package.chapters_path)
+                MarkdownRenderer().render(extraction, root / "book.md")
+            self.assertEqual(markdown.call_args.args[0].name, "chapters")
             with patch("pdf_craft.renderer.epub.renderer.render_epub_file") as epub:
-                EpubRenderer().render(package, root / "book.epub")
-            self.assertEqual(epub.call_args.args[0], package.chapters_path)
+                EpubRenderer().render(extraction, root / "book.epub")
+            self.assertEqual(epub.call_args.args[0].name, "chapters")
 
     def test_pdf_pipeline_preserves_structured_content_and_uses_package_metadata(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            package = DocumentPackage.from_path(root)
-            package.chapters_path.mkdir(parents=True)
-            package.assets_path.mkdir()
-            package.write_metadata(dpi=300, page_pixel_sizes={1: (100, 100)})
+            extraction = make_extraction(root, page_pixel_sizes={1: (100, 100)})
             reference = Reference(1, 2, "[1]", [])
             chapter = Chapter(None, -1, [
                 ParagraphLayout("text", 0, [BlockLayout(
@@ -215,7 +210,7 @@ class TestComposableBoundaries(unittest.TestCase):
             patcher = _CapturePatcher()
             with patch("pdf_craft.pipeline.pdf.pipeline.create_chapters_reader", return_value=lambda: iter([chapter])):
                 PDFTranslationPipeline(patcher=cast(PDFPatcher, patcher)).translate(
-                    root / "input.pdf", root / "out.pdf", package,
+                    root / "input.pdf", root / "out.pdf", extraction,
                     ChapterXMLTransformer(_DeterministicXMLTranslator())
                 )
             self.assertEqual(len(patcher.replacements), 2)
@@ -228,10 +223,7 @@ class TestComposableBoundaries(unittest.TestCase):
     def test_pdf_pipeline_forwards_translation_events_to_structured_transformer(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            package = DocumentPackage.from_path(root)
-            package.chapters_path.mkdir(parents=True)
-            package.assets_path.mkdir()
-            package.write_metadata(page_pixel_sizes={1: (100, 100)})
+            extraction = make_extraction(root, page_pixel_sizes={1: (100, 100)})
             chapter = Chapter(None, -1, [ParagraphLayout(
                 "text", 0, [BlockLayout(1, 1, (1, 1, 50, 50), ["text"])]
             )])
@@ -252,7 +244,7 @@ class TestComposableBoundaries(unittest.TestCase):
             callback = observed.append
             with patch("pdf_craft.pipeline.pdf.pipeline.create_chapters_reader", return_value=lambda: iter([chapter])):
                 PDFTranslationPipeline(patcher=cast(PDFPatcher, _CapturePatcher())).translate(
-                    root / "input.pdf", root / "out.pdf", package,
+                    root / "input.pdf", root / "out.pdf", extraction,
                     ChapterXMLTransformer(EventTranslator()),
                     on_translation_event=callback,
                 )
@@ -264,23 +256,38 @@ class TestComposableBoundaries(unittest.TestCase):
                 [event.kind for event in observed],
             )
 
-    def test_metadata_path_is_retained_for_direct_package(self):
+    def test_pdf_pipeline_never_recovers_missing_geometry_from_source_pdf(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            package = DocumentPackage(root / "chapters", root / "assets")
-            package.write_metadata(dpi=300, page_pixel_sizes={1: (30, 30)})
-            self.assertEqual(package.page_pixel_sizes(), {1: (30, 30)})
+            extraction = make_extraction(root, page_pixel_sizes={1: (100, 100)})
+            chapter = Chapter(None, -1, [ParagraphLayout(
+                "text", 0, [BlockLayout(2, 1, (1, 1, 50, 50), ["text"])]
+            )])
+            handler = _FakeHandler()
+            patcher = _CapturePatcher()
+            with patch(
+                "pdf_craft.pipeline.pdf.pipeline.create_chapters_reader",
+                return_value=lambda: iter([chapter]),
+            ), self.assertRaisesRegex(ValueError, "pages.xml is missing page 2"):
+                PDFTranslationPipeline(
+                    pdf_handler=cast(PDFHandler, handler),
+                    patcher=cast(PDFPatcher, patcher),
+                ).patch(root / "input.pdf", root / "out.pdf", extraction)
+            self.assertEqual(handler.document.render_count, 0)
+            self.assertEqual(patcher.replacements, [])
+
+    def test_pages_xml_is_used_for_direct_workspace_extraction(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            extraction = make_extraction(root, page_pixel_sizes={1: (30, 30)})
+            self.assertEqual(extraction.page_pixel_sizes(), {1: (30, 30)})
 
     def test_epub_renderer_rejects_unsupported_language(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            package = DocumentPackage.from_path(root)
-            package.chapters_path.mkdir()
-            package.assets_path.mkdir()
-            assert package.toc_path is not None
-            package.toc_path.write_text("<toc/>")
+            extraction = make_extraction(root, with_toc=True)
             with self.assertRaises(ValueError):
-                EpubRenderer().render(package, root / "book.epub", lan="fr")  # type: ignore[arg-type]
+                EpubRenderer().render(extraction, root / "book.epub", lan="fr")  # type: ignore[arg-type]
 
     def test_ocr_geometry_cache_survives_interrupted_resume_without_rerendering(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -327,19 +334,22 @@ class TestComposableBoundaries(unittest.TestCase):
             self.assertFalse((root / "ocr" / "page_1.failed").exists())
             self.assertTrue((root / "ocr" / "done").exists())
 
-    def test_package_rejects_malformed_page_geometry(self):
+    def test_extraction_rejects_malformed_page_geometry(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            package = DocumentPackage.from_path(root)
-            package.chapters_path.mkdir()
-            package.assets_path.mkdir()
-            assert package.metadata_path is not None
-            package.metadata_path.write_text('{"schema": 1, "page_pixel_sizes": {"1": [1]}}')
-            with self.assertRaisesRegex(ValueError, "page_pixel_sizes"):
-                package.validate()
-            package.metadata_path.write_text('{"schema": 1, "page_pixel_sizes": {"1": [1.5, 2]}}')
-            with self.assertRaisesRegex(ValueError, "page_pixel_sizes"):
-                package.validate()
+            extraction = make_extraction(root)
+            (root / "pages.xml").write_text(
+                '<pages index_base="1" coordinate_space="ocr_pixels" render_dpi="300">'
+                '<page index="1" width="1" /></pages>'
+            )
+            with self.assertRaisesRegex(ValueError, "pages.xml"):
+                extraction.validate()
+            (root / "pages.xml").write_text(
+                '<pages index_base="1" coordinate_space="ocr_pixels" render_dpi="300">'
+                '<page index="1" width="1.5" height="2" /></pages>'
+            )
+            with self.assertRaisesRegex(ValueError, "pages.xml"):
+                extraction.validate()
 
     def test_ocr_rejects_malformed_geometry_cache(self):
         with tempfile.TemporaryDirectory() as directory:

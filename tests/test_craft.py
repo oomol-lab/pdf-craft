@@ -1,249 +1,241 @@
+# pylint: disable=protected-access
+
 import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import Mock, patch
-from xml.etree.ElementTree import tostring
+
+from epub_generator import BookMeta
 
 from pdf_craft.craft import ExtractionOptions, PDFCraft, PDFOptions
-from pdf_craft.document import DocumentPackage
+from pdf_craft.document import PDFCraftExtraction
+from pdf_craft.extractor import PDFExtractor
 from pdf_craft.extractor.chapter.chapter import BlockLayout, Chapter, ParagraphLayout, encode
-from pdf_craft.transformer import ChapterPackageTransformer, SubmitKind
+from pdf_craft.common import save_xml
+from pdf_craft.transformer import ChapterExtractionTransformer, SubmitKind
+from tests.extraction_helpers import make_extraction
 
 
 class _Engine:
     def __init__(self):
         self.kwargs = None
-        self.metadata_source = None
+        self.analysing_path = None
 
     def extract_package(self, *, analysing_path, **kwargs):
         self.kwargs = kwargs
-        (analysing_path / "chapters").mkdir(parents=True)
-        (analysing_path / "assets").mkdir()
-        (analysing_path / "toc.xml").write_text("<toc/>")
-        DocumentPackage.from_path(analysing_path).write_metadata(page_pixel_sizes={1: (10, 10)})
+        self.analysing_path = analysing_path
+        make_extraction(
+            analysing_path / "extraction",
+            page_pixel_sizes={1: (10, 10)},
+            with_toc=True,
+            book_meta=BookMeta(title="Detected title"),
+            language="en",
+        )
         return None, None, None, None, "metering"
 
-    def _extract_book_meta(self, source):
-        self.metadata_source = source
-        return "detected metadata"
+
+def _source_extraction(root: Path, *, with_toc: bool = False) -> PDFCraftExtraction:
+    extraction = make_extraction(
+        root, page_pixel_sizes={1: (10, 10)}, with_toc=with_toc
+    )
+    chapter = Chapter(
+        None,
+        -1,
+        [ParagraphLayout("text", 0, [BlockLayout(1, 1, (1, 1, 5, 5), ["original"])])],
+    )
+    save_xml(encode(chapter), root / "chapters" / "chapter_1.xml")
+    return extraction.validate()
+
+
+class _Upper:
+    def transform(self, chapter: Chapter) -> Chapter:
+        layout = chapter.layouts[0]
+        assert isinstance(layout, ParagraphLayout)
+        layout.blocks[0].content = ["translated"]
+        return chapter
+
+
+class _Identity:
+    def transform(self, chapter: Chapter) -> Chapter:
+        return chapter
 
 
 class TestPDFCraft(unittest.TestCase):
-    def test_translate_package_is_the_public_package_translation_entry(self):
+    def test_translate_extraction_is_the_public_translation_entry(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            source = DocumentPackage.from_path(root / "source")
-            source.chapters_path.mkdir(parents=True)
-            source.assets_path.mkdir()
-            source.write_metadata(page_pixel_sizes={1: (10, 10)})
-            chapter = Chapter(
-                None, -1, [ParagraphLayout(
-                    "text", 0, [BlockLayout(1, 1, (1, 1, 5, 5), ["original"])]
-                )]
-            )
-            (source.chapters_path / "chapter_1.xml").write_text(
-                '<?xml version="1.0" encoding="UTF-8"?>\n'
-                + tostring(encode(chapter), encoding="unicode")
-            )
+            source = _source_extraction(root / "source")
+            target_path = root / "target.pcex"
 
-            class Upper:
-                def transform(self, chapter: Chapter) -> Chapter:
-                    layout = chapter.layouts[0]
-                    assert isinstance(layout, ParagraphLayout)
-                    layout.blocks[0].content = ["translated"]
-                    return chapter
+            target = PDFCraft().translate_extraction(source, target_path, _Upper())
 
-            target = PDFCraft().translate_package(source, root / "target", Upper())
+            self.assertTrue(target_path.is_file())
             self.assertEqual(target.page_pixel_sizes(), {1: (10, 10)})
-            self.assertIn("translated", (target.chapters_path / "chapter_1.xml").read_text())
-            self.assertFalse(hasattr(PDFCraft, "transform_package"))
+            with target._materialize() as paths:
+                self.assertIn("translated", (paths.chapters / "chapter_1.xml").read_text())
+            self.assertFalse(hasattr(PDFCraft, "translate_package"))
 
-    def test_patch_pdf_with_package_delegates_to_pdf_patch_pipeline(self):
+    def test_patch_pdf_with_extraction_delegates_to_pdf_patch_pipeline(self):
         with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
-            package = DocumentPackage.from_path(root / "package")
-            package.chapters_path.mkdir(parents=True)
-            package.assets_path.mkdir()
-            with patch("pdf_craft.craft._validate_package_for_pdf") as validate, \
+            extraction = _source_extraction(Path(directory) / "source")
+            with patch("pdf_craft.craft._validate_extraction_for_pdf") as validate, \
                     patch("pdf_craft.craft.PDFTranslationPipeline.patch") as patch_pdf:
-                PDFCraft().patch_pdf_with_package("source.pdf", package, "target.pdf")
+                PDFCraft().patch_pdf_with_extraction("source.pdf", extraction, "target.pdf")
             validate.assert_called_once()
             patch_pdf.assert_called_once()
 
-    def test_package_step_creates_independent_package(self):
+    def test_extraction_transform_creates_independent_archive(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            source = DocumentPackage.from_path(root / "source")
-            source.chapters_path.mkdir(parents=True)
-            source.assets_path.mkdir()
-            assert source.toc_path is not None
-            source.toc_path.write_text("<toc page_indexes=\"1\" />")
-            source.write_metadata(page_pixel_sizes={1: (10, 10)})
-            chapter = Chapter(
-                None, -1, [ParagraphLayout(
-                    "text", 0, [BlockLayout(1, 1, (1, 1, 5, 5), ["original"])]
-                )]
-            )
-            (source.chapters_path / "chapter_1.xml").write_text(
-                '<?xml version="1.0" encoding="UTF-8"?>\n'
-                + tostring(encode(chapter), encoding="unicode")
+            source = _source_extraction(root / "source", with_toc=True)
+            target = ChapterExtractionTransformer(_Upper()).transform(
+                source, root / "target.pcex"
             )
 
-            class Upper:
-                def transform(self, chapter: Chapter) -> Chapter:
-                    layout = chapter.layouts[0]
-                    assert isinstance(layout, ParagraphLayout)
-                    layout.blocks[0].content = ["translated"]
-                    return chapter
+            with source._materialize() as paths:
+                self.assertIn("original", (paths.chapters / "chapter_1.xml").read_text())
+            with target._materialize() as paths:
+                self.assertIn("translated", (paths.chapters / "chapter_1.xml").read_text())
+                self.assertTrue(paths.toc.is_file())
 
-            target = ChapterPackageTransformer(Upper()).transform(source, root / "target")
-            self.assertEqual(target.page_pixel_sizes(), {1: (10, 10)})
-            self.assertIn("original", (source.chapters_path / "chapter_1.xml").read_text())
-            self.assertIn("translated", (target.chapters_path / "chapter_1.xml").read_text())
-            assert target.toc_path is not None
-            self.assertEqual(source.toc_path.read_text(), target.toc_path.read_text())
-
-    def test_package_toc_transform_is_explicit(self):
+    def test_extraction_toc_transform_is_explicit(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            source = DocumentPackage.from_path(root / "source")
-            source.chapters_path.mkdir(parents=True)
-            source.assets_path.mkdir()
-            assert source.toc_path is not None
-            source.toc_path.write_text('<toc page_indexes="1"><item /></toc>')
-            source.write_metadata(page_pixel_sizes={1: (10, 10)})
-
-            class Identity:
-                def transform(self, chapter: Chapter) -> Chapter:
-                    return chapter
+            source = _source_extraction(root / "source", with_toc=True)
 
             def translate_toc(element):
                 element.set("translated", "yes")
                 return element
 
-            target = ChapterPackageTransformer(
-                Identity(), toc_transformer=translate_toc
-            ).transform(source, root / "target")
-            assert target.toc_path is not None
-            self.assertIn('translated="yes"', target.toc_path.read_text())
+            target = ChapterExtractionTransformer(
+                _Identity(), toc_transformer=translate_toc
+            ).transform(source, root / "target.pcex")
+            with target._materialize() as paths:
+                self.assertIn('translated="yes"', paths.toc.read_text(encoding="utf-8"))
 
     def test_epub_only_facade_needs_no_pdf_options(self):
         craft = PDFCraft()
         with patch("pdf_craft.craft.run_epub_translation") as translate:
-            craft.translate_epub("source.epub", "target.epub", target_language="zh", submit=SubmitKind.REPLACE)
+            craft.translate_epub(
+                "source.epub", "target.epub", target_language="zh",
+                submit=SubmitKind.REPLACE,
+            )
         translate.assert_called_once()
 
     def test_pdf_extraction_requires_options_only_when_used(self):
         with self.assertRaisesRegex(ValueError, "PDFOptions"):
-            PDFCraft().extract_pdf("source.pdf", "package")
+            PDFCraft().extract_pdf("source.pdf", "book.pcex")
 
     def test_extraction_options_reach_extractor_engine(self):
         with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
             engine = _Engine()
-            package, metering = PDFCraft.from_engine(engine).extract_pdf_with_metering(
-                "source.pdf", Path(directory), ExtractionOptions(page_indexes=(2, 4), max_ocr_tokens=12)
+            extraction, metering = PDFCraft.from_engine(engine).extract_pdf_with_metering(
+                "source.pdf",
+                root / "book.pcex",
+                ExtractionOptions(page_indexes=(2, 4), max_ocr_tokens=12),
+                analysing_path=root / "analysis",
             )
             self.assertEqual(metering, "metering")
             assert engine.kwargs is not None
             self.assertEqual(engine.kwargs["page_indexes"], (2, 4))
             self.assertEqual(engine.kwargs["max_tokens"], 12)
-            self.assertTrue(package.has_toc())
+            extraction.validate(require_toc=True)
+            self.assertTrue((root / "analysis" / "extraction").is_dir())
 
-    def test_rendering_package_does_not_construct_pdf_engine(self):
+    def test_public_extraction_requires_pcex_output(self):
+        with tempfile.TemporaryDirectory() as directory:
+            engine = _Engine()
+            with self.assertRaisesRegex(ValueError, "\\.pcex"):
+                PDFCraft.from_engine(engine).extract_pdf(
+                    "source.pdf", Path(directory) / "book"
+                )
+            self.assertIsNone(engine.kwargs)
+        self.assertFalse(hasattr(PDFExtractor, "extract_to_workspace"))
+        self.assertFalse(hasattr(ChapterExtractionTransformer, "transform_to_workspace"))
+
+    def test_rendering_extraction_does_not_construct_pdf_engine(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            package = DocumentPackage.from_path(root)
-            package.chapters_path.mkdir()
-            package.assets_path.mkdir()
+            extraction = _source_extraction(root / "source")
             with patch("pdf_craft.craft.MarkdownRenderer.render") as render:
-                PDFCraft().render_markdown(package, root / "book.md")
+                PDFCraft().render_markdown(extraction, root / "book.md")
             render.assert_called_once()
 
-    def test_one_shot_workflow_supports_one_translator(self):
-        craft = PDFCraft.from_engine(_Engine())
-        translator = Mock()
-        with patch.object(craft, "extract_pdf_with_metering", return_value=(object(), "metering")) as extract, \
-             patch.object(craft, "translate_package", return_value=object()) as translate, \
-             patch.object(craft, "render_markdown") as render:
-            result = craft.convert_pdf_to_markdown(
-                "source.pdf", "book.md", package_path="package",
-                translator=translator, submit=SubmitKind.APPEND_TEXT,
-            )
-        self.assertEqual(result, "metering")
-        extract.assert_called_once()
-        translate.assert_called_once()
-        self.assertEqual(translate.call_args.kwargs["submit"], SubmitKind.APPEND_TEXT)
-        render.assert_called_once()
+    def test_one_shot_workflow_uses_workspace_without_zip_churn(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            craft = PDFCraft.from_engine(_Engine())
+            with patch.object(PDFCraftExtraction, "export") as export, \
+                    patch.object(craft, "render_markdown") as render:
+                result = craft.convert_pdf_to_markdown(
+                    "source.pdf", root / "book.md", analysing_path=root / "analysis"
+                )
+            self.assertEqual(result, "metering")
+            export.assert_not_called()
+            rendered_extraction = render.call_args.args[0]
+            with rendered_extraction._materialize() as paths:
+                self.assertEqual(paths.root, root / "analysis" / "extraction")
 
-    def test_one_shot_markdown_workflow_cleans_implicit_workspace(self):
-        craft = PDFCraft.from_engine(_Engine())
-        workspaces = []
+    def test_one_shot_workflow_can_also_export_extraction(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            craft = PDFCraft.from_engine(_Engine())
+            with patch.object(craft, "render_markdown"), \
+                    patch("pdf_craft.document.package._extract_archive") as unpack:
+                craft.convert_pdf_to_markdown(
+                    "source.pdf",
+                    root / "book.md",
+                    analysing_path=root / "analysis",
+                    extraction_path=root / "book.pcex",
+                )
+            self.assertTrue((root / "book.pcex").is_file())
+            unpack.assert_not_called()
 
-        def extract(*args):
-            workspaces.append(Path(args[1]))
-            self.assertTrue(workspaces[-1].is_dir())
-            return object(), "metering"
-
-        with patch.object(craft, "extract_pdf_with_metering", side_effect=extract), \
-             patch.object(craft, "render_markdown"):
-            result = craft.convert_pdf_to_markdown("source.pdf", "book.md")
-
-        self.assertEqual(result, "metering")
-        self.assertEqual(len(workspaces), 1)
-        self.assertFalse(workspaces[0].exists())
-
-    def test_one_shot_epub_workflow_cleans_implicit_workspace_on_error(self):
-        craft = PDFCraft.from_engine(_Engine())
-        workspaces = []
-
-        def extract(*args):
-            workspaces.append(Path(args[1]))
-            return object(), "metering"
-
-        with patch.object(craft, "extract_pdf_with_metering", side_effect=extract), \
-             patch.object(craft, "render_epub", side_effect=RuntimeError("render failed")), \
-             self.assertRaisesRegex(RuntimeError, "render failed"):
-            craft.convert_pdf_to_epub("source.pdf", "book.epub")
-
-        self.assertEqual(len(workspaces), 1)
-        self.assertFalse(workspaces[0].exists())
-
-    def test_epub_workflow_detects_metadata_and_forwards_aborted(self):
+    def test_one_shot_markdown_cleans_implicit_analysis_workspace(self):
         engine = _Engine()
         craft = PDFCraft.from_engine(engine)
-        stopped = lambda: False
-        with patch.object(craft, "extract_pdf_with_metering", return_value=(object(), "metering")), \
-             patch.object(craft, "render_epub") as render:
-            result = craft.convert_pdf_to_epub(
-                "source.pdf", "book.epub", package_path="package",
-                extraction=ExtractionOptions(aborted=stopped),
-            )
+        with patch.object(craft, "render_markdown"):
+            result = craft.convert_pdf_to_markdown("source.pdf", "book.md")
         self.assertEqual(result, "metering")
-        self.assertEqual(engine.metadata_source, Path("source.pdf"))
-        self.assertEqual(render.call_args.kwargs["book_meta"], "detected metadata")
-        self.assertIs(render.call_args.kwargs["aborted"], stopped)
+        assert engine.analysing_path is not None
+        self.assertFalse(engine.analysing_path.exists())
 
-    def test_epub_conversion_forwards_translation_events_to_translator(self):
+    def test_epub_uses_manifest_metadata_without_rereading_source_pdf(self):
+        craft = PDFCraft.from_engine(_Engine())
+        observed = {}
+
+        def inspect_manifest(extraction, _output, **kwargs):
+            observed["title"] = extraction.book_meta().title
+            observed["language"] = extraction.language()
+            observed["book_meta"] = kwargs["book_meta"]
+            observed["lan"] = kwargs["lan"]
+
+        with patch.object(craft, "render_epub", side_effect=inspect_manifest):
+            craft.convert_pdf_to_epub("source.pdf", "book.epub")
+        self.assertEqual(observed["title"], "Detected title")
+        self.assertEqual(observed["language"], "en")
+        self.assertIsNone(observed["book_meta"])
+        self.assertIsNone(observed["lan"])
+
+    def test_epub_conversion_forwards_translation_events(self):
         craft = PDFCraft.from_engine(_Engine())
         callback = Mock()
         translator = Mock()
-        with patch.object(craft, "extract_pdf_with_metering", return_value=(object(), "metering")), \
-             patch.object(craft, "translate_package", return_value=object()) as translate, \
-             patch.object(craft, "render_epub"):
+        with patch.object(craft, "_translate_to_workspace", return_value=Mock()) as translate, \
+                patch.object(craft, "render_epub"):
             craft.convert_pdf_to_epub(
-                "source.pdf", "book.epub", package_path="package",
-                translator=translator, on_translation_event=callback,
+                "source.pdf", "book.epub", translator=translator,
+                on_translation_event=callback,
             )
         self.assertIs(translate.call_args.kwargs["on_translation_event"], callback)
 
-    def test_markdown_workflow_forwards_aborted_to_renderer_step(self):
+    def test_markdown_workflow_forwards_aborted_to_renderer(self):
         craft = PDFCraft.from_engine(_Engine())
         stopped = lambda: False
-        with patch.object(craft, "extract_pdf_with_metering", return_value=(object(), "metering")), \
-             patch.object(craft, "render_markdown") as render:
+        with patch.object(craft, "render_markdown") as render:
             craft.convert_pdf_to_markdown(
-                "source.pdf", "book.md", package_path="package",
-                extraction=ExtractionOptions(aborted=stopped),
+                "source.pdf", "book.md", extraction=ExtractionOptions(aborted=stopped)
             )
         self.assertIs(render.call_args.kwargs["aborted"], stopped)
 

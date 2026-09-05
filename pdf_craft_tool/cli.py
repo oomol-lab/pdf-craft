@@ -8,11 +8,11 @@ from typing import Any, cast
 
 from pdf_craft import (
     ChapterXMLTransformer,
-    DocumentPackage,
     ExtractionOptions,
     OCRMode,
     OCRTokensMetering,
     PDFCraft,
+    PDFCraftExtraction,
     PDFOptions,
     SubmitKind,
     XMLTranslator,
@@ -34,7 +34,8 @@ from .smoke.assets import discover_assets
 @dataclass(frozen=True)
 class _ExtractionResult:
     craft: PDFCraft
-    package: DocumentPackage
+    extraction: PDFCraftExtraction
+    path: Path
     metering: OCRTokensMetering
 
 
@@ -54,7 +55,7 @@ def _parser() -> argparse.ArgumentParser:
 
     pdf = commands.add_parser("pdf", help="extract, convert, or translate a PDF")
     pdf_commands = pdf.add_subparsers(dest="pdf_command", required=True)
-    extract = pdf_commands.add_parser("extract", help="PDF -> DocumentPackage")
+    extract = pdf_commands.add_parser("extract", help="PDF -> PDFCraftExtraction (.pcex)")
     _add_pdf_source(extract)
     _add_extraction_options(extract)
     extract.set_defaults(handler=_extract_pdf)
@@ -75,10 +76,10 @@ def _parser() -> argparse.ArgumentParser:
     _add_extraction_options(translate)
     translate.set_defaults(handler=_translate_pdf)
 
-    package = commands.add_parser("package", help="operate on an existing DocumentPackage")
+    package = commands.add_parser("package", help="operate on a PDFCraftExtraction (.pcex)")
     package_commands = package.add_subparsers(dest="package_command", required=True)
     package_translate = package_commands.add_parser(
-        "translate", help="translate an existing DocumentPackage"
+        "translate", help="translate an existing PDFCraftExtraction"
     )
     package_translate.add_argument("package", type=Path)
     package_translate.add_argument("target_language")
@@ -88,7 +89,7 @@ def _parser() -> argparse.ArgumentParser:
     package_translate.set_defaults(handler=_translate_package)
 
     package_patch = package_commands.add_parser(
-        "patch-pdf", help="patch an original PDF with an existing DocumentPackage"
+        "patch-pdf", help="patch an original PDF with a PDFCraftExtraction"
     )
     package_patch.add_argument("source", type=Path)
     package_patch.add_argument("package", type=Path)
@@ -96,7 +97,7 @@ def _parser() -> argparse.ArgumentParser:
     _add_work_dir(package_patch, "isolated run directory")
     package_patch.set_defaults(handler=_patch_package_pdf)
 
-    render = package_commands.add_parser("render", help="DocumentPackage -> Markdown or EPUB")
+    render = package_commands.add_parser("render", help="PDFCraftExtraction -> Markdown or EPUB")
     render.add_argument("package", type=Path)
     render.add_argument("--format", choices=("markdown", "epub"), required=True)
     render.add_argument("--output", type=Path, help="rendered file; defaults inside --work-dir")
@@ -206,18 +207,18 @@ def _add_smoke_options(parser: argparse.ArgumentParser) -> None:
 
 def _extract_pdf(args: argparse.Namespace) -> None:
     work_dir = _work_dir(args.source, args.work_dir, "extract")
-    result = _extract(args, work_dir / "package")
-    print(f"Package: {result.package.chapters_path.parent}")
+    result = _extract(args, work_dir / "book.pcex")
+    print(f"Extraction: {result.path}")
     _print_metering(result.metering)
 
 
 def _convert_pdf(args: argparse.Namespace) -> None:
     work_dir = _work_dir(args.source, args.work_dir, "convert")
-    result = _extract(args, work_dir / "package")
+    result = _extract(args, work_dir / "book.pcex")
     output = args.output or work_dir / ("book.md" if args.format == "markdown" else "book.epub")
     output.parent.mkdir(parents=True, exist_ok=True)
-    _render(result.craft, result.package, args.format, output)
-    print(f"Package: {result.package.chapters_path.parent}")
+    _render(result.craft, result.extraction, args.format, output)
+    print(f"Extraction: {result.path}")
     print(f"Output: {output}")
     _print_metering(result.metering)
 
@@ -226,21 +227,21 @@ def _translate_pdf(args: argparse.Namespace) -> None:
     if args.format == "pdf" and args.submit != "replace":
         raise SystemExit("PDF output supports only --submit replace")
     work_dir = _work_dir(args.source, args.work_dir, "translate")
-    result = _extract(args, work_dir / "package")
+    result = _extract(args, work_dir / "book.pcex")
     transformer = _xml_transformer(args, work_dir)
     if args.format == "pdf":
         output = args.output or work_dir / f"{args.source.stem}-{args.target_language}.pdf"
         output.parent.mkdir(parents=True, exist_ok=True)
-        result.craft.translate_pdf(args.source, result.package, output, transformer)
+        result.craft.translate_pdf(args.source, result.extraction, output, transformer)
     else:
         mode = SubmitKind[args.submit.replace("-", "_").upper()]
-        translated = result.craft.translate_package(
-            result.package, work_dir / "translated", transformer, submit=mode,
+        translated = result.craft.translate_extraction(
+            result.extraction, work_dir / "translated.pcex", transformer, submit=mode,
         )
         output = args.output or work_dir / ("book.md" if args.format == "markdown" else "book.epub")
         output.parent.mkdir(parents=True, exist_ok=True)
         _render(result.craft, translated, args.format, output)
-    print(f"Package: {result.package.chapters_path.parent}")
+    print(f"Extraction: {result.path}")
     print(f"Output: {output}")
     _print_metering(result.metering)
 
@@ -248,31 +249,31 @@ def _translate_pdf(args: argparse.Namespace) -> None:
 def _translate_package(args: argparse.Namespace) -> None:
     load_project_env(_project_root())
     work_dir = _work_dir(args.package, args.work_dir, "package-translate")
-    package = DocumentPackage.from_path(args.package).validate()
-    output_package = args.output_package or work_dir / "translated-package"
+    extraction = PDFCraftExtraction.open(args.package)
+    output_package = args.output_package or work_dir / "translated.pcex"
     transformer = _xml_transformer(args, work_dir)
     mode = SubmitKind[args.submit.replace("-", "_").upper()]
-    translated = PDFCraft().translate_package(
-        package, output_package, transformer, submit=mode,
+    PDFCraft().translate_extraction(
+        extraction, output_package, transformer, submit=mode,
     )
-    print(f"Package: {translated.chapters_path.parent}")
+    print(f"Extraction: {output_package}")
 
 
 def _patch_package_pdf(args: argparse.Namespace) -> None:
     work_dir = _work_dir(args.source, args.work_dir, "package-patch")
-    package = DocumentPackage.from_path(args.package).validate()
+    extraction = PDFCraftExtraction.open(args.package)
     output = args.output or work_dir / f"{args.source.stem}-patched.pdf"
     output.parent.mkdir(parents=True, exist_ok=True)
-    PDFCraft().patch_pdf_with_package(args.source, package, output)
+    PDFCraft().patch_pdf_with_extraction(args.source, extraction, output)
     print(f"Output: {output}")
 
 
 def _render_package(args: argparse.Namespace) -> None:
     work_dir = _work_dir(args.package, args.work_dir, "render")
-    package = DocumentPackage.from_path(args.package).validate()
+    extraction = PDFCraftExtraction.open(args.package)
     output = args.output or work_dir / ("book.md" if args.format == "markdown" else "book.epub")
     output.parent.mkdir(parents=True, exist_ok=True)
-    _render(PDFCraft(), package, args.format, output)
+    _render(PDFCraft(), extraction, args.format, output)
     print(f"Output: {output}")
 
 
@@ -424,26 +425,27 @@ def _resolve_translation_profiles(translation: dict[str, Any] | None, output_roo
     return resolved
 
 
-def _extract(args: argparse.Namespace, package_path: Path) -> _ExtractionResult:
+def _extract(args: argparse.Namespace, extraction_path: Path) -> _ExtractionResult:
     load_project_env(_project_root())
     ocr_mode = cast(OCRMode | None, args.ocr_mode) or ocr_mode_from_env()
     ocr_size = _resolve_ocr_size(args.ocr_size, ocr_mode, args.default_ocr_size)
     _validate_ocr_size(ocr_mode, ocr_size)
-    _record_pdf_cache_owner(package_path.parent, args, ocr_mode, ocr_size)
+    _record_pdf_cache_owner(extraction_path.parent, args, ocr_mode, ocr_size)
     craft = PDFCraft(pdf=PDFOptions(ocr=create_ocr_config_from_env(ocr_mode)))
-    package, metering = craft.extract_pdf_with_metering(
-        args.source, package_path, ExtractionOptions(
+    extraction, metering = craft.extract_pdf_with_metering(
+        args.source, extraction_path, ExtractionOptions(
             page_indexes=_page_indexes(args.pages), ocr_size=cast(Any, ocr_size), dpi=args.dpi,
             max_page_image_file_size=args.max_page_image_file_size,
             max_ocr_tokens=args.max_ocr_tokens, max_ocr_output_tokens=args.max_ocr_output_tokens,
             includes_cover=args.cover, includes_footnotes=args.footnotes,
             generate_plot=args.plot, toc_assumed=args.toc_assumed,
-            toc_llm=(create_llm_from_env(args.toc_llm, cache_path=package_path.parent / "toc-cache",
-                log_dir_path=package_path.parent / "toc-logs") if args.toc_llm else None),
+            toc_llm=(create_llm_from_env(args.toc_llm, cache_path=extraction_path.parent / "toc-cache",
+                log_dir_path=extraction_path.parent / "toc-logs") if args.toc_llm else None),
             on_ocr_event=_print_ocr_event,
-        )
+        ),
+        analysing_path=extraction_path.parent / "analysis",
     )
-    return _ExtractionResult(craft, package, metering)
+    return _ExtractionResult(craft, extraction, extraction_path, metering)
 
 
 def _xml_transformer(args: argparse.Namespace, work_dir: Path) -> ChapterXMLTransformer:
@@ -460,11 +462,12 @@ def _xml_transformer(args: argparse.Namespace, work_dir: Path) -> ChapterXMLTran
     return ChapterXMLTransformer(cast(Any, translator))
 
 
-def _render(craft: PDFCraft, package: DocumentPackage, format_name: str, output: Path) -> None:
+def _render(craft: PDFCraft, extraction: PDFCraftExtraction,
+            format_name: str, output: Path) -> None:
     if format_name == "markdown":
-        craft.render_markdown(package, output, Path("assets"))
+        craft.render_markdown(extraction, output, Path("assets"))
     else:
-        craft.render_epub(package, output)
+        craft.render_epub(extraction, output)
 
 
 def _work_dir(source: Path, requested: Path | None, operation: str) -> Path:
@@ -513,7 +516,7 @@ def _record_pdf_cache_owner(
                 f"settings ({', '.join(mismatched)}): {work_dir}"
             )
         return
-    if (work_dir / "package" / "ocr").exists():
+    if (work_dir / "analysis" / "ocr").exists():
         raise SystemExit(
             "Work directory contains legacy OCR cache without ownership metadata; "
             f"use a fresh directory or remove the stale cache: {work_dir}"
