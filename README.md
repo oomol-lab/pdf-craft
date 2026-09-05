@@ -82,6 +82,8 @@ or `extraction_path="book.pcex"` to retain the portable intermediate extraction.
 
 For the complete PDF conversion workflow and customization options, see the
 [PDF Translation Guide](docs/en/PDF_TRANSLATION.md) and [API Reference](docs/en/API_REFERENCE.md).
+For the field-level contract of the portable intermediate format, see the
+[PDFCraftExtraction (`.pcex`) Format Reference](docs/en/PCEX_FORMAT.md).
 
 ## Advanced Features
 
