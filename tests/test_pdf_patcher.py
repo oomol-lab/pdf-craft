@@ -143,6 +143,9 @@ class TestPDFPatcher(unittest.TestCase):
 
             patcher.patch(source, target, [replacement])
 
+            resolutions = patcher.font_resolutions
+            self.assertEqual(len(resolutions), 1)
+            self.assertEqual(resolutions[0].source, "automatic")
             source_page: Any = pypdf.PdfReader(str(source)).pages[0]
             reader = pypdf.PdfReader(str(target))
             self.assertEqual(len(reader.pages), 1)

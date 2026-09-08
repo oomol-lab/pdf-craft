@@ -9,7 +9,7 @@ from pdf_craft.pdf.handler import DefaultPDFHandler, PDFHandler
 from .eraser import EraseOptions, EraseRectangle, RectangularEraser
 from .models import PDFReplacement, PDFReplacementRegion, PDFSkippedReplacement
 from .text_layout import (
-    PatchTextOptions, QTextParagraphFiller, WindowedParagraphPlanner,
+    FontResolution, PatchTextOptions, QTextParagraphFiller, WindowedParagraphPlanner,
 )
 
 
@@ -57,6 +57,11 @@ class PDFPatcher:
         self.dpi = dpi
         self.skipped_replacements: tuple[PDFSkippedReplacement, ...] = ()
 
+    @property
+    def font_resolutions(self) -> tuple[FontResolution, ...]:
+        """Qt font choices made during the most recent :meth:`patch` run."""
+        return getattr(self._filler, "font_resolutions", ())
+
     def patch(self, source_path: Path, target_path: Path, replacements: Iterable[PDFReplacement]) -> None:
         """Compose source pages, rectangular erasure, then Qt PDF text layers."""
         try:
@@ -65,6 +70,9 @@ class PDFPatcher:
         except ImportError as error:  # pragma: no cover - declared dependencies.
             raise RuntimeError("PDF patching requires pypdf and reportlab") from error
 
+        reset_font_resolutions = getattr(self._filler, "reset_font_resolutions", None)
+        if reset_font_resolutions is not None:
+            reset_font_resolutions()
         reader = pypdf.PdfReader(str(source_path))
         page_sizes = {
             index: (float(page.mediabox.width), float(page.mediabox.height))
