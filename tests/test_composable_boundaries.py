@@ -216,7 +216,8 @@ class TestComposableBoundaries(unittest.TestCase):
             self.assertEqual(len(patcher.replacements), 2)
             replacement = patcher.replacements[0]
             self.assertEqual(replacement.page_pixel_size, (100, 100))
-            self.assertIn("$T:x$", replacement.text)
+            self.assertIn("\ufffc", replacement.text)
+            self.assertEqual([formula.latex for formula in replacement.inline_formulas], ["T:x"])
             self.assertIn("[1]", replacement.text)
             self.assertIn("T:heading", patcher.replacements[1].text)
 

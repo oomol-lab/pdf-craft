@@ -1,10 +1,5 @@
-from pylatexenc.latex2text import LatexNodes2Text
+"""Compatibility import for the former EPUB-local helper."""
 
-_converter = LatexNodes2Text()
+from pdf_craft.formula.plain_text import latex_to_plain_text
 
-
-def latex_to_plain_text(latex_content: str) -> str:
-    try:
-        return _converter.latex_to_text(latex_content)
-    except Exception:
-        return f"[{latex_content}]"
+__all__ = ["latex_to_plain_text"]

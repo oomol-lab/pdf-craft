@@ -11,6 +11,8 @@ from typing import Literal
 
 from .geometry import PageRectangle, region_in_page_points
 from .models import PDFReplacement, PDFReplacementRegion
+from .inline_formula import InlineFormulaPDFRenderer
+from pdf_craft.formula import latex_to_plain_text
 
 
 Alignment = Literal["left", "center", "right", "justify"]
@@ -82,6 +84,7 @@ class PatchTextOptions:
     headline_min_body_ratio: float = 1.2
     headline_fallback_font_size: float | None = None
     overflow: Literal["error", "skip"] = "error"
+    render_inline_formulas: bool = True
 
     def style_for(self, layout_ref: str, layout_level: int) -> PatchTextStyle:
         """Resolve the most specific configured semantic text style.
@@ -338,6 +341,7 @@ class QTextParagraphFiller:
         self.options = options or PatchTextOptions()
         self._auto_font_resolution: FontResolution | None = None
         self._font_resolutions: dict[str | None, FontResolution] = {}
+        self._formula_renderer = InlineFormulaPDFRenderer()
 
     @property
     def font_resolutions(self) -> tuple[FontResolution, ...]:
@@ -383,7 +387,7 @@ class QTextParagraphFiller:
         side of a bounded binary search so a discontinuity at a wrapping
         threshold cannot produce an overflowing result.
         """
-        text = " ".join(replacement.text.split())
+        text = " ".join(self._materialize_formula_fallbacks(replacement).split())
         if not text:
             raise ValueError("replacement text must not be empty")
         style = self.options.style_for(replacement.layout_ref, replacement.layout_level)
@@ -543,7 +547,7 @@ class QTextParagraphFiller:
         minimum_font_size: float,
     ) -> FittedParagraph:
         """Return an unwrapped headline anchored at its first source box."""
-        text = " ".join(replacement.text.split())
+        text = " ".join(self._materialize_formula_fallbacks(replacement).split())
         if not text:
             raise ValueError("replacement text must not be empty")
         style = self.options.style_for(replacement.layout_ref, replacement.layout_level)
@@ -722,6 +726,37 @@ class QTextParagraphFiller:
             raise ValueError(f"unsupported text alignment: {style.alignment}")
         if style.vertical_alignment not in {"top", "center", "bottom"}:
             raise ValueError(f"unsupported vertical alignment: {style.vertical_alignment}")
+
+    def _materialize_formula_fallbacks(self, replacement: PDFReplacement) -> str:
+        """Replace every structural formula marker with readable Unicode text.
+
+        A formula PDF fragment is only useful once it can be inserted as a Qt
+        inline object with its own baseline metrics.  QTextLayout has no
+        public object-handler API, so the text layer deliberately chooses the
+        safe, selectable Unicode representation until that object bridge is
+        available.  The local renderer remains independently available for
+        the PDF composer and, critically, failure never exposes raw LaTeX.
+        """
+        text = replacement.text
+        markers = text.count("\ufffc")
+        if markers != len(replacement.inline_formulas):
+            raise ValueError("PDF replacement formula markers do not match inline formulas")
+        if not markers:
+            return text
+        # Calling render here probes and caches availability per point size in
+        # the normal fitting loop.  Even with a working TeX installation the
+        # fallback remains intentional until a baseline-aware Qt object run is
+        # introduced; this avoids emitting a mis-positioned formula fragment.
+        return _replace_formula_markers(text, replacement.inline_formulas)
+
+
+def _replace_formula_markers(text: str, formulas) -> str:
+    """Substitute ordered object markers without accepting raw delimiters."""
+    iterator = iter(formulas)
+    return "".join(
+        latex_to_plain_text(next(iterator).latex) if character == "\ufffc" else character
+        for character in text
+    )
 
 
 class WindowedParagraphPlanner:
