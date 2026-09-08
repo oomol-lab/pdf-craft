@@ -158,6 +158,8 @@ class PDFPatcher:
             raise ValueError(
                 "replacement spans multiple source boxes; paragraph filling is not available"
             )
+        if replacement.regions:
+            self._validate_single_region_matches_replacement(replacement, replacement.regions[0])
         regions = replacement.regions or (PDFReplacementRegion(
             replacement.page_index,
             replacement.bbox,
@@ -167,6 +169,21 @@ class PDFPatcher:
         ),)
         for region in regions:
             self._validate_region(region, pages_count)
+
+    @staticmethod
+    def _validate_single_region_matches_replacement(
+        replacement: PDFReplacement, region: PDFReplacementRegion,
+    ) -> None:
+        if (
+            replacement.page_index != region.page_index
+            or replacement.bbox != region.bbox
+            or replacement.page_pixel_size != region.page_pixel_size
+            or replacement.dpi != region.dpi
+            or replacement.reading_order != region.reading_order
+        ):
+            raise ValueError(
+                "replacement geometry must match its only source region"
+            )
 
     @staticmethod
     def _validate_region(region: PDFReplacementRegion, pages_count: int | None = None) -> None:

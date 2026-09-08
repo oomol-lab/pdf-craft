@@ -53,6 +53,19 @@ class TestPDFPatcher(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "spans multiple source boxes"):
             PDFPatcher().validate(replacement)
 
+    def test_rejects_single_region_that_disagrees_with_patch_geometry(self):
+        region = PDFReplacementRegion(1, (1, 1, 20, 20), (100, 100), reading_order=1)
+        cases = (
+            PDFReplacement(1, (1, 1, 0, 0), "text", (100, 100), reading_order=1, regions=(region,)),
+            PDFReplacement(2, region.bbox, "text", region.page_pixel_size, reading_order=1, regions=(region,)),
+        )
+
+        for replacement in cases:
+            with self.subTest(replacement=replacement), self.assertRaisesRegex(
+                ValueError, "must match its only source region",
+            ):
+                PDFPatcher().validate(replacement)
+
     def test_rejects_missing_source_page(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
