@@ -5,6 +5,7 @@ import unittest
 from pdf_craft.formula import latex_to_plain_text
 from pdf_craft.pipeline.pdf import PDFInlineFormula, PDFReplacement, PDFReplacementRegion
 from pdf_craft.pipeline.pdf.text_layout import PatchTextOptions, QTextParagraphFiller
+from pdf_craft.pipeline.pdf.inline_formula import FormulaFragment
 
 
 class TestPDFInlineFormulaFallback(unittest.TestCase):
@@ -31,3 +32,26 @@ class TestPDFInlineFormulaFallback(unittest.TestCase):
         )
         with self.assertRaisesRegex(ValueError, "markers"):
             QTextParagraphFiller().fit(replacement, {1: (200, 100)})
+
+    def test_available_renderer_keeps_formula_as_one_vector_draw_atom(self):
+        class Renderer:
+            available = True
+
+            @staticmethod
+            def render(latex, point_size):
+                del latex, point_size
+                return FormulaFragment(b"%PDF-1.4", 20, 10, 2)
+
+        region = PDFReplacementRegion(1, (0, 0, 200, 100), (200, 100))
+        replacement = PDFReplacement(
+            1, region.bbox, "before \ufffc after", region.page_pixel_size,
+            regions=(region,), inline_formulas=(PDFInlineFormula("x^2"),),
+        )
+        filler = QTextParagraphFiller(PatchTextOptions(max_font_size=10, min_font_size=10))
+        filler._formula_renderer = Renderer()  # pylint: disable=protected-access
+        fitted = filler.fit(replacement, {1: (200, 100)})
+
+        draws = fitted.placements[0].formula_draws
+        self.assertEqual(len(draws), 1)
+        self.assertEqual(draws[0].pdf, b"%PDF-1.4")
+        self.assertGreater(draws[0].baseline, fitted.placements[0].line_tops[0])

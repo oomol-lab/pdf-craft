@@ -3,6 +3,7 @@
 
 from collections.abc import Iterable, Iterator, Mapping
 from dataclasses import dataclass, field, replace
+from math import ceil
 import os
 import pickle
 from pathlib import Path
@@ -11,7 +12,7 @@ from typing import Literal
 
 from .geometry import PageRectangle, region_in_page_points
 from .models import PDFReplacement, PDFReplacementRegion
-from .inline_formula import InlineFormulaPDFRenderer
+from .inline_formula import FormulaFragment, InlineFormulaPDFRenderer
 from pdf_craft.formula import latex_to_plain_text
 
 
@@ -154,6 +155,24 @@ class RegionTextPlacement:
     font_size: float
     style: PatchTextStyle
     allows_horizontal_overflow: bool = False
+    formula_draws: tuple["FormulaDraw", ...] = ()
+
+
+@dataclass(frozen=True)
+class FormulaDraw:
+    """A vector formula anchored to the baseline chosen by QTextLayout."""
+
+    pdf: bytes
+    x: float
+    baseline: float
+    descent: float
+
+
+@dataclass(frozen=True)
+class _FormulaSpan:
+    start: int
+    length: int
+    fragment: FormulaFragment
 
 
 @dataclass(frozen=True)
@@ -387,7 +406,8 @@ class QTextParagraphFiller:
         side of a bounded binary search so a discontinuity at a wrapping
         threshold cannot produce an overflowing result.
         """
-        text = " ".join(self._materialize_formula_fallbacks(replacement).split())
+        text = " ".join(replacement.text.split())
+        font_text = self._materialize_formula_fallbacks(replacement)
         if not text:
             raise ValueError("replacement text must not be empty")
         style = self.options.style_for(replacement.layout_ref, replacement.layout_level)
@@ -403,7 +423,7 @@ class QTextParagraphFiller:
                 style,
                 max_font_size=max(style.max_font_size, minimum_font_size),
             )
-        style = self._resolve_font(style, text)
+        style = self._resolve_font(style, font_text)
         self._validate_style(style)
 
         effective_minimum = max(style.min_font_size, minimum_font_size or style.min_font_size)
@@ -522,7 +542,9 @@ class QTextParagraphFiller:
         style: PatchTextStyle,
         font_size: float,
     ) -> FittedParagraph | None:
+        text, spans = self._formula_layout_text(text, replacement, font_size)
         remaining = text
+        remaining_spans = spans
         placements: list[RegionTextPlacement] = []
         for region in replacement.source_regions():
             if not remaining:
@@ -530,12 +552,16 @@ class QTextParagraphFiller:
             page_width, page_height = page_sizes[region.page_index]
             rectangle = region_in_page_points(region, page_width, page_height)
             placement, consumed = self._fit_region(
-                region.page_index, rectangle, remaining, style, font_size,
+                region.page_index, rectangle, remaining, style, font_size, remaining_spans,
             )
             if placement is None:
                 continue
             placements.append(placement)
             remaining = remaining[consumed:]
+            remaining_spans = tuple(
+                _FormulaSpan(span.start - consumed, span.length, span.fragment)
+                for span in remaining_spans if span.start >= consumed
+            )
         if remaining:
             return None
         return FittedParagraph(text, font_size, tuple(placements))
@@ -608,6 +634,7 @@ class QTextParagraphFiller:
         text: str,
         style: PatchTextStyle,
         font_size: float,
+        formula_spans: tuple[_FormulaSpan, ...] = (),
     ) -> tuple[RegionTextPlacement | None, int]:
         available_width = rectangle.width - 2 * style.horizontal_padding
         available_top = rectangle.top + style.vertical_padding
@@ -623,6 +650,7 @@ class QTextParagraphFiller:
         line_text_lefts: list[float] = []
         line_text_widths: list[float] = []
         line_heights: list[float] = []
+        formula_draws: list[FormulaDraw] = []
         consumed_utf16 = 0
         y = available_top
         last_line_height = 0.0
@@ -642,6 +670,15 @@ class QTextParagraphFiller:
                 line_text_lefts.append(content_left + line_start)
                 line_text_widths.append(line_end - line_start)
                 line_heights.append(line_height)
+                line_start_index = line.textStart()
+                line_end_index = line_start_index + line.textLength()
+                for span in formula_spans:
+                    if line_start_index <= span.start and span.start + span.length <= line_end_index:
+                        formula_draws.append(FormulaDraw(
+                            span.fragment.pdf,
+                            content_left + _x_coordinate(line.cursorToX(span.start - line_start_index)),
+                            y + line.ascent(), span.fragment.descent,
+                        ))
                 consumed_utf16 = line.textStart() + line.textLength()
                 last_line_height = line_height
                 y += line_height * style.line_height
@@ -668,6 +705,7 @@ class QTextParagraphFiller:
             tuple(line_heights),
             font_size,
             style,
+            formula_draws=tuple(formula_draws),
         ), _python_index_for_utf16(text, consumed_utf16)
 
     def _draw_placement(self, QtCore, QtGui, painter, placement: RegionTextPlacement) -> None:
@@ -748,6 +786,50 @@ class QTextParagraphFiller:
         # fallback remains intentional until a baseline-aware Qt object run is
         # introduced; this avoids emitting a mis-positioned formula fragment.
         return _replace_formula_markers(text, replacement.inline_formulas)
+
+    def _formula_layout_text(
+        self, text: str, replacement: PDFReplacement, font_size: float,
+    ) -> tuple[str, tuple[_FormulaSpan, ...]]:
+        """Build invisible, non-breaking width proxies for usable formula PDFs.
+
+        The proxy is an atom-sized NBSP run: Qt includes it in ordinary line
+        breaking and alignment, while the composer later replaces its visual
+        area with the transparent vector fragment at the measured baseline.
+        A fragment that cannot be rendered is immediately substituted with
+        Unicode text instead, so one bad TeX expression never fails a page.
+        """
+        if not replacement.inline_formulas:
+            return text, ()
+        if text.count("\ufffc") != len(replacement.inline_formulas):
+            raise ValueError("PDF replacement formula markers do not match inline formulas")
+        if not self.options.render_inline_formulas or not self._formula_renderer.available:
+            return _replace_formula_markers(text, replacement.inline_formulas), ()
+        # A normal space is roughly a quarter em in the chosen body font.  The
+        # proxy is deliberately slightly wider: an inline formula must never
+        # be split across rectangles simply to gain a few points of width.
+        space_width = max(font_size * 0.25, 0.1)
+        parts: list[str] = []
+        spans: list[_FormulaSpan] = []
+        formula_index = 0
+        offset = 0
+        for character in text:
+            if character != "\ufffc":
+                parts.append(character)
+                offset += 1
+                continue
+            formula = replacement.inline_formulas[formula_index]
+            formula_index += 1
+            fragment = self._formula_renderer.render(formula.latex, font_size)
+            if fragment is None:
+                fallback = latex_to_plain_text(formula.latex)
+                parts.append(fallback)
+                offset += len(fallback)
+                continue
+            length = max(1, ceil(fragment.width / space_width))
+            parts.append("\u00a0" * length)
+            spans.append(_FormulaSpan(offset, length, fragment))
+            offset += length
+        return "".join(parts), tuple(spans)
 
 
 def _replace_formula_markers(text: str, formulas) -> str:
