@@ -1,4 +1,5 @@
 import unittest
+from unittest.mock import Mock
 
 from PIL import Image, ImageDraw
 
@@ -6,6 +7,48 @@ from pdf_craft.pipeline.pdf import EraseOptions, PDFReplacementRegion, Rectangul
 
 
 class TestRectangularEraser(unittest.TestCase):
+    def test_samples_overlapping_regions_from_one_unmodified_page_image(self):
+        """Planning and drawing one mask must not affect another mask's sample."""
+        beige = (234, 220, 183)
+        charcoal = (4, 7, 9)
+        page_image = Image.new("RGB", (100, 100), beige)
+        # The regions overlap at (40, 40)-(50, 50). The first still has a
+        # beige majority after padding; the second has a charcoal majority.
+        ImageDraw.Draw(page_image).rectangle((40, 40, 99, 99), fill=charcoal)
+        first = PDFReplacementRegion(1, (0, 0, 50, 50), (100, 100))
+        second = PDFReplacementRegion(1, (40, 40, 90, 90), (100, 100))
+        eraser = RectangularEraser(EraseOptions(padding=5))
+
+        planned = eraser.plan(
+            (first, second), {1: (200, 200)}, {1: page_image},
+        )
+
+        self.assertEqual([erase.color for erase in planned], [beige, charcoal])
+        # First padding clips at the page edge; second keeps its full padding.
+        self.assertEqual(
+            (planned[0].rectangle.x, planned[0].rectangle.top,
+             planned[0].rectangle.width, planned[0].rectangle.height),
+            (0, 0, 110, 110),
+        )
+        self.assertEqual(
+            (planned[1].rectangle.x, planned[1].rectangle.top,
+             planned[1].rectangle.width, planned[1].rectangle.height),
+            (70, 70, 120, 120),
+        )
+
+        overlay = Mock()
+        eraser.draw(overlay, (planned[0],), page_height=200)
+        self.assertEqual(page_image.getpixel((10, 10)), beige)
+        self.assertEqual(page_image.getpixel((45, 45)), charcoal)
+        # Re-planning the overlapping second box after drawing the first mask
+        # yields the same source-page color: the overlay never contaminates
+        # source pixels used by subsequent estimates.
+        replanned_second = eraser.plan(
+            (second,), {1: (200, 200)}, {1: page_image},
+        )[0]
+        self.assertEqual(replanned_second.color, charcoal)
+        self.assertEqual(replanned_second.rectangle, planned[1].rectangle)
+
     def test_plans_padded_beige_mask_from_the_unmodified_page_image(self):
         page_image = Image.new("RGB", (100, 200), (234, 220, 183))
         drawing = ImageDraw.Draw(page_image)
