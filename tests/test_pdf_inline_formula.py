@@ -58,3 +58,27 @@ class TestPDFInlineFormulaFallback(unittest.TestCase):
         self.assertEqual(len(draws), 1)
         self.assertEqual(draws[0].pdf, b"%PDF-1.4")
         self.assertGreater(draws[0].baseline, fitted.placements[0].line_tops[0])
+
+    def test_formula_atom_moves_to_a_later_wider_region_without_being_split(self):
+        class Renderer:
+            available = True
+
+            @staticmethod
+            def render(latex, point_size):
+                del latex, point_size
+                return FormulaFragment(b"%PDF-1.4", 60, 10, 2)
+
+        first = PDFReplacementRegion(1, (0, 0, 50, 30), (100, 100))
+        second = PDFReplacementRegion(1, (0, 35, 100, 70), (100, 100))
+        replacement = PDFReplacement(
+            1, first.bbox, "\ufffc", first.page_pixel_size, regions=(first, second),
+            inline_formulas=(PDFInlineFormula("x"),),
+        )
+        filler = QTextParagraphFiller(PatchTextOptions(max_font_size=10, min_font_size=10))
+        filler._formula_renderer = cast(Any, Renderer())  # pylint: disable=protected-access
+        fitted = filler.fit(replacement, {1: (100, 100)})
+
+        self.assertEqual(len(fitted.placements), 1)
+        self.assertEqual(fitted.placements[0].rectangle.top, 35.0)
+        self.assertEqual(fitted.placements[0].rectangle.width, 100.0)
+        self.assertEqual(len(fitted.placements[0].formula_draws), 1)

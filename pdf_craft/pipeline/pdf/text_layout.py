@@ -672,14 +672,22 @@ class QTextParagraphFiller:
                 line_height = line.height()
                 if y + line_height > available_bottom + 1e-6:
                     break
+                line_start_index = line.textStart()
+                line_end_index = line_start_index + line.textLength()
+                # QTextLayout may wrap anywhere.  Never accept a line that
+                # cuts through one formula's width proxy: leave the complete
+                # atom for the next source rectangle instead.
+                if any(
+                    span.start < line_end_index < span.start + span.length
+                    for span in formula_spans
+                ):
+                    break
                 line_tops.append(y)
                 line_start = _x_coordinate(line.cursorToX(0))
                 line_end = _x_coordinate(line.cursorToX(line.textLength()))
                 line_text_lefts.append(content_left + line_start)
                 line_text_widths.append(line_end - line_start)
                 line_heights.append(line_height)
-                line_start_index = line.textStart()
-                line_end_index = line_start_index + line.textLength()
                 for span in formula_spans:
                     if line_start_index <= span.start and span.start + span.length <= line_end_index:
                         formula_draws.append(FormulaDraw(
