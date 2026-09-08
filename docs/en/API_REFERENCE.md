@@ -167,7 +167,7 @@ LLM(
 For patch layout beyond the convenience methods, use these public types:
 
 ```python
-from pdf_craft import PDFPatcher, PDFTranslationPipeline, PatchTextOptions, PatchTextStyle
+from pdf_craft import EraseOptions, PDFPatcher, PDFTranslationPipeline, PatchTextOptions, PatchTextStyle
 
 patcher = PDFPatcher(options=PatchTextOptions(
     font_name="Noto Sans CJK SC",  # preferred family; Qt falls back when absent
@@ -178,13 +178,13 @@ patcher = PDFPatcher(options=PatchTextOptions(
     vertical_padding=1,
     styles={"sub_title": PatchTextStyle(max_font_size=18, min_font_size=8)},
     overflow="error",
-))
+), erase_options=EraseOptions(padding=2))
 pipeline = PDFTranslationPipeline(patcher=patcher)
 ```
 
 `PatchTextOptions` controls the default Qt text style and optional `PatchTextStyle` overrides by semantic layout key (`"text"`, `"sub_title"`, or `"sub_title:2"`). A paragraph receives one fitted font size, then flows through its ordered `PDFReplacement.regions` without splitting a line across boxes. Qt handles shaping, wrapping, fallback fonts and glyph positions; missing configured fonts do not stop a patch. `overflow="error"` (the default) stops if the complete paragraph cannot fit; `overflow="skip"` records skipped replacements in `PDFPatcher.skipped_replacements`.
 
-The patcher preserves the source PDF page and merges two independent overlays: a temporary white rectangle erasure layer and a Qt-generated PDF text layer. It does not rasterize the page or the translated text. The current erasure is visual only: source text hidden by its rectangle may remain extractable beneath it. Qt/PySide6 and the required fonts must be available on the machine producing the PDF.
+The patcher preserves the source PDF page and merges two independent overlays: a local-background RGB rectangle erasure layer and a Qt-generated PDF text layer. `EraseOptions(padding=2)` expands each source box in its OCR-pixel coordinates before sampling and painting it. The supplied `PDFHandler` (or the default Poppler handler) renders original pages only for color sampling; it is never used as an output page image. The erasure is visual only and deliberately does not restore texture, rules, formulae, or artwork; source text hidden by it may remain extractable beneath it. Qt/PySide6, a PDF renderer such as Poppler, and the required fonts must be available on the machine producing the PDF.
 
 `PDFTranslationPipeline` can perform lower-level translation or patching when the application owns the complete layout and output lifecycle. Prefer `PDFCraft.translate_pdf()` and `PDFCraft.patch_pdf_with_extraction()` when their fixed layout policy is sufficient.
 

@@ -207,12 +207,12 @@ PySide6/Qt；在依赖被移除或非标准安装的环境中，底层导入失�
 
 `PDFCraft.translate_pdf` 与 `PDFCraft.patch_pdf_with_extraction` 为简化调用而设计，不提供字体、
 字号、对齐、padding 或 overflow 策略参数。需要调整这些规则时，使用公开的低层
-`PDFPatcher` 与 `PatchTextOptions`，再交给 `PDFTranslationPipeline`：
+`PDFPatcher`、`PatchTextOptions` 与 `EraseOptions`，再交给 `PDFTranslationPipeline`：
 
 ```python
 from pathlib import Path
 
-from pdf_craft import PDFPatcher, PDFTranslationPipeline, PatchTextOptions, PatchTextStyle
+from pdf_craft import EraseOptions, PDFPatcher, PDFTranslationPipeline, PatchTextOptions, PatchTextStyle
 
 patcher = PDFPatcher(options=PatchTextOptions(
     font_name="Noto Sans CJK SC",  # 优先字体；缺失时由 Qt fallback
@@ -223,7 +223,7 @@ patcher = PDFPatcher(options=PatchTextOptions(
     vertical_padding=1,
     styles={"sub_title": PatchTextStyle(max_font_size=18, min_font_size=8)},
     overflow="error",
-))
+), erase_options=EraseOptions(padding=2))
 pipeline = PDFTranslationPipeline(patcher=patcher)
 pipeline.translate(Path("input.pdf"), Path("translated.pdf"), extraction, translator)
 ```
@@ -238,9 +238,10 @@ pipeline.translate(Path("input.pdf"), Path("translated.pdf"), extraction, transl
 矩形擦除 overlay 和由 Qt `QTextLayout` / PDF paint device 生成的译文文本 overlay。因此扫描页
 仍会自然保留扫描背景，原生 PDF 页也不会因写回而压扁；译文则是可缩放、可提取的 PDF 文字。
 
-当前擦除只负责视觉上的白色矩形遮蔽，底层的原文字内容流可能仍可被提取。精细擦字或内容感知修复
-不属于此写回器。写回需要本机具备 PySide6/Qt 运行时和可用字体；字体配置是优先选择，Qt 找不到
-指定字体或字形时会使用系统 fallback。
+擦除会先以 padding 扩大每个来源 bbox，然后只渲染原始页来计算该矩形内按频次加权的 RGB 中位背景色，
+再以这个颜色完整覆盖扩展矩形。渲染页不会作为输出页，写回仍保留原始 PDF 页。当前擦除不恢复纸张纹理、
+表格线、公式或插图，底层的原文字内容流也可能仍可被提取。写回需要本机具备 PySide6/Qt、Poppler（或
+调用方提供的 `PDFHandler`）和可用字体；字体配置是优先选择，Qt 找不到指定字体或字形时会使用系统 fallback。
 
 ## 原子 API
 

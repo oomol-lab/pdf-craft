@@ -24,7 +24,7 @@ from pdf_craft import PDFCraft, PDFOptions
   `TranslationEventKind`、`TranslationItemKind`、`FillFailedEvent`
 - `PDFHandler`、`DefaultPDFHandler`、`PDFDocument`、`DefaultPDFDocument`、
   `PDFDocumentMetadata`
-- `PDFPatcher`、`PDFReplacement`、`PDFReplacementRegion`、`PDFSkippedReplacement`、`PatchTextOptions`、
+- `PDFPatcher`、`PDFReplacement`、`PDFReplacementRegion`、`PDFSkippedReplacement`、`PatchTextOptions`、`EraseOptions`、
   `PDFTranslationPipeline`
 - `PDFError`、`OCRError`、`IgnorePDFErrorsChecker`、
   `IgnoreOCRErrorsChecker`
@@ -383,11 +383,13 @@ translate_epub(
   `page_pixel_size`，以及可选的 `dpi`、`reading_order`。PDF 翻译会以一个 `ParagraphLayout` 为单位
   调用翻译器一次，并将该段落全部、有序的来源框保存在 `regions`（`PDFReplacementRegion`）中，而不是把
   同一译文复制到每个框。
-- `PDFPatcher(options=PatchTextOptions(...), pdf_handler=...)` 通过 `.patch(source_path,
+- `PDFPatcher(options=PatchTextOptions(...), erase_options=EraseOptions(...), pdf_handler=...)` 通过 `.patch(source_path,
   target_path, replacements)` 写出 PDF。它接受任意通过字段校验的 `PDFReplacement`，不要求这些
   替换项来自 `PDFCraftExtraction` 或 OCR；`page_pixel_size` 仅用于把像素 `bbox` 换算为 PDF 坐标，
   patcher 不会验证它是否等于源页的实际渲染尺寸。调用方必须自行保证页码、坐标与尺寸对应源 PDF。
-  `PatchTextOptions` 控制默认字体、字号、内边距、对齐和 `overflow` 策略；可用
+  `PatchTextOptions` 控制默认字体、字号、内边距、对齐和 `overflow` 策略；`EraseOptions.padding` 在
+  OCR 像素坐标中扩大来源框，并用原始页面对应区域按频次加权的 RGB 中位色完整覆盖扩展矩形。`pdf_handler`
+  仅为这个颜色估计渲染原始页，输出仍以原始 PDF 页面为底。可用
   `PatchTextStyle` 以 `"text"`、`"sub_title"` 或 `"sub_title:2"` 为键覆盖不同文字等级。
   同一个段落统一搜索字号，随后按顺序流入所有 `regions`；放不下的整行会进入下一个框，绝不局部跨框。
   `overflow="error"`（默认）在整段无法容纳时失败，`"skip"` 则把对应项记录在
