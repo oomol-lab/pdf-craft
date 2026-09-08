@@ -1,7 +1,7 @@
 """Keep PCEX formulas visible to translation while restoring their source form.
 
 ``Chapter`` XML represents inline formulas as ``inline_expr`` nodes and display
-formulas as an entire ``asset ref=\"equation\"``.  Neither shape is
+formulas in the ``content`` of an ``asset ref=\"equation\"``.  Neither shape is
 MathML, so the EPUB MathML interrupter cannot be used here.  This adapter uses
 the same XMLTranslator interruption protocol with the PCEX schema instead.
 """
@@ -20,6 +20,8 @@ from pdf_craft.transformer.xml_translator.xml import (
 
 _FORMULA_ID_KEY = "__PDF_CRAFT_CHAPTER_FORMULA_ID"
 _FORMULA_TAG = "expression"
+_FORMULA_CONTEXT_KEY = "__PDF_CRAFT_CHAPTER_FORMULA_CONTEXT"
+_FORMULA_CONTEXT_TAG = "formula_context"
 
 
 @dataclass(frozen=True)
@@ -42,10 +44,10 @@ class ChapterFormulaInterrupter:
     The temporary ``expression`` nodes never reach a decoded Chapter.  The
     source text shown to the language model contains Markdown-style LaTex
     delimiters, while the translated stream is replaced with the original
-    ``inline_expr`` text segments. Equation assets are injected as discarded
-    context tokens into their preceding and following paragraphs, so a token
+    ``inline_expr`` text segments. Equation asset *content* is injected as
+    discarded context into its preceding and following paragraphs, so a token
     budget split cannot hide an equation from either neighboring translation.
-    The original ``asset`` remains in the Chapter XML untouched.
+    The asset's title and caption remain ordinary translatable Chapter text.
     """
 
     def __init__(self) -> None:
@@ -106,6 +108,15 @@ class ChapterFormulaInterrupter:
     ) -> Generator[TextSegment, None, None]:
         """Discard translated formula text and restore original inline segments."""
         for text_segment in text_segments:
+            if any(
+                _FORMULA_CONTEXT_KEY in element.attrib
+                for element in text_segment.parent_stack
+            ):
+                # Context is deliberately visible to the model but has no
+                # counterpart in the source XML.  In particular, discard the
+                # text surrounding its temporary expression as well as the
+                # expression itself; a model may place text in either spot.
+                continue
             parent_element = text_segment.parent_stack[-1]
             token_id = parent_element.attrib.pop(_FORMULA_ID_KEY, None)
             if token_id is None:
@@ -141,23 +152,25 @@ class ChapterFormulaInterrupter:
 
     def _formula_in(self, text_segment: TextSegment) -> tuple[_Formula | None, int | None]:
         """Return the formula owner and its parent-stack index for one segment."""
+        equation_asset: Element | None = None
         equation_asset_index: int | None = None
         for index, element in enumerate(text_segment.parent_stack):
             if element.tag == "asset" and element.get("ref") == "equation":
+                equation_asset = element
                 equation_asset_index = index
-                continue
-            if element.tag == "inline_expr" and element.get("kind") != "text":
-                if equation_asset_index is not None:
-                    # An equation asset is opaque as a whole. Its title and
-                    # caption must not be sent to the translator either: doing
-                    # so lets XML submission reconstruct part of the asset and
-                    # corrupt its source-only fields.
-                    continue
-                return self._formula_for_inline(element), index
+                break
 
-        if equation_asset_index is not None:
-            element = text_segment.parent_stack[equation_asset_index]
-            return self._formula_for_asset(element), equation_asset_index
+        if equation_asset is not None and equation_asset_index is not None:
+            content = equation_asset.find("content")
+            if content is not None and any(
+                element is content
+                for element in text_segment.parent_stack[equation_asset_index + 1:]
+            ):
+                return self._formula_for_asset(equation_asset), equation_asset_index
+
+        for index, element in enumerate(text_segment.parent_stack):
+            if element.tag == "inline_expr" and element.get("kind") != "text":
+                return self._formula_for_inline(element), index
         return None, None
 
     def _formula_for_inline(self, element: Element) -> _Formula:
@@ -173,7 +186,7 @@ class ChapterFormulaInterrupter:
         return formula
 
     def _formula_for_asset(self, element: Element) -> _Formula:
-        """Freeze every serialised field of an equation asset as one unit."""
+        """Freeze one equation asset's formula content as one unit."""
         existing = self._element_to_formula.get(id(element))
         if existing is not None:
             return existing
@@ -269,10 +282,22 @@ class ChapterFormulaInterrupter:
                 DISPLAY_ATTRIBUTE: "inline",
             },
         )
+        context = Element(
+            _FORMULA_CONTEXT_TAG,
+            {
+                _FORMULA_CONTEXT_KEY: token_id,
+                DISPLAY_ATTRIBUTE: "inline",
+            },
+        )
+        context.append(placeholder)
         position = neighbor.position if neighbor is not None else _text_position(parent_stack)
         return TextSegment(
             text=f" {formula.latex} ",
-            parent_stack=[*parent_stack, placeholder],
+            # Keep the context inline with its neighboring paragraph, while
+            # wrapping it in a synthetic marker.  That marker lets the return
+            # path discard every model-produced character, including text the
+            # model puts beside the expression token.
+            parent_stack=[*parent_stack, context, placeholder],
             left_common_depth=0,
             right_common_depth=0,
             block_depth=_block_depth([*parent_stack, placeholder]),
@@ -295,9 +320,17 @@ class ChapterFormulaInterrupter:
                 DISPLAY_ATTRIBUTE: "block",
             },
         )
+        context = Element(
+            _FORMULA_CONTEXT_TAG,
+            {
+                _FORMULA_CONTEXT_KEY: token_id,
+                DISPLAY_ATTRIBUTE: "inline",
+            },
+        )
+        context.append(placeholder)
         return TextSegment(
             text=f" {formula.latex} ",
-            parent_stack=[*parent_stack, placeholder],
+            parent_stack=[*parent_stack, context, placeholder],
             left_common_depth=0,
             right_common_depth=0,
             block_depth=_block_depth([*parent_stack, placeholder]),

@@ -188,14 +188,14 @@ class TestChapterFormulaTranslation(unittest.TestCase):
         self.assertIn(r'<inline_expr kind="\(">\beta</inline_expr>', encoded)
         self.assertIn("<em>", encoded)
 
-    def test_equation_asset_is_context_and_is_never_rewritten(self):
+    def test_equation_content_is_context_and_is_never_rewritten(self):
         equation = AssetLayout(
             page_index=1,
             ref="equation",
             det=(10, 40, 90, 60),
-            title=["Equation title"],
+            title=[],
             content=[r"\int_0^1 x^2 dx"],
-            caption=["Equation caption"],
+            caption=[],
             hash="equation-image",
         )
         chapter = Chapter(None, 0, [
@@ -220,7 +220,7 @@ class TestChapterFormulaTranslation(unittest.TestCase):
         assert isinstance(restored, AssetLayout)
         self.assertEqual(restored, equation)
 
-    def test_equation_asset_with_title_or_caption_is_frozen_as_a_whole(self):
+    def test_equation_title_and_caption_are_translated_while_content_is_frozen(self):
         for title, caption in [(["Title"], []), ([], ["Caption"]), (["Title"], ["Caption"])]:
             with self.subTest(title=title, caption=caption):
                 equation = AssetLayout(
@@ -242,9 +242,52 @@ class TestChapterFormulaTranslation(unittest.TestCase):
                     )]),
                 ])
 
-                translated = ChapterXMLTransformer(_FormulaAwareTranslator()).transform(chapter)
+                translator = _FormulaAwareTranslator()
+                translated = ChapterXMLTransformer(translator).transform(chapter)
 
-                self.assertEqual(translated.layouts[1], equation)
+                restored = translated.layouts[1]
+                self.assertIsInstance(restored, AssetLayout)
+                assert isinstance(restored, AssetLayout)
+                self.assertEqual(restored.content, equation.content)
+                self.assertEqual(
+                    restored.title,
+                    [f"译:{item}" for item in equation.title],
+                )
+                self.assertEqual(
+                    restored.caption,
+                    [f"译:{item}" for item in equation.caption],
+                )
+                self.assertTrue(any(r"$$x^2$$" in source for source in translator.model_sources))
+
+    def test_equation_metadata_inline_formulas_are_protected_independently(self):
+        title_formula = InlineExpression(ExpressionKind.INLINE_DOLLAR, "n")
+        caption_formula = InlineExpression(ExpressionKind.INLINE_PAREN, r"\chi")
+        equation = AssetLayout(
+            page_index=1,
+            ref="equation",
+            det=(10, 40, 90, 60),
+            title=["Title ", title_formula],
+            content=["f", InlineExpression(ExpressionKind.INLINE_DOLLAR, "x"), " = 0"],
+            caption=["Caption ", caption_formula],
+            hash="equation-metadata-inline-formulas",
+        )
+        translator = _FormulaAwareTranslator()
+
+        translated = ChapterXMLTransformer(translator).transform(Chapter(None, 0, [equation]))
+
+        restored = translated.layouts[0]
+        self.assertIsInstance(restored, AssetLayout)
+        assert isinstance(restored, AssetLayout)
+        self.assertEqual(restored.content, equation.content)
+        title_formulas = [item for item in restored.title if isinstance(item, InlineExpression)]
+        caption_formulas = [item for item in restored.caption if isinstance(item, InlineExpression)]
+        self.assertEqual(title_formulas, [title_formula])
+        self.assertEqual(caption_formulas, [caption_formula])
+        source = "\n".join(translator.model_sources)
+        self.assertIn("$n$", source)
+        self.assertIn(r"\(\chi\)", source)
+        self.assertIn("$$f$x$ = 0$$", source)
+        self.assertNotIn("MODEL_CHANGED_FORMULA", tostring(encode(translated), encoding="unicode"))
 
     def test_equation_only_chapter_keeps_the_asset_and_does_not_skip_translation(self):
         equation = AssetLayout(
