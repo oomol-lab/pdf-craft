@@ -78,6 +78,90 @@ class TestQTextParagraphFiller(unittest.TestCase):
 
         self.assertEqual(fitted.font_size, 10)
 
+    def test_qt_horizontal_alignment_exposes_effective_text_coordinates(self):
+        """Qt, not hand-written glyph arithmetic, chooses each line's x offset."""
+        region = PDFReplacementRegion(1, (0, 0, 200, 80), (200, 80))
+        placements = {}
+        for alignment in ("left", "center", "right"):
+            style = PatchTextStyle(
+                max_font_size=10, min_font_size=10, horizontal_padding=10,
+                vertical_padding=5, alignment=alignment,
+            )
+            fitted = QTextParagraphFiller(PatchTextOptions(styles={"text": style})).fit(
+                _replacement("alignment", [region]), {1: (200, 80)},
+            )
+            placements[alignment] = fitted.placements[0]
+
+        left = placements["left"]
+        center = placements["center"]
+        right = placements["right"]
+        content_right = 190.0
+        self.assertAlmostEqual(left.line_text_lefts[0], 10.0)
+        self.assertGreater(center.line_text_lefts[0], left.line_text_lefts[0])
+        self.assertGreater(right.line_text_lefts[0], center.line_text_lefts[0])
+        self.assertAlmostEqual(
+            right.line_text_lefts[0] + right.line_text_widths[0], content_right,
+        )
+        self.assertAlmostEqual(
+            center.line_text_lefts[0] - 10.0,
+            content_right - (center.line_text_lefts[0] + center.line_text_widths[0]),
+            delta=0.1,
+        )
+
+    def test_qt_justifies_a_nonfinal_line_to_the_rectangle_width(self):
+        region = PDFReplacementRegion(1, (0, 0, 80, 80), (80, 80))
+        style = PatchTextStyle(
+            max_font_size=10, min_font_size=10, horizontal_padding=5,
+            alignment="justify",
+        )
+        fitted = QTextParagraphFiller(PatchTextOptions(styles={"text": style})).fit(
+            _replacement("one two three four five six seven", [region]), {1: (80, 80)},
+        )
+
+        placement = fitted.placements[0]
+        self.assertGreaterEqual(len(placement.line_tops), 2)
+        self.assertAlmostEqual(placement.line_text_lefts[0], 5.0)
+        self.assertAlmostEqual(placement.line_text_widths[0], 70.0)
+
+    def test_line_height_and_vertical_alignment_position_complete_lines(self):
+        region = PDFReplacementRegion(1, (0, 0, 120, 100), (120, 100))
+        vertical_placements = {}
+        for alignment in ("top", "center", "bottom"):
+            style = PatchTextStyle(
+                max_font_size=10, min_font_size=10, vertical_padding=10,
+                vertical_alignment=alignment,
+            )
+            fitted = QTextParagraphFiller(PatchTextOptions(styles={"text": style})).fit(
+                _replacement("one line", [region]), {1: (120, 100)},
+            )
+            vertical_placements[alignment] = fitted.placements[0]
+
+        top = vertical_placements["top"]
+        center = vertical_placements["center"]
+        bottom = vertical_placements["bottom"]
+        self.assertAlmostEqual(top.line_tops[0], 10.0)
+        self.assertAlmostEqual(
+            center.line_tops[0], 10.0 + (80.0 - center.line_heights[0]) / 2,
+        )
+        self.assertAlmostEqual(bottom.line_tops[0], 90.0 - bottom.line_heights[0])
+
+        multi_line_style = PatchTextStyle(
+            max_font_size=10, min_font_size=10, line_height=1.6,
+        )
+        multi_line = QTextParagraphFiller(PatchTextOptions(
+            styles={"text": multi_line_style}
+        )).fit(
+            _replacement("one two three", [
+                PDFReplacementRegion(1, (0, 0, 55, 100), (55, 100)),
+            ]),
+            {1: (55, 100)},
+        ).placements[0]
+        self.assertGreaterEqual(len(multi_line.line_tops), 2)
+        self.assertAlmostEqual(
+            multi_line.line_tops[1] - multi_line.line_tops[0],
+            multi_line.line_heights[0] * 1.6,
+        )
+
     def test_fails_only_when_even_minimum_size_cannot_fit_any_full_line(self):
         regions = [PDFReplacementRegion(1, (0, 0, 20, 5), (100, 100))]
         filler = QTextParagraphFiller(PatchTextOptions(max_font_size=8, min_font_size=8))

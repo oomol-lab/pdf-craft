@@ -95,8 +95,9 @@ If an output is absent, make sure its parent directory exists and is writable, t
 PDF patching requires the original PDF plus a `.pcex` extracted from that same
 document. `pages.xml` must include the relevant page geometry; missing data is not
 recovered from OCR caches or by re-rendering. Translated text must fit the original
-OCR bounding boxes. Patch output is rendered from page images, so it does not
-preserve source vector text, annotations, or links. `APPEND_BLOCK` is unsupported.
+OCR bounding boxes. Patching preserves the source page and adds a white visual
+erasure overlay plus a Qt PDF text layer; it does not rasterize source vector text,
+annotations, or links. `APPEND_BLOCK` is unsupported.
 
 ## What to include in a bug report
 

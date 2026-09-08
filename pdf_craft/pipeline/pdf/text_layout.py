@@ -77,7 +77,13 @@ class RegionTextPlacement:
     page_index: int
     rectangle: PageRectangle
     remaining_text: str
+    # These are effective glyph bounds after QTextLayout applies alignment.
+    # They make the otherwise opaque Qt placement decision inspectable in
+    # deterministic tests; drawing still lets Qt perform the shaping.
+    line_text_lefts: tuple[float, ...]
+    line_text_widths: tuple[float, ...]
     line_tops: tuple[float, ...]
+    line_heights: tuple[float, ...]
     font_size: float
     style: PatchTextStyle
 
@@ -202,7 +208,11 @@ class QTextParagraphFiller:
         QtCore, QtGui = _qt_modules()
         _ensure_qt_application(QtGui)
         layout = self._create_layout(QtCore, QtGui, text, style, font_size)
+        content_left = rectangle.x + style.horizontal_padding
         line_tops: list[float] = []
+        line_text_lefts: list[float] = []
+        line_text_widths: list[float] = []
+        line_heights: list[float] = []
         consumed_utf16 = 0
         y = available_top
         last_line_height = 0.0
@@ -217,6 +227,11 @@ class QTextParagraphFiller:
                 if y + line_height > available_bottom + 1e-6:
                     break
                 line_tops.append(y)
+                line_start = _x_coordinate(line.cursorToX(0))
+                line_end = _x_coordinate(line.cursorToX(line.textLength()))
+                line_text_lefts.append(content_left + line_start)
+                line_text_widths.append(line_end - line_start)
+                line_heights.append(line_height)
                 consumed_utf16 = line.textStart() + line.textLength()
                 last_line_height = line_height
                 y += line_height * style.line_height
@@ -237,7 +252,10 @@ class QTextParagraphFiller:
             page_index,
             rectangle,
             text,
+            tuple(line_text_lefts),
+            tuple(line_text_widths),
             tuple(top + shift for top in line_tops),
+            tuple(line_heights),
             font_size,
             style,
         ), _python_index_for_utf16(text, consumed_utf16)
@@ -301,6 +319,18 @@ def _python_index_for_utf16(text: str, utf16_index: int) -> int:
         if units >= utf16_index:
             return index + 1
     return len(text)
+
+
+def _x_coordinate(cursor_position) -> float:
+    """Return PySide's x component from ``QTextLine.cursorToX``.
+
+    PySide exposes ``cursorToX`` as ``(x, edge)`` while some Qt bindings use a
+    scalar. Keeping the conversion here makes the layout plan portable across
+    supported PySide versions.
+    """
+    if isinstance(cursor_position, tuple):
+        return float(cursor_position[0])
+    return float(cursor_position)
 
 
 _QT_APPLICATION = None
