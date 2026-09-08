@@ -82,3 +82,23 @@ class TestPDFInlineFormulaFallback(unittest.TestCase):
         self.assertEqual(fitted.placements[0].rectangle.top, 35.0)
         self.assertEqual(fitted.placements[0].rectangle.width, 100.0)
         self.assertEqual(len(fitted.placements[0].formula_draws), 1)
+
+    def test_tall_fragment_falls_back_before_it_can_escape_a_bbox(self):
+        class Renderer:
+            available = True
+
+            @staticmethod
+            def render(latex, point_size):
+                del latex, point_size
+                return FormulaFragment(b"%PDF-1.4", 10, 100, 2)
+
+        region = PDFReplacementRegion(1, (0, 0, 100, 20), (100, 100))
+        replacement = PDFReplacement(
+            1, region.bbox, "\ufffc", region.page_pixel_size, regions=(region,),
+            inline_formulas=(PDFInlineFormula("x"),),
+        )
+        filler = QTextParagraphFiller(PatchTextOptions(max_font_size=10, min_font_size=10))
+        filler._formula_renderer = cast(Any, Renderer())  # pylint: disable=protected-access
+        fitted = filler.fit(replacement, {1: (100, 100)})
+        self.assertEqual(fitted.placements[0].formula_draws, ())
+        self.assertIn("x", fitted.text)
