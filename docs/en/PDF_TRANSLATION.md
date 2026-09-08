@@ -154,11 +154,11 @@ craft.patch_pdf_with_extraction(
 
 ### What PDF patching can and cannot preserve
 
-PDF patching is a page-overlay workflow, not a general-purpose PDF layout engine. Each source page is rendered as an image and translated text is placed over its OCR bounding boxes. The output therefore does not retain the source PDF's selectable vector text, links, annotations, or other page objects. It replaces text and subtitle layouts only; tables and images are not translated in place.
+PDF patching is a page-overlay workflow, not a general-purpose PDF layout engine. It preserves each source page and merges a rectangular visual-erasure layer followed by a Qt-generated PDF text layer. The translated text remains scalable and extractable; source vector text, links, annotations and other page objects are not flattened. The current erasure is only a white rectangle, so hidden source text may still be extractable underneath it. It replaces text and subtitle layouts only; tables and images are not translated in place.
 
 The source PDF and extraction must match. `pages.xml` must contain geometry for every chapter page and its page numbers must be valid for the source file. There is no fallback to OCR caches or re-rendering to recover missing geometry. `APPEND_BLOCK` is rejected for PDF output because new block-level content cannot safely be added to a fixed page. Text that cannot fit its original bounding box fails before a partial output PDF is left behind.
 
-For custom fonts, fit rules, alignment, padding, or overflow handling, use the lower-level public `PDFPatcher`, `PatchTextOptions`, and `PDFTranslationPipeline` APIs described in the [API reference](API_REFERENCE.md).
+For custom fonts, semantic title/body styles, fit rules, alignment, padding, or overflow handling, use the lower-level public `PDFPatcher`, `PatchTextOptions`, `PatchTextStyle`, and `PDFTranslationPipeline` APIs described in the [API reference](API_REFERENCE.md). PDF patching requires the local Qt/PySide6 runtime and suitable fonts.
 
 ## Extraction controls
 

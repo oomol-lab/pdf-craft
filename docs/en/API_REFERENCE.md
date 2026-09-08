@@ -167,21 +167,24 @@ LLM(
 For patch layout beyond the convenience methods, use these public types:
 
 ```python
-from pdf_craft import PDFPatcher, PDFTranslationPipeline, PatchTextOptions
+from pdf_craft import PDFPatcher, PDFTranslationPipeline, PatchTextOptions, PatchTextStyle
 
 patcher = PDFPatcher(options=PatchTextOptions(
-    font_name="STSong-Light",
+    font_name="Noto Sans CJK SC",  # preferred family; Qt falls back when absent
     max_font_size=14,
     min_font_size=5,
     alignment="left",
     horizontal_padding=1,
     vertical_padding=1,
+    styles={"sub_title": PatchTextStyle(max_font_size=18, min_font_size=8)},
     overflow="error",
 ))
 pipeline = PDFTranslationPipeline(patcher=patcher)
 ```
 
-`PatchTextOptions` controls text fitting. `overflow="error"` (the default) stops if translated text cannot fit; `overflow="skip"` records skipped replacements in `PDFPatcher.skipped_replacements`. `PDFReplacement` and `PDFSkippedReplacement` describe individual patch outcomes. PDF translation collects each `ParagraphLayout` once and retains its ordered source boxes as `PDFReplacement.regions` (`PDFReplacementRegion` values). The current box patcher accepts one-region replacements only; multi-region paragraph flow is intentionally left to the paragraph filler.
+`PatchTextOptions` controls the default Qt text style and optional `PatchTextStyle` overrides by semantic layout key (`"text"`, `"sub_title"`, or `"sub_title:2"`). A paragraph receives one fitted font size, then flows through its ordered `PDFReplacement.regions` without splitting a line across boxes. Qt handles shaping, wrapping, fallback fonts and glyph positions; missing configured fonts do not stop a patch. `overflow="error"` (the default) stops if the complete paragraph cannot fit; `overflow="skip"` records skipped replacements in `PDFPatcher.skipped_replacements`.
+
+The patcher preserves the source PDF page and merges two independent overlays: a temporary white rectangle erasure layer and a Qt-generated PDF text layer. It does not rasterize the page or the translated text. The current erasure is visual only: source text hidden by its rectangle may remain extractable beneath it. Qt/PySide6 and the required fonts must be available on the machine producing the PDF.
 
 `PDFTranslationPipeline` can perform lower-level translation or patching when the application owns the complete layout and output lifecycle. Prefer `PDFCraft.translate_pdf()` and `PDFCraft.patch_pdf_with_extraction()` when their fixed layout policy is sufficient.
 

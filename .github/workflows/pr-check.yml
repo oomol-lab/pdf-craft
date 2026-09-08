@@ -28,8 +28,8 @@ jobs:
           poetry config virtualenvs.create true
           poetry config virtualenvs.in-project true
 
-      - name: Install Poppler
-        run: sudo apt-get update && sudo apt-get install --yes poppler-utils
+      - name: Install PDF and Qt runtime
+        run: sudo apt-get update && sudo apt-get install --yes poppler-utils libegl1
 
       - name: Install dependencies
         run: |

@@ -23,7 +23,8 @@ The extra supplies the Python runtime for local models. It does not choose a PyT
 ## Requirements
 
 - Python `>=3.11,<3.14`
-- Poppler for PDF conversion and the standard PDF translation/patch workflow
+- Poppler for PDF conversion and OCR extraction; patching an existing `.pcex`
+  back onto its source PDF does not render pages
 - Network and valid credentials for vendor OCR
 - A CUDA-capable NVIDIA GPU, matching PyTorch, model storage, and adequate VRAM for local OCR
 

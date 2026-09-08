@@ -387,10 +387,12 @@ translate_epub(
   target_path, replacements)` 写出 PDF。它接受任意通过字段校验的 `PDFReplacement`，不要求这些
   替换项来自 `PDFCraftExtraction` 或 OCR；`page_pixel_size` 仅用于把像素 `bbox` 换算为 PDF 坐标，
   patcher 不会验证它是否等于源页的实际渲染尺寸。调用方必须自行保证页码、坐标与尺寸对应源 PDF。
-  `PatchTextOptions` 控制字体、字号、内边距、对齐和 `overflow` 策略；`overflow="error"`（默认）
-  在文字无法放入原框时失败，`"skip"` 则把对应项记录在 `patcher.skipped_replacements` 中。
-  当前 `PDFPatcher` 仍是单框实现；若 `regions` 含多个来源框，它会明确报错，等待段落填充器决定跨框排版，
-  不会悄悄把整段文字重复写入每个框。
+  `PatchTextOptions` 控制默认字体、字号、内边距、对齐和 `overflow` 策略；可用
+  `PatchTextStyle` 以 `"text"`、`"sub_title"` 或 `"sub_title:2"` 为键覆盖不同文字等级。
+  同一个段落统一搜索字号，随后按顺序流入所有 `regions`；放不下的整行会进入下一个框，绝不局部跨框。
+  `overflow="error"`（默认）在整段无法容纳时失败，`"skip"` 则把对应项记录在
+  `patcher.skipped_replacements` 中。Qt 负责断行、字形位置与字体 fallback；用户填写的缺失字体
+  不会阻断运行。
 - `PDFTranslationPipeline` 可将一个 `PDFCraftExtraction` 与 `ChapterTransformer` 或
   `Callable[[str], str]` 直接写回 PDF；其 `.patch()` 则把 extraction 已有的文字写回。这是
   facade 的底层组成部分，普通应用无需直接构造。它只从 extraction 中带来源坐标的 `text` 和
