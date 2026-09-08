@@ -33,6 +33,7 @@ CUDA 环境安装匹配的 PyTorch。没有可用 CUDA 设备时，使用标准�
 - Python `>=3.11,<3.14`。
 - Poppler：PDF 页面渲染和 OCR 提取需要它。已有 `.pcex` 写回原 PDF 的 patch 流程
   不渲染页面，因此不依赖 Poppler。
+- Ghostscript：PDF 写回需要它将源页编译为纯视觉底图，避免原文在译文下方被选中。
 - vendor OCR：网络连接和有效的供应商配置；只要运行 OCR 提取，还需要 Poppler；本机不需要 CUDA。
 - local OCR：支持 CUDA 的 NVIDIA GPU、匹配的 PyTorch、模型缓存、足够的显存和 Poppler。
 
@@ -101,6 +102,28 @@ pdfinfo -v
 ```
 
 如果出现 `command not found` 或 Windows 找不到命令，请先修复 PATH，再运行 pdf-craft。
+
+## 为 PDF 写回安装 Ghostscript
+
+PDF 写回需要 Ghostscript 命令行程序：
+
+### macOS
+
+```bash
+brew install ghostscript
+```
+
+### Debian / Ubuntu
+
+```bash
+sudo apt-get update
+sudo apt-get install ghostscript
+```
+
+### Windows
+
+安装 Ghostscript 并将 `gswin64c.exe` 加入 `PATH`。在运行 Python 的同一环境中确认
+`gs --version`（或 `gswin64c --version`）可用。
 
 ## local OCR 的 CUDA 环境
 

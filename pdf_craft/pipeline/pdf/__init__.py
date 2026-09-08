@@ -7,11 +7,12 @@ from .text_layout import (
     PatchTextStyle, PlannedParagraph, QTextParagraphFiller, RegionTextPlacement,
     WindowedParagraphPlanner,
 )
+from .visual_base import GhostscriptVisualBaseCompiler, VisualBaseCompiler
 
 __all__ = [
     "EraseOptions", "EraseRectangle", "FillWindowPlan", "FittedParagraph", "FontResolution", "HeadlineConstraintError",
     "PatchTextOptions", "PatchTextStyle", "PDFPatcher",
     "PDFReplacement", "PDFReplacementRegion", "PDFSkippedReplacement", "PDFTranslationPipeline",
     "PlannedParagraph", "QTextParagraphFiller", "RectangularEraser", "RegionTextPlacement",
-    "WindowedParagraphPlanner",
+    "WindowedParagraphPlanner", "GhostscriptVisualBaseCompiler", "VisualBaseCompiler",
 ]

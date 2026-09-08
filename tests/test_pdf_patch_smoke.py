@@ -7,6 +7,7 @@ review workflow additionally renders its generated output for visual review.
 
 import tempfile
 import unittest
+from shutil import which
 from pathlib import Path
 from typing import Any
 from xml.etree.ElementTree import tostring
@@ -25,6 +26,7 @@ _ASSET_ROOT = Path(__file__).parent / "assets" / "pdf"
 
 
 class TestPDFPatchSmoke(unittest.TestCase):
+    @unittest.skipUnless(which("gs"), "requires local Ghostscript")
     def test_pipeline_fills_real_fixture_as_extractable_pdf_text(self):
         """Exercise ParagraphLayout extraction, erasure, filler, and output."""
         source = _ASSET_ROOT / "friendly.pdf"
@@ -62,6 +64,7 @@ class TestPDFPatchSmoke(unittest.TestCase):
             self.assertEqual(len(reader.pages), 7)
             first_page: Any = reader.pages[0]
             self.assertIn("Smoke", first_page.extract_text())
+            self.assertNotIn("source first line", first_page.extract_text())
             self.assertEqual(calls, ["source first line source second line"])
             # No page-wide raster image is introduced by patching: existing
             # source images are retained, and Qt's text overlay adds none.

@@ -25,6 +25,8 @@ The extra supplies the Python runtime for local models. It does not choose a PyT
 - Python `>=3.11,<3.14`
 - Poppler for PDF conversion and OCR extraction; patching an existing `.pcex`
   back onto its source PDF does not render pages
+- Ghostscript for PDF patching. It compiles the source page into a visual-only
+  layer, so the original text cannot be selected beneath translated text.
 - Network and valid credentials for vendor OCR
 - A CUDA-capable NVIDIA GPU, matching PyTorch, model storage, and adequate VRAM for local OCR
 
@@ -51,6 +53,22 @@ sudo apt-get update && sudo apt-get install poppler-utils
 On Windows, install a Poppler binary distribution and add its `bin` directory to `PATH`. Alternatively, configure `DefaultPDFHandler(poppler_path="C:/tools/poppler/bin")` through `PDFOptions`.
 
 Check the installation with `pdfinfo -v`.
+
+## Install Ghostscript for PDF patching
+
+PDF patching requires the Ghostscript command-line executable:
+
+```bash
+# macOS
+brew install ghostscript
+
+# Debian / Ubuntu
+sudo apt-get update && sudo apt-get install ghostscript
+```
+
+On Windows, install Ghostscript and add `gswin64c.exe` to `PATH`. Confirm that
+`gs --version` (or `gswin64c --version`) works in the same environment that
+runs Python.
 
 ## Local OCR setup
 
