@@ -8,15 +8,18 @@ from pdf_craft.extractor.chapter.chapter import Chapter, ParagraphLayout, encode
 from pdf_craft.extractor.chapter.chapter import InlineExpression, Reference
 from pdf_craft.extractor.chapter.reader import create_chapters_reader
 from pdf_craft.markdown.paragraph import HTMLTag
-from pdf_craft.expression import to_markdown_string
+from pdf_craft.formula import latex_to_plain_text
 from pdf_craft.document import PDFCraftExtraction
 from pdf_craft.transformer.events import TranslationEvent, TranslationEventKind, TranslationItemKind
 from pdf_craft.transformer.chapter_xml import ChapterXMLTransformer
 from pdf_craft.transformer.xml_translator.segment import search_text_segments
 from pdf_craft.pdf.handler import PDFHandler
-from pdf_craft.pipeline.pdf.models import PDFReplacement, PDFReplacementRegion
+from pdf_craft.pipeline.pdf.models import PDFInlineFormula, PDFReplacement, PDFReplacementRegion
 from pdf_craft.pipeline.pdf.patcher import PDFPatcher
 from pdf_craft.transformer import ChapterTransformer
+
+
+_INLINE_FORMULA_MARKER = "\ufffc"
 
 
 class PDFTranslationPipeline:
@@ -161,6 +164,17 @@ class PDFTranslationPipeline:
             translated = transformer(source)
             if not translated or (translated == source and not structured):
                 continue
+            inline_formulas: tuple[PDFInlineFormula, ...] = ()
+            patch_text = translated
+            if structured:
+                patch_text, inline_formulas = _to_pdf_patch_content(
+                    item
+                    for block in layout.blocks
+                    for item in block.content
+                )
+                patch_text = patch_text.strip()
+            if not patch_text:
+                continue
 
             regions: list[PDFReplacementRegion] = []
             for block in layout.blocks:
@@ -177,9 +191,10 @@ class PDFTranslationPipeline:
 
             first = regions[0]
             yield PDFReplacement(
-                first.page_index, first.bbox, translated, first.page_pixel_size, first.dpi,
+                first.page_index, first.bbox, patch_text, first.page_pixel_size, first.dpi,
                 reading_order=first.reading_order, regions=tuple(regions),
                 layout_ref=layout.ref, layout_level=layout.level,
+                inline_formulas=inline_formulas,
             )
 
 
@@ -194,7 +209,11 @@ def _to_patch_text(items) -> str:
         if isinstance(item, str):
             parts.append(item)
         elif isinstance(item, InlineExpression):
-            parts.append(to_markdown_string(item.kind, item.content))
+            # This helper also feeds the public callable transformer path.
+            # A callback returns an unstructured string, so preserving raw
+            # delimiters here would later leak them into QTextLayout.  The
+            # structured XML path uses _to_pdf_patch_content instead.
+            parts.append(latex_to_plain_text(item.content))
         elif isinstance(item, Reference):
             parts.append(str(item.mark))
         elif isinstance(item, HTMLTag):
@@ -202,6 +221,33 @@ def _to_patch_text(items) -> str:
         else:
             raise TypeError(f"unsupported chapter content for PDF patching: {type(item).__name__}")
     return "".join(parts)
+
+
+def _to_pdf_patch_content(items) -> tuple[str, tuple[PDFInlineFormula, ...]]:
+    """Return visible text with structural markers for embedded formulas.
+
+    XML translation intentionally keeps :class:`InlineExpression` nodes in
+    the translated Chapter.  Do not serialize them back to delimiter-wrapped
+    LaTeX here: the PDF filler can then render a vector atom when local TeX is
+    available, or use its plain-text fallback when it is not.
+    """
+    parts: list[str] = []
+    formulas: list[PDFInlineFormula] = []
+    for item in items:
+        if isinstance(item, str):
+            parts.append(item)
+        elif isinstance(item, InlineExpression):
+            parts.append(_INLINE_FORMULA_MARKER)
+            formulas.append(PDFInlineFormula(item.content.strip()))
+        elif isinstance(item, Reference):
+            parts.append(str(item.mark))
+        elif isinstance(item, HTMLTag):
+            children, child_formulas = _to_pdf_patch_content(item.children)
+            parts.append(children)
+            formulas.extend(child_formulas)
+        else:
+            raise TypeError(f"unsupported chapter content for PDF patching: {type(item).__name__}")
+    return "".join(parts), tuple(formulas)
 
 
 def _ensure_extraction(value: PDFCraftExtraction | Path) -> PDFCraftExtraction:

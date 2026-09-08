@@ -13,6 +13,7 @@ from .craft import ExtractionOptions, PDFCraft, PDFOptions
 from .pipeline.epub import translate_epub
 from .pipeline.pdf import (
     PDFPatcher,
+    PDFInlineFormula,
     PDFReplacement,
     PDFReplacementRegion,
     PDFSkippedReplacement,

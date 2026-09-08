@@ -4,6 +4,19 @@ from dataclasses import dataclass
 
 
 @dataclass(frozen=True)
+class PDFInlineFormula:
+    """One inline LaTeX atom embedded in a replacement paragraph.
+
+    ``PDFReplacement.text`` stores one object-replacement marker for every
+    instance, in the same order as this tuple.  Keeping the source separate
+    from ordinary text lets the PDF filler choose a real vector fragment or a
+    readable text fallback without leaking LaTeX delimiters into the output.
+    """
+
+    latex: str
+
+
+@dataclass(frozen=True)
 class PDFReplacementRegion:
     """One ordered OCR rectangle belonging to a logical paragraph."""
 
@@ -32,6 +45,7 @@ class PDFReplacement:
     regions: tuple[PDFReplacementRegion, ...] = ()
     layout_ref: str = "text"
     layout_level: int = 0
+    inline_formulas: tuple[PDFInlineFormula, ...] = ()
 
     def source_regions(self) -> tuple[PDFReplacementRegion, ...]:
         """Return explicit paragraph regions or the legacy single region."""

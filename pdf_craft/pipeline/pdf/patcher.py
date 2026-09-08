@@ -1,6 +1,7 @@
 """Compose non-interactive visual bases with independent overlays."""
 
 from collections.abc import Iterable
+from io import BytesIO
 from pathlib import Path
 import pickle
 from tempfile import NamedTemporaryFile, TemporaryDirectory
@@ -219,6 +220,15 @@ class PDFPatcher:
                     text_path = root / f"text-{index}.pdf"
                     self._filler.draw_pdf_overlay(text_path, (page_width, page_height), page_placements)
                     page.merge_page(pypdf.PdfReader(str(text_path)).pages[0])
+                    for placement in page_placements:
+                        for formula in placement.formula_draws:
+                            fragment = pypdf.PdfReader(BytesIO(formula.pdf)).pages[0]
+                            page.merge_transformed_page(
+                                fragment,
+                                pypdf.Transformation().translate(
+                                    formula.x, page_height - formula.baseline - formula.descent,
+                                ),
+                            )
                 writer.add_page(page)
         finally:
             if document is not None:
