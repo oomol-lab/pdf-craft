@@ -692,6 +692,13 @@ class QTextParagraphFiller:
                     for span in formula_spans
                 ):
                     break
+                if any(
+                    _x_coordinate(line.cursorToX(span.start - line_start_index))
+                    + span.fragment.width > available_width + 1e-6
+                    for span in formula_spans
+                    if line_start_index <= span.start and span.start + span.length <= line_end_index
+                ):
+                    break
                 line_tops.append(y)
                 line_start = _x_coordinate(line.cursorToX(0))
                 line_end = _x_coordinate(line.cursorToX(line.textLength()))
