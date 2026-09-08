@@ -160,6 +160,31 @@ The source PDF and extraction must match. `pages.xml` must contain geometry for 
 
 For custom fonts, semantic title/body styles, fit rules, alignment, erase padding, or overflow handling, use the lower-level public `PDFPatcher`, `PatchTextOptions`, `PatchTextStyle`, `EraseOptions`, and `PDFTranslationPipeline` APIs described in the [API reference](API_REFERENCE.md). PDF patching requires the local Qt/PySide6 runtime, Poppler (or a supplied `PDFHandler`), and suitable fonts.
 
+### Headline hierarchy and bounded layout windows
+
+PDF patching treats each `ParagraphLayout` as one text flow, even when it has source boxes on more than one page. Each paragraph receives one uniform fitted font size; a full wrapped line always moves to the next source box rather than overflowing a box boundary.
+
+Within a releasable page window, `text` paragraphs are fitted before `sub_title` paragraphs. The largest fitted body size on every page touched by a headline becomes the headline's lower bound, multiplied by `headline_min_body_ratio` (default `1.2`). A semantic style can override that ratio with `minimum_body_font_ratio`; the normal fitting search may still choose a larger title size when its boxes permit it.
+
+```python
+options = PatchTextOptions(
+    styles={
+        "text": PatchTextStyle(font_name="Noto Serif CJK SC", max_font_size=11),
+        "sub_title": PatchTextStyle(
+            font_name="Noto Sans CJK SC",
+            max_font_size=24,
+            minimum_body_font_ratio=1.35,
+        ),
+    },
+    headline_min_body_ratio=1.2,
+    headline_fallback_font_size=14,
+)
+```
+
+If a title page has no drawn body text, its reference is chosen deterministically: a preceding body on the current window, then the preceding completed window, then a following body in the current window, then `headline_fallback_font_size` (or the title style's own minimum). A title that cannot meet its required lower bound raises `HeadlineConstraintError`; set `overflow="skip"` to record it in `patcher.skipped_replacements` and leave that replacement untouched instead.
+
+The window closes after all paragraphs that can touch its pages have been planned. The patcher then renders, samples for erasure, composes, and releases one source page image at a time. Thus a very long cross-page paragraph does not retain a book-wide collection of page rasters; the independent eraser and Qt text layers remain separate.
+
 ## Extraction controls
 
 Pass `ExtractionOptions` through the `extraction=` argument to tune a single extraction run:

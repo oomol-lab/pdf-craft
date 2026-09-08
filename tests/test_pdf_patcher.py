@@ -1,17 +1,18 @@
-# pylint: disable=no-member
+# pylint: disable=no-member,protected-access
 
 import tempfile
 import unittest
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 from unittest.mock import Mock
 
 import pypdf
 from PIL import Image
 from reportlab.pdfgen import canvas
 
+from pdf_craft.pdf.handler import PDFHandler
 from pdf_craft.pipeline.pdf import (
-    PDFPatcher, PDFReplacement, PDFReplacementRegion, PatchTextOptions,
+    FittedParagraph, PDFPatcher, PDFReplacement, PDFReplacementRegion, PatchTextOptions,
     QTextParagraphFiller,
 )
 
@@ -200,3 +201,84 @@ class TestPDFPatcher(unittest.TestCase):
 
             self.assertEqual(len(patcher.skipped_replacements), 1)
             self.assertIn("cannot fit paragraph source regions", patcher.skipped_replacements[0].reason)
+
+    def test_long_cross_page_window_releases_each_source_image_before_the_next(self):
+        """A single ParagraphLayout must not retain every page raster it spans."""
+        class TrackingImage:
+            def __init__(self, page_index):
+                self.page_index = page_index
+                self.closed = False
+
+            def close(self):
+                self.closed = True
+
+        class TrackingDocument:
+            def __init__(self):
+                self.images = []
+                self.closed = False
+
+            def render_page(self, page_index, _dpi):
+                if any(not image.closed for image in self.images):
+                    raise AssertionError("previous source image was retained")
+                image = TrackingImage(page_index)
+                self.images.append(image)
+                return image
+
+            def close(self):
+                self.closed = True
+
+        class TrackingHandler:
+            def __init__(self):
+                self.document = TrackingDocument()
+
+            def open(self, _source):
+                return self.document
+
+        class LightweightFiller:
+            def __init__(self, options):
+                self.options = options
+
+            @staticmethod
+            def fit(replacement, _page_sizes, _minimum_font_size=None):
+                return FittedParagraph(replacement.text, 10, ())
+
+        class RecordingEraser:
+            def __init__(self):
+                self.image_map_sizes = []
+
+            def plan(self, regions, _page_sizes, page_images):
+                self.image_map_sizes.append(len(page_images))
+                if len(tuple(regions)) != 1:
+                    raise AssertionError("page image must only serve its own regions")
+                return ()
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            source = root / "source.pdf"
+            target = root / "target.pdf"
+            doc = canvas.Canvas(str(source), pagesize=(100, 100))
+            for _ in range(8):
+                doc.showPage()
+            doc.save()
+            handler = TrackingHandler()
+            patcher = PDFPatcher(
+                options=PatchTextOptions(max_font_size=10, min_font_size=10),
+                pdf_handler=cast(PDFHandler, handler),
+            )
+            patcher._filler = LightweightFiller(patcher.options)  # type: ignore[assignment]
+            eraser = RecordingEraser()
+            patcher._eraser = eraser  # type: ignore[assignment]
+            regions = tuple(
+                PDFReplacementRegion(page_index, (1, 1, 99, 99), (100, 100))
+                for page_index in range(1, 9)
+            )
+            replacement = PDFReplacement(
+                1, regions[0].bbox, "long paragraph", (100, 100), regions=regions,
+            )
+
+            patcher.patch(source, target, [replacement])
+
+            self.assertEqual([image.page_index for image in handler.document.images], list(range(1, 9)))
+            self.assertTrue(all(image.closed for image in handler.document.images))
+            self.assertEqual(eraser.image_map_sizes, [1] * 8)
+            self.assertTrue(handler.document.closed)

@@ -4,13 +4,13 @@ from collections.abc import Iterable
 from pathlib import Path
 from tempfile import NamedTemporaryFile, TemporaryDirectory
 
-from PIL import Image
-
 from pdf_craft.pdf.handler import DefaultPDFHandler, PDFHandler
 
 from .eraser import EraseOptions, EraseRectangle, RectangularEraser
 from .models import PDFReplacement, PDFReplacementRegion, PDFSkippedReplacement
-from .text_layout import FittedParagraph, PatchTextOptions, QTextParagraphFiller
+from .text_layout import (
+    FittedParagraph, PatchTextOptions, QTextParagraphFiller, WindowedParagraphPlanner,
+)
 
 
 class PDFPatcher:
@@ -66,32 +66,66 @@ class PDFPatcher:
             raise RuntimeError("PDF patching requires pypdf and reportlab") from error
 
         reader = pypdf.PdfReader(str(source_path))
-        replacement_list = list(replacements)
-        for replacement in replacement_list:
-            self.validate(replacement, pages_count=len(reader.pages))
-
         page_sizes = {
             index: (float(page.mediabox.width), float(page.mediabox.height))
             for index, page in enumerate(reader.pages, 1)
         }
-        fitted, skipped = self._preflight(replacement_list, page_sizes)
-        erasure_regions = tuple(
-            region for replacement, _ in fitted for region in replacement.source_regions()
-        )
-        erasures = self._eraser.plan(
-            erasure_regions,
-            page_sizes,
-            self._render_erasure_pages(source_path, erasure_regions),
-        )
+        def validated_replacements():
+            for replacement in replacements:
+                self.validate(replacement, pages_count=len(reader.pages))
+                yield replacement
 
-        erasures_by_page = self._group_erasures(erasures)
-        text_by_page = self._group_text_placements(fitted)
+        planner = WindowedParagraphPlanner(self._filler, page_sizes, self.options)
         writer = pypdf.PdfWriter()
+        next_page_index = 1
         with TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
-            for index, page in enumerate(reader.pages, 1):
+            for window in planner.plan(validated_replacements()):
+                for index in range(next_page_index, window.first_page_index):
+                    writer.add_page(reader.pages[index - 1])
+                self._compose_window(
+                    pypdf, canvas, source_path, reader, writer, root, page_sizes, window,
+                )
+                next_page_index = window.last_page_index + 1
+            for index in range(next_page_index, len(reader.pages) + 1):
+                writer.add_page(reader.pages[index - 1])
+
+        target_path.parent.mkdir(parents=True, exist_ok=True)
+        with NamedTemporaryFile(dir=target_path.parent, suffix=".pdf", delete=False) as output:
+            temporary_path = Path(output.name)
+            writer.write(output)
+        temporary_path.replace(target_path)
+        self.skipped_replacements = tuple(
+            PDFSkippedReplacement(replacement.page_index, replacement.bbox, str(reason))
+            for replacement, reason in planner.skipped
+        )
+
+    def _compose_window(
+        self, pypdf, canvas, source_path: Path, reader, writer, root: Path,
+        page_sizes: dict[int, tuple[float, float]], window,
+    ) -> None:
+        """Compose one window, retaining at most one source-page raster.
+
+        A cross-page paragraph can span an arbitrarily large number of pages,
+        so a completed typography plan is deliberately lightweight.  Its
+        erasure source rasters are rendered, sampled and closed per page here,
+        rather than collected in a window-wide image dictionary.
+        """
+        regions_by_page: dict[int, list[PDFReplacementRegion]] = {}
+        for planned in window.paragraphs:
+            for region in planned.replacement.source_regions():
+                regions_by_page.setdefault(region.page_index, []).append(region)
+        text_by_page = self._group_text_placements(
+            (planned.replacement, planned.paragraph) for planned in window.paragraphs
+        )
+        document = self._pdf_handler.open(source_path) if regions_by_page else None
+        try:
+            for index in range(window.first_page_index, window.last_page_index + 1):
+                page = reader.pages[index - 1]
                 page_width, page_height = page_sizes[index]
-                page_erasures = erasures_by_page.get(index, ())
+                page_erasures = self._plan_page_erasures(
+                    document, index, regions_by_page.get(index, ()), page_sizes,
+                )
                 if page_erasures:
                     erasure_path = root / f"erase-{index}.pdf"
                     self._write_erasure_overlay(canvas, erasure_path, page_width, page_height, page_erasures)
@@ -99,42 +133,34 @@ class PDFPatcher:
                 page_placements = text_by_page.get(index, ())
                 if page_placements:
                     text_path = root / f"text-{index}.pdf"
-                    self._filler.draw_pdf_overlay(
-                        text_path, (page_width, page_height), page_placements,
-                    )
+                    self._filler.draw_pdf_overlay(text_path, (page_width, page_height), page_placements)
                     page.merge_page(pypdf.PdfReader(str(text_path)).pages[0])
                 writer.add_page(page)
-
-        target_path.parent.mkdir(parents=True, exist_ok=True)
-        with NamedTemporaryFile(dir=target_path.parent, suffix=".pdf", delete=False) as output:
-            temporary_path = Path(output.name)
-            writer.write(output)
-        temporary_path.replace(target_path)
-        self.skipped_replacements = tuple(skipped)
-
-    def _render_erasure_pages(
-        self,
-        source_path: Path,
-        regions: tuple[PDFReplacementRegion, ...],
-    ) -> dict[int, Image.Image]:
-        """Render only pages that need color sampling, never for PDF output."""
-        page_dpi: dict[int, int] = {}
-        for region in regions:
-            previous = page_dpi.setdefault(region.page_index, region.dpi)
-            if previous != region.dpi:
-                raise ValueError(
-                    f"page {region.page_index} has incompatible erasure render DPI values"
-                )
-        if not page_dpi:
-            return {}
-        document = self._pdf_handler.open(source_path)
-        try:
-            return {
-                page_index: document.render_page(page_index, dpi)
-                for page_index, dpi in page_dpi.items()
-            }
         finally:
-            document.close()
+            if document is not None:
+                document.close()
+
+    def _plan_page_erasures(
+        self,
+        document,
+        page_index: int,
+        regions: Iterable[PDFReplacementRegion],
+        page_sizes: dict[int, tuple[float, float]],
+    ) -> tuple[EraseRectangle, ...]:
+        """Sample one source raster, plan that page's masks, then release it."""
+        page_regions = tuple(regions)
+        if not page_regions:
+            return ()
+        if document is None:  # Defensive: non-empty regions always opened it.
+            raise RuntimeError("source document is required for erasure")
+        dpi = page_regions[0].dpi
+        if any(region.dpi != dpi for region in page_regions[1:]):
+            raise ValueError(f"page {page_index} has incompatible erasure render DPI values")
+        page_image = document.render_page(page_index, dpi)
+        try:
+            return self._eraser.plan(page_regions, page_sizes, {page_index: page_image})
+        finally:
+            page_image.close()
 
     def validate(self, replacement: PDFReplacement, pages_count: int | None = None) -> None:
         if not replacement.text.strip():
@@ -144,27 +170,6 @@ class PDFPatcher:
             self._validate_single_region_matches_replacement(replacement, regions[0])
         for region in regions:
             self._validate_region(region, pages_count)
-
-    def _preflight(
-        self,
-        replacements: Iterable[PDFReplacement],
-        page_sizes: dict[int, tuple[float, float]],
-    ) -> tuple[tuple[tuple[PDFReplacement, FittedParagraph], ...], list[PDFSkippedReplacement]]:
-        fitted: list[tuple[PDFReplacement, FittedParagraph]] = []
-        skipped: list[PDFSkippedReplacement] = []
-        for replacement in replacements:
-            try:
-                fitted.append((replacement, self._filler.fit(replacement, page_sizes)))
-            except ValueError as error:
-                if self.options.overflow == "skip":
-                    skipped.append(PDFSkippedReplacement(
-                        replacement.page_index, replacement.bbox, str(error),
-                    ))
-                    continue
-                raise ValueError(
-                    f"page {replacement.page_index}, bbox {replacement.bbox}: {error}"
-                ) from error
-        return tuple(fitted), skipped
 
     @staticmethod
     def _validate_single_region_matches_replacement(
