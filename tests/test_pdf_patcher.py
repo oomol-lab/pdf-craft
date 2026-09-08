@@ -4,7 +4,7 @@ import tempfile
 import unittest
 from pathlib import Path
 from typing import Any, cast
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 
 import pypdf
 from PIL import Image
@@ -12,7 +12,7 @@ from reportlab.pdfgen import canvas
 
 from pdf_craft.pdf.handler import PDFHandler
 from pdf_craft.pipeline.pdf import (
-    FittedParagraph, PDFPatcher, PDFReplacement, PDFReplacementRegion, PatchTextOptions,
+    FillWindowPlan, FittedParagraph, PDFPatcher, PDFReplacement, PDFReplacementRegion, PatchTextOptions,
     QTextParagraphFiller,
 )
 
@@ -203,7 +203,7 @@ class TestPDFPatcher(unittest.TestCase):
             self.assertIn("cannot fit paragraph source regions", patcher.skipped_replacements[0].reason)
 
     def test_long_cross_page_window_releases_each_source_image_before_the_next(self):
-        """A single ParagraphLayout must not retain every page raster it spans."""
+        """Composition consumes serialized page work without materializing a whole window."""
         class TrackingImage:
             def __init__(self, page_index):
                 self.page_index = page_index
@@ -276,7 +276,11 @@ class TestPDFPatcher(unittest.TestCase):
                 1, regions[0].bbox, "long paragraph", (100, 100), regions=regions,
             )
 
-            patcher.patch(source, target, [replacement])
+            def fail_if_materialized(_plan):
+                raise AssertionError("patcher must stream page contributions")
+
+            with patch.object(FillWindowPlan, "paragraphs", new=property(fail_if_materialized)):
+                patcher.patch(source, target, [replacement])
 
             self.assertEqual([image.page_index for image in handler.document.images], list(range(1, 9)))
             self.assertTrue(all(image.closed for image in handler.document.images))

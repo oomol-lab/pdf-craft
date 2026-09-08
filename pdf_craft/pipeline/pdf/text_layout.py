@@ -4,11 +4,13 @@
 from collections.abc import Iterable, Iterator, Mapping
 from dataclasses import dataclass, field
 import os
+import pickle
 from pathlib import Path
+from tempfile import TemporaryDirectory
 from typing import Literal
 
 from .geometry import PageRectangle, region_in_page_points
-from .models import PDFReplacement
+from .models import PDFReplacement, PDFReplacementRegion
 
 
 Alignment = Literal["left", "center", "right", "justify"]
@@ -119,17 +121,130 @@ class PlannedParagraph:
 
 
 @dataclass(frozen=True)
+class _PlannedParagraphSummary:
+    """The small, paragraph-wide state retained after placements are spooled."""
+
+    replacement: PDFReplacement
+    text: str
+    font_size: float
+
+
+@dataclass(frozen=True)
+class _PagePlanContribution:
+    """One paragraph's erase and text work for one output page."""
+
+    paragraph_index: int
+    regions: tuple[PDFReplacementRegion, ...]
+    placements: tuple[RegionTextPlacement, ...]
+
+
+class _WindowPlanStorage:
+    """Append serialized page contributions while a window is being measured."""
+
+    def __init__(self) -> None:
+        self._temporary_directory = TemporaryDirectory(prefix="pdf-craft-layout-")
+        self._root = Path(self._temporary_directory.name)
+        self._page_plan_paths: dict[int, Path] = {}
+
+    def append(
+        self,
+        paragraph_index: int,
+        replacement: PDFReplacement,
+        paragraph: FittedParagraph,
+    ) -> None:
+        regions_by_page: dict[int, list[PDFReplacementRegion]] = {}
+        for region in replacement.source_regions():
+            regions_by_page.setdefault(region.page_index, []).append(region)
+        placements_by_page: dict[int, list[RegionTextPlacement]] = {}
+        for placement in paragraph.placements:
+            placements_by_page.setdefault(placement.page_index, []).append(placement)
+        for page_index in sorted(regions_by_page | placements_by_page):
+            contribution = _PagePlanContribution(
+                paragraph_index,
+                tuple(regions_by_page.get(page_index, ())),
+                tuple(placements_by_page.get(page_index, ())),
+            )
+            path = self._page_plan_paths.setdefault(
+                page_index, self._root / f"page-{page_index}.pickle",
+            )
+            with path.open("ab") as stream:
+                pickle.dump(contribution, stream, protocol=pickle.HIGHEST_PROTOCOL)
+
+    def into_plan(
+        self,
+        first_page_index: int,
+        last_page_index: int,
+        summaries: tuple[_PlannedParagraphSummary, ...],
+    ) -> "FillWindowPlan":
+        return FillWindowPlan(
+            first_page_index,
+            last_page_index,
+            summaries,
+            self._page_plan_paths,
+            self._temporary_directory,
+        )
+
+    def close(self) -> None:
+        self._temporary_directory.cleanup()
+
+
+@dataclass
 class FillWindowPlan:
     """A contiguous, releasable set of pages planned in two layout phases.
 
-    The plan intentionally contains no page image or live Qt object. The PDF
-    composer can render and release each window without coupling typography to
-    erasure or retaining a whole book of page rasters.
+    Detailed placements are serialized by page rather than retained in the
+    window object. The PDF composer can therefore load one page's work, render
+    it, and release it without coupling typography to erasure or retaining a
+    whole book of page rasters or a very long paragraph's glyph coordinates.
     """
 
     first_page_index: int
     last_page_index: int
-    paragraphs: tuple[PlannedParagraph, ...]
+    _summaries: tuple[_PlannedParagraphSummary, ...]
+    _page_plan_paths: Mapping[int, Path]
+    _temporary_directory: TemporaryDirectory
+
+    @property
+    def has_page_contributions(self) -> bool:
+        """Whether this window has any page work to compose."""
+        return bool(self._page_plan_paths)
+
+    def page_contributions(self, page_index: int) -> Iterator[_PagePlanContribution]:
+        """Yield the serialized text and erase work for one page only."""
+        try:
+            path = self._page_plan_paths[page_index]
+        except KeyError:
+            return
+        with path.open("rb") as stream:
+            while True:
+                try:
+                    yield pickle.load(stream)
+                except EOFError:
+                    return
+
+    @property
+    def paragraphs(self) -> tuple[PlannedParagraph, ...]:
+        """Materialize all placements for compatibility with plan inspection.
+
+        Production composition deliberately uses :meth:`page_contributions`.
+        Callers that inspect this compatibility view explicitly opt into the
+        corresponding whole-window allocation.
+        """
+        placements = [[] for _ in self._summaries]
+        for page_index in range(self.first_page_index, self.last_page_index + 1):
+            for contribution in self.page_contributions(page_index):
+                placements[contribution.paragraph_index].extend(contribution.placements)
+        return tuple(
+            PlannedParagraph(
+                summary.replacement,
+                FittedParagraph(summary.text, summary.font_size, tuple(placements[index])),
+            )
+            for index, summary in enumerate(self._summaries)
+        )
+
+    def close(self) -> None:
+        """Release serialized placement files once the window has been composed."""
+        self._temporary_directory.cleanup()
 
 
 class HeadlineConstraintError(ValueError):
@@ -422,35 +537,48 @@ class WindowedParagraphPlanner:
     ) -> FillWindowPlan:
         body = [replacement for replacement in replacements if not _is_headline(replacement)]
         headlines = [replacement for replacement in replacements if _is_headline(replacement)]
-        planned: list[PlannedParagraph] = []
+        summaries: list[_PlannedParagraphSummary] = []
         body_font_sizes: dict[int, float] = {}
+        storage = _WindowPlanStorage()
 
-        for replacement in body:
-            paragraph = self._fit_or_skip(replacement)
-            if paragraph is None:
-                continue
-            planned.append(PlannedParagraph(replacement, paragraph))
-            for placement in paragraph.placements:
-                body_font_sizes[placement.page_index] = max(
-                    body_font_sizes.get(placement.page_index, 0.0), paragraph.font_size,
-                )
-
-        for replacement in headlines:
-            minimum = self._headline_minimum(replacement, body_font_sizes)
-            try:
-                paragraph = self._filler.fit(replacement, self._page_sizes, minimum)
-            except ValueError as error:
-                constraint = HeadlineConstraintError(replacement, minimum, error)
-                if self._options.overflow == "skip":
-                    self.skipped.append((replacement, constraint))
+        try:
+            for replacement in body:
+                paragraph = self._fit_or_skip(replacement)
+                if paragraph is None:
                     continue
-                raise constraint from error
-            planned.append(PlannedParagraph(replacement, paragraph))
+                paragraph_index = len(summaries)
+                summaries.append(_PlannedParagraphSummary(
+                    replacement, paragraph.text, paragraph.font_size,
+                ))
+                for placement in paragraph.placements:
+                    body_font_sizes[placement.page_index] = max(
+                        body_font_sizes.get(placement.page_index, 0.0), paragraph.font_size,
+                    )
+                storage.append(paragraph_index, replacement, paragraph)
 
-        if body_font_sizes:
-            latest_page = max(body_font_sizes)
-            self._previous_body_font_size = body_font_sizes[latest_page]
-        return FillWindowPlan(first_page, last_page, tuple(planned))
+            for replacement in headlines:
+                minimum = self._headline_minimum(replacement, body_font_sizes)
+                try:
+                    paragraph = self._filler.fit(replacement, self._page_sizes, minimum)
+                except ValueError as error:
+                    constraint = HeadlineConstraintError(replacement, minimum, error)
+                    if self._options.overflow == "skip":
+                        self.skipped.append((replacement, constraint))
+                        continue
+                    raise constraint from error
+                paragraph_index = len(summaries)
+                summaries.append(_PlannedParagraphSummary(
+                    replacement, paragraph.text, paragraph.font_size,
+                ))
+                storage.append(paragraph_index, replacement, paragraph)
+
+            if body_font_sizes:
+                latest_page = max(body_font_sizes)
+                self._previous_body_font_size = body_font_sizes[latest_page]
+            return storage.into_plan(first_page, last_page, tuple(summaries))
+        except Exception:
+            storage.close()
+            raise
 
     def _fit_or_skip(self, replacement: PDFReplacement) -> FittedParagraph | None:
         try:

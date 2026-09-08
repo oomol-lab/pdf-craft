@@ -1,4 +1,5 @@
 import unittest
+from pathlib import Path
 
 from pdf_craft.pipeline.pdf import (
     HeadlineConstraintError, PDFReplacement, PDFReplacementRegion,
@@ -135,3 +136,43 @@ class TestWindowedParagraphPlanner(unittest.TestCase):
 
         self.assertEqual((first.first_page_index, first.last_page_index), (1, 1))
         self.assertEqual(consumed, [1, 2])
+
+    def test_serializes_long_paragraph_placements_by_page(self):
+        """A long paragraph keeps summaries in memory, not every glyph placement."""
+        page_count = 24
+        regions = [
+            PDFReplacementRegion(page_index, (0, 0, 240, 32), (240, 100))
+            for page_index in range(1, page_count + 1)
+        ]
+        replacement = _replacement(
+            "one two three four five six seven " * 30, regions,
+        )
+        options = PatchTextOptions(max_font_size=8, min_font_size=8)
+        planner = WindowedParagraphPlanner(
+            QTextParagraphFiller(options),
+            {page_index: (240, 100) for page_index in range(1, page_count + 1)},
+            options,
+        )
+
+        window = next(planner.plan([replacement]))
+        temporary_root = Path(window._temporary_directory.name)  # pylint: disable=protected-access
+        try:
+            self.assertEqual(len(window._summaries), 1)  # pylint: disable=protected-access
+            self.assertFalse(hasattr(window._summaries[0], "placements"))  # pylint: disable=protected-access
+            self.assertTrue(temporary_root.is_dir())
+
+            active_pages = []
+            for page_index in range(1, page_count + 1):
+                contributions = tuple(window.page_contributions(page_index))
+                self.assertEqual(len(contributions), 1)
+                self.assertEqual(contributions[0].regions, (regions[page_index - 1],))
+                if contributions[0].placements:
+                    active_pages.append(page_index)
+                    self.assertTrue(all(
+                        placement.page_index == page_index
+                        for placement in contributions[0].placements
+                    ))
+            self.assertGreater(len(active_pages), 1)
+        finally:
+            window.close()
+        self.assertFalse(temporary_root.exists())
