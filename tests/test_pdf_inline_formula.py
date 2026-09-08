@@ -89,6 +89,26 @@ class TestPDFInlineFormulaFallback(unittest.TestCase):
         self.assertEqual(draws[0].pdf, b"%PDF-1.4")
         self.assertGreater(draws[0].baseline, fitted.placements[0].line_tops[0])
 
+    def test_one_formula_failure_does_not_hide_a_later_formula(self):
+        class Renderer:
+            available = True
+
+            @staticmethod
+            def render(latex, point_size):
+                del point_size
+                return None if latex == "bad" else FormulaFragment(b"%PDF-1.4", 10, 10, 2)
+
+        region = PDFReplacementRegion(1, (0, 0, 200, 100), (200, 100))
+        replacement = PDFReplacement(
+            1, region.bbox, "\ufffc and \ufffc", region.page_pixel_size, regions=(region,),
+            inline_formulas=(PDFInlineFormula("bad"), PDFInlineFormula("good")),
+        )
+        filler = QTextParagraphFiller(PatchTextOptions(max_font_size=10, min_font_size=10))
+        filler._formula_renderer = cast(Any, Renderer())  # pylint: disable=protected-access
+        fitted = filler.fit(replacement, {1: (200, 100)})
+        self.assertIn("bad", fitted.text)
+        self.assertEqual(len(fitted.placements[0].formula_draws), 1)
+
     def test_formula_atom_moves_to_a_later_wider_region_without_being_split(self):
         class Renderer:
             available = True
