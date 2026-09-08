@@ -2,7 +2,7 @@ import unittest
 from pathlib import Path
 
 from pdf_craft.pipeline.pdf import (
-    HeadlineConstraintError, PDFReplacement, PDFReplacementRegion,
+    PDFReplacement, PDFReplacementRegion,
     PatchTextOptions, PatchTextStyle, QTextParagraphFiller, WindowedParagraphPlanner,
 )
 
@@ -151,7 +151,7 @@ class TestWindowedParagraphPlanner(unittest.TestCase):
 
         self.assertGreaterEqual(window.paragraphs[0].paragraph.font_size, 14)
 
-    def test_fails_explicitly_when_headline_cannot_meet_body_constraint(self):
+    def test_narrow_headline_keeps_body_relative_minimum_and_flows_right(self):
         options = PatchTextOptions(
             styles={
                 "text": PatchTextStyle(max_font_size=10, min_font_size=10),
@@ -163,13 +163,28 @@ class TestWindowedParagraphPlanner(unittest.TestCase):
             QTextParagraphFiller(options), {1: (200, 100)}, options,
         )
 
-        with self.assertRaises(HeadlineConstraintError):
-            list(planner.plan([
-                _replacement("Body", [_region(1)]),
-                _replacement("Heading", [_region(1)], layout_ref="sub_title"),
-            ]))
+        narrow_title = PDFReplacementRegion(1, (0, 20, 36, 50), (200, 100))
+        window = next(planner.plan([
+            _replacement("Body", [_region(1)]),
+            _replacement(
+                "A deliberately long heading", [narrow_title], layout_ref="sub_title",
+            ),
+        ]))
 
-    def test_explicit_headline_level_style_remains_a_hard_limit_when_skipped(self):
+        _, headline_plan = (item.paragraph for item in window.paragraphs)
+        placement = headline_plan.placements[0]
+        self.assertEqual(headline_plan.font_size, 12)
+        self.assertTrue(placement.allows_horizontal_overflow)
+        self.assertEqual(len(placement.line_tops), 1)
+        self.assertAlmostEqual(placement.line_text_lefts[0], placement.rectangle.x)
+        self.assertGreater(placement.line_text_widths[0], placement.rectangle.width)
+        self.assertAlmostEqual(
+            placement.line_tops[0] + placement.line_heights[0] / 2,
+            placement.rectangle.top + placement.rectangle.height / 2,
+        )
+        window.close()
+
+    def test_headline_never_uses_generic_skip_overflow_policy(self):
         options = PatchTextOptions(
             styles={
                 "text": PatchTextStyle(max_font_size=10, min_font_size=10),
@@ -188,9 +203,10 @@ class TestWindowedParagraphPlanner(unittest.TestCase):
 
         window = next(planner.plan([body, headline]))
 
-        self.assertEqual([item.replacement for item in window.paragraphs], [body])
-        self.assertEqual(planner.skipped[0][0], headline)
-        self.assertIsInstance(planner.skipped[0][1], HeadlineConstraintError)
+        self.assertEqual([item.replacement for item in window.paragraphs], [body, headline])
+        self.assertTrue(window.paragraphs[1].paragraph.placements[0].allows_horizontal_overflow)
+        self.assertEqual(planner.skipped, [])
+        window.close()
 
     def test_emits_a_closed_window_before_consuming_later_pages(self):
         options = PatchTextOptions(max_font_size=10, min_font_size=10)

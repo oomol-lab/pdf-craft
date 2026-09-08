@@ -20,6 +20,7 @@ FontResolutionSource = Literal["automatic", "configured", "qt-fallback"]
 
 _FONT_SIZE_TOLERANCE = 0.05
 _MAX_FONT_SIZE_SEARCH_ITERATIONS = 16
+_HEADLINE_OVERFLOW_LINE_WIDTH = 1_000_000.0
 _CJK_FONT_CANDIDATES = (
     "PingFang SC",
     "Noto Sans CJK SC",
@@ -149,6 +150,7 @@ class RegionTextPlacement:
     line_heights: tuple[float, ...]
     font_size: float
     style: PatchTextStyle
+    allows_horizontal_overflow: bool = False
 
 
 @dataclass(frozen=True)
@@ -431,6 +433,28 @@ class QTextParagraphFiller:
                 lower = middle
         return best
 
+    def fit_headline(
+        self,
+        replacement: PDFReplacement,
+        page_sizes: dict[int, tuple[float, float]],
+        minimum_font_size: float,
+    ) -> FittedParagraph:
+        """Fit a headline normally, or draw it as one natural-width line.
+
+        Headline font minima are a normal part of the document's typography,
+        not a reason to abort an otherwise usable translation.  A narrow
+        source rectangle first receives the ordinary multi-region treatment.
+        If that cannot hold the headline at its required size, the first
+        rectangle supplies only the left/vertical anchor and the unwrapped
+        line is allowed to continue to the right.
+        """
+        try:
+            return self.fit(replacement, page_sizes, minimum_font_size)
+        except ValueError:
+            return self._plan_headline_overflow(
+                replacement, page_sizes, minimum_font_size,
+            )
+
     def _resolve_font(self, style: PatchTextStyle, text: str) -> PatchTextStyle:
         """Resolve an automatic family once, without rejecting explicit names."""
         requested = style.font_name.strip() if style.font_name else None
@@ -512,6 +536,67 @@ class QTextParagraphFiller:
             return None
         return FittedParagraph(text, font_size, tuple(placements))
 
+    def _plan_headline_overflow(
+        self,
+        replacement: PDFReplacement,
+        page_sizes: dict[int, tuple[float, float]],
+        minimum_font_size: float,
+    ) -> FittedParagraph:
+        """Return an unwrapped headline anchored at its first source box."""
+        text = " ".join(replacement.text.split())
+        if not text:
+            raise ValueError("replacement text must not be empty")
+        style = self.options.style_for(replacement.layout_ref, replacement.layout_level)
+        # The body-relative minimum wins even when an explicit headline style
+        # supplied a lower maximum.  The caller selected this as the headline
+        # size required for the current page; width is the only relaxed bound.
+        effective_minimum = max(style.min_font_size, minimum_font_size)
+        style = replace(style, max_font_size=max(style.max_font_size, effective_minimum))
+        style = self._resolve_font(style, text)
+        self._validate_style(style)
+
+        region = replacement.source_regions()[0]
+        page_width, page_height = page_sizes[region.page_index]
+        rectangle = region_in_page_points(region, page_width, page_height)
+        # The overflow rule is intentionally left aligned to the physical box
+        # edge and vertically centered on that edge, independent of the
+        # ordinary paragraph's padding/alignment settings.
+        overflow_style = replace(
+            style,
+            horizontal_padding=0.0,
+            vertical_padding=0.0,
+            alignment="left",
+        )
+        QtCore, QtGui = _qt_modules()
+        _ensure_qt_application(QtGui)
+        layout = self._create_layout(QtCore, QtGui, text, overflow_style, effective_minimum)
+        layout.beginLayout()
+        try:
+            line = layout.createLine()
+            if not line.isValid():
+                raise ValueError("Qt could not create a headline line")
+            line.setLineWidth(_HEADLINE_OVERFLOW_LINE_WIDTH)
+            line_height = line.height()
+            line_start = _x_coordinate(line.cursorToX(0))
+            line_end = _x_coordinate(line.cursorToX(line.textLength()))
+        finally:
+            layout.endLayout()
+        if line.textLength() <= 0:
+            raise ValueError("Qt could not lay out headline text")
+        placement = RegionTextPlacement(
+            region.page_index,
+            rectangle,
+            text,
+            (rectangle.x + line_start,),
+            (line_end - line_start,),
+            (rectangle.top + (rectangle.height - line_height) / 2,),
+            (line_height,),
+            effective_minimum,
+            overflow_style,
+            allows_horizontal_overflow=True,
+        )
+        return FittedParagraph(text, effective_minimum, (placement,))
+
     def _fit_region(
         self,
         page_index: int,
@@ -585,8 +670,12 @@ class QTextParagraphFiller:
         layout = self._create_layout(
             QtCore, QtGui, placement.remaining_text, placement.style, placement.font_size,
         )
-        available_width = placement.rectangle.width - 2 * placement.style.horizontal_padding
-        x = placement.rectangle.x + placement.style.horizontal_padding
+        if placement.allows_horizontal_overflow:
+            available_width = _HEADLINE_OVERFLOW_LINE_WIDTH
+            x = placement.rectangle.x
+        else:
+            available_width = placement.rectangle.width - 2 * placement.style.horizontal_padding
+            x = placement.rectangle.x + placement.style.horizontal_padding
         layout.beginLayout()
         try:
             for top in placement.line_tops:
@@ -711,14 +800,7 @@ class WindowedParagraphPlanner:
 
             for replacement in headlines:
                 minimum = self._headline_minimum(replacement, body_font_sizes)
-                try:
-                    paragraph = self._filler.fit(replacement, self._page_sizes, minimum)
-                except ValueError as error:
-                    constraint = HeadlineConstraintError(replacement, minimum, error)
-                    if self._options.overflow == "skip":
-                        self.skipped.append((replacement, constraint))
-                        continue
-                    raise constraint from error
+                paragraph = self._filler.fit_headline(replacement, self._page_sizes, minimum)
                 paragraph_index = len(summaries)
                 summaries.append(_PlannedParagraphSummary(
                     replacement, paragraph.text, paragraph.font_size,

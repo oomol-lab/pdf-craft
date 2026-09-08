@@ -15,7 +15,7 @@ from reportlab.pdfgen import canvas
 from pdf_craft.pdf.handler import PDFHandler
 from pdf_craft.pipeline.pdf import (
     FillWindowPlan, FittedParagraph, GhostscriptVisualBaseCompiler, PDFPatcher, PDFReplacement,
-    PDFReplacementRegion, PatchTextOptions,
+    PDFReplacementRegion, PatchTextOptions, PatchTextStyle,
     QTextParagraphFiller,
 )
 from pdf_craft.pipeline.pdf.text_layout import _CJK_FONT_CANDIDATES, _ensure_qt_application
@@ -121,6 +121,35 @@ class TestPDFPatcher(unittest.TestCase):
             self.assertIn("Translated", page.extract_text())
             self.assertNotIn("Original", page.extract_text())
             self.assertEqual(len(list(page.images)), 0)
+
+    def test_writes_a_narrow_headline_as_a_natural_right_overflow_line(self):
+        """A headline lower bound never prevents a patched PDF from being written."""
+        options = PatchTextOptions(
+            styles={
+                "text": PatchTextStyle(max_font_size=10, min_font_size=10),
+                "sub_title": PatchTextStyle(max_font_size=11, min_font_size=4),
+            },
+            headline_min_body_ratio=1.2,
+        )
+        body = PDFReplacement(1, (0, 50, 200, 100), "Body", (200, 100))
+        title = PDFReplacement(
+            1, (0, 10, 36, 40), "A deliberately long heading", (200, 100),
+            layout_ref="sub_title",
+        )
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            source = root / "source.pdf"
+            target = root / "target.pdf"
+            doc = canvas.Canvas(str(source), pagesize=(200, 100))
+            doc.drawString(0, 90, "Original title")
+            doc.save()
+
+            self.patcher(options=options).patch(source, target, [body, title])
+
+            extracted = " ".join(
+                pypdf.PdfReader(str(target)).pages[0].extract_text().split()
+            )
+            self.assertIn("A deliberately long heading", extracted)
 
     def test_rejects_invalid_bbox(self):
         with self.assertRaises(ValueError):
