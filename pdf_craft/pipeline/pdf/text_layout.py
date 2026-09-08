@@ -3,6 +3,7 @@
 
 from collections.abc import Iterable, Iterator, Mapping
 from dataclasses import dataclass, field
+from math import ceil
 import os
 from pathlib import Path
 from typing import Literal
@@ -57,7 +58,18 @@ class PatchTextOptions:
     overflow: Literal["error", "skip"] = "error"
 
     def style_for(self, layout_ref: str, layout_level: int) -> PatchTextStyle:
-        """Resolve the most specific configured semantic text style."""
+        """Resolve the most specific configured semantic text style.
+
+        An implicit headline style reserves enough of the scalar default range
+        to meet the default body-relative minimum.  Explicit headline styles
+        remain hard user limits and are therefore returned unchanged.
+        """
+        specific = self.styles.get(f"{layout_ref}:{layout_level}")
+        if specific is not None:
+            return specific
+        generic = self.styles.get(layout_ref)
+        if generic is not None:
+            return generic
         default = PatchTextStyle(
             font_name=self.font_name,
             fallback_fonts=self.fallback_fonts,
@@ -70,7 +82,21 @@ class PatchTextOptions:
             alignment=self.alignment,
             vertical_alignment=self.vertical_alignment,
         )
-        return self.styles.get(f"{layout_ref}:{layout_level}", self.styles.get(layout_ref, default))
+        if layout_ref == "sub_title":
+            minimum_maximum = ceil(self.max_font_size * self.headline_min_body_ratio * 4) / 4
+            return PatchTextStyle(
+                font_name=default.font_name,
+                fallback_fonts=default.fallback_fonts,
+                max_font_size=max(default.max_font_size, minimum_maximum),
+                min_font_size=default.min_font_size,
+                font_weight=default.font_weight,
+                line_height=default.line_height,
+                horizontal_padding=default.horizontal_padding,
+                vertical_padding=default.vertical_padding,
+                alignment=default.alignment,
+                vertical_alignment=default.vertical_alignment,
+            )
+        return default
 
     def headline_ratio_for(self, layout_ref: str, layout_level: int) -> float:
         """Return the configured lower-bound ratio for one headline level."""

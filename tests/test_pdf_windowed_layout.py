@@ -29,6 +29,20 @@ def _line_region(page_index: int) -> PDFReplacementRegion:
 
 
 class TestWindowedParagraphPlanner(unittest.TestCase):
+    def test_default_style_reserves_headline_font_size_headroom(self):
+        options = PatchTextOptions()
+        planner = WindowedParagraphPlanner(
+            QTextParagraphFiller(options), {1: (200, 100)}, options,
+        )
+        headline = _replacement("Heading", [_region(1)], layout_ref="sub_title")
+        body = _replacement("Body", [_region(1)])
+
+        window = next(planner.plan([headline, body]))
+
+        body_plan, headline_plan = (item.paragraph for item in window.paragraphs)
+        self.assertEqual(body_plan.font_size, 12)
+        self.assertGreaterEqual(headline_plan.font_size, body_plan.font_size * 1.2)
+
     def test_plans_body_before_headline_and_applies_page_body_minimum(self):
         options = PatchTextOptions(
             styles={
@@ -117,6 +131,29 @@ class TestWindowedParagraphPlanner(unittest.TestCase):
                 _replacement("Body", [_region(1)]),
                 _replacement("Heading", [_region(1)], layout_ref="sub_title"),
             ]))
+
+    def test_explicit_headline_level_style_remains_a_hard_limit_when_skipped(self):
+        options = PatchTextOptions(
+            styles={
+                "text": PatchTextStyle(max_font_size=10, min_font_size=10),
+                "sub_title:2": PatchTextStyle(max_font_size=11, min_font_size=4),
+            },
+            headline_min_body_ratio=1.2,
+            overflow="skip",
+        )
+        planner = WindowedParagraphPlanner(
+            QTextParagraphFiller(options), {1: (200, 100)}, options,
+        )
+        body = _replacement("Body", [_region(1)])
+        headline = _replacement(
+            "Heading", [_region(1)], layout_ref="sub_title", layout_level=2,
+        )
+
+        window = next(planner.plan([body, headline]))
+
+        self.assertEqual([item.replacement for item in window.paragraphs], [body])
+        self.assertEqual(planner.skipped[0][0], headline)
+        self.assertIsInstance(planner.skipped[0][1], HeadlineConstraintError)
 
     def test_emits_a_closed_window_before_consuming_later_pages(self):
         options = PatchTextOptions(max_font_size=10, min_font_size=10)
