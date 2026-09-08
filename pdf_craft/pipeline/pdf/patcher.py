@@ -9,7 +9,7 @@ from pdf_craft.pdf.handler import DefaultPDFHandler, PDFHandler
 from .eraser import EraseOptions, EraseRectangle, RectangularEraser
 from .models import PDFReplacement, PDFReplacementRegion, PDFSkippedReplacement
 from .text_layout import (
-    FittedParagraph, PatchTextOptions, QTextParagraphFiller, WindowedParagraphPlanner,
+    PatchTextOptions, QTextParagraphFiller, WindowedParagraphPlanner,
 )
 
 
@@ -104,33 +104,32 @@ class PDFPatcher:
         self, pypdf, canvas, source_path: Path, reader, writer, root: Path,
         page_sizes: dict[int, tuple[float, float]], window,
     ) -> None:
-        """Compose one window, retaining at most one source-page raster.
-
-        A cross-page paragraph can span an arbitrarily large number of pages,
-        so a completed typography plan is deliberately lightweight.  Its
-        erasure source rasters are rendered, sampled and closed per page here,
-        rather than collected in a window-wide image dictionary.
-        """
-        regions_by_page: dict[int, list[PDFReplacementRegion]] = {}
-        for planned in window.paragraphs:
-            for region in planned.replacement.source_regions():
-                regions_by_page.setdefault(region.page_index, []).append(region)
-        text_by_page = self._group_text_placements(
-            (planned.replacement, planned.paragraph) for planned in window.paragraphs
-        )
-        document = self._pdf_handler.open(source_path) if regions_by_page else None
+        """Compose one window while loading one serialized page plan at a time."""
+        document = None
         try:
+            if window.has_page_contributions:
+                document = self._pdf_handler.open(source_path)
             for index in range(window.first_page_index, window.last_page_index + 1):
                 page = reader.pages[index - 1]
                 page_width, page_height = page_sizes[index]
+                contributions = tuple(window.page_contributions(index))
+                page_regions = tuple(
+                    region
+                    for contribution in contributions
+                    for region in contribution.regions
+                )
                 page_erasures = self._plan_page_erasures(
-                    document, index, regions_by_page.get(index, ()), page_sizes,
+                    document, index, page_regions, page_sizes,
                 )
                 if page_erasures:
                     erasure_path = root / f"erase-{index}.pdf"
                     self._write_erasure_overlay(canvas, erasure_path, page_width, page_height, page_erasures)
                     page.merge_page(pypdf.PdfReader(str(erasure_path)).pages[0])
-                page_placements = text_by_page.get(index, ())
+                page_placements = tuple(
+                    placement
+                    for contribution in contributions
+                    for placement in contribution.placements
+                )
                 if page_placements:
                     text_path = root / f"text-{index}.pdf"
                     self._filler.draw_pdf_overlay(text_path, (page_width, page_height), page_placements)
@@ -139,6 +138,7 @@ class PDFPatcher:
         finally:
             if document is not None:
                 document.close()
+            window.close()
 
     def _plan_page_erasures(
         self,
@@ -205,18 +205,3 @@ class PDFPatcher:
         overlay = canvas.Canvas(str(output_path), pagesize=(width, height))
         self._eraser.draw(overlay, erasures, height)
         overlay.save()
-
-    @staticmethod
-    def _group_erasures(erasures: Iterable[EraseRectangle]) -> dict[int, tuple[EraseRectangle, ...]]:
-        result: dict[int, list[EraseRectangle]] = {}
-        for erase in erasures:
-            result.setdefault(erase.page_index, []).append(erase)
-        return {page_index: tuple(items) for page_index, items in result.items()}
-
-    @staticmethod
-    def _group_text_placements(fitted: Iterable[tuple[PDFReplacement, FittedParagraph]]):
-        result = {}
-        for _, paragraph in fitted:
-            for placement in paragraph.placements:
-                result.setdefault(placement.page_index, []).append(placement)
-        return {page_index: tuple(items) for page_index, items in result.items()}
