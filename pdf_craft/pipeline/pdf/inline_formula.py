@@ -11,6 +11,7 @@ from pathlib import Path
 from shutil import which
 import subprocess
 from tempfile import TemporaryDirectory
+from typing import Any
 
 
 @dataclass(frozen=True)
@@ -35,6 +36,12 @@ class InlineFormulaPDFRenderer:
     def available(self) -> bool:
         """Whether this machine can reasonably be asked to compile TeX."""
         if self._available is None:
+            try:
+                import matplotlib  # type: ignore[reportMissingImports]  # pylint: disable=import-outside-toplevel
+                del matplotlib
+            except ImportError:
+                self._available = False
+                return False
             latex = which("latex")
             if latex is None or not (which("dvipdfmx") or which("dvipdf")):
                 self._available = False
@@ -87,14 +94,17 @@ class InlineFormulaPDFRenderer:
                                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
                 output = root / "formula.pdf"
                 pdf = output.read_bytes()
+                from matplotlib import dviread  # type: ignore[reportMissingImports]
+                dvi_page = next(iter(dviread.Dvi(str(root / "formula.dvi"), 72)))
             # The standalone page is tight to the formula; its simple baseline
             # approximation is sufficient for the mixed-run planner.
             import pypdf
-            page = pypdf.PdfReader(BytesIO(pdf)).pages[0]
+            page: Any = pypdf.PdfReader(BytesIO(pdf)).pages[0]
             media_box = page.get_object()["/MediaBox"]  # pylint: disable=no-member
             width = float(media_box[2]) - float(media_box[0])
             height = float(media_box[3]) - float(media_box[1])
-            self._cache[key] = FormulaFragment(pdf, width, height, height * 0.2)
+            self._cache[key] = FormulaFragment(pdf, float(dvi_page.width), float(dvi_page.height),
+                                               float(dvi_page.descent))
         except Exception:  # local TeX packages and individual expressions vary widely.
             self._cache[key] = None
         return self._cache[key]
