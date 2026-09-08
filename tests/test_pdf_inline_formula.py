@@ -7,9 +7,21 @@ from pdf_craft.formula import latex_to_plain_text
 from pdf_craft.pipeline.pdf import PDFInlineFormula, PDFReplacement, PDFReplacementRegion
 from pdf_craft.pipeline.pdf.text_layout import PatchTextOptions, QTextParagraphFiller
 from pdf_craft.pipeline.pdf.inline_formula import FormulaFragment
+from pdf_craft.pipeline.pdf.inline_formula import InlineFormulaPDFRenderer
 
 
 class TestPDFInlineFormulaFallback(unittest.TestCase):
+    def test_real_tex_renderer_emits_a_vector_pdf_when_available(self):
+        renderer = InlineFormulaPDFRenderer()
+        if not renderer.available:
+            self.skipTest("requires a complete local Matplotlib/TeX PDF backend")
+        fragment = renderer.render(r"\frac{a}{b}+\alpha_i", 10)
+        self.assertIsNotNone(fragment)
+        assert fragment is not None
+        self.assertTrue(fragment.pdf.startswith(b"%PDF"))
+        self.assertGreater(fragment.width, 0)
+        self.assertGreater(fragment.height, fragment.descent)
+
     def test_plain_text_converter_is_shared_with_epub(self):
         self.assertEqual(latex_to_plain_text(r"\mathbb{Z}\to\mathbb{C}"), "ℤ→ℂ")
 
