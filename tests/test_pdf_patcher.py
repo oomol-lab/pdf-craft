@@ -1,4 +1,4 @@
-# pylint: disable=no-member,protected-access
+# pylint: disable=no-member,protected-access,c-extension-no-member
 
 import tempfile
 import unittest
@@ -15,9 +15,43 @@ from pdf_craft.pipeline.pdf import (
     FillWindowPlan, FittedParagraph, PDFPatcher, PDFReplacement, PDFReplacementRegion, PatchTextOptions,
     QTextParagraphFiller,
 )
+from pdf_craft.pipeline.pdf.text_layout import _CJK_FONT_CANDIDATES, _ensure_qt_application
 
 
 class TestPDFPatcher(unittest.TestCase):
+    def test_automatic_font_scans_all_replacements_before_layout_in_either_input_order(self):
+        """A later CJK title must influence the run-wide automatic family."""
+        from PySide6 import QtGui
+
+        _ensure_qt_application(QtGui)
+        installed = {family.casefold(): family for family in QtGui.QFontDatabase.families()}
+        cjk_font = next(
+            (installed[candidate.casefold()] for candidate in _CJK_FONT_CANDIDATES
+             if candidate.casefold() in installed),
+            None,
+        )
+        if cjk_font is None:
+            self.skipTest("this Qt installation has no preferred CJK candidate")
+
+        body = PDFReplacement(1, (5, 5, 195, 75), "English body", (200, 200))
+        title = PDFReplacement(
+            1, (5, 80, 195, 195), "中文标题", (200, 200), layout_ref="sub_title",
+        )
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            source = root / "source.pdf"
+            doc = canvas.Canvas(str(source), pagesize=(200, 200))
+            doc.drawString(5, 5, "source")
+            doc.save()
+
+            for index, replacements in enumerate(((body, title), (title, body))):
+                patcher = PDFPatcher(options=PatchTextOptions(max_font_size=8, min_font_size=8))
+                patcher.patch(source, root / f"target-{index}.pdf", replacements)
+                resolutions = patcher.font_resolutions
+                self.assertEqual(len(resolutions), 1)
+                self.assertEqual(resolutions[0].source, "automatic")
+                self.assertEqual(resolutions[0].resolved_font_name, cjk_font)
+
     def test_samples_colored_background_from_the_source_page_handler(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)

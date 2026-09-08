@@ -347,6 +347,28 @@ class QTextParagraphFiller:
         self._auto_font_resolution = None
         self._font_resolutions.clear()
 
+    def prepare_automatic_font(self, contains_cjk: bool) -> None:
+        """Fix this run's automatic family before its first paragraph is fitted.
+
+        The patcher determines ``contains_cjk`` from every replacement that
+        uses an unspecified style.  Direct ``fit`` callers retain lazy
+        selection from their own text because they do not supply a run.
+        """
+        if self._auto_font_resolution is not None:
+            return
+        QtCore, QtGui = _qt_modules()
+        del QtCore
+        _ensure_qt_application(QtGui)
+        resolution = FontResolution(
+            None,
+            _choose_automatic_font(
+                _font_database_families(QtGui), _system_font_family(QtGui), contains_cjk,
+            ),
+            "automatic",
+        )
+        self._auto_font_resolution = resolution
+        self._font_resolutions[None] = resolution
+
     def fit(
         self,
         replacement: PDFReplacement,
@@ -419,15 +441,9 @@ class QTextParagraphFiller:
         if requested is None:
             resolution = self._auto_font_resolution
             if resolution is None:
-                resolution = FontResolution(
-                    None,
-                    _choose_automatic_font(
-                        families, _system_font_family(QtGui), _contains_cjk(text),
-                    ),
-                    "automatic",
-                )
-                self._auto_font_resolution = resolution
-                self._font_resolutions[None] = resolution
+                self.prepare_automatic_font(_contains_cjk(text))
+                resolution = self._auto_font_resolution
+                assert resolution is not None
             return replace(style, font_name=resolution.resolved_font_name)
 
         if requested not in self._font_resolutions:

@@ -2,6 +2,7 @@
 
 from collections.abc import Iterable
 from pathlib import Path
+import pickle
 from tempfile import NamedTemporaryFile, TemporaryDirectory
 
 from pdf_craft.pdf.handler import DefaultPDFHandler, PDFHandler
@@ -9,7 +10,7 @@ from pdf_craft.pdf.handler import DefaultPDFHandler, PDFHandler
 from .eraser import EraseOptions, EraseRectangle, RectangularEraser
 from .models import PDFReplacement, PDFReplacementRegion, PDFSkippedReplacement
 from .text_layout import (
-    FontResolution, PatchTextOptions, QTextParagraphFiller, WindowedParagraphPlanner,
+    FontResolution, PatchTextOptions, QTextParagraphFiller, WindowedParagraphPlanner, _contains_cjk,
 )
 
 
@@ -78,17 +79,38 @@ class PDFPatcher:
             index: (float(page.mediabox.width), float(page.mediabox.height))
             for index, page in enumerate(reader.pages, 1)
         }
-        def validated_replacements():
-            for replacement in replacements:
-                self.validate(replacement, pages_count=len(reader.pages))
-                yield replacement
-
         planner = WindowedParagraphPlanner(self._filler, page_sizes, self.options)
         writer = pypdf.PdfWriter()
         next_page_index = 1
         with TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
-            for window in planner.plan(validated_replacements()):
+            replacements_path = root / "replacements.pickle"
+            has_automatic_font = False
+            contains_cjk = False
+            with replacements_path.open("wb") as stream:
+                for replacement in replacements:
+                    self.validate(replacement, pages_count=len(reader.pages))
+                    style = self.options.style_for(
+                        replacement.layout_ref, replacement.layout_level,
+                    )
+                    if not style.font_name or not style.font_name.strip():
+                        has_automatic_font = True
+                        contains_cjk = contains_cjk or _contains_cjk(replacement.text)
+                    pickle.dump(replacement, stream, protocol=pickle.HIGHEST_PROTOCOL)
+            if has_automatic_font:
+                prepare_automatic_font = getattr(self._filler, "prepare_automatic_font", None)
+                if prepare_automatic_font is not None:
+                    prepare_automatic_font(contains_cjk)
+
+            def spooled_replacements():
+                with replacements_path.open("rb") as stream:
+                    while True:
+                        try:
+                            yield pickle.load(stream)
+                        except EOFError:
+                            return
+
+            for window in planner.plan(spooled_replacements()):
                 for index in range(next_page_index, window.first_page_index):
                     writer.add_page(reader.pages[index - 1])
                 self._compose_window(
