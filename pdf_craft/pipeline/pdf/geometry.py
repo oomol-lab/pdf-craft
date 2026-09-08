@@ -23,8 +23,18 @@ def region_in_page_points(
     region: PDFReplacementRegion, page_width: float, page_height: float,
 ) -> PageRectangle:
     """Map OCR pixels to PDF points, retaining the OCR top-left convention."""
-    pixel_width, pixel_height = region.page_pixel_size
-    left, top, right, bottom = region.bbox
+    return pixel_rectangle_in_page_points(
+        region.bbox, region.page_pixel_size, page_width, page_height,
+    )
+
+
+def pixel_rectangle_in_page_points(
+    bbox: tuple[int, int, int, int], page_pixel_size: tuple[int, int],
+    page_width: float, page_height: float,
+) -> PageRectangle:
+    """Map one top-left OCR-pixel rectangle into PDF-point coordinates."""
+    pixel_width, pixel_height = page_pixel_size
+    left, top, right, bottom = bbox
     scale_x = page_width / pixel_width
     scale_y = page_height / pixel_height
     return PageRectangle(

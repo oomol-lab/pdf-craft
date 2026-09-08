@@ -1,4 +1,4 @@
-from .eraser import EraseRectangle, RectangularEraser
+from .eraser import EraseOptions, EraseRectangle, RectangularEraser
 from .models import PDFReplacement, PDFReplacementRegion, PDFSkippedReplacement
 from .patcher import PDFPatcher
 from .pipeline import PDFTranslationPipeline
@@ -8,7 +8,7 @@ from .text_layout import (
 )
 
 __all__ = [
-    "EraseRectangle", "FittedParagraph", "PatchTextOptions", "PatchTextStyle", "PDFPatcher",
+    "EraseOptions", "EraseRectangle", "FittedParagraph", "PatchTextOptions", "PatchTextStyle", "PDFPatcher",
     "PDFReplacement", "PDFReplacementRegion", "PDFSkippedReplacement", "PDFTranslationPipeline",
     "QTextParagraphFiller", "RectangularEraser", "RegionTextPlacement",
 ]

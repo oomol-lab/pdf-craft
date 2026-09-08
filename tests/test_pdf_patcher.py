@@ -4,8 +4,10 @@ import tempfile
 import unittest
 from pathlib import Path
 from typing import Any
+from unittest.mock import Mock
 
 import pypdf
+from PIL import Image
 from reportlab.pdfgen import canvas
 
 from pdf_craft.pipeline.pdf import (
@@ -15,6 +17,32 @@ from pdf_craft.pipeline.pdf import (
 
 
 class TestPDFPatcher(unittest.TestCase):
+    def test_samples_colored_background_from_the_source_page_handler(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            source = root / "source.pdf"
+            target = root / "target.pdf"
+            doc = canvas.Canvas(str(source), pagesize=(100, 100))
+            doc.drawString(1, 1, "source")
+            doc.save()
+            document: Any = Mock()
+            document.render_page.return_value = Image.new("RGB", (100, 100), (234, 220, 183))
+            handler: Any = Mock()
+            handler.open.return_value = document
+
+            PDFPatcher(font_size=8, pdf_handler=handler).patch(
+                source,
+                target,
+                [PDFReplacement(1, (20, 20, 80, 80), "translated", (100, 100))],
+            )
+
+            document.render_page.assert_called_once_with(1, 300)
+            document.close.assert_called_once_with()
+            page_contents = pypdf.PdfReader(str(target)).pages[0].get_contents()
+            assert page_contents is not None
+            contents = page_contents.get_data()
+            self.assertIn(b"0.917647 0.862745 0.717647 rg", contents)
+
     def test_replaces_region_and_preserves_page_count(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)

@@ -4,9 +4,11 @@ from collections.abc import Iterable
 from pathlib import Path
 from tempfile import NamedTemporaryFile, TemporaryDirectory
 
-from pdf_craft.pdf.handler import PDFHandler
+from PIL import Image
 
-from .eraser import EraseRectangle, RectangularEraser
+from pdf_craft.pdf.handler import DefaultPDFHandler, PDFHandler
+
+from .eraser import EraseOptions, EraseRectangle, RectangularEraser
 from .models import PDFReplacement, PDFReplacementRegion, PDFSkippedReplacement
 from .text_layout import FittedParagraph, PatchTextOptions, QTextParagraphFiller
 
@@ -14,10 +16,11 @@ from .text_layout import FittedParagraph, PatchTextOptions, QTextParagraphFiller
 class PDFPatcher:
     """Replace OCR-backed paragraph regions without flattening source pages.
 
-    The source page remains the base PDF page. The eraser owns a visual white
-    rectangle overlay for now; the filler owns a separate Qt-generated PDF text
-    overlay. Keeping those layers separate makes a future image-aware eraser a
-    local replacement rather than a typography rewrite.
+    The source page remains the base PDF page. The eraser owns a locally
+    sampled background-color rectangle overlay; the filler owns a separate
+    Qt-generated PDF text overlay. Keeping those layers separate makes a
+    future image-aware eraser a local replacement rather than a typography
+    rewrite.
     """
 
     def __init__(
@@ -27,13 +30,14 @@ class PDFPatcher:
         options: PatchTextOptions | None = None,
         pdf_handler: PDFHandler | None = None,
         dpi: int = 300,
+        erase_options: EraseOptions | None = None,
     ) -> None:
         """Create a patcher.
 
-        ``pdf_handler`` remains accepted for source compatibility but is no
-        longer used: patching must not render source pages to a bitmap.
+        ``pdf_handler`` renders source pages only to sample local background
+        colors for erasure. The source PDF page remains the output base and is
+        never replaced with that raster image.
         """
-        del pdf_handler
         if options is not None and (font_name is not None or font_size is not None):
             raise ValueError("pass either options or legacy font_name/font_size arguments")
         if options is None:
@@ -47,8 +51,9 @@ class PDFPatcher:
                 ),
             )
         self.options = options
-        self._eraser = RectangularEraser()
+        self._eraser = RectangularEraser(erase_options)
         self._filler = QTextParagraphFiller(options)
+        self._pdf_handler = pdf_handler or DefaultPDFHandler()
         self.dpi = dpi
         self.skipped_replacements: tuple[PDFSkippedReplacement, ...] = ()
 
@@ -70,9 +75,13 @@ class PDFPatcher:
             for index, page in enumerate(reader.pages, 1)
         }
         fitted, skipped = self._preflight(replacement_list, page_sizes)
+        erasure_regions = tuple(
+            region for replacement, _ in fitted for region in replacement.source_regions()
+        )
         erasures = self._eraser.plan(
-            (region for replacement, _ in fitted for region in replacement.source_regions()),
+            erasure_regions,
             page_sizes,
+            self._render_erasure_pages(source_path, erasure_regions),
         )
 
         erasures_by_page = self._group_erasures(erasures)
@@ -102,6 +111,30 @@ class PDFPatcher:
             writer.write(output)
         temporary_path.replace(target_path)
         self.skipped_replacements = tuple(skipped)
+
+    def _render_erasure_pages(
+        self,
+        source_path: Path,
+        regions: tuple[PDFReplacementRegion, ...],
+    ) -> dict[int, Image.Image]:
+        """Render only pages that need color sampling, never for PDF output."""
+        page_dpi: dict[int, int] = {}
+        for region in regions:
+            previous = page_dpi.setdefault(region.page_index, region.dpi)
+            if previous != region.dpi:
+                raise ValueError(
+                    f"page {region.page_index} has incompatible erasure render DPI values"
+                )
+        if not page_dpi:
+            return {}
+        document = self._pdf_handler.open(source_path)
+        try:
+            return {
+                page_index: document.render_page(page_index, dpi)
+                for page_index, dpi in page_dpi.items()
+            }
+        finally:
+            document.close()
 
     def validate(self, replacement: PDFReplacement, pages_count: int | None = None) -> None:
         if not replacement.text.strip():
