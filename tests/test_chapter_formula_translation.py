@@ -193,9 +193,9 @@ class TestChapterFormulaTranslation(unittest.TestCase):
             page_index=1,
             ref="equation",
             det=(10, 40, 90, 60),
-            title=[],
+            title=["Equation title"],
             content=[r"\int_0^1 x^2 dx"],
-            caption=[],
+            caption=["Equation caption"],
             hash="equation-image",
         )
         chapter = Chapter(None, 0, [
@@ -219,6 +219,32 @@ class TestChapterFormulaTranslation(unittest.TestCase):
         self.assertIsInstance(restored, AssetLayout)
         assert isinstance(restored, AssetLayout)
         self.assertEqual(restored, equation)
+
+    def test_equation_asset_with_title_or_caption_is_frozen_as_a_whole(self):
+        for title, caption in [(["Title"], []), ([], ["Caption"]), (["Title"], ["Caption"])]:
+            with self.subTest(title=title, caption=caption):
+                equation = AssetLayout(
+                    page_index=1,
+                    ref="equation",
+                    det=(10, 40, 90, 60),
+                    title=title,
+                    content=[r"x^2"],
+                    caption=caption,
+                    hash="equation-metadata",
+                )
+                chapter = Chapter(None, 0, [
+                    ParagraphLayout("text", 0, [BlockLayout(
+                        1, 1, (1, 1, 100, 30), ["Before."],
+                    )]),
+                    equation,
+                    ParagraphLayout("text", 0, [BlockLayout(
+                        1, 2, (1, 70, 100, 100), ["After."],
+                    )]),
+                ])
+
+                translated = ChapterXMLTransformer(_FormulaAwareTranslator()).transform(chapter)
+
+                self.assertEqual(translated.layouts[1], equation)
 
     def test_equation_only_chapter_keeps_the_asset_and_does_not_skip_translation(self):
         equation = AssetLayout(

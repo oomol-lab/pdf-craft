@@ -1,7 +1,7 @@
 """Keep PCEX formulas visible to translation while restoring their source form.
 
 ``Chapter`` XML represents inline formulas as ``inline_expr`` nodes and display
-formulas as the ``content`` of an ``asset ref=\"equation\"``.  Neither shape is
+formulas as an entire ``asset ref=\"equation\"``.  Neither shape is
 MathML, so the EPUB MathML interrupter cannot be used here.  This adapter uses
 the same XMLTranslator interruption protocol with the PCEX schema instead.
 """
@@ -141,27 +141,23 @@ class ChapterFormulaInterrupter:
 
     def _formula_in(self, text_segment: TextSegment) -> tuple[_Formula | None, int | None]:
         """Return the formula owner and its parent-stack index for one segment."""
-        asset_content_index: int | None = None
-        in_equation_asset = False
+        equation_asset_index: int | None = None
         for index, element in enumerate(text_segment.parent_stack):
             if element.tag == "asset" and element.get("ref") == "equation":
-                in_equation_asset = True
-                asset_content_index = None
-                continue
-            if in_equation_asset and element.tag == "content":
-                asset_content_index = index
+                equation_asset_index = index
                 continue
             if element.tag == "inline_expr" and element.get("kind") != "text":
-                if asset_content_index is not None:
-                    # The equation asset content is one opaque display formula,
-                    # even when its OCR representation happens to contain an
-                    # inline_expr child.
+                if equation_asset_index is not None:
+                    # An equation asset is opaque as a whole. Its title and
+                    # caption must not be sent to the translator either: doing
+                    # so lets XML submission reconstruct part of the asset and
+                    # corrupt its source-only fields.
                     continue
                 return self._formula_for_inline(element), index
 
-        if asset_content_index is not None:
-            element = text_segment.parent_stack[asset_content_index]
-            return self._formula_for_asset_content(element), asset_content_index
+        if equation_asset_index is not None:
+            element = text_segment.parent_stack[equation_asset_index]
+            return self._formula_for_asset(element), equation_asset_index
         return None, None
 
     def _formula_for_inline(self, element: Element) -> _Formula:
@@ -176,14 +172,18 @@ class ChapterFormulaInterrupter:
         )
         return formula
 
-    def _formula_for_asset_content(self, element: Element) -> _Formula:
+    def _formula_for_asset(self, element: Element) -> _Formula:
+        """Freeze every serialised field of an equation asset as one unit."""
         existing = self._element_to_formula.get(id(element))
         if existing is not None:
             return existing
+        content = element.find("content")
         formula = self._new_formula(
             element=element,
             display="block",
-            latex=f"$${_serialize_formula_content(element).strip()}$$",
+            latex=(
+                f"$${_serialize_formula_content(content).strip() if content is not None else ''}$$"
+            ),
         )
         return formula
 
