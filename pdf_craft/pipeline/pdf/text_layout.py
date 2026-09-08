@@ -2,8 +2,8 @@
 # pylint: disable=no-member,c-extension-no-member
 
 from collections.abc import Iterable, Iterator, Mapping
-from dataclasses import dataclass, field
-from math import ceil
+from dataclasses import dataclass, field, replace
+from math import ceil, floor
 import os
 import pickle
 from pathlib import Path
@@ -85,7 +85,9 @@ class PatchTextOptions:
             vertical_alignment=self.vertical_alignment,
         )
         if layout_ref == "sub_title":
-            minimum_maximum = ceil(self.max_font_size * self.headline_min_body_ratio * 4) / 4
+            minimum_maximum = _ceil_quarter(
+                self.max_font_size * self.headline_min_body_ratio,
+            )
             return PatchTextStyle(
                 font_name=default.font_name,
                 fallback_fonts=default.fallback_fonts,
@@ -109,7 +111,6 @@ class PatchTextOptions:
         if ratio <= 0:
             raise ValueError("headline minimum body font ratio must be positive")
         return ratio
-
 
 @dataclass(frozen=True)
 class RegionTextPlacement:
@@ -309,6 +310,18 @@ class QTextParagraphFiller:
         if not text:
             raise ValueError("replacement text must not be empty")
         style = self.options.style_for(replacement.layout_ref, replacement.layout_level)
+        if (
+            replacement.layout_ref == "sub_title"
+            and not _has_explicit_style(
+                self.options,
+                replacement.layout_ref, replacement.layout_level,
+            )
+            and minimum_font_size is not None
+        ):
+            style = replace(
+                style,
+                max_font_size=max(style.max_font_size, _ceil_quarter(minimum_font_size)),
+            )
         self._validate_style(style)
 
         effective_minimum = max(style.min_font_size, minimum_font_size or style.min_font_size)
@@ -317,8 +330,8 @@ class QTextParagraphFiller:
                 f"requested minimum font size {effective_minimum:.2f} exceeds style maximum "
                 f"{style.max_font_size:.2f}"
             )
-        low = int(round(effective_minimum * 4))
-        high = int(round(style.max_font_size * 4))
+        low = ceil(effective_minimum * 4)
+        high = floor(style.max_font_size * 4)
         best: FittedParagraph | None = None
         while low <= high:
             middle = (low + high) // 2
@@ -657,6 +670,23 @@ class WindowedParagraphPlanner:
 def _is_headline(replacement: PDFReplacement) -> bool:
     """Use semantic chapter metadata, never image appearance, for title roles."""
     return replacement.layout_ref == "sub_title"
+
+
+def _ceil_quarter(font_size: float) -> float:
+    """Return the smallest supported font increment meeting a hard lower bound."""
+    return ceil(font_size * 4) / 4
+
+
+def _has_explicit_style(
+    options: PatchTextOptions,
+    layout_ref: str,
+    layout_level: int,
+) -> bool:
+    """Whether a semantic style supplies a deliberate user font ceiling."""
+    return (
+        f"{layout_ref}:{layout_level}" in options.styles
+        or layout_ref in options.styles
+    )
 
 
 def _replacement_pages(replacement: PDFReplacement) -> tuple[int, ...]:
