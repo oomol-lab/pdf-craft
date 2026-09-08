@@ -542,7 +542,15 @@ class QTextParagraphFiller:
         style: PatchTextStyle,
         font_size: float,
     ) -> FittedParagraph | None:
-        text, spans = self._formula_layout_text(text, replacement, font_size)
+        capacities = tuple(
+            region_in_page_points(region, *page_sizes[region.page_index])
+            for region in replacement.source_regions()
+        )
+        text, spans = self._formula_layout_text(
+            text, replacement, font_size,
+            max(rectangle.width - 2 * style.horizontal_padding for rectangle in capacities),
+            max(rectangle.height - 2 * style.vertical_padding for rectangle in capacities),
+        )
         remaining = text
         remaining_spans = spans
         placements: list[RegionTextPlacement] = []
@@ -705,7 +713,10 @@ class QTextParagraphFiller:
             tuple(line_heights),
             font_size,
             style,
-            formula_draws=tuple(formula_draws),
+            formula_draws=tuple(
+                FormulaDraw(draw.pdf, draw.x, draw.baseline + shift, draw.descent)
+                for draw in formula_draws
+            ),
         ), _python_index_for_utf16(text, consumed_utf16)
 
     def _draw_placement(self, QtCore, QtGui, painter, placement: RegionTextPlacement) -> None:
@@ -789,6 +800,7 @@ class QTextParagraphFiller:
 
     def _formula_layout_text(
         self, text: str, replacement: PDFReplacement, font_size: float,
+        maximum_width: float, maximum_height: float,
     ) -> tuple[str, tuple[_FormulaSpan, ...]]:
         """Build invisible, non-breaking width proxies for usable formula PDFs.
 
@@ -820,7 +832,7 @@ class QTextParagraphFiller:
             formula = replacement.inline_formulas[formula_index]
             formula_index += 1
             fragment = self._formula_renderer.render(formula.latex, font_size)
-            if fragment is None:
+            if fragment is None or fragment.width > maximum_width or fragment.height > maximum_height:
                 fallback = latex_to_plain_text(formula.latex)
                 parts.append(fallback)
                 offset += len(fallback)

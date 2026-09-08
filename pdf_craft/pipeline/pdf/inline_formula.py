@@ -8,6 +8,7 @@ retain the plain-text path below it.
 from dataclasses import dataclass
 from io import BytesIO
 from shutil import which
+import subprocess
 
 
 @dataclass(frozen=True)
@@ -37,9 +38,17 @@ class InlineFormulaPDFRenderer:
             except ImportError:
                 self._available = False
             else:
-                self._available = any(which(command) for command in (
-                    "latex", "pdflatex", "xelatex", "lualatex", "tectonic",
-                ))
+                latex = which("latex")
+                if latex is None:
+                    self._available = False
+                else:
+                    try:
+                        subprocess.run([latex, "--version"], check=True, timeout=5,
+                                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                    except (OSError, subprocess.SubprocessError):
+                        self._available = False
+                    else:
+                        self._available = True
         return self._available
 
     def render(self, latex: str, point_size: float) -> FormulaFragment | None:
@@ -53,6 +62,7 @@ class InlineFormulaPDFRenderer:
         try:
             import matplotlib  # type: ignore[reportMissingImports]
             matplotlib.use("pdf", force=True)
+            matplotlib.rcParams["text.latex.preamble"] = r"\pdfshellescape=0"
             from matplotlib import pyplot as plt  # type: ignore[reportMissingImports]
             from matplotlib.texmanager import TexManager  # type: ignore[reportMissingImports]
 

@@ -1,6 +1,7 @@
 """Regression coverage for safe inline-formula handling in PDF patches."""
 
 import unittest
+from typing import Any, cast
 
 from pdf_craft.formula import latex_to_plain_text
 from pdf_craft.pipeline.pdf import PDFInlineFormula, PDFReplacement, PDFReplacementRegion
@@ -18,7 +19,9 @@ class TestPDFInlineFormulaFallback(unittest.TestCase):
             1, region.bbox, "character \ufffc is primitive", region.page_pixel_size,
             regions=(region,), inline_formulas=(PDFInlineFormula(r"\chi(n)"),),
         )
-        filler = QTextParagraphFiller(PatchTextOptions(max_font_size=10, min_font_size=10))
+        filler = QTextParagraphFiller(PatchTextOptions(
+            max_font_size=10, min_font_size=10, render_inline_formulas=False,
+        ))
         fitted = filler.fit(replacement, {1: (200, 100)})
 
         self.assertIn("χ(n)", fitted.text)
@@ -48,7 +51,7 @@ class TestPDFInlineFormulaFallback(unittest.TestCase):
             regions=(region,), inline_formulas=(PDFInlineFormula("x^2"),),
         )
         filler = QTextParagraphFiller(PatchTextOptions(max_font_size=10, min_font_size=10))
-        filler._formula_renderer = Renderer()  # pylint: disable=protected-access
+        filler._formula_renderer = cast(Any, Renderer())  # pylint: disable=protected-access
         fitted = filler.fit(replacement, {1: (200, 100)})
 
         draws = fitted.placements[0].formula_draws
