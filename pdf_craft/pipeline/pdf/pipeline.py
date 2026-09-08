@@ -8,7 +8,7 @@ from pdf_craft.extractor.chapter.chapter import Chapter, ParagraphLayout, encode
 from pdf_craft.extractor.chapter.chapter import InlineExpression, Reference
 from pdf_craft.extractor.chapter.reader import create_chapters_reader
 from pdf_craft.markdown.paragraph import HTMLTag
-from pdf_craft.expression import to_markdown_string
+from pdf_craft.formula import latex_to_plain_text
 from pdf_craft.document import PDFCraftExtraction
 from pdf_craft.transformer.events import TranslationEvent, TranslationEventKind, TranslationItemKind
 from pdf_craft.transformer.chapter_xml import ChapterXMLTransformer
@@ -209,7 +209,11 @@ def _to_patch_text(items) -> str:
         if isinstance(item, str):
             parts.append(item)
         elif isinstance(item, InlineExpression):
-            parts.append(to_markdown_string(item.kind, item.content))
+            # This helper also feeds the public callable transformer path.
+            # A callback returns an unstructured string, so preserving raw
+            # delimiters here would later leak them into QTextLayout.  The
+            # structured XML path uses _to_pdf_patch_content instead.
+            parts.append(latex_to_plain_text(item.content))
         elif isinstance(item, Reference):
             parts.append(str(item.mark))
         elif isinstance(item, HTMLTag):
