@@ -9,13 +9,34 @@ from .text_layout import BoxTextLayout, PatchTextOptions
 
 
 @dataclass(frozen=True)
+class PDFReplacementRegion:
+    """One OCR source region belonging to a logical replacement."""
+
+    page_index: int
+    bbox: tuple[int, int, int, int]
+    page_pixel_size: tuple[int, int]
+    dpi: int = 300
+    reading_order: int = 0
+
+
+@dataclass(frozen=True)
 class PDFReplacement:
+    """Replacement text and the ordered OCR regions it replaces.
+
+    The legacy top-level geometry identifies the first region, so callers that
+    replace a single box keep their existing API.  ``regions`` carries the
+    complete paragraph geometry for the PDF translation pipeline.  The
+    current box patcher deliberately only renders one-region replacements;
+    multi-region flow belongs to the paragraph filler.
+    """
+
     page_index: int
     bbox: tuple[int, int, int, int]
     text: str
     page_pixel_size: tuple[int, int]
     dpi: int = 300
     reading_order: int = 0
+    regions: tuple[PDFReplacementRegion, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -132,19 +153,56 @@ class PDFPatcher:
         self.skipped_replacements = tuple(skipped)
 
     def validate(self, replacement: PDFReplacement, pages_count: int | None = None) -> None:
-        left, top, right, bottom = replacement.bbox
-        if replacement.page_index < 1:
+        self._validate_text(replacement)
+        if len(replacement.regions) > 1:
+            raise ValueError(
+                "replacement spans multiple source boxes; paragraph filling is not available"
+            )
+        if replacement.regions:
+            self._validate_single_region_matches_replacement(replacement, replacement.regions[0])
+        regions = replacement.regions or (PDFReplacementRegion(
+            replacement.page_index,
+            replacement.bbox,
+            replacement.page_pixel_size,
+            replacement.dpi,
+            replacement.reading_order,
+        ),)
+        for region in regions:
+            self._validate_region(region, pages_count)
+
+    @staticmethod
+    def _validate_single_region_matches_replacement(
+        replacement: PDFReplacement, region: PDFReplacementRegion,
+    ) -> None:
+        if (
+            replacement.page_index != region.page_index
+            or replacement.bbox != region.bbox
+            or replacement.page_pixel_size != region.page_pixel_size
+            or replacement.dpi != region.dpi
+            or replacement.reading_order != region.reading_order
+        ):
+            raise ValueError(
+                "replacement geometry must match its only source region"
+            )
+
+    @staticmethod
+    def _validate_region(region: PDFReplacementRegion, pages_count: int | None = None) -> None:
+        left, top, right, bottom = region.bbox
+        if region.page_index < 1:
             raise ValueError("page_index must be positive")
-        if pages_count is not None and replacement.page_index > pages_count:
-            raise ValueError(f"page_index {replacement.page_index} exceeds source page count {pages_count}")
+        if pages_count is not None and region.page_index > pages_count:
+            raise ValueError(f"page_index {region.page_index} exceeds source page count {pages_count}")
         if left < 0 or top < 0 or right <= left or bottom <= top:
-            raise ValueError(f"invalid bbox: {replacement.bbox}")
+            raise ValueError(f"invalid bbox: {region.bbox}")
+        if region.page_pixel_size[0] <= 0 or region.page_pixel_size[1] <= 0:
+            raise ValueError("page_pixel_size must be positive")
+        if right > region.page_pixel_size[0] or bottom > region.page_pixel_size[1]:
+            raise ValueError("bbox exceeds page_pixel_size")
+
+    @staticmethod
+    def _validate_text(replacement: PDFReplacement) -> None:
         if not replacement.text.strip():
             raise ValueError("replacement text must not be empty")
-        if replacement.page_pixel_size[0] <= 0 or replacement.page_pixel_size[1] <= 0:
-            raise ValueError("page_pixel_size must be positive")
-        if right > replacement.page_pixel_size[0] or bottom > replacement.page_pixel_size[1]:
-            raise ValueError("bbox exceeds page_pixel_size")
 
     def _fit_replacement(self, replacement: PDFReplacement, width: float, height: float):
         _, _, box_width, box_height = self._box_in_points(replacement, width, height)

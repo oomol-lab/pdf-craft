@@ -24,7 +24,7 @@ from pdf_craft import PDFCraft, PDFOptions
   `TranslationEventKind`、`TranslationItemKind`、`FillFailedEvent`
 - `PDFHandler`、`DefaultPDFHandler`、`PDFDocument`、`DefaultPDFDocument`、
   `PDFDocumentMetadata`
-- `PDFPatcher`、`PDFReplacement`、`PDFSkippedReplacement`、`PatchTextOptions`、
+- `PDFPatcher`、`PDFReplacement`、`PDFReplacementRegion`、`PDFSkippedReplacement`、`PatchTextOptions`、
   `PDFTranslationPipeline`
 - `PDFError`、`OCRError`、`IgnorePDFErrorsChecker`、
   `IgnoreOCRErrorsChecker`
@@ -380,13 +380,17 @@ translate_epub(
 写回组件，供已经能自行生成替换坐标与文字的集成方使用：
 
 - `PDFReplacement` 描述一段待替换文本：`page_index`、像素坐标 `bbox`、`text`、OCR 画布尺寸
-  `page_pixel_size`，以及可选的 `dpi`、`reading_order`。
+  `page_pixel_size`，以及可选的 `dpi`、`reading_order`。PDF 翻译会以一个 `ParagraphLayout` 为单位
+  调用翻译器一次，并将该段落全部、有序的来源框保存在 `regions`（`PDFReplacementRegion`）中，而不是把
+  同一译文复制到每个框。
 - `PDFPatcher(options=PatchTextOptions(...), pdf_handler=...)` 通过 `.patch(source_path,
   target_path, replacements)` 写出 PDF。它接受任意通过字段校验的 `PDFReplacement`，不要求这些
   替换项来自 `PDFCraftExtraction` 或 OCR；`page_pixel_size` 仅用于把像素 `bbox` 换算为 PDF 坐标，
   patcher 不会验证它是否等于源页的实际渲染尺寸。调用方必须自行保证页码、坐标与尺寸对应源 PDF。
   `PatchTextOptions` 控制字体、字号、内边距、对齐和 `overflow` 策略；`overflow="error"`（默认）
   在文字无法放入原框时失败，`"skip"` 则把对应项记录在 `patcher.skipped_replacements` 中。
+  当前 `PDFPatcher` 仍是单框实现；若 `regions` 含多个来源框，它会明确报错，等待段落填充器决定跨框排版，
+  不会悄悄把整段文字重复写入每个框。
 - `PDFTranslationPipeline` 可将一个 `PDFCraftExtraction` 与 `ChapterTransformer` 或
   `Callable[[str], str]` 直接写回 PDF；其 `.patch()` 则把 extraction 已有的文字写回。这是
   facade 的底层组成部分，普通应用无需直接构造。它只从 extraction 中带来源坐标的 `text` 和

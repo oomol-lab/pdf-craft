@@ -181,7 +181,7 @@ patcher = PDFPatcher(options=PatchTextOptions(
 pipeline = PDFTranslationPipeline(patcher=patcher)
 ```
 
-`PatchTextOptions` controls text fitting. `overflow="error"` (the default) stops if translated text cannot fit; `overflow="skip"` records skipped replacements in `PDFPatcher.skipped_replacements`. `PDFReplacement` and `PDFSkippedReplacement` describe individual patch outcomes.
+`PatchTextOptions` controls text fitting. `overflow="error"` (the default) stops if translated text cannot fit; `overflow="skip"` records skipped replacements in `PDFPatcher.skipped_replacements`. `PDFReplacement` and `PDFSkippedReplacement` describe individual patch outcomes. PDF translation collects each `ParagraphLayout` once and retains its ordered source boxes as `PDFReplacement.regions` (`PDFReplacementRegion` values). The current box patcher accepts one-region replacements only; multi-region paragraph flow is intentionally left to the paragraph filler.
 
 `PDFTranslationPipeline` can perform lower-level translation or patching when the application owns the complete layout and output lifecycle. Prefer `PDFCraft.translate_pdf()` and `PDFCraft.patch_pdf_with_extraction()` when their fixed layout policy is sufficient.
 

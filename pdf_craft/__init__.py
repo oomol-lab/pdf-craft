@@ -11,7 +11,14 @@ from .error import (
 from .functions import predownload_models
 from .craft import ExtractionOptions, PDFCraft, PDFOptions
 from .pipeline.epub import translate_epub
-from .pipeline.pdf import PDFPatcher, PDFReplacement, PDFSkippedReplacement, PDFTranslationPipeline, PatchTextOptions
+from .pipeline.pdf import (
+    PDFPatcher,
+    PDFReplacement,
+    PDFReplacementRegion,
+    PDFSkippedReplacement,
+    PDFTranslationPipeline,
+    PatchTextOptions,
+)
 from .transformer import (
     ChapterExtractionTransformer,
     ChapterXMLTransformer,
