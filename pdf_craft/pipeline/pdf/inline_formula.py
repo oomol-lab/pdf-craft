@@ -72,7 +72,6 @@ class InlineFormulaPDFRenderer:
         try:
             import matplotlib  # type: ignore[reportMissingImports]
             matplotlib.use("pdf", force=True)
-            matplotlib.rcParams["text.latex.preamble"] = r"\pdfshellescape=0"
             from matplotlib import pyplot as plt  # type: ignore[reportMissingImports]
             from matplotlib.texmanager import TexManager  # type: ignore[reportMissingImports]
 
