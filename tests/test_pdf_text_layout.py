@@ -1,7 +1,7 @@
 import unittest
 
 from pdf_craft.pipeline.pdf import (
-    PDFReplacement, PDFReplacementRegion, PatchTextOptions, PatchTextStyle,
+    FittedParagraph, PDFReplacement, PDFReplacementRegion, PatchTextOptions, PatchTextStyle,
     QTextParagraphFiller,
 )
 
@@ -15,6 +15,35 @@ def _replacement(text: str, regions, *, layout_ref: str = "text", layout_level: 
 
 
 class TestQTextParagraphFiller(unittest.TestCase):
+    def test_uses_a_non_quarter_point_style_maximum_with_qt(self):
+        """QTextLayout accepts the exact float maximum rather than a 0.25pt grid."""
+        region = PDFReplacementRegion(1, (0, 0, 100, 100), (100, 100))
+        filler = QTextParagraphFiller(PatchTextOptions(max_font_size=10.13, min_font_size=4))
+
+        fitted = filler.fit(_replacement("short text", [region]), {1: (100, 100)})
+
+        self.assertEqual(fitted.font_size, 10.13)
+
+    def test_converges_within_fixed_float_tolerance_and_keeps_successful_side(self):
+        """The float search must not return a failing candidate at a wrap threshold."""
+        threshold = 10.13
+
+        class ThresholdFiller(QTextParagraphFiller):
+            def _plan(self, text, replacement, page_sizes, style, font_size):
+                del replacement, page_sizes, style
+                if font_size > threshold:
+                    return None
+                return FittedParagraph(text, font_size, ())
+
+        region = PDFReplacementRegion(1, (0, 0, 100, 100), (100, 100))
+        fitted = ThresholdFiller(PatchTextOptions(max_font_size=12, min_font_size=4)).fit(
+            _replacement("threshold", [region]), {1: (100, 100)},
+        )
+
+        self.assertLessEqual(fitted.font_size, threshold)
+        self.assertLess(threshold - fitted.font_size, 0.05)
+        self.assertNotEqual(fitted.font_size * 4, round(fitted.font_size * 4))
+
     def test_flows_a_paragraph_through_multiple_rectangles_once(self):
         regions = [
             PDFReplacementRegion(1, (0, 0, 58, 20), (100, 100)),
