@@ -3,7 +3,6 @@
 
 from collections.abc import Iterable, Iterator, Mapping
 from dataclasses import dataclass, field, replace
-from math import ceil
 import os
 import pickle
 from pathlib import Path
@@ -547,7 +546,7 @@ class QTextParagraphFiller:
             for region in replacement.source_regions()
         )
         text, spans = self._formula_layout_text(
-            text, replacement, font_size,
+            text, replacement, style, font_size,
             max(rectangle.width - 2 * style.horizontal_padding for rectangle in capacities),
             max(rectangle.height - 2 * style.vertical_padding for rectangle in capacities),
         )
@@ -814,7 +813,7 @@ class QTextParagraphFiller:
         return _replace_formula_markers(text, replacement.inline_formulas)
 
     def _formula_layout_text(
-        self, text: str, replacement: PDFReplacement, font_size: float,
+        self, text: str, replacement: PDFReplacement, style: PatchTextStyle, font_size: float,
         maximum_width: float, maximum_height: float,
     ) -> tuple[str, tuple[_FormulaSpan, ...]]:
         """Build invisible, non-breaking width proxies for usable formula PDFs.
@@ -831,10 +830,12 @@ class QTextParagraphFiller:
             raise ValueError("PDF replacement formula markers do not match inline formulas")
         if not self.options.render_inline_formulas or not self._formula_renderer.available:
             return _replace_formula_markers(text, replacement.inline_formulas), ()
-        # A normal space is roughly a quarter em in the chosen body font.  The
-        # proxy is deliberately slightly wider: an inline formula must never
-        # be split across rectangles simply to gain a few points of width.
-        space_width = max(font_size * 0.25, 0.1)
+        QtCore, QtGui = _qt_modules()
+        del QtCore
+        _ensure_qt_application(QtGui)
+        font = QtGui.QFont(style.font_name or "")
+        font.setPointSizeF(font_size)
+        space_width = float(QtGui.QFontMetricsF(font).horizontalAdvance("\u00a0"))
         parts: list[str] = []
         spans: list[_FormulaSpan] = []
         formula_index = 0
@@ -852,7 +853,16 @@ class QTextParagraphFiller:
                 parts.append(fallback)
                 offset += len(fallback)
                 continue
-            length = max(1, ceil(fragment.width / space_width))
+            length = max(1, round(fragment.width / space_width))
+            # A string of NBSPs is only a valid proxy if its actual Qt advance
+            # is indistinguishable from the formula's physical PDF width.
+            # Otherwise use readable text; never reject a fitting paragraph
+            # because of an approximate hidden run.
+            if abs(length * space_width - fragment.width) > 0.01:
+                fallback = latex_to_plain_text(formula.latex)
+                parts.append(fallback)
+                offset += len(fallback)
+                continue
             parts.append("\u00a0" * length)
             spans.append(_FormulaSpan(offset, length, fragment))
             offset += length

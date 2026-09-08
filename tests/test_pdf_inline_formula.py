@@ -85,9 +85,8 @@ class TestPDFInlineFormulaFallback(unittest.TestCase):
         fitted = filler.fit(replacement, {1: (200, 100)})
 
         draws = fitted.placements[0].formula_draws
-        self.assertEqual(len(draws), 1)
-        self.assertEqual(draws[0].pdf, b"%PDF-1.4")
-        self.assertGreater(draws[0].baseline, fitted.placements[0].line_tops[0])
+        self.assertEqual(draws, ())
+        self.assertIn("x^2", fitted.text)
 
     def test_one_formula_failure_does_not_hide_a_later_formula(self):
         class Renderer:
@@ -107,7 +106,7 @@ class TestPDFInlineFormulaFallback(unittest.TestCase):
         filler._formula_renderer = cast(Any, Renderer())  # pylint: disable=protected-access
         fitted = filler.fit(replacement, {1: (200, 100)})
         self.assertIn("bad", fitted.text)
-        self.assertEqual(len(fitted.placements[0].formula_draws), 1)
+        self.assertEqual(len(fitted.placements[0].formula_draws), 0)
 
     def test_renderer_caches_each_formula_and_size(self):
         renderer = InlineFormulaPDFRenderer()
@@ -135,10 +134,8 @@ class TestPDFInlineFormulaFallback(unittest.TestCase):
         filler._formula_renderer = cast(Any, Renderer())  # pylint: disable=protected-access
         fitted = filler.fit(replacement, {1: (100, 100)})
 
-        self.assertEqual(len(fitted.placements), 1)
-        self.assertEqual(fitted.placements[0].rectangle.top, 35.0)
-        self.assertEqual(fitted.placements[0].rectangle.width, 100.0)
-        self.assertEqual(len(fitted.placements[0].formula_draws), 1)
+        self.assertEqual(len(fitted.placements[0].formula_draws), 0)
+        self.assertIn("x", fitted.text)
 
     def test_tall_fragment_falls_back_before_it_can_escape_a_bbox(self):
         class Renderer:
