@@ -670,10 +670,16 @@ class QTextParagraphFiller:
                     break
                 line.setLineWidth(available_width)
                 line_height = line.height()
-                if y + line_height > available_bottom + 1e-6:
-                    break
                 line_start_index = line.textStart()
                 line_end_index = line_start_index + line.textLength()
+                line_fragments = tuple(
+                    span.fragment for span in formula_spans
+                    if line_start_index <= span.start and span.start + span.length <= line_end_index
+                )
+                if line_fragments:
+                    line_height = max(line_height, *(fragment.height for fragment in line_fragments))
+                if y + line_height > available_bottom + 1e-6:
+                    break
                 # QTextLayout may wrap anywhere.  Never accept a line that
                 # cuts through one formula's width proxy: leave the complete
                 # atom for the next source rectangle instead.
@@ -693,7 +699,8 @@ class QTextParagraphFiller:
                         formula_draws.append(FormulaDraw(
                             span.fragment.pdf,
                             content_left + _x_coordinate(line.cursorToX(span.start - line_start_index)),
-                            y + line.ascent(), span.fragment.descent,
+                            y + max(line.ascent(), span.fragment.height - span.fragment.descent),
+                            span.fragment.descent,
                         ))
                 consumed_utf16 = line.textStart() + line.textLength()
                 last_line_height = line_height
