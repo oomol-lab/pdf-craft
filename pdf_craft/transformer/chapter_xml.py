@@ -5,6 +5,7 @@ from xml.etree.ElementTree import Element
 from pdf_craft.extractor.chapter.chapter import Chapter, decode, encode
 from pdf_craft.transformer.xml_translator.segment import search_text_segments
 from pdf_craft.transformer.events import TranslationEvent, TranslationItemKind
+from .chapter_formula_interrupter import ChapterFormulaInterrupter
 from .xml_translator.xml_translator import SubmitKind, TranslationTask
 
 
@@ -44,6 +45,7 @@ class ChapterXMLTransformer:
         # an empty stream, which otherwise raises "Translation failed unexpectedly".
         if not any(segment.text.strip() for segment in search_text_segments(element)):
             return chapter
+        formula_interrupter = ChapterFormulaInterrupter()
         translated, _ = self._translator.translate_element(
             TranslationTask(
                 element=element,
@@ -58,5 +60,8 @@ class ChapterXMLTransformer:
             total_characters=total_characters,
             emit_scope_events=emit_scope_events,
             emit_item_events=emit_item_events,
+            interrupt_source_text_segments=formula_interrupter.interrupt_source_text_segments,
+            interrupt_translated_text_segments=formula_interrupter.interrupt_translated_text_segments,
+            interrupt_block_element=formula_interrupter.interrupt_block_element,
         )
         return decode(translated)
