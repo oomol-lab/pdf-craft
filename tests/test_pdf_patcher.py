@@ -10,6 +10,7 @@ from reportlab.pdfgen import canvas
 
 from pdf_craft.pipeline.pdf import (
     PDFPatcher, PDFReplacement, PDFReplacementRegion, PatchTextOptions,
+    QTextParagraphFiller,
 )
 
 
@@ -109,13 +110,30 @@ class TestPDFPatcher(unittest.TestCase):
                 1, (60, 60, 360, 360), "\u8fd9\u662f\u4e00\u6bb5\u6ca1\u6709\u7a7a\u683c\u7684\u4e2d\u6587\u8bd1\u6587\uff0c\u5b83\u5e94\u8be5\u5728\u65b9\u6846\u5185\u81ea\u52a8\u6362\u884c\u3002" * 3, (600, 600)
             )
             patcher = PDFPatcher(options=PatchTextOptions(max_font_size=12, min_font_size=4))
+            fitted = QTextParagraphFiller(patcher.options).fit(replacement, {1: (200, 200)})
 
             patcher.patch(source, target, [replacement])
 
+            source_page: Any = pypdf.PdfReader(str(source)).pages[0]
             reader = pypdf.PdfReader(str(target))
             self.assertEqual(len(reader.pages), 1)
             page: Any = reader.pages[0]
-            self.assertIn("\u6ca1\u6709\u7a7a\u683c", page.extract_text())  # pylint: disable=no-member
+            # An absent CJK font is allowed to fall back (even to a missing-glyph
+            # font), so Unicode extraction is platform dependent. The English
+            # patch tests cover extraction; here prove that CJK layout fits and
+            # produces a genuine PDF font/content layer instead of an image.
+            for placement in fitted.placements:
+                self.assertTrue(all(
+                    placement.rectangle.top <= top
+                    and top + height <= placement.rectangle.bottom
+                    for top, height in zip(placement.line_tops, placement.line_heights)
+                ))
+            source_fonts = set(source_page["/Resources"]["/Font"].get_object())
+            result_fonts = set(page["/Resources"]["/Font"].get_object())
+            self.assertGreater(len(result_fonts - source_fonts), 0)
+            self.assertGreater(
+                len(page.get_contents().get_data()), len(source_page.get_contents().get_data()),
+            )
             self.assertEqual(len(list(page.images)), 0)
 
     def test_preflight_failure_leaves_no_partial_target_file(self):
