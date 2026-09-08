@@ -2,6 +2,7 @@
 
 from collections.abc import Iterable
 from pathlib import Path
+import pickle
 from tempfile import NamedTemporaryFile, TemporaryDirectory
 from typing import Any
 
@@ -10,7 +11,7 @@ from pdf_craft.pdf.handler import DefaultPDFHandler, PDFHandler
 from .eraser import EraseOptions, EraseRectangle, RectangularEraser
 from .models import PDFReplacement, PDFReplacementRegion, PDFSkippedReplacement
 from .text_layout import (
-    PatchTextOptions, QTextParagraphFiller, WindowedParagraphPlanner,
+    FontResolution, PatchTextOptions, QTextParagraphFiller, WindowedParagraphPlanner, _contains_cjk,
 )
 from .visual_base import (
     GhostscriptVisualBaseCompiler, extract_annotations, reattach_annotations,
@@ -65,6 +66,11 @@ class PDFPatcher:
         self.dpi = dpi
         self.skipped_replacements: tuple[PDFSkippedReplacement, ...] = ()
 
+    @property
+    def font_resolutions(self) -> tuple[FontResolution, ...]:
+        """Qt font choices made during the most recent :meth:`patch` run."""
+        return getattr(self._filler, "font_resolutions", ())
+
     def patch(self, source_path: Path, target_path: Path, replacements: Iterable[PDFReplacement]) -> None:
         """Compose visual bases, rectangular erasure, Qt text, then Annotations."""
         try:
@@ -73,18 +79,15 @@ class PDFPatcher:
         except ImportError as error:  # pragma: no cover - declared dependencies.
             raise RuntimeError("PDF patching requires pypdf and reportlab") from error
 
+        reset_font_resolutions = getattr(self._filler, "reset_font_resolutions", None)
+        if reset_font_resolutions is not None:
+            reset_font_resolutions()
         source_reader = pypdf.PdfReader(str(source_path))
         page_sizes = {
             index: (float(page.mediabox.width), float(page.mediabox.height))
             for index, page in enumerate(source_reader.pages, 1)
         }
         annotations_by_page = extract_annotations(source_reader)
-        def validated_replacements():
-            for replacement in replacements:
-                self.validate(replacement, pages_count=len(source_reader.pages))
-                yield replacement
-
-        planner = WindowedParagraphPlanner(self._filler, page_sizes, self.options)
         writer = pypdf.PdfWriter()
         next_page_index = 1
         with TemporaryDirectory() as temp_dir:
@@ -96,7 +99,34 @@ class PDFPatcher:
             reader = pypdf.PdfReader(str(visual_base_path))
             self._restore_source_page_geometry(source_reader, reader)
             self._validate_visual_base(reader, page_sizes)
-            for window in planner.plan(validated_replacements()):
+            replacements_path = root / "replacements.pickle"
+            has_automatic_font = False
+            contains_cjk = False
+            with replacements_path.open("wb") as stream:
+                for replacement in replacements:
+                    self.validate(replacement, pages_count=len(source_reader.pages))
+                    style = self.options.style_for(
+                        replacement.layout_ref, replacement.layout_level,
+                    )
+                    if not style.font_name or not style.font_name.strip():
+                        has_automatic_font = True
+                        contains_cjk = contains_cjk or _contains_cjk(replacement.text)
+                    pickle.dump(replacement, stream, protocol=pickle.HIGHEST_PROTOCOL)
+            if has_automatic_font:
+                prepare_automatic_font = getattr(self._filler, "prepare_automatic_font", None)
+                if prepare_automatic_font is not None:
+                    prepare_automatic_font(contains_cjk)
+
+            def spooled_replacements():
+                with replacements_path.open("rb") as stream:
+                    while True:
+                        try:
+                            yield pickle.load(stream)
+                        except EOFError:
+                            return
+
+            planner = WindowedParagraphPlanner(self._filler, page_sizes, self.options)
+            for window in planner.plan(spooled_replacements()):
                 for index in range(next_page_index, window.first_page_index):
                     writer.add_page(reader.pages[index - 1])
                 self._compose_window(

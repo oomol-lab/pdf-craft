@@ -18,6 +18,7 @@ from .pipeline.pdf import (
     PDFSkippedReplacement,
     PDFTranslationPipeline,
     EraseOptions,
+    FontResolution,
     PatchTextOptions,
     PatchTextStyle,
     QTextParagraphFiller,
