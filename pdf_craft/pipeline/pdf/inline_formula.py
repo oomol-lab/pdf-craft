@@ -26,6 +26,7 @@ class InlineFormulaPDFRenderer:
 
     def __init__(self) -> None:
         self._available: bool | None = None
+        self._probing = False
         self._cache: dict[tuple[str, float], FormulaFragment | None] = {}
 
     @property
@@ -49,6 +50,15 @@ class InlineFormulaPDFRenderer:
                         self._available = False
                     else:
                         self._available = True
+        if self._available and not self._probing:
+            # Prove the complete Matplotlib -> TeX -> PDF path once.  A
+            # present binary alone is not a usable rendering backend.
+            self._probing = True
+            try:
+                if self.render(r"x", 8) is None:
+                    self._available = False
+            finally:
+                self._probing = False
         return self._available
 
     def render(self, latex: str, point_size: float) -> FormulaFragment | None:
