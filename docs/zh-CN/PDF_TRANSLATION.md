@@ -232,6 +232,41 @@ pipeline.translate(Path("input.pdf"), Path("translated.pdf"), extraction, transl
 并将原因记录在 `patcher.skipped_replacements`。低层 API 适用于愿意自行处理排版策略、
 跳过结果和输出文件生命周期的高级调用方。
 
+### 标题层级与有界布局窗口
+
+PDF 写回把一个 `ParagraphLayout` 视为一段连续文本流，即使它的来源 bbox 跨多个页面也如此。
+每个自然段只会选择一个统一字号；一整行若放不下当前 bbox，会整体移入下一个 bbox，绝不会在
+单个 bbox 的边界局部溢出。
+
+在一个可释放的页面窗口中，`text` 正文会先于 `sub_title` 标题完成排版。标题涉及的每一页中，
+已排版正文的最大字号乘以 `headline_min_body_ratio`（默认 `1.2`）后，构成标题字号的下限。
+某个语义样式可以通过 `minimum_body_font_ratio` 覆盖此比例；如果标题 bbox 仍有空间，常规的
+字号搜索仍会选择大于该下限的字号。
+
+```python
+options = PatchTextOptions(
+    styles={
+        "text": PatchTextStyle(font_name="Noto Serif CJK SC", max_font_size=11),
+        "sub_title": PatchTextStyle(
+            font_name="Noto Sans CJK SC",
+            max_font_size=24,
+            minimum_body_font_ratio=1.35,
+        ),
+    },
+    headline_min_body_ratio=1.2,
+    headline_fallback_font_size=14,
+)
+```
+
+若标题所在页没有实际排版出的正文，字号参考按确定顺序选择：当前窗口中较早页面的正文、此前
+已完成窗口的正文、当前窗口中较晚页面的正文，最后才是 `headline_fallback_font_size`（未设置时
+使用标题样式自身的最小字号）。标题无法满足这个硬性下限时会抛出 `HeadlineConstraintError`；
+设置 `overflow="skip"` 则会跳过该 replacement，并把原因写入 `patcher.skipped_replacements`。
+
+窗口会在所有仍可能触及其中页面的自然段完成规划后关闭。之后 patcher 会逐页渲染原始图、
+取色、合成并释放该页图片。因此即使一个很长的跨页自然段覆盖整本书，也不会在内存中累计整本书的
+页面 raster；独立的擦除层和 Qt 文本层依然互不耦合。
+
 ### 写回的页面与文本层
 
 写回不会将整页通过 `PDFHandler.render_page()` 栅格化。它保留原始 PDF 页，再依次合并独立的

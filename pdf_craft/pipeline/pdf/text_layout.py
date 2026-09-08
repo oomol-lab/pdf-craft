@@ -1,7 +1,7 @@
 """Paragraph flow backed by Qt's native ``QTextLayout`` engine."""
 # pylint: disable=no-member,c-extension-no-member
 
-from collections.abc import Mapping
+from collections.abc import Iterable, Iterator, Mapping
 from dataclasses import dataclass, field
 import os
 from pathlib import Path
@@ -29,6 +29,7 @@ class PatchTextStyle:
     vertical_padding: float = 1.0
     alignment: Alignment = "left"
     vertical_alignment: VerticalAlignment = "top"
+    minimum_body_font_ratio: float | None = None
 
 
 @dataclass(frozen=True)
@@ -51,6 +52,8 @@ class PatchTextOptions:
     alignment: Alignment = "left"
     vertical_alignment: VerticalAlignment = "top"
     styles: Mapping[str, PatchTextStyle] = field(default_factory=dict)
+    headline_min_body_ratio: float = 1.2
+    headline_fallback_font_size: float | None = None
     overflow: Literal["error", "skip"] = "error"
 
     def style_for(self, layout_ref: str, layout_level: int) -> PatchTextStyle:
@@ -68,6 +71,16 @@ class PatchTextOptions:
             vertical_alignment=self.vertical_alignment,
         )
         return self.styles.get(f"{layout_ref}:{layout_level}", self.styles.get(layout_ref, default))
+
+    def headline_ratio_for(self, layout_ref: str, layout_level: int) -> float:
+        """Return the configured lower-bound ratio for one headline level."""
+        style = self.style_for(layout_ref, layout_level)
+        ratio = style.minimum_body_font_ratio
+        if ratio is None:
+            ratio = self.headline_min_body_ratio
+        if ratio <= 0:
+            raise ValueError("headline minimum body font ratio must be positive")
+        return ratio
 
 
 @dataclass(frozen=True)
@@ -97,6 +110,42 @@ class FittedParagraph:
     placements: tuple[RegionTextPlacement, ...]
 
 
+@dataclass(frozen=True)
+class PlannedParagraph:
+    """One replacement and its finished paragraph-level fill plan."""
+
+    replacement: PDFReplacement
+    paragraph: FittedParagraph
+
+
+@dataclass(frozen=True)
+class FillWindowPlan:
+    """A contiguous, releasable set of pages planned in two layout phases.
+
+    The plan intentionally contains no page image or live Qt object. The PDF
+    composer can render and release each window without coupling typography to
+    erasure or retaining a whole book of page rasters.
+    """
+
+    first_page_index: int
+    last_page_index: int
+    paragraphs: tuple[PlannedParagraph, ...]
+
+
+class HeadlineConstraintError(ValueError):
+    """A headline cannot satisfy its configured body-relative font lower bound."""
+
+    def __init__(self, replacement: PDFReplacement, minimum_font_size: float, cause: ValueError) -> None:
+        self.replacement = replacement
+        self.minimum_font_size = minimum_font_size
+        self.__cause__ = cause
+        super().__init__(
+            f"page {replacement.page_index}, bbox {replacement.bbox}: "
+            "headline cannot satisfy body-relative minimum font size "
+            f"{minimum_font_size:.2f}: {cause}"
+        )
+
+
 class QTextParagraphFiller:
     """Lay one paragraph through ordered rectangles without splitting a line.
 
@@ -112,6 +161,7 @@ class QTextParagraphFiller:
         self,
         replacement: PDFReplacement,
         page_sizes: dict[int, tuple[float, float]],
+        minimum_font_size: float | None = None,
     ) -> FittedParagraph:
         """Return the largest quarter-point paragraph fitting every region."""
         text = " ".join(replacement.text.split())
@@ -120,7 +170,13 @@ class QTextParagraphFiller:
         style = self.options.style_for(replacement.layout_ref, replacement.layout_level)
         self._validate_style(style)
 
-        low = int(round(style.min_font_size * 4))
+        effective_minimum = max(style.min_font_size, minimum_font_size or style.min_font_size)
+        if effective_minimum > style.max_font_size:
+            raise ValueError(
+                f"requested minimum font size {effective_minimum:.2f} exceeds style maximum "
+                f"{style.max_font_size:.2f}"
+            )
+        low = int(round(effective_minimum * 4))
         high = int(round(style.max_font_size * 4))
         best: FittedParagraph | None = None
         while low <= high:
@@ -134,7 +190,7 @@ class QTextParagraphFiller:
         if best is None:
             raise ValueError(
                 "replacement text cannot fit paragraph source regions at minimum font size "
-                f"{style.min_font_size}"
+                f"{effective_minimum}"
             )
         return best
 
@@ -309,6 +365,160 @@ class QTextParagraphFiller:
             raise ValueError(f"unsupported text alignment: {style.alignment}")
         if style.vertical_alignment not in {"top", "center", "bottom"}:
             raise ValueError(f"unsupported vertical alignment: {style.vertical_alignment}")
+
+
+class WindowedParagraphPlanner:
+    """Plan body text before headlines while retaining only a page window.
+
+    Input replacements must be in reading order by their first source page.
+    A window closes as soon as no future paragraph can touch one of its pages;
+    this keeps page rasters and transient Qt layouts out of the book-wide
+    working set. Paragraphs themselves still retain one uniform font size over
+    every source region, including regions on later pages.
+    """
+
+    def __init__(
+        self,
+        filler: QTextParagraphFiller,
+        page_sizes: dict[int, tuple[float, float]],
+        options: PatchTextOptions | None = None,
+    ) -> None:
+        self._filler = filler
+        self._page_sizes = page_sizes
+        self._options = options or filler.options
+        self.skipped: list[tuple[PDFReplacement, ValueError]] = []
+        self._previous_body_font_size: float | None = None
+
+    def plan(self, replacements: Iterable[PDFReplacement]) -> Iterator[FillWindowPlan]:
+        """Yield completed windows in page order without retaining the full book."""
+        window: list[PDFReplacement] = []
+        first_page: int | None = None
+        last_page = 0
+        previous_first_page = 0
+        for replacement in replacements:
+            replacement_first, replacement_last = _replacement_page_span(replacement)
+            if replacement_first < previous_first_page:
+                raise ValueError("PDF replacements must be ordered by first source page")
+            previous_first_page = replacement_first
+            if window and replacement_first > last_page:
+                assert first_page is not None
+                yield self._plan_window(first_page, last_page, window)
+                window = []
+                first_page = None
+                last_page = 0
+            if first_page is None:
+                first_page = replacement_first
+            window.append(replacement)
+            last_page = max(last_page, replacement_last)
+        if window:
+            assert first_page is not None
+            yield self._plan_window(first_page, last_page, window)
+
+    def _plan_window(
+        self,
+        first_page: int,
+        last_page: int,
+        replacements: list[PDFReplacement],
+    ) -> FillWindowPlan:
+        body = [replacement for replacement in replacements if not _is_headline(replacement)]
+        headlines = [replacement for replacement in replacements if _is_headline(replacement)]
+        planned: list[PlannedParagraph] = []
+        body_font_sizes: dict[int, float] = {}
+
+        for replacement in body:
+            paragraph = self._fit_or_skip(replacement)
+            if paragraph is None:
+                continue
+            planned.append(PlannedParagraph(replacement, paragraph))
+            for placement in paragraph.placements:
+                body_font_sizes[placement.page_index] = max(
+                    body_font_sizes.get(placement.page_index, 0.0), paragraph.font_size,
+                )
+
+        for replacement in headlines:
+            minimum = self._headline_minimum(replacement, body_font_sizes)
+            try:
+                paragraph = self._filler.fit(replacement, self._page_sizes, minimum)
+            except ValueError as error:
+                constraint = HeadlineConstraintError(replacement, minimum, error)
+                if self._options.overflow == "skip":
+                    self.skipped.append((replacement, constraint))
+                    continue
+                raise constraint from error
+            planned.append(PlannedParagraph(replacement, paragraph))
+
+        if body_font_sizes:
+            latest_page = max(body_font_sizes)
+            self._previous_body_font_size = body_font_sizes[latest_page]
+        return FillWindowPlan(first_page, last_page, tuple(planned))
+
+    def _fit_or_skip(self, replacement: PDFReplacement) -> FittedParagraph | None:
+        try:
+            return self._filler.fit(replacement, self._page_sizes)
+        except ValueError as error:
+            if self._options.overflow == "skip":
+                self.skipped.append((replacement, error))
+                return None
+            raise _replacement_error(replacement, error) from error
+
+    def _headline_minimum(
+        self,
+        replacement: PDFReplacement,
+        body_font_sizes: Mapping[int, float],
+    ) -> float:
+        references = [
+            reference
+            for page_index in _replacement_pages(replacement)
+            if (reference := self._body_reference_for_page(page_index, body_font_sizes)) is not None
+        ]
+        reference = max(references) if references else None
+        style = self._options.style_for(replacement.layout_ref, replacement.layout_level)
+        if reference is None:
+            return max(style.min_font_size, self._options.headline_fallback_font_size or 0.0)
+        return max(
+            style.min_font_size,
+            reference * self._options.headline_ratio_for(
+                replacement.layout_ref, replacement.layout_level,
+            ),
+        )
+
+    def _body_reference_for_page(
+        self,
+        page_index: int,
+        body_font_sizes: Mapping[int, float],
+    ) -> float | None:
+        if page_index in body_font_sizes:
+            return body_font_sizes[page_index]
+        preceding = [page for page in body_font_sizes if page < page_index]
+        if preceding:
+            return body_font_sizes[max(preceding)]
+        if self._previous_body_font_size is not None:
+            return self._previous_body_font_size
+        following = [page for page in body_font_sizes if page > page_index]
+        if following:
+            return body_font_sizes[min(following)]
+        return None
+
+
+def _is_headline(replacement: PDFReplacement) -> bool:
+    """Use semantic chapter metadata, never image appearance, for title roles."""
+    return replacement.layout_ref == "sub_title"
+
+
+def _replacement_pages(replacement: PDFReplacement) -> tuple[int, ...]:
+    return tuple(sorted({region.page_index for region in replacement.source_regions()}))
+
+
+def _replacement_page_span(replacement: PDFReplacement) -> tuple[int, int]:
+    pages = _replacement_pages(replacement)
+    if not pages:  # source_regions always provides a legacy region, defensive only.
+        raise ValueError("PDF replacement has no source regions")
+    return pages[0], pages[-1]
+
+
+def _replacement_error(replacement: PDFReplacement, error: ValueError) -> ValueError:
+    """Give deferred streaming layout failures the old patcher context."""
+    return ValueError(f"page {replacement.page_index}, bbox {replacement.bbox}: {error}")
 
 
 def _python_index_for_utf16(text: str, utf16_index: int) -> int:

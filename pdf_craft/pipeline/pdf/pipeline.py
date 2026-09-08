@@ -1,6 +1,6 @@
 # pylint: disable=protected-access
 
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from pathlib import Path
 from typing import cast
 
@@ -35,76 +35,86 @@ class PDFTranslationPipeline:
     ) -> None:
         extraction = _ensure_extraction(extraction)
         extraction.validate()
-        replacements: list[PDFReplacement] = []
         pages = extraction.page_pixel_sizes()
         render_dpi = extraction.render_dpi()
         with extraction._materialize() as paths:
             reader = create_chapters_reader(paths.chapters)
-            chapters = list(reader())
-            chapter_tasks = []
-            for chapter in chapters:
+            chapter_count = 0
+            total_characters = 0
+            for chapter in reader():
                 segments = list(search_text_segments(encode(chapter)))
                 if any(segment.text.strip() for segment in segments):
-                    chapter_tasks.append((chapter, sum(len(segment.text) for segment in segments)))
-            total_characters = sum(item[1] for item in chapter_tasks)
+                    chapter_count += 1
+                    total_characters += sum(len(segment.text) for segment in segments)
             if on_translation_event is not None:
                 on_translation_event(TranslationEvent(
                     kind=TranslationEventKind.START,
-                    chapter_count=len(chapter_tasks),
+                    chapter_count=chapter_count,
                     has_toc=False,
                     has_metadata=False,
                     total_characters=total_characters,
                     completed_characters=0,
                 ))
             completed_characters = 0
-            for chapter, character_count in chapter_tasks:
-                structured = not callable(transformer)
-                item_id = chapter.id if chapter.id is not None else "head"
-                is_xml_transformer = isinstance(transformer, ChapterXMLTransformer)
-                if on_translation_event is not None and not is_xml_transformer:
-                    on_translation_event(TranslationEvent(
-                        kind=TranslationEventKind.ITEM_START,
-                        item_kind=TranslationItemKind.CHAPTER,
-                        item_id=item_id,
-                        item_completed_characters=0,
-                        item_total_characters=character_count,
-                    ))
-                if is_xml_transformer:
-                    transformed = cast(ChapterXMLTransformer, transformer).transform(
-                        chapter,
-                        on_translation_event=on_translation_event,
-                        item_id=item_id,
-                        completed_characters=completed_characters,
-                        total_characters=total_characters,
-                        emit_scope_events=False,
+
+            def translated_replacements() -> Iterator[PDFReplacement]:
+                nonlocal completed_characters
+                for chapter in reader():
+                    segments = list(search_text_segments(encode(chapter)))
+                    if not any(segment.text.strip() for segment in segments):
+                        continue
+                    character_count = sum(len(segment.text) for segment in segments)
+                    structured = not callable(transformer)
+                    item_id = chapter.id if chapter.id is not None else "head"
+                    is_xml_transformer = isinstance(transformer, ChapterXMLTransformer)
+                    if on_translation_event is not None and not is_xml_transformer:
+                        on_translation_event(TranslationEvent(
+                            kind=TranslationEventKind.ITEM_START,
+                            item_kind=TranslationItemKind.CHAPTER,
+                            item_id=item_id,
+                            item_completed_characters=0,
+                            item_total_characters=character_count,
+                        ))
+                    if is_xml_transformer:
+                        transformed = cast(ChapterXMLTransformer, transformer).transform(
+                            chapter,
+                            on_translation_event=on_translation_event,
+                            item_id=item_id,
+                            completed_characters=completed_characters,
+                            total_characters=total_characters,
+                            emit_scope_events=False,
+                        )
+                    else:
+                        transformed = (
+                            cast(ChapterTransformer, transformer).transform(chapter)
+                            if structured else chapter
+                        )
+                    callback = transformer if callable(transformer) else (lambda text: text)
+                    yield from self._iter_chapter_replacements(
+                        transformed, callback, pages, render_dpi, structured,
                     )
-                else:
-                    transformed = transformer.transform(chapter) if structured else chapter
-                callback = transformer if callable(transformer) else (lambda text: text)
-                self._collect_chapter(
-                    transformed, callback, pages, replacements, render_dpi, structured
-                )
-                completed_characters += character_count
-                if on_translation_event is not None and not is_xml_transformer:
-                    on_translation_event(TranslationEvent(
-                        kind=TranslationEventKind.PROGRESS,
-                        item_kind=TranslationItemKind.CHAPTER,
-                        item_id=item_id,
-                        item_completed_characters=character_count,
-                        item_total_characters=character_count,
-                        completed_characters=completed_characters,
-                        total_characters=total_characters,
-                    ))
-                    on_translation_event(TranslationEvent(
-                        kind=TranslationEventKind.ITEM_COMPLETE,
-                        item_kind=TranslationItemKind.CHAPTER,
-                        item_id=item_id,
-                        item_completed_characters=character_count,
-                        item_total_characters=character_count,
-                        completed_characters=completed_characters,
-                        total_characters=total_characters,
-                    ))
-        self.patcher.patch(pdf_path, target_path, replacements)
+                    completed_characters += character_count
+                    if on_translation_event is not None and not is_xml_transformer:
+                        on_translation_event(TranslationEvent(
+                            kind=TranslationEventKind.PROGRESS,
+                            item_kind=TranslationItemKind.CHAPTER,
+                            item_id=item_id,
+                            item_completed_characters=character_count,
+                            item_total_characters=character_count,
+                            completed_characters=completed_characters,
+                            total_characters=total_characters,
+                        ))
+                        on_translation_event(TranslationEvent(
+                            kind=TranslationEventKind.ITEM_COMPLETE,
+                            item_kind=TranslationItemKind.CHAPTER,
+                            item_id=item_id,
+                            item_completed_characters=character_count,
+                            item_total_characters=character_count,
+                            completed_characters=completed_characters,
+                            total_characters=total_characters,
+                        ))
+
+            self.patcher.patch(pdf_path, target_path, translated_replacements())
         if on_translation_event is not None:
             on_translation_event(TranslationEvent(
                 kind=TranslationEventKind.COMPLETE,
@@ -126,21 +136,22 @@ class PDFTranslationPipeline:
         """
         extraction = _ensure_extraction(extraction)
         extraction.validate()
-        replacements: list[PDFReplacement] = []
         pages = extraction.page_pixel_sizes()
         render_dpi = extraction.render_dpi()
         with extraction._materialize() as paths:
             reader = create_chapters_reader(paths.chapters)
-            for chapter in reader():
-                self._collect_chapter(
-                    chapter, lambda text: text, pages, replacements, render_dpi, structured=True,
-                )
-        self.patcher.patch(pdf_path, target_path, replacements)
+            def replacements() -> Iterator[PDFReplacement]:
+                for chapter in reader():
+                    yield from self._iter_chapter_replacements(
+                        chapter, lambda text: text, pages, render_dpi, structured=True,
+                    )
 
-    def _collect_chapter(
-        self, chapter: Chapter, transformer, pages, replacements,
+            self.patcher.patch(pdf_path, target_path, replacements())
+
+    def _iter_chapter_replacements(
+        self, chapter: Chapter, transformer, pages,
         render_dpi: int, structured: bool = False,
-    ) -> None:
+    ) -> Iterator[PDFReplacement]:
         for layout in chapter.layouts:
             if not isinstance(layout, ParagraphLayout) or layout.ref not in {"text", "sub_title"}:
                 continue
@@ -165,11 +176,11 @@ class PDFTranslationPipeline:
                 continue
 
             first = regions[0]
-            replacements.append(PDFReplacement(
+            yield PDFReplacement(
                 first.page_index, first.bbox, translated, first.page_pixel_size, first.dpi,
                 reading_order=first.reading_order, regions=tuple(regions),
                 layout_ref=layout.ref, layout_level=layout.level,
-            ))
+            )
 
 
 def _to_patch_text(items) -> str:
