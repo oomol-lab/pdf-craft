@@ -3,7 +3,6 @@
 
 from collections.abc import Iterable, Iterator, Mapping
 from dataclasses import dataclass, field, replace
-from math import ceil, floor
 import os
 import pickle
 from pathlib import Path
@@ -16,6 +15,10 @@ from .models import PDFReplacement, PDFReplacementRegion
 
 Alignment = Literal["left", "center", "right", "justify"]
 VerticalAlignment = Literal["top", "center", "bottom"]
+
+
+_FONT_SIZE_TOLERANCE = 0.05
+_MAX_FONT_SIZE_SEARCH_ITERATIONS = 16
 
 
 @dataclass(frozen=True)
@@ -85,9 +88,7 @@ class PatchTextOptions:
             vertical_alignment=self.vertical_alignment,
         )
         if layout_ref == "sub_title":
-            minimum_maximum = _ceil_quarter(
-                self.max_font_size * self.headline_min_body_ratio,
-            )
+            minimum_maximum = self.max_font_size * self.headline_min_body_ratio
             return PatchTextStyle(
                 font_name=default.font_name,
                 fallback_fonts=default.fallback_fonts,
@@ -305,7 +306,12 @@ class QTextParagraphFiller:
         page_sizes: dict[int, tuple[float, float]],
         minimum_font_size: float | None = None,
     ) -> FittedParagraph:
-        """Return the largest quarter-point paragraph fitting every region."""
+        """Return the largest verified paragraph size fitting every region.
+
+        QTextLayout accepts floating-point point sizes.  Keep the successful
+        side of a bounded binary search so a discontinuity at a wrapping
+        threshold cannot produce an overflowing result.
+        """
         text = " ".join(replacement.text.split())
         if not text:
             raise ValueError("replacement text must not be empty")
@@ -320,7 +326,7 @@ class QTextParagraphFiller:
         ):
             style = replace(
                 style,
-                max_font_size=max(style.max_font_size, _ceil_quarter(minimum_font_size)),
+                max_font_size=max(style.max_font_size, minimum_font_size),
             )
         self._validate_style(style)
 
@@ -330,22 +336,29 @@ class QTextParagraphFiller:
                 f"requested minimum font size {effective_minimum:.2f} exceeds style maximum "
                 f"{style.max_font_size:.2f}"
             )
-        low = ceil(effective_minimum * 4)
-        high = floor(style.max_font_size * 4)
-        best: FittedParagraph | None = None
-        while low <= high:
-            middle = (low + high) // 2
-            fitted = self._plan(text, replacement, page_sizes, style, middle / 4)
-            if fitted is None:
-                high = middle - 1
-            else:
-                best = fitted
-                low = middle + 1
+        lower = effective_minimum
+        best = self._plan(text, replacement, page_sizes, style, lower)
         if best is None:
             raise ValueError(
                 "replacement text cannot fit paragraph source regions at minimum font size "
                 f"{effective_minimum}"
             )
+
+        upper = style.max_font_size
+        fitted_at_upper = self._plan(text, replacement, page_sizes, style, upper)
+        if fitted_at_upper is not None:
+            return fitted_at_upper
+
+        for _ in range(_MAX_FONT_SIZE_SEARCH_ITERATIONS):
+            if upper - lower <= _FONT_SIZE_TOLERANCE:
+                break
+            middle = (lower + upper) / 2
+            fitted = self._plan(text, replacement, page_sizes, style, middle)
+            if fitted is None:
+                upper = middle
+            else:
+                best = fitted
+                lower = middle
         return best
 
     def draw_pdf_overlay(
@@ -670,11 +683,6 @@ class WindowedParagraphPlanner:
 def _is_headline(replacement: PDFReplacement) -> bool:
     """Use semantic chapter metadata, never image appearance, for title roles."""
     return replacement.layout_ref == "sub_title"
-
-
-def _ceil_quarter(font_size: float) -> float:
-    """Return the smallest supported font increment meeting a hard lower bound."""
-    return ceil(font_size * 4) / 4
 
 
 def _has_explicit_style(
