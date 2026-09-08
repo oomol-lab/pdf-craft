@@ -6,7 +6,9 @@ from typing import Any
 import pypdf
 from reportlab.pdfgen import canvas
 
-from pdf_craft.pipeline.pdf import BoxTextLayout, PDFPatcher, PDFReplacement, PatchTextOptions
+from pdf_craft.pipeline.pdf import (
+    BoxTextLayout, PDFPatcher, PDFReplacement, PDFReplacementRegion, PatchTextOptions,
+)
 
 
 class TestPDFPatcher(unittest.TestCase):
@@ -39,6 +41,17 @@ class TestPDFPatcher(unittest.TestCase):
     def test_rejects_bbox_outside_page_pixels(self):
         with self.assertRaises(ValueError):
             PDFPatcher().validate(PDFReplacement(1, (1, 1, 101, 20), "text", (100, 100)))
+
+    def test_rejects_multi_region_paragraph_until_paragraph_filler_is_available(self):
+        first = PDFReplacementRegion(1, (1, 1, 20, 20), (100, 100), reading_order=1)
+        second = PDFReplacementRegion(1, (1, 22, 20, 41), (100, 100), reading_order=2)
+        replacement = PDFReplacement(
+            1, first.bbox, "translated paragraph", first.page_pixel_size,
+            regions=(first, second),
+        )
+
+        with self.assertRaisesRegex(ValueError, "spans multiple source boxes"):
+            PDFPatcher().validate(replacement)
 
     def test_rejects_missing_source_page(self):
         with tempfile.TemporaryDirectory() as temp_dir:

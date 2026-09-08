@@ -220,6 +220,35 @@ class TestComposableBoundaries(unittest.TestCase):
             self.assertIn("[1]", replacement.text)
             self.assertIn("T:heading", patcher.replacements[1].text)
 
+    def test_pdf_pipeline_translates_once_per_paragraph_and_keeps_all_source_regions(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            extraction = make_extraction(root, page_pixel_sizes={1: (100, 100)})
+            chapter = Chapter(None, -1, [ParagraphLayout("text", 0, [
+                BlockLayout(1, 3, (1, 1, 40, 20), ["first "]),
+                BlockLayout(1, 4, (1, 22, 40, 41), ["paragraph"]),
+            ])])
+            translated: list[str] = []
+
+            def translate(text: str) -> str:
+                translated.append(text)
+                return "translated paragraph"
+
+            patcher = _CapturePatcher()
+            with patch("pdf_craft.pipeline.pdf.pipeline.create_chapters_reader", return_value=lambda: iter([chapter])):
+                PDFTranslationPipeline(patcher=cast(PDFPatcher, patcher)).translate(
+                    root / "input.pdf", root / "out.pdf", extraction, translate
+                )
+
+            self.assertEqual(translated, ["first paragraph"])
+            self.assertEqual(len(patcher.replacements), 1)
+            replacement = patcher.replacements[0]
+            self.assertEqual(replacement.text, "translated paragraph")
+            self.assertEqual(
+                [(region.page_index, region.reading_order, region.bbox) for region in replacement.regions],
+                [(1, 3, (1, 1, 40, 20)), (1, 4, (1, 22, 40, 41))],
+            )
+
     def test_pdf_pipeline_forwards_translation_events_to_structured_transformer(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

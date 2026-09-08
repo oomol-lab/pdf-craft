@@ -311,7 +311,7 @@ def _analysis_workspace(analysing_path: PathLike | str | None) -> Iterator[Path]
 
 
 class _TextChapterTransformer:
-    """Adapt the block-text callback to the extraction transformer shape."""
+    """Adapt a paragraph-text callback to the extraction transformer shape."""
 
     def __init__(self, callback: Callable[[str], str]) -> None:
         self._callback = callback
@@ -320,11 +320,16 @@ class _TextChapterTransformer:
         for layout in chapter.layouts:
             if not isinstance(layout, ParagraphLayout):
                 continue
-            for block in layout.blocks:
-                text = _to_patch_text(block.content)
-                translated = self._callback(text)
-                if translated != text:
-                    block.content = [translated]
+            text = "".join(_to_patch_text(block.content) for block in layout.blocks)
+            translated = self._callback(text)
+            if translated != text and layout.blocks:
+                # Geometry remains on every source block.  Keeping the single
+                # translated paragraph on the first block avoids duplicating it
+                # into each bbox; the PDF paragraph filler consumes the full
+                # ordered block list in a later stage.
+                layout.blocks[0].content = [translated]
+                for block in layout.blocks[1:]:
+                    block.content = []
         return chapter
 
 

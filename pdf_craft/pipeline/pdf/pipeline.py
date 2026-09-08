@@ -14,7 +14,7 @@ from pdf_craft.transformer.events import TranslationEvent, TranslationEventKind,
 from pdf_craft.transformer.chapter_xml import ChapterXMLTransformer
 from pdf_craft.transformer.xml_translator.segment import search_text_segments
 from pdf_craft.pdf.handler import PDFHandler
-from pdf_craft.pipeline.pdf.patcher import PDFPatcher, PDFReplacement
+from pdf_craft.pipeline.pdf.patcher import PDFPatcher, PDFReplacement, PDFReplacementRegion
 from pdf_craft.transformer import ChapterTransformer
 
 
@@ -143,21 +143,31 @@ class PDFTranslationPipeline:
         for layout in chapter.layouts:
             if not isinstance(layout, ParagraphLayout) or layout.ref not in {"text", "sub_title"}:
                 continue
+            source = "".join(_to_patch_text(block.content) for block in layout.blocks).strip()
+            if not source:
+                continue
+            translated = transformer(source)
+            if not translated or (translated == source and not structured):
+                continue
+
+            regions: list[PDFReplacementRegion] = []
             for block in layout.blocks:
-                source = _to_patch_text(block.content).strip()
-                if not source:
-                    continue
-                translated = transformer(source)
-                if not translated or (translated == source and not structured):
-                    continue
                 if block.page_index not in pages:
                     raise ValueError(
                         f"PDFCraftExtraction pages.xml is missing page {block.page_index}"
                     )
-                replacements.append(PDFReplacement(
-                    block.page_index, block.det, translated, pages[block.page_index], render_dpi,
+                regions.append(PDFReplacementRegion(
+                    block.page_index, block.det, pages[block.page_index], render_dpi,
                     reading_order=block.order,
                 ))
+            if not regions:  # A ParagraphLayout without blocks has no source geometry.
+                continue
+
+            first = regions[0]
+            replacements.append(PDFReplacement(
+                first.page_index, first.bbox, translated, first.page_pixel_size, first.dpi,
+                reading_order=first.reading_order, regions=tuple(regions),
+            ))
 
 
 def _to_patch_text(items) -> str:
