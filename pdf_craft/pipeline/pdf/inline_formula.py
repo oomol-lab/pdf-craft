@@ -35,23 +35,17 @@ class InlineFormulaPDFRenderer:
     def available(self) -> bool:
         """Whether this machine can reasonably be asked to compile TeX."""
         if self._available is None:
-            try:
-                import matplotlib  # type: ignore[reportMissingImports]  # pylint: disable=import-outside-toplevel
-                del matplotlib
-            except ImportError:
+            latex = which("latex")
+            if latex is None or not (which("dvipdfmx") or which("dvipdf")):
                 self._available = False
             else:
-                latex = which("latex")
-                if latex is None:
+                try:
+                    subprocess.run([latex, "--version"], check=True, timeout=5,
+                                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                except (OSError, subprocess.SubprocessError):
                     self._available = False
                 else:
-                    try:
-                        subprocess.run([latex, "--version"], check=True, timeout=5,
-                                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-                    except (OSError, subprocess.SubprocessError):
-                        self._available = False
-                    else:
-                        self._available = True
+                    self._available = True
         if self._available and not self._probing:
             # Prove the complete Matplotlib -> TeX -> PDF path once.  A
             # present binary alone is not a usable rendering backend.
