@@ -854,15 +854,6 @@ class QTextParagraphFiller:
                 offset += len(fallback)
                 continue
             length = max(1, round(fragment.width / space_width))
-            # A string of NBSPs is only a valid proxy if its actual Qt advance
-            # is indistinguishable from the formula's physical PDF width.
-            # Otherwise use readable text; never reject a fitting paragraph
-            # because of an approximate hidden run.
-            if abs(length * space_width - fragment.width) > 0.01:
-                fallback = latex_to_plain_text(formula.latex)
-                parts.append(fallback)
-                offset += len(fallback)
-                continue
             parts.append("\u00a0" * length)
             spans.append(_FormulaSpan(offset, length, fragment))
             offset += length
