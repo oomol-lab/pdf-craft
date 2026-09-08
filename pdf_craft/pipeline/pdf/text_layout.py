@@ -648,11 +648,6 @@ class QTextParagraphFiller:
         available_bottom = rectangle.bottom - style.vertical_padding
         if available_width <= 0 or available_bottom <= available_top:
             return None, 0
-        # The hidden Qt proxy is only a positioning aid.  Its quantized glyph
-        # advance must never decide whether a real PDF fragment fits: a formula
-        # atom can enter this rectangle only when its physical width does.
-        if any(span.fragment.width > available_width + 1e-6 for span in formula_spans):
-            return None, 0
 
         QtCore, QtGui = _qt_modules()
         _ensure_qt_application(QtGui)
@@ -699,7 +694,11 @@ class QTextParagraphFiller:
                     if line_start_index <= span.start and span.start + span.length <= line_end_index
                 ):
                     break
-                line_tops.append(y)
+                line_baseline = y + max((
+                    line.ascent(),
+                    *(fragment.height - fragment.descent for fragment in line_fragments),
+                ))
+                line_tops.append(line_baseline - line.ascent())
                 line_start = _x_coordinate(line.cursorToX(0))
                 line_end = _x_coordinate(line.cursorToX(line.textLength()))
                 line_text_lefts.append(content_left + line_start)
@@ -710,7 +709,7 @@ class QTextParagraphFiller:
                         formula_draws.append(FormulaDraw(
                             span.fragment.pdf,
                             content_left + _x_coordinate(line.cursorToX(span.start - line_start_index)),
-                            y + line.ascent(),
+                            line_baseline,
                             span.fragment.descent,
                         ))
                 consumed_utf16 = line.textStart() + line.textLength()
