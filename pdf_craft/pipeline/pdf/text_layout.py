@@ -710,7 +710,7 @@ class QTextParagraphFiller:
                         formula_draws.append(FormulaDraw(
                             span.fragment.pdf,
                             content_left + _x_coordinate(line.cursorToX(span.start - line_start_index)),
-                            y + max(line.ascent(), span.fragment.height - span.fragment.descent),
+                            y + line.ascent(),
                             span.fragment.descent,
                         ))
                 consumed_utf16 = line.textStart() + line.textLength()
