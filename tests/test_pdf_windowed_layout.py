@@ -44,6 +44,42 @@ class TestWindowedParagraphPlanner(unittest.TestCase):
         self.assertEqual(body_plan.font_size, 12)
         self.assertGreaterEqual(headline_plan.font_size, body_plan.font_size * 1.2)
 
+    def test_implicit_headline_uses_the_actual_generic_body_style_ceiling(self):
+        options = PatchTextOptions(
+            styles={"text": PatchTextStyle(max_font_size=20, min_font_size=20)},
+        )
+        planner = WindowedParagraphPlanner(
+            QTextParagraphFiller(options), {1: (200, 100)}, options,
+        )
+        body = _replacement("Body", [_region(1)])
+        headline = _replacement("Heading", [_region(1)], layout_ref="sub_title")
+
+        window = next(planner.plan([body, headline]))
+        try:
+            body_plan, headline_plan = (item.paragraph for item in window.paragraphs)
+            self.assertEqual(body_plan.font_size, 20)
+            self.assertGreaterEqual(headline_plan.font_size, 24)
+        finally:
+            window.close()
+
+    def test_implicit_headline_uses_the_actual_levelled_body_style_ceiling(self):
+        options = PatchTextOptions(
+            styles={"text:1": PatchTextStyle(max_font_size=20, min_font_size=20)},
+        )
+        planner = WindowedParagraphPlanner(
+            QTextParagraphFiller(options), {1: (200, 100)}, options,
+        )
+        body = _replacement("Body", [_region(1)], layout_level=1)
+        headline = _replacement("Heading", [_region(1)], layout_ref="sub_title")
+
+        window = next(planner.plan([body, headline]))
+        try:
+            body_plan, headline_plan = (item.paragraph for item in window.paragraphs)
+            self.assertEqual(body_plan.font_size, 20)
+            self.assertGreaterEqual(headline_plan.font_size, 24)
+        finally:
+            window.close()
+
     def test_plans_body_before_headline_and_applies_page_body_minimum(self):
         options = PatchTextOptions(
             styles={
