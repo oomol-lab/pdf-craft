@@ -48,6 +48,24 @@ class TestPDFInlineFormulaFallback(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "markers"):
             QTextParagraphFiller().fit(replacement, {1: (200, 100)})
 
+    def test_unavailable_backend_uses_plain_text_without_invoking_render(self):
+        class Renderer:
+            available = False
+
+            @staticmethod
+            def render(latex, point_size):
+                raise AssertionError("unavailable renderer must not be called")
+
+        region = PDFReplacementRegion(1, (0, 0, 200, 100), (200, 100))
+        replacement = PDFReplacement(
+            1, region.bbox, "\ufffc", region.page_pixel_size, regions=(region,),
+            inline_formulas=(PDFInlineFormula(r"\alpha"),),
+        )
+        filler = QTextParagraphFiller(PatchTextOptions(max_font_size=10, min_font_size=10))
+        filler._formula_renderer = cast(Any, Renderer())  # pylint: disable=protected-access
+        fitted = filler.fit(replacement, {1: (200, 100)})
+        self.assertIn("α", fitted.text)
+
     def test_available_renderer_keeps_formula_as_one_vector_draw_atom(self):
         class Renderer:
             available = True
