@@ -91,7 +91,9 @@ class InlineFormulaPDFRenderer:
             # approximation is sufficient for the mixed-run planner.
             import pypdf
             page = pypdf.PdfReader(BytesIO(pdf)).pages[0]
-            width, height = float(page.mediabox.width), float(page.mediabox.height)
+            media_box = page.get_object()["/MediaBox"]  # pylint: disable=no-member
+            width = float(media_box[2]) - float(media_box[0])
+            height = float(media_box[3]) - float(media_box[1])
             self._cache[key] = FormulaFragment(pdf, width, height, height * 0.2)
         except Exception:  # local TeX packages and individual expressions vary widely.
             self._cache[key] = None
