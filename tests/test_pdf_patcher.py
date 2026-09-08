@@ -1,3 +1,5 @@
+# pylint: disable=no-member
+
 import tempfile
 import unittest
 from pathlib import Path
@@ -7,7 +9,7 @@ import pypdf
 from reportlab.pdfgen import canvas
 
 from pdf_craft.pipeline.pdf import (
-    BoxTextLayout, PDFPatcher, PDFReplacement, PDFReplacementRegion, PatchTextOptions,
+    PDFPatcher, PDFReplacement, PDFReplacementRegion, PatchTextOptions,
 )
 
 
@@ -32,7 +34,10 @@ class TestPDFPatcher(unittest.TestCase):
             self.assertEqual(len(reader.pages), 1)
             page = list(reader.pages)[0]
             self.assertIn("Translated", page.extract_text())
-            self.assertNotIn("Original", page.extract_text())
+            # The original page is preserved; rectangular erasure is visual
+            # only and intentionally does not rewrite the source content stream.
+            self.assertIn("Original", page.extract_text())
+            self.assertEqual(len(list(page.images)), 0)
 
     def test_rejects_invalid_bbox(self):
         with self.assertRaises(ValueError):
@@ -42,16 +47,28 @@ class TestPDFPatcher(unittest.TestCase):
         with self.assertRaises(ValueError):
             PDFPatcher().validate(PDFReplacement(1, (1, 1, 101, 20), "text", (100, 100)))
 
-    def test_rejects_multi_region_paragraph_until_paragraph_filler_is_available(self):
+    def test_replaces_multi_region_paragraph_with_one_qt_text_layer(self):
         first = PDFReplacementRegion(1, (1, 1, 20, 20), (100, 100), reading_order=1)
-        second = PDFReplacementRegion(1, (1, 22, 20, 41), (100, 100), reading_order=2)
+        second = PDFReplacementRegion(1, (1, 22, 99, 98), (100, 100), reading_order=2)
         replacement = PDFReplacement(
             1, first.bbox, "translated paragraph", first.page_pixel_size,
             regions=(first, second),
         )
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            source = root / "source.pdf"
+            target = root / "target.pdf"
+            doc = canvas.Canvas(str(source), pagesize=(100, 100))
+            doc.drawString(1, 90, "Original source page")
+            doc.save()
 
-        with self.assertRaisesRegex(ValueError, "spans multiple source boxes"):
-            PDFPatcher().validate(replacement)
+            PDFPatcher(options=PatchTextOptions(max_font_size=8, min_font_size=8)).patch(
+                source, target, [replacement]
+            )
+
+            page: Any = pypdf.PdfReader(str(target)).pages[0]
+            self.assertIn("translated", page.extract_text().replace("\n", "").lower())
+            self.assertEqual(len(list(page.images)), 0)
 
     def test_rejects_single_region_that_disagrees_with_patch_geometry(self):
         region = PDFReplacementRegion(1, (1, 1, 20, 20), (100, 100), reading_order=1)
@@ -93,15 +110,13 @@ class TestPDFPatcher(unittest.TestCase):
             )
             patcher = PDFPatcher(options=PatchTextOptions(max_font_size=12, min_font_size=4))
 
-            fitted = BoxTextLayout(patcher.options).fit(replacement.text, 100, 100)
-            self.assertGreater(len(fitted.paragraph.blPara.lines), 1)
-            self.assertLessEqual(fitted.height + 2, 100)
             patcher.patch(source, target, [replacement])
 
             reader = pypdf.PdfReader(str(target))
             self.assertEqual(len(reader.pages), 1)
             page: Any = reader.pages[0]
-            self.assertIn("\u8fd9\u662f\u4e00\u6bb5", page.extract_text())  # pylint: disable=no-member
+            self.assertIn("\u6ca1\u6709\u7a7a\u683c", page.extract_text())  # pylint: disable=no-member
+            self.assertEqual(len(list(page.images)), 0)
 
     def test_preflight_failure_leaves_no_partial_target_file(self):
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -138,4 +153,4 @@ class TestPDFPatcher(unittest.TestCase):
             )
 
             self.assertEqual(len(patcher.skipped_replacements), 1)
-            self.assertIn("cannot fit bbox", patcher.skipped_replacements[0].reason)
+            self.assertIn("cannot fit paragraph source regions", patcher.skipped_replacements[0].reason)

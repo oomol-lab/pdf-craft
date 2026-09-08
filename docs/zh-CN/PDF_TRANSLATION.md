@@ -11,7 +11,7 @@ pdf-craft 的 PDF 能力可以按使用目标分成三类：
 | --- | --- | --- |
 | 直接转换 | `convert_pdf_to_markdown` / `convert_pdf_to_epub` | Markdown 或 EPUB |
 | 转换时翻译 | 在上述入口传入一个 `translator` | 翻译后的 Markdown 或 EPUB |
-| 翻译并写回 PDF | `translate_pdf` | 以源页渲染图为背景、覆盖译文的新 PDF |
+| 翻译并写回 PDF | `translate_pdf` | 保留源页、覆盖擦除层与可提取译文文本层的新 PDF |
 
 如果只是想完成一次转换，优先使用两个 `convert_pdf_to_*` 方法。它们会在内部完成提取、
 可选内容变换和渲染。只有需要复用提取结果、分别控制每个阶段，或需要写回 PDF 时，才使用
@@ -200,9 +200,8 @@ craft.patch_pdf_with_extraction(
 ```
 
 传入路径时必须是通过校验的 `.pcex`；也可以直接传入 `PDFCraftExtraction` 对象。普通目录
-不是公开输入。这个入口不会调用 OCR 或 LLM。PDF 写回使用 `pypdf` 和
-`reportlab`，它们是 pdf-craft 当前的直接运行时依赖；在依赖被移除或非标准安装的环境中，
-底层导入失败会抛出 `RuntimeError`。
+不是公开输入。这个入口不会调用 OCR 或 LLM。PDF 写回使用 `pypdf`、`reportlab` 和
+PySide6/Qt；在依赖被移除或非标准安装的环境中，底层导入失败会抛出 `RuntimeError`。
 
 ### 调整写回排版
 
@@ -213,15 +212,16 @@ craft.patch_pdf_with_extraction(
 ```python
 from pathlib import Path
 
-from pdf_craft import PDFPatcher, PDFTranslationPipeline, PatchTextOptions
+from pdf_craft import PDFPatcher, PDFTranslationPipeline, PatchTextOptions, PatchTextStyle
 
 patcher = PDFPatcher(options=PatchTextOptions(
-    font_name="STSong-Light",
+    font_name="Noto Sans CJK SC",  # 优先字体；缺失时由 Qt fallback
     max_font_size=14,
     min_font_size=5,
     alignment="left",
     horizontal_padding=1,
     vertical_padding=1,
+    styles={"sub_title": PatchTextStyle(max_font_size=18, min_font_size=8)},
     overflow="error",
 ))
 pipeline = PDFTranslationPipeline(patcher=patcher)
@@ -232,49 +232,15 @@ pipeline.translate(Path("input.pdf"), Path("translated.pdf"), extraction, transl
 并将原因记录在 `patcher.skipped_replacements`。低层 API 适用于愿意自行处理排版策略、
 跳过结果和输出文件生命周期的高级调用方。
 
-### 自定义 PDFHandler 与写回 DPI
+### 写回的页面与文本层
 
-`PDFHandler` 是 PDF 文件访问层的公开协议，它本身只需要提供
-`open(Path) -> PDFDocument`。其返回的 `PDFDocument` 则需要能读取页数、页面尺寸和元数据，
-通过 `render_page(page_index, dpi)` 将页面渲染为图像，并实现 `close()`。pdf-craft 会在提取与
-写回的 `finally` 中调用文档的 `close()`，因此自定义 handler 返回的文档必须在该方法中释放它
-持有的文件、渲染器等资源。默认实现是 `DefaultPDFHandler`。只有需要替换 PDF 渲染实现、指定
-Poppler 位置，或让应用统一管理 PDF 文件访问时，才需要注入自定义 handler；通常无需自行实现它。
+写回不会将整页通过 `PDFHandler.render_page()` 栅格化。它保留原始 PDF 页，再依次合并独立的
+矩形擦除 overlay 和由 Qt `QTextLayout` / PDF paint device 生成的译文文本 overlay。因此扫描页
+仍会自然保留扫描背景，原生 PDF 页也不会因写回而压扁；译文则是可缩放、可提取的 PDF 文字。
 
-在门面 API 中，将 handler 放进 `PDFOptions.pdf_handler`。它会用于 PDF 提取；在
-`translate_pdf` / `patch_pdf_with_extraction` 中也会传入 PDF 写回链路：
-
-```python
-from pdf_craft import DefaultPDFHandler, PDFCraft, PDFOptions
-
-craft = PDFCraft(pdf=PDFOptions(
-    ocr=ocr_config,
-    pdf_handler=DefaultPDFHandler(poppler_path="/opt/poppler/bin"),
-))
-```
-
-PDF 写回的低层入口还提供两个独立的注入点，签名和默认值如下：
-
-| 入口 | 参数 | 默认值 | 用途 |
-| --- | --- | --- | --- |
-| `PDFPatcher` | `pdf_handler`、`dpi` | `None`、`300` | 以 handler 将每个源页渲染为输出 PDF 的图像背景；没有任何替换项的页面使用其 `dpi`。 |
-| `PDFTranslationPipeline` | `pdf_handler`、`patcher`、`dpi` | `None`、`None`、`300` | 构造默认 patcher；替换项的坐标 DPI 始终来自 extraction 的 `pages.xml`，缺失时直接失败。 |
-
-`dpi` 越高，源页背景通常越清晰，但生成的 PDF 也会更大、写回更慢。若传入自定义
-`PDFPatcher`，应在它自身同时设置 `pdf_handler` 与 `dpi`；此时 pipeline 不会用自己的
-handler 或 dpi 重建该 patcher。保持二者使用同一 handler 和 dpi，可统一源页背景渲染策略：
-
-```python
-from pdf_craft import DefaultPDFHandler, PDFPatcher, PDFTranslationPipeline
-
-handler = DefaultPDFHandler(poppler_path="/opt/poppler/bin")
-patcher = PDFPatcher(pdf_handler=handler, dpi=200)
-pipeline = PDFTranslationPipeline(pdf_handler=handler, patcher=patcher, dpi=200)
-```
-
-门面 `PDFCraft` 不公开单独的 PDF 写回 dpi 参数；其标准写回链路使用默认 `300`。不要把
-`ExtractionOptions.dpi` 当作写回背景的设置：前者控制提取/OCR 时的页面渲染，并写入提取结果
-的页面像素元数据；需要控制写回背景清晰度时，使用上述低层 API。
+当前擦除只负责视觉上的白色矩形遮蔽，底层的原文字内容流可能仍可被提取。精细擦字或内容感知修复
+不属于此写回器。写回需要本机具备 PySide6/Qt 运行时和可用字体；字体配置是优先选择，Qt 找不到
+指定字体或字形时会使用系统 fallback。
 
 ## 原子 API
 

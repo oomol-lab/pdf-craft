@@ -14,7 +14,8 @@ from pdf_craft.transformer.events import TranslationEvent, TranslationEventKind,
 from pdf_craft.transformer.chapter_xml import ChapterXMLTransformer
 from pdf_craft.transformer.xml_translator.segment import search_text_segments
 from pdf_craft.pdf.handler import PDFHandler
-from pdf_craft.pipeline.pdf.patcher import PDFPatcher, PDFReplacement, PDFReplacementRegion
+from pdf_craft.pipeline.pdf.models import PDFReplacement, PDFReplacementRegion
+from pdf_craft.pipeline.pdf.patcher import PDFPatcher
 from pdf_craft.transformer import ChapterTransformer
 
 
@@ -167,6 +168,7 @@ class PDFTranslationPipeline:
             replacements.append(PDFReplacement(
                 first.page_index, first.bbox, translated, first.page_pixel_size, first.dpi,
                 reading_order=first.reading_order, regions=tuple(regions),
+                layout_ref=layout.ref, layout_level=layout.level,
             ))
 
 

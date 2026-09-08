@@ -1,45 +1,86 @@
 import unittest
 
-from pdf_craft.pipeline.pdf import BoxTextLayout, PatchTextOptions
+from pdf_craft.pipeline.pdf import (
+    PDFReplacement, PDFReplacementRegion, PatchTextOptions, PatchTextStyle,
+    QTextParagraphFiller,
+)
 
 
-class TestBoxTextLayout(unittest.TestCase):
-    def test_wraps_cjk_without_spaces_into_multiple_lines(self):
-        layout = BoxTextLayout(PatchTextOptions(max_font_size=12, min_font_size=4))
-        fitted = layout.fit("这是没有空格的中文文本，需要在固定宽度的边框中自动换行。" * 3, 80, 100)
+def _replacement(text: str, regions, *, layout_ref: str = "text", layout_level: int = 0):
+    first = regions[0]
+    return PDFReplacement(
+        first.page_index, first.bbox, text, first.page_pixel_size,
+        regions=tuple(regions), layout_ref=layout_ref, layout_level=layout_level,
+    )
 
-        self.assertGreater(len(fitted.paragraph.blPara.lines), 1)
-        self.assertLessEqual(fitted.width, 78)
-        self.assertLessEqual(fitted.height, 98)
 
-    def test_normalizes_paragraph_whitespace_but_preserves_english_words(self):
-        layout = BoxTextLayout(PatchTextOptions(max_font_size=12, min_font_size=4))
-        fitted = layout.fit("First paragraph.\n\nSecond   paragraph has words.", 120, 100)
+class TestQTextParagraphFiller(unittest.TestCase):
+    def test_flows_a_paragraph_through_multiple_rectangles_once(self):
+        regions = [
+            PDFReplacementRegion(1, (0, 0, 58, 20), (100, 100)),
+            PDFReplacementRegion(1, (0, 22, 84, 55), (100, 100)),
+            PDFReplacementRegion(1, (0, 57, 84, 100), (100, 100)),
+        ]
+        text = "one two three four five"
+        filler = QTextParagraphFiller(PatchTextOptions(max_font_size=10, min_font_size=10))
 
-        self.assertIn("First paragraph. Second paragraph has words.", fitted.paragraph.text)
+        fitted = filler.fit(_replacement(text, regions), {1: (100, 100)})
 
-    def test_wraps_mixed_cjk_latin_and_numbers(self):
-        layout = BoxTextLayout(PatchTextOptions(max_font_size=12, min_font_size=4))
-        fitted = layout.fit("PDFCraft 2.0 \u6df7\u6392 text with 12345 \u548c\u5e38\u89c1\u6807\u70b9\uff0c\u5fc5\u987b\u5b8c\u6574\u653e\u5165\u8fb9\u6846\u3002" * 2, 100, 100)
+        self.assertEqual(fitted.font_size, 10)
+        self.assertGreaterEqual(len(fitted.placements), 2)
+        self.assertEqual(fitted.placements[0].page_index, 1)
+        self.assertTrue(fitted.placements[0].remaining_text.startswith("one two"))
+        self.assertNotEqual(fitted.placements[1].remaining_text, fitted.placements[0].remaining_text)
 
-        self.assertGreater(len(fitted.paragraph.blPara.lines), 1)
+    def test_moves_a_whole_line_to_the_next_rectangle(self):
+        regions = [
+            PDFReplacementRegion(1, (0, 0, 90, 18), (100, 100)),
+            PDFReplacementRegion(1, (0, 20, 90, 80), (100, 100)),
+        ]
+        filler = QTextParagraphFiller(PatchTextOptions(max_font_size=10, min_font_size=10))
 
-    def test_selects_largest_available_font_size(self):
-        options = PatchTextOptions(max_font_size=16, min_font_size=4)
-        fitted = BoxTextLayout(options).fit("short text", 300, 100)
+        fitted = filler.fit(_replacement("first line second line third line", regions), {1: (100, 100)})
+
+        self.assertEqual(len(fitted.placements[0].line_tops), 1)
+        self.assertGreaterEqual(len(fitted.placements[1].line_tops), 1)
+        self.assertTrue(fitted.placements[1].remaining_text.startswith("second"))
+
+    def test_selects_largest_uniform_font_size_for_the_paragraph(self):
+        regions = [PDFReplacementRegion(1, (0, 0, 100, 0 + 100), (100, 100))]
+        filler = QTextParagraphFiller(PatchTextOptions(max_font_size=16, min_font_size=4))
+
+        fitted = filler.fit(_replacement("short text", regions), {1: (100, 100)})
 
         self.assertEqual(fitted.font_size, 16)
 
-    def test_fails_when_minimum_font_cannot_fit(self):
-        options = PatchTextOptions(max_font_size=8, min_font_size=8)
-        with self.assertRaisesRegex(ValueError, "cannot fit bbox"):
-            BoxTextLayout(options).fit("too much text " * 100, 20, 10)
+    def test_semantic_style_can_override_default_font_size(self):
+        regions = [PDFReplacementRegion(1, (0, 0, 100, 100), (100, 100))]
+        filler = QTextParagraphFiller(PatchTextOptions(
+            max_font_size=8,
+            min_font_size=8,
+            styles={"sub_title:2": PatchTextStyle(max_font_size=15, min_font_size=15)},
+        ))
 
-    def test_default_cjk_font_is_registered_and_latin_font_rejects_cjk(self):
-        self.assertEqual(BoxTextLayout().fit("\u4e2d\u6587", 100, 100).font_size, 12)
-        with self.assertRaisesRegex(ValueError, "cannot reliably draw"):
-            BoxTextLayout(PatchTextOptions(font_name="Helvetica")).fit("\u4e2d\u6587", 100, 100)
+        fitted = filler.fit(
+            _replacement("A heading", regions, layout_ref="sub_title", layout_level=2),
+            {1: (100, 100)},
+        )
 
-    def test_rejects_unavailable_font(self):
-        with self.assertRaisesRegex(ValueError, "font is unavailable"):
-            BoxTextLayout(PatchTextOptions(font_name="not-a-font")).fit("text", 100, 100)
+        self.assertEqual(fitted.font_size, 15)
+
+    def test_missing_or_partial_font_configuration_uses_qt_fallback(self):
+        regions = [PDFReplacementRegion(1, (0, 0, 100, 100), (100, 100))]
+        filler = QTextParagraphFiller(PatchTextOptions(
+            font_name="font-that-is-not-installed", max_font_size=10, min_font_size=10,
+        ))
+
+        fitted = filler.fit(_replacement("中文 mixed text", regions), {1: (100, 100)})
+
+        self.assertEqual(fitted.font_size, 10)
+
+    def test_fails_only_when_even_minimum_size_cannot_fit_any_full_line(self):
+        regions = [PDFReplacementRegion(1, (0, 0, 20, 5), (100, 100))]
+        filler = QTextParagraphFiller(PatchTextOptions(max_font_size=8, min_font_size=8))
+
+        with self.assertRaisesRegex(ValueError, "cannot fit paragraph source regions"):
+            filler.fit(_replacement("too much text", regions), {1: (100, 100)})

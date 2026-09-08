@@ -18,6 +18,8 @@ from .pipeline.pdf import (
     PDFSkippedReplacement,
     PDFTranslationPipeline,
     PatchTextOptions,
+    PatchTextStyle,
+    QTextParagraphFiller,
 )
 from .transformer import (
     ChapterExtractionTransformer,
