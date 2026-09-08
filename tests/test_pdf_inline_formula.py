@@ -109,6 +109,13 @@ class TestPDFInlineFormulaFallback(unittest.TestCase):
         self.assertIn("bad", fitted.text)
         self.assertEqual(len(fitted.placements[0].formula_draws), 1)
 
+    def test_renderer_caches_each_formula_and_size(self):
+        renderer = InlineFormulaPDFRenderer()
+        renderer._available = False  # pylint: disable=protected-access
+        self.assertIsNone(renderer.render("x", 10))
+        self.assertIsNone(renderer.render("x", 10))
+        self.assertEqual(len(renderer._cache), 1)  # pylint: disable=protected-access
+
     def test_formula_atom_moves_to_a_later_wider_region_without_being_split(self):
         class Renderer:
             available = True
