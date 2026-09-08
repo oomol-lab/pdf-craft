@@ -166,6 +166,8 @@ PDF patching treats each `ParagraphLayout` as one text flow, even when it has so
 
 Within a releasable page window, `text` paragraphs are fitted before `sub_title` paragraphs. The largest fitted body size on every page touched by a headline becomes the headline's lower bound, multiplied by `headline_min_body_ratio` (default `1.2`). A semantic style can override that ratio with `minimum_body_font_ratio`; the normal fitting search may still choose a larger title size when its boxes permit it.
 
+When no `sub_title` style is configured, its default maximum reserves this body-relative headroom automatically. An explicitly configured `sub_title` or `sub_title:<level>` maximum remains a hard limit; set it high enough for the selected ratio or use `overflow="skip"` for titles that cannot fit.
+
 ```python
 options = PatchTextOptions(
     styles={

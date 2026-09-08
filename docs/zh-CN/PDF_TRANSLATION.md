@@ -240,6 +240,8 @@ PDF 写回把一个 `ParagraphLayout` 视为一段连续文本流，即使它的
 
 在一个可释放的页面窗口中，`text` 正文会先于 `sub_title` 标题完成排版。标题涉及的每一页中，
 已排版正文的最大字号乘以 `headline_min_body_ratio`（默认 `1.2`）后，构成标题字号的下限。
+
+未配置 `sub_title` 样式时，默认标题字号上限会自动预留这部分相对正文的余量。显式配置的 `sub_title` 或 `sub_title:<level>` 上限仍是硬约束；应将其设为足以容纳所选比例的值，或对无法容纳的标题使用 `overflow="skip"`。
 某个语义样式可以通过 `minimum_body_font_ratio` 覆盖此比例；如果标题 bbox 仍有空间，常规的
 字号搜索仍会选择大于该下限的字号。
 
