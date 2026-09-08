@@ -1,8 +1,9 @@
-"""Compose source PDF pages with independent erasure and text overlays."""
+"""Compose non-interactive visual bases with independent overlays."""
 
 from collections.abc import Iterable
 from pathlib import Path
 from tempfile import NamedTemporaryFile, TemporaryDirectory
+from typing import Any
 
 from pdf_craft.pdf.handler import DefaultPDFHandler, PDFHandler
 
@@ -11,16 +12,19 @@ from .models import PDFReplacement, PDFReplacementRegion, PDFSkippedReplacement
 from .text_layout import (
     PatchTextOptions, QTextParagraphFiller, WindowedParagraphPlanner,
 )
+from .visual_base import (
+    GhostscriptVisualBaseCompiler, extract_annotations, reattach_annotations,
+    VisualBaseCompiler, write_annotation_free_copy,
+)
 
 
 class PDFPatcher:
-    """Replace OCR-backed paragraph regions without flattening source pages.
+    """Replace OCR-backed regions over a non-interactive source visual base.
 
-    The source page remains the base PDF page. The eraser owns a locally
-    sampled background-color rectangle overlay; the filler owns a separate
-    Qt-generated PDF text overlay. Keeping those layers separate makes a
-    future image-aware eraser a local replacement rather than a typography
-    rewrite.
+    The eraser owns a locally sampled background-color rectangle overlay and
+    the filler owns a separate Qt-generated PDF text overlay.  The original
+    page is first compiled to a font-free visual base, while its Annotation
+    objects are restored only after both overlays are complete.
     """
 
     def __init__(
@@ -31,12 +35,15 @@ class PDFPatcher:
         pdf_handler: PDFHandler | None = None,
         dpi: int = 300,
         erase_options: EraseOptions | None = None,
+        visual_base_compiler: VisualBaseCompiler | None = None,
     ) -> None:
         """Create a patcher.
 
         ``pdf_handler`` renders source pages only to sample local background
-        colors for erasure. The source PDF page remains the output base and is
-        never replaced with that raster image.
+        colors for erasure. ``visual_base_compiler`` is responsible for
+        removing the source page's interactive text semantics while preserving
+        its visual content.  It defaults to Ghostscript's local ``pdfwrite``
+        executable.
         """
         if options is not None and (font_name is not None or font_size is not None):
             raise ValueError("pass either options or legacy font_name/font_size arguments")
@@ -54,25 +61,27 @@ class PDFPatcher:
         self._eraser = RectangularEraser(erase_options)
         self._filler = QTextParagraphFiller(options)
         self._pdf_handler = pdf_handler or DefaultPDFHandler()
+        self._visual_base_compiler = visual_base_compiler or GhostscriptVisualBaseCompiler()
         self.dpi = dpi
         self.skipped_replacements: tuple[PDFSkippedReplacement, ...] = ()
 
     def patch(self, source_path: Path, target_path: Path, replacements: Iterable[PDFReplacement]) -> None:
-        """Compose source pages, rectangular erasure, then Qt PDF text layers."""
+        """Compose visual bases, rectangular erasure, Qt text, then Annotations."""
         try:
             import pypdf
             from reportlab.pdfgen import canvas
         except ImportError as error:  # pragma: no cover - declared dependencies.
             raise RuntimeError("PDF patching requires pypdf and reportlab") from error
 
-        reader = pypdf.PdfReader(str(source_path))
+        source_reader = pypdf.PdfReader(str(source_path))
         page_sizes = {
             index: (float(page.mediabox.width), float(page.mediabox.height))
-            for index, page in enumerate(reader.pages, 1)
+            for index, page in enumerate(source_reader.pages, 1)
         }
+        annotations_by_page = extract_annotations(source_reader)
         def validated_replacements():
             for replacement in replacements:
-                self.validate(replacement, pages_count=len(reader.pages))
+                self.validate(replacement, pages_count=len(source_reader.pages))
                 yield replacement
 
         planner = WindowedParagraphPlanner(self._filler, page_sizes, self.options)
@@ -80,6 +89,13 @@ class PDFPatcher:
         next_page_index = 1
         with TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
+            annotation_free_source = root / "annotation-free-source.pdf"
+            visual_base_path = root / "visual-base.pdf"
+            write_annotation_free_copy(source_reader, annotation_free_source)
+            self._visual_base_compiler.compile(annotation_free_source, visual_base_path)
+            reader = pypdf.PdfReader(str(visual_base_path))
+            self._restore_source_page_geometry(source_reader, reader)
+            self._validate_visual_base(reader, page_sizes)
             for window in planner.plan(validated_replacements()):
                 for index in range(next_page_index, window.first_page_index):
                     writer.add_page(reader.pages[index - 1])
@@ -89,16 +105,55 @@ class PDFPatcher:
                 next_page_index = window.last_page_index + 1
             for index in range(next_page_index, len(reader.pages) + 1):
                 writer.add_page(reader.pages[index - 1])
-
-        target_path.parent.mkdir(parents=True, exist_ok=True)
-        with NamedTemporaryFile(dir=target_path.parent, suffix=".pdf", delete=False) as output:
-            temporary_path = Path(output.name)
-            writer.write(output)
-        temporary_path.replace(target_path)
+            source_catalog: Any = source_reader.trailer["/Root"]
+            reattach_annotations(
+                writer,
+                annotations_by_page,
+                (page.indirect_reference for page in source_reader.pages),
+                source_catalog.get("/AcroForm"),
+                source_reader.named_destinations,
+            )
+            target_path.parent.mkdir(parents=True, exist_ok=True)
+            with NamedTemporaryFile(dir=target_path.parent, suffix=".pdf", delete=False) as output:
+                temporary_path = Path(output.name)
+                writer.write(output)
+            temporary_path.replace(target_path)
         self.skipped_replacements = tuple(
             PDFSkippedReplacement(replacement.page_index, replacement.bbox, str(reason))
             for replacement, reason in planner.skipped
         )
+
+    @staticmethod
+    def _restore_source_page_geometry(source_reader, visual_reader) -> None:
+        """Restore exact page boxes after Ghostscript's decimal rounding.
+
+        Ghostscript can round a MediaBox while retaining the original CropBox.
+        The tiny difference still matters because OCR coordinates are converted
+        against the source page dimensions, so copy the source page geometry
+        onto the visual base before it receives any overlay.
+        """
+        if len(source_reader.pages) != len(visual_reader.pages):
+            return
+        for source_page, visual_page in zip(source_reader.pages, visual_reader.pages, strict=True):
+            visual_page.mediabox = source_page.mediabox
+            visual_page.cropbox = source_page.cropbox
+            visual_page.bleedbox = source_page.bleedbox
+            visual_page.trimbox = source_page.trimbox
+            visual_page.artbox = source_page.artbox
+            visual_page.rotation = source_page.rotation
+
+    @staticmethod
+    def _validate_visual_base(reader, page_sizes: dict[int, tuple[float, float]]) -> None:
+        """Reject a broken external conversion before any output is written."""
+        if len(reader.pages) != len(page_sizes):
+            raise RuntimeError("Ghostscript visual base page count differs from the source PDF")
+        for index, page in enumerate(reader.pages, 1):
+            width, height = float(page.mediabox.width), float(page.mediabox.height)
+            source_width, source_height = page_sizes[index]
+            if (width, height) != (source_width, source_height):
+                raise RuntimeError(
+                    f"Ghostscript visual base page {index} size differs from the source PDF"
+                )
 
     def _compose_window(
         self, pypdf, canvas, source_path: Path, reader, writer, root: Path,
