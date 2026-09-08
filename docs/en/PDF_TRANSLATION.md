@@ -158,7 +158,7 @@ PDF patching is a page-overlay workflow, not a general-purpose PDF layout engine
 
 The source PDF and extraction must match. `pages.xml` must contain geometry for every chapter page and its page numbers must be valid for the source file. There is no fallback to OCR caches or re-rendering to recover missing geometry. `APPEND_BLOCK` is rejected for PDF output because new block-level content cannot safely be added to a fixed page. Text that cannot fit its original bounding box fails before a partial output PDF is left behind.
 
-For custom fonts, semantic title/body styles, fit rules, alignment, erase padding, or overflow handling, use the lower-level public `PDFPatcher`, `PatchTextOptions`, `PatchTextStyle`, `EraseOptions`, and `PDFTranslationPipeline` APIs described in the [API reference](API_REFERENCE.md). PDF patching requires the local Qt/PySide6 runtime, Poppler (or a supplied `PDFHandler`), and suitable fonts.
+For custom fonts, semantic title/body styles, fit rules, alignment, erase padding, or overflow handling, use the lower-level public `PDFPatcher`, `PatchTextOptions`, `PatchTextStyle`, `EraseOptions`, and `PDFTranslationPipeline` APIs described in the [API reference](API_REFERENCE.md). When `font_name` is omitted (or empty), patching selects one real local Qt font family and keeps it for the entire run. An explicitly configured but unavailable family does not stop patching: Qt uses its normal fallback chain. PDF patching requires the local Qt/PySide6 runtime, Poppler (or a supplied `PDFHandler`), and suitable fonts.
 
 ### Headline hierarchy and bounded layout windows
 

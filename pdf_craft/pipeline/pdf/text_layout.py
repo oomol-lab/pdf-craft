@@ -15,17 +15,36 @@ from .models import PDFReplacement, PDFReplacementRegion
 
 Alignment = Literal["left", "center", "right", "justify"]
 VerticalAlignment = Literal["top", "center", "bottom"]
+FontResolutionSource = Literal["automatic", "configured", "qt-fallback"]
 
 
 _FONT_SIZE_TOLERANCE = 0.05
 _MAX_FONT_SIZE_SEARCH_ITERATIONS = 16
+_CJK_FONT_CANDIDATES = (
+    "PingFang SC",
+    "Noto Sans CJK SC",
+    "Source Han Sans SC",
+    "Microsoft YaHei",
+    "Hiragino Sans GB",
+    "Heiti SC",
+    "Arial Unicode MS",
+)
+_GENERAL_FONT_CANDIDATES = (
+    "Arial",
+    "Helvetica",
+    "Noto Sans",
+    "DejaVu Sans",
+    "Liberation Sans",
+)
 
 
 @dataclass(frozen=True)
 class PatchTextStyle:
     """Font and paragraph settings for one semantic ParagraphLayout level."""
 
-    font_name: str = "Sans Serif"
+    # ``None`` (or an empty string supplied by a caller) asks the filler to
+    # select one installed family once for the entire patch run.
+    font_name: str | None = None
     fallback_fonts: tuple[str, ...] = ()
     max_font_size: float = 12.0
     min_font_size: float = 4.0
@@ -44,10 +63,11 @@ class PatchTextOptions:
 
     The scalar fields retain the previous one-style API. ``styles`` may use
     ``"text"`` / ``"sub_title"`` keys, or the more specific
-    ``"sub_title:2"`` form. Missing fonts deliberately use Qt/system fallback.
+    ``"sub_title:2"`` form. An unspecified ``font_name`` selects an installed
+    local family once per patch run; explicit missing fonts use Qt fallback.
     """
 
-    font_name: str = "Sans Serif"
+    font_name: str | None = None
     fallback_fonts: tuple[str, ...] = ()
     max_font_size: float = 12.0
     min_font_size: float = 4.0
@@ -289,6 +309,21 @@ class HeadlineConstraintError(ValueError):
         )
 
 
+@dataclass(frozen=True)
+class FontResolution:
+    """One requested family and its installed first-choice diagnostic family.
+
+    ``source`` distinguishes automatic selection from an explicit family and
+    from Qt's fallback for an unavailable explicit family.  A fallback result
+    is diagnostic only: Qt may still select another family for individual
+    missing glyphs while shaping text.
+    """
+
+    requested_font_name: str | None
+    resolved_font_name: str
+    source: FontResolutionSource
+
+
 class QTextParagraphFiller:
     """Lay one paragraph through ordered rectangles without splitting a line.
 
@@ -299,6 +334,40 @@ class QTextParagraphFiller:
 
     def __init__(self, options: PatchTextOptions | None = None) -> None:
         self.options = options or PatchTextOptions()
+        self._auto_font_resolution: FontResolution | None = None
+        self._font_resolutions: dict[str | None, FontResolution] = {}
+
+    @property
+    def font_resolutions(self) -> tuple[FontResolution, ...]:
+        """Resolved font diagnostics accumulated during the current patch run."""
+        return tuple(self._font_resolutions.values())
+
+    def reset_font_resolutions(self) -> None:
+        """Start a new patch run without retaining its previous font choice."""
+        self._auto_font_resolution = None
+        self._font_resolutions.clear()
+
+    def prepare_automatic_font(self, contains_cjk: bool) -> None:
+        """Fix this run's automatic family before its first paragraph is fitted.
+
+        The patcher determines ``contains_cjk`` from every replacement that
+        uses an unspecified style.  Direct ``fit`` callers retain lazy
+        selection from their own text because they do not supply a run.
+        """
+        if self._auto_font_resolution is not None:
+            return
+        QtCore, QtGui = _qt_modules()
+        del QtCore
+        _ensure_qt_application(QtGui)
+        resolution = FontResolution(
+            None,
+            _choose_automatic_font(
+                _font_database_families(QtGui), _system_font_family(QtGui), contains_cjk,
+            ),
+            "automatic",
+        )
+        self._auto_font_resolution = resolution
+        self._font_resolutions[None] = resolution
 
     def fit(
         self,
@@ -328,6 +397,7 @@ class QTextParagraphFiller:
                 style,
                 max_font_size=max(style.max_font_size, minimum_font_size),
             )
+        style = self._resolve_font(style, text)
         self._validate_style(style)
 
         effective_minimum = max(style.min_font_size, minimum_font_size or style.min_font_size)
@@ -360,6 +430,34 @@ class QTextParagraphFiller:
                 best = fitted
                 lower = middle
         return best
+
+    def _resolve_font(self, style: PatchTextStyle, text: str) -> PatchTextStyle:
+        """Resolve an automatic family once, without rejecting explicit names."""
+        requested = style.font_name.strip() if style.font_name else None
+        QtCore, QtGui = _qt_modules()
+        del QtCore
+        _ensure_qt_application(QtGui)
+        families = _font_database_families(QtGui)
+        if requested is None:
+            resolution = self._auto_font_resolution
+            if resolution is None:
+                self.prepare_automatic_font(_contains_cjk(text))
+                resolution = self._auto_font_resolution
+                assert resolution is not None
+            return replace(style, font_name=resolution.resolved_font_name)
+
+        if requested not in self._font_resolutions:
+            installed = _matching_font_family(families, requested)
+            self._font_resolutions[requested] = FontResolution(
+                requested,
+                installed or _choose_automatic_font(
+                    families, _system_font_family(QtGui), _contains_cjk(text),
+                ),
+                "configured" if installed else "qt-fallback",
+            )
+        # Preserve an explicit request so Qt can apply its ordinary per-glyph
+        # fallback chain rather than forcing a single diagnostic family.
+        return replace(style, font_name=requested)
 
     def draw_pdf_overlay(
         self,
@@ -503,9 +601,12 @@ class QTextParagraphFiller:
 
     @staticmethod
     def _create_layout(QtCore, QtGui, text: str, style: PatchTextStyle, font_size: float):
-        font = QtGui.QFont(style.font_name)
-        if style.fallback_fonts:
-            font.setFamilies([style.font_name, *style.fallback_fonts])
+        families = tuple(
+            family for family in (style.font_name, *style.fallback_fonts) if family
+        )
+        font = QtGui.QFont(families[0]) if families else QtGui.QFont()
+        if len(families) > 1:
+            font.setFamilies(list(families))
         font.setPointSizeF(font_size)
         font.setWeight(QtGui.QFont.Weight(style.font_weight))
         option = QtGui.QTextOption()
@@ -733,6 +834,57 @@ def _x_coordinate(cursor_position) -> float:
     if isinstance(cursor_position, tuple):
         return float(cursor_position[0])
     return float(cursor_position)
+
+
+def _font_database_families(QtGui) -> tuple[str, ...]:
+    """Return the actual families exposed by the active Qt font database."""
+    return tuple(QtGui.QFontDatabase.families())
+
+
+def _matching_font_family(families: Iterable[str], requested: str) -> str | None:
+    """Return Qt's canonical spelling of ``requested`` when it is installed."""
+    normalized = requested.casefold()
+    return next((family for family in families if family.casefold() == normalized), None)
+
+
+def _contains_cjk(text: str) -> bool:
+    """Whether text contains Han, Kana, or Hangul that merits CJK candidates."""
+    return any(
+        "\u3400" <= character <= "\u9fff"
+        or "\uf900" <= character <= "\ufaff"
+        or "\U00020000" <= character <= "\U0002ebef"
+        or "\u3040" <= character <= "\u30ff"
+        or "\uac00" <= character <= "\ud7af"
+        for character in text
+    )
+
+
+def _choose_automatic_font(
+    families: tuple[str, ...],
+    system_font_family: str | None,
+    contains_cjk: bool,
+) -> str:
+    """Choose an installed family, preferring known CJK families when needed."""
+    if contains_cjk:
+        for candidate in _CJK_FONT_CANDIDATES:
+            if matched := _matching_font_family(families, candidate):
+                return matched
+    if system_font_family and (matched := _matching_font_family(families, system_font_family)):
+        return matched
+    for candidate in _GENERAL_FONT_CANDIDATES:
+        if matched := _matching_font_family(families, candidate):
+            return matched
+    if families:
+        return families[0]
+    raise RuntimeError("Qt reported no installed font families for PDF paragraph filling")
+
+
+def _system_font_family(QtGui) -> str | None:
+    """Read Qt's application default after its font database has initialized."""
+    application = QtGui.QGuiApplication.instance()
+    if application is None:  # Defensive: callers initialize it before resolving.
+        return None
+    return application.font().family() or None
 
 
 _QT_APPLICATION = None

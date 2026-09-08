@@ -1,9 +1,12 @@
 import unittest
 
+# pylint: disable=no-member,c-extension-no-member
+
 from pdf_craft.pipeline.pdf import (
     FittedParagraph, PDFReplacement, PDFReplacementRegion, PatchTextOptions, PatchTextStyle,
     QTextParagraphFiller,
 )
+from pdf_craft.pipeline.pdf.text_layout import _choose_automatic_font
 
 
 def _replacement(text: str, regions, *, layout_ref: str = "text", layout_level: int = 0):
@@ -15,6 +18,43 @@ def _replacement(text: str, regions, *, layout_ref: str = "text", layout_level: 
 
 
 class TestQTextParagraphFiller(unittest.TestCase):
+    def test_unspecified_font_resolves_to_one_installed_family_for_all_semantic_styles(self):
+        """Automatic body and title styles share one real Qt font for a run."""
+        from PySide6 import QtGui
+
+        region = PDFReplacementRegion(1, (0, 0, 200, 100), (200, 100))
+        filler = QTextParagraphFiller(PatchTextOptions(
+            max_font_size=10,
+            min_font_size=10,
+            styles={"sub_title": PatchTextStyle(max_font_size=10, min_font_size=10)},
+        ))
+
+        body = filler.fit(_replacement("中文正文", [region]), {1: (200, 100)})
+        title = filler.fit(
+            _replacement("中文标题", [region], layout_ref="sub_title", layout_level=1),
+            {1: (200, 100)},
+        )
+
+        resolutions = filler.font_resolutions
+        self.assertEqual(len(resolutions), 1)
+        resolution = resolutions[0]
+        self.assertEqual(resolution.source, "automatic")
+        self.assertIn(resolution.resolved_font_name, QtGui.QFontDatabase.families())
+        self.assertEqual(body.placements[0].style.font_name, resolution.resolved_font_name)
+        self.assertEqual(title.placements[0].style.font_name, resolution.resolved_font_name)
+
+    def test_automatic_cjk_preference_and_system_fallback_select_real_families(self):
+        self.assertEqual(
+            _choose_automatic_font(
+                ("System Sans", "Noto Sans CJK SC"), "System Sans", True,
+            ),
+            "Noto Sans CJK SC",
+        )
+        self.assertEqual(
+            _choose_automatic_font(("System Sans",), "System Sans", True),
+            "System Sans",
+        )
+
     def test_uses_a_non_quarter_point_style_maximum_with_qt(self):
         """QTextLayout accepts the exact float maximum rather than a 0.25pt grid."""
         region = PDFReplacementRegion(1, (0, 0, 100, 100), (100, 100))
@@ -98,6 +138,8 @@ class TestQTextParagraphFiller(unittest.TestCase):
         self.assertEqual(fitted.font_size, 15)
 
     def test_missing_or_partial_font_configuration_uses_qt_fallback(self):
+        from PySide6 import QtGui
+
         regions = [PDFReplacementRegion(1, (0, 0, 100, 100), (100, 100))]
         filler = QTextParagraphFiller(PatchTextOptions(
             font_name="font-that-is-not-installed", max_font_size=10, min_font_size=10,
@@ -106,6 +148,12 @@ class TestQTextParagraphFiller(unittest.TestCase):
         fitted = filler.fit(_replacement("中文 mixed text", regions), {1: (100, 100)})
 
         self.assertEqual(fitted.font_size, 10)
+        resolutions = filler.font_resolutions
+        self.assertEqual(len(resolutions), 1)
+        resolution = resolutions[0]
+        self.assertEqual(resolution.source, "qt-fallback")
+        self.assertIn(resolution.resolved_font_name, QtGui.QFontDatabase.families())
+        self.assertEqual(fitted.placements[0].style.font_name, "font-that-is-not-installed")
 
     def test_qt_horizontal_alignment_exposes_effective_text_coordinates(self):
         """Qt, not hand-written glyph arithmetic, chooses each line's x offset."""

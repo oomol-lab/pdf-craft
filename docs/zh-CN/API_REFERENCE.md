@@ -387,7 +387,10 @@ translate_epub(
   target_path, replacements)` 写出 PDF。它接受任意通过字段校验的 `PDFReplacement`，不要求这些
   替换项来自 `PDFCraftExtraction` 或 OCR；`page_pixel_size` 仅用于把像素 `bbox` 换算为 PDF 坐标，
   patcher 不会验证它是否等于源页的实际渲染尺寸。调用方必须自行保证页码、坐标与尺寸对应源 PDF。
-  `PatchTextOptions` 控制默认字体、字号、内边距、对齐和 `overflow` 策略；`EraseOptions.padding` 在
+  `PatchTextOptions` 控制默认字体、字号、内边距、对齐和 `overflow` 策略。省略或传入空 `font_name`
+  时，会解析一个已安装的本机字体，并在本次写回的所有未指定样式中复用；
+  `PDFPatcher.font_resolutions` 可以查看自动选择或显式字体走 Qt fallback 的诊断，且不会与 bbox
+  排版错误混淆。`EraseOptions.padding` 在
   OCR 像素坐标中扩大来源框，并用原始页面对应区域按频次加权的 RGB 中位色完整覆盖扩展矩形。`pdf_handler`
   仅为这个颜色估计渲染原始页，输出仍以原始 PDF 页面为底。可用
   `PatchTextStyle` 以 `"text"`、`"sub_title"` 或 `"sub_title:2"` 为键覆盖不同文字等级。
