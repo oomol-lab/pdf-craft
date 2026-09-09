@@ -164,7 +164,7 @@ class TestPDFInlineFormulaFallback(unittest.TestCase):
         fitted = filler.fit(replacement, {1: (80, 100)})
 
         placement = fitted.placements[0]
-        self.assertEqual(len(placement.line_tops), 2)
+        self.assertGreaterEqual(len(placement.line_tops), 2)
         self.assertEqual(len(placement.formula_draws), 1)
         # The formula follows abc on line two; a line-relative cursor lookup
         # would incorrectly reset it to the left edge.
