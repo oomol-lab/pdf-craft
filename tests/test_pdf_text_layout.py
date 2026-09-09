@@ -102,6 +102,31 @@ class TestQTextParagraphFiller(unittest.TestCase):
         self.assertTrue(fitted.placements[0].remaining_text.startswith("one two"))
         self.assertNotEqual(fitted.placements[1].remaining_text, fitted.placements[0].remaining_text)
 
+    def test_keeps_ordinary_whitespace_for_qt_to_layout(self):
+        """Do not normalize translated whitespace before handing it to Qt."""
+        region = PDFReplacementRegion(1, (0, 0, 300, 100), (300, 100))
+        text = "alpha  beta\tgamma"
+        filler = QTextParagraphFiller(PatchTextOptions(max_font_size=10, min_font_size=10))
+
+        fitted = filler.fit(_replacement(text, [region]), {1: (300, 100)})
+
+        self.assertEqual(fitted.text, text)
+        self.assertEqual(fitted.placements[0].assigned_text, text)
+
+    def test_does_not_split_an_overwide_english_word_character_by_character(self):
+        """Qt's default WordWrap must not split ordinary words character by character."""
+        regions = [
+            PDFReplacementRegion(1, (0, 0, 12, 30), (200, 100)),
+            PDFReplacementRegion(1, (0, 32, 180, 80), (200, 100)),
+        ]
+        filler = QTextParagraphFiller(PatchTextOptions(max_font_size=10, min_font_size=10))
+
+        fitted = filler.fit(_replacement("apple", regions), {1: (200, 100)})
+
+        self.assertEqual(len(fitted.placements), 1)
+        self.assertEqual(fitted.placements[0].rectangle, PageRectangle(0, 0, 12, 30))
+        self.assertEqual(fitted.placements[0].assigned_text, "apple")
+
     def test_moves_a_whole_line_to_the_next_rectangle(self):
         regions = [
             PDFReplacementRegion(1, (0, 0, 90, 18), (100, 100)),

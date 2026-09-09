@@ -468,7 +468,11 @@ class QTextParagraphFiller:
         side of a bounded binary search so a discontinuity at a wrapping
         threshold cannot produce an overflowing result.
         """
-        text = " ".join(replacement.text.split())
+        # Preserve the translated character stream verbatim.  QTextLayout is
+        # responsible for interpreting its whitespace and native line-break
+        # opportunities; the formula-object proxy built below is the sole
+        # intentional text-level substitution.
+        text = replacement.text
         font_text = self._materialize_formula_fallbacks(replacement)
         if not text:
             raise ValueError("replacement text must not be empty")
@@ -643,7 +647,7 @@ class QTextParagraphFiller:
         minimum_font_size: float,
     ) -> FittedParagraph:
         """Return an unwrapped headline anchored at its first source box."""
-        text = " ".join(self._materialize_formula_fallbacks(replacement).split())
+        text = self._materialize_formula_fallbacks(replacement)
         if not text:
             raise ValueError("replacement text must not be empty")
         style = self.options.style_for(replacement.layout_ref, replacement.layout_level)
@@ -1068,7 +1072,6 @@ class QTextParagraphFiller:
         font.setPointSizeF(font_size)
         font.setWeight(QtGui.QFont.Weight(style.font_weight))
         option = QtGui.QTextOption()
-        option.setWrapMode(QtGui.QTextOption.WrapMode.WrapAtWordBoundaryOrAnywhere)
         option.setAlignment({
             "left": QtCore.Qt.AlignmentFlag.AlignLeft,
             "center": QtCore.Qt.AlignmentFlag.AlignHCenter,
