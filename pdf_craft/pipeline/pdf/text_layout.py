@@ -548,6 +548,21 @@ class QTextParagraphFiller:
             if not minimum_plan.placements or not best.placements:
                 return best
 
+            if len(replacement.source_regions()) > 1:
+                # Qt can switch the terminal text run to another bbox at a
+                # wrapping threshold.  That changes the applicable aim line
+                # discontinuously, so endpoint-only binary search cannot see
+                # every candidate (nor assume a signed aim delta is monotone).
+                # Search the already-bounded feasible interval at the public
+                # 0.05pt precision and score each real Qt plan by its actual
+                # terminal bbox.  This is intentionally limited to the rare
+                # multi-bbox paragraph path; normal one-bbox fitting retains
+                # its inexpensive aim-crossing binary search below.
+                candidates = self._multi_bbox_aim_candidates(
+                    text, replacement, page_sizes, style, lower, feasible_lower,
+                )
+                return _closest_to_aim((*candidates, best))
+
             # The largest feasible size is not necessarily closest to a bbox
             # bottom: crossing the aim line can happen before the forbidden
             # line.  Search the terminal-line crossing and compare its two
@@ -573,6 +588,41 @@ class QTextParagraphFiller:
             return _closest_to_aim((minimum_plan, best))
         finally:
             self._layout_obstacles = previous_obstacles
+
+    def _multi_bbox_aim_candidates(
+        self,
+        text: str,
+        replacement: PDFReplacement,
+        page_sizes: dict[int, tuple[float, float]],
+        style: PatchTextStyle,
+        lower: float,
+        upper: float,
+    ) -> tuple[FittedParagraph, ...]:
+        """Sample all 0.05pt multi-bbox candidates inside a feasible interval.
+
+        Text flow can jump from one source rectangle to the next when Qt
+        changes a wrap decision.  The terminal aim line then changes too, so
+        a binary search over only endpoint deltas is unsound.  ``upper`` is
+        already the largest feasible side of the normal bracketing search;
+        every returned plan remains subject to its forbidden line.
+        """
+        step_count = int((upper - lower) / _FONT_SIZE_TOLERANCE)
+        sizes = [lower + step * _FONT_SIZE_TOLERANCE for step in range(step_count + 1)]
+        if not sizes or upper - sizes[-1] > 1e-9:
+            sizes.append(upper)
+        candidates = tuple(
+            plan
+            for size in sizes
+            if (plan := self._plan(text, replacement, page_sizes, style, size)) is not None
+            and plan.placements
+        )
+        # ``lower`` was already proven feasible; retain a defensive fallback
+        # for unusual floating-point intervals.
+        if candidates:
+            return candidates
+        fallback = self._plan(text, replacement, page_sizes, style, lower)
+        assert fallback is not None
+        return (fallback,)
 
     def _find_automatic_font_size_upper_bound(
         self,

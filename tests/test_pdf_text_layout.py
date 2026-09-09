@@ -178,6 +178,24 @@ class TestQTextParagraphFiller(unittest.TestCase):
 
         self.assertIs(_closest_to_aim((extra_bbox, exact_terminal_bbox)), exact_terminal_bbox)
 
+    def test_multi_bbox_aim_search_covers_qt_wrap_discontinuities(self):
+        """A changed Qt text flow may expose a better aim between end points."""
+        regions = [
+            PDFReplacementRegion(1, (0, 0, 70, 10), (220, 260)),
+            PDFReplacementRegion(1, (0, 20, 70, 40), (220, 260)),
+        ]
+        fitted = QTextParagraphFiller(PatchTextOptions(min_font_size=4, max_font_size=18)).fit(
+            _replacement("one two three four five six seven eight", regions),
+            {1: (220, 260)},
+        )
+
+        terminal = fitted.placements[-1]
+        terminal_bottom = terminal.line_tops[-1] + terminal.line_heights[-1]
+        self.assertEqual(len(fitted.placements), 2)
+        self.assertGreater(fitted.font_size, 6)
+        self.assertLess(abs(terminal_bottom - terminal.rectangle.bottom), 1.2)
+        self.assertLessEqual(terminal_bottom, terminal.forbidden_bottom or 260)
+
     def test_lower_asset_top_is_a_forbidden_line(self):
         source = PDFReplacementRegion(1, (0, 0, 100, 10), (100, 100))
         figure = PDFReplacementRegion(1, (0, 14, 100, 30), (100, 100))
