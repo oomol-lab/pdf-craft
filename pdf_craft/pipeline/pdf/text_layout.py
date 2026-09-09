@@ -688,7 +688,7 @@ class QTextParagraphFiller:
                 ):
                     break
                 if any(
-                    _x_coordinate(line.cursorToX(span.start - line_start_index))
+                    _x_coordinate(line.cursorToX(span.start))
                     + span.fragment.width > available_width + 1e-6
                     for span in formula_spans
                     if line_start_index <= span.start and span.start + span.length <= line_end_index
@@ -698,10 +698,10 @@ class QTextParagraphFiller:
                     span for span in formula_spans
                     if line_start_index <= span.start and span.start + span.length <= line_end_index
                 )
-                actual_line_width = _x_coordinate(line.cursorToX(line.textLength())) + sum(
+                actual_line_width = _x_coordinate(line.cursorToX(line_end_index)) + sum(
                     span.fragment.width - (
-                        _x_coordinate(line.cursorToX(span.start + span.length - line_start_index))
-                        - _x_coordinate(line.cursorToX(span.start - line_start_index))
+                        _x_coordinate(line.cursorToX(span.start + span.length))
+                        - _x_coordinate(line.cursorToX(span.start))
                     )
                     for span in line_formula_spans
                 )
@@ -712,8 +712,8 @@ class QTextParagraphFiller:
                     *(fragment.height - fragment.descent for fragment in line_fragments),
                 ))
                 line_tops.append(line_baseline - line.ascent())
-                line_start = _x_coordinate(line.cursorToX(0))
-                line_end = _x_coordinate(line.cursorToX(line.textLength()))
+                line_start = _x_coordinate(line.cursorToX(line_start_index))
+                line_end = _x_coordinate(line.cursorToX(line_end_index))
                 line_text_lefts.append(content_left + line_start)
                 line_text_widths.append(line_end - line_start)
                 line_heights.append(line_height)
@@ -721,7 +721,7 @@ class QTextParagraphFiller:
                     if line_start_index <= span.start and span.start + span.length <= line_end_index:
                         formula_draws.append(FormulaDraw(
                             span.fragment.pdf,
-                            content_left + _x_coordinate(line.cursorToX(span.start - line_start_index)),
+                            content_left + _x_coordinate(line.cursorToX(span.start)),
                             line_baseline,
                             span.fragment.descent,
                         ))

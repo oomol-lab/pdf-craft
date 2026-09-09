@@ -6,10 +6,9 @@ retain the plain-text path below it.
 """
 
 from dataclasses import dataclass
-from pathlib import Path
+from io import BytesIO
 from shutil import which
 import subprocess
-from tempfile import TemporaryDirectory
 
 
 @dataclass(frozen=True)
@@ -41,7 +40,7 @@ class InlineFormulaPDFRenderer:
                 self._available = False
                 return False
             latex = which("latex")
-            if latex is None or not (which("dvipdfmx") or which("dvipdf")):
+            if latex is None:
                 self._available = False
             else:
                 try:
@@ -71,31 +70,38 @@ class InlineFormulaPDFRenderer:
             self._cache[key] = None
             return None
         try:
-            latex_bin = which("latex")
-            converter = which("dvipdfmx") or which("dvipdf")
-            if latex_bin is None or converter is None:
-                raise RuntimeError("local TeX PDF toolchain is unavailable")
-            with TemporaryDirectory(prefix="pdf-craft-inline-tex-") as directory:
-                root = Path(directory)
-                source = root / "formula.tex"
-                source.write_text(
-                    "\\documentclass[preview]{standalone}\n"
-                    "\\begin{document}\n"
-                    f"{{\\fontsize{{{point_size}}}{{{point_size}}}\\selectfont ${latex}$}}\n"
-                    "\\end{document}\n", encoding="utf-8",
+            if which("latex") is None:
+                raise RuntimeError("local TeX executable is unavailable")
+            from matplotlib import rc_context  # type: ignore[reportMissingImports]
+            from matplotlib.backends.backend_pdf import FigureCanvasPdf  # type: ignore[reportMissingImports]
+            from matplotlib.figure import Figure  # type: ignore[reportMissingImports]
+            from matplotlib.texmanager import TexManager  # type: ignore[reportMissingImports]
+
+            expression = f"${latex}$"
+            with rc_context({"text.usetex": True, "font.family": "serif"}):
+                width, height, descent = TexManager().get_text_width_height_descent(
+                    expression, point_size, None,
                 )
-                subprocess.run(
-                    [latex_bin, "-no-shell-escape", "-interaction=nonstopmode", "-halt-on-error", source.name],
-                    cwd=root, check=True, timeout=15, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                # Give Matplotlib a tiny temporary margin, then ask its PDF
+                # backend to crop to the TeX glyph bounds.  The resulting
+                # MediaBox starts at (0, 0) and is exactly the DVI metrics,
+                # unlike a raw dvipdfmx output which retains an A4 page and
+                # places its glyphs at ordinary document coordinates.
+                margin = 1.0
+                figure_width = width + 2 * margin
+                figure_height = height + 2 * margin
+                figure = Figure(figsize=(figure_width / 72, figure_height / 72))
+                FigureCanvasPdf(figure)
+                figure.text(
+                    margin / figure_width,
+                    (margin + descent) / figure_height,
+                    expression,
+                    fontsize=point_size,
+                    va="baseline",
                 )
-                subprocess.run([converter, "formula.dvi"], cwd=root, check=True, timeout=15,
-                               stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-                output = root / "formula.pdf"
-                pdf = output.read_bytes()
-                from matplotlib import dviread  # type: ignore[reportMissingImports]
-                dvi_page = next(iter(dviread.Dvi(str(root / "formula.dvi"), 72)))
-            self._cache[key] = FormulaFragment(pdf, float(dvi_page.width), float(dvi_page.height),
-                                               float(dvi_page.descent))
+                output = BytesIO()
+                figure.savefig(output, format="pdf", transparent=True, bbox_inches="tight", pad_inches=0)
+            self._cache[key] = FormulaFragment(output.getvalue(), float(width), float(height), float(descent))
         except Exception:  # local TeX packages and individual expressions vary widely.
             self._cache[key] = None
         return self._cache[key]

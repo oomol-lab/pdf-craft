@@ -1,7 +1,10 @@
 """Regression coverage for safe inline-formula handling in PDF patches."""
 
+from io import BytesIO
 import unittest
 from typing import Any, cast
+
+import pypdf
 
 from pdf_craft.formula import latex_to_plain_text
 from pdf_craft.pipeline.pdf import PDFInlineFormula, PDFReplacement, PDFReplacementRegion
@@ -21,6 +24,9 @@ class TestPDFInlineFormulaFallback(unittest.TestCase):
         self.assertTrue(fragment.pdf.startswith(b"%PDF"))
         self.assertGreater(fragment.width, 0)
         self.assertGreater(fragment.height, fragment.descent)
+        page = cast(Any, pypdf.PdfReader(BytesIO(fragment.pdf)).pages[0])
+        self.assertAlmostEqual(float(page.mediabox.width), fragment.width, places=3)  # pylint: disable=no-member
+        self.assertAlmostEqual(float(page.mediabox.height), fragment.height, places=3)  # pylint: disable=no-member
 
     def test_plain_text_converter_is_shared_with_epub(self):
         self.assertEqual(latex_to_plain_text(r"\mathbb{Z}\to\mathbb{C}"), "ℤ→ℂ")
@@ -135,6 +141,31 @@ class TestPDFInlineFormulaFallback(unittest.TestCase):
         fitted = filler.fit(replacement, {1: (100, 100)})
 
         self.assertEqual(len(fitted.placements[0].formula_draws), 1)
+
+    def test_formula_draw_uses_the_wrapped_line_cursor_position(self):
+        class Renderer:
+            available = True
+
+            @staticmethod
+            def render(latex, point_size):
+                del latex, point_size
+                return FormulaFragment(b"%PDF-1.4", 10, 10, 2)
+
+        region = PDFReplacementRegion(1, (0, 0, 80, 100), (80, 100))
+        replacement = PDFReplacement(
+            1, region.bbox, "abcdefghij abc \ufffc", region.page_pixel_size,
+            regions=(region,), inline_formulas=(PDFInlineFormula("x"),),
+        )
+        filler = QTextParagraphFiller(PatchTextOptions(max_font_size=10, min_font_size=10))
+        filler._formula_renderer = cast(Any, Renderer())  # pylint: disable=protected-access
+        fitted = filler.fit(replacement, {1: (80, 100)})
+
+        placement = fitted.placements[0]
+        self.assertEqual(len(placement.line_tops), 2)
+        self.assertEqual(len(placement.formula_draws), 1)
+        # The formula follows abc on line two; a line-relative cursor lookup
+        # would incorrectly reset it to the left edge.
+        self.assertGreater(placement.formula_draws[0].x, 20)
 
     def test_tall_fragment_falls_back_before_it_can_escape_a_bbox(self):
         class Renderer:
