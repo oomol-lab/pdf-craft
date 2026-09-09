@@ -60,6 +60,42 @@ class TestWindowedParagraphPlanner(unittest.TestCase):
         # weight, not the complete paragraph's still-remaining text.
         self.assertEqual(targets, {(1, "text", 0): 11.2})
 
+    def test_second_pass_normalizes_natural_overflow_headlines(self):
+        options = PatchTextOptions(styles={
+            "sub_title": PatchTextStyle(max_font_size=20, min_font_size=4),
+        })
+
+        class Filler(QTextParagraphFiller):
+            def __init__(self):
+                super().__init__(options)
+                self._headline_count = 0
+
+            def fit_headline(self, replacement, page_sizes, minimum_font_size):
+                del minimum_font_size
+                self._headline_count += 1
+                return self._plan_headline_overflow(  # pylint: disable=protected-access
+                    replacement, page_sizes, 8 if self._headline_count == 1 else 12,
+                )
+
+        filler = Filler()
+        planner = WindowedParagraphPlanner(filler, {1: (200, 100)}, options)
+        narrow = PDFReplacementRegion(1, (0, 20, 36, 50), (200, 100))
+        first = _replacement("A deliberately long heading", [narrow], layout_ref="sub_title")
+        second = _replacement("A deliberately long heading", [narrow], layout_ref="sub_title")
+        window = next(planner.plan([first, second]))
+        try:
+            normalized = [item.paragraph.placements[0] for item in window.paragraphs]
+            self.assertEqual([placement.font_size for placement in normalized], [10, 10])
+            self.assertTrue(all(placement.allows_horizontal_overflow for placement in normalized))
+            self.assertTrue(all(len(placement.line_tops) == 1 for placement in normalized))
+            self.assertTrue(all(
+                placement.line_text_lefts[0] == placement.rectangle.x
+                and placement.line_text_widths[0] > placement.rectangle.width
+                for placement in normalized
+            ))
+        finally:
+            window.close()
+
     def test_headline_minimum_uses_normalized_body_placement_size(self):
         class Filler(QTextParagraphFiller):
             def __init__(self):

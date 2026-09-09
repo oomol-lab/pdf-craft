@@ -694,6 +694,7 @@ class QTextParagraphFiller:
             effective_minimum,
             overflow_style,
             allows_horizontal_overflow=True,
+            assigned_text=text,
         )
         return FittedParagraph(text, effective_minimum, (placement,))
 
@@ -881,8 +882,6 @@ class QTextParagraphFiller:
         not constrain vertical glyph bounds: their height is often just the
         tight ink box rather than a typographic line box.
         """
-        if placement.allows_horizontal_overflow:
-            return placement
         text = placement.assigned_text or placement.remaining_text
         if not text:
             return placement
@@ -895,6 +894,8 @@ class QTextParagraphFiller:
         minimum = max(style.min_font_size, minimum_font_size or style.min_font_size)
         maximum = max(style.max_font_size, minimum)
         target = min(max(target_font_size, minimum), maximum)
+        if placement.allows_horizontal_overflow:
+            return self._fit_frozen_overflow_region(placement, text, target)
 
         def candidate(size: float) -> RegionTextPlacement | None:
             local_text, formula_spans = self._formula_spans_for_frozen_region(
@@ -946,6 +947,57 @@ class QTextParagraphFiller:
                     best = fitted
                     high = middle
         return best
+
+    def _fit_frozen_overflow_region(
+        self,
+        placement: RegionTextPlacement,
+        text: str,
+        font_size: float,
+    ) -> RegionTextPlacement:
+        """Re-layout one headline as its required natural-width overflow line.
+
+        Overflow is a headline-specific constraint relaxation: it keeps the
+        physical bbox's left edge and vertical centre, but never wraps or
+        clips at its right edge.  That remains true during local
+        normalization, so a same-level page target can update the font size
+        without turning an intentionally overflowing headline into a normal
+        constrained paragraph.
+        """
+        if placement.formula_draws:
+            # Overflow headlines currently materialize inline formulas as
+            # text before this path.  Retaining an unexpected vector atom is
+            # safer than drawing it with coordinates measured at another size.
+            return placement
+        QtCore, QtGui = _qt_modules()
+        _ensure_qt_application(QtGui)
+        layout = self._create_layout(QtCore, QtGui, text, placement.style, font_size)
+        layout.beginLayout()
+        try:
+            line = layout.createLine()
+            if not line.isValid():
+                return placement
+            line.setLineWidth(_HEADLINE_OVERFLOW_LINE_WIDTH)
+            if line.textLength() != _utf16_index_for_python(text, len(text)):
+                return placement
+            line_height = line.height()
+            line_start = _x_coordinate(line.cursorToX(0))
+            line_end = _x_coordinate(line.cursorToX(line.textLength()))
+        finally:
+            layout.endLayout()
+        rectangle = placement.rectangle
+        return RegionTextPlacement(
+            placement.page_index,
+            rectangle,
+            text,
+            (rectangle.x + line_start,),
+            (line_end - line_start,),
+            (rectangle.top + (rectangle.height - line_height) / 2,),
+            (line_height,),
+            font_size,
+            placement.style,
+            allows_horizontal_overflow=True,
+            assigned_text=text,
+        )
 
     def _formula_spans_for_frozen_region(
         self, placement: RegionTextPlacement, font_size: float,
