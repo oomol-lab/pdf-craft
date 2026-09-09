@@ -5,6 +5,8 @@ from .error import (
     IgnorePDFErrorsChecker,
     InterruptedError,
     NoUsableOCRPagesError,
+    OCRBillingError,
+    OCRFatalError,
     OCRError,
     PDFError,
 )

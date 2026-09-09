@@ -16,6 +16,20 @@ class OCRError(Exception):
         self.step_index: int = step_index
 
 
+class OCRFatalError(Exception):
+    """An OCR service failure which must stop conversion immediately."""
+
+
+class OCRBillingError(OCRFatalError):
+    """Raised when the OCR provider requires payment before serving a page."""
+
+    def __init__(self, page_index: int) -> None:
+        super().__init__(
+            f"OCR service requires payment before page {page_index} can be processed."
+        )
+        self.page_index = page_index
+
+
 class NoUsableOCRPagesError(Exception):
     """Raised when every requested OCR page failed after errors were ignored."""
 
