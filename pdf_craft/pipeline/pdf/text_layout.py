@@ -22,6 +22,8 @@ FontResolutionSource = Literal["automatic", "configured", "qt-fallback"]
 
 _FONT_SIZE_TOLERANCE = 0.05
 _MAX_FONT_SIZE_SEARCH_ITERATIONS = 16
+_AUTOMATIC_FONT_SIZE_INITIAL = 12.0
+_MAX_AUTOMATIC_FONT_SIZE_BRACKETING_ITERATIONS = 16
 _HEADLINE_OVERFLOW_LINE_WIDTH = 1_000_000.0
 _CJK_FONT_CANDIDATES = (
     "PingFang SC",
@@ -49,7 +51,10 @@ class PatchTextStyle:
     # select one installed family once for the entire patch run.
     font_name: str | None = None
     fallback_fonts: tuple[str, ...] = ()
-    max_font_size: float = 12.0
+    # ``None`` leaves the visual size to geometry-driven fitting.  The fitter
+    # grows a bounded search interval from an internal initial probe; a numeric
+    # value is an explicit hard ceiling.
+    max_font_size: float | None = None
     min_font_size: float = 4.0
     font_weight: int = 400
     line_height: float = 1.2
@@ -68,11 +73,13 @@ class PatchTextOptions:
     ``"text"`` / ``"sub_title"`` keys, or the more specific
     ``"sub_title:2"`` form. An unspecified ``font_name`` selects an installed
     local family once per patch run; explicit missing fonts use Qt fallback.
+    An unspecified ``max_font_size`` is an automatic fit, while a numeric
+    value is a hard ceiling for the affected semantic style.
     """
 
     font_name: str | None = None
     fallback_fonts: tuple[str, ...] = ()
-    max_font_size: float = 12.0
+    max_font_size: float | None = None
     min_font_size: float = 4.0
     font_weight: int = 400
     line_height: float = 1.2
@@ -89,9 +96,10 @@ class PatchTextOptions:
     def style_for(self, layout_ref: str, layout_level: int) -> PatchTextStyle:
         """Resolve the most specific configured semantic text style.
 
-        An implicit headline style reserves enough of the scalar default range
-        to meet the default body-relative minimum.  Explicit headline styles
-        remain hard user limits and are therefore returned unchanged.
+        A numeric option-level maximum applies unchanged to every implicit
+        semantic style, including headlines.  Headline/body ratios are lower
+        bounds used when space permits; they must never silently enlarge a
+        user-provided ceiling.
         """
         specific = self.styles.get(f"{layout_ref}:{layout_level}")
         if specific is not None:
@@ -111,20 +119,6 @@ class PatchTextOptions:
             alignment=self.alignment,
             vertical_alignment=self.vertical_alignment,
         )
-        if layout_ref == "sub_title":
-            minimum_maximum = self.max_font_size * self.headline_min_body_ratio
-            return PatchTextStyle(
-                font_name=default.font_name,
-                fallback_fonts=default.fallback_fonts,
-                max_font_size=max(default.max_font_size, minimum_maximum),
-                min_font_size=default.min_font_size,
-                font_weight=default.font_weight,
-                line_height=default.line_height,
-                horizontal_padding=default.horizontal_padding,
-                vertical_padding=default.vertical_padding,
-                alignment=default.alignment,
-                vertical_alignment=default.vertical_alignment,
-            )
         return default
 
     def headline_ratio_for(self, layout_ref: str, layout_level: int) -> float:
@@ -136,6 +130,7 @@ class PatchTextOptions:
         if ratio <= 0:
             raise ValueError("headline minimum body font ratio must be positive")
         return ratio
+
 
 @dataclass(frozen=True)
 class RegionTextPlacement:
@@ -477,26 +472,15 @@ class QTextParagraphFiller:
         if not text:
             raise ValueError("replacement text must not be empty")
         style = self.options.style_for(replacement.layout_ref, replacement.layout_level)
-        if (
-            replacement.layout_ref == "sub_title"
-            and not _has_explicit_style(
-                self.options,
-                replacement.layout_ref, replacement.layout_level,
-            )
-            and minimum_font_size is not None
-        ):
-            style = replace(
-                style,
-                max_font_size=max(style.max_font_size, minimum_font_size),
-            )
         style = self._resolve_font(style, font_text)
         self._validate_style(style)
 
         effective_minimum = max(style.min_font_size, minimum_font_size or style.min_font_size)
-        if effective_minimum > style.max_font_size:
+        configured_maximum = style.max_font_size
+        if configured_maximum is not None and effective_minimum > configured_maximum:
             raise ValueError(
                 f"requested minimum font size {effective_minimum:.2f} exceeds style maximum "
-                f"{style.max_font_size:.2f}"
+                f"{configured_maximum:.2f}"
             )
         lower = effective_minimum
         best = self._plan(text, replacement, page_sizes, style, lower)
@@ -506,7 +490,11 @@ class QTextParagraphFiller:
                 f"{effective_minimum}"
             )
 
-        upper = style.max_font_size
+        upper = configured_maximum
+        if upper is None:
+            upper = self._find_automatic_font_size_upper_bound(
+                text, replacement, page_sizes, style, lower,
+            )
         fitted_at_upper = self._plan(text, replacement, page_sizes, style, upper)
         if fitted_at_upper is not None:
             return fitted_at_upper
@@ -522,6 +510,27 @@ class QTextParagraphFiller:
                 best = fitted
                 lower = middle
         return best
+
+    def _find_automatic_font_size_upper_bound(
+        self,
+        text: str,
+        replacement: PDFReplacement,
+        page_sizes: dict[int, tuple[float, float]],
+        style: PatchTextStyle,
+        lower: float,
+    ) -> float:
+        """Grow an automatic font-size interval until its upper side fails.
+
+        The numeric probe is only a starting point.  Every finite source
+        rectangle eventually rejects a sufficiently large QTextLayout line,
+        so this avoids treating a typographic default as a visual ceiling.
+        """
+        upper = max(_AUTOMATIC_FONT_SIZE_INITIAL, lower)
+        for _ in range(_MAX_AUTOMATIC_FONT_SIZE_BRACKETING_ITERATIONS):
+            if self._plan(text, replacement, page_sizes, style, upper) is None:
+                return upper
+            upper *= 2
+        raise ValueError("automatic font-size search could not bracket a failing upper bound")
 
     def fit_headline(
         self,
@@ -651,11 +660,12 @@ class QTextParagraphFiller:
         if not text:
             raise ValueError("replacement text must not be empty")
         style = self.options.style_for(replacement.layout_ref, replacement.layout_level)
-        # The body-relative minimum wins even when an explicit headline style
-        # supplied a lower maximum.  The caller selected this as the headline
-        # size required for the current page; width is the only relaxed bound.
+        # A body-relative headline minimum is preferred, but a numeric maximum
+        # is an explicit user ceiling for every semantic level. Width is the
+        # only relaxed bound in the overflow layout.
         effective_minimum = max(style.min_font_size, minimum_font_size)
-        style = replace(style, max_font_size=max(style.max_font_size, effective_minimum))
+        if style.max_font_size is not None:
+            effective_minimum = min(effective_minimum, style.max_font_size)
         style = self._resolve_font(style, text)
         self._validate_style(style)
 
@@ -896,8 +906,9 @@ class QTextParagraphFiller:
         style = placement.style
         original = placement.font_size
         minimum = max(style.min_font_size, minimum_font_size or style.min_font_size)
-        maximum = max(style.max_font_size, minimum)
-        target = min(max(target_font_size, minimum), maximum)
+        target = max(target_font_size, minimum)
+        if style.max_font_size is not None:
+            target = min(target, style.max_font_size)
         if placement.allows_horizontal_overflow:
             return self._fit_frozen_overflow_region(placement, text, target)
 
@@ -1084,7 +1095,9 @@ class QTextParagraphFiller:
 
     @staticmethod
     def _validate_style(style: PatchTextStyle) -> None:
-        if style.min_font_size <= 0 or style.max_font_size < style.min_font_size:
+        if style.min_font_size <= 0 or (
+            style.max_font_size is not None and style.max_font_size < style.min_font_size
+        ):
             raise ValueError("font sizes must be positive and max_font_size >= min_font_size")
         if style.line_height <= 0:
             raise ValueError("line_height must be positive")
@@ -1429,18 +1442,6 @@ class WindowedParagraphPlanner:
 def _is_headline(replacement: PDFReplacement) -> bool:
     """Use semantic chapter metadata, never image appearance, for title roles."""
     return replacement.layout_ref == "sub_title"
-
-
-def _has_explicit_style(
-    options: PatchTextOptions,
-    layout_ref: str,
-    layout_level: int,
-) -> bool:
-    """Whether a semantic style supplies a deliberate user font ceiling."""
-    return (
-        f"{layout_ref}:{layout_level}" in options.styles
-        or layout_ref in options.styles
-    )
 
 
 def _replacement_pages(replacement: PDFReplacement) -> tuple[int, ...]:

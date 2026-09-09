@@ -15,7 +15,8 @@ from xml.etree.ElementTree import tostring
 import pypdf
 
 from pdf_craft.pipeline.pdf import (
-    PDFPatcher, PatchTextOptions,
+    PDFPatcher, PDFReplacement, PatchTextOptions,
+    QTextParagraphFiller,
 )
 from pdf_craft.pipeline.pdf.pipeline import PDFTranslationPipeline
 from pdf_craft.extractor.chapter.chapter import BlockLayout, Chapter, ParagraphLayout, encode
@@ -71,3 +72,69 @@ class TestPDFPatchSmoke(unittest.TestCase):
             source_page: Any = pypdf.PdfReader(str(source)).pages[0]
             source_images = len(list(source_page.images))
             self.assertEqual(len(list(first_page.images)), source_images)
+
+    @unittest.skipUnless(which("gs"), "requires local Ghostscript")
+    def test_default_layout_fills_the_real_figure_caption_body_bbox_beyond_12pt(self):
+        """The automatic first pass must not retain the former 12pt ceiling."""
+        source = _ASSET_ROOT / "figure-caption.pdf"
+        bbox = (603, 434, 4784, 2674)
+        page_pixels = (5106, 7750)
+        translated = (
+            "The population was only 11.8%①. This was both a reflection of the backwardness "
+            "of agriculture in the Jiangnan region and a cause of it. After the Warring States "
+            "period, when the Yellow River basin achieved basic development due to the widespread "
+            "use of iron tools and ox-drawn plows, and agricultural areas were connected into a "
+            "large contiguous expanse, agricultural development in the south never broke through "
+            "the pattern of scattered points or patchy distribution. Due to the vast land and "
+            "sparse population, farming was quite extensive; many paddy fields were cultivated "
+            "using the method of burning stubble and flooding with water, while dry fields were "
+            "often farmed through slash-and-burn techniques②. Sima Qian wrote in the \"Records of "
+            "the Grand Historian, Biographies of the Money-Makers\": \"In short, in the lands of "
+            "Chu and Yue, the territory is vast and the people are few. They eat rice and fish, "
+            "and sometimes use fire to clear fields and water to weed. Fruits, tubers, snails, "
+            "and clams are abundant without needing to be traded; the land provides ample food, "
+            "so there is no worry of famine. As a result, the people are lazy and idle, seeking "
+            "only to get by, with no accumulation of wealth and much poverty.\" Although this "
+            "summary may overemphasize the backwardness of the southern economy and has a certain "
+            "one-sidedness, it largely reflects the actual situation. During the Warring States, "
+            "Qin, and Han periods, the gap between the south and the Yellow River basin in "
+            "agriculture clearly widened."
+        )
+        source_text = "中文来源文字"
+        replacement = PDFReplacement(1, bbox, translated, page_pixels)
+        page = pypdf.PdfReader(str(source)).pages[0]
+        fitted = QTextParagraphFiller(PatchTextOptions()).fit(
+            replacement,
+            {1: (float(page.mediabox.width), float(page.mediabox.height))},
+        )
+        self.assertGreater(fitted.font_size, 12)
+        self.assertTrue(all(
+            placement.rectangle.top <= top
+            and top + height <= placement.rectangle.bottom
+            for placement in fitted.placements
+            for top, height in zip(placement.line_tops, placement.line_heights)
+        ))
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            target = root / "figure-caption-translated.pdf"
+            extraction_root = root / "figure-caption.pcex"
+            extraction = make_extraction(
+                extraction_root, page_pixel_sizes={1: page_pixels}, render_dpi=300,
+            )
+            chapter = Chapter(None, -1, [ParagraphLayout("text", 0, [
+                BlockLayout(1, 0, bbox, [source_text]),
+            ])])
+            (extraction_root / "chapters/chapter_1.xml").write_text(
+                '<?xml version="1.0" encoding="UTF-8"?>\n'
+                + tostring(encode(chapter), encoding="unicode")
+            )
+
+            PDFTranslationPipeline().translate(
+                source, target, extraction, lambda text: translated if text == source_text else text,
+            )
+
+            output_text = " ".join(
+                pypdf.PdfReader(str(target)).pages[0].extract_text().split()
+            )
+            self.assertIn("The population was only 11.8%", output_text)
