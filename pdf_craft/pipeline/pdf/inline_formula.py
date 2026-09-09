@@ -11,6 +11,9 @@ from shutil import which
 import subprocess
 
 
+_TEX_PREAMBLE = r"\usepackage{amsfonts}"
+
+
 @dataclass(frozen=True)
 class FormulaFragment:
     """A cropped, transparent vector-PDF formula and its point metrics."""
@@ -78,7 +81,16 @@ class InlineFormulaPDFRenderer:
             from matplotlib.texmanager import TexManager  # type: ignore[reportMissingImports]
 
             expression = f"${latex}$"
-            with rc_context({"text.usetex": True, "font.family": "serif"}):
+            # PCEX formulas originate from mathematical source documents, where
+            # ``\mathbb`` is conventionally provided by amsfonts.  Matplotlib's
+            # default usetex preamble is intentionally minimal, so make this
+            # small, explicit baseline available to both measuring and drawing.
+            # A machine without it still follows the normal safe fallback.
+            with rc_context({
+                "text.usetex": True,
+                "font.family": "serif",
+                "text.latex.preamble": _TEX_PREAMBLE,
+            }):
                 width, height, descent = TexManager().get_text_width_height_descent(
                     expression, point_size, None,
                 )
