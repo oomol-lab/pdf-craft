@@ -192,6 +192,12 @@ class OCR:
                             page_index=ref.page_index,
                             image=image,
                         )
+                        if image is None:
+                            # A PDF rendering failure has no image dimensions.  The
+                            # textual fallback still needs a valid source-page entry
+                            # so chapter validation and downstream renderers can keep
+                            # the remaining usable pages.
+                            self._last_page_pixel_sizes[ref.page_index] = (100, 100)
 
                     if recognized_error is not None:
                         did_fail_any = True

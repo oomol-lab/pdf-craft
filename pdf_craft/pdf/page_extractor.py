@@ -5,7 +5,7 @@ from pathlib import Path
 from PIL.Image import Image
 
 from ..common import ASSET_TAGS, AssetHub, remove_surrogates
-from ..error import OCRError
+from ..error import OCRBillingError, OCRError
 from ..metering import AbortedCheck, check_aborted
 from ..ocr_config import (
     DeepSeekOCR2LocalConfig,
@@ -216,6 +216,8 @@ class PageExtractorNode:
                 except TokenLimitError:
                     raise
                 except Exception as error:
+                    if _has_payment_required_status(error):
+                        raise OCRBillingError(page_index=page_index) from error
                     raise OCRError(
                         f"Failed to extract page {page_index} layout at stage {step_index}.",
                         page_index=page_index,
@@ -258,7 +260,6 @@ class PageExtractorNode:
                 input_tokens=context.input_tokens,
                 output_tokens=context.output_tokens,
             )
-
     def _iter_page_layouts(
         self,
         image: Image,
@@ -355,3 +356,12 @@ class PageExtractorNode:
         if left >= right or top >= bottom:
             return None
         return left, top, right, bottom
+
+
+def _has_payment_required_status(error: Exception) -> bool:
+    """Recognise a provider's HTTP 402 without coupling to its client library."""
+    status_code = getattr(error, "status_code", None)
+    if status_code == 402:
+        return True
+    response = getattr(error, "response", None)
+    return getattr(response, "status_code", None) == 402
