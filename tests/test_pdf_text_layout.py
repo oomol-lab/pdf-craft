@@ -1,4 +1,5 @@
 import unittest
+from dataclasses import replace
 
 # pylint: disable=no-member,c-extension-no-member
 
@@ -8,7 +9,9 @@ from pdf_craft.pipeline.pdf import (
 )
 from pdf_craft.pipeline.pdf.geometry import PageRectangle
 from pdf_craft.pipeline.pdf.pipeline import PDFTranslationPipeline
-from pdf_craft.extractor.chapter.chapter import AssetLayout, BlockLayout, Chapter, ParagraphLayout
+from pdf_craft.extractor.chapter.chapter import (
+    AssetLayout, BlockLayout, Chapter, ParagraphLayout, Reference,
+)
 from pdf_craft.pipeline.pdf.text_layout import _LAYOUT_SCALE, _choose_automatic_font
 
 
@@ -191,6 +194,36 @@ class TestQTextParagraphFiller(unittest.TestCase):
 
         self.assertEqual(len(replacements), 1)
         self.assertEqual(replacements[0].obstacle_regions[0].bbox, (0, 14, 100, 30))
+
+    def test_reference_footnote_stops_text_after_its_source_bottom(self):
+        """Reference layouts are obstacles even though they are not chapter body layouts."""
+        footnote = ParagraphLayout(
+            "text", 0, [BlockLayout(1, 1, (0, 14, 100, 30), ["footnote"])],
+        )
+        reference = Reference(1, 1, "①", [footnote])
+        chapter = Chapter(
+            id=1,
+            level=0,
+            layouts=[
+                ParagraphLayout(
+                    "text", 0,
+                    [BlockLayout(1, 0, (0, 0, 100, 10), ["body", reference])],
+                ),
+            ],
+        )
+
+        replacement, = PDFTranslationPipeline()._iter_chapter_replacements(  # pylint: disable=protected-access
+            chapter, lambda text: text, {1: (100, 100)}, 300, structured=True,
+        )
+        self.assertEqual([region.bbox for region in replacement.obstacle_regions], [(0, 14, 100, 30)])
+
+        placement = QTextParagraphFiller(PatchTextOptions(max_font_size=8, min_font_size=8)).fit(
+            replace(replacement, text="line"), {1: (100, 100)},
+        ).placements[0]
+        line_bottom = placement.line_tops[-1] + placement.line_heights[-1]
+        self.assertGreater(line_bottom, 10)
+        self.assertEqual(placement.forbidden_bottom, 14)
+        self.assertLessEqual(line_bottom, 14)
 
     def test_high_precision_layout_uses_scaled_qt_font_coordinates(self):
         """The layout font, rather than a post-layout heuristic, receives precision."""

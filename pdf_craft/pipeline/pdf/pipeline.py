@@ -7,7 +7,7 @@ from typing import cast
 from pdf_craft.extractor.chapter.chapter import AssetLayout, Chapter, ParagraphLayout, encode
 from pdf_craft.extractor.chapter.chapter import InlineExpression, Reference
 from pdf_craft.extractor.chapter.reader import create_chapters_reader
-from pdf_craft.markdown.paragraph import HTMLTag
+from pdf_craft.markdown.paragraph import HTMLTag, flatten
 from pdf_craft.formula import latex_to_plain_text
 from pdf_craft.document import PDFCraftExtraction
 from pdf_craft.transformer.events import TranslationEvent, TranslationEventKind, TranslationItemKind
@@ -155,13 +155,7 @@ class PDFTranslationPipeline:
         self, chapter: Chapter, transformer, pages,
         render_dpi: int, structured: bool = False,
     ) -> Iterator[PDFReplacement]:
-        obstacle_regions = tuple(
-            PDFReplacementRegion(
-                layout.page_index, layout.det, pages[layout.page_index], render_dpi,
-            )
-            for layout in chapter.layouts
-            if isinstance(layout, AssetLayout) and layout.page_index in pages
-        )
+        obstacle_regions = _chapter_obstacle_regions(chapter, pages, render_dpi)
         for layout in chapter.layouts:
             if not isinstance(layout, ParagraphLayout) or layout.ref not in {"text", "sub_title"}:
                 continue
@@ -256,6 +250,64 @@ def _to_pdf_patch_content(items) -> tuple[str, tuple[PDFInlineFormula, ...]]:
         else:
             raise TypeError(f"unsupported chapter content for PDF patching: {type(item).__name__}")
     return "".join(parts), tuple(formulas)
+
+
+def _chapter_obstacle_regions(chapter: Chapter, pages, render_dpi: int) -> tuple[PDFReplacementRegion, ...]:
+    """Collect non-flow geometry that may stop text from extending downward.
+
+    Top-level paragraph blocks are already represented by the replacement
+    regions passed to the window planner.  Assets and reference layouts are
+    not: references (notably footnotes) live beneath ``Reference.layouts``
+    rather than in ``Chapter.layouts``.  Their block and asset rectangles are
+    therefore explicit obstacles even when the reference itself is not being
+    translated.
+    """
+    regions: list[PDFReplacementRegion] = []
+    seen_regions: set[tuple[int, tuple[int, int, int, int]]] = set()
+    seen_references: set[tuple[int, int]] = set()
+
+    def add_region(page_index: int, det: tuple[int, int, int, int]) -> None:
+        if page_index not in pages:
+            raise ValueError(f"PDFCraftExtraction pages.xml is missing page {page_index}")
+        key = (page_index, det)
+        if key not in seen_regions:
+            seen_regions.add(key)
+            regions.append(PDFReplacementRegion(page_index, det, pages[page_index], render_dpi))
+
+    def visit_reference(reference: Reference) -> None:
+        if reference.id in seen_references:
+            return
+        seen_references.add(reference.id)
+        for layout in reference.layouts:
+            visit_reference_layout(layout)
+
+    def visit_reference_layout(layout: AssetLayout | ParagraphLayout) -> None:
+        if isinstance(layout, AssetLayout):
+            add_region(layout.page_index, layout.det)
+            visit_references(layout.title)
+            visit_references(layout.content)
+            visit_references(layout.caption)
+            return
+        for block in layout.blocks:
+            add_region(block.page_index, block.det)
+            visit_references(block.content)
+
+    def visit_references(items) -> None:
+        for item in flatten(items):
+            if isinstance(item, Reference):
+                visit_reference(item)
+
+    for layout in chapter.layouts:
+        if isinstance(layout, AssetLayout):
+            add_region(layout.page_index, layout.det)
+            visit_references(layout.title)
+            visit_references(layout.content)
+            visit_references(layout.caption)
+        else:
+            for block in layout.blocks:
+                visit_references(block.content)
+
+    return tuple(regions)
 
 
 def _ensure_extraction(value: PDFCraftExtraction | Path) -> PDFCraftExtraction:
