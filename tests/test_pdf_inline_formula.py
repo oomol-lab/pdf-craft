@@ -31,6 +31,17 @@ class TestPDFInlineFormulaFallback(unittest.TestCase):
         self.assertAlmostEqual(float(page.mediabox.width), fragment.width, places=3)  # pylint: disable=no-member
         self.assertAlmostEqual(float(page.mediabox.height), fragment.height, places=3)  # pylint: disable=no-member
 
+    def test_real_tex_renderer_supports_mathbb_when_available(self):
+        renderer = InlineFormulaPDFRenderer()
+        if not renderer.available:
+            self.skipTest("requires a complete local Matplotlib/TeX PDF backend")
+        fragment = renderer.render(r"(\mathbb{Z} / q\mathbb{Z})^{*}", 10)
+        self.assertIsNotNone(fragment)
+        assert fragment is not None
+        self.assertTrue(fragment.pdf.startswith(b"%PDF"))
+        self.assertGreater(fragment.width, 0)
+        self.assertGreater(fragment.height, fragment.descent)
+
     def test_plain_text_converter_is_shared_with_epub(self):
         self.assertEqual(latex_to_plain_text(r"\mathbb{Z}\to\mathbb{C}"), "ℤ→ℂ")
 
