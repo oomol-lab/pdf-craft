@@ -1,7 +1,7 @@
 """Paragraph flow backed by Qt's native ``QTextLayout`` engine."""
 # pylint: disable=no-member,c-extension-no-member
 
-from collections.abc import Iterable, Iterator, Mapping
+from collections.abc import Callable, Iterable, Iterator, Mapping
 from dataclasses import dataclass, field, replace
 import os
 import pickle
@@ -269,6 +269,54 @@ class _WindowPlanStorage:
             self._page_plan_paths,
             self._temporary_directory,
         )
+
+    def rewrite_placements(
+        self,
+        transform: Callable[[int, RegionTextPlacement], RegionTextPlacement],
+    ) -> None:
+        """Replace placements one serialized page at a time.
+
+        A paragraph can stretch across a large document, so second-pass
+        typography must not first materialize all of its glyph coordinates in
+        a window-wide list.  Each page stream is read, transformed, and
+        atomically replaced before moving to the next one.
+        """
+        for path in self._page_plan_paths.values():
+            temporary_path = path.with_suffix(".updated")
+            with path.open("rb") as source, temporary_path.open("wb") as target:
+                while True:
+                    try:
+                        contribution = pickle.load(source)
+                    except EOFError:
+                        break
+                    rewritten = _PagePlanContribution(
+                        contribution.paragraph_index,
+                        contribution.regions,
+                        tuple(
+                            transform(contribution.paragraph_index, placement)
+                            for placement in contribution.placements
+                        ),
+                    )
+                    pickle.dump(rewritten, target, protocol=pickle.HIGHEST_PROTOCOL)
+            temporary_path.replace(path)
+
+    def page_contributions(self, page_index: int) -> Iterator[_PagePlanContribution]:
+        """Read one spooled page while retaining no other page's placements."""
+        try:
+            path = self._page_plan_paths[page_index]
+        except KeyError:
+            return
+        with path.open("rb") as stream:
+            while True:
+                try:
+                    yield pickle.load(stream)
+                except EOFError:
+                    return
+
+    @property
+    def page_indexes(self) -> tuple[int, ...]:
+        """The small index of pages that currently have serialized work."""
+        return tuple(self._page_plan_paths)
 
     def close(self) -> None:
         self._temporary_directory.cleanup()
@@ -1131,38 +1179,43 @@ class WindowedParagraphPlanner:
         storage = _WindowPlanStorage()
 
         try:
-            body_plans: list[tuple[PDFReplacement, FittedParagraph]] = []
+            body_replacements: dict[int, PDFReplacement] = {}
+            body_statistics: dict[tuple[int, str, int], list[float]] = {}
             for replacement in body:
                 paragraph = self._fit_or_skip(replacement)
                 if paragraph is None:
                     continue
-                body_plans.append((replacement, paragraph))
-            body_plans = self._normalize_window_placements(body_plans)
-            for replacement, paragraph in body_plans:
                 paragraph_index = len(summaries)
                 summaries.append(_PlannedParagraphSummary(
                     replacement, paragraph.text, paragraph.font_size,
                 ))
                 for placement in paragraph.placements:
-                    body_font_sizes[placement.page_index] = max(
-                        body_font_sizes.get(placement.page_index, 0.0), paragraph.font_size,
-                    )
+                    self._record_font_size_statistic(body_statistics, replacement, placement)
                 storage.append(paragraph_index, replacement, paragraph)
+                body_replacements[paragraph_index] = replacement
+            body_targets = self._font_size_targets(body_statistics)
+            self._normalize_stored_placements(storage, body_replacements, body_targets)
+            body_font_sizes = self._stored_page_font_sizes(storage, body_replacements)
 
-            headline_plans: list[tuple[PDFReplacement, FittedParagraph]] = []
+            headline_replacements: dict[int, PDFReplacement] = {}
             headline_minimums: dict[int, float] = {}
+            headline_statistics: dict[tuple[int, str, int], list[float]] = {}
             for replacement in headlines:
                 minimum = self._headline_minimum(replacement, body_font_sizes)
                 paragraph = self._filler.fit_headline(replacement, self._page_sizes, minimum)
-                headline_plans.append((replacement, paragraph))
-                headline_minimums[id(replacement)] = minimum
-            headline_plans = self._normalize_window_placements(headline_plans, headline_minimums)
-            for replacement, paragraph in headline_plans:
                 paragraph_index = len(summaries)
                 summaries.append(_PlannedParagraphSummary(
                     replacement, paragraph.text, paragraph.font_size,
                 ))
+                for placement in paragraph.placements:
+                    self._record_font_size_statistic(headline_statistics, replacement, placement)
                 storage.append(paragraph_index, replacement, paragraph)
+                headline_replacements[paragraph_index] = replacement
+                headline_minimums[paragraph_index] = minimum
+            headline_targets = self._font_size_targets(headline_statistics)
+            self._normalize_stored_placements(
+                storage, headline_replacements, headline_targets, headline_minimums,
+            )
 
             if body_font_sizes:
                 latest_page = max(body_font_sizes)
@@ -1172,50 +1225,85 @@ class WindowedParagraphPlanner:
             storage.close()
             raise
 
-    def _normalize_window_placements(
+    @staticmethod
+    def _record_font_size_statistic(
+        statistics: dict[tuple[int, str, int], list[float]],
+        replacement: PDFReplacement,
+        placement: RegionTextPlacement,
+    ) -> None:
+        """Accumulate compact size statistics for a frozen placement."""
+        text = placement.assigned_text or placement.remaining_text
+        weight = len(text.strip())
+        if not weight:
+            return
+        statistic = statistics.setdefault(
+            (placement.page_index, replacement.layout_ref, replacement.layout_level),
+            [0.0, 0.0, 0.0],
+        )
+        statistic[0] += placement.font_size * weight
+        statistic[1] += weight
+        statistic[2] += 1
+
+    @staticmethod
+    def _font_size_targets(
+        statistics: Mapping[tuple[int, str, int], list[float]],
+    ) -> dict[tuple[int, str, int], float]:
+        """Return only averages supported by multiple bbox placements."""
+        return {
+            key: weighted_sizes / weights
+            for key, (weighted_sizes, weights, placement_count) in statistics.items()
+            if placement_count > 1 and weights > 0
+        }
+
+    def _normalize_stored_placements(
         self,
-        paragraphs: list[tuple[PDFReplacement, FittedParagraph]],
+        storage: _WindowPlanStorage,
+        replacements: Mapping[int, PDFReplacement],
+        targets: Mapping[tuple[int, str, int], float],
         minimum_font_sizes: Mapping[int, float] | None = None,
-    ) -> list[tuple[PDFReplacement, FittedParagraph]]:
-        """Make frozen region placements approach their page/style average.
+    ) -> None:
+        """Normalize serialized placements while keeping only one page live.
 
         First-pass paragraphs own inter-region flow.  This deliberately runs
         afterwards, grouping only placements that physically share a page and
         semantic level, then fitting each placement's already-consumed text
-        independently.  No second-pass decision can move text across regions.
+        independently.  No second-pass decision can move text across regions,
+        and the page streams avoid retaining a long paragraph's full geometry.
         """
-        samples: dict[tuple[int, str, int], list[tuple[int, RegionTextPlacement]]] = {}
-        for paragraph_index, (replacement, paragraph) in enumerate(paragraphs):
-            for placement in paragraph.placements:
-                text = placement.assigned_text or placement.remaining_text
-                weight = len(text.strip())
-                if weight:
-                    samples.setdefault(
-                        (placement.page_index, replacement.layout_ref, replacement.layout_level), []
-                    ).append((paragraph_index, placement))
-        targets = {
-            key: sum(placement.font_size * len((placement.assigned_text or placement.remaining_text).strip())
-                     for _, placement in group)
-            / sum(len((placement.assigned_text or placement.remaining_text).strip()) for _, placement in group)
-            for key, group in samples.items()
-            if len(group) > 1
-        }
         if not targets:
-            return paragraphs
-        optimized: list[tuple[PDFReplacement, FittedParagraph]] = []
-        for replacement, paragraph in paragraphs:
-            placements = []
-            minimum = (minimum_font_sizes or {}).get(id(replacement))
-            for placement in paragraph.placements:
-                target = targets.get((
-                    placement.page_index, replacement.layout_ref, replacement.layout_level,
-                ))
-                placements.append(
-                    self._filler.fit_frozen_region(placement, target, minimum)
-                    if target is not None else placement
-                )
-            optimized.append((replacement, replace(paragraph, placements=tuple(placements))))
-        return optimized
+            return
+
+        def normalize(paragraph_index: int, placement: RegionTextPlacement) -> RegionTextPlacement:
+            replacement = replacements.get(paragraph_index)
+            if replacement is None:
+                return placement
+            target = targets.get((
+                placement.page_index, replacement.layout_ref, replacement.layout_level,
+            ))
+            if target is None:
+                return placement
+            return self._filler.fit_frozen_region(
+                placement, target, (minimum_font_sizes or {}).get(paragraph_index),
+            )
+
+        storage.rewrite_placements(normalize)
+
+    @staticmethod
+    def _stored_page_font_sizes(
+        storage: _WindowPlanStorage,
+        replacements: Mapping[int, PDFReplacement],
+    ) -> dict[int, float]:
+        """Read the normalized body stream back as compact per-page maxima."""
+        font_sizes: dict[int, float] = {}
+        for page_index in storage.page_indexes:
+            for contribution in storage.page_contributions(page_index):
+                if contribution.paragraph_index not in replacements:
+                    continue
+                for placement in contribution.placements:
+                    font_sizes[placement.page_index] = max(
+                        font_sizes.get(placement.page_index, 0.0), placement.font_size,
+                    )
+        return font_sizes
 
     def _fit_or_skip(self, replacement: PDFReplacement) -> FittedParagraph | None:
         try:
