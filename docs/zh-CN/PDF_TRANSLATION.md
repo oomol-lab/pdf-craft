@@ -182,9 +182,10 @@ PDF 输出不接受 `APPEND_BLOCK` 模式，因为 PDF pipeline 不能在原页�
   保持独立且可交互。译文是唯一普通可选择的文字层。
 - 写回只处理 `ref` 为 `text` 或 `sub_title` 的 `ParagraphLayout`。图片、表格以及其他
   布局不会成为可替换项。
-- 每段译文都必须在对应 OCR bbox 内排版。默认排版策略会在允许的字号范围内寻找可容纳的
-  字号；最小字号仍无法容纳时抛出 `ValueError`。所有 bbox 会先完成预检，因此失败时不会
-  留下部分输出文件。
+- 正文译文必须在对应 OCR bbox 内排版。默认排版策略会在允许的字号范围内寻找可容纳的
+  字号；最小字号仍无法容纳时抛出 `ValueError`。标题另有最低字号约束：若该约束使其无法
+  装入 bbox，会从 bbox 左侧中点起按自然宽度向右绘制，而不会中断或跳过整份输出。所有 bbox
+  会先完成预检，因此正文失败时不会留下部分输出文件。
 - `patch_pdf_with_extraction` 是写回已有 PDF 的操作，不是通用 PDF 排版器，不能只凭提取结果
   生成一个没有原始页面的全新 PDF。
 
@@ -201,8 +202,9 @@ craft.patch_pdf_with_extraction(
 ```
 
 传入路径时必须是通过校验的 `.pcex`；也可以直接传入 `PDFCraftExtraction` 对象。普通目录
-不是公开输入。这个入口不会调用 OCR 或 LLM。PDF 写回使用 `pypdf`、`reportlab`、PySide6/Qt
-和本机 Ghostscript；在依赖被移除或非标准安装的环境中，底层导入失败会抛出 `RuntimeError`。
+不是公开输入。这个入口不会调用 OCR 或 LLM。PDF 写回使用 `pypdf`、`reportlab`、PySide6/Qt、
+本机 Ghostscript，以及 Poppler（或调用方提供的 `PDFHandler`）进行局部背景取色；在依赖被移除或
+非标准安装的环境中，底层导入失败会抛出 `RuntimeError`。
 
 ### 调整写回排版
 
@@ -236,13 +238,16 @@ pipeline.translate(Path("input.pdf"), Path("translated.pdf"), extraction, transl
 ### 标题层级与有界布局窗口
 
 PDF 写回把一个 `ParagraphLayout` 视为一段连续文本流，即使它的来源 bbox 跨多个页面也如此。
-每个自然段只会选择一个统一字号；一整行若放不下当前 bbox，会整体移入下一个 bbox，绝不会在
-单个 bbox 的边界局部溢出。
+第一阶段为整段选择统一字号；一整行若放不下当前 bbox，会整体移入下一个 bbox，绝不会在单个
+bbox 的边界局部溢出。随后每页会按文字等级的字符数加权平均字号，对各 bbox 在不改变已冻结的
+行数和文字分配的前提下作局部归一化；因此最终同段不同 bbox 的字号可以略有差异。Qt 保留原生的
+脚本 shaping、断行、字体 fallback 和字形定位能力；除矢量行内公式及其紧随空白作为不可拆分原子外，
+pdf-craft 不额外施加语言特定断行规则。
 
 在一个可释放的页面窗口中，`text` 正文会先于 `sub_title` 标题完成排版。标题涉及的每一页中，
 已排版正文的最大字号乘以 `headline_min_body_ratio`（默认 `1.2`）后，构成标题字号的下限。
 
-未配置 `sub_title` 样式时，标题的有效上限会自动扩展到实际正文相对下限，即使该下限来自 `text` 或 `text:<level>` 样式。显式配置的 `sub_title` 或 `sub_title:<level>` 上限仍是硬约束；应将其设为足以容纳所选比例的值，或对无法容纳的标题使用 `overflow="skip"`。
+未配置 `sub_title` 样式时，标题的有效上限会自动扩展到实际正文相对下限，即使该下限来自 `text` 或 `text:<level>` 样式。显式配置的 `sub_title` 或 `sub_title:<level>` 上限仍是硬约束；应将其设为足以容纳所选比例的值。
 某个语义样式可以通过 `minimum_body_font_ratio` 覆盖此比例；如果标题 bbox 仍有空间，常规的
 字号搜索仍会选择大于该下限的字号。
 
@@ -263,8 +268,8 @@ options = PatchTextOptions(
 
 若标题所在页没有实际排版出的正文，字号参考按确定顺序选择：当前窗口中较早页面的正文、此前
 已完成窗口的正文、当前窗口中较晚页面的正文，最后才是 `headline_fallback_font_size`（未设置时
-使用标题样式自身的最小字号）。标题无法满足这个硬性下限时会抛出 `HeadlineConstraintError`；
-设置 `overflow="skip"` 则会跳过该 replacement，并把原因写入 `patcher.skipped_replacements`。
+使用标题样式自身的最小字号）。标题无法满足这个硬性下限时，仍会保留该最小字号，从 bbox 左边的
+中点开始以自然宽度向右绘制；这属于正常布局结果，不会记录为错误、跳过 replacement 或中断写回。
 
 窗口会在所有仍可能触及其中页面的自然段完成规划后关闭。之后 patcher 会逐页渲染原始图、
 取色、合成并释放该页图片。因此即使一个很长的跨页自然段覆盖整本书，也不会在内存中累计整本书的
@@ -272,14 +277,22 @@ options = PatchTextOptions(
 
 ### 写回的页面与文本层
 
-写回不会将整页通过 `PDFHandler.render_page()` 栅格化。它保留原始 PDF 页，再依次合并独立的
-矩形擦除 overlay 和由 Qt `QTextLayout` / PDF paint device 生成的译文文本 overlay。因此扫描页
-仍会自然保留扫描背景，原生 PDF 页也不会因写回而压扁；译文则是可缩放、可提取的 PDF 文字。
+写回不会将整页通过 `PDFHandler.render_page()` 栅格化。Ghostscript 先将源页的非 Annotation 内容
+编译为无字体的纯视觉底图，再依次合并独立的矩形擦除 overlay 和由 Qt `QTextLayout` / PDF paint
+device 生成的译文文本 overlay。因此扫描页仍会自然保留扫描背景，原生 PDF 页也不会因写回而压扁；
+源文字与隐藏 OCR 文字均不再可选择、搜索或提取，译文是唯一普通可选择的文字层。原 `/Annots` 数组
+会在译文之上重新挂载，链接、高亮、批注、表单控件等 Annotation 保持独立且可交互。
 
 擦除会先以 padding 扩大每个来源 bbox，然后只渲染原始页来计算该矩形内按频次加权的 RGB 中位背景色，
-再以这个颜色完整覆盖扩展矩形。渲染页不会作为输出页，写回仍保留原始 PDF 页。当前擦除不恢复纸张纹理、
-表格线、公式或插图，底层的原文字内容流也可能仍可被提取。写回需要本机具备 PySide6/Qt、Poppler（或
-调用方提供的 `PDFHandler`）和可用字体；省略或留空 `font_name` 时，会从 Qt 字体库自动选取一个本机真实字体并在整次写回中固定。显式指定的字体只是优先选择，Qt 找不到指定字体或字形时会使用系统 fallback，不会因此中断写回。
+再以这个颜色完整覆盖扩展矩形。渲染页不会作为输出页。当前擦除不恢复纸张纹理、表格线、公式或插图。
+写回需要本机具备 PySide6/Qt、Ghostscript、Poppler（或调用方提供的 `PDFHandler`）和可用字体；省略或
+留空 `font_name` 时，会从 Qt 字体库自动选取一个本机真实字体并在整次写回中固定。显式指定的字体只是
+优先选择，Qt 找不到指定字体或字形时会使用系统 fallback，不会因此中断写回。
+
+行内公式在章节 XML 中以专门节点保留，因而会参与段落翻译的上下文，但其源公式不会被翻译替换。
+`PatchTextOptions(render_inline_formulas=True)` 是默认行为：环境同时具备 Matplotlib 和本机 TeX 时，
+会把公式绘成 PDF 矢量内容；未安装这些可选运行时或单个公式渲染失败时，会自动以可读的 plain text
+降级，整份 PDF 不会因此失败。设为 `False` 可主动使用相同的 plain-text 行为。
 
 ## 原子 API
 

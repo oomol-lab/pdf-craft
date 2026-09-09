@@ -53,8 +53,10 @@ pip install "pdf-craft[local]"
 这项安装会增加 Hugging Face、Transformers 等本地模型运行时；实际运行还需要支持 CUDA
 的 PyTorch、模型缓存和足够的显存。没有这类设备时，使用前面的默认安装。
 
-项目支持 Python 3.11、3.12 和 3.13。处理 PDF 前还需要安装 Poppler，完整步骤请参考
-[安装指南](docs/zh-CN/INSTALLATION.md)。如果遇到问题，可以先查看[故障排查指南](docs/zh-CN/TROUBLESHOOTING.md)。
+项目支持 Python 3.11、3.12 和 3.13。处理 PDF 前还需要安装 Poppler；翻译结果写回 PDF
+还需要 Ghostscript 和可用字体。可选的行内公式矢量渲染额外需要 Matplotlib 与本机 TeX。
+完整步骤请参考[安装指南](docs/zh-CN/INSTALLATION.md)。如果遇到问题，可以先查看
+[故障排查指南](docs/zh-CN/TROUBLESHOOTING.md)。
 
 ## 快速开始
 

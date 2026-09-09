@@ -7,6 +7,8 @@ When a real conversion fails, first identify the layer: PDF reading and renderin
 | Symptom | Check first |
 | --- | --- |
 | `Poppler not found in PATH` | Install Poppler and make its commands visible to the process. |
+| PDF patching cannot start or reports Ghostscript | Install Ghostscript and make `gs` visible to the process. |
+| Inline formulas are plain text instead of vectors | Install Matplotlib and local TeX, or accept the intentional fallback. |
 | Local OCR cannot use CUDA | NVIDIA driver, CUDA-enabled PyTorch, visible GPU, and `pdf-craft[local]`. |
 | Local OCR cannot find a model | Cache path, disk space, and `local_only`. |
 | Vendor OCR returns an error | Endpoint, model, credential, network access, quota, and rate limits. |
@@ -18,7 +20,7 @@ When a real conversion fails, first identify the layer: PDF reading and renderin
 
 ### `Poppler not found in PATH`
 
-pdf-craft uses Poppler to render PDF pages as images before OCR. This is required for both local and vendor OCR, so changing OCR backends does not solve the error.
+pdf-craft uses Poppler to render PDF pages as images before OCR and to sample local background colors while patching translated PDFs. It is required for both local and vendor OCR, and for patching unless the caller supplies a different `PDFHandler`, so changing OCR backends does not solve the error.
 
 Run `pdfinfo -v` in the same environment that runs Python. If it is unavailable, install Poppler, add its executable directory to `PATH`, and restart the shell or process. The [installation guide](INSTALLATION.md) includes platform-specific commands.
 
@@ -94,10 +96,19 @@ If an output is absent, make sure its parent directory exists and is writable, t
 
 PDF patching requires the original PDF plus a `.pcex` extracted from that same
 document. `pages.xml` must include the relevant page geometry; missing data is not
-recovered from OCR caches or by re-rendering. Translated text must fit the original
-OCR bounding boxes. Patching preserves the source page and adds a white visual
-erasure overlay plus a Qt PDF text layer; it does not rasterize source vector text,
-annotations, or links. `APPEND_BLOCK` is unsupported.
+recovered from OCR caches or by re-rendering. Body text must fit the original OCR
+bounding boxes. Patching requires Ghostscript: it creates a fontless visual base of
+source non-Annotation content, so original and hidden OCR text cannot interfere with
+selection, search, or extraction. The Qt layer is the translated selectable text;
+the original `/Annots` array is reattached above it so links, highlights, notes, and
+forms remain interactive. Erasure uses a padded local RGB background color rather
+than texture reconstruction. `APPEND_BLOCK` is unsupported.
+
+Inline formulas default to vector PDF rendering when Matplotlib and local TeX are
+both available. They intentionally fall back to readable plain text if either
+runtime is absent or one formula fails, so a missing TeX setup does not fail the
+whole PDF. Set `PatchTextOptions(render_inline_formulas=False)` to request the same
+plain-text mode explicitly.
 
 ## What to include in a bug report
 
