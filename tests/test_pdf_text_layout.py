@@ -178,6 +178,25 @@ class TestQTextParagraphFiller(unittest.TestCase):
 
         self.assertIs(_closest_to_aim((extra_bbox, exact_terminal_bbox)), exact_terminal_bbox)
 
+    def test_multi_bbox_aim_selection_does_not_sacrifice_an_earlier_bbox(self):
+        """A perfect final bbox cannot justify a huge earlier target-line miss."""
+        style = PatchTextStyle(max_font_size=12, min_font_size=4)
+
+        def placement(bottom: float, aim: float = 10) -> RegionTextPlacement:
+            return RegionTextPlacement(
+                1, PageRectangle(0, 0, 100, aim), "line",
+                (0,), (20,), (bottom - 2,), (2,), 8, style, assigned_text="line",
+            )
+
+        terminal_only = FittedParagraph(
+            "line", 8, (placement(90), placement(10)),
+        )
+        balanced = FittedParagraph(
+            "line", 8, (placement(12), placement(13)),
+        )
+
+        self.assertIs(_closest_to_aim((terminal_only, balanced)), balanced)
+
     def test_multi_bbox_aim_search_covers_qt_wrap_discontinuities(self):
         """A changed Qt text flow may expose a better aim between end points."""
         regions = [
@@ -356,6 +375,39 @@ class TestQTextParagraphFiller(unittest.TestCase):
         self.assertTrue(fitted.placements[0].remaining_text.startswith("one two"))
         self.assertNotEqual(fitted.placements[1].remaining_text, fitted.placements[0].remaining_text)
 
+    def test_multi_bbox_flow_keeps_one_qt_character_stream_across_the_boundary(self):
+        """The second bbox must not receive a fresh QTextLayout substring."""
+        class RecordingFiller(QTextParagraphFiller):
+            layout_texts: list[str] = []
+
+            def __init__(self):
+                super().__init__(PatchTextOptions(max_font_size=10, min_font_size=10))
+                type(self).layout_texts = []
+
+            @staticmethod
+            def _create_layout(QtCore, QtGui, text, style, font_size, scale=1.0):
+                RecordingFiller.layout_texts.append(text)
+                return QTextParagraphFiller._create_layout(
+                    QtCore, QtGui, text, style, font_size, scale,
+                )
+
+        regions = [
+            PDFReplacementRegion(1, (0, 0, 90, 18), (100, 100)),
+            PDFReplacementRegion(1, (0, 20, 90, 80), (100, 100)),
+        ]
+        text = "first line second line third line fourth line"
+        filler = RecordingFiller()
+
+        fitted = filler.fit(_replacement(text, regions), {1: (100, 100)})
+
+        self.assertEqual(len(fitted.placements), 2)
+        self.assertEqual("".join(item.assigned_text for item in fitted.placements), text)
+        # ``fit`` also samples the multi-bbox aim interval.  Crucially every
+        # probe receives the complete paragraph, never the second region's
+        # remaining substring.
+        self.assertTrue(filler.layout_texts)
+        self.assertTrue(all(item == text for item in filler.layout_texts))
+
     def test_keeps_ordinary_whitespace_for_qt_to_layout(self):
         """Do not normalize translated whitespace before handing it to Qt."""
         region = PDFReplacementRegion(1, (0, 0, 300, 100), (300, 100))
@@ -399,7 +451,7 @@ class TestQTextParagraphFiller(unittest.TestCase):
             PDFReplacementRegion(1, (0, 0, 90, 18), (100, 100)),
             PDFReplacementRegion(1, (0, 20, 90, 80), (100, 100)),
         ]
-        filler = QTextParagraphFiller(PatchTextOptions(max_font_size=10, min_font_size=4))
+        filler = QTextParagraphFiller(PatchTextOptions(max_font_size=8, min_font_size=8))
         fitted = filler.fit(
             _replacement(
                 "first line second line third line fourth line fifth line sixth line seventh line",
