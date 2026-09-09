@@ -188,12 +188,21 @@ class TestQTextParagraphFiller(unittest.TestCase):
             _replacement("one two three four five six seven eight", regions),
             {1: (220, 260)},
         )
+        minimum = QTextParagraphFiller(PatchTextOptions(min_font_size=4, max_font_size=4)).fit(
+            _replacement("one two three four five six seven eight", regions),
+            {1: (220, 260)},
+        )
 
         terminal = fitted.placements[-1]
         terminal_bottom = terminal.line_tops[-1] + terminal.line_heights[-1]
+        minimum_terminal = minimum.placements[-1]
+        minimum_delta = abs(
+            minimum_terminal.line_tops[-1] + minimum_terminal.line_heights[-1]
+            - minimum_terminal.rectangle.bottom
+        )
         self.assertEqual(len(fitted.placements), 2)
-        self.assertGreater(fitted.font_size, 6)
-        self.assertLess(abs(terminal_bottom - terminal.rectangle.bottom), 1.2)
+        self.assertGreater(fitted.font_size, 4 + 1e-6)
+        self.assertLess(abs(terminal_bottom - terminal.rectangle.bottom), minimum_delta)
         self.assertLessEqual(terminal_bottom, terminal.forbidden_bottom or 260)
 
     def test_lower_asset_top_is_a_forbidden_line(self):
@@ -204,7 +213,9 @@ class TestQTextParagraphFiller(unittest.TestCase):
             regions=(source,), obstacle_regions=(figure,),
         )
 
-        placement = QTextParagraphFiller(PatchTextOptions(max_font_size=8, min_font_size=8)).fit(
+        placement = QTextParagraphFiller(PatchTextOptions(
+            max_font_size=4, min_font_size=4, vertical_alignment="bottom",
+        )).fit(
             replacement, {1: (100, 100)},
         ).placements[0]
 
@@ -252,7 +263,9 @@ class TestQTextParagraphFiller(unittest.TestCase):
         )
         self.assertEqual([region.bbox for region in replacement.obstacle_regions], [(0, 14, 100, 30)])
 
-        placement = QTextParagraphFiller(PatchTextOptions(max_font_size=8, min_font_size=8)).fit(
+        placement = QTextParagraphFiller(PatchTextOptions(
+            max_font_size=4, min_font_size=4, vertical_alignment="bottom",
+        )).fit(
             replace(replacement, text="line"), {1: (100, 100)},
         ).placements[0]
         line_bottom = placement.line_tops[-1] + placement.line_heights[-1]

@@ -7,6 +7,7 @@ review workflow additionally renders its generated output for visual review.
 
 import tempfile
 import unittest
+import unicodedata
 from shutil import which
 from pathlib import Path
 from typing import Any
@@ -110,7 +111,7 @@ class TestPDFPatchSmoke(unittest.TestCase):
         self.assertGreater(fitted.font_size, 12)
         self.assertTrue(all(
             placement.rectangle.top <= top
-            and top + height <= placement.rectangle.bottom
+            and top + height <= (placement.forbidden_bottom or placement.rectangle.bottom)
             for placement in fitted.placements
             for top, height in zip(placement.line_tops, placement.line_heights)
         ))
@@ -171,6 +172,8 @@ class TestPDFPatchSmoke(unittest.TestCase):
 
             reader = pypdf.PdfReader(str(target))
             self.assertEqual(len(reader.pages), 3)
-            output_text = " ".join(reader.pages[0].extract_text().split())
+            output_text = unicodedata.normalize(
+                "NFKC", " ".join(reader.pages[0].extract_text().split()),
+            )
             self.assertIn(translated, output_text)
             self.assertNotIn(source_lines[0], output_text)
