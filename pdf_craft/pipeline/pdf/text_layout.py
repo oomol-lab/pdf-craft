@@ -652,6 +652,19 @@ class QTextParagraphFiller:
         QtCore, QtGui = _qt_modules()
         _ensure_qt_application(QtGui)
         layout = self._create_layout(QtCore, QtGui, text, style, font_size)
+        # Formula spans retain Python indexes so _plan can slice the remaining
+        # text safely.  QTextLine positions, however, are absolute UTF-16
+        # units, so map the spans once for every current remaining-text layout.
+        # This matters for astral characters before a formula.
+        utf16_formula_spans = tuple(
+            _FormulaSpan(
+                _utf16_index_for_python(text, span.start),
+                _utf16_index_for_python(text, span.start + span.length)
+                - _utf16_index_for_python(text, span.start),
+                span.fragment,
+            )
+            for span in formula_spans
+        )
         content_left = rectangle.x + style.horizontal_padding
         line_tops: list[float] = []
         line_text_lefts: list[float] = []
@@ -672,7 +685,7 @@ class QTextParagraphFiller:
                 line_start_index = line.textStart()
                 line_end_index = line_start_index + line.textLength()
                 line_fragments = tuple(
-                    span.fragment for span in formula_spans
+                    span.fragment for span in utf16_formula_spans
                     if line_start_index <= span.start and span.start + span.length <= line_end_index
                 )
                 if line_fragments:
@@ -684,24 +697,24 @@ class QTextParagraphFiller:
                 # atom for the next source rectangle instead.
                 if any(
                     span.start < line_end_index < span.start + span.length
-                    for span in formula_spans
+                    for span in utf16_formula_spans
                 ):
                     break
                 if any(
-                    _x_coordinate(line.cursorToX(span.start - line_start_index))
+                    _x_coordinate(line.cursorToX(span.start))
                     + span.fragment.width > available_width + 1e-6
-                    for span in formula_spans
+                    for span in utf16_formula_spans
                     if line_start_index <= span.start and span.start + span.length <= line_end_index
                 ):
                     break
                 line_formula_spans = tuple(
-                    span for span in formula_spans
+                    span for span in utf16_formula_spans
                     if line_start_index <= span.start and span.start + span.length <= line_end_index
                 )
-                actual_line_width = _x_coordinate(line.cursorToX(line.textLength())) + sum(
+                actual_line_width = _x_coordinate(line.cursorToX(line_end_index)) + sum(
                     span.fragment.width - (
-                        _x_coordinate(line.cursorToX(span.start + span.length - line_start_index))
-                        - _x_coordinate(line.cursorToX(span.start - line_start_index))
+                        _x_coordinate(line.cursorToX(span.start + span.length))
+                        - _x_coordinate(line.cursorToX(span.start))
                     )
                     for span in line_formula_spans
                 )
@@ -712,16 +725,16 @@ class QTextParagraphFiller:
                     *(fragment.height - fragment.descent for fragment in line_fragments),
                 ))
                 line_tops.append(line_baseline - line.ascent())
-                line_start = _x_coordinate(line.cursorToX(0))
-                line_end = _x_coordinate(line.cursorToX(line.textLength()))
+                line_start = _x_coordinate(line.cursorToX(line_start_index))
+                line_end = _x_coordinate(line.cursorToX(line_end_index))
                 line_text_lefts.append(content_left + line_start)
                 line_text_widths.append(line_end - line_start)
                 line_heights.append(line_height)
-                for span in formula_spans:
+                for span in line_formula_spans:
                     if line_start_index <= span.start and span.start + span.length <= line_end_index:
                         formula_draws.append(FormulaDraw(
                             span.fragment.pdf,
-                            content_left + _x_coordinate(line.cursorToX(span.start - line_start_index)),
+                            content_left + _x_coordinate(line.cursorToX(span.start)),
                             line_baseline,
                             span.fragment.descent,
                         ))
@@ -1073,6 +1086,11 @@ def _python_index_for_utf16(text: str, utf16_index: int) -> int:
         if units >= utf16_index:
             return index + 1
     return len(text)
+
+
+def _utf16_index_for_python(text: str, python_index: int) -> int:
+    """Translate a Python character boundary to Qt's UTF-16 text position."""
+    return len(text[:python_index].encode("utf-16-le")) // 2
 
 
 def _x_coordinate(cursor_position) -> float:
