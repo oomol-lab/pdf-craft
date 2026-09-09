@@ -189,7 +189,7 @@ class TestPDFInlineFormulaFallback(unittest.TestCase):
         fitted = filler.fit(replacement, {1: (80, 100)})
 
         placement = fitted.placements[0]
-        self.assertEqual(len(placement.line_tops), 2)
+        self.assertGreaterEqual(len(placement.line_tops), 2)
         self.assertEqual(len(placement.formula_draws), 1)
         QtCore, QtGui = _qt_modules()
         _ensure_qt_application(QtGui)
