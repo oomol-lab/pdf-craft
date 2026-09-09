@@ -40,6 +40,24 @@ class TestPDFPatcher(unittest.TestCase):
     def patcher(self, *args, **kwargs) -> PDFPatcher:
         return PDFPatcher(*args, visual_base_compiler=self._compiler, **kwargs)
 
+    def test_legacy_font_size_remains_an_explicit_maximum(self):
+        patcher = self.patcher(font_size=12)
+
+        self.assertEqual(patcher.options.max_font_size, 12)
+        self.assertEqual(patcher.options.style_for("text", 0).max_font_size, 12)
+        self.assertEqual(patcher.options.style_for("sub_title", 0).max_font_size, 12)
+
+        fitted = QTextParagraphFiller(patcher.options).fit(
+            PDFReplacement(
+                1, (0, 0, 1_000, 500),
+                "A spacious headline must keep the legacy font-size ceiling.",
+                (1_000, 500), layout_ref="sub_title",
+            ),
+            {1: (1_000, 500)},
+        )
+
+        self.assertEqual(fitted.font_size, 12)
+
     def test_automatic_font_scans_all_replacements_before_layout_in_either_input_order(self):
         """A later CJK title must influence the run-wide automatic family."""
         from PySide6 import QtGui

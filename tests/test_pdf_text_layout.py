@@ -65,6 +65,53 @@ class TestQTextParagraphFiller(unittest.TestCase):
 
         self.assertEqual(fitted.font_size, 10.13)
 
+    def test_default_style_fills_a_spacious_single_bbox_beyond_legacy_12pt(self):
+        """An unspecified ceiling is automatic rather than a hidden 12pt cap."""
+        region = PDFReplacementRegion(1, (0, 0, 1_000, 500), (1_000, 500))
+        filler = QTextParagraphFiller(PatchTextOptions())
+
+        fitted = filler.fit(
+            _replacement("This translated paragraph has ample room to grow.", [region]),
+            {1: (1_000, 500)},
+        )
+
+        self.assertGreater(fitted.font_size, 12)
+        placement = fitted.placements[0]
+        self.assertTrue(all(
+            placement.rectangle.top <= top
+            and top + height <= placement.rectangle.bottom
+            for top, height in zip(placement.line_tops, placement.line_heights)
+        ))
+
+    def test_explicit_style_maximum_remains_a_hard_ceiling(self):
+        region = PDFReplacementRegion(1, (0, 0, 1_000, 500), (1_000, 500))
+        filler = QTextParagraphFiller(PatchTextOptions(
+            styles={"text": PatchTextStyle(max_font_size=12, min_font_size=4)},
+        ))
+
+        fitted = filler.fit(
+            _replacement("This translated paragraph has ample room to grow.", [region]),
+            {1: (1_000, 500)},
+        )
+
+        self.assertEqual(fitted.font_size, 12)
+
+    def test_global_maximum_is_a_hard_ceiling_for_an_implicit_headline(self):
+        region = PDFReplacementRegion(1, (0, 0, 1_000, 500), (1_000, 500))
+        options = PatchTextOptions(max_font_size=12, min_font_size=4)
+        filler = QTextParagraphFiller(options)
+
+        fitted = filler.fit(
+            _replacement(
+                "A spacious headline must still respect the configured ceiling.",
+                [region], layout_ref="sub_title",
+            ),
+            {1: (1_000, 500)},
+        )
+
+        self.assertEqual(options.style_for("sub_title", 0).max_font_size, 12)
+        self.assertEqual(fitted.font_size, 12)
+
     def test_converges_within_fixed_float_tolerance_and_keeps_successful_side(self):
         """The float search must not return a failing candidate at a wrap threshold."""
         threshold = 10.13

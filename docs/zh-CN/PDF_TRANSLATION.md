@@ -183,8 +183,8 @@ PDF 输出不接受 `APPEND_BLOCK` 模式，因为 PDF pipeline 不能在原页�
 - 写回只处理 `ref` 为 `text` 或 `sub_title` 的 `ParagraphLayout`。图片、表格以及其他
   布局不会成为可替换项。
 - 正文译文必须在对应 OCR bbox 内排版。默认排版策略会在允许的字号范围内寻找可容纳的
-  字号；最小字号仍无法容纳时抛出 `ValueError`。标题另有最低字号约束：若该约束使其无法
-  装入 bbox，会从 bbox 左侧中点起按自然宽度向右绘制，而不会中断或跳过整份输出。所有 bbox
+  字号；最小字号仍无法容纳时抛出 `ValueError`。标题在最终选定字号仍无法装入 bbox 时，
+  会从 bbox 左侧中点起按自然宽度向右绘制，而不会中断或跳过整份输出。所有 bbox
   会先完成预检，因此正文失败时不会留下部分输出文件。
 - `patch_pdf_with_extraction` 是写回已有 PDF 的操作，不是通用 PDF 排版器，不能只凭提取结果
   生成一个没有原始页面的全新 PDF。
@@ -235,6 +235,8 @@ pipeline.translate(Path("input.pdf"), Path("translated.pdf"), extraction, transl
 并将原因记录在 `patcher.skipped_replacements`。低层 API 适用于愿意自行处理排版策略、
 跳过结果和输出文件生命周期的高级调用方。
 
+当 `PatchTextOptions` 或某个 `PatchTextStyle` 未指定 `max_font_size` 时，文字按 bbox 的可用几何空间自动寻找最大可行字号，而不是采用某个默认视觉字号。搜索会从内部初始探测值开始，持续扩张直到下一字号无法放入来源 bbox；实际结果始终由最大可行字号决定。调用方显式提供数值 `max_font_size`（包括 `12`）时，该数值仍是硬上限。
+
 ### 标题层级与有界布局窗口
 
 PDF 写回把一个 `ParagraphLayout` 视为一段连续文本流，即使它的来源 bbox 跨多个页面也如此。
@@ -245,11 +247,12 @@ bbox 的边界局部溢出。随后每页会按文字等级的字符数加权平
 pdf-craft 不额外施加语言特定断行规则。
 
 在一个可释放的页面窗口中，`text` 正文会先于 `sub_title` 标题完成排版。标题涉及的每一页中，
-已排版正文的最大字号乘以 `headline_min_body_ratio`（默认 `1.2`）后，构成标题字号的下限。
+已排版正文的最大字号乘以 `headline_min_body_ratio`（默认 `1.2`）后，构成标题字号的优先下限。
 
-未配置 `sub_title` 样式时，标题的有效上限会自动扩展到实际正文相对下限，即使该下限来自 `text` 或 `text:<level>` 样式。显式配置的 `sub_title` 或 `sub_title:<level>` 上限仍是硬约束；应将其设为足以容纳所选比例的值。
-某个语义样式可以通过 `minimum_body_font_ratio` 覆盖此比例；如果标题 bbox 仍有空间，常规的
-字号搜索仍会选择大于该下限的字号。
+数值 `max_font_size` 对所有语义样式都是硬上限，包括从 `PatchTextOptions` 隐式继承的 `sub_title`。
+当该上限小于正文相对字号时，上限在第一阶段拟合和第二阶段的页内归一化中都会优先；某个语义样式可以通过
+`minimum_body_font_ratio` 覆盖比例，但不能突破字号上限。如果标题在最终选定的字号仍放不下 bbox 的宽度，
+它会锚定来源框的左边缘并自然向右延伸，而不会失败或被跳过。
 
 ```python
 options = PatchTextOptions(
