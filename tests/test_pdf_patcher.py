@@ -254,7 +254,7 @@ class TestPDFPatcher(unittest.TestCase):
             for placement in fitted.placements:
                 self.assertTrue(all(
                     placement.rectangle.top <= top
-                    and top + height <= placement.rectangle.bottom
+                    and top + height <= (placement.forbidden_bottom or placement.rectangle.bottom)
                     for top, height in zip(placement.line_tops, placement.line_heights)
                 ))
             source_fonts = set(source_page["/Resources"]["/Font"].get_object())

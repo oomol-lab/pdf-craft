@@ -7,6 +7,7 @@ review workflow additionally renders its generated output for visual review.
 
 import tempfile
 import unittest
+import unicodedata
 from shutil import which
 from pathlib import Path
 from typing import Any
@@ -110,7 +111,7 @@ class TestPDFPatchSmoke(unittest.TestCase):
         self.assertGreater(fitted.font_size, 12)
         self.assertTrue(all(
             placement.rectangle.top <= top
-            and top + height <= placement.rectangle.bottom
+            and top + height <= (placement.forbidden_bottom or placement.rectangle.bottom)
             for placement in fitted.placements
             for top, height in zip(placement.line_tops, placement.line_heights)
         ))
@@ -138,3 +139,41 @@ class TestPDFPatchSmoke(unittest.TestCase):
                 pypdf.PdfReader(str(target)).pages[0].extract_text().split()
             )
             self.assertIn("The population was only 11.8%", output_text)
+
+    @unittest.skipUnless(which("gs"), "requires local Ghostscript")
+    def test_citation_fixture_replacement_is_rendered_and_searchable(self):
+        """Keep a real citation-page replacement in the PDF text layer."""
+        source = _ASSET_ROOT / "citation.pdf"
+        page_pixels = (4662, 6827)
+        source_lines = (
+            "时他把弗洛伊德的俄狄浦斯情结重新表述为父性隐喻，其中父亲禁止孩子对",
+            "母亲的欲望和母亲对孩子的欲望，并且确认母亲的缺失或欲望是与父亲相关",
+        )
+        translated = "Citation fixture replacement remains selectable and searchable PDF text."
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            target = root / "citation-translated.pdf"
+            extraction_root = root / "citation.pcex"
+            extraction = make_extraction(
+                extraction_root, page_pixel_sizes={1: page_pixels}, render_dpi=720,
+            )
+            chapter = Chapter(None, -1, [ParagraphLayout("text", 0, [
+                BlockLayout(1, 1, (576, 904, 4184, 1022), [source_lines[0]]),
+                BlockLayout(1, 2, (568, 1096, 4184, 1214), [source_lines[1]]),
+            ])])
+            (extraction_root / "chapters/chapter_1.xml").write_text(
+                '<?xml version="1.0" encoding="UTF-8"?>\n'
+                + tostring(encode(chapter), encoding="unicode")
+            )
+
+            PDFTranslationPipeline(patcher=PDFPatcher(
+                options=PatchTextOptions(max_font_size=8, min_font_size=8),
+            )).translate(source, target, extraction, lambda _text: translated)
+
+            reader = pypdf.PdfReader(str(target))
+            self.assertEqual(len(reader.pages), 3)
+            output_text = unicodedata.normalize(
+                "NFKC", " ".join(reader.pages[0].extract_text().split()),
+            )
+            self.assertIn(translated, output_text)
+            self.assertNotIn(source_lines[0], output_text)

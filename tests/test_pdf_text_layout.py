@@ -1,4 +1,5 @@
 import unittest
+from dataclasses import replace
 
 # pylint: disable=no-member,c-extension-no-member
 
@@ -7,7 +8,13 @@ from pdf_craft.pipeline.pdf import (
     QTextParagraphFiller, RegionTextPlacement,
 )
 from pdf_craft.pipeline.pdf.geometry import PageRectangle
-from pdf_craft.pipeline.pdf.text_layout import _choose_automatic_font
+from pdf_craft.pipeline.pdf.pipeline import PDFTranslationPipeline
+from pdf_craft.extractor.chapter.chapter import (
+    AssetLayout, BlockLayout, Chapter, ParagraphLayout, Reference,
+)
+from pdf_craft.pipeline.pdf.text_layout import (
+    _LAYOUT_SCALE, _choose_automatic_font, _closest_to_aim,
+)
 
 
 def _replacement(text: str, regions, *, layout_ref: str = "text", layout_level: int = 0):
@@ -132,6 +139,206 @@ class TestQTextParagraphFiller(unittest.TestCase):
         self.assertLess(threshold - fitted.font_size, 0.05)
         self.assertNotEqual(fitted.font_size * 4, round(fitted.font_size * 4))
 
+    def test_aim_line_can_be_crossed_when_that_is_closer_than_staying_above_it(self):
+        """A source bottom is scored as a target, never treated as a hard edge."""
+        class AimFiller(QTextParagraphFiller):
+            def _plan(self, text, replacement, page_sizes, style, font_size):
+                del replacement, page_sizes
+                if font_size > 7:
+                    return None
+                bottom = 8 if font_size <= 5 else 10.5
+                placement = RegionTextPlacement(
+                    1, PageRectangle(0, 0, 100, 10), text,
+                    (0,), (20,), (bottom - 2,), (2,), font_size, style,
+                    assigned_text=text, forbidden_bottom=12,
+                )
+                return FittedParagraph(text, font_size, (placement,))
+
+        region = PDFReplacementRegion(1, (0, 0, 100, 10), (100, 100))
+        fitted = AimFiller(PatchTextOptions(max_font_size=10, min_font_size=4)).fit(
+            _replacement("target", [region]), {1: (100, 100)},
+        )
+
+        placement = fitted.placements[0]
+        self.assertGreater(placement.line_tops[-1] + placement.line_heights[-1], 10)
+        self.assertLessEqual(placement.line_tops[-1] + placement.line_heights[-1], 12)
+
+    def test_aim_selection_prioritizes_the_actual_terminal_bbox(self):
+        """An exact terminal aim wins before a candidate's extra source box."""
+        style = PatchTextStyle(max_font_size=12, min_font_size=4)
+
+        def placement(bottom: float) -> RegionTextPlacement:
+            return RegionTextPlacement(
+                1, PageRectangle(0, 0, 100, 10), "line",
+                (0,), (20,), (bottom - 2,), (2,), 8, style, assigned_text="line",
+            )
+
+        extra_bbox = FittedParagraph("line", 8, (placement(2), placement(18)))
+        exact_terminal_bbox = FittedParagraph("line", 8, (placement(10),))
+
+        self.assertIs(_closest_to_aim((extra_bbox, exact_terminal_bbox)), exact_terminal_bbox)
+
+    def test_multi_bbox_aim_search_covers_qt_wrap_discontinuities(self):
+        """A changed Qt text flow may expose a better aim between end points."""
+        regions = [
+            PDFReplacementRegion(1, (0, 0, 70, 10), (220, 260)),
+            PDFReplacementRegion(1, (0, 20, 70, 40), (220, 260)),
+        ]
+        fitted = QTextParagraphFiller(PatchTextOptions(min_font_size=4, max_font_size=18)).fit(
+            _replacement("one two three four five six seven eight", regions),
+            {1: (220, 260)},
+        )
+        minimum = QTextParagraphFiller(PatchTextOptions(min_font_size=4, max_font_size=4)).fit(
+            _replacement("one two three four five six seven eight", regions),
+            {1: (220, 260)},
+        )
+
+        terminal = fitted.placements[-1]
+        terminal_bottom = terminal.line_tops[-1] + terminal.line_heights[-1]
+        minimum_terminal = minimum.placements[-1]
+        minimum_delta = abs(
+            minimum_terminal.line_tops[-1] + minimum_terminal.line_heights[-1]
+            - minimum_terminal.rectangle.bottom
+        )
+        self.assertEqual(len(fitted.placements), 2)
+        self.assertGreater(fitted.font_size, 4 + 1e-6)
+        self.assertLess(abs(terminal_bottom - terminal.rectangle.bottom), minimum_delta)
+        self.assertLessEqual(terminal_bottom, terminal.forbidden_bottom or 260)
+
+    def test_lower_asset_top_is_a_forbidden_line(self):
+        source = PDFReplacementRegion(1, (0, 0, 100, 10), (100, 100))
+        figure = PDFReplacementRegion(1, (0, 14, 100, 30), (100, 100))
+        replacement = PDFReplacement(
+            1, source.bbox, "line", source.page_pixel_size,
+            regions=(source,), obstacle_regions=(figure,),
+        )
+
+        placement = QTextParagraphFiller(PatchTextOptions(
+            max_font_size=4, min_font_size=4, vertical_alignment="bottom",
+        )).fit(
+            replacement, {1: (100, 100)},
+        ).placements[0]
+
+        line_bottom = placement.line_tops[-1] + placement.line_heights[-1]
+        self.assertEqual(placement.forbidden_bottom, 14)
+        self.assertGreater(line_bottom, 10)
+        self.assertLessEqual(line_bottom, 14)
+
+    def test_pdf_pipeline_attaches_asset_geometry_as_text_flow_obstacles(self):
+        chapter = Chapter(
+            id=1,
+            level=0,
+            layouts=[
+                ParagraphLayout("text", 0, [BlockLayout(1, 0, (0, 0, 100, 10), ["body"])]),
+                AssetLayout(1, "image", (0, 14, 100, 30), [], [], [], None),
+            ],
+        )
+
+        replacements = list(PDFTranslationPipeline()._iter_chapter_replacements(  # pylint: disable=protected-access
+            chapter, lambda text: text, {1: (100, 100)}, 300, structured=True,
+        ))
+
+        self.assertEqual(len(replacements), 1)
+        self.assertEqual(replacements[0].obstacle_regions[0].bbox, (0, 14, 100, 30))
+
+    def test_reference_footnote_stops_text_after_its_source_bottom(self):
+        """Reference layouts are obstacles even though they are not chapter body layouts."""
+        footnote = ParagraphLayout(
+            "text", 0, [BlockLayout(1, 1, (0, 14, 100, 30), ["footnote"])],
+        )
+        reference = Reference(1, 1, "①", [footnote])
+        chapter = Chapter(
+            id=1,
+            level=0,
+            layouts=[
+                ParagraphLayout(
+                    "text", 0,
+                    [BlockLayout(1, 0, (0, 0, 100, 10), ["body", reference])],
+                ),
+            ],
+        )
+
+        replacement, = PDFTranslationPipeline()._iter_chapter_replacements(  # pylint: disable=protected-access
+            chapter, lambda text: text, {1: (100, 100)}, 300, structured=True,
+        )
+        self.assertEqual([region.bbox for region in replacement.obstacle_regions], [(0, 14, 100, 30)])
+
+        placement = QTextParagraphFiller(PatchTextOptions(
+            max_font_size=4, min_font_size=4, vertical_alignment="bottom",
+        )).fit(
+            replace(replacement, text="line"), {1: (100, 100)},
+        ).placements[0]
+        line_bottom = placement.line_tops[-1] + placement.line_heights[-1]
+        self.assertGreater(line_bottom, 10)
+        self.assertEqual(placement.forbidden_bottom, 14)
+        self.assertLessEqual(line_bottom, 14)
+
+    def test_high_precision_planning_and_pdf_draw_share_scaled_qt_coordinates(self):
+        """Planning and the real PDF overlay use one unrounded Qt coordinate space."""
+        import tempfile
+        from pathlib import Path
+
+        import pypdf
+
+        class RecordingFiller(QTextParagraphFiller):
+            layout_coordinates: list[tuple[float, float]] = []
+
+            def __init__(self):
+                super().__init__(PatchTextOptions(max_font_size=4.12, min_font_size=4.12))
+                type(self).layout_coordinates = []
+
+            @staticmethod
+            def _create_layout(QtCore, QtGui, text, style, font_size, scale=1.0):
+                layout = QTextParagraphFiller._create_layout(
+                    QtCore, QtGui, text, style, font_size, scale,
+                )
+                RecordingFiller.layout_coordinates.append((scale, layout.font().pointSizeF()))
+                return layout
+
+        filler = RecordingFiller()
+        region = PDFReplacementRegion(1, (0, 0, 160, 60), (160, 60))
+        fitted = filler.fit(_replacement("precision overlay", [region]), {1: (160, 60)})
+        with tempfile.TemporaryDirectory() as temp_dir:
+            output = Path(temp_dir) / "precision.pdf"
+            filler.draw_pdf_overlay(output, (160, 60), fitted.placements)
+            output_text = " ".join(pypdf.PdfReader(str(output)).pages[0].extract_text().split())
+            self.assertIn("precision overlay", output_text)
+
+        # The final call comes from ``draw_pdf_overlay``; all planning calls
+        # and the actual PDF drawing call use the same scaled Qt font metric.
+        self.assertGreaterEqual(len(filler.layout_coordinates), 2)
+        self.assertTrue(all(
+            scale == _LAYOUT_SCALE and point_size == 4.12 * _LAYOUT_SCALE
+            for scale, point_size in filler.layout_coordinates
+        ))
+
+    def test_headline_overflow_refuses_to_enter_a_lower_obstacle(self):
+        source = PDFReplacementRegion(1, (0, 0, 100, 10), (100, 100))
+        footnote = PDFReplacementRegion(1, (0, 14, 100, 30), (100, 100))
+        replacement = PDFReplacement(
+            1, source.bbox, "A long headline", source.page_pixel_size,
+            regions=(source,), obstacle_regions=(footnote,), layout_ref="sub_title",
+        )
+        filler = QTextParagraphFiller(PatchTextOptions(styles={
+            "sub_title": PatchTextStyle(max_font_size=20, min_font_size=20),
+        }))
+
+        with self.assertRaisesRegex(ValueError, "lower obstacle or page boundary"):
+            filler.fit_headline(replacement, {1: (100, 100)}, 20)
+
+    def test_frozen_overflow_headline_keeps_its_forbidden_line(self):
+        style = PatchTextStyle(max_font_size=20, min_font_size=4)
+        original = RegionTextPlacement(
+            1, PageRectangle(0, 0, 100, 10), "A headline",
+            (0,), (60,), (1,), (8,), 8, style,
+            allows_horizontal_overflow=True, assigned_text="A headline", forbidden_bottom=14,
+        )
+        reflowed = QTextParagraphFiller(PatchTextOptions(styles={"sub_title": style})).fit_frozen_region(
+            original, 20,
+        )
+
+        self.assertEqual(reflowed, original)
+
     def test_flows_a_paragraph_through_multiple_rectangles_once(self):
         regions = [
             PDFReplacementRegion(1, (0, 0, 58, 20), (100, 100)),
@@ -194,7 +401,10 @@ class TestQTextParagraphFiller(unittest.TestCase):
         ]
         filler = QTextParagraphFiller(PatchTextOptions(max_font_size=10, min_font_size=4))
         fitted = filler.fit(
-            _replacement("first line second line third line", regions), {1: (100, 100)},
+            _replacement(
+                "first line second line third line fourth line fifth line sixth line seventh line",
+                regions,
+            ), {1: (100, 100)},
         )
         self.assertGreaterEqual(len(fitted.placements), 2)
 
@@ -368,9 +578,12 @@ class TestQTextParagraphFiller(unittest.TestCase):
             multi_line.line_heights[0] * 1.6,
         )
 
-    def test_fails_only_when_even_minimum_size_cannot_fit_any_full_line(self):
+    def test_page_bottom_is_the_last_forbidden_line_when_no_lower_bbox_exists(self):
         regions = [PDFReplacementRegion(1, (0, 0, 20, 5), (100, 100))]
         filler = QTextParagraphFiller(PatchTextOptions(max_font_size=8, min_font_size=8))
 
-        with self.assertRaisesRegex(ValueError, "cannot fit paragraph source regions"):
-            filler.fit(_replacement("too much text", regions), {1: (100, 100)})
+        fitted = filler.fit(_replacement("too much text", regions), {1: (100, 100)})
+
+        placement = fitted.placements[0]
+        self.assertGreater(placement.line_tops[-1] + placement.line_heights[-1], 5)
+        self.assertLessEqual(placement.line_tops[-1] + placement.line_heights[-1], 100)
