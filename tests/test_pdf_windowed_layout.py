@@ -1,10 +1,13 @@
 import unittest
+from dataclasses import replace
 from pathlib import Path
 
 from pdf_craft.pipeline.pdf import (
     PDFReplacement, PDFReplacementRegion,
-    PatchTextOptions, PatchTextStyle, QTextParagraphFiller, WindowedParagraphPlanner,
+    FittedParagraph, PatchTextOptions, PatchTextStyle, QTextParagraphFiller,
+    RegionTextPlacement, WindowedParagraphPlanner,
 )
+from pdf_craft.pipeline.pdf.geometry import PageRectangle
 
 
 def _replacement(
@@ -29,7 +32,78 @@ def _line_region(page_index: int) -> PDFReplacementRegion:
     return PDFReplacementRegion(page_index, (0, 0, 240, 32), (240, 100))
 
 
+def _placement(text: str, font_size: float, *, lines: int = 1) -> RegionTextPlacement:
+    style = PatchTextStyle(max_font_size=24, min_font_size=4)
+    return RegionTextPlacement(
+        1, PageRectangle(0, 0, 200, 80), text,
+        (0.0,) * lines, (20.0,) * lines,
+        tuple(float(index * 12) for index in range(lines)), (12.0,) * lines,
+        font_size, style, assigned_text=text,
+    )
+
+
 class TestWindowedParagraphPlanner(unittest.TestCase):
+    def test_second_pass_uses_page_level_weighted_target_without_moving_text(self):
+        options = PatchTextOptions()
+        filler = QTextParagraphFiller(options)
+        planner = WindowedParagraphPlanner(filler, {1: (200, 80)}, options)
+        short = _replacement("aa", [_region(1)])
+        long = _replacement("bbbbbbbb", [_region(1)])
+        short_placement = _placement("aa", 8)
+        long_placement = _placement("bbbbbbbb", 12)
+        observed: list[tuple[str, float]] = []
+
+        def record(placement, target, minimum=None):
+            del minimum
+            observed.append((placement.assigned_text, target))
+            return replace(placement, font_size=target)
+
+        filler.fit_frozen_region = record  # type: ignore[method-assign]
+        normalized = planner._normalize_window_placements([  # pylint: disable=protected-access
+            (short, FittedParagraph(short.text, 8, (short_placement,))),
+            (long, FittedParagraph(long.text, 12, (long_placement,))),
+        ])
+
+        # (2 * 8 + 8 * 12) / 10: the actual run assigned to each bbox is the
+        # weight, not the complete paragraph's still-remaining text.
+        self.assertEqual(observed, [("aa", 11.2), ("bbbbbbbb", 11.2)])
+        self.assertEqual(normalized[0][1].placements[0].assigned_text, "aa")
+        self.assertEqual(normalized[1][1].placements[0].assigned_text, "bbbbbbbb")
+
+    def test_second_pass_is_local_and_allows_one_line_to_escape_tight_ocr_height(self):
+        region = PDFReplacementRegion(1, (0, 0, 160, 14), (160, 14))
+        filler = QTextParagraphFiller(PatchTextOptions(max_font_size=20, min_font_size=4))
+        fitted = filler.fit(_replacement("one short line", [region]), {1: (160, 14)})
+        original = fitted.placements[0]
+        self.assertEqual(len(original.line_tops), 1)
+
+        reflowed = filler.fit_frozen_region(original, 14)
+
+        self.assertEqual(reflowed.assigned_text, original.assigned_text)
+        self.assertEqual(len(reflowed.line_tops), 1)
+        self.assertEqual(reflowed.font_size, 14)
+        self.assertGreater(
+            reflowed.line_tops[0] + reflowed.line_heights[0], reflowed.rectangle.bottom,
+        )
+
+    def test_second_pass_keeps_multi_line_runs_inside_their_bbox(self):
+        region = PDFReplacementRegion(1, (0, 0, 80, 30), (80, 30))
+        filler = QTextParagraphFiller(PatchTextOptions(max_font_size=20, min_font_size=4))
+        fitted = filler.fit(
+            _replacement("one two three four five six", [region]), {1: (80, 30)},
+        )
+        original = fitted.placements[0]
+        self.assertGreaterEqual(len(original.line_tops), 2)
+
+        reflowed = filler.fit_frozen_region(original, 20)
+
+        self.assertEqual(reflowed.assigned_text, original.assigned_text)
+        self.assertEqual(len(reflowed.line_tops), len(original.line_tops))
+        self.assertLessEqual(
+            reflowed.line_tops[-1] + reflowed.line_heights[-1],
+            reflowed.rectangle.bottom + 1e-6,
+        )
+
     def test_default_style_reserves_headline_font_size_headroom(self):
         options = PatchTextOptions()
         planner = WindowedParagraphPlanner(

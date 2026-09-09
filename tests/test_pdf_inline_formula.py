@@ -108,6 +108,32 @@ class TestPDFInlineFormulaFallback(unittest.TestCase):
         self.assertEqual(len(draws), 1)
         self.assertEqual(draws[0].pdf, b"%PDF-1.4")
 
+    def test_second_pass_rerenders_formula_atom_at_its_local_font_size(self):
+        class Renderer:
+            available = True
+
+            @staticmethod
+            def render(latex, point_size):
+                return FormulaFragment(
+                    f"%PDF-{latex}-{point_size}".encode(), point_size * 2, point_size, 2,
+                )
+
+        region = PDFReplacementRegion(1, (0, 0, 200, 100), (200, 100))
+        replacement = PDFReplacement(
+            1, region.bbox, "before \ufffc after", region.page_pixel_size,
+            regions=(region,), inline_formulas=(PDFInlineFormula("x^2"),),
+        )
+        filler = QTextParagraphFiller(PatchTextOptions(max_font_size=20, min_font_size=4))
+        filler._formula_renderer = cast(Any, Renderer())  # pylint: disable=protected-access
+        initial = filler.fit(replacement, {1: (200, 100)}).placements[0]
+
+        reflowed = filler.fit_frozen_region(initial, 12)
+
+        self.assertEqual(reflowed.font_size, 12)
+        self.assertEqual(len(reflowed.formula_draws), 1)
+        self.assertEqual(reflowed.formula_draws[0].latex, "x^2")
+        self.assertEqual(reflowed.formula_draws[0].pdf, b"%PDF-x^2-12")
+
     def test_one_formula_failure_does_not_hide_a_later_formula(self):
         class Renderer:
             available = True
