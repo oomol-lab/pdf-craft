@@ -198,7 +198,10 @@ class TestWindowedParagraphPlanner(unittest.TestCase):
             QTextParagraphFiller(options), {1: (200, 100)}, options,
         )
         headline = _replacement("Heading", [_region(1)], layout_ref="sub_title")
-        body = _replacement("Body", [_region(1)])
+        body = _replacement(
+            "Several body words keep the default body fit safely below the page boundary.",
+            [_region(1)],
+        )
 
         window = next(planner.plan([headline, body]))
 

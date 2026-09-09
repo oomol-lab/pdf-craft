@@ -12,7 +12,9 @@ from pdf_craft.pipeline.pdf.pipeline import PDFTranslationPipeline
 from pdf_craft.extractor.chapter.chapter import (
     AssetLayout, BlockLayout, Chapter, ParagraphLayout, Reference,
 )
-from pdf_craft.pipeline.pdf.text_layout import _LAYOUT_SCALE, _choose_automatic_font
+from pdf_craft.pipeline.pdf.text_layout import (
+    _LAYOUT_SCALE, _choose_automatic_font, _closest_to_aim,
+)
 
 
 def _replacement(text: str, regions, *, layout_ref: str = "text", layout_level: int = 0):
@@ -161,6 +163,21 @@ class TestQTextParagraphFiller(unittest.TestCase):
         self.assertGreater(placement.line_tops[-1] + placement.line_heights[-1], 10)
         self.assertLessEqual(placement.line_tops[-1] + placement.line_heights[-1], 12)
 
+    def test_aim_selection_prioritizes_the_actual_terminal_bbox(self):
+        """An exact terminal aim wins before a candidate's extra source box."""
+        style = PatchTextStyle(max_font_size=12, min_font_size=4)
+
+        def placement(bottom: float) -> RegionTextPlacement:
+            return RegionTextPlacement(
+                1, PageRectangle(0, 0, 100, 10), "line",
+                (0,), (20,), (bottom - 2,), (2,), 8, style, assigned_text="line",
+            )
+
+        extra_bbox = FittedParagraph("line", 8, (placement(2), placement(18)))
+        exact_terminal_bbox = FittedParagraph("line", 8, (placement(10),))
+
+        self.assertIs(_closest_to_aim((extra_bbox, exact_terminal_bbox)), exact_terminal_bbox)
+
     def test_lower_asset_top_is_a_forbidden_line(self):
         source = PDFReplacementRegion(1, (0, 0, 100, 10), (100, 100))
         figure = PDFReplacementRegion(1, (0, 14, 100, 30), (100, 100))
@@ -225,16 +242,71 @@ class TestQTextParagraphFiller(unittest.TestCase):
         self.assertEqual(placement.forbidden_bottom, 14)
         self.assertLessEqual(line_bottom, 14)
 
-    def test_high_precision_layout_uses_scaled_qt_font_coordinates(self):
-        """The layout font, rather than a post-layout heuristic, receives precision."""
-        from PySide6 import QtCore, QtGui
+    def test_high_precision_planning_and_pdf_draw_share_scaled_qt_coordinates(self):
+        """Planning and the real PDF overlay use one unrounded Qt coordinate space."""
+        import tempfile
+        from pathlib import Path
 
-        filler = QTextParagraphFiller(PatchTextOptions())
-        layout = filler._create_layout(  # pylint: disable=protected-access
-            QtCore, QtGui, "precision", PatchTextStyle(), 4.12, _LAYOUT_SCALE,
+        import pypdf
+
+        class RecordingFiller(QTextParagraphFiller):
+            layout_coordinates: list[tuple[float, float]] = []
+
+            def __init__(self):
+                super().__init__(PatchTextOptions(max_font_size=4.12, min_font_size=4.12))
+                type(self).layout_coordinates = []
+
+            @staticmethod
+            def _create_layout(QtCore, QtGui, text, style, font_size, scale=1.0):
+                layout = QTextParagraphFiller._create_layout(
+                    QtCore, QtGui, text, style, font_size, scale,
+                )
+                RecordingFiller.layout_coordinates.append((scale, layout.font().pointSizeF()))
+                return layout
+
+        filler = RecordingFiller()
+        region = PDFReplacementRegion(1, (0, 0, 160, 60), (160, 60))
+        fitted = filler.fit(_replacement("precision overlay", [region]), {1: (160, 60)})
+        with tempfile.TemporaryDirectory() as temp_dir:
+            output = Path(temp_dir) / "precision.pdf"
+            filler.draw_pdf_overlay(output, (160, 60), fitted.placements)
+            output_text = " ".join(pypdf.PdfReader(str(output)).pages[0].extract_text().split())
+            self.assertIn("precision overlay", output_text)
+
+        # The final call comes from ``draw_pdf_overlay``; all planning calls
+        # and the actual PDF drawing call use the same scaled Qt font metric.
+        self.assertGreaterEqual(len(filler.layout_coordinates), 2)
+        self.assertTrue(all(
+            scale == _LAYOUT_SCALE and point_size == 4.12 * _LAYOUT_SCALE
+            for scale, point_size in filler.layout_coordinates
+        ))
+
+    def test_headline_overflow_refuses_to_enter_a_lower_obstacle(self):
+        source = PDFReplacementRegion(1, (0, 0, 100, 10), (100, 100))
+        footnote = PDFReplacementRegion(1, (0, 14, 100, 30), (100, 100))
+        replacement = PDFReplacement(
+            1, source.bbox, "A long headline", source.page_pixel_size,
+            regions=(source,), obstacle_regions=(footnote,), layout_ref="sub_title",
+        )
+        filler = QTextParagraphFiller(PatchTextOptions(styles={
+            "sub_title": PatchTextStyle(max_font_size=20, min_font_size=20),
+        }))
+
+        with self.assertRaisesRegex(ValueError, "lower obstacle or page boundary"):
+            filler.fit_headline(replacement, {1: (100, 100)}, 20)
+
+    def test_frozen_overflow_headline_keeps_its_forbidden_line(self):
+        style = PatchTextStyle(max_font_size=20, min_font_size=4)
+        original = RegionTextPlacement(
+            1, PageRectangle(0, 0, 100, 10), "A headline",
+            (0,), (60,), (1,), (8,), 8, style,
+            allows_horizontal_overflow=True, assigned_text="A headline", forbidden_bottom=14,
+        )
+        reflowed = QTextParagraphFiller(PatchTextOptions(styles={"sub_title": style})).fit_frozen_region(
+            original, 20,
         )
 
-        self.assertAlmostEqual(layout.font().pointSizeF(), 4.12 * _LAYOUT_SCALE)
+        self.assertEqual(reflowed, original)
 
     def test_flows_a_paragraph_through_multiple_rectangles_once(self):
         regions = [
@@ -298,7 +370,10 @@ class TestQTextParagraphFiller(unittest.TestCase):
         ]
         filler = QTextParagraphFiller(PatchTextOptions(max_font_size=10, min_font_size=4))
         fitted = filler.fit(
-            _replacement("first line second line third line", regions), {1: (100, 100)},
+            _replacement(
+                "first line second line third line fourth line fifth line sixth line seventh line",
+                regions,
+            ), {1: (100, 100)},
         )
         self.assertGreaterEqual(len(fitted.placements), 2)
 

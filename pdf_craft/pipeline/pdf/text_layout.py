@@ -612,10 +612,18 @@ class QTextParagraphFiller:
         """
         try:
             return self.fit(replacement, page_sizes, minimum_font_size)
-        except ValueError:
-            return self._plan_headline_overflow(
-                replacement, page_sizes, minimum_font_size,
-            )
+        except ValueError as fit_error:
+            previous_obstacles = self._layout_obstacles
+            if not self._uses_window_obstacles:
+                self._layout_obstacles = _replacement_obstacles(replacement, page_sizes)
+            try:
+                return self._plan_headline_overflow(
+                    replacement, page_sizes, minimum_font_size,
+                )
+            except ValueError as overflow_error:
+                raise overflow_error from fit_error
+            finally:
+                self._layout_obstacles = previous_obstacles
 
     def _resolve_font(self, style: PatchTextStyle, text: str) -> PatchTextStyle:
         """Resolve an automatic family once, without rejecting explicit names."""
@@ -745,6 +753,11 @@ class QTextParagraphFiller:
         region = replacement.source_regions()[0]
         page_width, page_height = page_sizes[region.page_index]
         rectangle = region_in_page_points(region, page_width, page_height)
+        forbidden_bottom = _forbidden_bottom(
+            rectangle,
+            self._layout_obstacles.get(region.page_index, ()),
+            page_height,
+        )
         # The overflow rule is intentionally left aligned to the physical box
         # edge and vertically centered on that edge, independent of the
         # ordinary paragraph's padding/alignment settings.
@@ -772,18 +785,24 @@ class QTextParagraphFiller:
             layout.endLayout()
         if line.textLength() <= 0:
             raise ValueError("Qt could not lay out headline text")
+        line_top = rectangle.top + (rectangle.height - line_height / _LAYOUT_SCALE) / 2
+        if line_top + line_height / _LAYOUT_SCALE > forbidden_bottom + 1e-6:
+            raise ValueError(
+                "headline overflow cannot fit before the lower obstacle or page boundary"
+            )
         placement = RegionTextPlacement(
             region.page_index,
             rectangle,
             text,
             (rectangle.x + line_start / _LAYOUT_SCALE,),
             ((line_end - line_start) / _LAYOUT_SCALE,),
-            (rectangle.top + (rectangle.height - line_height / _LAYOUT_SCALE) / 2,),
+            (line_top,),
             (line_height / _LAYOUT_SCALE,),
             effective_minimum,
             overflow_style,
             allows_horizontal_overflow=True,
             assigned_text=text,
+            forbidden_bottom=forbidden_bottom,
         )
         return FittedParagraph(text, effective_minimum, (placement,))
 
@@ -1099,13 +1118,24 @@ class QTextParagraphFiller:
         finally:
             layout.endLayout()
         rectangle = placement.rectangle
+        line_top = rectangle.top + (rectangle.height - line_height / _LAYOUT_SCALE) / 2
+        if (
+            placement.forbidden_bottom is not None
+            and line_top + line_height / _LAYOUT_SCALE > placement.forbidden_bottom + 1e-6
+        ):
+            if (
+                placement.line_tops[-1] + placement.line_heights[-1]
+                > placement.forbidden_bottom + 1e-6
+            ):
+                raise ValueError("frozen headline overflow already exceeds its forbidden line")
+            return placement
         return RegionTextPlacement(
             placement.page_index,
             rectangle,
             text,
             (rectangle.x + line_start / _LAYOUT_SCALE,),
             ((line_end - line_start) / _LAYOUT_SCALE,),
-            (rectangle.top + (rectangle.height - line_height / _LAYOUT_SCALE) / 2,),
+            (line_top,),
             (line_height / _LAYOUT_SCALE,),
             font_size,
             placement.style,
@@ -1394,13 +1424,13 @@ def _terminal_aim_delta(paragraph: FittedParagraph) -> float:
     return placement.line_tops[-1] + placement.line_heights[-1] - placement.rectangle.bottom
 
 
-def _aim_score(paragraph: FittedParagraph) -> tuple[int, float, float, float]:
-    """Prefer using all source regions, then terminal aim proximity."""
+def _aim_score(paragraph: FittedParagraph) -> tuple[float, float, int, float]:
+    """Prefer the actual terminal region's aim before secondary tie-breakers."""
     distances = tuple(
         abs(placement.line_tops[-1] + placement.line_heights[-1] - placement.rectangle.bottom)
         for placement in paragraph.placements
     )
-    return -len(paragraph.placements), distances[-1], sum(distances), -paragraph.font_size
+    return distances[-1], sum(distances), -len(paragraph.placements), -paragraph.font_size
 
 
 def _closest_to_aim(paragraphs: Iterable[FittedParagraph]) -> FittedParagraph:
