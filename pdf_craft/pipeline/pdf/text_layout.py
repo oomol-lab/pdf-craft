@@ -25,6 +25,12 @@ _MAX_FONT_SIZE_SEARCH_ITERATIONS = 16
 _AUTOMATIC_FONT_SIZE_INITIAL = 12.0
 _MAX_AUTOMATIC_FONT_SIZE_BRACKETING_ITERATIONS = 16
 _HEADLINE_OVERFLOW_LINE_WIDTH = 1_000_000.0
+# QTextLayout otherwise measures against the GUI screen's low-DPI font grid.
+# Keep all layout geometry in a larger private coordinate system, then scale
+# it back at PDF draw time.  This preserves Qt's shaping and break decisions
+# while making a 0.05pt search a real typographic search rather than a screen
+# pixel search.
+_LAYOUT_SCALE = 8.0
 _CJK_FONT_CANDIDATES = (
     "PingFang SC",
     "Noto Sans CJK SC",
@@ -154,6 +160,10 @@ class RegionTextPlacement:
     # pass.  ``remaining_text`` is retained for compatibility, but a later
     # local optimisation must never reflow text into a neighbouring region.
     assigned_text: str = ""
+    # ``rectangle.bottom`` is a visual target, not the hard edge.  This is the
+    # first lower overlapping source region (or the page bottom) that text
+    # must not enter.
+    forbidden_bottom: float | None = None
 
 
 @dataclass(frozen=True)
@@ -170,6 +180,9 @@ class FormulaDraw:
     latex: str = ""
     proxy_start: int = 0
     proxy_length: int = 0
+    # Formula PDFs remain in ordinary PDF points; ``scale`` keeps the merger
+    # compatible with any future non-unit fragment coordinate system.
+    scale: float = 1.0
 
 
 @dataclass(frozen=True)
@@ -418,6 +431,9 @@ class QTextParagraphFiller:
         self._auto_font_resolution: FontResolution | None = None
         self._font_resolutions: dict[str | None, FontResolution] = {}
         self._formula_renderer = InlineFormulaPDFRenderer()
+        self._layout_obstacles: Mapping[int, tuple[PageRectangle, ...]] = {}
+        self._uses_window_obstacles = False
+        self._active_forbidden_bottom: float | None = None
 
     @property
     def font_resolutions(self) -> tuple[FontResolution, ...]:
@@ -428,6 +444,13 @@ class QTextParagraphFiller:
         """Start a new patch run without retaining its previous font choice."""
         self._auto_font_resolution = None
         self._font_resolutions.clear()
+
+    def set_layout_obstacles(
+        self, obstacles: Mapping[int, tuple[PageRectangle, ...]],
+    ) -> None:
+        """Set the current window's immutable source-geometry obstacle map."""
+        self._layout_obstacles = obstacles
+        self._uses_window_obstacles = True
 
     def prepare_automatic_font(self, contains_cjk: bool) -> None:
         """Fix this run's automatic family before its first paragraph is fitted.
@@ -457,11 +480,12 @@ class QTextParagraphFiller:
         page_sizes: dict[int, tuple[float, float]],
         minimum_font_size: float | None = None,
     ) -> FittedParagraph:
-        """Return the largest verified paragraph size fitting every region.
+        """Return a verified paragraph whose terminal line approaches its aim.
 
-        QTextLayout accepts floating-point point sizes.  Keep the successful
-        side of a bounded binary search so a discontinuity at a wrapping
-        threshold cannot produce an overflowing result.
+        A source bbox bottom is an aim line.  A lower overlapping layout box
+        (or the page bottom) is the actual forbidden line.  Qt continues to
+        own text shaping and line breaking; this method only searches sizes
+        that fully fit before the forbidden line.
         """
         # Preserve the translated character stream verbatim.  QTextLayout is
         # responsible for interpreting its whitespace and native line-break
@@ -482,34 +506,73 @@ class QTextParagraphFiller:
                 f"requested minimum font size {effective_minimum:.2f} exceeds style maximum "
                 f"{configured_maximum:.2f}"
             )
-        lower = effective_minimum
-        best = self._plan(text, replacement, page_sizes, style, lower)
-        if best is None:
-            raise ValueError(
-                "replacement text cannot fit paragraph source regions at minimum font size "
-                f"{effective_minimum}"
-            )
+        previous_obstacles = self._layout_obstacles
+        if not self._uses_window_obstacles:
+            self._layout_obstacles = _replacement_obstacles(replacement, page_sizes)
+        try:
+            lower = effective_minimum
+            minimum_plan = self._plan(text, replacement, page_sizes, style, lower)
+            if minimum_plan is None:
+                raise ValueError(
+                    "replacement text cannot fit paragraph source regions at minimum font size "
+                    f"{effective_minimum}"
+                )
 
-        upper = configured_maximum
-        if upper is None:
-            upper = self._find_automatic_font_size_upper_bound(
-                text, replacement, page_sizes, style, lower,
-            )
-        fitted_at_upper = self._plan(text, replacement, page_sizes, style, upper)
-        if fitted_at_upper is not None:
-            return fitted_at_upper
-
-        for _ in range(_MAX_FONT_SIZE_SEARCH_ITERATIONS):
-            if upper - lower <= _FONT_SIZE_TOLERANCE:
-                break
-            middle = (lower + upper) / 2
-            fitted = self._plan(text, replacement, page_sizes, style, middle)
-            if fitted is None:
-                upper = middle
+            upper = configured_maximum
+            if upper is None:
+                upper = self._find_automatic_font_size_upper_bound(
+                    text, replacement, page_sizes, style, lower,
+                )
+            maximum_plan = self._plan(text, replacement, page_sizes, style, upper)
+            if maximum_plan is not None:
+                best = maximum_plan
+                feasible_lower = upper
             else:
-                best = fitted
-                lower = middle
-        return best
+                best = minimum_plan
+                feasible_lower = lower
+                infeasible_upper = upper
+                for _ in range(_MAX_FONT_SIZE_SEARCH_ITERATIONS):
+                    if infeasible_upper - feasible_lower <= _FONT_SIZE_TOLERANCE:
+                        break
+                    middle = (feasible_lower + infeasible_upper) / 2
+                    fitted = self._plan(text, replacement, page_sizes, style, middle)
+                    if fitted is None:
+                        infeasible_upper = middle
+                    else:
+                        best = fitted
+                        feasible_lower = middle
+
+            # Test doubles and external subclasses may report a successful
+            # paragraph without physical placements.  They have no aim line,
+            # so retain the historical successful-side binary-search result.
+            if not minimum_plan.placements or not best.placements:
+                return best
+
+            # The largest feasible size is not necessarily closest to a bbox
+            # bottom: crossing the aim line can happen before the forbidden
+            # line.  Search the terminal-line crossing and compare its two
+            # sides instead of treating the feasibility boundary as the goal.
+            if _terminal_aim_delta(minimum_plan) <= 0 <= _terminal_aim_delta(best):
+                aim_lower, aim_upper = lower, feasible_lower
+                before, after = minimum_plan, best
+                for _ in range(_MAX_FONT_SIZE_SEARCH_ITERATIONS):
+                    if aim_upper - aim_lower <= _FONT_SIZE_TOLERANCE:
+                        break
+                    middle = (aim_lower + aim_upper) / 2
+                    fitted = self._plan(text, replacement, page_sizes, style, middle)
+                    if fitted is None:
+                        aim_upper = middle
+                        continue
+                    if _terminal_aim_delta(fitted) <= 0:
+                        before = fitted
+                        aim_lower = middle
+                    else:
+                        after = fitted
+                        aim_upper = middle
+                return _closest_to_aim((before, after, best))
+            return _closest_to_aim((minimum_plan, best))
+        finally:
+            self._layout_obstacles = previous_obstacles
 
     def _find_automatic_font_size_upper_bound(
         self,
@@ -634,9 +697,19 @@ class QTextParagraphFiller:
                 break
             page_width, page_height = page_sizes[region.page_index]
             rectangle = region_in_page_points(region, page_width, page_height)
-            placement, consumed = self._fit_region(
-                region.page_index, rectangle, remaining, style, font_size, remaining_spans,
+            forbidden_bottom = _forbidden_bottom(
+                rectangle,
+                self._layout_obstacles.get(region.page_index, ()),
+                page_height,
             )
+            previous_forbidden_bottom = self._active_forbidden_bottom
+            self._active_forbidden_bottom = forbidden_bottom
+            try:
+                placement, consumed = self._fit_region(
+                    region.page_index, rectangle, remaining, style, font_size, remaining_spans,
+                )
+            finally:
+                self._active_forbidden_bottom = previous_forbidden_bottom
             if placement is None:
                 continue
             placements.append(placement)
@@ -683,13 +756,15 @@ class QTextParagraphFiller:
         )
         QtCore, QtGui = _qt_modules()
         _ensure_qt_application(QtGui)
-        layout = self._create_layout(QtCore, QtGui, text, overflow_style, effective_minimum)
+        layout = self._create_layout(
+            QtCore, QtGui, text, overflow_style, effective_minimum, _LAYOUT_SCALE,
+        )
         layout.beginLayout()
         try:
             line = layout.createLine()
             if not line.isValid():
                 raise ValueError("Qt could not create a headline line")
-            line.setLineWidth(_HEADLINE_OVERFLOW_LINE_WIDTH)
+            line.setLineWidth(_HEADLINE_OVERFLOW_LINE_WIDTH * _LAYOUT_SCALE)
             line_height = line.height()
             line_start = _x_coordinate(line.cursorToX(0))
             line_end = _x_coordinate(line.cursorToX(line.textLength()))
@@ -701,10 +776,10 @@ class QTextParagraphFiller:
             region.page_index,
             rectangle,
             text,
-            (rectangle.x + line_start,),
-            (line_end - line_start,),
-            (rectangle.top + (rectangle.height - line_height) / 2,),
-            (line_height,),
+            (rectangle.x + line_start / _LAYOUT_SCALE,),
+            ((line_end - line_start) / _LAYOUT_SCALE,),
+            (rectangle.top + (rectangle.height - line_height / _LAYOUT_SCALE) / 2,),
+            (line_height / _LAYOUT_SCALE,),
             effective_minimum,
             overflow_style,
             allows_horizontal_overflow=True,
@@ -722,15 +797,18 @@ class QTextParagraphFiller:
         formula_spans: tuple[_FormulaSpan, ...] = (),
         ignore_height: bool = False,
     ) -> tuple[RegionTextPlacement | None, int]:
-        available_width = rectangle.width - 2 * style.horizontal_padding
-        available_top = rectangle.top + style.vertical_padding
-        available_bottom = rectangle.bottom - style.vertical_padding
+        scaled_rectangle = _scale_rectangle(rectangle)
+        available_width = scaled_rectangle.width - 2 * style.horizontal_padding * _LAYOUT_SCALE
+        available_top = scaled_rectangle.top + style.vertical_padding * _LAYOUT_SCALE
+        forbidden_bottom = self._active_forbidden_bottom
+        hard_bottom = forbidden_bottom if forbidden_bottom is not None else rectangle.bottom
+        available_bottom = hard_bottom * _LAYOUT_SCALE - style.vertical_padding * _LAYOUT_SCALE
         if available_width <= 0 or available_bottom <= available_top:
             return None, 0
 
         QtCore, QtGui = _qt_modules()
         _ensure_qt_application(QtGui)
-        layout = self._create_layout(QtCore, QtGui, text, style, font_size)
+        layout = self._create_layout(QtCore, QtGui, text, style, font_size, _LAYOUT_SCALE)
         # Formula spans retain Python indexes so _plan can slice the remaining
         # text safely.  QTextLine positions, however, are absolute UTF-16
         # units, so map the spans once for every current remaining-text layout.
@@ -745,7 +823,7 @@ class QTextParagraphFiller:
             )
             for span in formula_spans
         )
-        content_left = rectangle.x + style.horizontal_padding
+        content_left = scaled_rectangle.x + style.horizontal_padding * _LAYOUT_SCALE
         line_tops: list[float] = []
         line_text_lefts: list[float] = []
         line_text_widths: list[float] = []
@@ -843,33 +921,38 @@ class QTextParagraphFiller:
             page_index,
             rectangle,
             text,
-            tuple(line_text_lefts),
-            tuple(line_text_widths),
-            tuple(top + shift for top in line_tops),
-            tuple(line_heights),
+            tuple(value / _LAYOUT_SCALE for value in line_text_lefts),
+            tuple(value / _LAYOUT_SCALE for value in line_text_widths),
+            tuple((top + shift) / _LAYOUT_SCALE for top in line_tops),
+            tuple(value / _LAYOUT_SCALE for value in line_heights),
             font_size,
             style,
             formula_draws=tuple(
                 FormulaDraw(
-                    draw.pdf, draw.x, draw.baseline + shift, draw.descent,
+                    draw.pdf, draw.x / _LAYOUT_SCALE,
+                    (draw.baseline + shift) / _LAYOUT_SCALE,
+                    draw.descent / _LAYOUT_SCALE,
                     draw.latex, draw.proxy_start, draw.proxy_length,
                 )
                 for draw in formula_draws
             ),
             assigned_text=text[:consumed],
+            forbidden_bottom=forbidden_bottom,
         ), consumed
 
     def _draw_placement(self, QtCore, QtGui, painter, placement: RegionTextPlacement) -> None:
         layout = self._create_layout(
             QtCore, QtGui, placement.assigned_text or placement.remaining_text,
-            placement.style, placement.font_size,
+            placement.style, placement.font_size, _LAYOUT_SCALE,
         )
         if placement.allows_horizontal_overflow:
-            available_width = _HEADLINE_OVERFLOW_LINE_WIDTH
-            x = placement.rectangle.x
+            available_width = _HEADLINE_OVERFLOW_LINE_WIDTH * _LAYOUT_SCALE
+            x = placement.rectangle.x * _LAYOUT_SCALE
         else:
-            available_width = placement.rectangle.width - 2 * placement.style.horizontal_padding
-            x = placement.rectangle.x + placement.style.horizontal_padding
+            available_width = (
+                placement.rectangle.width - 2 * placement.style.horizontal_padding
+            ) * _LAYOUT_SCALE
+            x = (placement.rectangle.x + placement.style.horizontal_padding) * _LAYOUT_SCALE
         layout.beginLayout()
         try:
             for top in placement.line_tops:
@@ -877,10 +960,15 @@ class QTextParagraphFiller:
                 if not line.isValid():
                     raise RuntimeError("Qt layout changed while drawing a planned paragraph")
                 line.setLineWidth(available_width)
-                line.setPosition(QtCore.QPointF(x, top))
+                line.setPosition(QtCore.QPointF(x, top * _LAYOUT_SCALE))
         finally:
             layout.endLayout()
-        layout.draw(painter, QtCore.QPointF(0, 0))
+        painter.save()
+        painter.scale(1 / _LAYOUT_SCALE, 1 / _LAYOUT_SCALE)
+        try:
+            layout.draw(painter, QtCore.QPointF(0, 0))
+        finally:
+            painter.restore()
 
     def fit_frozen_region(
         self,
@@ -918,15 +1006,15 @@ class QTextParagraphFiller:
             )
             if local_text is None:
                 return None
-            fitted, consumed = self._fit_region(
-                placement.page_index,
-                placement.rectangle,
-                local_text,
-                style,
-                size,
-                formula_spans,
-                ignore_height=expected_lines == 1,
-            )
+            previous_forbidden_bottom = self._active_forbidden_bottom
+            self._active_forbidden_bottom = placement.forbidden_bottom
+            try:
+                fitted, consumed = self._fit_region(
+                    placement.page_index, placement.rectangle, local_text, style, size, formula_spans,
+                    ignore_height=expected_lines == 1,
+                )
+            finally:
+                self._active_forbidden_bottom = previous_forbidden_bottom
             if (
                 fitted is None
                 or consumed != len(local_text)
@@ -985,13 +1073,15 @@ class QTextParagraphFiller:
             return placement
         QtCore, QtGui = _qt_modules()
         _ensure_qt_application(QtGui)
-        layout = self._create_layout(QtCore, QtGui, text, placement.style, font_size)
+        layout = self._create_layout(
+            QtCore, QtGui, text, placement.style, font_size, _LAYOUT_SCALE,
+        )
         layout.beginLayout()
         try:
             line = layout.createLine()
             if not line.isValid():
                 return placement
-            line.setLineWidth(_HEADLINE_OVERFLOW_LINE_WIDTH)
+            line.setLineWidth(_HEADLINE_OVERFLOW_LINE_WIDTH * _LAYOUT_SCALE)
             if line.textLength() != _utf16_index_for_python(text, len(text)):
                 return placement
             line_height = line.height()
@@ -1004,14 +1094,15 @@ class QTextParagraphFiller:
             placement.page_index,
             rectangle,
             text,
-            (rectangle.x + line_start,),
-            (line_end - line_start,),
-            (rectangle.top + (rectangle.height - line_height) / 2,),
-            (line_height,),
+            (rectangle.x + line_start / _LAYOUT_SCALE,),
+            ((line_end - line_start) / _LAYOUT_SCALE,),
+            (rectangle.top + (rectangle.height - line_height / _LAYOUT_SCALE) / 2,),
+            (line_height / _LAYOUT_SCALE,),
             font_size,
             placement.style,
             allows_horizontal_overflow=True,
             assigned_text=text,
+            forbidden_bottom=placement.forbidden_bottom,
         )
 
     def _formula_spans_for_frozen_region(
@@ -1039,12 +1130,16 @@ class QTextParagraphFiller:
         del QtCore
         _ensure_qt_application(QtGui)
         font = QtGui.QFont(placement.style.font_name or "")
-        font.setPointSizeF(font_size)
+        font.setPointSizeF(font_size * _LAYOUT_SCALE)
         space_width = float(QtGui.QFontMetricsF(font).horizontalAdvance("\u00a0"))
         if space_width <= 0:
             return None, ()
-        maximum_width = placement.rectangle.width - 2 * placement.style.horizontal_padding
-        maximum_height = placement.rectangle.height - 2 * placement.style.vertical_padding
+        maximum_width = (
+            placement.rectangle.width - 2 * placement.style.horizontal_padding
+        ) * _LAYOUT_SCALE
+        maximum_height = (
+            placement.rectangle.height - 2 * placement.style.vertical_padding
+        ) * _LAYOUT_SCALE
         parts: list[str] = []
         spans: list[_FormulaSpan] = []
         cursor = 0
@@ -1054,7 +1149,8 @@ class QTextParagraphFiller:
             end = start + draw.proxy_length
             if start < cursor or end > len(text) or text[start:end] != "\u00a0" * draw.proxy_length:
                 return None, ()
-            fragment = self._formula_renderer.render(draw.latex, font_size)
+            raw_fragment = self._formula_renderer.render(draw.latex, font_size)
+            fragment = _scale_formula_fragment(raw_fragment) if raw_fragment is not None else None
             if (
                 fragment is None
                 or fragment.width > maximum_width
@@ -1073,14 +1169,16 @@ class QTextParagraphFiller:
         return "".join(parts), tuple(spans)
 
     @staticmethod
-    def _create_layout(QtCore, QtGui, text: str, style: PatchTextStyle, font_size: float):
+    def _create_layout(
+        QtCore, QtGui, text: str, style: PatchTextStyle, font_size: float, scale: float = 1.0,
+    ):
         families = tuple(
             family for family in (style.font_name, *style.fallback_fonts) if family
         )
         font = QtGui.QFont(families[0]) if families else QtGui.QFont()
         if len(families) > 1:
             font.setFamilies(list(families))
-        font.setPointSizeF(font_size)
+        font.setPointSizeF(font_size * scale)
         font.setWeight(QtGui.QFont.Weight(style.font_weight))
         option = QtGui.QTextOption()
         option.setAlignment({
@@ -1148,6 +1246,8 @@ class QTextParagraphFiller:
         A fragment that cannot be rendered is immediately substituted with
         Unicode text instead, so one bad TeX expression never fails a page.
         """
+        maximum_width *= _LAYOUT_SCALE
+        maximum_height *= _LAYOUT_SCALE
         if not replacement.inline_formulas:
             return text, ()
         if text.count("\ufffc") != len(replacement.inline_formulas):
@@ -1158,7 +1258,7 @@ class QTextParagraphFiller:
         del QtCore
         _ensure_qt_application(QtGui)
         font = QtGui.QFont(style.font_name or "")
-        font.setPointSizeF(font_size)
+        font.setPointSizeF(font_size * _LAYOUT_SCALE)
         space_width = float(QtGui.QFontMetricsF(font).horizontalAdvance("\u00a0"))
         parts: list[str] = []
         spans: list[_FormulaSpan] = []
@@ -1174,7 +1274,8 @@ class QTextParagraphFiller:
                 continue
             formula = replacement.inline_formulas[formula_index]
             formula_index += 1
-            fragment = self._formula_renderer.render(formula.latex, font_size)
+            raw_fragment = self._formula_renderer.render(formula.latex, font_size)
+            fragment = _scale_formula_fragment(raw_fragment) if raw_fragment is not None else None
             if fragment is None or fragment.width > maximum_width or fragment.height > maximum_height:
                 fallback = latex_to_plain_text(formula.latex)
                 parts.append(fallback)
@@ -1203,6 +1304,98 @@ def _replace_formula_markers(text: str, formulas) -> str:
         latex_to_plain_text(next(iterator).latex) if character == "\ufffc" else character
         for character in text
     )
+
+
+def _scale_rectangle(rectangle: PageRectangle) -> PageRectangle:
+    """Map public PDF-point geometry into Qt's private high-DPI space."""
+    return PageRectangle(
+        rectangle.x * _LAYOUT_SCALE,
+        rectangle.top * _LAYOUT_SCALE,
+        rectangle.width * _LAYOUT_SCALE,
+        rectangle.height * _LAYOUT_SCALE,
+    )
+
+
+def _scale_formula_fragment(fragment: FormulaFragment) -> FormulaFragment:
+    """Use an ordinary point-sized formula PDF in scaled Qt measurements."""
+    return FormulaFragment(
+        fragment.pdf,
+        fragment.width * _LAYOUT_SCALE,
+        fragment.height * _LAYOUT_SCALE,
+        fragment.descent * _LAYOUT_SCALE,
+    )
+
+
+def _forbidden_bottom(
+    rectangle: PageRectangle,
+    obstacles: Iterable[PageRectangle],
+    page_height: float,
+) -> float:
+    """Return the first lower obstacle sharing horizontal space with ``rectangle``.
+
+    The source bbox bottom remains an aim only.  An obstacle must start at or
+    below that aim and overlap the bbox's horizontal projection; boxes above
+    or merely touching an edge cannot restrict the downward flow.  The page
+    edge is always the final forbidden line.
+    """
+    right = rectangle.x + rectangle.width
+    candidates = [page_height]
+    for obstacle in obstacles:
+        obstacle_right = obstacle.x + obstacle.width
+        if obstacle.top + 1e-6 < rectangle.bottom:
+            continue
+        if obstacle.x >= right - 1e-6 or obstacle_right <= rectangle.x + 1e-6:
+            continue
+        candidates.append(obstacle.top)
+    return min(candidates)
+
+
+def _replacement_obstacles(
+    replacement: PDFReplacement,
+    page_sizes: Mapping[int, tuple[float, float]],
+) -> Mapping[int, tuple[PageRectangle, ...]]:
+    """Build the direct-fit fallback obstacle map from known source geometry."""
+    grouped: dict[int, list[PageRectangle]] = {}
+    for region in (*replacement.source_regions(), *replacement.obstacle_regions):
+        page_width, page_height = page_sizes[region.page_index]
+        grouped.setdefault(region.page_index, []).append(
+            region_in_page_points(region, page_width, page_height),
+        )
+    return {page_index: tuple(rectangles) for page_index, rectangles in grouped.items()}
+
+
+def _window_obstacles(
+    replacements: Iterable[PDFReplacement],
+    page_sizes: Mapping[int, tuple[float, float]],
+) -> Mapping[int, tuple[PageRectangle, ...]]:
+    """Collect text, asset and formula geometry for one live layout window."""
+    grouped: dict[int, list[PageRectangle]] = {}
+    for replacement in replacements:
+        for region in (*replacement.source_regions(), *replacement.obstacle_regions):
+            page_width, page_height = page_sizes[region.page_index]
+            grouped.setdefault(region.page_index, []).append(
+                region_in_page_points(region, page_width, page_height),
+            )
+    return {page_index: tuple(rectangles) for page_index, rectangles in grouped.items()}
+
+
+def _terminal_aim_delta(paragraph: FittedParagraph) -> float:
+    """Signed terminal line distance from its source bbox aim line."""
+    placement = paragraph.placements[-1]
+    return placement.line_tops[-1] + placement.line_heights[-1] - placement.rectangle.bottom
+
+
+def _aim_score(paragraph: FittedParagraph) -> tuple[int, float, float, float]:
+    """Prefer using all source regions, then terminal aim proximity."""
+    distances = tuple(
+        abs(placement.line_tops[-1] + placement.line_heights[-1] - placement.rectangle.bottom)
+        for placement in paragraph.placements
+    )
+    return -len(paragraph.placements), distances[-1], sum(distances), -paragraph.font_size
+
+
+def _closest_to_aim(paragraphs: Iterable[FittedParagraph]) -> FittedParagraph:
+    return min(paragraphs, key=_aim_score)
 
 
 class WindowedParagraphPlanner:
@@ -1260,6 +1453,10 @@ class WindowedParagraphPlanner:
     ) -> FillWindowPlan:
         body = [replacement for replacement in replacements if not _is_headline(replacement)]
         headlines = [replacement for replacement in replacements if _is_headline(replacement)]
+        obstacles = _window_obstacles(replacements, self._page_sizes)
+        set_layout_obstacles = getattr(self._filler, "set_layout_obstacles", None)
+        if callable(set_layout_obstacles):
+            set_layout_obstacles(obstacles)
         summaries: list[_PlannedParagraphSummary] = []
         body_font_sizes: dict[int, float] = {}
         storage = _WindowPlanStorage()
@@ -1268,7 +1465,7 @@ class WindowedParagraphPlanner:
             body_replacements: dict[int, PDFReplacement] = {}
             body_statistics: dict[tuple[int, str, int], list[float]] = {}
             for replacement in body:
-                paragraph = self._fit_or_skip(replacement)
+                paragraph = self._fit_or_skip(replacement, obstacles)
                 if paragraph is None:
                     continue
                 paragraph_index = len(summaries)
@@ -1391,8 +1588,13 @@ class WindowedParagraphPlanner:
                     )
         return font_sizes
 
-    def _fit_or_skip(self, replacement: PDFReplacement) -> FittedParagraph | None:
+    def _fit_or_skip(
+        self,
+        replacement: PDFReplacement,
+        obstacles: Mapping[int, tuple[PageRectangle, ...]],
+    ) -> FittedParagraph | None:
         try:
+            del obstacles
             return self._filler.fit(replacement, self._page_sizes)
         except ValueError as error:
             if self._options.overflow == "skip":

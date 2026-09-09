@@ -4,7 +4,7 @@ from collections.abc import Callable, Iterator
 from pathlib import Path
 from typing import cast
 
-from pdf_craft.extractor.chapter.chapter import Chapter, ParagraphLayout, encode
+from pdf_craft.extractor.chapter.chapter import AssetLayout, Chapter, ParagraphLayout, encode
 from pdf_craft.extractor.chapter.chapter import InlineExpression, Reference
 from pdf_craft.extractor.chapter.reader import create_chapters_reader
 from pdf_craft.markdown.paragraph import HTMLTag
@@ -155,6 +155,13 @@ class PDFTranslationPipeline:
         self, chapter: Chapter, transformer, pages,
         render_dpi: int, structured: bool = False,
     ) -> Iterator[PDFReplacement]:
+        obstacle_regions = tuple(
+            PDFReplacementRegion(
+                layout.page_index, layout.det, pages[layout.page_index], render_dpi,
+            )
+            for layout in chapter.layouts
+            if isinstance(layout, AssetLayout) and layout.page_index in pages
+        )
         for layout in chapter.layouts:
             if not isinstance(layout, ParagraphLayout) or layout.ref not in {"text", "sub_title"}:
                 continue
@@ -195,6 +202,7 @@ class PDFTranslationPipeline:
                 reading_order=first.reading_order, regions=tuple(regions),
                 layout_ref=layout.ref, layout_level=layout.level,
                 inline_formulas=inline_formulas,
+                obstacle_regions=obstacle_regions,
             )
 
 

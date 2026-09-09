@@ -332,7 +332,7 @@ class TestPDFInlineFormulaFallback(unittest.TestCase):
         QtCore, QtGui = _qt_modules()
         _ensure_qt_application(QtGui)
         layout = filler._create_layout(  # pylint: disable=protected-access
-            QtCore, QtGui, placement.remaining_text, placement.style, placement.font_size,
+            QtCore, QtGui, placement.remaining_text, placement.style, placement.font_size, 8,
         )
         marker_index = placement.remaining_text.index("\u00a0")
         marker_utf16_index = _utf16_index_for_python(placement.remaining_text, marker_index)
@@ -343,11 +343,13 @@ class TestPDFInlineFormulaFallback(unittest.TestCase):
                 line = layout.createLine()
                 if not line.isValid():
                     break
-                line.setLineWidth(placement.rectangle.width - 2 * placement.style.horizontal_padding)
+                line.setLineWidth(
+                    (placement.rectangle.width - 2 * placement.style.horizontal_padding) * 8,
+                )
                 if line.textStart() <= marker_utf16_index <= line.textStart() + line.textLength():
                     expected_x = (
                         placement.rectangle.x + placement.style.horizontal_padding
-                        + _x_coordinate(line.cursorToX(marker_utf16_index))
+                        + _x_coordinate(line.cursorToX(marker_utf16_index)) / 8
                     )
                     break
         finally:

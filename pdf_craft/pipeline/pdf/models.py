@@ -46,6 +46,11 @@ class PDFReplacement:
     layout_ref: str = "text"
     layout_level: int = 0
     inline_formulas: tuple[PDFInlineFormula, ...] = ()
+    # Non-text source geometry (figures, tables, display formulas, …) which
+    # must remain clear when the text fitter uses the gap below a text bbox.
+    # Text regions are collected globally by the window planner, so callers
+    # only need to attach obstacles that are not themselves replacements.
+    obstacle_regions: tuple[PDFReplacementRegion, ...] = ()
 
     def source_regions(self) -> tuple[PDFReplacementRegion, ...]:
         """Return explicit paragraph regions or the legacy single region."""

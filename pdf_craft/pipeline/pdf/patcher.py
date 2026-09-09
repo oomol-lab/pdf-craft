@@ -225,7 +225,9 @@ class PDFPatcher:
                             fragment = pypdf.PdfReader(BytesIO(formula.pdf)).pages[0]
                             page.merge_transformed_page(
                                 fragment,
-                                pypdf.Transformation().translate(
+                                pypdf.Transformation().scale(
+                                    1 / formula.scale, 1 / formula.scale,
+                                ).translate(
                                     formula.x, page_height - formula.baseline - formula.descent,
                                 ),
                             )

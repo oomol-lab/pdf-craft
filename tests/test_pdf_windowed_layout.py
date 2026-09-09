@@ -266,6 +266,11 @@ class TestWindowedParagraphPlanner(unittest.TestCase):
         larger_second_page_body = _replacement(
             "extra", [_line_region(2)], layout_level=1,
         )
+        # A figure below the first source box is a real forbidden line.  The
+        # page below it remains available through the paragraph's second box.
+        blocker = PDFReplacementRegion(1, (0, 34, 240, 96), (240, 100))
+        body = replace(body, obstacle_regions=(blocker,))
+        headline = replace(headline, obstacle_regions=(blocker,))
 
         window = next(planner.plan([headline, body, larger_second_page_body]))
 
