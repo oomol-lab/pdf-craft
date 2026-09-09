@@ -140,9 +140,9 @@ class TestWindowedParagraphPlanner(unittest.TestCase):
             window.close()
 
     def test_second_pass_is_local_and_allows_one_line_to_escape_tight_ocr_height(self):
-        region = PDFReplacementRegion(1, (0, 0, 160, 14), (160, 14))
+        region = PDFReplacementRegion(1, (0, 0, 160, 14), (160, 60))
         filler = QTextParagraphFiller(PatchTextOptions(max_font_size=20, min_font_size=4))
-        fitted = filler.fit(_replacement("one short line", [region]), {1: (160, 14)})
+        fitted = filler.fit(_replacement("one short line", [region]), {1: (160, 60)})
         original = fitted.placements[0]
         self.assertEqual(len(original.line_tops), 1)
 
@@ -153,6 +153,25 @@ class TestWindowedParagraphPlanner(unittest.TestCase):
         self.assertEqual(reflowed.font_size, 14)
         self.assertGreater(
             reflowed.line_tops[0] + reflowed.line_heights[0], reflowed.rectangle.bottom,
+        )
+
+    def test_second_pass_one_line_respects_a_lower_forbidden_line(self):
+        """Ignoring a tight OCR bbox must not allow overlap with a footnote."""
+        style = PatchTextStyle(max_font_size=12, min_font_size=4)
+        original = RegionTextPlacement(
+            1, PageRectangle(0, 0, 100, 10), "one short line",
+            (0,), (50,), (0,), (8,), 8, style,
+            assigned_text="one short line", forbidden_bottom=14,
+        )
+        filler = QTextParagraphFiller(PatchTextOptions(styles={"text": style}))
+
+        reflowed = filler.fit_frozen_region(original, 12)
+
+        self.assertEqual(reflowed.assigned_text, original.assigned_text)
+        self.assertEqual(len(reflowed.line_tops), 1)
+        self.assertLess(reflowed.font_size, 12)
+        self.assertLessEqual(
+            reflowed.line_tops[-1] + reflowed.line_heights[-1], 14 + 1e-6,
         )
 
     def test_second_pass_keeps_multi_line_runs_inside_their_bbox(self):

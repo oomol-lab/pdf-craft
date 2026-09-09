@@ -848,7 +848,14 @@ class QTextParagraphFiller:
                 )
                 if line_fragments:
                     line_height = max(line_height, *(fragment.height for fragment in line_fragments))
-                if not ignore_height and y + line_height > available_bottom + 1e-6:
+                # A frozen one-line OCR region may ignore its tight source
+                # bbox, but never the actual lower obstacle/page boundary.
+                # ``forbidden_bottom is None`` is the legacy direct-call
+                # spelling for “no independently computed forbidden line”.
+                if (
+                    (not ignore_height or forbidden_bottom is not None)
+                    and y + line_height > available_bottom + 1e-6
+                ):
                     break
                 # QTextLayout may wrap anywhere.  Never accept a line that
                 # cuts through one formula's width proxy: leave the complete
@@ -982,7 +989,9 @@ class QTextParagraphFiller:
         second pass may only reflow the text it consumed itself, and only while
         preserving its exact line count.  One-line OCR boxes intentionally do
         not constrain vertical glyph bounds: their height is often just the
-        tight ink box rather than a typographic line box.
+        tight ink box rather than a typographic line box.  The independently
+        computed forbidden line (a lower obstacle or page bottom) remains a
+        hard constraint in every case.
         """
         text = placement.assigned_text or placement.remaining_text
         if not text:
