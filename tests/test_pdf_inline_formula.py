@@ -189,6 +189,100 @@ class TestPDFInlineFormulaFallback(unittest.TestCase):
 
         self.assertEqual(len(fitted.placements[0].formula_draws), 1)
 
+    def test_formula_trailing_space_stays_with_the_atom_across_regions(self):
+        """A vector formula must not strand following text at a region edge.
+
+        This is the minimal cross-bbox counterpart of the translated PDF
+        regression: a formula is followed by ordinary source whitespace and
+        then Chinese punctuation.  The test does not teach Qt a punctuation
+        rule; it verifies that the formula's own separator is represented as
+        part of that indivisible inline atom.
+        """
+        class Renderer:
+            available = True
+
+            @staticmethod
+            def render(latex, point_size):
+                del latex, point_size
+                return FormulaFragment(b"%PDF-1.4", 28, 10, 2)
+
+        raw_text = "甲乙\ufffc ，后续文字"
+        broad_region = PDFReplacementRegion(1, (0, 0, 280, 80), (300, 100))
+        replacement = PDFReplacement(
+            1, broad_region.bbox, raw_text, broad_region.page_pixel_size,
+            regions=(broad_region,), inline_formulas=(PDFInlineFormula("q"),),
+        )
+        filler = QTextParagraphFiller(PatchTextOptions(max_font_size=10, min_font_size=10))
+        filler._formula_renderer = cast(Any, Renderer())  # pylint: disable=protected-access
+        style = filler._resolve_font(  # pylint: disable=protected-access
+            filler.options.style_for("text", 0), raw_text,
+        )
+        layout_text, spans = filler._formula_layout_text(  # pylint: disable=protected-access
+            raw_text, replacement, style, 10, 278, 78,
+        )
+        self.assertEqual(len(spans), 1)
+        span = spans[0]
+        self.assertEqual(layout_text[span.start + span.length], "\u00a0")
+        self.assertEqual(replacement.text, raw_text)
+
+        # Find a real Qt width where the old proxy would leave the comma at a
+        # new-line start but the atom-bound separator makes Qt move the whole
+        # formula.  The search avoids hard-coding platform font metrics.
+        unbound = (
+            layout_text[:span.start + span.length]
+            + " "
+            + layout_text[span.start + span.length + 1:]
+        )
+        QtCore, QtGui = _qt_modules()
+        _ensure_qt_application(QtGui)
+
+        def lines_for(text, width):
+            layout = filler._create_layout(  # pylint: disable=protected-access
+                QtCore, QtGui, text, style, 10,
+            )
+            lines = []
+            layout.beginLayout()
+            try:
+                while True:
+                    line = layout.createLine()
+                    if not line.isValid():
+                        break
+                    line.setLineWidth(width)
+                    start = line.textStart()
+                    lines.append(text[start:start + line.textLength()])
+            finally:
+                layout.endLayout()
+            return lines
+
+        width = None
+        for candidate in range(20, 160):
+            unbound_lines = lines_for(unbound, candidate)
+            bound_lines = lines_for(layout_text, candidate)
+            if (
+                len(unbound_lines) >= 2
+                and len(bound_lines) >= 2
+                and unbound_lines[1].startswith("，")
+                and not bound_lines[1].startswith("，")
+                and "\u00a0" * span.length in bound_lines[1]
+            ):
+                width = candidate
+                break
+        self.assertIsNotNone(width)
+        assert width is not None
+        first = PDFReplacementRegion(1, (0, 0, width, 22), (300, 100))
+        second = PDFReplacementRegion(1, (0, 25, 280, 90), (300, 100))
+        flowed = PDFReplacement(
+            1, first.bbox, raw_text, first.page_pixel_size,
+            regions=(first, second), inline_formulas=(PDFInlineFormula("q"),),
+        )
+
+        fitted = filler.fit(flowed, {1: (300, 100)})
+
+        self.assertEqual(len(fitted.placements), 2)
+        self.assertEqual(fitted.placements[0].formula_draws, ())
+        self.assertEqual(len(fitted.placements[1].formula_draws), 1)
+        self.assertFalse(fitted.placements[1].assigned_text.startswith("，"))
+
     def test_formula_draw_uses_the_wrapped_line_cursor_position(self):
         class Renderer:
             available = True

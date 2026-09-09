@@ -1126,6 +1126,12 @@ class QTextParagraphFiller:
         The proxy is an atom-sized NBSP run: Qt includes it in ordinary line
         breaking and alignment, while the composer later replaces its visual
         area with the transparent vector fragment at the measured baseline.
+        A literal space immediately after a rendered formula is made
+        non-breaking in this private layout representation.  It retains the
+        original space's visual advance, but belongs to the formula atom so
+        Qt cannot leave the formula at a source-region edge and start the
+        next line with the following text.  This is deliberately formula
+        structure, not a language- or punctuation-specific line-break rule.
         A fragment that cannot be rendered is immediately substituted with
         Unicode text instead, so one bad TeX expression never fails a page.
         """
@@ -1145,10 +1151,13 @@ class QTextParagraphFiller:
         spans: list[_FormulaSpan] = []
         formula_index = 0
         offset = 0
-        for character in text:
+        index = 0
+        while index < len(text):
+            character = text[index]
             if character != "\ufffc":
                 parts.append(character)
                 offset += 1
+                index += 1
                 continue
             formula = replacement.inline_formulas[formula_index]
             formula_index += 1
@@ -1157,11 +1166,20 @@ class QTextParagraphFiller:
                 fallback = latex_to_plain_text(formula.latex)
                 parts.append(fallback)
                 offset += len(fallback)
+                index += 1
                 continue
             length = max(1, round(fragment.width / space_width))
             parts.append("\u00a0" * length)
             spans.append(_FormulaSpan(offset, length, fragment, formula.latex))
             offset += length
+            index += 1
+            # The replacement's logical text remains untouched.  Only the
+            # formula's private Qt proxy absorbs its immediate ASCII spacer,
+            # preserving the width while making the inline atom indivisible.
+            if index < len(text) and text[index] == " ":
+                parts.append("\u00a0")
+                offset += 1
+                index += 1
         return "".join(parts), tuple(spans)
 
 
