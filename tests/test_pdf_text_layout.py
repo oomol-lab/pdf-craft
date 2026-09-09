@@ -4,8 +4,9 @@ import unittest
 
 from pdf_craft.pipeline.pdf import (
     FittedParagraph, PDFReplacement, PDFReplacementRegion, PatchTextOptions, PatchTextStyle,
-    QTextParagraphFiller,
+    QTextParagraphFiller, RegionTextPlacement,
 )
+from pdf_craft.pipeline.pdf.geometry import PageRectangle
 from pdf_craft.pipeline.pdf.text_layout import _choose_automatic_font
 
 
@@ -113,6 +114,62 @@ class TestQTextParagraphFiller(unittest.TestCase):
         self.assertEqual(len(fitted.placements[0].line_tops), 1)
         self.assertGreaterEqual(len(fitted.placements[1].line_tops), 1)
         self.assertTrue(fitted.placements[1].remaining_text.startswith("second"))
+
+    def test_second_pass_keeps_frozen_multi_bbox_text_and_line_ownership(self):
+        regions = [
+            PDFReplacementRegion(1, (0, 0, 90, 18), (100, 100)),
+            PDFReplacementRegion(1, (0, 20, 90, 80), (100, 100)),
+        ]
+        filler = QTextParagraphFiller(PatchTextOptions(max_font_size=10, min_font_size=4))
+        fitted = filler.fit(
+            _replacement("first line second line third line", regions), {1: (100, 100)},
+        )
+        self.assertGreaterEqual(len(fitted.placements), 2)
+
+        reflowed = tuple(
+            filler.fit_frozen_region(placement, placement.font_size * 0.8)
+            for placement in fitted.placements
+        )
+
+        self.assertEqual(
+            [placement.assigned_text for placement in reflowed],
+            [placement.assigned_text for placement in fitted.placements],
+        )
+        self.assertEqual(
+            [len(placement.line_tops) for placement in reflowed],
+            [len(placement.line_tops) for placement in fitted.placements],
+        )
+
+    def test_second_pass_stops_at_a_deterministic_infeasible_boundary(self):
+        class ThresholdFiller(QTextParagraphFiller):
+            def _fit_region(
+                self, page_index, rectangle, text, style, font_size,
+                formula_spans=(), ignore_height=False,
+            ):
+                del formula_spans, ignore_height
+                if font_size > 10:
+                    return None, 0
+                return RegionTextPlacement(
+                    page_index, rectangle, text,
+                    (rectangle.x,), (rectangle.width,), (rectangle.top, rectangle.top + 12),
+                    (12, 12), font_size, style, assigned_text=text,
+                ), len(text)
+
+        style = PatchTextStyle(max_font_size=20, min_font_size=4)
+        original = RegionTextPlacement(
+            1, PageRectangle(0, 0, 100, 30), "fixed text",
+            (0, 0), (50, 50), (0, 12), (12, 12), 8, style,
+            assigned_text="fixed text",
+        )
+
+        reflowed = ThresholdFiller(PatchTextOptions(styles={"text": style})).fit_frozen_region(
+            original, 14,
+        )
+
+        self.assertEqual(reflowed.assigned_text, "fixed text")
+        self.assertEqual(len(reflowed.line_tops), 2)
+        self.assertLessEqual(reflowed.font_size, 10)
+        self.assertLess(10 - reflowed.font_size, 0.05)
 
     def test_selects_largest_uniform_font_size_for_the_paragraph(self):
         regions = [PDFReplacementRegion(1, (0, 0, 100, 0 + 100), (100, 100))]
