@@ -1,4 +1,4 @@
-# pdf-craft 2.0 API 参考
+# pdf-craft API 参考
 
 本文面向需要把 pdf-craft 集成到自己程序中的用户。入门流程请先阅读仓库根目录的
 README；本文只说明稳定的公共导入和它们如何组合。示例默认使用：
@@ -24,7 +24,8 @@ from pdf_craft import PDFCraft, PDFOptions
   `TranslationEventKind`、`TranslationItemKind`、`FillFailedEvent`
 - `PDFHandler`、`DefaultPDFHandler`、`PDFDocument`、`DefaultPDFDocument`、
   `PDFDocumentMetadata`
-- `PDFPatcher`、`PDFReplacement`、`PDFReplacementRegion`、`PDFSkippedReplacement`、`PatchTextOptions`、`EraseOptions`、
+- `PDFPatcher`、`PDFReplacement`、`PDFReplacementRegion`、`PDFSkippedReplacement`、`PDFInlineFormula`、
+  `PatchTextOptions`、`PatchTextStyle`、`FontResolution`、`QTextParagraphFiller`、`EraseOptions`、
   `PDFTranslationPipeline`
 - `PDFError`、`OCRError`、`IgnorePDFErrorsChecker`、
   `IgnoreOCRErrorsChecker`
@@ -387,17 +388,25 @@ translate_epub(
   target_path, replacements)` 写出 PDF。它接受任意通过字段校验的 `PDFReplacement`，不要求这些
   替换项来自 `PDFCraftExtraction` 或 OCR；`page_pixel_size` 仅用于把像素 `bbox` 换算为 PDF 坐标，
   patcher 不会验证它是否等于源页的实际渲染尺寸。调用方必须自行保证页码、坐标与尺寸对应源 PDF。
-  `PatchTextOptions` 控制默认字体、字号、内边距、对齐和 `overflow` 策略。省略或传入空 `font_name`
+  `PatchTextOptions` 控制默认字体、字号、内边距、对齐、`overflow` 策略和
+  `render_inline_formulas`。省略或传入空 `font_name`
   时，会解析一个已安装的本机字体，并在本次写回的所有未指定样式中复用；
   `PDFPatcher.font_resolutions` 可以查看自动选择或显式字体走 Qt fallback 的诊断，且不会与 bbox
   排版错误混淆。`EraseOptions.padding` 在
   OCR 像素坐标中扩大来源框，并用原始页面对应区域按频次加权的 RGB 中位色完整覆盖扩展矩形。`pdf_handler`
-  仅为这个颜色估计渲染原始页，输出仍以原始 PDF 页面为底。可用
+  仅为这个颜色估计渲染原始页，输出不会使用该 raster 作为页面底图。可用
   `PatchTextStyle` 以 `"text"`、`"sub_title"` 或 `"sub_title:2"` 为键覆盖不同文字等级。
-  同一个段落统一搜索字号，随后按顺序流入所有 `regions`；放不下的整行会进入下一个框，绝不局部跨框。
-  `overflow="error"`（默认）在整段无法容纳时失败，`"skip"` 则把对应项记录在
+  第一阶段会为同一个段落统一搜索字号，随后按顺序流入所有 `regions`；放不下的整行会进入下一个框，
+  绝不局部跨框。第二阶段会在不改变冻结行数和文字分配的前提下，按文字等级的加权平均字号对每个 bbox
+  局部归一化，因此最终字号可略有不同。`overflow="error"`（默认）在正文整段无法容纳时失败，`"skip"` 则把对应项记录在
   `patcher.skipped_replacements` 中。Qt 负责断行、字形位置与字体 fallback；用户填写的缺失字体
-  不会阻断运行。
+  不会阻断运行。标题有相对已排版正文的最小字号；若该下限无法装入 bbox，仍以该字号从 bbox 左侧
+  中点向右按自然宽度绘制，不会把这种正常溢出视为错误。
+
+  `render_inline_formulas=True` 是默认值。章节 XML 会保留行内公式，使它们参与段落翻译上下文而不被
+  替换；当 Matplotlib 与本机 TeX 可用时，patcher 将其写为 PDF 矢量内容，否则（或单个公式失败时）
+  自动降级为可读 plain text。将该选项设为 `False` 可显式选择 plain-text 行为。Qt 负责普通文本的
+  原生 shaping、断行、字体 fallback 和字形定位；只有公式及其紧随可见空白是不可拆分原子。
 - `PDFTranslationPipeline` 可将一个 `PDFCraftExtraction` 与 `ChapterTransformer` 或
   `Callable[[str], str]` 直接写回 PDF；其 `.patch()` 则把 extraction 已有的文字写回。这是
   facade 的底层组成部分，普通应用无需直接构造。它只从 extraction 中带来源坐标的 `text` 和

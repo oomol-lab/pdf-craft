@@ -52,9 +52,12 @@ pip install "pdf-craft[local]"
 ```
 
 Local OCR also requires a CUDA-compatible PyTorch build, model storage, and enough
-GPU memory. Before processing PDFs, install Poppler; see the [Installation Guide](docs/en/INSTALLATION.md)
-for the supported Python versions and complete system setup. If something goes wrong,
-start with the [Troubleshooting Guide](docs/en/TROUBLESHOOTING.md).
+GPU memory. Before processing PDFs, install Poppler; translated-PDF patching also
+needs Ghostscript and suitable local fonts. Optional vector inline-formula rendering
+additionally uses Matplotlib and a local TeX installation. See the
+[Installation Guide](docs/en/INSTALLATION.md) for the supported Python versions and
+complete system setup. If something goes wrong, start with the
+[Troubleshooting Guide](docs/en/TROUBLESHOOTING.md).
 
 ## Quick Start
 

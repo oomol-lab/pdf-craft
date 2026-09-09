@@ -23,12 +23,19 @@ The extra supplies the Python runtime for local models. It does not choose a PyT
 ## Requirements
 
 - Python `>=3.11,<3.14`
-- Poppler for PDF conversion and OCR extraction; patching an existing `.pcex`
-  back onto its source PDF does not render pages
+- Poppler for PDF conversion, OCR extraction, and PDF patching. Patching renders
+  source pages only to sample local erasure colors; it does not rasterize them into
+  the output.
 - Ghostscript for PDF patching. It compiles the source page into a visual-only
   layer, so the original text cannot be selected beneath translated text.
 - Network and valid credentials for vendor OCR
 - A CUDA-capable NVIDIA GPU, matching PyTorch, model storage, and adequate VRAM for local OCR
+
+PySide6/Qt is installed as a Python dependency. PDF patching also needs suitable
+local fonts. Vector inline-formula rendering is optional: when enabled it needs
+Matplotlib plus a TeX installation whose `latex` command is available. Without either
+runtime, or when one formula cannot render, patching continues with readable plain
+text for that formula.
 
 Using a virtual environment is recommended:
 
@@ -69,6 +76,16 @@ sudo apt-get update && sudo apt-get install ghostscript
 On Windows, install Ghostscript and add `gswin64c.exe` to `PATH`. Confirm that
 `gs --version` (or `gswin64c --version`) works in the same environment that
 runs Python.
+
+## Optional: vector inline formulas in patched PDFs
+
+`PatchTextOptions(render_inline_formulas=True)` is the default. When Matplotlib and
+TeX are available, inline LaTeX is written back as a vector PDF fragment; otherwise
+pdf-craft falls back to readable plain text rather than failing the PDF.
+
+Install Matplotlib in the environment running pdf-craft and install a TeX
+distribution that exposes `latex` on `PATH`. This is independent of OCR and is not
+required when plain-text formula fallback is acceptable.
 
 ## Local OCR setup
 

@@ -31,11 +31,15 @@ CUDA 环境安装匹配的 PyTorch。没有可用 CUDA 设备时，使用标准�
 ## 系统要求
 
 - Python `>=3.11,<3.14`。
-- Poppler：PDF 页面渲染和 OCR 提取需要它。已有 `.pcex` 写回原 PDF 的 patch 流程
-  不渲染页面，因此不依赖 Poppler。
+- Poppler：PDF 页面渲染、OCR 提取和 PDF 写回都需要它。写回会渲染源页以估计局部擦除颜色，
+  但不会将该 raster 当作输出页面。
 - Ghostscript：PDF 写回需要它将源页编译为纯视觉底图，避免原文在译文下方被选中。
 - vendor OCR：网络连接和有效的供应商配置；只要运行 OCR 提取，还需要 Poppler；本机不需要 CUDA。
 - local OCR：支持 CUDA 的 NVIDIA GPU、匹配的 PyTorch、模型缓存、足够的显存和 Poppler。
+
+PySide6/Qt 会作为 Python 依赖安装；PDF 写回还需要本机有合适的字体。行内公式的矢量渲染是
+可选能力：开启时需要 Matplotlib 和能在 `PATH` 中调用的 TeX `latex`；两者缺失或某个公式渲染
+失败时，写回不会中断，而会将该公式降级为可读的 plain text。
 
 local OCR 的显存需求取决于所选模型、`ocr_size` 和输入页面。不要把某个模型的显存
 经验值当作所有 backend 的硬性要求；如果设备资源不足，优先使用 vendor OCR。
@@ -124,6 +128,14 @@ sudo apt-get install ghostscript
 
 安装 Ghostscript 并将 `gswin64c.exe` 加入 `PATH`。在运行 Python 的同一环境中确认
 `gs --version`（或 `gswin64c --version`）可用。
+
+## 可选：PDF 行内公式矢量渲染
+
+`PatchTextOptions(render_inline_formulas=True)` 默认开启。环境中有 Matplotlib 与 TeX 时，行内
+LaTeX 会作为矢量 PDF fragment 写回；否则 pdf-craft 会安全降级为可读 plain text。
+
+在运行 pdf-craft 的 Python 环境安装 Matplotlib，并安装能让 `latex` 出现在 `PATH` 中的 TeX
+发行版即可。这与 OCR 无关；接受 plain-text 公式降级时不需要安装这些可选组件。
 
 ## local OCR 的 CUDA 环境
 

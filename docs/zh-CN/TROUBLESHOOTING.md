@@ -6,7 +6,8 @@
 ## 先做三项检查
 
 1. 确认输入文件确实存在，并且当前进程对它有读取权限。
-2. 确认系统可以找到 Poppler。pdf-craft 通过它把 PDF 页面渲染成 OCR 所需的图像。
+2. 确认系统可以找到 Poppler。pdf-craft 通过它把 PDF 页面渲染成 OCR 所需的图像，也在翻译 PDF
+   写回时用于局部背景取色。
 3. 确认你选择的 OCR 运行位置与设备匹配：local OCR 需要支持 CUDA 的 NVIDIA GPU，且需要
    安装 `pdf-craft[local]` 可选依赖；vendor OCR 需要网络、服务地址和凭据。
 
@@ -18,6 +19,8 @@ OCR 请求成功并不代表翻译 LLM 已经配置正确。
 | 现象 | 优先检查 |
 | --- | --- |
 | `Poppler not found in PATH` | Poppler 是否安装、命令是否在 PATH 中 |
+| PDF 写回启动失败或提示 Ghostscript | Ghostscript 是否安装、`gs` 是否在 PATH 中 |
+| 行内公式只显示 plain text 而非矢量公式 | Matplotlib 和本机 TeX 是否安装；否则这是预期降级 |
 | local OCR 报 CUDA 不可用 | PyTorch 是否为 CUDA 版本、驱动和 GPU 是否可见 |
 | local OCR 提示缺少运行时 | 是否安装了 `pdf-craft[local]` |
 | local OCR 报找不到模型 | 模型缓存路径、`local_only` 和模型是否已下载 |
@@ -30,8 +33,8 @@ OCR 请求成功并不代表翻译 LLM 已经配置正确。
 
 ### `Poppler not found in PATH`
 
-pdf-craft 需要 Poppler 将 PDF 页面渲染为图像。这个错误与 OCR backend 无关，在切换
-local/vendor OCR 之前都必须先解决。
+pdf-craft 需要 Poppler 将 PDF 页面渲染为图像，也会在翻译 PDF 写回时用它对局部背景取色。这个错误
+与 OCR backend 无关；除非调用方传入其他 `PDFHandler`，否则在切换 local/vendor OCR 之前都必须先解决。
 
 先在系统终端确认 `pdfinfo` 可执行，并检查它输出的版本信息。如果命令不存在，将 Poppler
 安装目录加入 PATH 后重新启动终端或 Python 进程。也要确认传入的是一个有效的 PDF，而不是
@@ -225,8 +228,15 @@ PDF 翻译写回需要原始 PDF 和与它匹配的提取结果。写回阶段�
 - 中间结果来自另一份输入文件；
 - 翻译文本无法放入原始文字区域。
 
-先确认原始 PDF 没有被替换，并使用同一份输入文件完成提取、翻译和写回。PDF 写回只支持
-替换式提交；`APPEND_BLOCK` 适用于 Markdown/EPUB 等结构化输出，不适用于 PDF 页面写回。
+先确认原始 PDF 没有被替换，并使用同一份输入文件完成提取、翻译和写回。PDF 写回需要 Ghostscript：
+它会将源页的非 Annotation 内容编译为无字体的视觉底图，使原文字与隐藏 OCR 文字不会干扰选择、搜索
+或提取。Qt 层是唯一普通可选择的译文文字；原 `/Annots` 数组会在其上重新挂载，链接、高亮、批注和
+表单等仍可交互。擦除使用带 padding 的局部 RGB 背景色，而不恢复纹理。PDF 写回只支持替换式提交；
+`APPEND_BLOCK` 适用于 Markdown/EPUB 等结构化输出，不适用于 PDF 页面写回。
+
+行内公式默认会在 Matplotlib 和本机 TeX 同时可用时绘制为 PDF 矢量内容。任一可选运行时缺失或某一个
+公式绘制失败时，会有意降级为可读的 plain text，不会使整份 PDF 失败。若想主动选择这一行为，可设置
+`PatchTextOptions(render_inline_formulas=False)`。
 
 ## 仍然无法定位时
 
