@@ -367,11 +367,30 @@ def _set_page_actual_text(page, actual_text: str):
     if not actual_text or contents is None:
         return page
 
-    from pypdf.generic import DecodedStreamObject, NameObject
+    from pypdf.generic import DecodedStreamObject, DictionaryObject, NameObject
+
+    resources = page[NameObject("/Resources")].get_object()
+    fonts = resources.get(NameObject("/Font"))
+    if fonts is None:
+        fonts = DictionaryObject()
+        resources[NameObject("/Font")] = fonts
+    else:
+        fonts = fonts.get_object()
+    fonts[NameObject("/PDFCraftActualText")] = DictionaryObject({
+        NameObject("/Type"): NameObject("/Font"),
+        NameObject("/Subtype"): NameObject("/Type1"),
+        NameObject("/BaseFont"): NameObject("/Helvetica"),
+        NameObject("/Encoding"): NameObject("/WinAnsiEncoding"),
+    })
 
     stream = DecodedStreamObject()
     stream.set_data(
         b"/Span << /ActualText " + _pdf_utf16_hex_string(actual_text) + b" >> BDC\n"
+        # Poppler does not emit ActualText for a marked sequence whose only
+        # glyphs are beyond the CropBox.  A one-point, invisible, page-local
+        # glyph anchors the same marked sequence without affecting appearance
+        # or adding an independently selectable duplicate.
+        + b"q\nBT /PDFCraftActualText 1 Tf 3 Tr 1 1 Td ( ) Tj ET\nQ\n"
         + contents.get_data()
         + b"\nEMC\n"
     )

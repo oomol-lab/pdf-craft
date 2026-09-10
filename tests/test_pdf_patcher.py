@@ -446,6 +446,39 @@ class TestPDFPatcher(unittest.TestCase):
             self.assertIn("before x", extracted)
             self.assertEqual(extracted.count("afterwords"), 3)
 
+    def test_forced_headline_below_page_extracts_full_actual_text_with_poppler(self):
+        if which("pdftotext") is None:
+            self.skipTest("requires Poppler pdftotext for forced-headline extraction coverage")
+        source_region = PDFReplacementRegion(1, (10, 10, 30, 30), (200, 200))
+        obstacle = PDFReplacementRegion(1, (10, 34, 30, 80), (200, 200))
+        text = "forced headline text " * 10
+        headline = PDFReplacement(
+            1, source_region.bbox, text, source_region.page_pixel_size,
+            layout_ref="sub_title", obstacle_regions=(obstacle,),
+        )
+        filler = QTextParagraphFiller(PatchTextOptions(styles={
+            "sub_title": PatchTextStyle(max_font_size=20, min_font_size=20),
+        }))
+        forced = filler.fit_headline(headline, {1: (200, 200)}, 20)
+        self.assertTrue(forced.placements[0].force_written)
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            source = root / "source.pdf"
+            target = root / "target.pdf"
+            document = canvas.Canvas(str(source), pagesize=(200, 200))
+            document.drawString(1, 1, "source")
+            document.save()
+            self.patcher(options=PatchTextOptions(styles={
+                "sub_title": PatchTextStyle(max_font_size=20, min_font_size=20),
+            })).patch(source, target, [headline])
+
+            extracted = subprocess.run(
+                ["pdftotext", "-layout", str(target), "-"],
+                check=True, capture_output=True, text=True,
+            ).stdout
+            self.assertEqual(extracted.count("forced headline text"), 10)
+
     def test_long_cross_page_window_releases_each_source_image_before_the_next(self):
         """Composition consumes serialized page work without materializing a whole window."""
         class TrackingImage:
