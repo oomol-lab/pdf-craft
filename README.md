@@ -152,6 +152,9 @@ extraction = craft.extract_pdf("input.pdf", "work/book.pcex")
 craft.translate_pdf("input.pdf", extraction, "translated.pdf", translator)
 ```
 
+See the [PDF translation guide](docs/en/PDF_TRANSLATION.md) for text-layer behavior,
+inline-formula rendering, and the optional per-page `ignore_errors` recovery policy.
+
 ### EPUB → translated EPUB
 
 If you already have an EPUB, translate it directly by providing the target language

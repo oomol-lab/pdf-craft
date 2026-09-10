@@ -177,6 +177,10 @@ traceback 会写入日志。若所有需要写回的页面都退回，则抛出 
 看似成功、实际未写入译文的 PDF。无法打开、枚举或建立视觉底图的源 PDF 没有页级恢复载体，仍会
 直接失败。
 
+`ignore_errors` 也可以是 `Callable[[Exception], bool]`：每次出现可归属某一页的异常时，该 callable
+接收异常并决定这页是否允许回退。除非业务能接受“某些页面保留未翻译视觉底图、其他页面已有译文”的
+混合结果，否则应保持默认的 `False`。
+
 ### PDF 输出的限制
 
 - PDF 写回明确不支持 `APPEND_BLOCK`，因为 PDF pipeline 不能在原页面中安全追加新的
@@ -302,7 +306,9 @@ device 生成的译文文本 overlay。因此扫描页仍会自然保留扫描�
 行内公式在章节 XML 中以专门节点保留，因而会参与段落翻译的上下文，但其源公式不会被翻译替换。
 `PatchTextOptions(render_inline_formulas=True)` 是默认行为：环境同时具备 Matplotlib 和本机 TeX 时，
 会把公式绘成 PDF 矢量内容；未安装这些可选运行时或单个公式渲染失败时，会自动以可读的 plain text
-降级，整份 PDF 不会因此失败。设为 `False` 可主动使用相同的 plain-text 行为。
+降级，整份 PDF 不会因此失败。设为 `False` 可主动使用相同的 plain-text 行为。矢量公式片段会附带
+plain-text 的 PDF `/ActualText` 语义替代；这不是完整的 tagged PDF，因此不同阅读器中公式相对正文的
+拖选与复制顺序不作保证。
 
 ## 原子 API
 
