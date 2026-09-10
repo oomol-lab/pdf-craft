@@ -241,6 +241,10 @@ craft.patch_pdf_with_extraction("input.pdf", "work/translated.pcex", "translated
 写回的页面都退回，会抛出 `NoUsableFillPagesError`，不会产生伪成功文件。不能打开、枚举或编译
 为视觉底图的源 PDF 没有可回退页，仍会直接失败。
 
+`ignore_errors` 还可以传入 `Callable[[Exception], bool]`，在每个可归属页面的异常发生时决定是否
+允许该页回退。默认 `False` 保持 fail-fast；只有业务可以接受“未翻译视觉底图页与已翻译页面并存”时，
+才应启用此恢复策略。
+
 ## PDFCraftExtraction 与 `.pcex`
 
 `PDFCraftExtraction` 是带原始 PDF 页码和 bbox 映射的结构化中间对象。公开持久化和交换格式
@@ -413,7 +417,9 @@ translate_epub(
   `render_inline_formulas=True` 是默认值。章节 XML 会保留行内公式，使它们参与段落翻译上下文而不被
   替换；当 Matplotlib 与本机 TeX 可用时，patcher 将其写为 PDF 矢量内容，否则（或单个公式失败时）
   自动降级为可读 plain text。将该选项设为 `False` 可显式选择 plain-text 行为。Qt 负责普通文本的
-  原生 shaping、断行、字体 fallback 和字形定位；只有公式及其紧随可见空白是不可拆分原子。
+  原生 shaping、断行、字体 fallback 和字形定位；只有公式及其紧随可见空白是不可拆分原子。矢量公式
+  片段携带 plain-text 的 PDF `/ActualText` 语义替代，但 pdf-craft 不生成完整 tagged PDF，不能保证
+  不同阅读器中该公式相对正文的复制顺序。
 - `PDFTranslationPipeline` 可将一个 `PDFCraftExtraction` 与 `ChapterTransformer` 或
   `Callable[[str], str]` 直接写回 PDF；其 `.patch()` 则把 extraction 已有的文字写回。这是
   facade 的底层组成部分，普通应用无需直接构造。它只从 extraction 中带来源坐标的 `text` 和

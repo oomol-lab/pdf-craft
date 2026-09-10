@@ -158,6 +158,9 @@ extraction = craft.extract_pdf("input.pdf", "work/book.pcex")
 craft.translate_pdf("input.pdf", extraction, "translated.pdf", translator)
 ~~~
 
+关于文字层行为、行内公式渲染以及可选的逐页 `ignore_errors` 恢复策略，请参阅
+[PDF 翻译指南](docs/zh-CN/PDF_TRANSLATION.md)。
+
 ### 翻译 EPUB
 
 如果手头已经有 EPUB 文件，可以直接指定输入文件、输出文件、目标语言和文本 LLM：
