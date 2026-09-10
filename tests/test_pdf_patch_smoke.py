@@ -109,9 +109,12 @@ class TestPDFPatchSmoke(unittest.TestCase):
             {1: (float(page.mediabox.width), float(page.mediabox.height))},
         )
         self.assertGreater(fitted.font_size, 12)
+        # A source rectangle's bottom is an aim line rather than a hard edge:
+        # the centred tight slot plan may straddle it slightly.  The actual
+        # projected guard is still absolute (the page edge in this fixture).
         self.assertTrue(all(
-            placement.rectangle.top <= top
-            and top + height <= (placement.forbidden_bottom or placement.rectangle.bottom)
+            0 <= top
+            and top + height <= (placement.forbidden_bottom or float(page.mediabox.height))
             for placement in fitted.placements
             for top, height in zip(placement.line_tops, placement.line_heights)
         ))

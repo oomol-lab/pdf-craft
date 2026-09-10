@@ -3,7 +3,7 @@
 
 from collections.abc import Callable, Iterable, Iterator, Mapping
 from dataclasses import dataclass, field, replace
-from math import isfinite
+from math import floor, isclose, isfinite
 import os
 import pickle
 from pathlib import Path
@@ -32,7 +32,6 @@ _HEADLINE_OVERFLOW_LINE_WIDTH = 1_000_000.0
 # while making a 0.05pt search a real typographic search rather than a screen
 # pixel search.
 _LAYOUT_SCALE = 8.0
-_SLOT_PLAN_BEAM_WIDTH = 64
 _CJK_FONT_CANDIDATES = (
     "PingFang SC",
     "Noto Sans CJK SC",
@@ -781,26 +780,6 @@ class QTextParagraphFiller:
             max(rectangle.width - 2 * style.horizontal_padding for rectangle in capacities),
             max(rectangle.height - 2 * style.vertical_padding for rectangle in capacities),
         )
-        if len(replacement.source_regions()) == 1:
-            source_region = replacement.source_regions()[0]
-            page_width, page_height = page_sizes[source_region.page_index]
-            rectangle = region_in_page_points(source_region, page_width, page_height)
-            forbidden_bottom = _forbidden_bottom(
-                rectangle,
-                self._layout_obstacles.get(source_region.page_index, ()),
-                page_height,
-            )
-            previous_forbidden_bottom = self._active_forbidden_bottom
-            self._active_forbidden_bottom = forbidden_bottom
-            try:
-                placement, consumed = self._fit_region(
-                    source_region.page_index, rectangle, text, style, font_size, spans,
-                )
-            finally:
-                self._active_forbidden_bottom = previous_forbidden_bottom
-            if placement is None or consumed != len(text):
-                return None
-            return FittedParagraph(text, font_size, (placement,))
         return self._plan_continuous_flow(text, spans, replacement, page_sizes, style, font_size)
 
     def _plan_continuous_flow(
@@ -1810,34 +1789,21 @@ def _slot_decision_is_valid(decision: _RegionSlotDecision) -> bool:
     )
 
 
-def _slot_plan_quality(plan: _SlotDecisionPlan) -> tuple[float, float, float, int]:
-    """Rank plans by per-bbox error, never by cancellable signed totals.
-
-    The signed sum is deliberately only a final tie-breaker.  A +99 miss in
-    one bbox and a -99 miss in another is not a good plan: its worst and total
-    absolute errors must lose to a plan with two one-point misses even when
-    both signed sums are zero.
-    """
-    distances = tuple(abs(decision.delta_to_aim) for decision in plan.decisions)
-    return (
-        max(distances, default=0.0),
-        sum(distances),
-        abs(plan.signed_delta),
-        -sum(decision.line_count for decision in plan.decisions),
-    )
-
-
 def _signed_slot_plan_frontier(
     choices: tuple[tuple[_RegionSlotDecision, ...], ...],
 ) -> tuple[_SlotDecisionPlan, ...]:
-    """Keep a bounded per-bbox-error frontier instead of enumerating 2**N.
+    """Return the nearest sparse and tight signed-aim combinations.
 
-    Each region supplies one loose and, when safe, one tight choice.  The
-    frontier retains equally bounded candidates from both aggregate signs
-    after every step.  Its primary score is each candidate's largest and total
-    *absolute* per-bbox miss, so opposite signs cannot hide a severe local
-    error.  The aggregate sign merely keeps the traditional sparse/tight
-    alternatives available for real Qt validation.
+    A slot decision comes from one nominal font metric: switching one region
+    from loose to tight always adds one row and changes its signed aim delta
+    by the same negative line advance.  Consequently a combination's signed
+    total depends only on how many safe tight choices it contains, not on
+    which regions supply them.  This gives the exact nearest non-negative and
+    negative totals with arithmetic instead of enumerating ``2**N`` plans.
+
+    Which equally signed regions become tight is a deterministic tie-break:
+    prefer the smallest change in that region's absolute aim miss, then source
+    order.  It never changes the signed-total objective.
     """
     if not choices or any(
         not region_choices
@@ -1845,39 +1811,81 @@ def _signed_slot_plan_frontier(
         for region_choices in choices
     ):
         return ()
-    states = [_SlotDecisionPlan((), 0.0)]
-    per_side = max(1, _SLOT_PLAN_BEAM_WIDTH // 2)
-    for region_choices in choices:
-        expanded = [
-            _SlotDecisionPlan(state.decisions + (choice,), state.signed_delta + choice.delta_to_aim)
-            for state in states for choice in region_choices
-        ]
-        non_negative = sorted(
-            (state for state in expanded if state.signed_delta >= -1e-6),
-            key=_slot_plan_quality,
-        )[:per_side]
-        negative = sorted(
-            (state for state in expanded if state.signed_delta < -1e-6),
-            key=_slot_plan_quality,
-        )[:per_side]
-        states = non_negative + negative
-        if not states:
+
+    loose: list[_RegionSlotDecision] = []
+    tight_options: list[tuple[int, _RegionSlotDecision, float]] = []
+    advances: list[float] = []
+    for index, region_choices in enumerate(choices):
+        loose_choice = next((item for item in region_choices if item.choice == "loose"), None)
+        if loose_choice is None:
             return ()
-    positive = min(
-        (state for state in states if state.signed_delta >= -1e-6),
-        default=None,
-        key=_slot_plan_quality,
+        loose.append(loose_choice)
+        tight_choice = next((item for item in region_choices if item.choice == "tight"), None)
+        if tight_choice is None:
+            continue
+        advance = loose_choice.delta_to_aim - tight_choice.delta_to_aim
+        if not _positive_finite(advance):
+            return ()
+        advances.append(advance)
+        tight_options.append((
+            index,
+            tight_choice,
+            abs(tight_choice.delta_to_aim) - abs(loose_choice.delta_to_aim),
+        ))
+
+    base_delta = sum(item.delta_to_aim for item in loose)
+    if not tight_options:
+        return (_SlotDecisionPlan(tuple(loose), base_delta),)
+    advance = advances[0]
+    if not all(isclose(value, advance, rel_tol=1e-9, abs_tol=1e-6) for value in advances):
+        # This helper receives choices generated from a single font metric.
+        # A different advance would mean malformed planner input; returning no
+        # plan is safer than silently replacing the specified signed objective
+        # with an approximate beam search.
+        return ()
+
+    ordered_tight = sorted(tight_options, key=lambda item: (item[2], item[0]))
+    maximum_tight = len(ordered_tight)
+
+    def plan_with_tight_count(count: int) -> _SlotDecisionPlan:
+        selected = {index: tight for index, tight, _ in ordered_tight[:count]}
+        decisions = tuple(selected.get(index, item) for index, item in enumerate(loose))
+        return _SlotDecisionPlan(decisions, base_delta - count * advance)
+
+    # Keep the nearest candidate from *each actual sign side*.  In
+    # particular, a negative loose-only total has no non-negative companion:
+    # it is already the closest negative plan and must not be paired with an
+    # even more negative tight plan.
+    has_non_negative = base_delta >= 0
+    non_negative_count = 0
+    non_negative = None
+    if has_non_negative:
+        non_negative_count = min(maximum_tight, max(0, floor(base_delta / advance)))
+        # ``floor`` gives the right count analytically, but confirm the final
+        # floating-point subtraction itself rather than allowing a tolerance
+        # to move a genuinely negative signed total onto the non-negative
+        # side.  This loop only adjusts around that one boundary.
+        while non_negative_count and (
+            base_delta - non_negative_count * advance < 0
+        ):
+            non_negative_count -= 1
+        while (
+            non_negative_count < maximum_tight
+            and base_delta - (non_negative_count + 1) * advance >= 0
+        ):
+            non_negative_count += 1
+        non_negative = plan_with_tight_count(non_negative_count)
+
+    if has_non_negative:
+        negative_count = non_negative_count + 1
+    else:
+        negative_count = 0
+    negative = (
+        plan_with_tight_count(negative_count)
+        if negative_count <= maximum_tight
+        else None
     )
-    negative = min(
-        (state for state in states if state.signed_delta < -1e-6),
-        default=None,
-        key=_slot_plan_quality,
-    )
-    if positive is None:
-        return (negative,) if negative is not None else ()
-    if negative is None or negative.decisions == positive.decisions:
-        return (positive,)
-    return tuple(sorted((positive, negative), key=_slot_plan_quality))
+    return tuple(plan for plan in (non_negative, negative) if plan is not None)
 
 
 def _replacement_obstacles(

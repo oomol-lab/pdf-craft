@@ -227,7 +227,7 @@ class TestQTextParagraphFiller(unittest.TestCase):
         self.assertLess(abs(terminal_bottom - terminal.rectangle.bottom), minimum_delta)
         self.assertLessEqual(terminal_bottom, terminal.forbidden_bottom or 260)
 
-    def test_lower_asset_top_is_a_forbidden_line(self):
+    def test_lower_asset_top_filters_a_single_bbox_tight_choice(self):
         source = PDFReplacementRegion(1, (0, 0, 100, 10), (100, 100))
         figure = PDFReplacementRegion(1, (0, 14, 100, 30), (100, 100))
         replacement = PDFReplacement(
@@ -241,10 +241,11 @@ class TestQTextParagraphFiller(unittest.TestCase):
             replacement, {1: (100, 100)},
         ).placements[0]
 
-        line_bottom = placement.line_tops[-1] + placement.line_heights[-1]
         self.assertEqual(placement.forbidden_bottom, 14)
-        self.assertGreater(line_bottom, 10)
-        self.assertLessEqual(line_bottom, 14)
+        line_bottom = placement.line_tops[-1] + placement.line_heights[-1]
+        # With no space above the source bbox, a centred tight plan would
+        # escape through the page top and must be rejected.
+        self.assertLessEqual(line_bottom, 10)
 
     def test_pdf_pipeline_attaches_asset_geometry_as_text_flow_obstacles(self):
         chapter = Chapter(
@@ -263,7 +264,7 @@ class TestQTextParagraphFiller(unittest.TestCase):
         self.assertEqual(len(replacements), 1)
         self.assertEqual(replacements[0].obstacle_regions[0].bbox, (0, 14, 100, 30))
 
-    def test_reference_footnote_stops_text_after_its_source_bottom(self):
+    def test_reference_footnote_filters_single_bbox_tight_overflow(self):
         """Reference layouts are obstacles even though they are not chapter body layouts."""
         footnote = ParagraphLayout(
             "text", 0, [BlockLayout(1, 1, (0, 14, 100, 30), ["footnote"])],
@@ -291,9 +292,8 @@ class TestQTextParagraphFiller(unittest.TestCase):
             replace(replacement, text="line"), {1: (100, 100)},
         ).placements[0]
         line_bottom = placement.line_tops[-1] + placement.line_heights[-1]
-        self.assertGreater(line_bottom, 10)
         self.assertEqual(placement.forbidden_bottom, 14)
-        self.assertLessEqual(line_bottom, 14)
+        self.assertLessEqual(line_bottom, 10)
 
     def test_high_precision_planning_and_pdf_draw_share_scaled_qt_coordinates(self):
         """Planning and the real PDF overlay use one unrounded Qt coordinate space."""
@@ -457,22 +457,119 @@ class TestQTextParagraphFiller(unittest.TestCase):
             for plan in plans for decision in plan.decisions
         ))
 
-    def test_slot_frontier_never_cancels_large_opposite_bbox_errors(self):
-        """A zero signed total cannot conceal two badly misfitted source boxes."""
+    def test_slot_frontier_returns_nearest_non_negative_and_negative_signed_totals(self):
+        """The global choice is signed distance, not per-bbox absolute error."""
         rectangle = PageRectangle(0, 0, 1, 1)
 
         def decision(delta, choice):
             return _RegionSlotDecision(1, rectangle, 1, delta, delta / 2, 0, 2, choice)
 
         plans = _signed_slot_plan_frontier((
-            (decision(99, "loose"), decision(-1, "tight")),
-            (decision(1, "loose"), decision(-99, "tight")),
+            (decision(9, "loose"), decision(-1, "tight")),
+            (decision(9, "loose"), decision(-1, "tight")),
+            (decision(9, "loose"), decision(-1, "tight")),
         ))
 
-        self.assertTrue(plans)
-        first_deltas = tuple(decision.delta_to_aim for decision in plans[0].decisions)
-        self.assertEqual(first_deltas, (-1, 1))
-        self.assertEqual(max(abs(delta) for delta in first_deltas), 1)
+        self.assertEqual(len(plans), 2)
+        positive = plans[0]
+        negative = plans[1]
+        self.assertEqual((positive.signed_delta, negative.signed_delta), (7, -3))
+        self.assertEqual(
+            (sum(item.choice == "tight" for item in positive.decisions),
+             sum(item.choice == "tight" for item in negative.decisions)),
+            (2, 3),
+        )
+        # A legacy local-absolute-error ranking prefers all three tight
+        # decisions (three 1pt misses) over the positive side (two 1pt and
+        # one 9pt miss).  The planner must still expose the latter because it
+        # is the closest non-negative signed total.
+        positive_local_error = sum(abs(item.delta_to_aim) for item in positive.decisions)
+        negative_local_error = sum(abs(item.delta_to_aim) for item in negative.decisions)
+        self.assertGreater(positive_local_error, negative_local_error)
+
+    def test_slot_frontier_returns_only_nearest_negative_when_no_non_negative_exists(self):
+        """A negative loose plan has no fictitious non-negative companion."""
+        rectangle = PageRectangle(0, 0, 1, 1)
+
+        def decision(delta, choice):
+            return _RegionSlotDecision(1, rectangle, 1, delta, delta / 2, 0, 2, choice)
+
+        plans = _signed_slot_plan_frontier((
+            (decision(-1, "loose"), decision(-3, "tight")),
+            (decision(-1, "loose"), decision(-3, "tight")),
+        ))
+
+        self.assertEqual(len(plans), 1)
+        self.assertEqual(plans[0].signed_delta, -2)
+        self.assertTrue(all(item.choice == "loose" for item in plans[0].decisions))
+
+    def test_slot_frontier_keeps_a_near_zero_negative_on_the_negative_side(self):
+        """Sign classification is exact even when a miss is below 1e-6pt."""
+        rectangle = PageRectangle(0, 0, 1, 1)
+
+        def decision(delta, choice):
+            return _RegionSlotDecision(1, rectangle, 1, delta, delta / 2, 0, 2, choice)
+
+        plans = _signed_slot_plan_frontier((
+            (decision(-0.0000005, "loose"), decision(-1.0000005, "tight")),
+        ))
+
+        self.assertEqual(len(plans), 1)
+        self.assertEqual(plans[0].signed_delta, -0.0000005)
+        self.assertEqual(plans[0].decisions[0].choice, "loose")
+
+    def test_slot_frontier_keeps_a_near_zero_negative_separate_from_positive(self):
+        """An actual negative tight value must not replace a positive loose value."""
+        rectangle = PageRectangle(0, 0, 1, 1)
+
+        def decision(delta, choice):
+            return _RegionSlotDecision(1, rectangle, 1, delta, delta / 2, 0, 2, choice)
+
+        plans = _signed_slot_plan_frontier((
+            (decision(0.9999995, "loose"), decision(-0.0000005, "tight")),
+        ))
+
+        self.assertGreater(plans[0].signed_delta, 0)
+        self.assertLess(plans[1].signed_delta, 0)
+        self.assertEqual([plan.decisions[0].choice for plan in plans], ["loose", "tight"])
+
+    def test_slot_frontier_returns_only_nearest_positive_when_no_negative_exists(self):
+        """If every allowed choice is loose-side, retain only the closest one."""
+        rectangle = PageRectangle(0, 0, 1, 1)
+
+        def decision(delta, choice):
+            return _RegionSlotDecision(1, rectangle, 1, delta, delta / 2, 0, 2, choice)
+
+        plans = _signed_slot_plan_frontier((
+            (decision(5, "loose"), decision(3, "tight")),
+            (decision(5, "loose"), decision(3, "tight")),
+        ))
+
+        self.assertEqual(len(plans), 1)
+        self.assertEqual(plans[0].signed_delta, 6)
+        self.assertTrue(all(item.choice == "tight" for item in plans[0].decisions))
+
+    def test_single_bbox_uses_slot_planning_and_is_vertically_centred(self):
+        """One source region is a normal slot-plan case, not a legacy branch."""
+        class RecordingFiller(QTextParagraphFiller):
+            slot_plan_calls = 0
+
+            def _slot_decision_plans(self, *args, **kwargs):
+                type(self).slot_plan_calls += 1
+                return super()._slot_decision_plans(*args, **kwargs)
+
+        region = PDFReplacementRegion(1, (0, 0, 180, 100), (200, 140))
+        filler = RecordingFiller(PatchTextOptions(max_font_size=10, min_font_size=10))
+
+        fitted = filler.fit(_replacement("one short line", [region]), {1: (200, 140)})
+
+        self.assertGreater(filler.slot_plan_calls, 0)
+        placement = fitted.placements[0]
+        top_margin = placement.line_tops[0] - placement.rectangle.top
+        bottom_margin = placement.rectangle.bottom - (
+            placement.line_tops[-1] + placement.line_heights[-1]
+        )
+        self.assertAlmostEqual(top_margin, bottom_margin, places=4)
 
     def test_text_can_exhaust_before_all_virtual_slots_without_fake_lines(self):
         """Empty continuation slots are retained as counts, never as QTextLines."""
@@ -773,7 +870,7 @@ class TestQTextParagraphFiller(unittest.TestCase):
         self.assertAlmostEqual(placement.line_text_lefts[0], 5.0)
         self.assertAlmostEqual(placement.line_text_widths[0], 70.0)
 
-    def test_line_height_and_vertical_alignment_position_complete_lines(self):
+    def test_single_bbox_slot_plan_centres_complete_lines(self):
         region = PDFReplacementRegion(1, (0, 0, 120, 100), (120, 100))
         vertical_placements = {}
         for alignment in ("top", "center", "bottom"):
@@ -789,11 +886,13 @@ class TestQTextParagraphFiller(unittest.TestCase):
         top = vertical_placements["top"]
         center = vertical_placements["center"]
         bottom = vertical_placements["bottom"]
-        self.assertAlmostEqual(top.line_tops[0], 10.0)
+        self.assertAlmostEqual(top.line_tops[0], center.line_tops[0])
+        self.assertAlmostEqual(center.line_tops[0], bottom.line_tops[0])
+        line_bottom = center.line_tops[-1] + center.line_heights[-1]
         self.assertAlmostEqual(
-            center.line_tops[0], 10.0 + (80.0 - center.line_heights[0]) / 2,
+            center.line_tops[0] - center.rectangle.top,
+            center.rectangle.bottom - line_bottom,
         )
-        self.assertAlmostEqual(bottom.line_tops[0], 90.0 - bottom.line_heights[0])
 
         multi_line_style = PatchTextStyle(
             max_font_size=10, min_font_size=10, line_height=1.6,
@@ -812,12 +911,9 @@ class TestQTextParagraphFiller(unittest.TestCase):
             multi_line.line_heights[0] * 1.6,
         )
 
-    def test_page_bottom_is_the_last_forbidden_line_when_no_lower_bbox_exists(self):
+    def test_single_bbox_slot_exhaustion_does_not_extend_to_page_bottom(self):
         regions = [PDFReplacementRegion(1, (0, 0, 20, 5), (100, 100))]
         filler = QTextParagraphFiller(PatchTextOptions(max_font_size=8, min_font_size=8))
 
-        fitted = filler.fit(_replacement("too much text", regions), {1: (100, 100)})
-
-        placement = fitted.placements[0]
-        self.assertGreater(placement.line_tops[-1] + placement.line_heights[-1], 5)
-        self.assertLessEqual(placement.line_tops[-1] + placement.line_heights[-1], 100)
+        with self.assertRaisesRegex(ValueError, "cannot fit paragraph source regions"):
+            filler.fit(_replacement("too much text", regions), {1: (100, 100)})
