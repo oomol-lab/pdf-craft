@@ -2,22 +2,25 @@
 
 import tempfile
 import unittest
+from io import BytesIO
 from shutil import which
 from pathlib import Path
+import subprocess
 from typing import Any, cast
 from unittest.mock import Mock, patch
 
 import pypdf
-from pypdf.generic import ArrayObject, DictionaryObject, NameObject, NumberObject, TextStringObject
+from pypdf.generic import ArrayObject, ContentStream, DictionaryObject, NameObject, NumberObject, TextStringObject
 from PIL import Image
 from reportlab.pdfgen import canvas
 
 from pdf_craft.pdf.handler import PDFHandler
 from pdf_craft.pipeline.pdf import (
-    FillWindowPlan, FittedParagraph, GhostscriptVisualBaseCompiler, PDFPatcher, PDFReplacement,
+    FillWindowPlan, FittedParagraph, GhostscriptVisualBaseCompiler, PDFInlineFormula, PDFPatcher, PDFReplacement,
     PDFReplacementRegion, PatchTextOptions, PatchTextStyle,
     QTextParagraphFiller,
 )
+from pdf_craft.pipeline.pdf.inline_formula import FormulaFragment, InlineFormulaPDFRenderer
 from pdf_craft.pipeline.pdf.text_layout import _CJK_FONT_CANDIDATES, _ensure_qt_application
 
 
@@ -139,6 +142,117 @@ class TestPDFPatcher(unittest.TestCase):
             self.assertIn("Translated", page.extract_text())
             self.assertNotIn("Original", page.extract_text())
             self.assertEqual(len(list(page.images)), 0)
+
+    def test_vector_inline_formula_marks_its_fragment_with_actual_text(self):
+        """A vector formula receives semantic text without a hidden text overlay."""
+
+        fragment_output = BytesIO()
+        fragment_canvas = canvas.Canvas(fragment_output, pagesize=(20, 10))
+        # Deliberately use only a vector path: extraction must come from the
+        # marked-content replacement text, not any visible fragment glyph.
+        fragment_canvas.setLineWidth(1)
+        fragment_canvas.line(1, 5, 19, 5)
+        fragment_canvas.save()
+
+        class FormulaRenderer:
+            available = True
+
+            @staticmethod
+            def render(latex, point_size):
+                del latex, point_size
+                return FormulaFragment(fragment_output.getvalue(), 20, 10, 2)
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            source = root / "source.pdf"
+            target = root / "target.pdf"
+            document = canvas.Canvas(str(source), pagesize=(200, 100))
+            document.line(0, 0, 0, 0)
+            document.save()
+
+            patcher = self.patcher(options=PatchTextOptions(max_font_size=10, min_font_size=10))
+            patcher._filler._formula_renderer = cast(Any, FormulaRenderer())  # pylint: disable=protected-access
+            patcher.patch(
+                source,
+                target,
+                [PDFReplacement(
+                    1, (10, 10, 190, 70), "before \ufffc after", (200, 100),
+                    inline_formulas=(PDFInlineFormula(r"\mathbb{Z}\to\mathbb{C}"),),
+                )],
+            )
+
+            page: Any = pypdf.PdfReader(str(target)).pages[0]
+            contents = page.get_contents()
+            assert contents is not None
+            actual_texts = [
+                str(operands[1][NameObject("/ActualText")])
+                for operands, operator in ContentStream(contents, page.pdf).operations
+                if operator == b"BDC" and len(operands) == 2 and NameObject("/ActualText") in operands[1]
+            ]
+            self.assertEqual(actual_texts, ["ℤ→ℂ"])
+            self.assertNotIn(r"\mathbb", actual_texts[0])
+
+    def test_real_matplotlib_formula_extracts_actual_text_in_reading_order(self):
+        """Exercise the actual TeX fragment path with Poppler, not a mock extractor."""
+        if which("pdftotext") is None:
+            self.skipTest("requires Poppler pdftotext for real extraction coverage")
+        renderer = InlineFormulaPDFRenderer()
+        if not renderer.available:
+            self.skipTest("requires a complete local Matplotlib/TeX PDF backend")
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            source = root / "source.pdf"
+            target = root / "target.pdf"
+            document = canvas.Canvas(str(source), pagesize=(200, 100))
+            document.line(0, 0, 0, 0)
+            document.save()
+
+            patcher = self.patcher(options=PatchTextOptions(max_font_size=10, min_font_size=10))
+            patcher._filler._formula_renderer = renderer  # pylint: disable=protected-access
+            patcher.patch(
+                source,
+                target,
+                [PDFReplacement(
+                    1, (10, 10, 190, 70), "before \ufffc after", (200, 100),
+                    inline_formulas=(PDFInlineFormula("x^2"),),
+                )],
+            )
+
+            extracted = subprocess.run(
+                ["pdftotext", "-layout", str(target), "-"],
+                check=True, capture_output=True, text=True,
+            ).stdout
+            self.assertIn("before x^2 after", " ".join(extracted.split()))
+            self.assertEqual(extracted.count("x^2"), 1)
+
+    def test_plain_text_inline_formula_fallback_does_not_add_actual_text(self):
+        """A non-rendered formula stays ordinary text, without duplicate semantics."""
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            source = root / "source.pdf"
+            target = root / "target.pdf"
+            document = canvas.Canvas(str(source), pagesize=(200, 100))
+            document.line(0, 0, 0, 0)
+            document.save()
+
+            patcher = self.patcher(options=PatchTextOptions(
+                max_font_size=10, min_font_size=10, render_inline_formulas=False,
+            ))
+            patcher.patch(
+                source,
+                target,
+                [PDFReplacement(
+                    1, (10, 10, 190, 70), "before \ufffc after", (200, 100),
+                    inline_formulas=(PDFInlineFormula("x^2"),),
+                )],
+            )
+
+            page: Any = pypdf.PdfReader(str(target)).pages[0]
+            contents = page.get_contents()
+            assert contents is not None
+            self.assertNotIn(b"/ActualText", contents.get_data())
+            self.assertIn("before x^2 after", " ".join(page.extract_text().split()))
 
     def test_writes_a_narrow_headline_as_a_natural_right_overflow_line(self):
         """A headline lower bound never prevents a patched PDF from being written."""

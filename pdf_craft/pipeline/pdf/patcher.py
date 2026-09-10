@@ -8,6 +8,7 @@ from tempfile import NamedTemporaryFile, TemporaryDirectory
 from typing import Any
 
 from pdf_craft.pdf.handler import DefaultPDFHandler, PDFHandler
+from pdf_craft.formula import latex_to_plain_text
 
 from .eraser import EraseOptions, EraseRectangle, RectangularEraser
 from .models import PDFReplacement, PDFReplacementRegion, PDFSkippedReplacement
@@ -222,7 +223,7 @@ class PDFPatcher:
                     page.merge_page(pypdf.PdfReader(str(text_path)).pages[0])
                     for placement in page_placements:
                         for formula in placement.formula_draws:
-                            fragment = pypdf.PdfReader(BytesIO(formula.pdf)).pages[0]
+                            fragment = _formula_fragment_with_actual_text(pypdf, formula.pdf, formula.latex)
                             page.merge_transformed_page(
                                 fragment,
                                 pypdf.Transformation().scale(
@@ -236,7 +237,6 @@ class PDFPatcher:
             if document is not None:
                 document.close()
             window.close()
-
     def _plan_page_erasures(
         self,
         document,
@@ -302,3 +302,40 @@ class PDFPatcher:
         overlay = canvas.Canvas(str(output_path), pagesize=(width, height))
         self._eraser.draw(overlay, erasures, height)
         overlay.save()
+
+
+def _formula_fragment_with_actual_text(pypdf, pdf: bytes, latex: str):
+    """Return one formula fragment whose visible marks carry replacement text.
+
+    A TeX/Matplotlib fragment is a visual PDF subtree, not the surrounding
+    Qt text layer. Wrapping its content in a marked-content ``Span`` gives
+    compliant extractors a character replacement without adding transparent
+    text or changing the formula's measured geometry. The span travels with
+    the fragment when :meth:`PageObject.merge_transformed_page` imports it.
+
+    This deliberately does *not* claim to construct a complete tagged PDF:
+    the surrounding Qt text page has no structure tree. It does ensure that
+    an extractor which supports marked-content ``ActualText`` sees the plain
+    formula once rather than the TeX fragment's implementation glyphs.
+    """
+    fragment = pypdf.PdfReader(BytesIO(pdf)).pages[0]
+    actual_text = latex_to_plain_text(latex)
+    contents = fragment.get_contents()
+    if not actual_text or contents is None:
+        return fragment
+
+    from pypdf.generic import DecodedStreamObject, NameObject
+
+    stream = DecodedStreamObject()
+    stream.set_data(
+        b"/Span << /ActualText " + _pdf_utf16_hex_string(actual_text) + b" >> BDC\n"
+        + contents.get_data()
+        + b"\nEMC\n"
+    )
+    fragment[NameObject("/Contents")] = stream
+    return fragment
+
+
+def _pdf_utf16_hex_string(text: str) -> bytes:
+    """Encode a PDF Unicode text string as a syntax-safe hexadecimal literal."""
+    return b"<FEFF" + text.encode("utf-16-be").hex().upper().encode("ascii") + b">"
