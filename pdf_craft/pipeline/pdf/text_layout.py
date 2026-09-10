@@ -1846,19 +1846,33 @@ def _signed_slot_plan_frontier(
 
     ordered_tight = sorted(tight_options, key=lambda item: (item[2], item[0]))
     maximum_tight = len(ordered_tight)
-    non_negative_count = min(maximum_tight, max(0, floor((base_delta + 1e-6) / advance)))
 
     def plan_with_tight_count(count: int) -> _SlotDecisionPlan:
         selected = {index: tight for index, tight, _ in ordered_tight[:count]}
         decisions = tuple(selected.get(index, item) for index, item in enumerate(loose))
         return _SlotDecisionPlan(decisions, base_delta - count * advance)
 
-    non_negative = plan_with_tight_count(non_negative_count)
-    negative_count = non_negative_count + 1
-    if negative_count > maximum_tight:
-        return (non_negative,)
-    negative = plan_with_tight_count(negative_count)
-    return (non_negative, negative)
+    # Keep the nearest candidate from *each actual sign side*.  In
+    # particular, a negative loose-only total has no non-negative companion:
+    # it is already the closest negative plan and must not be paired with an
+    # even more negative tight plan.
+    non_negative_count = min(
+        maximum_tight,
+        max(0, floor((base_delta + 1e-6) / advance)),
+    )
+    has_non_negative = base_delta >= -1e-6
+    non_negative = plan_with_tight_count(non_negative_count) if has_non_negative else None
+
+    if has_non_negative:
+        negative_count = non_negative_count + 1
+    else:
+        negative_count = 0
+    negative = (
+        plan_with_tight_count(negative_count)
+        if negative_count <= maximum_tight
+        else None
+    )
+    return tuple(plan for plan in (non_negative, negative) if plan is not None)
 
 
 def _replacement_obstacles(

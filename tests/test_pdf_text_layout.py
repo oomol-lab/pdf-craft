@@ -458,7 +458,7 @@ class TestQTextParagraphFiller(unittest.TestCase):
         ))
 
     def test_slot_frontier_returns_nearest_non_negative_and_negative_signed_totals(self):
-        """The global choice is defined by signed distance, not local error ranking."""
+        """The global choice is signed distance, not per-bbox absolute error."""
         rectangle = PageRectangle(0, 0, 1, 1)
 
         def decision(delta, choice):
@@ -470,10 +470,54 @@ class TestQTextParagraphFiller(unittest.TestCase):
             (decision(9, "loose"), decision(-1, "tight")),
         ))
 
-        self.assertEqual([plan.signed_delta for plan in plans], [7, -3])
+        self.assertEqual(len(plans), 2)
+        positive = plans[0]
+        negative = plans[1]
+        self.assertEqual((positive.signed_delta, negative.signed_delta), (7, -3))
         self.assertEqual(
-            [sum(item.choice == "tight" for item in plan.decisions) for plan in plans], [2, 3],
+            (sum(item.choice == "tight" for item in positive.decisions),
+             sum(item.choice == "tight" for item in negative.decisions)),
+            (2, 3),
         )
+        # A legacy local-absolute-error ranking prefers all three tight
+        # decisions (three 1pt misses) over the positive side (two 1pt and
+        # one 9pt miss).  The planner must still expose the latter because it
+        # is the closest non-negative signed total.
+        positive_local_error = sum(abs(item.delta_to_aim) for item in positive.decisions)
+        negative_local_error = sum(abs(item.delta_to_aim) for item in negative.decisions)
+        self.assertGreater(positive_local_error, negative_local_error)
+
+    def test_slot_frontier_returns_only_nearest_negative_when_no_non_negative_exists(self):
+        """A negative loose plan has no fictitious non-negative companion."""
+        rectangle = PageRectangle(0, 0, 1, 1)
+
+        def decision(delta, choice):
+            return _RegionSlotDecision(1, rectangle, 1, delta, delta / 2, 0, 2, choice)
+
+        plans = _signed_slot_plan_frontier((
+            (decision(-1, "loose"), decision(-3, "tight")),
+            (decision(-1, "loose"), decision(-3, "tight")),
+        ))
+
+        self.assertEqual(len(plans), 1)
+        self.assertEqual(plans[0].signed_delta, -2)
+        self.assertTrue(all(item.choice == "loose" for item in plans[0].decisions))
+
+    def test_slot_frontier_returns_only_nearest_positive_when_no_negative_exists(self):
+        """If every allowed choice is loose-side, retain only the closest one."""
+        rectangle = PageRectangle(0, 0, 1, 1)
+
+        def decision(delta, choice):
+            return _RegionSlotDecision(1, rectangle, 1, delta, delta / 2, 0, 2, choice)
+
+        plans = _signed_slot_plan_frontier((
+            (decision(5, "loose"), decision(3, "tight")),
+            (decision(5, "loose"), decision(3, "tight")),
+        ))
+
+        self.assertEqual(len(plans), 1)
+        self.assertEqual(plans[0].signed_delta, 6)
+        self.assertTrue(all(item.choice == "tight" for item in plans[0].decisions))
 
     def test_single_bbox_uses_slot_planning_and_is_vertically_centred(self):
         """One source region is a normal slot-plan case, not a legacy branch."""
