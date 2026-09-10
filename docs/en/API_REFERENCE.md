@@ -32,11 +32,13 @@ The two `convert_pdf_to_*` methods use a directory-backed extraction inside thei
 | Method | Signature and purpose |
 | --- | --- |
 | `translate_extraction` | `translate_extraction(extraction, output_path, translator, *, submit=SubmitKind.REPLACE, on_translation_event=None) -> PDFCraftExtraction` translates a `.pcex` into a new `.pcex`. |
-| `translate_pdf` | `translate_pdf(source, extraction, output, transformer, *, on_translation_event=None)` translates then patches text onto the source PDF. `transformer` may be a chapter transformer or `Callable[[str], str]`. |
-| `patch_pdf_with_extraction` | `patch_pdf_with_extraction(source, extraction, output)` patches a source PDF from a `PDFCraftExtraction` or `.pcex` path without OCR or LLM calls. |
+| `translate_pdf` | `translate_pdf(source, extraction, output, transformer, *, on_translation_event=None, ignore_errors=False)` translates then patches text onto the source PDF. `transformer` may be a chapter transformer or `Callable[[str], str]`. |
+| `patch_pdf_with_extraction` | `patch_pdf_with_extraction(source, extraction, output, *, ignore_errors=False)` patches a source PDF from a `PDFCraftExtraction` or `.pcex` path without OCR or LLM calls. |
 | `translate_epub` | `translate_epub(source, output, *, target_language, submit, **options)` translates an existing EPUB. See [EPUB translation](EPUB_TRANSLATION.md) for its options. |
 
 `translate_pdf` and `patch_pdf_with_extraction` require extraction page geometry that matches the source PDF. PDF patching rejects `SubmitKind.APPEND_BLOCK`.
+
+Set `ignore_errors=True` to preserve a page's non-interactive visual base when that page's fill transaction fails, then continue with later pages. The default remains fail-fast. If every page scheduled for fill falls back, `NoUsableFillPagesError` is raised and no output is written. This recovery scope intentionally covers ordinary page-level exceptions, including unexpected fill bugs; it does not recover a source PDF that cannot be opened, enumerated, or compiled into a visual base.
 
 ## `PDFCraftExtraction` and `.pcex`
 
@@ -197,6 +199,6 @@ The patcher merges two independent overlays over a Ghostscript-compiled, fontles
 - `OCRTokensMetering` exposes `input_tokens` and `output_tokens`.
 - `OCREvent` and `OCREventKind` support per-page progress and diagnostics.
 - `predownload_models(...)` prepares local OCR models before an offline `local_only=True` run.
-- `PDFError`, `OCRError`, and `InterruptedError` are exported error types for application-level handling.
+- `PDFError`, `OCRError`, `NoUsableFillPagesError`, and `InterruptedError` are exported error types for application-level handling.
 
 For complete workflows, start with [PDF conversion and translation](PDF_TRANSLATION.md) or [EPUB translation](EPUB_TRANSLATION.md), rather than composing internal modules.

@@ -15,6 +15,7 @@ from PIL import Image
 from reportlab.pdfgen import canvas
 
 from pdf_craft.pdf.handler import PDFHandler
+from pdf_craft.error import NoUsableFillPagesError
 from pdf_craft.pipeline.pdf import (
     FillWindowPlan, FittedParagraph, GhostscriptVisualBaseCompiler, PDFInlineFormula, PDFPatcher, PDFReplacement,
     PDFReplacementRegion, PatchTextOptions, PatchTextStyle,
@@ -42,6 +43,171 @@ class TestPDFPatcher(unittest.TestCase):
 
     def patcher(self, *args, **kwargs) -> PDFPatcher:
         return PDFPatcher(*args, visual_base_compiler=self._compiler, **kwargs)
+
+    @staticmethod
+    def _two_page_source(path: Path) -> None:
+        document = canvas.Canvas(str(path), pagesize=(200, 100))
+        document.drawString(20, 70, "Original first page")
+        document.showPage()
+        document.drawString(20, 70, "Original second page")
+        document.save()
+
+    @staticmethod
+    def _page_document() -> Any:
+        document: Any = Mock()
+        document.render_page.side_effect = lambda *_args: Image.new("RGB", (200, 100), "white")
+        return document
+
+    @staticmethod
+    def _two_page_replacements() -> list[PDFReplacement]:
+        return [
+            PDFReplacement(1, (10, 10, 190, 70), "First translated", (200, 100)),
+            PDFReplacement(2, (10, 10, 190, 70), "Second translated", (200, 100)),
+        ]
+
+    def test_ignore_errors_preserves_visual_base_for_one_failed_fill_page(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            source = root / "source.pdf"
+            target = root / "target.pdf"
+            self._two_page_source(source)
+            document = self._page_document()
+            handler: Any = Mock()
+            handler.open.return_value = document
+            patcher = self.patcher(font_size=8, pdf_handler=handler)
+            write_erasure = patcher._write_erasure_overlay  # pylint: disable=protected-access
+
+            def fail_first_page(canvas_module, output_path, *args):
+                if output_path.name == "erase-1.pdf":
+                    raise RuntimeError("deliberate page bug")
+                return write_erasure(canvas_module, output_path, *args)
+
+            with patch.object(patcher, "_write_erasure_overlay", side_effect=fail_first_page), \
+                    self.assertLogs("pdf_craft.pipeline.pdf.patcher", "ERROR") as logged:
+                patcher.patch(source, target, self._two_page_replacements(), ignore_errors=True)
+
+            reader = pypdf.PdfReader(str(target))
+            self.assertEqual(len(reader.pages), 2)
+            self.assertNotIn("Original first page", reader.pages[0].extract_text() or "")
+            self.assertNotIn("First translated", reader.pages[0].extract_text() or "")
+            self.assertIn("Second translated", " ".join((reader.pages[1].extract_text() or "").split()))
+            self.assertEqual(patcher.failed_page_indexes, (1,))
+            self.assertIn("RuntimeError: deliberate page bug", "\n".join(logged.output))
+
+    def test_fill_page_errors_remain_fail_fast_without_ignore_errors(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            source = root / "source.pdf"
+            target = root / "target.pdf"
+            self._two_page_source(source)
+            document = self._page_document()
+            handler: Any = Mock()
+            handler.open.return_value = document
+            patcher = self.patcher(font_size=8, pdf_handler=handler)
+
+            with patch.object(
+                patcher, "_write_erasure_overlay", side_effect=RuntimeError("deliberate page bug"),
+            ), self.assertRaisesRegex(RuntimeError, "deliberate page bug"):
+                patcher.patch(source, target, self._two_page_replacements())
+
+            self.assertFalse(target.exists())
+
+    def test_ignore_errors_rejects_an_output_with_no_usable_fill_pages(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            source = root / "source.pdf"
+            target = root / "target.pdf"
+            self._two_page_source(source)
+            document = self._page_document()
+            handler: Any = Mock()
+            handler.open.return_value = document
+            patcher = self.patcher(font_size=8, pdf_handler=handler)
+
+            with patch.object(
+                patcher, "_write_erasure_overlay", side_effect=RuntimeError("deliberate page bug"),
+            ), self.assertRaises(NoUsableFillPagesError) as raised:
+                patcher.patch(source, target, self._two_page_replacements(), ignore_errors=True)
+
+            self.assertEqual(raised.exception.failed_page_indexes, (1, 2))
+            self.assertFalse(target.exists())
+
+    def test_ignore_errors_recovers_a_page_scoped_invalid_bbox(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            source = root / "source.pdf"
+            target = root / "target.pdf"
+            self._two_page_source(source)
+            document = self._page_document()
+            handler: Any = Mock()
+            handler.open.return_value = document
+            patcher = self.patcher(font_size=8, pdf_handler=handler)
+            replacements = [
+                PDFReplacement(1, (10, 10, 9, 70), "Invalid", (200, 100)),
+                PDFReplacement(2, (10, 10, 190, 70), "Second translated", (200, 100)),
+            ]
+
+            patcher.patch(source, target, replacements, ignore_errors=True)
+
+            reader = pypdf.PdfReader(str(target))
+            self.assertNotIn("Invalid", reader.pages[0].extract_text() or "")
+            self.assertIn("Second translated", " ".join((reader.pages[1].extract_text() or "").split()))
+            self.assertEqual(patcher.failed_page_indexes, (1,))
+
+    def test_ignore_errors_recovers_a_page_scoped_planning_bug(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            source = root / "source.pdf"
+            target = root / "target.pdf"
+            self._two_page_source(source)
+            document = self._page_document()
+            handler: Any = Mock()
+            handler.open.return_value = document
+            patcher = self.patcher(font_size=8, pdf_handler=handler)
+            fit = patcher._filler.fit  # pylint: disable=protected-access
+
+            def fail_first_page(replacement, page_sizes):
+                if replacement.page_index == 1:
+                    raise RuntimeError("deliberate layout bug")
+                return fit(replacement, page_sizes)
+
+            observed: list[Exception] = []
+            with patch.object(patcher._filler, "fit", side_effect=fail_first_page):  # pylint: disable=protected-access
+                patcher.patch(
+                    source,
+                    target,
+                    self._two_page_replacements(),
+                    ignore_errors=lambda error: observed.append(error) is None,
+                )
+
+            reader = pypdf.PdfReader(str(target))
+            self.assertNotIn("First translated", reader.pages[0].extract_text() or "")
+            self.assertIn("Second translated", " ".join((reader.pages[1].extract_text() or "").split()))
+            self.assertEqual(patcher.failed_page_indexes, (1,))
+            self.assertEqual([str(error) for error in observed], ["deliberate layout bug"])
+
+    def test_pages_without_fill_work_do_not_count_toward_usable_fill_pages(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            source = root / "source.pdf"
+            target = root / "target.pdf"
+            self._two_page_source(source)
+            document = self._page_document()
+            handler: Any = Mock()
+            handler.open.return_value = document
+            patcher = self.patcher(font_size=8, pdf_handler=handler)
+
+            with patch.object(
+                patcher, "_write_erasure_overlay", side_effect=RuntimeError("deliberate page bug"),
+            ), self.assertRaises(NoUsableFillPagesError) as raised:
+                patcher.patch(
+                    source,
+                    target,
+                    [PDFReplacement(1, (10, 10, 190, 70), "First translated", (200, 100))],
+                    ignore_errors=True,
+                )
+
+            self.assertEqual(raised.exception.failed_page_indexes, (1,))
+            self.assertFalse(target.exists())
 
     def test_legacy_font_size_remains_an_explicit_maximum(self):
         patcher = self.patcher(font_size=12)

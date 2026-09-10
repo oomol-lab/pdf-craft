@@ -14,6 +14,7 @@ from pdf_craft.transformer.events import TranslationEvent, TranslationEventKind,
 from pdf_craft.transformer.chapter_xml import ChapterXMLTransformer
 from pdf_craft.transformer.xml_translator.segment import search_text_segments
 from pdf_craft.pdf.handler import PDFHandler
+from pdf_craft.error import IgnoreFillErrorsChecker
 from pdf_craft.pipeline.pdf.models import PDFInlineFormula, PDFReplacement, PDFReplacementRegion
 from pdf_craft.pipeline.pdf.patcher import PDFPatcher
 from pdf_craft.transformer import ChapterTransformer
@@ -35,6 +36,8 @@ class PDFTranslationPipeline:
         extraction: PDFCraftExtraction | Path,
         transformer: Callable[[str], str] | ChapterTransformer,
         on_translation_event: Callable[[TranslationEvent], None] | None = None,
+        *,
+        ignore_errors: IgnoreFillErrorsChecker = False,
     ) -> None:
         extraction = _ensure_extraction(extraction)
         extraction.validate()
@@ -95,6 +98,7 @@ class PDFTranslationPipeline:
                     callback = transformer if callable(transformer) else (lambda text: text)
                     yield from self._iter_chapter_replacements(
                         transformed, callback, pages, render_dpi, structured,
+                        ignore_errors=ignore_errors,
                     )
                     completed_characters += character_count
                     if on_translation_event is not None and not is_xml_transformer:
@@ -117,7 +121,9 @@ class PDFTranslationPipeline:
                             total_characters=total_characters,
                         ))
 
-            self.patcher.patch(pdf_path, target_path, translated_replacements())
+            self._patch_replacements(
+                pdf_path, target_path, translated_replacements(), ignore_errors,
+            )
         if on_translation_event is not None:
             on_translation_event(TranslationEvent(
                 kind=TranslationEventKind.COMPLETE,
@@ -130,6 +136,8 @@ class PDFTranslationPipeline:
         pdf_path: Path,
         target_path: Path,
         extraction: PDFCraftExtraction | Path,
+        *,
+        ignore_errors: IgnoreFillErrorsChecker = False,
     ) -> None:
         """Write text already present in ``extraction`` back to ``pdf_path``.
 
@@ -147,15 +155,35 @@ class PDFTranslationPipeline:
                 for chapter in reader():
                     yield from self._iter_chapter_replacements(
                         chapter, lambda text: text, pages, render_dpi, structured=True,
+                        ignore_errors=ignore_errors,
                     )
 
-            self.patcher.patch(pdf_path, target_path, replacements())
+            self._patch_replacements(pdf_path, target_path, replacements(), ignore_errors)
+
+    def _patch_replacements(
+        self,
+        pdf_path: Path,
+        target_path: Path,
+        replacements: Iterator[PDFReplacement],
+        ignore_errors: IgnoreFillErrorsChecker,
+    ) -> None:
+        """Keep existing custom patchers compatible until they opt into recovery."""
+        if _ignore_errors_enabled(ignore_errors):
+            self.patcher.patch(
+                pdf_path, target_path, replacements, ignore_errors=ignore_errors,
+            )
+            return
+        self.patcher.patch(pdf_path, target_path, replacements)
 
     def _iter_chapter_replacements(
         self, chapter: Chapter, transformer, pages,
         render_dpi: int, structured: bool = False,
+        *,
+        ignore_errors: IgnoreFillErrorsChecker = False,
     ) -> Iterator[PDFReplacement]:
-        obstacle_regions = _chapter_obstacle_regions(chapter, pages, render_dpi)
+        obstacle_regions = _chapter_obstacle_regions(
+            chapter, pages, render_dpi, ignore_errors=ignore_errors,
+        )
         for layout in chapter.layouts:
             if not isinstance(layout, ParagraphLayout) or layout.ref not in {"text", "sub_title"}:
                 continue
@@ -180,11 +208,16 @@ class PDFTranslationPipeline:
             regions: list[PDFReplacementRegion] = []
             for block in layout.blocks:
                 if block.page_index not in pages:
-                    raise ValueError(
+                    error = ValueError(
                         f"PDFCraftExtraction pages.xml is missing page {block.page_index}"
                     )
+                    if not _check_ignore_error(ignore_errors, error):
+                        raise error
+                    page_pixel_size = (0, 0)
+                else:
+                    page_pixel_size = pages[block.page_index]
                 regions.append(PDFReplacementRegion(
-                    block.page_index, block.det, pages[block.page_index], render_dpi,
+                    block.page_index, block.det, page_pixel_size, render_dpi,
                     reading_order=block.order,
                 ))
             if not regions:  # A ParagraphLayout without blocks has no source geometry.
@@ -198,6 +231,16 @@ class PDFTranslationPipeline:
                 inline_formulas=inline_formulas,
                 obstacle_regions=obstacle_regions,
             )
+
+
+def _check_ignore_error(checker: IgnoreFillErrorsChecker, error: Exception) -> bool:
+    """Match PDF patcher's bool-or-callable page-fill error policy."""
+    return checker(error) if callable(checker) else checker
+
+
+def _ignore_errors_enabled(checker: IgnoreFillErrorsChecker) -> bool:
+    """A callable policy needs an error instance before it can opt in."""
+    return checker is True or callable(checker)
 
 
 def _to_patch_text(items) -> str:
@@ -252,7 +295,13 @@ def _to_pdf_patch_content(items) -> tuple[str, tuple[PDFInlineFormula, ...]]:
     return "".join(parts), tuple(formulas)
 
 
-def _chapter_obstacle_regions(chapter: Chapter, pages, render_dpi: int) -> tuple[PDFReplacementRegion, ...]:
+def _chapter_obstacle_regions(
+    chapter: Chapter,
+    pages,
+    render_dpi: int,
+    *,
+    ignore_errors: IgnoreFillErrorsChecker = False,
+) -> tuple[PDFReplacementRegion, ...]:
     """Collect non-flow geometry that may stop text from extending downward.
 
     Top-level paragraph blocks are already represented by the replacement
@@ -268,7 +317,10 @@ def _chapter_obstacle_regions(chapter: Chapter, pages, render_dpi: int) -> tuple
 
     def add_region(page_index: int, det: tuple[int, int, int, int]) -> None:
         if page_index not in pages:
-            raise ValueError(f"PDFCraftExtraction pages.xml is missing page {page_index}")
+            error = ValueError(f"PDFCraftExtraction pages.xml is missing page {page_index}")
+            if not _check_ignore_error(ignore_errors, error):
+                raise error
+            return
         key = (page_index, det)
         if key not in seen_regions:
             seen_regions.add(key)

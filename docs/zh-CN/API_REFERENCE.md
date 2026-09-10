@@ -27,8 +27,8 @@ from pdf_craft import PDFCraft, PDFOptions
 - `PDFPatcher`、`PDFReplacement`、`PDFReplacementRegion`、`PDFInlineFormula`、
   `PatchTextOptions`、`PatchTextStyle`、`FontResolution`、`QTextParagraphFiller`、`EraseOptions`、
   `PDFTranslationPipeline`
-- `PDFError`、`OCRError`、`IgnorePDFErrorsChecker`、
-  `IgnoreOCRErrorsChecker`
+- `PDFError`、`OCRError`、`NoUsableFillPagesError`、`IgnorePDFErrorsChecker`、
+  `IgnoreOCRErrorsChecker`、`IgnoreFillErrorsChecker`
 - `translate_epub`
 
 `ChapterTransformer` 是公共协议，但导入路径为
@@ -220,6 +220,7 @@ def accepts_transformer(transformer: ChapterTransformer) -> None:
 extraction = craft.extract_pdf("input.pdf", "work/book.pcex")
 craft.translate_pdf(
     "input.pdf", extraction, "translated.pdf", translator,
+    ignore_errors=True,  # 某一页写回失败时保留该页视觉底图，并继续后续页
 )
 ```
 
@@ -233,6 +234,12 @@ craft.translate_pdf(
 ```python
 craft.patch_pdf_with_extraction("input.pdf", "work/translated.pcex", "translated.pdf")
 ```
+
+`translate_pdf` 与 `patch_pdf_with_extraction` 默认在写回错误时立即失败。传入
+`ignore_errors=True` 后，能够归属到某一页的擦除、文字层、公式或 PDF 合成异常（包括未知代码
+异常）会记录完整 traceback，并让该页退回为不可交互的视觉底图；其余页仍继续写回。若所有需要
+写回的页面都退回，会抛出 `NoUsableFillPagesError`，不会产生伪成功文件。不能打开、枚举或编译
+为视觉底图的源 PDF 没有可回退页，仍会直接失败。
 
 ## PDFCraftExtraction 与 `.pcex`
 
@@ -475,8 +482,9 @@ LLM(
 方法以及一键转换方法返回。`OCREvent` 和 `OCREventKind` 用于 `on_ocr_event` 回调，适合
 记录页面级 OCR 状态。
 
-`PDFError`、`OCRError` 可用于日志和错误判断。`ignore_pdf_errors`、`ignore_ocr_errors` 可
-传 `True`、`False` 或 callable。`FillFailedEvent` 用于 EPUB XML 结构修复失败回调，包含
+`PDFError`、`OCRError`、`NoUsableFillPagesError` 可用于日志和错误判断。`ignore_pdf_errors`、
+`ignore_ocr_errors` 以及 PDF 写回的 `ignore_errors` 可传 `True`、`False` 或 callable。
+`FillFailedEvent` 用于 EPUB XML 结构修复失败回调，包含
 `error_message`、`retried_count` 和 `over_maximum_retries`。
 
 `ExtractionOptions.aborted` 返回 `True`，以及 `max_ocr_tokens` /

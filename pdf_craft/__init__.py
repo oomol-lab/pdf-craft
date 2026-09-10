@@ -1,10 +1,12 @@
 from epub_generator import BookMeta, LaTeXRender, TableRender
 
 from .error import (
+    IgnoreFillErrorsChecker,
     IgnoreOCRErrorsChecker,
     IgnorePDFErrorsChecker,
     InterruptedError,
     NoUsableOCRPagesError,
+    NoUsableFillPagesError,
     OCRBillingError,
     OCRFatalError,
     OCRError,

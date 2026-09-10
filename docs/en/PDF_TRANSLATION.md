@@ -130,6 +130,8 @@ craft.translate_pdf(
     extraction,
     "book.zh.pdf",
     translator,
+    # Keep an unmodified visual-base page if one page's fill fails.
+    ignore_errors=True,
 )
 ```
 
@@ -151,6 +153,8 @@ craft.patch_pdf_with_extraction(
     "book.zh.pdf",
 )
 ```
+
+By default a PDF fill error stops the operation. Pass `ignore_errors=True` to either PDF entry point when a service should keep processing later pages: a failing page is emitted as its Ghostscript visual base, with no selectable source text, while successful pages retain their translation layers. If every page scheduled for fill fails, `NoUsableFillPagesError` is raised instead of producing an all-fallback PDF. This option deliberately catches any ordinary exception within a page fill transaction and records its traceback; it cannot recover a source document for which no visual pages can be produced.
 
 ### What PDF patching can and cannot preserve
 

@@ -2115,7 +2115,12 @@ class WindowedParagraphPlanner:
         self._options = options or filler.options
         self._previous_body_font_size: float | None = None
 
-    def plan(self, replacements: Iterable[PDFReplacement]) -> Iterator[FillWindowPlan]:
+    def plan(
+        self,
+        replacements: Iterable[PDFReplacement],
+        *,
+        on_window_error: Callable[[tuple[PDFReplacement, ...], Exception], None] | None = None,
+    ) -> Iterator[FillWindowPlan]:
         """Yield completed windows in page order without retaining the full book."""
         window: list[PDFReplacement] = []
         first_page: int | None = None
@@ -2128,7 +2133,9 @@ class WindowedParagraphPlanner:
             previous_first_page = replacement_first
             if window and replacement_first > last_page:
                 assert first_page is not None
-                yield self._plan_window(first_page, last_page, window)
+                yield from self._plan_or_report_failure(
+                    first_page, last_page, window, on_window_error,
+                )
                 window = []
                 first_page = None
                 last_page = 0
@@ -2138,7 +2145,31 @@ class WindowedParagraphPlanner:
             last_page = max(last_page, replacement_last)
         if window:
             assert first_page is not None
-            yield self._plan_window(first_page, last_page, window)
+            yield from self._plan_or_report_failure(
+                first_page, last_page, window, on_window_error,
+            )
+
+    def _plan_or_report_failure(
+        self,
+        first_page: int,
+        last_page: int,
+        replacements: list[PDFReplacement],
+        on_window_error: Callable[[tuple[PDFReplacement, ...], Exception], None] | None,
+    ) -> Iterator[FillWindowPlan]:
+        """Plan a closed window or hand its recoverable failure to the caller.
+
+        The planner deliberately has no error policy of its own.  The PDF
+        composer is the layer that can decide whether an isolated window may
+        fall back to its visual source pages.  Keeping this callback at the
+        window boundary preserves bounded memory while allowing callers to
+        recover page-addressable layout failures.
+        """
+        try:
+            yield self._plan_window(first_page, last_page, replacements)
+        except Exception as error:
+            if on_window_error is None:
+                raise
+            on_window_error(tuple(replacements), error)
 
     def _plan_window(
         self,

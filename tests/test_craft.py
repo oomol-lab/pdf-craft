@@ -100,6 +100,19 @@ class TestPDFCraft(unittest.TestCase):
             validate.assert_called_once()
             patch_pdf.assert_called_once()
 
+    def test_patch_pdf_with_extraction_defers_page_validation_when_ignoring_errors(self):
+        with tempfile.TemporaryDirectory() as directory:
+            extraction = _source_extraction(Path(directory) / "source")
+            with patch("pdf_craft.craft._validate_extraction_for_pdf") as validate, \
+                    patch("pdf_craft.craft.PDFTranslationPipeline.patch") as patch_pdf:
+                PDFCraft().patch_pdf_with_extraction(
+                    "source.pdf", extraction, "target.pdf", ignore_errors=True,
+                )
+            validate.assert_not_called()
+            patch_pdf.assert_called_once_with(
+                Path("source.pdf"), Path("target.pdf"), extraction, ignore_errors=True,
+            )
+
     def test_extraction_transform_creates_independent_archive(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
