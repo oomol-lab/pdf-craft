@@ -213,9 +213,9 @@ class PDFPatcher:
                     for placement in contribution.placements
                 )
                 if page_placements:
-                    text_path = root / f"text-{index}.pdf"
-                    self._filler.draw_pdf_overlay(text_path, (page_width, page_height), page_placements)
-                    page.merge_page(pypdf.PdfReader(str(text_path)).pages[0])
+                    self._merge_text_placements(
+                        pypdf, page, root, index, (page_width, page_height), page_placements,
+                    )
                     for placement in page_placements:
                         for formula in placement.formula_draws:
                             fragment = _formula_fragment_with_actual_text(pypdf, formula.pdf, formula.latex)
@@ -232,6 +232,49 @@ class PDFPatcher:
             if document is not None:
                 document.close()
             window.close()
+
+    def _merge_text_placements(
+        self,
+        pypdf,
+        page,
+        root: Path,
+        page_index: int,
+        page_size: tuple[float, float],
+        placements,
+    ) -> None:
+        """Merge Qt text while preserving forced text in Poppler extraction.
+
+        A forced placement is allowed below the physical page boundary, where
+        Poppler correctly omits ordinary visible glyphs.  Render it in its own
+        overlay and wrap that exact glyph stream in ``ActualText``: it remains
+        a genuine PDF text layer, visually unchanged, and extracts as the full
+        source string exactly once.  Ordinary contiguous placements stay in a
+        shared overlay to retain the normal fast path and stream order.
+        """
+        pending = []
+        overlay_index = 0
+
+        def merge(items, actual_text: str | None = None) -> None:
+            nonlocal overlay_index
+            if not items:
+                return
+            text_path = root / f"text-{page_index}-{overlay_index}.pdf"
+            overlay_index += 1
+            self._filler.draw_pdf_overlay(text_path, page_size, tuple(items))
+            text_page = pypdf.PdfReader(str(text_path)).pages[0]
+            if actual_text:
+                _set_page_actual_text(text_page, actual_text)
+            page.merge_page(text_page)
+
+        for placement in placements:
+            if not placement.force_written:
+                pending.append(placement)
+                continue
+            merge(pending)
+            pending = []
+            merge((placement,), placement.assigned_text or placement.remaining_text)
+        merge(pending)
+
     def _plan_page_erasures(
         self,
         document,
@@ -315,9 +358,14 @@ def _formula_fragment_with_actual_text(pypdf, pdf: bytes, latex: str):
     """
     fragment = pypdf.PdfReader(BytesIO(pdf)).pages[0]
     actual_text = latex_to_plain_text(latex)
-    contents = fragment.get_contents()
+    return _set_page_actual_text(fragment, actual_text)
+
+
+def _set_page_actual_text(page, actual_text: str):
+    """Mark an existing PDF text stream with one extractor replacement string."""
+    contents = page.get_contents()
     if not actual_text or contents is None:
-        return fragment
+        return page
 
     from pypdf.generic import DecodedStreamObject, NameObject
 
@@ -327,8 +375,8 @@ def _formula_fragment_with_actual_text(pypdf, pdf: bytes, latex: str):
         + contents.get_data()
         + b"\nEMC\n"
     )
-    fragment[NameObject("/Contents")] = stream
-    return fragment
+    page[NameObject("/Contents")] = stream
+    return page
 
 
 def _pdf_utf16_hex_string(text: str) -> bytes:

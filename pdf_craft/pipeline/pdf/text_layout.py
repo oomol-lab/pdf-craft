@@ -164,6 +164,10 @@ class RegionTextPlacement:
     # first lower overlapping source region (or the page bottom) that text
     # must not enter.
     forbidden_bottom: float | None = None
+    # A forced placement deliberately exceeds ordinary page geometry.  Its
+    # visual Qt text is wrapped in PDF ActualText during composition so a
+    # conforming extractor can still recover the whole replacement.
+    force_written: bool = False
 
 
 @dataclass(frozen=True)
@@ -1271,6 +1275,7 @@ class QTextParagraphFiller:
             style,
             allows_horizontal_overflow=allows_horizontal_overflow,
             assigned_text=text,
+            force_written=True,
         )
 
     def _fit_region(
@@ -1484,6 +1489,11 @@ class QTextParagraphFiller:
             return placement
         expected_lines = len(placement.line_tops)
         if not expected_lines:
+            return placement
+        if placement.force_written:
+            # The first pass intentionally abandoned source-box constraints.
+            # A local normalization pass must not accidentally re-introduce
+            # clipping or drop the semantic ActualText marker.
             return placement
 
         style = placement.style

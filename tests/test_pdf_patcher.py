@@ -387,6 +387,8 @@ class TestPDFPatcher(unittest.TestCase):
             self.assertEqual(len(list(page.images)), 0)
 
     def test_tight_legal_bbox_forces_complete_text_into_a_readable_pdf(self):
+        if which("pdftotext") is None:
+            self.skipTest("requires Poppler pdftotext for forced-text extraction coverage")
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
             source = root / "source.pdf"
@@ -396,7 +398,7 @@ class TestPDFPatcher(unittest.TestCase):
             doc.save()
             patcher = self.patcher(options=PatchTextOptions(max_font_size=8, min_font_size=8))
 
-            text = "too much text " * 100
+            text = "forced readable text " * 100
             patcher.patch(
                 source,
                 target,
@@ -406,7 +408,12 @@ class TestPDFPatcher(unittest.TestCase):
             output = pypdf.PdfReader(str(target))
             self.assertEqual(len(output.pages), 1)
             extracted = " ".join(output.pages[0].extract_text().split())
-            self.assertEqual(extracted.count("too much text"), 100)
+            self.assertEqual(extracted.count("forced readable text"), 100)
+            poppler_text = subprocess.run(
+                ["pdftotext", "-layout", str(target), "-"],
+                check=True, capture_output=True, text=True,
+            ).stdout
+            self.assertEqual(poppler_text.count("forced readable text"), 100)
 
     def test_tall_inline_formula_uses_plain_text_in_the_forced_pdf_fallback(self):
         class TallRenderer:
