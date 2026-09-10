@@ -13,7 +13,8 @@ from pdf_craft.extractor.chapter.chapter import (
     AssetLayout, BlockLayout, Chapter, ParagraphLayout, Reference,
 )
 from pdf_craft.pipeline.pdf.text_layout import (
-    _LAYOUT_SCALE, _choose_automatic_font, _closest_to_aim,
+    _LAYOUT_SCALE, _RegionSlotDecision, _choose_automatic_font, _closest_to_aim,
+    _qt_modules, _signed_slot_plan_frontier,
 )
 
 
@@ -375,6 +376,81 @@ class TestQTextParagraphFiller(unittest.TestCase):
         self.assertTrue(fitted.placements[0].remaining_text.startswith("one two"))
         self.assertNotEqual(fitted.placements[1].remaining_text, fitted.placements[0].remaining_text)
 
+    def test_multi_page_slots_reserve_the_continuation_bbox_before_qt_layout(self):
+        """A first-page box cannot consume lines nominally owned by page two.
+
+        This models a paragraph split at a page boundary.  The old continuous
+        layout only changed width between boxes, so a page-one box with no
+        lower same-page obstacle could eat the continuation text.  Slot
+        capacity is now decided before the one QTextLayout stream is consumed.
+        """
+        regions = [
+            PDFReplacementRegion(1, (0, 0, 180, 60), (200, 100)),
+            PDFReplacementRegion(2, (0, 0, 180, 60), (200, 100)),
+        ]
+        text = " ".join(f"word{index}" for index in range(20))
+
+        fitted = QTextParagraphFiller(PatchTextOptions(
+            max_font_size=10, min_font_size=10,
+        )).fit(_replacement(text, regions), {1: (200, 100), 2: (200, 100)})
+
+        self.assertEqual([placement.page_index for placement in fitted.placements], [1, 2])
+        self.assertTrue(fitted.placements[0].assigned_text)
+        self.assertTrue(fitted.placements[1].assigned_text)
+        self.assertEqual(
+            "".join(placement.assigned_text for placement in fitted.placements), text,
+        )
+        # The physical first box has room for more rows before the page edge,
+        # but its slot decision reserves its continuation space instead.
+        self.assertLessEqual(len(fitted.placements[0].line_tops), 3)
+
+    def test_tight_slot_choice_is_rejected_when_centering_hits_projected_guards(self):
+        """A nominal bottom crossing is unavailable when its centred half crosses a guard."""
+        source = PDFReplacementRegion(1, (0, 10, 100, 30), (100, 100))
+        above = PDFReplacementRegion(1, (0, 0, 100, 9), (100, 100))
+        below = PDFReplacementRegion(1, (0, 31, 100, 60), (100, 100))
+        replacement = PDFReplacement(
+            1, source.bbox, "one line", source.page_pixel_size,
+            regions=(source,), obstacle_regions=(above, below),
+        )
+        filler = QTextParagraphFiller(PatchTextOptions(max_font_size=10, min_font_size=10))
+        # ``fit`` takes the optimized one-box branch, so inspect the compact
+        # multi-box planner directly: it is the unit responsible for filtering
+        # the symmetric guard violation.
+        style = filler._resolve_font(  # pylint: disable=protected-access
+            filler.options.style_for("text", 0), replacement.text,
+        )
+        filler._layout_obstacles = {  # pylint: disable=protected-access
+            1: tuple(PageRectangle(*item.bbox) for item in (source, above, below)),
+        }
+        QtCore, QtGui = _qt_modules()
+        plans = filler._slot_decision_plans(  # pylint: disable=protected-access
+            QtCore, QtGui, replacement, {1: (100, 100)}, style, 10,
+        )
+
+        self.assertEqual(len(plans), 1)
+        self.assertEqual(plans[0].decisions[0].choice, "loose")
+
+    def test_slot_frontier_is_bounded_without_materializing_virtual_rows(self):
+        """Hundreds of binary decisions remain a bounded set of compact tuples."""
+        rectangle = PageRectangle(0, 0, 1, 1)
+        choices = tuple(
+            (
+                _RegionSlotDecision(1, rectangle, 10**12, 0.25, 0.125, 0, 100, "loose"),
+                _RegionSlotDecision(1, rectangle, 10**12 + 1, -0.25, -0.125, 0, 100, "tight"),
+            )
+            for _ in range(256)
+        )
+
+        plans = _signed_slot_plan_frontier(choices)
+
+        self.assertLessEqual(len(plans), 2)
+        self.assertTrue(all(len(plan.decisions) == 256 for plan in plans))
+        self.assertTrue(all(
+            isinstance(decision.line_count, int)
+            for plan in plans for decision in plan.decisions
+        ))
+
     def test_multi_bbox_flow_keeps_one_qt_character_stream_across_the_boundary(self):
         """The second bbox must not receive a fresh QTextLayout substring."""
         class RecordingFiller(QTextParagraphFiller):
@@ -406,7 +482,11 @@ class TestQTextParagraphFiller(unittest.TestCase):
         # probe receives the complete paragraph, never the second region's
         # remaining substring.
         self.assertTrue(filler.layout_texts)
-        self.assertTrue(all(item == text for item in filler.layout_texts))
+        # The slot planner also creates an empty metric layout.  Every layout
+        # that consumes paragraph content must nevertheless receive the full
+        # stream, never a leftover substring for a later bbox.
+        self.assertTrue(all(item in {"", text} for item in filler.layout_texts))
+        self.assertTrue(any(item == text for item in filler.layout_texts))
 
     def test_keeps_ordinary_whitespace_for_qt_to_layout(self):
         """Do not normalize translated whitespace before handing it to Qt."""
