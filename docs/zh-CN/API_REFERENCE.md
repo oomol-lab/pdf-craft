@@ -24,7 +24,7 @@ from pdf_craft import PDFCraft, PDFOptions
   `TranslationEventKind`、`TranslationItemKind`、`FillFailedEvent`
 - `PDFHandler`、`DefaultPDFHandler`、`PDFDocument`、`DefaultPDFDocument`、
   `PDFDocumentMetadata`
-- `PDFPatcher`、`PDFReplacement`、`PDFReplacementRegion`、`PDFSkippedReplacement`、`PDFInlineFormula`、
+- `PDFPatcher`、`PDFReplacement`、`PDFReplacementRegion`、`PDFInlineFormula`、
   `PatchTextOptions`、`PatchTextStyle`、`FontResolution`、`QTextParagraphFiller`、`EraseOptions`、
   `PDFTranslationPipeline`
 - `PDFError`、`OCRError`、`IgnorePDFErrorsChecker`、
@@ -388,7 +388,7 @@ translate_epub(
   target_path, replacements)` 写出 PDF。它接受任意通过字段校验的 `PDFReplacement`，不要求这些
   替换项来自 `PDFCraftExtraction` 或 OCR；`page_pixel_size` 仅用于把像素 `bbox` 换算为 PDF 坐标，
   patcher 不会验证它是否等于源页的实际渲染尺寸。调用方必须自行保证页码、坐标与尺寸对应源 PDF。
-  `PatchTextOptions` 控制默认字体、字号、内边距、对齐、`overflow` 策略和
+  `PatchTextOptions` 控制默认字体、字号、内边距、对齐和
   `render_inline_formulas`。省略或传入空 `font_name`
   时，会解析一个已安装的本机字体，并在本次写回的所有未指定样式中复用；
   `PDFPatcher.font_resolutions` 可以查看自动选择或显式字体走 Qt fallback 的诊断，且不会与 bbox
@@ -398,10 +398,10 @@ translate_epub(
   `PatchTextStyle` 以 `"text"`、`"sub_title"` 或 `"sub_title:2"` 为键覆盖不同文字等级。
   第一阶段会为同一个段落统一搜索字号，随后按顺序流入所有 `regions`；放不下的整行会进入下一个框，
   绝不局部跨框。第二阶段会在不改变冻结行数和文字分配的前提下，按文字等级的加权平均字号对每个 bbox
-  局部归一化，因此最终字号可略有不同。`overflow="error"`（默认）在正文整段无法容纳时失败，`"skip"` 则把对应项记录在
-  `patcher.skipped_replacements` 中。Qt 负责断行、字形位置与字体 fallback；用户填写的缺失字体
-  不会阻断运行。标题有相对已排版正文的最小字号；若该下限无法装入 bbox，仍以该字号从 bbox 左侧
-  中点向右按自然宽度绘制，不会把这种正常溢出视为错误。
+  局部归一化，因此最终字号可略有不同。Qt 负责断行、字形位置与字体 fallback；用户填写的缺失字体
+  不会阻断运行。若合法来源几何在最小字号仍无法容纳完整正文，patcher 会从第一个来源 bbox 以该字号强制写入完整文字，
+  允许越过普通 bbox 与障碍物边界，避免整份 PDF 中断。标题有相对已排版正文的最小字号；若该下限无法装入 bbox，先从 bbox 左侧
+  中点向右按自然宽度绘制，仍不满足时再走同一强制写入兜底。
 
   `render_inline_formulas=True` 是默认值。章节 XML 会保留行内公式，使它们参与段落翻译上下文而不被
   替换；当 Matplotlib 与本机 TeX 可用时，patcher 将其写为 PDF 矢量内容，否则（或单个公式失败时）

@@ -11,7 +11,7 @@ from pdf_craft.pdf.handler import DefaultPDFHandler, PDFHandler
 from pdf_craft.formula import latex_to_plain_text
 
 from .eraser import EraseOptions, EraseRectangle, RectangularEraser
-from .models import PDFReplacement, PDFReplacementRegion, PDFSkippedReplacement
+from .models import PDFReplacement, PDFReplacementRegion
 from .text_layout import (
     FontResolution, PatchTextOptions, QTextParagraphFiller, WindowedParagraphPlanner, _contains_cjk,
 )
@@ -66,7 +66,6 @@ class PDFPatcher:
         self._pdf_handler = pdf_handler or DefaultPDFHandler()
         self._visual_base_compiler = visual_base_compiler or GhostscriptVisualBaseCompiler()
         self.dpi = dpi
-        self.skipped_replacements: tuple[PDFSkippedReplacement, ...] = ()
 
     @property
     def font_resolutions(self) -> tuple[FontResolution, ...]:
@@ -150,10 +149,6 @@ class PDFPatcher:
                 temporary_path = Path(output.name)
                 writer.write(output)
             temporary_path.replace(target_path)
-        self.skipped_replacements = tuple(
-            PDFSkippedReplacement(replacement.page_index, replacement.bbox, str(reason))
-            for replacement, reason in planner.skipped
-        )
 
     @staticmethod
     def _restore_source_page_geometry(source_reader, visual_reader) -> None:

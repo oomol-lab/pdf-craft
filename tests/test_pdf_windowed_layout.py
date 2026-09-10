@@ -387,14 +387,13 @@ class TestWindowedParagraphPlanner(unittest.TestCase):
         finally:
             window.close()
 
-    def test_headline_never_uses_generic_skip_overflow_policy(self):
+    def test_headline_keeps_natural_right_overflow_before_the_forced_fallback(self):
         options = PatchTextOptions(
             styles={
                 "text": PatchTextStyle(max_font_size=10, min_font_size=10),
                 "sub_title:2": PatchTextStyle(max_font_size=11, min_font_size=4),
             },
             headline_min_body_ratio=1.2,
-            overflow="skip",
         )
         planner = WindowedParagraphPlanner(
             QTextParagraphFiller(options), {1: (200, 100)}, options,
@@ -408,7 +407,6 @@ class TestWindowedParagraphPlanner(unittest.TestCase):
 
         self.assertEqual([item.replacement for item in window.paragraphs], [body, headline])
         self.assertTrue(window.paragraphs[1].paragraph.placements[0].allows_horizontal_overflow)
-        self.assertEqual(planner.skipped, [])
         window.close()
 
     def test_emits_a_closed_window_before_consuming_later_pages(self):

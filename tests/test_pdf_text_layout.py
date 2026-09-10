@@ -334,7 +334,7 @@ class TestQTextParagraphFiller(unittest.TestCase):
             for scale, point_size in filler.layout_coordinates
         ))
 
-    def test_headline_overflow_refuses_to_enter_a_lower_obstacle(self):
+    def test_headline_forces_full_text_when_natural_overflow_hits_a_lower_obstacle(self):
         source = PDFReplacementRegion(1, (0, 0, 100, 10), (100, 100))
         footnote = PDFReplacementRegion(1, (0, 14, 100, 30), (100, 100))
         replacement = PDFReplacement(
@@ -345,8 +345,14 @@ class TestQTextParagraphFiller(unittest.TestCase):
             "sub_title": PatchTextStyle(max_font_size=20, min_font_size=20),
         }))
 
-        with self.assertRaisesRegex(ValueError, "lower obstacle or page boundary"):
-            filler.fit_headline(replacement, {1: (100, 100)}, 20)
+        fitted = filler.fit_headline(replacement, {1: (100, 100)}, 20)
+
+        placement = fitted.placements[0]
+        self.assertEqual(placement.assigned_text, replacement.text)
+        self.assertGreater(
+            placement.line_tops[-1] + placement.line_heights[-1],
+            14,
+        )
 
     def test_frozen_overflow_headline_keeps_its_forbidden_line(self):
         style = PatchTextStyle(max_font_size=20, min_font_size=4)
@@ -586,7 +592,7 @@ class TestQTextParagraphFiller(unittest.TestCase):
         self.assertGreater(fitted.unused_slot_count, 0)
         self.assertEqual(len(fitted.placements[0].line_tops), 1)
 
-    def test_slot_exhaustion_rejects_a_candidate_instead_of_dropping_text(self):
+    def test_slot_exhaustion_forces_a_complete_plain_text_placement(self):
         regions = [
             PDFReplacementRegion(1, (0, 0, 100, 25), (120, 100)),
             PDFReplacementRegion(1, (0, 30, 100, 55), (120, 100)),
@@ -594,11 +600,18 @@ class TestQTextParagraphFiller(unittest.TestCase):
         text = " ".join(f"word{index}" for index in range(80))
         filler = QTextParagraphFiller(PatchTextOptions(max_font_size=10, min_font_size=10))
 
-        with self.assertRaisesRegex(ValueError, "cannot fit paragraph source regions"):
-            filler.fit(_replacement(text, regions), {1: (120, 100)})
+        fitted = filler.fit(_replacement(text, regions), {1: (120, 100)})
 
-    def test_actual_tall_formula_invalidates_an_otherwise_nominal_slot_plan(self):
-        """Real QTextLine/formula height is authoritative over nominal row capacity."""
+        self.assertEqual(fitted.font_size, 10)
+        self.assertEqual(len(fitted.placements), 1)
+        self.assertEqual(fitted.placements[0].assigned_text, text)
+        self.assertGreater(
+            fitted.placements[0].line_tops[-1] + fitted.placements[0].line_heights[-1],
+            fitted.placements[0].rectangle.bottom,
+        )
+
+    def test_forced_layout_materializes_too_tall_formula_as_plain_text(self):
+        """Formula rendering cannot make a legal replacement abort the PDF."""
         class TallRenderer:
             available = True
 
@@ -619,8 +632,11 @@ class TestQTextParagraphFiller(unittest.TestCase):
         filler = QTextParagraphFiller(PatchTextOptions(max_font_size=10, min_font_size=10))
         cast(Any, filler)._formula_renderer = TallRenderer()  # pylint: disable=protected-access
 
-        with self.assertRaisesRegex(ValueError, "cannot fit paragraph source regions"):
-            filler.fit(replacement, {1: (100, 150)})
+        fitted = filler.fit(replacement, {1: (100, 150)})
+
+        placement = fitted.placements[0]
+        self.assertEqual(placement.assigned_text, "x afterwords afterwords afterwords")
+        self.assertEqual(placement.formula_draws, ())
 
     def test_slot_frontier_has_explicit_single_and_no_plan_results(self):
         rectangle = PageRectangle(0, 0, 1, 1)
@@ -911,9 +927,14 @@ class TestQTextParagraphFiller(unittest.TestCase):
             multi_line.line_heights[0] * 1.6,
         )
 
-    def test_single_bbox_slot_exhaustion_does_not_extend_to_page_bottom(self):
+    def test_single_bbox_slot_exhaustion_can_extend_below_its_source_box(self):
         regions = [PDFReplacementRegion(1, (0, 0, 20, 5), (100, 100))]
         filler = QTextParagraphFiller(PatchTextOptions(max_font_size=8, min_font_size=8))
 
-        with self.assertRaisesRegex(ValueError, "cannot fit paragraph source regions"):
-            filler.fit(_replacement("too much text", regions), {1: (100, 100)})
+        fitted = filler.fit(_replacement("too much text", regions), {1: (100, 100)})
+
+        placement = fitted.placements[0]
+        self.assertEqual(placement.assigned_text, "too much text")
+        self.assertGreater(
+            placement.line_tops[-1] + placement.line_heights[-1], placement.rectangle.bottom,
+        )
