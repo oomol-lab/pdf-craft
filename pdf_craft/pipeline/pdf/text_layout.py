@@ -1856,12 +1856,25 @@ def _signed_slot_plan_frontier(
     # particular, a negative loose-only total has no non-negative companion:
     # it is already the closest negative plan and must not be paired with an
     # even more negative tight plan.
-    non_negative_count = min(
-        maximum_tight,
-        max(0, floor((base_delta + 1e-6) / advance)),
-    )
-    has_non_negative = base_delta >= -1e-6
-    non_negative = plan_with_tight_count(non_negative_count) if has_non_negative else None
+    has_non_negative = base_delta >= 0
+    non_negative_count = 0
+    non_negative = None
+    if has_non_negative:
+        non_negative_count = min(maximum_tight, max(0, floor(base_delta / advance)))
+        # ``floor`` gives the right count analytically, but confirm the final
+        # floating-point subtraction itself rather than allowing a tolerance
+        # to move a genuinely negative signed total onto the non-negative
+        # side.  This loop only adjusts around that one boundary.
+        while non_negative_count and (
+            base_delta - non_negative_count * advance < 0
+        ):
+            non_negative_count -= 1
+        while (
+            non_negative_count < maximum_tight
+            and base_delta - (non_negative_count + 1) * advance >= 0
+        ):
+            non_negative_count += 1
+        non_negative = plan_with_tight_count(non_negative_count)
 
     if has_non_negative:
         negative_count = non_negative_count + 1

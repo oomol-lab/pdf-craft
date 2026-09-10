@@ -503,6 +503,36 @@ class TestQTextParagraphFiller(unittest.TestCase):
         self.assertEqual(plans[0].signed_delta, -2)
         self.assertTrue(all(item.choice == "loose" for item in plans[0].decisions))
 
+    def test_slot_frontier_keeps_a_near_zero_negative_on_the_negative_side(self):
+        """Sign classification is exact even when a miss is below 1e-6pt."""
+        rectangle = PageRectangle(0, 0, 1, 1)
+
+        def decision(delta, choice):
+            return _RegionSlotDecision(1, rectangle, 1, delta, delta / 2, 0, 2, choice)
+
+        plans = _signed_slot_plan_frontier((
+            (decision(-0.0000005, "loose"), decision(-1.0000005, "tight")),
+        ))
+
+        self.assertEqual(len(plans), 1)
+        self.assertEqual(plans[0].signed_delta, -0.0000005)
+        self.assertEqual(plans[0].decisions[0].choice, "loose")
+
+    def test_slot_frontier_keeps_a_near_zero_negative_separate_from_positive(self):
+        """An actual negative tight value must not replace a positive loose value."""
+        rectangle = PageRectangle(0, 0, 1, 1)
+
+        def decision(delta, choice):
+            return _RegionSlotDecision(1, rectangle, 1, delta, delta / 2, 0, 2, choice)
+
+        plans = _signed_slot_plan_frontier((
+            (decision(0.9999995, "loose"), decision(-0.0000005, "tight")),
+        ))
+
+        self.assertGreater(plans[0].signed_delta, 0)
+        self.assertLess(plans[1].signed_delta, 0)
+        self.assertEqual([plan.decisions[0].choice for plan in plans], ["loose", "tight"])
+
     def test_slot_frontier_returns_only_nearest_positive_when_no_negative_exists(self):
         """If every allowed choice is loose-side, retain only the closest one."""
         rectangle = PageRectangle(0, 0, 1, 1)
