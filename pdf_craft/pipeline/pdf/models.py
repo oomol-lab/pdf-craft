@@ -63,12 +63,3 @@ class PDFReplacement:
             self.dpi,
             self.reading_order,
         ),)
-
-
-@dataclass(frozen=True)
-class PDFSkippedReplacement:
-    """An explicitly skipped overflow, retained for callers to inspect."""
-
-    page_index: int
-    bbox: tuple[int, int, int, int]
-    reason: str

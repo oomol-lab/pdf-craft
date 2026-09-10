@@ -61,6 +61,10 @@ class TestPDFPatcher(unittest.TestCase):
 
         self.assertEqual(fitted.font_size, 12)
 
+    def test_patch_options_expose_no_skip_or_overflow_policy(self):
+        self.assertNotIn("overflow", PatchTextOptions.__dataclass_fields__)
+        self.assertFalse(hasattr(self.patcher(), "skipped_replacements"))
+
     def test_automatic_font_scans_all_replacements_before_layout_in_either_input_order(self):
         """A later CJK title must influence the run-wide automatic family."""
         from PySide6 import QtGui
@@ -382,7 +386,9 @@ class TestPDFPatcher(unittest.TestCase):
             )
             self.assertEqual(len(list(page.images)), 0)
 
-    def test_preflight_failure_leaves_no_partial_target_file(self):
+    def test_tight_legal_bbox_forces_complete_text_into_a_readable_pdf(self):
+        if which("pdftotext") is None:
+            self.skipTest("requires Poppler pdftotext for forced-text extraction coverage")
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
             source = root / "source.pdf"
@@ -392,32 +398,86 @@ class TestPDFPatcher(unittest.TestCase):
             doc.save()
             patcher = self.patcher(options=PatchTextOptions(max_font_size=8, min_font_size=8))
 
-            with self.assertRaisesRegex(ValueError, "page 1, bbox"):
-                patcher.patch(
-                    source,
-                    target,
-                    [PDFReplacement(1, (10, 10, 30, 30), "too much text " * 100, (200, 200))],
-                )
-            self.assertFalse(target.exists())
+            text = "forced readable text " * 100
+            patcher.patch(
+                source,
+                target,
+                [PDFReplacement(1, (10, 10, 30, 30), text, (200, 200))],
+            )
 
-    def test_explicit_skip_records_overflow_reason(self):
+            output = pypdf.PdfReader(str(target))
+            self.assertEqual(len(output.pages), 1)
+            extracted = " ".join(output.pages[0].extract_text().split())
+            self.assertEqual(extracted.count("forced readable text"), 100)
+            poppler_text = subprocess.run(
+                ["pdftotext", "-layout", str(target), "-"],
+                check=True, capture_output=True, text=True,
+            ).stdout
+            self.assertEqual(poppler_text.count("forced readable text"), 100)
+
+    def test_tall_inline_formula_uses_plain_text_in_the_forced_pdf_fallback(self):
+        class TallRenderer:
+            available = True
+
+            @staticmethod
+            def render(latex, point_size):
+                del latex, point_size
+                return FormulaFragment(b"%PDF-1.4", 40, 45, 2)
+
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
             source = root / "source.pdf"
             target = root / "target.pdf"
-            doc = canvas.Canvas(str(source), pagesize=(200, 200))
+            doc = canvas.Canvas(str(source), pagesize=(100, 150))
             doc.drawString(1, 1, "source")
             doc.save()
-            patcher = self.patcher(options=PatchTextOptions(max_font_size=8, min_font_size=8, overflow="skip"))
-
+            patcher = self.patcher(options=PatchTextOptions(max_font_size=10, min_font_size=10))
+            cast(Any, patcher._filler)._formula_renderer = TallRenderer()  # pylint: disable=protected-access
             patcher.patch(
                 source,
                 target,
-                [PDFReplacement(1, (10, 10, 30, 30), "too much text " * 100, (200, 200))],
+                [PDFReplacement(
+                    1, (0, 0, 100, 60), "before \ufffc afterwords afterwords afterwords",
+                    (100, 150), inline_formulas=(PDFInlineFormula("x"),),
+                )],
             )
 
-            self.assertEqual(len(patcher.skipped_replacements), 1)
-            self.assertIn("cannot fit paragraph source regions", patcher.skipped_replacements[0].reason)
+            extracted = " ".join(pypdf.PdfReader(str(target)).pages[0].extract_text().split())
+            self.assertIn("before x", extracted)
+            self.assertEqual(extracted.count("afterwords"), 3)
+
+    def test_forced_headline_below_page_extracts_full_actual_text_with_poppler(self):
+        if which("pdftotext") is None:
+            self.skipTest("requires Poppler pdftotext for forced-headline extraction coverage")
+        source_region = PDFReplacementRegion(1, (10, 10, 30, 30), (200, 200))
+        obstacle = PDFReplacementRegion(1, (10, 34, 30, 80), (200, 200))
+        text = "forced headline text " * 10
+        headline = PDFReplacement(
+            1, source_region.bbox, text, source_region.page_pixel_size,
+            layout_ref="sub_title", obstacle_regions=(obstacle,),
+        )
+        filler = QTextParagraphFiller(PatchTextOptions(styles={
+            "sub_title": PatchTextStyle(max_font_size=20, min_font_size=20),
+        }))
+        forced = filler.fit_headline(headline, {1: (200, 200)}, 20)
+        self.assertTrue(forced.placements[0].force_written)
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            source = root / "source.pdf"
+            target = root / "target.pdf"
+            document = canvas.Canvas(str(source), pagesize=(200, 200))
+            document.drawString(1, 1, "source")
+            document.save()
+            self.patcher(options=PatchTextOptions(styles={
+                "sub_title": PatchTextStyle(max_font_size=20, min_font_size=20),
+            })).patch(source, target, [headline])
+
+            extracted = subprocess.run(
+                ["pdftotext", "-layout", str(target), "-"],
+                check=True, capture_output=True, text=True,
+            ).stdout
+            self.assertEqual(extracted.count("forced headline text"), 10)
 
     def test_long_cross_page_window_releases_each_source_image_before_the_next(self):
         """Composition consumes serialized page work without materializing a whole window."""

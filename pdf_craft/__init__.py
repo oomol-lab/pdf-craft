@@ -18,7 +18,6 @@ from .pipeline.pdf import (
     PDFInlineFormula,
     PDFReplacement,
     PDFReplacementRegion,
-    PDFSkippedReplacement,
     PDFTranslationPipeline,
     EraseOptions,
     FontResolution,

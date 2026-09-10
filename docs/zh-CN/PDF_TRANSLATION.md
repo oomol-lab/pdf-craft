@@ -209,7 +209,7 @@ craft.patch_pdf_with_extraction(
 ### 调整写回排版
 
 `PDFCraft.translate_pdf` 与 `PDFCraft.patch_pdf_with_extraction` 为简化调用而设计，不提供字体、
-字号、对齐、padding 或 overflow 策略参数。需要调整这些规则时，使用公开的低层
+字号、对齐或 padding 参数。需要调整这些规则时，使用公开的低层
 `PDFPatcher`、`PatchTextOptions` 与 `EraseOptions`，再交给 `PDFTranslationPipeline`：
 
 ```python
@@ -225,15 +225,13 @@ patcher = PDFPatcher(options=PatchTextOptions(
     horizontal_padding=1,
     vertical_padding=1,
     styles={"sub_title": PatchTextStyle(max_font_size=18, min_font_size=8)},
-    overflow="error",
 ), erase_options=EraseOptions(padding=2))
 pipeline = PDFTranslationPipeline(patcher=patcher)
 pipeline.translate(Path("input.pdf"), Path("translated.pdf"), extraction, translator)
 ```
 
-`overflow="error"` 是默认策略，无法容纳的译文会失败；`overflow="skip"` 会跳过该 bbox，
-并将原因记录在 `patcher.skipped_replacements`。低层 API 适用于愿意自行处理排版策略、
-跳过结果和输出文件生命周期的高级调用方。
+若合法 bbox 在最小字号仍无法容纳完整译文，patcher 会固定从第一个来源 bbox 强制写入全文，允许越过普通 bbox
+和障碍物边界，避免整份 PDF 失败。低层 API 适用于愿意自行处理排版策略和输出文件生命周期的高级调用方。
 
 当 `PatchTextOptions` 或某个 `PatchTextStyle` 未指定 `max_font_size` 时，文字按 bbox 的可用几何空间自动寻找最大可行字号，而不是采用某个默认视觉字号。搜索会从内部初始探测值开始，持续扩张直到下一字号无法放入来源 bbox；实际结果始终由最大可行字号决定。调用方显式提供数值 `max_font_size`（包括 `12`）时，该数值仍是硬上限。
 
