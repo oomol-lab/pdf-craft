@@ -154,6 +154,7 @@ craft.translate_pdf(
     extraction,
     "translated.pdf",
     translator,
+    ignore_errors=True,  # 某页写回失败时保留该页视觉底图
 )
 ```
 
@@ -169,23 +170,31 @@ craft.translate_pdf("input.pdf", extraction, "translated.pdf", translator)
 
 PDF 输出不接受 `APPEND_BLOCK` 模式，因为 PDF pipeline 不能在原页面中安全追加新的块级内容。
 
+默认情况下，PDF 写回的异常会立即终止操作。线上服务可以为 `translate_pdf` 或
+`patch_pdf_with_extraction` 传入 `ignore_errors=True`：某页的擦除、译文文字层、行内公式或 PDF
+合成发生任意普通异常时，该页会保留 Ghostscript 生成的不可交互视觉底图，其他页继续写回；完整
+traceback 会写入日志。若所有需要写回的页面都退回，则抛出 `NoUsableFillPagesError`，而不是生成
+看似成功、实际未写入译文的 PDF。无法打开、枚举或建立视觉底图的源 PDF 没有页级恢复载体，仍会
+直接失败。
+
 ### PDF 输出的限制
 
 - PDF 写回明确不支持 `APPEND_BLOCK`，因为 PDF pipeline 不能在原页面中安全追加新的
   块级内容；`REPLACE` 与 `APPEND_TEXT` 不会被该入口预先拒绝。
-- 写回前会检查结果是否带有页面几何元数据、章节和几何中涉及的页码是否落在源 PDF 页数
+- 默认写回会检查结果是否带有页面几何元数据、章节和几何中涉及的页码是否落在源 PDF 页数
   范围内，以及每个章节页面是否具有对应的几何记录。它不验证结果目录是否确实由该源 PDF
-  提取而来，因此调用方应自行确保二者匹配。
+  提取而来，因此调用方应自行确保二者匹配；开启 `ignore_errors=True` 后，能归属到某页的
+  几何错误会让该页回退为视觉底图。
 - 写回前，Ghostscript 会将每个源页的非 Annotation 内容编译为无字体的纯视觉底图。源矢量
   文字仍以线条显示，但不再可选中、搜索或提取；隐藏 OCR 文字也会被移除。源页完整的
   `/Annots` 数组会在译文之上重新挂载，因此链接、高亮、批注、表单控件及其他 PDF Annotation
   保持独立且可交互。译文是唯一普通可选择的文字层。
 - 写回只处理 `ref` 为 `text` 或 `sub_title` 的 `ParagraphLayout`。图片、表格以及其他
   布局不会成为可替换项。
-- 正文译文必须在对应 OCR bbox 内排版。默认排版策略会在允许的字号范围内寻找可容纳的
-  字号；最小字号仍无法容纳时抛出 `ValueError`。标题在最终选定字号仍无法装入 bbox 时，
-  会从 bbox 左侧中点起按自然宽度向右绘制，而不会中断或跳过整份输出。所有 bbox
-  会先完成预检，因此正文失败时不会留下部分输出文件。
+- 正文译文优先在对应 OCR bbox 内排版。默认排版策略会在允许的字号范围内寻找可容纳的
+  字号；最小字号仍无法容纳时，会以最小字号从首个 bbox 强制写入全文，即使越过普通 bbox
+  与障碍物边界。标题在最终选定字号仍无法装入 bbox 时，
+  会从 bbox 左侧中点起按自然宽度向右绘制，而不会中断或跳过整份输出。
 - `patch_pdf_with_extraction` 是写回已有 PDF 的操作，不是通用 PDF 排版器，不能只凭提取结果
   生成一个没有原始页面的全新 PDF。
 
@@ -360,8 +369,8 @@ extraction, metering = craft.extract_pdf_with_metering(
   可用于记录 OCR token 使用量。
 - `ExtractionOptions.on_ocr_event` 在 OCR 页面事件发生时回调，适合显示页面级进度。
 - `ExtractionOptions.aborted` 会在提取和渲染阶段被检查；返回 `True` 时当前操作中断。
-- PDF 写回和内容变换中的异常应由调用方捕获；`ignore_*_errors` 只针对提取阶段的页面级
-  错误。
+- PDF 写回和内容变换中的异常通常应由调用方捕获；但 `translate_pdf` 与
+  `patch_pdf_with_extraction` 的 `ignore_errors=True` 会恢复可明确归属到某一页的写回异常。
 
 ## 相关限制
 

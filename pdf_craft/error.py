@@ -48,6 +48,19 @@ def is_inline_error(error: Exception) -> bool:
 
 IgnorePDFErrorsChecker = bool | Callable[[PDFError], bool]
 IgnoreOCRErrorsChecker = bool | Callable[[OCRError], bool]
+IgnoreFillErrorsChecker = bool | Callable[[Exception], bool]
+
+
+class NoUsableFillPagesError(Exception):
+    """Raised when every page scheduled for PDF fill fell back to its base."""
+
+    def __init__(self, failed_page_indexes: tuple[int, ...]) -> None:
+        self.failed_page_indexes = failed_page_indexes
+        pages = ", ".join(str(index) for index in failed_page_indexes)
+        super().__init__(
+            "PDF fill produced no usable pages; all pages scheduled for fill "
+            f"failed after errors were ignored: {pages}"
+        )
 
 
 # 不可直接用 doc-page-extractor 的 Error，该库的一切都是懒加载，若暴露，则无法懒加载

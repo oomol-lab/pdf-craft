@@ -16,7 +16,7 @@ from epub_generator import BookMeta, LaTeXRender, TableRender
 from .document import PDFCraftExtraction
 from .extractor.chapter.chapter import Chapter, ParagraphLayout
 from .extractor.chapter.reader import create_chapters_reader
-from .error import IgnoreOCRErrorsChecker, IgnorePDFErrorsChecker
+from .error import IgnoreFillErrorsChecker, IgnoreOCRErrorsChecker, IgnorePDFErrorsChecker
 from .extractor import PDFExtractor
 from .llm import LLM
 from .metering import AbortedCheck, OCRTokensMetering
@@ -149,28 +149,33 @@ class PDFCraft:
     def translate_pdf(
         self, source: PathLike | str, extraction: PDFCraftExtraction | PathLike | str,
         output: PathLike | str, transformer: ChapterTransformer | Callable[[str], str],
-        *, on_translation_event: Callable[[TranslationEvent], None] | None = None,
+        *,
+        on_translation_event: Callable[[TranslationEvent], None] | None = None,
+        ignore_errors: IgnoreFillErrorsChecker = False,
     ) -> None:
         with TemporaryDirectory(prefix="pdf-craft-translated-extraction-") as directory:
             translated = self._translate_for_pdf(
                 _ensure_extraction(extraction), Path(directory), transformer,
                 on_translation_event=on_translation_event,
             )
-            self.patch_pdf_with_extraction(source, translated, output)
+            self.patch_pdf_with_extraction(source, translated, output, ignore_errors=ignore_errors)
 
     def patch_pdf_with_extraction(
         self,
         source: PathLike | str,
         extraction: PDFCraftExtraction | PathLike | str,
         output: PathLike | str,
+        *,
+        ignore_errors: IgnoreFillErrorsChecker = False,
     ) -> None:
         """Patch an existing PDF with text and geometry from a PDFCraftExtraction."""
         extraction = _ensure_extraction(extraction)
         extraction.validate()
-        _validate_extraction_for_pdf(Path(source), extraction)
+        if not _ignore_errors_requested(ignore_errors):
+            _validate_extraction_for_pdf(Path(source), extraction)
         PDFTranslationPipeline(
             pdf_handler=self._pdf.pdf_handler if self._pdf else None
-        ).patch(Path(source), Path(output), extraction)
+        ).patch(Path(source), Path(output), extraction, ignore_errors=ignore_errors)
 
     def translate_epub(self, source: PathLike | str, output: PathLike | str, *,
                        target_language: str, submit: SubmitKind,
@@ -363,6 +368,11 @@ def _validate_extraction_for_pdf(source: Path, extraction: PDFCraftExtraction) -
             "PDFCraftExtraction is missing page geometry for chapter pages: "
             f"{missing}"
         )
+
+
+def _ignore_errors_requested(checker: IgnoreFillErrorsChecker) -> bool:
+    """Defer page-addressable validation when a fill recovery policy exists."""
+    return checker is True or callable(checker)
 
 
 def _ensure_extraction(value: PDFCraftExtraction | PathLike | str) -> PDFCraftExtraction:
