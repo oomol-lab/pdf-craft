@@ -877,13 +877,19 @@ class QTextParagraphFiller:
         metric_layout = self._create_layout(QtCore, QtGui, "", style, font_size, _LAYOUT_SCALE)
         nominal_height = float(QtGui.QFontMetricsF(metric_layout.font()).height())
         nominal_advance = nominal_height * style.line_height
-        if not _positive_finite(nominal_height) or not _positive_finite(nominal_advance):
+        if (
+            not _positive_finite(font_size)
+            or not _positive_finite(nominal_height)
+            or not _positive_finite(nominal_advance)
+        ):
             return ()
 
         choices: list[tuple[_RegionSlotDecision, ...]] = []
         for source_region in replacement.source_regions():
             page_width, page_height = page_sizes[source_region.page_index]
             rectangle = region_in_page_points(source_region, page_width, page_height)
+            if not _finite_rectangle(rectangle) or not _positive_finite(page_height):
+                return ()
             scaled = _scale_rectangle(rectangle)
             content_top = scaled.top + style.vertical_padding * _LAYOUT_SCALE
             aim = scaled.bottom - style.vertical_padding * _LAYOUT_SCALE
@@ -1580,6 +1586,15 @@ class QTextParagraphFiller:
 
     @staticmethod
     def _validate_style(style: PatchTextStyle) -> None:
+        finite_values = (
+            style.min_font_size,
+            style.max_font_size,
+            style.line_height,
+            style.horizontal_padding,
+            style.vertical_padding,
+        )
+        if any(value is not None and not isfinite(value) for value in finite_values):
+            raise ValueError("font sizes, line height and padding must be finite")
         if style.min_font_size <= 0 or (
             style.max_font_size is not None and style.max_font_size < style.min_font_size
         ):
@@ -1772,16 +1787,64 @@ def _positive_finite(value: float) -> bool:
     return isfinite(value) and value > 0
 
 
+def _finite_rectangle(rectangle: PageRectangle) -> bool:
+    """Reject non-finite source geometry before arithmetic reaches Qt."""
+    return all(isfinite(value) for value in (
+        rectangle.x, rectangle.top, rectangle.width, rectangle.height,
+    )) and rectangle.width > 0 and rectangle.height > 0
+
+
+def _slot_decision_is_valid(decision: _RegionSlotDecision) -> bool:
+    """Validate compact planning data independently of Qt's row creation."""
+    return (
+        isinstance(decision.line_count, int)
+        and decision.line_count >= 0
+        and _finite_rectangle(decision.rectangle)
+        and all(isfinite(value) for value in (
+            decision.delta_to_aim,
+            decision.vertical_offset,
+            decision.top_boundary,
+            decision.bottom_boundary,
+        ))
+        and decision.top_boundary <= decision.bottom_boundary
+    )
+
+
+def _slot_plan_quality(plan: _SlotDecisionPlan) -> tuple[float, float, float, int]:
+    """Rank plans by per-bbox error, never by cancellable signed totals.
+
+    The signed sum is deliberately only a final tie-breaker.  A +99 miss in
+    one bbox and a -99 miss in another is not a good plan: its worst and total
+    absolute errors must lose to a plan with two one-point misses even when
+    both signed sums are zero.
+    """
+    distances = tuple(abs(decision.delta_to_aim) for decision in plan.decisions)
+    return (
+        max(distances, default=0.0),
+        sum(distances),
+        abs(plan.signed_delta),
+        -sum(decision.line_count for decision in plan.decisions),
+    )
+
+
 def _signed_slot_plan_frontier(
     choices: tuple[tuple[_RegionSlotDecision, ...], ...],
 ) -> tuple[_SlotDecisionPlan, ...]:
-    """Keep a bounded signed-distance frontier instead of enumerating 2**N.
+    """Keep a bounded per-bbox-error frontier instead of enumerating 2**N.
 
     Each region supplies one loose and, when safe, one tight choice.  The
-    frontier retains equally bounded candidates from both signs after every
-    step, enough to return the nearest positive and negative total aim delta
-    without retaining a virtual line for any candidate.
+    frontier retains equally bounded candidates from both aggregate signs
+    after every step.  Its primary score is each candidate's largest and total
+    *absolute* per-bbox miss, so opposite signs cannot hide a severe local
+    error.  The aggregate sign merely keeps the traditional sparse/tight
+    alternatives available for real Qt validation.
     """
+    if not choices or any(
+        not region_choices
+        or any(not _slot_decision_is_valid(choice) for choice in region_choices)
+        for region_choices in choices
+    ):
+        return ()
     states = [_SlotDecisionPlan((), 0.0)]
     per_side = max(1, _SLOT_PLAN_BEAM_WIDTH // 2)
     for region_choices in choices:
@@ -1791,15 +1854,11 @@ def _signed_slot_plan_frontier(
         ]
         non_negative = sorted(
             (state for state in expanded if state.signed_delta >= -1e-6),
-            key=lambda state: (abs(state.signed_delta), -sum(
-                decision.line_count for decision in state.decisions
-            )),
+            key=_slot_plan_quality,
         )[:per_side]
         negative = sorted(
             (state for state in expanded if state.signed_delta < -1e-6),
-            key=lambda state: (abs(state.signed_delta), -sum(
-                decision.line_count for decision in state.decisions
-            )),
+            key=_slot_plan_quality,
         )[:per_side]
         states = non_negative + negative
         if not states:
@@ -1807,22 +1866,18 @@ def _signed_slot_plan_frontier(
     positive = min(
         (state for state in states if state.signed_delta >= -1e-6),
         default=None,
-        key=lambda state: (abs(state.signed_delta), -sum(
-            decision.line_count for decision in state.decisions
-        )),
+        key=_slot_plan_quality,
     )
     negative = min(
         (state for state in states if state.signed_delta < -1e-6),
         default=None,
-        key=lambda state: (abs(state.signed_delta), -sum(
-            decision.line_count for decision in state.decisions
-        )),
+        key=_slot_plan_quality,
     )
     if positive is None:
         return (negative,) if negative is not None else ()
     if negative is None or negative.decisions == positive.decisions:
         return (positive,)
-    return positive, negative
+    return tuple(sorted((positive, negative), key=_slot_plan_quality))
 
 
 def _replacement_obstacles(

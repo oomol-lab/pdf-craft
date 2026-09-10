@@ -1,13 +1,15 @@
 import unittest
 from dataclasses import replace
+from typing import Any, cast
 
 # pylint: disable=no-member,c-extension-no-member
 
 from pdf_craft.pipeline.pdf import (
-    FittedParagraph, PDFReplacement, PDFReplacementRegion, PatchTextOptions, PatchTextStyle,
-    QTextParagraphFiller, RegionTextPlacement,
+    FittedParagraph, PDFInlineFormula, PDFReplacement, PDFReplacementRegion, PatchTextOptions,
+    PatchTextStyle, QTextParagraphFiller, RegionTextPlacement,
 )
 from pdf_craft.pipeline.pdf.geometry import PageRectangle
+from pdf_craft.pipeline.pdf.inline_formula import FormulaFragment
 from pdf_craft.pipeline.pdf.pipeline import PDFTranslationPipeline
 from pdf_craft.extractor.chapter.chapter import (
     AssetLayout, BlockLayout, Chapter, ParagraphLayout, Reference,
@@ -450,6 +452,102 @@ class TestQTextParagraphFiller(unittest.TestCase):
             isinstance(decision.line_count, int)
             for plan in plans for decision in plan.decisions
         ))
+
+    def test_slot_frontier_never_cancels_large_opposite_bbox_errors(self):
+        """A zero signed total cannot conceal two badly misfitted source boxes."""
+        rectangle = PageRectangle(0, 0, 1, 1)
+
+        def decision(delta, choice):
+            return _RegionSlotDecision(1, rectangle, 1, delta, delta / 2, 0, 2, choice)
+
+        plans = _signed_slot_plan_frontier((
+            (decision(99, "loose"), decision(-1, "tight")),
+            (decision(1, "loose"), decision(-99, "tight")),
+        ))
+
+        self.assertTrue(plans)
+        first_deltas = tuple(decision.delta_to_aim for decision in plans[0].decisions)
+        self.assertEqual(first_deltas, (-1, 1))
+        self.assertEqual(max(abs(delta) for delta in first_deltas), 1)
+
+    def test_text_can_exhaust_before_all_virtual_slots_without_fake_lines(self):
+        """Empty continuation slots are retained as counts, never as QTextLines."""
+        regions = [
+            PDFReplacementRegion(1, (0, 0, 140, 50), (160, 120)),
+            PDFReplacementRegion(1, (0, 55, 140, 105), (160, 120)),
+        ]
+        fitted = QTextParagraphFiller(PatchTextOptions(
+            max_font_size=10, min_font_size=10,
+        )).fit(_replacement("short text", regions), {1: (160, 120)})
+
+        self.assertEqual(len(fitted.placements), 1)
+        self.assertGreater(fitted.unused_region_count, 0)
+        self.assertGreater(fitted.unused_slot_count, 0)
+        self.assertEqual(len(fitted.placements[0].line_tops), 1)
+
+    def test_slot_exhaustion_rejects_a_candidate_instead_of_dropping_text(self):
+        regions = [
+            PDFReplacementRegion(1, (0, 0, 100, 25), (120, 100)),
+            PDFReplacementRegion(1, (0, 30, 100, 55), (120, 100)),
+        ]
+        text = " ".join(f"word{index}" for index in range(80))
+        filler = QTextParagraphFiller(PatchTextOptions(max_font_size=10, min_font_size=10))
+
+        with self.assertRaisesRegex(ValueError, "cannot fit paragraph source regions"):
+            filler.fit(_replacement(text, regions), {1: (120, 100)})
+
+    def test_actual_tall_formula_invalidates_an_otherwise_nominal_slot_plan(self):
+        """Real QTextLine/formula height is authoritative over nominal row capacity."""
+        class TallRenderer:
+            available = True
+
+            @staticmethod
+            def render(latex, point_size):
+                del latex, point_size
+                return FormulaFragment(b"%PDF-1.4", 40, 45, 2)
+
+        regions = [
+            PDFReplacementRegion(1, (0, 0, 100, 60), (100, 150)),
+            PDFReplacementRegion(1, (0, 65, 100, 125), (100, 150)),
+        ]
+        replacement = PDFReplacement(
+            1, regions[0].bbox, "\ufffc afterwords afterwords afterwords",
+            regions[0].page_pixel_size, regions=tuple(regions),
+            inline_formulas=(PDFInlineFormula("x"),),
+        )
+        filler = QTextParagraphFiller(PatchTextOptions(max_font_size=10, min_font_size=10))
+        cast(Any, filler)._formula_renderer = TallRenderer()  # pylint: disable=protected-access
+
+        with self.assertRaisesRegex(ValueError, "cannot fit paragraph source regions"):
+            filler.fit(replacement, {1: (100, 150)})
+
+    def test_slot_frontier_has_explicit_single_and_no_plan_results(self):
+        rectangle = PageRectangle(0, 0, 1, 1)
+        single = _RegionSlotDecision(1, rectangle, 1, 1, 0.5, 0, 2, "loose")
+
+        one_plan = _signed_slot_plan_frontier(((single,),))
+
+        self.assertEqual(len(one_plan), 1)
+        self.assertEqual(one_plan[0].decisions, (single,))
+        self.assertEqual(_signed_slot_plan_frontier(((),)), ())
+
+    def test_non_finite_style_and_slot_values_are_rejected_explicitly(self):
+        region = PDFReplacementRegion(1, (0, 0, 100, 50), (100, 100))
+        for style in (
+            PatchTextStyle(min_font_size=float("nan")),
+            PatchTextStyle(max_font_size=float("inf")),
+            PatchTextStyle(line_height=float("nan")),
+            PatchTextStyle(horizontal_padding=float("inf")),
+        ):
+            with self.subTest(style=style), self.assertRaisesRegex(ValueError, "must be finite"):
+                QTextParagraphFiller(PatchTextOptions(styles={"text": style})).fit(
+                    _replacement("finite", [region]), {1: (100, 100)},
+                )
+
+        invalid = _RegionSlotDecision(
+            1, PageRectangle(0, 0, 1, 1), 1, float("nan"), 0, 0, 1, "loose",
+        )
+        self.assertEqual(_signed_slot_plan_frontier(((invalid,),)), ())
 
     def test_multi_bbox_flow_keeps_one_qt_character_stream_across_the_boundary(self):
         """The second bbox must not receive a fresh QTextLayout substring."""
