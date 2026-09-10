@@ -3,6 +3,7 @@
 
 from collections.abc import Callable, Iterable, Iterator, Mapping
 from dataclasses import dataclass, field, replace
+from math import isfinite
 import os
 import pickle
 from pathlib import Path
@@ -31,6 +32,7 @@ _HEADLINE_OVERFLOW_LINE_WIDTH = 1_000_000.0
 # while making a 0.05pt search a real typographic search rather than a screen
 # pixel search.
 _LAYOUT_SCALE = 8.0
+_SLOT_PLAN_BEAM_WIDTH = 64
 _CJK_FONT_CANDIDATES = (
     "PingFang SC",
     "Noto Sans CJK SC",
@@ -194,6 +196,33 @@ class _FormulaSpan:
 
 
 @dataclass(frozen=True)
+class _RegionSlotDecision:
+    """A constant-size choice for one physical source region.
+
+    This deliberately describes *capacity*, not a materialized list of rows.
+    QTextLine objects are only created once a complete decision plan is being
+    tried against the actual paragraph text.
+    """
+
+    page_index: int
+    rectangle: PageRectangle
+    line_count: int
+    delta_to_aim: float
+    vertical_offset: float
+    top_boundary: float
+    bottom_boundary: float
+    choice: Literal["loose", "tight"]
+
+
+@dataclass(frozen=True)
+class _SlotDecisionPlan:
+    """One bounded, whole-paragraph combination of region decisions."""
+
+    decisions: tuple[_RegionSlotDecision, ...]
+    signed_delta: float
+
+
+@dataclass(frozen=True)
 class FittedParagraph:
     """A paragraph flow plan proven to fit its ordered source regions.
 
@@ -204,6 +233,11 @@ class FittedParagraph:
     text: str
     font_size: float
     placements: tuple[RegionTextPlacement, ...]
+    # A multi-bbox plan may consume the text before it reaches every source
+    # region.  Retain this compact diagnostic so font-size selection does not
+    # mistake an empty continuation region for a perfectly fitted paragraph.
+    unused_region_count: int = 0
+    unused_slot_count: int = 0
 
 
 @dataclass(frozen=True)
@@ -747,6 +781,26 @@ class QTextParagraphFiller:
             max(rectangle.width - 2 * style.horizontal_padding for rectangle in capacities),
             max(rectangle.height - 2 * style.vertical_padding for rectangle in capacities),
         )
+        if len(replacement.source_regions()) == 1:
+            source_region = replacement.source_regions()[0]
+            page_width, page_height = page_sizes[source_region.page_index]
+            rectangle = region_in_page_points(source_region, page_width, page_height)
+            forbidden_bottom = _forbidden_bottom(
+                rectangle,
+                self._layout_obstacles.get(source_region.page_index, ()),
+                page_height,
+            )
+            previous_forbidden_bottom = self._active_forbidden_bottom
+            self._active_forbidden_bottom = forbidden_bottom
+            try:
+                placement, consumed = self._fit_region(
+                    source_region.page_index, rectangle, text, style, font_size, spans,
+                )
+            finally:
+                self._active_forbidden_bottom = previous_forbidden_bottom
+            if placement is None or consumed != len(text):
+                return None
+            return FittedParagraph(text, font_size, (placement,))
         return self._plan_continuous_flow(text, spans, replacement, page_sizes, style, font_size)
 
     def _plan_continuous_flow(
@@ -758,30 +812,22 @@ class QTextParagraphFiller:
         style: PatchTextStyle,
         font_size: float,
     ) -> FittedParagraph | None:
-        """Lay a paragraph once while mapping its consecutive lines to regions.
+        """Try compact row-capacity plans against one continuous QTextLayout.
 
-        A ParagraphLayout is not a sequence of unrelated text boxes.  Qt must
-        see one uninterrupted character stream so it can retain its native
-        break, punctuation and bidirectional-text decisions at a bbox
-        boundary.  The source rectangles merely supply the width and physical
-        position for each next *whole* line.
-
-        ``QTextLine.setLineWidth`` remains mutable until the next line is
-        created.  When the current box cannot hold that line, retrying its
-        width against the following box lets Qt reflow the same pending line;
-        no substring is cut out and no new QTextLayout is created.
+        The planning phase holds only one decision per source region: a count
+        of nominal rows plus its signed distance to the source bbox aim.  It
+        never expands that count into a list of virtual rows.  Only the chosen
+        plan creates real QTextLine objects, one at a time, so malformed tiny
+        font/line-height inputs cannot allocate an astronomical row array.
         """
         QtCore, QtGui = _qt_modules()
         _ensure_qt_application(QtGui)
 
         @dataclass
         class _FlowRegion:
-            page_index: int
-            rectangle: PageRectangle
-            forbidden_bottom: float
+            decision: _RegionSlotDecision
             available_width: float
             available_top: float
-            available_bottom: float
             content_left: float
             y: float
             line_text_lefts: list[float] = field(default_factory=list)
@@ -793,37 +839,12 @@ class QTextParagraphFiller:
             end_utf16: int | None = None
             last_line_height: float = 0.0
 
-        regions: list[_FlowRegion] = []
-        for source_region in replacement.source_regions():
-            page_width, page_height = page_sizes[source_region.page_index]
-            rectangle = region_in_page_points(source_region, page_width, page_height)
-            forbidden_bottom = _forbidden_bottom(
-                rectangle,
-                self._layout_obstacles.get(source_region.page_index, ()),
-                page_height,
-            )
-            scaled_rectangle = _scale_rectangle(rectangle)
-            available_width = scaled_rectangle.width - 2 * style.horizontal_padding * _LAYOUT_SCALE
-            available_top = scaled_rectangle.top + style.vertical_padding * _LAYOUT_SCALE
-            available_bottom = (
-                forbidden_bottom * _LAYOUT_SCALE - style.vertical_padding * _LAYOUT_SCALE
-            )
-            if available_width <= 0 or available_bottom <= available_top:
-                continue
-            regions.append(_FlowRegion(
-                source_region.page_index,
-                rectangle,
-                forbidden_bottom,
-                available_width,
-                available_top,
-                available_bottom,
-                scaled_rectangle.x + style.horizontal_padding * _LAYOUT_SCALE,
-                available_top,
-            ))
-        if not regions:
+        decision_plans = self._slot_decision_plans(
+            QtCore, QtGui, replacement, page_sizes, style, font_size,
+        )
+        if not decision_plans:
             return None
 
-        layout = self._create_layout(QtCore, QtGui, text, style, font_size, _LAYOUT_SCALE)
         utf16_formula_spans = tuple(
             _FormulaSpan(
                 _utf16_index_for_python(text, span.start),
@@ -834,94 +855,195 @@ class QTextParagraphFiller:
             )
             for span in formula_spans
         )
-        region_index = 0
+        attempts = tuple(
+            paragraph
+            for plan in decision_plans
+            if (paragraph := self._layout_slot_plan(
+                QtCore, QtGui, text, utf16_formula_spans, plan, style, font_size, _FlowRegion,
+            )) is not None
+        )
+        return _closest_to_aim(attempts) if attempts else None
+
+    def _slot_decision_plans(
+        self,
+        QtCore,
+        QtGui,
+        replacement: PDFReplacement,
+        page_sizes: dict[int, tuple[float, float]],
+        style: PatchTextStyle,
+        font_size: float,
+    ) -> tuple[_SlotDecisionPlan, ...]:
+        """Build at most two compact, signed-aim plans without row objects."""
+        metric_layout = self._create_layout(QtCore, QtGui, "", style, font_size, _LAYOUT_SCALE)
+        nominal_height = float(QtGui.QFontMetricsF(metric_layout.font()).height())
+        nominal_advance = nominal_height * style.line_height
+        if (
+            not _positive_finite(font_size)
+            or not _positive_finite(nominal_height)
+            or not _positive_finite(nominal_advance)
+        ):
+            return ()
+
+        choices: list[tuple[_RegionSlotDecision, ...]] = []
+        for source_region in replacement.source_regions():
+            page_width, page_height = page_sizes[source_region.page_index]
+            rectangle = region_in_page_points(source_region, page_width, page_height)
+            if not _finite_rectangle(rectangle) or not _positive_finite(page_height):
+                return ()
+            scaled = _scale_rectangle(rectangle)
+            content_top = scaled.top + style.vertical_padding * _LAYOUT_SCALE
+            aim = scaled.bottom - style.vertical_padding * _LAYOUT_SCALE
+            width = scaled.width - 2 * style.horizontal_padding * _LAYOUT_SCALE
+            if width <= 0 or aim <= content_top:
+                return ()
+            top_boundary, bottom_boundary = _vertical_boundaries(
+                rectangle,
+                self._layout_obstacles.get(source_region.page_index, ()),
+                page_height,
+            )
+            loose_count = max(0, int((aim - content_top - nominal_height) // nominal_advance) + 1)
+            loose_bottom = (
+                content_top + nominal_height + (loose_count - 1) * nominal_advance
+                if loose_count else content_top
+            )
+            loose_delta = aim - loose_bottom
+            loose = _RegionSlotDecision(
+                source_region.page_index, rectangle, loose_count, loose_delta,
+                loose_delta / 2, top_boundary * _LAYOUT_SCALE,
+                bottom_boundary * _LAYOUT_SCALE, "loose",
+            )
+            tight_count = loose_count + 1
+            tight_bottom = content_top + nominal_height + (tight_count - 1) * nominal_advance
+            tight_delta = aim - tight_bottom
+            assert tight_delta < 1e-6
+            clearance = min(
+                scaled.top - top_boundary * _LAYOUT_SCALE,
+                bottom_boundary * _LAYOUT_SCALE - scaled.bottom,
+            )
+            candidates = [loose]
+            if clearance >= 0 and -tight_delta / 2 <= clearance + 1e-6:
+                candidates.append(_RegionSlotDecision(
+                    source_region.page_index, rectangle, tight_count, tight_delta,
+                    tight_delta / 2, top_boundary * _LAYOUT_SCALE,
+                    bottom_boundary * _LAYOUT_SCALE, "tight",
+                ))
+            choices.append(tuple(candidates))
+        return _signed_slot_plan_frontier(tuple(choices))
+
+    def _layout_slot_plan(
+        self,
+        QtCore,
+        QtGui,
+        text: str,
+        formula_spans: tuple[_FormulaSpan, ...],
+        plan: _SlotDecisionPlan,
+        style: PatchTextStyle,
+        font_size: float,
+        flow_region_type,
+    ) -> FittedParagraph | None:
+        """Create actual QTextLines lazily for a selected compact plan."""
+        regions = []
+        for decision in plan.decisions:
+            scaled = _scale_rectangle(decision.rectangle)
+            top = scaled.top + style.vertical_padding * _LAYOUT_SCALE
+            regions.append(flow_region_type(
+                decision,
+                scaled.width - 2 * style.horizontal_padding * _LAYOUT_SCALE,
+                top,
+                scaled.x + style.horizontal_padding * _LAYOUT_SCALE,
+                top,
+            ))
+        layout = self._create_layout(QtCore, QtGui, text, style, font_size, _LAYOUT_SCALE)
+        exhausted = False
+        unused_slots = 0
         layout.beginLayout()
         try:
-            while True:
-                line = layout.createLine()
-                if not line.isValid():
-                    break
-                accepted = False
-                while region_index < len(regions):
-                    region = regions[region_index]
-                    line.setLineWidth(region.available_width)
-                    line_start_index = line.textStart()
-                    line_end_index = line_start_index + line.textLength()
-                    line_fragments = tuple(
-                        span.fragment for span in utf16_formula_spans
-                        if line_start_index <= span.start and span.start + span.length <= line_end_index
-                    )
-                    line_height = max((
-                        line.height(), *(fragment.height for fragment in line_fragments),
-                    ))
-                    formula_is_split = any(
-                        span.start < line_end_index < span.start + span.length
-                        for span in utf16_formula_spans
-                    )
-                    formula_is_too_wide = any(
+            # QTextLine owns the next unconsumed part of the continuous stream.
+            # Keep one pending line while looking for a slot wide enough for an
+            # inline formula.  Changing its width reflows that *same* line, so
+            # a formula never gets split merely because the preceding slot is
+            # too narrow.  Crucially the rows themselves remain virtual: this
+            # loop creates a line only when there is still text to lay out.
+            region_index = 0
+            slot_index = 0
+            line = None
+            while region_index < len(regions):
+                region = regions[region_index]
+                if slot_index >= region.decision.line_count:
+                    region_index += 1
+                    slot_index = 0
+                    continue
+                if line is None:
+                    line = layout.createLine()
+                    if not line.isValid():
+                        exhausted = True
+                        unused_slots = (
+                            region.decision.line_count - slot_index
+                            + sum(item.decision.line_count for item in regions[region_index + 1:])
+                        )
+                        break
+                line.setLineWidth(region.available_width)
+                start = line.textStart()
+                end = start + line.textLength()
+                fragments = tuple(
+                    span.fragment for span in formula_spans
+                    if start <= span.start and span.start + span.length <= end
+                )
+                formula_does_not_fit = (
+                    any(span.start < end < span.start + span.length for span in formula_spans)
+                    or any(
                         _x_coordinate(line.cursorToX(span.start)) + span.fragment.width
                         > region.available_width + 1e-6
-                        for span in utf16_formula_spans
-                        if line_start_index <= span.start and span.start + span.length <= line_end_index
+                        for span in formula_spans
+                        if start <= span.start and span.start + span.length <= end
                     )
-                    if (
-                        formula_is_split
-                        or formula_is_too_wide
-                        or region.y + line_height > region.available_bottom + 1e-6
-                    ):
-                        # Keep this exact uncommitted QTextLine, give it the
-                        # next source region's width, and let Qt choose its
-                        # natural break there.  It must never become a partial
-                        # line at the end of the current region.
-                        region_index += 1
-                        continue
-
-                    actual_line_width = _x_coordinate(line.cursorToX(line_end_index)) + sum(
-                        span.fragment.width - (
-                            _x_coordinate(line.cursorToX(span.start + span.length))
-                            - _x_coordinate(line.cursorToX(span.start))
-                        )
-                        for span in utf16_formula_spans
-                        if line_start_index <= span.start and span.start + span.length <= line_end_index
+                )
+                if formula_does_not_fit:
+                    # Preserve the pending QTextLine and retry it in the next
+                    # region.  If there is none, this candidate is infeasible;
+                    # another font size or slot plan may still work.
+                    region_index += 1
+                    slot_index = 0
+                    continue
+                line_height = max((line.height(), *(fragment.height for fragment in fragments)))
+                baseline = region.y + max((
+                    line.ascent(), *(fragment.height - fragment.descent for fragment in fragments),
+                ))
+                line_top = baseline - line.ascent()
+                line_start = _x_coordinate(line.cursorToX(start))
+                line_end = _x_coordinate(line.cursorToX(end))
+                actual_width = line_end + sum(
+                    span.fragment.width - (
+                        _x_coordinate(line.cursorToX(span.start + span.length))
+                        - _x_coordinate(line.cursorToX(span.start))
                     )
-                    if actual_line_width > region.available_width + 1e-6:
-                        region_index += 1
-                        continue
-
-                    line_baseline = region.y + max((
-                        line.ascent(),
-                        *(fragment.height - fragment.descent for fragment in line_fragments),
-                    ))
-                    line_top = line_baseline - line.ascent()
-                    line_start = _x_coordinate(line.cursorToX(line_start_index))
-                    line_end = _x_coordinate(line.cursorToX(line_end_index))
-                    region.line_text_lefts.append(region.content_left + line_start)
-                    region.line_text_widths.append(line_end - line_start)
-                    region.line_tops.append(line_top)
-                    region.line_heights.append(line_height)
-                    region.start_utf16 = (
-                        line_start_index if region.start_utf16 is None else region.start_utf16
-                    )
-                    region.end_utf16 = line_end_index
-                    region.last_line_height = line_height
-                    for span in utf16_formula_spans:
-                        if line_start_index <= span.start and span.start + span.length <= line_end_index:
-                            region.formula_draws.append(FormulaDraw(
-                                span.fragment.pdf,
-                                region.content_left + _x_coordinate(line.cursorToX(span.start)),
-                                line_baseline,
-                                span.fragment.descent,
-                                span.latex,
-                                _python_index_for_utf16(text, span.start)
-                                - _python_index_for_utf16(text, region.start_utf16),
-                                _python_index_for_utf16(text, span.start + span.length)
-                                - _python_index_for_utf16(text, span.start),
-                            ))
-                    region.y += line_height * style.line_height
-                    accepted = True
-                    break
-                if not accepted:
+                    for span in formula_spans if start <= span.start and span.start + span.length <= end
+                )
+                if actual_width > region.available_width + 1e-6:
                     return None
+                region.line_text_lefts.append(region.content_left + line_start)
+                region.line_text_widths.append(line_end - line_start)
+                region.line_tops.append(line_top)
+                region.line_heights.append(line_height)
+                region.start_utf16 = start if region.start_utf16 is None else region.start_utf16
+                region.end_utf16 = end
+                region.last_line_height = line_height
+                for span in formula_spans:
+                    if start <= span.start and span.start + span.length <= end:
+                        region.formula_draws.append(FormulaDraw(
+                            span.fragment.pdf,
+                            region.content_left + _x_coordinate(line.cursorToX(span.start)),
+                            baseline, span.fragment.descent, span.latex,
+                            _python_index_for_utf16(text, span.start)
+                            - _python_index_for_utf16(text, region.start_utf16),
+                            _python_index_for_utf16(text, span.start + span.length)
+                            - _python_index_for_utf16(text, span.start),
+                        ))
+                region.y += line_height * style.line_height
+                slot_index += 1
+                line = None
+            if not exhausted and layout.createLine().isValid():
+                return None
         finally:
             layout.endLayout()
 
@@ -929,45 +1051,38 @@ class QTextParagraphFiller:
         for region in regions:
             if region.start_utf16 is None or region.end_utf16 is None:
                 continue
-            content_height = (
-                region.y - region.available_top
-                - region.last_line_height * (style.line_height - 1)
-            )
-            spare = max(region.available_bottom - region.available_top - content_height, 0.0)
-            if style.vertical_alignment == "center":
-                shift = spare / 2
-            elif style.vertical_alignment == "bottom":
-                shift = spare
-            else:
-                shift = 0.0
+            actual_bottom = region.line_tops[-1] + region.line_heights[-1]
+            aim = _scale_rectangle(region.decision.rectangle).bottom - style.vertical_padding * _LAYOUT_SCALE
+            shift = (aim - actual_bottom) / 2
+            shifted_top = region.line_tops[0] + shift
+            shifted_bottom = actual_bottom + shift
+            upper_guard = region.decision.top_boundary + style.vertical_padding * _LAYOUT_SCALE
+            lower_guard = region.decision.bottom_boundary - style.vertical_padding * _LAYOUT_SCALE
+            if shifted_top < upper_guard - 1e-6 or shifted_bottom > lower_guard + 1e-6:
+                return None
             start = _python_index_for_utf16(text, region.start_utf16)
             end = _python_index_for_utf16(text, region.end_utf16)
             placements.append(RegionTextPlacement(
-                region.page_index,
-                region.rectangle,
-                text[start:],
+                region.decision.page_index, region.decision.rectangle, text[start:],
                 tuple(value / _LAYOUT_SCALE for value in region.line_text_lefts),
                 tuple(value / _LAYOUT_SCALE for value in region.line_text_widths),
-                tuple((top + shift) / _LAYOUT_SCALE for top in region.line_tops),
+                tuple((value + shift) / _LAYOUT_SCALE for value in region.line_tops),
                 tuple(value / _LAYOUT_SCALE for value in region.line_heights),
-                font_size,
-                style,
+                font_size, style,
                 formula_draws=tuple(
                     FormulaDraw(
-                        draw.pdf,
-                        draw.x / _LAYOUT_SCALE,
-                        (draw.baseline + shift) / _LAYOUT_SCALE,
-                        draw.descent / _LAYOUT_SCALE,
-                        draw.latex,
-                        draw.proxy_start,
-                        draw.proxy_length,
-                    )
-                    for draw in region.formula_draws
+                        draw.pdf, draw.x / _LAYOUT_SCALE,
+                        (draw.baseline + shift) / _LAYOUT_SCALE, draw.descent / _LAYOUT_SCALE,
+                        draw.latex, draw.proxy_start, draw.proxy_length,
+                    ) for draw in region.formula_draws
                 ),
                 assigned_text=text[start:end],
-                forbidden_bottom=region.forbidden_bottom,
+                forbidden_bottom=region.decision.bottom_boundary / _LAYOUT_SCALE,
             ))
-        return FittedParagraph(text, font_size, tuple(placements))
+        return FittedParagraph(
+            text, font_size, tuple(placements),
+            len(plan.decisions) - len(placements), unused_slots,
+        )
 
     def _plan_headline_overflow(
         self,
@@ -1471,6 +1586,15 @@ class QTextParagraphFiller:
 
     @staticmethod
     def _validate_style(style: PatchTextStyle) -> None:
+        finite_values = (
+            style.min_font_size,
+            style.max_font_size,
+            style.line_height,
+            style.horizontal_padding,
+            style.vertical_padding,
+        )
+        if any(value is not None and not isfinite(value) for value in finite_values):
+            raise ValueError("font sizes, line height and padding must be finite")
         if style.min_font_size <= 0 or (
             style.max_font_size is not None and style.max_font_size < style.min_font_size
         ):
@@ -1628,6 +1752,134 @@ def _forbidden_bottom(
     return min(candidates)
 
 
+def _vertical_boundaries(
+    rectangle: PageRectangle,
+    obstacles: Iterable[PageRectangle],
+    page_height: float,
+) -> tuple[float, float]:
+    """Return nearest projected guards above and below one source bbox.
+
+    A tight row-count plan may extend beyond both edges after its content is
+    vertically centred.  The caller therefore needs the symmetric guards,
+    rather than only the lower boundary used by legacy top-aligned fitting.
+    Identical geometry is this region's own source entry and is not an
+    obstacle; other rectangles remain protective, including a sibling source
+    region that would visibly collide on the same page.
+    """
+    right = rectangle.x + rectangle.width
+    above = [0.0]
+    below = [page_height]
+    for obstacle in obstacles:
+        if obstacle == rectangle:
+            continue
+        obstacle_right = obstacle.x + obstacle.width
+        if obstacle.x >= right - 1e-6 or obstacle_right <= rectangle.x + 1e-6:
+            continue
+        if obstacle.bottom <= rectangle.top + 1e-6:
+            above.append(obstacle.bottom)
+        elif obstacle.top >= rectangle.bottom - 1e-6:
+            below.append(obstacle.top)
+    return max(above), min(below)
+
+
+def _positive_finite(value: float) -> bool:
+    """Keep malformed geometry from creating unbounded virtual capacity."""
+    return isfinite(value) and value > 0
+
+
+def _finite_rectangle(rectangle: PageRectangle) -> bool:
+    """Reject non-finite source geometry before arithmetic reaches Qt."""
+    return all(isfinite(value) for value in (
+        rectangle.x, rectangle.top, rectangle.width, rectangle.height,
+    )) and rectangle.width > 0 and rectangle.height > 0
+
+
+def _slot_decision_is_valid(decision: _RegionSlotDecision) -> bool:
+    """Validate compact planning data independently of Qt's row creation."""
+    return (
+        isinstance(decision.line_count, int)
+        and decision.line_count >= 0
+        and _finite_rectangle(decision.rectangle)
+        and all(isfinite(value) for value in (
+            decision.delta_to_aim,
+            decision.vertical_offset,
+            decision.top_boundary,
+            decision.bottom_boundary,
+        ))
+        and decision.top_boundary <= decision.bottom_boundary
+    )
+
+
+def _slot_plan_quality(plan: _SlotDecisionPlan) -> tuple[float, float, float, int]:
+    """Rank plans by per-bbox error, never by cancellable signed totals.
+
+    The signed sum is deliberately only a final tie-breaker.  A +99 miss in
+    one bbox and a -99 miss in another is not a good plan: its worst and total
+    absolute errors must lose to a plan with two one-point misses even when
+    both signed sums are zero.
+    """
+    distances = tuple(abs(decision.delta_to_aim) for decision in plan.decisions)
+    return (
+        max(distances, default=0.0),
+        sum(distances),
+        abs(plan.signed_delta),
+        -sum(decision.line_count for decision in plan.decisions),
+    )
+
+
+def _signed_slot_plan_frontier(
+    choices: tuple[tuple[_RegionSlotDecision, ...], ...],
+) -> tuple[_SlotDecisionPlan, ...]:
+    """Keep a bounded per-bbox-error frontier instead of enumerating 2**N.
+
+    Each region supplies one loose and, when safe, one tight choice.  The
+    frontier retains equally bounded candidates from both aggregate signs
+    after every step.  Its primary score is each candidate's largest and total
+    *absolute* per-bbox miss, so opposite signs cannot hide a severe local
+    error.  The aggregate sign merely keeps the traditional sparse/tight
+    alternatives available for real Qt validation.
+    """
+    if not choices or any(
+        not region_choices
+        or any(not _slot_decision_is_valid(choice) for choice in region_choices)
+        for region_choices in choices
+    ):
+        return ()
+    states = [_SlotDecisionPlan((), 0.0)]
+    per_side = max(1, _SLOT_PLAN_BEAM_WIDTH // 2)
+    for region_choices in choices:
+        expanded = [
+            _SlotDecisionPlan(state.decisions + (choice,), state.signed_delta + choice.delta_to_aim)
+            for state in states for choice in region_choices
+        ]
+        non_negative = sorted(
+            (state for state in expanded if state.signed_delta >= -1e-6),
+            key=_slot_plan_quality,
+        )[:per_side]
+        negative = sorted(
+            (state for state in expanded if state.signed_delta < -1e-6),
+            key=_slot_plan_quality,
+        )[:per_side]
+        states = non_negative + negative
+        if not states:
+            return ()
+    positive = min(
+        (state for state in states if state.signed_delta >= -1e-6),
+        default=None,
+        key=_slot_plan_quality,
+    )
+    negative = min(
+        (state for state in states if state.signed_delta < -1e-6),
+        default=None,
+        key=_slot_plan_quality,
+    )
+    if positive is None:
+        return (negative,) if negative is not None else ()
+    if negative is None or negative.decisions == positive.decisions:
+        return (positive,)
+    return tuple(sorted((positive, negative), key=_slot_plan_quality))
+
+
 def _replacement_obstacles(
     replacement: PDFReplacement,
     page_sizes: Mapping[int, tuple[float, float]],
@@ -1663,7 +1915,7 @@ def _terminal_aim_delta(paragraph: FittedParagraph) -> float:
     return placement.line_tops[-1] + placement.line_heights[-1] - placement.rectangle.bottom
 
 
-def _aim_score(paragraph: FittedParagraph) -> tuple[float, float, float, int, float]:
+def _aim_score(paragraph: FittedParagraph) -> tuple[int, int, float, float, float, int, float]:
     """Keep every occupied source region near its own target line.
 
     The final region is important, but cannot buy a perfect terminal fit by
@@ -1671,11 +1923,19 @@ def _aim_score(paragraph: FittedParagraph) -> tuple[float, float, float, int, fl
     scoring first limits the worst target-line deviation, then prefers the
     smaller aggregate deviation and finally a closer terminal line.
     """
+    if not paragraph.placements:
+        return (paragraph.unused_region_count, paragraph.unused_slot_count, float("inf"),
+                float("inf"), float("inf"), 0, -paragraph.font_size)
     distances = tuple(
         abs(placement.line_tops[-1] + placement.line_heights[-1] - placement.rectangle.bottom)
         for placement in paragraph.placements
     )
-    return max(distances), sum(distances), distances[-1], -len(paragraph.placements), -paragraph.font_size
+    return (
+        paragraph.unused_region_count,
+        paragraph.unused_slot_count,
+        max(distances), sum(distances), distances[-1],
+        -len(paragraph.placements), -paragraph.font_size,
+    )
 
 
 def _closest_to_aim(paragraphs: Iterable[FittedParagraph]) -> FittedParagraph:
