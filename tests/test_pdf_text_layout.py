@@ -390,7 +390,11 @@ class TestQTextParagraphFiller(unittest.TestCase):
             PDFReplacementRegion(1, (0, 0, 180, 60), (200, 100)),
             PDFReplacementRegion(2, (0, 0, 180, 60), (200, 100)),
         ]
-        text = " ".join(f"word{index}" for index in range(20))
+        # Use a platform-neutral word width: it needs a fourth line at 10pt
+        # in the supported Qt font fallbacks, while the two boxes together
+        # have capacity for it.  Indexed labels made this regression depend
+        # on the runner's fallback family.
+        text = " ".join("word" for _ in range(16))
 
         fitted = QTextParagraphFiller(PatchTextOptions(
             max_font_size=10, min_font_size=10,
