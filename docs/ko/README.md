@@ -9,6 +9,9 @@
     <a href="../../LICENSE"><img src="https://img.shields.io/github/license/oomol-lab/pdf-craft" alt="MIT" /></a>
   </p>
   <p>
+    <a href="https://trendshift.io/repositories/15538"><img src="https://trendshift.io/api/badge/repositories/15538" alt="PDF Craft | GitHub Trending on Trendshift" width="250" height="55" /></a>
+  </p>
+  <p>
     <a href="https://inkora.oomol.com/pdf-craft/"><strong>온라인 체험</strong></a> ·
     <a href="#quick-start"><strong>Python 빠른 시작</strong></a> ·
     <a href="#documentation"><strong>문서</strong></a>
