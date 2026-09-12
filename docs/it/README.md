@@ -54,12 +54,9 @@ Il risultato dipende dalla qualità della scansione, dall’impaginazione e dal 
 
 L’OCR remoto invia le pagine al servizio configurato e non richiede CUDA in locale. L’OCR locale viene eseguito sul tuo computer; se usi un LLM remoto per tradurre o analizzare l’indice, i contenuti corrispondenti vengono comunque inviati a quel servizio.
 
-<details>
-<summary>Anteprima dell’app online in inglese</summary>
+**Anteprima dell’app online in inglese**
 
 [![PDF Craft Online](../images/website-en.png)](https://inkora.oomol.com/pdf-craft/)
-
-</details>
 
 <a id="quick-start"></a>
 

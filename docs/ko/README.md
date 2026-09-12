@@ -54,12 +54,9 @@ PDF Craft는 스캔한 책과 학술·기술 문서를 위한 Python 라이브�
 
 원격 OCR은 설정한 서비스에 페이지를 전송하며 로컬 CUDA가 필요하지 않습니다. 로컬 OCR은 사용자 컴퓨터에서 실행되지만, 번역이나 목차 분석에 원격 LLM을 사용하면 해당 콘텐츠는 서비스로 전송됩니다.
 
-<details>
-<summary>온라인 앱 화면 보기 — 영어</summary>
+**온라인 앱 화면 보기 — 영어**
 
 [![PDF Craft 온라인 앱](../images/website-en.png)](https://inkora.oomol.com/pdf-craft/)
-
-</details>
 
 <a id="quick-start"></a>
 

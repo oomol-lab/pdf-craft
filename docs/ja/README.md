@@ -54,12 +54,9 @@ PDF Craft は、スキャンした書籍や学術・技術文書を扱う Python
 
 リモート OCR は設定したサービスにページを送信し、ローカルの CUDA は不要です。ローカル OCR は手元のマシンで動きますが、翻訳や目次解析にリモート LLM を使う場合、その内容はサービスに送信されます。
 
-<details>
-<summary>オンラインアプリの画面を見る（英語）</summary>
+**オンラインアプリの画面を見る（英語）**
 
 [![PDF Craft オンライン版](../images/website-en.png)](https://inkora.oomol.com/pdf-craft/)
-
-</details>
 
 <a id="quick-start"></a>
 
