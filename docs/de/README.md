@@ -54,12 +54,9 @@ Das Ergebnis hängt von Scanqualität, Seitenlayout und OCR-Modell ab. Prüfe ei
 
 Remote-OCR sendet Seiten an den konfigurierten Dienst und benötigt lokal kein CUDA. Lokale OCR läuft auf deinem Rechner. Wenn du ein entferntes LLM für Übersetzung oder Inhaltsverzeichnisanalyse verwendest, werden die betreffenden Inhalte dennoch an diesen Dienst gesendet.
 
-<details>
-<summary>Vorschau der Online-Anwendung auf Englisch</summary>
+**Vorschau der Online-Anwendung auf Englisch**
 
 [![PDF Craft Online](../images/website-en.png)](https://inkora.oomol.com/pdf-craft/)
-
-</details>
 
 <a id="quick-start"></a>
 

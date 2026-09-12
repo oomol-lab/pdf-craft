@@ -54,12 +54,9 @@ PDF Craft 是一个面向扫描书籍和学术、技术文档的 Python 库。�
 
 远程 OCR 会将页面发送给所配置的服务，本机无需 CUDA。本地 OCR 使用本机算力；如果另外配置远程 LLM 进行翻译或目录分析，相应内容仍会发送给该服务。
 
-<details>
-<summary>查看在线应用界面</summary>
+**查看在线应用界面**
 
 [![PDF Craft 在线应用](docs/images/website-cn.png)](https://inkora.oomol.com/pdf-craft/)
-
-</details>
 
 <a id="quick-start"></a>
 

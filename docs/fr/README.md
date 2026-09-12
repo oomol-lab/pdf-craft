@@ -54,12 +54,9 @@ Le résultat dépend de la qualité du scan, de la mise en page et du modèle OC
 
 L’OCR distant envoie les pages au service configuré et ne nécessite pas CUDA en local. L’OCR local s’exécute sur votre machine ; si vous utilisez un LLM distant pour la traduction ou l’analyse de la table des matières, le contenu correspondant est tout de même envoyé à ce service.
 
-<details>
-<summary>Aperçu de l’application en ligne, en anglais</summary>
+**Aperçu de l’application en ligne, en anglais**
 
 [![PDF Craft en ligne](../images/website-en.png)](https://inkora.oomol.com/pdf-craft/)
-
-</details>
 
 <a id="quick-start"></a>
 
