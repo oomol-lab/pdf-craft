@@ -55,7 +55,6 @@ class PDFExtractionEngine:
         max_page_image_file_size: int | None,
         includes_cover: bool,
         includes_footnotes: bool,
-        includes_furniture: bool,
         ignore_pdf_errors: IgnorePDFErrorsChecker,
         ignore_ocr_errors: IgnoreOCRErrorsChecker,
         generate_plot: bool,
@@ -66,6 +65,7 @@ class PDFExtractionEngine:
         max_output_tokens: int | None,
         on_ocr_event: Callable[[OCREvent], None],
         page_indexes: Container[int] | None = None,
+        includes_furniture: bool = False,
     ):
         extraction_path = analysing_path / "extraction"
         extraction_paths = ExtractionPaths.at(extraction_path)
