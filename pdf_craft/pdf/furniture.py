@@ -148,6 +148,7 @@ def _discover_patterns(pages: dict[int, list[FurnitureSection]]) -> list[Furnitu
     next_pattern = 0
     for kind, step in (("universal", 1), ("same_side", 2)):
         max_page = max(pages, default=0)
+        claimed: set[int] = set()
         for start in range(1, max_page - 2 * step + 1):
             sample_pages = (start, start + step, start + 2 * step)
             if any(not pages.get(i) for i in sample_pages):
@@ -155,14 +156,17 @@ def _discover_patterns(pages: dict[int, list[FurnitureSection]]) -> list[Furnitu
             used: set[int] = set()
             positions: list[FurniturePosition] = []
             for first in pages[sample_pages[0]]:
+                if id(first) in claimed:
+                    continue
                 matches = [first]
                 for page_index in sample_pages[1:]:
-                    candidate = next((s for s in pages[page_index] if id(s) not in used and _similar(first, s)), None)
+                    candidate = next((s for s in pages[page_index] if id(s) not in used and id(s) not in claimed and _similar(first, s)), None)
                     if candidate is None:
                         break
                     matches.append(candidate)
                 if len(matches) < 3:
                     continue
+                _extend_position(matches, pages, step, max_page, claimed | used)
                 position = FurniturePosition(len(positions), max(set(s.content for s in matches), key=lambda t: sum(s.content == t for s in matches)), matches)
                 positions.append(position)
                 used.update(id(s) for s in matches)
@@ -172,6 +176,7 @@ def _discover_patterns(pages: dict[int, list[FurnitureSection]]) -> list[Furnitu
                 for position in positions:
                     for section in position.sections:
                         section.associations.append((kind, pattern.id, position.id))
+                        claimed.add(id(section))
                 next_pattern += 1
     return patterns
 
@@ -179,4 +184,23 @@ def _discover_patterns(pages: dict[int, list[FurnitureSection]]) -> list[Furnitu
 def _similar(a: FurnitureSection, b: FurnitureSection) -> bool:
     aw, ah = a.det[2] - a.det[0], a.det[3] - a.det[1]
     bw, bh = b.det[2] - b.det[0], b.det[3] - b.det[1]
-    return min(aw, bw) / max(aw, bw) >= 0.9 and min(ah, bh) / max(ah, bh) >= 0.9
+    return (min(aw, bw) / max(aw, bw) >= 0.75
+            and min(ah, bh) / max(ah, bh) >= 0.85
+            and abs(a.det[0] - b.det[0]) <= 100
+            and abs(a.det[1] - b.det[1]) <= 100)
+
+
+def _extend_position(matches, pages, step: int, max_page: int, unavailable: set[int]) -> None:
+    """Extend a confirmed three-page track, allowing a single missing page."""
+    page_index = matches[-1].page_index + step
+    misses = 0
+    while page_index <= max_page and misses < 2:
+        candidate = next((section for section in pages.get(page_index, [])
+                          if id(section) not in unavailable and _similar(matches[-1], section)), None)
+        if candidate is None:
+            misses += 1
+        else:
+            matches.append(candidate)
+            unavailable.add(id(candidate))
+            misses = 0
+        page_index += step

@@ -2,7 +2,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from pdf_craft.pdf.furniture import extract_furnitures
+from pdf_craft.pdf.furniture import FurnitureSection, _discover_patterns, extract_furnitures
 
 
 class FurnitureTests(unittest.TestCase):
@@ -45,3 +45,13 @@ class FurnitureTests(unittest.TestCase):
             (ocr / "page_1.xml").write_text("<page><body><layout det='0,0,1000,1000'>body</layout></body></page>", encoding="utf-8")
             output = extract_furnitures(pdf, ocr)
             self.assertIsNone(output.find("pages/page/section"))
+
+    def test_three_page_track_creates_one_universal_position(self):
+        pages = {
+            index: [FurnitureSection(index, (10, 10, 100, 30), "Header")]
+            for index in range(1, 5)
+        }
+        patterns = _discover_patterns(pages)
+        universal = next(pattern for pattern in patterns if pattern.kind == "universal")
+        self.assertEqual(universal.positions[0].content, "Header")
+        self.assertEqual([s.page_index for s in universal.positions[0].sections], [1, 2, 3, 4])
