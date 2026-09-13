@@ -133,12 +133,12 @@ def _discover_patterns(pages: dict[int, list[FurnitureSection]]) -> list[Furnitu
             sample_pages = (start, start + step, start + 2 * step)
             if any(not pages.get(i) for i in sample_pages):
                 continue
-            used = set()
+            used: set[int] = set()
             positions: list[FurniturePosition] = []
             for first in pages[sample_pages[0]]:
                 matches = [first]
                 for page_index in sample_pages[1:]:
-                    candidate = next((s for s in pages[page_index] if s not in used and _similar(first, s)), None)
+                    candidate = next((s for s in pages[page_index] if id(s) not in used and _similar(first, s)), None)
                     if candidate is None:
                         break
                     matches.append(candidate)
@@ -146,7 +146,7 @@ def _discover_patterns(pages: dict[int, list[FurnitureSection]]) -> list[Furnitu
                     continue
                 position = FurniturePosition(len(positions), max(set(s.content for s in matches), key=lambda t: sum(s.content == t for s in matches)), matches)
                 positions.append(position)
-                used.update(matches)
+                used.update(id(s) for s in matches)
             if positions:
                 pattern = FurniturePattern(next_pattern, kind, positions)
                 patterns.append(pattern)
