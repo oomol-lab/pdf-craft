@@ -1,5 +1,6 @@
 """Native PDF PageFurniture extraction and compact XML serialization."""
 from dataclasses import dataclass, field
+import json
 from pathlib import Path
 from xml.etree import ElementTree as ET
 
@@ -43,10 +44,11 @@ def extract_furnitures(pdf_path: Path, ocr_path: Path, *, dpi: int = 300) -> ET.
         for path in ocr_path.glob("page_*.xml")
         if path.stem.removeprefix("page_").isdigit()
     }
+    page_sizes = _read_page_sizes(ocr_path / "page_pixel_sizes.json")
     for page_index, page in enumerate(reader.pages, 1):
         if available_pages and page_index not in available_pages:
             continue
-        native = _native_sections(page, page_index, dpi)
+        native = _native_sections(page, page_index, dpi, page_sizes.get(page_index))
         ocr_boxes = _read_ocr_boxes(ocr_path / f"page_{page_index}.xml")
         pages[page_index] = [s for s in native if not any(_is_covered(s.det, box) for box in ocr_boxes)]
 
@@ -96,7 +98,15 @@ def _read_ocr_boxes(path: Path) -> list[tuple[int, int, int, int]]:
     return boxes
 
 
-def _native_sections(page, page_index: int, dpi: int) -> list[FurnitureSection]:
+def _read_page_sizes(path: Path) -> dict[int, tuple[int, int]]:
+    try:
+        raw = json.loads(path.read_text(encoding="utf-8"))
+        return {int(index): (int(size[0]), int(size[1])) for index, size in raw.items()}
+    except (OSError, ValueError, TypeError, json.JSONDecodeError):
+        return {}
+
+
+def _native_sections(page, page_index: int, dpi: int, page_size: tuple[int, int] | None) -> list[FurnitureSection]:
     """Read native PDF glyph runs with pypdf's visitor API.
 
     PDFs do not always expose glyph advance widths.  A conservative font-size
@@ -117,6 +127,12 @@ def _native_sections(page, page_index: int, dpi: int) -> list[FurnitureSection]:
         # PDF coordinates start at bottom-left; OCR raster coordinates at top-left.
         det = (round(x * scale), round((height - y - size) * scale),
                round((x + width) * scale), round((height - y) * scale))
+        if page_size is not None:
+            max_width, max_height = page_size
+            det = (max(0, min(det[0], max_width - 1)), max(0, min(det[1], max_height - 1)),
+                   max(1, min(det[2], max_width)), max(1, min(det[3], max_height)))
+        if det[2] <= det[0] or det[3] <= det[1]:
+            return
         sections.append(FurnitureSection(page_index, det, content))
 
     page.extract_text(visitor_text=visit)
