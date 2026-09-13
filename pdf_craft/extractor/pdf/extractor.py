@@ -54,7 +54,7 @@ class PDFExtractor:
             "analysing_path": analysing_path,
             "ocr_size": "gundam", "dpi": None,
             "max_page_image_file_size": None, "includes_cover": False,
-            "includes_footnotes": False, "ignore_pdf_errors": False,
+            "includes_footnotes": False, "includes_furniture": False, "ignore_pdf_errors": False,
             "ignore_ocr_errors": False, "generate_plot": False,
             "toc_llm": None, "toc_assumed": False,
             "aborted": lambda: False, "max_tokens": None,

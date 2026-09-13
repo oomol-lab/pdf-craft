@@ -37,6 +37,7 @@ class ExtractionPaths:
     assets: Path
     toc: Path
     cover: Path
+    furnitures: Path
 
     @classmethod
     def at(cls, root: Path) -> "ExtractionPaths":
@@ -48,6 +49,7 @@ class ExtractionPaths:
             assets=root / "assets",
             toc=root / "toc.xml",
             cover=root / "cover.png",
+            furnitures=root / "furnitures.xml",
         )
 
 
@@ -249,6 +251,8 @@ def _validate_workspace(paths: ExtractionPaths, *, require_toc: bool = False) ->
             decode_toc(toc_root)
         except ValueError as error:
             raise ValueError(f"invalid toc schema in {paths.toc.name}: {error}") from error
+    if paths.furnitures.exists():
+        _validate_furnitures(paths.furnitures, page_sizes)
     if paths.cover.exists() and not paths.cover.is_file():
         raise ValueError("PDFCraftExtraction cover.png is not a file")
     _validate_workspace_members(paths)
@@ -359,6 +363,50 @@ def _read_pages(path: Path) -> tuple[int, dict[int, tuple[int, int]]]:
     return render_dpi, sizes
 
 
+def _validate_furnitures(path: Path, page_sizes: dict[int, tuple[int, int]]) -> None:
+    root = _require_xml_root(path, "furnitures")
+    if list(root.tag for root in root) != ["patterns", "pages"]:
+        raise ValueError("furnitures.xml must contain patterns and pages")
+    pattern_ids: set[str] = set()
+    positions: set[tuple[str, str]] = set()
+    for pattern in root.find("patterns") or []:
+        if pattern.tag != "pattern" or set(pattern.attrib) != {"id", "kind"} or pattern.get("kind") not in {"universal", "same_side"}:
+            raise ValueError("furnitures.xml has invalid pattern")
+        pattern_id = pattern.get("id", "")
+        if not pattern_id.isdigit() or pattern_id in pattern_ids:
+            raise ValueError("furnitures.xml has invalid pattern id")
+        pattern_ids.add(pattern_id)
+        for position in pattern:
+            position_id = position.get("id", "")
+            if position.tag != "position" or set(position.attrib) != {"id"} or not position_id.isdigit() or not (position.text or "").strip():
+                raise ValueError("furnitures.xml has invalid position")
+            positions.add((pattern_id, position_id))
+    seen_pages: set[int] = set()
+    for page in root.find("pages") or []:
+        if page.tag != "page" or set(page.attrib) != {"index"}:
+            raise ValueError("furnitures.xml has invalid page")
+        try:
+            index = int(page.get("index", ""))
+        except ValueError as error:
+            raise ValueError("furnitures.xml has invalid page index") from error
+        if index not in page_sizes or index in seen_pages:
+            raise ValueError("furnitures.xml references an invalid page")
+        seen_pages.add(index)
+        for section in page:
+            if section.tag != "section" or "det" not in section.attrib:
+                raise ValueError("furnitures.xml has invalid section")
+            _validate_bbox(section.attrib["det"], page_sizes[index], path.name)
+            association = {"det", "kind", "pattern_id", "position_id"}
+            if set(section.attrib) == {"det"}:
+                if not (section.text or "").strip():
+                    raise ValueError("furnitures.xml fragment is missing content")
+            elif set(section.attrib) == association:
+                if section.get("kind") not in {"universal", "same_side"} or (section.get("pattern_id", ""), section.get("position_id", "")) not in positions or (section.text or "").strip():
+                    raise ValueError("furnitures.xml has invalid association")
+            else:
+                raise ValueError("furnitures.xml has invalid section attributes")
+
+
 def _require_xml_root(path: Path, expected: str) -> ElementTree.Element:
     if not path.is_file():
         raise ValueError(f"PDFCraftExtraction is missing {path.name}")
@@ -387,7 +435,7 @@ def _validate_bbox(raw: str, size: tuple[int, int], chapter: str) -> None:
 def _validate_workspace_members(paths: ExtractionPaths) -> None:
     allowed_root = {
         paths.manifest.name, paths.pages.name, paths.chapters.name, paths.assets.name,
-        paths.toc.name, paths.cover.name,
+        paths.toc.name, paths.cover.name, paths.furnitures.name,
     }
     for path in paths.root.iterdir():
         if path.name not in allowed_root or path.is_symlink():
@@ -419,6 +467,8 @@ def _write_archive(paths: ExtractionPaths, target: Path) -> None:
         (paths.manifest, "manifest.json"),
         (paths.pages, "pages.xml"),
     ]
+    if paths.furnitures.exists():
+        members.append((paths.furnitures, "furnitures.xml"))
     if paths.toc.is_file():
         members.append((paths.toc, "toc.xml"))
     if paths.cover.is_file():
@@ -471,7 +521,7 @@ def _validate_archive_member(info: ZipInfo) -> None:
     if (info.external_attr >> 16) & 0o170000 == 0o120000:
         raise ValueError(f"PDFCraftExtraction cannot contain symlinks: {name}")
     allowed = name in {
-        "manifest.json", "pages.xml", "toc.xml", "cover.png", "chapters/", "assets/"
+        "manifest.json", "pages.xml", "toc.xml", "cover.png", "furnitures.xml", "chapters/", "assets/"
     }
     allowed = allowed or (
         len(pure.parts) == 2
