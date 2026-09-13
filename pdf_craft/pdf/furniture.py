@@ -38,7 +38,14 @@ def extract_furnitures(pdf_path: Path, ocr_path: Path, *, dpi: int = 300) -> ET.
     pages: dict[int, list[FurnitureSection]] = {}
     from pypdf import PdfReader
     reader = PdfReader(str(pdf_path))
+    available_pages = {
+        int(path.stem.removeprefix("page_"))
+        for path in ocr_path.glob("page_*.xml")
+        if path.stem.removeprefix("page_").isdigit()
+    }
     for page_index, page in enumerate(reader.pages, 1):
+        if available_pages and page_index not in available_pages:
+            continue
         native = _native_sections(page, page_index, dpi)
         ocr_boxes = _read_ocr_boxes(ocr_path / f"page_{page_index}.xml")
         pages[page_index] = [s for s in native if not any(_coverage(s.det, box) >= 0.95 for box in ocr_boxes)]
