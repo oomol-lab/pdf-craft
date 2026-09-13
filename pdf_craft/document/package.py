@@ -396,13 +396,14 @@ def _validate_furnitures(path: Path, page_sizes: dict[int, tuple[int, int]]) -> 
             if section.tag != "section" or "det" not in section.attrib:
                 raise ValueError("furnitures.xml has invalid section")
             _validate_bbox(section.attrib["det"], page_sizes[index], path.name)
-            association = {"det", "kind", "pattern_id", "position_id"}
             if set(section.attrib) == {"det"}:
-                if not (section.text or "").strip():
+                if not len(section) and not (section.text or "").strip():
                     raise ValueError("furnitures.xml fragment is missing content")
-            elif set(section.attrib) == association:
-                if section.get("kind") not in {"universal", "same_side"} or (section.get("pattern_id", ""), section.get("position_id", "")) not in positions or (section.text or "").strip():
-                    raise ValueError("furnitures.xml has invalid association")
+                for association in section:
+                    if association.tag != "association" or set(association.attrib) != {"kind", "pattern_id", "position_id"} or association.get("kind") not in {"universal", "same_side"} or (association.get("pattern_id", ""), association.get("position_id", "")) not in positions:
+                        raise ValueError("furnitures.xml has invalid association")
+                if len(section) and (section.text or "").strip():
+                    raise ValueError("furnitures.xml association section cannot contain content")
             else:
                 raise ValueError("furnitures.xml has invalid section attributes")
 

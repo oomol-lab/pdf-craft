@@ -21,7 +21,7 @@ class FurnitureTests(unittest.TestCase):
                 writer.write(output)
             ocr = root / "ocr"
             ocr.mkdir()
-            (ocr / "page_1.xml").write_text("<page><body><layout det='10,40,190,190'>body</layout></body></page>", encoding="utf-8")
+            (ocr / "page_1.xml").write_text("<page><body><layout det='10,0,190,20'>body</layout></body></page>", encoding="utf-8")
             output = extract_furnitures(pdf, ocr)
             section = output.find("pages/page/section")
             assert section is not None

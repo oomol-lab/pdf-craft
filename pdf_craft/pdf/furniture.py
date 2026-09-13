@@ -48,7 +48,7 @@ def extract_furnitures(pdf_path: Path, ocr_path: Path, *, dpi: int = 300) -> ET.
             continue
         native = _native_sections(page, page_index, dpi)
         ocr_boxes = _read_ocr_boxes(ocr_path / f"page_{page_index}.xml")
-        pages[page_index] = [s for s in native if not any(_coverage(s.det, box) >= 0.95 for box in ocr_boxes)]
+        pages[page_index] = [s for s in native if not any(_is_covered(s.det, box) for box in ocr_boxes)]
 
     patterns = _discover_patterns(pages)
     root = ET.Element("furnitures")
@@ -63,10 +63,10 @@ def extract_furnitures(pdf_path: Path, ocr_path: Path, *, dpi: int = 300) -> ET.
         for section in sections:
             attrs = {"det": ",".join(map(str, section.det))}
             if section.associations:
+                section_el = ET.SubElement(page_el, "section", attrs)
                 for kind, pattern_id, position_id in section.associations:
-                    assoc = ET.SubElement(page_el, "section", {**attrs, "kind": kind,
+                    ET.SubElement(section_el, "association", {"kind": kind,
                         "pattern_id": str(pattern_id), "position_id": str(position_id)})
-                    assoc.text = None
             else:
                 ET.SubElement(page_el, "section", attrs).text = section.content
     return indent(root)
@@ -129,6 +129,18 @@ def _coverage(a, b) -> float:
     intersection = max(0, right - left) * max(0, bottom - top)
     area = max(0, a[2] - a[0]) * max(0, a[3] - a[1])
     return intersection / area if area else 0.0
+
+
+def _is_covered(native, ocr) -> bool:
+    """Tolerate PDF glyph-width differences without accepting nearby furniture."""
+    if _coverage(native, ocr) >= 0.95:
+        return True
+    left, top = max(native[0], ocr[0]), max(native[1], ocr[1])
+    right, bottom = min(native[2], ocr[2]), min(native[3], ocr[3])
+    native_width = max(1, native[2] - native[0])
+    native_height = max(1, native[3] - native[1])
+    return (max(0, right - left) / native_width >= 0.3
+            and max(0, bottom - top) / native_height >= 0.9)
 
 
 def _discover_patterns(pages: dict[int, list[FurnitureSection]]) -> list[FurniturePattern]:
