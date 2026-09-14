@@ -93,6 +93,7 @@ class TestPDFCraft(unittest.TestCase):
                 coverage = fromstring(paths.translation.read_text(encoding="utf-8"))
                 paragraph = coverage.find("narrative/paragraph")
                 self.assertIsNotNone(paragraph)
+                assert paragraph is not None
                 self.assertEqual(paragraph.attrib, {
                     "chapter_id": "head", "page_index": "1", "order": "1", "state": "translated",
                 })

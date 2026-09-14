@@ -124,7 +124,9 @@ class TestComposableBoundaries(unittest.TestCase):
             )
             capture = _CapturePatcher()
 
-            PDFTranslationPipeline(patcher=capture).patch(Path("input.pdf"), Path("output.pdf"), extraction)
+            PDFTranslationPipeline(patcher=cast(PDFPatcher, capture)).patch(
+                Path("input.pdf"), Path("output.pdf"), extraction,
+            )
 
             self.assertEqual([replacement.text for replacement in capture.replacements], ["translated"])
             self.assertEqual(
@@ -150,7 +152,9 @@ class TestComposableBoundaries(unittest.TestCase):
             )
             capture = _CapturePatcher()
 
-            PDFTranslationPipeline(patcher=capture).patch(Path("input.pdf"), Path("output.pdf"), extraction)
+            PDFTranslationPipeline(patcher=cast(PDFPatcher, capture)).patch(
+                Path("input.pdf"), Path("output.pdf"), extraction,
+            )
 
             self.assertEqual(
                 [(replacement.text, replacement.bbox) for replacement in capture.replacements], [

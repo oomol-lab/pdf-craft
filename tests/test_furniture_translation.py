@@ -87,6 +87,7 @@ class FurnitureTranslationTests(unittest.TestCase):
                 coverage = ElementTree.parse(paths.translation).getroot()
                 narrative = coverage.find("narrative/paragraph")
                 self.assertIsNotNone(narrative)
+                assert narrative is not None
                 self.assertEqual(narrative.get("state"), "translated")
                 states = {
                     (entry.tag, tuple(sorted(entry.attrib.items()))): entry.get("state")
