@@ -56,6 +56,22 @@ class FurnitureTests(unittest.TestCase):
         self.assertEqual(universal.positions[0].content, "Header")
         self.assertEqual([s.page_index for s in universal.positions[0].sections], [1, 2, 3, 4])
 
+    def test_initial_track_tolerates_one_universal_gap(self):
+        pages = {
+            index: [FurnitureSection(index, (10, 10, 100, 30), "Header")]
+            for index in (1, 2, 4)
+        }
+        universal = next(p for p in _discover_patterns(pages) if p.kind == "universal")
+        self.assertEqual([s.page_index for s in universal.positions[0].sections], [1, 2, 4])
+
+    def test_initial_track_tolerates_one_same_side_gap(self):
+        pages = {
+            index: [FurnitureSection(index, (10, 10, 100, 30), "Header")]
+            for index in (1, 3, 7)
+        }
+        same_side = next(p for p in _discover_patterns(pages) if p.kind == "same_side")
+        self.assertEqual([s.page_index for s in same_side.positions[0].sections], [1, 3, 7])
+
     def test_internal_fragment_topology_is_part_of_matching(self):
         left = FurnitureSection(1, (0, 0, 100, 40), "A B", fragments=(
             (0.0, 0.0, 0.45, 0.5, "A"), (0.55, 0.0, 0.45, 0.5, "B")))

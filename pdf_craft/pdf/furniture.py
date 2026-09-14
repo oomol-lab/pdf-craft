@@ -169,21 +169,16 @@ def _discover_patterns(pages: dict[int, list[FurnitureSection]]) -> list[Furnitu
     for kind, step in (("universal", 1), ("same_side", 2)):
         max_page = max(pages, default=0)
         claimed: set[int] = set()
-        for start in range(1, max_page - 2 * step + 1):
-            sample_pages = (start, start + step, start + 2 * step)
-            if any(not pages.get(i) for i in sample_pages):
+        for start in range(1, max_page + 1):
+            if not pages.get(start):
                 continue
             used: set[int] = set()
             positions: list[FurniturePosition] = []
-            for first in pages[sample_pages[0]]:
+            for first in pages[start]:
                 if id(first) in claimed:
                     continue
-                matches = [first]
-                for page_index in sample_pages[1:]:
-                    candidate = next((s for s in pages[page_index] if id(s) not in used and id(s) not in claimed and _similar(first, s)), None)
-                    if candidate is None:
-                        break
-                    matches.append(candidate)
+                matches = _initial_matches(first, start, pages, step, max_page,
+                                           claimed | used)
                 if len(matches) < 3:
                     continue
                 _extend_position(matches, pages, step, max_page, claimed | used)
@@ -204,6 +199,33 @@ def _discover_patterns(pages: dict[int, list[FurnitureSection]]) -> list[Furnitu
                         claimed.add(id(section))
                 next_pattern += 1
     return patterns
+
+
+def _initial_matches(first: FurnitureSection, start: int,
+                     pages: dict[int, list[FurnitureSection]], step: int,
+                     max_page: int, unavailable: set[int]) -> list[FurnitureSection]:
+    """Build a candidate track before pattern creation.
+
+    A single absent section is tolerated while discovering a position. Two
+    consecutive misses terminate the candidate; at least three real sections
+    are still required before it becomes a pattern position.
+    """
+    matches = [first]
+    previous = first
+    misses = 0
+    page_index = start + step
+    while page_index <= max_page and misses < 2:
+        candidate = next((section for section in pages.get(page_index, [])
+                          if id(section) not in unavailable
+                          and _similar(previous, section)), None)
+        if candidate is None:
+            misses += 1
+        else:
+            matches.append(candidate)
+            previous = candidate
+            misses = 0
+        page_index += step
+    return matches
 
 
 def _similar(a: FurnitureSection, b: FurnitureSection) -> bool:
