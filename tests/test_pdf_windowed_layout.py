@@ -60,6 +60,69 @@ class TestWindowedParagraphPlanner(unittest.TestCase):
         # weight, not the complete paragraph's still-remaining text.
         self.assertEqual(targets, {(1, "text", 0): 11.2})
 
+    def test_isolated_single_line_is_excluded_from_the_level_target(self):
+        options = PatchTextOptions()
+        planner = WindowedParagraphPlanner(
+            QTextParagraphFiller(options), {1: (200, 80)}, options,
+        )
+        isolated = _replacement("注意", [_region(1)])
+        ordinary = _replacement("ordinary paragraph", [_region(1)])
+        isolated_placement = _placement("注意", 4, lines=1)
+        ordinary_placement = _placement("ordinary paragraph", 12, lines=2)
+        trusted = {}
+        all_placements = {}
+
+        planner._record_font_size_statistic(all_placements, isolated, isolated_placement)  # pylint: disable=protected-access
+        planner._record_font_size_statistic(all_placements, ordinary, ordinary_placement)  # pylint: disable=protected-access
+        planner._record_font_size_statistic(trusted, ordinary, ordinary_placement)  # pylint: disable=protected-access
+
+        self.assertEqual(
+            planner._isolated_font_size_targets(trusted, all_placements),  # pylint: disable=protected-access
+            {(1, "text", 0): 12},
+        )
+
+    def test_isolated_single_line_target_falls_back_to_all_samples(self):
+        options = PatchTextOptions()
+        planner = WindowedParagraphPlanner(
+            QTextParagraphFiller(options), {1: (200, 80)}, options,
+        )
+        first = _replacement("aa", [_region(1)])
+        second = _replacement("bbbbbbbb", [_region(1)])
+        statistics = {}
+        planner._record_font_size_statistic(statistics, first, _placement("aa", 4))  # pylint: disable=protected-access
+        planner._record_font_size_statistic(statistics, second, _placement("bbbbbbbb", 10))  # pylint: disable=protected-access
+
+        targets = planner._isolated_font_size_targets({}, statistics)  # pylint: disable=protected-access
+
+        self.assertEqual(targets, {(1, "text", 0): 8.8})
+
+    def test_isolated_single_line_uses_external_target_without_width_refitting(self):
+        options = PatchTextOptions(
+            styles={"text": PatchTextStyle(max_font_size=12, min_font_size=8)},
+        )
+        planner = WindowedParagraphPlanner(
+            QTextParagraphFiller(options), {1: (200, 100)}, options,
+        )
+        regular = _replacement(
+            "Regular paragraph supplies a same-level type scale.",
+            [PDFReplacementRegion(1, (0, 0, 160, 70), (200, 100))],
+        )
+        narrow = _replacement(
+            "注意", [PDFReplacementRegion(1, (0, 76, 24, 90), (200, 100))],
+        )
+
+        window = next(planner.plan([regular, narrow]))
+        try:
+            regular_plan, narrow_plan = (item.paragraph for item in window.paragraphs)
+            self.assertGreaterEqual(len(regular_plan.placements[0].line_tops), 2)
+            placement = narrow_plan.placements[0]
+            self.assertEqual(placement.font_size, 12)
+            self.assertTrue(placement.allows_horizontal_overflow)
+            self.assertEqual(len(placement.line_tops), 1)
+            self.assertGreater(placement.line_text_widths[0], placement.rectangle.width)
+        finally:
+            window.close()
+
     def test_second_pass_normalizes_natural_overflow_headlines(self):
         options = PatchTextOptions(styles={
             "sub_title": PatchTextStyle(max_font_size=20, min_font_size=4),
@@ -172,6 +235,32 @@ class TestWindowedParagraphPlanner(unittest.TestCase):
         self.assertLess(reflowed.font_size, 12)
         self.assertLessEqual(
             reflowed.line_tops[-1] + reflowed.line_heights[-1], 14 + 1e-6,
+        )
+
+    def test_isolated_single_line_uses_external_size_and_ignores_ocr_bounds(self):
+        """A lone source line is anchored, not re-fitted into its OCR crop."""
+        style = PatchTextStyle(max_font_size=16, min_font_size=4)
+        original = RegionTextPlacement(
+            1, PageRectangle(8, 10, 10, 4), "注意",
+            (8,), (8,), (10,), (4,), 4, style,
+            assigned_text="注意", forbidden_bottom=13,
+        )
+        filler = QTextParagraphFiller(PatchTextOptions(styles={"text": style}))
+
+        reflowed = filler.fit_isolated_single_line(original, 12)
+
+        self.assertEqual(reflowed.font_size, 12)
+        self.assertTrue(reflowed.allows_horizontal_overflow)
+        self.assertEqual(len(reflowed.line_tops), 1)
+        self.assertAlmostEqual(reflowed.line_text_lefts[0], reflowed.rectangle.x)
+        self.assertGreater(reflowed.line_text_widths[0], reflowed.rectangle.width)
+        self.assertAlmostEqual(
+            reflowed.line_tops[0] + reflowed.line_heights[0] / 2,
+            reflowed.rectangle.top + reflowed.rectangle.height / 2,
+        )
+        assert original.forbidden_bottom is not None
+        self.assertGreater(
+            reflowed.line_tops[0] + reflowed.line_heights[0], original.forbidden_bottom,
         )
 
     def test_second_pass_keeps_multi_line_runs_inside_their_bbox(self):
