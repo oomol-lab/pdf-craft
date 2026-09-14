@@ -22,6 +22,14 @@ from .furniture import Box, FurniturePosition, FurnitureSection, FurnitureTransf
 _LEADER_TRAILER = re.compile(
     r"(?P<trailer>\s*[.…⋯·•._][\s.…⋯·•._,:;\-–—()\[\]]*\d+(?:[\s.…⋯·•._,:;\-–—()\[\]]*\d+)*\s*)$"
 )
+_TOC_NUMBER_PREFIX = re.compile(
+    r"^(?P<prefix>\s*(?:"
+    r"(?:\d+(?:[.．]\d+)+(?:[.．)])?|\d+[.．)])"  # 1. / 1.2 / 1)
+    r"|[IVXLCDM]+[.．)]"  # I. / IV)
+    r"|[A-Za-z][.．)]"  # A. / b)
+    r"|[一二三四五六七八九十百千]+[、.．]"  # 一、 / 十.
+    r")\s+)"
+)
 
 
 def translate_furnitures_in_workspace(
@@ -133,23 +141,38 @@ def _reconcile_toc_section(section: Element, titles: dict[int, str]) -> str:
     content = section.text or ""
     if title is None or not content.strip():
         return "preserved"
-    trailer = _extract_leader_trailer(content)
+    title_field, trailer = _split_toc_title_field(content)
     if trailer is not None:
-        section.text = title + trailer
+        section.text = _replace_toc_title_field(title_field, title) + trailer
         return "translated"
     # A section with toc_id was bound at extraction only when it was exactly a
     # headline or a headline plus a recognized page trailer.  If no leader is
     # present, accepting the entire section is safe only when it has no final
     # standalone page number to confuse with a title number.
     if not re.search(r"\s\d+\s*$", content):
-        section.text = title
+        section.text = _replace_toc_title_field(content, title)
         return "translated"
     return "preserved"
 
 
-def _extract_leader_trailer(content: str) -> str | None:
+def _split_toc_title_field(content: str) -> tuple[str, str | None]:
     matched = _LEADER_TRAILER.search(content)
-    return matched.group("trailer") if matched is not None else None
+    if matched is None:
+        return content, None
+    return content[:matched.start()], matched.group("trailer")
+
+
+def _replace_toc_title_field(source: str, translated_title: str) -> str:
+    """Keep a recognized outline number while replacing only the title field."""
+    matched = _TOC_NUMBER_PREFIX.match(source)
+    if matched is None:
+        return translated_title
+    prefix = matched.group("prefix")
+    # Narrative headlines sometimes include the same structural number.  The
+    # printed TOC must show it once, in its original visual form.
+    if translated_title.startswith(prefix):
+        translated_title = translated_title[len(prefix):]
+    return prefix + translated_title.lstrip()
 
 
 def _translate_page_sections(

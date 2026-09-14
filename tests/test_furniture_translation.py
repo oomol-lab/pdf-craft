@@ -15,6 +15,7 @@ from pdf_craft.extractor.chapter.chapter import BlockLayout, Chapter, ParagraphL
 from pdf_craft.extractor.toc.types import Toc, TocInfo, encode as encode_toc
 from pdf_craft.transformer import FurniturePosition, FurnitureSection
 from pdf_craft.transformer import FurnitureXMLTransformer
+from pdf_craft.transformer.furniture_translation import _reconcile_toc_section
 from tests.extraction_helpers import make_extraction
 
 
@@ -78,7 +79,7 @@ class FurnitureTranslationTests(unittest.TestCase):
                 self.assertEqual(positions[1].text, "T:Book title")
                 self.assertEqual(positions[2].text, "keep position")
                 sections = furniture.findall("pages/page/section")
-                self.assertEqual(sections[0].text, "第一章 .... 7")
+                self.assertEqual(sections[0].text, "1. 第一章 .... 7")
                 self.assertEqual(sections[1].text, "T:Page one fragment")
                 self.assertIsNone(sections[2].text)
                 self.assertEqual(sections[3].text, "Page two fragment")
@@ -147,6 +148,23 @@ class FurnitureTranslationTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "invalid furniture position"):
                 PDFCraftExtraction._from_workspace(root).validate()
 
+    def test_toc_section_preserves_supported_number_prefixes(self):
+        cases = [
+            ("1. Chapter One .... 7", "第一章", "1. 第一章 .... 7"),
+            ("1.2. Chapter One … 8", "第一章", "1.2. 第一章 … 8"),
+            ("1.2 Chapter One … 8", "第一章", "1.2 第一章 … 8"),
+            ("IV. Chapter One . 9", "第四章", "IV. 第四章 . 9"),
+            ("A) Appendix .... 10", "附录", "A) 附录 .... 10"),
+            ("1. Chapter One", "1. 第一章", "1. 第一章"),
+        ]
+        for source, title, expected in cases:
+            with self.subTest(source=source):
+                section = ElementTree.Element("section", {"toc_id": "7"})
+                section.text = source
+
+                self.assertEqual(_reconcile_toc_section(section, {7: title}), "translated")
+                self.assertEqual(section.text, expected)
+
     def test_xml_transformer_keeps_template_and_page_payloads_separate(self):
         translator = _XMLTaskTranslator()
         furniture = FurnitureXMLTransformer(translator)
@@ -181,7 +199,7 @@ def _translated_narrative_extraction(root: Path) -> PDFCraftExtraction:
         "<position id='1'>Book title</position>"
         "<position id='2'>keep position</position>"
         "</pattern></patterns><pages>"
-        "<page index='1'><section det='1,30,90,50' toc_id='7'>Chapter One .... 7</section>"
+        "<page index='1'><section det='1,30,90,50' toc_id='7'>1. Chapter One .... 7</section>"
         "<section det='1,60,90,80'>Page one fragment</section>"
         "<section det='1,85,90,95'><association kind='universal' pattern_id='1' position_id='1'/></section>"
         "</page><page index='2'><section det='1,60,90,80'>Page two fragment</section></page>"
