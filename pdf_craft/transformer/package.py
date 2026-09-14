@@ -79,7 +79,8 @@ class ChapterExtractionTransformer:
         with extraction._materialize() as paths:
             copytree(paths.chapters, output_path / "chapters")
             copytree(paths.assets, output_path / "assets")
-            for source in (paths.manifest, paths.pages, paths.toc, paths.cover):
+            for source in (paths.manifest, paths.pages, paths.toc, paths.cover,
+                           paths.furnitures):
                 if source.exists():
                     copy2(source, output_path / source.name)
 
