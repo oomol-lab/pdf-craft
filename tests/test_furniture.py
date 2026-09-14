@@ -2,7 +2,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from pdf_craft.pdf.furniture import FurnitureSection, _discover_patterns, extract_furnitures
+from pdf_craft.pdf.furniture import FurnitureSection, _discover_patterns, _similar, extract_furnitures
 
 
 class FurnitureTests(unittest.TestCase):
@@ -55,3 +55,22 @@ class FurnitureTests(unittest.TestCase):
         universal = next(pattern for pattern in patterns if pattern.kind == "universal")
         self.assertEqual(universal.positions[0].content, "Header")
         self.assertEqual([s.page_index for s in universal.positions[0].sections], [1, 2, 3, 4])
+
+    def test_internal_fragment_topology_is_part_of_matching(self):
+        left = FurnitureSection(1, (0, 0, 100, 40), "A B", fragments=(
+            (0.0, 0.0, 0.45, 0.5, "A"), (0.55, 0.0, 0.45, 0.5, "B")))
+        right = FurnitureSection(2, (2, 1, 102, 41), "A B", fragments=(
+            (0.0, 0.0, 0.45, 0.5, "A"), (0.55, 0.0, 0.45, 0.5, "B")))
+        different = FurnitureSection(2, (2, 1, 102, 41), "A B", fragments=(
+            (0.0, 0.0, 0.45, 0.5, "B"), (0.55, 0.0, 0.45, 0.5, "A")))
+        self.assertTrue(_similar(left, right))
+        self.assertFalse(_similar(left, different))
+
+    def test_canonical_content_tie_uses_first_match(self):
+        pages = {
+            1: [FurnitureSection(1, (10, 10, 100, 30), "first", fragments=((0, 0, 1, 1, "x"),))],
+            2: [FurnitureSection(2, (10, 10, 100, 30), "second", fragments=((0, 0, 1, 1, "x"),))],
+            3: [FurnitureSection(3, (10, 10, 100, 30), "first", fragments=((0, 0, 1, 1, "x"),))],
+        }
+        pattern = next(p for p in _discover_patterns(pages) if p.kind == "universal")
+        self.assertEqual(pattern.positions[0].content, "first")
