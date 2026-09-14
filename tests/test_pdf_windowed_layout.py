@@ -483,6 +483,44 @@ class TestWindowedParagraphPlanner(unittest.TestCase):
         )
         window.close()
 
+    def test_forced_first_pass_headline_is_rebuilt_at_its_page_level_minimum(self):
+        """A stage-one emergency write cannot bypass headline normalization."""
+        options = PatchTextOptions(
+            styles={
+                "text": PatchTextStyle(max_font_size=10, min_font_size=10),
+                "sub_title": PatchTextStyle(min_font_size=4),
+            },
+            headline_min_body_ratio=1.2,
+        )
+        planner = WindowedParagraphPlanner(
+            QTextParagraphFiller(options), {1: (200, 100)}, options,
+        )
+        body = _replacement(
+            "Body", [PDFReplacementRegion(1, (0, 20, 180, 60), (200, 100))],
+        )
+        headline = _replacement(
+            "Heading", [PDFReplacementRegion(1, (0, 0, 20, 1), (200, 100))],
+            layout_ref="sub_title",
+        )
+
+        window = next(planner.plan([body, headline]))
+        try:
+            placement = window.paragraphs[1].paragraph.placements[0]
+            self.assertEqual(placement.font_size, 12)
+            # The visual placement is rebuilt, while the recovery marker
+            # retains PDF ActualText wrapping for robust extraction.
+            self.assertTrue(placement.force_written)
+            self.assertTrue(placement.allows_horizontal_overflow)
+            self.assertEqual(len(placement.line_tops), 1)
+            self.assertAlmostEqual(placement.line_text_lefts[0], placement.rectangle.x)
+            self.assertGreater(placement.line_text_widths[0], placement.rectangle.width)
+            self.assertAlmostEqual(
+                placement.line_tops[0] + placement.line_heights[0] / 2,
+                placement.rectangle.top + placement.rectangle.height / 2,
+            )
+        finally:
+            window.close()
+
     def test_second_pass_never_exceeds_an_explicit_headline_ceiling(self):
         """Page-local normalization must preserve title max_font_size too."""
         options = PatchTextOptions(

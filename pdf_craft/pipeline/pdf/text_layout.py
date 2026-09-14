@@ -757,8 +757,17 @@ class QTextParagraphFiller:
         page-level body-derived minimum has been established, a headline that
         cannot retain its first-pass line count at that minimum is allowed to
         escape its OCR rectangle from the left/vertical-centre anchor.
+
+        A first-pass forced write is not a finished headline decision.  It
+        merely records that paragraph-local geometry could not be satisfied;
+        this page-level path must rebuild its complete assigned text rather
+        than preserving that emergency placement at its smaller first-pass
+        size.
         """
-        return self.fit_isolated_single_line(placement, minimum_font_size, minimum_font_size)
+        return self._fit_natural_width_single_line(
+            placement, minimum_font_size, minimum_font_size,
+            rebuild_forced_write=True,
+        )
 
     def _resolve_font(self, style: PatchTextStyle, text: str) -> PatchTextStyle:
         """Resolve an automatic family once, without rejecting explicit names."""
@@ -1586,8 +1595,28 @@ class QTextParagraphFiller:
         directly, anchors at the rectangle's left/vertical centre, and lets
         Qt keep the translated text on one natural-width line.
         """
+        return self._fit_natural_width_single_line(
+            placement, target_font_size, minimum_font_size,
+        )
+
+    def _fit_natural_width_single_line(
+        self,
+        placement: RegionTextPlacement,
+        target_font_size: float,
+        minimum_font_size: float | None,
+        *,
+        rebuild_forced_write: bool = False,
+    ) -> RegionTextPlacement:
+        """Rebuild one assigned run as an unconstrained Qt line.
+
+        Ordinary isolated-line normalization must preserve a forced write: it
+        means the paragraph has already entered the broad PDF-level recovery
+        path.  A headline's page-level minimum is more specific, however, so
+        its deliberate natural-width fallback may replace that emergency
+        result with a correctly sized one-line placement.
+        """
         text = placement.assigned_text or placement.remaining_text
-        if not text or placement.force_written:
+        if not text or (placement.force_written and not rebuild_forced_write):
             return placement
 
         style = placement.style
@@ -1687,6 +1716,11 @@ class QTextParagraphFiller:
             formula_draws=formula_draws,
             assigned_text=local_text,
             forbidden_bottom=placement.forbidden_bottom,
+            # Keep ActualText wrapping for a run that originally required
+            # broad recovery.  Its visual geometry is now the headline's
+            # natural-width line, but preserving the semantic wrapper avoids
+            # regressing extraction of a deliberately overflowing run.
+            force_written=placement.force_written and rebuild_forced_write,
         )
 
     def _fit_frozen_overflow_region(
@@ -2503,6 +2537,13 @@ class WindowedParagraphPlanner:
             minimum = minimum_font_sizes[paragraph_index]
             key = (placement.page_index, replacement.layout_ref, replacement.layout_level)
             target = max(placement.font_size, targets.get(key, placement.font_size), minimum)
+            if placement.force_written:
+                # The paragraph-local emergency path has no typographic
+                # authority in stage two.  Rebuild the full assigned run as
+                # the headline's explicit natural-width result instead of
+                # letting the generic isolated-line guard retain its tiny,
+                # constrained forced placement.
+                return self._filler.fit_headline_overflow(placement, minimum)
             if _is_isolated_single_line(replacement, placement):
                 target = max(target, isolated_targets.get(key, placement.font_size))
                 return self._filler.fit_isolated_single_line(placement, target, minimum)
