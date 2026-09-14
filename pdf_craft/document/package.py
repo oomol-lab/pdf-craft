@@ -245,14 +245,20 @@ def _validate_workspace(paths: ExtractionPaths, *, require_toc: bool = False) ->
         raise ValueError("PDFCraftExtraction is missing assets directory")
     if require_toc and not paths.toc.is_file():
         raise ValueError("PDFCraftExtraction is missing toc.xml")
+    toc_ids: set[int] = set()
     if paths.toc.exists():
         toc_root = _require_xml_root(paths.toc, "toc")
         try:
-            decode_toc(toc_root)
+            toc = decode_toc(toc_root)
         except ValueError as error:
             raise ValueError(f"invalid toc schema in {paths.toc.name}: {error}") from error
+        stack = list(toc.content)
+        while stack:
+            item = stack.pop()
+            toc_ids.add(item.id)
+            stack.extend(item.children)
     if paths.furnitures.exists():
-        _validate_furnitures(paths.furnitures, page_sizes)
+        _validate_furnitures(paths.furnitures, page_sizes, toc_ids)
     if paths.cover.exists() and not paths.cover.is_file():
         raise ValueError("PDFCraftExtraction cover.png is not a file")
     _validate_workspace_members(paths)
@@ -363,7 +369,11 @@ def _read_pages(path: Path) -> tuple[int, dict[int, tuple[int, int]]]:
     return render_dpi, sizes
 
 
-def _validate_furnitures(path: Path, page_sizes: dict[int, tuple[int, int]]) -> None:
+def _validate_furnitures(
+    path: Path,
+    page_sizes: dict[int, tuple[int, int]],
+    toc_ids: set[int],
+) -> None:
     root = _require_xml_root(path, "furnitures")
     if list(root.tag for root in root) != ["patterns", "pages"]:
         raise ValueError("furnitures.xml must contain patterns and pages")
@@ -378,7 +388,16 @@ def _validate_furnitures(path: Path, page_sizes: dict[int, tuple[int, int]]) -> 
         pattern_ids.add(pattern_id)
         for position in pattern:
             position_id = position.get("id", "")
-            if position.tag != "position" or set(position.attrib) != {"id"} or not position_id.isdigit() or not (position.text or "").strip():
+            allowed_attributes = {"id", "toc_id"}
+            toc_id = position.get("toc_id")
+            if (
+                position.tag != "position"
+                or not set(position.attrib).issubset(allowed_attributes)
+                or "id" not in position.attrib
+                or not position_id.isdigit()
+                or not (position.text or "").strip()
+                or not _valid_toc_id(toc_id, toc_ids)
+            ):
                 raise ValueError("furnitures.xml has invalid position")
             positions.add((pattern_id, position_id))
     seen_pages: set[int] = set()
@@ -396,7 +415,10 @@ def _validate_furnitures(path: Path, page_sizes: dict[int, tuple[int, int]]) -> 
             if section.tag != "section" or "det" not in section.attrib:
                 raise ValueError("furnitures.xml has invalid section")
             _validate_bbox(section.attrib["det"], page_sizes[index], path.name)
-            if set(section.attrib) == {"det"}:
+            if set(section.attrib).issubset({"det", "toc_id"}):
+                toc_id = section.get("toc_id")
+                if not _valid_toc_id(toc_id, toc_ids):
+                    raise ValueError("furnitures.xml has invalid section toc_id")
                 if not len(section) and not (section.text or "").strip():
                     raise ValueError("furnitures.xml fragment is missing content")
                 for association in section:
@@ -406,6 +428,12 @@ def _validate_furnitures(path: Path, page_sizes: dict[int, tuple[int, int]]) -> 
                     raise ValueError("furnitures.xml association section cannot contain content")
             else:
                 raise ValueError("furnitures.xml has invalid section attributes")
+
+
+def _valid_toc_id(toc_id: str | None, toc_ids: set[int]) -> bool:
+    if toc_id is None:
+        return True
+    return toc_id.isdigit() and int(toc_id) in toc_ids
 
 
 def _require_xml_root(path: Path, expected: str) -> ElementTree.Element:

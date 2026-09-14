@@ -16,6 +16,9 @@ import subprocess
 from xml.etree import ElementTree as ET
 
 from ..common import indent, save_xml
+from ..extractor.toc.types import TocInfo, iter_toc
+from ..extractor.toc.text import normalize_text
+from .types import decode as decode_page
 
 
 _Fragment = tuple[float, float, float, float, str]
@@ -29,6 +32,7 @@ class FurnitureSection:
     content: str
     associations: list[tuple[str, int, int]] = field(default_factory=list)
     fragments: tuple[_Fragment, ...] = ()
+    toc_id: int | None = None
 
 
 @dataclass
@@ -36,6 +40,7 @@ class FurniturePosition:
     id: int
     content: str
     sections: list[FurnitureSection] = field(default_factory=list)
+    toc_id: int | None = None
 
 
 @dataclass
@@ -56,7 +61,13 @@ class _Track:
     closed: bool = False
 
 
-def extract_furnitures(pdf_path: Path, ocr_path: Path, *, dpi: int = 300) -> ET.Element:
+def extract_furnitures(
+    pdf_path: Path,
+    ocr_path: Path,
+    *,
+    toc: TocInfo | None = None,
+    dpi: int = 300,
+) -> ET.Element:
     """Extract native text not covered by OCR flow boxes.
 
     Image-only pages have no Poppler text lines, so scanned pages naturally
@@ -65,15 +76,30 @@ def extract_furnitures(pdf_path: Path, ocr_path: Path, *, dpi: int = 300) -> ET.
     each Poppler page to the actual OCR raster dimensions.
     """
     del dpi
+    toc_page_indexes = set(toc.page_indexes) if toc is not None else set()
     pages = _native_pages(pdf_path, ocr_path)
     for page_index, sections in pages.items():
+        if page_index in toc_page_indexes:
+            continue
         ocr_boxes = _read_ocr_boxes(ocr_path / f"page_{page_index}.xml")
         pages[page_index] = [
             section for section in sections
             if not any(_is_covered(section.det, ocr_box) for ocr_box in ocr_boxes)
         ]
 
-    patterns = _discover_patterns(pages)
+    headings = _toc_headings(ocr_path, toc) if toc is not None else {}
+    for page_index in toc_page_indexes:
+        pages[page_index] = _toc_page_sections(
+            ocr_path / f"page_{page_index}.xml", page_index, headings
+        )
+
+    pattern_pages = {
+        page_index: sections
+        for page_index, sections in pages.items()
+        if page_index not in toc_page_indexes
+    }
+    patterns = _discover_patterns(pattern_pages)
+    _bind_pattern_positions(patterns, headings)
     root = ET.Element("furnitures")
     patterns_el = ET.SubElement(root, "patterns")
     for pattern in patterns:
@@ -81,13 +107,19 @@ def extract_furnitures(pdf_path: Path, ocr_path: Path, *, dpi: int = 300) -> ET.
             patterns_el, "pattern", {"id": str(pattern.id), "kind": pattern.kind}
         )
         for position in pattern.positions:
-            ET.SubElement(pattern_el, "position", {"id": str(position.id)}).text = position.content
+            attributes = {"id": str(position.id)}
+            if position.toc_id is not None:
+                attributes["toc_id"] = str(position.toc_id)
+            ET.SubElement(pattern_el, "position", attributes).text = position.content
 
     pages_el = ET.SubElement(root, "pages")
     for page_index, sections in sorted(pages.items()):
         page_el = ET.SubElement(pages_el, "page", {"index": str(page_index)})
         for section in sections:
-            section_el = ET.SubElement(page_el, "section", {"det": ",".join(map(str, section.det))})
+            attributes = {"det": ",".join(map(str, section.det))}
+            if section.toc_id is not None:
+                attributes["toc_id"] = str(section.toc_id)
+            section_el = ET.SubElement(page_el, "section", attributes)
             if section.associations:
                 for kind, pattern_id, position_id in section.associations:
                     ET.SubElement(
@@ -100,8 +132,91 @@ def extract_furnitures(pdf_path: Path, ocr_path: Path, *, dpi: int = 300) -> ET.
     return indent(root)
 
 
-def write_furnitures(pdf_path: Path, ocr_path: Path, destination: Path, *, dpi: int = 300) -> None:
-    save_xml(extract_furnitures(pdf_path, ocr_path, dpi=dpi), destination)
+def write_furnitures(
+    pdf_path: Path,
+    ocr_path: Path,
+    destination: Path,
+    *,
+    toc: TocInfo | None = None,
+    dpi: int = 300,
+) -> None:
+    save_xml(extract_furnitures(pdf_path, ocr_path, toc=toc, dpi=dpi), destination)
+
+
+def _toc_headings(ocr_path: Path, toc: TocInfo) -> dict[int, str]:
+    """Return the source headline text for each stable TOC identity.
+
+    ``toc.xml`` intentionally carries only a reference to the NarrativeFlow
+    headline.  Furniture is the consumer that resolves that reference when it
+    needs to relate a printed TOC row or a running head to the same identity.
+    """
+    refs = {(item.page_index, item.order): item.id for item in iter_toc(toc.content)}
+    result: dict[int, str] = {}
+    for path in ocr_path.glob("page_*.xml"):
+        try:
+            page = decode_page(ET.parse(path).getroot())
+        except (ET.ParseError, ValueError):
+            continue
+        try:
+            page_index = int(path.stem.removeprefix("page_"))
+        except ValueError:
+            continue
+        for layout in page.body_layouts:
+            toc_id = refs.get((page_index, layout.order))
+            if toc_id is not None:
+                result[toc_id] = _headline_text(layout.text)
+    return result
+
+
+def _toc_page_sections(
+    path: Path, page_index: int, headings: dict[int, str]
+) -> list[FurnitureSection]:
+    """Represent an identified printed TOC page as page-side structured text.
+
+    A section is bound only when exactly one source headline occurs literally
+    in it.  The literal condition lets later translation replace just the
+    title while retaining leader dots and page numbers without inventing text
+    geometry that OCR did not provide.
+    """
+    try:
+        page = decode_page(ET.parse(path).getroot())
+    except (OSError, ET.ParseError, ValueError):
+        return []
+    sections: list[FurnitureSection] = []
+    for layout in page.body_layouts:
+        content = layout.text.strip()
+        if not content:
+            continue
+        matches = [
+            toc_id
+            for toc_id, title in headings.items()
+            if title and content.count(title) == 1
+        ]
+        toc_id = matches[0] if len(matches) == 1 else None
+        sections.append(
+            FurnitureSection(page_index, layout.det, content, toc_id=toc_id)
+        )
+    return sections
+
+
+def _bind_pattern_positions(
+    patterns: list[FurniturePattern], headings: dict[int, str]
+) -> None:
+    normalized_headings: dict[str, list[int]] = {}
+    for toc_id, title in headings.items():
+        normalized = normalize_text(title)
+        if normalized:
+            normalized_headings.setdefault(normalized, []).append(toc_id)
+    for pattern in patterns:
+        for position in pattern.positions:
+            normalized = normalize_text(position.content)
+            candidates = normalized_headings.get(normalized, []) if normalized else []
+            if len(candidates) == 1:
+                position.toc_id = candidates[0]
+
+
+def _headline_text(text: str) -> str:
+    return text.lstrip().lstrip("#").lstrip()
 
 
 def _native_pages(pdf_path: Path, ocr_path: Path) -> dict[int, list[FurnitureSection]]:

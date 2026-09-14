@@ -4,12 +4,14 @@ from pathlib import Path
 
 from pdf_craft.pdf.furniture import (
     FurnitureSection,
+    _bind_pattern_positions,
     _discover_patterns,
     _discover_tracks,
     _is_covered,
     _similar,
     extract_furnitures,
 )
+from pdf_craft.extractor.toc.types import Toc, TocInfo
 
 
 class FurnitureTests(unittest.TestCase):
@@ -194,3 +196,54 @@ class FurnitureTests(unittest.TestCase):
         }
         pattern = next(p for p in _discover_patterns(pages) if p.kind == "universal")
         self.assertEqual(pattern.positions[0].content, "first")
+
+    def test_only_stable_pattern_position_can_bind_a_toc_id(self):
+        pages = {
+            index: [FurnitureSection(index, (10, 10, 100, 30), "Chapter One")]
+            for index in range(1, 4)
+        }
+        patterns = _discover_patterns(pages)
+        _bind_pattern_positions(patterns, {7: "Chapter One"})
+        position = next(
+            pattern.positions[0]
+            for pattern in patterns
+            if pattern.kind == "universal"
+        )
+        self.assertEqual(position.toc_id, 7)
+
+        fragment = FurnitureSection(1, (10, 10, 100, 30), "Chapter One")
+        self.assertIsNone(fragment.toc_id)
+
+    def test_printed_toc_page_is_represented_as_furniture_with_safe_toc_id(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            pdf = root / "source.pdf"
+            from reportlab.pdfgen.canvas import Canvas
+            canvas = Canvas(str(pdf), pagesize=(200, 200))
+            canvas.drawString(20, 170, "Contents")
+            canvas.save()
+            ocr = root / "ocr"
+            ocr.mkdir()
+            (ocr / "page_1.xml").write_text(
+                "<page index='1'><body>"
+                "<layout det='20,10,180,30'>Chapter One .... 7</layout>"
+                "<layout det='20,40,180,60'>Unmatched .... 9</layout>"
+                "</body></page>",
+                encoding="utf-8",
+            )
+            (ocr / "page_2.xml").write_text(
+                "<page index='2'><body>"
+                "<layout ref='title' det='20,10,180,30'>Chapter One</layout>"
+                "</body></page>",
+                encoding="utf-8",
+            )
+            toc = TocInfo(
+                content=[Toc(id=7, page_index=2, order=0, level=0, children=[])],
+                page_indexes=[1],
+            )
+
+            output = extract_furnitures(pdf, ocr, toc=toc)
+            sections = output.findall("pages/page/section")
+            self.assertEqual(sections[0].get("toc_id"), "7")
+            self.assertEqual(sections[0].text, "Chapter One .... 7")
+            self.assertIsNone(sections[1].get("toc_id"))
