@@ -62,9 +62,16 @@ class FurnitureTests(unittest.TestCase):
         right = FurnitureSection(2, (2, 1, 102, 41), "A B", fragments=(
             (0.0, 0.0, 0.45, 0.5, "A"), (0.55, 0.0, 0.45, 0.5, "B")))
         different = FurnitureSection(2, (2, 1, 102, 41), "A B", fragments=(
-            (0.0, 0.0, 0.45, 0.5, "B"), (0.55, 0.0, 0.45, 0.5, "A")))
+            (0.0, 0.0, 0.45, 0.5, "B"), (0.0, 0.55, 0.45, 0.5, "A")))
         self.assertTrue(_similar(left, right))
         self.assertFalse(_similar(left, different))
+
+    def test_changing_fragment_text_still_matches_position(self):
+        left = FurnitureSection(1, (0, 0, 100, 40), "Page 1", fragments=(
+            (0.0, 0.0, 0.45, 0.5, "Page"), (0.55, 0.0, 0.45, 0.5, "1")))
+        right = FurnitureSection(2, (2, 1, 102, 41), "Page 2", fragments=(
+            (0.0, 0.0, 0.45, 0.5, "Page"), (0.55, 0.0, 0.45, 0.5, "2")))
+        self.assertTrue(_similar(left, right))
 
     def test_canonical_content_tie_uses_first_match(self):
         pages = {

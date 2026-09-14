@@ -242,12 +242,18 @@ def _similar(a: FurnitureSection, b: FurnitureSection) -> bool:
     unmatched = list(range(len(right)))
     matched_pairs = []
     for fragment_a in left:
-        candidates = [index for index in unmatched
-                      if right[index][4] == fragment_a[4]]
+        # Geometry is authoritative here.  Headers often contain changing
+        # dates/page numbers, so token identity must not prevent association.
+        candidates = list(unmatched)
         if not candidates:
             continue
-        index = min(candidates, key=lambda candidate: abs(right[candidate][0] - fragment_a[0])
-                    + abs(right[candidate][1] - fragment_a[1]))
+        index = min(candidates, key=lambda candidate: (
+            abs(right[candidate][0] - fragment_a[0])
+            + abs(right[candidate][1] - fragment_a[1])
+            + abs(right[candidate][2] - fragment_a[2])
+            + abs(right[candidate][3] - fragment_a[3])
+            # Text is only a tie-breaker; changing content remains valid.
+            + (0.01 if right[candidate][4] != fragment_a[4] else 0.0)))
         fragment_b = right[index]
         if (abs(fragment_a[0] - fragment_b[0]) <= 0.25
                 and abs(fragment_a[1] - fragment_b[1]) <= 0.25
