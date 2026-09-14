@@ -19,7 +19,8 @@ from pdf_craft.transformer.events import TranslationEvent, TranslationEventKind,
 from pdf_craft.transformer.xml_translator.segment import search_text_segments
 from pdf_craft.transformer.chapter_xml import ChapterXMLTransformer
 from pdf_craft.transformer.xml_translator.xml_translator import SubmitKind
-from pdf_craft.transformer.furniture_toc import reconcile_furniture_toc
+from pdf_craft.transformer.furniture import FurnitureTransformer
+from pdf_craft.transformer.furniture_translation import translate_furnitures_in_workspace
 
 
 class ExtractionTransformer(Protocol):
@@ -77,13 +78,7 @@ class ChapterExtractionTransformer:
         if output_path.exists():
             raise FileExistsError(f"output extraction workspace already exists: {output_path}")
         output_path.mkdir(parents=True)
-        with extraction._materialize() as paths:
-            copytree(paths.chapters, output_path / "chapters")
-            copytree(paths.assets, output_path / "assets")
-            for source in (paths.manifest, paths.pages, paths.toc, paths.cover,
-                           paths.furnitures):
-                if source.exists():
-                    copy2(source, output_path / source.name)
+        _copy_extraction_to_workspace(extraction, output_path)
 
         chapter_paths = sorted((output_path / "chapters").glob("chapter*.xml"))
         chapter_tasks = []
@@ -153,13 +148,6 @@ class ChapterExtractionTransformer:
         toc_path = output_path / "toc.xml"
         if self.toc_transformer is not None and toc_path.exists():
             save_xml(self.toc_transformer(read_xml(toc_path)), toc_path)
-        with extraction._materialize() as source_paths:
-            reconcile_furniture_toc(
-                source_paths.chapters,
-                output_path / "chapters",
-                toc_path,
-                output_path / "furnitures.xml",
-            )
         if emit_translation_events and on_translation_event is not None:
             on_translation_event(TranslationEvent(
                 kind=TranslationEventKind.COMPLETE,
@@ -167,3 +155,62 @@ class ChapterExtractionTransformer:
                 total_characters=total_characters,
             ))
         return PDFCraftExtraction._from_workspace(output_path).validate()
+
+
+class FurnitureExtractionTransformer:
+    """Translate only the page-furniture layer of a translated pcex."""
+
+    def __init__(self, furniture_transformer: FurnitureTransformer) -> None:
+        self.furniture_transformer = furniture_transformer
+
+    def transform(
+        self,
+        extraction: PDFCraftExtraction,
+        output_path: Path,
+    ) -> PDFCraftExtraction:
+        if output_path.suffix.lower() != EXTRACTION_SUFFIX:
+            raise ValueError(f"PDFCraftExtraction path must end with {EXTRACTION_SUFFIX}")
+        with TemporaryDirectory(prefix="pdf-craft-furnitures-transformed-") as directory:
+            transformed = self._transform_to_workspace(
+                extraction,
+                Path(directory) / "extraction",
+            )
+            return transformed.export(output_path)
+
+    def _transform_to_workspace(
+        self,
+        extraction: PDFCraftExtraction,
+        output_path: Path,
+    ) -> PDFCraftExtraction:
+        extraction.validate()
+        if output_path.exists():
+            raise FileExistsError(f"output extraction workspace already exists: {output_path}")
+        output_path.mkdir(parents=True)
+        _copy_extraction_to_workspace(extraction, output_path)
+        translate_furnitures_in_workspace(
+            chapters_path=output_path / "chapters",
+            toc_path=output_path / "toc.xml",
+            furnitures_path=output_path / "furnitures.xml",
+            translation_path=output_path / "translation.xml",
+            transformer=self.furniture_transformer,
+        )
+        return PDFCraftExtraction._from_workspace(output_path).validate()
+
+
+def _copy_extraction_to_workspace(
+    extraction: PDFCraftExtraction,
+    output_path: Path,
+) -> None:
+    with extraction._materialize() as paths:
+        copytree(paths.chapters, output_path / "chapters")
+        copytree(paths.assets, output_path / "assets")
+        for source in (
+            paths.manifest,
+            paths.pages,
+            paths.toc,
+            paths.cover,
+            paths.furnitures,
+            paths.translation,
+        ):
+            if source.exists():
+                copy2(source, output_path / source.name)

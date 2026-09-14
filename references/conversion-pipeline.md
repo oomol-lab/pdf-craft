@@ -35,10 +35,14 @@ analysis 与稳定 extraction 明确分离：
 - `extraction/assets/`：按内容 hash 存放裁剪出的图片、公式和表格。
 - `extraction/chapters/chapter_*.xml`：生成的章节记录及原 PDF page/bbox 映射。
 - `extraction/toc.xml`、`extraction/cover.png`：可选目录和封面。
+- `extraction/furnitures.xml`：可选的页面家具 pattern 与页级 section。
+- `extraction/translation.xml`：仅存在于 furniture 翻译后的 pcex；记录每个可回填
+  furniture position 或 section 的 `translated` / `preserved` 覆盖状态。
 
 公共分段流程把 `extraction/` 打包为 `.pcex`；恢复后端只接受 `.pcex` 或已加载的
 `PDFCraftExtraction`。一键转换直接使用 workspace，只有显式 `extraction_path` 时才额外导出
-`.pcex`，避免压缩往返。翻译后的 `.pcex` 必须保留 manifest、pages、TOC、封面和资源。
+`.pcex`，避免压缩往返。翻译后的 `.pcex` 必须保留 manifest、pages、TOC、封面、furniture、
+覆盖记录和资源。
 
 修改 XML schema、文件命名或跳过语义会影响多个模块，应视为跨流水线变更，并配套有针对性的测试。
 

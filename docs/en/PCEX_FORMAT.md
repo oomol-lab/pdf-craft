@@ -32,7 +32,9 @@ book.pcex                       # ZIP archive using Deflate compression
 ├── assets/                     # required; may be empty
 │   └── <sha256>.png            # zero or more content assets
 ├── toc.xml                     # optional: hierarchical table of contents
-└── cover.png                   # optional: cover image
+├── cover.png                   # optional: cover image
+├── furnitures.xml              # optional: page-furniture patterns and sections
+└── translation.xml             # optional: furniture translation coverage
 ```
 
 The archive root and its two subdirectories may not contain members other than those shown above. Member names are case-sensitive. The `.pcex` suffix check on the public file path is case-insensitive.
@@ -45,6 +47,8 @@ The archive root and its two subdirectories may not contain members other than t
 | `assets/` | Yes | Content-addressed PNG files | Markdown and EPUB renderers |
 | `toc.xml` | No | TOC tree and printed-TOC pages | EPUB renderer and chapter relationships |
 | `cover.png` | No | Cover image | Markdown and EPUB renderers |
+| `furnitures.xml` | No | Page-furniture patterns and page-local sections | Furniture translation and future PDF patching |
+| `translation.xml` | No | `translated` / `preserved` coverage for furniture patch units | Future PDF patching |
 
 JSON and XML written by pdf-craft use UTF-8. XML files include an `<?xml version="1.0" encoding="UTF-8"?>` declaration. Paths inside the ZIP use `/` as their separator.
 
@@ -142,6 +146,8 @@ translated = craft.translate_extraction(
 ```
 
 `translate_extraction()` creates a new `.pcex`. It preserves the source archive's manifest, page geometry, TOC, cover, and assets, and rewrites only the chapter XML processed by the transformer. The output path must end in `.pcex` and must not already exist.
+
+When an extraction contains `furnitures.xml`, `translate_furnitures()` is the distinct follow-up operation for that page-oriented content. It resolves furniture linked by `toc_id` from translated NarrativeFlow headings, translates reusable pattern positions once and unbound sections in page scope, and records patch eligibility in `translation.xml`. It is intentionally not part of `translate_extraction()` or the EPUB, Markdown, and PDF convenience workflows.
 
 `PDFCraftExtraction.export(path)` revalidates the current object, writes a new `.pcex`, and returns an object backed by the new archive. It writes to a temporary file in the destination directory before atomically replacing the target name; an existing target is still never overwritten. Container metadata such as ZIP member timestamps is not stable format data, so two exports are not guaranteed to be byte-for-byte identical.
 
@@ -551,8 +557,8 @@ The current implementation imposes no limit on archive size, expanded size, or c
 2. The ZIP is readable, paths are safe, member names are unique, and the member set is supported.
 3. `manifest.json` and `pages.xml` exist and satisfy their field constraints.
 4. After extraction, `chapters/` and `assets/` exist and contain only regular files with valid names.
-5. Optional `toc.xml` and `cover.png` members have the correct member type.
-6. Every chapter XML and the optional TOC XML parse successfully, have the expected root, and expose decodable core fields.
+5. Optional `toc.xml`, `cover.png`, `furnitures.xml`, and `translation.xml` members have the correct member type.
+6. Every chapter XML and optional XML sidecar parse successfully, have the expected root, and expose decodable core fields; furniture coverage entries must reference existing furniture units.
 7. Chapter page references, bounding boxes, and hashed asset references are valid.
 
 The current v1 validation contract does not include:
@@ -581,7 +587,9 @@ analysing/
 │   ├── chapters/
 │   ├── assets/
 │   ├── toc.xml
-│   └── cover.png
+│   ├── cover.png
+│   ├── furnitures.xml
+│   └── translation.xml
 ├── ocr/                        # diagnostics/checkpoint cache; not part of PDFCraftExtraction
 └── plots/                      # optional diagnostics; not part of PDFCraftExtraction
 ```

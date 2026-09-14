@@ -32,7 +32,9 @@ book.pcex                       # ZIP（Deflate 压缩）
 ├── assets/                     # 必需，可为空
 │   └── <sha256>.png            # 零个或多个内容资源
 ├── toc.xml                     # 可选：层级目录
-└── cover.png                   # 可选：封面
+├── cover.png                   # 可选：封面
+├── furnitures.xml              # 可选：页面 furniture 模式与 section
+└── translation.xml             # 可选：furniture 翻译覆盖记录
 ```
 
 根目录和两个子目录不允许出现上表之外的成员。成员名称区分大小写；公开文件路径的 `.pcex` 后缀检查不区分大小写。
@@ -45,6 +47,8 @@ book.pcex                       # ZIP（Deflate 压缩）
 | `assets/` | 是 | 以内容哈希命名的 PNG | Markdown/EPUB 渲染 |
 | `toc.xml` | 否 | 目录树及目录页 | EPUB 渲染、章节关系 |
 | `cover.png` | 否 | 封面图 | Markdown/EPUB 渲染 |
+| `furnitures.xml` | 否 | 页面 furniture 模式与页级 section | furniture 翻译、未来 PDF 写回 |
+| `translation.xml` | 否 | furniture 回填单元的 `translated` / `preserved` 覆盖状态 | 未来 PDF 写回 |
 
 pdf-craft 写出的 JSON 和 XML 文本均使用 UTF-8；XML 文件带有 `<?xml version="1.0" encoding="UTF-8"?>` 声明。ZIP 内路径统一使用 `/`。
 
@@ -142,6 +146,8 @@ translated = craft.translate_extraction(
 ```
 
 `translate_extraction()` 创建新的 `.pcex`，保留原包的 manifest、页面几何、目录、封面和资源，只重写经过 transformer 处理的章节 XML。输出路径必须以 `.pcex` 结尾且不能已存在。
+
+若 extraction 包含 `furnitures.xml`，则可在 NarrativeFlow 翻译完成后单独调用 `translate_furnitures()`。该步骤会按 `toc_id` 使用已翻译的正文标题收敛关联 furniture，模板 position 仅翻译一次、未绑定 section 以页为范围翻译，并写入 `translation.xml` 记录未来 PDF 回填是否可覆盖。它刻意不属于 `translate_extraction()`，也不会被 EPUB、Markdown 或 PDF 的便捷工作流自动调用。
 
 `PDFCraftExtraction.export(path)` 会把当前对象重新校验并写成新的 `.pcex`，返回由新归档支撑的对象。写入使用同目标目录中的临时文件，成功后原子替换为目标名称；现有目标仍不会被覆盖。ZIP 成员的时间戳等容器元数据不属于稳定格式，不能假设两次导出逐字节相同。
 
@@ -551,8 +557,8 @@ Markdown 渲染会把封面复制到输出资源目录，但不会自动在 Mark
 2. ZIP 可读取、路径安全、成员不重复且成员集合受支持；
 3. `manifest.json` 和 `pages.xml` 存在且符合各自字段约束；
 4. `chapters/`、`assets/` 解压后存在并且只含合法名称的普通文件；
-5. 可选 `toc.xml`、`cover.png` 的成员类型正确；
-6. 所有章节 XML 与可选 TOC XML 可解析，根元素正确且核心字段可解码；
+5. 可选 `toc.xml`、`cover.png`、`furnitures.xml`、`translation.xml` 的成员类型正确；
+6. 所有章节 XML 与可选 XML 附属文件可解析，根元素正确且核心字段可解码；furniture 覆盖记录必须引用现有 furniture 单元；
 7. 章节页引用、bbox 和带 hash 的资源引用有效。
 
 以下内容不是当前 v1 校验承诺：
@@ -581,7 +587,9 @@ analysing/
 │   ├── chapters/
 │   ├── assets/
 │   ├── toc.xml
-│   └── cover.png
+│   ├── cover.png
+│   ├── furnitures.xml
+│   └── translation.xml
 ├── ocr/                        # 诊断/断点缓存，不属于 PDFCraftExtraction
 └── plots/                      # 可选诊断图，不属于 PDFCraftExtraction
 ```

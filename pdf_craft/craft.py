@@ -26,7 +26,14 @@ from .pipeline.epub import translate_epub as run_epub_translation
 from .pipeline.pdf import PDFTranslationPipeline
 from .pipeline.pdf.pipeline import _to_patch_text
 from .renderer import EpubRenderer, MarkdownRenderer
-from .transformer import ChapterExtractionTransformer, ChapterTransformer, SubmitKind, TranslationEvent
+from .transformer import (
+    ChapterExtractionTransformer,
+    ChapterTransformer,
+    FurnitureExtractionTransformer,
+    FurnitureTransformer,
+    SubmitKind,
+    TranslationEvent,
+)
 
 
 @dataclass(frozen=True)
@@ -134,6 +141,22 @@ class PDFCraft:
         return extraction_transformer.transform(
             _ensure_extraction(extraction), Path(output_path), on_translation_event=on_translation_event,
             emit_translation_events=True,
+        )
+
+    def translate_furnitures(
+        self,
+        extraction: PDFCraftExtraction | PathLike | str,
+        output_path: PathLike | str,
+        transformer: FurnitureTransformer,
+    ) -> PDFCraftExtraction:
+        """Translate page furniture in an already NarrativeFlow-translated pcex.
+
+        This deliberately remains a separate pcex-to-pcex operation.  Callers
+        that know they will patch a PDF can compose it later; EPUB and Markdown
+        routes can retain their NarrativeFlow-only behavior.
+        """
+        return FurnitureExtractionTransformer(transformer).transform(
+            _ensure_extraction(extraction), Path(output_path)
         )
 
     def render_epub(

@@ -1,0 +1,74 @@
+"""Adapt XMLTranslator to the template/page-oriented furniture contract."""
+
+from __future__ import annotations
+
+from collections.abc import Sequence
+from typing import Protocol
+from xml.etree.ElementTree import Element, SubElement
+
+from .furniture import FurniturePosition, FurnitureSection
+from .xml_translator.xml_translator import SubmitKind, TranslationTask
+
+
+class XMLTaskTranslator(Protocol):
+    """The XMLTranslator subset needed for furniture payloads."""
+
+    def translate_element(
+        self,
+        task: TranslationTask[object],
+        **kwargs,
+    ) -> tuple[Element, object]: ...
+
+
+class FurnitureXMLTransformer:
+    """Send pattern and page furniture as separate XML translation payloads."""
+
+    def __init__(
+        self,
+        translator: XMLTaskTranslator,
+        mode: SubmitKind = SubmitKind.REPLACE,
+    ) -> None:
+        self._translator = translator
+        self._mode = mode
+
+    def transform_position(self, position: FurniturePosition) -> str | None:
+        element = Element("furniture-position")
+        element.text = position.content
+        translated, _ = self._translator.translate_element(
+            TranslationTask(
+                element=element,
+                action=self._mode,
+                payload=position,
+                item_id=f"pattern-{position.pattern_id}-position-{position.position_id}",
+                character_count=len(position.content),
+            )
+        )
+        return translated.text
+
+    def transform_sections(
+        self,
+        page_index: int,
+        sections: Sequence[FurnitureSection],
+    ) -> Sequence[str | None]:
+        element = Element("furniture-page", {"index": str(page_index)})
+        for index, section in enumerate(sections):
+            child = SubElement(element, "section", {"id": str(index)})
+            child.text = section.content
+        translated, _ = self._translator.translate_element(
+            TranslationTask(
+                element=element,
+                action=self._mode,
+                payload=tuple(sections),
+                item_id=f"furniture-page-{page_index}",
+                character_count=sum(len(section.content) for section in sections),
+            )
+        )
+        children = translated.findall("section")
+        if len(children) != len(sections):
+            return (None,) * len(sections)
+        values: list[str | None] = []
+        for index, child in enumerate(children):
+            if child.get("id") != str(index):
+                return (None,) * len(sections)
+            values.append(child.text)
+        return values
