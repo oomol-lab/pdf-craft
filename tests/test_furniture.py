@@ -10,7 +10,11 @@ from pdf_craft.pdf.furniture import (
     _discover_patterns,
     _discover_tracks,
     _explicit_page_labels,
+    _fragment_distance,
     _is_covered,
+    _matching_fragment_text,
+    _matching_text,
+    _matching_text_template,
     _similar,
     extract_furnitures,
 )
@@ -393,6 +397,77 @@ class FurnitureTests(unittest.TestCase):
         right = FurnitureSection(2, (2, 1, 102, 41), "Page 2", fragments=(
             (0.0, 0.0, 0.45, 0.5, "Page"), (0.55, 0.0, 0.45, 0.5, "2")))
         self.assertTrue(_similar(left, right))
+
+    def test_matching_template_normalizes_only_standalone_folio_fields(self):
+        for left, right, signature in (
+            ("4", "5", "{decimal_folio}"),
+            ("IV", "V", "{roman_upper_folio}"),
+            ("iv", "v", "{roman_lower_folio}"),
+        ):
+            with self.subTest(left=left, right=right):
+                self.assertEqual(_matching_text(left), signature)
+                self.assertEqual(_matching_text(right), signature)
+                self.assertTrue(_similar(
+                    FurnitureSection(1, (0, 0, 100, 40), left),
+                    FurnitureSection(2, (2, 1, 102, 41), right),
+                ))
+
+    def test_matching_template_covers_page_field_fragments_without_mutation(self):
+        left = FurnitureSection(1, (0, 0, 100, 40), "Page IV", fragments=(
+            (0.0, 0.0, 0.45, 0.5, "Page"), (0.55, 0.0, 0.45, 0.5, "IV")))
+        right = FurnitureSection(2, (2, 1, 102, 41), "Page V", fragments=(
+            (0.0, 0.0, 0.45, 0.5, "Page"), (0.55, 0.0, 0.45, 0.5, "V")))
+        left_fragments, right_fragments = left.fragments, right.fragments
+
+        left_template = _matching_text_template(left.content)
+        right_template = _matching_text_template(right.content)
+        self.assertEqual(_matching_text(left.content, left_template), "Page {roman_upper_folio}")
+        self.assertEqual(_matching_text(right.content, right_template), "Page {roman_upper_folio}")
+        self.assertEqual(
+            _matching_fragment_text("IV", left_template), "{roman_upper_folio}"
+        )
+        self.assertEqual(
+            _matching_fragment_text("V", right_template), "{roman_upper_folio}"
+        )
+        self.assertEqual(
+            _fragment_distance(
+                left.fragments[1], right.fragments[1], left_template, right_template
+            ),
+            0.0,
+        )
+        self.assertTrue(_similar(left, right))
+        self.assertEqual(left.content, "Page IV")
+        self.assertEqual(right.content, "Page V")
+        self.assertEqual(left.fragments, left_fragments)
+        self.assertEqual(right.fragments, right_fragments)
+
+    def test_matching_template_does_not_generalize_words_or_ambiguous_numbers(self):
+        for content in (
+            "Chapter IV",
+            "Version 4",
+            "Model X1",
+            "The 4th edition",
+        ):
+            with self.subTest(content=content):
+                self.assertIsNone(_matching_text_template(content))
+                self.assertEqual(_matching_text(content), content)
+
+    def test_matching_template_never_rewrites_extracted_furniture_text(self):
+        pages = {
+            1: [FurnitureSection(1, (10, 10, 100, 30), "Page IV")],
+            2: [FurnitureSection(2, (10, 10, 100, 30), "Page V")],
+        }
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            ocr = root / "ocr"
+            ocr.mkdir()
+            with patch("pdf_craft.pdf.furniture._native_pages", return_value=pages):
+                output = extract_furnitures(root / "source.pdf", ocr)
+
+        self.assertEqual(
+            [section.text for section in output.findall("pages/page/section")],
+            ["Page IV", "Page V"],
+        )
 
     def test_canonical_content_tie_uses_first_match(self):
         pages = {

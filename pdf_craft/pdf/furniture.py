@@ -33,6 +33,9 @@ _TOC_PAGE_TRAILER = re.compile(
     r"^[\s.…⋯·•._,:;\-–—()\[\]]*\d+(?:[\s.…⋯·•._,:;\-–—()\[\]]*\d+)*[\s.…⋯·•._,:;\-–—()\[\]]*$"
 )
 _FOLIO_STYLES = {"D", "R", "r", "A", "a"}
+_DECORATED_MATCH_FOLIO = re.compile(
+    r"^(?P<label>Page|page|PAGE|p\.)\s*(?P<value>\d+|[IVXLCDM]+|[ivxlcdm]+)$"
+)
 
 
 @dataclass
@@ -593,6 +596,20 @@ class _ParsedFolio:
     suffix: str
 
 
+@dataclass(frozen=True)
+class _MatchingTextTemplate:
+    """A matching-only representation of one strict folio field.
+
+    This intentionally never reaches the extracted Furniture data.  It only
+    lets adjacent sections whose page-label values differ compare as the same
+    *kind* of field while tracks and canonical content keep their source text.
+    """
+
+    signature: str
+    value: str
+    placeholder: str
+
+
 def _folios_by_track(
     tracks: list[_Track], page_labels: Mapping[int, str]
 ) -> dict[int, Folio]:
@@ -789,11 +806,21 @@ def _structure_score(left: FurnitureSection, right: FurnitureSection) -> float |
     height_rate = min(left_height, right_height) / max(left_height, right_height)
     if width_rate < 0.75 or height_rate < 0.85:
         return None
+    left_template = _matching_text_template(left.content)
+    right_template = _matching_text_template(right.content)
     if not left.fragments or not right.fragments:
-        text_rate = _text_similarity(left.content, right.content)
+        text_rate = _text_similarity(
+            _matching_text(left.content, left_template),
+            _matching_text(right.content, right_template),
+        )
         return (width_rate + height_rate + text_rate) / 3 if text_rate >= 0.5 else None
 
-    matched = _match_fragments(left.fragments, right.fragments)
+    matched = _match_fragments(
+        left.fragments,
+        right.fragments,
+        left_template=left_template,
+        right_template=right_template,
+    )
     matched_rate = len(matched) / max(len(left.fragments), len(right.fragments))
     if matched_rate <= 0.5:
         return None
@@ -810,7 +837,11 @@ def _similar(left: FurnitureSection, right: FurnitureSection) -> bool:
 
 
 def _match_fragments(
-    left: tuple[_Fragment, ...], right: tuple[_Fragment, ...]
+    left: tuple[_Fragment, ...],
+    right: tuple[_Fragment, ...],
+    *,
+    left_template: _MatchingTextTemplate | None = None,
+    right_template: _MatchingTextTemplate | None = None,
 ) -> list[tuple[_Fragment, _Fragment]]:
     unmatched = list(range(len(right)))
     pairs: list[tuple[_Fragment, _Fragment]] = []
@@ -818,9 +849,13 @@ def _match_fragments(
         if not unmatched:
             break
         candidate = unmatched[0]
-        candidate_distance = _fragment_distance(fragment_left, right[candidate])
+        candidate_distance = _fragment_distance(
+            fragment_left, right[candidate], left_template, right_template
+        )
         for index in unmatched[1:]:
-            distance = _fragment_distance(fragment_left, right[index])
+            distance = _fragment_distance(
+                fragment_left, right[index], left_template, right_template
+            )
             if distance < candidate_distance:
                 candidate, candidate_distance = index, distance
         fragment_right = right[candidate]
@@ -830,7 +865,12 @@ def _match_fragments(
     return pairs
 
 
-def _fragment_distance(left: _Fragment, right: _Fragment) -> float:
+def _fragment_distance(
+    left: _Fragment,
+    right: _Fragment,
+    left_template: _MatchingTextTemplate | None = None,
+    right_template: _MatchingTextTemplate | None = None,
+) -> float:
     left_x, left_y, left_width, left_height, left_text = left
     right_x, right_y, right_width, right_height, right_text = right
     return (
@@ -838,7 +878,7 @@ def _fragment_distance(left: _Fragment, right: _Fragment) -> float:
         + abs(left_y - right_y)
         + abs(left_width - right_width)
         + abs(left_height - right_height)
-        + (0.01 if left_text != right_text else 0.0)
+        + (0.01 if _matching_fragment_text(left_text, left_template) != _matching_fragment_text(right_text, right_template) else 0.0)
     )
 
 
@@ -865,6 +905,60 @@ def _canonical_content(sections: list[FurnitureSection]) -> str:
 
 def _normalize_content(content: str) -> str:
     return " ".join(content.split())
+
+
+def _matching_text_template(content: str) -> _MatchingTextTemplate | None:
+    """Recognize only self-contained folio fields for temporary matching.
+
+    This is deliberately narrower than ``_parse_folio_candidates``.  The
+    latter must support publisher page-label decorations after a whole track
+    proves their progression.  Here we have only a page pair, so accepting a
+    phrase such as ``Chapter IV`` or ``Version 4`` would turn ordinary prose
+    into a false matching signal.
+    """
+    normalized = _normalize_content(content)
+    value_template = _folio_value_template(normalized)
+    if value_template is not None:
+        placeholder = value_template
+        return _MatchingTextTemplate(placeholder, normalized, placeholder)
+
+    match = _DECORATED_MATCH_FOLIO.fullmatch(normalized)
+    if match is None:
+        return None
+    value = match.group("value")
+    placeholder = _folio_value_template(value)
+    if placeholder is None:
+        return None
+    return _MatchingTextTemplate(
+        f"{match.group('label')} {placeholder}", value, placeholder
+    )
+
+
+def _folio_value_template(value: str) -> str | None:
+    if value.isdecimal():
+        return "{decimal_folio}"
+    if re.fullmatch(r"[IVXLCDM]+", value) and _roman_value(value) is not None:
+        return "{roman_upper_folio}"
+    if re.fullmatch(r"[ivxlcdm]+", value) and _roman_value(value) is not None:
+        return "{roman_lower_folio}"
+    return None
+
+
+def _matching_text(
+    content: str, template: _MatchingTextTemplate | None = None
+) -> str:
+    template = template or _matching_text_template(content)
+    return template.signature if template is not None else content
+
+
+def _matching_fragment_text(
+    content: str, template: _MatchingTextTemplate | None
+) -> str:
+    if template is None:
+        return content
+    return re.sub(
+        rf"(?<!\w){re.escape(template.value)}(?!\w)", template.placeholder, content
+    )
 
 
 def _text_similarity(left: str, right: str) -> float:
