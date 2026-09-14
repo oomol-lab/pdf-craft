@@ -19,6 +19,7 @@ from pdf_craft.transformer.events import TranslationEvent, TranslationEventKind,
 from pdf_craft.transformer.xml_translator.segment import search_text_segments
 from pdf_craft.transformer.chapter_xml import ChapterXMLTransformer
 from pdf_craft.transformer.xml_translator.xml_translator import SubmitKind
+from pdf_craft.transformer.furniture_toc import reconcile_furniture_toc
 
 
 class ExtractionTransformer(Protocol):
@@ -152,6 +153,13 @@ class ChapterExtractionTransformer:
         toc_path = output_path / "toc.xml"
         if self.toc_transformer is not None and toc_path.exists():
             save_xml(self.toc_transformer(read_xml(toc_path)), toc_path)
+        with extraction._materialize() as source_paths:
+            reconcile_furniture_toc(
+                source_paths.chapters,
+                output_path / "chapters",
+                toc_path,
+                output_path / "furnitures.xml",
+            )
         if emit_translation_events and on_translation_event is not None:
             on_translation_event(TranslationEvent(
                 kind=TranslationEventKind.COMPLETE,

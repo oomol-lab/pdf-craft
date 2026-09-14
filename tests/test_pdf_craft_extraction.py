@@ -5,20 +5,36 @@ import tempfile
 import unittest
 from datetime import datetime, timezone
 from pathlib import Path
+from xml.etree import ElementTree
 from zipfile import ZipFile
 
 from epub_generator import BookMeta
 
 from pdf_craft.craft import PDFCraft
 from pdf_craft.document import PDFCraftExtraction
-from pdf_craft.extractor.chapter.chapter import Chapter
+from pdf_craft.extractor.chapter.chapter import BlockLayout, Chapter, ParagraphLayout
 from pdf_craft.common import save_xml
 from pdf_craft.extractor.chapter.chapter import encode
+from pdf_craft.extractor.toc.types import Toc, TocInfo, encode as encode_toc
 from tests.extraction_helpers import make_extraction
 
 
 class _Identity:
     def transform(self, chapter: Chapter) -> Chapter:
+        return chapter
+
+
+class _TranslateHeadline:
+    def transform(self, chapter: Chapter) -> Chapter:
+        for layout in chapter.layouts:
+            if isinstance(layout, ParagraphLayout):
+                for block in layout.blocks:
+                    block.content = [
+                        value.replace("Chapter One", "第一章")
+                        if isinstance(value, str)
+                        else value
+                        for value in block.content
+                    ]
         return chapter
 
 
@@ -34,6 +50,59 @@ def _replace_archive_members(
 
 
 class TestPDFCraftExtraction(unittest.TestCase):
+    def test_furniture_toc_id_must_reference_existing_toc_item(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            extraction = make_extraction(root / "workspace", with_toc=True)
+            (root / "workspace" / "furnitures.xml").write_text(
+                "<furnitures><patterns><pattern id='0' kind='universal'>"
+                "<position id='0' toc_id='7'>Unknown</position>"
+                "</pattern></patterns><pages/></furnitures>",
+                encoding="utf-8",
+            )
+            with self.assertRaisesRegex(ValueError, "invalid position"):
+                extraction.validate()
+
+    def test_translation_reconciles_toc_bound_furniture_from_headline(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            workspace = root / "source"
+            source = make_extraction(
+                workspace,
+                page_pixel_sizes={1: (100, 100)},
+                with_toc=True,
+            )
+            save_xml(
+                encode_toc(TocInfo(
+                    content=[Toc(7, 1, 0, 0, [])], page_indexes=[]
+                )),
+                workspace / "toc.xml",
+            )
+            heading = ParagraphLayout(
+                ref="title",
+                level=0,
+                blocks=[BlockLayout(1, 0, (1, 1, 90, 20), ["Chapter One"])],
+            )
+            save_xml(encode(Chapter(7, 0, [heading])), workspace / "chapters/chapter_7.xml")
+            (workspace / "furnitures.xml").write_text(
+                "<furnitures><patterns><pattern id='0' kind='universal'>"
+                "<position id='0' toc_id='7'>Chapter One</position>"
+                "</pattern></patterns><pages><page index='1'>"
+                "<section det='1,30,90,50' toc_id='7'>Chapter One .... 7</section>"
+                "<section det='1,60,90,80'>Unbound</section>"
+                "</page></pages></furnitures>",
+                encoding="utf-8",
+            )
+
+            translated = PDFCraft().translate_extraction(
+                source, root / "translated.pcex", _TranslateHeadline()
+            )
+            with translated._materialize() as paths:
+                furniture = ElementTree.parse(paths.furnitures).getroot()
+                self.assertEqual(furniture.findtext("patterns/pattern/position"), "第一章")
+                sections = furniture.findall("pages/page/section")
+                self.assertEqual(sections[0].text, "第一章 .... 7")
+                self.assertEqual(sections[1].text, "Unbound")
     def test_archive_remains_usable_after_analysis_workspace_is_gone(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

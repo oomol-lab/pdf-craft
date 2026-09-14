@@ -117,6 +117,7 @@ class PDFExtractionEngine:
         if includes_furniture:
             write_furnitures(
                 pdf_path, pages_path, extraction_paths.furnitures,
+                toc=toc,
                 dpi=dpi if dpi is not None else 300,
             )
         if cover_path and not cover_path.exists():
