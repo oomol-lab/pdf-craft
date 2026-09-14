@@ -149,6 +149,8 @@ translated = craft.translate_extraction(
 
 When an extraction contains `furnitures.xml`, `translate_furnitures()` is the distinct follow-up operation for that page-oriented content. It resolves furniture linked by `toc_id` from translated NarrativeFlow headings, translates reusable pattern positions once and unbound sections in page scope, and records patch eligibility in `translation.xml`. It is intentionally not part of `translate_extraction()` or the EPUB, Markdown, and PDF convenience workflows.
 
+Variable folios are represented structurally rather than as the text of a reusable pattern position: a folio `position` has `folio_style` (`D`, `R`, `r`, `A`, or `a`) and `folio_offset`, with optional `folio_prefix` and `folio_suffix`. Its associated page sections retain the actual printed label. This prevents a sample page number from being translated once and incorrectly stamped onto every page that shares the position.
+
 `PDFCraftExtraction.export(path)` revalidates the current object, writes a new `.pcex`, and returns an object backed by the new archive. It writes to a temporary file in the destination directory before atomically replacing the target name; an existing target is still never overwritten. Container metadata such as ZIP member timestamps is not stable format data, so two exports are not guaranteed to be byte-for-byte identical.
 
 ### Public metadata accessors

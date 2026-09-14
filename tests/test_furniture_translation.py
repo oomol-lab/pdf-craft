@@ -138,6 +138,37 @@ class FurnitureTranslationTests(unittest.TestCase):
             self.assertEqual(translator.positions, [])
             self.assertEqual(translator.pages, [])
 
+    def test_translate_furnitures_preserves_variable_folio_position(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = make_extraction(root / "source")
+            save_xml(encode(Chapter(None, -1, [])), root / "source/chapters/chapter_head.xml")
+            (root / "source/furnitures.xml").write_text(
+                "<furnitures><patterns><pattern id='1' kind='universal'>"
+                "<position id='0' folio_style='D' folio_offset='0'/>"
+                "</pattern></patterns><pages><page index='1'>"
+                "<section det='1,1,90,15'><association kind='universal' pattern_id='1' position_id='0'/>"
+                "</section></page></pages></furnitures>",
+                encoding="utf-8",
+            )
+            translator = _FurnitureTranslator()
+
+            translated = PDFCraft().translate_furnitures(
+                source, root / "target.pcex", translator
+            )
+
+            self.assertEqual(translator.positions, [])
+            with translated._materialize() as paths:
+                position = ElementTree.parse(paths.furnitures).find("patterns/pattern/position")
+                self.assertIsNotNone(position)
+                assert position is not None
+                self.assertIsNone(position.text)
+                coverage = ElementTree.parse(paths.translation).find("furnitures/position")
+                self.assertIsNotNone(coverage)
+                assert coverage is not None
+                self.assertEqual(coverage.get("state"), "preserved")
+            translated.validate()
+
     def test_translation_coverage_rejects_unknown_furniture_unit(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

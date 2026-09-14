@@ -115,6 +115,10 @@ def _translate_position(
     titles: dict[int, str],
     transformer: FurnitureTransformer,
 ) -> str:
+    if position.get("folio_style") is not None:
+        # A folio varies per physical page. It is not a canonical string that
+        # can safely be translated once and stamped over every association.
+        return "preserved"
     toc_id = _integer_attribute(position, "toc_id")
     if toc_id is not None:
         title = titles.get(toc_id)
