@@ -230,6 +230,7 @@ class PDFTranslationPipeline:
                         obstacles.append(region)
 
         shared_obstacles = _unique_regions(obstacles)
+        replacements: list[PDFReplacement] = []
         for layout, regions in translated_narrative:
             patch_text, inline_formulas = _to_pdf_patch_content(
                 item for block in layout.blocks for item in block.content
@@ -238,20 +239,26 @@ class PDFTranslationPipeline:
             if not patch_text:
                 continue
             first = regions[0]
-            yield PDFReplacement(
+            replacements.append(PDFReplacement(
                 first.page_index, first.bbox, patch_text, first.page_pixel_size, first.dpi,
                 reading_order=first.reading_order, regions=regions,
                 layout_ref=layout.ref, layout_level=layout.level,
                 inline_formulas=inline_formulas, obstacle_regions=shared_obstacles,
-            )
+            ))
         for content, regions in translated_furniture:
             first = regions[0]
-            yield PDFReplacement(
+            replacements.append(PDFReplacement(
                 first.page_index, first.bbox, content, first.page_pixel_size, first.dpi,
                 reading_order=first.reading_order, regions=regions,
                 layout_ref="furniture", layout_level=0,
                 obstacle_regions=shared_obstacles,
-            )
+            ))
+
+        # The window planner consumes one unified source-page stream.  The
+        # translated pcex keeps NarrativeFlow and PageFurniture in separate
+        # channels, so concatenating their plans would put early-page
+        # furniture after late-page narrative and invalidate that stream.
+        yield from sorted(replacements, key=_replacement_source_order)
 
     def _patch_replacements(
         self,
@@ -372,6 +379,12 @@ def _unique_regions(regions: list[PDFReplacementRegion]) -> tuple[PDFReplacement
             seen.add(key)
             result.append(region)
     return tuple(result)
+
+
+def _replacement_source_order(replacement: PDFReplacement) -> tuple[int, int, int, int]:
+    """Order a unified replacement plan by its first source rectangle."""
+    first = replacement.source_regions()[0]
+    return first.page_index, first.reading_order, first.bbox[1], first.bbox[0]
 
 
 def _translated_association_content(associations, positions, coverage) -> str | None:

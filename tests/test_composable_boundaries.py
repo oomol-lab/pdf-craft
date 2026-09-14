@@ -162,6 +162,35 @@ class TestComposableBoundaries(unittest.TestCase):
                 ],
             )
 
+    def test_pdf_patch_orders_narrative_and_furniture_by_source_page(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            extraction = make_extraction(root / "source", page_pixel_sizes={1: (100, 100), 2: (100, 100)})
+            save_xml(encode(Chapter(None, -1, [
+                ParagraphLayout("text", 0, [BlockLayout(2, 1, (1, 1, 90, 30), ["Narrative"])]),
+            ])), root / "source/chapters/chapter_head.xml")
+            (root / "source/furnitures.xml").write_text(
+                "<furnitures><patterns><pattern id='7' kind='universal'><position id='3'>Header</position>"
+                "</pattern></patterns><pages><page index='1'>"
+                "<section det='1,1,90,15'><association kind='universal' pattern_id='7' position_id='3'/></section>"
+                "</page></pages></furnitures>", encoding="utf-8",
+            )
+            (root / "source/translation.xml").write_text(
+                "<translation><narrative><paragraph chapter_id='head' page_index='2' order='1' state='translated'/>"
+                "</narrative><furnitures><position pattern_id='7' position_id='3' state='translated'/>"
+                "</furnitures></translation>", encoding="utf-8",
+            )
+            capture = _CapturePatcher()
+
+            PDFTranslationPipeline(patcher=cast(PDFPatcher, capture)).patch(
+                Path("input.pdf"), Path("output.pdf"), extraction,
+            )
+
+            self.assertEqual(
+                [(replacement.page_index, replacement.layout_ref) for replacement in capture.replacements],
+                [(1, "furniture"), (2, "text")],
+            )
+
     def test_pdf_patch_resolves_every_furniture_association_before_preserving(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
