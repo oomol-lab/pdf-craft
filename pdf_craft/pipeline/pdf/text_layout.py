@@ -745,6 +745,21 @@ class QTextParagraphFiller:
         finally:
             self._suppress_forced_fallback = previous_suppression
 
+    def fit_headline_overflow(
+        self,
+        placement: RegionTextPlacement,
+        minimum_font_size: float,
+    ) -> RegionTextPlacement:
+        """Draw a headline at its page-level minimum as one natural-width line.
+
+        This is deliberately a *second-pass* recovery.  A headline first goes
+        through ordinary ParagraphLayout fitting, just like body text.  Once a
+        page-level body-derived minimum has been established, a headline that
+        cannot retain its first-pass line count at that minimum is allowed to
+        escape its OCR rectangle from the left/vertical-centre anchor.
+        """
+        return self.fit_isolated_single_line(placement, minimum_font_size, minimum_font_size)
+
     def _resolve_font(self, style: PatchTextStyle, text: str) -> PatchTextStyle:
         """Resolve an automatic family once, without rejecting explicit names."""
         requested = style.font_name.strip() if style.font_name else None
@@ -2296,8 +2311,6 @@ class WindowedParagraphPlanner:
         last_page: int,
         replacements: list[PDFReplacement],
     ) -> FillWindowPlan:
-        body = [replacement for replacement in replacements if not _is_headline(replacement)]
-        headlines = [replacement for replacement in replacements if _is_headline(replacement)]
         obstacles = _window_obstacles(replacements, self._page_sizes)
         set_layout_obstacles = getattr(self._filler, "set_layout_obstacles", None)
         if callable(set_layout_obstacles):
@@ -2310,18 +2323,36 @@ class WindowedParagraphPlanner:
             body_replacements: dict[int, PDFReplacement] = {}
             body_statistics: dict[tuple[int, str, int], list[float]] = {}
             body_all_statistics: dict[tuple[int, str, int], list[float]] = {}
-            for replacement in body:
+            headline_replacements: dict[int, PDFReplacement] = {}
+            headline_statistics: dict[tuple[int, str, int], list[float]] = {}
+            headline_all_statistics: dict[tuple[int, str, int], list[float]] = {}
+
+            # Stage one is deliberately ParagraphLayout-local.  In particular,
+            # headings must not receive a body-derived floor here: that floor
+            # is a page-level fact which only exists after every local plan has
+            # closed for this window.
+            for replacement in replacements:
                 paragraph = self._filler.fit(replacement, self._page_sizes)
                 paragraph_index = len(summaries)
                 summaries.append(_PlannedParagraphSummary(
                     replacement, paragraph.text, paragraph.font_size,
                 ))
-                for placement in paragraph.placements:
-                    self._record_font_size_statistic(body_all_statistics, replacement, placement)
-                    if not _is_isolated_single_line(replacement, placement):
-                        self._record_font_size_statistic(body_statistics, replacement, placement)
                 storage.append(paragraph_index, replacement, paragraph)
-                body_replacements[paragraph_index] = replacement
+
+                if _is_headline(replacement):
+                    headline_replacements[paragraph_index] = replacement
+                    statistics, all_statistics = headline_statistics, headline_all_statistics
+                else:
+                    body_replacements[paragraph_index] = replacement
+                    statistics, all_statistics = body_statistics, body_all_statistics
+                for placement in paragraph.placements:
+                    self._record_font_size_statistic(all_statistics, replacement, placement)
+                    if not _is_isolated_single_line(replacement, placement):
+                        self._record_font_size_statistic(statistics, replacement, placement)
+
+            # Stage two begins only after the preceding local ParagraphLayout
+            # loop is complete.  Body normalization establishes the page's
+            # typographic reference before headline minima are derived.
             body_targets = self._font_size_targets(body_statistics)
             body_isolated_targets = self._isolated_font_size_targets(
                 body_statistics, body_all_statistics,
@@ -2332,29 +2363,16 @@ class WindowedParagraphPlanner:
             )
             body_font_sizes = self._stored_page_font_sizes(storage, body_replacements)
 
-            headline_replacements: dict[int, PDFReplacement] = {}
             headline_minimums: dict[int, float] = {}
-            headline_statistics: dict[tuple[int, str, int], list[float]] = {}
-            headline_all_statistics: dict[tuple[int, str, int], list[float]] = {}
-            for replacement in headlines:
-                minimum = self._headline_minimum(replacement, body_font_sizes)
-                paragraph = self._filler.fit_headline(replacement, self._page_sizes, minimum)
-                paragraph_index = len(summaries)
-                summaries.append(_PlannedParagraphSummary(
-                    replacement, paragraph.text, paragraph.font_size,
-                ))
-                for placement in paragraph.placements:
-                    self._record_font_size_statistic(headline_all_statistics, replacement, placement)
-                    if not _is_isolated_single_line(replacement, placement):
-                        self._record_font_size_statistic(headline_statistics, replacement, placement)
-                storage.append(paragraph_index, replacement, paragraph)
-                headline_replacements[paragraph_index] = replacement
-                headline_minimums[paragraph_index] = minimum
+            for paragraph_index, replacement in headline_replacements.items():
+                headline_minimums[paragraph_index] = self._headline_minimum(
+                    replacement, body_font_sizes,
+                )
             headline_targets = self._font_size_targets(headline_statistics)
             headline_isolated_targets = self._isolated_font_size_targets(
                 headline_statistics, headline_all_statistics,
             )
-            self._normalize_stored_placements(
+            self._normalize_headline_placements(
                 storage, headline_replacements, headline_targets, headline_minimums,
                 headline_isolated_targets,
             )
@@ -2456,6 +2474,42 @@ class WindowedParagraphPlanner:
             return self._filler.fit_frozen_region(
                 placement, target, (minimum_font_sizes or {}).get(paragraph_index),
             )
+
+        storage.rewrite_placements(normalize)
+
+    def _normalize_headline_placements(
+        self,
+        storage: _WindowPlanStorage,
+        replacements: Mapping[int, PDFReplacement],
+        targets: Mapping[tuple[int, str, int], float],
+        minimum_font_sizes: Mapping[int, float],
+        isolated_targets: Mapping[tuple[int, str, int], float],
+    ) -> None:
+        """Apply page-level headline floors after ordinary local fitting.
+
+        Headline geometry may be more generous than its level average, so an
+        existing larger first-pass size is retained.  Only a failed attempt to
+        meet the body-relative floor switches to the explicit natural-width
+        overflow rule; a forced narrow multi-line fallback is never a title
+        normalization result.
+        """
+        if not replacements:
+            return
+
+        def normalize(paragraph_index: int, placement: RegionTextPlacement) -> RegionTextPlacement:
+            replacement = replacements.get(paragraph_index)
+            if replacement is None:
+                return placement
+            minimum = minimum_font_sizes[paragraph_index]
+            key = (placement.page_index, replacement.layout_ref, replacement.layout_level)
+            target = max(placement.font_size, targets.get(key, placement.font_size), minimum)
+            if _is_isolated_single_line(replacement, placement):
+                target = max(target, isolated_targets.get(key, placement.font_size))
+                return self._filler.fit_isolated_single_line(placement, target, minimum)
+            fitted = self._filler.fit_frozen_region(placement, target, minimum)
+            if fitted.font_size + _FONT_SIZE_TOLERANCE >= minimum:
+                return fitted
+            return self._filler.fit_headline_overflow(placement, minimum)
 
         storage.rewrite_placements(normalize)
 
