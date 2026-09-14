@@ -212,18 +212,19 @@ class PDFTranslationPipeline:
                 page_index = int(page.get("index", "0"))
                 for section in page.findall("section"):
                     det = section.get("det", "")
-                    association = section.find("association")
-                    if association is not None:
-                        key = (association.get("pattern_id", ""), association.get("position_id", ""))
-                        state = coverage.positions.get(key)
-                        content = positions.get(key, "")
+                    associations = section.findall("association")
+                    if associations:
+                        content = _translated_association_content(
+                            associations, positions, coverage.positions,
+                        )
+                        state = "translated" if content is not None else "preserved"
                     else:
                         state = coverage.sections.get((page_index, det))
                         content = section.text or ""
                     region = _region_for_box(page_index, _parse_det(det), pages, render_dpi, 0, ignore_errors)
                     if region is None:
                         continue
-                    if state == "translated" and content.strip():
+                    if state == "translated" and content is not None and content.strip():
                         translated_furniture.append((content.strip(), (region,)))
                     else:
                         obstacles.append(region)
@@ -371,6 +372,24 @@ def _unique_regions(regions: list[PDFReplacementRegion]) -> tuple[PDFReplacement
             seen.add(key)
             result.append(region)
     return tuple(result)
+
+
+def _translated_association_content(associations, positions, coverage) -> str | None:
+    """Resolve a physical Section from every translated Pattern Position.
+
+    Universal and SameSide patterns can both link to one physical section.
+    The section has only one drawable rectangle, so equal translated content is
+    safely deduplicated.  Differing translated values have no source-level
+    precedence; preserving the original section is safer than choosing one
+    pattern arbitrarily.
+    """
+    contents = {
+        positions.get((association.get("pattern_id", ""), association.get("position_id", "")), "").strip()
+        for association in associations
+        if coverage.get((association.get("pattern_id", ""), association.get("position_id", ""))) == "translated"
+    }
+    contents.discard("")
+    return contents.pop() if len(contents) == 1 else None
 
 
 def _check_ignore_error(checker: IgnoreFillErrorsChecker, error: Exception) -> bool:
