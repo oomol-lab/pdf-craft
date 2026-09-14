@@ -4,6 +4,7 @@ import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import Mock, patch
+from xml.etree.ElementTree import fromstring
 
 from epub_generator import BookMeta
 
@@ -126,6 +127,23 @@ class TestPDFCraft(unittest.TestCase):
             with target._materialize() as paths:
                 self.assertIn("translated", (paths.chapters / "chapter_1.xml").read_text())
                 self.assertTrue(paths.toc.is_file())
+
+    def test_extraction_transform_preserves_furnitures(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = _source_extraction(root / "source")
+            save_xml(fromstring(
+                '<furnitures><patterns/><pages><page index="1">'
+                '<section det="1,1,5,5">Header</section></page></pages></furnitures>'
+            ), root / "source" / "furnitures.xml")
+            source = PDFCraftExtraction._from_workspace(root / "source").validate()
+
+            target = ChapterExtractionTransformer(_Identity()).transform(
+                source, root / "target.pcex"
+            )
+            with target._materialize() as paths:
+                self.assertTrue(paths.furnitures.is_file())
+                self.assertIn("Header", paths.furnitures.read_text(encoding="utf-8"))
 
     def test_extraction_toc_transform_is_explicit(self):
         with tempfile.TemporaryDirectory() as directory:

@@ -166,6 +166,7 @@ def _add_extraction_options(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--max-ocr-output-tokens", type=int)
     parser.add_argument("--cover", action="store_true")
     parser.add_argument("--footnotes", action="store_true")
+    parser.add_argument("--furniture", action="store_true", help="extract native page furniture")
     parser.add_argument("--plot", action="store_true")
     parser.add_argument("--toc-assumed", action="store_true")
     parser.add_argument("--toc-llm", metavar="PROFILE", help="optional LLM profile for TOC hierarchy analysis")
@@ -437,7 +438,7 @@ def _extract(args: argparse.Namespace, extraction_path: Path) -> _ExtractionResu
             page_indexes=_page_indexes(args.pages), ocr_size=cast(Any, ocr_size), dpi=args.dpi,
             max_page_image_file_size=args.max_page_image_file_size,
             max_ocr_tokens=args.max_ocr_tokens, max_ocr_output_tokens=args.max_ocr_output_tokens,
-            includes_cover=args.cover, includes_footnotes=args.footnotes,
+            includes_cover=args.cover, includes_footnotes=args.footnotes, includes_furniture=getattr(args, "furniture", False),
             generate_plot=args.plot, toc_assumed=args.toc_assumed,
             toc_llm=(create_llm_from_env(args.toc_llm, cache_path=extraction_path.parent / "toc-cache",
                 log_dir_path=extraction_path.parent / "toc-logs") if args.toc_llm else None),
@@ -500,6 +501,7 @@ def _record_pdf_cache_owner(
         "dpi": args.dpi,
         "max_page_image_file_size": args.max_page_image_file_size,
         "includes_footnotes": args.footnotes,
+        "includes_furniture": getattr(args, "furniture", False),
         "max_ocr_tokens": args.max_ocr_tokens,
         "max_ocr_output_tokens": args.max_ocr_output_tokens,
     }

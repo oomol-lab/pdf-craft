@@ -51,6 +51,7 @@ class ExtractionOptions:
     max_ocr_output_tokens: int | None = None
     includes_cover: bool = False
     includes_footnotes: bool = False
+    includes_furniture: bool = False
     generate_plot: bool = False
     toc_assumed: bool = False
     toc_llm: LLM | None = None
@@ -101,6 +102,7 @@ class PDFCraft:
             max_output_tokens=options.max_ocr_output_tokens,
             includes_cover=options.includes_cover,
             includes_footnotes=options.includes_footnotes,
+            includes_furniture=options.includes_furniture,
             generate_plot=options.generate_plot,
             toc_assumed=options.toc_assumed, toc_llm=options.toc_llm,
             ignore_pdf_errors=options.ignore_pdf_errors,

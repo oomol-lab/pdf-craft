@@ -15,6 +15,7 @@ from .llm import LLM
 from .metering import AbortedCheck, OCRTokensMetering
 from .ocr_config import OCRConfig, ensure_ocr_config
 from .pdf import DeepSeekOCRSize, OCR, OCREvent, OCREventKind, PDFHandler
+from .pdf.furniture import write_furnitures
 from .extractor.chapter import generate_chapter_files
 from .extractor.toc import analyse_toc
 from .document import ExtractionPaths, PDFCraftExtraction, write_manifest, write_pages
@@ -64,6 +65,7 @@ class PDFExtractionEngine:
         max_output_tokens: int | None,
         on_ocr_event: Callable[[OCREvent], None],
         page_indexes: Container[int] | None = None,
+        includes_furniture: bool = False,
     ):
         extraction_path = analysing_path / "extraction"
         extraction_paths = ExtractionPaths.at(extraction_path)
@@ -112,6 +114,11 @@ class PDFExtractionEngine:
             toc_assumed=toc_assumed,
         )
         generate_chapter_files(pages_path=pages_path, chapters_path=chapters_path, toc=toc)
+        if includes_furniture:
+            write_furnitures(
+                pdf_path, pages_path, extraction_paths.furnitures,
+                dpi=dpi if dpi is not None else 300,
+            )
         if cover_path and not cover_path.exists():
             cover_path = None
 
