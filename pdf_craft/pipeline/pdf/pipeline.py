@@ -204,7 +204,7 @@ class PDFTranslationPipeline:
         if furnitures_path.exists():
             furniture = read_xml(furnitures_path)
             positions = {
-                (pattern.get("id", ""), position.get("id", "")): position.text or ""
+                (pattern.get("id", ""), position.get("id", "")): position
                 for pattern in furniture.findall("patterns/pattern")
                 for position in pattern.findall("position")
             }
@@ -215,7 +215,7 @@ class PDFTranslationPipeline:
                     associations = section.findall("association")
                     if associations:
                         content = _translated_association_content(
-                            associations, positions, coverage.positions,
+                            associations, positions, coverage.positions, page_index,
                         )
                         state = "translated" if content is not None else "preserved"
                     else:
@@ -387,7 +387,9 @@ def _replacement_source_order(replacement: PDFReplacement) -> tuple[int, int, in
     return first.page_index, first.reading_order, first.bbox[1], first.bbox[0]
 
 
-def _translated_association_content(associations, positions, coverage) -> str | None:
+def _translated_association_content(
+    associations, positions, coverage, page_index: int,
+) -> str | None:
     """Resolve a physical Section from every translated Pattern Position.
 
     Universal and SameSide patterns can both link to one physical section.
@@ -397,12 +399,68 @@ def _translated_association_content(associations, positions, coverage) -> str | 
     pattern arbitrarily.
     """
     contents = {
-        positions.get((association.get("pattern_id", ""), association.get("position_id", "")), "").strip()
+        content
         for association in associations
         if coverage.get((association.get("pattern_id", ""), association.get("position_id", ""))) == "translated"
+        for content in (_association_content(
+            positions.get((association.get("pattern_id", ""), association.get("position_id", ""))),
+            page_index,
+        ),)
+        if content is not None and content.strip()
     }
     contents.discard("")
     return contents.pop() if len(contents) == 1 else None
+
+
+def _association_content(position, page_index: int) -> str | None:
+    if position is None:
+        return None
+    style = position.get("folio_style")
+    if style is None:
+        return position.text or ""
+    try:
+        offset = int(position.get("folio_offset", ""))
+    except ValueError:
+        return None
+    value = _format_folio(style, page_index + offset)
+    if value is None:
+        return None
+    return position.get("folio_prefix", "") + value + position.get("folio_suffix", "")
+
+
+def _format_folio(style: str, value: int) -> str | None:
+    if value <= 0:
+        return None
+    if style == "D":
+        return str(value)
+    if style in {"R", "r"}:
+        result = _roman_folio(value)
+        return result if style == "R" else result.lower()
+    if style in {"A", "a"}:
+        result = _alphabetic_folio(value)
+        return result if style == "A" else result.lower()
+    return None
+
+
+def _roman_folio(value: int) -> str:
+    units = (
+        (1000, "M"), (900, "CM"), (500, "D"), (400, "CD"),
+        (100, "C"), (90, "XC"), (50, "L"), (40, "XL"),
+        (10, "X"), (9, "IX"), (5, "V"), (4, "IV"), (1, "I"),
+    )
+    parts: list[str] = []
+    for unit, text in units:
+        count, value = divmod(value, unit)
+        parts.append(text * count)
+    return "".join(parts)
+
+
+def _alphabetic_folio(value: int) -> str:
+    result: list[str] = []
+    while value:
+        value, remainder = divmod(value - 1, 26)
+        result.append(chr(ord("A") + remainder))
+    return "".join(reversed(result))
 
 
 def _check_ignore_error(checker: IgnoreFillErrorsChecker, error: Exception) -> bool:

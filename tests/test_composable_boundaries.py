@@ -9,12 +9,13 @@ from xml.etree.ElementTree import tostring
 from PIL import Image
 
 from pdf_craft.error import NoUsableOCRPagesError, OCRError
+from pdf_craft.craft import PDFCraft
 from pdf_craft.extractor import PDFExtractor
 from pdf_craft.pipeline.pdf.pipeline import PDFTranslationPipeline
 from pdf_craft.pipeline.pdf import PDFPatcher
 from pdf_craft.transformer import (
     ChapterExtractionTransformer, ChapterXMLTransformer,
-    TranslationEvent, TranslationEventKind,
+    FurnitureXMLTransformer, TranslationEvent, TranslationEventKind,
 )
 from pdf_craft.renderer import EpubRenderer, MarkdownRenderer
 from pdf_craft.extractor.chapter.chapter import BlockLayout, Chapter, InlineExpression, ParagraphLayout, Reference, encode
@@ -160,6 +161,39 @@ class TestComposableBoundaries(unittest.TestCase):
                 [(replacement.text, replacement.bbox) for replacement in capture.replacements], [
                     ("Header", (1, 1, 90, 15)), ("Footer", (1, 80, 90, 95)),
                 ],
+            )
+
+    def test_furniture_translation_and_pdf_patch_rebuild_each_same_side_folio(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            extraction = make_extraction(
+                root / "source", page_pixel_sizes={2: (100, 100), 4: (100, 100), 6: (100, 100)}
+            )
+            save_xml(encode(Chapter(None, -1, [])), root / "source/chapters/chapter_head.xml")
+            (root / "source/furnitures.xml").write_text(
+                "<furnitures><patterns><pattern id='7' kind='same_side'>"
+                "<position id='3' folio_style='D' folio_offset='0' folio_prefix='Page '/>"
+                "</pattern></patterns><pages>"
+                "<page index='2'><section det='1,1,90,15'><association kind='same_side' pattern_id='7' position_id='3'/></section></page>"
+                "<page index='4'><section det='1,1,90,15'><association kind='same_side' pattern_id='7' position_id='3'/></section></page>"
+                "<page index='6'><section det='1,1,90,15'><association kind='same_side' pattern_id='7' position_id='3'/></section></page>"
+                "</pages></furnitures>",
+                encoding="utf-8",
+            )
+            translated = PDFCraft().translate_furnitures(
+                extraction,
+                root / "translated.pcex",
+                FurnitureXMLTransformer(_DeterministicXMLTranslator()),
+            )
+            capture = _CapturePatcher()
+
+            PDFTranslationPipeline(patcher=cast(PDFPatcher, capture)).patch(
+                Path("input.pdf"), Path("output.pdf"), translated,
+            )
+
+            self.assertEqual(
+                [(replacement.page_index, replacement.text) for replacement in capture.replacements],
+                [(2, "T:Page 2"), (4, "T:Page 4"), (6, "T:Page 6")],
             )
 
     def test_pdf_patch_orders_narrative_and_furniture_by_source_page(self):

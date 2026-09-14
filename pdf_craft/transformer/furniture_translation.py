@@ -32,6 +32,7 @@ _TOC_NUMBER_PREFIX = re.compile(
     r"|[一二三四五六七八九十百千]+[、.．]"  # 一、 / 十.
     r")\s+)"
 )
+_FOLIO_MARKER = "__PDF_CRAFT_FOLIO__"
 
 
 def translate_furnitures_in_workspace(
@@ -116,9 +117,9 @@ def _translate_position(
     transformer: FurnitureTransformer,
 ) -> str:
     if position.get("folio_style") is not None:
-        # A folio varies per physical page. It is not a canonical string that
-        # can safely be translated once and stamped over every association.
-        return "preserved"
+        return _translate_folio_position(
+            position, pattern_id, position_id, kind, transformer
+        )
     toc_id = _integer_attribute(position, "toc_id")
     if toc_id is not None:
         title = titles.get(toc_id)
@@ -143,6 +144,56 @@ def _translate_position(
         return "preserved"
     position.text = result
     return "translated"
+
+
+def _translate_folio_position(
+    position: Element,
+    pattern_id: str,
+    position_id: str,
+    kind: str,
+    transformer: FurnitureTransformer,
+) -> str:
+    """Translate fixed folio decoration without ever submitting its value.
+
+    The marker is preserved exactly once by a usable translation. It lets the
+    target language place fixed prefix/suffix text on either side of the
+    number while the PDF patcher still reconstructs the actual value from
+    each physical section's page index.
+    """
+    prefix = position.get("folio_prefix", "")
+    suffix = position.get("folio_suffix", "")
+    if not prefix and not suffix:
+        return "preserved"
+    source = prefix + _FOLIO_MARKER + suffix
+    try:
+        result = transformer.transform_position(
+            FurniturePosition(
+                pattern_id=int(pattern_id),
+                position_id=int(position_id),
+                kind=kind,
+                content=source,
+            )
+        )
+    except Exception:  # A failed decoration must leave its source folio intact.
+        return "preserved"
+    if (
+        not isinstance(result, str)
+        or not result.strip()
+        or result.count(_FOLIO_MARKER) != 1
+        or not result.replace(_FOLIO_MARKER, "").strip()
+    ):
+        return "preserved"
+    translated_prefix, translated_suffix = result.split(_FOLIO_MARKER)
+    _set_optional_attribute(position, "folio_prefix", translated_prefix)
+    _set_optional_attribute(position, "folio_suffix", translated_suffix)
+    return "translated"
+
+
+def _set_optional_attribute(element: Element, name: str, value: str) -> None:
+    if value:
+        element.set(name, value)
+    else:
+        element.attrib.pop(name, None)
 
 
 def _reconcile_toc_section(section: Element, titles: dict[int, str]) -> str:
