@@ -6,6 +6,7 @@ from pdf_craft.pdf.furniture import (
     FurnitureSection,
     _discover_patterns,
     _discover_tracks,
+    _is_covered,
     _similar,
     extract_furnitures,
 )
@@ -44,6 +45,16 @@ class FurnitureTests(unittest.TestCase):
             output = extract_furnitures(pdf, ocr)
             self.assertIsNone(output.find("pages/page/section"))
 
+    def test_native_text_needs_substantial_horizontal_coverage_to_be_filtered(self):
+        native = (0, 100, 100, 120)
+        # This only touches the lower 50% and right 70% of the native line.
+        # It can be a body block adjacent to a running header, not evidence
+        # that the header's native text is already represented by OCR flow.
+        self.assertFalse(_is_covered(native, (30, 110, 200, 200)))
+        # OCR and Poppler may disagree about a line's vertical bounds, but a
+        # block owning its entire text span is still a real duplicate.
+        self.assertTrue(_is_covered(native, (0, 110, 100, 200)))
+
     def test_three_page_track_creates_one_universal_position(self):
         pages = {
             index: [FurnitureSection(index, (10, 10, 100, 30), "Header")]
@@ -71,6 +82,33 @@ class FurnitureTests(unittest.TestCase):
         }
         tracks = _discover_tracks(pages, 2)
         self.assertEqual([*tracks[0].sections], [1, 3, 7])
+
+    def test_two_consecutive_gaps_end_a_track_instead_of_reviving_it(self):
+        pages = {
+            index: [FurnitureSection(index, (10, 10, 100, 30), "Header")]
+            for index in (1, 2, 5, 6, 7)
+        }
+        tracks = _discover_tracks(pages, 1)
+        # The first two instances never become a Position.  The later run is
+        # a new track, rather than a revival across page 3 and page 4.
+        self.assertEqual([[*track.sections] for track in tracks], [[5, 6, 7]])
+
+    def test_sections_on_one_axis_are_matched_without_early_claiming(self):
+        pages = {
+            page_index: [
+                FurnitureSection(page_index, (10, 10, 100, 30), "Left header"),
+                FurnitureSection(page_index, (200, 10, 290, 30), "Right header"),
+            ]
+            for page_index in range(1, 4)
+        }
+        tracks = _discover_tracks(pages, 1)
+        self.assertEqual(
+            [
+                [section.content for _, section in sorted(track.sections.items())]
+                for track in tracks
+            ],
+            [["Left header"] * 3, ["Right header"] * 3],
+        )
 
     def test_same_side_tracks_both_page_parities_independently(self):
         pages = {

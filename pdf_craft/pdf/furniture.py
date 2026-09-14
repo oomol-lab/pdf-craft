@@ -261,11 +261,17 @@ def _is_covered(native: _Box, ocr: _Box) -> bool:
     right, bottom = min(native[2], ocr[2]), min(native[3], ocr[3])
     native_width = max(1, native[2] - native[0])
     native_height = max(1, native[3] - native[1])
-    # OCR lines/blocks commonly have slightly different horizontal bounds. A
-    # near-complete vertical overlap plus meaningful horizontal overlap removes
-    # a true flow line, but not a nearby running header.
+    # OCR blocks can be vertically loose (or miss part of a native line's
+    # ascender/descender area), but they must still cover essentially the
+    # whole *text span*.  A partial horizontal overlap is not enough: it is
+    # how a body block can merely touch a nearby running header/footer.
+    #
+    # The 95%-area branch above handles ordinary line-in-block coverage.  This
+    # narrower branch is solely for line-height disagreement: almost all of
+    # the native line must be horizontally owned, while at least half of its
+    # height must be inside the OCR block.
     return (
-        max(0, right - left) / native_width >= 0.3
+        max(0, right - left) / native_width >= 0.95
         and max(0, bottom - top) / native_height >= 0.5
     )
 
