@@ -126,39 +126,42 @@ class TestWindowedParagraphPlanner(unittest.TestCase):
         finally:
             window.close()
 
-    def test_second_pass_normalizes_natural_overflow_headlines(self):
+    def test_first_pass_uses_the_same_local_fitter_for_headline_and_body(self):
         options = PatchTextOptions(styles={
             "sub_title": PatchTextStyle(max_font_size=20, min_font_size=4),
-        })
+        }, headline_min_body_ratio=1.2)
 
         class Filler(QTextParagraphFiller):
             def __init__(self):
                 super().__init__(options)
-                self._headline_count = 0
+                self.calls: list[tuple[str, str, float | None]] = []
+
+            def fit(self, replacement, page_sizes, minimum_font_size=None):
+                del page_sizes
+                self.calls.append(("fit", replacement.text, minimum_font_size))
+                return FittedParagraph(
+                    replacement.text, 10,
+                    (_placement(replacement.text, 10, lines=2),),
+                )
 
             def fit_headline(self, replacement, page_sizes, minimum_font_size):
-                del minimum_font_size
-                self._headline_count += 1
-                return self._plan_headline_overflow(  # pylint: disable=protected-access
-                    replacement, page_sizes, 8 if self._headline_count == 1 else 12,
-                )
+                del replacement, page_sizes, minimum_font_size
+                raise AssertionError("planner must not use the headline fitter during stage one")
+
+            def fit_frozen_region(self, placement, target_font_size, minimum_font_size=None):
+                self.calls.append(("frozen", placement.assigned_text, minimum_font_size))
+                return replace(placement, font_size=target_font_size)
 
         filler = Filler()
         planner = WindowedParagraphPlanner(filler, {1: (200, 100)}, options)
-        narrow = PDFReplacementRegion(1, (0, 20, 36, 50), (200, 100))
-        first = _replacement("A deliberately long heading", [narrow], layout_ref="sub_title")
-        second = _replacement("A deliberately long heading", [narrow], layout_ref="sub_title")
-        window = next(planner.plan([first, second]))
+        headline = _replacement("Heading", [_region(1)], layout_ref="sub_title")
+        body = _replacement("Body", [_region(1)])
+        window = next(planner.plan([headline, body]))
         try:
-            normalized = [item.paragraph.placements[0] for item in window.paragraphs]
-            self.assertEqual([placement.font_size for placement in normalized], [10, 10])
-            self.assertTrue(all(placement.allows_horizontal_overflow for placement in normalized))
-            self.assertTrue(all(len(placement.line_tops) == 1 for placement in normalized))
-            self.assertTrue(all(
-                placement.line_text_lefts[0] == placement.rectangle.x
-                and placement.line_text_widths[0] > placement.rectangle.width
-                for placement in normalized
-            ))
+            self.assertEqual(filler.calls[:2], [("fit", "Heading", None), ("fit", "Body", None)])
+            # A single body bbox has no normalization target, while the
+            # headline still receives its page-level minimum after stage one.
+            self.assertEqual(filler.calls[2], ("frozen", "Heading", 12))
         finally:
             window.close()
 
@@ -171,18 +174,13 @@ class TestWindowedParagraphPlanner(unittest.TestCase):
             def fit(self, replacement, page_sizes, minimum_font_size=None):
                 del page_sizes, minimum_font_size
                 font_size = 8 if replacement.text == "aa" else 12
-                placement = _placement(replacement.text, font_size)
+                placement = _placement(replacement.text, font_size, lines=2)
                 return FittedParagraph(replacement.text, font_size, (placement,))
 
             def fit_frozen_region(self, placement, target_font_size, minimum_font_size=None):
-                del minimum_font_size
+                if placement.assigned_text == "heading":
+                    self.headline_minimum = minimum_font_size
                 return replace(placement, font_size=target_font_size)
-
-            def fit_headline(self, replacement, page_sizes, minimum_font_size):
-                del page_sizes
-                self.headline_minimum = minimum_font_size
-                placement = _placement(replacement.text, minimum_font_size)
-                return FittedParagraph(replacement.text, minimum_font_size, (placement,))
 
         filler = Filler()
         planner = WindowedParagraphPlanner(filler, {1: (200, 80)}, filler.options)
@@ -331,9 +329,12 @@ class TestWindowedParagraphPlanner(unittest.TestCase):
 
         window = next(planner.plan([headline, body]))
 
-        body_plan, headline_plan = (item.paragraph for item in window.paragraphs)
+        headline_plan, body_plan = (item.paragraph for item in window.paragraphs)
         self.assertGreater(body_plan.font_size, 12)
-        self.assertGreaterEqual(headline_plan.font_size, body_plan.font_size * 1.2)
+        self.assertGreaterEqual(
+            headline_plan.placements[0].font_size,
+            body_plan.placements[0].font_size * 1.2,
+        )
 
     def test_implicit_headline_uses_the_actual_generic_body_style_ceiling(self):
         options = PatchTextOptions(
@@ -349,7 +350,7 @@ class TestWindowedParagraphPlanner(unittest.TestCase):
         try:
             body_plan, headline_plan = (item.paragraph for item in window.paragraphs)
             self.assertEqual(body_plan.font_size, 20)
-            self.assertGreaterEqual(headline_plan.font_size, 24)
+            self.assertGreaterEqual(headline_plan.placements[0].font_size, 24)
         finally:
             window.close()
 
@@ -367,11 +368,11 @@ class TestWindowedParagraphPlanner(unittest.TestCase):
         try:
             body_plan, headline_plan = (item.paragraph for item in window.paragraphs)
             self.assertEqual(body_plan.font_size, 20)
-            self.assertGreaterEqual(headline_plan.font_size, 24)
+            self.assertGreaterEqual(headline_plan.placements[0].font_size, 24)
         finally:
             window.close()
 
-    def test_plans_body_before_headline_and_applies_page_body_minimum(self):
+    def test_keeps_source_order_and_applies_page_body_minimum_in_second_stage(self):
         options = PatchTextOptions(
             styles={
                 "text": PatchTextStyle(max_font_size=10, min_font_size=10),
@@ -387,9 +388,9 @@ class TestWindowedParagraphPlanner(unittest.TestCase):
 
         window = next(planner.plan([headline, body]))
 
-        self.assertEqual([item.replacement for item in window.paragraphs], [body, headline])
-        headline_plan = window.paragraphs[1].paragraph
-        self.assertGreaterEqual(headline_plan.font_size, 12)
+        self.assertEqual([item.replacement for item in window.paragraphs], [headline, body])
+        headline_plan = window.paragraphs[0].paragraph
+        self.assertGreaterEqual(headline_plan.placements[0].font_size, 12)
 
     def test_cross_page_body_and_headline_use_their_drawn_pages(self):
         options = PatchTextOptions(
@@ -430,7 +431,9 @@ class TestWindowedParagraphPlanner(unittest.TestCase):
         )
         self.assertEqual({placement.page_index for placement in body_plan.placements}, {1, 2})
         self.assertEqual({placement.page_index for placement in headline_plan.placements}, {1, 2})
-        self.assertGreaterEqual(headline_plan.font_size, 15.6)
+        self.assertGreaterEqual(
+            max(placement.font_size for placement in headline_plan.placements), 15.6,
+        )
 
     def test_headline_without_a_body_uses_configured_deterministic_fallback(self):
         options = PatchTextOptions(
@@ -445,7 +448,7 @@ class TestWindowedParagraphPlanner(unittest.TestCase):
             _replacement("Heading", [_region(1)], layout_ref="sub_title"),
         ]))
 
-        self.assertGreaterEqual(window.paragraphs[0].paragraph.font_size, 14)
+        self.assertGreaterEqual(window.paragraphs[0].paragraph.placements[0].font_size, 14)
 
     def test_narrow_headline_respects_its_explicit_ceiling_and_flows_right(self):
         options = PatchTextOptions(
@@ -469,7 +472,7 @@ class TestWindowedParagraphPlanner(unittest.TestCase):
 
         _, headline_plan = (item.paragraph for item in window.paragraphs)
         placement = headline_plan.placements[0]
-        self.assertEqual(headline_plan.font_size, 11)
+        self.assertEqual(placement.font_size, 11)
         self.assertTrue(placement.allows_horizontal_overflow)
         self.assertEqual(len(placement.line_tops), 1)
         self.assertAlmostEqual(placement.line_text_lefts[0], placement.rectangle.x)
@@ -479,6 +482,44 @@ class TestWindowedParagraphPlanner(unittest.TestCase):
             placement.rectangle.top + placement.rectangle.height / 2,
         )
         window.close()
+
+    def test_forced_first_pass_headline_is_rebuilt_at_its_page_level_minimum(self):
+        """A stage-one emergency write cannot bypass headline normalization."""
+        options = PatchTextOptions(
+            styles={
+                "text": PatchTextStyle(max_font_size=10, min_font_size=10),
+                "sub_title": PatchTextStyle(min_font_size=4),
+            },
+            headline_min_body_ratio=1.2,
+        )
+        planner = WindowedParagraphPlanner(
+            QTextParagraphFiller(options), {1: (200, 100)}, options,
+        )
+        body = _replacement(
+            "Body", [PDFReplacementRegion(1, (0, 20, 180, 60), (200, 100))],
+        )
+        headline = _replacement(
+            "Heading", [PDFReplacementRegion(1, (0, 0, 20, 1), (200, 100))],
+            layout_ref="sub_title",
+        )
+
+        window = next(planner.plan([body, headline]))
+        try:
+            placement = window.paragraphs[1].paragraph.placements[0]
+            self.assertEqual(placement.font_size, 12)
+            # The visual placement is rebuilt, while the recovery marker
+            # retains PDF ActualText wrapping for robust extraction.
+            self.assertTrue(placement.force_written)
+            self.assertTrue(placement.allows_horizontal_overflow)
+            self.assertEqual(len(placement.line_tops), 1)
+            self.assertAlmostEqual(placement.line_text_lefts[0], placement.rectangle.x)
+            self.assertGreater(placement.line_text_widths[0], placement.rectangle.width)
+            self.assertAlmostEqual(
+                placement.line_tops[0] + placement.line_heights[0] / 2,
+                placement.rectangle.top + placement.rectangle.height / 2,
+            )
+        finally:
+            window.close()
 
     def test_second_pass_never_exceeds_an_explicit_headline_ceiling(self):
         """Page-local normalization must preserve title max_font_size too."""
@@ -501,10 +542,6 @@ class TestWindowedParagraphPlanner(unittest.TestCase):
         try:
             body, first_headline, second_headline = window.paragraphs
             self.assertEqual(body.paragraph.font_size, 10)
-            self.assertEqual(
-                [first_headline.paragraph.font_size, second_headline.paragraph.font_size],
-                [11, 11],
-            )
             self.assertEqual(
                 [first_headline.paragraph.placements[0].font_size,
                  second_headline.paragraph.placements[0].font_size],
