@@ -106,6 +106,55 @@ class FurnitureTests(unittest.TestCase):
             for position in pattern.positions
         ))
 
+    def test_explicit_alphabetic_page_labels_keep_prefix_and_start(self):
+        from pypdf import PdfWriter
+        from pypdf.constants import PageLabelStyle
+
+        for style, prefix, start, expected_style in (
+            (PageLabelStyle.UPPERCASE_LETTER, "Appendix-", 4, "A"),
+            (PageLabelStyle.LOWERCASE_LETTER, "Part-", 2, "a"),
+        ):
+            with self.subTest(style=style):
+                with tempfile.TemporaryDirectory() as directory:
+                    pdf = Path(directory) / "labelled.pdf"
+                    writer = PdfWriter()
+                    for _ in range(3):
+                        writer.add_blank_page(200, 200)
+                    writer.set_page_label(
+                        0, 2, cast(PageLabelStyle, style), prefix=prefix, start=start
+                    )
+                    with pdf.open("wb") as stream:
+                        writer.write(stream)
+
+                    labels = _explicit_page_labels(pdf)
+                    position = _folio_position(
+                        _discover_patterns(_folio_pages(labels, prefix=""), labels),
+                        "universal",
+                    )
+
+                self.assertEqual(position.content, "")
+                self.assertIsNotNone(position.folio)
+                assert position.folio is not None
+                self.assertEqual(
+                    (position.folio.style, position.folio.offset, position.folio.prefix),
+                    (expected_style, start - 1, prefix),
+                )
+
+    def test_explicit_alphabetic_labels_can_have_a_fixed_suffix(self):
+        labels = {1: "A-end", 2: "B-end", 3: "C-end"}
+
+        position = _folio_position(
+            _discover_patterns(_folio_pages(labels, prefix=""), labels), "universal"
+        )
+
+        self.assertEqual(position.content, "")
+        self.assertIsNotNone(position.folio)
+        assert position.folio is not None
+        self.assertEqual(
+            (position.folio.style, position.folio.offset, position.folio.suffix),
+            ("A", 0, "-end"),
+        )
+
     def test_folio_serializes_as_structured_position(self):
         pages = _folio_pages({1: "1", 2: "2", 3: "3"})
         with tempfile.TemporaryDirectory() as directory:
@@ -359,11 +408,13 @@ class FurnitureTests(unittest.TestCase):
             self.assertIsNone(sections[2].get("toc_id"))
 
 
-def _folio_pages(values: dict[int, str]) -> dict[int, list[FurnitureSection]]:
+def _folio_pages(
+    values: dict[int, str], *, prefix: str = "Page "
+) -> dict[int, list[FurnitureSection]]:
     return {
         page_index: [FurnitureSection(
-            page_index, (10, 10, 100, 30), f"Page {value}", fragments=(
-                (0.0, 0.0, 0.55, 1.0, "Page"), (0.65, 0.0, 0.35, 1.0, value),
+            page_index, (10, 10, 100, 30), f"{prefix}{value}", fragments=(
+                (0.0, 0.0, 0.55, 1.0, prefix), (0.65, 0.0, 0.35, 1.0, value),
             ),
         )]
         for page_index, value in values.items()

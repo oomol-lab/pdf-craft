@@ -623,7 +623,12 @@ def _folios_by_track(
         # entire track proves that one style, decoration and progression fit.
         for first in candidates[0]:
             values = tuple(
-                next((item for item in options if item.style == first.style), None)
+                next((
+                    item for item in options
+                    if item.style == first.style
+                    and item.prefix == first.prefix
+                    and item.suffix == first.suffix
+                ), None)
                 for options in candidates
             )
             if any(item is None for item in values):
@@ -672,19 +677,28 @@ def _parse_folio_candidates(
                 style, value, content[:match.start()], content[match.end():]
             ))
     if allow_alphabetic:
-        alphabetic = _parse_alphabetic_folio(content)
-        if alphabetic is not None:
-            candidates.append(alphabetic)
+        candidates.extend(_parse_alphabetic_folio(content))
     return tuple(candidates)
 
 
-def _parse_alphabetic_folio(content: str) -> _ParsedFolio | None:
-    """Parse PDF's A/a page-label styles only when the whole label is alphabetic."""
-    if re.fullmatch(r"[A-Z]+", content):
-        return _ParsedFolio("A", _alphabetic_value(content), "", "")
-    if re.fullmatch(r"[a-z]+", content):
-        return _ParsedFolio("a", _alphabetic_value(content), "", "")
-    return None
+def _parse_alphabetic_folio(content: str) -> tuple[_ParsedFolio, ...]:
+    """Parse PDF's A/a label field with any fixed prefix or suffix.
+
+    The field is discovered from the whole track, not from an assumed
+    delimiter.  That permits labels such as ``Appendix-A`` and ``A-end``
+    while the invariant prefix/suffix check rejects ordinary words nearby.
+    """
+    candidates: list[_ParsedFolio] = []
+    for style, expression in (("A", r"[A-Z]+"), ("a", r"[a-z]+")):
+        for match in re.finditer(expression, content):
+            token = match.group()
+            candidates.append(_ParsedFolio(
+                style,
+                _alphabetic_value(token),
+                content[:match.start()],
+                content[match.end():],
+            ))
+    return tuple(candidates)
 
 
 def _roman_value(token: str) -> int | None:
