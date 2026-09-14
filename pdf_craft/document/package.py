@@ -38,6 +38,7 @@ class ExtractionPaths:
     toc: Path
     cover: Path
     furnitures: Path
+    translation: Path
 
     @classmethod
     def at(cls, root: Path) -> "ExtractionPaths":
@@ -50,6 +51,7 @@ class ExtractionPaths:
             toc=root / "toc.xml",
             cover=root / "cover.png",
             furnitures=root / "furnitures.xml",
+            translation=root / "translation.xml",
         )
 
 
@@ -259,6 +261,8 @@ def _validate_workspace(paths: ExtractionPaths, *, require_toc: bool = False) ->
             stack.extend(item.children)
     if paths.furnitures.exists():
         _validate_furnitures(paths.furnitures, page_sizes, toc_ids)
+    if paths.translation.exists():
+        _validate_translation(paths.translation, paths.furnitures)
     if paths.cover.exists() and not paths.cover.is_file():
         raise ValueError("PDFCraftExtraction cover.png is not a file")
     _validate_workspace_members(paths)
@@ -436,6 +440,54 @@ def _valid_toc_id(toc_id: str | None, toc_ids: set[int]) -> bool:
     return toc_id.isdigit() and int(toc_id) in toc_ids
 
 
+def _validate_translation(path: Path, furnitures_path: Path) -> None:
+    """Validate the optional translation coverage sidecar.
+
+    The source content files deliberately remain free of translation state.  A
+    translated pcex may instead carry this sidecar to tell a future PDF
+    patcher which furniture regions are safe to replace.
+    """
+    if not furnitures_path.is_file():
+        raise ValueError("translation.xml requires furnitures.xml")
+    furniture_root = _require_xml_root(furnitures_path, "furnitures")
+    root = _require_xml_root(path, "translation")
+    if list(child.tag for child in root) != ["furnitures"]:
+        raise ValueError("translation.xml must contain furnitures")
+
+    positions = {
+        (pattern.get("id", ""), position.get("id", ""))
+        for pattern in furniture_root.find("patterns") or []
+        for position in pattern
+    }
+    sections = {
+        (page.get("index", ""), section.get("det", ""))
+        for page in furniture_root.find("pages") or []
+        for section in page
+        if not list(section)
+    }
+    seen_positions: set[tuple[str, str]] = set()
+    seen_sections: set[tuple[str, str]] = set()
+    for entry in root.find("furnitures") or []:
+        if entry.tag == "position":
+            if set(entry.attrib) != {"pattern_id", "position_id", "state"}:
+                raise ValueError("translation.xml has invalid furniture position")
+            identity = (entry.get("pattern_id", ""), entry.get("position_id", ""))
+            if identity not in positions or identity in seen_positions:
+                raise ValueError("translation.xml references an invalid furniture position")
+            seen_positions.add(identity)
+        elif entry.tag == "section":
+            if set(entry.attrib) != {"page_index", "det", "state"}:
+                raise ValueError("translation.xml has invalid furniture section")
+            identity = (entry.get("page_index", ""), entry.get("det", ""))
+            if identity not in sections or identity in seen_sections:
+                raise ValueError("translation.xml references an invalid furniture section")
+            seen_sections.add(identity)
+        else:
+            raise ValueError("translation.xml has invalid furniture entry")
+        if entry.get("state") not in {"translated", "preserved"}:
+            raise ValueError("translation.xml has invalid furniture coverage state")
+
+
 def _require_xml_root(path: Path, expected: str) -> ElementTree.Element:
     if not path.is_file():
         raise ValueError(f"PDFCraftExtraction is missing {path.name}")
@@ -464,7 +516,7 @@ def _validate_bbox(raw: str, size: tuple[int, int], chapter: str) -> None:
 def _validate_workspace_members(paths: ExtractionPaths) -> None:
     allowed_root = {
         paths.manifest.name, paths.pages.name, paths.chapters.name, paths.assets.name,
-        paths.toc.name, paths.cover.name, paths.furnitures.name,
+        paths.toc.name, paths.cover.name, paths.furnitures.name, paths.translation.name,
     }
     for path in paths.root.iterdir():
         if path.name not in allowed_root or path.is_symlink():
@@ -498,6 +550,8 @@ def _write_archive(paths: ExtractionPaths, target: Path) -> None:
     ]
     if paths.furnitures.exists():
         members.append((paths.furnitures, "furnitures.xml"))
+    if paths.translation.exists():
+        members.append((paths.translation, "translation.xml"))
     if paths.toc.is_file():
         members.append((paths.toc, "toc.xml"))
     if paths.cover.is_file():
@@ -550,7 +604,7 @@ def _validate_archive_member(info: ZipInfo) -> None:
     if (info.external_attr >> 16) & 0o170000 == 0o120000:
         raise ValueError(f"PDFCraftExtraction cannot contain symlinks: {name}")
     allowed = name in {
-        "manifest.json", "pages.xml", "toc.xml", "cover.png", "furnitures.xml", "chapters/", "assets/"
+        "manifest.json", "pages.xml", "toc.xml", "cover.png", "furnitures.xml", "translation.xml", "chapters/", "assets/"
     }
     allowed = allowed or (
         len(pure.parts) == 2

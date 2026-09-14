@@ -1,0 +1,191 @@
+"""Behavioral tests for the standalone furniture translation pcex step."""
+
+# pylint: disable=protected-access
+
+import tempfile
+import unittest
+from collections.abc import Sequence
+from pathlib import Path
+from xml.etree import ElementTree
+
+from pdf_craft.common import save_xml
+from pdf_craft.craft import PDFCraft
+from pdf_craft.document import PDFCraftExtraction
+from pdf_craft.extractor.chapter.chapter import BlockLayout, Chapter, ParagraphLayout, encode
+from pdf_craft.extractor.toc.types import Toc, TocInfo, encode as encode_toc
+from pdf_craft.transformer import FurniturePosition, FurnitureSection
+from pdf_craft.transformer import FurnitureXMLTransformer
+from tests.extraction_helpers import make_extraction
+
+
+class _FurnitureTranslator:
+    def __init__(self) -> None:
+        self.positions: list[FurniturePosition] = []
+        self.pages: list[tuple[int, list[FurnitureSection]]] = []
+
+    def transform_position(self, position: FurniturePosition) -> str | None:
+        self.positions.append(position)
+        if position.content == "keep position":
+            return None
+        return f"T:{position.content}"
+
+    def transform_sections(
+        self,
+        page_index: int,
+        sections: Sequence[FurnitureSection],
+    ) -> list[str | None]:
+        self.pages.append((page_index, list(sections)))
+        if page_index == 2:
+            raise RuntimeError("page translation failed")
+        return [f"T:{section.content}" for section in sections]
+
+
+class _XMLTaskTranslator:
+    def __init__(self) -> None:
+        self.tags: list[str] = []
+
+    def translate_element(self, task, **_kwargs):
+        self.tags.append(task.element.tag)
+        for element in task.element.iter():
+            if element.text:
+                element.text = f"X:{element.text}"
+        return task.element, task.payload
+
+
+class FurnitureTranslationTests(unittest.TestCase):
+    def test_translate_furnitures_reconciles_toc_and_translates_by_scope(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = _translated_narrative_extraction(root / "source")
+            translator = _FurnitureTranslator()
+
+            translated = PDFCraft().translate_furnitures(
+                source, root / "furniture-translated.pcex", translator
+            )
+
+            self.assertEqual(
+                [(position.pattern_id, position.position_id, position.content) for position in translator.positions],
+                [(1, 1, "Book title"), (1, 2, "keep position")],
+            )
+            self.assertEqual(
+                [(page, [section.content for section in sections]) for page, sections in translator.pages],
+                [(1, ["Page one fragment"]), (2, ["Page two fragment"])],
+            )
+            with translated._materialize() as paths:
+                furniture = ElementTree.parse(paths.furnitures).getroot()
+                positions = furniture.findall("patterns/pattern/position")
+                self.assertEqual(positions[0].text, "第一章")
+                self.assertEqual(positions[1].text, "T:Book title")
+                self.assertEqual(positions[2].text, "keep position")
+                sections = furniture.findall("pages/page/section")
+                self.assertEqual(sections[0].text, "第一章 .... 7")
+                self.assertEqual(sections[1].text, "T:Page one fragment")
+                self.assertIsNone(sections[2].text)
+                self.assertEqual(sections[3].text, "Page two fragment")
+
+                coverage = ElementTree.parse(paths.translation).getroot()
+                states = {
+                    (entry.tag, tuple(sorted(entry.attrib.items()))): entry.get("state")
+                    for entry in coverage.find("furnitures") or []
+                }
+                self.assertEqual(
+                    states[("position", (("pattern_id", "1"), ("position_id", "0"), ("state", "translated")))],
+                    "translated",
+                )
+                self.assertEqual(
+                    states[("position", (("pattern_id", "1"), ("position_id", "1"), ("state", "translated")))],
+                    "translated",
+                )
+                self.assertEqual(
+                    states[("position", (("pattern_id", "1"), ("position_id", "2"), ("state", "preserved")))],
+                    "preserved",
+                )
+                self.assertEqual(
+                    states[("section", (("det", "1,30,90,50"), ("page_index", "1"), ("state", "translated")))],
+                    "translated",
+                )
+                self.assertEqual(
+                    states[("section", (("det", "1,60,90,80"), ("page_index", "1"), ("state", "translated")))],
+                    "translated",
+                )
+                self.assertEqual(
+                    states[("section", (("det", "1,60,90,80"), ("page_index", "2"), ("state", "preserved")))],
+                    "preserved",
+                )
+                self.assertFalse(any(entry.get("det") == "1,85,90,95" for entry in coverage.iter("section")))
+
+            PDFCraftExtraction.open(root / "furniture-translated.pcex").validate()
+
+    def test_translate_furnitures_without_furniture_is_a_valid_no_op(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = make_extraction(root / "source")
+            save_xml(encode(Chapter(None, -1, [])), root / "source/chapters/chapter_head.xml")
+            translator = _FurnitureTranslator()
+
+            translated = PDFCraft().translate_furnitures(
+                source, root / "target.pcex", translator
+            )
+
+            with translated._materialize() as paths:
+                self.assertFalse(paths.furnitures.exists())
+                self.assertFalse(paths.translation.exists())
+            self.assertEqual(translator.positions, [])
+            self.assertEqual(translator.pages, [])
+
+    def test_translation_coverage_rejects_unknown_furniture_unit(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            _translated_narrative_extraction(root)
+            (root / "translation.xml").write_text(
+                "<translation><furnitures>"
+                "<position pattern_id='999' position_id='1' state='translated'/>"
+                "</furnitures></translation>",
+                encoding="utf-8",
+            )
+
+            with self.assertRaisesRegex(ValueError, "invalid furniture position"):
+                PDFCraftExtraction._from_workspace(root).validate()
+
+    def test_xml_transformer_keeps_template_and_page_payloads_separate(self):
+        translator = _XMLTaskTranslator()
+        furniture = FurnitureXMLTransformer(translator)
+
+        self.assertEqual(
+            furniture.transform_position(FurniturePosition(1, 2, "universal", "Header")),
+            "X:Header",
+        )
+        self.assertEqual(
+            furniture.transform_sections(
+                7,
+                [
+                    FurnitureSection(7, (1, 2, 3, 4), "Left"),
+                    FurnitureSection(7, (5, 6, 7, 8), "Right"),
+                ],
+            ),
+            ["X:Left", "X:Right"],
+        )
+        self.assertEqual(translator.tags, ["furniture-position", "furniture-page"])
+
+
+def _translated_narrative_extraction(root: Path) -> PDFCraftExtraction:
+    make_extraction(root, page_pixel_sizes={1: (100, 100), 2: (100, 100)}, with_toc=True)
+    save_xml(encode_toc(TocInfo([Toc(7, 1, 0, 0, [])], [])), root / "toc.xml")
+    heading = ParagraphLayout(
+        "title", 0, [BlockLayout(1, 0, (1, 1, 90, 20), ["第一章"])]
+    )
+    save_xml(encode(Chapter(7, 0, [heading])), root / "chapters/chapter_7.xml")
+    (root / "furnitures.xml").write_text(
+        "<furnitures><patterns><pattern id='1' kind='universal'>"
+        "<position id='0' toc_id='7'>Chapter One</position>"
+        "<position id='1'>Book title</position>"
+        "<position id='2'>keep position</position>"
+        "</pattern></patterns><pages>"
+        "<page index='1'><section det='1,30,90,50' toc_id='7'>Chapter One .... 7</section>"
+        "<section det='1,60,90,80'>Page one fragment</section>"
+        "<section det='1,85,90,95'><association kind='universal' pattern_id='1' position_id='1'/></section>"
+        "</page><page index='2'><section det='1,60,90,80'>Page two fragment</section></page>"
+        "</pages></furnitures>",
+        encoding="utf-8",
+    )
+    return PDFCraftExtraction._from_workspace(root).validate()

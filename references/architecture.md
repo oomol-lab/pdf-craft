@@ -15,7 +15,9 @@
 - `pipeline/`：格式专属编排。EPUB Pipeline 将 EPUB XHTML/目录/元数据交给 Transformer；PDF Pipeline 以 replace-only 方式将 Chapter 来源区域写回 PDF。
 
 公开中间格式为 `PDFCraftExtraction`，持久化与交换载体必须是 `.pcex` ZIP。其内容为
-`manifest.json`、`pages.xml`、`chapters/`、`assets/`，以及可选 `toc.xml`、`cover.png`。
+`manifest.json`、`pages.xml`、`chapters/`、`assets/`，以及可选 `toc.xml`、`cover.png`、
+`furnitures.xml`。完成 furniture 翻译后，`translation.xml` 记录可安全回填的 furniture
+覆盖状态。
 目录-backed 形态只供一键转换在 `analysing_path/extraction/` 内部衔接前后端；普通目录不是
 公开输入。`ocr/`、`plots/`、`done` 和其他 analysis 文件仅是可丢弃的诊断/恢复缓存。
 

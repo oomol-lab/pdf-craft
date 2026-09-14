@@ -32,6 +32,7 @@ The two `convert_pdf_to_*` methods use a directory-backed extraction inside thei
 | Method | Signature and purpose |
 | --- | --- |
 | `translate_extraction` | `translate_extraction(extraction, output_path, translator, *, submit=SubmitKind.REPLACE, on_translation_event=None) -> PDFCraftExtraction` translates a `.pcex` into a new `.pcex`. |
+| `translate_furnitures` | `translate_furnitures(extraction, output_path, transformer) -> PDFCraftExtraction` applies the separate template/page-furniture translation stage to an already NarrativeFlow-translated `.pcex`. It is not composed automatically by EPUB, Markdown, or PDF workflows. |
 | `translate_pdf` | `translate_pdf(source, extraction, output, transformer, *, on_translation_event=None, ignore_errors=False)` translates then patches text onto the source PDF. `transformer` may be a chapter transformer or `Callable[[str], str]`. |
 | `patch_pdf_with_extraction` | `patch_pdf_with_extraction(source, extraction, output, *, ignore_errors=False)` patches a source PDF from a `PDFCraftExtraction` or `.pcex` path without OCR or LLM calls. |
 | `translate_epub` | `translate_epub(source, output, *, target_language, submit, **options)` translates an existing EPUB. See [EPUB translation](EPUB_TRANSLATION.md) for its options. |

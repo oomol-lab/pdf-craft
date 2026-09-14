@@ -350,6 +350,11 @@ translated_extraction = craft.translate_extraction(
 )
 ```
 
+若要翻译已提取的页眉、页脚等 furniture，使用独立的
+`translate_furnitures(extraction, output_path, transformer)`。它只作用于已经完成 NarrativeFlow
+翻译的 `.pcex`，按模板 position 与页级 section 的不同范围处理内容，并在 `translation.xml`
+记录未来 PDF 回填可覆盖或必须保留的单元；不会自动组合到 EPUB、Markdown 或 PDF 工作流。
+
 ### 翻译 EPUB
 
 ```python

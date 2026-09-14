@@ -63,7 +63,7 @@ class TestPDFCraftExtraction(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "invalid position"):
                 extraction.validate()
 
-    def test_translation_reconciles_toc_bound_furniture_from_headline(self):
+    def test_translation_keeps_furniture_for_the_separate_furniture_stage(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             workspace = root / "source"
@@ -99,9 +99,9 @@ class TestPDFCraftExtraction(unittest.TestCase):
             )
             with translated._materialize() as paths:
                 furniture = ElementTree.parse(paths.furnitures).getroot()
-                self.assertEqual(furniture.findtext("patterns/pattern/position"), "第一章")
+                self.assertEqual(furniture.findtext("patterns/pattern/position"), "Chapter One")
                 sections = furniture.findall("pages/page/section")
-                self.assertEqual(sections[0].text, "第一章 .... 7")
+                self.assertEqual(sections[0].text, "Chapter One .... 7")
                 self.assertEqual(sections[1].text, "Unbound")
     def test_archive_remains_usable_after_analysis_workspace_is_gone(self):
         with tempfile.TemporaryDirectory() as directory:
