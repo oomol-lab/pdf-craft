@@ -2,7 +2,14 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from pdf_craft.pdf.furniture import FurnitureSection, _discover_patterns, _similar, extract_furnitures
+from pdf_craft.pdf.furniture import (
+    FurnitureSection,
+    _discover_patterns,
+    _discover_tracks,
+    _is_covered,
+    _similar,
+    extract_furnitures,
+)
 
 
 class FurnitureTests(unittest.TestCase):
@@ -10,15 +17,11 @@ class FurnitureTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             pdf = root / "source.pdf"
-            from pypdf import PdfWriter
-            from pypdf.generic import DecodedStreamObject, NameObject
-            writer = PdfWriter()
-            page = writer.add_blank_page(200, 200)
-            stream = DecodedStreamObject()
-            stream.set_data(b"BT /F1 12 Tf 20 170 Td (RUNNING HEAD) Tj ET")
-            page[NameObject("/Contents")] = writer._add_object(stream)  # pylint: disable=protected-access
-            with pdf.open("wb") as output:
-                writer.write(output)
+            from reportlab.pdfgen.canvas import Canvas
+            canvas = Canvas(str(pdf), pagesize=(200, 200))
+            canvas.setFont("Helvetica", 12)
+            canvas.drawString(20, 170, "RUNNING HEAD")
+            canvas.save()
             ocr = root / "ocr"
             ocr.mkdir()
             (ocr / "page_1.xml").write_text("<page><body><layout det='10,0,190,20'>body</layout></body></page>", encoding="utf-8")
@@ -31,20 +34,26 @@ class FurnitureTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             pdf = root / "source.pdf"
-            from pypdf import PdfWriter
-            from pypdf.generic import DecodedStreamObject, NameObject
-            writer = PdfWriter()
-            page = writer.add_blank_page(200, 200)
-            stream = DecodedStreamObject()
-            stream.set_data(b"BT /F1 12 Tf 20 170 Td (BODY) Tj ET")
-            page[NameObject("/Contents")] = writer._add_object(stream)  # pylint: disable=protected-access
-            with pdf.open("wb") as output:
-                writer.write(output)
+            from reportlab.pdfgen.canvas import Canvas
+            canvas = Canvas(str(pdf), pagesize=(200, 200))
+            canvas.setFont("Helvetica", 12)
+            canvas.drawString(20, 170, "BODY")
+            canvas.save()
             ocr = root / "ocr"
             ocr.mkdir()
             (ocr / "page_1.xml").write_text("<page><body><layout det='0,0,1000,1000'>body</layout></body></page>", encoding="utf-8")
             output = extract_furnitures(pdf, ocr)
             self.assertIsNone(output.find("pages/page/section"))
+
+    def test_native_text_needs_substantial_horizontal_coverage_to_be_filtered(self):
+        native = (0, 100, 100, 120)
+        # This only touches the lower 50% and right 70% of the native line.
+        # It can be a body block adjacent to a running header, not evidence
+        # that the header's native text is already represented by OCR flow.
+        self.assertFalse(_is_covered(native, (30, 110, 200, 200)))
+        # OCR and Poppler may disagree about a line's vertical bounds, but a
+        # block owning its entire text span is still a real duplicate.
+        self.assertTrue(_is_covered(native, (0, 110, 100, 200)))
 
     def test_three_page_track_creates_one_universal_position(self):
         pages = {
@@ -61,16 +70,104 @@ class FurnitureTests(unittest.TestCase):
             index: [FurnitureSection(index, (10, 10, 100, 30), "Header")]
             for index in (1, 2, 4)
         }
-        universal = next(p for p in _discover_patterns(pages) if p.kind == "universal")
-        self.assertEqual([s.page_index for s in universal.positions[0].sections], [1, 2, 4])
+        tracks = _discover_tracks(pages, 1)
+        self.assertEqual([*tracks[0].sections], [1, 2, 4])
+        universal = [p for p in _discover_patterns(pages) if p.kind == "universal"]
+        self.assertEqual([[s.page_index for s in p.positions[0].sections] for p in universal], [[1, 2], [4]])
 
     def test_initial_track_tolerates_one_same_side_gap(self):
         pages = {
             index: [FurnitureSection(index, (10, 10, 100, 30), "Header")]
             for index in (1, 3, 7)
         }
-        same_side = next(p for p in _discover_patterns(pages) if p.kind == "same_side")
-        self.assertEqual([s.page_index for s in same_side.positions[0].sections], [1, 3, 7])
+        tracks = _discover_tracks(pages, 2)
+        self.assertEqual([*tracks[0].sections], [1, 3, 7])
+
+    def test_two_consecutive_gaps_end_a_track_instead_of_reviving_it(self):
+        pages = {
+            index: [FurnitureSection(index, (10, 10, 100, 30), "Header")]
+            for index in (1, 2, 5, 6, 7)
+        }
+        tracks = _discover_tracks(pages, 1)
+        # The first two instances never become a Position.  The later run is
+        # a new track, rather than a revival across page 3 and page 4.
+        self.assertEqual([[*track.sections] for track in tracks], [[5, 6, 7]])
+
+    def test_sections_on_one_axis_are_matched_without_early_claiming(self):
+        pages = {
+            page_index: [
+                FurnitureSection(page_index, (10, 10, 100, 30), "Left header"),
+                FurnitureSection(page_index, (200, 10, 290, 30), "Right header"),
+            ]
+            for page_index in range(1, 4)
+        }
+        tracks = _discover_tracks(pages, 1)
+        self.assertEqual(
+            [
+                [section.content for _, section in sorted(track.sections.items())]
+                for track in tracks
+            ],
+            [["Left header"] * 3, ["Right header"] * 3],
+        )
+
+    def test_same_side_tracks_both_page_parities_independently(self):
+        pages = {
+            index: [FurnitureSection(index, (10, 10, 100, 30), "Header")]
+            for index in range(1, 7)
+        }
+        same_side = [pattern for pattern in _discover_patterns(pages) if pattern.kind == "same_side"]
+        self.assertEqual(
+            [[section.page_index for section in pattern.positions[0].sections] for pattern in same_side],
+            [[2, 4, 6], [1, 3, 5]],
+        )
+
+    def test_pattern_is_derived_from_the_current_position_combination(self):
+        pages = {
+            index: [FurnitureSection(index, (10, 10, 100, 30), "Header")]
+            for index in range(1, 7)
+        }
+        for index in (1, 2, 3, 5, 6):
+            pages[index].append(FurnitureSection(index, (200, 10, 280, 30), "Folio"))
+        universal = [p for p in _discover_patterns(pages) if p.kind == "universal"]
+        self.assertEqual(
+            [[len(position.sections) for position in pattern.positions] for pattern in universal],
+            [[3, 3], [1], [2, 2]],
+        )
+
+    def test_new_stable_position_starts_a_new_pattern_combination(self):
+        pages = {
+            index: [FurnitureSection(index, (10, 10, 100, 30), "Header")]
+            for index in range(1, 7)
+        }
+        for index in (4, 5, 6):
+            pages[index].append(FurnitureSection(index, (200, 10, 280, 30), "New"))
+        universal = [p for p in _discover_patterns(pages) if p.kind == "universal"]
+        self.assertEqual([len(pattern.positions) for pattern in universal], [1, 2])
+
+    def test_tag_fixture_keeps_header_and_folio_but_not_ocr_covered_body(self):
+        fixture = Path(__file__).parent / "assets/pdf/tag.pdf"
+        with tempfile.TemporaryDirectory() as directory:
+            ocr = Path(directory) / "ocr"
+            ocr.mkdir()
+            (ocr / "page_pixel_sizes.json").write_text('{"4": [2480, 3509]}', encoding="utf-8")
+            (ocr / "page_4.xml").write_text(
+                "<page><body>"
+                "<layout det='570,681,1897,779'>body</layout>"
+                "<layout det='570,786,1897,1881'>body</layout>"
+                "<layout det='570,1986,1488,2028'>title</layout>"
+                "<layout det='570,2088,1897,2681'>body</layout>"
+                "</body><footnotes><layout det='613,2772,1118,2807'>footnote</layout>"
+                "</footnotes></page>",
+                encoding="utf-8",
+            )
+            output = extract_furnitures(fixture, ocr)
+            contents = ["".join(section.itertext()).strip() for section in output.findall("pages/page/section")]
+            self.assertIn("CHRISTOPH BRÜLL", contents)
+            self.assertIn("314", contents)
+            self.assertFalse(any("geistiger Brandstifter" in content for content in contents))
+            self.assertFalse(any("redete" in content for content in contents))
+            self.assertFalse(any("Ende der Geschichte" in content for content in contents))
+            self.assertFalse(any("Zu Fukuyama" in content for content in contents))
 
     def test_internal_fragment_topology_is_part_of_matching(self):
         left = FurnitureSection(1, (0, 0, 100, 40), "A B", fragments=(
