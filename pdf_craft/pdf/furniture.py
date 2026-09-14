@@ -12,6 +12,7 @@ from collections import Counter
 from dataclasses import dataclass, field
 import json
 from pathlib import Path
+import re
 import subprocess
 from xml.etree import ElementTree as ET
 
@@ -23,6 +24,9 @@ from .types import decode as decode_page
 
 _Fragment = tuple[float, float, float, float, str]
 _Box = tuple[int, int, int, int]
+_TOC_PAGE_TRAILER = re.compile(
+    r"^[\s.…⋯·•._,:;\-–—()\[\]]*\d+(?:[\s.…⋯·•._,:;\-–—()\[\]]*\d+)*[\s.…⋯·•._,:;\-–—()\[\]]*$"
+)
 
 
 @dataclass
@@ -173,10 +177,10 @@ def _toc_page_sections(
 ) -> list[FurnitureSection]:
     """Represent an identified printed TOC page as page-side structured text.
 
-    A section is bound only when exactly one source headline occurs literally
-    in it.  The literal condition lets later translation replace just the
-    title while retaining leader dots and page numbers without inventing text
-    geometry that OCR did not provide.
+    A section is bound only when exactly one source headline forms the complete
+    leading title field, followed only by leader punctuation and page numbers.
+    This lets later translation replace just the title while retaining page
+    metadata, without mistaking a longer title that merely shares a prefix.
     """
     try:
         page = decode_page(ET.parse(path).getroot())
@@ -190,13 +194,20 @@ def _toc_page_sections(
         matches = [
             toc_id
             for toc_id, title in headings.items()
-            if title and content.count(title) == 1
+            if _is_safe_toc_title_field(content, title)
         ]
         toc_id = matches[0] if len(matches) == 1 else None
         sections.append(
             FurnitureSection(page_index, layout.det, content, toc_id=toc_id)
         )
     return sections
+
+
+def _is_safe_toc_title_field(content: str, title: str) -> bool:
+    if not title or not content.startswith(title):
+        return False
+    trailer = content[len(title):]
+    return not trailer.strip() or _TOC_PAGE_TRAILER.fullmatch(trailer) is not None
 
 
 def _bind_pattern_positions(

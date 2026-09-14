@@ -228,6 +228,7 @@ class FurnitureTests(unittest.TestCase):
                 "<page index='1'><body>"
                 "<layout det='20,10,180,30'>Chapter One .... 7</layout>"
                 "<layout det='20,40,180,60'>Unmatched .... 9</layout>"
+                "<layout det='20,70,180,90'>Chapter One Overview .... 11</layout>"
                 "</body></page>",
                 encoding="utf-8",
             )
@@ -247,3 +248,4 @@ class FurnitureTests(unittest.TestCase):
             self.assertEqual(sections[0].get("toc_id"), "7")
             self.assertEqual(sections[0].text, "Chapter One .... 7")
             self.assertIsNone(sections[1].get("toc_id"))
+            self.assertIsNone(sections[2].get("toc_id"))
