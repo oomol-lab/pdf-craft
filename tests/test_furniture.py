@@ -76,6 +76,55 @@ class FurnitureTests(unittest.TestCase):
                 self.assertTrue(positions)
                 self.assertTrue(all(position.folio and position.folio.style == style for position in positions))
 
+    def test_decorated_roman_folio_supports_fallback_and_page_labels(self):
+        for style, values, prefix in (
+            ("R", {1: "Chapter I", 2: "Chapter II", 3: "Chapter III"}, "Chapter "),
+            ("r", {1: "Part i", 2: "Part ii", 3: "Part iii"}, "Part "),
+        ):
+            with self.subTest(style=style, source="fallback"):
+                position = _folio_position(
+                    _discover_patterns(_folio_pages(values, prefix="")), "universal"
+                )
+                self.assertEqual(position.content, "")
+                assert position.folio is not None
+                self.assertEqual(
+                    (position.folio.style, position.folio.offset, position.folio.prefix),
+                    (style, 0, prefix),
+                )
+
+        from pypdf import PdfWriter
+        from pypdf.constants import PageLabelStyle
+
+        for style, page_label_style, prefix, start in (
+            ("R", PageLabelStyle.UPPERCASE_ROMAN, "Chapter ", 4),
+            ("r", PageLabelStyle.LOWERCASE_ROMAN, "Part ", 2),
+        ):
+            with self.subTest(style=style, source="page-labels"):
+                with tempfile.TemporaryDirectory() as directory:
+                    pdf = Path(directory) / "labelled.pdf"
+                    writer = PdfWriter()
+                    for _ in range(3):
+                        writer.add_blank_page(200, 200)
+                    writer.set_page_label(
+                        0, 2, cast(PageLabelStyle, page_label_style),
+                        prefix=prefix, start=start,
+                    )
+                    with pdf.open("wb") as stream:
+                        writer.write(stream)
+
+                    labels = _explicit_page_labels(pdf)
+                    position = _folio_position(
+                        _discover_patterns(_folio_pages(labels, prefix=""), labels),
+                        "universal",
+                    )
+
+                self.assertEqual(position.content, "")
+                assert position.folio is not None
+                self.assertEqual(
+                    (position.folio.style, position.folio.offset, position.folio.prefix),
+                    (style, start - 1, prefix),
+                )
+
     def test_invalid_numeric_progression_is_not_a_folio(self):
         patterns = _discover_patterns(_folio_pages({1: "1", 2: "3", 3: "4"}))
 

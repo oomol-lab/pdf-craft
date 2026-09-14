@@ -665,17 +665,17 @@ def _parse_folio_candidates(
         ),)
 
     candidates: list[_ParsedFolio] = []
-    for style, expression in (("R", r"(?<![A-Z])[IVXLCDM]+(?![A-Z])"), ("r", r"(?<![a-z])[ivxlcdm]+(?![a-z])")):
-        matches = list(re.finditer(expression, content))
-        if len(matches) != 1:
-            continue
-        match = matches[0]
-        token = match.group()
-        value = _roman_value(token)
-        if value is not None:
-            candidates.append(_ParsedFolio(
-                style, value, content[:match.start()], content[match.end():]
-            ))
+    for style, expression in (
+        ("R", r"(?<![A-Za-z])[IVXLCDM]+(?![A-Za-z])"),
+        ("r", r"(?<![A-Za-z])[ivxlcdm]+(?![A-Za-z])"),
+    ):
+        for match in re.finditer(expression, content):
+            token = match.group()
+            value = _roman_value(token)
+            if value is not None:
+                candidates.append(_ParsedFolio(
+                    style, value, content[:match.start()], content[match.end():]
+                ))
     if allow_alphabetic:
         candidates.extend(_parse_alphabetic_folio(content))
     return tuple(candidates)
