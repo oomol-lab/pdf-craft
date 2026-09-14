@@ -123,6 +123,8 @@ def reattach_annotations(
     source_page_references: Iterable[Any],
     source_acroform: Any | None = None,
     source_named_destinations: dict[str, Any] | None = None,
+    *,
+    page_indexes: Iterable[int] | None = None,
 ) -> None:
     """Attach every source Annotation to its corresponding output page.
 
@@ -145,8 +147,15 @@ def reattach_annotations(
         for source_page, target_page in zip(source_pages, writer.pages, strict=True)
     }
 
+    selected_indexes = set(page_indexes) if page_indexes is not None else set(range(1, len(writer.pages) + 1))
     lifted_widgets: dict[tuple[str, int, int], tuple[Any, Any]] = {}
-    for target_page, source_annotations in zip(writer.pages, annotation_pages, strict=True):
+    for index, (target_page, source_annotations) in enumerate(
+        zip(writer.pages, annotation_pages, strict=True), 1,
+    ):
+        if index not in selected_indexes:
+            # A raw source page already carries its original annotations.  Do
+            # not clone them again or create duplicate interactive objects.
+            continue
         if not source_annotations:
             continue
         page_reference = target_page.indirect_reference

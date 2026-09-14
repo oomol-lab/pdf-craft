@@ -4,6 +4,7 @@ from collections.abc import Callable, Iterator
 from pathlib import Path
 from typing import cast
 
+from pdf_craft.common import read_xml
 from pdf_craft.extractor.chapter.chapter import AssetLayout, Chapter, ParagraphLayout, encode
 from pdf_craft.extractor.chapter.chapter import InlineExpression, Reference
 from pdf_craft.extractor.chapter.reader import create_chapters_reader
@@ -18,6 +19,7 @@ from pdf_craft.error import IgnoreFillErrorsChecker
 from pdf_craft.pipeline.pdf.models import PDFInlineFormula, PDFReplacement, PDFReplacementRegion
 from pdf_craft.pipeline.pdf.patcher import PDFPatcher
 from pdf_craft.transformer import ChapterTransformer
+from pdf_craft.transformer.translation_coverage import paragraph_identity, read_coverage
 
 
 _INLINE_FORMULA_MARKER = "\ufffc"
@@ -150,15 +152,105 @@ class PDFTranslationPipeline:
         pages = extraction.page_pixel_sizes()
         render_dpi = extraction.render_dpi()
         with extraction._materialize() as paths:
-            reader = create_chapters_reader(paths.chapters)
+            chapters = tuple(create_chapters_reader(paths.chapters)())
+            coverage = read_coverage(paths.translation)
+
             def replacements() -> Iterator[PDFReplacement]:
-                for chapter in reader():
-                    yield from self._iter_chapter_replacements(
-                        chapter, lambda text: text, pages, render_dpi, structured=True,
-                        ignore_errors=ignore_errors,
-                    )
+                yield from self._iter_covered_replacements(
+                    chapters, paths.furnitures, coverage, pages, render_dpi,
+                    ignore_errors=ignore_errors,
+                )
 
             self._patch_replacements(pdf_path, target_path, replacements(), ignore_errors)
+
+    def _iter_covered_replacements(
+        self,
+        chapters: tuple[Chapter, ...],
+        furnitures_path: Path,
+        coverage,
+        pages,
+        render_dpi: int,
+        *,
+        ignore_errors: IgnoreFillErrorsChecker = False,
+    ) -> Iterator[PDFReplacement]:
+        """Create a patch plan solely from explicit translation coverage.
+
+        A pcex is intentionally valid without a sidecar; in that case every
+        Narrative/Furniture unit remains untouched.  On a partially changed
+        page those untouched rectangles become layout obstacles so translated
+        text cannot drift into them.
+        """
+        obstacles: list[PDFReplacementRegion] = []
+        translated_narrative: list[tuple[ParagraphLayout, tuple[PDFReplacementRegion, ...]]] = []
+        for chapter in chapters:
+            obstacles.extend(_chapter_obstacle_regions(
+                chapter, pages, render_dpi, ignore_errors=ignore_errors,
+            ))
+            for layout in chapter.layouts:
+                if not isinstance(layout, ParagraphLayout) or layout.ref not in {"text", "sub_title"}:
+                    continue
+                identity = paragraph_identity(chapter, layout)
+                if identity is None:
+                    continue
+                regions = _regions_for_blocks(layout.blocks, pages, render_dpi, ignore_errors)
+                if not regions:
+                    continue
+                if coverage.narrative.get(identity) == "translated":
+                    translated_narrative.append((layout, regions))
+                else:
+                    obstacles.extend(regions)
+
+        translated_furniture: list[tuple[str, tuple[PDFReplacementRegion, ...]]] = []
+        if furnitures_path.exists():
+            furniture = read_xml(furnitures_path)
+            positions = {
+                (pattern.get("id", ""), position.get("id", "")): position.text or ""
+                for pattern in furniture.findall("patterns/pattern")
+                for position in pattern.findall("position")
+            }
+            for page in furniture.findall("pages/page"):
+                page_index = int(page.get("index", "0"))
+                for section in page.findall("section"):
+                    det = section.get("det", "")
+                    association = section.find("association")
+                    if association is not None:
+                        key = (association.get("pattern_id", ""), association.get("position_id", ""))
+                        state = coverage.positions.get(key)
+                        content = positions.get(key, "")
+                    else:
+                        state = coverage.sections.get((page_index, det))
+                        content = section.text or ""
+                    region = _region_for_box(page_index, _parse_det(det), pages, render_dpi, 0, ignore_errors)
+                    if region is None:
+                        continue
+                    if state == "translated" and content.strip():
+                        translated_furniture.append((content.strip(), (region,)))
+                    else:
+                        obstacles.append(region)
+
+        shared_obstacles = _unique_regions(obstacles)
+        for layout, regions in translated_narrative:
+            patch_text, inline_formulas = _to_pdf_patch_content(
+                item for block in layout.blocks for item in block.content
+            )
+            patch_text = patch_text.strip()
+            if not patch_text:
+                continue
+            first = regions[0]
+            yield PDFReplacement(
+                first.page_index, first.bbox, patch_text, first.page_pixel_size, first.dpi,
+                reading_order=first.reading_order, regions=regions,
+                layout_ref=layout.ref, layout_level=layout.level,
+                inline_formulas=inline_formulas, obstacle_regions=shared_obstacles,
+            )
+        for content, regions in translated_furniture:
+            first = regions[0]
+            yield PDFReplacement(
+                first.page_index, first.bbox, content, first.page_pixel_size, first.dpi,
+                reading_order=first.reading_order, regions=regions,
+                layout_ref="furniture", layout_level=0,
+                obstacle_regions=shared_obstacles,
+            )
 
     def _patch_replacements(
         self,
@@ -231,6 +323,54 @@ class PDFTranslationPipeline:
                 inline_formulas=inline_formulas,
                 obstacle_regions=obstacle_regions,
             )
+
+
+def _regions_for_blocks(blocks, pages, render_dpi: int, ignore_errors) -> tuple[PDFReplacementRegion, ...]:
+    regions: list[PDFReplacementRegion] = []
+    for block in blocks:
+        region = _region_for_box(
+            block.page_index, block.det, pages, render_dpi, block.order, ignore_errors,
+        )
+        if region is not None:
+            regions.append(region)
+    return tuple(regions)
+
+
+def _region_for_box(
+    page_index: int,
+    det: tuple[int, int, int, int],
+    pages,
+    render_dpi: int,
+    reading_order: int,
+    ignore_errors,
+) -> PDFReplacementRegion | None:
+    if page_index not in pages:
+        error = ValueError(f"PDFCraftExtraction pages.xml is missing page {page_index}")
+        if not _check_ignore_error(ignore_errors, error):
+            raise error
+        return None
+    return PDFReplacementRegion(page_index, det, pages[page_index], render_dpi, reading_order)
+
+
+def _parse_det(raw: str) -> tuple[int, int, int, int]:
+    try:
+        values = tuple(int(value) for value in raw.split(","))
+    except ValueError as error:
+        raise ValueError(f"invalid furniture section bbox: {raw}") from error
+    if len(values) != 4:
+        raise ValueError(f"invalid furniture section bbox: {raw}")
+    return cast(tuple[int, int, int, int], values)
+
+
+def _unique_regions(regions: list[PDFReplacementRegion]) -> tuple[PDFReplacementRegion, ...]:
+    seen: set[tuple[int, tuple[int, int, int, int], int]] = set()
+    result: list[PDFReplacementRegion] = []
+    for region in regions:
+        key = (region.page_index, region.bbox, region.reading_order)
+        if key not in seen:
+            seen.add(key)
+            result.append(region)
+    return tuple(result)
 
 
 def _check_ignore_error(checker: IgnoreFillErrorsChecker, error: Exception) -> bool:

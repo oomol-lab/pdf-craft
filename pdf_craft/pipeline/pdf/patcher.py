@@ -5,6 +5,7 @@ from io import BytesIO
 import logging
 from pathlib import Path
 import pickle
+import shutil
 from tempfile import NamedTemporaryFile, TemporaryDirectory
 from typing import Any
 
@@ -102,6 +103,17 @@ class PDFPatcher:
         if reset_font_resolutions is not None:
             reset_font_resolutions()
         self._failed_page_indexes = ()
+        replacements = iter(replacements)
+        try:
+            first_replacement = next(replacements)
+        except StopIteration:
+            # A pcex without translated coverage is an identity operation.
+            # Do not run Ghostscript or reconstruct its pages: copying keeps
+            # all source fidelity and interaction exactly intact.
+            target_path.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(source_path, target_path)
+            return
+        replacements = _prepend(first_replacement, replacements)
         source_reader = pypdf.PdfReader(str(source_path))
         page_sizes = {
             index: (float(page.mediabox.width), float(page.mediabox.height))
@@ -117,15 +129,14 @@ class PDFPatcher:
             write_annotation_free_copy(source_reader, annotation_free_source)
             self._visual_base_compiler.compile(annotation_free_source, visual_base_path)
             reader = pypdf.PdfReader(str(visual_base_path))
-            fallback_reader = pypdf.PdfReader(str(visual_base_path))
             self._restore_source_page_geometry(source_reader, reader)
-            self._restore_source_page_geometry(source_reader, fallback_reader)
             self._validate_visual_base(reader, page_sizes)
             replacements_path = root / "replacements.pickle"
             has_automatic_font = False
             contains_cjk = False
             target_page_indexes: set[int] = set()
             failed_page_indexes: set[int] = set()
+            patched_page_indexes: set[int] = set()
 
             def record_page_failure(page_index: int, error: Exception) -> None:
                 failed_page_indexes.add(page_index)
@@ -187,14 +198,15 @@ class PDFPatcher:
             planner = WindowedParagraphPlanner(self._filler, page_sizes, self.options)
             for window in planner.plan(spooled_replacements(), on_window_error=on_window_error):
                 for index in range(next_page_index, window.first_page_index):
-                    writer.add_page(fallback_reader.pages[index - 1])
+                    writer.add_page(source_reader.pages[index - 1])
                 self._compose_window(
-                    pypdf, canvas, source_path, reader, fallback_reader, writer, root, page_sizes, window,
-                    ignore_errors, failed_page_indexes, record_page_failure,
+                    pypdf, canvas, source_path, source_reader, reader, writer, root,
+                    page_sizes, window, target_page_indexes, ignore_errors, failed_page_indexes,
+                    patched_page_indexes, record_page_failure,
                 )
                 next_page_index = window.last_page_index + 1
             for index in range(next_page_index, len(reader.pages) + 1):
-                writer.add_page(fallback_reader.pages[index - 1])
+                writer.add_page(source_reader.pages[index - 1])
             self._failed_page_indexes = tuple(sorted(failed_page_indexes))
             if target_page_indexes and target_page_indexes.issubset(failed_page_indexes):
                 raise NoUsableFillPagesError(tuple(sorted(target_page_indexes)))
@@ -205,6 +217,7 @@ class PDFPatcher:
                 (page.indirect_reference for page in source_reader.pages),
                 source_catalog.get("/AcroForm"),
                 source_reader.named_destinations,
+                page_indexes=patched_page_indexes,
             )
             target_path.parent.mkdir(parents=True, exist_ok=True)
             with NamedTemporaryFile(dir=target_path.parent, suffix=".pdf", delete=False) as output:
@@ -245,18 +258,22 @@ class PDFPatcher:
                 )
 
     def _compose_window(
-        self, pypdf, canvas, source_path: Path, reader, fallback_reader, writer, root: Path,
-        page_sizes: dict[int, tuple[float, float]], window,
+        self, pypdf, canvas, source_path: Path, source_reader, reader, writer, root: Path,
+        page_sizes: dict[int, tuple[float, float]], window, target_page_indexes: set[int],
         ignore_errors: IgnoreFillErrorsChecker,
         failed_page_indexes: set[int],
+        patched_page_indexes: set[int],
         record_page_failure,
     ) -> None:
         """Compose one window while loading one serialized page plan at a time."""
         document = None
         try:
             for index in range(window.first_page_index, window.last_page_index + 1):
+                if index not in target_page_indexes:
+                    writer.add_page(source_reader.pages[index - 1])
+                    continue
                 if index in failed_page_indexes:
-                    writer.add_page(fallback_reader.pages[index - 1])
+                    writer.add_page(source_reader.pages[index - 1])
                     continue
                 try:
                     page = reader.pages[index - 1]
@@ -297,11 +314,12 @@ class PDFPatcher:
                                     ),
                                 )
                     writer.add_page(page)
+                    patched_page_indexes.add(index)
                 except Exception as error:
                     if not _check_ignore_error(ignore_errors, error):
                         raise
                     record_page_failure(index, error)
-                    writer.add_page(fallback_reader.pages[index - 1])
+                    writer.add_page(source_reader.pages[index - 1])
         finally:
             if document is not None:
                 document.close()
@@ -489,3 +507,9 @@ def _replacement_pages_in_source(replacement: PDFReplacement, pages_count: int) 
         for region in replacement.source_regions()
         if 1 <= region.page_index <= pages_count
     }))
+
+
+def _prepend(first: PDFReplacement, replacements: Iterable[PDFReplacement]) -> Iterable[PDFReplacement]:
+    """Yield a probed replacement without materializing a large PDF plan."""
+    yield first
+    yield from replacements

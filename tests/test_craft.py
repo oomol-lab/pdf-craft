@@ -90,6 +90,13 @@ class TestPDFCraft(unittest.TestCase):
             self.assertEqual(target.page_pixel_sizes(), {1: (10, 10)})
             with target._materialize() as paths:
                 self.assertIn("translated", (paths.chapters / "chapter_1.xml").read_text())
+                coverage = fromstring(paths.translation.read_text(encoding="utf-8"))
+                paragraph = coverage.find("narrative/paragraph")
+                self.assertIsNotNone(paragraph)
+                assert paragraph is not None
+                self.assertEqual(paragraph.attrib, {
+                    "chapter_id": "head", "page_index": "1", "order": "1", "state": "translated",
+                })
             self.assertFalse(hasattr(PDFCraft, "translate_package"))
 
     def test_patch_pdf_with_extraction_delegates_to_pdf_patch_pipeline(self):

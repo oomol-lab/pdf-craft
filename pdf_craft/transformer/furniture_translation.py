@@ -3,11 +3,10 @@
 from __future__ import annotations
 
 import re
-from collections.abc import Sequence
 from pathlib import Path
-from xml.etree.ElementTree import Element, SubElement
+from xml.etree.ElementTree import Element
 
-from pdf_craft.common import indent, read_xml, save_xml
+from pdf_craft.common import read_xml, save_xml
 from pdf_craft.extractor.chapter.chapter import (
     BlockLayout,
     InlineExpression,
@@ -17,6 +16,9 @@ from pdf_craft.extractor.chapter.chapter import (
 from pdf_craft.extractor.toc import decode as decode_toc, iter_toc
 from pdf_craft.markdown.paragraph import flatten
 from .furniture import Box, FurniturePosition, FurnitureSection, FurnitureTransformer
+from .translation_coverage import (
+    FurniturePositionCoverage, FurnitureSectionCoverage, write_furniture_coverage,
+)
 
 
 _LEADER_TRAILER = re.compile(
@@ -82,7 +84,11 @@ def translate_furnitures_in_workspace(
         )
 
     save_xml(root, furnitures_path)
-    _write_furniture_coverage(translation_path, position_coverage, section_coverage)
+    write_furniture_coverage(
+        translation_path,
+        (FurniturePositionCoverage(*entry) for entry in position_coverage),
+        (FurnitureSectionCoverage(int(page_index), det, state) for page_index, det, state in section_coverage),
+    )
 
 
 def _translated_titles(chapters_path: Path, toc_path: Path) -> dict[int, str]:
@@ -216,28 +222,6 @@ def _integer_attribute(element: Element, name: str) -> int | None:
 
 def _usable_target(value: object) -> bool:
     return isinstance(value, str) and bool(value.strip())
-
-
-def _write_furniture_coverage(
-    path: Path,
-    positions: Sequence[tuple[str, str, str]],
-    sections: Sequence[tuple[str, str, str]],
-) -> None:
-    root = Element("translation")
-    furniture = SubElement(root, "furnitures")
-    for pattern_id, position_id, state in positions:
-        SubElement(
-            furniture,
-            "position",
-            {"pattern_id": pattern_id, "position_id": position_id, "state": state},
-        )
-    for page_index, det, state in sections:
-        SubElement(
-            furniture,
-            "section",
-            {"page_index": page_index, "det": det, "state": state},
-        )
-    save_xml(indent(root), path)
 
 
 def _text_by_reference(chapters_path: Path) -> dict[tuple[int, int], str]:

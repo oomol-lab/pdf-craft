@@ -85,6 +85,10 @@ class FurnitureTranslationTests(unittest.TestCase):
                 self.assertEqual(sections[3].text, "Page two fragment")
 
                 coverage = ElementTree.parse(paths.translation).getroot()
+                narrative = coverage.find("narrative/paragraph")
+                self.assertIsNotNone(narrative)
+                assert narrative is not None
+                self.assertEqual(narrative.get("state"), "translated")
                 states = {
                     (entry.tag, tuple(sorted(entry.attrib.items()))): entry.get("state")
                     for entry in coverage.find("furnitures") or []
@@ -190,7 +194,7 @@ def _translated_narrative_extraction(root: Path) -> PDFCraftExtraction:
     make_extraction(root, page_pixel_sizes={1: (100, 100), 2: (100, 100)}, with_toc=True)
     save_xml(encode_toc(TocInfo([Toc(7, 1, 0, 0, [])], [])), root / "toc.xml")
     heading = ParagraphLayout(
-        "title", 0, [BlockLayout(1, 0, (1, 1, 90, 20), ["第一章"])]
+        "sub_title", 0, [BlockLayout(1, 0, (1, 1, 90, 20), ["第一章"])]
     )
     save_xml(encode(Chapter(7, 0, [heading])), root / "chapters/chapter_7.xml")
     (root / "furnitures.xml").write_text(
@@ -204,6 +208,11 @@ def _translated_narrative_extraction(root: Path) -> PDFCraftExtraction:
         "<section det='1,85,90,95'><association kind='universal' pattern_id='1' position_id='1'/></section>"
         "</page><page index='2'><section det='1,60,90,80'>Page two fragment</section></page>"
         "</pages></furnitures>",
+        encoding="utf-8",
+    )
+    (root / "translation.xml").write_text(
+        "<translation><narrative><paragraph chapter_id='7' page_index='1' order='0' state='translated'/>"
+        "</narrative></translation>",
         encoding="utf-8",
     )
     return PDFCraftExtraction._from_workspace(root).validate()

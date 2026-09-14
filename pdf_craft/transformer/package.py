@@ -13,7 +13,7 @@ from xml.etree.ElementTree import Element
 from pdf_craft.common.xml import read_xml, save_xml
 from pdf_craft.document import PDFCraftExtraction
 from pdf_craft.document.package import EXTRACTION_SUFFIX
-from pdf_craft.extractor.chapter.chapter import decode, encode
+from pdf_craft.extractor.chapter.chapter import ParagraphLayout, decode, encode
 from pdf_craft.transformer.protocol import ChapterTransformer
 from pdf_craft.transformer.events import TranslationEvent, TranslationEventKind, TranslationItemKind
 from pdf_craft.transformer.xml_translator.segment import search_text_segments
@@ -21,6 +21,9 @@ from pdf_craft.transformer.chapter_xml import ChapterXMLTransformer
 from pdf_craft.transformer.xml_translator.xml_translator import SubmitKind
 from pdf_craft.transformer.furniture import FurnitureTransformer
 from pdf_craft.transformer.furniture_translation import translate_furnitures_in_workspace
+from pdf_craft.transformer.translation_coverage import (
+    NarrativeCoverage, paragraph_identity, write_narrative_coverage,
+)
 
 
 class ExtractionTransformer(Protocol):
@@ -102,7 +105,15 @@ class ChapterExtractionTransformer:
             ))
 
         completed_characters = 0
+        narrative_coverage: list[NarrativeCoverage] = []
         for path, chapter, item_id, character_count in chapter_tasks:
+            source_layouts = {
+                identity: layout
+                for layout in chapter.layouts
+                if isinstance(layout, ParagraphLayout)
+                and layout.ref in {"text", "sub_title"}
+                and (identity := paragraph_identity(chapter, layout)) is not None
+            }
             is_xml_transformer = isinstance(self.chapter_transformer, ChapterXMLTransformer)
             if emit_translation_events and on_translation_event is not None and not is_xml_transformer:
                 on_translation_event(TranslationEvent(
@@ -124,6 +135,19 @@ class ChapterExtractionTransformer:
             else:
                 transformed = self.chapter_transformer.transform(chapter)
             save_xml(encode(transformed), path)
+            targets = {
+                identity: layout
+                for layout in transformed.layouts
+                if isinstance(layout, ParagraphLayout)
+                and (identity := paragraph_identity(transformed, layout)) is not None
+            }
+            for identity in source_layouts:
+                target = targets.get(identity)
+                # A successful transformer invocation is the sole affirmative
+                # translation signal.  Equality with source text is not a
+                # failure; a missing/empty target is explicitly preserved.
+                state = "translated" if target is not None and _has_visible_content(target) else "preserved"
+                narrative_coverage.append(NarrativeCoverage(*identity, state))
             completed_characters += character_count
             if emit_translation_events and on_translation_event is not None and not is_xml_transformer:
                 on_translation_event(TranslationEvent(
@@ -148,6 +172,7 @@ class ChapterExtractionTransformer:
         toc_path = output_path / "toc.xml"
         if self.toc_transformer is not None and toc_path.exists():
             save_xml(self.toc_transformer(read_xml(toc_path)), toc_path)
+        write_narrative_coverage(output_path / "translation.xml", narrative_coverage)
         if emit_translation_events and on_translation_event is not None:
             on_translation_event(TranslationEvent(
                 kind=TranslationEventKind.COMPLETE,
@@ -214,3 +239,12 @@ def _copy_extraction_to_workspace(
         ):
             if source.exists():
                 copy2(source, output_path / source.name)
+
+
+def _has_visible_content(layout: ParagraphLayout) -> bool:
+    """Return whether a transformed PDF paragraph still has drawable content."""
+    return any(
+        bool(str(item).strip())
+        for block in layout.blocks
+        for item in block.content
+    )
