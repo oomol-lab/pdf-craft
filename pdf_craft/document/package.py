@@ -236,7 +236,7 @@ def write_pages(root: Path, *, render_dpi: int, page_pixel_sizes: dict[int, tupl
 
 def _validate_workspace(paths: ExtractionPaths, *, require_toc: bool = False) -> None:
     # Import lazily because the extractor package imports the public document API.
-    from ..extractor.chapter.chapter import decode as decode_chapter
+    from ..extractor.chapter.chapter import ParagraphLayout, decode as decode_chapter
     from ..extractor.toc.types import decode as decode_toc
 
     _read_manifest(paths.manifest)
@@ -261,13 +261,12 @@ def _validate_workspace(paths: ExtractionPaths, *, require_toc: bool = False) ->
             stack.extend(item.children)
     if paths.furnitures.exists():
         _validate_furnitures(paths.furnitures, page_sizes, toc_ids)
-    if paths.translation.exists():
-        _validate_translation(paths.translation, paths.furnitures)
     if paths.cover.exists() and not paths.cover.is_file():
         raise ValueError("PDFCraftExtraction cover.png is not a file")
     _validate_workspace_members(paths)
 
     chapter_paths = list(paths.chapters.glob("chapter_*.xml"))
+    narrative_identities: set[tuple[str, str, str]] = set()
     for path in chapter_paths:
         if path.name != "chapter_head.xml":
             suffix = path.stem.removeprefix("chapter_")
@@ -275,9 +274,18 @@ def _validate_workspace(paths: ExtractionPaths, *, require_toc: bool = False) ->
                 raise ValueError(f"invalid chapter filename: {path.name}")
         root = _require_xml_root(path, "chapter")
         try:
-            decode_chapter(root)
+            chapter = decode_chapter(root)
         except ValueError as error:
             raise ValueError(f"invalid chapter schema in {path.name}: {error}") from error
+        for layout in chapter.layouts:
+            if not isinstance(layout, ParagraphLayout) or layout.ref not in {"text", "sub_title"} or not layout.blocks:
+                continue
+            first = layout.blocks[0]
+            narrative_identities.add((
+                str(chapter.id) if chapter.id is not None else "head",
+                str(first.page_index),
+                str(first.order),
+            ))
         for element in root.iter():
             page_index = element.get("page_index")
             det = element.get("det")
@@ -297,6 +305,8 @@ def _validate_workspace(paths: ExtractionPaths, *, require_toc: bool = False) ->
                     raise ValueError(f"invalid asset hash in {path.name}: {asset_hash}")
                 if not (paths.assets / f"{asset_hash}.png").is_file():
                     raise ValueError(f"{path.name} references missing asset: {asset_hash}.png")
+    if paths.translation.exists():
+        _validate_translation(paths.translation, paths.furnitures, narrative_identities)
 
 
 def _read_manifest(path: Path) -> dict[str, Any]:
@@ -440,19 +450,40 @@ def _valid_toc_id(toc_id: str | None, toc_ids: set[int]) -> bool:
     return toc_id.isdigit() and int(toc_id) in toc_ids
 
 
-def _validate_translation(path: Path, furnitures_path: Path) -> None:
+def _validate_translation(
+    path: Path,
+    furnitures_path: Path,
+    narrative_identities: set[tuple[str, str, str]],
+) -> None:
     """Validate the optional translation coverage sidecar.
 
     The source content files deliberately remain free of translation state.  A
     translated pcex may instead carry this sidecar to tell a future PDF
     patcher which furniture regions are safe to replace.
     """
-    if not furnitures_path.is_file():
-        raise ValueError("translation.xml requires furnitures.xml")
-    furniture_root = _require_xml_root(furnitures_path, "furnitures")
     root = _require_xml_root(path, "translation")
-    if list(child.tag for child in root) != ["furnitures"]:
-        raise ValueError("translation.xml must contain furnitures")
+    tags = [child.tag for child in root]
+    if tags not in (["narrative"], ["furnitures"], ["narrative", "furnitures"]):
+        raise ValueError("translation.xml must contain narrative and/or furnitures coverage")
+
+    narrative = root.find("narrative")
+    seen_narrative: set[tuple[str, str, str]] = set()
+    for entry in narrative or []:
+        if entry.tag != "paragraph" or set(entry.attrib) != {"chapter_id", "page_index", "order", "state"}:
+            raise ValueError("translation.xml has invalid narrative paragraph")
+        identity = (entry.get("chapter_id", ""), entry.get("page_index", ""), entry.get("order", ""))
+        if identity not in narrative_identities or identity in seen_narrative:
+            raise ValueError("translation.xml references an invalid narrative paragraph")
+        if entry.get("state") not in {"translated", "preserved"}:
+            raise ValueError("translation.xml has invalid narrative coverage state")
+        seen_narrative.add(identity)
+
+    furnitures = root.find("furnitures")
+    if furnitures is None:
+        return
+    if not furnitures_path.is_file():
+        raise ValueError("translation.xml furniture coverage requires furnitures.xml")
+    furniture_root = _require_xml_root(furnitures_path, "furnitures")
 
     positions = {
         (pattern.get("id", ""), position.get("id", ""))
@@ -467,7 +498,7 @@ def _validate_translation(path: Path, furnitures_path: Path) -> None:
     }
     seen_positions: set[tuple[str, str]] = set()
     seen_sections: set[tuple[str, str]] = set()
-    for entry in root.find("furnitures") or []:
+    for entry in furnitures:
         if entry.tag == "position":
             if set(entry.attrib) != {"pattern_id", "position_id", "state"}:
                 raise ValueError("translation.xml has invalid furniture position")

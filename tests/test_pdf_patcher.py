@@ -65,7 +65,7 @@ class TestPDFPatcher(unittest.TestCase):
             PDFReplacement(2, (10, 10, 190, 70), "Second translated", (200, 100)),
         ]
 
-    def test_ignore_errors_preserves_visual_base_for_one_failed_fill_page(self):
+    def test_ignore_errors_preserves_original_page_for_one_failed_fill_page(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
             source = root / "source.pdf"
@@ -88,7 +88,7 @@ class TestPDFPatcher(unittest.TestCase):
 
             reader = pypdf.PdfReader(str(target))
             self.assertEqual(len(reader.pages), 2)
-            self.assertNotIn("Original first page", reader.pages[0].extract_text() or "")
+            self.assertIn("Original first page", reader.pages[0].extract_text() or "")
             self.assertNotIn("First translated", reader.pages[0].extract_text() or "")
             self.assertIn("Second translated", " ".join((reader.pages[1].extract_text() or "").split()))
             self.assertEqual(patcher.failed_page_indexes, (1,))
@@ -208,6 +208,20 @@ class TestPDFPatcher(unittest.TestCase):
 
             self.assertEqual(raised.exception.failed_page_indexes, (1,))
             self.assertFalse(target.exists())
+
+    def test_empty_replacement_plan_copies_the_source_without_visual_compilation(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            source = root / "source.pdf"
+            target = root / "target.pdf"
+            self._two_page_source(source)
+            compiler = Mock(wraps=self._compiler)
+            patcher = PDFPatcher(visual_base_compiler=compiler)
+
+            patcher.patch(source, target, [])
+
+            self.assertEqual(target.read_bytes(), source.read_bytes())
+            compiler.compile.assert_not_called()
 
     def test_legacy_font_size_remains_an_explicit_maximum(self):
         patcher = self.patcher(font_size=12)
@@ -793,7 +807,9 @@ class TestPDFPatcher(unittest.TestCase):
             with source.open("wb") as output:
                 source_writer.write(output)
 
-            self.patcher().patch(source, target, [])
+            self.patcher().patch(source, target, [
+                PDFReplacement(1, (10, 10, 190, 70), "Translated", (200, 200)),
+            ])
 
             page: Any = pypdf.PdfReader(str(target)).pages[0]
             annotations = [reference.get_object() for reference in page["/Annots"]]
@@ -820,7 +836,9 @@ class TestPDFPatcher(unittest.TestCase):
             doc.drawString(20, 160, "second source page")
             doc.save()
 
-            self.patcher().patch(source, target, [])
+            self.patcher().patch(source, target, [
+                PDFReplacement(1, (10, 10, 190, 70), "Translated", (200, 200)),
+            ])
 
             reader = pypdf.PdfReader(str(target))
             first_page: Any = reader.pages[0]
@@ -829,7 +847,7 @@ class TestPDFPatcher(unittest.TestCase):
             destination = annotation.raw_get("/Dest")
             self.assertIsNotNone(second_page.indirect_reference)
             self.assertEqual(destination[0].idnum, second_page.indirect_reference.idnum)
-            self.assertNotIn("second source page", second_page.extract_text())
+            self.assertIn("second source page", second_page.extract_text())
 
     def test_resolves_named_annotation_destination_to_a_visual_base_page(self):
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -856,7 +874,9 @@ class TestPDFPatcher(unittest.TestCase):
             with source.open("wb") as output:
                 source_writer.write(output)
 
-            self.patcher().patch(source, target, [])
+            self.patcher().patch(source, target, [
+                PDFReplacement(1, (10, 10, 190, 70), "Translated", (200, 200)),
+            ])
 
             result = pypdf.PdfReader(str(target))
             first_page: Any = result.pages[0]
@@ -893,7 +913,9 @@ class TestPDFPatcher(unittest.TestCase):
             with source.open("wb") as output:
                 source_writer.write(output)
 
-            self.patcher().patch(source, target, [])
+            self.patcher().patch(source, target, [
+                PDFReplacement(1, (10, 10, 190, 70), "Translated", (200, 200)),
+            ])
 
             reader = pypdf.PdfReader(str(target))
             fields: Any = reader.get_fields()
@@ -932,7 +954,9 @@ class TestPDFPatcher(unittest.TestCase):
                 source_writer.write(output)
 
             self.assertEqual(set(pypdf.PdfReader(str(source)).get_fields() or {}), {"orphan_field"})
-            self.patcher().patch(source, target, [])
+            self.patcher().patch(source, target, [
+                PDFReplacement(1, (10, 10, 190, 70), "Translated", (200, 200)),
+            ])
 
             result = pypdf.PdfReader(str(target))
             catalog: Any = result.trailer["/Root"]
@@ -972,7 +996,9 @@ class TestPDFPatcher(unittest.TestCase):
             with source.open("wb") as output:
                 source_writer.write(output)
 
-            self.patcher().patch(source, target, [])
+            self.patcher().patch(source, target, [
+                PDFReplacement(1, (10, 10, 190, 70), "Translated", (200, 200)),
+            ])
 
             result = pypdf.PdfReader(str(target))
             result_catalog: Any = result.trailer["/Root"]
@@ -1003,7 +1029,9 @@ class TestGhostscriptVisualBaseCompiler(unittest.TestCase):
             doc.drawText(hidden)
             doc.save()
 
-            PDFPatcher().patch(source, target, [])
+            PDFPatcher().patch(source, target, [
+                PDFReplacement(1, (10, 10, 190, 70), "Translated", (200, 200)),
+            ])
 
             page: Any = pypdf.PdfReader(str(target)).pages[0]
             self.assertNotIn("Visible source text", page.extract_text())
