@@ -1556,6 +1556,124 @@ class QTextParagraphFiller:
                     high = middle
         return best
 
+    def fit_isolated_single_line(
+        self,
+        placement: RegionTextPlacement,
+        target_font_size: float,
+        minimum_font_size: float | None = None,
+    ) -> RegionTextPlacement:
+        """Draw one isolated source line at its page-level typographic size.
+
+        An OCR paragraph with exactly one source rectangle and one first-pass
+        line has no reliable local container: its tight height is ink bounds
+        and its right edge only reflects where the source happened to end.
+        The second pass therefore uses the externally derived level size
+        directly, anchors at the rectangle's left/vertical centre, and lets
+        Qt keep the translated text on one natural-width line.
+        """
+        text = placement.assigned_text or placement.remaining_text
+        if not text or placement.force_written:
+            return placement
+
+        style = placement.style
+        minimum = max(style.min_font_size, minimum_font_size or style.min_font_size)
+        font_size = max(target_font_size, minimum)
+        if style.max_font_size is not None:
+            font_size = min(font_size, style.max_font_size)
+
+        # This path uses the same source-edge anchor as headline overflow, but
+        # unlike headlines it deliberately has no obstacle or bbox-boundary
+        # test: the external type scale, not this OCR crop, owns its geometry.
+        overflow_style = replace(
+            style,
+            horizontal_padding=0.0,
+            vertical_padding=0.0,
+            alignment="left",
+        )
+        local_text, formula_spans = self._formula_spans_for_frozen_region(
+            placement, font_size, allow_overflow=True,
+        )
+        if local_text is None:
+            # Re-rendering an already materialized vector formula failed.  It
+            # is safer to retain the first pass than to drop its ActualText
+            # semantics; in a normal patch run renderer availability is
+            # stable, so this is only a defensive last resort.
+            return placement
+        QtCore, QtGui = _qt_modules()
+        _ensure_qt_application(QtGui)
+        layout = self._create_layout(
+            QtCore, QtGui, local_text, overflow_style, font_size, _LAYOUT_SCALE,
+        )
+        utf16_formula_spans = tuple(
+            _FormulaSpan(
+                _utf16_index_for_python(local_text, span.start),
+                _utf16_index_for_python(local_text, span.start + span.length)
+                - _utf16_index_for_python(local_text, span.start),
+                span.fragment,
+                span.latex,
+            )
+            for span in formula_spans
+        )
+        layout.beginLayout()
+        try:
+            line = layout.createLine()
+            if not line.isValid():
+                return placement
+            line.setLineWidth(_HEADLINE_OVERFLOW_LINE_WIDTH * _LAYOUT_SCALE)
+            if line.textLength() != _utf16_index_for_python(local_text, len(local_text)):
+                return placement
+            line_start_index = line.textStart()
+            line_end_index = line_start_index + line.textLength()
+            if any(
+                span.start < line_end_index < span.start + span.length
+                for span in utf16_formula_spans
+            ):
+                return placement
+            line_formula_spans = tuple(
+                span for span in utf16_formula_spans
+                if line_start_index <= span.start and span.start + span.length <= line_end_index
+            )
+            line_height = max((line.height(), *(span.fragment.height for span in line_formula_spans)))
+            line_start = _x_coordinate(line.cursorToX(line_start_index))
+            line_end = _x_coordinate(line.cursorToX(line_end_index))
+            formula_baseline_offset = max((
+                line.ascent(),
+                *(span.fragment.height - span.fragment.descent for span in line_formula_spans),
+            ))
+        finally:
+            layout.endLayout()
+
+        rectangle = placement.rectangle
+        line_top = rectangle.top + (rectangle.height - line_height / _LAYOUT_SCALE) / 2
+        formula_draws = tuple(
+            FormulaDraw(
+                span.fragment.pdf,
+                rectangle.x + _x_coordinate(line.cursorToX(span.start)) / _LAYOUT_SCALE,
+                line_top + formula_baseline_offset / _LAYOUT_SCALE,
+                span.fragment.descent / _LAYOUT_SCALE,
+                span.latex,
+                _python_index_for_utf16(local_text, span.start),
+                _python_index_for_utf16(local_text, span.start + span.length)
+                - _python_index_for_utf16(local_text, span.start),
+            )
+            for span in line_formula_spans
+        )
+        return RegionTextPlacement(
+            placement.page_index,
+            rectangle,
+            local_text,
+            (rectangle.x + line_start / _LAYOUT_SCALE,),
+            ((line_end - line_start) / _LAYOUT_SCALE,),
+            (line_top,),
+            (line_height / _LAYOUT_SCALE,),
+            font_size,
+            overflow_style,
+            allows_horizontal_overflow=True,
+            formula_draws=formula_draws,
+            assigned_text=local_text,
+            forbidden_bottom=placement.forbidden_bottom,
+        )
+
     def _fit_frozen_overflow_region(
         self,
         placement: RegionTextPlacement,
@@ -1622,7 +1740,7 @@ class QTextParagraphFiller:
         )
 
     def _formula_spans_for_frozen_region(
-        self, placement: RegionTextPlacement, font_size: float,
+        self, placement: RegionTextPlacement, font_size: float, *, allow_overflow: bool = False,
     ) -> tuple[str | None, tuple[_FormulaSpan, ...]]:
         """Rebuild vector formula proxies for one already-owned text run.
 
@@ -1667,10 +1785,11 @@ class QTextParagraphFiller:
                 return None, ()
             raw_fragment = self._formula_renderer.render(draw.latex, font_size)
             fragment = _scale_formula_fragment(raw_fragment) if raw_fragment is not None else None
-            if (
-                fragment is None
-                or fragment.width > maximum_width
-                or (len(placement.line_tops) != 1 and fragment.height > maximum_height)
+            if fragment is None or (
+                not allow_overflow and (
+                    fragment.width > maximum_width
+                    or (len(placement.line_tops) != 1 and fragment.height > maximum_height)
+                )
             ):
                 return None, ()
             prefix = text[cursor:start]
@@ -2190,6 +2309,7 @@ class WindowedParagraphPlanner:
         try:
             body_replacements: dict[int, PDFReplacement] = {}
             body_statistics: dict[tuple[int, str, int], list[float]] = {}
+            body_all_statistics: dict[tuple[int, str, int], list[float]] = {}
             for replacement in body:
                 paragraph = self._filler.fit(replacement, self._page_sizes)
                 paragraph_index = len(summaries)
@@ -2197,16 +2317,25 @@ class WindowedParagraphPlanner:
                     replacement, paragraph.text, paragraph.font_size,
                 ))
                 for placement in paragraph.placements:
-                    self._record_font_size_statistic(body_statistics, replacement, placement)
+                    self._record_font_size_statistic(body_all_statistics, replacement, placement)
+                    if not _is_isolated_single_line(replacement, placement):
+                        self._record_font_size_statistic(body_statistics, replacement, placement)
                 storage.append(paragraph_index, replacement, paragraph)
                 body_replacements[paragraph_index] = replacement
             body_targets = self._font_size_targets(body_statistics)
-            self._normalize_stored_placements(storage, body_replacements, body_targets)
+            body_isolated_targets = self._isolated_font_size_targets(
+                body_statistics, body_all_statistics,
+            )
+            self._normalize_stored_placements(
+                storage, body_replacements, body_targets,
+                isolated_targets=body_isolated_targets,
+            )
             body_font_sizes = self._stored_page_font_sizes(storage, body_replacements)
 
             headline_replacements: dict[int, PDFReplacement] = {}
             headline_minimums: dict[int, float] = {}
             headline_statistics: dict[tuple[int, str, int], list[float]] = {}
+            headline_all_statistics: dict[tuple[int, str, int], list[float]] = {}
             for replacement in headlines:
                 minimum = self._headline_minimum(replacement, body_font_sizes)
                 paragraph = self._filler.fit_headline(replacement, self._page_sizes, minimum)
@@ -2215,13 +2344,19 @@ class WindowedParagraphPlanner:
                     replacement, paragraph.text, paragraph.font_size,
                 ))
                 for placement in paragraph.placements:
-                    self._record_font_size_statistic(headline_statistics, replacement, placement)
+                    self._record_font_size_statistic(headline_all_statistics, replacement, placement)
+                    if not _is_isolated_single_line(replacement, placement):
+                        self._record_font_size_statistic(headline_statistics, replacement, placement)
                 storage.append(paragraph_index, replacement, paragraph)
                 headline_replacements[paragraph_index] = replacement
                 headline_minimums[paragraph_index] = minimum
             headline_targets = self._font_size_targets(headline_statistics)
+            headline_isolated_targets = self._isolated_font_size_targets(
+                headline_statistics, headline_all_statistics,
+            )
             self._normalize_stored_placements(
                 storage, headline_replacements, headline_targets, headline_minimums,
+                headline_isolated_targets,
             )
 
             if body_font_sizes:
@@ -2262,12 +2397,35 @@ class WindowedParagraphPlanner:
             if placement_count > 1 and weights > 0
         }
 
+    @staticmethod
+    def _isolated_font_size_targets(
+        trusted: Mapping[tuple[int, str, int], list[float]],
+        all_placements: Mapping[tuple[int, str, int], list[float]],
+    ) -> dict[tuple[int, str, int], float]:
+        """Return a level target for isolated single-line source rectangles.
+
+        Trusted multi-line/multi-region placements are preferred even when a
+        page has only one of them: an isolated source line needs that external
+        evidence, whereas ordinary placement normalization intentionally
+        waits for multiple bbox placements.  If none exist, use the complete
+        level sample so a page of only isolated lines cannot divide by zero or
+        lose all typography guidance.
+        """
+        targets: dict[tuple[int, str, int], float] = {}
+        for key, fallback in all_placements.items():
+            statistic = trusted.get(key, fallback)
+            weighted_sizes, weights, _placement_count = statistic
+            if weights > 0:
+                targets[key] = weighted_sizes / weights
+        return targets
+
     def _normalize_stored_placements(
         self,
         storage: _WindowPlanStorage,
         replacements: Mapping[int, PDFReplacement],
         targets: Mapping[tuple[int, str, int], float],
         minimum_font_sizes: Mapping[int, float] | None = None,
+        isolated_targets: Mapping[tuple[int, str, int], float] | None = None,
     ) -> None:
         """Normalize serialized placements while keeping only one page live.
 
@@ -2277,16 +2435,22 @@ class WindowedParagraphPlanner:
         independently.  No second-pass decision can move text across regions,
         and the page streams avoid retaining a long paragraph's full geometry.
         """
-        if not targets:
+        if not targets and not isolated_targets:
             return
 
         def normalize(paragraph_index: int, placement: RegionTextPlacement) -> RegionTextPlacement:
             replacement = replacements.get(paragraph_index)
             if replacement is None:
                 return placement
-            target = targets.get((
-                placement.page_index, replacement.layout_ref, replacement.layout_level,
-            ))
+            key = (placement.page_index, replacement.layout_ref, replacement.layout_level)
+            if _is_isolated_single_line(replacement, placement):
+                target = (isolated_targets or {}).get(key)
+                if target is None:
+                    return placement
+                return self._filler.fit_isolated_single_line(
+                    placement, target, (minimum_font_sizes or {}).get(paragraph_index),
+                )
+            target = targets.get(key)
             if target is None:
                 return placement
             return self._filler.fit_frozen_region(
@@ -2354,6 +2518,20 @@ class WindowedParagraphPlanner:
 def _is_headline(replacement: PDFReplacement) -> bool:
     """Use semantic chapter metadata, never image appearance, for title roles."""
     return replacement.layout_ref == "sub_title"
+
+
+def _is_isolated_single_line(
+    replacement: PDFReplacement,
+    placement: RegionTextPlacement,
+) -> bool:
+    """Whether a first-pass line has no neighbouring source geometry to trust.
+
+    The initial Qt plan is the available confirmation that the translated run
+    is a single line.  Combining it with exactly one source rectangle avoids
+    treating one segment of a genuine multi-bbox paragraph as an isolated OCR
+    crop during page-level normalization.
+    """
+    return len(replacement.source_regions()) == 1 and len(placement.line_tops) == 1
 
 
 def _replacement_pages(replacement: PDFReplacement) -> tuple[int, ...]:
