@@ -162,6 +162,70 @@ class TestComposableBoundaries(unittest.TestCase):
                 ],
             )
 
+    def test_pdf_patch_resolves_every_furniture_association_before_preserving(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            extraction = make_extraction(root / "source", page_pixel_sizes={1: (100, 100)})
+            save_xml(encode(Chapter(None, -1, [])), root / "source/chapters/chapter_head.xml")
+            (root / "source/furnitures.xml").write_text(
+                "<furnitures><patterns>"
+                "<pattern id='7' kind='universal'><position id='3'>Old header</position></pattern>"
+                "<pattern id='8' kind='same_side'><position id='4'>Translated header</position></pattern>"
+                "</patterns><pages><page index='1'>"
+                "<section det='1,1,90,15'>"
+                "<association kind='universal' pattern_id='7' position_id='3'/>"
+                "<association kind='same_side' pattern_id='8' position_id='4'/>"
+                "</section></page></pages></furnitures>",
+                encoding="utf-8",
+            )
+            (root / "source/translation.xml").write_text(
+                "<translation><furnitures>"
+                "<position pattern_id='7' position_id='3' state='preserved'/>"
+                "<position pattern_id='8' position_id='4' state='translated'/>"
+                "</furnitures></translation>",
+                encoding="utf-8",
+            )
+            capture = _CapturePatcher()
+
+            PDFTranslationPipeline(patcher=cast(PDFPatcher, capture)).patch(
+                Path("input.pdf"), Path("output.pdf"), extraction,
+            )
+
+            self.assertEqual(
+                [(replacement.text, replacement.bbox) for replacement in capture.replacements],
+                [("Translated header", (1, 1, 90, 15))],
+            )
+
+    def test_pdf_patch_preserves_conflicting_translated_furniture_associations(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            extraction = make_extraction(root / "source", page_pixel_sizes={1: (100, 100)})
+            save_xml(encode(Chapter(None, -1, [])), root / "source/chapters/chapter_head.xml")
+            (root / "source/furnitures.xml").write_text(
+                "<furnitures><patterns>"
+                "<pattern id='7' kind='universal'><position id='3'>First</position></pattern>"
+                "<pattern id='8' kind='same_side'><position id='4'>Second</position></pattern>"
+                "</patterns><pages><page index='1'><section det='1,1,90,15'>"
+                "<association kind='universal' pattern_id='7' position_id='3'/>"
+                "<association kind='same_side' pattern_id='8' position_id='4'/>"
+                "</section></page></pages></furnitures>",
+                encoding="utf-8",
+            )
+            (root / "source/translation.xml").write_text(
+                "<translation><furnitures>"
+                "<position pattern_id='7' position_id='3' state='translated'/>"
+                "<position pattern_id='8' position_id='4' state='translated'/>"
+                "</furnitures></translation>",
+                encoding="utf-8",
+            )
+            capture = _CapturePatcher()
+
+            PDFTranslationPipeline(patcher=cast(PDFPatcher, capture)).patch(
+                Path("input.pdf"), Path("output.pdf"), extraction,
+            )
+
+            self.assertEqual(capture.replacements, [])
+
     def test_extraction_rejects_all_pages_ignored_after_ocr_failures(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
