@@ -9,12 +9,17 @@ translation-facing ``furnitures.xml`` leaves this module.
 from __future__ import annotations
 
 from collections import Counter
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 import json
 from pathlib import Path
 import re
 import subprocess
+from typing import cast
 from xml.etree import ElementTree as ET
+
+from pypdf import PdfReader
+from pypdf.errors import PdfReadError
 
 from ..common import indent, save_xml
 from ..extractor.toc.types import TocInfo, iter_toc
@@ -26,6 +31,10 @@ _Fragment = tuple[float, float, float, float, str]
 _Box = tuple[int, int, int, int]
 _TOC_PAGE_TRAILER = re.compile(
     r"^[\s.…⋯·•._,:;\-–—()\[\]]*\d+(?:[\s.…⋯·•._,:;\-–—()\[\]]*\d+)*[\s.…⋯·•._,:;\-–—()\[\]]*$"
+)
+_FOLIO_STYLES = {"D", "R", "r", "A", "a"}
+_DECORATED_MATCH_FOLIO = re.compile(
+    r"^(?P<label>Page|page|PAGE|p\.)\s*(?P<value>\d+|[IVXLCDM]+|[ivxlcdm]+)$"
 )
 
 
@@ -39,12 +48,27 @@ class FurnitureSection:
     toc_id: int | None = None
 
 
+@dataclass(frozen=True)
+class Folio:
+    """A page-number field whose value changes with its physical page."""
+
+    style: str
+    offset: int
+    prefix: str = ""
+    suffix: str = ""
+
+    def __post_init__(self) -> None:
+        if self.style not in _FOLIO_STYLES:
+            raise ValueError(f"unsupported folio style: {self.style}")
+
+
 @dataclass
 class FurniturePosition:
     id: int
     content: str
     sections: list[FurnitureSection] = field(default_factory=list)
     toc_id: int | None = None
+    folio: Folio | None = None
 
 
 @dataclass
@@ -102,7 +126,7 @@ def extract_furnitures(
         for page_index, sections in pages.items()
         if page_index not in toc_page_indexes
     }
-    patterns = _discover_patterns(pattern_pages)
+    patterns = _discover_patterns(pattern_pages, _explicit_page_labels(pdf_path))
     _bind_pattern_positions(patterns, headings)
     root = ET.Element("furnitures")
     patterns_el = ET.SubElement(root, "patterns")
@@ -114,7 +138,16 @@ def extract_furnitures(
             attributes = {"id": str(position.id)}
             if position.toc_id is not None:
                 attributes["toc_id"] = str(position.toc_id)
-            ET.SubElement(pattern_el, "position", attributes).text = position.content
+            if position.folio is not None:
+                attributes.update({
+                    "folio_style": position.folio.style,
+                    "folio_offset": str(position.folio.offset),
+                })
+                if position.folio.prefix:
+                    attributes["folio_prefix"] = position.folio.prefix
+                if position.folio.suffix:
+                    attributes["folio_suffix"] = position.folio.suffix
+            ET.SubElement(pattern_el, "position", attributes).text = position.content or None
 
     pages_el = ET.SubElement(root, "pages")
     for page_index, sections in sorted(pages.items()):
@@ -228,6 +261,27 @@ def _bind_pattern_positions(
 
 def _headline_text(text: str) -> str:
     return text.lstrip().lstrip("#").lstrip()
+
+
+def _explicit_page_labels(pdf_path: Path) -> dict[int, str]:
+    """Return publisher-supplied PDF page labels, never pypdf's fallback.
+
+    ``PdfReader.page_labels`` supplies decimal physical page numbers when the
+    PDF catalog has no ``/PageLabels`` entry.  That fallback is useful to PDF
+    viewers but is not publication metadata, so folio detection must ignore it.
+    """
+    try:
+        reader = PdfReader(str(pdf_path))
+        root = cast(Mapping[str, object], reader.trailer["/Root"])
+        if root.get("/PageLabels") is None:
+            return {}
+        return {
+            page_index: label.strip()
+            for page_index, label in enumerate(reader.page_labels, 1)
+            if label.strip()
+        }
+    except (FileNotFoundError, OSError, KeyError, PdfReadError):
+        return {}
 
 
 def _native_pages(pdf_path: Path, ocr_path: Path) -> dict[int, list[FurnitureSection]]:
@@ -410,7 +464,10 @@ def _coverage(first: _Box, second: _Box) -> float:
     return intersection / area if area else 0.0
 
 
-def _discover_patterns(pages: dict[int, list[FurnitureSection]]) -> list[FurniturePattern]:
+def _discover_patterns(
+    pages: dict[int, list[FurnitureSection]],
+    page_labels: Mapping[int, str] | None = None,
+) -> list[FurniturePattern]:
     """Discover Position tracks first, then split patterns by their combinations."""
     for sections in pages.values():
         for section in sections:
@@ -430,7 +487,8 @@ def _discover_patterns(pages: dict[int, list[FurnitureSection]]) -> list[Furnitu
             }
             tracks = _discover_tracks(axis_pages, step)
             kind_patterns = _patterns_from_tracks(
-                tracks, axis_pages, kind, step, next_pattern_id
+                tracks, axis_pages, kind, step, next_pattern_id,
+                _folios_by_track(tracks, page_labels or {}),
             )
             patterns.extend(kind_patterns)
             next_pattern_id += len(kind_patterns)
@@ -488,6 +546,7 @@ def _patterns_from_tracks(
     kind: str,
     step: int,
     first_pattern_id: int,
+    folios: Mapping[int, Folio],
 ) -> list[FurniturePattern]:
     if not tracks or not pages:
         return []
@@ -514,13 +573,181 @@ def _patterns_from_tracks(
                     for page_index in page_indexes[start:end]
                     if page_index in track.sections
                 ]
-                position = FurniturePosition(position_id, _canonical_content(instances), instances)
+                folio = folios.get(track_order)
+                position = FurniturePosition(
+                    position_id,
+                    "" if folio is not None else _canonical_content(instances),
+                    instances,
+                    folio=folio,
+                )
                 positions.append(position)
                 for section in instances:
                     section.associations.append((kind, pattern.id, position.id))
             patterns.append(pattern)
         start = end
     return patterns
+
+
+@dataclass(frozen=True)
+class _ParsedFolio:
+    style: str
+    value: int
+    prefix: str
+    suffix: str
+
+
+@dataclass(frozen=True)
+class _MatchingTextTemplate:
+    """A matching-only representation of one strict folio field.
+
+    This intentionally never reaches the extracted Furniture data.  It only
+    lets adjacent sections whose page-label values differ compare as the same
+    *kind* of field while tracks and canonical content keep their source text.
+    """
+
+    signature: str
+    value: str
+    placeholder: str
+
+
+def _folios_by_track(
+    tracks: list[_Track], page_labels: Mapping[int, str]
+) -> dict[int, Folio]:
+    """Recognize variable folio fields before Pattern intervals split tracks.
+
+    A Pattern interval can contain one instance even though its underlying
+    Position track has three or more samples.  Recognition therefore belongs
+    to the complete track, where numeric progression remains observable.
+    """
+    folios: dict[int, Folio] = {}
+    for track in tracks:
+        sections = tuple(track.sections.values())
+        if page_labels and any(
+            page_labels.get(section.page_index) != section.content.strip()
+            for section in sections
+        ):
+            # Publisher metadata exists but does not describe this line. Do
+            # not replace it with a heuristic inferred from nearby numbers.
+            continue
+        candidates = tuple(
+            _parse_folio_candidates(
+                section.content, allow_alphabetic=bool(page_labels)
+            )
+            for section in sections
+        )
+        # A label such as ``C`` is ambiguous: it is both a Roman numeral and
+        # a valid alphabetic PDF page label.  Select a format only after the
+        # entire track proves that one style, decoration and progression fit.
+        for first in candidates[0]:
+            values = tuple(
+                next((
+                    item for item in options
+                    if item.style == first.style
+                    and item.prefix == first.prefix
+                    and item.suffix == first.suffix
+                ), None)
+                for options in candidates
+            )
+            if any(item is None for item in values):
+                continue
+            parsed = tuple(item for item in values if item is not None)
+            if any(
+                item.prefix != first.prefix or item.suffix != first.suffix
+                for item in parsed[1:]
+            ):
+                continue
+            offset = first.value - sections[0].page_index
+            if any(
+                item.value - section.page_index != offset
+                for section, item in zip(sections, parsed)
+            ):
+                continue
+            folios[track.order] = Folio(
+                first.style, offset, first.prefix, first.suffix
+            )
+            break
+    return folios
+
+
+def _parse_folio_candidates(
+    content: str, *, allow_alphabetic: bool = False
+) -> tuple[_ParsedFolio, ...]:
+    """Return strict page-label interpretations for one physical section."""
+    content = content.strip()
+    decimal = list(re.finditer(r"\d+", content))
+    if len(decimal) == 1:
+        match = decimal[0]
+        return (_ParsedFolio(
+            "D", int(match.group()), content[:match.start()], content[match.end():]
+        ),)
+
+    candidates: list[_ParsedFolio] = []
+    for style, expression in (
+        ("R", r"(?<![A-Za-z])[IVXLCDM]+(?![A-Za-z])"),
+        ("r", r"(?<![A-Za-z])[ivxlcdm]+(?![A-Za-z])"),
+    ):
+        for match in re.finditer(expression, content):
+            token = match.group()
+            value = _roman_value(token)
+            if value is not None:
+                candidates.append(_ParsedFolio(
+                    style, value, content[:match.start()], content[match.end():]
+                ))
+    if allow_alphabetic:
+        candidates.extend(_parse_alphabetic_folio(content))
+    return tuple(candidates)
+
+
+def _parse_alphabetic_folio(content: str) -> tuple[_ParsedFolio, ...]:
+    """Parse PDF's A/a label field with any fixed prefix or suffix.
+
+    The field is discovered from the whole track, not from an assumed
+    delimiter.  That permits labels such as ``Appendix-A`` and ``A-end``
+    while the invariant prefix/suffix check rejects ordinary words nearby.
+    """
+    candidates: list[_ParsedFolio] = []
+    for style, expression in (("A", r"[A-Z]+"), ("a", r"[a-z]+")):
+        for match in re.finditer(expression, content):
+            token = match.group()
+            candidates.append(_ParsedFolio(
+                style,
+                _alphabetic_value(token),
+                content[:match.start()],
+                content[match.end():],
+            ))
+    return tuple(candidates)
+
+
+def _roman_value(token: str) -> int | None:
+    values = {"I": 1, "V": 5, "X": 10, "L": 50, "C": 100, "D": 500, "M": 1000}
+    upper = token.upper()
+    total = 0
+    previous = 0
+    for character in reversed(upper):
+        value = values[character]
+        total += -value if value < previous else value
+        previous = max(previous, value)
+    return total if _roman_text(total) == upper else None
+
+
+def _roman_text(value: int) -> str:
+    values = (
+        (1000, "M"), (900, "CM"), (500, "D"), (400, "CD"),
+        (100, "C"), (90, "XC"), (50, "L"), (40, "XL"),
+        (10, "X"), (9, "IX"), (5, "V"), (4, "IV"), (1, "I"),
+    )
+    result: list[str] = []
+    for unit, text in values:
+        count, value = divmod(value, unit)
+        result.append(text * count)
+    return "".join(result)
+
+
+def _alphabetic_value(token: str) -> int:
+    value = 0
+    for character in token.upper():
+        value = value * 26 + ord(character) - ord("A") + 1
+    return value
 
 
 def _match_page_sections(
@@ -579,11 +806,21 @@ def _structure_score(left: FurnitureSection, right: FurnitureSection) -> float |
     height_rate = min(left_height, right_height) / max(left_height, right_height)
     if width_rate < 0.75 or height_rate < 0.85:
         return None
+    left_template = _matching_text_template(left.content)
+    right_template = _matching_text_template(right.content)
     if not left.fragments or not right.fragments:
-        text_rate = _text_similarity(left.content, right.content)
+        text_rate = _text_similarity(
+            _matching_text(left.content, left_template),
+            _matching_text(right.content, right_template),
+        )
         return (width_rate + height_rate + text_rate) / 3 if text_rate >= 0.5 else None
 
-    matched = _match_fragments(left.fragments, right.fragments)
+    matched = _match_fragments(
+        left.fragments,
+        right.fragments,
+        left_template=left_template,
+        right_template=right_template,
+    )
     matched_rate = len(matched) / max(len(left.fragments), len(right.fragments))
     if matched_rate <= 0.5:
         return None
@@ -600,7 +837,11 @@ def _similar(left: FurnitureSection, right: FurnitureSection) -> bool:
 
 
 def _match_fragments(
-    left: tuple[_Fragment, ...], right: tuple[_Fragment, ...]
+    left: tuple[_Fragment, ...],
+    right: tuple[_Fragment, ...],
+    *,
+    left_template: _MatchingTextTemplate | None = None,
+    right_template: _MatchingTextTemplate | None = None,
 ) -> list[tuple[_Fragment, _Fragment]]:
     unmatched = list(range(len(right)))
     pairs: list[tuple[_Fragment, _Fragment]] = []
@@ -608,9 +849,13 @@ def _match_fragments(
         if not unmatched:
             break
         candidate = unmatched[0]
-        candidate_distance = _fragment_distance(fragment_left, right[candidate])
+        candidate_distance = _fragment_distance(
+            fragment_left, right[candidate], left_template, right_template
+        )
         for index in unmatched[1:]:
-            distance = _fragment_distance(fragment_left, right[index])
+            distance = _fragment_distance(
+                fragment_left, right[index], left_template, right_template
+            )
             if distance < candidate_distance:
                 candidate, candidate_distance = index, distance
         fragment_right = right[candidate]
@@ -620,7 +865,12 @@ def _match_fragments(
     return pairs
 
 
-def _fragment_distance(left: _Fragment, right: _Fragment) -> float:
+def _fragment_distance(
+    left: _Fragment,
+    right: _Fragment,
+    left_template: _MatchingTextTemplate | None = None,
+    right_template: _MatchingTextTemplate | None = None,
+) -> float:
     left_x, left_y, left_width, left_height, left_text = left
     right_x, right_y, right_width, right_height, right_text = right
     return (
@@ -628,7 +878,7 @@ def _fragment_distance(left: _Fragment, right: _Fragment) -> float:
         + abs(left_y - right_y)
         + abs(left_width - right_width)
         + abs(left_height - right_height)
-        + (0.01 if left_text != right_text else 0.0)
+        + (0.01 if _matching_fragment_text(left_text, left_template) != _matching_fragment_text(right_text, right_template) else 0.0)
     )
 
 
@@ -655,6 +905,60 @@ def _canonical_content(sections: list[FurnitureSection]) -> str:
 
 def _normalize_content(content: str) -> str:
     return " ".join(content.split())
+
+
+def _matching_text_template(content: str) -> _MatchingTextTemplate | None:
+    """Recognize only self-contained folio fields for temporary matching.
+
+    This is deliberately narrower than ``_parse_folio_candidates``.  The
+    latter must support publisher page-label decorations after a whole track
+    proves their progression.  Here we have only a page pair, so accepting a
+    phrase such as ``Chapter IV`` or ``Version 4`` would turn ordinary prose
+    into a false matching signal.
+    """
+    normalized = _normalize_content(content)
+    value_template = _folio_value_template(normalized)
+    if value_template is not None:
+        placeholder = value_template
+        return _MatchingTextTemplate(placeholder, normalized, placeholder)
+
+    match = _DECORATED_MATCH_FOLIO.fullmatch(normalized)
+    if match is None:
+        return None
+    value = match.group("value")
+    placeholder = _folio_value_template(value)
+    if placeholder is None:
+        return None
+    return _MatchingTextTemplate(
+        f"{match.group('label')} {placeholder}", value, placeholder
+    )
+
+
+def _folio_value_template(value: str) -> str | None:
+    if value.isdecimal():
+        return "{decimal_folio}"
+    if re.fullmatch(r"[IVXLCDM]+", value) and _roman_value(value) is not None:
+        return "{roman_upper_folio}"
+    if re.fullmatch(r"[ivxlcdm]+", value) and _roman_value(value) is not None:
+        return "{roman_lower_folio}"
+    return None
+
+
+def _matching_text(
+    content: str, template: _MatchingTextTemplate | None = None
+) -> str:
+    template = template or _matching_text_template(content)
+    return template.signature if template is not None else content
+
+
+def _matching_fragment_text(
+    content: str, template: _MatchingTextTemplate | None
+) -> str:
+    if template is None:
+        return content
+    return re.sub(
+        rf"(?<!\w){re.escape(template.value)}(?!\w)", template.placeholder, content
+    )
 
 
 def _text_similarity(left: str, right: str) -> float:

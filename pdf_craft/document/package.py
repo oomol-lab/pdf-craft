@@ -402,14 +402,31 @@ def _validate_furnitures(
         pattern_ids.add(pattern_id)
         for position in pattern:
             position_id = position.get("id", "")
-            allowed_attributes = {"id", "toc_id"}
+            allowed_attributes = {
+                "id", "toc_id", "folio_style", "folio_offset", "folio_prefix", "folio_suffix",
+            }
             toc_id = position.get("toc_id")
+            folio_style = position.get("folio_style")
+            folio_offset = position.get("folio_offset")
+            has_folio = folio_style is not None or folio_offset is not None
+            valid_folio = (
+                folio_style in {"D", "R", "r", "A", "a"}
+                and folio_offset is not None
+                and folio_offset.lstrip("-").isdigit()
+            )
             if (
                 position.tag != "position"
                 or not set(position.attrib).issubset(allowed_attributes)
                 or "id" not in position.attrib
                 or not position_id.isdigit()
-                or not (position.text or "").strip()
+                or len(position)
+                or (has_folio and not valid_folio)
+                or (not has_folio and any(
+                    name in position.attrib
+                    for name in {"folio_prefix", "folio_suffix"}
+                ))
+                or (not has_folio and not (position.text or "").strip())
+                or (has_folio and (position.text or "").strip())
                 or not _valid_toc_id(toc_id, toc_ids)
             ):
                 raise ValueError("furnitures.xml has invalid position")

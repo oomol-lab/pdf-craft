@@ -1,13 +1,20 @@
 import tempfile
 import unittest
 from pathlib import Path
+from typing import cast
+from unittest.mock import patch
 
 from pdf_craft.pdf.furniture import (
     FurnitureSection,
     _bind_pattern_positions,
     _discover_patterns,
     _discover_tracks,
+    _explicit_page_labels,
+    _fragment_distance,
     _is_covered,
+    _matching_fragment_text,
+    _matching_text,
+    _matching_text_template,
     _similar,
     extract_furnitures,
 )
@@ -15,6 +22,209 @@ from pdf_craft.extractor.toc.types import Toc, TocInfo
 
 
 class FurnitureTests(unittest.TestCase):
+    def test_explicit_pdf_page_labels_are_read_without_pypdf_fallback(self):
+        from pypdf import PdfWriter
+        from pypdf.constants import PageLabelStyle
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            labelled = root / "labelled.pdf"
+            plain = root / "plain.pdf"
+            writer = PdfWriter()
+            for _ in range(3):
+                writer.add_blank_page(200, 200)
+            writer.set_page_label(
+                0, 2, cast(PageLabelStyle, PageLabelStyle.UPPERCASE_ROMAN), start=1
+            )
+            with labelled.open("wb") as stream:
+                writer.write(stream)
+
+            plain_writer = PdfWriter()
+            plain_writer.add_blank_page(200, 200)
+            with plain.open("wb") as stream:
+                plain_writer.write(stream)
+
+            self.assertEqual(_explicit_page_labels(labelled), {1: "I", 2: "II", 3: "III"})
+            self.assertEqual(_explicit_page_labels(plain), {})
+
+    def test_decimal_folio_is_variable_position_not_canonical_content(self):
+        pages = _folio_pages({1: "1", 2: "2", 3: "3"})
+
+        position = _folio_position(_discover_patterns(pages), "universal")
+
+        self.assertEqual(position.content, "")
+        self.assertIsNotNone(position.folio)
+        assert position.folio is not None
+        self.assertEqual((position.folio.style, position.folio.offset), ("D", 0))
+
+    def test_same_side_folio_uses_physical_page_difference(self):
+        pages = _folio_pages({2: "2", 4: "4", 6: "6"})
+
+        position = _folio_position(_discover_patterns(pages), "same_side")
+
+        self.assertIsNotNone(position.folio)
+        assert position.folio is not None
+        self.assertEqual((position.folio.style, position.folio.offset), ("D", 0))
+        self.assertEqual([section.page_index for section in position.sections], [2, 4, 6])
+
+    def test_roman_folio_supports_both_cases_and_a_universal_gap(self):
+        for style, values in (("R", {1: "I", 3: "III", 4: "IV"}), ("r", {1: "i", 2: "ii", 3: "iii"})):
+            with self.subTest(style=style):
+                positions = [
+                    position
+                    for pattern in _discover_patterns(_folio_pages(values))
+                    if pattern.kind == "universal"
+                    for position in pattern.positions
+                    if position.folio is not None
+                ]
+                self.assertTrue(positions)
+                self.assertTrue(all(position.folio and position.folio.style == style for position in positions))
+
+    def test_decorated_roman_folio_supports_fallback_and_page_labels(self):
+        for style, values, prefix in (
+            ("R", {1: "Chapter I", 2: "Chapter II", 3: "Chapter III"}, "Chapter "),
+            ("r", {1: "Part i", 2: "Part ii", 3: "Part iii"}, "Part "),
+        ):
+            with self.subTest(style=style, source="fallback"):
+                position = _folio_position(
+                    _discover_patterns(_folio_pages(values, prefix="")), "universal"
+                )
+                self.assertEqual(position.content, "")
+                assert position.folio is not None
+                self.assertEqual(
+                    (position.folio.style, position.folio.offset, position.folio.prefix),
+                    (style, 0, prefix),
+                )
+
+        from pypdf import PdfWriter
+        from pypdf.constants import PageLabelStyle
+
+        for style, page_label_style, prefix, start in (
+            ("R", PageLabelStyle.UPPERCASE_ROMAN, "Chapter ", 4),
+            ("r", PageLabelStyle.LOWERCASE_ROMAN, "Part ", 2),
+        ):
+            with self.subTest(style=style, source="page-labels"):
+                with tempfile.TemporaryDirectory() as directory:
+                    pdf = Path(directory) / "labelled.pdf"
+                    writer = PdfWriter()
+                    for _ in range(3):
+                        writer.add_blank_page(200, 200)
+                    writer.set_page_label(
+                        0, 2, cast(PageLabelStyle, page_label_style),
+                        prefix=prefix, start=start,
+                    )
+                    with pdf.open("wb") as stream:
+                        writer.write(stream)
+
+                    labels = _explicit_page_labels(pdf)
+                    position = _folio_position(
+                        _discover_patterns(_folio_pages(labels, prefix=""), labels),
+                        "universal",
+                    )
+
+                self.assertEqual(position.content, "")
+                assert position.folio is not None
+                self.assertEqual(
+                    (position.folio.style, position.folio.offset, position.folio.prefix),
+                    (style, start - 1, prefix),
+                )
+
+    def test_invalid_numeric_progression_is_not_a_folio(self):
+        patterns = _discover_patterns(_folio_pages({1: "1", 2: "3", 3: "4"}))
+
+        self.assertFalse(any(
+            position.folio is not None
+            for pattern in patterns
+            for position in pattern.positions
+        ))
+
+    def test_alphabetic_folio_requires_explicit_pdf_page_labels(self):
+        pages = {
+            index: [FurnitureSection(
+                index, (10, 10, 100, 30), value,
+                fragments=((0.0, 0.0, 1.0, 1.0, "folio"),),
+            )]
+            for index, value in {1: "A", 2: "B", 3: "C"}.items()
+        }
+        labels = {1: "A", 2: "B", 3: "C"}
+
+        position = _folio_position(_discover_patterns(pages, labels), "universal")
+
+        self.assertIsNotNone(position.folio)
+        assert position.folio is not None
+        self.assertEqual(position.folio.style, "A")
+        self.assertFalse(any(
+            position.folio is not None
+            for pattern in _discover_patterns(pages)
+            for position in pattern.positions
+        ))
+
+    def test_explicit_alphabetic_page_labels_keep_prefix_and_start(self):
+        from pypdf import PdfWriter
+        from pypdf.constants import PageLabelStyle
+
+        for style, prefix, start, expected_style in (
+            (PageLabelStyle.UPPERCASE_LETTER, "Appendix-", 4, "A"),
+            (PageLabelStyle.LOWERCASE_LETTER, "Part-", 2, "a"),
+        ):
+            with self.subTest(style=style):
+                with tempfile.TemporaryDirectory() as directory:
+                    pdf = Path(directory) / "labelled.pdf"
+                    writer = PdfWriter()
+                    for _ in range(3):
+                        writer.add_blank_page(200, 200)
+                    writer.set_page_label(
+                        0, 2, cast(PageLabelStyle, style), prefix=prefix, start=start
+                    )
+                    with pdf.open("wb") as stream:
+                        writer.write(stream)
+
+                    labels = _explicit_page_labels(pdf)
+                    position = _folio_position(
+                        _discover_patterns(_folio_pages(labels, prefix=""), labels),
+                        "universal",
+                    )
+
+                self.assertEqual(position.content, "")
+                self.assertIsNotNone(position.folio)
+                assert position.folio is not None
+                self.assertEqual(
+                    (position.folio.style, position.folio.offset, position.folio.prefix),
+                    (expected_style, start - 1, prefix),
+                )
+
+    def test_explicit_alphabetic_labels_can_have_a_fixed_suffix(self):
+        labels = {1: "A-end", 2: "B-end", 3: "C-end"}
+
+        position = _folio_position(
+            _discover_patterns(_folio_pages(labels, prefix=""), labels), "universal"
+        )
+
+        self.assertEqual(position.content, "")
+        self.assertIsNotNone(position.folio)
+        assert position.folio is not None
+        self.assertEqual(
+            (position.folio.style, position.folio.offset, position.folio.suffix),
+            ("A", 0, "-end"),
+        )
+
+    def test_folio_serializes_as_structured_position(self):
+        pages = _folio_pages({1: "1", 2: "2", 3: "3"})
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            ocr = root / "ocr"
+            ocr.mkdir()
+            with patch("pdf_craft.pdf.furniture._native_pages", return_value=pages):
+                output = extract_furnitures(root / "source.pdf", ocr)
+
+        position = output.find("patterns/pattern/position")
+        self.assertIsNotNone(position)
+        assert position is not None
+        self.assertEqual(position.attrib, {
+            "id": "0", "folio_style": "D", "folio_offset": "0", "folio_prefix": "Page ",
+        })
+        self.assertIsNone(position.text)
+
     def test_native_text_is_kept_when_ocr_has_no_matching_box(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -188,6 +398,77 @@ class FurnitureTests(unittest.TestCase):
             (0.0, 0.0, 0.45, 0.5, "Page"), (0.55, 0.0, 0.45, 0.5, "2")))
         self.assertTrue(_similar(left, right))
 
+    def test_matching_template_normalizes_only_standalone_folio_fields(self):
+        for left, right, signature in (
+            ("4", "5", "{decimal_folio}"),
+            ("IV", "V", "{roman_upper_folio}"),
+            ("iv", "v", "{roman_lower_folio}"),
+        ):
+            with self.subTest(left=left, right=right):
+                self.assertEqual(_matching_text(left), signature)
+                self.assertEqual(_matching_text(right), signature)
+                self.assertTrue(_similar(
+                    FurnitureSection(1, (0, 0, 100, 40), left),
+                    FurnitureSection(2, (2, 1, 102, 41), right),
+                ))
+
+    def test_matching_template_covers_page_field_fragments_without_mutation(self):
+        left = FurnitureSection(1, (0, 0, 100, 40), "Page IV", fragments=(
+            (0.0, 0.0, 0.45, 0.5, "Page"), (0.55, 0.0, 0.45, 0.5, "IV")))
+        right = FurnitureSection(2, (2, 1, 102, 41), "Page V", fragments=(
+            (0.0, 0.0, 0.45, 0.5, "Page"), (0.55, 0.0, 0.45, 0.5, "V")))
+        left_fragments, right_fragments = left.fragments, right.fragments
+
+        left_template = _matching_text_template(left.content)
+        right_template = _matching_text_template(right.content)
+        self.assertEqual(_matching_text(left.content, left_template), "Page {roman_upper_folio}")
+        self.assertEqual(_matching_text(right.content, right_template), "Page {roman_upper_folio}")
+        self.assertEqual(
+            _matching_fragment_text("IV", left_template), "{roman_upper_folio}"
+        )
+        self.assertEqual(
+            _matching_fragment_text("V", right_template), "{roman_upper_folio}"
+        )
+        self.assertEqual(
+            _fragment_distance(
+                left.fragments[1], right.fragments[1], left_template, right_template
+            ),
+            0.0,
+        )
+        self.assertTrue(_similar(left, right))
+        self.assertEqual(left.content, "Page IV")
+        self.assertEqual(right.content, "Page V")
+        self.assertEqual(left.fragments, left_fragments)
+        self.assertEqual(right.fragments, right_fragments)
+
+    def test_matching_template_does_not_generalize_words_or_ambiguous_numbers(self):
+        for content in (
+            "Chapter IV",
+            "Version 4",
+            "Model X1",
+            "The 4th edition",
+        ):
+            with self.subTest(content=content):
+                self.assertIsNone(_matching_text_template(content))
+                self.assertEqual(_matching_text(content), content)
+
+    def test_matching_template_never_rewrites_extracted_furniture_text(self):
+        pages = {
+            1: [FurnitureSection(1, (10, 10, 100, 30), "Page IV")],
+            2: [FurnitureSection(2, (10, 10, 100, 30), "Page V")],
+        }
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            ocr = root / "ocr"
+            ocr.mkdir()
+            with patch("pdf_craft.pdf.furniture._native_pages", return_value=pages):
+                output = extract_furnitures(root / "source.pdf", ocr)
+
+        self.assertEqual(
+            [section.text for section in output.findall("pages/page/section")],
+            ["Page IV", "Page V"],
+        )
+
     def test_canonical_content_tie_uses_first_match(self):
         pages = {
             1: [FurnitureSection(1, (10, 10, 100, 30), "first", fragments=((0, 0, 1, 1, "x"),))],
@@ -249,3 +530,26 @@ class FurnitureTests(unittest.TestCase):
             self.assertEqual(sections[0].text, "Chapter One .... 7")
             self.assertIsNone(sections[1].get("toc_id"))
             self.assertIsNone(sections[2].get("toc_id"))
+
+
+def _folio_pages(
+    values: dict[int, str], *, prefix: str = "Page "
+) -> dict[int, list[FurnitureSection]]:
+    return {
+        page_index: [FurnitureSection(
+            page_index, (10, 10, 100, 30), f"{prefix}{value}", fragments=(
+                (0.0, 0.0, 0.55, 1.0, prefix), (0.65, 0.0, 0.35, 1.0, value),
+            ),
+        )]
+        for page_index, value in values.items()
+    }
+
+
+def _folio_position(patterns, kind: str):
+    return next(
+        position
+        for pattern in patterns
+        if pattern.kind == kind
+        for position in pattern.positions
+        if position.folio is not None
+    )

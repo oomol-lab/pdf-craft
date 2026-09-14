@@ -149,6 +149,8 @@ translated = craft.translate_extraction(
 
 若 extraction 包含 `furnitures.xml`，则可在 NarrativeFlow 翻译完成后单独调用 `translate_furnitures()`。该步骤会按 `toc_id` 使用已翻译的正文标题收敛关联 furniture，模板 position 仅翻译一次、未绑定 section 以页为范围翻译，并写入 `translation.xml` 记录未来 PDF 回填是否可覆盖。它刻意不属于 `translate_extraction()`，也不会被 EPUB、Markdown 或 PDF 的便捷工作流自动调用。
 
+可变页码以结构化信息表示，而不是作为可复用 pattern position 的文本：folio `position` 带有 `folio_style`（`D`、`R`、`r`、`A` 或 `a`）和 `folio_offset`，也可带 `folio_prefix`、`folio_suffix`。关联到每页的 section 仍保留实际印刷出的页码。翻译 furniture 时只翻译固定修饰文字；PDF 回填会根据每个关联页及 offset 重建页码，从而不会把抽样页的页码翻译一次后错误地写到所有共享该 position 的页面。
+
 `PDFCraftExtraction.export(path)` 会把当前对象重新校验并写成新的 `.pcex`，返回由新归档支撑的对象。写入使用同目标目录中的临时文件，成功后原子替换为目标名称；现有目标仍不会被覆盖。ZIP 成员的时间戳等容器元数据不属于稳定格式，不能假设两次导出逐字节相同。
 
 ### 公开元数据读取方法
