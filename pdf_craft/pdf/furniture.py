@@ -182,11 +182,7 @@ def _discover_patterns(pages: dict[int, list[FurnitureSection]]) -> list[Furnitu
                 if len(matches) < 3:
                     continue
                 _extend_position(matches, pages, step, max_page, claimed | used)
-                counts = Counter(s.content for s in matches)
-                first_seen = {}
-                for index, section in enumerate(matches):
-                    first_seen.setdefault(section.content, index)
-                canonical = max(counts, key=lambda text: (counts[text], -first_seen[text]))
+                canonical = _canonical_content(matches)
                 position = FurniturePosition(len(positions), canonical, matches)
                 positions.append(position)
                 used.update(id(s) for s in matches)
@@ -226,6 +222,18 @@ def _initial_matches(first: FurnitureSection, start: int,
             misses = 0
         page_index += step
     return matches
+
+
+def _canonical_content(matches: list[FurnitureSection]) -> str:
+    counts = Counter(section.content for section in matches)
+    first_seen = {}
+    for index, section in enumerate(matches):
+        first_seen.setdefault(section.content, index)
+    best = matches[0].content
+    for text, count in counts.items():
+        if count > counts[best] or (count == counts[best] and first_seen[text] < first_seen[best]):
+            best = text
+    return best
 
 
 def _similar(a: FurnitureSection, b: FurnitureSection) -> bool:
@@ -269,13 +277,16 @@ def _similar(a: FurnitureSection, b: FurnitureSection) -> bool:
         candidates = list(unmatched)
         if not candidates:
             continue
-        index = min(candidates, key=lambda candidate: (
-            abs(right[candidate][0] - fragment_a[0])
-            + abs(right[candidate][1] - fragment_a[1])
-            + abs(right[candidate][2] - fragment_a[2])
-            + abs(right[candidate][3] - fragment_a[3])
-            # Text is only a tie-breaker; changing content remains valid.
-            + (0.01 if right[candidate][4] != fragment_a[4] else 0.0)))
+        index = candidates[0]
+        best_distance = float("inf")
+        for candidate in candidates:
+            distance = (abs(right[candidate][0] - fragment_a[0])
+                        + abs(right[candidate][1] - fragment_a[1])
+                        + abs(right[candidate][2] - fragment_a[2])
+                        + abs(right[candidate][3] - fragment_a[3])
+                        + (0.01 if right[candidate][4] != fragment_a[4] else 0.0))
+            if distance < best_distance:
+                index, best_distance = candidate, distance
         fragment_b = right[index]
         if (abs(fragment_a[0] - fragment_b[0]) <= 0.25
                 and abs(fragment_a[1] - fragment_b[1]) <= 0.25
