@@ -1590,15 +1590,29 @@ class QTextParagraphFiller:
             vertical_padding=0.0,
             alignment="left",
         )
-        if placement.formula_draws:
-            # Vector inline formulas own their PDF geometry and ActualText
-            # marker. Keeping the first-pass placement is safer than changing
-            # a text-only special case into a semantic formula downgrade.
+        local_text, formula_spans = self._formula_spans_for_frozen_region(
+            placement, font_size, allow_overflow=True,
+        )
+        if local_text is None:
+            # Re-rendering an already materialized vector formula failed.  It
+            # is safer to retain the first pass than to drop its ActualText
+            # semantics; in a normal patch run renderer availability is
+            # stable, so this is only a defensive last resort.
             return placement
         QtCore, QtGui = _qt_modules()
         _ensure_qt_application(QtGui)
         layout = self._create_layout(
-            QtCore, QtGui, text, overflow_style, font_size, _LAYOUT_SCALE,
+            QtCore, QtGui, local_text, overflow_style, font_size, _LAYOUT_SCALE,
+        )
+        utf16_formula_spans = tuple(
+            _FormulaSpan(
+                _utf16_index_for_python(local_text, span.start),
+                _utf16_index_for_python(local_text, span.start + span.length)
+                - _utf16_index_for_python(local_text, span.start),
+                span.fragment,
+                span.latex,
+            )
+            for span in formula_spans
         )
         layout.beginLayout()
         try:
@@ -1606,20 +1620,48 @@ class QTextParagraphFiller:
             if not line.isValid():
                 return placement
             line.setLineWidth(_HEADLINE_OVERFLOW_LINE_WIDTH * _LAYOUT_SCALE)
-            if line.textLength() != _utf16_index_for_python(text, len(text)):
+            if line.textLength() != _utf16_index_for_python(local_text, len(local_text)):
                 return placement
-            line_height = line.height()
-            line_start = _x_coordinate(line.cursorToX(0))
-            line_end = _x_coordinate(line.cursorToX(line.textLength()))
+            line_start_index = line.textStart()
+            line_end_index = line_start_index + line.textLength()
+            if any(
+                span.start < line_end_index < span.start + span.length
+                for span in utf16_formula_spans
+            ):
+                return placement
+            line_formula_spans = tuple(
+                span for span in utf16_formula_spans
+                if line_start_index <= span.start and span.start + span.length <= line_end_index
+            )
+            line_height = max((line.height(), *(span.fragment.height for span in line_formula_spans)))
+            line_start = _x_coordinate(line.cursorToX(line_start_index))
+            line_end = _x_coordinate(line.cursorToX(line_end_index))
+            formula_baseline_offset = max((
+                line.ascent(),
+                *(span.fragment.height - span.fragment.descent for span in line_formula_spans),
+            ))
         finally:
             layout.endLayout()
 
         rectangle = placement.rectangle
         line_top = rectangle.top + (rectangle.height - line_height / _LAYOUT_SCALE) / 2
+        formula_draws = tuple(
+            FormulaDraw(
+                span.fragment.pdf,
+                rectangle.x + _x_coordinate(line.cursorToX(span.start)) / _LAYOUT_SCALE,
+                line_top + formula_baseline_offset / _LAYOUT_SCALE,
+                span.fragment.descent / _LAYOUT_SCALE,
+                span.latex,
+                _python_index_for_utf16(local_text, span.start),
+                _python_index_for_utf16(local_text, span.start + span.length)
+                - _python_index_for_utf16(local_text, span.start),
+            )
+            for span in line_formula_spans
+        )
         return RegionTextPlacement(
             placement.page_index,
             rectangle,
-            text,
+            local_text,
             (rectangle.x + line_start / _LAYOUT_SCALE,),
             ((line_end - line_start) / _LAYOUT_SCALE,),
             (line_top,),
@@ -1627,7 +1669,8 @@ class QTextParagraphFiller:
             font_size,
             overflow_style,
             allows_horizontal_overflow=True,
-            assigned_text=text,
+            formula_draws=formula_draws,
+            assigned_text=local_text,
             forbidden_bottom=placement.forbidden_bottom,
         )
 
@@ -1697,7 +1740,7 @@ class QTextParagraphFiller:
         )
 
     def _formula_spans_for_frozen_region(
-        self, placement: RegionTextPlacement, font_size: float,
+        self, placement: RegionTextPlacement, font_size: float, *, allow_overflow: bool = False,
     ) -> tuple[str | None, tuple[_FormulaSpan, ...]]:
         """Rebuild vector formula proxies for one already-owned text run.
 
@@ -1742,10 +1785,11 @@ class QTextParagraphFiller:
                 return None, ()
             raw_fragment = self._formula_renderer.render(draw.latex, font_size)
             fragment = _scale_formula_fragment(raw_fragment) if raw_fragment is not None else None
-            if (
-                fragment is None
-                or fragment.width > maximum_width
-                or (len(placement.line_tops) != 1 and fragment.height > maximum_height)
+            if fragment is None or (
+                not allow_overflow and (
+                    fragment.width > maximum_width
+                    or (len(placement.line_tops) != 1 and fragment.height > maximum_height)
+                )
             ):
                 return None, ()
             prefix = text[cursor:start]

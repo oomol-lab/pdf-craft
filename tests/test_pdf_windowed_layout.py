@@ -1,6 +1,7 @@
 import unittest
 from dataclasses import replace
 from pathlib import Path
+from typing import Any, cast
 
 from pdf_craft.pipeline.pdf import (
     PDFReplacement, PDFReplacementRegion,
@@ -8,6 +9,8 @@ from pdf_craft.pipeline.pdf import (
     RegionTextPlacement, WindowedParagraphPlanner,
 )
 from pdf_craft.pipeline.pdf.geometry import PageRectangle
+from pdf_craft.pipeline.pdf.inline_formula import FormulaFragment
+from pdf_craft.pipeline.pdf.text_layout import FormulaDraw
 
 
 def _replacement(
@@ -262,6 +265,40 @@ class TestWindowedParagraphPlanner(unittest.TestCase):
         self.assertGreater(
             reflowed.line_tops[0] + reflowed.line_heights[0], original.forbidden_bottom,
         )
+
+    def test_isolated_single_line_rerenders_vector_formula_at_external_size(self):
+        """Formula atoms retain ActualText source while using the level size."""
+        style = PatchTextStyle(max_font_size=16, min_font_size=4)
+        original = RegionTextPlacement(
+            1, PageRectangle(8, 10, 10, 4), "x\u00a0",
+            (8,), (8,), (10,), (4,), 6, style,
+            formula_draws=(FormulaDraw(
+                b"first-pass", 12, 12, 1, "x^2", proxy_start=1, proxy_length=1,
+            ),),
+            assigned_text="x\u00a0",
+        )
+
+        class FormulaRenderer:
+            available = True
+
+            @staticmethod
+            def render(latex, point_size):
+                self.assertEqual(latex, "x^2")
+                self.assertEqual(point_size, 14)
+                return FormulaFragment(b"target-size", point_size, point_size, 2)
+
+        filler = QTextParagraphFiller(PatchTextOptions(styles={"text": style}))
+        filler._formula_renderer = cast(Any, FormulaRenderer())  # pylint: disable=protected-access
+
+        reflowed = filler.fit_isolated_single_line(original, 14)
+
+        self.assertEqual(reflowed.font_size, 14)
+        self.assertTrue(reflowed.allows_horizontal_overflow)
+        self.assertEqual(len(reflowed.line_tops), 1)
+        self.assertEqual(reflowed.formula_draws[0].pdf, b"target-size")
+        self.assertEqual(reflowed.formula_draws[0].latex, "x^2")
+        self.assertEqual(reflowed.formula_draws[0].proxy_start, 1)
+        self.assertGreater(reflowed.line_text_widths[0], original.rectangle.width)
 
     def test_second_pass_keeps_multi_line_runs_inside_their_bbox(self):
         region = PDFReplacementRegion(1, (0, 0, 80, 30), (80, 30))
