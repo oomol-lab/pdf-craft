@@ -6,7 +6,12 @@ from pathlib import Path
 from xml.etree.ElementTree import Element
 
 from pdf_craft.common import read_xml, save_xml
-from pdf_craft.extractor.chapter.chapter import BlockLayout, InlineExpression, decode
+from pdf_craft.extractor.chapter.chapter import (
+    BlockLayout,
+    InlineExpression,
+    ParagraphLayout,
+    decode,
+)
 from pdf_craft.extractor.toc import decode as decode_toc, iter_toc
 from pdf_craft.markdown.paragraph import flatten
 
@@ -77,7 +82,7 @@ def _text_by_reference(chapters_path: Path) -> dict[tuple[int, int], str]:
     for path in sorted(chapters_path.glob("chapter_*.xml")):
         chapter = decode(read_xml(path))
         for layout in chapter.layouts:
-            if not hasattr(layout, "blocks"):
+            if not isinstance(layout, ParagraphLayout):
                 continue
             for block in layout.blocks:
                 result[(block.page_index, block.order)] = _block_text(block)
