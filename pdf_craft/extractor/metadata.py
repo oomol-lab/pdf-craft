@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+import unicodedata
 from collections.abc import Iterable
 from dataclasses import dataclass
 from pathlib import Path
@@ -32,7 +33,7 @@ class _OCRPage:
 
 
 class _Evidence(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", strict=True)
 
     value: str
     page_index: int = Field(ge=1)
@@ -41,14 +42,13 @@ class _Evidence(BaseModel):
     @field_validator("value", "evidence")
     @classmethod
     def _require_nonempty_text(cls, value: str) -> str:
-        value = value.strip()
-        if not value:
+        if not value.strip():
             raise ValueError("must not be empty")
         return value
 
 
 class _AuthorResponse(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", strict=True)
 
     name: _Evidence
     original_name: _Evidence | None = None
@@ -56,7 +56,7 @@ class _AuthorResponse(BaseModel):
 
 
 class _MetadataResponse(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", strict=True)
 
     title: _Evidence | None = None
     original_title: _Evidence | None = None
@@ -74,7 +74,7 @@ class _MetadataResponse(BaseModel):
 
 
 class _TurnResponse(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", strict=True)
 
     action: Literal["read_more", "complete"]
     page_count: int | None = None
@@ -211,15 +211,15 @@ def _validate_metadata_evidence(metadata: _MetadataResponse, page_text: dict[int
         source = page_text.get(evidence.page_index)
         if source is None:
             raise ValueError(f"evidence references unloaded page {evidence.page_index}")
-        normalized_source = _normalize(source)
-        normalized_evidence = _normalize(evidence.evidence)
-        normalized_value = _normalize(evidence.value)
-        if normalized_evidence not in normalized_source:
+        printed_source = _printed_form(source)
+        printed_evidence = _printed_form(evidence.evidence)
+        printed_value = _printed_form(evidence.value)
+        if printed_evidence not in printed_source:
             raise ValueError(f"evidence for {evidence.value!r} is not present on page {evidence.page_index}")
-        if normalized_value not in normalized_evidence:
+        if printed_value not in printed_evidence:
             raise ValueError(f"value {evidence.value!r} is not supported by its evidence")
 
-    author_names = [_normalize(author.name.value) for author in metadata.authors]
+    author_names = [_printed_form(author.name.value) for author in metadata.authors]
     if len(author_names) != len(set(author_names)):
         raise ValueError("authors must not repeat")
     for field_name, values in (
@@ -227,8 +227,8 @@ def _validate_metadata_evidence(metadata: _MetadataResponse, page_text: dict[int
         ("translators", metadata.translators),
         ("subjects", metadata.subjects),
     ):
-        normalized = [_normalize(value.value) for value in values]
-        if len(normalized) != len(set(normalized)):
+        printed = [_printed_form(value.value) for value in values]
+        if len(printed) != len(set(printed)):
             raise ValueError(f"{field_name} must not repeat")
     if metadata.isbn is not None and not _looks_like_isbn(metadata.isbn.value):
         raise ValueError("isbn must be a valid ISBN-10 or ISBN-13 checksum")
@@ -304,7 +304,13 @@ def _render_pages_message(pages: list[_OCRPage], *, remaining: int) -> str:
     )
 
 
-def _normalize(value: str) -> str:
+def _printed_form(value: str) -> str:
+    """Allow only Unicode canonical equivalence, never editorial rewriting."""
+    return unicodedata.normalize("NFC", value)
+
+
+def _normalize_native_text(value: str) -> str:
+    """Deduplicate untrusted PDF Info fallback fields without affecting OCR proof."""
     return re.sub(r"\s+", "", value).casefold()
 
 
@@ -340,7 +346,7 @@ def _unique_nonempty(values: Iterable[str]) -> list[str]:
     seen: set[str] = set()
     for value in values:
         value = value.strip()
-        normalized = _normalize(value)
+        normalized = _normalize_native_text(value)
         if value and normalized not in seen:
             result.append(value)
             seen.add(normalized)
@@ -354,11 +360,9 @@ Return complete JSON only. Your response must be either:
 or:
 {"action":"complete","metadata":{...}}
 
-`read_more.page_count` must be an integer from 2 through 4. Request more pages only when the
-next front matter pages are plausibly likely to contain new printed bibliographic facts (for
-example, a title, copyright, or publication page). Do not request pages merely because a field is
-missing: if the supplied pages have reached a preface, contents, or ordinary body text, complete
-with the facts already supported.
+`read_more.page_count` must be an integer from 2 through 4. You may request more front pages
+conservatively, without explaining why, until no more pages are available or the twelve-page
+limit is reached.
 
 For `complete`, metadata may contain only these fields: title, original_title, description,
 publisher, isbn, authors, editors, translators, publication_date, edition, subjects, rights,
@@ -371,5 +375,6 @@ from world knowledge, or invent any field. Names, titles, publishers, and ISBNs 
 the printed form. `description` is allowed only for an explicitly printed blurb or description;
 do not summarize the book. Set `language` only when a literal language identifier such as `en` or
 `zh` is printed; do not turn a printed language name such as `English` into a code. Every non-null
-value must cite the page containing it and a literal evidence string that contains the value. Use
-null or [] when no evidence exists."""
+value must cite the page containing it and a literal evidence string that contains the value.
+Transcribe capitalization and internal whitespace exactly as printed. Use null or [] when no
+evidence exists."""

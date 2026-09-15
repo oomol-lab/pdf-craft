@@ -55,6 +55,15 @@ def _isbn_complete(isbn: str) -> str:
     })
 
 
+def _title_complete(title: str, evidence: str) -> str:
+    return json.dumps({
+        "action": "complete",
+        "metadata": {
+            "title": {"value": title, "page_index": 1, "evidence": evidence},
+        },
+    })
+
+
 class TestBookMetadata(unittest.TestCase):
     def test_disabled_metadata_does_not_read_native_pdf_metadata(self):
         class _OCR:
@@ -133,6 +142,37 @@ class TestBookMetadata(unittest.TestCase):
             self.assertEqual(len(llm.calls), 2)
             self.assertIn("business validation error", llm.calls[1][-1].message)
             self.assertEqual(llm.calls[1][-2].role.name, "ASSISTANT")
+
+    def test_string_page_count_is_rejected_by_strict_schema_and_repaired(self):
+        with TemporaryDirectory() as directory:
+            pages_path = self._write_pages(Path(directory) / "ocr", ["A Book", "", ""])
+            llm = _ScriptedLLM([
+                '{"action":"read_more","page_count":"2"}',
+                _title_complete("A Book", "A Book"),
+            ])
+
+            metadata = extract_book_metadata_from_ocr(pages_path, llm)  # type: ignore[arg-type]
+
+            self.assertEqual(metadata.title, "A Book")
+            self.assertEqual(len(llm.calls), 2)
+            self.assertIn("page_count", llm.calls[1][-1].message)
+            self.assertEqual(llm.calls[1][-2].role.name, "ASSISTANT")
+
+    def test_evidence_rejects_case_and_internal_whitespace_rewrites(self):
+        with TemporaryDirectory() as directory:
+            pages_path = self._write_pages(Path(directory) / "ocr", ["PDF Craft", "", ""])
+            llm = _ScriptedLLM([
+                _title_complete("pdfcraft", "PDF Craft"),
+                _title_complete("PDF  Craft", "PDF Craft"),
+                _title_complete("PDF Craft", "PDF Craft"),
+            ])
+
+            metadata = extract_book_metadata_from_ocr(pages_path, llm)  # type: ignore[arg-type]
+
+            self.assertEqual(metadata.title, "PDF Craft")
+            self.assertEqual(len(llm.calls), 3)
+            self.assertIn("not supported by its evidence", llm.calls[1][-1].message)
+            self.assertIn("not supported by its evidence", llm.calls[2][-1].message)
 
     def test_invalid_isbn_checksum_reenters_repair_loop_and_accepts_fix(self):
         with TemporaryDirectory() as directory:
