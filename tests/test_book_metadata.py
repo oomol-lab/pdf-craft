@@ -202,7 +202,27 @@ class TestBookMetadata(unittest.TestCase):
 
             self.assertEqual(metadata.title, "page 1")
             self.assertEqual(len(llm.calls), 5)
-            self.assertIn("all allowed OCR pages", llm.calls[-1][-1].message)
+            self.assertIn("all available OCR pages", llm.calls[-1][-1].message)
+
+    def test_reaching_the_last_physical_page_forces_complete_through_repair_loop(self):
+        with TemporaryDirectory() as directory:
+            pages_path = self._write_pages(Path(directory) / "ocr", [
+                "A Book", "contents", "preface", "copyright",
+            ])
+            llm = _ScriptedLLM([
+                '{"action":"read_more","page_count":2}',
+                '{"action":"read_more","page_count":2}',
+                json.dumps({
+                    "action": "complete",
+                    "metadata": {"title": {"value": "A Book", "page_index": 1, "evidence": "A Book"}},
+                }),
+            ])
+
+            metadata = extract_book_metadata_from_ocr(pages_path, llm)  # type: ignore[arg-type]
+
+            self.assertEqual(metadata.title, "A Book")
+            self.assertEqual(len(llm.calls), 3)
+            self.assertIn("all available OCR pages", llm.calls[-1][-1].message)
 
     def test_ocr_values_win_and_native_values_only_fill_missing_fields(self):
         ocr = DocumentMetadata(title="Printed Title", authors=(DocumentAuthor("Printed Author"),))

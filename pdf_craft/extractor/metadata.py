@@ -112,7 +112,13 @@ def extract_book_metadata_from_ocr(pages_path: Path, metadata_llm: LLM) -> Docum
         if isinstance(metadata_llm, LLM) else None
 
     while True:
-        turn = _request_turn(metadata_llm, runtime, messages, loaded)
+        turn = _request_turn(
+            metadata_llm,
+            runtime,
+            messages,
+            loaded,
+            available_page_count=len(pages),
+        )
         messages.append(Message(
             MessageRole.ASSISTANT,
             turn.model_dump_json(exclude_none=True, ensure_ascii=False),
@@ -122,13 +128,8 @@ def extract_book_metadata_from_ocr(pages_path: Path, metadata_llm: LLM) -> Docum
             return _to_document_metadata(turn.metadata)
 
         assert turn.page_count is not None
-        remaining = min(_MAX_PAGE_COUNT - len(loaded), len(pages) - cursor)
-        if remaining <= 0:
-            messages.append(Message(
-                MessageRole.USER,
-                "No more OCR pages are available. Return action=complete with supported metadata.",
-            ))
-            continue
+        remaining = len(pages) - cursor
+        assert remaining > 0  # _request_turn rejects read_more after the last physical OCR page.
         requested = min(turn.page_count, remaining)
         next_pages = pages[cursor:cursor + requested]
         loaded.extend(next_pages)
@@ -174,13 +175,15 @@ def _request_turn(
     runtime: Any,
     messages: list[Message],
     loaded_pages: list[_OCRPage],
+    *,
+    available_page_count: int,
 ) -> _TurnResponse:
     page_text = {page.index: page.text for page in loaded_pages}
 
     def parse(data: _TurnResponse, _index: int, _maximum: int) -> _TurnResponse:
         if data.action == "read_more":
-            if len(loaded_pages) >= _MAX_PAGE_COUNT:
-                raise ValueError("all allowed OCR pages are already loaded; return action=complete")
+            if len(loaded_pages) >= available_page_count:
+                raise ValueError("all available OCR pages are already loaded; return action=complete")
             return data
         assert data.metadata is not None
         _validate_metadata_evidence(data.metadata, page_text)
