@@ -109,6 +109,9 @@ ExtractionOptions(
     max_ocr_output_tokens=None,
     includes_cover=False,
     includes_footnotes=False,
+    includes_furniture=False,
+    extract_book_metadata=False,
+    metadata_llm=None,
     generate_plot=False,
     toc_assumed=False,
     toc_llm=None,
@@ -123,6 +126,12 @@ ExtractionOptions(
 默认值为 `False`；如果需要目录页检测，应在 EPUB 或 Markdown 提取时显式传入 `True`。
 `toc_llm` 是可选的目录层级分析
 LLM，不是 OCR 配置，也不是章节翻译器。
+
+`extract_book_metadata` 默认关闭。开启后必须通过独立的 `metadata_llm` 参数显式提供 LLM，
+不会隐式复用 `toc_llm`。它会先向 LLM 提供前三个原始 OCR 页；模型可继续请求前部页面，但总数最多为
+12 页。每个元信息字段必须给出 OCR 证据并通过 JSON repair Loop 的结构与业务校验。OCR 值优先，
+PDF 文件自身的 metadata 只补充 OCR 未得到的字段，绝不覆盖 OCR 结果；元信息请求最终失败也不会
+中断整本 PDF 的转换。
 
 `aborted` 返回 `True` 时请求中止当前任务。`on_ocr_event` 会收到每次 OCR 事件，可用于
 进度、token 或日志记录。`ignore_pdf_errors` 和 `ignore_ocr_errors` 接受布尔值，也接受

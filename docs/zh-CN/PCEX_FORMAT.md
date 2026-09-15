@@ -1,6 +1,6 @@
 # PDFCraftExtraction（`.pcex`）格式参考
 
-本文是 PDFCraftExtraction v1 的中文版格式参考。它描述当前 pdf-craft 代码能够生成、读取和校验的公开中间格式，以及各成员被后续渲染、翻译和 PDF 写回流程使用的方式。
+本文是 PDFCraftExtraction v2 的中文版格式参考。它描述当前 pdf-craft 代码能够生成、读取和校验的公开中间格式，以及各成员被后续渲染、翻译和 PDF 写回流程使用的方式。
 
 本文中的“规范产物”指 pdf-craft 自身写出的 `.pcex`；“当前校验器”指 `PDFCraftExtraction.open()` 或 `PDFCraftExtraction.validate()` 所执行的校验。两者需要区分：规范产物会遵循本文给出的字段关系，但当前校验器并未检查其中每一项语义关系。
 
@@ -52,7 +52,7 @@ book.pcex                       # ZIP（Deflate 压缩）
 
 pdf-craft 写出的 JSON 和 XML 文本均使用 UTF-8；XML 文件带有 `<?xml version="1.0" encoding="UTF-8"?>` 声明。ZIP 内路径统一使用 `/`。
 
-v1 没有 `document.json` 或 `source-map.json`。文档元数据集中在 `manifest.json`，页面几何集中在 `pages.xml`，每个内容块到原 PDF 的位置映射直接保存在章节 XML 中。
+v2 没有 `document.json` 或 `source-map.json`。文档元数据集中在 `manifest.json`，页面几何集中在 `pages.xml`，每个内容块到原 PDF 的位置映射直接保存在章节 XML 中。
 
 ## 获取、保存和继续处理
 
@@ -171,7 +171,7 @@ translated = craft.translate_extraction(
 
 ```json
 {
-  "format_version": 1,
+  "format_version": 2,
   "producer": {
     "name": "pdf-craft",
     "version": "2.0.0"
@@ -179,12 +179,17 @@ translated = craft.translate_extraction(
   "created_at": "2026-09-05T03:20:00.000000+00:00",
   "document": {
     "title": "示例书",
+    "original_title": null,
     "description": null,
     "publisher": "示例出版社",
     "isbn": null,
-    "authors": ["作者甲"],
+    "authors": [{"name": "作者甲", "original_name": null, "nationality": null}],
     "editors": [],
     "translators": [],
+    "publication_date": null,
+    "edition": null,
+    "subjects": [],
+    "rights": null,
     "modified": "2026-08-20T12:00:00+08:00",
     "language": "zh"
   }
@@ -195,12 +200,12 @@ translated = craft.translate_extraction(
 
 | 字段 | 类型 | 必需 | 含义与约束 |
 | --- | --- | --- | --- |
-| `format_version` | integer | 是 | 当前唯一支持的值为 `1` |
+| `format_version` | integer | 是 | 规范值为 `2`；读取器同时接受旧的 v1 归档。 |
 | `producer` | object | 是 | 创建归档的软件标识；必须且只能含 `name`、`version` |
 | `created_at` | string 或 null | 否 | 归档创建时间；字符串须为可解析的 ISO 8601 时间 |
-| `document` | object | 是 | 文档级元数据；必须且只能含下一节的九个字段 |
+| `document` | object | 是 | 文档级元数据；必须且只能含下一节的字段 |
 
-规范值 `format_version` 是 JSON 数字 `1`。当前实现直接把 JSON 解码值与 Python 整数 `1` 比较，而没有额外执行 JSON 类型断言；生产者不应利用布尔值与整数相等之类的语言细节。
+规范值 `format_version` 是 JSON 数字 `2`。读取器保留 v1 兼容性，未知版本会被拒绝。
 
 pdf-craft 自身写出时，`producer.name` 固定为 `pdf-craft`，`producer.version` 是已安装的 pdf-craft 包版本；无法取得安装版本时为 `unknown`。当前校验器允许其他生产者，但 `name` 和 `version` 都必须是非空字符串。
 
@@ -208,25 +213,30 @@ pdf-craft 自身总会写出 `created_at`，使用带 UTC 时区偏移的当前�
 
 ### `document` 对象
 
-九个字段全部必须存在；没有值的单值字段使用 `null`，没有成员的贡献者字段使用空数组。不能省略字段，也不能增加字段。
+全部字段必须存在；没有值的单值字段使用 `null`，没有成员的贡献者字段使用空数组。不能省略字段，也不能增加字段。
 
 | 字段 | 类型 | 含义 |
 | --- | --- | --- |
-| `title` | string 或 null | 书名；PDF 元数据可读取但标题缺失时，pdf-craft 使用源文件名（不含扩展名） |
+| `title` | string 或 null | 开启元信息抽取且 OCR 有证据时得到的印刷书名 |
+| `original_title` | string 或 null | 译著中印刷的原书名 |
 | `description` | string 或 null | 文档描述 |
 | `publisher` | string 或 null | 出版者 |
 | `isbn` | string 或 null | ISBN；格式不进一步规定字符形态 |
-| `authors` | string[] | 作者，保持数组顺序 |
+| `authors` | object[] | 作者，保持数组顺序；每项含必填 `name` 与可空的 `original_name`、`nationality` |
 | `editors` | string[] | 编辑，保持数组顺序 |
 | `translators` | string[] | 译者，保持数组顺序 |
+| `publication_date` | string 或 null | 印刷的出版日期或日期表达 |
+| `edition` | string 或 null | 印刷的版次信息 |
+| `subjects` | string[] | 印刷的主题或分类信息 |
+| `rights` | string 或 null | 印刷的版权声明 |
 | `modified` | string 或 null | 文档修改时间；字符串须为 ISO 8601 时间 |
 | `language` | string 或 null | 文档语言标识 |
 
-使用默认 PDF 读取器提取时，`modified` 并不在 `/ModDate` 缺失时写成 `null`：读取器先以“读取元数据时的当前 UTC 时间”作为默认值；只有 `/ModDate` 存在且其年月日时分秒可成功解析时，才用解析结果替换默认值。`/ModDate` 缺失、为空、长度不足或日期解析失败时，manifest 因而保留当前 UTC 时间。当前解析器取 PDF 日期的前 14 位年月日时分秒并标记为 UTC，不解释其后可能存在的 PDF 时区偏移。只有元数据读取整体抛出 `PDFError`、提取器无法取得任何 `BookMeta` 时，`modified` 才会随空元数据一起写为 `null`。
+自动元信息抽取不会把 PDF 的 `/ModDate` 视为出版日期，也不会写入 `modified`。`modified` 只保留给调用方显式传入、面向 EPUB 的 `BookMeta`。
 
 `language` 当前不限制为特定语言代码，但 EPUB 渲染器只支持 `zh` 和 `en`。渲染 EPUB 时，调用参数 `lan` 优先，其次是此字段，最后默认为 `zh`。调用时显式传入的 `book_meta` 同样优先于 manifest 中转换得到的 `BookMeta`。
 
-从普通 PDF 提取时，pdf-craft 写入 PDF 书目元数据，但当前提取流程没有自动判定语言，因此 `language` 通常为 `null`。翻译 extraction 时不会自动改写 manifest 或语言。
+书籍元信息抽取是显式开启的功能。它借助独立 LLM 读取前部原始 OCR 页，只保留有页内证据的字段；PDF 文件 metadata 仅可补缺，不能覆盖 OCR。关闭时，除非另有调用方提供，文档元信息保持为空。翻译 extraction 时不会自动改写 manifest 或语言。
 
 ## `pages.xml`
 
@@ -304,7 +314,7 @@ left,top,right,bottom
 
 `page_index` 和 `order` 共同指向生成该目录项的标题布局。`level` 同时用于计算 Markdown/EPUB 标题层级；XML 的嵌套结构则表达父子关系。
 
-当前 v1 校验器会检查根元素、`page_indexes` 的整数列表、所有子元素名称，以及每项四个必需整数属性；它暂不检查页码是否存在于 `pages.xml`、ID 是否唯一、`level` 是否与嵌套深度一致，也不检查 ID 是否确实对应章节。格式生产者仍应保持上述关系。
+当前 v2 校验器会检查根元素、`page_indexes` 的整数列表、所有子元素名称，以及每项四个必需整数属性；它暂不检查页码是否存在于 `pages.xml`、ID 是否唯一、`level` 是否与嵌套深度一致，也不检查 ID 是否确实对应章节。格式生产者仍应保持上述关系。
 
 ## `chapters/`
 
@@ -551,7 +561,7 @@ Markdown 渲染会把封面复制到输出资源目录，但不会自动在 Mark
 
 当前实现没有归档大小、展开后大小或压缩比上限，也没有内容签名；对于不可信来源，调用方应在进入 pdf-craft 前额外限制文件大小和来源。格式版本只解决结构兼容性，不提供真实性或防篡改保证。
 
-## v1 校验明细
+## v2 校验明细
 
 `PDFCraftExtraction.open()` 会立即执行以下校验：
 
@@ -563,7 +573,7 @@ Markdown 渲染会把封面复制到输出资源目录，但不会自动在 Mark
 6. 所有章节 XML 与可选 XML 附属文件可解析，根元素正确且核心字段可解码；furniture 覆盖记录必须引用现有 furniture 单元；
 7. 章节页引用、bbox 和带 hash 的资源引用有效。
 
-以下内容不是当前 v1 校验承诺：
+以下内容不是当前 v2 校验承诺：
 
 - TOC 页码与 `pages.xml` 的对应；
 - TOC ID、章节文件名和章节根 ID 的唯一性及对应；
@@ -620,6 +630,6 @@ craft.patch_pdf_with_extraction(
 
 ## 版本兼容
 
-当前格式版本为 `1`。读取器只接受 `manifest.json` 中 `format_version: 1`，不对未知版本做降级猜测。新增可选 ZIP 成员或 manifest 字段也会被 v1 读取器拒绝，因此任何结构扩展都应配合新的格式版本和读取器实现发布。
+当前格式版本为 `2`。读取器接受规范的 v2 归档和旧的 `format_version: 1` 归档，但会拒绝未知版本。v1 读取器会拒绝 v2 的 document schema；需要 v2 书籍元信息的应用应使用 pdf-craft 2.2.2 或更高版本。
 
 应用程序若只需要后续渲染或翻译，应让 `PDFCraftExtraction.open()` 负责版本和完整性检查，不要仅凭 ZIP 可解压就认定包可用。

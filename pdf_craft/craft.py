@@ -59,6 +59,8 @@ class ExtractionOptions:
     includes_cover: bool = False
     includes_footnotes: bool = False
     includes_furniture: bool = False
+    extract_book_metadata: bool = False
+    metadata_llm: LLM | None = None
     generate_plot: bool = False
     toc_assumed: bool = False
     toc_llm: LLM | None = None
@@ -110,6 +112,8 @@ class PDFCraft:
             includes_cover=options.includes_cover,
             includes_footnotes=options.includes_footnotes,
             includes_furniture=options.includes_furniture,
+            extract_book_metadata=options.extract_book_metadata,
+            metadata_llm=options.metadata_llm,
             generate_plot=options.generate_plot,
             toc_assumed=options.toc_assumed, toc_llm=options.toc_llm,
             ignore_pdf_errors=options.ignore_pdf_errors,
@@ -312,6 +316,8 @@ class PDFCraft:
             includes_cover=options.includes_cover,
             includes_footnotes=options.includes_footnotes,
             includes_furniture=options.includes_furniture,
+            extract_book_metadata=options.extract_book_metadata,
+            metadata_llm=options.metadata_llm,
             generate_plot=options.generate_plot,
             toc_assumed=options.toc_assumed, toc_llm=options.toc_llm,
             ignore_pdf_errors=options.ignore_pdf_errors,

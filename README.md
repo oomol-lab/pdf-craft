@@ -33,6 +33,10 @@ PDF Craft is a Python library for scanned books and academic or technical docume
 
 Results depend on scan quality, page layout, and the OCR model. Check a representative document before processing a larger collection.
 
+When you need EPUB bibliographic metadata, opt in to front-page OCR metadata extraction with a
+separate metadata LLM. PDF Craft verifies every accepted value against OCR evidence and uses PDF
+file properties only to fill missing fields, never to override printed book information.
+
 ## What you can do
 
 | Your goal | PDF Craft provides |

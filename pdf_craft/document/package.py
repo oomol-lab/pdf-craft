@@ -17,13 +17,47 @@ from epub_generator import BookMeta
 from ..common import indent, save_xml
 
 
-FORMAT_VERSION = 1
+FORMAT_VERSION = 2
 EXTRACTION_SUFFIX = ".pcex"
 _MANIFEST_FIELDS = {"format_version", "producer", "created_at", "document"}
-_DOCUMENT_FIELDS = {
+_DOCUMENT_FIELDS_V1 = {
     "title", "description", "publisher", "isbn", "authors", "editors",
     "translators", "modified", "language",
 }
+_DOCUMENT_FIELDS = {
+    "title", "original_title", "description", "publisher", "isbn", "authors",
+    "editors", "translators", "publication_date", "edition", "subjects", "rights",
+    "modified", "language",
+}
+
+
+@dataclass(frozen=True)
+class DocumentAuthor:
+    """A named author, with optional information printed for a translated edition."""
+
+    name: str
+    original_name: str | None = None
+    nationality: str | None = None
+
+
+@dataclass(frozen=True)
+class DocumentMetadata:
+    """Normalized bibliographic metadata stored in a PCEX manifest."""
+
+    title: str | None = None
+    original_title: str | None = None
+    description: str | None = None
+    publisher: str | None = None
+    isbn: str | None = None
+    authors: tuple[DocumentAuthor, ...] = ()
+    editors: tuple[str, ...] = ()
+    translators: tuple[str, ...] = ()
+    publication_date: str | None = None
+    edition: str | None = None
+    subjects: tuple[str, ...] = ()
+    rights: str | None = None
+    modified: datetime | None = None
+    language: str | None = None
 
 
 @dataclass(frozen=True)
@@ -177,7 +211,7 @@ class PDFCraftExtraction:
             description=_optional_string(document.get("description")),
             publisher=_optional_string(document.get("publisher")),
             isbn=_optional_string(document.get("isbn")),
-            authors=_string_list(document.get("authors")),
+            authors=_author_names(document.get("authors")),
             editors=_string_list(document.get("editors")),
             translators=_string_list(document.get("translators")),
             modified=parsed_modified,
@@ -194,11 +228,14 @@ class PDFCraftExtraction:
 def write_manifest(
     root: Path,
     *,
-    book_meta: BookMeta | None,
+    book_meta: BookMeta | None = None,
+    document_metadata: DocumentMetadata | None = None,
     language: str | None = None,
 ) -> None:
     """Write the format manifest at the extraction boundary."""
-    metadata = book_meta or BookMeta()
+    if document_metadata is not None and book_meta is not None:
+        raise ValueError("pass either document_metadata or book_meta, not both")
+    metadata = document_metadata or _metadata_from_book_meta(book_meta or BookMeta())
     modified = metadata.modified.isoformat() if metadata.modified is not None else None
     payload = {
         "format_version": FORMAT_VERSION,
@@ -206,14 +243,26 @@ def write_manifest(
         "created_at": datetime.now(timezone.utc).isoformat(),
         "document": {
             "title": metadata.title,
+            "original_title": metadata.original_title,
             "description": metadata.description,
             "publisher": metadata.publisher,
             "isbn": metadata.isbn,
-            "authors": list(metadata.authors),
+            "authors": [
+                {
+                    "name": author.name,
+                    "original_name": author.original_name,
+                    "nationality": author.nationality,
+                }
+                for author in metadata.authors
+            ],
             "editors": list(metadata.editors),
             "translators": list(metadata.translators),
+            "publication_date": metadata.publication_date,
+            "edition": metadata.edition,
+            "subjects": list(metadata.subjects),
+            "rights": metadata.rights,
             "modified": modified,
-            "language": language,
+            "language": language if language is not None else metadata.language,
         },
     }
     path = ExtractionPaths.at(root).manifest
@@ -318,7 +367,8 @@ def _read_manifest(path: Path) -> dict[str, Any]:
         raise ValueError("invalid PDFCraftExtraction manifest.json") from error
     if not isinstance(payload, dict) or set(payload) - _MANIFEST_FIELDS:
         raise ValueError("manifest.json contains unsupported fields")
-    if payload.get("format_version") != FORMAT_VERSION:
+    format_version = payload.get("format_version")
+    if format_version not in {1, FORMAT_VERSION}:
         raise ValueError("unsupported PDFCraftExtraction format version")
     producer = payload.get("producer")
     if not isinstance(producer, dict) or set(producer) != {"name", "version"} or not all(
@@ -334,13 +384,25 @@ def _read_manifest(path: Path) -> dict[str, Any]:
         except ValueError as error:
             raise ValueError("manifest.json created_at must be ISO 8601") from error
     document = payload.get("document")
-    if not isinstance(document, dict) or set(document) != _DOCUMENT_FIELDS:
+    expected_fields = _DOCUMENT_FIELDS_V1 if format_version == 1 else _DOCUMENT_FIELDS
+    if not isinstance(document, dict) or set(document) != expected_fields:
         raise ValueError("manifest.json has invalid document metadata")
-    for key in ("title", "description", "publisher", "isbn", "modified", "language"):
+    for key in (
+        "title", "description", "publisher", "isbn", "modified", "language",
+        "original_title", "publication_date", "edition", "rights",
+    ):
+        if key not in document:
+            continue
         value = document.get(key)
         if value is not None and not isinstance(value, str):
             raise ValueError(f"manifest.json document.{key} must be a string or null")
-    for key in ("authors", "editors", "translators"):
+    if format_version == 1:
+        _string_list(document.get("authors"))
+    else:
+        _author_list(document.get("authors"))
+    for key in ("editors", "translators", "subjects"):
+        if key not in document:
+            continue
         _string_list(document.get(key))
     if isinstance(document.get("modified"), str):
         try:
@@ -689,6 +751,19 @@ def _optional_string(value: object) -> str | None:
     return value if isinstance(value, str) else None
 
 
+def _metadata_from_book_meta(metadata: BookMeta) -> DocumentMetadata:
+    return DocumentMetadata(
+        title=metadata.title,
+        description=metadata.description,
+        publisher=metadata.publisher,
+        isbn=metadata.isbn,
+        authors=tuple(DocumentAuthor(name=name) for name in metadata.authors),
+        editors=tuple(metadata.editors),
+        translators=tuple(metadata.translators),
+        modified=metadata.modified,
+    )
+
+
 def _is_asset_hash(value: str) -> bool:
     return len(value) == 64 and all(character in "0123456789abcdef" for character in value)
 
@@ -697,3 +772,29 @@ def _string_list(value: object) -> list[str]:
     if not isinstance(value, list) or not all(isinstance(item, str) for item in value):
         raise ValueError("document contributor metadata must be arrays of strings")
     return list(value)
+
+
+def _author_list(value: object) -> list[DocumentAuthor]:
+    if not isinstance(value, list):
+        raise ValueError("document authors must be an array")
+    authors: list[DocumentAuthor] = []
+    for author in value:
+        if not isinstance(author, dict) or set(author) != {"name", "original_name", "nationality"}:
+            raise ValueError("document author metadata is invalid")
+        name = author.get("name")
+        original_name = author.get("original_name")
+        nationality = author.get("nationality")
+        if not isinstance(name, str) or not name:
+            raise ValueError("document author name must be a non-empty string")
+        if original_name is not None and not isinstance(original_name, str):
+            raise ValueError("document author original_name must be a string or null")
+        if nationality is not None and not isinstance(nationality, str):
+            raise ValueError("document author nationality must be a string or null")
+        authors.append(DocumentAuthor(name, original_name, nationality))
+    return authors
+
+
+def _author_names(value: object) -> list[str]:
+    if isinstance(value, list) and all(isinstance(item, str) for item in value):
+        return list(value)
+    return [author.name for author in _author_list(value)]
