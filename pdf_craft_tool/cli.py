@@ -170,6 +170,8 @@ def _add_extraction_options(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--plot", action="store_true")
     parser.add_argument("--toc-assumed", action="store_true")
     parser.add_argument("--toc-llm", metavar="PROFILE", help="optional LLM profile for TOC hierarchy analysis")
+    parser.add_argument("--book-metadata", action="store_true", help="extract bibliographic metadata from front OCR pages")
+    parser.add_argument("--metadata-llm", metavar="PROFILE", help="LLM profile used with --book-metadata")
 
 
 def _add_translation_options(parser: argparse.ArgumentParser) -> None:
@@ -439,6 +441,9 @@ def _extract(args: argparse.Namespace, extraction_path: Path) -> _ExtractionResu
             max_page_image_file_size=args.max_page_image_file_size,
             max_ocr_tokens=args.max_ocr_tokens, max_ocr_output_tokens=args.max_ocr_output_tokens,
             includes_cover=args.cover, includes_footnotes=args.footnotes, includes_furniture=getattr(args, "furniture", False),
+            extract_book_metadata=args.book_metadata,
+            metadata_llm=(create_llm_from_env(args.metadata_llm, cache_path=extraction_path.parent / "metadata-cache",
+                log_dir_path=extraction_path.parent / "metadata-logs") if args.metadata_llm else None),
             generate_plot=args.plot, toc_assumed=args.toc_assumed,
             toc_llm=(create_llm_from_env(args.toc_llm, cache_path=extraction_path.parent / "toc-cache",
                 log_dir_path=extraction_path.parent / "toc-logs") if args.toc_llm else None),

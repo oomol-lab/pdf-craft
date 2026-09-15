@@ -57,6 +57,7 @@ class PDFExtractor:
             "includes_footnotes": False, "includes_furniture": False, "ignore_pdf_errors": False,
             "ignore_ocr_errors": False, "generate_plot": False,
             "toc_llm": None, "toc_assumed": False,
+            "extract_book_metadata": False, "metadata_llm": None,
             "aborted": lambda: False, "max_tokens": None,
             "max_output_tokens": None, "on_ocr_event": lambda _: None,
             "page_indexes": None,

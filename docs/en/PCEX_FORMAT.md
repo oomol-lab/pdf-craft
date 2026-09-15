@@ -1,6 +1,6 @@
 # PDFCraftExtraction (`.pcex`) Format Reference
 
-This document is the English-language reference for PDFCraftExtraction v1. It describes the public intermediate format that the current pdf-craft implementation can produce, read, and validate, as well as how each member is used by downstream rendering, translation, and PDF patching workflows.
+This document is the English-language reference for PDFCraftExtraction v2. It describes the public intermediate format that the current pdf-craft implementation can produce, read, and validate, as well as how each member is used by downstream rendering, translation, and PDF patching workflows.
 
 This reference distinguishes a *canonical artifact*—a `.pcex` file written by pdf-craft—from the *current validator* implemented by `PDFCraftExtraction.open()` and `PDFCraftExtraction.validate()`. Canonical artifacts preserve all relationships described here. The current validator does not enforce every semantic relationship.
 
@@ -52,7 +52,7 @@ The archive root and its two subdirectories may not contain members other than t
 
 JSON and XML written by pdf-craft use UTF-8. XML files include an `<?xml version="1.0" encoding="UTF-8"?>` declaration. Paths inside the ZIP use `/` as their separator.
 
-Version 1 has no `document.json` or `source-map.json`. Document metadata is centralized in `manifest.json`, page geometry in `pages.xml`, and the source-PDF position of each content block is stored directly in the chapter XML.
+Version 2 has no `document.json` or `source-map.json`. Document metadata is centralized in `manifest.json`, page geometry in `pages.xml`, and the source-PDF position of each content block is stored directly in the chapter XML.
 
 ## Creating, saving, and resuming an extraction
 
@@ -171,7 +171,7 @@ Variable folios are represented structurally rather than as the text of a reusab
 
 ```json
 {
-  "format_version": 1,
+  "format_version": 2,
   "producer": {
     "name": "pdf-craft",
     "version": "2.0.0"
@@ -179,12 +179,17 @@ Variable folios are represented structurally rather than as the text of a reusab
   "created_at": "2026-09-05T03:20:00.000000+00:00",
   "document": {
     "title": "Example Book",
+    "original_title": null,
     "description": null,
     "publisher": "Example Press",
     "isbn": null,
-    "authors": ["Example Author"],
+    "authors": [{"name": "Example Author", "original_name": null, "nationality": null}],
     "editors": [],
     "translators": [],
+    "publication_date": null,
+    "edition": null,
+    "subjects": [],
+    "rights": null,
     "modified": "2026-08-20T12:00:00+08:00",
     "language": "en"
   }
@@ -195,12 +200,12 @@ The top-level value must be a JSON object. Unlisted top-level fields are not all
 
 | Field | Type | Required | Meaning and constraints |
 | --- | --- | --- | --- |
-| `format_version` | integer | Yes | The only currently supported value is `1` |
+| `format_version` | integer | Yes | The canonical value is `2`; readers also accept legacy v1 archives. |
 | `producer` | object | Yes | Identifies the software that created the archive; must contain exactly `name` and `version` |
 | `created_at` | string or null | No | Archive creation time; a string must be a parseable ISO 8601 datetime |
-| `document` | object | Yes | Document-level metadata; must contain exactly the nine fields in the next section |
+| `document` | object | Yes | Document-level metadata; must contain exactly the fields in the next section |
 
-The canonical `format_version` value is the JSON number `1`. The current implementation directly compares the decoded JSON value with the Python integer `1`, without a separate JSON type assertion. Producers must not rely on language-specific behavior such as booleans comparing equal to integers.
+The canonical `format_version` value is the JSON number `2`. Readers retain v1 support so existing extractions remain usable; unknown versions are rejected.
 
 When pdf-craft writes an archive, `producer.name` is always `pdf-craft`, and `producer.version` is the installed pdf-craft package version. It falls back to `unknown` when the installed version cannot be determined. The current validator permits other producers, but both `name` and `version` must be non-empty strings.
 
@@ -208,25 +213,30 @@ pdf-craft always writes `created_at` as the current time with a UTC offset. The 
 
 ### The `document` object
 
-All nine fields are required. A single-value field with no value uses `null`; a contributor field with no members uses an empty array. Fields may not be omitted or added.
+All fields are required. A single-value field with no value uses `null`; a contributor field with no members uses an empty array. Fields may not be omitted or added.
 
 | Field | Type | Meaning |
 | --- | --- | --- |
-| `title` | string or null | Book title; if PDF metadata is readable but has no title, pdf-craft uses the source filename without its extension |
+| `title` | string or null | Printed book title, when metadata extraction is enabled and OCR supports it |
+| `original_title` | string or null | Original title printed for a translated edition |
 | `description` | string or null | Document description |
 | `publisher` | string or null | Publisher |
 | `isbn` | string or null | ISBN; the format imposes no further lexical constraints |
-| `authors` | string[] | Authors, preserving array order |
+| `authors` | object[] | Authors in order; each object has required `name` and nullable `original_name` and `nationality` fields |
 | `editors` | string[] | Editors, preserving array order |
 | `translators` | string[] | Translators, preserving array order |
+| `publication_date` | string or null | Printed publication date or date expression |
+| `edition` | string or null | Printed edition statement |
+| `subjects` | string[] | Printed subjects or classifications |
+| `rights` | string or null | Printed rights or copyright statement |
 | `modified` | string or null | Document modification time; a string must be an ISO 8601 datetime |
 | `language` | string or null | Document language identifier |
 
-With the default PDF reader, a missing `/ModDate` does not produce a `null` `modified` field. The reader begins with the current UTC time at the moment metadata is read and replaces it only when `/ModDate` exists and its year, month, day, hour, minute, and second can be parsed successfully. If `/ModDate` is missing, empty, too short, or invalid, the manifest therefore retains that current UTC timestamp. The current parser takes the first 14 date/time digits and labels the result as UTC; it does not interpret a PDF timezone offset that may follow them. `modified` is written as `null` only when metadata extraction as a whole raises `PDFError` and the extractor cannot obtain any `BookMeta`.
+Automatic metadata extraction never uses a PDF `/ModDate` as a publication date or as `modified`. `modified` is reserved for an explicit EPUB-oriented `BookMeta` supplied by a caller.
 
-The format does not currently restrict `language` to a fixed set of language codes, but the EPUB renderer supports only `zh` and `en`. During EPUB rendering, an explicit `lan` argument takes precedence, followed by this field, with `zh` as the final default. An explicit `book_meta` argument likewise takes precedence over the `BookMeta` derived from the manifest.
+The format does not currently restrict `language` to a fixed set of language codes, but the EPUB renderer supports only `zh` and `en`. During EPUB rendering, an explicit `lan` argument takes precedence, followed by this field, with `zh` as the final default. An explicit `book_meta` overlays the EPUB-ready fields derived from the manifest one by one: non-empty caller values win, while `None`, empty strings, and empty contributor lists retain the manifest value. `BookMeta` cannot express clearing an extracted field.
 
-For an ordinary PDF extraction, pdf-craft writes the PDF's bibliographic metadata but does not infer a language, so `language` is usually `null`. Translating an extraction does not automatically update the manifest or language.
+Book metadata extraction is opt-in. It reads raw front-page OCR with a dedicated LLM, retaining only values with page evidence; native PDF metadata can fill a missing field but cannot replace OCR. When disabled, document metadata remains empty unless supplied through a separate caller path. Translating an extraction does not automatically update the manifest or language.
 
 ## `pages.xml`
 
@@ -304,7 +314,7 @@ Both the root element and an `<item>` may contain any number of direct `<item>` 
 
 Together, `page_index` and `order` identify the heading layout from which the TOC item was generated. `level` also contributes to Markdown and EPUB heading depth, while XML nesting expresses the parent-child relationship.
 
-The current v1 validator checks the root element, the integer list in `page_indexes`, all child element names, and the four required integer attributes of every item. It does not yet check that pages exist in `pages.xml`, that IDs are unique, that `level` agrees with nesting depth, or that an ID actually corresponds to a chapter. Producers must still preserve those relationships.
+The current v2 validator checks the root element, the integer list in `page_indexes`, all child element names, and the four required integer attributes of every item. It does not yet check that pages exist in `pages.xml`, that IDs are unique, that `level` agrees with nesting depth, or that an ID actually corresponds to a chapter. Producers must still preserve those relationships.
 
 ## `chapters/`
 
@@ -551,7 +561,7 @@ It then extracts into a temporary directory and validates the contents. Before `
 
 The current implementation imposes no limit on archive size, expanded size, or compression ratio, and it has no content signature. For an untrusted source, callers should enforce file-size and provenance restrictions before passing the archive to pdf-craft. Format versioning provides structural compatibility only, not authenticity or tamper protection.
 
-## v1 validation details
+## v2 validation details
 
 `PDFCraftExtraction.open()` immediately performs these checks:
 
@@ -563,7 +573,7 @@ The current implementation imposes no limit on archive size, expanded size, or c
 6. Every chapter XML and optional XML sidecar parse successfully, have the expected root, and expose decodable core fields; furniture coverage entries must reference existing furniture units.
 7. Chapter page references, bounding boxes, and hashed asset references are valid.
 
-The current v1 validation contract does not include:
+The current v2 validation contract does not include:
 
 - correspondence between TOC page indexes and `pages.xml`;
 - uniqueness or correspondence among TOC IDs, chapter filenames, and chapter root IDs;
@@ -620,6 +630,6 @@ It cannot prove that the input PDF and extraction came from the same source file
 
 ## Version compatibility
 
-The current format version is `1`. The reader accepts only `format_version: 1` in `manifest.json` and does not attempt a best-effort downgrade for unknown versions. A v1 reader also rejects a new optional ZIP member or manifest field, so structural extensions must ship with a new format version and corresponding reader support.
+The current format version is `2`. The reader accepts canonical v2 archives and legacy `format_version: 1` archives; unknown versions are rejected. A v1 reader rejects the v2 document schema, so applications that need v2 bibliographic metadata should use pdf-craft 2.2.2 or later.
 
 Applications that only need downstream rendering or translation should let `PDFCraftExtraction.open()` perform version and integrity checks. A ZIP that can merely be extracted is not necessarily a usable PDFCraftExtraction.

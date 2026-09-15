@@ -4,7 +4,6 @@ from collections.abc import Callable, Container
 from os import PathLike
 from pathlib import Path
 
-from .common import remove_surrogates
 from .error import (
     IgnoreOCRErrorsChecker,
     IgnorePDFErrorsChecker,
@@ -16,9 +15,16 @@ from .metering import AbortedCheck, OCRTokensMetering
 from .ocr_config import OCRConfig, ensure_ocr_config
 from .pdf import DeepSeekOCRSize, OCR, OCREvent, OCREventKind, PDFHandler
 from .pdf.furniture import write_furnitures
+from .extractor.metadata import extract_book_metadata_from_ocr, merge_ocr_and_pdf_metadata
 from .extractor.chapter import generate_chapter_files
 from .extractor.toc import analyse_toc
-from .document import ExtractionPaths, PDFCraftExtraction, write_manifest, write_pages
+from .document import (
+    DocumentMetadata,
+    ExtractionPaths,
+    PDFCraftExtraction,
+    write_manifest,
+    write_pages,
+)
 
 
 class PDFExtractionEngine:
@@ -66,7 +72,11 @@ class PDFExtractionEngine:
         on_ocr_event: Callable[[OCREvent], None],
         page_indexes: Container[int] | None = None,
         includes_furniture: bool = False,
+        extract_book_metadata: bool = False,
+        metadata_llm: LLM | None = None,
     ):
+        if extract_book_metadata and metadata_llm is None:
+            raise ValueError("extract_book_metadata=True requires metadata_llm")
         extraction_path = analysing_path / "extraction"
         extraction_paths = ExtractionPaths.at(extraction_path)
         assets_path = extraction_paths.assets
@@ -107,6 +117,15 @@ class PDFExtractionEngine:
         if failed_page_indexes and usable_pages == 0:
             raise NoUsableOCRPagesError(tuple(failed_page_indexes))
 
+        # Read the unmodified page XML while it is still the direct OCR record.
+        # Later TOC and chapter stages consume the same files, but must not define
+        # what bibliographic evidence is available to this optional feature.
+        document_metadata = self._extract_book_metadata(
+            pdf_path=pdf_path,
+            pages_path=pages_path,
+            enabled=extract_book_metadata,
+            metadata_llm=metadata_llm,
+        )
         toc = analyse_toc(
             pages_path=pages_path,
             toc_path=toc_path,
@@ -130,28 +149,29 @@ class PDFExtractionEngine:
             render_dpi=render_dpi,
             page_pixel_sizes=self._ocr.last_page_pixel_sizes,
         )
-        write_manifest(extraction_path, book_meta=self._extract_book_meta(pdf_path))
+        write_manifest(extraction_path, document_metadata=document_metadata)
         PDFCraftExtraction._from_workspace(extraction_path).validate()
         return assets_path, chapters_path, toc_path, cover_path, metering
 
-    def _extract_book_meta(self, pdf_path: Path):
+    def _extract_book_metadata(
+        self,
+        *,
+        pdf_path: Path,
+        pages_path: Path,
+        enabled: bool,
+        metadata_llm: LLM | None,
+    ) -> DocumentMetadata | None:
+        if not enabled:
+            return None
+        ocr_metadata = None
+        try:
+            assert metadata_llm is not None
+            ocr_metadata = extract_book_metadata_from_ocr(pages_path, metadata_llm)
+        except Exception as error:  # Metadata is optional; extraction must remain usable.
+            print(f"Warning: Failed to extract book metadata from OCR: {error}")
+        pdf_metadata = None
         try:
             pdf_metadata = self._ocr.metadata(pdf_path)
-            from epub_generator import BookMeta
-            return BookMeta(
-                title=self._normalize_text_in_meta(pdf_metadata.title) or pdf_path.stem,
-                description=self._normalize_text_in_meta(pdf_metadata.description),
-                publisher=self._normalize_text_in_meta(pdf_metadata.publisher),
-                isbn=self._normalize_text_in_meta(pdf_metadata.isbn),
-                authors=[remove_surrogates(s) for s in pdf_metadata.authors],
-                editors=[remove_surrogates(s) for s in pdf_metadata.editors],
-                translators=[remove_surrogates(s) for s in pdf_metadata.translators],
-                modified=pdf_metadata.modified,
-            )
         except PDFError:
-            print("Warning: Failed to extract PDF metadata.")
-            return None
-
-    @staticmethod
-    def _normalize_text_in_meta(text: str | None) -> str | None:
-        return remove_surrogates(text) if text is not None else None
+            print("Warning: Failed to read PDF file metadata for book metadata fallback.")
+        return merge_ocr_and_pdf_metadata(ocr_metadata, pdf_metadata)

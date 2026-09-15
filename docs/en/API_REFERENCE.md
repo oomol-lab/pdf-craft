@@ -93,6 +93,9 @@ extraction; they do not fall back to an analysis/OCR directory.
 | `max_ocr_output_tokens` | `None` | Cumulative OCR output-token budget. |
 | `includes_cover` | `False` | Retain a recognized cover image. |
 | `includes_footnotes` | `False` | Request and retain footnotes. |
+| `includes_furniture` | `False` | Extract native page furniture for PDF translation. |
+| `extract_book_metadata` | `False` | Extract bibliographic metadata from the first OCR pages. |
+| `metadata_llm` | `None` | Required LLM for `extract_book_metadata=True`; it is independent of `toc_llm`. |
 | `generate_plot` | `False` | Generate plot diagnostics in the analysis workspace (not in `.pcex`). |
 | `toc_assumed` | `False` | Treat the document as already having usable TOC information. |
 | `toc_llm` | `None` | LLM used when TOC analysis is needed. |
@@ -100,6 +103,13 @@ extraction; they do not fall back to an analysis/OCR directory.
 | `ignore_ocr_errors` | `False` | `True` or a predicate that decides whether an OCR error may be skipped. |
 | `aborted` | a callback returning `False` | A callback checked during processing to request cancellation. |
 | `on_ocr_event` | no-op callback | Receives per-page `OCREvent` updates. |
+
+Book-metadata extraction is deliberately opt-in. When enabled, PDF Craft lets a dedicated LLM
+read the first three raw OCR pages and request further front pages in batches, up to twelve pages.
+Only values with OCR evidence are accepted. PDF file metadata is used only to fill fields that OCR
+did not provide; it never replaces an OCR value. If the metadata dialogue cannot be validated after
+its bounded repair loop, extraction continues with that same PDF-file fallback rather than failing
+the document conversion.
 
 ### OCR configurations
 

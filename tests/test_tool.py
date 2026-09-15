@@ -21,6 +21,14 @@ from pdf_craft_tool.runtime import create_llm_from_env, create_ocr_config_from_e
 
 
 class TestPDFCraftTool(unittest.TestCase):
+    def test_pdf_parser_exposes_opt_in_book_metadata_llm(self):
+        args = _parser().parse_args([
+            "pdf", "convert", "source.pdf", "--format", "epub",
+            "--book-metadata", "--metadata-llm", "metadata",
+        ])
+        self.assertTrue(args.book_metadata)
+        self.assertEqual(args.metadata_llm, "metadata")
+
     def test_smoke_exit_code_rejects_failed_and_skipped_reports(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

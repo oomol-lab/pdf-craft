@@ -7,6 +7,7 @@ from unittest.mock import patch
 from typing import cast
 from xml.etree.ElementTree import tostring
 from PIL import Image
+from epub_generator import BookMeta
 
 from pdf_craft.error import NoUsableOCRPagesError, OCRError
 from pdf_craft.craft import PDFCraft
@@ -375,6 +376,40 @@ class TestComposableBoundaries(unittest.TestCase):
             with patch("pdf_craft.renderer.epub.renderer.render_epub_file") as epub:
                 EpubRenderer().render(extraction, root / "book.epub")
             self.assertEqual(epub.call_args.args[0].name, "chapters")
+
+    def test_explicit_epub_book_meta_overrides_only_its_nonempty_fields(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            extraction = make_extraction(
+                root,
+                page_pixel_sizes={1: (100, 100)},
+                with_toc=True,
+                book_meta=BookMeta(
+                    title="OCR title",
+                    description="OCR description",
+                    publisher="OCR press",
+                    isbn="978-1-4028-9462-6",
+                    authors=["OCR author"],
+                    editors=["OCR editor"],
+                    translators=["OCR translator"],
+                ),
+                language="en",
+            )
+            with patch("pdf_craft.renderer.epub.renderer.render_epub_file") as epub:
+                EpubRenderer().render(
+                    extraction,
+                    root / "book.epub",
+                    book_meta=BookMeta(title="Manual title", description=""),
+                )
+
+            metadata = epub.call_args.args[5]
+            self.assertEqual(metadata.title, "Manual title")
+            self.assertEqual(metadata.description, "OCR description")
+            self.assertEqual(metadata.publisher, "OCR press")
+            self.assertEqual(metadata.isbn, "978-1-4028-9462-6")
+            self.assertEqual(metadata.authors, ["OCR author"])
+            self.assertEqual(metadata.editors, ["OCR editor"])
+            self.assertEqual(metadata.translators, ["OCR translator"])
 
     def test_pdf_pipeline_preserves_structured_content_and_uses_package_metadata(self):
         with tempfile.TemporaryDirectory() as directory:
