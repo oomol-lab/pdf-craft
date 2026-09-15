@@ -11,6 +11,7 @@ from pdf_craft.common import save_xml
 from pdf_craft.document import DocumentAuthor, DocumentMetadata, PDFCraftExtraction
 from pdf_craft.document.package import write_manifest, write_pages
 from pdf_craft.extractor.metadata import (
+    _looks_like_isbn,
     extract_book_metadata_from_ocr,
     merge_ocr_and_pdf_metadata,
 )
@@ -41,6 +42,15 @@ def _complete(title: str, page_index: int, evidence: str) -> str:
                 "original_name": None,
                 "nationality": None,
             }],
+        },
+    })
+
+
+def _isbn_complete(isbn: str) -> str:
+    return json.dumps({
+        "action": "complete",
+        "metadata": {
+            "isbn": {"value": isbn, "page_index": 1, "evidence": f"ISBN {isbn}"},
         },
     })
 
@@ -123,6 +133,56 @@ class TestBookMetadata(unittest.TestCase):
             self.assertEqual(len(llm.calls), 2)
             self.assertIn("business validation error", llm.calls[1][-1].message)
             self.assertEqual(llm.calls[1][-2].role.name, "ASSISTANT")
+
+    def test_invalid_isbn_checksum_reenters_repair_loop_and_accepts_fix(self):
+        with TemporaryDirectory() as directory:
+            pages_path = self._write_pages(Path(directory) / "ocr", [
+                "ISBN 978-1-4028-9462-0\nISBN 978-1-4028-9462-6", "", "",
+            ])
+            llm = _ScriptedLLM([
+                _isbn_complete("978-1-4028-9462-0"),
+                _isbn_complete("978-1-4028-9462-6"),
+            ])
+
+            metadata = extract_book_metadata_from_ocr(pages_path, llm)  # type: ignore[arg-type]
+
+            self.assertEqual(metadata.isbn, "978-1-4028-9462-6")
+            self.assertEqual(len(llm.calls), 2)
+            self.assertIn("valid ISBN-10 or ISBN-13 checksum", llm.calls[1][-1].message)
+
+    def test_isbn_validation_accepts_both_formats_and_rejects_bad_check_digits(self):
+        self.assertTrue(_looks_like_isbn("0-8044-2957-X"))
+        self.assertFalse(_looks_like_isbn("0-8044-2957-0"))
+        self.assertTrue(_looks_like_isbn("978-1-4028-9462-6"))
+        self.assertFalse(_looks_like_isbn("978-1-4028-9462-0"))
+
+    def test_exhausted_invalid_isbn_uses_safe_pdf_metadata_fallback(self):
+        class _OCR:
+            @staticmethod
+            def metadata(_pdf_path):
+                return PDFDocumentMetadata(
+                    title="Fallback Title", description=None, publisher=None,
+                    isbn="978-1-4028-9462-6", authors=[], editors=[], translators=[],
+                    modified=datetime.now(timezone.utc),
+                )
+
+        with TemporaryDirectory() as directory:
+            pages_path = self._write_pages(Path(directory) / "ocr", [
+                "ISBN 978-1-4028-9462-0", "", "",
+            ])
+            engine = PDFExtractionEngine.__new__(PDFExtractionEngine)
+            engine._ocr = _OCR()  # type: ignore[assignment]
+            llm = _ScriptedLLM([_isbn_complete("978-1-4028-9462-0")] * 4)
+
+            metadata = engine._extract_book_metadata(  # pylint: disable=protected-access
+                pdf_path=Path("book.pdf"), pages_path=pages_path, enabled=True,
+                metadata_llm=llm,  # type: ignore[arg-type]
+            )
+
+            assert metadata is not None
+            self.assertEqual(metadata.title, "Fallback Title")
+            self.assertEqual(metadata.isbn, "978-1-4028-9462-6")
+            self.assertEqual(len(llm.calls), 4)
 
     def test_reaching_twelve_pages_forces_complete_through_repair_loop(self):
         with TemporaryDirectory() as directory:

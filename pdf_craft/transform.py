@@ -18,7 +18,13 @@ from .pdf.furniture import write_furnitures
 from .extractor.metadata import extract_book_metadata_from_ocr, merge_ocr_and_pdf_metadata
 from .extractor.chapter import generate_chapter_files
 from .extractor.toc import analyse_toc
-from .document import ExtractionPaths, PDFCraftExtraction, write_manifest, write_pages
+from .document import (
+    DocumentMetadata,
+    ExtractionPaths,
+    PDFCraftExtraction,
+    write_manifest,
+    write_pages,
+)
 
 
 class PDFExtractionEngine:
@@ -154,7 +160,7 @@ class PDFExtractionEngine:
         pages_path: Path,
         enabled: bool,
         metadata_llm: LLM | None,
-    ):
+    ) -> DocumentMetadata | None:
         if not enabled:
             return None
         ocr_metadata = None

@@ -228,7 +228,7 @@ def _validate_metadata_evidence(metadata: _MetadataResponse, page_text: dict[int
         if len(normalized) != len(set(normalized)):
             raise ValueError(f"{field_name} must not repeat")
     if metadata.isbn is not None and not _looks_like_isbn(metadata.isbn.value):
-        raise ValueError("isbn must contain 10 or 13 ISBN characters")
+        raise ValueError("isbn must be a valid ISBN-10 or ISBN-13 checksum")
 
 
 def _iter_evidence(metadata: _MetadataResponse) -> Iterable[_Evidence]:
@@ -306,8 +306,21 @@ def _normalize(value: str) -> str:
 
 
 def _looks_like_isbn(value: str) -> bool:
-    compact = re.sub(r"[^0-9Xx]", "", value)
-    return len(compact) in {10, 13}
+    """Validate a printed ISBN after removing only conventional separators."""
+    compact = re.sub(r"[\s-]+", "", value)
+    if re.fullmatch(r"\d{13}", compact):
+        weighted_sum = sum(
+            int(character) * (1 if index % 2 == 0 else 3)
+            for index, character in enumerate(compact)
+        )
+        return weighted_sum % 10 == 0
+    if re.fullmatch(r"\d{9}[\dXx]", compact):
+        weighted_sum = sum(
+            (10 - index) * (10 if character in "Xx" else int(character))
+            for index, character in enumerate(compact)
+        )
+        return weighted_sum % 11 == 0
+    return False
 
 
 def _value(value: _Evidence | None) -> str | None:
