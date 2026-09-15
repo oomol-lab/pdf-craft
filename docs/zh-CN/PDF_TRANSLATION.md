@@ -129,7 +129,11 @@ craft.convert_pdf_to_epub(
 
 ### EPUB 输出选项
 
-- `book_meta`：EPUB 的标题、作者、出版社等元数据；省略时尝试读取源 PDF 元数据。
+- `book_meta`：EPUB 的标题、作者、出版社等元数据。省略时只使用 extraction manifest 中的
+  内容；默认不会读取源 PDF 的 native metadata，也不会以文件名补全。若要自动抽取，需在
+  extraction 中显式设置 `extract_book_metadata=True` 并提供独立 `metadata_llm`：它优先采纳
+  可由前页 OCR 证据验证的结果，native PDF metadata 只能补 OCR 缺失字段。渲染时显式传入的
+  `book_meta` 按字段覆盖 manifest；`None`、空字符串和空的贡献者列表表示“不覆盖”，而非清空。
 - `lan`：EPUB 内容语言标记，支持 `"zh"` 和 `"en"`。
 - `table_render`：表格渲染方式，使用 `TableRender.HTML`、`TableRender.CLIPPING` 等
   `epub_generator` 提供的枚举值。

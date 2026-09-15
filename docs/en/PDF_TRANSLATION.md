@@ -70,7 +70,15 @@ craft.convert_pdf_to_epub(
 )
 ```
 
-If `book_meta` is omitted, pdf-craft attempts to read metadata from the source PDF. The remaining EPUB options are useful when the default rendering is not appropriate:
+If `book_meta` is omitted, EPUB metadata comes only from the extraction manifest. By default that
+manifest has no automatically inferred book metadata: pdf-craft does not read native PDF Info or
+use the filename. To opt in, configure extraction with `extract_book_metadata=True` and an explicit
+`metadata_llm`; it verifies front-page OCR evidence, then uses native PDF Info only to fill OCR-missing
+fields. When `book_meta` is supplied for rendering, its non-empty fields override the corresponding
+manifest fields one by one; `None`, an empty string, and empty contributor lists leave the manifest
+value intact rather than clearing it.
+
+The remaining EPUB options are useful when the default rendering is not appropriate:
 
 | Option | Purpose |
 | --- | --- |
