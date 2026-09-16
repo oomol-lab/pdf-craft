@@ -32,6 +32,7 @@ from pdf_craft.transformer import (
     AnchoredContentXMLTransformer,
 )
 from pdf_craft.transformer.chapter_xml import ChapterXMLTransformer
+from pdf_craft.transformer.anchored_translation import _transform_batch
 from pdf_craft.transformer.xml_translator.segment import search_text_segments
 from pdf_craft.transformer.xml_translator.xml_translator.callbacks import warp_callbacks
 from pdf_craft.transformer.xml_translator.xml_translator.stream_mapper import XMLStreamMapper
@@ -97,6 +98,7 @@ class _AssetTranslator:
         self.calls.append(list(assets))
         return [
             AnchoredContentTranslation(
+                asset.identity,
                 [f"T:{_text(asset.asset.title)}"],
                 [f"T:{_text(asset.asset.content)}"],
                 [f"T:{_text(asset.asset.caption)}"],
@@ -120,6 +122,40 @@ class _XMLTaskTranslator:
             if element.tag != "translation-context" and element.text:
                 element.text = f"T:{element.text}"
         return task.element, task.payload
+
+
+class _ReorderedAssetXMLTaskTranslator(_XMLTaskTranslator):
+    """A hostile transport that changes wrapper order but keeps slot tokens."""
+
+    def translate_element(self, task, **kwargs):
+        translated, payload = super().translate_element(task, **kwargs)
+        flow = translated.find("flow")
+        assert flow is not None
+        flow[:] = list(reversed(flow))
+        return translated, payload
+
+
+class _ChangedAssetSlotXMLTaskTranslator(_XMLTaskTranslator):
+    """A hostile transport that corrupts one stable asset slot."""
+
+    def translate_element(self, task, **kwargs):
+        translated, payload = super().translate_element(task, **kwargs)
+        asset = translated.find("flow/standalone-asset/asset")
+        assert asset is not None
+        asset.set("translation_slot", "corrupted")
+        return translated, payload
+
+
+class _WrongIdentityAssetTransformer:
+    def __init__(self) -> None:
+        self.calls: list[list[AnchoredContent]] = []
+
+    def transform_assets(self, assets: Sequence[AnchoredContent]):
+        self.calls.append(list(assets))
+        return [
+            AnchoredContentTranslation(("wrong", 0, 0), ["wrong"], [], [])
+            for _ in assets
+        ]
 
 
 class _ResponseContext:
@@ -273,6 +309,9 @@ class AnchoredContentTranslationTests(unittest.TestCase):
             '<xml><fragment id="1">Before.</fragment><fragment id="2">Middle.</fragment>'
             '<fragment id="3">After.</fragment><anchor anchor_key="0"/>'
             '<anchor anchor_key="1"/></xml>',
+            '<xml><fragment id="1">Before.</fragment><anchor anchor_key="0">model text</anchor>'
+            '<fragment id="2">Middle.</fragment><anchor anchor_key="1"/>'
+            '<fragment id="3">After.</fragment></xml>',
         )
 
         for invalid in invalid_responses:
@@ -352,8 +391,40 @@ class AnchoredContentTranslationTests(unittest.TestCase):
             AnchoredContent("head", 0, 1, source, "Nearby narrative."),
         ))
 
-        self.assertEqual(result[0], AnchoredContentTranslation(["T:Title"], ["T:Content"], ["T:Caption"]))
+        self.assertEqual(
+            result[0],
+            AnchoredContentTranslation(("head", 0, 1), ["T:Title"], ["T:Content"], ["T:Caption"]),
+        )
         self.assertIn("Nearby narrative.", "\n".join(translator.sources))
+
+    def test_xml_adapter_uses_slot_identity_when_transport_reorders_assets(self):
+        first = SourceAsset(1, "image", (1, 1, 10, 10), title=["first"])
+        second = SourceAsset(1, "table", (1, 11, 10, 20), title=["second"])
+        result = AnchoredContentXMLTransformer(_ReorderedAssetXMLTaskTranslator()).transform_assets((
+            AnchoredContent("head", 0, 0, first, "first context"),
+            AnchoredContent("head", 1, -1, second, "second context"),
+        ))
+
+        self.assertEqual([item.identity for item in result if item], [("head", 0, 0), ("head", 1, -1)])
+        self.assertEqual([item.title for item in result if item], [["T:first"], ["T:second"]])
+
+    def test_xml_adapter_preserves_whole_batch_when_a_slot_changes(self):
+        first = SourceAsset(1, "image", (1, 1, 10, 10), title=["first"])
+        second = SourceAsset(1, "table", (1, 11, 10, 20), title=["second"])
+        result = AnchoredContentXMLTransformer(_ChangedAssetSlotXMLTaskTranslator()).transform_assets((
+            AnchoredContent("head", 0, 0, first, "first context"),
+            AnchoredContent("head", 1, -1, second, "second context"),
+        ))
+
+        self.assertEqual(result, (None, None))
+
+    def test_generic_transformer_preserves_assets_when_result_identity_is_wrong(self):
+        first = AnchoredContent("head", 0, 0, SourceAsset(1, "image", (1, 1, 10, 10)), "")
+        second = AnchoredContent("head", 1, -1, SourceAsset(1, "table", (1, 11, 10, 20)), "")
+        transformer = _WrongIdentityAssetTransformer()
+
+        self.assertEqual(_transform_batch((first, second), transformer), [None, None])
+        self.assertEqual([len(call) for call in transformer.calls], [2, 1, 1])
 
     def test_asset_without_extracted_text_is_preserved_without_a_translation_call(self):
         with tempfile.TemporaryDirectory() as directory:

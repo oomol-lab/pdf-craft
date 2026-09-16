@@ -39,8 +39,9 @@ class AnchoredContent:
 
 @dataclass(frozen=True)
 class AnchoredContentTranslation:
-    """Translated text fields for one asset, without mutable source geometry."""
+    """Translated text fields bound to one immutable anchored-content slot."""
 
+    identity: tuple[str, int, int]
     title: Content
     content: Content
     caption: Content
@@ -49,9 +50,11 @@ class AnchoredContentTranslation:
 class AnchoredContentTransformer(Protocol):
     """Translate extracted image/table text in small, contextual batches.
 
-    The returned sequence must match the supplied assets exactly.  ``None``
-    preserves that individual source asset, which lets callers degrade safely
-    when only part of a batch can be translated.
+    Each non-``None`` result must carry the exact ``AnchoredContent.identity``
+    of its source slot.  Callers validate every batch's slot set before
+    applying any field, so a reordered or renamed transport result cannot
+    write text into another asset. ``None`` preserves a singleton source asset
+    and is otherwise treated as an invalid batch response.
     """
 
     def transform_assets(

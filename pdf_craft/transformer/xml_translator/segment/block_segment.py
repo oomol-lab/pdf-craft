@@ -1,6 +1,6 @@
 from collections.abc import Generator
 from dataclasses import dataclass
-from typing import cast
+from typing import TypeAlias, cast
 from xml.etree.ElementTree import Element
 
 from .common import FoundInvalidIDError, validate_id_in_element
@@ -56,8 +56,8 @@ class ImmutableBlockElement:
 @dataclass
 class BlockImmutableElementsError:
     """The fill response changed an opaque structural token sequence."""
-    expected: list[tuple[str, tuple[tuple[str, str], ...]]]
-    found: list[tuple[str, tuple[tuple[str, str], ...]]]
+    expected: list["ImmutableFingerprint"]
+    found: list["ImmutableFingerprint"]
 
 
 BlockError = (
@@ -178,7 +178,7 @@ class BlockSegment:
             block_positions.append(position)
 
         expected = [_immutable_fingerprint(item.element) for item in self._immutable_elements]
-        found: dict[tuple[str, tuple[tuple[str, str], ...]], list[int]] = {}
+        found: dict[ImmutableFingerprint, list[int]] = {}
         for child in validated_element:
             fingerprint = _immutable_fingerprint(child)
             if fingerprint in expected:
@@ -217,7 +217,23 @@ def _clone_immutable_element(element: Element) -> Element:
     return Element(element.tag, element.attrib)
 
 
-def _immutable_fingerprint(element: Element) -> tuple[str, tuple[tuple[str, str], ...]]:
-    """Return an exact, text-free identity for an immutable template node."""
+ImmutableFingerprint: TypeAlias = tuple[
+    str, tuple[tuple[str, str], ...], str, str, tuple["ImmutableFingerprint", ...],
+]
+
+
+def _immutable_fingerprint(element: Element) -> ImmutableFingerprint:
+    """Return an exact self-closing identity for an immutable template node.
+
+    Formatting whitespace in ``text``/``tail`` is ignored because a pretty
+    printed XML response necessarily gives a self-closing child a whitespace
+    tail.  Any visible text, tail text, or nested element is a protocol error.
+    """
     attributes = tuple(sorted(element.attrib.items()))
-    return element.tag, attributes
+    return (
+        element.tag,
+        attributes,
+        (element.text or "").strip(),
+        (element.tail or "").strip(),
+        tuple(_immutable_fingerprint(child) for child in element),
+    )

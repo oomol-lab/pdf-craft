@@ -350,10 +350,13 @@ def _format_block_error(error: BlockError | FoundInvalidIDError) -> str:
         return "Unknown block error. Fix: Review the block structure."
 
 
-def _format_immutable(element: tuple[str, tuple[tuple[str, str], ...]]) -> str:
-    tag, attributes = element
+def _format_immutable(element) -> str:
+    tag, attributes, text, tail, children = element
     rendered_attributes = " ".join(f'{name}="{value}"' for name, value in attributes)
-    return f"<{tag}{(' ' + rendered_attributes) if rendered_attributes else ''}/>"
+    rendered = f"<{tag}{(' ' + rendered_attributes) if rendered_attributes else ''}/>"
+    if text or tail or children:
+        return f"{rendered} (must be self-closing with no text or children)"
+    return rendered
 
 
 def _format_inline_error(encoding: Encoding, error: InlineError | FoundInvalidIDError, block_id: int) -> str:

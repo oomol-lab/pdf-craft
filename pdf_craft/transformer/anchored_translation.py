@@ -90,8 +90,9 @@ def _transform_batch(
 ) -> Sequence[AnchoredContentTranslation | None]:
     try:
         translated = transformer.transform_assets(payloads)
-        if len(translated) == len(payloads):
-            return translated
+        matched = _match_translations(payloads, translated)
+        if matched is not None:
+            return matched
     except Exception:  # Individual asset fallback is deliberately resilient.
         pass
 
@@ -99,10 +100,42 @@ def _transform_batch(
     for payload in payloads:
         try:
             translated = transformer.transform_assets((payload,))
-            result.append(translated[0] if len(translated) == 1 else None)
+            matched = _match_translations((payload,), translated)
+            result.append(matched[0] if matched is not None else None)
         except Exception:  # A failed asset remains source content.
             result.append(None)
     return result
+
+
+def _match_translations(
+    payloads: Sequence[AnchoredContent],
+    translations: Sequence[AnchoredContentTranslation | None],
+) -> list[AnchoredContentTranslation | None] | None:
+    """Bind output by stable identity instead of transport order.
+
+    ``None`` has no identity.  It is accepted only for a singleton request;
+    a mixed multi-asset response falls back to isolated calls so no unknown
+    position can accidentally preserve or overwrite another asset.
+    """
+    if len(translations) != len(payloads):
+        return None
+    if len(payloads) == 1 and translations[0] is None:
+        return [None]
+    if any(item is None for item in translations):
+        return None
+
+    expected = [payload.identity for payload in payloads]
+    if len(set(expected)) != len(expected):
+        return None
+    by_identity: dict[tuple[str, int, int], AnchoredContentTranslation] = {}
+    for translation in translations:
+        assert translation is not None
+        if translation.identity in by_identity or translation.identity not in expected:
+            return None
+        by_identity[translation.identity] = translation
+    if set(by_identity) != set(expected):
+        return None
+    return [by_identity[identity] for identity in expected]
 
 
 def _asset_slots(chapter) -> Iterable[_AssetSlot]:

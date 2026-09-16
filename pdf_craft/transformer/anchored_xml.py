@@ -6,7 +6,7 @@ from collections.abc import Sequence
 from typing import Protocol
 from xml.etree.ElementTree import Element
 
-from pdf_craft.extractor.chapter.chapter import Chapter, Reference, StandaloneAsset, decode, encode
+from pdf_craft.extractor.chapter.chapter import Chapter, Reference, SourceAsset, StandaloneAsset, decode, encode
 from pdf_craft.markdown.paragraph import HTMLTag, flatten
 from pdf_craft.transformer.chapter_formula_interrupter import ChapterFormulaInterrupter
 from pdf_craft.transformer.xml_translator.xml_translator import SubmitKind, TranslationTask
@@ -54,8 +54,11 @@ class AnchoredContentXMLTransformer:
         asset_elements = element.findall("flow/standalone-asset/asset")
         if len(asset_elements) != len(assets):
             return (None,) * len(assets)
-        for index, (asset, item) in enumerate(zip(asset_elements, assets, strict=True)):
-            asset.set("translation_slot", str(index))
+        expected_slots = {_slot_key(item): item.identity for item in assets}
+        if len(expected_slots) != len(assets):
+            return (None,) * len(assets)
+        for asset, item in zip(asset_elements, assets, strict=True):
+            asset.set("translation_slot", _slot_key(item))
             if item.context:
                 context = Element("translation-context", {"display": "inline"})
                 context.text = item.context
@@ -79,9 +82,8 @@ class AnchoredContentXMLTransformer:
             interrupt_translated_text_segments=formula_interrupter.interrupt_translated_text_segments,
             interrupt_block_element=formula_interrupter.interrupt_block_element,
         )
-        _remove_translation_context(translated)
-        translated_assets = _decode_assets(translated)
-        if len(translated_assets) != len(assets):
+        translated_assets = _decode_assets_by_slot(translated, expected_slots)
+        if translated_assets is None:
             return (None,) * len(assets)
 
         source_references = {
@@ -93,11 +95,12 @@ class AnchoredContentXMLTransformer:
         }
         return tuple(
             AnchoredContentTranslation(
+                identity,
                 _restore_source_references(asset.title, source_references),
                 _restore_source_references(asset.content, source_references),
                 _restore_source_references(asset.caption, source_references),
             )
-            for asset in translated_assets
+            for identity, asset in ((item.identity, translated_assets[item.identity]) for item in assets)
         )
 
 
@@ -106,23 +109,46 @@ def _batch_id(assets: Sequence[AnchoredContent]) -> str:
     return f"anchored-{first.chapter_id}-{first.flow_index}-{first.child_index}"
 
 
+def _slot_key(item: AnchoredContent) -> str:
+    chapter_id, flow_index, child_index = item.identity
+    return f"{chapter_id}:{flow_index}:{child_index}"
+
+
 def _remove_translation_context(root: Element) -> None:
     for parent in root.iter():
         for child in list(parent):
             if child.tag == "translation-context":
                 parent.remove(child)
-    for asset in root.iter("asset"):
-        asset.attrib.pop("translation_slot", None)
 
 
-def _decode_assets(root: Element):
+def _decode_assets_by_slot(
+    root: Element,
+    expected_slots: dict[str, tuple[str, int, int]],
+) -> dict[tuple[str, int, int], SourceAsset] | None:
+    wrappers = root.findall("flow/standalone-asset")
+    if len(wrappers) != len(expected_slots):
+        return None
+    slot_keys: list[str] = []
+    for wrapper in wrappers:
+        assets = wrapper.findall("asset")
+        if len(assets) != 1:
+            return None
+        slot = assets[0].get("translation_slot")
+        if slot is None or slot not in expected_slots or slot in slot_keys:
+            return None
+        slot_keys.append(slot)
+    if set(slot_keys) != set(expected_slots):
+        return None
+
+    _remove_translation_context(root)
     chapter = decode(root)
-    result = []
-    for item in chapter.flow_items:
+    result: dict[tuple[str, int, int], SourceAsset] = {}
+    for slot, item in zip(slot_keys, chapter.flow_items, strict=True):
         if not isinstance(item, StandaloneAsset):
-            return ()
-        result.append(item.asset)
-    return tuple(result)
+            return None
+        identity = expected_slots[slot]
+        result[identity] = item.asset
+    return result
 
 
 def _restore_source_references(content, references: dict[tuple[int, int], Reference]):

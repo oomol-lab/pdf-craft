@@ -140,8 +140,8 @@ The following classes are exposed for applications that need custom structured t
 | Type | Role |
 | --- | --- |
 | `ChapterXMLTransformer` | Adapts XML-oriented work to chapter transformation. |
-| `AnchoredContentXMLTransformer` | Adapts XML-oriented work to independent image/table text translation. |
-| `AnchoredContentTransformer` | Protocol for contextual batches of extracted image/table text. |
+| `AnchoredContentXMLTransformer` | Adapts XML-oriented work to independent image/table text translation, validating each immutable asset slot before applying fields. |
+| `AnchoredContentTransformer` | Protocol for contextual batches of extracted image/table text; every non-preserved result carries its source `identity`. |
 | `ChapterExtractionTransformer` | Applies a chapter transformer across an extraction and writes a new `.pcex`. |
 | `ExtractionTransformer` | Public protocol for `transform(extraction, output_path) -> PDFCraftExtraction`. |
 | `XMLTranslator` | XML-aware translation engine for integrations that need direct structured translation. |
