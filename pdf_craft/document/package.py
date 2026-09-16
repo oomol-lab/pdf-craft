@@ -286,7 +286,8 @@ def write_pages(root: Path, *, render_dpi: int, page_pixel_sizes: dict[int, tupl
 def _validate_workspace(paths: ExtractionPaths, *, require_toc: bool = False) -> None:
     # Import lazily because the extractor package imports the public document API.
     from ..extractor.chapter.chapter import (
-        SourceTextFragment, TextFlowItem, decode as decode_chapter,
+        SourceAsset, SourceTextFragment, StandaloneAsset, TextFlowItem,
+        decode as decode_chapter,
     )
     from ..extractor.toc.types import decode as decode_toc
 
@@ -318,6 +319,7 @@ def _validate_workspace(paths: ExtractionPaths, *, require_toc: bool = False) ->
 
     chapter_paths = list(paths.chapters.glob("chapter_*.xml"))
     narrative_identities: set[tuple[str, str, str]] = set()
+    anchored_identities: set[tuple[str, int, int]] = set()
     for path in chapter_paths:
         if path.name != "chapter_head.xml":
             suffix = path.stem.removeprefix("chapter_")
@@ -339,6 +341,16 @@ def _validate_workspace(paths: ExtractionPaths, *, require_toc: bool = False) ->
                 str(first.page_index),
                 str(first.source_order),
             ))
+        chapter_identity = str(chapter.id) if chapter.id is not None else "head"
+        for flow_index, item in enumerate(chapter.flow_items):
+            if isinstance(item, TextFlowItem):
+                anchored_identities.update(
+                    (chapter_identity, flow_index, child_index)
+                    for child_index, child in enumerate(item.children)
+                    if isinstance(child, SourceAsset) and child.ref in {"image", "table"}
+                )
+            elif isinstance(item, StandaloneAsset) and item.asset.ref in {"image", "table"}:
+                anchored_identities.add((chapter_identity, flow_index, -1))
         for element in root.iter():
             page_index = element.get("page_index")
             det = element.get("bbox", element.get("det"))
@@ -359,7 +371,9 @@ def _validate_workspace(paths: ExtractionPaths, *, require_toc: bool = False) ->
                 if not (paths.assets / f"{asset_hash}.png").is_file():
                     raise ValueError(f"{path.name} references missing asset: {asset_hash}.png")
     if paths.translation.exists():
-        _validate_translation(paths.translation, paths.furnitures, narrative_identities)
+        _validate_translation(
+            paths.translation, paths.furnitures, narrative_identities, anchored_identities,
+        )
 
 
 def _read_manifest(path: Path) -> dict[str, Any]:
@@ -537,6 +551,7 @@ def _validate_translation(
     path: Path,
     furnitures_path: Path,
     narrative_identities: set[tuple[str, str, str]],
+    anchored_identities: set[tuple[str, int, int]],
 ) -> None:
     """Validate the optional translation coverage sidecar.
 
@@ -546,8 +561,12 @@ def _validate_translation(
     """
     root = _require_xml_root(path, "translation")
     tags = [child.tag for child in root]
-    if tags not in (["narrative"], ["furnitures"], ["narrative", "furnitures"]):
-        raise ValueError("translation.xml must contain narrative and/or furnitures coverage")
+    if tags not in (
+        ["narrative"], ["furnitures"], ["anchored"],
+        ["narrative", "furnitures"], ["narrative", "anchored"],
+        ["furnitures", "anchored"], ["narrative", "furnitures", "anchored"],
+    ):
+        raise ValueError("translation.xml has unsupported coverage sections")
 
     narrative = root.find("narrative")
     seen_narrative: set[tuple[str, str, str]] = set()
@@ -562,44 +581,66 @@ def _validate_translation(
         seen_narrative.add(identity)
 
     furnitures = root.find("furnitures")
-    if furnitures is None:
-        return
-    if not furnitures_path.is_file():
-        raise ValueError("translation.xml furniture coverage requires furnitures.xml")
-    furniture_root = _require_xml_root(furnitures_path, "furnitures")
+    if furnitures is not None:
+        if not furnitures_path.is_file():
+            raise ValueError("translation.xml furniture coverage requires furnitures.xml")
+        furniture_root = _require_xml_root(furnitures_path, "furnitures")
 
-    positions = {
-        (pattern.get("id", ""), position.get("id", ""))
-        for pattern in furniture_root.find("patterns") or []
-        for position in pattern
-    }
-    sections = {
-        (page.get("index", ""), section.get("det", ""))
-        for page in furniture_root.find("pages") or []
-        for section in page
-        if not list(section)
-    }
-    seen_positions: set[tuple[str, str]] = set()
-    seen_sections: set[tuple[str, str]] = set()
-    for entry in furnitures:
-        if entry.tag == "position":
-            if set(entry.attrib) != {"pattern_id", "position_id", "state"}:
-                raise ValueError("translation.xml has invalid furniture position")
-            identity = (entry.get("pattern_id", ""), entry.get("position_id", ""))
-            if identity not in positions or identity in seen_positions:
-                raise ValueError("translation.xml references an invalid furniture position")
-            seen_positions.add(identity)
-        elif entry.tag == "section":
-            if set(entry.attrib) != {"page_index", "det", "state"}:
-                raise ValueError("translation.xml has invalid furniture section")
-            identity = (entry.get("page_index", ""), entry.get("det", ""))
-            if identity not in sections or identity in seen_sections:
-                raise ValueError("translation.xml references an invalid furniture section")
-            seen_sections.add(identity)
-        else:
-            raise ValueError("translation.xml has invalid furniture entry")
+        positions = {
+            (pattern.get("id", ""), position.get("id", ""))
+            for pattern in furniture_root.find("patterns") or []
+            for position in pattern
+        }
+        sections = {
+            (page.get("index", ""), section.get("det", ""))
+            for page in furniture_root.find("pages") or []
+            for section in page
+            if not list(section)
+        }
+        seen_positions: set[tuple[str, str]] = set()
+        seen_sections: set[tuple[str, str]] = set()
+        for entry in furnitures:
+            if entry.tag == "position":
+                if set(entry.attrib) != {"pattern_id", "position_id", "state"}:
+                    raise ValueError("translation.xml has invalid furniture position")
+                identity = (entry.get("pattern_id", ""), entry.get("position_id", ""))
+                if identity not in positions or identity in seen_positions:
+                    raise ValueError("translation.xml references an invalid furniture position")
+                seen_positions.add(identity)
+            elif entry.tag == "section":
+                if set(entry.attrib) != {"page_index", "det", "state"}:
+                    raise ValueError("translation.xml has invalid furniture section")
+                identity = (entry.get("page_index", ""), entry.get("det", ""))
+                if identity not in sections or identity in seen_sections:
+                    raise ValueError("translation.xml references an invalid furniture section")
+                seen_sections.add(identity)
+            else:
+                raise ValueError("translation.xml has invalid furniture entry")
+            if entry.get("state") not in {"translated", "preserved"}:
+                raise ValueError("translation.xml has invalid furniture coverage state")
+
+    anchored = root.find("anchored")
+    if anchored is None:
+        return
+    seen_anchored: set[tuple[str, int, int]] = set()
+    for entry in anchored:
+        if entry.tag != "asset" or set(entry.attrib) != {
+            "chapter_id", "flow_index", "child_index", "state",
+        }:
+            raise ValueError("translation.xml has invalid anchored asset")
+        try:
+            identity = (
+                entry.get("chapter_id", ""),
+                int(entry.get("flow_index", "")),
+                int(entry.get("child_index", "")),
+            )
+        except ValueError as error:
+            raise ValueError("translation.xml has invalid anchored asset identity") from error
+        if identity not in anchored_identities or identity in seen_anchored:
+            raise ValueError("translation.xml references an invalid anchored asset")
         if entry.get("state") not in {"translated", "preserved"}:
-            raise ValueError("translation.xml has invalid furniture coverage state")
+            raise ValueError("translation.xml has invalid anchored coverage state")
+        seen_anchored.add(identity)
 
 
 def _require_xml_root(path: Path, expected: str) -> ElementTree.Element:

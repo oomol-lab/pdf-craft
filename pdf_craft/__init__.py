@@ -28,6 +28,11 @@ from .pipeline.pdf import (
     QTextParagraphFiller,
 )
 from .transformer import (
+    AnchoredContent,
+    AnchoredContentExtractionTransformer,
+    AnchoredContentTransformer,
+    AnchoredContentTranslation,
+    AnchoredContentXMLTransformer,
     ChapterExtractionTransformer,
     ChapterXMLTransformer,
     ExtractionTransformer,

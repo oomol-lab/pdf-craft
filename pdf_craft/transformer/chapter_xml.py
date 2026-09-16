@@ -2,8 +2,14 @@ from collections.abc import Callable
 from typing import Protocol
 from xml.etree.ElementTree import Element
 
-from pdf_craft.extractor.chapter.chapter import Chapter, decode, encode
+from pdf_craft.extractor.chapter.chapter import (
+    Chapter, DisplayFormula, InlineExpression, SourceTextFragment, TextFlowItem,
+    decode, encode,
+    search_references_in_chapter,
+)
+from pdf_craft.markdown.paragraph import flatten
 from pdf_craft.transformer.xml_translator.segment import search_text_segments
+from pdf_craft.transformer.xml_translator.xml import clone_element
 from pdf_craft.transformer.events import TranslationEvent, TranslationItemKind
 from .chapter_formula_interrupter import ChapterFormulaInterrupter
 from .xml_translator.xml_translator import SubmitKind, TranslationTask
@@ -43,8 +49,10 @@ class ChapterXMLTransformer:
         # OCR can produce chapters for pages that contain no translatable text.
         # Keep those chapters intact instead of asking XMLTranslator to process
         # an empty stream, which otherwise raises "Translation failed unexpectedly".
-        if not any(segment.text.strip() for segment in search_text_segments(element)):
+        if not self.has_translatable_content(chapter):
             return chapter
+        anchors = _NarrativeAnchorProjection(element)
+        anchors.replace_assets()
         formula_interrupter = ChapterFormulaInterrupter()
         translated, _ = self._translator.translate_element(
             TranslationTask(
@@ -64,8 +72,42 @@ class ChapterXMLTransformer:
             interrupt_translated_text_segments=formula_interrupter.interrupt_translated_text_segments,
             interrupt_block_element=formula_interrupter.interrupt_block_element,
         )
+        anchors.restore_assets(translated)
         _restore_fragment_owned_inline_expressions(translated)
         return decode(translated)
+
+    def source_character_count(self, chapter: Chapter) -> int:
+        """Count the NarrativeFlow payload, excluding anchored asset text."""
+        element = encode(chapter)
+        anchors = _NarrativeAnchorProjection(element)
+        anchors.replace_assets()
+        return sum(len(segment.text) for segment in search_text_segments(element))
+
+    @staticmethod
+    def has_translatable_content(chapter: Chapter) -> bool:
+        """Return whether narrative text or a display formula needs translation.
+
+        Embedded image/table metadata deliberately does not make a chapter a
+        NarrativeFlow translation task. It belongs to the independent
+        AnchoredContent stage.
+        """
+        flows = [chapter.flow_items]
+        flows.extend(reference.flow_items for reference in search_references_in_chapter(chapter))
+        for flow_items in flows:
+            for item in flow_items:
+                if isinstance(item, TextFlowItem):
+                    if any(
+                        _content_has_text(child.content)
+                        for child in item.children
+                        if isinstance(child, SourceTextFragment)
+                    ):
+                        return True
+                elif isinstance(item, DisplayFormula) and any(
+                    _content_has_text(content)
+                    for content in (item.asset.title, item.asset.content, item.asset.caption)
+                ):
+                    return True
+        return False
 
 
 def _restore_fragment_owned_inline_expressions(chapter: Element) -> None:
@@ -93,3 +135,70 @@ def _restore_fragment_owned_inline_expressions(chapter: Element) -> None:
                 )
                 if not duplicate:
                     owner.append(child)
+
+
+_ANCHOR_TAG = "anchor"
+_ANCHOR_KEY = "anchor_key"
+_ANCHOR_TEXT = " [anchored content] "
+
+
+class _NarrativeAnchorProjection:
+    """Temporarily substitute embedded assets with opaque translation anchors.
+
+    XMLTranslator's existing ID/template validation keeps these marker nodes
+    structurally stable through its repair loop.  The source asset is restored
+    only after that validated round trip, so no image/table field can leak into
+    the NarrativeFlow prompt or be overwritten by its result.
+    """
+
+    def __init__(self, root: Element) -> None:
+        self._root = root
+        self._assets: list[tuple[str, Element]] = []
+
+    def replace_assets(self) -> None:
+        for parent in self._root.iter():
+            for child in list(parent):
+                if child.tag != "asset" or child.get("ref") not in {"image", "table"}:
+                    continue
+                key = str(len(self._assets))
+                anchor = Element(_ANCHOR_TAG, {_ANCHOR_KEY: key})
+                anchor.text = _ANCHOR_TEXT
+                anchor.tail = child.tail
+                index = list(parent).index(child)
+                parent.remove(child)
+                parent.insert(index, anchor)
+                self._assets.append((key, clone_element(child)))
+
+    def restore_assets(self, translated: Element) -> None:
+        expected = [key for key, _ in self._assets]
+        found: list[tuple[Element, Element, str]] = []
+        for parent in translated.iter():
+            for child in parent:
+                if child.tag == _ANCHOR_TAG:
+                    key = child.get(_ANCHOR_KEY)
+                    if key is not None:
+                        found.append((parent, child, key))
+
+        found_keys = [key for _, _, key in found]
+        if found_keys != expected:
+            raise ValueError(
+                "Narrative translation changed anchored-content structure; "
+                "expected immutable anchor order "
+                f"{expected}, got {found_keys}"
+            )
+
+        for (parent, anchor, _), (_, asset) in zip(found, self._assets, strict=True):
+            index = list(parent).index(anchor)
+            restored = clone_element(asset)
+            restored.tail = anchor.tail
+            parent.remove(anchor)
+            parent.insert(index, restored)
+
+
+def _content_has_text(content) -> bool:
+    """Return whether a structured text field has visible source content."""
+    return any(
+        (isinstance(part, str) and part.strip())
+        or (isinstance(part, InlineExpression) and part.content.strip())
+        for part in flatten(content)
+    )

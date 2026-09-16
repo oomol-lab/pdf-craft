@@ -74,7 +74,7 @@ book.pcex                       # ZIP archive using Deflate compression
 ├── toc.xml                     # optional: hierarchical table of contents
 ├── cover.png                   # optional: cover image
 ├── furnitures.xml              # optional: page-furniture patterns and sections
-└── translation.xml             # optional: furniture translation coverage
+└── translation.xml             # optional: Narrative, furniture, and asset-text coverage
 ```
 
 The archive root and its two subdirectories may not contain members other than those shown above. Member names are case-sensitive. The `.pcex` suffix check on the public file path is case-insensitive.
@@ -88,7 +88,7 @@ The archive root and its two subdirectories may not contain members other than t
 | `toc.xml` | No | TOC tree and printed-TOC pages | EPUB renderer and chapter relationships |
 | `cover.png` | No | Cover image | Markdown and EPUB renderers |
 | `furnitures.xml` | No | Page-furniture patterns and page-local sections | Furniture translation and future PDF patching |
-| `translation.xml` | No | `translated` / `preserved` coverage for furniture patch units | Future PDF patching |
+| `translation.xml` | No | `translated` / `preserved` coverage for Narrative, furniture, and image/table text units | Future PDF patching and renderers |
 
 JSON and XML written by pdf-craft use UTF-8. XML files include an `<?xml version="1.0" encoding="UTF-8"?>` declaration. Paths inside the ZIP use `/` as their separator.
 
@@ -188,6 +188,16 @@ translated = craft.translate_extraction(
 `translate_extraction()` creates a new `.pcex`. It preserves the source archive's manifest, page geometry, TOC, cover, and assets, and rewrites only the chapter XML processed by the transformer. The output path must end in `.pcex` and must not already exist.
 
 When an extraction contains `furnitures.xml`, `translate_furnitures()` is the distinct follow-up operation for that page-oriented content. It resolves furniture linked by `toc_id` from translated NarrativeFlow headings, translates reusable pattern positions once and unbound sections in page scope, and records patch eligibility in `translation.xml`. It is intentionally not part of `translate_extraction()` or the EPUB, Markdown, and PDF convenience workflows.
+
+`translate_extraction()` treats every image/table asset, including one nested
+in `<text>`, as an opaque anchor. Its title, content, and caption are not included in the NarrativeFlow
+prompt; a temporary, immutable position marker preserves the surrounding
+paragraph structure through XML repair. Use the separate
+`translate_anchored_contents()` stage to translate the extracted text fields
+of image/table assets. It receives only small asset batches with nearby source
+text as transient context, records `<anchored><asset .../></anchored>` coverage
+in `translation.xml`, and never claims that unextracted visual text was
+translated.
 
 Variable folios are represented structurally rather than as the text of a reusable pattern position: a folio `position` has `folio_style` (`D`, `R`, `r`, `A`, or `a`) and `folio_offset`, with optional `folio_prefix` and `folio_suffix`. Its associated page sections retain the actual printed label. During furniture translation, only the fixed decoration is translated; PDF patching reconstructs the number from each associated page and its offset. This prevents a sample page number from being translated once and incorrectly stamped onto every page that shares the position.
 

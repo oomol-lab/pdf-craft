@@ -16,13 +16,14 @@
 
 公开中间格式为 `PDFCraftExtraction`，持久化与交换载体必须是 `.pcex` ZIP。其内容为
 `manifest.json`、`pages.xml`、`chapters/`、`assets/`，以及可选 `toc.xml`、`cover.png`、
-`furnitures.xml`。完成 furniture 翻译后，`translation.xml` 记录可安全回填的 furniture
-覆盖状态。
+`furnitures.xml`。`translation.xml` 记录 Narrative、furniture 与独立 asset 文本翻译的覆盖状态。
 
 PCEX chapter 的阅读流使用 `FlowItem`：`TextFlowItem` 是作者意义的正文/标题段，包含保留
 来源 bbox 的 `SourceTextFragment`，并可在 fragment 之间嵌入图片/表格 `SourceAsset`。
 `DisplayFormula` 与 `StandaloneAsset` 是独立 flow node；段落公式不是 AnchoredContent，必须
 阻断段落拼接。类名与 chapter XML 元素一一对应，详见 `docs/*/PCEX_FORMAT.md`。
+Narrative 翻译把图片/表格替换为仅保留位置的临时 anchor，不能读取或覆写 asset 文本；
+`AnchoredContentTransformer` 是另一条按 asset 小批次工作的翻译边界，负责 title/content/caption。
 目录-backed 形态只供一键转换在 `analysing_path/extraction/` 内部衔接前后端；普通目录不是
 公开输入。`ocr/`、`plots/`、`done` 和其他 analysis 文件仅是可丢弃的诊断/恢复缓存。
 
@@ -35,6 +36,7 @@ analysis/OCR 缓存。
 - `PDFCraft`、`PDFOptions`、`ExtractionOptions`、`PDFCraftExtraction`
 - `PDFExtractor`、`MarkdownRenderer`、`EpubRenderer`
 - `ExtractionTransformer`、`ChapterExtractionTransformer`、`ChapterXMLTransformer`
+- `AnchoredContentExtractionTransformer`、`AnchoredContentTransformer`、`AnchoredContentXMLTransformer`
 - `predownload_models`
 - `LLM`
 - `DeepSeekOCRLocalConfig`、`DeepSeekOCR2LocalConfig`、`UnlimitedOCRLocalConfig`
