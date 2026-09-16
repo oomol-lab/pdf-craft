@@ -1,5 +1,5 @@
 from collections.abc import Callable
-from typing import Protocol
+from typing import Protocol, cast
 from xml.etree.ElementTree import Element
 
 from pdf_craft.extractor.chapter.chapter import (
@@ -15,6 +15,7 @@ from pdf_craft.transformer.xml_translator.xml.const import ID_KEY
 from pdf_craft.transformer.xml_translator.utils import normalize_whitespace
 from pdf_craft.transformer.events import TranslationEvent, TranslationItemKind
 from .chapter_formula_interrupter import ChapterFormulaInterrupter
+from .furniture_xml import FurnitureXMLTransformer, XMLTaskTranslator as FurnitureXMLTaskTranslator
 from .xml_translator.xml_translator import SubmitKind, TranslationTask
 
 
@@ -36,6 +37,12 @@ class ChapterXMLTransformer:
     def with_mode(self, mode: SubmitKind) -> "ChapterXMLTransformer":
         """Return a transformer using the requested XML submission mode."""
         return ChapterXMLTransformer(self._translator, mode)
+
+    def _furniture_transformer(self) -> "FurnitureXMLTransformer":
+        """Build the private furniture adapter over this XML translation runtime."""
+        return FurnitureXMLTransformer(
+            cast(FurnitureXMLTaskTranslator, self._translator), self._mode,
+        )
 
     def transform(
         self,

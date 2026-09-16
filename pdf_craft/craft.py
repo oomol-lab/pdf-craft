@@ -5,7 +5,7 @@
 
 from collections.abc import Callable, Container
 from contextlib import contextmanager
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from os import PathLike
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -30,11 +30,12 @@ from .transformer import (
     ChapterTransformer,
     AnchoredContentExtractionTransformer,
     AnchoredContentTransformer,
-    FurnitureExtractionTransformer,
-    FurnitureTransformer,
     SubmitKind,
     TranslationEvent,
 )
+from .transformer.chapter_xml import ChapterXMLTransformer
+from .transformer.furniture_xml import FurnitureXMLTransformer
+from .transformer.package import FurnitureExtractionTransformer
 
 
 @dataclass(frozen=True)
@@ -59,7 +60,7 @@ class ExtractionOptions:
     max_ocr_output_tokens: int | None = None
     includes_cover: bool = False
     includes_footnotes: bool = False
-    includes_furniture: bool = False
+    includes_furniture: bool = True
     extract_book_metadata: bool = False
     metadata_llm: LLM | None = None
     generate_plot: bool = False
@@ -135,34 +136,37 @@ class PDFCraft:
         self, extraction: PDFCraftExtraction | PathLike | str, output_path: PathLike | str,
         translator: ChapterTransformer,
         *, submit: SubmitKind = SubmitKind.REPLACE,
+        with_furniture: bool = False,
         on_translation_event: Callable[[TranslationEvent], None] | None = None,
     ) -> PDFCraftExtraction:
         """Translate one PDFCraftExtraction into another ``.pcex`` artifact.
 
-        The public operation is intentionally singular and translation-focused;
-        arbitrary transformation chains remain an internal composition detail.
+        ``with_furniture`` composes the page-furniture pass into the same public
+        operation.  It is intentionally separate from extraction's
+        ``includes_furniture``: an existing pcex may or may not contain that
+        optional source layer.
         """
+        source = _ensure_extraction(extraction)
+        target = Path(output_path)
         extraction_transformer = ChapterExtractionTransformer(translator, mode=submit)
-        return extraction_transformer.transform(
-            _ensure_extraction(extraction), Path(output_path), on_translation_event=on_translation_event,
-            emit_translation_events=True,
-        )
-
-    def translate_furnitures(
-        self,
-        extraction: PDFCraftExtraction | PathLike | str,
-        output_path: PathLike | str,
-        transformer: FurnitureTransformer,
-    ) -> PDFCraftExtraction:
-        """Translate page furniture in an already NarrativeFlow-translated pcex.
-
-        This deliberately remains a separate pcex-to-pcex operation.  Callers
-        that know they will patch a PDF can compose it later; EPUB and Markdown
-        routes can retain their NarrativeFlow-only behavior.
-        """
-        return FurnitureExtractionTransformer(transformer).transform(
-            _ensure_extraction(extraction), Path(output_path)
-        )
+        if not with_furniture:
+            return extraction_transformer.transform(
+                source, target, on_translation_event=on_translation_event,
+                emit_translation_events=True,
+            )
+        if target.suffix.lower() != ".pcex":
+            raise ValueError("PDFCraftExtraction path must end with .pcex")
+        furniture_transformer = _furniture_transformer_for(extraction_transformer.chapter_transformer)
+        with TemporaryDirectory(prefix="pdf-craft-translated-extraction-") as directory:
+            root = Path(directory)
+            narrative = extraction_transformer._transform_to_workspace(
+                source, root / "narrative", on_translation_event=on_translation_event,
+                emit_translation_events=True,
+            )
+            translated = FurnitureExtractionTransformer(furniture_transformer)._transform_to_workspace(
+                narrative, root / "translated",
+            )
+            return translated.export(target)
 
     def translate_anchored_contents(
         self,
@@ -191,12 +195,14 @@ class PDFCraft:
         self, source: PathLike | str, extraction: PDFCraftExtraction | PathLike | str,
         output: PathLike | str, transformer: ChapterTransformer,
         *,
+        with_furniture: bool = False,
         on_translation_event: Callable[[TranslationEvent], None] | None = None,
         ignore_errors: IgnoreFillErrorsChecker = False,
     ) -> None:
         with TemporaryDirectory(prefix="pdf-craft-translated-extraction-") as directory:
-            translated = self._translate_for_pdf(
-                _ensure_extraction(extraction), Path(directory), transformer,
+            translated = self.translate_extraction(
+                _ensure_extraction(extraction), Path(directory) / "translated.pcex", transformer,
+                with_furniture=with_furniture,
                 on_translation_event=on_translation_event,
             )
             self.patch_pdf_with_extraction(source, translated, output, ignore_errors=ignore_errors)
@@ -233,6 +239,7 @@ class PDFCraft:
         submit: SubmitKind = SubmitKind.REPLACE,
         on_translation_event: Callable[[TranslationEvent], None] | None = None,
     ) -> OCRTokensMetering:
+        extraction = replace(extraction or ExtractionOptions(), includes_furniture=False)
         with _analysis_workspace(analysing_path) as workspace:
             document, metering = self._extract_to_workspace(source, workspace, extraction)
             if extraction_path is not None:
@@ -244,10 +251,10 @@ class PDFCraft:
                         submit=submit, on_translation_event=on_translation_event,
                     )
                     self.render_markdown(document, output, assets_path,
-                                         aborted=(extraction or ExtractionOptions()).aborted)
+                                         aborted=extraction.aborted)
             else:
                 self.render_markdown(document, output, assets_path,
-                                     aborted=(extraction or ExtractionOptions()).aborted)
+                                     aborted=extraction.aborted)
         return metering
 
     def convert_pdf_to_epub(
@@ -263,7 +270,7 @@ class PDFCraft:
         submit: SubmitKind = SubmitKind.REPLACE,
         on_translation_event: Callable[[TranslationEvent], None] | None = None,
     ) -> OCRTokensMetering:
-        extraction = extraction or ExtractionOptions()
+        extraction = replace(extraction or ExtractionOptions(), includes_furniture=False)
         with _analysis_workspace(analysing_path) as workspace:
             document, metering = self._extract_to_workspace(source, workspace, extraction)
             if extraction_path is not None:
@@ -282,18 +289,6 @@ class PDFCraft:
                                  table_render=table_render, latex_render=latex_render,
                                  inline_latex=inline_latex, aborted=extraction.aborted)
         return metering
-
-    def _translate_for_pdf(
-        self,
-        extraction: PDFCraftExtraction,
-        output_root: Path,
-        transformer: ChapterTransformer,
-        *, on_translation_event: Callable[[TranslationEvent], None] | None = None,
-    ) -> PDFCraftExtraction:
-        return self._translate_to_workspace(
-            extraction, output_root / "translated", transformer,
-            on_translation_event=on_translation_event,
-        )
 
     def _translate_to_workspace(
         self,
@@ -393,6 +388,13 @@ def _validate_extraction_for_pdf(source: Path, extraction: PDFCraftExtraction) -
 def _ignore_errors_requested(checker: IgnoreFillErrorsChecker) -> bool:
     """Defer page-addressable validation when a fill recovery policy exists."""
     return checker is True or callable(checker)
+
+
+def _furniture_transformer_for(transformer: ChapterTransformer) -> FurnitureXMLTransformer:
+    """Reuse the XML translation runtime for the optional furniture pass."""
+    if not isinstance(transformer, ChapterXMLTransformer):
+        raise ValueError("with_furniture=True requires a ChapterXMLTransformer")
+    return transformer._furniture_transformer()
 
 
 def _ensure_extraction(value: PDFCraftExtraction | PathLike | str) -> PDFCraftExtraction:

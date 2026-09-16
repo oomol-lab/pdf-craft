@@ -158,19 +158,18 @@ craft.translate_pdf(
     extraction,
     "translated.pdf",
     translator,
+    with_furniture=True,  # 同时翻译 PCEX 中已有的页眉、页脚和页码
     ignore_errors=True,  # 某页写回失败时保留该页视觉底图
 )
 ```
 
 PDF 写回使用章节中的页面来源和边界框信息，因此不需要重新设计页面布局。`translator`
-可以是章节变换器，也可以是接收文本并返回译文的 callable：
+必须是结构化章节变换器，不能是接收字符串并返回译文的 callable。
 
-```python
-def translator(text: str) -> str:
-    return call_text_llm(text)
-
-craft.translate_pdf("input.pdf", extraction, "translated.pdf", translator)
-```
+`with_furniture` 默认是 `False`，因为翻译页面 furniture 会增加一次 LLM 工作。仅当 PCEX
+已含有 `furnitures.xml` 且使用 `ChapterXMLTransformer` 时才开启；通常直接 PDF → PCEX 时，默认的
+`ExtractionOptions.includes_furniture=True` 会保留它。PDF → Markdown / EPUB 的便利流程会明确
+不提取、不翻译 furniture，因为这两种输出不渲染固定页面 furniture。
 
 PDF 输出不接受 `APPEND_BLOCK` 模式，因为 PDF pipeline 不能在原页面中安全追加新的块级内容。
 

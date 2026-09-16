@@ -4,15 +4,18 @@ from argparse import Namespace
 from datetime import datetime
 from pathlib import Path
 import tempfile
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
+from pdf_craft import OCRTokensMetering
 from pdf_craft_tool.cli import (
+    _ExtractionResult,
     _page_indexes,
     _parser,
     _record_pdf_cache_owner,
     _resolve_ocr_size,
     _run_matrix,
     _smoke_exit_code,
+    _translate_pdf,
     _validate_ocr_size,
     _work_dir,
 )
@@ -28,6 +31,53 @@ class TestPDFCraftTool(unittest.TestCase):
         ])
         self.assertTrue(args.book_metadata)
         self.assertEqual(args.metadata_llm, "metadata")
+
+    def test_furniture_is_only_an_opt_in_pdf_translation_flag(self):
+        translated = _parser().parse_args([
+            "pdf", "translate", "source.pdf", "zh", "--with-furniture",
+        ])
+        self.assertTrue(translated.with_furniture)
+        self.assertFalse(hasattr(translated, "furniture"))
+
+        package = _parser().parse_args([
+            "package", "translate", "source.pcex", "zh", "--with-furniture",
+        ])
+        self.assertTrue(package.with_furniture)
+
+        converted = _parser().parse_args([
+            "pdf", "convert", "source.pdf", "--format", "epub",
+        ])
+        self.assertFalse(hasattr(converted, "with_furniture"))
+
+    def test_pdf_translation_rejects_furniture_for_non_pdf_output(self):
+        args = _parser().parse_args([
+            "pdf", "translate", "source.pdf", "zh", "--format", "epub", "--with-furniture",
+        ])
+        with self.assertRaisesRegex(SystemExit, "only with --format pdf"):
+            _translate_pdf(args)
+
+    def test_pdf_translation_forwards_furniture_to_extraction_and_patching(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            args = _parser().parse_args([
+                "pdf", "translate", str(root / "source.pdf"), "zh",
+                "--work-dir", str(root / "work"), "--with-furniture",
+            ])
+            craft = Mock()
+            result = _ExtractionResult(
+                craft=craft,
+                extraction=Mock(),
+                path=root / "work" / "book.pcex",
+                metering=OCRTokensMetering(0, 0),
+            )
+            transformer = Mock()
+            with patch("pdf_craft_tool.cli._extract", return_value=result) as extract, patch(
+                "pdf_craft_tool.cli._xml_transformer", return_value=transformer,
+            ):
+                _translate_pdf(args)
+
+            self.assertEqual(extract.call_args.kwargs["includes_furniture"], True)
+            self.assertEqual(craft.translate_pdf.call_args.kwargs["with_furniture"], True)
 
     def test_smoke_exit_code_rejects_failed_and_skipped_reports(self):
         with tempfile.TemporaryDirectory() as directory:

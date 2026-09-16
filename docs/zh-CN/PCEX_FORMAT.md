@@ -183,13 +183,11 @@ craft.render_markdown("book.pcex", "book.md", assets_path="book-assets")
 craft.render_epub("book.pcex", "book.epub")
 
 translated = craft.translate_extraction(
-    "book.pcex", "book.zh.pcex", translator
+    "book.pcex", "book.zh.pcex", translator, with_furniture=True
 )
 ```
 
-`translate_extraction()` 创建新的 `.pcex`，保留原包的 manifest、页面几何、目录、封面和资源，只重写经过 transformer 处理的章节 XML。输出路径必须以 `.pcex` 结尾且不能已存在。
-
-若 extraction 包含 `furnitures.xml`，则可在 NarrativeFlow 翻译完成后单独调用 `translate_furnitures()`。该步骤会按 `toc_id` 使用已翻译的正文标题收敛关联 furniture，模板 position 仅翻译一次、未绑定 section 以页为范围翻译，并写入 `translation.xml` 记录未来 PDF 回填是否可覆盖。它刻意不属于 `translate_extraction()`，也不会被 EPUB、Markdown 或 PDF 的便捷工作流自动调用。
+`translate_extraction()` 创建新的 `.pcex`，保留原包的 manifest、页面几何、目录、封面和资源，并重写经过 transformer 处理的章节 XML。输出路径必须以 `.pcex` 结尾且不能已存在。其 `with_furniture` 默认是 `False`；设为 `True` 时需使用 `ChapterXMLTransformer`，且源包包含 `furnitures.xml` 时，同一操作会先翻译 NarrativeFlow，再按 `toc_id` 使用已译正文标题收敛关联 furniture，模板 position 仅翻译一次、未绑定 section 以页为范围翻译，并写入 `translation.xml` 记录未来 PDF 回填是否可覆盖。不含 `furnitures.xml` 的包会安全退化为仅翻译 NarrativeFlow。
 
 `translate_extraction()` 会把嵌在 `<text>` 内的图片/表格 asset 视为不透明、自闭合的 anchor：它们的 title、content、caption
 不会进入 NarrativeFlow 的 LLM 请求，而是以临时、不可变的位置标记维持段落前后关系，并由 XML 修复协议严格校验。`<standalone-asset>`

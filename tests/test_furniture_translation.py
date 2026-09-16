@@ -1,4 +1,4 @@
-"""Behavioral tests for the standalone furniture translation pcex step."""
+"""Behavioral tests for the internal furniture translation pass."""
 
 # pylint: disable=protected-access
 
@@ -9,12 +9,12 @@ from pathlib import Path
 from xml.etree import ElementTree
 
 from pdf_craft.common import save_xml
-from pdf_craft.craft import PDFCraft
 from pdf_craft.document import PDFCraftExtraction
 from pdf_craft.extractor.chapter.chapter import SourceTextFragment, Chapter, TextFlowItem, encode
 from pdf_craft.extractor.toc.types import Toc, TocInfo, encode as encode_toc
-from pdf_craft.transformer import FurniturePosition, FurnitureSection
-from pdf_craft.transformer import FurnitureXMLTransformer
+from pdf_craft.transformer.furniture import FurniturePosition, FurnitureSection
+from pdf_craft.transformer.furniture_xml import FurnitureXMLTransformer
+from pdf_craft.transformer.package import FurnitureExtractionTransformer
 from pdf_craft.transformer.furniture_translation import _reconcile_toc_section
 from tests.extraction_helpers import make_extraction
 
@@ -54,14 +54,14 @@ class _XMLTaskTranslator:
 
 
 class FurnitureTranslationTests(unittest.TestCase):
-    def test_translate_furnitures_reconciles_toc_and_translates_by_scope(self):
+    def test_internal_pass_reconciles_toc_and_translates_by_scope(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             source = _translated_narrative_extraction(root / "source")
             translator = _FurnitureTranslator()
 
-            translated = PDFCraft().translate_furnitures(
-                source, root / "furniture-translated.pcex", translator
+            translated = FurnitureExtractionTransformer(translator).transform(
+                source, root / "furniture-translated.pcex"
             )
 
             self.assertEqual(
@@ -121,15 +121,15 @@ class FurnitureTranslationTests(unittest.TestCase):
 
             PDFCraftExtraction.open(root / "furniture-translated.pcex").validate()
 
-    def test_translate_furnitures_without_furniture_is_a_valid_no_op(self):
+    def test_internal_pass_without_furniture_is_a_valid_no_op(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             source = make_extraction(root / "source")
             save_xml(encode(Chapter(None, -1, [])), root / "source/chapters/chapter_head.xml")
             translator = _FurnitureTranslator()
 
-            translated = PDFCraft().translate_furnitures(
-                source, root / "target.pcex", translator
+            translated = FurnitureExtractionTransformer(translator).transform(
+                source, root / "target.pcex"
             )
 
             with translated._materialize() as paths:
@@ -138,7 +138,7 @@ class FurnitureTranslationTests(unittest.TestCase):
             self.assertEqual(translator.positions, [])
             self.assertEqual(translator.pages, [])
 
-    def test_translate_furnitures_preserves_variable_folio_position(self):
+    def test_internal_pass_preserves_variable_folio_position(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             source = make_extraction(root / "source")
@@ -153,8 +153,8 @@ class FurnitureTranslationTests(unittest.TestCase):
             )
             translator = _FurnitureTranslator()
 
-            translated = PDFCraft().translate_furnitures(
-                source, root / "target.pcex", translator
+            translated = FurnitureExtractionTransformer(translator).transform(
+                source, root / "target.pcex"
             )
 
             self.assertEqual(translator.positions, [])
@@ -169,7 +169,7 @@ class FurnitureTranslationTests(unittest.TestCase):
                 self.assertEqual(coverage.get("state"), "preserved")
             translated.validate()
 
-    def test_translate_furnitures_translates_only_folio_decoration(self):
+    def test_internal_pass_translates_only_folio_decoration(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             source = make_extraction(root / "source", page_pixel_sizes={2: (100, 100)})
@@ -184,8 +184,8 @@ class FurnitureTranslationTests(unittest.TestCase):
             )
             translator = _FurnitureTranslator()
 
-            translated = PDFCraft().translate_furnitures(
-                source, root / "target.pcex", translator
+            translated = FurnitureExtractionTransformer(translator).transform(
+                source, root / "target.pcex"
             )
 
             self.assertEqual(len(translator.positions), 1)
