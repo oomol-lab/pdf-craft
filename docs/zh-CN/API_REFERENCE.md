@@ -440,9 +440,9 @@ translate_epub(
   原生 shaping、断行、字体 fallback 和字形定位；只有公式及其紧随可见空白是不可拆分原子。矢量公式
   片段携带 plain-text 的 PDF `/ActualText` 语义替代，但 pdf-craft 不生成完整 tagged PDF，不能保证
   不同阅读器中该公式相对正文的复制顺序。
-- `PDFTranslationPipeline` 可将一个 `PDFCraftExtraction` 与 `ChapterTransformer` 或
-  `Callable[[str], str]` 直接写回 PDF；其 `.patch()` 则把 extraction 已有的文字写回。这是
-  facade 的底层组成部分，普通应用无需直接构造。它只从 extraction 中带来源坐标的 `body` 和
+- `PDFTranslationPipeline` 只负责将已经翻译的 extraction `.patch()` 回 PDF。这是 facade 的
+  底层组成部分；翻译应先产生新的 PCEX，再由 `PDFCraft.translate_pdf()` 或
+  `PDFCraft.patch_pdf_with_extraction()` 编排写回。它只从 extraction 中带来源坐标的 `body` 和
   `heading` 布局收集替换项。
 
 它们都不会重排 PDF 页面；页码从 1 开始。

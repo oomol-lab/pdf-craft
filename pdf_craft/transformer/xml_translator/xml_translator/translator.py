@@ -17,6 +17,7 @@ from .stream_mapper import InlineSegmentMapping, XMLStreamMapper
 from .submitter import SubmitKind, submit
 
 T = TypeVar("T")
+SourceTextRenderer = Callable[[list[InlineSegment]], str]
 
 
 @dataclass
@@ -65,6 +66,7 @@ class XMLTranslator:
         interrupt_translated_text_segments: Callable[[Iterable[TextSegment]], Iterable[TextSegment]] | None = None,
         interrupt_block_element: Callable[[Element], Element] | None = None,
         immutable_elements_for_inline_segments: Callable[[list[InlineSegment]], list[ImmutableBlockElement]] | None = None,
+        source_text_renderer: SourceTextRenderer | None = None,
         on_fill_failed: Callable[[FillFailedEvent], None] | None = None,
         on_translation_event: Callable[[TranslationEvent], None] | None = None,
         completed_characters: int = 0,
@@ -79,6 +81,7 @@ class XMLTranslator:
             interrupt_translated_text_segments=interrupt_translated_text_segments,
             interrupt_block_element=interrupt_block_element,
             immutable_elements_for_inline_segments=immutable_elements_for_inline_segments,
+            source_text_renderer=source_text_renderer,
             on_fill_failed=on_fill_failed,
             on_translation_event=on_translation_event,
             completed_characters=completed_characters,
@@ -104,6 +107,7 @@ class XMLTranslator:
         interrupt_translated_text_segments: Callable[[Iterable[TextSegment]], Iterable[TextSegment]] | None = None,
         interrupt_block_element: Callable[[Element], Element] | None = None,
         immutable_elements_for_inline_segments: Callable[[list[InlineSegment]], list[ImmutableBlockElement]] | None = None,
+        source_text_renderer: SourceTextRenderer | None = None,
         on_fill_failed: Callable[[FillFailedEvent], None] | None = None,
         on_translation_event: Callable[[TranslationEvent], None] | None = None,
         completed_characters: int = 0,
@@ -161,6 +165,7 @@ class XMLTranslator:
                     immutable_elements_for_inline_segments(inline_segments)
                     if immutable_elements_for_inline_segments is not None else []
                 ),
+                source_text_renderer=source_text_renderer,
             ),
         ):
             task = element2task.get(id(element), None)
@@ -205,6 +210,7 @@ class XMLTranslator:
         inline_segments: list[InlineSegment],
         callbacks: Callbacks,
         immutable_elements: list[ImmutableBlockElement],
+        source_text_renderer: SourceTextRenderer | None,
     ) -> list[InlineSegmentMapping | None]:
         hill_climbing = HillClimbing(
             encoding=self._fill_llm.encoding,
@@ -215,7 +221,11 @@ class XMLTranslator:
                 immutable_elements=immutable_elements,
             ),
         )
-        source_text = "".join(self._render_source_text_parts(inline_segments))
+        source_text = (
+            source_text_renderer(inline_segments)
+            if source_text_renderer is not None
+            else "".join(self._render_source_text_parts(inline_segments))
+        )
         translated_text = self._translate_text(source_text)
 
         self._request_and_submit(

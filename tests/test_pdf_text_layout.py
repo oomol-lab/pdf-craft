@@ -1,5 +1,4 @@
 import unittest
-from dataclasses import replace
 from typing import Any, cast
 
 # pylint: disable=no-member,c-extension-no-member
@@ -10,10 +9,6 @@ from pdf_craft.pipeline.pdf import (
 )
 from pdf_craft.pipeline.pdf.geometry import PageRectangle
 from pdf_craft.pipeline.pdf.inline_formula import FormulaFragment
-from pdf_craft.pipeline.pdf.pipeline import PDFTranslationPipeline
-from pdf_craft.extractor.chapter.chapter import (
-    DisplayFormula, SourceAsset, SourceTextFragment, Chapter, StandaloneAsset, TextFlowItem, Reference,
-)
 from pdf_craft.pipeline.pdf.text_layout import (
     _LAYOUT_SCALE, _RegionSlotDecision, _choose_automatic_font, _closest_to_aim,
     _qt_modules, _signed_slot_plan_frontier,
@@ -245,117 +240,6 @@ class TestQTextParagraphFiller(unittest.TestCase):
         line_bottom = placement.line_tops[-1] + placement.line_heights[-1]
         # With no space above the source bbox, a centred tight plan would
         # escape through the page top and must be rejected.
-        self.assertLessEqual(line_bottom, 10)
-
-    def test_pdf_pipeline_attaches_asset_geometry_as_text_flow_obstacles(self):
-        chapter = Chapter(
-            id=1,
-            level=0,
-            flow_items=[
-                TextFlowItem("body", 0, [SourceTextFragment(1, 0, (0, 0, 100, 10), ["body"])]),
-                StandaloneAsset(SourceAsset(1, "image", (0, 14, 100, 30), [], [], [], None)),
-            ],
-        )
-
-        replacements = list(PDFTranslationPipeline()._iter_chapter_replacements(  # pylint: disable=protected-access
-            chapter, lambda text: text, {1: (100, 100)}, 300, structured=True,
-        ))
-
-        self.assertEqual(len(replacements), 1)
-        self.assertEqual(replacements[0].obstacle_regions[0].bbox, (0, 14, 100, 30))
-
-    def test_pdf_pipeline_continues_one_text_flow_across_an_embedded_asset(self):
-        """A PDF anchor keeps its visual base but never splits paragraph fitting."""
-        chapter = Chapter(
-            id=1,
-            level=0,
-            flow_items=[
-                TextFlowItem("body", 0, [
-                    SourceTextFragment(1, 0, (0, 0, 100, 10), ["before "]),
-                    SourceAsset(1, "image", (0, 12, 100, 70), [], [], [], None),
-                    SourceTextFragment(1, 1, (0, 72, 100, 100), ["after"]),
-                ]),
-            ],
-        )
-        calls: list[str] = []
-
-        def translate(text: str) -> str:
-            calls.append(text)
-            return "translated across the original image"
-
-        replacements = list(PDFTranslationPipeline()._iter_chapter_replacements(  # pylint: disable=protected-access
-            chapter, translate, {1: (100, 100)}, 300,
-        ))
-
-        self.assertEqual(calls, ["before after"])
-        self.assertEqual(len(replacements), 1)
-        replacement = replacements[0]
-        self.assertEqual(replacement.text, "translated across the original image")
-        self.assertEqual([region.bbox for region in replacement.regions], [
-            (0, 0, 100, 10), (0, 72, 100, 100),
-        ])
-        self.assertEqual(replacement.obstacle_regions, ())
-
-    def test_pdf_pipeline_display_formula_still_separates_text_flows(self):
-        """A DisplayFormula is a FlowItem boundary, unlike an image/table anchor."""
-        formula = SourceAsset(1, "formula", (0, 12, 100, 70), [], [], [], None)
-        chapter = Chapter(
-            id=1,
-            level=0,
-            flow_items=[
-                TextFlowItem("body", 0, [SourceTextFragment(1, 0, (0, 0, 100, 10), ["before"])]),
-                DisplayFormula(formula),
-                TextFlowItem("body", 0, [SourceTextFragment(1, 1, (0, 72, 100, 100), ["after"])]),
-            ],
-        )
-        calls: list[str] = []
-
-        def translate(text: str) -> str:
-            calls.append(text)
-            return f"translated {text}"
-
-        replacements = list(PDFTranslationPipeline()._iter_chapter_replacements(  # pylint: disable=protected-access
-            chapter, translate, {1: (100, 100)}, 300,
-        ))
-
-        self.assertEqual(calls, ["before", "after"])
-        self.assertEqual([replacement.text for replacement in replacements], [
-            "translated before", "translated after",
-        ])
-        self.assertTrue(all(
-            [region.bbox for region in replacement.obstacle_regions] == [(0, 12, 100, 70)]
-            for replacement in replacements
-        ))
-
-    def test_reference_footnote_filters_single_bbox_tight_overflow(self):
-        """Reference layouts are obstacles even though they are not chapter body layouts."""
-        footnote = TextFlowItem(
-            "body", 0, [SourceTextFragment(1, 1, (0, 14, 100, 30), ["footnote"])],
-        )
-        reference = Reference(1, 1, "①", [footnote])
-        chapter = Chapter(
-            id=1,
-            level=0,
-            flow_items=[
-                TextFlowItem(
-                    "body", 0,
-                    [SourceTextFragment(1, 0, (0, 0, 100, 10), ["body", reference])],
-                ),
-            ],
-        )
-
-        replacement, = PDFTranslationPipeline()._iter_chapter_replacements(  # pylint: disable=protected-access
-            chapter, lambda text: text, {1: (100, 100)}, 300, structured=True,
-        )
-        self.assertEqual([region.bbox for region in replacement.obstacle_regions], [(0, 14, 100, 30)])
-
-        placement = QTextParagraphFiller(PatchTextOptions(
-            max_font_size=4, min_font_size=4, vertical_alignment="bottom",
-        )).fit(
-            replace(replacement, text="line"), {1: (100, 100)},
-        ).placements[0]
-        line_bottom = placement.line_tops[-1] + placement.line_heights[-1]
-        self.assertEqual(placement.forbidden_bottom, 14)
         self.assertLessEqual(line_bottom, 10)
 
     def test_high_precision_planning_and_pdf_draw_share_scaled_qt_coordinates(self):

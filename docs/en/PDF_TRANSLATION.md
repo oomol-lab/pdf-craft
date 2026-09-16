@@ -143,14 +143,9 @@ craft.translate_pdf(
 )
 ```
 
-The `transformer` may be a chapter transformer or a simple `Callable[[str], str]` for text-only translation:
-
-```python
-def translate_text(text: str) -> str:
-    return call_your_llm(text)
-
-craft.translate_pdf("book.pdf", extraction, "book.zh.pdf", translate_text)
-```
+`transformer` is a structured chapter transformer. PDF translation always
+creates a translated PCEX view before it patches the source PDF; text-only
+callback translation is not supported.
 
 If translation happened elsewhere, call `patch_pdf_with_extraction()` instead. It runs neither OCR nor an LLM; it uses the translated extraction's page geometry to patch the source PDF.
 

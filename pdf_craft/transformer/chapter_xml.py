@@ -73,6 +73,7 @@ class ChapterXMLTransformer:
             interrupt_translated_text_segments=formula_interrupter.interrupt_translated_text_segments,
             interrupt_block_element=formula_interrupter.interrupt_block_element,
             immutable_elements_for_inline_segments=anchors.immutable_elements_for_inline_segments,
+            source_text_renderer=_render_chapter_source_text,
         )
         anchors.restore_assets(translated)
         _restore_fragment_owned_inline_expressions(translated)
@@ -137,6 +138,37 @@ def _restore_fragment_owned_inline_expressions(chapter: Element) -> None:
                 )
                 if not duplicate:
                     owner.append(child)
+
+
+def _render_chapter_source_text(inline_segments) -> str:
+    """Render PCEX ``<text>`` nodes as contiguous source-language units.
+
+    XMLTranslator intentionally remains format-neutral, so its default view
+    separates independent inline segments.  A PCEX fragment is not an author
+    paragraph, however: its owner ``<text>`` is.  Joining only segments that
+    share that owner gives the translation model continuous NarrativeFlow text
+    while the original fragment/anchor XML remains available for strict fill.
+    """
+    parts: list[str] = []
+    previous_owner: Element | None = None
+    has_previous = False
+    for inline_segment in inline_segments:
+        owner = _source_unit_owner(inline_segment)
+        if has_previous and owner is not previous_owner:
+            parts.append("\n\n")
+        parts.extend(segment.text for segment in inline_segment)
+        previous_owner = owner
+        has_previous = True
+    return "".join(parts)
+
+
+def _source_unit_owner(inline_segment) -> Element:
+    """Return a PCEX TextFlowItem wrapper, or a safe independent fallback."""
+    for element in inline_segment.head.parent_stack:
+        if element.tag == "text":
+            return element
+    # Display formulas and other non-text XML content remain hard boundaries.
+    return inline_segment.parent
 
 
 _ANCHOR_TAG = "anchor"

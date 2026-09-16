@@ -81,6 +81,27 @@ def test_markdown_keeps_an_anchored_image_as_a_block_in_reading_order():
         assert "float" not in rendered
 
 
+def test_markdown_keeps_text_continuous_when_an_anchored_image_cannot_render():
+    with TemporaryDirectory() as directory:
+        root = Path(directory)
+        assets = root / "assets"
+        output_assets = root / "output-assets"
+        assets.mkdir()
+        output_assets.mkdir()
+        flow = TextFlowItem("body", 0, [
+            _fragment((0, 0, 100, 20), "How-"),
+            _asset("a" * 64),
+            _fragment((0, 22, 100, 42), "ever"),
+        ])
+
+        rendered = "".join(render_layouts(
+            flow_items=[flow], assets_path=assets, output_assets_path=output_assets,
+            asset_ref_path=Path("output-assets"), toc_level=0,
+        ))
+
+        assert rendered == "How-ever"
+
+
 def test_epub_applies_float_only_to_the_precise_anchored_image_occurrence():
     with TemporaryDirectory() as directory:
         root = Path(directory)

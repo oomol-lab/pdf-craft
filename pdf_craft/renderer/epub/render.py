@@ -27,10 +27,15 @@ from ...markdown.paragraph import HTMLTag, flatten
 from ...metering import AbortedCheck, check_aborted
 from ...extractor.chapter import (
     Chapter, DisplayFormula, InlineExpression, Reference, SourceAsset,
-    SourceTextFragment, StandaloneAsset, TextFlowItem,
+    StandaloneAsset, TextFlowItem,
     create_chapters_reader,
     references_to_map,
     search_references_in_chapter,
+)
+from ...extractor.chapter.text_projection import (
+    iter_continuous_content,
+    iter_rendered_flow_parts,
+    iter_run_content,
 )
 from .anchored import MARKER_CLASS, FloatMarkerRegistry, apply_float_markers, float_side
 from .latex_to_text import latex_to_plain_text
@@ -110,12 +115,9 @@ def render_epub_file(
 
 
 def _iter_text_in_title(title_layout: TextFlowItem):
-    for fragment in title_layout.children:
-        if not isinstance(fragment, SourceTextFragment):
-            continue
-        for item in flatten(fragment.content):
-            if isinstance(item, str):
-                yield item
+    for item in flatten(iter_continuous_content(title_layout)):
+        if isinstance(item, str):
+            yield item
 
 
 def _convert_chapter_to_epub(
@@ -165,23 +167,26 @@ def _append_text_flow_item(
     float_markers: FloatMarkerRegistry | None,
 ):
     """Render one logical text item, splitting physical EPUB blocks at assets."""
-    content: list[str | Formula | Mark | EpubHTMLTag] = []
-
-    def flush_text() -> None:
-        nonlocal content
-        if content:
-            elements.append(TextBlock(
-                kind=TextKind.HEADLINE if text_layout.role == "heading" else TextKind.BODY,
-                level=text_layout.level, content=content,
+    rendered_assets = {
+        id(child): _convert_asset_to_epub(child, assets_path, inline_latex, ref_id_to_number)
+        for child in text_layout.children
+        if isinstance(child, SourceAsset)
+    }
+    child_indexes = {id(child): index for index, child in enumerate(text_layout.children)}
+    for part in iter_rendered_flow_parts(
+        text_layout, lambda asset, assets=rendered_assets: assets[id(asset)] is not None,
+    ):
+        if isinstance(part, tuple):
+            content = list(_transform_content(
+                list(iter_run_content(part)), inline_latex, ref_id_to_number,
             ))
-        content = []
-
-    for child_index, child in enumerate(text_layout.children):
-        if isinstance(child, SourceTextFragment):
-            content.extend(_transform_content(child.content, inline_latex, None))
+            if content:
+                elements.append(TextBlock(
+                    kind=TextKind.HEADLINE if text_layout.role == "heading" else TextKind.BODY,
+                    level=text_layout.level, content=content,
+                ))
         else:
-            flush_text()
-            side = float_side(text_layout, child_index)
+            side = float_side(text_layout, child_indexes[id(part)])
             if side is not None and float_markers is not None:
                 marker_id = float_markers.new(side)
                 elements.append(TextBlock(
@@ -193,12 +198,11 @@ def _append_text_flow_item(
                             ("class", MARKER_CLASS),
                             ("data-pdf-craft-float", marker_id),
                         ],
-                    )],
+                        )],
                 ))
-            asset_element = _convert_asset_to_epub(child, assets_path, inline_latex, ref_id_to_number)
-            if asset_element:
-                elements.append(asset_element)
-    flush_text()
+            asset_element = rendered_assets[id(part)]
+            assert asset_element is not None
+            elements.append(asset_element)
 
 
 def _extract_text_from_content(
@@ -307,39 +311,35 @@ def _convert_reference_to_footnote_contents(
                 yield asset_element
             continue
         if isinstance(layout, TextFlowItem):
-            content: list[str | Formula | Mark | EpubHTMLTag] = []
-            level = layout.level
-            for child in layout.children:
-                if isinstance(child, SourceTextFragment):
-                    content.extend(
-                        _transform_content(
-                            content=child.content,
-                            inline_latex=inline_latex,
-                            ref_id_to_number=None,
-                        )
-                    )
-                    continue
-                if content:
-                    yield TextBlock(
-                        kind=TextKind.BODY,
-                        level=level,
-                        content=content,
-                    )
-                    content = []
-                asset_element = _convert_asset_to_epub(
+            rendered_assets = {
+                id(child): _convert_asset_to_epub(
                     asset=child,
                     assets_path=assets_path,
                     inline_latex=inline_latex,
                     ref_id_to_number=None,
                 )
-                if asset_element:
+                for child in layout.children
+                if isinstance(child, SourceAsset)
+            }
+            for part in iter_rendered_flow_parts(
+                layout, lambda asset, assets=rendered_assets: assets[id(asset)] is not None,
+            ):
+                if isinstance(part, tuple):
+                    content = list(_transform_content(
+                        content=list(iter_run_content(part)),
+                        inline_latex=inline_latex,
+                        ref_id_to_number=None,
+                    ))
+                    if content:
+                        yield TextBlock(
+                            kind=TextKind.BODY,
+                            level=layout.level,
+                            content=content,
+                        )
+                else:
+                    asset_element = rendered_assets[id(part)]
+                    assert asset_element is not None
                     yield asset_element
-            if content:
-                yield TextBlock(
-                    kind=TextKind.BODY,
-                    level=level,
-                    content=content,
-                )
 
 
 def _transform_content(

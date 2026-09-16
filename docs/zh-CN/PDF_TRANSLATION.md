@@ -244,7 +244,7 @@ patcher = PDFPatcher(options=PatchTextOptions(
     styles={"heading": PatchTextStyle(max_font_size=18, min_font_size=8)},
 ), erase_options=EraseOptions(padding=2))
 pipeline = PDFTranslationPipeline(patcher=patcher)
-pipeline.translate(Path("input.pdf"), Path("translated.pdf"), extraction, translator)
+pipeline.patch(Path("input.pdf"), Path("translated.pdf"), translated_extraction)
 ```
 
 若合法 bbox 在最小字号仍无法容纳完整译文，patcher 会固定从第一个来源 bbox 强制写入全文，允许越过普通 bbox

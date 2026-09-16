@@ -5,7 +5,11 @@ from typing import Callable, Generator, Iterable
 from ...expression import ExpressionKind, to_markdown_string
 from ...extractor.chapter import (
     BlockMember, DisplayFormula, FlowItem, InlineExpression, Reference,
-    RefIdMap, SourceAsset, SourceTextFragment, StandaloneAsset, TextFlowItem,
+    RefIdMap, SourceAsset, StandaloneAsset, TextFlowItem,
+)
+from ...extractor.chapter.text_projection import (
+    iter_continuous_content,
+    iter_rendered_flow_parts,
 )
 from ..paragraph import render_markdown_paragraph
 from .table import render_table_content
@@ -33,22 +37,28 @@ def render_layouts(
         if isinstance(layout, (DisplayFormula, StandaloneAsset)):
             yield from _render_asset(layout.asset, assets_path, output_assets_path, asset_ref_path, ref_id_to_number)
         elif isinstance(layout, TextFlowItem):
-            # Markdown cannot keep an image/table inside a physical paragraph,
-            # but it can preserve the semantic child order by closing and
-            # reopening the emitted paragraph around each anchored asset.
-            text_children: list[SourceTextFragment] = []
-            for child in layout.children:
-                if isinstance(child, SourceTextFragment):
-                    text_children.append(child)
-                    continue
-                if text_children:
-                    yield from render_paragraph(TextFlowItem(layout.role, layout.level, list(text_children)), toc_level, ref_id_to_number)
+            rendered_assets = {
+                id(child): tuple(_render_asset(
+                    child, assets_path, output_assets_path, asset_ref_path, ref_id_to_number,
+                ))
+                for child in layout.children
+                if isinstance(child, SourceAsset)
+            }
+            emitted_part = False
+            for part in iter_rendered_flow_parts(
+                layout, lambda asset, assets=rendered_assets: bool(assets[id(asset)]),
+            ):
+                if emitted_part:
                     yield "\n\n"
-                    text_children = []
-                yield from _render_asset(child, assets_path, output_assets_path, asset_ref_path, ref_id_to_number)
-                yield "\n\n"
-            if text_children:
-                yield from render_paragraph(TextFlowItem(layout.role, layout.level, list(text_children)), toc_level, ref_id_to_number)
+                emitted_part = True
+                if isinstance(part, tuple):
+                    yield from render_paragraph(
+                        TextFlowItem(layout.role, layout.level, list(part)),
+                        toc_level,
+                        ref_id_to_number,
+                    )
+                else:
+                    yield from rendered_assets[id(part)]
 
 
 def render_paragraph(
@@ -79,13 +89,10 @@ def render_paragraph(
             yield str(ref_number)
             yield "]"
 
-    for block in paragraph.children:
-        if not isinstance(block, SourceTextFragment):
-            continue
-        yield from render_markdown_paragraph(
-            children=block.content,
-            render_payload=render_member,
-        )
+    yield from render_markdown_paragraph(
+        children=list(iter_continuous_content(paragraph)),
+        render_payload=render_member,
+    )
 
 
 _MemberRender = Callable[[BlockMember | str], Iterable[str]]
