@@ -70,14 +70,16 @@ class SourceAsset:
     caption: Content
     asset_hash: str | None
 
-    def __init__(self, page_index: int, ref: AssetRef,
+    def __init__(self, page_index: int, ref: str,
                  bbox: tuple[int, int, int, int] | None = None, title: Content | None = None,
                  content: Content | None = None, caption: Content | None = None,
                  asset_hash: str | None = None, *, det: tuple[int, int, int, int] | None = None,
                  hash: str | None = None):
-        self.page_index, self.ref = page_index, ref
+        self.page_index, self.ref = page_index, cast(AssetRef, ref)
         if self.ref == "equation":  # source/OCR and v1/v2 constructor compatibility
             self.ref = cast(AssetRef, "formula")
+        if self.ref not in ASSET_TAGS:
+            raise ValueError("SourceAsset ref must be image, table, or formula")
         self.bbox = bbox if bbox is not None else cast(tuple[int, int, int, int], det)
         self.title, self.content, self.caption = title or [], content or [], caption or []
         self.asset_hash = asset_hash if asset_hash is not None else hash
@@ -107,8 +109,8 @@ class TextFlowItem:
         if self.role not in {"body", "heading"}:
             raise ValueError("TextFlowItem role must be body or heading")
         self.children = children if children is not None else list(blocks or [])
-        if any(isinstance(child, SourceAsset) and child.ref == "formula" for child in self.children):
-            raise ValueError("TextFlowItem cannot contain an equation SourceAsset; use DisplayFormula")
+        if any(isinstance(child, SourceAsset) and child.ref not in {"image", "table"} for child in self.children):
+            raise ValueError("TextFlowItem can contain only image/table SourceAsset children; use DisplayFormula for formula")
 
     @property
     def ref(self): return _ref(self.role)
@@ -131,7 +133,7 @@ class DisplayFormula:
 class StandaloneAsset:
     asset: SourceAsset
     def __post_init__(self):
-        if self.asset.ref == "formula": raise ValueError("formula must be DisplayFormula")
+        if self.asset.ref not in {"image", "table"}: raise ValueError("StandaloneAsset requires image/table asset")
 
 
 FlowItem: TypeAlias = TextFlowItem | DisplayFormula | StandaloneAsset
@@ -290,6 +292,8 @@ def _asset(element: Element, refs: dict[tuple[int, int], Reference] | None = Non
 
 
 def _encode_asset(asset: SourceAsset) -> Element:
+    if asset.ref not in ASSET_TAGS:
+        raise ValueError("SourceAsset ref must be image, table, or formula")
     result = Element("asset", {"ref": asset.ref, "page_index": str(asset.page_index), "bbox": _bbox_text(asset.bbox)})
     if asset.asset_hash is not None: result.set("asset_hash", asset.asset_hash)
     for name, value in (("title", asset.title), ("content", asset.content), ("caption", asset.caption)):

@@ -197,7 +197,7 @@ traceback 会写入日志。若所有需要写回的页面都退回，则抛出 
   文字仍以线条显示，但不再可选中、搜索或提取；隐藏 OCR 文字也会被移除。源页完整的
   `/Annots` 数组会在译文之上重新挂载，因此链接、高亮、批注、表单控件及其他 PDF Annotation
   保持独立且可交互。译文是唯一普通可选择的文字层。
-- 写回只处理 `ref` 为 `text` 或 `sub_title` 的 `ParagraphLayout`。图片、表格以及其他
+- 写回只处理 `role` 为 `body` 或 `heading` 的 `TextFlowItem`。图片、表格以及其他
   布局不会成为可替换项。
 - 正文译文优先在对应 OCR bbox 内排版。默认排版策略会在允许的字号范围内寻找可容纳的
   字号；最小字号仍无法容纳时，会以最小字号从首个 bbox 强制写入全文，即使越过普通 bbox
@@ -241,7 +241,7 @@ patcher = PDFPatcher(options=PatchTextOptions(
     alignment="left",
     horizontal_padding=1,
     vertical_padding=1,
-    styles={"sub_title": PatchTextStyle(max_font_size=18, min_font_size=8)},
+    styles={"heading": PatchTextStyle(max_font_size=18, min_font_size=8)},
 ), erase_options=EraseOptions(padding=2))
 pipeline = PDFTranslationPipeline(patcher=patcher)
 pipeline.translate(Path("input.pdf"), Path("translated.pdf"), extraction, translator)
@@ -254,14 +254,14 @@ pipeline.translate(Path("input.pdf"), Path("translated.pdf"), extraction, transl
 
 ### 标题层级与有界布局窗口
 
-PDF 写回把一个 `ParagraphLayout` 视为一段连续文本流，即使它的来源 bbox 跨多个页面也如此。
+PDF 写回把一个 `TextFlowItem` 视为一段连续文本流，即使它的来源 bbox 跨多个页面也如此。
 第一阶段为整段选择统一字号；一整行若放不下当前 bbox，会整体移入下一个 bbox，绝不会在单个
 bbox 的边界局部溢出。随后每页会按文字等级的字符数加权平均字号，对各 bbox 在不改变已冻结的
 行数和文字分配的前提下作局部归一化；因此最终同段不同 bbox 的字号可以略有差异。Qt 保留原生的
 脚本 shaping、断行、字体 fallback 和字形定位能力；除矢量行内公式及其紧随空白作为不可拆分原子外，
 pdf-craft 不额外施加语言特定断行规则。
 
-在一个可释放的页面窗口中，`text` 正文会先于 `sub_title` 标题完成排版。标题涉及的每一页中，
+在一个可释放的页面窗口中，`body` 正文会先于 `heading` 标题完成排版。标题涉及的每一页中，
 已排版正文的最大字号乘以 `headline_min_body_ratio`（默认 `1.2`）后，构成标题字号的优先下限。
 
 数值 `max_font_size` 对所有语义样式都是硬上限，包括从 `PatchTextOptions` 隐式继承的 `sub_title`。
@@ -273,7 +273,7 @@ pdf-craft 不额外施加语言特定断行规则。
 options = PatchTextOptions(
     styles={
         "text": PatchTextStyle(font_name="Noto Serif CJK SC", max_font_size=11),
-        "sub_title": PatchTextStyle(
+        "heading": PatchTextStyle(
             font_name="Noto Sans CJK SC",
             max_font_size=24,
             minimum_body_font_ratio=1.35,

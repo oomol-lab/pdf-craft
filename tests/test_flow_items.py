@@ -56,6 +56,16 @@ def test_text_flow_item_rejects_equation_child():
         TextFlowItem("body", 0, [_fragment(1, "before"), equation])
 
 
+def test_source_asset_flow_positions_reject_unknown_or_formula_children():
+    with pytest.raises(ValueError, match="ref"):
+        SourceAsset(1, "other", (0, 0, 10, 10))
+    formula = SourceAsset(1, "formula", (0, 0, 10, 10), content=["x"])
+    with pytest.raises(ValueError, match="image/table"):
+        StandaloneAsset(formula)
+    with pytest.raises(ValueError, match="image/table"):
+        TextFlowItem("body", 0, [_fragment(1, "body"), formula])
+
+
 def test_v3_codec_rejects_legacy_body_and_invalid_role_when_strict():
     with pytest.raises(ValueError, match="role"):
         TextFlowItem("unsupported", 0, [])

@@ -406,7 +406,7 @@ translate_epub(
 写回组件，供已经能自行生成替换坐标与文字的集成方使用：
 
 - `PDFReplacement` 描述一段待替换文本：`page_index`、像素坐标 `bbox`、`text`、OCR 画布尺寸
-  `page_pixel_size`，以及可选的 `dpi`、`reading_order`。PDF 翻译会以一个 `ParagraphLayout` 为单位
+  `page_pixel_size`，以及可选的 `dpi`、`reading_order`。PDF 翻译会以一个 `TextFlowItem` 为单位
   调用翻译器一次，并将该段落全部、有序的来源框保存在 `regions`（`PDFReplacementRegion`）中，而不是把
   同一译文复制到每个框。
 - `PDFPatcher(options=PatchTextOptions(...), erase_options=EraseOptions(...), pdf_handler=...)` 通过 `.patch(source_path,
@@ -420,7 +420,7 @@ translate_epub(
   排版错误混淆。`EraseOptions.padding` 在
   OCR 像素坐标中扩大来源框，并用原始页面对应区域按频次加权的 RGB 中位色完整覆盖扩展矩形。`pdf_handler`
   仅为这个颜色估计渲染原始页，输出不会使用该 raster 作为页面底图。可用
-  `PatchTextStyle` 以 `"text"`、`"sub_title"` 或 `"sub_title:2"` 为键覆盖不同文字等级。
+  `PatchTextStyle` 以 `"text"`、`"heading"` 或 `"sub_title:2"` 为键覆盖不同文字等级。
   第一阶段会为同一个段落统一搜索字号，随后按顺序流入所有 `regions`；放不下的整行会进入下一个框，
   绝不局部跨框。第二阶段会在不改变冻结行数和文字分配的前提下，按文字等级的加权平均字号对每个 bbox
   局部归一化，因此最终字号可略有不同。Qt 负责断行、字形位置与字体 fallback；用户填写的缺失字体
