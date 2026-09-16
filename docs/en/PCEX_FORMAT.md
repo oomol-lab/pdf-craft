@@ -58,6 +58,19 @@ formula asset occurs exactly once under `<display-formula>`, never under
 `asset_hash` identifies `assets/<hash>.png`; `display-formula` is a flow
 boundary, not an anchored asset.
 
+### Reflow rendering of anchored assets
+
+An asset nested in `<text>` records its reading position inside one logical
+author paragraph; it does **not** require a renderer to reproduce the fixed
+PDF geometry. Markdown always emits image/table assets as ordinary blocks in
+their recorded order, splitting physical Markdown paragraphs when needed.
+EPUB does the same by default. For a small image only, EPUB may additionally
+apply a best-effort left or right float when its two adjacent fragments are on
+the same source page, visibly occupy the opposite side, overlap it vertically,
+and are materially wider. Tables never float. Readers that ignore floats or
+render on a narrow screen retain the same block-order reading experience.
+Display formulas are independent flow items and never take this float path.
+
 ## Quick reference
 
 A canonical archive has the following layout:
