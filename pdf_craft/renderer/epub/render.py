@@ -32,6 +32,7 @@ from ...extractor.chapter import (
     references_to_map,
     search_references_in_chapter,
 )
+from .anchored import MARKER_CLASS, FloatMarkerRegistry, apply_float_markers, float_side
 from .latex_to_text import latex_to_plain_text
 from .toc_collection import TocCollection
 
@@ -50,6 +51,7 @@ def render_epub_file(
     aborted: AbortedCheck,
 ):
     read_chapters = create_chapters_reader(chapters_path)
+    float_markers = FloatMarkerRegistry()
     references: list[Reference] = []
     for chapter in read_chapters():
         references.extend(search_references_in_chapter(chapter))
@@ -67,6 +69,7 @@ def render_epub_file(
                 assets_path=assets_path,
                 inline_latex=inline_latex,
                 ref_id_to_number=ref_id_to_number,
+                float_markers=float_markers,
             )
 
         if chapter.id is None:
@@ -103,6 +106,7 @@ def render_epub_file(
         latex_render=latex_render,
         assert_not_aborted=lambda: check_aborted(aborted),
     )
+    apply_float_markers(epub_path, float_markers.sides)
 
 
 def _iter_text_in_title(title_layout: TextFlowItem):
@@ -119,6 +123,7 @@ def _convert_chapter_to_epub(
     assets_path: Path,
     inline_latex: bool,
     ref_id_to_number: dict,
+    float_markers: FloatMarkerRegistry | None = None,
 ) -> ChapterRecord:
     elements = []
     footnotes = []
@@ -132,7 +137,7 @@ def _convert_chapter_to_epub(
             if asset_element: elements.append(asset_element)
         elif isinstance(layout, TextFlowItem):
             _append_text_flow_item(
-                elements, layout, assets_path, inline_latex, ref_id_to_number,
+                elements, layout, assets_path, inline_latex, ref_id_to_number, float_markers,
             )
 
     chapter_refs = search_references_in_chapter(chapter)
@@ -151,7 +156,14 @@ def _convert_chapter_to_epub(
     return ChapterRecord(elements=elements, footnotes=footnotes)
 
 
-def _append_text_flow_item(elements, text_layout, assets_path, inline_latex, ref_id_to_number):
+def _append_text_flow_item(
+    elements,
+    text_layout: TextFlowItem,
+    assets_path: Path,
+    inline_latex: bool,
+    ref_id_to_number: dict,
+    float_markers: FloatMarkerRegistry | None,
+):
     """Render one logical text item, splitting physical EPUB blocks at assets."""
     content: list[str | Formula | Mark | EpubHTMLTag] = []
 
@@ -164,11 +176,25 @@ def _append_text_flow_item(elements, text_layout, assets_path, inline_latex, ref
             ))
         content = []
 
-    for child in text_layout.children:
+    for child_index, child in enumerate(text_layout.children):
         if isinstance(child, SourceTextFragment):
             content.extend(_transform_content(child.content, inline_latex, None))
         else:
             flush_text()
+            side = float_side(text_layout, child_index)
+            if side is not None and float_markers is not None:
+                marker_id = float_markers.new(side)
+                elements.append(TextBlock(
+                    kind=TextKind.BODY,
+                    level=-1,
+                    content=[EpubHTMLTag(
+                        name="span",
+                        attributes=[
+                            ("class", MARKER_CLASS),
+                            ("data-pdf-craft-float", marker_id),
+                        ],
+                    )],
+                ))
             asset_element = _convert_asset_to_epub(child, assets_path, inline_latex, ref_id_to_number)
             if asset_element:
                 elements.append(asset_element)
