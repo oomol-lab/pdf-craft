@@ -1,12 +1,12 @@
 <!-- Translation baseline: README.md. Keep capability descriptions and executable examples aligned. -->
 <div align="center">
-  <img src="docs/images/pdf-craft-readme-banner-v1.png" alt="PDF Craft — 让扫描书籍，重新成为可以编辑和阅读的文字。" width="100%" />
-  <p><a href="README.md">English</a> | <strong>简体中文</strong> | <a href="docs/zh-TW/README.md">繁體中文</a> | <a href="docs/ja/README.md">日本語</a> | <a href="docs/ko/README.md">한국어</a> | <a href="docs/ru/README.md">Русский</a> | <a href="docs/fr/README.md">Français</a> | <a href="docs/es/README.md">Español</a> | <a href="docs/de/README.md">Deutsch</a> | <a href="docs/it/README.md">Italiano</a></p>
+  <img src="../images/pdf-craft-readme-banner-v1.png" alt="PDF Craft — 让扫描书籍，重新成为可以编辑和阅读的文字。" width="100%" />
+  <p><a href="../../README.md">English</a> | <strong>简体中文</strong> | <a href="README-zh-TW.md">繁體中文</a> | <a href="README-ja.md">日本語</a> | <a href="README-ko.md">한국어</a> | <a href="README-ru.md">Русский</a> | <a href="README-fr.md">Français</a> | <a href="README-es.md">Español</a> | <a href="README-de.md">Deutsch</a> | <a href="README-it.md">Italiano</a></p>
   <p>
     <a href="https://pypi.org/project/pdf-craft/"><img src="https://img.shields.io/pypi/v/pdf-craft.svg?color=AD493B" alt="PyPI 版本" /></a>
     <a href="https://pypi.org/project/pdf-craft/"><img src="https://img.shields.io/pypi/pyversions/pdf-craft.svg" alt="Python 版本" /></a>
     <a href="https://github.com/oomol-lab/pdf-craft/actions/workflows/merge-build.yml"><img src="https://img.shields.io/github/actions/workflow/status/oomol-lab/pdf-craft/merge-build.yml" alt="构建状态" /></a>
-    <a href="LICENSE"><img src="https://img.shields.io/github/license/oomol-lab/pdf-craft" alt="MIT 许可证" /></a>
+    <a href="../../LICENSE"><img src="https://img.shields.io/github/license/oomol-lab/pdf-craft" alt="MIT 许可证" /></a>
   </p>
   <p>
     <a href="https://trendshift.io/repositories/15538"><img src="https://trendshift.io/api/badge/repositories/15538" alt="PDF Craft | GitHub Trending on Trendshift" width="250" height="55" /></a>
@@ -26,11 +26,11 @@ PDF Craft 是一个面向扫描书籍和学术、技术文档的 Python 库。�
 
 **Markdown：用于编辑、检索和后续内容处理。**
 
-![扫描 PDF 转换为 Markdown 的效果示例](docs/images/pdf2md-cn.png)
+![扫描 PDF 转换为 Markdown 的效果示例](../images/pdf2md-cn.png)
 
 **EPUB：用于在电子书阅读器中阅读。**
 
-![扫描 PDF 转换为 EPUB 的效果示例](docs/images/pdf2epub-cn.png)
+![扫描 PDF 转换为 EPUB 的效果示例](../images/pdf2epub-cn.png)
 
 转换效果取决于原稿清晰度、页面排版和所选 OCR 模型。建议先用有代表性的文档检查输出，再处理整批文件。
 
@@ -59,13 +59,13 @@ PDF Craft 是一个面向扫描书籍和学术、技术文档的 Python 库。�
 
 **查看在线应用界面**
 
-[![PDF Craft 在线应用](docs/images/website-cn.png)](https://inkora.oomol.com/pdf-craft/)
+[![PDF Craft 在线应用](../images/website-cn.png)](https://inkora.oomol.com/pdf-craft/)
 
 <a id="quick-start"></a>
 
 ## 快速开始
 
-下面使用远程 OCR，将一个 PDF 转换为 Markdown。开始前请准备 **Python 3.11–3.13、Poppler，以及可用的 DeepSeek OCR 兼容服务配置**。Poppler 的安装方式见[安装指南](docs/zh-CN/INSTALLATION.md)。
+下面使用远程 OCR，将一个 PDF 转换为 Markdown。开始前请准备 **Python 3.11–3.13、Poppler，以及可用的 DeepSeek OCR 兼容服务配置**。Poppler 的安装方式见[安装指南](../zh-CN/INSTALLATION.md)。
 
 ### 1. 安装
 
@@ -93,7 +93,7 @@ craft = PDFCraft(
 craft.convert_pdf_to_markdown("input.pdf", "output.md")
 ```
 
-`https://example.com/v1` 是占位地址，不能直接调用；请使用实际提供相应 OCR 模型的兼容服务。其他模型的配置见 [OCR 配置指南](docs/zh-CN/OCR_BACKENDS.md)。
+`https://example.com/v1` 是占位地址，不能直接调用；请使用实际提供相应 OCR 模型的兼容服务。其他模型的配置见 [OCR 配置指南](../zh-CN/OCR_BACKENDS.md)。
 
 转换完成后，打开 `output.md` 查看结果。包含图片的文档还会生成相关资源文件，移动或分享 Markdown 时请一并保留。
 
@@ -105,9 +105,9 @@ craft.convert_pdf_to_markdown("input.pdf", "output.md")
 craft.convert_pdf_to_epub("input.pdf", "output.epub")
 ```
 
-转换完成后，即可用 EPUB 阅读器打开 `output.epub`。设置书名、作者及其他输出选项，见 [PDF 转换与翻译指南](docs/zh-CN/PDF_TRANSLATION.md)。
+转换完成后，即可用 EPUB 阅读器打开 `output.epub`。设置书名、作者及其他输出选项，见 [PDF 转换与翻译指南](../zh-CN/PDF_TRANSLATION.md)。
 
-遇到安装或运行问题？查看[故障排查指南](docs/zh-CN/TROUBLESHOOTING.md)。
+遇到安装或运行问题？查看[故障排查指南](../zh-CN/TROUBLESHOOTING.md)。
 
 ## 翻译与提取结果复用
 
@@ -125,7 +125,7 @@ craft.convert_pdf_to_markdown(
 )
 ```
 
-具体步骤见 [PDF 转换与翻译](docs/zh-CN/PDF_TRANSLATION.md)、[EPUB 翻译](docs/zh-CN/EPUB_TRANSLATION.md)和 [`.pcex` 格式参考](docs/zh-CN/PCEX_FORMAT.md)。
+具体步骤见 [PDF 转换与翻译](../zh-CN/PDF_TRANSLATION.md)、[EPUB 翻译](../zh-CN/EPUB_TRANSLATION.md)和 [`.pcex` 格式参考](../zh-CN/PCEX_FORMAT.md)。
 
 ## OCR 与运行要求
 
@@ -137,9 +137,9 @@ PDF Craft 支持 **DeepSeek OCR、DeepSeek OCR 2 和 Unlimited OCR**，每个模
 python -m pip install "pdf-craft[local]"
 ```
 
-本地运行还需要匹配的 CUDA 版 PyTorch、足够显存和模型文件。模型默认从 Hugging Face 下载，也可以预先下载后从本地加载。各模型的预设和要求不同，请按 [OCR 配置指南](docs/zh-CN/OCR_BACKENDS.md)选择。
+本地运行还需要匹配的 CUDA 版 PyTorch、足够显存和模型文件。模型默认从 Hugging Face 下载，也可以预先下载后从本地加载。各模型的预设和要求不同，请按 [OCR 配置指南](../zh-CN/OCR_BACKENDS.md)选择。
 
-**语言支持取决于处理环节。** README 的语言版本表示文档可用语言；文字识别取决于 OCR 模型，翻译取决于翻译器与文本 LLM。EPUB 的 `lan` 参数当前提供 `zh` / `en` 选项，具体见 [API 参考](docs/zh-CN/API_REFERENCE.md)。
+**语言支持取决于处理环节。** README 的语言版本表示文档可用语言；文字识别取决于 OCR 模型，翻译取决于翻译器与文本 LLM。EPUB 的 `lan` 参数当前提供 `zh` / `en` 选项，具体见 [API 参考](../zh-CN/API_REFERENCE.md)。
 
 <a id="documentation"></a>
 
@@ -147,13 +147,13 @@ python -m pip install "pdf-craft[local]"
 
 | 我想了解 | 文档 |
 | --- | --- |
-| 安装系统依赖、配置本地 GPU | [安装指南](docs/zh-CN/INSTALLATION.md) |
-| 选择 OCR 模型、配置远程服务或模型缓存 | [OCR 配置指南](docs/zh-CN/OCR_BACKENDS.md) |
-| 转换 PDF、生成 EPUB、翻译并写回 PDF | [PDF 转换与翻译](docs/zh-CN/PDF_TRANSLATION.md) |
-| 翻译已有 EPUB，设置双语输出 | [EPUB 翻译指南](docs/zh-CN/EPUB_TRANSLATION.md) |
-| 查询参数、类型和调用方式 | [API 参考](docs/zh-CN/API_REFERENCE.md) |
-| 存储或交换提取结果 | [`.pcex` 格式参考](docs/zh-CN/PCEX_FORMAT.md) |
-| 解决安装、识别与输出问题 | [故障排查](docs/zh-CN/TROUBLESHOOTING.md) |
+| 安装系统依赖、配置本地 GPU | [安装指南](../zh-CN/INSTALLATION.md) |
+| 选择 OCR 模型、配置远程服务或模型缓存 | [OCR 配置指南](../zh-CN/OCR_BACKENDS.md) |
+| 转换 PDF、生成 EPUB、翻译并写回 PDF | [PDF 转换与翻译](../zh-CN/PDF_TRANSLATION.md) |
+| 翻译已有 EPUB，设置双语输出 | [EPUB 翻译指南](../zh-CN/EPUB_TRANSLATION.md) |
+| 查询参数、类型和调用方式 | [API 参考](../zh-CN/API_REFERENCE.md) |
+| 存储或交换提取结果 | [`.pcex` 格式参考](../zh-CN/PCEX_FORMAT.md) |
+| 解决安装、识别与输出问题 | [故障排查](../zh-CN/TROUBLESHOOTING.md) |
 
 ## 反馈与贡献
 
@@ -169,7 +169,7 @@ python -m pip install "pdf-craft[local]"
 
 ## 许可证与致谢
 
-PDF Craft 使用 [MIT 许可证](LICENSE)。第三方依赖及所选 OCR 模型适用各自的许可证。
+PDF Craft 使用 [MIT 许可证](../../LICENSE)。第三方依赖及所选 OCR 模型适用各自的许可证。
 
 感谢 [DeepSeek OCR](https://github.com/deepseek-ai/DeepSeek-OCR)、[DeepSeek OCR 2](https://github.com/deepseek-ai/DeepSeek-OCR-2)、[Unlimited OCR](https://github.com/baidu/Unlimited-OCR)、[doc-page-extractor](https://github.com/Moskize91/doc-page-extractor) 和 [pyahocorasick](https://github.com/WojciechMula/pyahocorasick) 等开源项目。
 
