@@ -540,12 +540,14 @@ def _chapter_obstacle_regions(
 ) -> tuple[PDFReplacementRegion, ...]:
     """Collect non-flow geometry that may stop text from extending downward.
 
-    Top-level paragraph blocks are already represented by the replacement
-    regions passed to the window planner.  Assets and reference layouts are
-    not: references (notably footnotes) live beneath ``Reference.flow_items``
-    rather than in ``Chapter.flow_items``.  Their block and asset rectangles are
-    therefore explicit obstacles even when the reference itself is not being
-    translated.
+    Top-level text fragments are already represented by the replacement
+    regions passed to the window planner. Standalone assets, display formulas,
+    and reference layouts are not: references (notably footnotes) live beneath
+    ``Reference.flow_items`` rather than in ``Chapter.flow_items``. Their block
+    and asset rectangles are therefore explicit obstacles even when the
+    reference itself is not being translated. Image/table assets nested in a
+    TextFlowItem are deliberately excluded: they are reading-order anchors for
+    reflow renderers, not PDF text-layout boundaries.
     """
     regions: list[PDFReplacementRegion] = []
     seen_regions: set[tuple[int, tuple[int, int, int, int]]] = set()
@@ -571,7 +573,18 @@ def _chapter_obstacle_regions(
     def visit_text(text: TextFlowItem, *, obstacle: bool = False) -> None:
         for child in text.children:
             if isinstance(child, SourceAsset):
-                visit_asset(child)
+                # A source asset nested in a TextFlowItem is an EPUB/Markdown
+                # reading-order anchor, not a PDF paragraph-layout boundary.
+                # The PDF fitter consumes every text fragment in this flow as
+                # one continuous bbox chain.  Its source rectangles already
+                # describe the writable area around the original visual asset;
+                # adding the asset itself as a lower obstacle would make its
+                # aim/forbidden-line fitting artificially shrink or split the
+                # paragraph.  References in an asset's extracted text still
+                # own independent physical geometry and must remain protected.
+                visit_references(child.title)
+                visit_references(child.content)
+                visit_references(child.caption)
             else:
                 if obstacle:
                     add_region(child.page_index, child.bbox)

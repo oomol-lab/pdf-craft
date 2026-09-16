@@ -19,7 +19,7 @@ from pdf_craft.transformer import (
     FurnitureXMLTransformer, TranslationEvent, TranslationEventKind,
 )
 from pdf_craft.renderer import EpubRenderer, MarkdownRenderer
-from pdf_craft.extractor.chapter.chapter import SourceTextFragment, Chapter, InlineExpression, TextFlowItem, Reference, encode
+from pdf_craft.extractor.chapter.chapter import SourceAsset, SourceTextFragment, Chapter, InlineExpression, TextFlowItem, Reference, encode
 from pdf_craft.common import save_xml
 from pdf_craft.expression import ExpressionKind
 from pdf_craft.ocr_config import DeepSeekOCRLocalConfig
@@ -134,6 +134,36 @@ class TestComposableBoundaries(unittest.TestCase):
             self.assertEqual(
                 [region.bbox for region in capture.replacements[0].obstacle_regions], [(1, 40, 90, 70)],
             )
+
+    def test_pdf_patch_keeps_one_covered_text_flow_continuous_across_asset_anchor(self):
+        """Coverage patching shares the same continuous-flow rule as translate()."""
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            extraction = make_extraction(root / "source", page_pixel_sizes={1: (100, 100)})
+            save_xml(encode(Chapter(None, -1, [
+                TextFlowItem("body", 0, [
+                    SourceTextFragment(1, 1, (1, 1, 90, 20), ["translated before "]),
+                    SourceAsset(1, "image", (1, 22, 90, 70)),
+                    SourceTextFragment(1, 2, (1, 72, 90, 95), ["translated after"]),
+                ]),
+            ])), root / "source/chapters/chapter_head.xml")
+            (root / "source/translation.xml").write_text(
+                "<translation><narrative><paragraph chapter_id='head' page_index='1' order='1' state='translated'/>"
+                "</narrative></translation>", encoding="utf-8",
+            )
+            capture = _CapturePatcher()
+
+            PDFTranslationPipeline(patcher=cast(PDFPatcher, capture)).patch(
+                Path("input.pdf"), Path("output.pdf"), extraction,
+            )
+
+            self.assertEqual(len(capture.replacements), 1)
+            replacement = capture.replacements[0]
+            self.assertEqual(replacement.text, "translated before translated after")
+            self.assertEqual([region.bbox for region in replacement.regions], [
+                (1, 1, 90, 20), (1, 72, 90, 95),
+            ])
+            self.assertEqual(replacement.obstacle_regions, ())
 
     def test_pdf_patch_places_translated_furniture_at_associated_and_standalone_sections(self):
         with tempfile.TemporaryDirectory() as directory:

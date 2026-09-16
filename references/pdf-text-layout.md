@@ -9,13 +9,16 @@ PDF 回填是两个嵌套的流式阶段，不能把它们混为同一个“字�
 1. **第一阶段是 TextFlowItem 级操作。** 输入一个完整 PCEX v3 `TextFlowItem` 的连续 `SourceTextFragment` bbox，输出统一字号及跨 bbox 的初始文字流；`TextFlowItem` 是 v3 文档流中的文字节点。
 2. **第二阶段是页级操作。** 只有该页不再会被任何未关闭的第一阶段 TextFlowItem 触及时，才读取该页的初始结果，并为每个 bbox 独立计算最终字号和绘制位置。
 
-TextFlowItem 可以跨页。因此窗口关闭不是“读完一个页面”就发生：必须等所有可能继续流入该页的 TextFlowItem 已在第一阶段关闭。窗口只保留当前可触及页面的排版数据；不得为了页级归一化把整本书的 Qt 行、页面 raster 或完整几何留在内存。嵌入图表是障碍区，不属于可填文字 bbox；DisplayFormula 是独立流节点。
+TextFlowItem 可以跨页。因此窗口关闭不是“读完一个页面”就发生：必须等所有可能继续流入该页的 TextFlowItem 已在第一阶段关闭。窗口只保留当前可触及页面的排版数据；不得为了页级归一化把整本书的 Qt 行、页面 raster 或完整几何留在内存。
+
+PCEX 的段内 image/table anchor 在不同输出端有不同含义。Markdown/EPUB 用它保留读者遇见 asset 的逻辑位置；PDF 回填则有意忽略这个断点：同一 TextFlowItem 的所有 SourceTextFragment 内容和 bbox 都是一个连续文字流，asset 既不产生虚拟行，也不成为 aim/forbidden line 的 obstacle。原 PDF 中的 image/table 作为视觉底图原样保留；OCR 给出的 text bbox 本身负责描述可写区域。DisplayFormula 不属于这条规则，它是独立 FlowItem，天然切断前后文字流，并继续作为非文字几何保护区。
 
 ## 第一阶段：局部连续流
 
 第一阶段的唯一操作单元是 TextFlowItem，不区分 `body`、`heading` 或任何视觉身份。
 
 - 该 TextFlowItem 的所有 bbox 组成连续文字流；其字号在第一阶段必须统一。
+- 中间夹有 image/table SourceAsset 时，仍然把前后 fragment 交给同一次连续布局；不得在 anchor 处分割字号拟合、行数决策或第二阶段页面归一化。
 - QTextLayout 独占 shaping、断行、双向文字与语言排版。pdf-craft 不能用字符数、手写分词或自定义断行替代它。
 - 对一个候选字号，bbox 的 width 决定 Qt 每行可容纳的文字；bbox 的 height、aim line 和上下 forbidden line 决定可选择的虚拟行槽。Qt 自然换行是正常结果，不是失败。
 - 第一阶段在可行字号中寻找尽量贴近各 bbox aim line 的方案，同时不得越过真正的 forbidden line。bbox bottom 是目标线，不自动等同于禁止线。
@@ -55,6 +58,7 @@ TextFlowItem 可以跨页。因此窗口关闭不是“读完一个页面”就�
 
 - 擦除和填充保持代码边界分离；填充 bbox 与擦除 bbox 可以不同。
 - 仅第二阶段可以使用页面级信息；仅第一阶段可以在多个 bbox 之间转移 TextFlowItem 的连续文字。
+- 段内 image/table anchor 不参与 PDF 回填的擦除、文本层或 obstacle 计算；StandaloneAsset、DisplayFormula 和引用/脚注等独立物理内容仍可作为保护区。
 - 普通布局的 width、行数与 forbidden line 不能因二阶段平均而被破坏。
 - headline 最小字号无法正常容纳时仍必须输出自然宽单行，不能退化为窄 bbox 内的多行 forced write。
 - 修改此区域时至少覆盖：普通跨 bbox 段落、孤立单行统计回退、headline 下限、以及一个真实 PDF 回填页面的视觉检查。
