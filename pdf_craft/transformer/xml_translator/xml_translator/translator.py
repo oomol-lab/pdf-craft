@@ -21,6 +21,30 @@ SourceTextRenderer = Callable[[list[InlineSegment]], str]
 CanonicalTextValidator = Callable[[list[InlineSegment], str, Element], str | None]
 
 
+def _groups_by_source_unit_owner(
+    inline_segments: list[InlineSegment],
+) -> list[list[InlineSegment]]:
+    """Split PCEX canonical-validation work at logical ``<text>`` owners.
+
+    This helper is deliberately activated only for the optional canonical
+    validation path.  The ordinary XML translator keeps its generic batching
+    semantics, while PCEX gets one first-stage translation result per
+    TextFlowItem and therefore never infers ownership from translated prose.
+    """
+    groups: list[list[InlineSegment]] = []
+    previous_owner: Element | None = None
+    for segment in inline_segments:
+        owner = next(
+            (element for element in segment.head.parent_stack if element.tag == "text"),
+            segment.parent,
+        )
+        if owner is not previous_owner:
+            groups.append([])
+            previous_owner = owner
+        groups[-1].append(segment)
+    return groups
+
+
 @dataclass
 class TranslationTask(Generic[T]):
     element: Element
@@ -165,10 +189,7 @@ class XMLTranslator:
             map=lambda inline_segments: self._translate_inline_segments(
                 inline_segments=inline_segments,
                 callbacks=callbacks,
-                immutable_elements=(
-                    immutable_elements_for_inline_segments(inline_segments)
-                    if immutable_elements_for_inline_segments is not None else []
-                ),
+                immutable_elements_for_inline_segments=immutable_elements_for_inline_segments,
                 source_text_renderer=source_text_renderer,
                 canonical_text_validator=canonical_text_validator,
             ),
@@ -211,6 +232,41 @@ class XMLTranslator:
             ))
 
     def _translate_inline_segments(
+        self,
+        inline_segments: list[InlineSegment],
+        callbacks: Callbacks,
+        immutable_elements_for_inline_segments: Callable[
+            [list[InlineSegment]], list[ImmutableBlockElement]
+        ] | None,
+        source_text_renderer: SourceTextRenderer | None,
+        canonical_text_validator: CanonicalTextValidator | None,
+    ) -> list[InlineSegmentMapping | None]:
+        # A canonical validator is defined for one logical unit.  PCEX uses a
+        # ``<text>`` owner for that unit, whereas its fragment children are
+        # only geometry slots.  Do not attempt to recover owner boundaries
+        # from translated prose: a perfectly valid translation can itself
+        # contain blank lines.  Keeping one owner per first-stage request
+        # gives the fill validator an unambiguous canonical string.
+        segment_groups = (
+            _groups_by_source_unit_owner(inline_segments)
+            if canonical_text_validator is not None
+            else [inline_segments]
+        )
+        mappings: list[InlineSegmentMapping | None] = []
+        for group in segment_groups:
+            mappings.extend(self._translate_inline_segment_group(
+                inline_segments=group,
+                callbacks=callbacks,
+                immutable_elements=(
+                    immutable_elements_for_inline_segments(group)
+                    if immutable_elements_for_inline_segments is not None else []
+                ),
+                source_text_renderer=source_text_renderer,
+                canonical_text_validator=canonical_text_validator,
+            ))
+        return mappings
+
+    def _translate_inline_segment_group(
         self,
         inline_segments: list[InlineSegment],
         callbacks: Callbacks,

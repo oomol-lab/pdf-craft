@@ -12,6 +12,7 @@ from pdf_craft.transformer.xml_translator.segment import search_text_segments
 from pdf_craft.transformer.xml_translator.segment import ImmutableBlockElement, InlineSegment
 from pdf_craft.transformer.xml_translator.xml import clone_element
 from pdf_craft.transformer.xml_translator.xml.const import ID_KEY
+from pdf_craft.transformer.xml_translator.utils import normalize_whitespace
 from pdf_craft.transformer.events import TranslationEvent, TranslationItemKind
 from .chapter_formula_interrupter import ChapterFormulaInterrupter
 from .xml_translator.xml_translator import SubmitKind, TranslationTask
@@ -189,16 +190,18 @@ def _validate_chapter_fill_canonical_text(
     a candidate, so a structurally valid ``How / ever`` attempt cannot become
     the immutable baseline for a later repair.
 
-    The source renderer uses a blank line between independent TextFlowItems.
-    We validate only when that one-to-one unit boundary survives first-stage
-    translation.  If a generic translation response rewrites paragraph
-    separators, preserving the structurally valid response is safer than
-    inventing a new PCEX-specific segmentation rule here.
+    XMLTranslator invokes this validator once per TextFlowItem, so canonical
+    ownership never has to be inferred from a translated blank line.  The XML
+    segment layer canonicalizes runs of whitespace to one space; comparison
+    uses that same representation while still catching a space independently
+    introduced on both sides of a fragment boundary.
     """
     owners = _ordered_source_unit_owners(inline_segments)
-    expected_units = translated_text.split("\n\n")
-    if len(expected_units) != len(owners):
-        return None
+    if len(owners) != 1:
+        return (
+            "PCEX canonical fill validation received multiple TextFlowItems; "
+            "each canonical fill request must contain exactly one <text> unit."
+        )
 
     response_by_id = {
         int(child.get(ID_KEY, "")): child
@@ -220,16 +223,20 @@ def _validate_chapter_fill_canonical_text(
             text_segment.text for text_segment in search_text_segments(filled)
         )
 
-    for owner, expected in zip(owners, expected_units, strict=True):
-        if _text_owner_has_formula(owner):
-            continue
-        actual = "".join(actual_by_owner[id(owner)])
-        if actual != expected:
-            return (
-                "Visible text for one PCEX <text> differs from the canonical "
-                "translation. Anchors are zero-width and must not add spaces "
-                f"or characters. Expected {expected!r}, got {actual!r}."
-            )
+    owner = owners[0]
+    # Display formulas and temporary formula-context nodes are not
+    # TextFlowItems. Their dedicated interruption protocol owns fidelity, so
+    # this text-only invariant must not reinterpret their token stream.
+    if owner.tag != "text" or _text_owner_has_formula(owner):
+        return None
+    expected = normalize_whitespace(translated_text)
+    actual = "".join(actual_by_owner[id(owner)])
+    if actual != expected:
+        return (
+            "Visible text for one PCEX <text> differs from the canonical "
+            "translation. Anchors are zero-width and must not add spaces "
+            f"or characters. Expected {expected!r}, got {actual!r}."
+        )
     return None
 
 

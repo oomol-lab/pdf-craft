@@ -16,6 +16,8 @@ from tiktoken import get_encoding
 from pdf_craft.common import read_xml, save_xml
 from pdf_craft.craft import PDFCraft
 from pdf_craft.document import PDFCraftExtraction
+from pdf_craft.pipeline.pdf import PDFPatcher
+from pdf_craft.pipeline.pdf.pipeline import PDFTranslationPipeline
 from pdf_craft.llm import LLM
 from pdf_craft.extractor.chapter.chapter import (
     Chapter,
@@ -188,6 +190,16 @@ class _ResponseRuntime:
         return self.context_value
 
 
+class _CapturePatcher:
+    """Capture the actual PDF patch plan without producing an output file."""
+
+    def __init__(self) -> None:
+        self.replacements = []
+
+    def patch(self, _source, _target, replacements) -> None:
+        self.replacements = list(replacements)
+
+
 def _repairing_translator(fill_responses: Sequence[str]) -> tuple[XMLTranslator, _ResponseRuntime]:
     config = LLM("test", "https://example.invalid/v1", "test", "cl100k_base")
     translator = XMLTranslator(
@@ -197,6 +209,37 @@ def _repairing_translator(fill_responses: Sequence[str]) -> tuple[XMLTranslator,
     runtime = _ResponseRuntime(fill_responses)
     translator._fill_runtime = runtime  # type: ignore[assignment]
     return translator, runtime
+
+
+def _pdf_patch_text(chapter: Chapter) -> str:
+    """Run a translated chapter through the PDF patch planning boundary."""
+    page_sizes = {
+        fragment.page_index: (100, 100)
+        for item in chapter.flow_items
+        if isinstance(item, TextFlowItem)
+        for fragment in item.children
+        if isinstance(fragment, SourceTextFragment)
+    }
+    with tempfile.TemporaryDirectory() as directory:
+        root = Path(directory)
+        extraction = make_extraction(root / "source", page_pixel_sizes=page_sizes)
+        save_xml(encode(chapter), root / "source/chapters/chapter_head.xml")
+        first_text = next(item for item in chapter.flow_items if isinstance(item, TextFlowItem))
+        first_fragment = next(
+            child for child in first_text.children if isinstance(child, SourceTextFragment)
+        )
+        (root / "source/translation.xml").write_text(
+            "<translation><narrative><paragraph chapter_id='head' "
+            f"page_index='{first_fragment.page_index}' order='{first_fragment.source_order}' "
+            "state='translated'/></narrative></translation>",
+            encoding="utf-8",
+        )
+        capture = _CapturePatcher()
+        PDFTranslationPipeline(patcher=cast(PDFPatcher, capture)).patch(
+            Path("input.pdf"), Path("output.pdf"), extraction,
+        )
+        assert len(capture.replacements) == 1
+        return capture.replacements[0].text
 
 
 class AnchoredContentTranslationTests(unittest.TestCase):
@@ -350,7 +393,7 @@ class AnchoredContentTranslationTests(unittest.TestCase):
 
     def test_fill_repairs_anchor_boundary_to_match_canonical_translation(self):
         """An asset anchor is structural: it cannot acquire a visible space."""
-        image = SourceAsset(1, "image", (20, 20, 80, 80), asset_hash="a" * 64)
+        image = SourceAsset(1, "image", (20, 20, 80, 80))
         chapter = Chapter(None, -1, [TextFlowItem("body", 0, [
             SourceTextFragment(1, 1, (1, 1, 90, 15), ["How"]),
             image,
@@ -376,6 +419,7 @@ class AnchoredContentTranslationTests(unittest.TestCase):
         assert isinstance(second, SourceTextFragment)
         self.assertEqual(restored_image, image)
         self.assertEqual(_text(first.content) + _text(second.content), "However, the Council.")
+        self.assertEqual(_pdf_patch_text(translated), "However, the Council.")
         self.assertEqual(runtime.context_value.calls, 2)
         initial_messages = runtime.context_value.messages[0][0]
         self.assertIn("Canonical visible-text constraint", initial_messages[-1].message)
@@ -405,9 +449,71 @@ class AnchoredContentTranslationTests(unittest.TestCase):
         assert isinstance(text, TextFlowItem)
         fragments = [child for child in text.children if isinstance(child, SourceTextFragment)]
         self.assertEqual("".join(_text(fragment.content) for fragment in fragments), "corruption is harmful.")
+        self.assertEqual(_pdf_patch_text(translated), "corruption is harmful.")
         self.assertEqual(runtime.context_value.calls, 2)
         retry_messages = runtime.context_value.messages[1][0]
         self.assertIn("canonical translation", retry_messages[-1].message)
+
+    def test_fill_validates_one_owner_when_canonical_translation_has_blank_lines(self):
+        """A translated paragraph break is content, not a TextFlowItem separator."""
+        chapter = Chapter(None, -1, [TextFlowItem("body", 0, [
+            SourceTextFragment(1, 1, (1, 1, 90, 15), ["First source."]),
+            SourceTextFragment(1, 2, (1, 16, 90, 30), ["Second source."]),
+        ])])
+        incorrect = (
+            '<xml><fragment id="1">First. </fragment>'
+            '<fragment id="2"> Second.</fragment></xml>'
+        )
+        corrected = (
+            '<xml><fragment id="1">First.</fragment>'
+            '<fragment id="2"> Second.</fragment></xml>'
+        )
+        translator, runtime = _repairing_translator((incorrect, corrected))
+        translator._translate_text = lambda _source: "First.\n\nSecond."  # type: ignore[method-assign]
+
+        translated = ChapterXMLTransformer(cast(Any, translator)).transform(chapter)
+
+        text = translated.flow_items[0]
+        assert isinstance(text, TextFlowItem)
+        fragments = [child for child in text.children if isinstance(child, SourceTextFragment)]
+        self.assertEqual("".join(_text(fragment.content) for fragment in fragments), "First. Second.")
+        self.assertEqual(_pdf_patch_text(translated), "First. Second.")
+        self.assertEqual(runtime.context_value.calls, 2)
+        retry_messages = runtime.context_value.messages[1][0]
+        self.assertIn("Expected 'First. Second.'", retry_messages[-1].message)
+
+    def test_canonical_fill_keeps_a_separate_first_stage_result_per_text_owner(self):
+        """Owner identity, not translated paragraph spacing, defines canonical scope."""
+        chapter = Chapter(None, -1, [
+            TextFlowItem("body", 0, [
+                SourceTextFragment(1, 1, (1, 1, 90, 15), ["First source."]),
+            ]),
+            TextFlowItem("body", 0, [
+                SourceTextFragment(1, 2, (1, 16, 90, 30), ["Second source."]),
+            ]),
+        ])
+        translator, runtime = _repairing_translator((
+            '<xml><fragment id="1">First canonical.</fragment></xml>',
+            '<xml><fragment id="1">Second canonical.</fragment></xml>',
+        ))
+        sources: list[str] = []
+
+        def translate(source: str) -> str:
+            sources.append(source)
+            return f"{source[:-7]} canonical."
+
+        translator._translate_text = translate  # type: ignore[method-assign]
+
+        translated = ChapterXMLTransformer(cast(Any, translator)).transform(chapter)
+
+        self.assertEqual(sources, ["First source.", "Second source."])
+        self.assertEqual(runtime.context_value.calls, 2)
+        contents = [
+            _text(item.children[0].content)
+            for item in translated.flow_items
+            if isinstance(item, TextFlowItem)
+        ]
+        self.assertEqual(contents, ["First canonical.", "Second canonical."])
 
     def test_independent_stage_translates_asset_fields_and_records_coverage(self):
         with tempfile.TemporaryDirectory() as directory:
