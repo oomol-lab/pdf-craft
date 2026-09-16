@@ -1,6 +1,6 @@
 <div align="center">
   <img src="docs/images/pdf-craft-readme-banner-v1.png" alt="PDF Craft — Bring scanned books back to editable, readable text." width="100%" />
-  <p><strong>English</strong> | <a href="README_zh-CN.md">简体中文</a> | <a href="docs/zh-TW/README.md">繁體中文</a> | <a href="docs/ja/README.md">日本語</a> | <a href="docs/ko/README.md">한국어</a> | <a href="docs/ru/README.md">Русский</a> | <a href="docs/fr/README.md">Français</a> | <a href="docs/es/README.md">Español</a> | <a href="docs/de/README.md">Deutsch</a> | <a href="docs/it/README.md">Italiano</a></p>
+  <p><strong>English</strong> | <a href="docs/readmes/README-zh-CN.md">简体中文</a> | <a href="docs/readmes/README-zh-TW.md">繁體中文</a> | <a href="docs/readmes/README-ja.md">日本語</a> | <a href="docs/readmes/README-ko.md">한국어</a> | <a href="docs/readmes/README-ru.md">Русский</a> | <a href="docs/readmes/README-fr.md">Français</a> | <a href="docs/readmes/README-es.md">Español</a> | <a href="docs/readmes/README-de.md">Deutsch</a> | <a href="docs/readmes/README-it.md">Italiano</a></p>
   <p>
     <a href="https://pypi.org/project/pdf-craft/"><img src="https://img.shields.io/pypi/v/pdf-craft.svg?color=AD493B" alt="PyPI" /></a>
     <a href="https://pypi.org/project/pdf-craft/"><img src="https://img.shields.io/pypi/pyversions/pdf-craft.svg" alt="Python" /></a>
