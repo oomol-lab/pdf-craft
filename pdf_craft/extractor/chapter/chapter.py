@@ -204,7 +204,7 @@ def decode(element: Element, *, allow_legacy: bool = True) -> Chapter:
     if flow is not None:
         if not allow_legacy and any(asset.get("ref") == "equation" for asset in flow.iter("asset")):
             raise ValueError("PCEX v3 uses asset ref='formula', not legacy 'equation'")
-        return Chapter(ident, level, [_decode_flow(v, refs) for v in flow])
+        return Chapter(ident, level, [_decode_flow(v, refs, allow_legacy=allow_legacy) for v in flow])
     # v1/v2 in-memory migration; historic sibling assets cannot acquire a
     # fictional nested relation, but formulas become explicit boundaries.
     body = element.find("body")
@@ -213,7 +213,7 @@ def decode(element: Element, *, allow_legacy: bool = True) -> Chapter:
     items: list[FlowItem] = []
     for child in body:
         if child.tag == "paragraph": items.append(_legacy_paragraph(child, refs))
-        elif child.tag == "asset": items.append(_flow(_asset(child, refs)))
+        elif child.tag == "asset": items.append(_flow(_asset(child, refs, allow_legacy=True)))
         else: raise ValueError(f"<body> contains unknown element: <{child.tag}>")
     return Chapter(ident, level, items)
 
@@ -233,7 +233,7 @@ def encode(chapter: Chapter) -> Element:
     return indent(root)
 
 
-def _decode_flow(element: Element, refs: dict[tuple[int, int], Reference]) -> FlowItem:
+def _decode_flow(element: Element, refs: dict[tuple[int, int], Reference], *, allow_legacy: bool = True) -> FlowItem:
     if element.tag == "text":
         role = element.get("role")
         if role not in {"body", "heading"}: raise ValueError("<text> role must be body or heading")
@@ -252,7 +252,7 @@ def _decode_flow(element: Element, refs: dict[tuple[int, int], Reference]) -> Fl
                 if not any(isinstance(value, InlineExpression) and value == expression for value in flatten(children[-1].content)):
                     children[-1].content.append(expression)
             elif child.tag == "asset":
-                asset = _asset(child, refs)
+                asset = _asset(child, refs, allow_legacy=allow_legacy)
                 if asset.ref == "formula": raise ValueError("text cannot contain formula asset")
                 children.append(asset)
             else: raise ValueError(f"<text> contains unknown element: <{child.tag}>")
@@ -260,7 +260,7 @@ def _decode_flow(element: Element, refs: dict[tuple[int, int], Reference]) -> Fl
     if element.tag in {"display-formula", "standalone-asset"}:
         children = list(element)
         if len(children) != 1 or children[0].tag != "asset": raise ValueError(f"<{element.tag}> must contain exactly one <asset>")
-        asset = _asset(children[0], refs)
+        asset = _asset(children[0], refs, allow_legacy=allow_legacy)
         return DisplayFormula(asset) if element.tag == "display-formula" else StandaloneAsset(asset)
     raise ValueError(f"<flow> contains unknown element: <{element.tag}>")
 
@@ -277,12 +277,14 @@ def _encode_flow(item: FlowItem) -> Element:
     result.append(_encode_asset(item.asset)); return result
 
 
-def _asset(element: Element, refs: dict[tuple[int, int], Reference] | None = None) -> SourceAsset:
+def _asset(element: Element, refs: dict[tuple[int, int], Reference] | None = None, *, allow_legacy: bool = True) -> SourceAsset:
     ref = element.get("ref")
     if ref == "equation":
         ref = "formula"
     if ref not in ASSET_TAGS: raise ValueError(f"<asset> attribute 'ref' must be one of {ASSET_TAGS}, got: {ref}")
-    return SourceAsset(_integer(element, "page_index"), cast(AssetRef, ref), _bbox(element, "det"),
+    if not allow_legacy and (element.get("det") is not None or element.get("hash") is not None):
+        raise ValueError("PCEX v3 asset uses bbox and asset_hash, not legacy det/hash")
+    return SourceAsset(_integer(element, "page_index"), cast(AssetRef, ref), _bbox(element, "det" if allow_legacy else None),
         _content(element.find("title"), refs, "asset"), _content(element.find("content"), refs, "asset"),
         _content(element.find("caption"), refs, "asset"), element.get("asset_hash", element.get("hash")))
 
@@ -355,13 +357,13 @@ def _decode_reference(element: Element, *, allow_legacy: bool = True) -> Referen
     if flow is not None:
         if not allow_legacy and any(asset.get("ref") == "equation" for asset in flow.iter("asset")):
             raise ValueError("PCEX v3 reference uses asset ref='formula', not legacy 'equation'")
-        return Reference(page, order, mark, [_decode_flow(child, {}) for child in flow])
+        return Reference(page, order, mark, [_decode_flow(child, {}, allow_legacy=allow_legacy) for child in flow])
     if not allow_legacy:
         raise ValueError("PCEX v3 reference must contain <flow>, not legacy body elements")
     values: list[FlowItem] = []
     for child in element:
         if child.tag == "paragraph": values.append(_legacy_paragraph(child, {}))
-        elif child.tag == "asset": values.append(_flow(_asset(child)))
+        elif child.tag == "asset": values.append(_flow(_asset(child, allow_legacy=True)))
     return Reference(page, order, mark, values)
 
 

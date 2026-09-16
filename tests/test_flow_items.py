@@ -77,6 +77,14 @@ def test_v3_codec_rejects_legacy_reference_subtrees_when_strict():
         decode(legacy_body, allow_legacy=False)
 
 
+def test_v3_codec_rejects_legacy_asset_attributes_when_strict():
+    legacy_attributes = fromstring("""<chapter><flow><standalone-asset>
+      <asset ref="image" page_index="1" det="0,0,1,1" hash="a"/>
+    </standalone-asset></flow></chapter>""")
+    with pytest.raises(ValueError, match="det/hash"):
+        decode(legacy_attributes, allow_legacy=False)
+
+
 def test_pdf_obstacles_include_asset_nested_in_text_flow_item():
     image = SourceAsset(1, "image", (11, 22, 77, 88), asset_hash="d" * 64)
     chapter = Chapter(None, -1, [TextFlowItem("body", 0, [_fragment(1, "before"), image])])

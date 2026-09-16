@@ -322,6 +322,23 @@ class TestPDFCraftExtraction(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "legacy 'equation'"):
                 PDFCraftExtraction.open(invalid)
 
+    def test_v3_archive_rejects_legacy_asset_attributes(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            workspace = root / "workspace"
+            extraction = make_extraction(workspace)
+            save_xml(encode(Chapter(None, -1, [])), workspace / "chapters/chapter_head.xml")
+            valid = root / "valid.pcex"
+            extraction.export(valid)
+            invalid = root / "legacy-attributes.pcex"
+            chapter_xml = (
+                b'<chapter><flow><standalone-asset><asset ref="image" page_index="1" '
+                b'det="0,0,1,1" hash="a"/></standalone-asset></flow></chapter>'
+            )
+            _replace_archive_members(valid, invalid, {"chapters/chapter_head.xml": chapter_xml})
+            with self.assertRaisesRegex(ValueError, "det/hash"):
+                PDFCraftExtraction.open(invalid)
+
     def test_translation_preserves_manifest_pages_toc_cover_and_assets(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
