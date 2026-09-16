@@ -9,6 +9,12 @@ from ...extractor.chapter import (
     BlockMember,
     InlineExpression,
     ParagraphLayout,
+    DisplayFormula,
+    FlowItem,
+    SourceAsset,
+    SourceTextFragment,
+    StandaloneAsset,
+    TextFlowItem,
     Reference,
     RefIdMap,
 )
@@ -20,7 +26,7 @@ _MAX_TITLE_LEVELS = 6
 
 
 def render_layouts(
-    layouts: Iterable[ParagraphLayout | AssetLayout],
+    layouts: Iterable[FlowItem | ParagraphLayout | AssetLayout],
     assets_path: Path,
     output_assets_path: Path,
     asset_ref_path: Path,
@@ -35,7 +41,9 @@ def render_layouts(
             is_first_layout = False
         else:
             yield "\n\n"
-        if isinstance(layout, AssetLayout):
+        if isinstance(layout, (DisplayFormula, StandaloneAsset)):
+            yield from _render_asset(layout.asset, assets_path, output_assets_path, asset_ref_path, ref_id_to_number)
+        elif isinstance(layout, AssetLayout):
             yield from _render_asset(
                 asset=layout,
                 assets_path=assets_path,
@@ -44,11 +52,22 @@ def render_layouts(
                 ref_id_to_number=ref_id_to_number,
             )
         elif isinstance(layout, ParagraphLayout):
-            yield from render_paragraph(
-                paragraph=layout,
-                toc_level=toc_level,
-                ref_id_to_number=ref_id_to_number,
-            )
+            # Markdown cannot keep an image/table inside a physical paragraph,
+            # but it can preserve the semantic child order by closing and
+            # reopening the emitted paragraph around each anchored asset.
+            text_children: list[SourceTextFragment] = []
+            for child in layout.children:
+                if isinstance(child, SourceTextFragment):
+                    text_children.append(child)
+                    continue
+                if text_children:
+                    yield from render_paragraph(TextFlowItem(layout.role, layout.level, list(text_children)), toc_level, ref_id_to_number)
+                    yield "\n\n"
+                    text_children = []
+                yield from _render_asset(child, assets_path, output_assets_path, asset_ref_path, ref_id_to_number)
+                yield "\n\n"
+            if text_children:
+                yield from render_paragraph(TextFlowItem(layout.role, layout.level, list(text_children)), toc_level, ref_id_to_number)
 
 
 def render_paragraph(

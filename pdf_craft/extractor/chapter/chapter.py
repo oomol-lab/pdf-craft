@@ -1,5 +1,11 @@
+"""PCEX v3 chapter flow model and XML codec.
+
+``FlowItem`` preserves an author paragraph even when a figure/table interrupts
+it.  Display equations are separate flow items, so joining text can never leap
+over them.  Deprecated layout names below are compatibility aliases only.
+"""
 from dataclasses import dataclass
-from typing import Generator, Iterable, cast
+from typing import Generator, Iterable, TypeAlias, Union, cast
 from xml.etree.ElementTree import Element
 
 from ...common import ASSET_TAGS, AssetRef, indent
@@ -11,479 +17,369 @@ from .mark import Mark
 
 
 @dataclass
-class Chapter:
-    id: int | None
-    level: int
-    layouts: list["ParagraphLayout | AssetLayout"]
-
-
-@dataclass
-class ParagraphLayout:
-    ref: str
-    level: int
-    blocks: list["BlockLayout"]
-
-
-@dataclass
 class InlineExpression:
     kind: ExpressionKind
     content: str
 
 
+BlockMember: TypeAlias = Union[InlineExpression, "Reference"]
+Content = list[str | BlockMember | HTMLTag[BlockMember]]
+RefIdMap = dict[tuple[int, int], int]
+
+
+def _role(value: str) -> str:
+    return {"text": "body", "title": "heading", "sub_title": "heading"}.get(value, value)
+
+
+def _ref(value: str) -> str:
+    return {"body": "text", "heading": "sub_title"}.get(value, value)
+
+
+@dataclass(init=False)
+class SourceTextFragment:
+    page_index: int
+    source_order: int
+    bbox: tuple[int, int, int, int]
+    content: Content
+
+    def __init__(self, page_index: int, source_order: int | None = None,
+                 bbox: tuple[int, int, int, int] | None = None, content: Content | None = None,
+                 *, order: int | None = None, det: tuple[int, int, int, int] | None = None):
+        self.page_index = page_index
+        self.source_order = source_order if source_order is not None else cast(int, order)
+        self.bbox = bbox if bbox is not None else cast(tuple[int, int, int, int], det)
+        self.content = content or []
+
+    @property
+    def order(self): return self.source_order
+    @order.setter
+    def order(self, value): self.source_order = value
+    @property
+    def det(self): return self.bbox
+    @det.setter
+    def det(self, value): self.bbox = value
+
+
+@dataclass(init=False)
+class SourceAsset:
+    page_index: int
+    ref: AssetRef
+    bbox: tuple[int, int, int, int]
+    title: Content
+    content: Content
+    caption: Content
+    asset_hash: str | None
+
+    def __init__(self, page_index: int, ref: AssetRef,
+                 bbox: tuple[int, int, int, int] | None = None, title: Content | None = None,
+                 content: Content | None = None, caption: Content | None = None,
+                 asset_hash: str | None = None, *, det: tuple[int, int, int, int] | None = None,
+                 hash: str | None = None):
+        self.page_index, self.ref = page_index, ref
+        self.bbox = bbox if bbox is not None else cast(tuple[int, int, int, int], det)
+        self.title, self.content, self.caption = title or [], content or [], caption or []
+        self.asset_hash = asset_hash if asset_hash is not None else hash
+
+    @property
+    def det(self): return self.bbox
+    @det.setter
+    def det(self, value): self.bbox = value
+    @property
+    def hash(self): return self.asset_hash
+    @hash.setter
+    def hash(self, value): self.asset_hash = value
+
+
+@dataclass(init=False)
+class TextFlowItem:
+    role: str
+    level: int
+    children: list[SourceTextFragment | SourceAsset]
+
+    def __init__(self, role: str | None = None, level: int = -1,
+                 children: list[SourceTextFragment | SourceAsset] | None = None,
+                 *, ref: str | None = None, blocks: list[SourceTextFragment] | None = None):
+        raw = role if role is not None else ref
+        if raw is None: raise TypeError("TextFlowItem requires role")
+        self.role, self.level = _role(raw), level
+        self.children = children if children is not None else list(blocks or [])
+
+    @property
+    def ref(self): return _ref(self.role)
+    @ref.setter
+    def ref(self, value): self.role = _role(value)
+    @property
+    def blocks(self): return [v for v in self.children if isinstance(v, SourceTextFragment)]
+    @blocks.setter
+    def blocks(self, value): self.children = value
+
+
 @dataclass
+class DisplayFormula:
+    asset: SourceAsset
+    def __post_init__(self):
+        if self.asset.ref != "equation": raise ValueError("DisplayFormula requires equation asset")
+
+
+@dataclass
+class StandaloneAsset:
+    asset: SourceAsset
+    def __post_init__(self):
+        if self.asset.ref == "equation": raise ValueError("equation must be DisplayFormula")
+
+
+FlowItem: TypeAlias = TextFlowItem | DisplayFormula | StandaloneAsset
+
+
+def _flow(value: FlowItem | SourceAsset) -> FlowItem:
+    if isinstance(value, SourceAsset):
+        return DisplayFormula(value) if value.ref == "equation" else StandaloneAsset(value)
+    return value
+
+
+@dataclass(init=False)
+class Chapter:
+    id: int | None
+    level: int
+    flow_items: list[FlowItem]
+
+    def __init__(self, id: int | None, level: int, flow_items: Iterable[FlowItem | SourceAsset] | None = None,
+                 *, layouts: Iterable[TextFlowItem | SourceAsset] | None = None):
+        self.id, self.level = id, level
+        self.flow_items = [_flow(v) for v in (flow_items if flow_items is not None else (layouts or []))]
+
+    @property
+    def layouts(self):
+        return [v if isinstance(v, TextFlowItem) else v.asset for v in self.flow_items]
+    @layouts.setter
+    def layouts(self, values): self.flow_items = [_flow(v) for v in values]
+
+
+@dataclass(init=False)
 class Reference:
     page_index: int
     order: int
     mark: str | Mark
-    layouts: list["AssetLayout | ParagraphLayout"]
-
+    flow_items: list[FlowItem]
+    def __init__(self, page_index: int, order: int, mark: str | Mark,
+                 flow_items: Iterable[FlowItem | SourceAsset] | None = None,
+                 *, layouts: Iterable[TextFlowItem | SourceAsset] | None = None):
+        self.page_index, self.order, self.mark = page_index, order, mark
+        self.flow_items = [_flow(v) for v in (flow_items if flow_items is not None else (layouts or []))]
     @property
-    def id(self) -> tuple[int, int]:
-        return (self.page_index, self.order)
+    def id(self): return self.page_index, self.order
+    @property
+    def layouts(self): return [v if isinstance(v, TextFlowItem) else v.asset for v in self.flow_items]
 
 
-BlockMember = InlineExpression | Reference
-RefIdMap = dict[tuple[int, int], int]
+# One-release source compatibility: values are nevertheless v3 objects.
+ParagraphLayout = TextFlowItem
+BlockLayout = SourceTextFragment
+AssetLayout = SourceAsset
 
 
-@dataclass
-class AssetLayout:
-    page_index: int
-    ref: AssetRef
-    det: tuple[int, int, int, int]
-    title: list[str | BlockMember | HTMLTag[BlockMember]]
-    content: list[str | BlockMember | HTMLTag[BlockMember]]
-    caption: list[str | BlockMember | HTMLTag[BlockMember]]
-    hash: str | None
-
-
-@dataclass
-class BlockLayout:
-    page_index: int
-    order: int
-    det: tuple[int, int, int, int]
-    content: list[str | BlockMember | HTMLTag[BlockMember]]
+def references_to_map(references: Iterable[Reference]) -> RefIdMap:
+    return {ref.id: index for index, ref in enumerate(references, 1)}
 
 
 def search_references_in_chapter(chapter: Chapter) -> Generator[Reference, None, None]:
     seen: set[tuple[int, int]] = set()
-    for part in _search_parts_in_chapter(chapter):
-        if isinstance(part, Reference):
-            ref_id = part.id
-            if ref_id not in seen:
-                seen.add(ref_id)
-                yield part
-
-
-def references_to_map(references: Iterable[Reference]) -> RefIdMap:
-    ref_id_to_number = {}
-    for i, ref in enumerate(references, 1):
-        ref_id_to_number[ref.id] = i
-    return ref_id_to_number
+    for part in _parts(chapter.flow_items):
+        if isinstance(part, Reference) and part.id not in seen:
+            seen.add(part.id); yield part
 
 
 def decode(element: Element) -> Chapter:
-    references_el = element.find("references")
-    references_map: dict[tuple[int, int], Reference] = {}
-    if references_el is not None:
-        for ref_el in references_el.findall("ref"):
-            reference = _decode_reference(ref_el)
-            references_map[reference.id] = reference
-
-    id_attr = element.get("id")
-    id_value = int(id_attr) if id_attr is not None else None
-
-    level_attr = element.get("level")
-    level = int(level_attr) if level_attr is not None else -1
-
-    body_el = element.find("body")
-    if body_el is None:
-        raise ValueError("<chapter> missing required <body> element")
-
-    layouts: list[ParagraphLayout | AssetLayout] = []
-    for child in list(body_el):
-        tag = child.tag
-        if tag == "asset":
-            layouts.append(_decode_asset(child))
-        elif tag == "paragraph":
-            layouts.append(_decode_paragraph(child, references_map))
-
-    return Chapter(
-        id=id_value,
-        level=level,
-        layouts=layouts,
-    )
+    refs = _refs(element.find("references"))
+    id_text = element.get("id")
+    ident = int(id_text) if id_text is not None else None
+    level = int(element.get("level", "-1"))
+    flow = element.find("flow")
+    if flow is not None:
+        return Chapter(ident, level, [_decode_flow(v, refs) for v in flow])
+    # v1/v2 in-memory migration; historic sibling assets cannot acquire a
+    # fictional nested relation, but formulas become explicit boundaries.
+    body = element.find("body")
+    if body is None: raise ValueError("<chapter> missing required <flow> element")
+    items: list[FlowItem] = []
+    for child in body:
+        if child.tag == "paragraph": items.append(_legacy_paragraph(child, refs))
+        elif child.tag == "asset": items.append(_flow(_asset(child, refs)))
+        else: raise ValueError(f"<body> contains unknown element: <{child.tag}>")
+    return Chapter(ident, level, items)
 
 
 def encode(chapter: Chapter) -> Element:
     root = Element("chapter")
-
-    if chapter.id is not None:
-        root.set("id", str(chapter.id))
-
-    if chapter.level != -1:
-        root.set("level", str(chapter.level))
-
-    body_el = Element("body")
-    for layout in chapter.layouts:
-        if isinstance(layout, AssetLayout):
-            body_el.append(_encode_asset(layout))
-        else:
-            body_el.append(_encode_paragraph(layout))
-
-    root.append(body_el)
-    references = list(search_references_in_chapter(chapter))
-    references.sort(key=lambda ref: ref.id)
-
-    if references:
-        references_el = Element("references")
-        for ref in references:
-            references_el.append(_encode_reference(ref))
-        root.append(references_el)
-
+    if chapter.id is not None: root.set("id", str(chapter.id))
+    if chapter.level != -1: root.set("level", str(chapter.level))
+    flow = Element("flow")
+    for item in chapter.flow_items: flow.append(_encode_flow(item))
+    root.append(flow)
+    refs = sorted(search_references_in_chapter(chapter), key=lambda ref: ref.id)
+    if refs:
+        container = Element("references")
+        for ref in refs: container.append(_encode_reference(ref))
+        root.append(container)
     return indent(root)
 
 
-def _search_parts_in_chapter(chapter: Chapter):
-    for layout in chapter.layouts:
-        if isinstance(layout, ParagraphLayout):
-            for block in layout.blocks:
-                yield from flatten(block.content)
-
-
-def _decode_asset(element: Element) -> AssetLayout:
-    ref_attr = element.get("ref")
-    if ref_attr is None:
-        raise ValueError("<asset> missing required attribute 'ref'")
-    if ref_attr not in ASSET_TAGS:
-        raise ValueError(
-            f"<asset> attribute 'ref' must be one of {ASSET_TAGS}, got: {ref_attr}"
-        )
-    page_index_attr = element.get("page_index")
-    if page_index_attr is None:
-        raise ValueError("<asset> missing required attribute 'page_index'")
-    try:
-        page_index = int(page_index_attr)
-    except ValueError as e:
-        raise ValueError(
-            f"<asset> attribute 'page_index' must be int, got: {page_index_attr}"
-        ) from e
-
-    det_str = element.get("det")
-    if det_str is None:
-        raise ValueError("<asset> missing required attribute 'det'")
-    det = _parse_det(det_str, context="<asset>@det")
-
-    hash_value = element.get("hash")
-
-    def decode_block_member(child: Element) -> BlockMember:
-        if child.tag == "ref":
-            raise ValueError("<asset> cannot contain <ref> elements")
-        elif child.tag == "inline_expr":
-            kind_attr = child.get("kind")
-            if kind_attr is None:
-                raise ValueError(
-                    "<asset><inline_expr> missing required attribute 'kind'"
-                )
-            kind = decode_expression_kind(kind_attr)
-            expr_text = child.text if child.text is not None else ""
-            return InlineExpression(kind=kind, content=expr_text)
-        else:
-            raise ValueError(f"<asset> contains unknown element: <{child.tag}>")
-
-    title_el = element.find("title")
-    title = (
-        decode_content(title_el, decode_block_member) if title_el is not None else []
-    )
-
-    content_el = element.find("content")
-    content = (
-        decode_content(content_el, decode_block_member)
-        if content_el is not None
-        else []
-    )
-
-    caption_el = element.find("caption")
-    caption = (
-        decode_content(caption_el, decode_block_member)
-        if caption_el is not None
-        else []
-    )
-
-    return AssetLayout(
-        page_index=page_index,
-        ref=cast(AssetRef, ref_attr),
-        det=det,
-        title=title,
-        content=content,
-        caption=caption,
-        hash=hash_value,
-    )
-
-
-def _encode_asset(layout: AssetLayout) -> Element:
-    el = Element("asset")
-    el.set("ref", layout.ref)
-    el.set("page_index", str(layout.page_index))
-    el.set("det", ",".join(map(str, layout.det)))
-    if layout.hash is not None:
-        el.set("hash", layout.hash)
-
-    if layout.title:
-        title_el = Element("title")
-        encode_content(
-            root=title_el,
-            children=layout.title,
-            encode_payload=_encode_block_member,
-        )
-        el.append(title_el)
-
-    if layout.content:
-        content_el = Element("content")
-        encode_content(
-            root=content_el,
-            children=layout.content,
-            encode_payload=_encode_block_member,
-        )
-        el.append(content_el)
-
-    if layout.caption:
-        caption_el = Element("caption")
-        encode_content(
-            root=caption_el,
-            children=layout.caption,
-            encode_payload=_encode_block_member,
-        )
-        el.append(caption_el)
-
-    return el
-
-
-def _decode_paragraph(
-    element: Element, references_map: dict[tuple[int, int], Reference] | None = None
-) -> ParagraphLayout:
-    ref_attr = element.get("ref")
-    if ref_attr is None:
-        raise ValueError("<paragraph> missing required attribute 'ref'")
-
-    level_attr = element.get("level")
-    level = int(level_attr) if level_attr is not None else -1
-
-    blocks = _decode_block_elements(
-        parent=element,
-        context_tag="paragraph",
-        references_map=references_map,
-    )
-    return ParagraphLayout(ref=ref_attr, level=level, blocks=blocks)
-
-
-def _encode_paragraph(layout: ParagraphLayout) -> Element:
-    el = Element("paragraph")
-    el.set("ref", layout.ref)
-    if layout.level != -1:
-        el.set("level", str(layout.level))
-    for block in layout.blocks:
-        el.append(_encode_block_element(block))
-    return el
-
-
-def _parse_det(det_str: str, context: str) -> tuple[int, int, int, int]:
-    try:
-        det_list = list(map(int, det_str.split(",")))
-    except Exception as e:
-        raise ValueError(
-            f"{context}: det must be comma-separated integers, got: {det_str}"
-        ) from e
-    if len(det_list) != 4:
-        raise ValueError(f"{context}: det must have 4 values, got {len(det_list)}")
-    return (det_list[0], det_list[1], det_list[2], det_list[3])
-
-
-def _decode_block_elements(
-    parent: Element,
-    context_tag: str,
-    references_map: dict[tuple[int, int], Reference] | None = None,
-) -> list[BlockLayout]:
-    blocks: list[BlockLayout] = []
-    for block_el in parent.findall("block"):
-        page_index_attr = block_el.get("page_index")
-        if page_index_attr is None:
-            raise ValueError(
-                f"<{context_tag}><block> missing required attribute 'page_index'"
-            )
-        try:
-            page_index = int(page_index_attr)
-        except ValueError as e:
-            raise ValueError(
-                f"<{context_tag}><block> attribute 'page_index' must be int, got: {page_index_attr}"
-            ) from e
-
-        order_attr = block_el.get("order")
-        if order_attr is None:
-            raise ValueError(
-                f"<{context_tag}><block> missing required attribute 'order'"
-            )
-        try:
-            order = int(order_attr)
-        except ValueError as e:
-            raise ValueError(
-                f"<{context_tag}><block> attribute 'order' must be int, got: {order_attr}"
-            ) from e
-
-        det_str = block_el.get("det")
-        if det_str is None:
-            raise ValueError(f"<{context_tag}><block> missing required attribute 'det'")
-        det = _parse_det(det_str, context=f"<{context_tag}><block>@det")
-
-        def decode_block_member(child: Element) -> BlockMember:
-            if child.tag == "ref":
-                ref_id = child.get("id")
-                if ref_id is None:
-                    raise ValueError(
-                        f"<{context_tag}><block><ref> missing required attribute 'id'"
-                    )
-
-                try:
-                    parts = ref_id.split("-")
-                    if len(parts) != 2:
-                        raise ValueError(
-                            f"<{context_tag}><block><ref> attribute 'id' must be in format 'page-order'"
-                        )
-                    ref_page_index = int(parts[0])
-                    ref_order = int(parts[1])
-                except ValueError as e:
-                    raise ValueError(
-                        f"<{context_tag}><block><ref> attribute 'id' must contain valid integers"
-                    ) from e
-
-                if references_map is not None:
-                    ref_key = (ref_page_index, ref_order)
-                    if ref_key in references_map:
-                        return references_map[ref_key]
-                    else:
-                        raise ValueError(
-                            f"<{context_tag}><block><ref> references undefined reference: {ref_id}"
-                        )
-                else:
-                    raise ValueError(
-                        f"<{context_tag}><block><ref> cannot resolve reference without references_map"
-                    )
-
+def _decode_flow(element: Element, refs: dict[tuple[int, int], Reference]) -> FlowItem:
+    if element.tag == "text":
+        role = element.get("role")
+        if role not in {"body", "heading"}: raise ValueError("<text> role must be body or heading")
+        children = []
+        for child in element:
+            if child.tag == "fragment": children.append(_fragment(child, refs))
             elif child.tag == "inline_expr":
-                kind_attr = child.get("kind")
-                if kind_attr is None:
-                    raise ValueError(
-                        f"<{context_tag}><block><inline_expr> missing required attribute 'kind'"
-                    )
-                kind = decode_expression_kind(kind_attr)
-                expr_text = child.text if child.text is not None else ""
-                return InlineExpression(kind=kind, content=expr_text)
-
-            else:
-                raise ValueError(
-                    f"<{context_tag}><block> contains unknown element: <{child.tag}>"
-                )
-
-        blocks.append(
-            BlockLayout(
-                page_index=page_index,
-                order=order,
-                det=det,
-                content=decode_content(block_el, decode_block_member),
-            )
-        )
-
-    return blocks
+                # XMLTranslator may move a frozen inline formula beside the
+                # fragment that owns it.  Restore it to that fragment rather
+                # than treating a harmless transport shape as chapter loss.
+                if not children or not isinstance(children[-1], SourceTextFragment):
+                    raise ValueError("<text><inline_expr> has no preceding fragment")
+                kind = child.get("kind")
+                if kind is None: raise ValueError("<text><inline_expr> missing kind")
+                expression = InlineExpression(decode_expression_kind(kind), child.text or "")
+                if not any(isinstance(value, InlineExpression) and value == expression for value in flatten(children[-1].content)):
+                    children[-1].content.append(expression)
+            elif child.tag == "asset":
+                asset = _asset(child, refs)
+                if asset.ref == "equation": raise ValueError("text cannot contain equation asset")
+                children.append(asset)
+            else: raise ValueError(f"<text> contains unknown element: <{child.tag}>")
+        return TextFlowItem(role, _integer(element, "level", -1), children)
+    if element.tag in {"display-formula", "standalone-asset"}:
+        children = list(element)
+        if len(children) != 1 or children[0].tag != "asset": raise ValueError(f"<{element.tag}> must contain exactly one <asset>")
+        asset = _asset(children[0], refs)
+        return DisplayFormula(asset) if element.tag == "display-formula" else StandaloneAsset(asset)
+    raise ValueError(f"<flow> contains unknown element: <{element.tag}>")
 
 
-def _encode_block_element(block: BlockLayout) -> Element:
-    block_el = Element("block")
-    block_el.set("page_index", str(block.page_index))
-    block_el.set("order", str(block.order))
-    block_el.set("det", ",".join(map(str, block.det)))
-    encode_content(
-        root=block_el,
-        children=block.content,
-        encode_payload=_encode_block_member,
-    )
-    return block_el
+def _encode_flow(item: FlowItem) -> Element:
+    if isinstance(item, TextFlowItem):
+        result = Element("text", {"role": item.role})
+        if item.level != -1: result.set("level", str(item.level))
+        for child in item.children: result.append(_encode_fragment(child) if isinstance(child, SourceTextFragment) else _encode_asset(child))
+        return result
+    result = Element("display-formula" if isinstance(item, DisplayFormula) else "standalone-asset")
+    result.append(_encode_asset(item.asset)); return result
 
 
-def _encode_block_member(part: BlockMember) -> Element:
+def _asset(element: Element, refs: dict[tuple[int, int], Reference] | None = None) -> SourceAsset:
+    ref = element.get("ref")
+    if ref not in ASSET_TAGS: raise ValueError(f"<asset> attribute 'ref' must be one of {ASSET_TAGS}, got: {ref}")
+    return SourceAsset(_integer(element, "page_index"), cast(AssetRef, ref), _bbox(element, "det"),
+        _content(element.find("title"), refs, "asset"), _content(element.find("content"), refs, "asset"),
+        _content(element.find("caption"), refs, "asset"), element.get("asset_hash", element.get("hash")))
+
+
+def _encode_asset(asset: SourceAsset) -> Element:
+    result = Element("asset", {"ref": asset.ref, "page_index": str(asset.page_index), "bbox": _bbox_text(asset.bbox)})
+    if asset.asset_hash is not None: result.set("asset_hash", asset.asset_hash)
+    for name, value in (("title", asset.title), ("content", asset.content), ("caption", asset.caption)):
+        if value:
+            node = Element(name); encode_content(node, value, _encode_member); result.append(node)
+    return result
+
+
+def _legacy_paragraph(element: Element, refs: dict[tuple[int, int], Reference]) -> TextFlowItem:
+    ref = element.get("ref")
+    if ref is None: raise ValueError("<paragraph> missing required attribute 'ref'")
+    return TextFlowItem(ref, _integer(element, "level", -1), [_legacy_block(v, refs) for v in element.findall("block")])
+
+
+def _fragment(element: Element, refs: dict[tuple[int, int], Reference]) -> SourceTextFragment:
+    return SourceTextFragment(_integer(element, "page_index"), _integer(element, "source_order"), _bbox(element), _content(element, refs, "fragment"))
+
+
+def _legacy_block(element: Element, refs: dict[tuple[int, int], Reference]) -> SourceTextFragment:
+    return SourceTextFragment(_integer(element, "page_index"), _integer(element, "order"), _bbox(element, "det"), _content(element, refs, "block"))
+
+
+def _encode_fragment(fragment: SourceTextFragment) -> Element:
+    result = Element("fragment", {"page_index": str(fragment.page_index), "source_order": str(fragment.source_order), "bbox": _bbox_text(fragment.bbox)})
+    encode_content(result, fragment.content, _encode_member); return result
+
+
+def _content(element: Element | None, refs: dict[tuple[int, int], Reference] | None, context: str) -> Content:
+    if element is None: return []
+    def payload(child: Element) -> BlockMember:
+        if child.tag == "inline_expr":
+            kind = child.get("kind")
+            if kind is None: raise ValueError(f"<{context}><inline_expr> missing required attribute 'kind'")
+            return InlineExpression(decode_expression_kind(kind), child.text or "")
+        if child.tag == "ref":
+            try: key = tuple(map(int, child.get("id", "").split("-", 1)))
+            except ValueError as error: raise ValueError(f"<{context}><ref> has invalid id") from error
+            if refs is None or key not in refs: raise ValueError(f"<{context}><ref> references undefined reference")
+            return refs[cast(tuple[int, int], key)]
+        raise ValueError(f"<{context}> contains unknown element: <{child.tag}>")
+    return decode_content(element, payload)
+
+
+def _encode_member(part: BlockMember) -> Element:
     if isinstance(part, InlineExpression):
-        expr_el = Element("inline_expr")
-        expr_el.set("kind", encode_expression_kind(part.kind))
-        expr_el.text = part.content
-        return expr_el
-
-    elif isinstance(part, Reference):
-        ref_el = Element("ref")
-        ref_el.set("id", f"{part.page_index}-{part.order}")
-        return ref_el
-
-    else:
-        raise ValueError("Unknown BlockMember type")
+        result = Element("inline_expr", {"kind": encode_expression_kind(part.kind)}); result.text = part.content; return result
+    if isinstance(part, Reference): return Element("ref", {"id": f"{part.page_index}-{part.order}"})
+    raise ValueError("Unknown flow member type")
 
 
-def _encode_reference(ref: Reference) -> Element:
-    ref_el = Element("ref")
-    ref_el.set("id", f"{ref.page_index}-{ref.order}")
-
-    mark_el = Element("mark")
-    mark_el.text = str(ref.mark)
-    ref_el.append(mark_el)
-
-    for layout in ref.layouts:
-        if isinstance(layout, AssetLayout):
-            ref_el.append(_encode_asset(layout))
-        else:
-            ref_el.append(_encode_paragraph(layout))
-
-    return ref_el
+def _refs(element: Element | None) -> dict[tuple[int, int], Reference]:
+    if element is None: return {}
+    values = [_decode_reference(child) for child in element.findall("ref")]
+    return {value.id: value for value in values}
 
 
 def _decode_reference(element: Element) -> Reference:
-    ref_id = element.get("id")
-    if ref_id is None:
-        raise ValueError("<references><ref> missing required attribute 'id'")
-
-    try:
-        parts = ref_id.split("-")
-        if len(parts) != 2:
-            raise ValueError(
-                "<references><ref> attribute 'id' must be in format 'page-order'"
-            )
-        page_index = int(parts[0])
-        order = int(parts[1])
-    except ValueError as e:
-        raise ValueError(
-            "<references><ref> attribute 'id' must contain valid integers"
-        ) from e
-
+    try: page, order = map(int, element.get("id", "").split("-", 1))
+    except ValueError as error: raise ValueError("<references><ref> has invalid id") from error
     mark_el = element.find("mark")
-    if mark_el is None or mark_el.text is None:
-        raise ValueError("<references><ref> missing required <mark> element")
-    mark_text = mark_el.text
-
+    if mark_el is None or mark_el.text is None: raise ValueError("<references><ref> missing required <mark>")
     from .mark import transform2mark
-
-    mark = transform2mark(mark_text)
-    if mark is None:
-        # 如果不是特殊标记，就使用原始字符串
-        mark = mark_text
-
-    layouts: list[AssetLayout | ParagraphLayout] = []
+    mark = transform2mark(mark_el.text) or mark_el.text
+    flow = element.find("flow")
+    if flow is not None: return Reference(page, order, mark, [_decode_flow(child, {}) for child in flow])
+    values: list[FlowItem] = []
     for child in element:
-        if child.tag == "mark":
-            continue
-        elif child.tag == "asset":
-            layouts.append(_decode_asset(child))
-        elif child.tag == "paragraph":
-            layouts.append(_decode_paragraph(child, references_map=None))
+        if child.tag == "paragraph": values.append(_legacy_paragraph(child, {}))
+        elif child.tag == "asset": values.append(_flow(_asset(child)))
+    return Reference(page, order, mark, values)
 
-    return Reference(
-        page_index=page_index,
-        order=order,
-        mark=mark,
-        layouts=layouts,
-    )
+
+def _encode_reference(ref: Reference) -> Element:
+    result = Element("ref", {"id": f"{ref.page_index}-{ref.order}"})
+    mark = Element("mark"); mark.text = str(ref.mark); result.append(mark)
+    flow = Element("flow")
+    for item in ref.flow_items: flow.append(_encode_flow(item))
+    result.append(flow); return result
+
+
+def _parts(items: Iterable[FlowItem]):
+    for item in items:
+        if isinstance(item, TextFlowItem):
+            for child in item.children:
+                if isinstance(child, SourceTextFragment): yield from flatten(child.content)
+        else:
+            for content in (item.asset.title, item.asset.content, item.asset.caption): yield from flatten(content)
+
+
+def _integer(element: Element, name: str, default: int | None = None) -> int:
+    text = element.get(name)
+    if text is None:
+        if default is not None: return default
+        raise ValueError(f"<{element.tag}> missing required attribute '{name}'")
+    try: return int(text)
+    except ValueError as error: raise ValueError(f"<{element.tag}> attribute '{name}' must be int") from error
+
+
+def _bbox(element: Element, legacy: str | None = None) -> tuple[int, int, int, int]:
+    text = element.get("bbox") or (element.get(legacy) if legacy else None)
+    if text is None: raise ValueError(f"<{element.tag}> missing required attribute 'bbox'")
+    try: values = tuple(map(int, text.split(",")))
+    except ValueError as error: raise ValueError(f"<{element.tag}> bbox must be integers") from error
+    if len(values) != 4: raise ValueError(f"<{element.tag}> bbox must have 4 values")
+    return cast(tuple[int, int, int, int], values)
+
+
+def _bbox_text(value: tuple[int, int, int, int]) -> str: return ",".join(map(str, value))

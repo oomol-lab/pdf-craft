@@ -1,8 +1,8 @@
 # PDFCraftExtraction (`.pcex`) Format Reference
 
-This document is the English-language reference for PDFCraftExtraction v2. It describes the public intermediate format that the current pdf-craft implementation can produce, read, and validate, as well as how each member is used by downstream rendering, translation, and PDF patching workflows.
+This document is the English-language reference for PDFCraftExtraction v3. It describes the public intermediate format that the current pdf-craft implementation can produce, read, and validate, as well as how each member is used by downstream rendering, translation, and PDF patching workflows.
 
-This reference distinguishes a *canonical artifact*—a `.pcex` file written by pdf-craft—from the *current validator* implemented by `PDFCraftExtraction.open()` and `PDFCraftExtraction.validate()`. Canonical artifacts preserve all relationships described here. The current validator does not enforce every semantic relationship.
+This reference distinguishes a *canonical artifact*—a `.pcex` file written by pdf-craft—from the *current validator* implemented by `PDFCraftExtraction.open()` and `PDFCraftExtraction.validate()`. Canonical artifacts preserve all relationships described here. The current validator does not enforce every semantic relationship. The legacy v2 chapter examples below remain accepted reader input only; canonical writers use the v3 flow described above.
 
 ## Purpose and scope
 
@@ -17,6 +17,23 @@ PDFCraftExtraction is the structured document that pdf-craft extracts from a PDF
 A `.pcex` file does not contain the source PDF, OCR model responses, per-page OCR caches, failure markers, or diagnostic plots. It can therefore be copied, uploaded, stored, and transferred between machines as a self-contained input for downstream work that does not repeat OCR. Patching content back into a PDF still requires the caller to retain the source PDF separately.
 
 The public interchange form is always a ZIP archive with a `.pcex` filename extension. An unpacked directory is only a physical representation of the archive contents; it is not a supported public input form.
+
+## Version 3 document flow
+
+Chapter reading order is a `<flow>`, rather than a flat paragraph/asset list.
+The class and XML names correspond directly: `TextFlowItem` / `<text>`,
+`SourceTextFragment` / `<fragment>`, `SourceAsset` / `<asset>`,
+`DisplayFormula` / `<display-formula>`, and `StandaloneAsset` /
+`<standalone-asset>`.
+
+`<text>` represents one authored paragraph or heading. Its children can mix
+text fragments with image/table assets, preserving an illustration that split
+one paragraph during print layout. A display formula is not an anchored asset:
+it is an independent reading-flow item and a hard paragraph-joining boundary.
+Inline formulae remain `inline_expr` inside a fragment. Markdown/EPUB may split
+physical paragraphs around an anchored asset for valid output, but PCEX retains
+the logical relation. Writers emit v3; readers migrate v1/v2 flat bodies in
+memory without inventing unknown anchors.
 
 ## Quick reference
 
@@ -373,7 +390,7 @@ The root element must be `<chapter>`.
 | `id` | No | Integer TOC item ID; omission identifies the head chapter |
 | `level` | No | Integer chapter level; the internal value is `-1` when omitted, while a canonical formal chapter normally uses its TOC item's 0-based level |
 
-Every chapter must contain a discoverable `<body>`. The canonical order is `<body>` followed by an optional `<references>`. Direct children of `<body>` appear in document order and may be `<paragraph>` or `<asset>` elements.
+Every canonical chapter contains `<flow>`, followed by optional `<references>`. Direct flow children appear in reading order and are `<text>`, `<display-formula>`, or `<standalone-asset>`. A v3 `<text>` has `role="body"` or `role="heading"` and ordered `<fragment>` / image-table `<asset>` children. Text fragments use `page_index`, `source_order`, and `bbox`; assets use `page_index`, `bbox`, and optional `asset_hash`.
 
 ### `<paragraph>`
 

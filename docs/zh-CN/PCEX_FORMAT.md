@@ -1,8 +1,8 @@
 # PDFCraftExtraction（`.pcex`）格式参考
 
-本文是 PDFCraftExtraction v2 的中文版格式参考。它描述当前 pdf-craft 代码能够生成、读取和校验的公开中间格式，以及各成员被后续渲染、翻译和 PDF 写回流程使用的方式。
+本文是 PDFCraftExtraction v3 的中文版格式参考。它描述当前 pdf-craft 代码能够生成、读取和校验的公开中间格式，以及各成员被后续渲染、翻译和 PDF 写回流程使用的方式。
 
-本文中的“规范产物”指 pdf-craft 自身写出的 `.pcex`；“当前校验器”指 `PDFCraftExtraction.open()` 或 `PDFCraftExtraction.validate()` 所执行的校验。两者需要区分：规范产物会遵循本文给出的字段关系，但当前校验器并未检查其中每一项语义关系。
+本文中的“规范产物”指 pdf-craft 自身写出的 `.pcex`；“当前校验器”指 `PDFCraftExtraction.open()` 或 `PDFCraftExtraction.validate()` 所执行的校验。两者需要区分：规范产物会遵循本文给出的字段关系，但当前校验器并未检查其中每一项语义关系。下文保留的 v2 chapter 示例仅用于说明读取兼容；规范写入端使用上文所述 v3 flow。
 
 ## 格式定位
 
@@ -17,6 +17,19 @@ PDFCraftExtraction 是 pdf-craft 从 PDF 提取出的结构化文档。它处在
 `.pcex` 不包含原 PDF，也不包含 OCR 模型响应、逐页 OCR 缓存、失败标记或诊断图。因此它可以单独复制、上传和跨机器传递，用于无需再次 OCR 的后续处理；若要把内容写回 PDF，调用方仍须另行保存原 PDF。
 
 公开交换形态始终是扩展名为 `.pcex` 的 ZIP 归档。解压后的目录只是格式的物理内容，不是受支持的公开输入形式。
+
+## v3 文档流
+
+章节阅读顺序使用 `<flow>`，不再把 paragraph 与 asset 平铺。类与 XML 名称一一对应：
+`TextFlowItem` / `<text>`、`SourceTextFragment` / `<fragment>`、
+`SourceAsset` / `<asset>`、`DisplayFormula` / `<display-formula>`、
+`StandaloneAsset` / `<standalone-asset>`。
+
+`<text>` 表示作者意义上的自然段或标题；其中可以按顺序混编文字 fragment 与图片/表格
+asset，因此能表达插图把同一自然段切开的印刷结构。段落公式不是 anchored asset，而是独立的
+阅读流节点，也是自然段拼接不可越过的硬边界；行内公式仍是 fragment 内的 `inline_expr`。
+Markdown/EPUB 为保持自身语法可在 asset 处拆开物理段落，但 PCEX 保留逻辑关系。写入端生成
+v3；读取端在内存中迁移 v1/v2 的平铺 body，不会臆造旧格式没有记录的锚定关系。
 
 ## 快速索引
 
@@ -373,7 +386,7 @@ assets/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.png
 | `id` | 否 | 整数目录项 ID；省略表示 head 章节 |
 | `level` | 否 | 整数章节层级；省略时内部值为 `-1`，规范正式章节通常取 TOC 的 0-based level |
 
-每章必须有一个可找到的 `<body>`。规范顺序为 `<body>` 后跟可选 `<references>`。`<body>` 的直接子元素按文档顺序排列，可以是 `<paragraph>` 或 `<asset>`。
+规范章节必须包含 `<flow>`，之后可有 `<references>`。flow 直接子节点按阅读顺序排列，为 `<text>`、`<display-formula>` 或 `<standalone-asset>`。v3 的 `<text>` 使用 `role="body"` 或 `role="heading"`，并按顺序包含 `<fragment>` 与图片/表格 `<asset>`；fragment 使用 `page_index`、`source_order`、`bbox`，asset 使用 `page_index`、`bbox` 和可选 `asset_hash`。
 
 ### `<paragraph>`
 

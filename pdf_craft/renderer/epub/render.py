@@ -29,9 +29,13 @@ from ...pdf import TITLE_TAGS
 from ...extractor.chapter import (
     AssetLayout,
     Chapter,
+    DisplayFormula,
     InlineExpression,
     ParagraphLayout,
     Reference,
+    SourceTextFragment,
+    StandaloneAsset,
+    TextFlowItem,
     create_chapters_reader,
     references_to_map,
     search_references_in_chapter,
@@ -125,8 +129,14 @@ def _convert_chapter_to_epub(
     elements = []
     footnotes = []
 
-    for layout in chapter.layouts:
-        if isinstance(layout, AssetLayout):
+    for layout in chapter.flow_items:
+        if isinstance(layout, (DisplayFormula, StandaloneAsset)):
+            asset_element = _convert_asset_to_epub(
+                asset=layout.asset, assets_path=assets_path, inline_latex=inline_latex,
+                ref_id_to_number=ref_id_to_number,
+            )
+            if asset_element: elements.append(asset_element)
+        elif isinstance(layout, AssetLayout):
             asset_element = _convert_asset_to_epub(
                 asset=layout,
                 assets_path=assets_path,
@@ -135,26 +145,25 @@ def _convert_chapter_to_epub(
             )
             if asset_element:
                 elements.append(asset_element)
-        elif isinstance(layout, ParagraphLayout):
+        elif isinstance(layout, TextFlowItem):
+            text_layout = layout
             content: list[str | Formula | Mark | EpubHTMLTag] = []
-            for block in layout.blocks:
-                content.extend(
-                    _transform_content(
-                        content=block.content,
-                        inline_latex=inline_latex,
-                        ref_id_to_number=None,
-                    )
-                )
-            if content:
-                elements.append(
-                    TextBlock(
-                        kind=TextKind.HEADLINE
-                        if layout.ref in TITLE_TAGS
-                        else TextKind.BODY,
-                        level=layout.level,
-                        content=content,
-                    )
-                )
+            def flush_text() -> None:
+                nonlocal content
+                if content:
+                    elements.append(TextBlock(
+                        kind=TextKind.HEADLINE if text_layout.ref in TITLE_TAGS else TextKind.BODY,
+                        level=text_layout.level, content=content,
+                    ))
+                content = []
+            for child in text_layout.children:
+                if isinstance(child, SourceTextFragment):
+                    content.extend(_transform_content(child.content, inline_latex, None))
+                else:
+                    flush_text()
+                    asset_element = _convert_asset_to_epub(child, assets_path, inline_latex, ref_id_to_number)
+                    if asset_element: elements.append(asset_element)
+            flush_text()
 
     chapter_refs = search_references_in_chapter(chapter)
     for ref in chapter_refs:

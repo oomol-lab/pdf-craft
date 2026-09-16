@@ -302,7 +302,7 @@ class TestBookMetadata(unittest.TestCase):
 
             with ZipFile(archive_path) as archive:
                 manifest = json.loads(archive.read("manifest.json"))
-            self.assertEqual(manifest["format_version"], 2)
+            self.assertEqual(manifest["format_version"], 3)
             self.assertEqual(manifest["document"]["authors"][0]["original_name"], "Original Name")
 
             manifest["format_version"] = 1

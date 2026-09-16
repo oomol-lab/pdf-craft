@@ -362,13 +362,18 @@ def _block_depth(parent_stack: list[Element]) -> int:
 
 
 def _paragraph_block_stack(text_segment: TextSegment) -> list[Element] | None:
-    """Return the actual ParagraphLayout block owning a text segment, if any."""
+    """Return the v3 text/fragment stack owning a text segment.
+
+    v1/v2 used ``paragraph/block``.  Keeping this helper tolerant of those
+    historic names lets the transformer read old PCEX while all writers emit
+    ``text/fragment``.
+    """
     paragraph_index: int | None = None
     block_index: int | None = None
     for index, element in enumerate(text_segment.parent_stack):
-        if element.tag == "paragraph":
+        if element.tag in {"paragraph", "text"}:
             paragraph_index = index
-        elif paragraph_index is not None and element.tag == "block":
+        elif paragraph_index is not None and element.tag in {"block", "fragment"}:
             block_index = index
             break
     if block_index is None:

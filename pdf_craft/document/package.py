@@ -17,7 +17,7 @@ from epub_generator import BookMeta
 from ..common import indent, save_xml
 
 
-FORMAT_VERSION = 2
+FORMAT_VERSION = 3
 EXTRACTION_SUFFIX = ".pcex"
 _MANIFEST_FIELDS = {"format_version", "producer", "created_at", "document"}
 _DOCUMENT_FIELDS_V1 = {
@@ -337,7 +337,7 @@ def _validate_workspace(paths: ExtractionPaths, *, require_toc: bool = False) ->
             ))
         for element in root.iter():
             page_index = element.get("page_index")
-            det = element.get("det")
+            det = element.get("bbox", element.get("det"))
             if page_index is None:
                 continue
             try:
@@ -348,7 +348,7 @@ def _validate_workspace(paths: ExtractionPaths, *, require_toc: bool = False) ->
                 raise ValueError(f"{path.name} references page {index} missing from pages.xml")
             if det is not None:
                 _validate_bbox(det, page_sizes[index], path.name)
-            asset_hash = element.get("hash") if element.tag == "asset" else None
+            asset_hash = element.get("asset_hash", element.get("hash")) if element.tag == "asset" else None
             if asset_hash is not None:
                 if not _is_asset_hash(asset_hash):
                     raise ValueError(f"invalid asset hash in {path.name}: {asset_hash}")
@@ -368,7 +368,7 @@ def _read_manifest(path: Path) -> dict[str, Any]:
     if not isinstance(payload, dict) or set(payload) - _MANIFEST_FIELDS:
         raise ValueError("manifest.json contains unsupported fields")
     format_version = payload.get("format_version")
-    if format_version not in {1, FORMAT_VERSION}:
+    if format_version not in {1, 2, FORMAT_VERSION}:
         raise ValueError("unsupported PDFCraftExtraction format version")
     producer = payload.get("producer")
     if not isinstance(producer, dict) or set(producer) != {"name", "version"} or not all(

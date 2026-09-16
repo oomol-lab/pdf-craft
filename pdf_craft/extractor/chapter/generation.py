@@ -1,5 +1,5 @@
 from pathlib import Path
-from typing import Generator
+from typing import Generator, Iterable
 
 from ...common import XMLReader, save_xml
 from ...pdf import TITLE_TAGS, Page, decode
@@ -9,13 +9,19 @@ from .chapter import (
     AssetLayout,
     BlockLayout,
     Chapter,
+    DisplayFormula,
+    FlowItem,
     ParagraphLayout,
     Reference,
+    SourceAsset,
+    StandaloneAsset,
+    TextFlowItem,
     encode,
 )
 from .content import expand_text_in_content, join_texts_in_content
 from .jointer import Jointer
 from .mark import Mark, search_marks
+from .mergeable import check_mergeable
 from .punctuation import normalize_punctuation_in_chapter
 from .reference import References
 
@@ -51,10 +57,10 @@ def _generate_chapters(
     for item in iter_toc(toc.content):
         ref2toc[(item.page_index, item.order)] = item
 
-    for layout in _extract_body_layouts(pages_path, toc):
+    for layout in _assemble_flow_items(_extract_body_layouts(pages_path, toc)):
         matched_toc = False
         if (
-            isinstance(layout, ParagraphLayout)
+            isinstance(layout, TextFlowItem)
             and layout.blocks
             and layout.ref in TITLE_TAGS
         ):
@@ -69,7 +75,7 @@ def _generate_chapters(
                 chapter = Chapter(
                     id=item.id,
                     level=item.level,
-                    layouts=[layout],
+                    flow_items=[layout],
                 )
                 matched_toc = True
 
@@ -79,9 +85,9 @@ def _generate_chapters(
                 chapter = Chapter(
                     id=None,
                     level=max_level,  # 防止章节标题盖过其他
-                    layouts=[],
+                    flow_items=[],
                 )
-            chapter.layouts.append(layout)
+            chapter.flow_items.append(layout)
 
     if chapter:
         yield chapter
@@ -134,6 +140,55 @@ def _extract_body_layouts(pages_path: Path, toc: TocInfo):
                 join_texts_in_content(block.content)
 
         yield layout
+
+
+def _assemble_flow_items(
+    layouts: Iterable[ParagraphLayout | AssetLayout],
+) -> Generator[FlowItem, None, None]:
+    """Turn the joiner's conservative flat OCR sequence into v3 flow.
+
+    The joiner has already decided whether neighbouring OCR text regions form
+    one author paragraph.  Here we preserve a figure/table found between two
+    mergeable text runs as a child of that paragraph.  Equations are never
+    candidates: they are hard reading-flow boundaries.
+    """
+    current: TextFlowItem | None = None
+    pending: list[SourceAsset] = []
+
+    def flush() -> Generator[FlowItem, None, None]:
+        nonlocal current, pending
+        if current is not None:
+            yield current
+            current = None
+        for asset in pending:
+            yield DisplayFormula(asset) if asset.ref == "equation" else StandaloneAsset(asset)
+        pending = []
+
+    for layout in layouts:
+        if isinstance(layout, AssetLayout):
+            pending.append(layout)
+            continue
+        text = layout
+        if current is None:
+            # Leading assets are standalone and must remain before the text.
+            yield from flush()
+            current = text
+            continue
+        can_embed = (
+            pending
+            and not any(asset.ref == "equation" for asset in pending)
+            and current.ref == text.ref == "text"
+            and current.blocks and text.blocks
+            and check_mergeable(current.blocks[-1].content, text.blocks[0].content)
+        )
+        if can_embed:
+            current.children.extend(pending)
+            current.children.extend(text.children)
+            pending = []
+            continue
+        yield from flush()
+        current = text
+    yield from flush()
 
 
 def _extract_page_references(jointer: Jointer) -> Generator[References, None, None]:
