@@ -6,14 +6,14 @@
 
 PDF 回填是两个嵌套的流式阶段，不能把它们混为同一个“字号选择”步骤：
 
-1. **第一阶段是 TextFlowItem 级操作。** 输入一个完整 TextFlowItem 的连续 text-fragment bbox，输出统一字号及跨 bbox 的初始文字流；TextFlowItem 是 v2 术语。
+1. **第一阶段是 TextFlowItem 级操作。** 输入一个完整 PCEX v3 `TextFlowItem` 的连续 `SourceTextFragment` bbox，输出统一字号及跨 bbox 的初始文字流；`TextFlowItem` 是 v3 文档流中的文字节点。
 2. **第二阶段是页级操作。** 只有该页不再会被任何未关闭的第一阶段 TextFlowItem 触及时，才读取该页的初始结果，并为每个 bbox 独立计算最终字号和绘制位置。
 
 TextFlowItem 可以跨页。因此窗口关闭不是“读完一个页面”就发生：必须等所有可能继续流入该页的 TextFlowItem 已在第一阶段关闭。窗口只保留当前可触及页面的排版数据；不得为了页级归一化把整本书的 Qt 行、页面 raster 或完整几何留在内存。嵌入图表是障碍区，不属于可填文字 bbox；DisplayFormula 是独立流节点。
 
 ## 第一阶段：局部连续流
 
-第一阶段的唯一操作单元是 TextFlowItem，不区分 `text`、`heading` 或任何视觉身份。
+第一阶段的唯一操作单元是 TextFlowItem，不区分 `body`、`heading` 或任何视觉身份。
 
 - 该 TextFlowItem 的所有 bbox 组成连续文字流；其字号在第一阶段必须统一。
 - QTextLayout 独占 shaping、断行、双向文字与语言排版。pdf-craft 不能用字符数、手写分词或自定义断行替代它。
@@ -27,7 +27,7 @@ TextFlowItem 可以跨页。因此窗口关闭不是“读完一个页面”就�
 
 当一页关闭后，第二阶段使用该页第一阶段的已冻结 placements：
 
-- 按 `(layout_ref, layout_level)` 分组，计算各文字等级的加权平均字号。权重是 bbox 实际承载的字符数，而不是整个 TextFlowItem 剩余文本。
+- 按 v3 `role` / `level` 分组（回填 placement 内部以 `layout_ref` / `layout_level` 携带这两个值），计算各文字等级的加权平均字号。权重是 bbox 实际承载的字符数，而不是整个 TextFlowItem 剩余文本。
 - 普通 bbox 以该等级的目标字号为方向，在保持第一阶段已分配文字和行数的前提下重新测量。后续 bbox 可以与同一 TextFlowItem 的其它 bbox 使用不同最终字号。
 - 只有第一阶段结果已经是一行、且 TextFlowItem 仅有一个 bbox 的 placement，才是“孤立单行”候选。它的 OCR height 常是紧贴字形的裁剪边界；第二阶段可保持一行并从外部等级尺度重排，允许水平方向自然延展。它不是“原文一行”的猜测。
 - 孤立单行样本默认不参与本等级的平均字号，避免窄 OCR bbox 污染统计；若排除后没有样本，才回退到包含它们的全量加权平均，避免 0/0。
