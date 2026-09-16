@@ -46,10 +46,12 @@ class PDFReplacement:
     layout_ref: str = "text"
     layout_level: int = 0
     inline_formulas: tuple[PDFInlineFormula, ...] = ()
-    # Non-text source geometry (figures, tables, display formulas, …) which
-    # must remain clear when the text fitter uses the gap below a text bbox.
-    # Text regions are collected globally by the window planner, so callers
-    # only need to attach obstacles that are not themselves replacements.
+    # Independent non-text source geometry (standalone figures/tables,
+    # display formulas, …) which must remain clear when the text fitter uses
+    # the gap below a text bbox. Image/table assets nested in a TextFlowItem
+    # intentionally do not appear here: that item's text fragments form one
+    # continuous PDF layout flow. Text regions are collected globally by the
+    # window planner, so callers only attach non-replacement obstacles.
     obstacle_regions: tuple[PDFReplacementRegion, ...] = ()
 
     def source_regions(self) -> tuple[PDFReplacementRegion, ...]:
