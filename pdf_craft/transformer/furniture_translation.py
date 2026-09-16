@@ -8,9 +8,9 @@ from xml.etree.ElementTree import Element
 
 from pdf_craft.common import read_xml, save_xml
 from pdf_craft.extractor.chapter.chapter import (
-    BlockLayout,
+    SourceTextFragment,
     InlineExpression,
-    ParagraphLayout,
+    TextFlowItem,
     decode as decode_chapter,
 )
 from pdf_craft.extractor.toc import decode as decode_toc, iter_toc
@@ -283,15 +283,16 @@ def _text_by_reference(chapters_path: Path) -> dict[tuple[int, int], str]:
     result: dict[tuple[int, int], str] = {}
     for path in sorted(chapters_path.glob("chapter_*.xml")):
         chapter = decode_chapter(read_xml(path))
-        for layout in chapter.layouts:
-            if not isinstance(layout, ParagraphLayout):
+        for item in chapter.flow_items:
+            if not isinstance(item, TextFlowItem):
                 continue
-            for block in layout.blocks:
-                result[(block.page_index, block.order)] = _block_text(block)
+            for fragment in item.children:
+                if isinstance(fragment, SourceTextFragment):
+                    result[(fragment.page_index, fragment.source_order)] = _block_text(fragment)
     return result
 
 
-def _block_text(block: BlockLayout) -> str:
+def _block_text(block: SourceTextFragment) -> str:
     values: list[str] = []
     for value in flatten(block.content):
         if isinstance(value, str):

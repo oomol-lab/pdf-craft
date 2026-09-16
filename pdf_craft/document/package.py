@@ -285,7 +285,9 @@ def write_pages(root: Path, *, render_dpi: int, page_pixel_sizes: dict[int, tupl
 
 def _validate_workspace(paths: ExtractionPaths, *, require_toc: bool = False) -> None:
     # Import lazily because the extractor package imports the public document API.
-    from ..extractor.chapter.chapter import ParagraphLayout, decode as decode_chapter
+    from ..extractor.chapter.chapter import (
+        SourceTextFragment, TextFlowItem, decode as decode_chapter,
+    )
     from ..extractor.toc.types import decode as decode_toc
 
     manifest = _read_manifest(paths.manifest)
@@ -326,14 +328,16 @@ def _validate_workspace(paths: ExtractionPaths, *, require_toc: bool = False) ->
             chapter = decode_chapter(root, allow_legacy=manifest["format_version"] in {1, 2})
         except ValueError as error:
             raise ValueError(f"invalid chapter schema in {path.name}: {error}") from error
-        for layout in chapter.layouts:
-            if not isinstance(layout, ParagraphLayout) or layout.ref not in {"text", "sub_title"} or not layout.blocks:
+        for item in chapter.flow_items:
+            if not isinstance(item, TextFlowItem) or item.role not in {"body", "heading"}:
                 continue
-            first = layout.blocks[0]
+            first = next((child for child in item.children if isinstance(child, SourceTextFragment)), None)
+            if first is None:
+                continue
             narrative_identities.add((
                 str(chapter.id) if chapter.id is not None else "head",
                 str(first.page_index),
-                str(first.order),
+                str(first.source_order),
             ))
         for element in root.iter():
             page_index = element.get("page_index")

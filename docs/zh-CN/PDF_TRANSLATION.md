@@ -264,7 +264,7 @@ pdf-craft 不额外施加语言特定断行规则。
 在一个可释放的页面窗口中，`body` 正文会先于 `heading` 标题完成排版。标题涉及的每一页中，
 已排版正文的最大字号乘以 `headline_min_body_ratio`（默认 `1.2`）后，构成标题字号的优先下限。
 
-数值 `max_font_size` 对所有语义样式都是硬上限，包括从 `PatchTextOptions` 隐式继承的 `sub_title`。
+数值 `max_font_size` 对所有语义样式都是硬上限，包括从 `PatchTextOptions` 隐式继承的 `heading`。
 当该上限小于正文相对字号时，上限在第一阶段拟合和第二阶段的页内归一化中都会优先；某个语义样式可以通过
 `minimum_body_font_ratio` 覆盖比例，但不能突破字号上限。如果标题在最终选定的字号仍放不下 bbox 的宽度，
 它会锚定来源框的左边缘并自然向右延伸，而不会失败或被跳过。
@@ -272,7 +272,7 @@ pdf-craft 不额外施加语言特定断行规则。
 ```python
 options = PatchTextOptions(
     styles={
-        "text": PatchTextStyle(font_name="Noto Serif CJK SC", max_font_size=11),
+        "body": PatchTextStyle(font_name="Noto Serif CJK SC", max_font_size=11),
         "heading": PatchTextStyle(
             font_name="Noto Sans CJK SC",
             max_font_size=24,

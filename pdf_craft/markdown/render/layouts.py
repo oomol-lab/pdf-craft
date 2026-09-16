@@ -3,19 +3,9 @@ from shutil import copy2
 from typing import Callable, Generator, Iterable
 
 from ...expression import ExpressionKind, to_markdown_string
-from ...pdf import TITLE_TAGS
 from ...extractor.chapter import (
-    AssetLayout,
-    BlockMember,
-    InlineExpression,
-    ParagraphLayout,
-    DisplayFormula,
-    FlowItem,
-    SourceTextFragment,
-    StandaloneAsset,
-    TextFlowItem,
-    Reference,
-    RefIdMap,
+    BlockMember, DisplayFormula, FlowItem, InlineExpression, Reference,
+    RefIdMap, SourceAsset, SourceTextFragment, StandaloneAsset, TextFlowItem,
 )
 from ..paragraph import render_markdown_paragraph
 from .table import render_table_content
@@ -25,7 +15,7 @@ _MAX_TITLE_LEVELS = 6
 
 
 def render_layouts(
-    layouts: Iterable[FlowItem | ParagraphLayout | AssetLayout],
+    flow_items: Iterable[FlowItem],
     assets_path: Path,
     output_assets_path: Path,
     asset_ref_path: Path,
@@ -35,22 +25,14 @@ def render_layouts(
     is_first_layout = True
     toc_level = min(toc_level, _MAX_TOC_LEVELS - 1)
 
-    for layout in layouts:
+    for layout in flow_items:
         if is_first_layout:
             is_first_layout = False
         else:
             yield "\n\n"
         if isinstance(layout, (DisplayFormula, StandaloneAsset)):
             yield from _render_asset(layout.asset, assets_path, output_assets_path, asset_ref_path, ref_id_to_number)
-        elif isinstance(layout, AssetLayout):
-            yield from _render_asset(
-                asset=layout,
-                assets_path=assets_path,
-                output_assets_path=output_assets_path,
-                asset_ref_path=asset_ref_path,
-                ref_id_to_number=ref_id_to_number,
-            )
-        elif isinstance(layout, ParagraphLayout):
+        elif isinstance(layout, TextFlowItem):
             # Markdown cannot keep an image/table inside a physical paragraph,
             # but it can preserve the semantic child order by closing and
             # reopening the emitted paragraph around each anchored asset.
@@ -70,9 +52,9 @@ def render_layouts(
 
 
 def render_paragraph(
-    paragraph: ParagraphLayout, toc_level: int, ref_id_to_number: RefIdMap | None = None
+    paragraph: TextFlowItem, toc_level: int, ref_id_to_number: RefIdMap | None = None
 ) -> Generator[str, None, None]:
-    if paragraph.level >= 0 and paragraph.ref in TITLE_TAGS:
+    if paragraph.level >= 0 and paragraph.role == "heading":
         level = min(toc_level + paragraph.level, _MAX_TITLE_LEVELS)
         for _ in range(level + 1):  # level 0 对应 1 个 #
             yield "#"
@@ -97,7 +79,9 @@ def render_paragraph(
             yield str(ref_number)
             yield "]"
 
-    for block in paragraph.blocks:
+    for block in paragraph.children:
+        if not isinstance(block, SourceTextFragment):
+            continue
         yield from render_markdown_paragraph(
             children=block.content,
             render_payload=render_member,
@@ -108,7 +92,7 @@ _MemberRender = Callable[[BlockMember | str], Iterable[str]]
 
 
 def _render_asset(
-    asset: AssetLayout,
+    asset: SourceAsset,
     assets_path: Path,
     output_assets_path: Path,
     asset_ref_path: Path,
@@ -158,7 +142,7 @@ def _render_asset(
         if asset.content:
             has_content = True
     elif asset.ref == "image":
-        if asset.hash:
+        if asset.asset_hash:
             has_content = True
 
     if asset.caption:
@@ -175,7 +159,7 @@ def _render_asset(
 
 
 def _render_asset_content(
-    asset: AssetLayout,
+    asset: SourceAsset,
     assets_path: Path,
     output_assets_path: Path,
     asset_ref_path: Path,
@@ -222,28 +206,28 @@ def _render_asset_content(
 
 
 def _render_image(
-    asset: AssetLayout,
+    asset: SourceAsset,
     assets_path: Path,
     output_assets_path: Path,
     asset_ref_path: Path,
     has_content_before: bool,
 ) -> Generator[str, None, None]:
     # 渲染图片
-    if asset.hash is None:
+    if asset.asset_hash is None:
         return
 
-    source_file = assets_path / f"{asset.hash}.png"
+    source_file = assets_path / f"{asset.asset_hash}.png"
     if not source_file.exists():
         return
 
-    target_file = output_assets_path / f"{asset.hash}.png"
+    target_file = output_assets_path / f"{asset.asset_hash}.png"
     if not target_file.exists():
         copy2(source_file, target_file)
 
     if asset_ref_path.is_absolute():
         image_path = target_file
     else:
-        image_path = asset_ref_path / f"{asset.hash}.png"
+        image_path = asset_ref_path / f"{asset.asset_hash}.png"
 
     # 使用 POSIX 风格路径(markdown 标准)
     image_path_str = str(image_path).replace("\\", "/")

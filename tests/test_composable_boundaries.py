@@ -223,7 +223,7 @@ class TestComposableBoundaries(unittest.TestCase):
 
             self.assertEqual(
                 [(replacement.page_index, replacement.layout_ref) for replacement in capture.replacements],
-                [(1, "furniture"), (2, "text")],
+                [(1, "furniture"), (2, "body")],
             )
 
     def test_pdf_patch_resolves_every_furniture_association_before_preserving(self):

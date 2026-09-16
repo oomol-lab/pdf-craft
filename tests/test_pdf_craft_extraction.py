@@ -12,7 +12,10 @@ from epub_generator import BookMeta
 
 from pdf_craft.craft import PDFCraft
 from pdf_craft.document import PDFCraftExtraction
-from pdf_craft.extractor.chapter.chapter import BlockLayout, Chapter, ParagraphLayout
+from pdf_craft.extractor.chapter.chapter import (
+    BlockLayout, Chapter, DisplayFormula, ParagraphLayout, StandaloneAsset,
+    decode as decode_chapter,
+)
 from pdf_craft.common import save_xml
 from pdf_craft.extractor.chapter.chapter import encode
 from pdf_craft.extractor.toc.types import Toc, TocInfo, encode as encode_toc
@@ -356,6 +359,41 @@ class TestPDFCraftExtraction(unittest.TestCase):
             _replace_archive_members(valid, invalid, {"chapters/chapter_head.xml": chapter_xml})
             with self.assertRaisesRegex(ValueError, "unsupported attributes"):
                 PDFCraftExtraction.open(invalid)
+
+    def test_v1_and_v2_archives_migrate_flat_assets_to_v3_flow_items(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            workspace = root / "workspace"
+            extraction = make_extraction(workspace)
+            save_xml(encode(Chapter(None, -1, [])), workspace / "chapters/chapter_head.xml")
+            valid = root / "valid.pcex"
+            extraction.export(valid)
+            legacy_chapter = (
+                b'<chapter><body><paragraph ref="text"><block page_index="1" order="0" '
+                b'det="0,0,90,20">before</block></paragraph><asset ref="image" '
+                b'page_index="1" det="0,22,90,60"/><asset ref="equation" page_index="1" '
+                b'det="0,62,90,80"><content>x^2</content></asset></body></chapter>'
+            )
+            with ZipFile(valid) as archive:
+                source_manifest = json.loads(archive.read("manifest.json"))
+            for version in (1, 2):
+                manifest = dict(source_manifest, format_version=version)
+                if version == 1:
+                    manifest["document"] = {
+                        "title": None, "description": None, "publisher": None, "isbn": None,
+                        "authors": [], "editors": [], "translators": [], "modified": None,
+                        "language": None,
+                    }
+                archive_path = root / f"v{version}.pcex"
+                _replace_archive_members(valid, archive_path, {
+                    "manifest.json": json.dumps(manifest).encode(),
+                    "chapters/chapter_head.xml": legacy_chapter,
+                })
+                opened = PDFCraftExtraction.open(archive_path)
+                with opened._materialize() as paths:
+                    migrated = decode_chapter(ElementTree.parse(paths.chapters / "chapter_head.xml").getroot())
+                self.assertIsInstance(migrated.flow_items[1], StandaloneAsset)
+                self.assertIsInstance(migrated.flow_items[2], DisplayFormula)
 
     def test_translation_preserves_manifest_pages_toc_cover_and_assets(self):
         with tempfile.TemporaryDirectory() as directory:

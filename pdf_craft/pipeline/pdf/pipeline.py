@@ -1,12 +1,12 @@
 # pylint: disable=protected-access
 
-from collections.abc import Callable, Iterator
+from collections.abc import Callable, Iterable, Iterator
 from pathlib import Path
 from typing import cast
 
 from pdf_craft.common import read_xml
 from pdf_craft.extractor.chapter.chapter import (
-    Chapter, DisplayFormula, ParagraphLayout, SourceAsset, StandaloneAsset,
+    Chapter, DisplayFormula, SourceAsset, SourceTextFragment, StandaloneAsset,
     TextFlowItem, encode,
 )
 from pdf_craft.extractor.chapter.chapter import InlineExpression, Reference
@@ -184,18 +184,19 @@ class PDFTranslationPipeline:
         text cannot drift into them.
         """
         obstacles: list[PDFReplacementRegion] = []
-        translated_narrative: list[tuple[ParagraphLayout, tuple[PDFReplacementRegion, ...]]] = []
+        translated_narrative: list[tuple[TextFlowItem, tuple[PDFReplacementRegion, ...]]] = []
         for chapter in chapters:
             obstacles.extend(_chapter_obstacle_regions(
                 chapter, pages, render_dpi, ignore_errors=ignore_errors,
             ))
-            for layout in chapter.layouts:
-                if not isinstance(layout, ParagraphLayout) or layout.ref not in {"text", "sub_title"}:
+            for layout in chapter.flow_items:
+                if not isinstance(layout, TextFlowItem) or layout.role not in {"body", "heading"}:
                     continue
                 identity = paragraph_identity(chapter, layout)
                 if identity is None:
                     continue
-                regions = _regions_for_blocks(layout.blocks, pages, render_dpi, ignore_errors)
+                fragments = [child for child in layout.children if isinstance(child, SourceTextFragment)]
+                regions = _regions_for_fragments(fragments, pages, render_dpi, ignore_errors)
                 if not regions:
                     continue
                 if coverage.narrative.get(identity) == "translated":
@@ -236,7 +237,8 @@ class PDFTranslationPipeline:
         replacements: list[PDFReplacement] = []
         for layout, regions in translated_narrative:
             patch_text, inline_formulas = _to_pdf_patch_content(
-                item for block in layout.blocks for item in block.content
+                item for fragment in layout.children if isinstance(fragment, SourceTextFragment)
+                for item in fragment.content
             )
             patch_text = patch_text.strip()
             if not patch_text:
@@ -245,7 +247,7 @@ class PDFTranslationPipeline:
             replacements.append(PDFReplacement(
                 first.page_index, first.bbox, patch_text, first.page_pixel_size, first.dpi,
                 reading_order=first.reading_order, regions=regions,
-                layout_ref=layout.ref, layout_level=layout.level,
+                layout_ref=layout.role, layout_level=layout.level,
                 inline_formulas=inline_formulas, obstacle_regions=shared_obstacles,
             ))
         for content, regions in translated_furniture:
@@ -287,10 +289,11 @@ class PDFTranslationPipeline:
         obstacle_regions = _chapter_obstacle_regions(
             chapter, pages, render_dpi, ignore_errors=ignore_errors,
         )
-        for layout in chapter.layouts:
-            if not isinstance(layout, ParagraphLayout) or layout.ref not in {"text", "sub_title"}:
+        for layout in chapter.flow_items:
+            if not isinstance(layout, TextFlowItem) or layout.role not in {"body", "heading"}:
                 continue
-            source = "".join(_to_patch_text(block.content) for block in layout.blocks).strip()
+            fragments = [child for child in layout.children if isinstance(child, SourceTextFragment)]
+            source = "".join(_to_patch_text(fragment.content) for fragment in fragments).strip()
             if not source:
                 continue
             translated = transformer(source)
@@ -301,46 +304,46 @@ class PDFTranslationPipeline:
             if structured:
                 patch_text, inline_formulas = _to_pdf_patch_content(
                     item
-                    for block in layout.blocks
-                    for item in block.content
+                    for fragment in fragments
+                    for item in fragment.content
                 )
                 patch_text = patch_text.strip()
             if not patch_text:
                 continue
 
             regions: list[PDFReplacementRegion] = []
-            for block in layout.blocks:
-                if block.page_index not in pages:
+            for fragment in fragments:
+                if fragment.page_index not in pages:
                     error = ValueError(
-                        f"PDFCraftExtraction pages.xml is missing page {block.page_index}"
+                        f"PDFCraftExtraction pages.xml is missing page {fragment.page_index}"
                     )
                     if not _check_ignore_error(ignore_errors, error):
                         raise error
                     page_pixel_size = (0, 0)
                 else:
-                    page_pixel_size = pages[block.page_index]
+                    page_pixel_size = pages[fragment.page_index]
                 regions.append(PDFReplacementRegion(
-                    block.page_index, block.det, page_pixel_size, render_dpi,
-                    reading_order=block.order,
+                    fragment.page_index, fragment.bbox, page_pixel_size, render_dpi,
+                    reading_order=fragment.source_order,
                 ))
-            if not regions:  # A ParagraphLayout without blocks has no source geometry.
+            if not regions:  # A TextFlowItem without source fragments has no geometry.
                 continue
 
             first = regions[0]
             yield PDFReplacement(
                 first.page_index, first.bbox, patch_text, first.page_pixel_size, first.dpi,
                 reading_order=first.reading_order, regions=tuple(regions),
-                layout_ref=layout.ref, layout_level=layout.level,
+                layout_ref=layout.role, layout_level=layout.level,
                 inline_formulas=inline_formulas,
                 obstacle_regions=obstacle_regions,
             )
 
 
-def _regions_for_blocks(blocks, pages, render_dpi: int, ignore_errors) -> tuple[PDFReplacementRegion, ...]:
+def _regions_for_fragments(fragments: Iterable[SourceTextFragment], pages, render_dpi: int, ignore_errors) -> tuple[PDFReplacementRegion, ...]:
     regions: list[PDFReplacementRegion] = []
-    for block in blocks:
+    for fragment in fragments:
         region = _region_for_box(
-            block.page_index, block.det, pages, render_dpi, block.order, ignore_errors,
+            fragment.page_index, fragment.bbox, pages, render_dpi, fragment.source_order, ignore_errors,
         )
         if region is not None:
             regions.append(region)
@@ -539,8 +542,8 @@ def _chapter_obstacle_regions(
 
     Top-level paragraph blocks are already represented by the replacement
     regions passed to the window planner.  Assets and reference layouts are
-    not: references (notably footnotes) live beneath ``Reference.layouts``
-    rather than in ``Chapter.layouts``.  Their block and asset rectangles are
+    not: references (notably footnotes) live beneath ``Reference.flow_items``
+    rather than in ``Chapter.flow_items``.  Their block and asset rectangles are
     therefore explicit obstacles even when the reference itself is not being
     translated.
     """

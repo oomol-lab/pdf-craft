@@ -14,7 +14,7 @@ from typing import Iterator, Literal
 from epub_generator import BookMeta, LaTeXRender, TableRender
 
 from .document import PDFCraftExtraction
-from .extractor.chapter.chapter import Chapter, ParagraphLayout
+from .extractor.chapter.chapter import Chapter, SourceTextFragment, TextFlowItem
 from .extractor.chapter.reader import create_chapters_reader
 from .error import IgnoreFillErrorsChecker, IgnoreOCRErrorsChecker, IgnorePDFErrorsChecker
 from .extractor import PDFExtractor
@@ -354,19 +354,20 @@ class _TextChapterTransformer:
         self._callback = callback
 
     def transform(self, chapter: Chapter) -> Chapter:
-        for layout in chapter.flow_items:
-            if not isinstance(layout, ParagraphLayout):
+        for item in chapter.flow_items:
+            if not isinstance(item, TextFlowItem):
                 continue
-            text = "".join(_to_patch_text(block.content) for block in layout.blocks)
+            fragments = [child for child in item.children if isinstance(child, SourceTextFragment)]
+            text = "".join(_to_patch_text(fragment.content) for fragment in fragments)
             translated = self._callback(text)
-            if translated != text and layout.blocks:
+            if translated != text and fragments:
                 # Geometry remains on every source block.  Keeping the single
                 # translated paragraph on the first block avoids duplicating it
                 # into each bbox; the PDF paragraph filler consumes the full
                 # ordered block list in a later stage.
-                layout.blocks[0].content = [translated]
-                for block in layout.blocks[1:]:
-                    block.content = []
+                fragments[0].content = [translated]
+                for fragment in fragments[1:]:
+                    fragment.content = []
         return chapter
 
 
@@ -382,11 +383,12 @@ def _validate_extraction_for_pdf(source: Path, extraction: PDFCraftExtraction) -
     page_count = len(pypdf.PdfReader(str(source)).pages)
     with extraction._materialize() as paths:
         chapter_pages = {
-            block.page_index
+            fragment.page_index
             for chapter in create_chapters_reader(paths.chapters)()
-            for layout in chapter.flow_items
-            if isinstance(layout, ParagraphLayout)
-            for block in layout.blocks
+            for item in chapter.flow_items
+            if isinstance(item, TextFlowItem)
+            for fragment in item.children
+            if isinstance(fragment, SourceTextFragment)
         }
     invalid = sorted(page for page in set(page_sizes) | chapter_pages if page > page_count)
     if invalid:

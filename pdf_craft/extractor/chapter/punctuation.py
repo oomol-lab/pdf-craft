@@ -1,4 +1,7 @@
-from .chapter import Chapter, SourceAsset, TextFlowItem, search_references_in_chapter
+from .chapter import (
+    Chapter, SourceAsset, SourceTextFragment, TextFlowItem,
+    search_references_in_chapter,
+)
 from .content import Content, expand_text_in_content
 
 _LEFT_ONLY_ASCII_TO_FULLWIDTH = {
@@ -24,8 +27,13 @@ def normalize_punctuation_in_chapter(chapter: Chapter) -> Chapter:
 def _normalize_flow_items(items) -> None:
     for item in items:
         if isinstance(item, TextFlowItem):
-            for block in item.blocks:
-                _normalize_content(block.content)
+            for child in item.children:
+                if isinstance(child, SourceTextFragment):
+                    _normalize_content(child.content)
+                else:
+                    _normalize_content(child.title)
+                    _normalize_content(child.content)
+                    _normalize_content(child.caption)
         else:
             asset: SourceAsset = item.asset
             _normalize_content(asset.title)

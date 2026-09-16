@@ -184,13 +184,13 @@ PDF patching treats each `TextFlowItem` as one text flow, even when it has sourc
 
 Within a releasable page window, `body` TextFlowItems are fitted before `heading` TextFlowItems. The largest fitted body size on every page touched by a headline supplies its preferred lower bound, multiplied by `headline_min_body_ratio` (default `1.2`). A semantic style can override that ratio with `minimum_body_font_ratio`; the normal fitting search may still choose a larger title size when its boxes permit it.
 
-A numeric `max_font_size` is a hard limit for every semantic style, including an implicit `sub_title` inherited from `PatchTextOptions`. When that ceiling is lower than the body-relative preference, the ceiling wins in both initial fitting and page-local normalization. If the resulting headline cannot fit its width at the selected size, it is anchored at the source box's left edge and continues naturally to the right rather than failing or being skipped.
+A numeric `max_font_size` is a hard limit for every semantic style, including an implicit `heading` inherited from `PatchTextOptions`. When that ceiling is lower than the body-relative preference, the ceiling wins in both initial fitting and page-local normalization. If the resulting headline cannot fit its width at the selected size, it is anchored at the source box's left edge and continues naturally to the right rather than failing or being skipped.
 
 ```python
 options = PatchTextOptions(
     styles={
-        "text": PatchTextStyle(font_name="Noto Serif CJK SC", max_font_size=11),
-        "sub_title": PatchTextStyle(
+        "body": PatchTextStyle(font_name="Noto Serif CJK SC", max_font_size=11),
+        "heading": PatchTextStyle(
             font_name="Noto Sans CJK SC",
             max_font_size=24,
             minimum_body_font_ratio=1.35,

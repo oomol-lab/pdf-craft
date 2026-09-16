@@ -131,6 +131,15 @@ def test_v3_codec_validates_reference_flow_attributes_when_strict():
         decode(source, allow_legacy=False)
 
 
+def test_v3_codec_rejects_text_level_inline_expression():
+    source = fromstring("""<chapter><flow><text role="body">
+      <fragment page_index="1" source_order="0" bbox="0,0,10,10">before</fragment>
+      <inline_expr kind="inline_dollar">x</inline_expr>
+    </text></flow></chapter>""")
+    with pytest.raises(ValueError, match="unknown element: <inline_expr>"):
+        decode(source, allow_legacy=False)
+
+
 def test_pdf_obstacles_include_asset_nested_in_text_flow_item():
     image = SourceAsset(1, "image", (11, 22, 77, 88), asset_hash="d" * 64)
     chapter = Chapter(None, -1, [TextFlowItem("body", 0, [_fragment(1, "before"), image])])

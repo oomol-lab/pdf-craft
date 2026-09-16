@@ -2,21 +2,12 @@ from pathlib import Path
 from typing import Generator, Iterable
 
 from ...common import XMLReader, save_xml
-from ...pdf import TITLE_TAGS, Page, decode
+from ...pdf import Page, decode
 from ..toc import Toc, TocInfo, iter_toc
 from .analyse_level import analyse_chapter_internal_levels
 from .chapter import (
-    AssetLayout,
-    BlockLayout,
-    Chapter,
-    DisplayFormula,
-    FlowItem,
-    ParagraphLayout,
-    Reference,
-    SourceAsset,
-    StandaloneAsset,
-    TextFlowItem,
-    encode,
+    Chapter, DisplayFormula, FlowItem, Reference, SourceAsset,
+    SourceTextFragment, StandaloneAsset, TextFlowItem, encode,
 )
 from .content import expand_text_in_content, join_texts_in_content
 from .jointer import Jointer
@@ -61,12 +52,14 @@ def _generate_chapters(
         matched_toc = False
         if (
             isinstance(layout, TextFlowItem)
-            and layout.blocks
-            and layout.ref in TITLE_TAGS
+            and layout.children
+            and layout.role == "heading"
         ):
             item: Toc | None = None
-            for block in layout.blocks:
-                item = ref2toc.get((block.page_index, block.order), None)
+            for fragment in layout.children:
+                if not isinstance(fragment, SourceTextFragment):
+                    continue
+                item = ref2toc.get((fragment.page_index, fragment.source_order), None)
                 if item:
                     break
             if item:
@@ -132,18 +125,20 @@ def _extract_body_layouts(pages_path: Path, toc: TocInfo):
         return None
 
     for layout in body_jointer.execute():
-        if isinstance(layout, ParagraphLayout):
-            for block in layout.blocks:
-                references = get_references(block.page_index)
+        if isinstance(layout, TextFlowItem):
+            for fragment in layout.children:
+                if not isinstance(fragment, SourceTextFragment):
+                    continue
+                references = get_references(fragment.page_index)
                 if references:
-                    _replace_mark_with_reference(references, block)
-                join_texts_in_content(block.content)
+                    _replace_mark_with_reference(references, fragment)
+                join_texts_in_content(fragment.content)
 
         yield layout
 
 
 def _assemble_flow_items(
-    layouts: Iterable[ParagraphLayout | AssetLayout],
+    layouts: Iterable[TextFlowItem | SourceAsset],
 ) -> Generator[FlowItem, None, None]:
     """Turn the joiner's conservative flat OCR sequence into v3 flow.
 
@@ -165,7 +160,7 @@ def _assemble_flow_items(
         pending = []
 
     for layout in layouts:
-        if isinstance(layout, AssetLayout):
+        if isinstance(layout, SourceAsset):
             pending.append(layout)
             continue
         text = layout
@@ -177,9 +172,11 @@ def _assemble_flow_items(
         can_embed = (
             pending
             and not any(asset.ref == "formula" for asset in pending)
-            and current.ref == text.ref == "text"
-            and current.blocks and text.blocks
-            and check_mergeable(current.blocks[-1].content, text.blocks[0].content)
+            and current.role == text.role == "body"
+            and current.children and text.children
+            and isinstance(current.children[-1], SourceTextFragment)
+            and isinstance(text.children[0], SourceTextFragment)
+            and check_mergeable(current.children[-1].content, text.children[0].content)
         )
         if can_embed:
             current.children.extend(pending)
@@ -193,7 +190,7 @@ def _assemble_flow_items(
 
 def _extract_page_references(jointer: Jointer) -> Generator[References, None, None]:
     last_page_index: int = -1
-    layout_buffer: list[AssetLayout | ParagraphLayout] = []
+    layout_buffer: list[SourceAsset | TextFlowItem] = []
 
     for layout in jointer.execute():
         page_index = _page_index_from_layout(layout)
@@ -201,7 +198,7 @@ def _extract_page_references(jointer: Jointer) -> Generator[References, None, No
             if layout_buffer:
                 yield References(
                     page_index=last_page_index,
-                    layouts=layout_buffer,
+                    items=layout_buffer,
                 )
             last_page_index = page_index
             layout_buffer = []
@@ -210,22 +207,23 @@ def _extract_page_references(jointer: Jointer) -> Generator[References, None, No
     if layout_buffer:
         yield References(
             page_index=last_page_index,
-            layouts=layout_buffer,
+            items=layout_buffer,
         )
 
 
-def _page_index_from_layout(layout: AssetLayout | ParagraphLayout) -> int:
-    if isinstance(layout, ParagraphLayout):
-        if not layout.blocks:
-            raise ValueError("ParagraphLayout has no blocks to get page index")
-        return layout.blocks[0].page_index
-    elif isinstance(layout, AssetLayout):
+def _page_index_from_layout(layout: SourceAsset | TextFlowItem) -> int:
+    if isinstance(layout, TextFlowItem):
+        fragment = next((child for child in layout.children if isinstance(child, SourceTextFragment)), None)
+        if fragment is None:
+            raise ValueError("TextFlowItem has no source fragments to get page index")
+        return fragment.page_index
+    elif isinstance(layout, SourceAsset):
         return layout.page_index
     else:
         raise TypeError(f"Unknown layout type: {type(layout).__name__}")
 
 
-def _replace_mark_with_reference(references: References, block: BlockLayout):
+def _replace_mark_with_reference(references: References, block: SourceTextFragment):
     def expand(text: str):
         for item in search_marks(text):
             reference: Reference | None = None

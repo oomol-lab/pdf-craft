@@ -180,7 +180,9 @@ class Reference:
     def layouts(self): return [v if isinstance(v, TextFlowItem) else v.asset for v in self.flow_items]
 
 
-# One-release source compatibility: values are nevertheless v3 objects.
+# Deprecated v1/v2 source-import compatibility only.  Production code uses
+# FlowItem/TextFlowItem/SourceTextFragment/SourceAsset directly; these aliases
+# must not define a second flat chapter contract.
 ParagraphLayout = TextFlowItem
 BlockLayout = SourceTextFragment
 AssetLayout = SourceAsset
@@ -255,18 +257,6 @@ def _decode_flow(element: Element, refs: dict[tuple[int, int], Reference], *, al
             if child.tag == "fragment":
                 if not allow_legacy: _attributes(child, {"page_index", "source_order", "bbox"})
                 children.append(_fragment(child, refs, allow_legacy=allow_legacy))
-            elif child.tag == "inline_expr":
-                # XMLTranslator may move a frozen inline formula beside the
-                # fragment that owns it.  Restore it to that fragment rather
-                # than treating a harmless transport shape as chapter loss.
-                if not children or not isinstance(children[-1], SourceTextFragment):
-                    raise ValueError("<text><inline_expr> has no preceding fragment")
-                if not allow_legacy: _attributes(child, {"kind"})
-                kind = child.get("kind")
-                if kind is None: raise ValueError("<text><inline_expr> missing kind")
-                expression = InlineExpression(decode_expression_kind(kind), child.text or "")
-                if not any(isinstance(value, InlineExpression) and value == expression for value in flatten(children[-1].content)):
-                    children[-1].content.append(expression)
             elif child.tag == "asset":
                 asset = _asset(child, refs, allow_legacy=allow_legacy)
                 if asset.ref == "formula": raise ValueError("text cannot contain formula asset")
