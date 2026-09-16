@@ -10,7 +10,7 @@ from xml.etree.ElementTree import Element
 
 from ...common import ASSET_TAGS, AssetRef, indent
 from ...expression import ExpressionKind, decode_expression_kind, encode_expression_kind
-from ...markdown.paragraph import HTMLTag, flatten
+from ...markdown.paragraph import HTMLTag, flatten, tag_definition
 from ...markdown.paragraph import decode as decode_content
 from ...markdown.paragraph import encode as encode_content
 from .mark import Mark
@@ -198,12 +198,22 @@ def search_references_in_chapter(chapter: Chapter) -> Generator[Reference, None,
 
 
 def decode(element: Element, *, allow_legacy: bool = True) -> Chapter:
+    if not allow_legacy:
+        if element.tag != "chapter": raise ValueError("PCEX v3 chapter root must be <chapter>")
+        _attributes(element, {"id", "level"})
+        _children(element, {"flow", "references"})
     refs = _refs(element.find("references"), allow_legacy=allow_legacy)
     id_text = element.get("id")
     ident = int(id_text) if id_text is not None else None
     level = int(element.get("level", "-1"))
     flow = element.find("flow")
     if flow is not None:
+        if not allow_legacy:
+            _attributes(flow, set())
+            if len(element.findall("flow")) != 1:
+                raise ValueError("PCEX v3 chapter must contain exactly one <flow>")
+            if len(element.findall("references")) > 1:
+                raise ValueError("PCEX v3 chapter can contain at most one <references>")
         if not allow_legacy and any(asset.get("ref") == "equation" for asset in flow.iter("asset")):
             raise ValueError("PCEX v3 uses asset ref='formula', not legacy 'equation'")
         return Chapter(ident, level, [_decode_flow(v, refs, allow_legacy=allow_legacy) for v in flow])
@@ -237,17 +247,21 @@ def encode(chapter: Chapter) -> Element:
 
 def _decode_flow(element: Element, refs: dict[tuple[int, int], Reference], *, allow_legacy: bool = True) -> FlowItem:
     if element.tag == "text":
+        if not allow_legacy: _attributes(element, {"role", "level"})
         role = element.get("role")
         if role not in {"body", "heading"}: raise ValueError("<text> role must be body or heading")
         children = []
         for child in element:
-            if child.tag == "fragment": children.append(_fragment(child, refs))
+            if child.tag == "fragment":
+                if not allow_legacy: _attributes(child, {"page_index", "source_order", "bbox"})
+                children.append(_fragment(child, refs, allow_legacy=allow_legacy))
             elif child.tag == "inline_expr":
                 # XMLTranslator may move a frozen inline formula beside the
                 # fragment that owns it.  Restore it to that fragment rather
                 # than treating a harmless transport shape as chapter loss.
                 if not children or not isinstance(children[-1], SourceTextFragment):
                     raise ValueError("<text><inline_expr> has no preceding fragment")
+                if not allow_legacy: _attributes(child, {"kind"})
                 kind = child.get("kind")
                 if kind is None: raise ValueError("<text><inline_expr> missing kind")
                 expression = InlineExpression(decode_expression_kind(kind), child.text or "")
@@ -260,6 +274,7 @@ def _decode_flow(element: Element, refs: dict[tuple[int, int], Reference], *, al
             else: raise ValueError(f"<text> contains unknown element: <{child.tag}>")
         return TextFlowItem(role, _integer(element, "level", -1), children)
     if element.tag in {"display-formula", "standalone-asset"}:
+        if not allow_legacy: _attributes(element, set())
         children = list(element)
         if len(children) != 1 or children[0].tag != "asset": raise ValueError(f"<{element.tag}> must contain exactly one <asset>")
         asset = _asset(children[0], refs, allow_legacy=allow_legacy)
@@ -280,6 +295,15 @@ def _encode_flow(item: FlowItem) -> Element:
 
 
 def _asset(element: Element, refs: dict[tuple[int, int], Reference] | None = None, *, allow_legacy: bool = True) -> SourceAsset:
+    if not allow_legacy: _attributes(element, {"ref", "page_index", "bbox", "asset_hash"})
+    if not allow_legacy:
+        _children(element, {"title", "content", "caption"})
+        for name in ("title", "content", "caption"):
+            nodes = element.findall(name)
+            if len(nodes) > 1:
+                raise ValueError(f"PCEX v3 <asset> can contain at most one <{name}>")
+            if nodes:
+                _attributes(nodes[0], set())
     ref = element.get("ref")
     if ref == "equation":
         ref = "formula"
@@ -287,8 +311,10 @@ def _asset(element: Element, refs: dict[tuple[int, int], Reference] | None = Non
     if not allow_legacy and (element.get("det") is not None or element.get("hash") is not None):
         raise ValueError("PCEX v3 asset uses bbox and asset_hash, not legacy det/hash")
     return SourceAsset(_integer(element, "page_index"), cast(AssetRef, ref), _bbox(element, "det" if allow_legacy else None),
-        _content(element.find("title"), refs, "asset"), _content(element.find("content"), refs, "asset"),
-        _content(element.find("caption"), refs, "asset"), element.get("asset_hash", element.get("hash")))
+        _content(element.find("title"), refs, "asset", allow_legacy=allow_legacy),
+        _content(element.find("content"), refs, "asset", allow_legacy=allow_legacy),
+        _content(element.find("caption"), refs, "asset", allow_legacy=allow_legacy),
+        element.get("asset_hash", element.get("hash")))
 
 
 def _encode_asset(asset: SourceAsset) -> Element:
@@ -308,8 +334,8 @@ def _legacy_paragraph(element: Element, refs: dict[tuple[int, int], Reference]) 
     return TextFlowItem(ref, _integer(element, "level", -1), [_legacy_block(v, refs) for v in element.findall("block")])
 
 
-def _fragment(element: Element, refs: dict[tuple[int, int], Reference]) -> SourceTextFragment:
-    return SourceTextFragment(_integer(element, "page_index"), _integer(element, "source_order"), _bbox(element), _content(element, refs, "fragment"))
+def _fragment(element: Element, refs: dict[tuple[int, int], Reference], *, allow_legacy: bool = True) -> SourceTextFragment:
+    return SourceTextFragment(_integer(element, "page_index"), _integer(element, "source_order"), _bbox(element), _content(element, refs, "fragment", allow_legacy=allow_legacy))
 
 
 def _legacy_block(element: Element, refs: dict[tuple[int, int], Reference]) -> SourceTextFragment:
@@ -321,8 +347,11 @@ def _encode_fragment(fragment: SourceTextFragment) -> Element:
     encode_content(result, fragment.content, _encode_member); return result
 
 
-def _content(element: Element | None, refs: dict[tuple[int, int], Reference] | None, context: str) -> Content:
+def _content(element: Element | None, refs: dict[tuple[int, int], Reference] | None, context: str,
+             *, allow_legacy: bool = True) -> Content:
     if element is None: return []
+    if not allow_legacy:
+        _validate_content_members(element)
     def payload(child: Element) -> BlockMember:
         if child.tag == "inline_expr":
             kind = child.get("kind")
@@ -346,19 +375,29 @@ def _encode_member(part: BlockMember) -> Element:
 
 def _refs(element: Element | None, *, allow_legacy: bool = True) -> dict[tuple[int, int], Reference]:
     if element is None: return {}
+    if not allow_legacy:
+        _attributes(element, set())
+        _children(element, {"ref"})
     values = [_decode_reference(child, allow_legacy=allow_legacy) for child in element.findall("ref")]
     return {value.id: value for value in values}
 
 
 def _decode_reference(element: Element, *, allow_legacy: bool = True) -> Reference:
+    if not allow_legacy:
+        _attributes(element, {"id"})
+        _children(element, {"mark", "flow"})
+        if len(element.findall("mark")) != 1 or len(element.findall("flow")) != 1:
+            raise ValueError("PCEX v3 reference must contain exactly one <mark> and one <flow>")
     try: page, order = map(int, element.get("id", "").split("-", 1))
     except ValueError as error: raise ValueError("<references><ref> has invalid id") from error
     mark_el = element.find("mark")
     if mark_el is None or mark_el.text is None: raise ValueError("<references><ref> missing required <mark>")
+    if not allow_legacy: _attributes(mark_el, set())
     from .mark import transform2mark
     mark = transform2mark(mark_el.text) or mark_el.text
     flow = element.find("flow")
     if flow is not None:
+        if not allow_legacy: _attributes(flow, set())
         if not allow_legacy and any(asset.get("ref") == "equation" for asset in flow.iter("asset")):
             raise ValueError("PCEX v3 reference uses asset ref='formula', not legacy 'equation'")
         return Reference(page, order, mark, [_decode_flow(child, {}, allow_legacy=allow_legacy) for child in flow])
@@ -410,3 +449,32 @@ def _bbox(element: Element, legacy: str | None = None) -> tuple[int, int, int, i
 
 
 def _bbox_text(value: tuple[int, int, int, int]) -> str: return ",".join(map(str, value))
+
+
+def _attributes(element: Element, allowed: set[str]) -> None:
+    unexpected = set(element.attrib) - allowed
+    if unexpected:
+        raise ValueError(f"PCEX v3 <{element.tag}> has unsupported attributes: {sorted(unexpected)}")
+
+
+def _children(element: Element, allowed: set[str]) -> None:
+    unexpected = {child.tag for child in element} - allowed
+    if unexpected:
+        raise ValueError(f"PCEX v3 <{element.tag}> has unsupported children: {sorted(unexpected)}")
+
+
+def _validate_content_members(element: Element) -> None:
+    """Validate structural payload attributes without constraining GFM markup.
+
+    Content may legitimately contain the whitelisted HTML tags represented by
+    ``HTMLTag``.  Their attributes belong to the Markdown contract.  PCEX's
+    own payload elements, on the other hand, have a closed v3 schema even when
+    they are nested inside such markup.
+    """
+    for child in element:
+        if child.tag == "inline_expr":
+            _attributes(child, {"kind"})
+        elif child.tag == "ref":
+            _attributes(child, {"id"})
+        elif tag_definition(child.tag) is not None:
+            _validate_content_members(child)

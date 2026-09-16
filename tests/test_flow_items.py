@@ -92,7 +92,7 @@ def test_v3_codec_rejects_legacy_reference_subtrees_when_strict():
     legacy_body = fromstring("""<chapter><flow/><references><ref id="1-1"><mark>①</mark>
       <body><paragraph ref="text"/></body>
     </ref></references></chapter>""")
-    with pytest.raises(ValueError, match="reference must contain"):
+    with pytest.raises(ValueError, match="unsupported children"):
         decode(legacy_body, allow_legacy=False)
 
 
@@ -100,8 +100,35 @@ def test_v3_codec_rejects_legacy_asset_attributes_when_strict():
     legacy_attributes = fromstring("""<chapter><flow><standalone-asset>
       <asset ref="image" page_index="1" det="0,0,1,1" hash="a"/>
     </standalone-asset></flow></chapter>""")
-    with pytest.raises(ValueError, match="det/hash"):
+    with pytest.raises(ValueError, match="unsupported attributes"):
         decode(legacy_attributes, allow_legacy=False)
+
+
+@pytest.mark.parametrize("source", [
+    """<chapter unexpected="x"><flow><text role="body">
+      <fragment page_index="1" source_order="2" bbox="0,0,1,1">x</fragment>
+    </text></flow></chapter>""",
+    """<chapter><flow unexpected="x"><text role="body">
+      <fragment page_index="1" source_order="2" bbox="0,0,1,1">x</fragment>
+    </text></flow></chapter>""",
+    """<chapter><flow><text role="body" extra="x">
+      <fragment page_index="1" source_order="2" bbox="0,0,1,1">x</fragment>
+    </text></flow></chapter>""",
+    """<chapter><flow><text role="body">
+      <fragment page_index="1" source_order="2" order="9" bbox="0,0,1,1" det="0,0,9,9">x</fragment>
+    </text></flow></chapter>""",
+])
+def test_v3_codec_rejects_unknown_and_legacy_fragment_attributes(source):
+    with pytest.raises(ValueError, match="unsupported attributes"):
+        decode(fromstring(source), allow_legacy=False)
+
+
+def test_v3_codec_validates_reference_flow_attributes_when_strict():
+    source = fromstring("""<chapter><flow/><references><ref id="1-1"><mark>①</mark>
+      <flow unexpected="x"/>
+    </ref></references></chapter>""")
+    with pytest.raises(ValueError, match="unsupported attributes"):
+        decode(source, allow_legacy=False)
 
 
 def test_pdf_obstacles_include_asset_nested_in_text_flow_item():

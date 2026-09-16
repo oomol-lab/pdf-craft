@@ -336,7 +336,25 @@ class TestPDFCraftExtraction(unittest.TestCase):
                 b'det="0,0,1,1" hash="a"/></standalone-asset></flow></chapter>'
             )
             _replace_archive_members(valid, invalid, {"chapters/chapter_head.xml": chapter_xml})
-            with self.assertRaisesRegex(ValueError, "det/hash"):
+            with self.assertRaisesRegex(ValueError, "unsupported attributes"):
+                PDFCraftExtraction.open(invalid)
+
+    def test_v3_archive_rejects_unknown_and_legacy_fragment_attributes(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            workspace = root / "workspace"
+            extraction = make_extraction(workspace)
+            save_xml(encode(Chapter(None, -1, [])), workspace / "chapters/chapter_head.xml")
+            valid = root / "valid.pcex"
+            extraction.export(valid)
+            invalid = root / "legacy-fragment-attributes.pcex"
+            chapter_xml = (
+                b'<chapter><flow><text role="body"><fragment '
+                b'page_index="1" source_order="0" order="1" bbox="0,0,1,1" '
+                b'det="0,0,9,9">text</fragment></text></flow></chapter>'
+            )
+            _replace_archive_members(valid, invalid, {"chapters/chapter_head.xml": chapter_xml})
+            with self.assertRaisesRegex(ValueError, "unsupported attributes"):
                 PDFCraftExtraction.open(invalid)
 
     def test_translation_preserves_manifest_pages_toc_cover_and_assets(self):
