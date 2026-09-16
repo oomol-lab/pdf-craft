@@ -348,6 +348,67 @@ class AnchoredContentTranslationTests(unittest.TestCase):
                 self.assertNotIn("[anchored content]", fill_request)
                 self.assertEqual(translated, chapter)
 
+    def test_fill_repairs_anchor_boundary_to_match_canonical_translation(self):
+        """An asset anchor is structural: it cannot acquire a visible space."""
+        image = SourceAsset(1, "image", (20, 20, 80, 80), asset_hash="a" * 64)
+        chapter = Chapter(None, -1, [TextFlowItem("body", 0, [
+            SourceTextFragment(1, 1, (1, 1, 90, 15), ["How"]),
+            image,
+            SourceTextFragment(1, 2, (1, 85, 90, 99), ["ever, the Council."]),
+        ])])
+        incorrect = (
+            '<xml><fragment id="1">How </fragment><anchor anchor_key="0"/>'
+            '<fragment id="2"> ever, the Council.</fragment></xml>'
+        )
+        corrected = (
+            '<xml><fragment id="1">However</fragment><anchor anchor_key="0"/>'
+            '<fragment id="2">, the Council.</fragment></xml>'
+        )
+        translator, runtime = _repairing_translator((incorrect, corrected))
+        translator._translate_text = lambda _source: "However, the Council."  # type: ignore[method-assign]
+
+        translated = ChapterXMLTransformer(cast(Any, translator)).transform(chapter)
+
+        text = translated.flow_items[0]
+        assert isinstance(text, TextFlowItem)
+        first, restored_image, second = text.children
+        assert isinstance(first, SourceTextFragment)
+        assert isinstance(second, SourceTextFragment)
+        self.assertEqual(restored_image, image)
+        self.assertEqual(_text(first.content) + _text(second.content), "However, the Council.")
+        self.assertEqual(runtime.context_value.calls, 2)
+        initial_messages = runtime.context_value.messages[0][0]
+        self.assertIn("Canonical visible-text constraint", initial_messages[-1].message)
+        retry_messages = runtime.context_value.messages[1][0]
+        self.assertIn("Anchors are zero-width", retry_messages[-1].message)
+
+    def test_fill_repairs_plain_fragment_boundary_to_match_canonical_translation(self):
+        """A cross-page fragment split has no anchor but obeys the same rule."""
+        chapter = Chapter(None, -1, [TextFlowItem("body", 0, [
+            SourceTextFragment(1, 1, (1, 1, 90, 15), ["corrup"]),
+            SourceTextFragment(2, 2, (1, 1, 90, 15), ["tion is harmful."]),
+        ])])
+        incorrect = (
+            '<xml><fragment id="1">corrup </fragment>'
+            '<fragment id="2"> tion is harmful.</fragment></xml>'
+        )
+        corrected = (
+            '<xml><fragment id="1">corruption</fragment>'
+            '<fragment id="2"> is harmful.</fragment></xml>'
+        )
+        translator, runtime = _repairing_translator((incorrect, corrected))
+        translator._translate_text = lambda _source: "corruption is harmful."  # type: ignore[method-assign]
+
+        translated = ChapterXMLTransformer(cast(Any, translator)).transform(chapter)
+
+        text = translated.flow_items[0]
+        assert isinstance(text, TextFlowItem)
+        fragments = [child for child in text.children if isinstance(child, SourceTextFragment)]
+        self.assertEqual("".join(_text(fragment.content) for fragment in fragments), "corruption is harmful.")
+        self.assertEqual(runtime.context_value.calls, 2)
+        retry_messages = runtime.context_value.messages[1][0]
+        self.assertIn("canonical translation", retry_messages[-1].message)
+
     def test_independent_stage_translates_asset_fields_and_records_coverage(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
