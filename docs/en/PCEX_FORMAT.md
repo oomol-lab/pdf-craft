@@ -35,6 +35,29 @@ physical paragraphs around an anchored asset for valid output, but PCEX retains
 the logical relation. Writers emit v3; readers migrate v1/v2 flat bodies in
 memory without inventing unknown anchors.
 
+### Canonical v3 chapter schema
+
+```xml
+<chapter id="1" level="0"><flow>
+  <text role="heading" level="0"><fragment page_index="3" source_order="0" bbox="180,210,2260,360">Chapter One</fragment></text>
+  <text role="body"><fragment page_index="3" source_order="1" bbox="180,410,2260,620">Before.</fragment><asset ref="image" page_index="3" bbox="400,700,2080,1800" asset_hash="aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"/><fragment page_index="3" source_order="2" bbox="180,1900,2260,2100">After.</fragment></text>
+  <display-formula><asset ref="equation" page_index="3" bbox="300,2150,2100,2300"><content>E=mc^2</content></asset></display-formula>
+  <standalone-asset><asset ref="table" page_index="4" bbox="220,600,2200,1700" asset_hash="bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"/></standalone-asset>
+</flow></chapter>
+```
+
+`<chapter>` has optional integer `id` and `level`, exactly one `<flow>`, and
+optional `<references>`. `<text role="body|heading">` has optional integer
+`level` and ordered children. A `<fragment>` requires positive `page_index`,
+integer `source_order`, and bounded `bbox="left,top,right,bottom"`; it carries
+mixed text, `inline_expr`, references, and allowed HTML wrappers. An image/table
+`<asset>` may occur in `<text>` or exactly once under `<standalone-asset>`; an
+equation asset occurs exactly once under `<display-formula>`, never under
+`<text>`. Every asset requires `ref`, `page_index`, and `bbox`, and may have a
+64-lowercase-hex `asset_hash` plus `title`, `content`, and `caption`.
+`asset_hash` identifies `assets/<hash>.png`; `display-formula` is a flow
+boundary, not an anchored asset.
+
 ## Quick reference
 
 A canonical archive has the following layout:
@@ -346,7 +369,7 @@ Subdirectories, symbolic links, and other files are not allowed. The chapter dir
 
 Canonical producers derive a filename directly from the chapter `id`, without leading zeros. The current validator checks only the filename pattern. It neither verifies that the filename number, chapter `id`, and TOC `id` are equal nor rejects distinct spellings that map to the same integer.
 
-### Complete chapter example
+### Legacy v1/v2 reader-only chapter example
 
 This example includes body text, an inline equation, an image, and a footnote reference:
 

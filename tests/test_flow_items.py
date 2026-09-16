@@ -1,4 +1,5 @@
 from xml.etree.ElementTree import fromstring, tostring
+import pytest
 
 from pdf_craft.extractor.chapter import (
     Chapter, DisplayFormula, InlineExpression, SourceAsset, SourceTextFragment,
@@ -6,6 +7,7 @@ from pdf_craft.extractor.chapter import (
 )
 from pdf_craft.expression import ExpressionKind
 from pdf_craft.extractor.chapter.generation import _assemble_flow_items
+from pdf_craft.pipeline.pdf.pipeline import _chapter_obstacle_regions
 
 
 def _fragment(order: int, text: str) -> SourceTextFragment:
@@ -44,6 +46,19 @@ def test_inline_formula_is_not_a_display_formula():
     restored = decode(encode(source))
     assert isinstance(restored.flow_items[0], StandaloneAsset)
     assert isinstance(restored.flow_items[1], TextFlowItem)
+
+
+def test_text_flow_item_rejects_equation_child():
+    equation = SourceAsset(1, "equation", (0, 0, 10, 10), content=["x^2"])
+    with pytest.raises(ValueError, match="DisplayFormula"):
+        TextFlowItem("body", 0, [_fragment(1, "before"), equation])
+
+
+def test_pdf_obstacles_include_asset_nested_in_text_flow_item():
+    image = SourceAsset(1, "image", (11, 22, 77, 88), asset_hash="d" * 64)
+    chapter = Chapter(None, -1, [TextFlowItem("body", 0, [_fragment(1, "before"), image])])
+    obstacles = _chapter_obstacle_regions(chapter, {1: (100, 100)}, 300)
+    assert [(item.page_index, item.bbox) for item in obstacles] == [(1, image.bbox)]
 
 
 def test_extraction_anchors_figure_but_never_joins_across_display_formula():

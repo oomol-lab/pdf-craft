@@ -5,7 +5,10 @@ from pathlib import Path
 from typing import cast
 
 from pdf_craft.common import read_xml
-from pdf_craft.extractor.chapter.chapter import AssetLayout, Chapter, ParagraphLayout, encode
+from pdf_craft.extractor.chapter.chapter import (
+    Chapter, DisplayFormula, ParagraphLayout, SourceAsset, StandaloneAsset,
+    TextFlowItem, encode,
+)
 from pdf_craft.extractor.chapter.chapter import InlineExpression, Reference
 from pdf_craft.extractor.chapter.reader import create_chapters_reader
 from pdf_craft.markdown.paragraph import HTMLTag, flatten
@@ -556,38 +559,41 @@ def _chapter_obstacle_regions(
             seen_regions.add(key)
             regions.append(PDFReplacementRegion(page_index, det, pages[page_index], render_dpi))
 
+    def visit_asset(asset: SourceAsset) -> None:
+        add_region(asset.page_index, asset.bbox)
+        visit_references(asset.title)
+        visit_references(asset.content)
+        visit_references(asset.caption)
+
+    def visit_text(text: TextFlowItem, *, obstacle: bool = False) -> None:
+        for child in text.children:
+            if isinstance(child, SourceAsset):
+                visit_asset(child)
+            else:
+                if obstacle:
+                    add_region(child.page_index, child.bbox)
+                visit_references(child.content)
+
+    def visit_flow_item(item: TextFlowItem | DisplayFormula | StandaloneAsset, *, text_obstacle: bool = False) -> None:
+        if isinstance(item, TextFlowItem):
+            visit_text(item, obstacle=text_obstacle)
+        else:
+            visit_asset(item.asset)
+
     def visit_reference(reference: Reference) -> None:
         if reference.id in seen_references:
             return
         seen_references.add(reference.id)
-        for layout in reference.layouts:
-            visit_reference_layout(layout)
-
-    def visit_reference_layout(layout: AssetLayout | ParagraphLayout) -> None:
-        if isinstance(layout, AssetLayout):
-            add_region(layout.page_index, layout.det)
-            visit_references(layout.title)
-            visit_references(layout.content)
-            visit_references(layout.caption)
-            return
-        for block in layout.blocks:
-            add_region(block.page_index, block.det)
-            visit_references(block.content)
+        for item in reference.flow_items:
+            visit_flow_item(item, text_obstacle=True)
 
     def visit_references(items) -> None:
         for item in flatten(items):
             if isinstance(item, Reference):
                 visit_reference(item)
 
-    for layout in chapter.layouts:
-        if isinstance(layout, AssetLayout):
-            add_region(layout.page_index, layout.det)
-            visit_references(layout.title)
-            visit_references(layout.content)
-            visit_references(layout.caption)
-        else:
-            for block in layout.blocks:
-                visit_references(block.content)
+    for item in chapter.flow_items:
+        visit_flow_item(item)
 
     return tuple(regions)
 

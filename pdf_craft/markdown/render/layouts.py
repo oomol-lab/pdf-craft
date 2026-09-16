@@ -11,7 +11,6 @@ from ...extractor.chapter import (
     ParagraphLayout,
     DisplayFormula,
     FlowItem,
-    SourceAsset,
     SourceTextFragment,
     StandaloneAsset,
     TextFlowItem,

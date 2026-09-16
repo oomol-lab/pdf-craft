@@ -103,6 +103,8 @@ class TextFlowItem:
         if raw is None: raise TypeError("TextFlowItem requires role")
         self.role, self.level = _role(raw), level
         self.children = children if children is not None else list(blocks or [])
+        if any(isinstance(child, SourceAsset) and child.ref == "equation" for child in self.children):
+            raise ValueError("TextFlowItem cannot contain an equation SourceAsset; use DisplayFormula")
 
     @property
     def ref(self): return _ref(self.role)
@@ -258,6 +260,8 @@ def _decode_flow(element: Element, refs: dict[tuple[int, int], Reference]) -> Fl
 
 def _encode_flow(item: FlowItem) -> Element:
     if isinstance(item, TextFlowItem):
+        if any(isinstance(child, SourceAsset) and child.ref == "equation" for child in item.children):
+            raise ValueError("TextFlowItem cannot encode an equation SourceAsset; use DisplayFormula")
         result = Element("text", {"role": item.role})
         if item.level != -1: result.set("level", str(item.level))
         for child in item.children: result.append(_encode_fragment(child) if isinstance(child, SourceTextFragment) else _encode_asset(child))

@@ -31,6 +31,26 @@ asset，因此能表达插图把同一自然段切开的印刷结构。段落公
 Markdown/EPUB 为保持自身语法可在 asset 处拆开物理段落，但 PCEX 保留逻辑关系。写入端生成
 v3；读取端在内存中迁移 v1/v2 的平铺 body，不会臆造旧格式没有记录的锚定关系。
 
+### 规范 v3 chapter schema
+
+```xml
+<chapter id="1" level="0"><flow>
+  <text role="heading" level="0"><fragment page_index="3" source_order="0" bbox="180,210,2260,360">第一章</fragment></text>
+  <text role="body"><fragment page_index="3" source_order="1" bbox="180,410,2260,620">插图之前。</fragment><asset ref="image" page_index="3" bbox="400,700,2080,1800" asset_hash="aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"/><fragment page_index="3" source_order="2" bbox="180,1900,2260,2100">插图之后。</fragment></text>
+  <display-formula><asset ref="equation" page_index="3" bbox="300,2150,2100,2300"><content>E=mc^2</content></asset></display-formula>
+  <standalone-asset><asset ref="table" page_index="4" bbox="220,600,2200,1700" asset_hash="bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"/></standalone-asset>
+</flow></chapter>
+```
+
+`<chapter>` 有可选整数 `id`、`level`，恰好一个 `<flow>`，并可有 `<references>`。
+`<text role="body|heading">` 有可选整数 `level` 与有序子项。`<fragment>` 必须有正整数
+`page_index`、整数 `source_order`、受页面约束的 `bbox="left,top,right,bottom"`，其中可有
+mixed text、`inline_expr`、脚注引用和允许的 HTML 包装元素。图片/表格 `<asset>` 可嵌在
+`<text>` 中或作为 `<standalone-asset>` 的唯一子项；公式 asset 只能作为
+`<display-formula>` 的唯一子项，不能嵌在 `<text>`。asset 必须有 `ref`、`page_index`、`bbox`，
+可选 64 位小写十六进制 `asset_hash` 与 `title`、`content`、`caption`；`asset_hash` 对应
+`assets/<hash>.png`。`display-formula` 是阅读流边界，不是 anchored asset。
+
 ## 快速索引
 
 一个规范归档具有以下结构：
@@ -342,7 +362,7 @@ left,top,right,bottom
 
 规范生产者以章节 `id` 直接生成无前导零的文件名；当前校验器只检查文件名形态，没有检查文件名数字、章节 `id` 和 TOC `id` 三者相等，也没有拒绝映射到相同整数的不同写法。
 
-### 章节完整示例
+### 旧版 v1/v2 读取兼容示例
 
 下面的示例同时覆盖正文、行内公式、图片和脚注引用：
 

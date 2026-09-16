@@ -146,24 +146,9 @@ def _convert_chapter_to_epub(
             if asset_element:
                 elements.append(asset_element)
         elif isinstance(layout, TextFlowItem):
-            text_layout = layout
-            content: list[str | Formula | Mark | EpubHTMLTag] = []
-            def flush_text() -> None:
-                nonlocal content
-                if content:
-                    elements.append(TextBlock(
-                        kind=TextKind.HEADLINE if text_layout.ref in TITLE_TAGS else TextKind.BODY,
-                        level=text_layout.level, content=content,
-                    ))
-                content = []
-            for child in text_layout.children:
-                if isinstance(child, SourceTextFragment):
-                    content.extend(_transform_content(child.content, inline_latex, None))
-                else:
-                    flush_text()
-                    asset_element = _convert_asset_to_epub(child, assets_path, inline_latex, ref_id_to_number)
-                    if asset_element: elements.append(asset_element)
-            flush_text()
+            _append_text_flow_item(
+                elements, layout, assets_path, inline_latex, ref_id_to_number,
+            )
 
     chapter_refs = search_references_in_chapter(chapter)
     for ref in chapter_refs:
@@ -179,6 +164,30 @@ def _convert_chapter_to_epub(
         )
 
     return ChapterRecord(elements=elements, footnotes=footnotes)
+
+
+def _append_text_flow_item(elements, text_layout, assets_path, inline_latex, ref_id_to_number):
+    """Render one logical text item, splitting physical EPUB blocks at assets."""
+    content: list[str | Formula | Mark | EpubHTMLTag] = []
+
+    def flush_text() -> None:
+        nonlocal content
+        if content:
+            elements.append(TextBlock(
+                kind=TextKind.HEADLINE if text_layout.ref in TITLE_TAGS else TextKind.BODY,
+                level=text_layout.level, content=content,
+            ))
+        content = []
+
+    for child in text_layout.children:
+        if isinstance(child, SourceTextFragment):
+            content.extend(_transform_content(child.content, inline_latex, None))
+        else:
+            flush_text()
+            asset_element = _convert_asset_to_epub(child, assets_path, inline_latex, ref_id_to_number)
+            if asset_element:
+                elements.append(asset_element)
+    flush_text()
 
 
 def _extract_text_from_content(
