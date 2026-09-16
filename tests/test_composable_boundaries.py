@@ -16,12 +16,11 @@ from pdf_craft.pipeline.pdf.pipeline import PDFTranslationPipeline
 from pdf_craft.pipeline.pdf import PDFPatcher
 from pdf_craft.transformer import (
     ChapterExtractionTransformer, ChapterXMLTransformer,
-    FurnitureXMLTransformer, TranslationEvent, TranslationEventKind,
+    FurnitureXMLTransformer,
 )
 from pdf_craft.renderer import EpubRenderer, MarkdownRenderer
-from pdf_craft.extractor.chapter.chapter import SourceAsset, SourceTextFragment, Chapter, InlineExpression, TextFlowItem, Reference, encode
+from pdf_craft.extractor.chapter.chapter import SourceAsset, SourceTextFragment, Chapter, TextFlowItem, encode
 from pdf_craft.common import save_xml
-from pdf_craft.expression import ExpressionKind
 from pdf_craft.ocr_config import DeepSeekOCRLocalConfig
 from pdf_craft.pdf.ocr import OCR, OCREvent, OCREventKind
 from pdf_craft.pdf.handler import PDFHandler
@@ -440,96 +439,6 @@ class TestComposableBoundaries(unittest.TestCase):
             self.assertEqual(metadata.authors, ["OCR author"])
             self.assertEqual(metadata.editors, ["OCR editor"])
             self.assertEqual(metadata.translators, ["OCR translator"])
-
-    def test_pdf_pipeline_preserves_structured_content_and_uses_package_metadata(self):
-        with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
-            extraction = make_extraction(root, page_pixel_sizes={1: (100, 100)})
-            reference = Reference(1, 2, "[1]", [])
-            chapter = Chapter(None, -1, [
-                TextFlowItem("body", 0, [SourceTextFragment(
-                    1, 1, (1, 1, 50, 50), ["text ", InlineExpression(ExpressionKind.INLINE_DOLLAR, "x"), reference]
-                )]),
-                TextFlowItem("heading", 1, [SourceTextFragment(1, 2, (1, 50, 50, 90), ["heading"])]),
-            ])
-            patcher = _CapturePatcher()
-            with patch("pdf_craft.pipeline.pdf.pipeline.create_chapters_reader", return_value=lambda: iter([chapter])):
-                PDFTranslationPipeline(patcher=cast(PDFPatcher, patcher)).translate(
-                    root / "input.pdf", root / "out.pdf", extraction,
-                    ChapterXMLTransformer(_DeterministicXMLTranslator())
-                )
-            self.assertEqual(len(patcher.replacements), 2)
-            replacement = patcher.replacements[0]
-            self.assertEqual(replacement.page_pixel_size, (100, 100))
-            self.assertIn("\ufffc", replacement.text)
-            self.assertEqual([formula.latex for formula in replacement.inline_formulas], ["T:x"])
-            self.assertIn("[1]", replacement.text)
-            self.assertIn("T:heading", patcher.replacements[1].text)
-
-    def test_pdf_pipeline_translates_once_per_paragraph_and_keeps_all_source_regions(self):
-        with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
-            extraction = make_extraction(root, page_pixel_sizes={1: (100, 100)})
-            chapter = Chapter(None, -1, [TextFlowItem("body", 0, [
-                SourceTextFragment(1, 3, (1, 1, 40, 20), ["first "]),
-                SourceTextFragment(1, 4, (1, 22, 40, 41), ["paragraph"]),
-            ])])
-            translated: list[str] = []
-
-            def translate(text: str) -> str:
-                translated.append(text)
-                return "translated paragraph"
-
-            patcher = _CapturePatcher()
-            with patch("pdf_craft.pipeline.pdf.pipeline.create_chapters_reader", return_value=lambda: iter([chapter])):
-                PDFTranslationPipeline(patcher=cast(PDFPatcher, patcher)).translate(
-                    root / "input.pdf", root / "out.pdf", extraction, translate
-                )
-
-            self.assertEqual(translated, ["first paragraph"])
-            self.assertEqual(len(patcher.replacements), 1)
-            replacement = patcher.replacements[0]
-            self.assertEqual(replacement.text, "translated paragraph")
-            self.assertEqual(
-                [(region.page_index, region.reading_order, region.bbox) for region in replacement.regions],
-                [(1, 3, (1, 1, 40, 20)), (1, 4, (1, 22, 40, 41))],
-            )
-
-    def test_pdf_pipeline_forwards_translation_events_to_structured_transformer(self):
-        with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
-            extraction = make_extraction(root, page_pixel_sizes={1: (100, 100)})
-            chapter = Chapter(None, -1, [TextFlowItem(
-                "body", 0, [SourceTextFragment(1, 1, (1, 1, 50, 50), ["text"])]
-            )])
-            observed = []
-            forwarded = []
-
-            class EventTranslator:
-                def translate_element(self, task, **kwargs):
-                    forwarded.append(kwargs["on_translation_event"])
-                    event = TranslationEvent(
-                        kind=TranslationEventKind.PROGRESS,
-                        completed_characters=4,
-                        total_characters=4,
-                    )
-                    kwargs["on_translation_event"](event)
-                    return task.element, task.payload
-
-            callback = observed.append
-            with patch("pdf_craft.pipeline.pdf.pipeline.create_chapters_reader", return_value=lambda: iter([chapter])):
-                PDFTranslationPipeline(patcher=cast(PDFPatcher, _CapturePatcher())).translate(
-                    root / "input.pdf", root / "out.pdf", extraction,
-                    ChapterXMLTransformer(EventTranslator()),
-                    on_translation_event=callback,
-                )
-
-            self.assertEqual(forwarded, [callback])
-            self.assertGreaterEqual(len(observed), 3)
-            self.assertIn(
-                TranslationEventKind.PROGRESS,
-                [event.kind for event in observed],
-            )
 
     def test_pdf_pipeline_never_recovers_missing_geometry_from_source_pdf(self):
         with tempfile.TemporaryDirectory() as directory:

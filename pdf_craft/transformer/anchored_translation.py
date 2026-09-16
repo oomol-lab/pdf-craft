@@ -13,12 +13,12 @@ from pdf_craft.extractor.chapter.chapter import (
     InlineExpression,
     Reference,
     SourceAsset,
-    SourceTextFragment,
     StandaloneAsset,
     TextFlowItem,
     decode,
     encode,
 )
+from pdf_craft.extractor.chapter.text_projection import iter_continuous_content
 from pdf_craft.markdown.paragraph import HTMLTag, flatten
 
 from .anchored_content import (
@@ -186,11 +186,7 @@ def _standalone_context(items: Sequence[FlowItem], flow_index: int) -> str:
 
 
 def _flow_text(item: TextFlowItem) -> str:
-    return "".join(
-        _content_text(child.content)
-        for child in item.children
-        if isinstance(child, SourceTextFragment)
-    ).strip()
+    return _content_text(iter_continuous_content(item)).strip()
 
 
 def _content_text(content) -> str:

@@ -8,7 +8,7 @@ from xml.etree.ElementTree import fromstring
 
 from epub_generator import BookMeta
 
-from pdf_craft.craft import ExtractionOptions, PDFCraft, PDFOptions, _TextChapterTransformer
+from pdf_craft.craft import ExtractionOptions, PDFCraft, PDFOptions
 from pdf_craft.document import PDFCraftExtraction
 from pdf_craft.extractor import PDFExtractor
 from pdf_craft.extractor.chapter.chapter import SourceTextFragment, Chapter, TextFlowItem, encode
@@ -62,22 +62,6 @@ class _Identity:
 
 
 class TestPDFCraft(unittest.TestCase):
-    def test_text_pdf_translation_callback_receives_each_paragraph_once(self):
-        chapter = Chapter(None, -1, [TextFlowItem("body", 0, [
-            SourceTextFragment(1, 1, (1, 1, 5, 5), ["first "]),
-            SourceTextFragment(1, 2, (1, 6, 5, 10), ["paragraph"]),
-        ])])
-        calls: list[str] = []
-
-        _TextChapterTransformer(lambda text: calls.append(text) or "translated").transform(chapter)
-
-        self.assertEqual(calls, ["first paragraph"])
-        paragraph = chapter.flow_items[0]
-        assert isinstance(paragraph, TextFlowItem)
-        self.assertEqual(paragraph.children[0].content, ["translated"])
-        self.assertEqual(paragraph.children[1].content, [])
-        self.assertEqual(paragraph.children[1].bbox, (1, 6, 5, 10))
-
     def test_translate_extraction_is_the_public_translation_entry(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

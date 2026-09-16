@@ -31,9 +31,13 @@ from pdf_craft.transformer import (
     AnchoredContentTranslation,
     AnchoredContentXMLTransformer,
 )
-from pdf_craft.transformer.chapter_xml import ChapterXMLTransformer
+from pdf_craft.transformer.chapter_xml import (
+    ChapterXMLTransformer,
+    _NarrativeAnchorProjection,
+    _render_chapter_source_text,
+)
 from pdf_craft.transformer.anchored_translation import _transform_batch
-from pdf_craft.transformer.xml_translator.segment import search_text_segments
+from pdf_craft.transformer.xml_translator.segment import search_inline_segments, search_text_segments
 from pdf_craft.transformer.xml_translator.xml_translator.callbacks import warp_callbacks
 from pdf_craft.transformer.xml_translator.xml_translator.stream_mapper import XMLStreamMapper
 from pdf_craft.transformer.xml_translator.xml_translator.submitter import submit
@@ -196,6 +200,25 @@ def _repairing_translator(fill_responses: Sequence[str]) -> tuple[XMLTranslator,
 
 
 class AnchoredContentTranslationTests(unittest.TestCase):
+    def test_narrative_source_text_keeps_fragments_in_one_text_flow_continuous(self):
+        chapter = Chapter(None, -1, [
+            TextFlowItem("body", 0, [
+                SourceTextFragment(1, 1, (1, 1, 90, 15), ["How-"]),
+                SourceAsset(1, "image", (20, 20, 80, 80), asset_hash="a" * 64),
+                SourceTextFragment(1, 2, (1, 85, 90, 99), ["ever"]),
+            ]),
+            TextFlowItem("body", 0, [
+                SourceTextFragment(1, 3, (1, 100, 90, 115), ["Next paragraph."]),
+            ]),
+        ])
+        root = encode(chapter)
+        anchors = _NarrativeAnchorProjection(root)
+        anchors.replace_assets()
+
+        source = _render_chapter_source_text(list(search_inline_segments(search_text_segments(root))))
+
+        self.assertEqual(source, "How-ever\n\nNext paragraph.")
+
     def test_narrative_translation_uses_anchor_and_restores_source_asset(self):
         image = SourceAsset(
             1, "image", (20, 20, 80, 80),

@@ -34,7 +34,7 @@ The two `convert_pdf_to_*` methods use a directory-backed extraction inside thei
 | `translate_extraction` | `translate_extraction(extraction, output_path, translator, *, submit=SubmitKind.REPLACE, on_translation_event=None) -> PDFCraftExtraction` translates a `.pcex` into a new `.pcex`. |
 | `translate_furnitures` | `translate_furnitures(extraction, output_path, transformer) -> PDFCraftExtraction` applies the separate template/page-furniture translation stage to an already NarrativeFlow-translated `.pcex`. It is not composed automatically by EPUB, Markdown, or PDF workflows. |
 | `translate_anchored_contents` | `translate_anchored_contents(extraction, output_path, transformer) -> PDFCraftExtraction` applies the separate image/table text translation stage. It is not composed automatically by EPUB, Markdown, or PDF workflows. |
-| `translate_pdf` | `translate_pdf(source, extraction, output, transformer, *, on_translation_event=None, ignore_errors=False)` translates then patches text onto the source PDF. `transformer` may be a chapter transformer or `Callable[[str], str]`. |
+| `translate_pdf` | `translate_pdf(source, extraction, output, transformer, *, on_translation_event=None, ignore_errors=False)` translates a PCEX through a structured chapter transformer, then patches it onto the source PDF. |
 | `patch_pdf_with_extraction` | `patch_pdf_with_extraction(source, extraction, output, *, ignore_errors=False)` patches a source PDF from a `PDFCraftExtraction` or `.pcex` path without OCR or LLM calls. |
 | `translate_epub` | `translate_epub(source, output, *, target_language, submit, **options)` translates an existing EPUB. See [EPUB translation](EPUB_TRANSLATION.md) for its options. |
 
@@ -204,7 +204,7 @@ pipeline = PDFTranslationPipeline(patcher=patcher)
 
 The patcher merges two independent overlays over a Ghostscript-compiled, fontless visual base of each source page's non-Annotation content: a local-background RGB rectangle erasure layer and a Qt-generated PDF text layer. `EraseOptions(padding=2)` expands each source box in its OCR-pixel coordinates before sampling and painting it. The supplied `PDFHandler` (or the default Poppler handler) renders original pages only for color sampling; it is never used as an output page image. The visual base preserves the appearance without leaving ordinary source or hidden OCR text selectable, searchable, or extractable. The source `/Annots` array is reattached above translation, so links, highlights, notes, forms, and other PDF Annotations remain independently interactive. The erasure is visual only and deliberately does not restore texture, rules, formulae, or artwork. Qt/PySide6, Ghostscript, a PDF renderer such as Poppler, and the required fonts must be available on the machine producing the PDF.
 
-`PDFTranslationPipeline` can perform lower-level translation or patching when the application owns the complete layout and output lifecycle. Prefer `PDFCraft.translate_pdf()` and `PDFCraft.patch_pdf_with_extraction()` when their fixed layout policy is sufficient.
+`PDFTranslationPipeline` is the lower-level patching component for an already translated extraction. Prefer `PDFCraft.translate_pdf()` and `PDFCraft.patch_pdf_with_extraction()` when their fixed layout policy is sufficient.
 
 ## Other useful exports
 

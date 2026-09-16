@@ -14,7 +14,7 @@ from typing import Iterator, Literal
 from epub_generator import BookMeta, LaTeXRender, TableRender
 
 from .document import PDFCraftExtraction
-from .extractor.chapter.chapter import Chapter, SourceTextFragment, TextFlowItem
+from .extractor.chapter.chapter import SourceTextFragment, TextFlowItem
 from .extractor.chapter.reader import create_chapters_reader
 from .error import IgnoreFillErrorsChecker, IgnoreOCRErrorsChecker, IgnorePDFErrorsChecker
 from .extractor import PDFExtractor
@@ -24,7 +24,6 @@ from .ocr_config import OCRConfig
 from .pdf import DeepSeekOCRSize, OCREvent, PDFHandler
 from .pipeline.epub import translate_epub as run_epub_translation
 from .pipeline.pdf import PDFTranslationPipeline
-from .pipeline.pdf.pipeline import _to_patch_text
 from .renderer import EpubRenderer, MarkdownRenderer
 from .transformer import (
     ChapterExtractionTransformer,
@@ -190,7 +189,7 @@ class PDFCraft:
 
     def translate_pdf(
         self, source: PathLike | str, extraction: PDFCraftExtraction | PathLike | str,
-        output: PathLike | str, transformer: ChapterTransformer | Callable[[str], str],
+        output: PathLike | str, transformer: ChapterTransformer,
         *,
         on_translation_event: Callable[[TranslationEvent], None] | None = None,
         ignore_errors: IgnoreFillErrorsChecker = False,
@@ -288,11 +287,9 @@ class PDFCraft:
         self,
         extraction: PDFCraftExtraction,
         output_root: Path,
-        transformer: ChapterTransformer | Callable[[str], str],
+        transformer: ChapterTransformer,
         *, on_translation_event: Callable[[TranslationEvent], None] | None = None,
     ) -> PDFCraftExtraction:
-        if callable(transformer):
-            transformer = _TextChapterTransformer(transformer)
         return self._translate_to_workspace(
             extraction, output_root / "translated", transformer,
             on_translation_event=on_translation_event,
@@ -358,30 +355,6 @@ def _analysis_workspace(analysing_path: PathLike | str | None) -> Iterator[Path]
         return
     with TemporaryDirectory(prefix="pdf-craft-analysis-") as directory:
         yield Path(directory)
-
-
-class _TextChapterTransformer:
-    """Adapt a paragraph-text callback to the extraction transformer shape."""
-
-    def __init__(self, callback: Callable[[str], str]) -> None:
-        self._callback = callback
-
-    def transform(self, chapter: Chapter) -> Chapter:
-        for item in chapter.flow_items:
-            if not isinstance(item, TextFlowItem):
-                continue
-            fragments = [child for child in item.children if isinstance(child, SourceTextFragment)]
-            text = "".join(_to_patch_text(fragment.content) for fragment in fragments)
-            translated = self._callback(text)
-            if translated != text and fragments:
-                # Geometry remains on every source block.  Keeping the single
-                # translated paragraph on the first block avoids duplicating it
-                # into each bbox; the PDF paragraph filler consumes the full
-                # ordered block list in a later stage.
-                fragments[0].content = [translated]
-                for fragment in fragments[1:]:
-                    fragment.content = []
-        return chapter
 
 
 def _validate_extraction_for_pdf(source: Path, extraction: PDFCraftExtraction) -> None:

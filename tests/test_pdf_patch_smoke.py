@@ -52,22 +52,27 @@ class TestPDFPatchSmoke(unittest.TestCase):
                 "Smoke replacement text intentionally spans two real source boxes so the first full "
                 "line stops at the first rectangle and the next complete line begins in the second rectangle."
             )
-            calls: list[str] = []
-
-            def translate_paragraph(text: str) -> str:
-                calls.append(text)
-                return translated
-
+            layout = chapter.flow_items[0]
+            assert isinstance(layout, TextFlowItem)
+            layout.children[0].content = [translated]
+            layout.children[1].content = []
+            (extraction_root / "chapters/chapter_1.xml").write_text(
+                '<?xml version="1.0" encoding="UTF-8"?>\n'
+                + tostring(encode(chapter), encoding="unicode")
+            )
+            (extraction_root / "translation.xml").write_text(
+                "<translation><narrative><paragraph chapter_id='head' page_index='1' order='1' state='translated'/>"
+                "</narrative></translation>", encoding="utf-8",
+            )
             PDFTranslationPipeline(patcher=PDFPatcher(
                 options=PatchTextOptions(max_font_size=10, min_font_size=8)
-            )).translate(source, target, extraction, translate_paragraph)
+            )).patch(source, target, extraction)
 
             reader = pypdf.PdfReader(str(target))
             self.assertEqual(len(reader.pages), 7)
             first_page: Any = reader.pages[0]
             self.assertIn("Smoke", first_page.extract_text())
             self.assertNotIn("source first line", first_page.extract_text())
-            self.assertEqual(calls, ["source first line source second line"])
             # No page-wide raster image is introduced by patching: existing
             # source images are retained, and Qt's text overlay adds none.
             source_page: Any = pypdf.PdfReader(str(source)).pages[0]
@@ -134,9 +139,17 @@ class TestPDFPatchSmoke(unittest.TestCase):
                 + tostring(encode(chapter), encoding="unicode")
             )
 
-            PDFTranslationPipeline().translate(
-                source, target, extraction, lambda text: translated if text == source_text else text,
+            layout = chapter.flow_items[0]
+            assert isinstance(layout, TextFlowItem)
+            layout.children[0].content = [translated]
+            (extraction_root / "chapters/chapter_1.xml").write_text(
+                '<?xml version="1.0" encoding="UTF-8"?>\n' + tostring(encode(chapter), encoding="unicode")
             )
+            (extraction_root / "translation.xml").write_text(
+                "<translation><narrative><paragraph chapter_id='head' page_index='1' order='0' state='translated'/>"
+                "</narrative></translation>", encoding="utf-8",
+            )
+            PDFTranslationPipeline().patch(source, target, extraction)
 
             output_text = " ".join(
                 pypdf.PdfReader(str(target)).pages[0].extract_text().split()
@@ -169,9 +182,20 @@ class TestPDFPatchSmoke(unittest.TestCase):
                 + tostring(encode(chapter), encoding="unicode")
             )
 
+            layout = chapter.flow_items[0]
+            assert isinstance(layout, TextFlowItem)
+            layout.children[0].content = [translated]
+            layout.children[1].content = []
+            (extraction_root / "chapters/chapter_1.xml").write_text(
+                '<?xml version="1.0" encoding="UTF-8"?>\n' + tostring(encode(chapter), encoding="unicode")
+            )
+            (extraction_root / "translation.xml").write_text(
+                "<translation><narrative><paragraph chapter_id='head' page_index='1' order='1' state='translated'/>"
+                "</narrative></translation>", encoding="utf-8",
+            )
             PDFTranslationPipeline(patcher=PDFPatcher(
                 options=PatchTextOptions(max_font_size=8, min_font_size=8),
-            )).translate(source, target, extraction, lambda _text: translated)
+            )).patch(source, target, extraction)
 
             reader = pypdf.PdfReader(str(target))
             self.assertEqual(len(reader.pages), 3)
