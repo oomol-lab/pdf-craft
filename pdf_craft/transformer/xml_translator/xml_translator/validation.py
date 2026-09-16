@@ -9,6 +9,7 @@ from pdf_craft.transformer.xml_translator.segment import (
     BlockContentError,
     BlockError,
     BlockExpectedIDsError,
+    BlockImmutableElementsError,
     BlockUnexpectedIDError,
     BlockWrongTagError,
     FoundInvalidIDError,
@@ -337,8 +338,22 @@ def _format_block_error(error: BlockError | FoundInvalidIDError) -> str:
         else:
             example = f'<{error.element.tag} id="{error.invalid_id}">'
         return f"Invalid or missing ID attribute: {example}. Fix: Ensure all blocks have valid numeric IDs."
+    elif isinstance(error, BlockImmutableElementsError):
+        expected = ", ".join(_format_immutable(element) for element in error.expected)
+        found = ", ".join(_format_immutable(element) for element in error.found) or "none"
+        return (
+            "Immutable structural anchors changed. "
+            f"Expected this exact sequence: {expected}. Found: {found}. "
+            "Restore every self-closing anchor unchanged and in the same position."
+        )
     else:
         return "Unknown block error. Fix: Review the block structure."
+
+
+def _format_immutable(element: tuple[str, tuple[tuple[str, str], ...]]) -> str:
+    tag, attributes = element
+    rendered_attributes = " ".join(f'{name}="{value}"' for name, value in attributes)
+    return f"<{tag}{(' ' + rendered_attributes) if rendered_attributes else ''}/>"
 
 
 def _format_inline_error(encoding: Encoding, error: InlineError | FoundInvalidIDError, block_id: int) -> str:

@@ -8,6 +8,7 @@ import tempfile
 import unittest
 from collections.abc import Sequence
 from pathlib import Path
+from typing import Any, cast
 from xml.etree.ElementTree import parse, tostring
 
 from tiktoken import get_encoding
@@ -15,6 +16,7 @@ from tiktoken import get_encoding
 from pdf_craft.common import read_xml, save_xml
 from pdf_craft.craft import PDFCraft
 from pdf_craft.document import PDFCraftExtraction
+from pdf_craft.llm import LLM
 from pdf_craft.extractor.chapter.chapter import (
     Chapter,
     SourceAsset,
@@ -34,6 +36,7 @@ from pdf_craft.transformer.xml_translator.segment import search_text_segments
 from pdf_craft.transformer.xml_translator.xml_translator.callbacks import warp_callbacks
 from pdf_craft.transformer.xml_translator.xml_translator.stream_mapper import XMLStreamMapper
 from pdf_craft.transformer.xml_translator.xml_translator.submitter import submit
+from pdf_craft.transformer.xml_translator.xml_translator.translator import XMLTranslator
 from tests.extraction_helpers import make_extraction
 
 
@@ -119,6 +122,43 @@ class _XMLTaskTranslator:
         return task.element, task.payload
 
 
+class _ResponseContext:
+    def __init__(self, responses: Sequence[str]) -> None:
+        self._responses = iter(responses)
+        self.calls = 0
+        self.messages = []
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *_args):
+        return None
+
+    def request(self, *_args, **_kwargs):
+        self.messages.append(_args)
+        self.calls += 1
+        return next(self._responses)
+
+
+class _ResponseRuntime:
+    def __init__(self, responses: Sequence[str]) -> None:
+        self.context_value = _ResponseContext(responses)
+
+    def context(self, **_kwargs):
+        return self.context_value
+
+
+def _repairing_translator(fill_responses: Sequence[str]) -> tuple[XMLTranslator, _ResponseRuntime]:
+    config = LLM("test", "https://example.invalid/v1", "test", "cl100k_base")
+    translator = XMLTranslator(
+        config, config, "English", None, False, 2, 10_000, 10_000,
+    )
+    translator._translate_text = lambda text: text  # type: ignore[method-assign]
+    runtime = _ResponseRuntime(fill_responses)
+    translator._fill_runtime = runtime  # type: ignore[assignment]
+    return translator, runtime
+
+
 class AnchoredContentTranslationTests(unittest.TestCase):
     def test_narrative_translation_uses_anchor_and_restores_source_asset(self):
         image = SourceAsset(
@@ -137,8 +177,8 @@ class AnchoredContentTranslationTests(unittest.TestCase):
 
         source = "\n".join(translator.sources)
         self.assertIn("Before.", source)
-        self.assertIn("[anchored content]", source)
         self.assertIn("After.", source)
+        self.assertNotIn("[anchored content]", source)
         self.assertNotIn("Secret title", source)
         self.assertNotIn("Secret image text", source)
         self.assertNotIn("Secret caption", source)
@@ -150,7 +190,7 @@ class AnchoredContentTranslationTests(unittest.TestCase):
         self.assertEqual(text.children[1], image)
         self.assertNotIn("anchor", tostring(encode(translated), encoding="unicode"))
 
-    def test_narrative_translation_rejects_lost_anchor(self):
+    def test_narrative_translation_rejects_lost_anchor_from_non_protocol_translator(self):
         chapter = Chapter(None, -1, [TextFlowItem("body", 0, [
             SourceTextFragment(1, 1, (1, 1, 90, 15), ["Before."]),
             SourceAsset(1, "image", (20, 20, 80, 80), asset_hash="a" * 64),
@@ -182,9 +222,9 @@ class AnchoredContentTranslationTests(unittest.TestCase):
         )
         self.assertEqual(item.children[1], first)
         self.assertEqual(item.children[3], second)
-        self.assertEqual("\n".join(translator.sources).count("[anchored content]"), 2)
+        self.assertNotIn("[anchored content]", "\n".join(translator.sources))
 
-    def test_narrative_translation_hides_standalone_asset_text_too(self):
+    def test_narrative_translation_hides_standalone_asset_text_without_an_anchor(self):
         table = SourceAsset(
             1, "table", (1, 30, 90, 80), title=["Table title"],
             content=["Table cells"], caption=["Table caption"], asset_hash="e" * 64,
@@ -199,11 +239,52 @@ class AnchoredContentTranslationTests(unittest.TestCase):
 
         source = "\n".join(translator.sources)
         self.assertIn("Narrative.", source)
-        self.assertIn("[anchored content]", source)
+        self.assertNotIn("[anchored content]", source)
         self.assertNotIn("Table title", source)
         self.assertNotIn("Table cells", source)
         self.assertNotIn("Table caption", source)
         self.assertEqual(translated.flow_items[1], StandaloneAsset(table))
+
+    def test_anchor_protocol_retries_missing_duplicate_renamed_and_reordered_tokens(self):
+        chapter = Chapter(None, -1, [TextFlowItem("body", 0, [
+            SourceTextFragment(1, 1, (1, 1, 90, 15), ["Before."]),
+            SourceAsset(1, "image", (20, 20, 40, 40), asset_hash="a" * 64),
+            SourceTextFragment(1, 2, (1, 45, 90, 60), ["Middle."]),
+            SourceAsset(1, "table", (20, 65, 40, 80), asset_hash="b" * 64),
+            SourceTextFragment(1, 3, (1, 85, 90, 99), ["After."]),
+        ])])
+        valid = (
+            '<xml><fragment id="1">Before.</fragment><anchor anchor_key="0"/>'
+            '<fragment id="2">Middle.</fragment><anchor anchor_key="1"/>'
+            '<fragment id="3">After.</fragment></xml>'
+        )
+        invalid_responses = (
+            '<xml><fragment id="1">Before.</fragment><fragment id="2">Middle.</fragment>'
+            '<anchor anchor_key="1"/><fragment id="3">After.</fragment></xml>',
+            '<xml><fragment id="1">Before.</fragment><anchor anchor_key="0"/>'
+            '<anchor anchor_key="0"/><fragment id="2">Middle.</fragment>'
+            '<anchor anchor_key="1"/><fragment id="3">After.</fragment></xml>',
+            '<xml><fragment id="1">Before.</fragment><marker anchor_key="0"/>'
+            '<fragment id="2">Middle.</fragment><anchor anchor_key="1"/>'
+            '<fragment id="3">After.</fragment></xml>',
+            '<xml><fragment id="1">Before.</fragment><anchor anchor_key="1"/>'
+            '<fragment id="2">Middle.</fragment><anchor anchor_key="0"/>'
+            '<fragment id="3">After.</fragment></xml>',
+            '<xml><fragment id="1">Before.</fragment><fragment id="2">Middle.</fragment>'
+            '<fragment id="3">After.</fragment><anchor anchor_key="0"/>'
+            '<anchor anchor_key="1"/></xml>',
+        )
+
+        for invalid in invalid_responses:
+            with self.subTest(invalid=invalid):
+                translator, runtime = _repairing_translator((invalid, valid))
+                translated = ChapterXMLTransformer(cast(Any, translator)).transform(chapter)
+                self.assertEqual(runtime.context_value.calls, 2)
+                fill_request = runtime.context_value.messages[0][0][1].message
+                self.assertIn('<anchor anchor_key="0"/>', fill_request)
+                self.assertIn('<anchor anchor_key="1"/>', fill_request)
+                self.assertNotIn("[anchored content]", fill_request)
+                self.assertEqual(translated, chapter)
 
     def test_independent_stage_translates_asset_fields_and_records_coverage(self):
         with tempfile.TemporaryDirectory() as directory:

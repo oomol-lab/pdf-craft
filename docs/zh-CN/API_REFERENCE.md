@@ -365,8 +365,8 @@ translated_extraction = craft.translate_extraction(
 翻译的 `.pcex`，按模板 position 与页级 section 的不同范围处理内容，并在 `translation.xml`
 记录未来 PDF 回填可覆盖或必须保留的单元；不会自动组合到 EPUB、Markdown 或 PDF 工作流。
 
-`translate_extraction` 不会把段内图片/表格的 title、content、caption 混入正文 LLM 上下文；它们以
-不可变 anchor 维持前后文本的位置。若要翻译这些已提取的 asset 文本，请使用
+`translate_extraction` 不会把图片/表格的 title、content、caption 混入正文 LLM 上下文；只有段内
+asset 以无文本、不可变 anchor 维持前后文本的位置，`StandaloneAsset` 不伪造 anchor。若要翻译这些已提取的 asset 文本，请使用
 `translate_anchored_contents(extraction, output_path, transformer)`。其 transformer 处理带局部上下文
 的小批 asset，返回 `None` 即保留单个 asset；该阶段也不会自动组合到其他工作流。
 

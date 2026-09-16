@@ -189,10 +189,11 @@ translated = craft.translate_extraction(
 
 When an extraction contains `furnitures.xml`, `translate_furnitures()` is the distinct follow-up operation for that page-oriented content. It resolves furniture linked by `toc_id` from translated NarrativeFlow headings, translates reusable pattern positions once and unbound sections in page scope, and records patch eligibility in `translation.xml`. It is intentionally not part of `translate_extraction()` or the EPUB, Markdown, and PDF convenience workflows.
 
-`translate_extraction()` treats every image/table asset, including one nested
-in `<text>`, as an opaque anchor. Its title, content, and caption are not included in the NarrativeFlow
-prompt; a temporary, immutable position marker preserves the surrounding
-paragraph structure through XML repair. Use the separate
+`translate_extraction()` treats an image/table asset nested in `<text>` as an
+opaque, self-closing anchor. Its title, content, and caption are not included
+in the NarrativeFlow prompt; the immutable position marker is checked by the
+XML repair protocol. A `<standalone-asset>` is kept outside NarrativeFlow
+without inventing a paragraph anchor. Use the separate
 `translate_anchored_contents()` stage to translate the extracted text fields
 of image/table assets. It receives only small asset batches with nearby source
 text as transient context, records `<anchored><asset .../></anchored>` coverage

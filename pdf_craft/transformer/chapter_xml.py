@@ -9,6 +9,7 @@ from pdf_craft.extractor.chapter.chapter import (
 )
 from pdf_craft.markdown.paragraph import flatten
 from pdf_craft.transformer.xml_translator.segment import search_text_segments
+from pdf_craft.transformer.xml_translator.segment import ImmutableBlockElement, InlineSegment
 from pdf_craft.transformer.xml_translator.xml import clone_element
 from pdf_craft.transformer.events import TranslationEvent, TranslationItemKind
 from .chapter_formula_interrupter import ChapterFormulaInterrupter
@@ -71,6 +72,7 @@ class ChapterXMLTransformer:
             interrupt_source_text_segments=formula_interrupter.interrupt_source_text_segments,
             interrupt_translated_text_segments=formula_interrupter.interrupt_translated_text_segments,
             interrupt_block_element=formula_interrupter.interrupt_block_element,
+            immutable_elements_for_inline_segments=anchors.immutable_elements_for_inline_segments,
         )
         anchors.restore_assets(translated)
         _restore_fragment_owned_inline_expressions(translated)
@@ -139,7 +141,6 @@ def _restore_fragment_owned_inline_expressions(chapter: Element) -> None:
 
 _ANCHOR_TAG = "anchor"
 _ANCHOR_KEY = "anchor_key"
-_ANCHOR_TEXT = " [anchored content] "
 
 
 class _NarrativeAnchorProjection:
@@ -153,24 +154,39 @@ class _NarrativeAnchorProjection:
 
     def __init__(self, root: Element) -> None:
         self._root = root
-        self._assets: list[tuple[str, Element]] = []
+        self._assets: list[tuple[str, Element, Element]] = []
+        self._standalone_assets: list[Element] = []
 
     def replace_assets(self) -> None:
         for parent in self._root.iter():
             for child in list(parent):
-                if child.tag != "asset" or child.get("ref") not in {"image", "table"}:
+                if (
+                    parent.tag != "text"
+                    or child.tag != "asset"
+                    or child.get("ref") not in {"image", "table"}
+                ):
                     continue
                 key = str(len(self._assets))
                 anchor = Element(_ANCHOR_TAG, {_ANCHOR_KEY: key})
-                anchor.text = _ANCHOR_TEXT
                 anchor.tail = child.tail
                 index = list(parent).index(child)
                 parent.remove(child)
                 parent.insert(index, anchor)
-                self._assets.append((key, clone_element(child)))
+                self._assets.append((key, clone_element(child), parent))
+
+        # Standalone assets are not paragraph positions.  Keep their wrapper
+        # in the flow but detach their textual fields from NarrativeFlow.
+        # Unlike a nested asset, no <anchor> is fabricated for them.
+        for wrapper in self._root.iter("standalone-asset"):
+            asset = wrapper.find("asset")
+            if asset is None or asset.get("ref") not in {"image", "table"}:
+                continue
+            self._standalone_assets.append(clone_element(asset))
+            wrapper.remove(asset)
+            wrapper.append(Element("asset", asset.attrib))
 
     def restore_assets(self, translated: Element) -> None:
-        expected = [key for key, _ in self._assets]
+        expected = [key for key, _, _ in self._assets]
         found: list[tuple[Element, Element, str]] = []
         for parent in translated.iter():
             for child in parent:
@@ -187,12 +203,69 @@ class _NarrativeAnchorProjection:
                 f"{expected}, got {found_keys}"
             )
 
-        for (parent, anchor, _), (_, asset) in zip(found, self._assets, strict=True):
+        for (parent, anchor, _), (_, asset, _) in zip(found, self._assets, strict=True):
             index = list(parent).index(anchor)
             restored = clone_element(asset)
             restored.tail = anchor.tail
             parent.remove(anchor)
             parent.insert(index, restored)
+
+        standalone_wrappers = list(translated.iter("standalone-asset"))
+        if len(standalone_wrappers) != len(self._standalone_assets):
+            raise ValueError("Narrative translation changed standalone asset structure")
+        for wrapper, asset in zip(standalone_wrappers, self._standalone_assets, strict=True):
+            placeholder = wrapper.find("asset")
+            if placeholder is None:
+                raise ValueError("Narrative translation removed standalone asset placeholder")
+            index = list(wrapper).index(placeholder)
+            wrapper.remove(placeholder)
+            wrapper.insert(index, clone_element(asset))
+
+    def immutable_elements_for_inline_segments(
+        self, inline_segments: list[InlineSegment],
+    ) -> list[ImmutableBlockElement]:
+        """Expose only relevant self-closing anchors to XML fill validation.
+
+        The XML stream mapper may split a chapter into token-sized groups.  An
+        anchor is therefore included in every group touching its owning text
+        flow.  This keeps it opaque while letting the standard repair loop
+        reject a missing, renamed, duplicated, or reordered token.
+        """
+        result: list[ImmutableBlockElement] = []
+        for key, anchor, parent in self._assets:
+            assert anchor.tag == "asset"  # the stored clone is the source asset
+            source_anchor = next(
+                (
+                    child for child in parent
+                    if child.tag == _ANCHOR_TAG and child.get(_ANCHOR_KEY) == key
+                ),
+                None,
+            )
+            if source_anchor is None:
+                continue
+            source_anchor_index = list(parent).index(source_anchor)
+            segment_children: list[tuple[int, int]] = []
+            for segment_index, segment in enumerate(inline_segments):
+                direct_child = _direct_child_of(parent, segment.parent_stack)
+                if direct_child is not None:
+                    segment_children.append((segment_index, list(parent).index(direct_child)))
+            if not segment_children:
+                continue
+            before = next(
+                (segment_index for segment_index, child_index in segment_children
+                 if child_index > source_anchor_index),
+                len(inline_segments),
+            )
+            result.append(ImmutableBlockElement(source_anchor, before))
+        return result
+
+
+def _direct_child_of(parent: Element, stack: list[Element]) -> Element | None:
+    """Find the immediate member of ``parent`` containing a text segment."""
+    for index, element in enumerate(stack):
+        if element is parent and index + 1 < len(stack):
+            return stack[index + 1]
+    return None
 
 
 def _content_has_text(content) -> bool:

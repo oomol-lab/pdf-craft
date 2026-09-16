@@ -182,8 +182,9 @@ translated = craft.translate_extraction(
 
 若 extraction 包含 `furnitures.xml`，则可在 NarrativeFlow 翻译完成后单独调用 `translate_furnitures()`。该步骤会按 `toc_id` 使用已翻译的正文标题收敛关联 furniture，模板 position 仅翻译一次、未绑定 section 以页为范围翻译，并写入 `translation.xml` 记录未来 PDF 回填是否可覆盖。它刻意不属于 `translate_extraction()`，也不会被 EPUB、Markdown 或 PDF 的便捷工作流自动调用。
 
-`translate_extraction()` 会把所有图片/表格 asset（包括嵌在 `<text>` 内的内容）视为不透明 anchor：它们的 title、content、caption
-不会进入 NarrativeFlow 的 LLM 请求，而是以临时、不可变的位置标记维持段落前后关系，并由 XML 修复链路严格校验。
+`translate_extraction()` 会把嵌在 `<text>` 内的图片/表格 asset 视为不透明、自闭合的 anchor：它们的 title、content、caption
+不会进入 NarrativeFlow 的 LLM 请求，而是以临时、不可变的位置标记维持段落前后关系，并由 XML 修复协议严格校验。`<standalone-asset>`
+保留在 NarrativeFlow 之外，不会伪造段落 anchor。
 需要翻译图片/表格已经提取出的文字字段时，单独调用 `translate_anchored_contents()`；它只处理小批 asset，并可得到邻近正文的临时上下文，随后在 `translation.xml` 的
 `<anchored><asset .../></anchored>` 中记录覆盖状态。尚未提取的图内视觉文字不会被误标为已翻译。
 
