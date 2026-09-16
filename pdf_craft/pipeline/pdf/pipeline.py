@@ -20,6 +20,7 @@ from pdf_craft.document import PDFCraftExtraction
 from pdf_craft.pdf.handler import PDFHandler
 from pdf_craft.error import IgnoreFillErrorsChecker
 from pdf_craft.pipeline.pdf.models import PDFInlineFormula, PDFReplacement, PDFReplacementRegion
+from pdf_craft.pipeline.pdf.metadata import pdf_document_metadata
 from pdf_craft.pipeline.pdf.patcher import PDFPatcher
 from pdf_craft.transformer.translation_coverage import paragraph_identity, read_coverage
 
@@ -49,6 +50,7 @@ class PDFTranslationPipeline:
         """
         extraction = _ensure_extraction(extraction)
         extraction.validate()
+        document_metadata = pdf_document_metadata(extraction.document_metadata())
         pages = extraction.page_pixel_sizes()
         render_dpi = extraction.render_dpi()
         with extraction._materialize() as paths:
@@ -61,7 +63,10 @@ class PDFTranslationPipeline:
                     ignore_errors=ignore_errors,
                 )
 
-            self._patch_replacements(pdf_path, target_path, replacements(), ignore_errors)
+            self._patch_replacements(
+                pdf_path, target_path, replacements(), ignore_errors,
+                document_metadata=document_metadata,
+            )
 
     def _iter_covered_replacements(
         self,
@@ -167,14 +172,27 @@ class PDFTranslationPipeline:
         target_path: Path,
         replacements: Iterator[PDFReplacement],
         ignore_errors: IgnoreFillErrorsChecker,
+        *,
+        document_metadata: dict[str, str],
     ) -> None:
         """Keep existing custom patchers compatible until they opt into recovery."""
         if _ignore_errors_enabled(ignore_errors):
-            self.patcher.patch(
-                pdf_path, target_path, replacements, ignore_errors=ignore_errors,
-            )
+            if document_metadata:
+                self.patcher.patch(
+                    pdf_path, target_path, replacements, ignore_errors=ignore_errors,
+                    document_metadata=document_metadata,
+                )
+            else:
+                self.patcher.patch(
+                    pdf_path, target_path, replacements, ignore_errors=ignore_errors,
+                )
             return
-        self.patcher.patch(pdf_path, target_path, replacements)
+        if document_metadata:
+            self.patcher.patch(
+                pdf_path, target_path, replacements, document_metadata=document_metadata,
+            )
+        else:
+            self.patcher.patch(pdf_path, target_path, replacements)
 
 def _regions_for_fragments(fragments: Iterable[SourceTextFragment], pages, render_dpi: int, ignore_errors) -> tuple[PDFReplacementRegion, ...]:
     regions: list[PDFReplacementRegion] = []

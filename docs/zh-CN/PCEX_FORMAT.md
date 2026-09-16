@@ -83,7 +83,7 @@ book.pcex                       # ZIP（Deflate 压缩）
 
 | 成员 | 必需 | 内容 | 主要消费者 |
 | --- | --- | --- | --- |
-| `manifest.json` | 是 | 版本、生产者、时间、书目元数据和语言 | 加载器、EPUB 渲染器 |
+| `manifest.json` | 是 | 版本、生产者、时间、书目元数据和语言 | 加载器、EPUB 渲染器、PDF 回填 |
 | `pages.xml` | 是 | DPI、页面像素尺寸、坐标系 | 校验器、PDF 写回 |
 | `chapters/` | 是 | 结构化章节和原 PDF 位置 | Markdown/EPUB 渲染、翻译、PDF 写回 |
 | `assets/` | 是 | 以内容哈希命名的 PNG | Markdown/EPUB 渲染 |
@@ -283,6 +283,8 @@ pdf-craft 自身总会写出 `created_at`，使用带 UTC 时区偏移的当前�
 `language` 当前不限制为特定语言代码，但 EPUB 渲染器只支持 `zh` 和 `en`。渲染 EPUB 时，调用参数 `lan` 优先，其次是此字段，最后默认为 `zh`。调用时显式传入的 `book_meta` 会逐字段覆盖 manifest 转换出的 EPUB 核心元信息：非空调用方值优先，`None`、空字符串和空的贡献者列表保留 manifest 值。`BookMeta` 不能表达“主动清空”一个已提取字段。
 
 书籍元信息抽取是显式开启的功能。它借助独立 LLM 读取前部原始 OCR 页，只保留有页内证据的字段；PDF 文件 metadata 仅可补缺，不能覆盖 OCR。关闭时，除非另有调用方提供，文档元信息保持为空。翻译 extraction 时不会自动改写 manifest 或语言。
+
+将 PCEX 回填为 PDF 时，PDF Craft 会把 `title`、`authors`、`description` 与 `subjects` 写入标准 PDF Info 字段，并将完整归一化后的 `document` 对象以 UTF-8 JSON 保留在稳定的私有 Info 字段 `/PDFCraftDocumentMetadata` 中，避免其余 PCEX 元信息被悄然丢弃。
 
 ## `pages.xml`
 

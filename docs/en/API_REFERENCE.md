@@ -96,7 +96,7 @@ extraction; they do not fall back to an analysis/OCR directory.
 | `includes_cover` | `False` | Retain a recognized cover image. |
 | `includes_footnotes` | `False` | Request and retain footnotes. |
 | `includes_furniture` | `True` | Include native page furniture in the extracted PCEX as `furnitures.xml`; it does not translate it. |
-| `extract_book_metadata` | `False` | Extract bibliographic metadata from the first OCR pages. |
+| `extract_book_metadata` | `False` | Extract bibliographic metadata from the first OCR pages. It is persisted in PCEX and, when that PCEX is patched to PDF, corrects the output PDF's document metadata. |
 | `metadata_llm` | `None` | Required LLM for `extract_book_metadata=True`; it is independent of `toc_llm`. |
 | `generate_plot` | `False` | Generate plot diagnostics in the analysis workspace (not in `.pcex`). |
 | `toc_assumed` | `False` | Treat the document as already having usable TOC information. |
@@ -109,7 +109,9 @@ extraction; they do not fall back to an analysis/OCR directory.
 Book-metadata extraction is deliberately opt-in. When enabled, PDF Craft lets a dedicated LLM
 read the first three raw OCR pages and request further front pages in batches, up to twelve pages.
 Only values with OCR evidence are accepted. PDF file metadata is used only to fill fields that OCR
-did not provide; it never replaces an OCR value. If the metadata dialogue cannot be validated after
+did not provide; it never replaces an OCR value. The resulting PCEX metadata is consumed by EPUB
+rendering and by PDF patching, which writes it to the output PDF's document-information dictionary.
+If the metadata dialogue cannot be validated after
 its bounded repair loop, extraction continues with that same PDF-file fallback rather than failing
 the document conversion.
 

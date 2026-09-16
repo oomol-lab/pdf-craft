@@ -1,6 +1,6 @@
 """Compose non-interactive visual bases with independent overlays."""
 
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping
 from io import BytesIO
 import logging
 from pathlib import Path
@@ -91,8 +91,14 @@ class PDFPatcher:
         replacements: Iterable[PDFReplacement],
         *,
         ignore_errors: IgnoreFillErrorsChecker = False,
+        document_metadata: Mapping[str, str] | None = None,
     ) -> None:
-        """Compose visual bases, rectangular erasure, Qt text, then Annotations."""
+        """Compose visual bases, rectangular erasure, Qt text, then Annotations.
+
+        ``document_metadata`` augments the output PDF's document-information
+        dictionary.  It is supplied by the PCEX pipeline, not inferred from
+        visual source pages.
+        """
         try:
             import pypdf
             from reportlab.pdfgen import canvas
@@ -103,6 +109,7 @@ class PDFPatcher:
         if reset_font_resolutions is not None:
             reset_font_resolutions()
         self._failed_page_indexes = ()
+        document_metadata = dict(document_metadata or {})
         replacements = iter(replacements)
         try:
             first_replacement = next(replacements)
@@ -110,8 +117,14 @@ class PDFPatcher:
             # A pcex without translated coverage is an identity operation.
             # Do not run Ghostscript or reconstruct its pages: copying keeps
             # all source fidelity and interaction exactly intact.
-            target_path.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copyfile(source_path, target_path)
+            if not document_metadata:
+                target_path.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copyfile(source_path, target_path)
+                return
+            source_reader = pypdf.PdfReader(str(source_path))
+            writer = pypdf.PdfWriter(clone_from=source_reader)
+            writer.add_metadata(document_metadata)
+            self._write_output(writer, target_path)
             return
         replacements = _prepend(first_replacement, replacements)
         source_reader = pypdf.PdfReader(str(source_path))
@@ -121,6 +134,11 @@ class PDFPatcher:
         }
         annotations_by_page = extract_annotations(source_reader)
         writer = pypdf.PdfWriter()
+        source_metadata = _source_document_metadata(source_reader)
+        if source_metadata:
+            writer.add_metadata(source_metadata)
+        if document_metadata:
+            writer.add_metadata(document_metadata)
         next_page_index = 1
         with TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
@@ -219,11 +237,15 @@ class PDFPatcher:
                 source_reader.named_destinations,
                 page_indexes=patched_page_indexes,
             )
-            target_path.parent.mkdir(parents=True, exist_ok=True)
-            with NamedTemporaryFile(dir=target_path.parent, suffix=".pdf", delete=False) as output:
-                temporary_path = Path(output.name)
-                writer.write(output)
-            temporary_path.replace(target_path)
+            self._write_output(writer, target_path)
+
+    @staticmethod
+    def _write_output(writer, target_path: Path) -> None:
+        target_path.parent.mkdir(parents=True, exist_ok=True)
+        with NamedTemporaryFile(dir=target_path.parent, suffix=".pdf", delete=False) as output:
+            temporary_path = Path(output.name)
+            writer.write(output)
+        temporary_path.replace(target_path)
 
     @staticmethod
     def _restore_source_page_geometry(source_reader, visual_reader) -> None:
@@ -513,3 +535,12 @@ def _prepend(first: PDFReplacement, replacements: Iterable[PDFReplacement]) -> I
     """Yield a probed replacement without materializing a large PDF plan."""
     yield first
     yield from replacements
+
+
+def _source_document_metadata(reader) -> dict[str, str]:
+    """Copy readable source document-information entries into a new writer."""
+    return {
+        str(key): str(value)
+        for key, value in (reader.metadata or {}).items()
+        if value is not None
+    }
