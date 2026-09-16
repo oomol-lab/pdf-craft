@@ -1,8 +1,8 @@
 # PDFCraftExtraction (`.pcex`) Format Reference
 
-This document is the English-language reference for PDFCraftExtraction v2. It describes the public intermediate format that the current pdf-craft implementation can produce, read, and validate, as well as how each member is used by downstream rendering, translation, and PDF patching workflows.
+This document is the English-language reference for PDFCraftExtraction v3. It describes the public intermediate format that the current pdf-craft implementation can produce, read, and validate, as well as how each member is used by downstream rendering, translation, and PDF patching workflows.
 
-This reference distinguishes a *canonical artifact*—a `.pcex` file written by pdf-craft—from the *current validator* implemented by `PDFCraftExtraction.open()` and `PDFCraftExtraction.validate()`. Canonical artifacts preserve all relationships described here. The current validator does not enforce every semantic relationship.
+This reference distinguishes a *canonical artifact*—a `.pcex` file written by pdf-craft—from the *current validator* implemented by `PDFCraftExtraction.open()` and `PDFCraftExtraction.validate()`. Canonical artifacts preserve all relationships described here. The current validator does not enforce every semantic relationship. The legacy v2 chapter examples below remain accepted reader input only; canonical writers use the v3 flow described above.
 
 ## Purpose and scope
 
@@ -17,6 +17,46 @@ PDFCraftExtraction is the structured document that pdf-craft extracts from a PDF
 A `.pcex` file does not contain the source PDF, OCR model responses, per-page OCR caches, failure markers, or diagnostic plots. It can therefore be copied, uploaded, stored, and transferred between machines as a self-contained input for downstream work that does not repeat OCR. Patching content back into a PDF still requires the caller to retain the source PDF separately.
 
 The public interchange form is always a ZIP archive with a `.pcex` filename extension. An unpacked directory is only a physical representation of the archive contents; it is not a supported public input form.
+
+## Version 3 document flow
+
+Chapter reading order is a `<flow>`, rather than a flat paragraph/asset list.
+The class and XML names correspond directly: `TextFlowItem` / `<text>`,
+`SourceTextFragment` / `<fragment>`, `SourceAsset` / `<asset>`,
+`DisplayFormula` / `<display-formula>`, and `StandaloneAsset` /
+`<standalone-asset>`.
+
+`<text>` represents one authored paragraph or heading. Its children can mix
+text fragments with image/table assets, preserving an illustration that split
+one paragraph during print layout. A display formula is not an anchored asset:
+it is an independent reading-flow item and a hard paragraph-joining boundary.
+Inline formulae remain `inline_expr` inside a fragment. Markdown/EPUB may split
+physical paragraphs around an anchored asset for valid output, but PCEX retains
+the logical relation. Writers emit v3; readers migrate v1/v2 flat bodies in
+memory without inventing unknown anchors.
+
+### Canonical v3 chapter schema
+
+```xml
+<chapter id="1" level="0"><flow>
+  <text role="heading" level="0"><fragment page_index="3" source_order="0" bbox="180,210,2260,360">Chapter One</fragment></text>
+  <text role="body"><fragment page_index="3" source_order="1" bbox="180,410,2260,620">Before.</fragment><asset ref="image" page_index="3" bbox="400,700,2080,1800" asset_hash="aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"/><fragment page_index="3" source_order="2" bbox="180,1900,2260,2100">After.</fragment></text>
+  <display-formula><asset ref="formula" page_index="3" bbox="300,2150,2100,2300"><content>E=mc^2</content></asset></display-formula>
+  <standalone-asset><asset ref="table" page_index="4" bbox="220,600,2200,1700" asset_hash="bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"/></standalone-asset>
+</flow></chapter>
+```
+
+`<chapter>` has optional integer `id` and `level`, exactly one `<flow>`, and
+optional `<references>`. `<text role="body|heading">` has optional integer
+`level` and ordered children. A `<fragment>` requires positive `page_index`,
+integer `source_order`, and bounded `bbox="left,top,right,bottom"`; it carries
+mixed text, `inline_expr`, references, and allowed HTML wrappers. An image/table
+`<asset>` may occur in `<text>` or exactly once under `<standalone-asset>`; an
+formula asset occurs exactly once under `<display-formula>`, never under
+`<text>`. Every asset requires `ref`, `page_index`, and `bbox`, and may have a
+64-lowercase-hex `asset_hash` plus `title`, `content`, and `caption`.
+`asset_hash` identifies `assets/<hash>.png`; `display-formula` is a flow
+boundary, not an anchored asset.
 
 ## Quick reference
 
@@ -52,7 +92,7 @@ The archive root and its two subdirectories may not contain members other than t
 
 JSON and XML written by pdf-craft use UTF-8. XML files include an `<?xml version="1.0" encoding="UTF-8"?>` declaration. Paths inside the ZIP use `/` as their separator.
 
-Version 2 has no `document.json` or `source-map.json`. Document metadata is centralized in `manifest.json`, page geometry in `pages.xml`, and the source-PDF position of each content block is stored directly in the chapter XML.
+Version 3 has no `document.json` or `source-map.json`. Document metadata is centralized in `manifest.json`, page geometry in `pages.xml`, and the source-PDF position of each content block is stored directly in the chapter XML.
 
 ## Creating, saving, and resuming an extraction
 
@@ -171,7 +211,7 @@ Variable folios are represented structurally rather than as the text of a reusab
 
 ```json
 {
-  "format_version": 2,
+  "format_version": 3,
   "producer": {
     "name": "pdf-craft",
     "version": "2.0.0"
@@ -200,12 +240,12 @@ The top-level value must be a JSON object. Unlisted top-level fields are not all
 
 | Field | Type | Required | Meaning and constraints |
 | --- | --- | --- | --- |
-| `format_version` | integer | Yes | The canonical value is `2`; readers also accept legacy v1 archives. |
+| `format_version` | integer | Yes | The canonical value is `3`; readers also accept legacy v1/v2 archives. |
 | `producer` | object | Yes | Identifies the software that created the archive; must contain exactly `name` and `version` |
 | `created_at` | string or null | No | Archive creation time; a string must be a parseable ISO 8601 datetime |
 | `document` | object | Yes | Document-level metadata; must contain exactly the fields in the next section |
 
-The canonical `format_version` value is the JSON number `2`. Readers retain v1 support so existing extractions remain usable; unknown versions are rejected.
+The canonical `format_version` value is the JSON number `3`. Readers retain v1/v2 support so existing extractions remain usable; unknown versions are rejected.
 
 When pdf-craft writes an archive, `producer.name` is always `pdf-craft`, and `producer.version` is the installed pdf-craft package version. It falls back to `unknown` when the installed version cannot be determined. The current validator permits other producers, but both `name` and `version` must be non-empty strings.
 
@@ -271,7 +311,7 @@ A `<page>` may not contain child elements, and its canonical form has no text. T
 
 ### Coordinates and bounding boxes
 
-Every `det` attribute in chapter XML has this form:
+Every v3 `bbox` attribute in chapter XML has this form:
 
 ```text
 left,top,right,bottom
@@ -314,7 +354,7 @@ Both the root element and an `<item>` may contain any number of direct `<item>` 
 
 Together, `page_index` and `order` identify the heading layout from which the TOC item was generated. `level` also contributes to Markdown and EPUB heading depth, while XML nesting expresses the parent-child relationship.
 
-The current v2 validator checks the root element, the integer list in `page_indexes`, all child element names, and the four required integer attributes of every item. It does not yet check that pages exist in `pages.xml`, that IDs are unique, that `level` agrees with nesting depth, or that an ID actually corresponds to a chapter. Producers must still preserve those relationships.
+The current v3 validator checks the root element, the integer list in `page_indexes`, all child element names, and the four required integer attributes of every item. It does not yet check that pages exist in `pages.xml`, that IDs are unique, that `level` agrees with nesting depth, or that an ID actually corresponds to a chapter. Producers must still preserve those relationships.
 
 ## `chapters/`
 
@@ -329,7 +369,7 @@ Subdirectories, symbolic links, and other files are not allowed. The chapter dir
 
 Canonical producers derive a filename directly from the chapter `id`, without leading zeros. The current validator checks only the filename pattern. It neither verifies that the filename number, chapter `id`, and TOC `id` are equal nor rejects distinct spellings that map to the same integer.
 
-### Complete chapter example
+### Legacy v1/v2 reader-only chapter example
 
 This example includes body text, an inline equation, an image, and a footnote reference:
 
@@ -373,9 +413,15 @@ The root element must be `<chapter>`.
 | `id` | No | Integer TOC item ID; omission identifies the head chapter |
 | `level` | No | Integer chapter level; the internal value is `-1` when omitted, while a canonical formal chapter normally uses its TOC item's 0-based level |
 
-Every chapter must contain a discoverable `<body>`. The canonical order is `<body>` followed by an optional `<references>`. Direct children of `<body>` appear in document order and may be `<paragraph>` or `<asset>` elements.
+Every canonical chapter contains `<flow>`, followed by optional `<references>`. Direct flow children appear in reading order and are `<text>`, `<display-formula>`, or `<standalone-asset>`. A v3 `<text>` has `role="body"` or `role="heading"` and ordered `<fragment>` / image-table `<asset>` children. Text fragments use `page_index`, `source_order`, and `bbox`; assets use `page_index`, `bbox`, and optional `asset_hash`.
 
-### `<paragraph>`
+### Legacy v1/v2 reader-only elements
+
+The following `<paragraph>`, `<block>`, `det`, `order`, and `hash` descriptions
+apply only while reading historic v1/v2 bodies. They are never written by the
+v3 encoder; use the v3 `<flow>` schema above for new artifacts.
+
+#### `<paragraph>`
 
 ```xml
 <paragraph ref="text" level="1">
@@ -389,13 +435,13 @@ Every chapter must contain a discoverable `<body>`. The canonical order is `<bod
 | `ref` | Yes | OCR layout-type string |
 | `level` | No | 0-based heading level within the chapter; defaults internally to `-1` |
 
-Backends treat both `ref="title"` and `ref="sub_title"` as headings, and `ref="text"` as regular body text. The format reader preserves other `ref` strings; renderers generally handle them as ordinary paragraphs.
+The v3 migration treats historic `ref="title"` and `ref="sub_title"` as headings. It maps `ref="text"` and every other historic paragraph `ref` conservatively to v3 `role="body"`, preserving readable content without claiming an unknown semantic role.
 
 For a heading paragraph, `level="0"` identifies the chapter's main heading, with larger values indicating successively deeper headings within the chapter. Non-heading paragraphs normally omit `level`. The final Markdown heading level also incorporates the chapter's `level` and is capped at six levels.
 
 A paragraph contains zero or more `<block>` elements. A paragraph merged across pages or OCR layout regions contains multiple blocks, so source positioning belongs to each block rather than to the paragraph.
 
-### `<block>`
+#### `<block>`
 
 | Attribute | Required | Type and meaning |
 | --- | --- | --- |
@@ -407,7 +453,7 @@ A block is the smallest mapping unit between text and a source-PDF location. Its
 
 PDF patching processes blocks only in paragraphs whose `ref` is `text` or `sub_title`. It uses `page_index`, `det`, `order`, and the page geometry from `pages.xml` to position replacement text. Other renderers still consume all paragraph content.
 
-### `<asset>`
+#### `<asset>`
 
 ```xml
 <asset
@@ -476,13 +522,13 @@ img picture source video
 a br hr time wbr ruby rt rp
 ```
 
-These elements may in turn contain ordinary text, other allowed HTML wrappers, and any payload allowed by the surrounding context: `inline_expr`, plus `ref` within a block. HTML element names are matched case-insensitively and decoded to their canonical lowercase names.
+These elements may in turn contain ordinary text, other allowed HTML wrappers, and any payload allowed by the surrounding context: `inline_expr`, plus `ref` within a fragment or asset metadata. HTML element names are matched case-insensitively and decoded to their canonical lowercase names.
 
 When pdf-craft creates these nodes from OCR Markdown, it filters attributes and URL schemes through a GFM-style allowlist; a canonical producer does not emit event-handler attributes, for example. The archive reader currently recognizes HTML wrappers by element name only and does not filter their attributes again. XML attributes on a recognized HTML element are preserved and emitted by renderers. Opening a third-party `.pcex` must therefore not be treated as HTML sanitization; rendered output still needs the security policy appropriate to its host environment.
 
 ### Footnotes and references
 
-In a body block:
+In text-flow content (a `<fragment>` or an asset's textual metadata):
 
 ```xml
 <ref id="3-1" />
@@ -494,19 +540,21 @@ points to a definition with the same ID in that chapter's `<references>`:
 <references>
   <ref id="3-1">
     <mark>1</mark>
-    <paragraph ref="text">...</paragraph>
-    <asset ref="image" ...>...</asset>
+    <flow>
+      <text role="body"><fragment page_index="3" source_order="5" bbox="180,3200,2260,3370">Footnote text.</fragment></text>
+      <standalone-asset><asset ref="image" page_index="3" bbox="400,3400,2080,3800" asset_hash="aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" /></standalone-asset>
+    </flow>
   </ref>
 </references>
 ```
 
-The ID must have the exact form `<page_index>-<order>`, with both components parseable as integers. Here, `order` is the 1-based reference sequence assigned as pdf-craft extracts footnotes from that page; it is not a body block's 0-based OCR layout order.
+The ID must have the exact form `<page_index>-<order>`, with both components parseable as integers. Here, `order` is the 1-based reference sequence assigned as pdf-craft extracts footnotes from that page; it is not a fragment's 0-based `source_order`.
 
-Every reference definition must contain a `<mark>` with text, preserving the footnote marker that appeared in the body, such as `1`, `*`, or `①`. It may then contain any number of paragraphs or assets representing the footnote body. Paragraph blocks inside a reference retain their own page index, OCR order, and bounding box.
+Every v3 reference definition contains exactly one textual `<mark>` and one `<flow>`. The mark preserves the footnote marker that appeared in the text, such as `1`, `*`, or `①`; its flow uses the same `<text>`, `<display-formula>`, and `<standalone-asset>` nodes as a chapter. Reference fragments retain their own `page_index`, `source_order`, and `bbox`.
 
-Every `<ref>` in body text must resolve to a definition in the same chapter or the chapter is invalid. A reference body may not nest another footnote `<ref>`. The canonical encoder writes only definitions that are actually referenced by body text, sorts them by `(page_index, order)`, and renumbers them uniformly during Markdown and EPUB rendering.
+Every `<ref>` in chapter or reference-flow content must resolve to a definition in the same chapter or the chapter is invalid. A reference body may not nest another footnote `<ref>`. The canonical encoder writes only definitions that are actually referenced by chapter flow content, sorts them by `(page_index, order)`, and renumbers them uniformly during Markdown and EPUB rendering.
 
-The current decoder builds an ID map but does not separately reject duplicate definitions; producers must ensure that reference IDs are unique within a chapter. The page-index component embedded in a definition ID is not currently cross-checked with `pages.xml`, although page indexes and bounding boxes on its child layouts are validated normally.
+The current decoder builds an ID map but does not separately reject duplicate definitions; producers must ensure that reference IDs are unique within a chapter. The page-index component embedded in a definition ID is not currently cross-checked with `pages.xml`, although `page_index` and `bbox` on its flow children are validated normally.
 
 ## `assets/`
 
@@ -518,7 +566,7 @@ Every asset filename must match exactly:
 
 A canonical producer first encodes the cropped region as PNG, then names it with the lowercase hexadecimal SHA-256 digest of the complete file bytes. Identical bytes reuse the same file, so multiple asset elements may refer to one hash.
 
-The directory may contain only regular files—no subdirectories, symbolic links, or other extensions. The current validator checks filename syntax and verifies that every chapter `<asset hash="...">` has a corresponding file. It does not recompute the file content's SHA-256 digest or confirm that the file decodes as PNG. Unreferenced assets with valid names are currently allowed.
+The directory may contain only regular files—no subdirectories, symbolic links, or other extensions. The current validator checks filename syntax and verifies that every v3 chapter `<asset asset_hash="...">` has a corresponding file. It does not recompute the file content's SHA-256 digest or confirm that the file decodes as PNG. Unreferenced assets with valid names are currently allowed.
 
 ## `cover.png`
 
@@ -533,11 +581,11 @@ A canonical `.pcex` must preserve the following relationships:
 | Source | Target or constraint |
 | --- | --- |
 | Any chapter element with `page_index` | The page index must exist in `pages.xml` |
-| `det` on the same element | The bounding box must fit within the corresponding `<page>` dimensions |
-| `<asset hash="H">` | `assets/H.png` must exist, and H must be 64 lowercase hexadecimal characters |
-| `<ref id="P-O">` in a block | A definition with that ID must exist in the same chapter's `<references>` |
+| `bbox` on the same element | The bounding box must fit within the corresponding `<page>` dimensions |
+| `<asset asset_hash="H">` | `assets/H.png` must exist, and H must be 64 lowercase hexadecimal characters |
+| `<ref id="P-O">` in chapter/reference flow content | A definition with that ID must exist in the same chapter's `<references>` |
 | `toc/item@id` | Should correspond to both `chapter_<id>.xml` and its `<chapter id>` |
-| `toc/item@page_index,@order` | Should identify the source location of the chapter's opening heading block |
+| `toc/item@page_index,@order` | Should identify the source location of the chapter's opening heading fragment |
 | `chapter_head.xml` | Its `<chapter>` should omit `id` |
 | `chapter_<id>.xml` | Its `<chapter id>` should equal the number in the filename |
 
@@ -547,7 +595,7 @@ The current validator enforces the first three relationships and body-reference 
 
 A `.pcex` is a regular ZIP archive, written by pdf-craft using Deflate compression. It has no additional magic number, MIME member, archive-wide signature, or archive-level checksum. Format identification relies on both the `.pcex` filename and the ZIP contents.
 
-The archive is unencrypted ZIP. The format itself provides no password protection, access control, or other confidentiality mechanism. It can contain the complete OCR text, bibliographic metadata, page and bounding-box mappings back to the source PDF, image/table/equation assets, and a cover. Protect a `.pcex` with the same sensitivity as its source document when copying, uploading, storing, or sharing it, and apply appropriate storage permissions and transport encryption outside the format.
+The archive is unencrypted ZIP. The format itself provides no password protection, access control, or other confidentiality mechanism. It can contain the complete OCR text, bibliographic metadata, page and bounding-box mappings back to the source PDF, image/table/formula assets, and a cover. Protect a `.pcex` with the same sensitivity as its source document when copying, uploading, storing, or sharing it, and apply appropriate storage permissions and transport encryption outside the format.
 
 Before extraction, the loader checks:
 
@@ -561,7 +609,7 @@ It then extracts into a temporary directory and validates the contents. Before `
 
 The current implementation imposes no limit on archive size, expanded size, or compression ratio, and it has no content signature. For an untrusted source, callers should enforce file-size and provenance restrictions before passing the archive to pdf-craft. Format versioning provides structural compatibility only, not authenticity or tamper protection.
 
-## v2 validation details
+## v3 validation details
 
 `PDFCraftExtraction.open()` immediately performs these checks:
 
@@ -573,7 +621,7 @@ The current implementation imposes no limit on archive size, expanded size, or c
 6. Every chapter XML and optional XML sidecar parse successfully, have the expected root, and expose decodable core fields; furniture coverage entries must reference existing furniture units.
 7. Chapter page references, bounding boxes, and hashed asset references are valid.
 
-The current v2 validation contract does not include:
+The current v3 validation contract does not include:
 
 - correspondence between TOC page indexes and `pages.xml`;
 - uniqueness or correspondence among TOC IDs, chapter filenames, and chapter root IDs;
@@ -630,6 +678,6 @@ It cannot prove that the input PDF and extraction came from the same source file
 
 ## Version compatibility
 
-The current format version is `2`. The reader accepts canonical v2 archives and legacy `format_version: 1` archives; unknown versions are rejected. A v1 reader rejects the v2 document schema, so applications that need v2 bibliographic metadata should use pdf-craft 2.2.2 or later.
+The current format version is `3`. The reader accepts canonical v3 archives and legacy `format_version: 1` / `2` archives; unknown versions are rejected. Historic readers do not understand the v3 flow schema.
 
 Applications that only need downstream rendering or translation should let `PDFCraftExtraction.open()` perform version and integrity checks. A ZIP that can merely be extracted is not necessarily a usable PDFCraftExtraction.

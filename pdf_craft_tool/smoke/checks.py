@@ -10,7 +10,7 @@ from urllib.parse import urlparse
 import pypdf
 
 from pdf_craft.document import PDFCraftExtraction
-from pdf_craft.extractor.chapter.chapter import ParagraphLayout
+from pdf_craft.extractor.chapter.chapter import SourceTextFragment, TextFlowItem
 from pdf_craft.extractor.chapter.reader import create_chapters_reader
 
 
@@ -45,9 +45,12 @@ def check_pdf_patch_geometry(extraction: PDFCraftExtraction) -> list[str]:
     needed_pages: set[int] = set()
     with extraction._materialize() as paths:
         for chapter in create_chapters_reader(paths.chapters)():
-            for layout in chapter.layouts:
-                if isinstance(layout, ParagraphLayout) and layout.ref in {"text", "sub_title"}:
-                    needed_pages.update(block.page_index for block in layout.blocks if block.content)
+            for layout in chapter.flow_items:
+                if isinstance(layout, TextFlowItem) and layout.role in {"body", "heading"}:
+                    needed_pages.update(
+                        block.page_index for block in layout.children
+                        if isinstance(block, SourceTextFragment) and block.content
+                    )
     missing = sorted(needed_pages - set(page_sizes))
     if missing:
         return [f"PDF patch geometry missing for replacement pages: {missing}"]

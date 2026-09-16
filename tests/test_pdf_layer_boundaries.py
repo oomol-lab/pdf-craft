@@ -33,5 +33,5 @@ class TestPDFLayerBoundaries(unittest.TestCase):
 
         self.assertFalse(any(name.startswith("pdf_craft.extractor") for name in imports))
         self.assertFalse(any(name.startswith("pdf_craft.transformer") for name in imports))
-        self.assertNotIn("ParagraphLayout", source)
+        self.assertNotIn("TextFlowItem", source)
         self.assertNotIn("Translation", source)

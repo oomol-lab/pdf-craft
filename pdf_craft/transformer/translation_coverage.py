@@ -13,7 +13,7 @@ from pathlib import Path
 from xml.etree.ElementTree import Element, SubElement
 
 from pdf_craft.common import indent, read_xml, save_xml
-from pdf_craft.extractor.chapter.chapter import Chapter, ParagraphLayout
+from pdf_craft.extractor.chapter.chapter import Chapter, SourceTextFragment, TextFlowItem
 
 
 CoverageState = str
@@ -52,17 +52,17 @@ class TranslationCoverage:
     sections: dict[tuple[int, str], CoverageState]
 
 
-def paragraph_identity(chapter: Chapter, layout: ParagraphLayout) -> tuple[str, int, int] | None:
-    """Return the first block identity used by TOC and PDF patching.
+def paragraph_identity(chapter: Chapter, item: TextFlowItem) -> tuple[str, int, int] | None:
+    """Return the first source-fragment identity used by PDF patching.
 
-    Paragraph layouts may span several boxes/pages but their first block is a
-    durable primary key through XML translation. A layout without blocks has
-    no PDF geometry and therefore no coverage record.
+    A text flow may span several boxes/pages, but its first source fragment is
+    a durable primary key through XML translation. A flow without source text
+    has no PDF geometry and therefore no coverage record.
     """
-    if not layout.blocks:
+    fragment = next((child for child in item.children if isinstance(child, SourceTextFragment)), None)
+    if fragment is None:
         return None
-    block = layout.blocks[0]
-    return (str(chapter.id) if chapter.id is not None else "head", block.page_index, block.order)
+    return (str(chapter.id) if chapter.id is not None else "head", fragment.page_index, fragment.source_order)
 
 
 def read_coverage(path: Path) -> TranslationCoverage:

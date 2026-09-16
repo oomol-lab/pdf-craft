@@ -25,13 +25,9 @@ from epub_generator import (
 
 from ...markdown.paragraph import HTMLTag, flatten
 from ...metering import AbortedCheck, check_aborted
-from ...pdf import TITLE_TAGS
 from ...extractor.chapter import (
-    AssetLayout,
-    Chapter,
-    InlineExpression,
-    ParagraphLayout,
-    Reference,
+    Chapter, DisplayFormula, InlineExpression, Reference, SourceAsset,
+    SourceTextFragment, StandaloneAsset, TextFlowItem,
     create_chapters_reader,
     references_to_map,
     search_references_in_chapter,
@@ -75,16 +71,16 @@ def render_epub_file(
 
         if chapter.id is None:
             get_head = get_chapter
-        elif chapter.layouts:
-            first_layout = chapter.layouts[0]
+        elif chapter.flow_items:
+            first_layout = chapter.flow_items[0]
             if (
-                isinstance(first_layout, ParagraphLayout)
-                and first_layout.ref in TITLE_TAGS
+                isinstance(first_layout, TextFlowItem)
+                and first_layout.role == "heading"
             ):
                 title = "".join(_iter_text_in_title(first_layout)).strip()
                 if not title:
                     title = "Untitled"
-                have_body = len(chapter.layouts) > 1
+                have_body = len(chapter.flow_items) > 1
                 toc_collection.collect(
                     toc_id=chapter.id,
                     title=title,
@@ -109,9 +105,11 @@ def render_epub_file(
     )
 
 
-def _iter_text_in_title(title_layout: ParagraphLayout):
-    for block in title_layout.blocks:
-        for item in flatten(block.content):
+def _iter_text_in_title(title_layout: TextFlowItem):
+    for fragment in title_layout.children:
+        if not isinstance(fragment, SourceTextFragment):
+            continue
+        for item in flatten(fragment.content):
             if isinstance(item, str):
                 yield item
 
@@ -125,36 +123,17 @@ def _convert_chapter_to_epub(
     elements = []
     footnotes = []
 
-    for layout in chapter.layouts:
-        if isinstance(layout, AssetLayout):
+    for layout in chapter.flow_items:
+        if isinstance(layout, (DisplayFormula, StandaloneAsset)):
             asset_element = _convert_asset_to_epub(
-                asset=layout,
-                assets_path=assets_path,
-                inline_latex=inline_latex,
+                asset=layout.asset, assets_path=assets_path, inline_latex=inline_latex,
                 ref_id_to_number=ref_id_to_number,
             )
-            if asset_element:
-                elements.append(asset_element)
-        elif isinstance(layout, ParagraphLayout):
-            content: list[str | Formula | Mark | EpubHTMLTag] = []
-            for block in layout.blocks:
-                content.extend(
-                    _transform_content(
-                        content=block.content,
-                        inline_latex=inline_latex,
-                        ref_id_to_number=None,
-                    )
-                )
-            if content:
-                elements.append(
-                    TextBlock(
-                        kind=TextKind.HEADLINE
-                        if layout.ref in TITLE_TAGS
-                        else TextKind.BODY,
-                        level=layout.level,
-                        content=content,
-                    )
-                )
+            if asset_element: elements.append(asset_element)
+        elif isinstance(layout, TextFlowItem):
+            _append_text_flow_item(
+                elements, layout, assets_path, inline_latex, ref_id_to_number,
+            )
 
     chapter_refs = search_references_in_chapter(chapter)
     for ref in chapter_refs:
@@ -172,6 +151,30 @@ def _convert_chapter_to_epub(
     return ChapterRecord(elements=elements, footnotes=footnotes)
 
 
+def _append_text_flow_item(elements, text_layout, assets_path, inline_latex, ref_id_to_number):
+    """Render one logical text item, splitting physical EPUB blocks at assets."""
+    content: list[str | Formula | Mark | EpubHTMLTag] = []
+
+    def flush_text() -> None:
+        nonlocal content
+        if content:
+            elements.append(TextBlock(
+                kind=TextKind.HEADLINE if text_layout.role == "heading" else TextKind.BODY,
+                level=text_layout.level, content=content,
+            ))
+        content = []
+
+    for child in text_layout.children:
+        if isinstance(child, SourceTextFragment):
+            content.extend(_transform_content(child.content, inline_latex, None))
+        else:
+            flush_text()
+            asset_element = _convert_asset_to_epub(child, assets_path, inline_latex, ref_id_to_number)
+            if asset_element:
+                elements.append(asset_element)
+    flush_text()
+
+
 def _extract_text_from_content(
     content: list[str | InlineExpression | Reference | HTMLTag],
 ) -> str:
@@ -186,7 +189,7 @@ def _extract_text_from_content(
 
 
 def _convert_asset_to_epub(
-    asset: AssetLayout,
+    asset: SourceAsset,
     assets_path: Path,
     inline_latex: bool = False,
     ref_id_to_number: dict | None = None,
@@ -205,7 +208,7 @@ def _convert_asset_to_epub(
             ref_id_to_number=ref_id_to_number,
         )
     )
-    if asset.ref == "equation":
+    if asset.ref == "formula":
         latex_expression = _extract_text_from_content(asset.content)
         if not latex_expression:
             return None
@@ -217,10 +220,10 @@ def _convert_asset_to_epub(
         )
 
     elif asset.ref == "image":
-        if asset.hash is None:
+        if asset.asset_hash is None:
             return None
 
-        image_file = assets_path / f"{asset.hash}.png"
+        image_file = assets_path / f"{asset.asset_hash}.png"
         if not image_file.exists():
             return None
 
@@ -231,7 +234,7 @@ def _convert_asset_to_epub(
         )
 
     elif asset.ref == "table":
-        if asset.hash is None:
+        if asset.asset_hash is None:
             return None
 
         html_content: EpubHTMLTag | None = None
@@ -245,7 +248,7 @@ def _convert_asset_to_epub(
                 break
 
         if html_content is None:
-            table_file = assets_path / f"{asset.hash}.png"
+            table_file = assets_path / f"{asset.asset_hash}.png"
             if not table_file.exists():
                 return None
             return Image(
@@ -268,19 +271,20 @@ def _convert_reference_to_footnote_contents(
     assets_path: Path,
     inline_latex: bool,
 ):
-    for layout in ref.layouts:
-        if isinstance(layout, AssetLayout):
+    for layout in ref.flow_items:
+        if isinstance(layout, (DisplayFormula, StandaloneAsset)):
             asset_element = _convert_asset_to_epub(
-                asset=layout,
-                assets_path=assets_path,
-                inline_latex=inline_latex,
-                ref_id_to_number=None,
+                asset=layout.asset, assets_path=assets_path,
+                inline_latex=inline_latex, ref_id_to_number=None,
             )
             if asset_element:
                 yield asset_element
-        elif isinstance(layout, ParagraphLayout):
+            continue
+        if isinstance(layout, TextFlowItem):
             content: list[str | Formula | Mark | EpubHTMLTag] = []
-            for block in layout.blocks:
+            for block in layout.children:
+                if not isinstance(block, SourceTextFragment):
+                    continue
                 content.extend(
                     _transform_content(
                         content=block.content,

@@ -5,7 +5,7 @@ from xml.etree.ElementTree import tostring
 
 from pdf_craft import ChapterExtractionTransformer, TranslationEventKind, TranslationItemKind
 from pdf_craft.craft import PDFCraft
-from pdf_craft.extractor.chapter.chapter import BlockLayout, Chapter, ParagraphLayout, encode
+from pdf_craft.extractor.chapter.chapter import SourceTextFragment, Chapter, TextFlowItem, encode
 from tests.extraction_helpers import make_extraction
 
 
@@ -15,8 +15,8 @@ class TestTranslationEvents(unittest.TestCase):
             root = Path(directory)
             source_root = root / "source"
             source = make_extraction(source_root, page_pixel_sizes={1: (10, 10)})
-            chapter = Chapter(None, -1, [ParagraphLayout(
-                "text", 0, [BlockLayout(1, 1, (1, 1, 5, 5), ["source"])]
+            chapter = Chapter(None, -1, [TextFlowItem(
+                "body", 0, [SourceTextFragment(1, 1, (1, 1, 5, 5), ["source"])]
             )])
             (source_root / "chapters/chapter_head.xml").write_text(
                 '<?xml version="1.0" encoding="UTF-8"?>\n'
@@ -40,11 +40,11 @@ class TestTranslationEvents(unittest.TestCase):
             source = make_extraction(source_root, page_pixel_sizes={1: (10, 10)})
 
             chapters = [
-                Chapter(None, -1, [ParagraphLayout(
-                    "text", 0, [BlockLayout(1, 1, (1, 1, 5, 5), ["head"])]
+                Chapter(None, -1, [TextFlowItem(
+                    "body", 0, [SourceTextFragment(1, 1, (1, 1, 5, 5), ["head"])]
                 )]),
-                Chapter(7, 1, [ParagraphLayout(
-                    "text", 0, [BlockLayout(1, 1, (1, 1, 5, 5), ["chapter"])]
+                Chapter(7, 1, [TextFlowItem(
+                    "body", 0, [SourceTextFragment(1, 1, (1, 1, 5, 5), ["chapter"])]
                 )]),
                 Chapter(8, 1, []),
             ]

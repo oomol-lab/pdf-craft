@@ -10,12 +10,13 @@ from tiktoken import get_encoding
 
 from pdf_craft.expression import ExpressionKind
 from pdf_craft.extractor.chapter.chapter import (
-    AssetLayout,
-    BlockLayout,
+    SourceAsset,
+    SourceTextFragment,
     BlockMember,
     Chapter,
+    DisplayFormula,
     InlineExpression,
-    ParagraphLayout,
+    TextFlowItem,
     encode,
 )
 from pdf_craft.markdown.paragraph import HTMLTag, tag_definition
@@ -100,7 +101,7 @@ class _ReorderingFormulaTranslator(_FormulaAwareTranslator):
 class TestChapterFormulaTranslation(unittest.TestCase):
     def test_inline_formulas_are_visible_to_translation_and_restored_after_reordering(self):
         chapter = Chapter(None, 0, [
-            ParagraphLayout("text", 0, [BlockLayout(
+            TextFlowItem("body", 0, [SourceTextFragment(
                 1, 1, (1, 1, 100, 30), [
                     "Before ",
                     InlineExpression(ExpressionKind.INLINE_DOLLAR, "x^2"),
@@ -117,10 +118,10 @@ class TestChapterFormulaTranslation(unittest.TestCase):
         source = "\n".join(translator.model_sources)
         self.assertIn("$x^2$", source)
         self.assertIn(r"\(\chi\)", source)
-        layout = translated.layouts[0]
-        self.assertIsInstance(layout, ParagraphLayout)
-        assert isinstance(layout, ParagraphLayout)
-        content = layout.blocks[0].content
+        layout = translated.flow_items[0]
+        self.assertIsInstance(layout, TextFlowItem)
+        assert isinstance(layout, TextFlowItem)
+        content = layout.children[0].content
         formulas: list[InlineExpression] = [
             item for item in content if isinstance(item, InlineExpression)
         ]
@@ -136,7 +137,7 @@ class TestChapterFormulaTranslation(unittest.TestCase):
 
     def test_inline_formula_is_restored_when_the_model_moves_its_token(self):
         chapter = Chapter(None, 0, [
-            ParagraphLayout("text", 0, [BlockLayout(
+            TextFlowItem("body", 0, [SourceTextFragment(
                 1, 1, (1, 1, 100, 30), [
                     "Before ",
                     InlineExpression(ExpressionKind.INLINE_PAREN, r"\alpha"),
@@ -147,10 +148,10 @@ class TestChapterFormulaTranslation(unittest.TestCase):
 
         translated = ChapterXMLTransformer(_ReorderingFormulaTranslator()).transform(chapter)
 
-        layout = translated.layouts[0]
-        self.assertIsInstance(layout, ParagraphLayout)
-        assert isinstance(layout, ParagraphLayout)
-        content = layout.blocks[0].content
+        layout = translated.flow_items[0]
+        self.assertIsInstance(layout, TextFlowItem)
+        assert isinstance(layout, TextFlowItem)
+        content = layout.children[0].content
         self.assertIsInstance(content[0], InlineExpression)
         assert isinstance(content[0], InlineExpression)
         self.assertEqual((content[0].kind, content[0].content), (ExpressionKind.INLINE_PAREN, r"\alpha"))
@@ -160,8 +161,8 @@ class TestChapterFormulaTranslation(unittest.TestCase):
         emphasis = tag_definition("em")
         assert emphasis is not None
         chapter = Chapter(None, 0, [
-            ParagraphLayout("text", 0, [
-                BlockLayout(1, 1, (1, 1, 100, 30), [
+            TextFlowItem("body", 0, [
+                SourceTextFragment(1, 1, (1, 1, 100, 30), [
                     "First ", HTMLTag(
                         definition=emphasis,
                         attributes=[],
@@ -171,7 +172,7 @@ class TestChapterFormulaTranslation(unittest.TestCase):
                         ),
                     ),
                 ]),
-                BlockLayout(2, 2, (1, 1, 100, 30), [
+                SourceTextFragment(2, 2, (1, 1, 100, 30), [
                     "Second ", InlineExpression(ExpressionKind.INLINE_PAREN, r"\beta"), ".",
                 ]),
             ]),
@@ -179,29 +180,29 @@ class TestChapterFormulaTranslation(unittest.TestCase):
 
         translated = ChapterXMLTransformer(_FormulaAwareTranslator()).transform(chapter)
 
-        layout = translated.layouts[0]
-        self.assertIsInstance(layout, ParagraphLayout)
-        assert isinstance(layout, ParagraphLayout)
-        self.assertEqual([block.page_index for block in layout.blocks], [1, 2])
+        layout = translated.flow_items[0]
+        self.assertIsInstance(layout, TextFlowItem)
+        assert isinstance(layout, TextFlowItem)
+        self.assertEqual([block.page_index for block in layout.children], [1, 2])
         encoded = tostring(encode(translated), encoding="unicode")
         self.assertIn('<inline_expr kind="$">x</inline_expr>', encoded)
         self.assertIn(r'<inline_expr kind="\(">\beta</inline_expr>', encoded)
         self.assertIn("<em>", encoded)
 
     def test_equation_content_is_context_and_is_never_rewritten(self):
-        equation = AssetLayout(
+        equation = SourceAsset(
             page_index=1,
-            ref="equation",
-            det=(10, 40, 90, 60),
+            ref="formula",
+            bbox=(10, 40, 90, 60),
             title=[],
             content=[r"\int_0^1 x^2 dx"],
             caption=[],
-            hash="equation-image",
+            asset_hash="equation-image",
         )
         chapter = Chapter(None, 0, [
-            ParagraphLayout("text", 0, [BlockLayout(1, 1, (1, 1, 100, 30), ["Before equation."])]),
-            equation,
-            ParagraphLayout("text", 0, [BlockLayout(1, 2, (1, 70, 100, 100), ["After equation."])]),
+            TextFlowItem("body", 0, [SourceTextFragment(1, 1, (1, 1, 100, 30), ["Before equation."])]),
+            DisplayFormula(equation),
+            TextFlowItem("body", 0, [SourceTextFragment(1, 2, (1, 70, 100, 100), ["After equation."])]),
         ])
         translator = _FormulaAwareTranslator(max_group_score=1)
 
@@ -215,29 +216,29 @@ class TestChapterFormulaTranslation(unittest.TestCase):
             r"$$\int_0^1 x^2 dx$$" in source and "After equation." in source
             for source in translator.model_sources
         ))
-        restored = translated.layouts[1]
-        self.assertIsInstance(restored, AssetLayout)
-        assert isinstance(restored, AssetLayout)
-        self.assertEqual(restored, equation)
+        restored = translated.flow_items[1]
+        self.assertIsInstance(restored, DisplayFormula)
+        assert isinstance(restored, DisplayFormula)
+        self.assertEqual(restored.asset, equation)
 
     def test_equation_title_and_caption_are_translated_while_content_is_frozen(self):
         for title, caption in [(["Title"], []), ([], ["Caption"]), (["Title"], ["Caption"])]:
             with self.subTest(title=title, caption=caption):
-                equation = AssetLayout(
+                equation = SourceAsset(
                     page_index=1,
-                    ref="equation",
-                    det=(10, 40, 90, 60),
+                    ref="formula",
+                    bbox=(10, 40, 90, 60),
                     title=title,
                     content=[r"x^2"],
                     caption=caption,
-                    hash="equation-metadata",
+                    asset_hash="equation-metadata",
                 )
                 chapter = Chapter(None, 0, [
-                    ParagraphLayout("text", 0, [BlockLayout(
+                    TextFlowItem("body", 0, [SourceTextFragment(
                         1, 1, (1, 1, 100, 30), ["Before."],
                     )]),
-                    equation,
-                    ParagraphLayout("text", 0, [BlockLayout(
+                    DisplayFormula(equation),
+                    TextFlowItem("body", 0, [SourceTextFragment(
                         1, 2, (1, 70, 100, 100), ["After."],
                     )]),
                 ])
@@ -245,16 +246,16 @@ class TestChapterFormulaTranslation(unittest.TestCase):
                 translator = _FormulaAwareTranslator()
                 translated = ChapterXMLTransformer(translator).transform(chapter)
 
-                restored = translated.layouts[1]
-                self.assertIsInstance(restored, AssetLayout)
-                assert isinstance(restored, AssetLayout)
-                self.assertEqual(restored.content, equation.content)
+                restored = translated.flow_items[1]
+                self.assertIsInstance(restored, DisplayFormula)
+                assert isinstance(restored, DisplayFormula)
+                self.assertEqual(restored.asset.content, equation.content)
                 self.assertEqual(
-                    restored.title,
+                    restored.asset.title,
                     [f"译:{item}" for item in equation.title],
                 )
                 self.assertEqual(
-                    restored.caption,
+                    restored.asset.caption,
                     [f"译:{item}" for item in equation.caption],
                 )
                 self.assertTrue(any(r"$$x^2$$" in source for source in translator.model_sources))
@@ -262,25 +263,27 @@ class TestChapterFormulaTranslation(unittest.TestCase):
     def test_equation_metadata_inline_formulas_are_protected_independently(self):
         title_formula = InlineExpression(ExpressionKind.INLINE_DOLLAR, "n")
         caption_formula = InlineExpression(ExpressionKind.INLINE_PAREN, r"\chi")
-        equation = AssetLayout(
+        equation = SourceAsset(
             page_index=1,
-            ref="equation",
-            det=(10, 40, 90, 60),
+            ref="formula",
+            bbox=(10, 40, 90, 60),
             title=["Title ", title_formula],
             content=["f", InlineExpression(ExpressionKind.INLINE_DOLLAR, "x"), " = 0"],
             caption=["Caption ", caption_formula],
-            hash="equation-metadata-inline-formulas",
+            asset_hash="equation-metadata-inline-formulas",
         )
         translator = _FormulaAwareTranslator()
 
-        translated = ChapterXMLTransformer(translator).transform(Chapter(None, 0, [equation]))
+        translated = ChapterXMLTransformer(translator).transform(
+            Chapter(None, 0, [DisplayFormula(equation)])
+        )
 
-        restored = translated.layouts[0]
-        self.assertIsInstance(restored, AssetLayout)
-        assert isinstance(restored, AssetLayout)
-        self.assertEqual(restored.content, equation.content)
-        title_formulas = [item for item in restored.title if isinstance(item, InlineExpression)]
-        caption_formulas = [item for item in restored.caption if isinstance(item, InlineExpression)]
+        restored = translated.flow_items[0]
+        self.assertIsInstance(restored, DisplayFormula)
+        assert isinstance(restored, DisplayFormula)
+        self.assertEqual(restored.asset.content, equation.content)
+        title_formulas = [item for item in restored.asset.title if isinstance(item, InlineExpression)]
+        caption_formulas = [item for item in restored.asset.caption if isinstance(item, InlineExpression)]
         self.assertEqual(title_formulas, [title_formula])
         self.assertEqual(caption_formulas, [caption_formula])
         source = "\n".join(translator.model_sources)
@@ -290,33 +293,35 @@ class TestChapterFormulaTranslation(unittest.TestCase):
         self.assertNotIn("MODEL_CHANGED_FORMULA", tostring(encode(translated), encoding="unicode"))
 
     def test_equation_only_chapter_keeps_the_asset_and_does_not_skip_translation(self):
-        equation = AssetLayout(
+        equation = SourceAsset(
             page_index=1,
-            ref="equation",
-            det=(10, 40, 90, 60),
+            ref="formula",
+            bbox=(10, 40, 90, 60),
             title=[],
             content=[r"x^2 + y^2 = z^2"],
             caption=[],
-            hash="equation-only",
+            asset_hash="equation-only",
         )
         translator = _FormulaAwareTranslator(max_group_score=1)
 
-        translated = ChapterXMLTransformer(translator).transform(Chapter(None, 0, [equation]))
+        translated = ChapterXMLTransformer(translator).transform(
+            Chapter(None, 0, [DisplayFormula(equation)])
+        )
 
         self.assertTrue(any(r"$$x^2 + y^2 = z^2$$" in source for source in translator.model_sources))
-        self.assertEqual(translated.layouts, [equation])
+        self.assertEqual(translated.flow_items, [DisplayFormula(equation)])
 
     def test_chapter_without_formula_keeps_normal_xml_translation(self):
         chapter = Chapter(None, 0, [
-            ParagraphLayout("text", 0, [BlockLayout(1, 1, (1, 1, 100, 30), ["plain text"])]),
+            TextFlowItem("body", 0, [SourceTextFragment(1, 1, (1, 1, 100, 30), ["plain text"])]),
         ])
 
         translated = ChapterXMLTransformer(_FormulaAwareTranslator()).transform(chapter)
 
-        layout = translated.layouts[0]
-        self.assertIsInstance(layout, ParagraphLayout)
-        assert isinstance(layout, ParagraphLayout)
-        content = layout.blocks[0].content
+        layout = translated.flow_items[0]
+        self.assertIsInstance(layout, TextFlowItem)
+        assert isinstance(layout, TextFlowItem)
+        content = layout.children[0].content
         self.assertEqual(content, ["译:plain text"])
 
 

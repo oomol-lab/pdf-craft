@@ -12,7 +12,10 @@ from epub_generator import BookMeta
 
 from pdf_craft.craft import PDFCraft
 from pdf_craft.document import PDFCraftExtraction
-from pdf_craft.extractor.chapter.chapter import BlockLayout, Chapter, ParagraphLayout
+from pdf_craft.extractor.chapter.chapter import (
+    SourceTextFragment, Chapter, DisplayFormula, TextFlowItem, StandaloneAsset,
+    decode as decode_chapter,
+)
 from pdf_craft.common import save_xml
 from pdf_craft.extractor.chapter.chapter import encode
 from pdf_craft.extractor.toc.types import Toc, TocInfo, encode as encode_toc
@@ -26,9 +29,9 @@ class _Identity:
 
 class _TranslateHeadline:
     def transform(self, chapter: Chapter) -> Chapter:
-        for layout in chapter.layouts:
-            if isinstance(layout, ParagraphLayout):
-                for block in layout.blocks:
+        for layout in chapter.flow_items:
+            if isinstance(layout, TextFlowItem):
+                for block in layout.children:
                     block.content = [
                         value.replace("Chapter One", "第一章")
                         if isinstance(value, str)
@@ -78,10 +81,10 @@ class TestPDFCraftExtraction(unittest.TestCase):
                 )),
                 workspace / "toc.xml",
             )
-            heading = ParagraphLayout(
-                ref="title",
+            heading = TextFlowItem(
+                role="heading",
                 level=0,
-                blocks=[BlockLayout(1, 0, (1, 1, 90, 20), ["Chapter One"])],
+                children=[SourceTextFragment(1, 0, (1, 1, 90, 20), ["Chapter One"])],
             )
             save_xml(encode(Chapter(7, 0, [heading])), workspace / "chapters/chapter_7.xml")
             (workspace / "furnitures.xml").write_text(
@@ -292,8 +295,8 @@ class TestPDFCraftExtraction(unittest.TestCase):
             extraction.export(valid)
             invalid = root / "invalid-hash.pcex"
             chapter_xml = (
-                b'<chapter><body><asset ref="image" page_index="1" det="0,0,1,1" '
-                b'hash="../cover"/></body></chapter>'
+                b'<chapter><flow><standalone-asset><asset ref="image" page_index="1" '
+                b'bbox="0,0,1,1" asset_hash="../cover"/></standalone-asset></flow></chapter>'
             )
             _replace_archive_members(
                 valid,
@@ -303,6 +306,111 @@ class TestPDFCraftExtraction(unittest.TestCase):
 
             with self.assertRaisesRegex(ValueError, "invalid asset hash"):
                 PDFCraftExtraction.open(invalid)
+
+    def test_v3_archive_rejects_legacy_reference_flow(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            workspace = root / "workspace"
+            extraction = make_extraction(workspace)
+            save_xml(encode(Chapter(None, -1, [])), workspace / "chapters/chapter_head.xml")
+            valid = root / "valid.pcex"
+            extraction.export(valid)
+            invalid = root / "legacy-reference.pcex"
+            chapter_xml = (
+                b'<chapter><flow/><references><ref id="1-1"><mark>1</mark><flow>'
+                b'<display-formula><asset ref="equation" page_index="1" bbox="0,0,1,1"/>'
+                b'</display-formula></flow></ref></references></chapter>'
+            )
+            _replace_archive_members(valid, invalid, {"chapters/chapter_head.xml": chapter_xml})
+            with self.assertRaisesRegex(ValueError, "legacy 'equation'"):
+                PDFCraftExtraction.open(invalid)
+
+    def test_v3_archive_rejects_legacy_asset_attributes(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            workspace = root / "workspace"
+            extraction = make_extraction(workspace)
+            save_xml(encode(Chapter(None, -1, [])), workspace / "chapters/chapter_head.xml")
+            valid = root / "valid.pcex"
+            extraction.export(valid)
+            invalid = root / "legacy-attributes.pcex"
+            chapter_xml = (
+                b'<chapter><flow><standalone-asset><asset ref="image" page_index="1" '
+                b'det="0,0,1,1" hash="a"/></standalone-asset></flow></chapter>'
+            )
+            _replace_archive_members(valid, invalid, {"chapters/chapter_head.xml": chapter_xml})
+            with self.assertRaisesRegex(ValueError, "unsupported attributes"):
+                PDFCraftExtraction.open(invalid)
+
+    def test_v3_archive_rejects_unknown_and_legacy_fragment_attributes(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            workspace = root / "workspace"
+            extraction = make_extraction(workspace)
+            save_xml(encode(Chapter(None, -1, [])), workspace / "chapters/chapter_head.xml")
+            valid = root / "valid.pcex"
+            extraction.export(valid)
+            invalid = root / "legacy-fragment-attributes.pcex"
+            chapter_xml = (
+                b'<chapter><flow><text role="body"><fragment '
+                b'page_index="1" source_order="0" order="1" bbox="0,0,1,1" '
+                b'det="0,0,9,9">text</fragment></text></flow></chapter>'
+            )
+            _replace_archive_members(valid, invalid, {"chapters/chapter_head.xml": chapter_xml})
+            with self.assertRaisesRegex(ValueError, "unsupported attributes"):
+                PDFCraftExtraction.open(invalid)
+
+    def test_v1_and_v2_archives_migrate_flat_assets_to_v3_flow_items(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            workspace = root / "workspace"
+            extraction = make_extraction(workspace)
+            save_xml(encode(Chapter(None, -1, [])), workspace / "chapters/chapter_head.xml")
+            valid = root / "valid.pcex"
+            extraction.export(valid)
+            legacy_chapter = (
+                b'<chapter><body><paragraph ref="text"><block page_index="1" order="0" '
+                b'det="0,0,90,20">before</block></paragraph><paragraph ref="sidebar">'
+                b'<block page_index="1" order="1" det="0,21,90,40">legacy note</block>'
+                b'</paragraph><asset ref="image" '
+                b'page_index="1" det="0,22,90,60"/><asset ref="equation" page_index="1" '
+                b'det="0,62,90,80"><content>x^2</content></asset></body></chapter>'
+            )
+            with ZipFile(valid) as archive:
+                source_manifest = json.loads(archive.read("manifest.json"))
+            for version in (1, 2):
+                manifest = dict(source_manifest, format_version=version)
+                if version == 1:
+                    manifest["document"] = {
+                        "title": None, "description": None, "publisher": None, "isbn": None,
+                        "authors": [], "editors": [], "translators": [], "modified": None,
+                        "language": None,
+                    }
+                archive_path = root / f"v{version}.pcex"
+                _replace_archive_members(valid, archive_path, {
+                    "manifest.json": json.dumps(manifest).encode(),
+                    "chapters/chapter_head.xml": legacy_chapter,
+                })
+                opened = PDFCraftExtraction.open(archive_path)
+                with opened._materialize() as paths:
+                    migrated = decode_chapter(ElementTree.parse(paths.chapters / "chapter_head.xml").getroot())
+                self.assertIsInstance(migrated.flow_items[1], TextFlowItem)
+                assert isinstance(migrated.flow_items[1], TextFlowItem)
+                self.assertEqual(migrated.flow_items[1].role, "body")
+                self.assertEqual(migrated.flow_items[1].children[0].content, ["legacy note"])
+                self.assertIsInstance(migrated.flow_items[2], StandaloneAsset)
+                self.assertIsInstance(migrated.flow_items[3], DisplayFormula)
+                normalized_path = root / f"v{version}-normalized.pcex"
+                opened.export(normalized_path)
+                with ZipFile(normalized_path) as archive:
+                    normalized_manifest = json.loads(archive.read("manifest.json"))
+                    normalized_chapter = ElementTree.fromstring(
+                        archive.read("chapters/chapter_head.xml")
+                    )
+                self.assertEqual(normalized_manifest["format_version"], 3)
+                self.assertIsNotNone(normalized_chapter.find("flow"))
+                self.assertIsNone(normalized_chapter.find("body"))
+                self.assertEqual(normalized_chapter.findall("flow/text")[1].get("role"), "body")
 
     def test_translation_preserves_manifest_pages_toc_cover_and_assets(self):
         with tempfile.TemporaryDirectory() as directory:

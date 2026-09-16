@@ -24,7 +24,7 @@ from pdf_craft import (
     SubmitKind,
     XMLTranslator,
 )
-from pdf_craft.extractor.chapter.chapter import BlockLayout, BlockMember, Chapter, HTMLTag, ParagraphLayout
+from pdf_craft.extractor.chapter.chapter import SourceTextFragment, BlockMember, Chapter, HTMLTag, TextFlowItem
 
 from .assets import SmokeAsset, discover_assets
 from .checks import check_epub, check_markdown, check_package, check_pdf_patch_geometry
@@ -346,22 +346,24 @@ class _DeterministicChapterTransformer:
         return transformer
 
     def transform(self, chapter: Chapter) -> Chapter:
-        for layout in chapter.layouts:
-            if not isinstance(layout, ParagraphLayout):
+        for layout in chapter.flow_items:
+            if not isinstance(layout, TextFlowItem):
                 continue
-            transformed_blocks: list[BlockLayout] = []
-            for block in layout.blocks:
-                translated = BlockLayout(
+            transformed_blocks: list[SourceTextFragment] = []
+            for block in layout.children:
+                if not isinstance(block, SourceTextFragment):
+                    continue
+                translated = SourceTextFragment(
                     page_index=block.page_index,
-                    order=block.order,
-                    det=block.det,
+                    source_order=block.source_order,
+                    bbox=block.bbox,
                     content=[self._transform_item(item) for item in deepcopy(block.content)],
                 )
                 if self.mode == SubmitKind.APPEND_BLOCK:
                     transformed_blocks.extend((block, translated))
                 else:
                     transformed_blocks.append(translated)
-            layout.blocks = transformed_blocks
+            layout.children = transformed_blocks
         return chapter
 
     def _transform_item(self, item: str | BlockMember | HTMLTag[BlockMember]):

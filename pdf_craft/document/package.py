@@ -17,7 +17,7 @@ from epub_generator import BookMeta
 from ..common import indent, save_xml
 
 
-FORMAT_VERSION = 2
+FORMAT_VERSION = 3
 EXTRACTION_SUFFIX = ".pcex"
 _MANIFEST_FIELDS = {"format_version", "producer", "created_at", "document"}
 _DOCUMENT_FIELDS_V1 = {
@@ -285,10 +285,12 @@ def write_pages(root: Path, *, render_dpi: int, page_pixel_sizes: dict[int, tupl
 
 def _validate_workspace(paths: ExtractionPaths, *, require_toc: bool = False) -> None:
     # Import lazily because the extractor package imports the public document API.
-    from ..extractor.chapter.chapter import ParagraphLayout, decode as decode_chapter
+    from ..extractor.chapter.chapter import (
+        SourceTextFragment, TextFlowItem, decode as decode_chapter,
+    )
     from ..extractor.toc.types import decode as decode_toc
 
-    _read_manifest(paths.manifest)
+    manifest = _read_manifest(paths.manifest)
     _, page_sizes = _read_pages(paths.pages)
     if not paths.chapters.is_dir():
         raise ValueError("PDFCraftExtraction is missing chapters directory")
@@ -323,21 +325,23 @@ def _validate_workspace(paths: ExtractionPaths, *, require_toc: bool = False) ->
                 raise ValueError(f"invalid chapter filename: {path.name}")
         root = _require_xml_root(path, "chapter")
         try:
-            chapter = decode_chapter(root)
+            chapter = decode_chapter(root, allow_legacy=manifest["format_version"] in {1, 2})
         except ValueError as error:
             raise ValueError(f"invalid chapter schema in {path.name}: {error}") from error
-        for layout in chapter.layouts:
-            if not isinstance(layout, ParagraphLayout) or layout.ref not in {"text", "sub_title"} or not layout.blocks:
+        for item in chapter.flow_items:
+            if not isinstance(item, TextFlowItem) or item.role not in {"body", "heading"}:
                 continue
-            first = layout.blocks[0]
+            first = next((child for child in item.children if isinstance(child, SourceTextFragment)), None)
+            if first is None:
+                continue
             narrative_identities.add((
                 str(chapter.id) if chapter.id is not None else "head",
                 str(first.page_index),
-                str(first.order),
+                str(first.source_order),
             ))
         for element in root.iter():
             page_index = element.get("page_index")
-            det = element.get("det")
+            det = element.get("bbox", element.get("det"))
             if page_index is None:
                 continue
             try:
@@ -348,7 +352,7 @@ def _validate_workspace(paths: ExtractionPaths, *, require_toc: bool = False) ->
                 raise ValueError(f"{path.name} references page {index} missing from pages.xml")
             if det is not None:
                 _validate_bbox(det, page_sizes[index], path.name)
-            asset_hash = element.get("hash") if element.tag == "asset" else None
+            asset_hash = element.get("asset_hash", element.get("hash")) if element.tag == "asset" else None
             if asset_hash is not None:
                 if not _is_asset_hash(asset_hash):
                     raise ValueError(f"invalid asset hash in {path.name}: {asset_hash}")
@@ -368,7 +372,7 @@ def _read_manifest(path: Path) -> dict[str, Any]:
     if not isinstance(payload, dict) or set(payload) - _MANIFEST_FIELDS:
         raise ValueError("manifest.json contains unsupported fields")
     format_version = payload.get("format_version")
-    if format_version not in {1, FORMAT_VERSION}:
+    if format_version not in {1, 2, FORMAT_VERSION}:
         raise ValueError("unsupported PDFCraftExtraction format version")
     producer = payload.get("producer")
     if not isinstance(producer, dict) or set(producer) != {"name", "version"} or not all(
@@ -654,8 +658,9 @@ def _validate_workspace_members(paths: ExtractionPaths) -> None:
 
 
 def _write_archive(paths: ExtractionPaths, target: Path) -> None:
+    manifest = _read_manifest(paths.manifest)
+    legacy = manifest["format_version"] in {1, 2}
     members: list[tuple[Path, str]] = [
-        (paths.manifest, "manifest.json"),
         (paths.pages, "pages.xml"),
     ]
     if paths.furnitures.exists():
@@ -675,12 +680,62 @@ def _write_archive(paths: ExtractionPaths, target: Path) -> None:
         with ZipFile(temporary_path, "w", compression=ZIP_DEFLATED) as archive:
             archive.writestr("chapters/", b"")
             archive.writestr("assets/", b"")
+            if legacy:
+                archive.writestr(
+                    "manifest.json",
+                    json.dumps(_v3_manifest(manifest), ensure_ascii=False, indent=2).encode(),
+                )
+            else:
+                archive.write(paths.manifest, "manifest.json")
             for source, member in members:
-                archive.write(source, member)
+                if legacy and member.startswith("chapters/"):
+                    archive.writestr(member, _v3_chapter_xml(source))
+                else:
+                    archive.write(source, member)
         temporary_path.replace(target)
     except Exception:
         temporary_path.unlink(missing_ok=True)
         raise
+
+
+def _v3_manifest(manifest: dict[str, Any]) -> dict[str, Any]:
+    """Normalize a validated v1/v2 manifest at the public export boundary."""
+    document = manifest["document"]
+    raw_authors = document.get("authors", [])
+    authors = (
+        [{"name": author, "original_name": None, "nationality": None} for author in raw_authors]
+        if manifest["format_version"] == 1 else raw_authors
+    )
+    return {
+        "format_version": FORMAT_VERSION,
+        "producer": manifest["producer"],
+        "created_at": manifest.get("created_at"),
+        "document": {
+            "title": document.get("title"),
+            "original_title": document.get("original_title"),
+            "description": document.get("description"),
+            "publisher": document.get("publisher"),
+            "isbn": document.get("isbn"),
+            "authors": authors,
+            "editors": document.get("editors", []),
+            "translators": document.get("translators", []),
+            "publication_date": document.get("publication_date"),
+            "edition": document.get("edition"),
+            "subjects": document.get("subjects", []),
+            "rights": document.get("rights"),
+            "modified": document.get("modified"),
+            "language": document.get("language"),
+        },
+    }
+
+
+def _v3_chapter_xml(path: Path) -> bytes:
+    """Decode a legacy chapter and serialize its canonical v3 FlowItem form."""
+    from ..extractor.chapter.chapter import decode as decode_chapter, encode as encode_chapter
+
+    root = _require_xml_root(path, "chapter")
+    chapter = decode_chapter(root, allow_legacy=True)
+    return ElementTree.tostring(encode_chapter(chapter), encoding="utf-8", xml_declaration=True)
 
 
 def _extract_archive(archive_path: Path, target: Path) -> None:

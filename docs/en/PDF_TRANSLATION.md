@@ -180,17 +180,17 @@ When `max_font_size` is omitted from `PatchTextOptions` or a `PatchTextStyle`, t
 
 ### Headline hierarchy and bounded layout windows
 
-PDF patching treats each `ParagraphLayout` as one text flow, even when it has source boxes on more than one page. Its first pass chooses one uniform fitted size and moves complete wrapped lines through ordered source boxes. A second, page-local normalization may then move each already-assigned box toward its semantic-level target size without moving text between boxes or changing that box's line count. Qt remains responsible for ordinary Unicode shaping, wrapping, bidirectional text, and font fallback; pdf-craft does not add language-specific line-break rules. A rendered inline formula, together with its immediately following visible spacer, is the sole indivisible atom.
+PDF patching treats each `TextFlowItem` as one text flow, even when it has source boxes on more than one page. Its first pass chooses one uniform fitted size and moves complete wrapped lines through ordered source boxes. A second, page-local normalization may then move each already-assigned box toward its semantic-level target size without moving text between boxes or changing that box's line count. Qt remains responsible for ordinary Unicode shaping, wrapping, bidirectional text, and font fallback; pdf-craft does not add language-specific line-break rules. A rendered inline formula, together with its immediately following visible spacer, is the sole indivisible atom.
 
-Within a releasable page window, `text` paragraphs are fitted before `sub_title` paragraphs. The largest fitted body size on every page touched by a headline supplies its preferred lower bound, multiplied by `headline_min_body_ratio` (default `1.2`). A semantic style can override that ratio with `minimum_body_font_ratio`; the normal fitting search may still choose a larger title size when its boxes permit it.
+Within a releasable page window, `body` TextFlowItems are fitted before `heading` TextFlowItems. The largest fitted body size on every page touched by a headline supplies its preferred lower bound, multiplied by `headline_min_body_ratio` (default `1.2`). A semantic style can override that ratio with `minimum_body_font_ratio`; the normal fitting search may still choose a larger title size when its boxes permit it.
 
-A numeric `max_font_size` is a hard limit for every semantic style, including an implicit `sub_title` inherited from `PatchTextOptions`. When that ceiling is lower than the body-relative preference, the ceiling wins in both initial fitting and page-local normalization. If the resulting headline cannot fit its width at the selected size, it is anchored at the source box's left edge and continues naturally to the right rather than failing or being skipped.
+A numeric `max_font_size` is a hard limit for every semantic style, including an implicit `heading` inherited from `PatchTextOptions`. When that ceiling is lower than the body-relative preference, the ceiling wins in both initial fitting and page-local normalization. If the resulting headline cannot fit its width at the selected size, it is anchored at the source box's left edge and continues naturally to the right rather than failing or being skipped.
 
 ```python
 options = PatchTextOptions(
     styles={
-        "text": PatchTextStyle(font_name="Noto Serif CJK SC", max_font_size=11),
-        "sub_title": PatchTextStyle(
+        "body": PatchTextStyle(font_name="Noto Serif CJK SC", max_font_size=11),
+        "heading": PatchTextStyle(
             font_name="Noto Sans CJK SC",
             max_font_size=24,
             minimum_body_font_ratio=1.35,

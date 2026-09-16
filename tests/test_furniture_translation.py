@@ -11,7 +11,7 @@ from xml.etree import ElementTree
 from pdf_craft.common import save_xml
 from pdf_craft.craft import PDFCraft
 from pdf_craft.document import PDFCraftExtraction
-from pdf_craft.extractor.chapter.chapter import BlockLayout, Chapter, ParagraphLayout, encode
+from pdf_craft.extractor.chapter.chapter import SourceTextFragment, Chapter, TextFlowItem, encode
 from pdf_craft.extractor.toc.types import Toc, TocInfo, encode as encode_toc
 from pdf_craft.transformer import FurniturePosition, FurnitureSection
 from pdf_craft.transformer import FurnitureXMLTransformer
@@ -259,8 +259,8 @@ class FurnitureTranslationTests(unittest.TestCase):
 def _translated_narrative_extraction(root: Path) -> PDFCraftExtraction:
     make_extraction(root, page_pixel_sizes={1: (100, 100), 2: (100, 100)}, with_toc=True)
     save_xml(encode_toc(TocInfo([Toc(7, 1, 0, 0, [])], [])), root / "toc.xml")
-    heading = ParagraphLayout(
-        "sub_title", 0, [BlockLayout(1, 0, (1, 1, 90, 20), ["第一章"])]
+    heading = TextFlowItem(
+        "heading", 0, [SourceTextFragment(1, 0, (1, 1, 90, 20), ["第一章"])]
     )
     save_xml(encode(Chapter(7, 0, [heading])), root / "chapters/chapter_7.xml")
     (root / "furnitures.xml").write_text(

@@ -64,4 +64,32 @@ class ChapterXMLTransformer:
             interrupt_translated_text_segments=formula_interrupter.interrupt_translated_text_segments,
             interrupt_block_element=formula_interrupter.interrupt_block_element,
         )
+        _restore_fragment_owned_inline_expressions(translated)
         return decode(translated)
+
+
+def _restore_fragment_owned_inline_expressions(chapter: Element) -> None:
+    """Keep translator-restored inline formulas inside their source fragment.
+
+    XMLTranslator may return an interrupted inline token as a sibling of its
+    owning ``fragment``.  That is a transport shape, not PCEX v3: a ``text``
+    node can contain only fragments and anchored image/table assets.  Restore
+    the token before strict chapter decoding, preserving the formula's tail.
+    """
+    for text in chapter.findall(".//text"):
+        owner: Element | None = None
+        for child in list(text):
+            if child.tag == "fragment":
+                owner = child
+            elif child.tag == "inline_expr":
+                if owner is None:
+                    raise ValueError("translator returned inline_expr without a preceding fragment")
+                text.remove(child)
+                duplicate = any(
+                    existing.tag == "inline_expr"
+                    and existing.get("kind") == child.get("kind")
+                    and (existing.text or "") == (child.text or "")
+                    for existing in owner.iter("inline_expr")
+                )
+                if not duplicate:
+                    owner.append(child)

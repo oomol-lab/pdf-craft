@@ -1,7 +1,10 @@
 import re
 from typing import Iterable
 
-from .chapter import AssetLayout, BlockLayout, ParagraphLayout, Reference
+from .chapter import (
+    SourceAsset, SourceTextFragment, DisplayFormula, TextFlowItem, Reference,
+    StandaloneAsset,
+)
 from .content import Content
 from .mark import Mark, transform2mark
 
@@ -10,11 +13,11 @@ _START_PREFIX_PATTERN = re.compile(r"^\*{1,6}\s+")
 
 class References:
     def __init__(
-        self, page_index: int, layouts: Iterable[AssetLayout | ParagraphLayout]
+        self, page_index: int, items: Iterable[SourceAsset | TextFlowItem]
     ) -> None:
         self._page_index: int = page_index
         self._references: list[Reference] = list(
-            self._extract_references(page_index, layouts)
+            self._extract_references(page_index, items)
         )
         self._mark2reference: dict[str | Mark, Reference] = {}
         for reference in self._references:
@@ -30,11 +33,11 @@ class References:
         return self._mark2reference.get(mark, None)
 
     def _extract_references(
-        self, page_index: int, layouts: Iterable[AssetLayout | ParagraphLayout]
+        self, page_index: int, items: Iterable[SourceAsset | TextFlowItem]
     ):
         order: int = 1
         reference: Reference | None = None
-        for item in self._iter_and_inject_marks(layouts):
+        for item in self._iter_and_inject_marks(items):
             if isinstance(item, Mark | str):
                 if reference:
                     yield reference
@@ -42,11 +45,15 @@ class References:
                     page_index=page_index,
                     order=order,
                     mark=item,
-                    layouts=[],
+                    flow_items=[],
                 )
                 order += 1
             elif reference:
-                reference.layouts.append(item)
+                reference.flow_items.append(
+                    DisplayFormula(item) if isinstance(item, SourceAsset) and item.ref == "formula"
+                    else StandaloneAsset(item) if isinstance(item, SourceAsset)
+                    else item
+                )
             else:
                 # TODO: 多余的内容可能是上一页的跨页页脚注释 / 引用，也可能是必须忽略的多余内容。
                 #       此处没有能力进行判断，以后看看有什么好办法。
@@ -54,48 +61,50 @@ class References:
         if reference:
             yield reference
 
-    def _iter_and_inject_marks(self, layouts: Iterable[AssetLayout | ParagraphLayout]):
-        for layout in layouts:
-            if isinstance(layout, AssetLayout):
-                yield layout
-            elif isinstance(layout, ParagraphLayout):
-                for mark, sub_layout in self._split_paragraph_by_marks(layout):
+    def _iter_and_inject_marks(self, items: Iterable[SourceAsset | TextFlowItem]):
+        for item in items:
+            if isinstance(item, SourceAsset):
+                yield item
+            elif isinstance(item, TextFlowItem):
+                for mark, sub_layout in self._split_paragraph_by_marks(item):
                     if mark is not None:
                         yield mark
                     yield sub_layout
 
-    def _split_paragraph_by_marks(self, to_split_layout: ParagraphLayout):
-        mark_layout: tuple[Mark | str | None, ParagraphLayout] = (
+    def _split_paragraph_by_marks(self, to_split_layout: TextFlowItem):
+        mark_layout: tuple[Mark | str | None, TextFlowItem] = (
             None,
-            ParagraphLayout(
-                ref=to_split_layout.ref,
+            TextFlowItem(
+                role=to_split_layout.role,
                 level=-1,
-                blocks=[],
+                children=[],
             ),
         )
-        for block in to_split_layout.blocks:
+        for block in to_split_layout.children:
+            if not isinstance(block, SourceTextFragment):
+                raise ValueError("footnote TextFlowItem cannot contain anchored assets before flow assembly")
             mark, content = self._extract_head_mark(block.content)
             if mark is None:
-                mark_layout[1].blocks.append(block)
+                mark_layout[1].children.append(block)
             else:
-                if mark_layout[1].blocks:
+                if mark_layout[1].children:
                     yield mark_layout
                 mark_layout = (
                     mark,
-                    ParagraphLayout(
-                        ref=to_split_layout.ref,
+                    TextFlowItem(
+                        role=to_split_layout.role,
                         level=-1,
-                        blocks=[
-                            BlockLayout(
+                        children=[
+                            SourceTextFragment(
                                 page_index=block.page_index,
-                                order=block.order,
-                                det=block.det,
+                                source_order=block.source_order,
+                                bbox=block.bbox,
                                 content=content,
                             )
                         ],
                     ),
                 )
-        if mark_layout[1].blocks:
+        if mark_layout[1].children:
             yield mark_layout
 
     def _extract_head_mark(self, content: Content) -> tuple[Mark | str | None, Content]:

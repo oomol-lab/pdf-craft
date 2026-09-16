@@ -13,7 +13,9 @@ from xml.etree.ElementTree import Element
 from pdf_craft.common.xml import read_xml, save_xml
 from pdf_craft.document import PDFCraftExtraction
 from pdf_craft.document.package import EXTRACTION_SUFFIX
-from pdf_craft.extractor.chapter.chapter import ParagraphLayout, decode, encode
+from pdf_craft.extractor.chapter.chapter import (
+    SourceTextFragment, TextFlowItem, decode, encode,
+)
 from pdf_craft.transformer.protocol import ChapterTransformer
 from pdf_craft.transformer.events import TranslationEvent, TranslationEventKind, TranslationItemKind
 from pdf_craft.transformer.xml_translator.segment import search_text_segments
@@ -109,9 +111,9 @@ class ChapterExtractionTransformer:
         for path, chapter, item_id, character_count in chapter_tasks:
             source_layouts = {
                 identity: layout
-                for layout in chapter.layouts
-                if isinstance(layout, ParagraphLayout)
-                and layout.ref in {"text", "sub_title"}
+                for layout in chapter.flow_items
+                if isinstance(layout, TextFlowItem)
+                and layout.role in {"body", "heading"}
                 and (identity := paragraph_identity(chapter, layout)) is not None
             }
             is_xml_transformer = isinstance(self.chapter_transformer, ChapterXMLTransformer)
@@ -137,8 +139,8 @@ class ChapterExtractionTransformer:
             save_xml(encode(transformed), path)
             targets = {
                 identity: layout
-                for layout in transformed.layouts
-                if isinstance(layout, ParagraphLayout)
+                for layout in transformed.flow_items
+                if isinstance(layout, TextFlowItem)
                 and (identity := paragraph_identity(transformed, layout)) is not None
             }
             for identity in source_layouts:
@@ -241,10 +243,11 @@ def _copy_extraction_to_workspace(
                 copy2(source, output_path / source.name)
 
 
-def _has_visible_content(layout: ParagraphLayout) -> bool:
+def _has_visible_content(layout: TextFlowItem) -> bool:
     """Return whether a transformed PDF paragraph still has drawable content."""
     return any(
         bool(str(item).strip())
-        for block in layout.blocks
-        for item in block.content
+        for fragment in layout.children
+        if isinstance(fragment, SourceTextFragment)
+        for item in fragment.content
     )

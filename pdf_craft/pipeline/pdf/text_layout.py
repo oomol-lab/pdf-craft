@@ -52,7 +52,7 @@ _GENERAL_FONT_CANDIDATES = (
 
 @dataclass(frozen=True)
 class PatchTextStyle:
-    """Font and paragraph settings for one semantic ParagraphLayout level."""
+    """Font and paragraph settings for one semantic TextFlowItem level."""
 
     # ``None`` (or an empty string supplied by a caller) asks the filler to
     # select one installed family once for the entire patch run.
@@ -74,11 +74,11 @@ class PatchTextStyle:
 
 @dataclass(frozen=True)
 class PatchTextOptions:
-    """Default style plus overrides keyed by ParagraphLayout semantic level.
+    """Default style plus overrides keyed by TextFlowItem semantic level.
 
     The scalar fields retain the previous one-style API. ``styles`` may use
-    ``"text"`` / ``"sub_title"`` keys, or the more specific
-    ``"sub_title:2"`` form. An unspecified ``font_name`` selects an installed
+    ``"body"`` / ``"heading"`` keys, or the more specific
+    ``"heading:2"`` form. An unspecified ``font_name`` selects an installed
     local family once per patch run; explicit missing fonts use Qt fallback.
     An unspecified ``max_font_size`` is an automatic fit, while a numeric
     value is a hard ceiling for the affected semantic style.
@@ -99,7 +99,7 @@ class PatchTextOptions:
     headline_fallback_font_size: float | None = None
     render_inline_formulas: bool = True
 
-    def style_for(self, layout_ref: str, layout_level: int) -> PatchTextStyle:
+    def style_for(self, layout_role: str, layout_level: int) -> PatchTextStyle:
         """Resolve the most specific configured semantic text style.
 
         A numeric option-level maximum applies unchanged to every implicit
@@ -107,12 +107,17 @@ class PatchTextOptions:
         bounds used when space permits; they must never silently enlarge a
         user-provided ceiling.
         """
-        specific = self.styles.get(f"{layout_ref}:{layout_level}")
-        if specific is not None:
-            return specific
-        generic = self.styles.get(layout_ref)
-        if generic is not None:
-            return generic
+        layout_role = {"text": "body", "sub_title": "heading"}.get(layout_role, layout_role)
+        legacy_role = {"body": "text", "heading": "sub_title"}.get(layout_role)
+        style_keys = (layout_role,) if legacy_role is None else (layout_role, legacy_role)
+        for key in style_keys:
+            specific = self.styles.get(f"{key}:{layout_level}")
+            if specific is not None:
+                return specific
+        for key in style_keys:
+            generic = self.styles.get(key)
+            if generic is not None:
+                return generic
         default = PatchTextStyle(
             font_name=self.font_name,
             fallback_fonts=self.fallback_fonts,
@@ -127,9 +132,9 @@ class PatchTextOptions:
         )
         return default
 
-    def headline_ratio_for(self, layout_ref: str, layout_level: int) -> float:
+    def headline_ratio_for(self, layout_role: str, layout_level: int) -> float:
         """Return the configured lower-bound ratio for one headline level."""
-        style = self.style_for(layout_ref, layout_level)
+        style = self.style_for(layout_role, layout_level)
         ratio = style.minimum_body_font_ratio
         if ratio is None:
             ratio = self.headline_min_body_ratio
@@ -753,7 +758,7 @@ class QTextParagraphFiller:
         """Draw a headline at its page-level minimum as one natural-width line.
 
         This is deliberately a *second-pass* recovery.  A headline first goes
-        through ordinary ParagraphLayout fitting, just like body text.  Once a
+        through ordinary TextFlowItem fitting, just like body text.  Once a
         page-level body-derived minimum has been established, a headline that
         cannot retain its first-pass line count at that minimum is allowed to
         escape its OCR rectangle from the left/vertical-centre anchor.
@@ -2361,7 +2366,7 @@ class WindowedParagraphPlanner:
             headline_statistics: dict[tuple[int, str, int], list[float]] = {}
             headline_all_statistics: dict[tuple[int, str, int], list[float]] = {}
 
-            # Stage one is deliberately ParagraphLayout-local.  In particular,
+            # Stage one is deliberately TextFlowItem-local.  In particular,
             # headings must not receive a body-derived floor here: that floor
             # is a page-level fact which only exists after every local plan has
             # closed for this window.
@@ -2384,7 +2389,7 @@ class WindowedParagraphPlanner:
                     if not _is_isolated_single_line(replacement, placement):
                         self._record_font_size_statistic(statistics, replacement, placement)
 
-            # Stage two begins only after the preceding local ParagraphLayout
+            # Stage two begins only after the preceding local TextFlowItem
             # loop is complete.  Body normalization establishes the page's
             # typographic reference before headline minima are derived.
             body_targets = self._font_size_targets(body_statistics)
@@ -2612,7 +2617,7 @@ class WindowedParagraphPlanner:
 
 def _is_headline(replacement: PDFReplacement) -> bool:
     """Use semantic chapter metadata, never image appearance, for title roles."""
-    return replacement.layout_ref == "sub_title"
+    return replacement.layout_ref in {"heading", "sub_title"}
 
 
 def _is_isolated_single_line(

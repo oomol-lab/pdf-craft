@@ -12,7 +12,7 @@ from pdf_craft.pipeline.pdf.geometry import PageRectangle
 from pdf_craft.pipeline.pdf.inline_formula import FormulaFragment
 from pdf_craft.pipeline.pdf.pipeline import PDFTranslationPipeline
 from pdf_craft.extractor.chapter.chapter import (
-    AssetLayout, BlockLayout, Chapter, ParagraphLayout, Reference,
+    SourceAsset, SourceTextFragment, Chapter, StandaloneAsset, TextFlowItem, Reference,
 )
 from pdf_craft.pipeline.pdf.text_layout import (
     _LAYOUT_SCALE, _RegionSlotDecision, _choose_automatic_font, _closest_to_aim,
@@ -119,7 +119,7 @@ class TestQTextParagraphFiller(unittest.TestCase):
             {1: (1_000, 500)},
         )
 
-        self.assertEqual(options.style_for("sub_title", 0).max_font_size, 12)
+        self.assertEqual(options.style_for("heading", 0).max_font_size, 12)
         self.assertEqual(fitted.font_size, 12)
 
     def test_converges_within_fixed_float_tolerance_and_keeps_successful_side(self):
@@ -251,9 +251,9 @@ class TestQTextParagraphFiller(unittest.TestCase):
         chapter = Chapter(
             id=1,
             level=0,
-            layouts=[
-                ParagraphLayout("text", 0, [BlockLayout(1, 0, (0, 0, 100, 10), ["body"])]),
-                AssetLayout(1, "image", (0, 14, 100, 30), [], [], [], None),
+            flow_items=[
+                TextFlowItem("body", 0, [SourceTextFragment(1, 0, (0, 0, 100, 10), ["body"])]),
+                StandaloneAsset(SourceAsset(1, "image", (0, 14, 100, 30), [], [], [], None)),
             ],
         )
 
@@ -266,17 +266,17 @@ class TestQTextParagraphFiller(unittest.TestCase):
 
     def test_reference_footnote_filters_single_bbox_tight_overflow(self):
         """Reference layouts are obstacles even though they are not chapter body layouts."""
-        footnote = ParagraphLayout(
-            "text", 0, [BlockLayout(1, 1, (0, 14, 100, 30), ["footnote"])],
+        footnote = TextFlowItem(
+            "body", 0, [SourceTextFragment(1, 1, (0, 14, 100, 30), ["footnote"])],
         )
         reference = Reference(1, 1, "①", [footnote])
         chapter = Chapter(
             id=1,
             level=0,
-            layouts=[
-                ParagraphLayout(
-                    "text", 0,
-                    [BlockLayout(1, 0, (0, 0, 100, 10), ["body", reference])],
+            flow_items=[
+                TextFlowItem(
+                    "body", 0,
+                    [SourceTextFragment(1, 0, (0, 0, 100, 10), ["body", reference])],
                 ),
             ],
         )
@@ -430,7 +430,7 @@ class TestQTextParagraphFiller(unittest.TestCase):
         # multi-box planner directly: it is the unit responsible for filtering
         # the symmetric guard violation.
         style = filler._resolve_font(  # pylint: disable=protected-access
-            filler.options.style_for("text", 0), replacement.text,
+            filler.options.style_for("body", 0), replacement.text,
         )
         filler._layout_obstacles = {  # pylint: disable=protected-access
             1: tuple(PageRectangle(*item.bbox) for item in (source, above, below)),

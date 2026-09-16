@@ -51,7 +51,7 @@ def render_markdown_file(
                 f.write("\n\n")
 
             for part in render_layouts(
-                layouts=chapter.layouts,
+                flow_items=chapter.flow_items,
                 assets_path=assets_path,
                 output_assets_path=assets_destination,
                 asset_ref_path=assets_ref_path,
@@ -90,7 +90,7 @@ def _render_footnotes_section(
         yield "\n\n"
         yield f"[^{i}]:  "
         yield from render_layouts(
-            layouts=ref.layouts,
+            flow_items=ref.flow_items,
             assets_path=assets_path,
             output_assets_path=output_assets_path,
             toc_level=0,

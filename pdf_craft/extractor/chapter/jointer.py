@@ -7,7 +7,7 @@ from ...expression import ExpressionKind, ParsedItem, parse_latex_expressions
 from ...language import is_latin_letter
 from ...markdown.paragraph import parse_raw_markdown
 from ...pdf import TITLE_TAGS, PageLayout
-from .chapter import AssetLayout, BlockLayout, InlineExpression, ParagraphLayout
+from .chapter import SourceAsset, SourceTextFragment, InlineExpression, TextFlowItem
 from .content import Content, expand_text_in_content, first, last
 from .mergeable import LINK_FLAGS, check_mergeable
 from .reading_serials import split_reading_serials
@@ -36,8 +36,8 @@ _LATEX_PLACEHOLDER_MARKER = "\uE000PDF_CRAFT_LATEX"
 
 @dataclass
 class _LastTail:
-    page_para: ParagraphLayout
-    override: list[AssetLayout]
+    page_para: TextFlowItem
+    override: list[SourceAsset]
 
 
 @dataclass
@@ -54,14 +54,14 @@ class _AssetHolder:
 @dataclass
 class _PendingParagraph:
     source: PageLayout
-    paragraph: ParagraphLayout
+    paragraph: TextFlowItem
 
 
 class Jointer:
     def __init__(self, layouts: Iterable[tuple[int, list[PageLayout]]]) -> None:
         self._layouts = layouts
 
-    def execute(self) -> Generator[ParagraphLayout | AssetLayout, None, None]:
+    def execute(self) -> Generator[TextFlowItem | SourceAsset, None, None]:
         last_tail: _LastTail | None = None
 
         for page_index, raw_layouts in self._iter_layout_serials():
@@ -80,11 +80,22 @@ class Jointer:
                     yield from tail
                 continue
 
-            first_layout = cast(ParagraphLayout, body[0])
+            first_layout = cast(TextFlowItem, body[0])
+            # A trailing asset belongs between the preceding page's text and
+            # this page's first text.  Never merge across it: formulas are a
+            # hard flow boundary, and images/tables must remain available to
+            # the later conservative FlowItem anchor assembler.
+            if last_tail and last_tail.override:
+                _normalize_paragraph_content(last_tail.page_para)
+                yield last_tail.page_para
+                yield from last_tail.override
+                last_tail = None
             if last_tail and self._can_merge_paragraphs(
                 last_tail.page_para, first_layout
             ):
-                last_tail.page_para.blocks.extend(first_layout.blocks)
+                # ``blocks`` is a compatibility projection.  Extend the real
+                # ordered v3 children so cross-page source fragments survive.
+                last_tail.page_para.children.extend(first_layout.children)
                 del body[0]
 
             if not body:
@@ -108,7 +119,7 @@ class Jointer:
                 yield body[i]
 
             last_tail = _LastTail(
-                page_para=cast(ParagraphLayout, body[-1]),
+                page_para=cast(TextFlowItem, body[-1]),
                 override=list(tail),
             )
 
@@ -124,12 +135,12 @@ class Jointer:
             for layouts in split_reading_serials(raw_layouts):
                 yield page_index, layouts
 
-    def _split_layouts(self, layouts: list[ParagraphLayout | AssetLayout]):
-        head: list[AssetLayout] = []
-        tail: list[AssetLayout] = []
+    def _split_layouts(self, layouts: list[TextFlowItem | SourceAsset]):
+        head: list[SourceAsset] = []
+        tail: list[SourceAsset] = []
 
         for layout in layouts:
-            if isinstance(layout, ParagraphLayout):
+            if isinstance(layout, TextFlowItem):
                 break
             head.append(layout)
 
@@ -137,7 +148,7 @@ class Jointer:
             if i < len(head):
                 break
             layout = layouts[i]
-            if isinstance(layout, ParagraphLayout):
+            if isinstance(layout, TextFlowItem):
                 break
             tail.append(layout)
 
@@ -148,7 +159,7 @@ class Jointer:
 
     def _join_and_handle_asset_layouts(
         self, page_index, layouts: list[PageLayout]
-    ) -> Generator[ParagraphLayout | AssetLayout, None, None]:
+    ) -> Generator[TextFlowItem | SourceAsset, None, None]:
         # layout 可能被后续处理，必须等待所有 layout 处理完毕
         for layout in list(
             self._join_asset_layouts(
@@ -165,14 +176,14 @@ class Jointer:
             if layout.ref == "table":
                 _normalize_table(layout)
 
-            yield AssetLayout(
+            yield SourceAsset(
                 page_index=page_index,
-                ref=layout.ref,
-                det=layout.det,
+                ref="formula" if layout.ref == "equation" else layout.ref,
+                bbox=layout.det,
                 title=_parse_block_content(layout.title),
                 content=_parse_block_content(layout.content),
                 caption=_parse_block_content(layout.caption),
-                hash=layout.hash,
+                asset_hash=layout.hash,
             )
 
     def _join_asset_layouts(self, page_index, layouts: list[PageLayout]):
@@ -244,14 +255,14 @@ class Jointer:
                     # 将 Markdown 标题前的 `##` 之类的符号删除，DeepSeek OCR 总会生成这种符号
                     layout.text = _MARKDOWN_HEAD_PATTERN.sub("", layout.text)
 
-                paragraph = ParagraphLayout(
-                    ref=layout.ref,
+                paragraph = TextFlowItem(
+                    role="heading" if layout.ref in TITLE_TAGS else "body",
                     level=-1,
-                    blocks=[
-                        BlockLayout(
+                    children=[
+                        SourceTextFragment(
                             page_index=page_index,
-                            order=layout.order,
-                            det=layout.det,
+                            source_order=layout.order,
+                            bbox=layout.det,
                             content=_parse_block_content(layout.text),
                         )
                     ],
@@ -270,15 +281,17 @@ class Jointer:
             yield pending
 
     def _can_merge_paragraphs(
-        self, para1: ParagraphLayout, para2: ParagraphLayout
+        self, para1: TextFlowItem, para2: TextFlowItem
     ) -> bool:
-        if para1.ref != "text":
+        if para1.role != "body":
             return False
-        if para1.ref != para2.ref:
+        if para1.role != para2.role:
             return False
 
-        block1 = para1.blocks[-1]
-        block2 = para2.blocks[0]
+        block1 = para1.children[-1]
+        block2 = para2.children[0]
+        if not isinstance(block1, SourceTextFragment) or not isinstance(block2, SourceTextFragment):
+            return False
 
         return check_mergeable(block1.content, block2.content)
 
@@ -457,13 +470,13 @@ def _height(det) -> int:
 
 
 # 将单词的连接符 `-` 删去，并将后半节单词移到前面一段拼接
-def _normalize_paragraph_content(paragraph: ParagraphLayout):
-    if len(paragraph.blocks) < 2:
+def _normalize_paragraph_content(paragraph: TextFlowItem):
+    if len(paragraph.children) < 2:
         return
 
-    for i in range(1, len(paragraph.blocks)):
-        block1 = paragraph.blocks[i - 1]
-        block2 = paragraph.blocks[i]
+    for i in range(1, len(paragraph.children)):
+        block1 = paragraph.children[i - 1]
+        block2 = paragraph.children[i]
 
         text1 = last(block1.content)
         text2 = first(block2.content)
@@ -488,7 +501,10 @@ def _normalize_paragraph_content(paragraph: ParagraphLayout):
             del block2.content[0]
 
     # 极端情况下 block2 会因为单词被移走而被清空。此时要将其整个删去。
-    paragraph.blocks = [block for block in paragraph.blocks if block.content]
+    paragraph.children = [
+        child for child in paragraph.children
+        if not isinstance(child, SourceTextFragment) or child.content
+    ]
 
 
 def _parse_block_content(text: str | None) -> Content:

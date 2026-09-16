@@ -1,4 +1,7 @@
-from .chapter import AssetLayout, Chapter, ParagraphLayout, search_references_in_chapter
+from .chapter import (
+    Chapter, SourceAsset, SourceTextFragment, TextFlowItem,
+    search_references_in_chapter,
+)
 from .content import Content, expand_text_in_content
 
 _LEFT_ONLY_ASCII_TO_FULLWIDTH = {
@@ -15,20 +18,26 @@ _BOTH_SIDES_ASCII_TO_FULLWIDTH = {
 
 # to fix https://github.com/oomol-lab/pdf-craft/issues/310
 def normalize_punctuation_in_chapter(chapter: Chapter) -> Chapter:
-    _normalize_layouts(chapter.layouts)
+    _normalize_flow_items(chapter.flow_items)
     for ref in search_references_in_chapter(chapter):
-        _normalize_layouts(ref.layouts)
+        _normalize_flow_items(ref.flow_items)
     return chapter
 
 
-def _normalize_layouts(layouts: list[ParagraphLayout | AssetLayout]) -> None:
-    for layout in layouts:
-        if isinstance(layout, ParagraphLayout):
-            for block in layout.blocks:
-                _normalize_content(block.content)
-        elif isinstance(layout, AssetLayout):
-            _normalize_content(layout.title)
-            _normalize_content(layout.caption)
+def _normalize_flow_items(items) -> None:
+    for item in items:
+        if isinstance(item, TextFlowItem):
+            for child in item.children:
+                if isinstance(child, SourceTextFragment):
+                    _normalize_content(child.content)
+                else:
+                    _normalize_content(child.title)
+                    _normalize_content(child.content)
+                    _normalize_content(child.caption)
+        else:
+            asset: SourceAsset = item.asset
+            _normalize_content(asset.title)
+            _normalize_content(asset.caption)
 
 
 def _normalize_content(content: Content) -> None:
