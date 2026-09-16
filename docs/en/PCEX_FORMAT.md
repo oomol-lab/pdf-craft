@@ -100,8 +100,8 @@ The archive root and its two subdirectories may not contain members other than t
 | `assets/` | Yes | Content-addressed PNG files | Markdown and EPUB renderers |
 | `toc.xml` | No | TOC tree and printed-TOC pages | EPUB renderer and chapter relationships |
 | `cover.png` | No | Cover image | Markdown and EPUB renderers |
-| `furnitures.xml` | No | Page-furniture patterns and page-local sections | Furniture translation and future PDF patching |
-| `translation.xml` | No | `translated` / `preserved` coverage for Narrative, furniture, and image/table text units | Future PDF patching and renderers |
+| `furnitures.xml` | No | Page-furniture patterns and page-local sections | Furniture translation and PDF patching |
+| `translation.xml` | No | `translated` / `preserved` coverage for Narrative, furniture, and image/table text units | Translation stages and PDF patching |
 
 JSON and XML written by pdf-craft use UTF-8. XML files include an `<?xml version="1.0" encoding="UTF-8"?>` declaration. Paths inside the ZIP use `/` as their separator.
 
