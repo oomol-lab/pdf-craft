@@ -721,6 +721,15 @@ class TestParseLineContent(unittest.TestCase):
         self.assertEqual(expression.content, "x<y")
 
 
+def test_cross_page_equation_remains_between_text_runs():
+    result = list(Jointer([
+        (1, [_page_layout("text", (0, 0, 10, 10), "before"), _page_layout("equation", (0, 12, 10, 20), "x^2")]),
+        (2, [_page_layout("text", (0, 0, 10, 10), "after.")]),
+    ]).execute())
+    assert [type(item) for item in result] == [ParagraphLayout, AssetLayout, ParagraphLayout]
+    assert result[1].ref == "formula"
+
+
 def _page_layout(
     ref: str,
     det: tuple[int, int, int, int],

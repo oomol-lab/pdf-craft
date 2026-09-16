@@ -81,6 +81,15 @@ class Jointer:
                 continue
 
             first_layout = cast(ParagraphLayout, body[0])
+            # A trailing asset belongs between the preceding page's text and
+            # this page's first text.  Never merge across it: formulas are a
+            # hard flow boundary, and images/tables must remain available to
+            # the later conservative FlowItem anchor assembler.
+            if last_tail and last_tail.override:
+                _normalize_paragraph_content(last_tail.page_para)
+                yield last_tail.page_para
+                yield from last_tail.override
+                last_tail = None
             if last_tail and self._can_merge_paragraphs(
                 last_tail.page_para, first_layout
             ):

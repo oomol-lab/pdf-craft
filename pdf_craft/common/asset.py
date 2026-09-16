@@ -6,7 +6,9 @@ from typing import Literal
 from PIL import Image
 
 AssetRef = Literal["image", "table", "formula", "equation"]
-ASSET_TAGS: tuple[AssetRef, ...] = ("image", "table", "formula")
+# ``equation`` is an OCR/PageLayout input category.  PCEX v3 normalizes it to
+# ``formula`` before encoding; strict v3 XML decoding rejects equation.
+ASSET_TAGS: tuple[AssetRef, ...] = ("image", "table", "formula", "equation")
 
 
 class AssetHub:
