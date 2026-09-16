@@ -51,6 +51,15 @@ mixed text、`inline_expr`、脚注引用和允许的 HTML 包装元素。图片
 可选 64 位小写十六进制 `asset_hash` 与 `title`、`content`、`caption`；`asset_hash` 对应
 `assets/<hash>.png`。`display-formula` 是阅读流边界，不是 anchored asset。
 
+### Anchored asset 的重排渲染
+
+嵌在 `<text>` 内的 asset 记录的是它在一个作者逻辑自然段中的阅读位置，并不要求渲染器复刻
+固定纸面上的 PDF 几何。Markdown 总是按照记录的顺序把图片/表格作为普通块输出，必要时拆开
+物理 Markdown 段落。EPUB 默认也如此。只有小型图片同时满足严格几何证据时，EPUB 才会尝试
+左右浮动：它前后的两个 fragment 必须同页、明显位于图片的另一侧、与图片纵向重叠且明显更宽。
+表格永不浮动。阅读器忽略 float 或处于窄屏时，仍会按相同顺序退化为块级阅读。段落公式是独立
+阅读流节点，绝不进入该浮动路径。
+
 ## 快速索引
 
 一个规范归档具有以下结构：
