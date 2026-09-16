@@ -72,6 +72,10 @@ def _parser() -> argparse.ArgumentParser:
     translate.add_argument("target_language")
     translate.add_argument("--format", choices=("markdown", "epub", "pdf"), default="pdf")
     translate.add_argument("--output", type=Path, help="translated file; defaults inside --work-dir")
+    translate.add_argument(
+        "--with-furniture", action="store_true",
+        help="translate native page furniture when producing a PDF",
+    )
     _add_translation_options(translate)
     _add_extraction_options(translate)
     translate.set_defaults(handler=_translate_pdf)
@@ -86,6 +90,10 @@ def _parser() -> argparse.ArgumentParser:
     package_translate.add_argument("--output-package", type=Path)
     _add_work_dir(package_translate, "isolated run directory")
     _add_translation_options(package_translate)
+    package_translate.add_argument(
+        "--with-furniture", action="store_true",
+        help="translate furniture already present in the package",
+    )
     package_translate.set_defaults(handler=_translate_package)
 
     package_patch = package_commands.add_parser(
@@ -166,7 +174,6 @@ def _add_extraction_options(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--max-ocr-output-tokens", type=int)
     parser.add_argument("--cover", action="store_true")
     parser.add_argument("--footnotes", action="store_true")
-    parser.add_argument("--furniture", action="store_true", help="extract native page furniture")
     parser.add_argument("--plot", action="store_true")
     parser.add_argument("--toc-assumed", action="store_true")
     parser.add_argument("--toc-llm", metavar="PROFILE", help="optional LLM profile for TOC hierarchy analysis")
@@ -210,14 +217,14 @@ def _add_smoke_options(parser: argparse.ArgumentParser) -> None:
 
 def _extract_pdf(args: argparse.Namespace) -> None:
     work_dir = _work_dir(args.source, args.work_dir, "extract")
-    result = _extract(args, work_dir / "book.pcex")
+    result = _extract(args, work_dir / "book.pcex", includes_furniture=True)
     print(f"Extraction: {result.path}")
     _print_metering(result.metering)
 
 
 def _convert_pdf(args: argparse.Namespace) -> None:
     work_dir = _work_dir(args.source, args.work_dir, "convert")
-    result = _extract(args, work_dir / "book.pcex")
+    result = _extract(args, work_dir / "book.pcex", includes_furniture=False)
     output = args.output or work_dir / ("book.md" if args.format == "markdown" else "book.epub")
     output.parent.mkdir(parents=True, exist_ok=True)
     _render(result.craft, result.extraction, args.format, output)
@@ -229,13 +236,19 @@ def _convert_pdf(args: argparse.Namespace) -> None:
 def _translate_pdf(args: argparse.Namespace) -> None:
     if args.format == "pdf" and args.submit != "replace":
         raise SystemExit("PDF output supports only --submit replace")
+    if args.with_furniture and args.format != "pdf":
+        raise SystemExit("--with-furniture is supported only with --format pdf")
     work_dir = _work_dir(args.source, args.work_dir, "translate")
-    result = _extract(args, work_dir / "book.pcex")
+    with_furniture = args.format == "pdf" and args.with_furniture
+    result = _extract(args, work_dir / "book.pcex", includes_furniture=with_furniture)
     transformer = _xml_transformer(args, work_dir)
     if args.format == "pdf":
         output = args.output or work_dir / f"{args.source.stem}-{args.target_language}.pdf"
         output.parent.mkdir(parents=True, exist_ok=True)
-        result.craft.translate_pdf(args.source, result.extraction, output, transformer)
+        result.craft.translate_pdf(
+            args.source, result.extraction, output, transformer,
+            with_furniture=with_furniture,
+        )
     else:
         mode = SubmitKind[args.submit.replace("-", "_").upper()]
         translated = result.craft.translate_extraction(
@@ -258,6 +271,7 @@ def _translate_package(args: argparse.Namespace) -> None:
     mode = SubmitKind[args.submit.replace("-", "_").upper()]
     PDFCraft().translate_extraction(
         extraction, output_package, transformer, submit=mode,
+        with_furniture=args.with_furniture,
     )
     print(f"Extraction: {output_package}")
 
@@ -428,19 +442,27 @@ def _resolve_translation_profiles(translation: dict[str, Any] | None, output_roo
     return resolved
 
 
-def _extract(args: argparse.Namespace, extraction_path: Path) -> _ExtractionResult:
+def _extract(
+    args: argparse.Namespace,
+    extraction_path: Path,
+    *,
+    includes_furniture: bool,
+) -> _ExtractionResult:
     load_project_env(_project_root())
     ocr_mode = cast(OCRMode | None, args.ocr_mode) or ocr_mode_from_env()
     ocr_size = _resolve_ocr_size(args.ocr_size, ocr_mode, args.default_ocr_size)
     _validate_ocr_size(ocr_mode, ocr_size)
-    _record_pdf_cache_owner(extraction_path.parent, args, ocr_mode, ocr_size)
+    _record_pdf_cache_owner(
+        extraction_path.parent, args, ocr_mode, ocr_size, includes_furniture=includes_furniture,
+    )
     craft = PDFCraft(pdf=PDFOptions(ocr=create_ocr_config_from_env(ocr_mode)))
     extraction, metering = craft.extract_pdf_with_metering(
         args.source, extraction_path, ExtractionOptions(
             page_indexes=_page_indexes(args.pages), ocr_size=cast(Any, ocr_size), dpi=args.dpi,
             max_page_image_file_size=args.max_page_image_file_size,
             max_ocr_tokens=args.max_ocr_tokens, max_ocr_output_tokens=args.max_ocr_output_tokens,
-            includes_cover=args.cover, includes_footnotes=args.footnotes, includes_furniture=getattr(args, "furniture", False),
+            includes_cover=args.cover, includes_footnotes=args.footnotes,
+            includes_furniture=includes_furniture,
             extract_book_metadata=args.book_metadata,
             metadata_llm=(create_llm_from_env(args.metadata_llm, cache_path=extraction_path.parent / "metadata-cache",
                 log_dir_path=extraction_path.parent / "metadata-logs") if args.metadata_llm else None),
@@ -491,6 +513,8 @@ def _record_pdf_cache_owner(
     args: argparse.Namespace,
     ocr_mode: OCRMode,
     ocr_size: str,
+    *,
+    includes_furniture: bool = True,
 ) -> None:
     """Guard manual PDF work-dir reuse so OCR caches stay tied to one source/backend."""
     path = work_dir / ".pdf-craft-tool-run.json"
@@ -506,7 +530,7 @@ def _record_pdf_cache_owner(
         "dpi": args.dpi,
         "max_page_image_file_size": args.max_page_image_file_size,
         "includes_footnotes": args.footnotes,
-        "includes_furniture": getattr(args, "furniture", False),
+        "includes_furniture": includes_furniture,
         "max_ocr_tokens": args.max_ocr_tokens,
         "max_ocr_output_tokens": args.max_ocr_output_tokens,
     }

@@ -10,14 +10,14 @@ from PIL import Image
 from epub_generator import BookMeta
 
 from pdf_craft.error import NoUsableOCRPagesError, OCRError
-from pdf_craft.craft import PDFCraft
 from pdf_craft.extractor import PDFExtractor
 from pdf_craft.pipeline.pdf.pipeline import PDFTranslationPipeline
 from pdf_craft.pipeline.pdf import PDFPatcher
 from pdf_craft.transformer import (
     ChapterExtractionTransformer, ChapterXMLTransformer,
-    FurnitureXMLTransformer,
 )
+from pdf_craft.transformer.furniture_xml import FurnitureXMLTransformer
+from pdf_craft.transformer.package import FurnitureExtractionTransformer
 from pdf_craft.renderer import EpubRenderer, MarkdownRenderer
 from pdf_craft.extractor.chapter.chapter import SourceAsset, SourceTextFragment, Chapter, TextFlowItem, encode
 from pdf_craft.common import save_xml
@@ -210,10 +210,11 @@ class TestComposableBoundaries(unittest.TestCase):
                 "</pages></furnitures>",
                 encoding="utf-8",
             )
-            translated = PDFCraft().translate_furnitures(
+            translated = FurnitureExtractionTransformer(
+                FurnitureXMLTransformer(_DeterministicXMLTranslator())
+            ).transform(
                 extraction,
                 root / "translated.pcex",
-                FurnitureXMLTransformer(_DeterministicXMLTranslator()),
             )
             capture = _CapturePatcher()
 

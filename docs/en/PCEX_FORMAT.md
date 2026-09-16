@@ -194,13 +194,11 @@ craft.render_markdown("book.pcex", "book.md", assets_path="book-assets")
 craft.render_epub("book.pcex", "book.epub")
 
 translated = craft.translate_extraction(
-    "book.pcex", "book.zh.pcex", translator
+    "book.pcex", "book.zh.pcex", translator, with_furniture=True
 )
 ```
 
-`translate_extraction()` creates a new `.pcex`. It preserves the source archive's manifest, page geometry, TOC, cover, and assets, and rewrites only the chapter XML processed by the transformer. The output path must end in `.pcex` and must not already exist.
-
-When an extraction contains `furnitures.xml`, `translate_furnitures()` is the distinct follow-up operation for that page-oriented content. It resolves furniture linked by `toc_id` from translated NarrativeFlow headings, translates reusable pattern positions once and unbound sections in page scope, and records patch eligibility in `translation.xml`. It is intentionally not part of `translate_extraction()` or the EPUB, Markdown, and PDF convenience workflows.
+`translate_extraction()` creates a new `.pcex`. It preserves the source archive's manifest, page geometry, TOC, cover, and assets, and rewrites the chapter XML processed by the transformer. The output path must end in `.pcex` and must not already exist. Its `with_furniture` argument defaults to `False`; when `True` it requires `ChapterXMLTransformer` and, if the source contains `furnitures.xml`, the same operation first translates NarrativeFlow, then resolves furniture linked by `toc_id`, translates reusable pattern positions once and unbound sections in page scope, and records patch eligibility in `translation.xml`. A package without `furnitures.xml` safely remains Narrative-only.
 
 `translate_extraction()` treats an image/table asset nested in `<text>` as an
 opaque, self-closing anchor. Its title, content, and caption are not included

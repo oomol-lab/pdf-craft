@@ -71,7 +71,7 @@ class PDFExtractionEngine:
         max_output_tokens: int | None,
         on_ocr_event: Callable[[OCREvent], None],
         page_indexes: Container[int] | None = None,
-        includes_furniture: bool = False,
+        includes_furniture: bool = True,
         extract_book_metadata: bool = False,
         metadata_llm: LLM | None = None,
     ):

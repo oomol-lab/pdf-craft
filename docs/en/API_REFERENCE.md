@@ -31,14 +31,13 @@ The two `convert_pdf_to_*` methods use a directory-backed extraction inside thei
 
 | Method | Signature and purpose |
 | --- | --- |
-| `translate_extraction` | `translate_extraction(extraction, output_path, translator, *, submit=SubmitKind.REPLACE, on_translation_event=None) -> PDFCraftExtraction` translates a `.pcex` into a new `.pcex`. |
-| `translate_furnitures` | `translate_furnitures(extraction, output_path, transformer) -> PDFCraftExtraction` applies the separate template/page-furniture translation stage to an already NarrativeFlow-translated `.pcex`. It is not composed automatically by EPUB, Markdown, or PDF workflows. |
+| `translate_extraction` | `translate_extraction(extraction, output_path, translator, *, submit=SubmitKind.REPLACE, with_furniture=False, on_translation_event=None) -> PDFCraftExtraction` translates a `.pcex` into a new `.pcex`; `with_furniture=True` also translates its existing page furniture. |
 | `translate_anchored_contents` | `translate_anchored_contents(extraction, output_path, transformer) -> PDFCraftExtraction` applies the separate image/table text translation stage. It is not composed automatically by EPUB, Markdown, or PDF workflows. |
-| `translate_pdf` | `translate_pdf(source, extraction, output, transformer, *, on_translation_event=None, ignore_errors=False)` translates a PCEX through a structured chapter transformer, then patches it onto the source PDF. |
+| `translate_pdf` | `translate_pdf(source, extraction, output, transformer, *, with_furniture=False, on_translation_event=None, ignore_errors=False)` translates a PCEX through a structured chapter transformer, then patches it onto the source PDF. |
 | `patch_pdf_with_extraction` | `patch_pdf_with_extraction(source, extraction, output, *, ignore_errors=False)` patches a source PDF from a `PDFCraftExtraction` or `.pcex` path without OCR or LLM calls. |
 | `translate_epub` | `translate_epub(source, output, *, target_language, submit, **options)` translates an existing EPUB. See [EPUB translation](EPUB_TRANSLATION.md) for its options. |
 
-`translate_pdf` and `patch_pdf_with_extraction` require extraction page geometry that matches the source PDF. PDF patching rejects `SubmitKind.APPEND_BLOCK`.
+`with_furniture` belongs to translation, not extraction. When enabled, it translates page furniture already present in the PCEX and includes it in PDF patching. It does not re-run OCR and requires the structured `ChapterXMLTransformer` adapter. `translate_pdf` and `patch_pdf_with_extraction` require extraction page geometry that matches the source PDF. PDF patching rejects `SubmitKind.APPEND_BLOCK`.
 
 Set `ignore_errors=True` to preserve a page's non-interactive visual base when that page's fill transaction fails, then continue with later pages. The default remains fail-fast. `ignore_errors` may instead be a `Callable[[Exception], bool]` that chooses whether each page-scoped exception may fall back. If every page scheduled for fill falls back, `NoUsableFillPagesError` is raised and no output is written. This recovery scope intentionally covers ordinary page-level exceptions, including unexpected fill bugs; it does not recover a source PDF that cannot be opened, enumerated, or compiled into a visual base. Enable it only when an untranslated visual-base page beside successfully translated pages is an acceptable result.
 
@@ -94,7 +93,7 @@ extraction; they do not fall back to an analysis/OCR directory.
 | `max_ocr_output_tokens` | `None` | Cumulative OCR output-token budget. |
 | `includes_cover` | `False` | Retain a recognized cover image. |
 | `includes_footnotes` | `False` | Request and retain footnotes. |
-| `includes_furniture` | `False` | Extract native page furniture for PDF translation. |
+| `includes_furniture` | `True` | Include native page furniture in the extracted PCEX as `furnitures.xml`; it does not translate it. |
 | `extract_book_metadata` | `False` | Extract bibliographic metadata from the first OCR pages. |
 | `metadata_llm` | `None` | Required LLM for `extract_book_metadata=True`; it is independent of `toc_llm`. |
 | `generate_plot` | `False` | Generate plot diagnostics in the analysis workspace (not in `.pcex`). |

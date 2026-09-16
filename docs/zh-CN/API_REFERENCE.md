@@ -110,7 +110,7 @@ ExtractionOptions(
     max_ocr_output_tokens=None,
     includes_cover=False,
     includes_footnotes=False,
-    includes_furniture=False,
+    includes_furniture=True,
     extract_book_metadata=False,
     metadata_llm=None,
     generate_plot=False,
@@ -357,13 +357,16 @@ translated_extraction = craft.translate_extraction(
     "work/translated.pcex",
     ChapterXMLTransformer(xml_translator),
     submit=SubmitKind.REPLACE,
+    with_furniture=True,
 )
 ```
 
-若要翻译已提取的页眉、页脚等 furniture，使用独立的
-`translate_furnitures(extraction, output_path, transformer)`。它只作用于已经完成 NarrativeFlow
-翻译的 `.pcex`，按模板 position 与页级 section 的不同范围处理内容，并在 `translation.xml`
-记录未来 PDF 回填可覆盖或必须保留的单元；不会自动组合到 EPUB、Markdown 或 PDF 工作流。
+`with_furniture` 属于翻译，而非提取。默认值为 `False`；设为 `True` 时需要使用结构化的
+`ChapterXMLTransformer`，
+`translate_extraction()` 会在同一次 PCEX 翻译中先处理 NarrativeFlow，再处理包中已有的页眉、
+页脚和页码等 furniture。关联 `toc_id` 的 section 会复用已译正文标题，模板 position 仅翻译一次，
+未关联 section 以页为范围翻译，并在 `translation.xml` 记录 PDF 回填是否可覆盖。它不会重新 OCR；
+没有 `furnitures.xml` 的包会安全退化为仅翻译 NarrativeFlow。
 
 `translate_extraction` 不会把图片/表格的 title、content、caption 混入正文 LLM 上下文；只有段内
 asset 以无文本、不可变 anchor 维持前后文本的位置，`StandaloneAsset` 不伪造 anchor。独立 asset 翻译的每个非保留结果都以稳定 identity 绑定来源 slot。若要翻译这些已提取的 asset 文本，请使用

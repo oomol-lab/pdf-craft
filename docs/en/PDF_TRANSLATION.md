@@ -138,6 +138,8 @@ craft.translate_pdf(
     extraction,
     "book.zh.pdf",
     translator,
+    # Also translate running heads, footers, and folios present in the PCEX.
+    with_furniture=True,
     # Keep an unmodified visual-base page if one page's fill fails.
     ignore_errors=True,
 )
@@ -146,6 +148,14 @@ craft.translate_pdf(
 `transformer` is a structured chapter transformer. PDF translation always
 creates a translated PCEX view before it patches the source PDF; text-only
 callback translation is not supported.
+
+`with_furniture` defaults to `False` because page-furniture translation is an
+additional LLM pass. Enable it only with `ChapterXMLTransformer` for a PCEX that
+contains `furnitures.xml`;
+the source PCEX is normally produced with the default
+`ExtractionOptions.includes_furniture=True`. PDF-to-Markdown and PDF-to-EPUB
+workflows explicitly omit furniture because those output formats do not render
+fixed page furniture.
 
 If translation happened elsewhere, call `patch_pdf_with_extraction()` instead. It runs neither OCR nor an LLM; it uses the translated extraction's page geometry to patch the source PDF.
 

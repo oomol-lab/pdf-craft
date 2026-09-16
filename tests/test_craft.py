@@ -13,7 +13,7 @@ from pdf_craft.document import PDFCraftExtraction
 from pdf_craft.extractor import PDFExtractor
 from pdf_craft.extractor.chapter.chapter import SourceTextFragment, Chapter, TextFlowItem, encode
 from pdf_craft.common import save_xml
-from pdf_craft.transformer import ChapterExtractionTransformer, SubmitKind
+from pdf_craft.transformer import ChapterExtractionTransformer, ChapterXMLTransformer, SubmitKind
 from tests.extraction_helpers import make_extraction
 
 
@@ -61,6 +61,14 @@ class _Identity:
         return chapter
 
 
+class _PrefixXMLTranslator:
+    def translate_element(self, task, **_kwargs):
+        for element in task.element.iter():
+            if element.text:
+                element.text = f"translated:{element.text}"
+        return task.element, task.payload
+
+
 class TestPDFCraft(unittest.TestCase):
     def test_translate_extraction_is_the_public_translation_entry(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -82,6 +90,75 @@ class TestPDFCraft(unittest.TestCase):
                     "chapter_id": "head", "page_index": "1", "order": "1", "state": "translated",
                 })
             self.assertFalse(hasattr(PDFCraft, "translate_package"))
+            self.assertFalse(hasattr(PDFCraft, "translate_furnitures"))
+
+    def test_translate_extraction_composes_furniture_only_when_requested(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = _source_extraction(root / "source")
+            (root / "source" / "furnitures.xml").write_text(
+                "<furnitures><patterns><pattern id='1' kind='universal'>"
+                "<position id='0'>Header</position></pattern></patterns><pages>"
+                "<page index='1'><section det='1,6,9,9'><association kind='universal' "
+                "pattern_id='1' position_id='0'/></section></page>"
+                "</pages></furnitures>", encoding="utf-8",
+            )
+            source = PDFCraftExtraction._from_workspace(root / "source").validate()
+            transformer = ChapterXMLTransformer(_PrefixXMLTranslator())
+
+            without = PDFCraft().translate_extraction(
+                source, root / "without.pcex", transformer,
+            )
+            with without._materialize() as paths:
+                self.assertIsNone(fromstring(paths.translation.read_text(encoding="utf-8")).find("furnitures"))
+                self.assertIn("Header", paths.furnitures.read_text(encoding="utf-8"))
+
+            with_furniture = PDFCraft().translate_extraction(
+                source, root / "with.pcex", transformer, with_furniture=True,
+            )
+            with with_furniture._materialize() as paths:
+                self.assertIn("translated:Header", paths.furnitures.read_text(encoding="utf-8"))
+                coverage = fromstring(paths.translation.read_text(encoding="utf-8"))
+                position = coverage.find("furnitures/position")
+                self.assertIsNotNone(position)
+                assert position is not None
+                self.assertEqual(position.get("state"), "translated")
+
+    def test_translate_extraction_with_furniture_without_source_layer_is_safe(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = _source_extraction(root / "source")
+
+            translated = PDFCraft().translate_extraction(
+                source, root / "target.pcex", ChapterXMLTransformer(_PrefixXMLTranslator()),
+                with_furniture=True,
+            )
+
+            with translated._materialize() as paths:
+                self.assertFalse(paths.furnitures.exists())
+                self.assertTrue(paths.translation.exists())
+
+    def test_translate_extraction_requires_xml_adapter_for_furniture(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = _source_extraction(root / "source")
+
+            with self.assertRaisesRegex(ValueError, "requires a ChapterXMLTransformer"):
+                PDFCraft().translate_extraction(
+                    source, root / "target.pcex", _Upper(), with_furniture=True,
+                )
+
+    def test_translate_pdf_forwards_with_furniture(self):
+        with tempfile.TemporaryDirectory() as directory:
+            extraction = _source_extraction(Path(directory) / "source")
+            craft = PDFCraft()
+            with patch.object(craft, "translate_extraction", return_value=extraction) as translate, \
+                    patch.object(craft, "patch_pdf_with_extraction") as patch_pdf:
+                craft.translate_pdf(
+                    "source.pdf", extraction, "target.pdf", _Upper(), with_furniture=True,
+                )
+            self.assertTrue(translate.call_args.kwargs["with_furniture"])
+            patch_pdf.assert_called_once()
 
     def test_patch_pdf_with_extraction_delegates_to_pdf_patch_pipeline(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -178,6 +255,7 @@ class TestPDFCraft(unittest.TestCase):
             assert engine.kwargs is not None
             self.assertEqual(engine.kwargs["page_indexes"], (2, 4))
             self.assertEqual(engine.kwargs["max_tokens"], 12)
+            self.assertTrue(engine.kwargs["includes_furniture"])
             extraction.validate(require_toc=True)
             self.assertTrue((root / "analysis" / "extraction").is_dir())
 
@@ -238,6 +316,19 @@ class TestPDFCraft(unittest.TestCase):
         self.assertEqual(result, "metering")
         assert engine.analysing_path is not None
         self.assertFalse(engine.analysing_path.exists())
+
+    def test_markdown_and_epub_conversion_disable_furniture_extraction(self):
+        for method, output in (("convert_pdf_to_markdown", "book.md"), ("convert_pdf_to_epub", "book.epub")):
+            with self.subTest(method=method):
+                engine = _Engine()
+                craft = PDFCraft.from_engine(engine)
+                with patch.object(craft, "render_markdown"), patch.object(craft, "render_epub"):
+                    getattr(craft, method)(
+                        "source.pdf", output,
+                        extraction=ExtractionOptions(includes_furniture=True),
+                    )
+                assert engine.kwargs is not None
+                self.assertFalse(engine.kwargs["includes_furniture"])
 
     def test_epub_uses_manifest_metadata_without_rereading_source_pdf(self):
         craft = PDFCraft.from_engine(_Engine())
