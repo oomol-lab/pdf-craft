@@ -94,7 +94,7 @@ The archive root and its two subdirectories may not contain members other than t
 
 | Member | Required | Contents | Primary consumers |
 | --- | --- | --- | --- |
-| `manifest.json` | Yes | Version, producer, timestamp, bibliographic metadata, and language | Loader and EPUB renderer |
+| `manifest.json` | Yes | Version, producer, timestamp, bibliographic metadata, and language | Loader, EPUB renderer, and PDF patcher |
 | `pages.xml` | Yes | DPI, page dimensions in pixels, and coordinate system | Validator and PDF patcher |
 | `chapters/` | Yes | Structured chapters and source-PDF positions | Markdown/EPUB renderers, translation, and PDF patching |
 | `assets/` | Yes | Content-addressed PNG files | Markdown and EPUB renderers |
@@ -299,6 +299,8 @@ Automatic metadata extraction never uses a PDF `/ModDate` as a publication date 
 The format does not currently restrict `language` to a fixed set of language codes, but the EPUB renderer supports only `zh` and `en`. During EPUB rendering, an explicit `lan` argument takes precedence, followed by this field, with `zh` as the final default. An explicit `book_meta` overlays the EPUB-ready fields derived from the manifest one by one: non-empty caller values win, while `None`, empty strings, and empty contributor lists retain the manifest value. `BookMeta` cannot express clearing an extracted field.
 
 Book metadata extraction is opt-in. It reads raw front-page OCR with a dedicated LLM, retaining only values with page evidence; native PDF metadata can fill a missing field but cannot replace OCR. When disabled, document metadata remains empty unless supplied through a separate caller path. Translating an extraction does not automatically update the manifest or language.
+
+When patching a PCEX back to PDF, PDF Craft writes `title`, `authors`, `description`, and `subjects` to their standard PDF Info entries. It also retains the complete normalized `document` object as UTF-8 JSON under the stable private Info key `/PDFCraftDocumentMetadata`, so the remaining PCEX metadata is not silently discarded.
 
 ## `pages.xml`
 

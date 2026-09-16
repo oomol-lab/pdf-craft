@@ -132,7 +132,8 @@ craft.convert_pdf_to_epub(
 - `book_meta`：EPUB 的标题、作者、出版社等元数据。省略时只使用 extraction manifest 中的
   内容；默认不会读取源 PDF 的 native metadata，也不会以文件名补全。若要自动抽取，需在
   extraction 中显式设置 `extract_book_metadata=True` 并提供独立 `metadata_llm`：它优先采纳
-  可由前页 OCR 证据验证的结果，native PDF metadata 只能补 OCR 缺失字段。渲染时显式传入的
+  可由前页 OCR 证据验证的结果，native PDF metadata 只能补 OCR 缺失字段。`translate_pdf()` 与
+  `patch_pdf_with_extraction()` 也会把同一份已归一化 metadata 写入输出 PDF。渲染时显式传入的
   `book_meta` 按字段覆盖 manifest；`None`、空字符串和空的贡献者列表表示“不覆盖”，而非清空。
 - `lan`：EPUB 内容语言标记，支持 `"zh"` 和 `"en"`。
 - `table_render`：表格渲染方式，使用 `TableRender.HTML`、`TableRender.CLIPPING` 等
@@ -374,8 +375,9 @@ NarrativeFlow，再翻译包中已有的 furniture，并把覆盖状态写入 `t
 `convert_pdf_to_markdown()` 和 `convert_pdf_to_epub()` 会明确把它覆盖为 `False`，即使调用方传入的
 `ExtractionOptions` 将其设为 `True`，因为 Markdown 和 EPUB 都不渲染固定页面 furniture。
 
-开启 `extract_book_metadata=True` 时必须提供 `metadata_llm`；其前页 OCR 证据、最多读取页数和 native PDF
-metadata 的补全规则见 [API 参考](API_REFERENCE.md#extractionoptions)。
+开启 `extract_book_metadata=True` 时必须提供 `metadata_llm`；其结果会保存在 PCEX 中，并在该 PCEX 回填
+PDF 时写入输出 PDF 的 metadata。其前页 OCR 证据、最多读取页数和 native PDF metadata 的补全规则见
+[API 参考](API_REFERENCE.md#extractionoptions)。
 
 `ExtractionOptions` 同时适用于 Markdown 和 EPUB。`toc_assumed` 的公共默认值始终是
 `False`，包括 `convert_pdf_to_epub`；若你的 PDF 确实包含需要按目录页处理的目录，应显式
