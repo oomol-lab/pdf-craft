@@ -89,8 +89,8 @@ book.pcex                       # ZIP（Deflate 压缩）
 | `assets/` | 是 | 以内容哈希命名的 PNG | Markdown/EPUB 渲染 |
 | `toc.xml` | 否 | 目录树及目录页 | EPUB 渲染、章节关系 |
 | `cover.png` | 否 | 封面图 | Markdown/EPUB 渲染 |
-| `furnitures.xml` | 否 | 页面 furniture 模式与页级 section | furniture 翻译、未来 PDF 写回 |
-| `translation.xml` | 否 | Narrative、furniture、图片/表格文本单元的 `translated` / `preserved` 覆盖状态 | 未来 PDF 写回与渲染 |
+| `furnitures.xml` | 否 | 页面 furniture 模式与页级 section | furniture 翻译、PDF 写回 |
+| `translation.xml` | 否 | Narrative、furniture、图片/表格文本单元的 `translated` / `preserved` 覆盖状态 | 翻译阶段、PDF 写回 |
 
 pdf-craft 写出的 JSON 和 XML 文本均使用 UTF-8；XML 文件带有 `<?xml version="1.0" encoding="UTF-8"?>` 声明。ZIP 内路径统一使用 `/`。
 
@@ -187,7 +187,7 @@ translated = craft.translate_extraction(
 )
 ```
 
-`translate_extraction()` 创建新的 `.pcex`，保留原包的 manifest、页面几何、目录、封面和资源，并重写经过 transformer 处理的章节 XML。输出路径必须以 `.pcex` 结尾且不能已存在。其 `with_furniture` 默认是 `False`；设为 `True` 时需使用 `ChapterXMLTransformer`，且源包包含 `furnitures.xml` 时，同一操作会先翻译 NarrativeFlow，再按 `toc_id` 使用已译正文标题收敛关联 furniture，模板 position 仅翻译一次、未绑定 section 以页为范围翻译，并写入 `translation.xml` 记录未来 PDF 回填是否可覆盖。不含 `furnitures.xml` 的包会安全退化为仅翻译 NarrativeFlow。
+`translate_extraction()` 创建新的 `.pcex`，保留原包的 manifest、页面几何、目录、封面和资源，并重写经过 transformer 处理的章节 XML。输出路径必须以 `.pcex` 结尾且不能已存在。其 `with_furniture` 默认是 `False`；设为 `True` 时需使用 `ChapterXMLTransformer`，且源包包含 `furnitures.xml` 时，同一操作会先翻译 NarrativeFlow，再按 `toc_id` 使用已译正文标题收敛关联 furniture，模板 position 仅翻译一次、未绑定 section 以页为范围翻译，并写入 `translation.xml` 记录后续 PDF 回填是否可覆盖。不含 `furnitures.xml` 的包会安全退化为仅翻译 NarrativeFlow。
 
 `translate_extraction()` 会把嵌在 `<text>` 内的图片/表格 asset 视为不透明、自闭合的 anchor：它们的 title、content、caption
 不会进入 NarrativeFlow 的 LLM 请求，而是以临时、不可变的位置标记维持段落前后关系，并由 XML 修复协议严格校验。`<standalone-asset>`

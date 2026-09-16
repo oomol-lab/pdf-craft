@@ -107,7 +107,7 @@ Use `SubmitKind.REPLACE` for a target-language-only document. `APPEND_TEXT` appe
 
 ## Work explicitly with a PDFCraftExtraction
 
-A `PDFCraftExtraction` is pdf-craft's source-mapped intermediate document. It contains chapters, assets, page geometry, document metadata, and optional TOC and cover. On disk it is exchanged as a `.pcex` ZIP file, so it can be stored or moved to another machine without carrying the analysis/OCR cache.
+A `PDFCraftExtraction` is pdf-craft's source-mapped intermediate document. It contains chapters, assets, page geometry, document metadata, and optional TOC, cover, page furniture, and translation coverage. On disk it is exchanged as a `.pcex` ZIP file, so it can be stored or moved to another machine without carrying the analysis/OCR cache.
 
 Use an explicit `.pcex` when the same extraction must feed more than one output, or when translation is a distinct operation:
 
@@ -225,6 +225,10 @@ options = ExtractionOptions(
 craft.convert_pdf_to_markdown("book.pdf", "sample.md", extraction=options)
 ```
 
-Useful controls include `page_indexes` (one-based page numbers), `dpi`, `ocr_size`, OCR token limits, cover and footnote inclusion, and `on_ocr_event` for per-page observability. `ignore_pdf_errors` and `ignore_ocr_errors` can allow a long document to continue past selected failures, but a completed run still needs output review: skipped pages are not successfully recognized pages.
+Useful controls include `page_indexes` (one-based page numbers), `dpi`, `ocr_size`, OCR token limits, cover and footnote inclusion, and `on_ocr_event` for per-page observability.
+
+`includes_furniture=True` is the default for a direct PDF-to-PCEX extraction: it retains any native-PDF running heads, footers, and folios as `furnitures.xml`, but does not translate them. Scan-only pages can simply have no native furniture to retain. The `convert_pdf_to_markdown()` and `convert_pdf_to_epub()` convenience workflows deliberately override this option to `False`, even if it is set on the supplied `ExtractionOptions`, because neither result renders fixed page furniture.
+
+Set `extract_book_metadata=True` with a separate `metadata_llm` to infer bibliographic metadata from front-page OCR; see [the API reference](API_REFERENCE.md#extractionoptions) for its bounded evidence and fallback policy. `ignore_pdf_errors` and `ignore_ocr_errors` can allow a long document to continue past selected failures, but a completed run still needs output review: skipped pages are not successfully recognized pages.
 
 For errors involving Poppler, cache paths, local CUDA, or vendor credentials, see [Troubleshooting](TROUBLESHOOTING.md).

@@ -37,7 +37,7 @@ The two `convert_pdf_to_*` methods use a directory-backed extraction inside thei
 | `patch_pdf_with_extraction` | `patch_pdf_with_extraction(source, extraction, output, *, ignore_errors=False)` patches a source PDF from a `PDFCraftExtraction` or `.pcex` path without OCR or LLM calls. |
 | `translate_epub` | `translate_epub(source, output, *, target_language, submit, **options)` translates an existing EPUB. See [EPUB translation](EPUB_TRANSLATION.md) for its options. |
 
-`with_furniture` belongs to translation, not extraction. When enabled, it translates page furniture already present in the PCEX and includes it in PDF patching. It does not re-run OCR and requires the structured `ChapterXMLTransformer` adapter. `translate_pdf` and `patch_pdf_with_extraction` require extraction page geometry that matches the source PDF. PDF patching rejects `SubmitKind.APPEND_BLOCK`.
+`with_furniture` belongs to translation, not extraction. When enabled, it translates page furniture already present in the PCEX. `translate_extraction()` persists its coverage for a later PDF patch; `translate_pdf()` then includes it in the PDF patch it produces. It does not re-run OCR and requires the structured `ChapterXMLTransformer` adapter. `translate_pdf` and `patch_pdf_with_extraction` require extraction page geometry that matches the source PDF. PDF patching rejects `SubmitKind.APPEND_BLOCK`.
 
 Set `ignore_errors=True` to preserve a page's non-interactive visual base when that page's fill transaction fails, then continue with later pages. The default remains fail-fast. `ignore_errors` may instead be a `Callable[[Exception], bool]` that chooses whether each page-scoped exception may fall back. If every page scheduled for fill falls back, `NoUsableFillPagesError` is raised and no output is written. This recovery scope intentionally covers ordinary page-level exceptions, including unexpected fill bugs; it does not recover a source PDF that cannot be opened, enumerated, or compiled into a visual base. Enable it only when an untranslated visual-base page beside successfully translated pages is an acceptable result.
 
@@ -56,6 +56,8 @@ chapters/chapter_*.xml
 assets/
 toc.xml        # optional
 cover.png      # optional
+furnitures.xml  # optional
+translation.xml # optional
 ```
 
 `manifest.json` contains the format version, producer, creation time, and document

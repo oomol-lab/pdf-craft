@@ -340,7 +340,10 @@ extraction, metering = craft.extract_pdf_with_metering(
 ### `translate_extraction`
 
 `translate_extraction` 将一个 `.pcex` 中的章节交给章节变换器，并生成另一个 `.pcex`。输出会
-保留 manifest、pages、TOC、封面和 assets；任意变换链不属于公共 API。
+保留 manifest、pages、TOC、封面、assets 及其可选附属成员；任意变换链不属于公共 API。
+`with_furniture=False` 是其翻译选项：设为 `True` 时，需使用 `ChapterXMLTransformer`，同一次操作会先翻译
+NarrativeFlow，再翻译包中已有的 furniture，并把覆盖状态写入 `translation.xml` 供后续 PDF 写回使用。
+它不重新 OCR；没有 `furnitures.xml` 时会安全退化为只翻译 NarrativeFlow。
 
 ## `ExtractionOptions`
 
@@ -355,12 +358,24 @@ extraction, metering = craft.extract_pdf_with_metering(
 | `max_ocr_tokens` / `max_ocr_output_tokens` | `None` | 限制 OCR 请求的 token 数 |
 | `includes_cover` | `False` | 生成封面图片 |
 | `includes_footnotes` | `False` | 提取脚注内容 |
+| `includes_furniture` | `True` | 将 native PDF 的页眉、页脚和页码等页面 furniture 保留为 `furnitures.xml`；不翻译它们 |
+| `extract_book_metadata` | `False` | 从前几页 OCR 提取书目元数据 |
+| `metadata_llm` | `None` | 开启 `extract_book_metadata=True` 时必需的独立 LLM；不复用 `toc_llm` |
 | `generate_plot` | `False` | 生成图表相关资源 |
 | `toc_assumed` | `False` | 是否假定 PDF 中存在目录页 |
 | `toc_llm` | `None` | 使用文本 LLM 辅助分析复杂目录层级 |
 | `ignore_pdf_errors` / `ignore_ocr_errors` | `False` | 按布尔值或 callable 决定是否跳过页面级错误 |
 | `aborted` | 始终返回 `False` 的回调 | 外部中断检查回调 |
 | `on_ocr_event` | 无操作回调 | 接收 OCR 页面事件的回调 |
+
+直接 PDF → PCEX 时，`includes_furniture=True` 是默认行为：它只保留可从 native PDF 文本识别的
+页眉、页脚和页码等 furniture，不会请求翻译；扫描页没有这类 native 文本时可以自然不产生 furniture。
+
+`convert_pdf_to_markdown()` 和 `convert_pdf_to_epub()` 会明确把它覆盖为 `False`，即使调用方传入的
+`ExtractionOptions` 将其设为 `True`，因为 Markdown 和 EPUB 都不渲染固定页面 furniture。
+
+开启 `extract_book_metadata=True` 时必须提供 `metadata_llm`；其前页 OCR 证据、最多读取页数和 native PDF
+metadata 的补全规则见 [API 参考](API_REFERENCE.md#extractionoptions)。
 
 `ExtractionOptions` 同时适用于 Markdown 和 EPUB。`toc_assumed` 的公共默认值始终是
 `False`，包括 `convert_pdf_to_epub`；若你的 PDF 确实包含需要按目录页处理的目录，应显式
