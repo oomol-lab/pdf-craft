@@ -19,7 +19,7 @@ from pdf_craft.transformer import (
     FurnitureXMLTransformer, TranslationEvent, TranslationEventKind,
 )
 from pdf_craft.renderer import EpubRenderer, MarkdownRenderer
-from pdf_craft.extractor.chapter.chapter import BlockLayout, Chapter, InlineExpression, ParagraphLayout, Reference, encode
+from pdf_craft.extractor.chapter.chapter import SourceTextFragment, Chapter, InlineExpression, TextFlowItem, Reference, encode
 from pdf_craft.common import save_xml
 from pdf_craft.expression import ExpressionKind
 from pdf_craft.ocr_config import DeepSeekOCRLocalConfig
@@ -117,8 +117,8 @@ class TestComposableBoundaries(unittest.TestCase):
             root = Path(directory)
             extraction = make_extraction(root / "source", page_pixel_sizes={1: (100, 100)})
             save_xml(encode(Chapter(None, -1, [
-                ParagraphLayout("text", 0, [BlockLayout(1, 1, (1, 1, 90, 30), ["translated"])]),
-                ParagraphLayout("text", 0, [BlockLayout(1, 2, (1, 40, 90, 70), ["preserved"])]),
+                TextFlowItem("body", 0, [SourceTextFragment(1, 1, (1, 1, 90, 30), ["translated"])]),
+                TextFlowItem("body", 0, [SourceTextFragment(1, 2, (1, 40, 90, 70), ["preserved"])]),
             ])), root / "source/chapters/chapter_head.xml")
             (root / "source/translation.xml").write_text(
                 "<translation><narrative><paragraph chapter_id='head' page_index='1' order='1' state='translated'/>"
@@ -202,7 +202,7 @@ class TestComposableBoundaries(unittest.TestCase):
             root = Path(directory)
             extraction = make_extraction(root / "source", page_pixel_sizes={1: (100, 100), 2: (100, 100)})
             save_xml(encode(Chapter(None, -1, [
-                ParagraphLayout("text", 0, [BlockLayout(2, 1, (1, 1, 90, 30), ["Narrative"])]),
+                TextFlowItem("body", 0, [SourceTextFragment(2, 1, (1, 1, 90, 30), ["Narrative"])]),
             ])), root / "source/chapters/chapter_head.xml")
             (root / "source/furnitures.xml").write_text(
                 "<furnitures><patterns><pattern id='7' kind='universal'><position id='3'>Header</position>"
@@ -327,8 +327,8 @@ class TestComposableBoundaries(unittest.TestCase):
             source_root = root / "source"
             source = make_extraction(source_root, page_pixel_sizes={1: (100, 100)})
             empty = Chapter(None, 0, [])
-            text = Chapter(None, 0, [ParagraphLayout(
-                "text", 0, [BlockLayout(1, 1, (1, 1, 50, 50), ["text"])]
+            text = Chapter(None, 0, [TextFlowItem(
+                "body", 0, [SourceTextFragment(1, 1, (1, 1, 50, 50), ["text"])]
             )])
             (source_root / "chapters/chapter_1.xml").write_text(
                 '<?xml version="1.0" encoding="UTF-8"?>\n'
@@ -417,10 +417,10 @@ class TestComposableBoundaries(unittest.TestCase):
             extraction = make_extraction(root, page_pixel_sizes={1: (100, 100)})
             reference = Reference(1, 2, "[1]", [])
             chapter = Chapter(None, -1, [
-                ParagraphLayout("text", 0, [BlockLayout(
+                TextFlowItem("body", 0, [SourceTextFragment(
                     1, 1, (1, 1, 50, 50), ["text ", InlineExpression(ExpressionKind.INLINE_DOLLAR, "x"), reference]
                 )]),
-                ParagraphLayout("sub_title", 1, [BlockLayout(1, 2, (1, 50, 50, 90), ["heading"])]),
+                TextFlowItem("heading", 1, [SourceTextFragment(1, 2, (1, 50, 50, 90), ["heading"])]),
             ])
             patcher = _CapturePatcher()
             with patch("pdf_craft.pipeline.pdf.pipeline.create_chapters_reader", return_value=lambda: iter([chapter])):
@@ -440,9 +440,9 @@ class TestComposableBoundaries(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             extraction = make_extraction(root, page_pixel_sizes={1: (100, 100)})
-            chapter = Chapter(None, -1, [ParagraphLayout("text", 0, [
-                BlockLayout(1, 3, (1, 1, 40, 20), ["first "]),
-                BlockLayout(1, 4, (1, 22, 40, 41), ["paragraph"]),
+            chapter = Chapter(None, -1, [TextFlowItem("body", 0, [
+                SourceTextFragment(1, 3, (1, 1, 40, 20), ["first "]),
+                SourceTextFragment(1, 4, (1, 22, 40, 41), ["paragraph"]),
             ])])
             translated: list[str] = []
 
@@ -469,8 +469,8 @@ class TestComposableBoundaries(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             extraction = make_extraction(root, page_pixel_sizes={1: (100, 100)})
-            chapter = Chapter(None, -1, [ParagraphLayout(
-                "text", 0, [BlockLayout(1, 1, (1, 1, 50, 50), ["text"])]
+            chapter = Chapter(None, -1, [TextFlowItem(
+                "body", 0, [SourceTextFragment(1, 1, (1, 1, 50, 50), ["text"])]
             )])
             observed = []
             forwarded = []
@@ -505,8 +505,8 @@ class TestComposableBoundaries(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             extraction = make_extraction(root, page_pixel_sizes={1: (100, 100)})
-            chapter = Chapter(None, -1, [ParagraphLayout(
-                "text", 0, [BlockLayout(2, 1, (1, 1, 50, 50), ["text"])]
+            chapter = Chapter(None, -1, [TextFlowItem(
+                "body", 0, [SourceTextFragment(2, 1, (1, 1, 50, 50), ["text"])]
             )])
             handler = _FakeHandler()
             patcher = _CapturePatcher()

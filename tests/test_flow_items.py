@@ -1,8 +1,11 @@
 from xml.etree.ElementTree import fromstring, tostring
+from inspect import signature
+from typing import cast
 import pytest
 
+import pdf_craft.extractor.chapter as chapter_module
 from pdf_craft.extractor.chapter import (
-    Chapter, DisplayFormula, InlineExpression, SourceAsset, SourceTextFragment,
+    Chapter, DisplayFormula, FlowAssetRef, InlineExpression, SourceAsset, SourceTextFragment,
     StandaloneAsset, TextFlowItem, Reference, decode, encode, search_references_in_chapter,
 )
 from pdf_craft.expression import ExpressionKind
@@ -40,7 +43,7 @@ def test_nested_asset_caption_reference_is_written_and_restored():
 def test_formula_is_boundary_and_legacy_flat_body_migrates():
     legacy = fromstring("""<chapter><body>
       <paragraph ref="text"><block page_index="1" order="1" det="0,0,9,9">before</block></paragraph>
-      <asset ref="equation" page_index="1" det="0,10,9,19"><content>x^2</content></asset>
+      <asset ref="formula" page_index="1" det="0,10,9,19"><content>x^2</content></asset>
       <paragraph ref="text"><block page_index="1" order="2" det="0,20,9,29">after</block></paragraph>
     </body></chapter>""")
     restored = decode(legacy)
@@ -59,20 +62,30 @@ def test_inline_formula_is_not_a_display_formula():
     assert isinstance(restored.flow_items[1], TextFlowItem)
 
 
-def test_text_flow_item_rejects_equation_child():
-    equation = SourceAsset(1, "equation", (0, 0, 10, 10), content=["x^2"])
+def test_text_flow_item_rejects_formula_child():
+    equation = SourceAsset(1, "formula", (0, 0, 10, 10), content=["x^2"])
     with pytest.raises(ValueError, match="DisplayFormula"):
         TextFlowItem("body", 0, [_fragment(1, "before"), equation])
 
 
 def test_source_asset_flow_positions_reject_unknown_or_formula_children():
     with pytest.raises(ValueError, match="ref"):
-        SourceAsset(1, "other", (0, 0, 10, 10))
+        SourceAsset(1, cast(FlowAssetRef, "other"), (0, 0, 10, 10))
     formula = SourceAsset(1, "formula", (0, 0, 10, 10), content=["x"])
     with pytest.raises(ValueError, match="image/table"):
         StandaloneAsset(formula)
     with pytest.raises(ValueError, match="image/table"):
         TextFlowItem("body", 0, [_fragment(1, "body"), formula])
+
+
+def test_v3_public_model_exposes_only_flow_names_and_fields():
+    assert not hasattr(chapter_module, "ParagraphLayout")
+    assert not hasattr(chapter_module, "BlockLayout")
+    assert not hasattr(chapter_module, "AssetLayout")
+    assert "order" not in signature(SourceTextFragment).parameters
+    assert "det" not in signature(SourceTextFragment).parameters
+    assert "det" not in signature(SourceAsset).parameters
+    assert "hash" not in signature(SourceAsset).parameters
 
 
 def test_v3_codec_rejects_legacy_body_and_invalid_role_when_strict():
@@ -90,7 +103,7 @@ def test_v3_codec_rejects_legacy_reference_subtrees_when_strict():
     with pytest.raises(ValueError, match="formula"):
         decode(legacy_asset, allow_legacy=False)
     legacy_body = fromstring("""<chapter><flow/><references><ref id="1-1"><mark>①</mark>
-      <body><paragraph ref="text"/></body>
+      <body><paragraph role="body"/></body>
     </ref></references></chapter>""")
     with pytest.raises(ValueError, match="unsupported children"):
         decode(legacy_body, allow_legacy=False)
@@ -163,14 +176,14 @@ def test_reference_assembly_writes_real_flow_items_not_legacy_projection():
 def test_children_are_mutated_for_cross_page_fragment_aggregation():
     paragraph = TextFlowItem("body", 0, [_fragment(1, "first")])
     paragraph.children.extend([_fragment(2, "second")])
-    assert [fragment.source_order for fragment in paragraph.blocks] == [1, 2]
+    assert [fragment.source_order for fragment in paragraph.children if isinstance(fragment, SourceTextFragment)] == [1, 2]
 
 
 def test_extraction_anchors_figure_but_never_joins_across_display_formula():
     first = TextFlowItem("body", 0, [_fragment(1, "a sentence continues")])
     second = TextFlowItem("body", 0, [_fragment(2, "with its ending.")])
     image = SourceAsset(1, "image", (0, 21, 10, 30), asset_hash="c" * 64)
-    equation = SourceAsset(1, "equation", (0, 31, 10, 40), content=["x^2"])
+    equation = SourceAsset(1, "formula", (0, 31, 10, 40), content=["x^2"])
     third = TextFlowItem("body", 0, [_fragment(3, "after formula")])
 
     result = list(_assemble_flow_items(iter([first, image, second, equation, third])))

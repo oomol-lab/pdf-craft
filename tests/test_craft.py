@@ -11,7 +11,7 @@ from epub_generator import BookMeta
 from pdf_craft.craft import ExtractionOptions, PDFCraft, PDFOptions, _TextChapterTransformer
 from pdf_craft.document import PDFCraftExtraction
 from pdf_craft.extractor import PDFExtractor
-from pdf_craft.extractor.chapter.chapter import BlockLayout, Chapter, ParagraphLayout, encode
+from pdf_craft.extractor.chapter.chapter import SourceTextFragment, Chapter, TextFlowItem, encode
 from pdf_craft.common import save_xml
 from pdf_craft.transformer import ChapterExtractionTransformer, SubmitKind
 from tests.extraction_helpers import make_extraction
@@ -42,7 +42,7 @@ def _source_extraction(root: Path, *, with_toc: bool = False) -> PDFCraftExtract
     chapter = Chapter(
         None,
         -1,
-        [ParagraphLayout("text", 0, [BlockLayout(1, 1, (1, 1, 5, 5), ["original"])])],
+        [TextFlowItem("body", 0, [SourceTextFragment(1, 1, (1, 1, 5, 5), ["original"])])],
     )
     save_xml(encode(chapter), root / "chapters" / "chapter_1.xml")
     return extraction.validate()
@@ -50,9 +50,9 @@ def _source_extraction(root: Path, *, with_toc: bool = False) -> PDFCraftExtract
 
 class _Upper:
     def transform(self, chapter: Chapter) -> Chapter:
-        layout = chapter.layouts[0]
-        assert isinstance(layout, ParagraphLayout)
-        layout.blocks[0].content = ["translated"]
+        layout = chapter.flow_items[0]
+        assert isinstance(layout, TextFlowItem)
+        layout.children[0].content = ["translated"]
         return chapter
 
 
@@ -63,20 +63,20 @@ class _Identity:
 
 class TestPDFCraft(unittest.TestCase):
     def test_text_pdf_translation_callback_receives_each_paragraph_once(self):
-        chapter = Chapter(None, -1, [ParagraphLayout("text", 0, [
-            BlockLayout(1, 1, (1, 1, 5, 5), ["first "]),
-            BlockLayout(1, 2, (1, 6, 5, 10), ["paragraph"]),
+        chapter = Chapter(None, -1, [TextFlowItem("body", 0, [
+            SourceTextFragment(1, 1, (1, 1, 5, 5), ["first "]),
+            SourceTextFragment(1, 2, (1, 6, 5, 10), ["paragraph"]),
         ])])
         calls: list[str] = []
 
         _TextChapterTransformer(lambda text: calls.append(text) or "translated").transform(chapter)
 
         self.assertEqual(calls, ["first paragraph"])
-        paragraph = chapter.layouts[0]
-        assert isinstance(paragraph, ParagraphLayout)
-        self.assertEqual(paragraph.blocks[0].content, ["translated"])
-        self.assertEqual(paragraph.blocks[1].content, [])
-        self.assertEqual(paragraph.blocks[1].det, (1, 6, 5, 10))
+        paragraph = chapter.flow_items[0]
+        assert isinstance(paragraph, TextFlowItem)
+        self.assertEqual(paragraph.children[0].content, ["translated"])
+        self.assertEqual(paragraph.children[1].content, [])
+        self.assertEqual(paragraph.children[1].bbox, (1, 6, 5, 10))
 
     def test_translate_extraction_is_the_public_translation_entry(self):
         with tempfile.TemporaryDirectory() as directory:

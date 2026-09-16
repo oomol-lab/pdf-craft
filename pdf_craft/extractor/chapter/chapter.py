@@ -1,14 +1,14 @@
 """PCEX v3 chapter flow model and XML codec.
 
 ``FlowItem`` preserves an author paragraph even when a figure/table interrupts
-it.  Display equations are separate flow items, so joining text can never leap
-over them.  Deprecated layout names below are compatibility aliases only.
+it. Display equations are separate flow items, so joining text can never leap
+over them.
 """
-from dataclasses import dataclass
-from typing import Generator, Iterable, TypeAlias, Union, cast
+from dataclasses import dataclass, field
+from typing import Generator, Iterable, Literal, TypeAlias, Union, cast
 from xml.etree.ElementTree import Element
 
-from ...common import ASSET_TAGS, AssetRef, indent
+from ...common import ASSET_TAGS, indent
 from ...expression import ExpressionKind, decode_expression_kind, encode_expression_kind
 from ...markdown.paragraph import HTMLTag, flatten, tag_definition
 from ...markdown.paragraph import decode as decode_content
@@ -25,107 +25,51 @@ class InlineExpression:
 BlockMember: TypeAlias = Union[InlineExpression, "Reference"]
 Content = list[str | BlockMember | HTMLTag[BlockMember]]
 RefIdMap = dict[tuple[int, int], int]
+FlowAssetRef: TypeAlias = Literal["image", "table", "formula"]
 
 
-def _role(value: str) -> str:
-    return {"text": "body", "title": "heading", "sub_title": "heading"}.get(value, value)
-
-
-def _ref(value: str) -> str:
-    return {"body": "text", "heading": "sub_title"}.get(value, value)
-
-
-@dataclass(init=False)
+@dataclass
 class SourceTextFragment:
     page_index: int
     source_order: int
     bbox: tuple[int, int, int, int]
     content: Content
 
-    def __init__(self, page_index: int, source_order: int | None = None,
-                 bbox: tuple[int, int, int, int] | None = None, content: Content | None = None,
-                 *, order: int | None = None, det: tuple[int, int, int, int] | None = None):
-        self.page_index = page_index
-        self.source_order = source_order if source_order is not None else cast(int, order)
-        self.bbox = bbox if bbox is not None else cast(tuple[int, int, int, int], det)
-        self.content = content or []
-
-    @property
-    def order(self): return self.source_order
-    @order.setter
-    def order(self, value): self.source_order = value
-    @property
-    def det(self): return self.bbox
-    @det.setter
-    def det(self, value): self.bbox = value
-
-
-@dataclass(init=False)
+@dataclass
 class SourceAsset:
     page_index: int
-    ref: AssetRef
+    ref: FlowAssetRef
     bbox: tuple[int, int, int, int]
-    title: Content
-    content: Content
-    caption: Content
-    asset_hash: str | None
+    title: Content = field(default_factory=list)
+    content: Content = field(default_factory=list)
+    caption: Content = field(default_factory=list)
+    asset_hash: str | None = None
 
-    def __init__(self, page_index: int, ref: str,
-                 bbox: tuple[int, int, int, int] | None = None, title: Content | None = None,
-                 content: Content | None = None, caption: Content | None = None,
-                 asset_hash: str | None = None, *, det: tuple[int, int, int, int] | None = None,
-                 hash: str | None = None):
-        self.page_index, self.ref = page_index, cast(AssetRef, ref)
-        if self.ref == "equation":  # source/OCR and v1/v2 constructor compatibility
-            self.ref = cast(AssetRef, "formula")
-        if self.ref not in ASSET_TAGS:
+    def __post_init__(self) -> None:
+        if self.ref not in {"image", "table", "formula"}:
             raise ValueError("SourceAsset ref must be image, table, or formula")
-        self.bbox = bbox if bbox is not None else cast(tuple[int, int, int, int], det)
-        self.title, self.content, self.caption = title or [], content or [], caption or []
-        self.asset_hash = asset_hash if asset_hash is not None else hash
-
-    @property
-    def det(self): return self.bbox
-    @det.setter
-    def det(self, value): self.bbox = value
-    @property
-    def hash(self): return self.asset_hash
-    @hash.setter
-    def hash(self, value): self.asset_hash = value
 
 
-@dataclass(init=False)
+@dataclass
 class TextFlowItem:
     role: str
     level: int
     children: list[SourceTextFragment | SourceAsset]
 
-    def __init__(self, role: str | None = None, level: int = -1,
-                 children: list[SourceTextFragment | SourceAsset] | None = None,
-                 *, ref: str | None = None, blocks: list[SourceTextFragment] | None = None):
-        raw = role if role is not None else ref
-        if raw is None: raise TypeError("TextFlowItem requires role")
-        self.role, self.level = _role(raw), level
+    def __post_init__(self) -> None:
         if self.role not in {"body", "heading"}:
             raise ValueError("TextFlowItem role must be body or heading")
-        self.children = children if children is not None else list(blocks or [])
+        if any(not isinstance(child, (SourceTextFragment, SourceAsset)) for child in self.children):
+            raise ValueError("TextFlowItem children must be SourceTextFragment or SourceAsset")
         if any(isinstance(child, SourceAsset) and child.ref not in {"image", "table"} for child in self.children):
             raise ValueError("TextFlowItem can contain only image/table SourceAsset children; use DisplayFormula for formula")
-
-    @property
-    def ref(self): return _ref(self.role)
-    @ref.setter
-    def ref(self, value): self.role = _role(value)
-    @property
-    def blocks(self): return [v for v in self.children if isinstance(v, SourceTextFragment)]
-    @blocks.setter
-    def blocks(self, value): self.children = value
 
 
 @dataclass
 class DisplayFormula:
     asset: SourceAsset
     def __post_init__(self):
+        if not isinstance(self.asset, SourceAsset): raise ValueError("DisplayFormula requires SourceAsset")
         if self.asset.ref != "formula": raise ValueError("DisplayFormula requires formula asset")
 
 
@@ -133,59 +77,43 @@ class DisplayFormula:
 class StandaloneAsset:
     asset: SourceAsset
     def __post_init__(self):
+        if not isinstance(self.asset, SourceAsset): raise ValueError("StandaloneAsset requires SourceAsset")
         if self.asset.ref not in {"image", "table"}: raise ValueError("StandaloneAsset requires image/table asset")
 
 
 FlowItem: TypeAlias = TextFlowItem | DisplayFormula | StandaloneAsset
 
 
-def _flow(value: FlowItem | SourceAsset) -> FlowItem:
-    if isinstance(value, SourceAsset):
-        return DisplayFormula(value) if value.ref == "formula" else StandaloneAsset(value)
-    return value
+def _asset_flow(asset: SourceAsset) -> FlowItem:
+    """Wrap a decoded legacy asset in its v3 flow-node boundary."""
+    return DisplayFormula(asset) if asset.ref == "formula" else StandaloneAsset(asset)
 
 
-@dataclass(init=False)
+def _validate_flow_items(items: Iterable[FlowItem]) -> None:
+    if any(not isinstance(item, (TextFlowItem, DisplayFormula, StandaloneAsset)) for item in items):
+        raise ValueError("Chapter and Reference flow_items must contain FlowItem values")
+
+
+@dataclass
 class Chapter:
     id: int | None
     level: int
     flow_items: list[FlowItem]
 
-    def __init__(self, id: int | None, level: int, flow_items: Iterable[FlowItem | SourceAsset] | None = None,
-                 *, layouts: Iterable[TextFlowItem | SourceAsset] | None = None):
-        self.id, self.level = id, level
-        self.flow_items = [_flow(v) for v in (flow_items if flow_items is not None else (layouts or []))]
-
-    @property
-    def layouts(self):
-        return [v if isinstance(v, TextFlowItem) else v.asset for v in self.flow_items]
-    @layouts.setter
-    def layouts(self, values): self.flow_items = [_flow(v) for v in values]
+    def __post_init__(self) -> None:
+        _validate_flow_items(self.flow_items)
 
 
-@dataclass(init=False)
+@dataclass
 class Reference:
     page_index: int
     order: int
     mark: str | Mark
     flow_items: list[FlowItem]
-    def __init__(self, page_index: int, order: int, mark: str | Mark,
-                 flow_items: Iterable[FlowItem | SourceAsset] | None = None,
-                 *, layouts: Iterable[TextFlowItem | SourceAsset] | None = None):
-        self.page_index, self.order, self.mark = page_index, order, mark
-        self.flow_items = [_flow(v) for v in (flow_items if flow_items is not None else (layouts or []))]
+    def __post_init__(self) -> None:
+        _validate_flow_items(self.flow_items)
     @property
     def id(self): return self.page_index, self.order
-    @property
-    def layouts(self): return [v if isinstance(v, TextFlowItem) else v.asset for v in self.flow_items]
-
-
-# Deprecated v1/v2 source-import compatibility only.  Production code uses
-# FlowItem/TextFlowItem/SourceTextFragment/SourceAsset directly; these aliases
-# must not define a second flat chapter contract.
-ParagraphLayout = TextFlowItem
-BlockLayout = SourceTextFragment
-AssetLayout = SourceAsset
 
 
 def references_to_map(references: Iterable[Reference]) -> RefIdMap:
@@ -227,7 +155,7 @@ def decode(element: Element, *, allow_legacy: bool = True) -> Chapter:
     items: list[FlowItem] = []
     for child in body:
         if child.tag == "paragraph": items.append(_legacy_paragraph(child, refs))
-        elif child.tag == "asset": items.append(_flow(_asset(child, refs, allow_legacy=True)))
+        elif child.tag == "asset": items.append(_asset_flow(_asset(child, refs, allow_legacy=True)))
         else: raise ValueError(f"<body> contains unknown element: <{child.tag}>")
     return Chapter(ident, level, items)
 
@@ -300,7 +228,7 @@ def _asset(element: Element, refs: dict[tuple[int, int], Reference] | None = Non
     if ref not in ASSET_TAGS: raise ValueError(f"<asset> attribute 'ref' must be one of {ASSET_TAGS}, got: {ref}")
     if not allow_legacy and (element.get("det") is not None or element.get("hash") is not None):
         raise ValueError("PCEX v3 asset uses bbox and asset_hash, not legacy det/hash")
-    return SourceAsset(_integer(element, "page_index"), cast(AssetRef, ref), _bbox(element, "det" if allow_legacy else None),
+    return SourceAsset(_integer(element, "page_index"), cast(FlowAssetRef, ref), _bbox(element, "det" if allow_legacy else None),
         _content(element.find("title"), refs, "asset", allow_legacy=allow_legacy),
         _content(element.find("content"), refs, "asset", allow_legacy=allow_legacy),
         _content(element.find("caption"), refs, "asset", allow_legacy=allow_legacy),
@@ -321,7 +249,8 @@ def _encode_asset(asset: SourceAsset) -> Element:
 def _legacy_paragraph(element: Element, refs: dict[tuple[int, int], Reference]) -> TextFlowItem:
     ref = element.get("ref")
     if ref is None: raise ValueError("<paragraph> missing required attribute 'ref'")
-    return TextFlowItem(ref, _integer(element, "level", -1), [_legacy_block(v, refs) for v in element.findall("block")])
+    role = {"text": "body", "title": "heading", "sub_title": "heading"}.get(ref, ref)
+    return TextFlowItem(role, _integer(element, "level", -1), [_legacy_block(v, refs) for v in element.findall("block")])
 
 
 def _fragment(element: Element, refs: dict[tuple[int, int], Reference], *, allow_legacy: bool = True) -> SourceTextFragment:
@@ -396,7 +325,7 @@ def _decode_reference(element: Element, *, allow_legacy: bool = True) -> Referen
     values: list[FlowItem] = []
     for child in element:
         if child.tag == "paragraph": values.append(_legacy_paragraph(child, {}))
-        elif child.tag == "asset": values.append(_flow(_asset(child, allow_legacy=True)))
+        elif child.tag == "asset": values.append(_asset_flow(_asset(child, allow_legacy=True)))
     return Reference(page, order, mark, values)
 
 

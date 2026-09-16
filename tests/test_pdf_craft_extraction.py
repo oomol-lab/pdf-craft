@@ -13,7 +13,7 @@ from epub_generator import BookMeta
 from pdf_craft.craft import PDFCraft
 from pdf_craft.document import PDFCraftExtraction
 from pdf_craft.extractor.chapter.chapter import (
-    BlockLayout, Chapter, DisplayFormula, ParagraphLayout, StandaloneAsset,
+    SourceTextFragment, Chapter, DisplayFormula, TextFlowItem, StandaloneAsset,
     decode as decode_chapter,
 )
 from pdf_craft.common import save_xml
@@ -29,9 +29,9 @@ class _Identity:
 
 class _TranslateHeadline:
     def transform(self, chapter: Chapter) -> Chapter:
-        for layout in chapter.layouts:
-            if isinstance(layout, ParagraphLayout):
-                for block in layout.blocks:
+        for layout in chapter.flow_items:
+            if isinstance(layout, TextFlowItem):
+                for block in layout.children:
                     block.content = [
                         value.replace("Chapter One", "第一章")
                         if isinstance(value, str)
@@ -81,10 +81,10 @@ class TestPDFCraftExtraction(unittest.TestCase):
                 )),
                 workspace / "toc.xml",
             )
-            heading = ParagraphLayout(
-                ref="title",
+            heading = TextFlowItem(
+                role="heading",
                 level=0,
-                blocks=[BlockLayout(1, 0, (1, 1, 90, 20), ["Chapter One"])],
+                children=[SourceTextFragment(1, 0, (1, 1, 90, 20), ["Chapter One"])],
             )
             save_xml(encode(Chapter(7, 0, [heading])), workspace / "chapters/chapter_7.xml")
             (workspace / "furnitures.xml").write_text(

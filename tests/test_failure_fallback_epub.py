@@ -18,7 +18,7 @@ from pdf_craft import (
     PDFCraft,
 )
 from pdf_craft.common import AssetHub
-from pdf_craft.extractor.chapter import AssetLayout, create_chapters_reader
+from pdf_craft.extractor.chapter import SourceAsset, StandaloneAsset, create_chapters_reader
 from pdf_craft.ocr_config import DeepSeekOCRLocalConfig
 from pdf_craft.pdf import PDFDocumentMetadata
 from pdf_craft.pdf.page_extractor import PageExtractorNode
@@ -161,7 +161,7 @@ class TestFailureFallbackEPUB(unittest.TestCase):
             self.assertEqual(len(assets), 1)
             self.assertEqual(assets[0].page_index, 1)
             self.assertEqual(assets[0].ref, "image")
-            self.assertIsNotNone(assets[0].hash)
+            self.assertIsNotNone(assets[0].asset_hash)
             self.assertIn(
                 (failed_page.size, failed_page.getpixel((0, 0))),
                 self._epub_pngs(target),
@@ -242,10 +242,10 @@ class TestFailureFallbackEPUB(unittest.TestCase):
         return [event.page_index for event in events if event.kind.name == "FAILED"]
 
     @staticmethod
-    def _chapter_assets(extraction_path: Path) -> list[AssetLayout]:
-        assets: list[AssetLayout] = []
+    def _chapter_assets(extraction_path: Path) -> list[SourceAsset]:
+        assets: list[SourceAsset] = []
         for chapter in create_chapters_reader(extraction_path / "chapters")():
-            assets.extend(layout for layout in chapter.layouts if isinstance(layout, AssetLayout))
+            assets.extend(item.asset for item in chapter.flow_items if isinstance(item, StandaloneAsset))
         return assets
 
     @staticmethod

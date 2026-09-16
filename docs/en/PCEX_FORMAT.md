@@ -92,7 +92,7 @@ The archive root and its two subdirectories may not contain members other than t
 
 JSON and XML written by pdf-craft use UTF-8. XML files include an `<?xml version="1.0" encoding="UTF-8"?>` declaration. Paths inside the ZIP use `/` as their separator.
 
-Version 2 has no `document.json` or `source-map.json`. Document metadata is centralized in `manifest.json`, page geometry in `pages.xml`, and the source-PDF position of each content block is stored directly in the chapter XML.
+Version 3 has no `document.json` or `source-map.json`. Document metadata is centralized in `manifest.json`, page geometry in `pages.xml`, and the source-PDF position of each content block is stored directly in the chapter XML.
 
 ## Creating, saving, and resuming an extraction
 

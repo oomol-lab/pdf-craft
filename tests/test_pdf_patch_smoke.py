@@ -20,7 +20,7 @@ from pdf_craft.pipeline.pdf import (
     QTextParagraphFiller,
 )
 from pdf_craft.pipeline.pdf.pipeline import PDFTranslationPipeline
-from pdf_craft.extractor.chapter.chapter import BlockLayout, Chapter, ParagraphLayout, encode
+from pdf_craft.extractor.chapter.chapter import SourceTextFragment, Chapter, TextFlowItem, encode
 from tests.extraction_helpers import make_extraction
 
 
@@ -30,7 +30,7 @@ _ASSET_ROOT = Path(__file__).parent / "assets" / "pdf"
 class TestPDFPatchSmoke(unittest.TestCase):
     @unittest.skipUnless(which("gs"), "requires local Ghostscript")
     def test_pipeline_fills_real_fixture_as_extractable_pdf_text(self):
-        """Exercise ParagraphLayout extraction, erasure, filler, and output."""
+        """Exercise TextFlowItem extraction, erasure, filler, and output."""
         source = _ASSET_ROOT / "friendly.pdf"
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
@@ -40,9 +40,9 @@ class TestPDFPatchSmoke(unittest.TestCase):
                 extraction_root, page_pixel_sizes={1: (827, 1169)}, render_dpi=100,
             )
             # These 100-DPI blocks cover two real adjacent body lines on page one.
-            chapter = Chapter(None, -1, [ParagraphLayout("text", 0, [
-                BlockLayout(1, 1, (85, 270, 785, 303), ["source first line "]),
-                BlockLayout(1, 2, (85, 309, 785, 342), ["source second line"]),
+            chapter = Chapter(None, -1, [TextFlowItem("body", 0, [
+                SourceTextFragment(1, 1, (85, 270, 785, 303), ["source first line "]),
+                SourceTextFragment(1, 2, (85, 309, 785, 342), ["source second line"]),
             ])])
             (extraction_root / "chapters/chapter_1.xml").write_text(
                 '<?xml version="1.0" encoding="UTF-8"?>\n'
@@ -126,8 +126,8 @@ class TestPDFPatchSmoke(unittest.TestCase):
             extraction = make_extraction(
                 extraction_root, page_pixel_sizes={1: page_pixels}, render_dpi=300,
             )
-            chapter = Chapter(None, -1, [ParagraphLayout("text", 0, [
-                BlockLayout(1, 0, bbox, [source_text]),
+            chapter = Chapter(None, -1, [TextFlowItem("body", 0, [
+                SourceTextFragment(1, 0, bbox, [source_text]),
             ])])
             (extraction_root / "chapters/chapter_1.xml").write_text(
                 '<?xml version="1.0" encoding="UTF-8"?>\n'
@@ -160,9 +160,9 @@ class TestPDFPatchSmoke(unittest.TestCase):
             extraction = make_extraction(
                 extraction_root, page_pixel_sizes={1: page_pixels}, render_dpi=720,
             )
-            chapter = Chapter(None, -1, [ParagraphLayout("text", 0, [
-                BlockLayout(1, 1, (576, 904, 4184, 1022), [source_lines[0]]),
-                BlockLayout(1, 2, (568, 1096, 4184, 1214), [source_lines[1]]),
+            chapter = Chapter(None, -1, [TextFlowItem("body", 0, [
+                SourceTextFragment(1, 1, (576, 904, 4184, 1022), [source_lines[0]]),
+                SourceTextFragment(1, 2, (568, 1096, 4184, 1214), [source_lines[1]]),
             ])])
             (extraction_root / "chapters/chapter_1.xml").write_text(
                 '<?xml version="1.0" encoding="UTF-8"?>\n'

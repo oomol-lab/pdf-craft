@@ -26,7 +26,7 @@ from pdf_craft_tool.smoke.runner import (
     expand_matrix,
     run_smoke,
 )
-from pdf_craft.extractor.chapter.chapter import AssetLayout, BlockLayout, Chapter, ParagraphLayout, encode
+from pdf_craft.extractor.chapter.chapter import SourceAsset, SourceTextFragment, Chapter, StandaloneAsset, TextFlowItem, encode
 from tests.extraction_helpers import make_extraction
 
 encode_chapter = encode
@@ -273,8 +273,8 @@ class TestSmokeMatrix(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             package = make_extraction(root, page_pixel_sizes={1: (100, 100)})
-            chapter = Chapter(None, -1, [ParagraphLayout("text", 0, [
-                BlockLayout(2, 1, (1, 1, 20, 20), ["will be replaced"])
+            chapter = Chapter(None, -1, [TextFlowItem("body", 0, [
+                SourceTextFragment(2, 1, (1, 1, 20, 20), ["will be replaced"])
             ])])
             with patch("pdf_craft_tool.smoke.checks.create_chapters_reader", return_value=lambda: iter([chapter])):
                 errors = check_pdf_patch_geometry(package)
@@ -312,8 +312,8 @@ class TestSmokeMatrix(unittest.TestCase):
             package = make_extraction(
                 package_path, page_pixel_sizes={1: (10, 10)}, with_toc=True
             )
-            chapter = Chapter(None, -1, [ParagraphLayout("text", 0, [
-                BlockLayout(1, 1, (1, 1, 2, 2), ["original"])
+            chapter = Chapter(None, -1, [TextFlowItem("body", 0, [
+                SourceTextFragment(1, 1, (1, 1, 2, 2), ["original"])
             ])])
             save_xml(encode_chapter(chapter), package_path / "chapters" / "chapter_1.xml")
 
@@ -357,7 +357,7 @@ def _package_with_image(root: Path) -> ExtractionPaths:
     package = _package_without_assets(root)
     (package.assets / "image.png").write_bytes(b"image")
     package.cover.write_bytes(b"cover")
-    chapter = Chapter(None, -1, [AssetLayout(1, "image", (0, 0, 1, 1), [], [], [], "image")])
+    chapter = Chapter(None, -1, [StandaloneAsset(SourceAsset(1, "image", (0, 0, 1, 1), [], [], [], "image"))])
     save_xml(encode(chapter), package.chapters / "chapter_head.xml")
     return package
 
@@ -365,6 +365,6 @@ def _package_with_image(root: Path) -> ExtractionPaths:
 def _package_without_assets(root: Path) -> ExtractionPaths:
     make_extraction(root)
     package = ExtractionPaths.at(root)
-    chapter = Chapter(None, -1, [ParagraphLayout("text", 0, [BlockLayout(1, 1, (0, 0, 1, 1), ["content"])])])
+    chapter = Chapter(None, -1, [TextFlowItem("body", 0, [SourceTextFragment(1, 1, (0, 0, 1, 1), ["content"])])])
     save_xml(encode(chapter), package.chapters / "chapter_head.xml")
     return package

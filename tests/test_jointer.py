@@ -2,7 +2,7 @@ import unittest
 
 from pdf_craft.markdown.paragraph import HTMLTag
 from pdf_craft.pdf import PageLayout
-from pdf_craft.extractor.chapter.chapter import AssetLayout, ParagraphLayout
+from pdf_craft.extractor.chapter.chapter import SourceAsset, TextFlowItem
 from pdf_craft.extractor.chapter.chapter import InlineExpression
 from pdf_craft.extractor.chapter.jointer import (
     Jointer,
@@ -401,9 +401,9 @@ class TestJoinTableAdjacentText(unittest.TestCase):
         result = list(Jointer([(0, layouts)]).execute())
 
         self.assertEqual(len(result), 1)
-        self.assertIsInstance(result[0], AssetLayout)
+        self.assertIsInstance(result[0], SourceAsset)
         asset = result[0]
-        assert isinstance(asset, AssetLayout)
+        assert isinstance(asset, SourceAsset)
         self.assertEqual(asset.title, ["Table 1: Sample"])
         self.assertIsInstance(asset.content[0], HTMLTag)
         table_content = asset.content[0]
@@ -428,9 +428,9 @@ class TestJoinTableAdjacentText(unittest.TestCase):
         result = list(Jointer([(0, layouts)]).execute())
 
         self.assertEqual(len(result), 1)
-        self.assertIsInstance(result[0], AssetLayout)
+        self.assertIsInstance(result[0], SourceAsset)
         asset = result[0]
-        assert isinstance(asset, AssetLayout)
+        assert isinstance(asset, SourceAsset)
         self.assertEqual(asset.title, ["Table 1: Emergency visits"])
         self.assertIsInstance(asset.content[0], HTMLTag)
         table_content = asset.content[0]
@@ -455,9 +455,9 @@ class TestJoinTableAdjacentText(unittest.TestCase):
         result = list(Jointer([(0, layouts)]).execute())
 
         self.assertEqual(len(result), 1)
-        self.assertIsInstance(result[0], AssetLayout)
+        self.assertIsInstance(result[0], SourceAsset)
         asset = result[0]
-        assert isinstance(asset, AssetLayout)
+        assert isinstance(asset, SourceAsset)
         self.assertEqual(asset.caption, ["Note: Numbers may not add to totals because of rounding."])
 
     def test_adjacent_footnote_paragraph_is_attached_to_table_caption(self):
@@ -477,9 +477,9 @@ class TestJoinTableAdjacentText(unittest.TestCase):
         result = list(Jointer([(0, layouts)]).execute())
 
         self.assertEqual(len(result), 1)
-        self.assertIsInstance(result[0], AssetLayout)
+        self.assertIsInstance(result[0], SourceAsset)
         asset = result[0]
-        assert isinstance(asset, AssetLayout)
+        assert isinstance(asset, SourceAsset)
         self.assertEqual(asset.caption, ["1. The mean length of stay was 5.3 days."])
 
     def test_numeric_leading_body_text_is_not_attached_to_table_caption(self):
@@ -499,15 +499,15 @@ class TestJoinTableAdjacentText(unittest.TestCase):
         result = list(Jointer([(0, layouts)]).execute())
 
         self.assertEqual(len(result), 2)
-        self.assertIsInstance(result[0], AssetLayout)
-        self.assertIsInstance(result[1], ParagraphLayout)
+        self.assertIsInstance(result[0], SourceAsset)
+        self.assertIsInstance(result[1], TextFlowItem)
         asset = result[0]
         paragraph = result[1]
-        assert isinstance(asset, AssetLayout)
-        assert isinstance(paragraph, ParagraphLayout)
+        assert isinstance(asset, SourceAsset)
+        assert isinstance(paragraph, TextFlowItem)
         self.assertEqual(asset.caption, [])
         self.assertEqual(
-            paragraph.blocks[0].content,
+            paragraph.children[0].content,
             ["12 patients were excluded from the trial."],
         )
 
@@ -528,14 +528,14 @@ class TestJoinTableAdjacentText(unittest.TestCase):
         result = list(Jointer([(0, layouts)]).execute())
 
         self.assertEqual(len(result), 2)
-        self.assertIsInstance(result[0], AssetLayout)
-        self.assertIsInstance(result[1], ParagraphLayout)
+        self.assertIsInstance(result[0], SourceAsset)
+        self.assertIsInstance(result[1], TextFlowItem)
         asset = result[0]
         paragraph = result[1]
-        assert isinstance(asset, AssetLayout)
-        assert isinstance(paragraph, ParagraphLayout)
+        assert isinstance(asset, SourceAsset)
+        assert isinstance(paragraph, TextFlowItem)
         self.assertEqual(asset.caption, [])
-        self.assertEqual(paragraph.blocks[0].content, ["This paragraph starts the next section and discusses the result."])
+        self.assertEqual(paragraph.children[0].content, ["This paragraph starts the next section and discusses the result."])
 
 
 class TestParseLineContent(unittest.TestCase):
@@ -726,7 +726,8 @@ def test_cross_page_equation_remains_between_text_runs():
         (1, [_page_layout("text", (0, 0, 10, 10), "before"), _page_layout("equation", (0, 12, 10, 20), "x^2")]),
         (2, [_page_layout("text", (0, 0, 10, 10), "after.")]),
     ]).execute())
-    assert [type(item) for item in result] == [ParagraphLayout, AssetLayout, ParagraphLayout]
+    assert [type(item) for item in result] == [TextFlowItem, SourceAsset, TextFlowItem]
+    assert isinstance(result[1], SourceAsset)
     assert result[1].ref == "formula"
 
 
