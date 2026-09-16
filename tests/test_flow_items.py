@@ -3,7 +3,7 @@ import pytest
 
 from pdf_craft.extractor.chapter import (
     Chapter, DisplayFormula, InlineExpression, SourceAsset, SourceTextFragment,
-    StandaloneAsset, TextFlowItem, decode, encode,
+    StandaloneAsset, TextFlowItem, Reference, decode, encode, search_references_in_chapter,
 )
 from pdf_craft.expression import ExpressionKind
 from pdf_craft.extractor.chapter.generation import _assemble_flow_items
@@ -26,6 +26,15 @@ def test_v3_round_trip_keeps_anchor_between_text_fragments():
     restored = decode(xml).flow_items[0]
     assert isinstance(restored, TextFlowItem)
     assert [type(v) for v in restored.children] == [SourceTextFragment, SourceAsset, SourceTextFragment]
+
+
+def test_nested_asset_caption_reference_is_written_and_restored():
+    reference = Reference(1, 7, "①", [TextFlowItem("body", 0, [_fragment(8, "footnote")])])
+    image = SourceAsset(1, "image", (10, 22, 100, 60), caption=["caption ", reference], asset_hash="a" * 64)
+    chapter = Chapter(None, -1, [TextFlowItem("body", 0, [_fragment(1, "before"), image])])
+    restored = decode(encode(chapter))
+    restored_reference = next(search_references_in_chapter(restored))
+    assert restored_reference.id == (1, 7)
 
 
 def test_formula_is_boundary_and_legacy_flat_body_migrates():

@@ -384,6 +384,9 @@ def _parts(items: Iterable[FlowItem]):
         if isinstance(item, TextFlowItem):
             for child in item.children:
                 if isinstance(child, SourceTextFragment): yield from flatten(child.content)
+                else:
+                    for content in (child.title, child.content, child.caption):
+                        yield from flatten(content)
         else:
             for content in (item.asset.title, item.asset.content, item.asset.caption): yield from flatten(content)
 
