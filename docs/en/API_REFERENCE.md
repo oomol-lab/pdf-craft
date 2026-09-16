@@ -33,6 +33,7 @@ The two `convert_pdf_to_*` methods use a directory-backed extraction inside thei
 | --- | --- |
 | `translate_extraction` | `translate_extraction(extraction, output_path, translator, *, submit=SubmitKind.REPLACE, on_translation_event=None) -> PDFCraftExtraction` translates a `.pcex` into a new `.pcex`. |
 | `translate_furnitures` | `translate_furnitures(extraction, output_path, transformer) -> PDFCraftExtraction` applies the separate template/page-furniture translation stage to an already NarrativeFlow-translated `.pcex`. It is not composed automatically by EPUB, Markdown, or PDF workflows. |
+| `translate_anchored_contents` | `translate_anchored_contents(extraction, output_path, transformer) -> PDFCraftExtraction` applies the separate image/table text translation stage. It is not composed automatically by EPUB, Markdown, or PDF workflows. |
 | `translate_pdf` | `translate_pdf(source, extraction, output, transformer, *, on_translation_event=None, ignore_errors=False)` translates then patches text onto the source PDF. `transformer` may be a chapter transformer or `Callable[[str], str]`. |
 | `patch_pdf_with_extraction` | `patch_pdf_with_extraction(source, extraction, output, *, ignore_errors=False)` patches a source PDF from a `PDFCraftExtraction` or `.pcex` path without OCR or LLM calls. |
 | `translate_epub` | `translate_epub(source, output, *, target_language, submit, **options)` translates an existing EPUB. See [EPUB translation](EPUB_TRANSLATION.md) for its options. |
@@ -139,6 +140,8 @@ The following classes are exposed for applications that need custom structured t
 | Type | Role |
 | --- | --- |
 | `ChapterXMLTransformer` | Adapts XML-oriented work to chapter transformation. |
+| `AnchoredContentXMLTransformer` | Adapts XML-oriented work to independent image/table text translation, validating each immutable asset slot before applying fields. |
+| `AnchoredContentTransformer` | Protocol for contextual batches of extracted image/table text; every non-preserved result carries its source `identity`. |
 | `ChapterExtractionTransformer` | Applies a chapter transformer across an extraction and writes a new `.pcex`. |
 | `ExtractionTransformer` | Public protocol for `transform(extraction, output_path) -> PDFCraftExtraction`. |
 | `XMLTranslator` | XML-aware translation engine for integrations that need direct structured translation. |

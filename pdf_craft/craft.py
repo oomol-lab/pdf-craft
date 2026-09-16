@@ -29,6 +29,8 @@ from .renderer import EpubRenderer, MarkdownRenderer
 from .transformer import (
     ChapterExtractionTransformer,
     ChapterTransformer,
+    AnchoredContentExtractionTransformer,
+    AnchoredContentTransformer,
     FurnitureExtractionTransformer,
     FurnitureTransformer,
     SubmitKind,
@@ -160,6 +162,17 @@ class PDFCraft:
         routes can retain their NarrativeFlow-only behavior.
         """
         return FurnitureExtractionTransformer(transformer).transform(
+            _ensure_extraction(extraction), Path(output_path)
+        )
+
+    def translate_anchored_contents(
+        self,
+        extraction: PDFCraftExtraction | PathLike | str,
+        output_path: PathLike | str,
+        transformer: AnchoredContentTransformer,
+    ) -> PDFCraftExtraction:
+        """Translate extracted image/table text without entering NarrativeFlow."""
+        return AnchoredContentExtractionTransformer(transformer).transform(
             _ensure_extraction(extraction), Path(output_path)
         )
 

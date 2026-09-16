@@ -2,10 +2,12 @@ from .block_segment import (
     BlockContentError,
     BlockError,
     BlockExpectedIDsError,
+    BlockImmutableElementsError,
     BlockSegment,
     BlockSubmitter,
     BlockUnexpectedIDError,
     BlockWrongTagError,
+    ImmutableBlockElement,
 )
 from .common import FoundInvalidIDError
 from .inline_segment import (

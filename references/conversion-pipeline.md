@@ -38,8 +38,10 @@ analysis 与稳定 extraction 明确分离：
   图表可嵌在 TextFlowItem fragment 之间，DisplayFormula 必须独立且不能被段落拼接跨越。
 - `extraction/toc.xml`、`extraction/cover.png`：可选目录和封面。
 - `extraction/furnitures.xml`：可选的页面家具 pattern 与页级 section。
-- `extraction/translation.xml`：仅存在于 furniture 翻译后的 pcex；记录每个可回填
-  furniture position 或 section 的 `translated` / `preserved` 覆盖状态。
+- `extraction/translation.xml`：可选翻译覆盖记录；包含 Narrative、furniture position/section，
+  以及独立图片/表格文本 asset 的 `translated` / `preserved` 状态。Narrative 翻译中的段内
+  段内 asset 只以无文本临时 anchor 保持位置；独立 asset 不伪造 anchor。两者的
+  title/content/caption 均由独立步骤翻译。
 
 公共分段流程把 `extraction/` 打包为 `.pcex`；恢复后端只接受 `.pcex` 或已加载的
 `PDFCraftExtraction`。一键转换直接使用 workspace，只有显式 `extraction_path` 时才额外导出

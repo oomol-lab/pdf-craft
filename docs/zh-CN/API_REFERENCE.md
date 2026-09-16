@@ -18,7 +18,8 @@ from pdf_craft import PDFCraft, PDFOptions
 - `predownload_models`
 - `LLM`
 - `ExtractionTransformer`、`ChapterExtractionTransformer`、`ChapterXMLTransformer`、
-  `XMLTranslator`、`SubmitKind`
+  `AnchoredContentExtractionTransformer`、`AnchoredContentTransformer`、
+  `AnchoredContentXMLTransformer`、`XMLTranslator`、`SubmitKind`
 - `BookMeta`、`TableRender`、`LaTeXRender`
 - `OCRTokensMetering`、`OCREvent`、`OCREventKind`、`TranslationEvent`、
   `TranslationEventKind`、`TranslationItemKind`、`FillFailedEvent`
@@ -363,6 +364,11 @@ translated_extraction = craft.translate_extraction(
 `translate_furnitures(extraction, output_path, transformer)`。它只作用于已经完成 NarrativeFlow
 翻译的 `.pcex`，按模板 position 与页级 section 的不同范围处理内容，并在 `translation.xml`
 记录未来 PDF 回填可覆盖或必须保留的单元；不会自动组合到 EPUB、Markdown 或 PDF 工作流。
+
+`translate_extraction` 不会把图片/表格的 title、content、caption 混入正文 LLM 上下文；只有段内
+asset 以无文本、不可变 anchor 维持前后文本的位置，`StandaloneAsset` 不伪造 anchor。独立 asset 翻译的每个非保留结果都以稳定 identity 绑定来源 slot。若要翻译这些已提取的 asset 文本，请使用
+`translate_anchored_contents(extraction, output_path, transformer)`。其 transformer 处理带局部上下文
+的小批 asset，返回 `None` 即保留单个 asset；该阶段也不会自动组合到其他工作流。
 
 ### 翻译 EPUB
 

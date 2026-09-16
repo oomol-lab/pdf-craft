@@ -23,6 +23,8 @@ from pdf_craft.transformer.chapter_xml import ChapterXMLTransformer
 from pdf_craft.transformer.xml_translator.xml_translator import SubmitKind
 from pdf_craft.transformer.furniture import FurnitureTransformer
 from pdf_craft.transformer.furniture_translation import translate_furnitures_in_workspace
+from pdf_craft.transformer.anchored_content import AnchoredContentTransformer
+from pdf_craft.transformer.anchored_translation import translate_anchored_contents_in_workspace
 from pdf_craft.transformer.translation_coverage import (
     NarrativeCoverage, paragraph_identity, write_narrative_coverage,
 )
@@ -87,11 +89,17 @@ class ChapterExtractionTransformer:
 
         chapter_paths = sorted((output_path / "chapters").glob("chapter*.xml"))
         chapter_tasks = []
+        is_xml_transformer = isinstance(self.chapter_transformer, ChapterXMLTransformer)
         for path in chapter_paths:
             chapter = decode(read_xml(path))
-            segments = list(search_text_segments(encode(chapter)))
-            character_count = sum(len(segment.text) for segment in segments)
-            if any(segment.text.strip() for segment in segments):
+            if is_xml_transformer:
+                character_count = cast(ChapterXMLTransformer, self.chapter_transformer).source_character_count(chapter)
+                has_content = cast(ChapterXMLTransformer, self.chapter_transformer).has_translatable_content(chapter)
+            else:
+                segments = list(search_text_segments(encode(chapter)))
+                character_count = sum(len(segment.text) for segment in segments)
+                has_content = any(segment.text.strip() for segment in segments)
+            if has_content:
                 item_id: str | int = chapter.id if chapter.id is not None else "head"
                 chapter_tasks.append((path, chapter, item_id, character_count))
 
@@ -116,7 +124,6 @@ class ChapterExtractionTransformer:
                 and layout.role in {"body", "heading"}
                 and (identity := paragraph_identity(chapter, layout)) is not None
             }
-            is_xml_transformer = isinstance(self.chapter_transformer, ChapterXMLTransformer)
             if emit_translation_events and on_translation_event is not None and not is_xml_transformer:
                 on_translation_event(TranslationEvent(
                     kind=TranslationEventKind.ITEM_START,
@@ -220,6 +227,44 @@ class FurnitureExtractionTransformer:
             furnitures_path=output_path / "furnitures.xml",
             translation_path=output_path / "translation.xml",
             transformer=self.furniture_transformer,
+        )
+        return PDFCraftExtraction._from_workspace(output_path).validate()
+
+
+class AnchoredContentExtractionTransformer:
+    """Translate image/table text independently from NarrativeFlow."""
+
+    def __init__(self, anchored_transformer: AnchoredContentTransformer) -> None:
+        self.anchored_transformer = anchored_transformer
+
+    def transform(
+        self,
+        extraction: PDFCraftExtraction,
+        output_path: Path,
+    ) -> PDFCraftExtraction:
+        if output_path.suffix.lower() != EXTRACTION_SUFFIX:
+            raise ValueError(f"PDFCraftExtraction path must end with {EXTRACTION_SUFFIX}")
+        with TemporaryDirectory(prefix="pdf-craft-anchored-transformed-") as directory:
+            transformed = self._transform_to_workspace(
+                extraction,
+                Path(directory) / "extraction",
+            )
+            return transformed.export(output_path)
+
+    def _transform_to_workspace(
+        self,
+        extraction: PDFCraftExtraction,
+        output_path: Path,
+    ) -> PDFCraftExtraction:
+        extraction.validate()
+        if output_path.exists():
+            raise FileExistsError(f"output extraction workspace already exists: {output_path}")
+        output_path.mkdir(parents=True)
+        _copy_extraction_to_workspace(extraction, output_path)
+        translate_anchored_contents_in_workspace(
+            chapters_path=output_path / "chapters",
+            translation_path=output_path / "translation.xml",
+            transformer=self.anchored_transformer,
         )
         return PDFCraftExtraction._from_workspace(output_path).validate()
 

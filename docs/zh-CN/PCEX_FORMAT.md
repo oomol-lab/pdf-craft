@@ -76,7 +76,7 @@ book.pcex                       # ZIP（Deflate 压缩）
 ├── toc.xml                     # 可选：层级目录
 ├── cover.png                   # 可选：封面
 ├── furnitures.xml              # 可选：页面 furniture 模式与 section
-└── translation.xml             # 可选：furniture 翻译覆盖记录
+└── translation.xml             # 可选：Narrative、furniture 与 asset 文本翻译覆盖记录
 ```
 
 根目录和两个子目录不允许出现上表之外的成员。成员名称区分大小写；公开文件路径的 `.pcex` 后缀检查不区分大小写。
@@ -90,7 +90,7 @@ book.pcex                       # ZIP（Deflate 压缩）
 | `toc.xml` | 否 | 目录树及目录页 | EPUB 渲染、章节关系 |
 | `cover.png` | 否 | 封面图 | Markdown/EPUB 渲染 |
 | `furnitures.xml` | 否 | 页面 furniture 模式与页级 section | furniture 翻译、未来 PDF 写回 |
-| `translation.xml` | 否 | furniture 回填单元的 `translated` / `preserved` 覆盖状态 | 未来 PDF 写回 |
+| `translation.xml` | 否 | Narrative、furniture、图片/表格文本单元的 `translated` / `preserved` 覆盖状态 | 未来 PDF 写回与渲染 |
 
 pdf-craft 写出的 JSON 和 XML 文本均使用 UTF-8；XML 文件带有 `<?xml version="1.0" encoding="UTF-8"?>` 声明。ZIP 内路径统一使用 `/`。
 
@@ -190,6 +190,12 @@ translated = craft.translate_extraction(
 `translate_extraction()` 创建新的 `.pcex`，保留原包的 manifest、页面几何、目录、封面和资源，只重写经过 transformer 处理的章节 XML。输出路径必须以 `.pcex` 结尾且不能已存在。
 
 若 extraction 包含 `furnitures.xml`，则可在 NarrativeFlow 翻译完成后单独调用 `translate_furnitures()`。该步骤会按 `toc_id` 使用已翻译的正文标题收敛关联 furniture，模板 position 仅翻译一次、未绑定 section 以页为范围翻译，并写入 `translation.xml` 记录未来 PDF 回填是否可覆盖。它刻意不属于 `translate_extraction()`，也不会被 EPUB、Markdown 或 PDF 的便捷工作流自动调用。
+
+`translate_extraction()` 会把嵌在 `<text>` 内的图片/表格 asset 视为不透明、自闭合的 anchor：它们的 title、content、caption
+不会进入 NarrativeFlow 的 LLM 请求，而是以临时、不可变的位置标记维持段落前后关系，并由 XML 修复协议严格校验。`<standalone-asset>`
+保留在 NarrativeFlow 之外，不会伪造段落 anchor。
+需要翻译图片/表格已经提取出的文字字段时，单独调用 `translate_anchored_contents()`；它只处理小批 asset，并可得到邻近正文的临时上下文，随后在 `translation.xml` 的
+`<anchored><asset .../></anchored>` 中记录覆盖状态。尚未提取的图内视觉文字不会被误标为已翻译。
 
 可变页码以结构化信息表示，而不是作为可复用 pattern position 的文本：folio `position` 带有 `folio_style`（`D`、`R`、`r`、`A` 或 `a`）和 `folio_offset`，也可带 `folio_prefix`、`folio_suffix`。关联到每页的 section 仍保留实际印刷出的页码。翻译 furniture 时只翻译固定修饰文字；PDF 回填会根据每个关联页及 offset 重建页码，从而不会把抽样页的页码翻译一次后错误地写到所有共享该 position 的页面。
 
