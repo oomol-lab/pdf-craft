@@ -196,7 +196,7 @@ def search_references_in_chapter(chapter: Chapter) -> Generator[Reference, None,
 
 
 def decode(element: Element, *, allow_legacy: bool = True) -> Chapter:
-    refs = _refs(element.find("references"))
+    refs = _refs(element.find("references"), allow_legacy=allow_legacy)
     id_text = element.get("id")
     ident = int(id_text) if id_text is not None else None
     level = int(element.get("level", "-1"))
@@ -338,13 +338,13 @@ def _encode_member(part: BlockMember) -> Element:
     raise ValueError("Unknown flow member type")
 
 
-def _refs(element: Element | None) -> dict[tuple[int, int], Reference]:
+def _refs(element: Element | None, *, allow_legacy: bool = True) -> dict[tuple[int, int], Reference]:
     if element is None: return {}
-    values = [_decode_reference(child) for child in element.findall("ref")]
+    values = [_decode_reference(child, allow_legacy=allow_legacy) for child in element.findall("ref")]
     return {value.id: value for value in values}
 
 
-def _decode_reference(element: Element) -> Reference:
+def _decode_reference(element: Element, *, allow_legacy: bool = True) -> Reference:
     try: page, order = map(int, element.get("id", "").split("-", 1))
     except ValueError as error: raise ValueError("<references><ref> has invalid id") from error
     mark_el = element.find("mark")
@@ -352,7 +352,12 @@ def _decode_reference(element: Element) -> Reference:
     from .mark import transform2mark
     mark = transform2mark(mark_el.text) or mark_el.text
     flow = element.find("flow")
-    if flow is not None: return Reference(page, order, mark, [_decode_flow(child, {}) for child in flow])
+    if flow is not None:
+        if not allow_legacy and any(asset.get("ref") == "equation" for asset in flow.iter("asset")):
+            raise ValueError("PCEX v3 reference uses asset ref='formula', not legacy 'equation'")
+        return Reference(page, order, mark, [_decode_flow(child, {}) for child in flow])
+    if not allow_legacy:
+        raise ValueError("PCEX v3 reference must contain <flow>, not legacy body elements")
     values: list[FlowItem] = []
     for child in element:
         if child.tag == "paragraph": values.append(_legacy_paragraph(child, {}))

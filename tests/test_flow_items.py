@@ -64,6 +64,19 @@ def test_v3_codec_rejects_legacy_body_and_invalid_role_when_strict():
         decode(legacy, allow_legacy=False)
 
 
+def test_v3_codec_rejects_legacy_reference_subtrees_when_strict():
+    legacy_asset = fromstring("""<chapter><flow/><references><ref id="1-1"><mark>①</mark><flow>
+      <display-formula><asset ref="equation" page_index="1" bbox="0,0,1,1"/></display-formula>
+    </flow></ref></references></chapter>""")
+    with pytest.raises(ValueError, match="formula"):
+        decode(legacy_asset, allow_legacy=False)
+    legacy_body = fromstring("""<chapter><flow/><references><ref id="1-1"><mark>①</mark>
+      <body><paragraph ref="text"/></body>
+    </ref></references></chapter>""")
+    with pytest.raises(ValueError, match="reference must contain"):
+        decode(legacy_body, allow_legacy=False)
+
+
 def test_pdf_obstacles_include_asset_nested_in_text_flow_item():
     image = SourceAsset(1, "image", (11, 22, 77, 88), asset_hash="d" * 64)
     chapter = Chapter(None, -1, [TextFlowItem("body", 0, [_fragment(1, "before"), image])])
