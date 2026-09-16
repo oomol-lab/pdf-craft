@@ -514,13 +514,13 @@ img picture source video
 a br hr time wbr ruby rt rp
 ```
 
-元素可继续包含普通文字、其他允许的 HTML 包装元素和所在上下文允许的 payload（`inline_expr`，以及 block 中的 `ref`）。HTML 元素名匹配不区分大小写，解码后使用规范的小写名称。
+元素可继续包含普通文字、其他允许的 HTML 包装元素和所在上下文允许的 payload（`inline_expr`，以及 fragment 或 asset 元数据中的 `ref`）。HTML 元素名匹配不区分大小写，解码后使用规范的小写名称。
 
 pdf-craft 从 OCR Markdown 生成这些节点时，会按 GFM 风格白名单过滤属性和 URL 协议；事件处理属性等不会由规范生产者写出。归档读取器目前只依据元素名识别 HTML 包装，不会再次过滤其属性：已知 HTML 元素上的 XML 属性会被保留并由渲染器输出。因此，不应把打开第三方 `.pcex` 等同于 HTML 安全净化，展示输出时仍应遵循宿主环境的安全策略。
 
 ### 脚注和引用
 
-正文 block 中的：
+文本流内容（`<fragment>` 或 asset 的文字元数据）中的：
 
 ```xml
 <ref id="3-1" />
@@ -532,19 +532,21 @@ pdf-craft 从 OCR Markdown 生成这些节点时，会按 GFM 风格白名单过
 <references>
   <ref id="3-1">
     <mark>①</mark>
-    <paragraph ref="text">...</paragraph>
-    <asset ref="image" ...>...</asset>
+    <flow>
+      <text role="body"><fragment page_index="3" source_order="5" bbox="180,3200,2260,3370">脚注正文。</fragment></text>
+      <standalone-asset><asset ref="image" page_index="3" bbox="400,3400,2080,3800" asset_hash="aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" /></standalone-asset>
+    </flow>
   </ref>
 </references>
 ```
 
-ID 格式严格为 `<page_index>-<order>`，两段都必须是整数。这里的 `order` 是 pdf-craft 在该页抽取脚注时从 `1` 起分配的引用序号，不是正文 block 的 0-based OCR 布局顺序。
+ID 格式严格为 `<page_index>-<order>`，两段都必须是整数。这里的 `order` 是 pdf-craft 在该页抽取脚注时从 `1` 起分配的引用序号，不是 fragment 的 0-based `source_order`。
 
-每个引用定义必须包含带文本的 `<mark>`，保存正文中原本出现的脚注标记，例如 `①` 或 `*`。其后可以包含任意数量的 paragraph 或 asset，表示脚注正文。引用正文中的 paragraph block 仍保存自己的页码、OCR 顺序和 bbox。
+每个 v3 引用定义必须恰好包含一个带文本的 `<mark>` 和一个 `<flow>`。mark 保存文本中原本出现的脚注标记，例如 `①` 或 `*`；其 flow 与 chapter 一样使用 `<text>`、`<display-formula>`、`<standalone-asset>` 节点。引用 fragment 保留自己的 `page_index`、`source_order` 和 `bbox`。
 
-正文中的每个 `<ref>` 必须能在同章解析到定义，否则章节无效。引用定义内部不能再嵌套另一个脚注 `<ref>`。规范编码器只输出正文实际引用到的定义，按 `(page_index, order)` 排序，并在 Markdown/EPUB 中将它们统一重新编号。
+chapter/reference flow 内容中的每个 `<ref>` 必须能在同章解析到定义，否则章节无效。引用定义内部不能再嵌套另一个脚注 `<ref>`。规范编码器只输出 chapter flow 实际引用到的定义，按 `(page_index, order)` 排序，并在 Markdown/EPUB 中将它们统一重新编号。
 
-当前解码器以 ID 建立映射但没有单独拒绝重复定义；格式生产者应保证同章引用 ID 唯一。定义 ID 自身包含的页码也暂不与 `pages.xml` 交叉校验，但其子布局的 `page_index` 和 bbox 会正常校验。
+当前解码器以 ID 建立映射但没有单独拒绝重复定义；格式生产者应保证同章引用 ID 唯一。定义 ID 自身包含的页码也暂不与 `pages.xml` 交叉校验，但其 flow 子节点的 `page_index` 和 `bbox` 会正常校验。
 
 ## `assets/`
 
@@ -556,7 +558,7 @@ ID 格式严格为 `<page_index>-<order>`，两段都必须是整数。这里的
 
 规范生产者先把裁剪区域编码为 PNG，再以完整文件字节的 SHA-256 小写十六进制摘要命名。相同字节会复用同一文件，因此多个 asset 可以引用同一 hash。
 
-目录内只允许普通文件，不允许子目录、符号链接或其他扩展名。当前校验器会检查文件名形态，并检查每个章节 `<asset hash="...">` 指向的文件存在；它不会重新计算文件内容的 SHA-256，也不会验证文件确实可解码为 PNG。未被章节引用但名称合法的孤立资源目前也允许存在。
+目录内只允许普通文件，不允许子目录、符号链接或其他扩展名。当前校验器会检查文件名形态，并检查每个 v3 chapter `<asset asset_hash="...">` 指向的文件存在；它不会重新计算文件内容的 SHA-256，也不会验证文件确实可解码为 PNG。未被章节引用但名称合法的孤立资源目前也允许存在。
 
 ## `cover.png`
 
@@ -571,11 +573,11 @@ Markdown 渲染会把封面复制到输出资源目录，但不会自动在 Mark
 | 来源 | 目标/约束 |
 | --- | --- |
 | chapter 中任意带 `page_index` 的元素 | 页码必须存在于 `pages.xml` |
-| 同一元素上的 `det` | 必须落在对应 `<page>` 的宽高内 |
-| `<asset hash="H">` | `assets/H.png` 必须存在，且 H 为 64 位小写十六进制 |
-| block 中 `<ref id="P-O">` | 同章 `<references>` 内必须有该 ID |
+| 同一元素上的 `bbox` | 必须落在对应 `<page>` 的宽高内 |
+| `<asset asset_hash="H">` | `assets/H.png` 必须存在，且 H 为 64 位小写十六进制 |
+| chapter/reference flow 内容中的 `<ref id="P-O">` | 同章 `<references>` 内必须有该 ID |
 | `toc/item@id` | 应对应 `chapter_<id>.xml` 及其 `<chapter id>` |
-| `toc/item@page_index,@order` | 应对应章节起始标题 block 的来源位置 |
+| `toc/item@page_index,@order` | 应对应章节起始标题 fragment 的来源位置 |
 | `chapter_head.xml` | `<chapter>` 应省略 `id` |
 | `chapter_<id>.xml` | `<chapter id>` 应与文件名数字一致 |
 

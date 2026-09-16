@@ -522,13 +522,13 @@ img picture source video
 a br hr time wbr ruby rt rp
 ```
 
-These elements may in turn contain ordinary text, other allowed HTML wrappers, and any payload allowed by the surrounding context: `inline_expr`, plus `ref` within a block. HTML element names are matched case-insensitively and decoded to their canonical lowercase names.
+These elements may in turn contain ordinary text, other allowed HTML wrappers, and any payload allowed by the surrounding context: `inline_expr`, plus `ref` within a fragment or asset metadata. HTML element names are matched case-insensitively and decoded to their canonical lowercase names.
 
 When pdf-craft creates these nodes from OCR Markdown, it filters attributes and URL schemes through a GFM-style allowlist; a canonical producer does not emit event-handler attributes, for example. The archive reader currently recognizes HTML wrappers by element name only and does not filter their attributes again. XML attributes on a recognized HTML element are preserved and emitted by renderers. Opening a third-party `.pcex` must therefore not be treated as HTML sanitization; rendered output still needs the security policy appropriate to its host environment.
 
 ### Footnotes and references
 
-In a body block:
+In text-flow content (a `<fragment>` or an asset's textual metadata):
 
 ```xml
 <ref id="3-1" />
@@ -540,19 +540,21 @@ points to a definition with the same ID in that chapter's `<references>`:
 <references>
   <ref id="3-1">
     <mark>1</mark>
-    <paragraph ref="text">...</paragraph>
-    <asset ref="image" ...>...</asset>
+    <flow>
+      <text role="body"><fragment page_index="3" source_order="5" bbox="180,3200,2260,3370">Footnote text.</fragment></text>
+      <standalone-asset><asset ref="image" page_index="3" bbox="400,3400,2080,3800" asset_hash="aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" /></standalone-asset>
+    </flow>
   </ref>
 </references>
 ```
 
-The ID must have the exact form `<page_index>-<order>`, with both components parseable as integers. Here, `order` is the 1-based reference sequence assigned as pdf-craft extracts footnotes from that page; it is not a body block's 0-based OCR layout order.
+The ID must have the exact form `<page_index>-<order>`, with both components parseable as integers. Here, `order` is the 1-based reference sequence assigned as pdf-craft extracts footnotes from that page; it is not a fragment's 0-based `source_order`.
 
-Every reference definition must contain a `<mark>` with text, preserving the footnote marker that appeared in the body, such as `1`, `*`, or `①`. It may then contain any number of paragraphs or assets representing the footnote body. Paragraph blocks inside a reference retain their own page index, OCR order, and bounding box.
+Every v3 reference definition contains exactly one textual `<mark>` and one `<flow>`. The mark preserves the footnote marker that appeared in the text, such as `1`, `*`, or `①`; its flow uses the same `<text>`, `<display-formula>`, and `<standalone-asset>` nodes as a chapter. Reference fragments retain their own `page_index`, `source_order`, and `bbox`.
 
-Every `<ref>` in body text must resolve to a definition in the same chapter or the chapter is invalid. A reference body may not nest another footnote `<ref>`. The canonical encoder writes only definitions that are actually referenced by body text, sorts them by `(page_index, order)`, and renumbers them uniformly during Markdown and EPUB rendering.
+Every `<ref>` in chapter or reference-flow content must resolve to a definition in the same chapter or the chapter is invalid. A reference body may not nest another footnote `<ref>`. The canonical encoder writes only definitions that are actually referenced by chapter flow content, sorts them by `(page_index, order)`, and renumbers them uniformly during Markdown and EPUB rendering.
 
-The current decoder builds an ID map but does not separately reject duplicate definitions; producers must ensure that reference IDs are unique within a chapter. The page-index component embedded in a definition ID is not currently cross-checked with `pages.xml`, although page indexes and bounding boxes on its child layouts are validated normally.
+The current decoder builds an ID map but does not separately reject duplicate definitions; producers must ensure that reference IDs are unique within a chapter. The page-index component embedded in a definition ID is not currently cross-checked with `pages.xml`, although `page_index` and `bbox` on its flow children are validated normally.
 
 ## `assets/`
 
@@ -564,7 +566,7 @@ Every asset filename must match exactly:
 
 A canonical producer first encodes the cropped region as PNG, then names it with the lowercase hexadecimal SHA-256 digest of the complete file bytes. Identical bytes reuse the same file, so multiple asset elements may refer to one hash.
 
-The directory may contain only regular files—no subdirectories, symbolic links, or other extensions. The current validator checks filename syntax and verifies that every chapter `<asset hash="...">` has a corresponding file. It does not recompute the file content's SHA-256 digest or confirm that the file decodes as PNG. Unreferenced assets with valid names are currently allowed.
+The directory may contain only regular files—no subdirectories, symbolic links, or other extensions. The current validator checks filename syntax and verifies that every v3 chapter `<asset asset_hash="...">` has a corresponding file. It does not recompute the file content's SHA-256 digest or confirm that the file decodes as PNG. Unreferenced assets with valid names are currently allowed.
 
 ## `cover.png`
 
@@ -579,11 +581,11 @@ A canonical `.pcex` must preserve the following relationships:
 | Source | Target or constraint |
 | --- | --- |
 | Any chapter element with `page_index` | The page index must exist in `pages.xml` |
-| `det` on the same element | The bounding box must fit within the corresponding `<page>` dimensions |
-| `<asset hash="H">` | `assets/H.png` must exist, and H must be 64 lowercase hexadecimal characters |
-| `<ref id="P-O">` in a block | A definition with that ID must exist in the same chapter's `<references>` |
+| `bbox` on the same element | The bounding box must fit within the corresponding `<page>` dimensions |
+| `<asset asset_hash="H">` | `assets/H.png` must exist, and H must be 64 lowercase hexadecimal characters |
+| `<ref id="P-O">` in chapter/reference flow content | A definition with that ID must exist in the same chapter's `<references>` |
 | `toc/item@id` | Should correspond to both `chapter_<id>.xml` and its `<chapter id>` |
-| `toc/item@page_index,@order` | Should identify the source location of the chapter's opening heading block |
+| `toc/item@page_index,@order` | Should identify the source location of the chapter's opening heading fragment |
 | `chapter_head.xml` | Its `<chapter>` should omit `id` |
 | `chapter_<id>.xml` | Its `<chapter id>` should equal the number in the filename |
 
