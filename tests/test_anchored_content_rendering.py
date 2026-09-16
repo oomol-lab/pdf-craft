@@ -9,7 +9,8 @@ from epub_generator import LaTeXRender, TableRender
 
 from pdf_craft.common import save_xml
 from pdf_craft.extractor.chapter import (
-    Chapter, FlowAssetRef, SourceAsset, SourceTextFragment, StandaloneAsset, TextFlowItem, encode,
+    Chapter, FlowAssetRef, Reference, SourceAsset, SourceTextFragment, StandaloneAsset,
+    TextFlowItem, encode,
 )
 from pdf_craft.markdown.render.layouts import render_layouts
 from pdf_craft.renderer.epub.anchored import float_side
@@ -114,3 +115,33 @@ def test_epub_applies_float_only_to_the_precise_anchored_image_occurrence():
         assert "After the illustration." in xhtml
         assert xhtml.index("Before") < xhtml.index("pdf-craft-anchored-float") < xhtml.index("After")
         assert "@media screen and (max-width: 35em)" in css
+
+
+def test_epub_footnote_keeps_an_anchored_asset_in_its_reading_order():
+    with TemporaryDirectory() as directory:
+        root = Path(directory)
+        assets = root / "assets"
+        chapters = root / "chapters"
+        assets.mkdir()
+        chapters.mkdir()
+        asset_hash = _write_image(assets)
+        footnote = Reference(1, 1, "1", [_side_image_flow(asset_hash)])
+        chapter = Chapter(None, -1, [TextFlowItem("body", 0, [
+            SourceTextFragment(1, 0, (0, 0, 300, 20), ["Main text", footnote]),
+        ])])
+        save_xml(encode(chapter), chapters / "chapter_head.xml")
+        epub = root / "book.epub"
+
+        render_epub_file(
+            chapters, None, assets, epub, None, None, "en", TableRender.HTML,
+            LaTeXRender.MATHML, True, lambda: False,
+        )
+
+        with ZipFile(epub) as archive:
+            xhtml = archive.read("OEBPS/Text/head.xhtml").decode("utf-8")
+        footnotes = xhtml[xhtml.index("<aside"):]
+        assert "Before the illustration." in footnotes
+        assert "After the illustration." in footnotes
+        assert "<img " in footnotes
+        assert footnotes.index("Before") < footnotes.index("<img ") < footnotes.index("After")
+        assert "pdf-craft-anchored-float" not in footnotes

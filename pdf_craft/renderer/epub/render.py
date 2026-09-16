@@ -308,20 +308,36 @@ def _convert_reference_to_footnote_contents(
             continue
         if isinstance(layout, TextFlowItem):
             content: list[str | Formula | Mark | EpubHTMLTag] = []
-            for block in layout.children:
-                if not isinstance(block, SourceTextFragment):
-                    continue
-                content.extend(
-                    _transform_content(
-                        content=block.content,
-                        inline_latex=inline_latex,
-                        ref_id_to_number=None,
+            level = layout.level
+            for child in layout.children:
+                if isinstance(child, SourceTextFragment):
+                    content.extend(
+                        _transform_content(
+                            content=child.content,
+                            inline_latex=inline_latex,
+                            ref_id_to_number=None,
+                        )
                     )
+                    continue
+                if content:
+                    yield TextBlock(
+                        kind=TextKind.BODY,
+                        level=level,
+                        content=content,
+                    )
+                    content = []
+                asset_element = _convert_asset_to_epub(
+                    asset=child,
+                    assets_path=assets_path,
+                    inline_latex=inline_latex,
+                    ref_id_to_number=None,
                 )
+                if asset_element:
+                    yield asset_element
             if content:
                 yield TextBlock(
                     kind=TextKind.BODY,
-                    level=layout.level,
+                    level=level,
                     content=content,
                 )
 
