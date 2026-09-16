@@ -37,7 +37,7 @@ v3；读取端在内存中迁移 v1/v2 的平铺 body，不会臆造旧格式没
 <chapter id="1" level="0"><flow>
   <text role="heading" level="0"><fragment page_index="3" source_order="0" bbox="180,210,2260,360">第一章</fragment></text>
   <text role="body"><fragment page_index="3" source_order="1" bbox="180,410,2260,620">插图之前。</fragment><asset ref="image" page_index="3" bbox="400,700,2080,1800" asset_hash="aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"/><fragment page_index="3" source_order="2" bbox="180,1900,2260,2100">插图之后。</fragment></text>
-  <display-formula><asset ref="equation" page_index="3" bbox="300,2150,2100,2300"><content>E=mc^2</content></asset></display-formula>
+  <display-formula><asset ref="formula" page_index="3" bbox="300,2150,2100,2300"><content>E=mc^2</content></asset></display-formula>
   <standalone-asset><asset ref="table" page_index="4" bbox="220,600,2200,1700" asset_hash="bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"/></standalone-asset>
 </flow></chapter>
 ```
@@ -46,7 +46,7 @@ v3；读取端在内存中迁移 v1/v2 的平铺 body，不会臆造旧格式没
 `<text role="body|heading">` 有可选整数 `level` 与有序子项。`<fragment>` 必须有正整数
 `page_index`、整数 `source_order`、受页面约束的 `bbox="left,top,right,bottom"`，其中可有
 mixed text、`inline_expr`、脚注引用和允许的 HTML 包装元素。图片/表格 `<asset>` 可嵌在
-`<text>` 中或作为 `<standalone-asset>` 的唯一子项；公式 asset 只能作为
+`<text>` 中或作为 `<standalone-asset>` 的唯一子项；formula asset 只能作为
 `<display-formula>` 的唯一子项，不能嵌在 `<text>`。asset 必须有 `ref`、`page_index`、`bbox`，
 可选 64 位小写十六进制 `asset_hash` 与 `title`、`content`、`caption`；`asset_hash` 对应
 `assets/<hash>.png`。`display-formula` 是阅读流边界，不是 anchored asset。

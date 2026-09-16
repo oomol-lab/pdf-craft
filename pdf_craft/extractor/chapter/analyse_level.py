@@ -1,7 +1,7 @@
 from ...common import median, split_by_cv
 from ..toc.config import MAX_TITLE_CV
 from ...pdf import TITLE_TAGS
-from .chapter import Chapter, ParagraphLayout
+from .chapter import Chapter, TextFlowItem
 
 # markdown 最大支持 6 级标题，减去作为标题的 1 级
 _MAX_TITLE_GROUP = 5
@@ -25,9 +25,9 @@ def analyse_chapter_internal_levels(chapter: Chapter) -> Chapter:
 
 
 def _collect_heights(chapter: Chapter):
-    layout_items: list[tuple[float, ParagraphLayout]] = []
-    for i, layout in enumerate(chapter.layouts):
-        if not isinstance(layout, ParagraphLayout) or layout.ref not in TITLE_TAGS:
+    layout_items: list[tuple[float, TextFlowItem]] = []
+    for i, layout in enumerate(chapter.flow_items):
+        if not isinstance(layout, TextFlowItem) or layout.ref not in TITLE_TAGS:
             continue
         if i == 0:
             layout.level = 0

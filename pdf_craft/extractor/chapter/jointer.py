@@ -169,7 +169,7 @@ class Jointer:
 
             yield AssetLayout(
                 page_index=page_index,
-                ref=layout.ref,
+                ref="formula" if layout.ref == "equation" else layout.ref,
                 det=layout.det,
                 title=_parse_block_content(layout.title),
                 content=_parse_block_content(layout.content),

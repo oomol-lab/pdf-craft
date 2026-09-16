@@ -223,7 +223,7 @@ def _convert_asset_to_epub(
             ref_id_to_number=ref_id_to_number,
         )
     )
-    if asset.ref == "equation":
+    if asset.ref == "formula":
         latex_expression = _extract_text_from_content(asset.content)
         if not latex_expression:
             return None
@@ -286,7 +286,15 @@ def _convert_reference_to_footnote_contents(
     assets_path: Path,
     inline_latex: bool,
 ):
-    for layout in ref.layouts:
+    for layout in ref.flow_items:
+        if isinstance(layout, (DisplayFormula, StandaloneAsset)):
+            asset_element = _convert_asset_to_epub(
+                asset=layout.asset, assets_path=assets_path,
+                inline_latex=inline_latex, ref_id_to_number=None,
+            )
+            if asset_element:
+                yield asset_element
+            continue
         if isinstance(layout, AssetLayout):
             asset_element = _convert_asset_to_epub(
                 asset=layout,

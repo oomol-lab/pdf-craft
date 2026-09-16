@@ -155,7 +155,7 @@ class ChapterFormulaInterrupter:
         equation_asset: Element | None = None
         equation_asset_index: int | None = None
         for index, element in enumerate(text_segment.parent_stack):
-            if element.tag == "asset" and element.get("ref") == "equation":
+            if element.tag == "asset" and element.get("ref") == "formula":
                 equation_asset = element
                 equation_asset_index = index
                 break
@@ -186,7 +186,7 @@ class ChapterFormulaInterrupter:
         return formula
 
     def _formula_for_asset(self, element: Element) -> _Formula:
-        """Freeze one equation asset's formula content as one unit."""
+        """Freeze one formula asset's formula content as one unit."""
         existing = self._element_to_formula.get(id(element))
         if existing is not None:
             return existing
@@ -339,7 +339,7 @@ class ChapterFormulaInterrupter:
 
 
 def _serialize_formula_content(element: Element) -> str:
-    """Serialize an equation asset's content without translating nested formulas."""
+    """Serialize an formula asset's content without translating nested formulas."""
     parts: list[str] = []
     if element.text:
         parts.append(element.text)

@@ -288,7 +288,7 @@ def _validate_workspace(paths: ExtractionPaths, *, require_toc: bool = False) ->
     from ..extractor.chapter.chapter import ParagraphLayout, decode as decode_chapter
     from ..extractor.toc.types import decode as decode_toc
 
-    _read_manifest(paths.manifest)
+    manifest = _read_manifest(paths.manifest)
     _, page_sizes = _read_pages(paths.pages)
     if not paths.chapters.is_dir():
         raise ValueError("PDFCraftExtraction is missing chapters directory")
@@ -323,7 +323,7 @@ def _validate_workspace(paths: ExtractionPaths, *, require_toc: bool = False) ->
                 raise ValueError(f"invalid chapter filename: {path.name}")
         root = _require_xml_root(path, "chapter")
         try:
-            chapter = decode_chapter(root)
+            chapter = decode_chapter(root, allow_legacy=manifest["format_version"] in {1, 2})
         except ValueError as error:
             raise ValueError(f"invalid chapter schema in {path.name}: {error}") from error
         for layout in chapter.layouts:

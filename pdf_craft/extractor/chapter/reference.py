@@ -53,7 +53,7 @@ class References:
                 # must retain their actual v3 flow ownership while being
                 # assembled, otherwise the freshly found body is discarded.
                 reference.flow_items.append(
-                    DisplayFormula(item) if isinstance(item, AssetLayout) and item.ref == "equation"
+                    DisplayFormula(item) if isinstance(item, AssetLayout) and item.ref == "formula"
                     else StandaloneAsset(item) if isinstance(item, AssetLayout)
                     else item
                 )

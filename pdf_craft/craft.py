@@ -354,7 +354,7 @@ class _TextChapterTransformer:
         self._callback = callback
 
     def transform(self, chapter: Chapter) -> Chapter:
-        for layout in chapter.layouts:
+        for layout in chapter.flow_items:
             if not isinstance(layout, ParagraphLayout):
                 continue
             text = "".join(_to_patch_text(block.content) for block in layout.blocks)
@@ -384,7 +384,7 @@ def _validate_extraction_for_pdf(source: Path, extraction: PDFCraftExtraction) -
         chapter_pages = {
             block.page_index
             for chapter in create_chapters_reader(paths.chapters)()
-            for layout in chapter.layouts
+            for layout in chapter.flow_items
             if isinstance(layout, ParagraphLayout)
             for block in layout.blocks
         }

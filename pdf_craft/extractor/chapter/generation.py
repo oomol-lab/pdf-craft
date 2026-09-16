@@ -161,7 +161,7 @@ def _assemble_flow_items(
             yield current
             current = None
         for asset in pending:
-            yield DisplayFormula(asset) if asset.ref == "equation" else StandaloneAsset(asset)
+            yield DisplayFormula(asset) if asset.ref == "formula" else StandaloneAsset(asset)
         pending = []
 
     for layout in layouts:
@@ -176,7 +176,7 @@ def _assemble_flow_items(
             continue
         can_embed = (
             pending
-            and not any(asset.ref == "equation" for asset in pending)
+            and not any(asset.ref == "formula" for asset in pending)
             and current.ref == text.ref == "text"
             and current.blocks and text.blocks
             and check_mergeable(current.blocks[-1].content, text.blocks[0].content)

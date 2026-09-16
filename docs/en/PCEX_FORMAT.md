@@ -41,7 +41,7 @@ memory without inventing unknown anchors.
 <chapter id="1" level="0"><flow>
   <text role="heading" level="0"><fragment page_index="3" source_order="0" bbox="180,210,2260,360">Chapter One</fragment></text>
   <text role="body"><fragment page_index="3" source_order="1" bbox="180,410,2260,620">Before.</fragment><asset ref="image" page_index="3" bbox="400,700,2080,1800" asset_hash="aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"/><fragment page_index="3" source_order="2" bbox="180,1900,2260,2100">After.</fragment></text>
-  <display-formula><asset ref="equation" page_index="3" bbox="300,2150,2100,2300"><content>E=mc^2</content></asset></display-formula>
+  <display-formula><asset ref="formula" page_index="3" bbox="300,2150,2100,2300"><content>E=mc^2</content></asset></display-formula>
   <standalone-asset><asset ref="table" page_index="4" bbox="220,600,2200,1700" asset_hash="bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"/></standalone-asset>
 </flow></chapter>
 ```
@@ -52,7 +52,7 @@ optional `<references>`. `<text role="body|heading">` has optional integer
 integer `source_order`, and bounded `bbox="left,top,right,bottom"`; it carries
 mixed text, `inline_expr`, references, and allowed HTML wrappers. An image/table
 `<asset>` may occur in `<text>` or exactly once under `<standalone-asset>`; an
-equation asset occurs exactly once under `<display-formula>`, never under
+formula asset occurs exactly once under `<display-formula>`, never under
 `<text>`. Every asset requires `ref`, `page_index`, and `bbox`, and may have a
 64-lowercase-hex `asset_hash` plus `title`, `content`, and `caption`.
 `asset_hash` identifies `assets/<hash>.png`; `display-formula` is a flow
@@ -593,7 +593,7 @@ The current validator enforces the first three relationships and body-reference 
 
 A `.pcex` is a regular ZIP archive, written by pdf-craft using Deflate compression. It has no additional magic number, MIME member, archive-wide signature, or archive-level checksum. Format identification relies on both the `.pcex` filename and the ZIP contents.
 
-The archive is unencrypted ZIP. The format itself provides no password protection, access control, or other confidentiality mechanism. It can contain the complete OCR text, bibliographic metadata, page and bounding-box mappings back to the source PDF, image/table/equation assets, and a cover. Protect a `.pcex` with the same sensitivity as its source document when copying, uploading, storing, or sharing it, and apply appropriate storage permissions and transport encryption outside the format.
+The archive is unencrypted ZIP. The format itself provides no password protection, access control, or other confidentiality mechanism. It can contain the complete OCR text, bibliographic metadata, page and bounding-box mappings back to the source PDF, image/table/formula assets, and a cover. Protect a `.pcex` with the same sensitivity as its source document when copying, uploading, storing, or sharing it, and apply appropriate storage permissions and transport encryption outside the format.
 
 Before extraction, the loader checks:
 

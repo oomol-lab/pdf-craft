@@ -292,8 +292,8 @@ class TestPDFCraftExtraction(unittest.TestCase):
             extraction.export(valid)
             invalid = root / "invalid-hash.pcex"
             chapter_xml = (
-                b'<chapter><body><asset ref="image" page_index="1" det="0,0,1,1" '
-                b'hash="../cover"/></body></chapter>'
+                b'<chapter><flow><standalone-asset><asset ref="image" page_index="1" '
+                b'bbox="0,0,1,1" asset_hash="../cover"/></standalone-asset></flow></chapter>'
             )
             _replace_archive_members(
                 valid,

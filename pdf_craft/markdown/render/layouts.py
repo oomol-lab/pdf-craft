@@ -154,7 +154,7 @@ def _render_asset(
         render_member=render_member,
         has_content_before=has_content,
     )
-    if asset.ref in ("equation", "table"):
+    if asset.ref in ("formula", "table"):
         if asset.content:
             has_content = True
     elif asset.ref == "image":
@@ -182,7 +182,7 @@ def _render_asset_content(
     render_member: _MemberRender,
     has_content_before: bool,
 ) -> Generator[str, None, None]:
-    if asset.ref == "equation":
+    if asset.ref == "formula":
         content_str = "".join(
             render_markdown_paragraph(
                 children=asset.content,

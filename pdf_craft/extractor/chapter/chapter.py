@@ -76,6 +76,8 @@ class SourceAsset:
                  asset_hash: str | None = None, *, det: tuple[int, int, int, int] | None = None,
                  hash: str | None = None):
         self.page_index, self.ref = page_index, ref
+        if self.ref == "equation":  # source/OCR and v1/v2 constructor compatibility
+            self.ref = cast(AssetRef, "formula")
         self.bbox = bbox if bbox is not None else cast(tuple[int, int, int, int], det)
         self.title, self.content, self.caption = title or [], content or [], caption or []
         self.asset_hash = asset_hash if asset_hash is not None else hash
@@ -102,8 +104,10 @@ class TextFlowItem:
         raw = role if role is not None else ref
         if raw is None: raise TypeError("TextFlowItem requires role")
         self.role, self.level = _role(raw), level
+        if self.role not in {"body", "heading"}:
+            raise ValueError("TextFlowItem role must be body or heading")
         self.children = children if children is not None else list(blocks or [])
-        if any(isinstance(child, SourceAsset) and child.ref == "equation" for child in self.children):
+        if any(isinstance(child, SourceAsset) and child.ref == "formula" for child in self.children):
             raise ValueError("TextFlowItem cannot contain an equation SourceAsset; use DisplayFormula")
 
     @property
@@ -120,14 +124,14 @@ class TextFlowItem:
 class DisplayFormula:
     asset: SourceAsset
     def __post_init__(self):
-        if self.asset.ref != "equation": raise ValueError("DisplayFormula requires equation asset")
+        if self.asset.ref != "formula": raise ValueError("DisplayFormula requires formula asset")
 
 
 @dataclass
 class StandaloneAsset:
     asset: SourceAsset
     def __post_init__(self):
-        if self.asset.ref == "equation": raise ValueError("equation must be DisplayFormula")
+        if self.asset.ref == "formula": raise ValueError("formula must be DisplayFormula")
 
 
 FlowItem: TypeAlias = TextFlowItem | DisplayFormula | StandaloneAsset
@@ -135,7 +139,7 @@ FlowItem: TypeAlias = TextFlowItem | DisplayFormula | StandaloneAsset
 
 def _flow(value: FlowItem | SourceAsset) -> FlowItem:
     if isinstance(value, SourceAsset):
-        return DisplayFormula(value) if value.ref == "equation" else StandaloneAsset(value)
+        return DisplayFormula(value) if value.ref == "formula" else StandaloneAsset(value)
     return value
 
 
@@ -191,18 +195,21 @@ def search_references_in_chapter(chapter: Chapter) -> Generator[Reference, None,
             seen.add(part.id); yield part
 
 
-def decode(element: Element) -> Chapter:
+def decode(element: Element, *, allow_legacy: bool = True) -> Chapter:
     refs = _refs(element.find("references"))
     id_text = element.get("id")
     ident = int(id_text) if id_text is not None else None
     level = int(element.get("level", "-1"))
     flow = element.find("flow")
     if flow is not None:
+        if not allow_legacy and any(asset.get("ref") == "equation" for asset in flow.iter("asset")):
+            raise ValueError("PCEX v3 uses asset ref='formula', not legacy 'equation'")
         return Chapter(ident, level, [_decode_flow(v, refs) for v in flow])
     # v1/v2 in-memory migration; historic sibling assets cannot acquire a
     # fictional nested relation, but formulas become explicit boundaries.
     body = element.find("body")
     if body is None: raise ValueError("<chapter> missing required <flow> element")
+    if not allow_legacy: raise ValueError("PCEX v3 chapter must contain <flow>, not legacy <body>")
     items: list[FlowItem] = []
     for child in body:
         if child.tag == "paragraph": items.append(_legacy_paragraph(child, refs))
@@ -246,7 +253,7 @@ def _decode_flow(element: Element, refs: dict[tuple[int, int], Reference]) -> Fl
                     children[-1].content.append(expression)
             elif child.tag == "asset":
                 asset = _asset(child, refs)
-                if asset.ref == "equation": raise ValueError("text cannot contain equation asset")
+                if asset.ref == "formula": raise ValueError("text cannot contain formula asset")
                 children.append(asset)
             else: raise ValueError(f"<text> contains unknown element: <{child.tag}>")
         return TextFlowItem(role, _integer(element, "level", -1), children)
@@ -260,7 +267,7 @@ def _decode_flow(element: Element, refs: dict[tuple[int, int], Reference]) -> Fl
 
 def _encode_flow(item: FlowItem) -> Element:
     if isinstance(item, TextFlowItem):
-        if any(isinstance(child, SourceAsset) and child.ref == "equation" for child in item.children):
+        if any(isinstance(child, SourceAsset) and child.ref == "formula" for child in item.children):
             raise ValueError("TextFlowItem cannot encode an equation SourceAsset; use DisplayFormula")
         result = Element("text", {"role": item.role})
         if item.level != -1: result.set("level", str(item.level))
@@ -272,6 +279,8 @@ def _encode_flow(item: FlowItem) -> Element:
 
 def _asset(element: Element, refs: dict[tuple[int, int], Reference] | None = None) -> SourceAsset:
     ref = element.get("ref")
+    if ref == "equation":
+        ref = "formula"
     if ref not in ASSET_TAGS: raise ValueError(f"<asset> attribute 'ref' must be one of {ASSET_TAGS}, got: {ref}")
     return SourceAsset(_integer(element, "page_index"), cast(AssetRef, ref), _bbox(element, "det"),
         _content(element.find("title"), refs, "asset"), _content(element.find("content"), refs, "asset"),

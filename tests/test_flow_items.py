@@ -56,6 +56,14 @@ def test_text_flow_item_rejects_equation_child():
         TextFlowItem("body", 0, [_fragment(1, "before"), equation])
 
 
+def test_v3_codec_rejects_legacy_body_and_invalid_role_when_strict():
+    with pytest.raises(ValueError, match="role"):
+        TextFlowItem("unsupported", 0, [])
+    legacy = fromstring("<chapter><body><paragraph ref='text'/></body></chapter>")
+    with pytest.raises(ValueError, match="PCEX v3"):
+        decode(legacy, allow_legacy=False)
+
+
 def test_pdf_obstacles_include_asset_nested_in_text_flow_item():
     image = SourceAsset(1, "image", (11, 22, 77, 88), asset_hash="d" * 64)
     chapter = Chapter(None, -1, [TextFlowItem("body", 0, [_fragment(1, "before"), image])])

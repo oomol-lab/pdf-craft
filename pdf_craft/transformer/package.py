@@ -109,7 +109,7 @@ class ChapterExtractionTransformer:
         for path, chapter, item_id, character_count in chapter_tasks:
             source_layouts = {
                 identity: layout
-                for layout in chapter.layouts
+                for layout in chapter.flow_items
                 if isinstance(layout, ParagraphLayout)
                 and layout.ref in {"text", "sub_title"}
                 and (identity := paragraph_identity(chapter, layout)) is not None
@@ -137,7 +137,7 @@ class ChapterExtractionTransformer:
             save_xml(encode(transformed), path)
             targets = {
                 identity: layout
-                for layout in transformed.layouts
+                for layout in transformed.flow_items
                 if isinstance(layout, ParagraphLayout)
                 and (identity := paragraph_identity(transformed, layout)) is not None
             }
