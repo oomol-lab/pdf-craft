@@ -435,7 +435,7 @@ v3 encoder; use the v3 `<flow>` schema above for new artifacts.
 | `ref` | Yes | OCR layout-type string |
 | `level` | No | 0-based heading level within the chapter; defaults internally to `-1` |
 
-Backends treat both `ref="title"` and `ref="sub_title"` as headings, and `ref="text"` as regular body text. The format reader preserves other `ref` strings; renderers generally handle them as ordinary paragraphs.
+The v3 migration treats historic `ref="title"` and `ref="sub_title"` as headings. It maps `ref="text"` and every other historic paragraph `ref` conservatively to v3 `role="body"`, preserving readable content without claiming an unknown semantic role.
 
 For a heading paragraph, `level="0"` identifies the chapter's main heading, with larger values indicating successively deeper headings within the chapter. Non-heading paragraphs normally omit `level`. The final Markdown heading level also incorporates the chapter's `level` and is capped at six levels.
 

@@ -249,7 +249,10 @@ def _encode_asset(asset: SourceAsset) -> Element:
 def _legacy_paragraph(element: Element, refs: dict[tuple[int, int], Reference]) -> TextFlowItem:
     ref = element.get("ref")
     if ref is None: raise ValueError("<paragraph> missing required attribute 'ref'")
-    role = {"text": "body", "title": "heading", "sub_title": "heading"}.get(ref, ref)
+    # Historic OCR emitted additional paragraph kinds. They carried no v3
+    # semantic role, so retain their readable content under the conservative
+    # body role instead of rejecting an otherwise valid v1/v2 archive.
+    role = {"title": "heading", "sub_title": "heading"}.get(ref, "body")
     return TextFlowItem(role, _integer(element, "level", -1), [_legacy_block(v, refs) for v in element.findall("block")])
 
 

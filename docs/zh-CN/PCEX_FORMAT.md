@@ -427,7 +427,7 @@ v3 编码器不会写出它们；新产物应使用上文的 `<flow>` schema。
 | `ref` | 是 | OCR 布局种类字符串 |
 | `level` | 否 | 0-based 章内标题层级；省略时为 `-1` |
 
-`ref="title"` 和 `ref="sub_title"` 都会被后端作为标题处理；`ref="text"` 作为普通正文。格式读取器会保留其他 `ref` 字符串，渲染器通常将它们按普通段落处理。
+v3 迁移会将历史 `ref="title"` 与 `ref="sub_title"` 视为标题。`ref="text"` 和其他任何历史 paragraph `ref` 都会保守映射为 v3 `role="body"`：保留可阅读内容，但不为未知种类虚构语义。
 
 标题段落的 `level="0"` 表示章节主标题，更大的值表示章内更深的标题。非标题段落通常省略 `level`。Markdown 最终标题级别还会叠加章节的 `level`，并限制在六级以内。
 

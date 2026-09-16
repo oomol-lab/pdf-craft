@@ -1,7 +1,7 @@
 """Keep PCEX formulas visible to translation while restoring their source form.
 
 ``Chapter`` XML represents inline formulas as ``inline_expr`` nodes and display
-formulas in the ``content`` of an ``asset ref=\"equation\"``.  Neither shape is
+formulas in the ``content`` of an ``asset ref=\"formula\"``.  Neither shape is
 MathML, so the EPUB MathML interrupter cannot be used here.  This adapter uses
 the same XMLTranslator interruption protocol with the PCEX schema instead.
 """

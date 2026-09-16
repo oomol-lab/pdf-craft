@@ -370,7 +370,9 @@ class TestPDFCraftExtraction(unittest.TestCase):
             extraction.export(valid)
             legacy_chapter = (
                 b'<chapter><body><paragraph ref="text"><block page_index="1" order="0" '
-                b'det="0,0,90,20">before</block></paragraph><asset ref="image" '
+                b'det="0,0,90,20">before</block></paragraph><paragraph ref="sidebar">'
+                b'<block page_index="1" order="1" det="0,21,90,40">legacy note</block>'
+                b'</paragraph><asset ref="image" '
                 b'page_index="1" det="0,22,90,60"/><asset ref="equation" page_index="1" '
                 b'det="0,62,90,80"><content>x^2</content></asset></body></chapter>'
             )
@@ -392,8 +394,12 @@ class TestPDFCraftExtraction(unittest.TestCase):
                 opened = PDFCraftExtraction.open(archive_path)
                 with opened._materialize() as paths:
                     migrated = decode_chapter(ElementTree.parse(paths.chapters / "chapter_head.xml").getroot())
-                self.assertIsInstance(migrated.flow_items[1], StandaloneAsset)
-                self.assertIsInstance(migrated.flow_items[2], DisplayFormula)
+                self.assertIsInstance(migrated.flow_items[1], TextFlowItem)
+                assert isinstance(migrated.flow_items[1], TextFlowItem)
+                self.assertEqual(migrated.flow_items[1].role, "body")
+                self.assertEqual(migrated.flow_items[1].children[0].content, ["legacy note"])
+                self.assertIsInstance(migrated.flow_items[2], StandaloneAsset)
+                self.assertIsInstance(migrated.flow_items[3], DisplayFormula)
                 normalized_path = root / f"v{version}-normalized.pcex"
                 opened.export(normalized_path)
                 with ZipFile(normalized_path) as archive:
@@ -404,6 +410,7 @@ class TestPDFCraftExtraction(unittest.TestCase):
                 self.assertEqual(normalized_manifest["format_version"], 3)
                 self.assertIsNotNone(normalized_chapter.find("flow"))
                 self.assertIsNone(normalized_chapter.find("body"))
+                self.assertEqual(normalized_chapter.findall("flow/text")[1].get("role"), "body")
 
     def test_translation_preserves_manifest_pages_toc_cover_and_assets(self):
         with tempfile.TemporaryDirectory() as directory:
