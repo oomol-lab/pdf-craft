@@ -89,6 +89,19 @@ class HillClimbing:
 
         return error_message
 
+    def validate(self, element: Element) -> str | None:
+        """Validate a candidate without admitting it to the hill-climbing state.
+
+        Some format-specific callers need to reject a structurally valid
+        response before it becomes the baseline for a block.  In particular,
+        PCEX's zero-width asset anchors must not let the fill model introduce
+        visible characters at a fragment boundary.  A rejected candidate must
+        not be retained: equally valid repaired responses otherwise cannot
+        replace it in the monotonic completion tracker.
+        """
+        error_message, _ = self._validate_block_weights_and_error_message(element)
+        return error_message
+
     def _validate_block_weights_and_error_message(self, element: Element) -> tuple[str | None, dict[int, int] | None]:
         errors_group = nest_as_errors_group(
             errors=self._block_segment.validate(element),

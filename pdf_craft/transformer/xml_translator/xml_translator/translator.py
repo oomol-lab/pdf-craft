@@ -18,6 +18,31 @@ from .submitter import SubmitKind, submit
 
 T = TypeVar("T")
 SourceTextRenderer = Callable[[list[InlineSegment]], str]
+CanonicalTextValidator = Callable[[list[InlineSegment], str, Element], str | None]
+
+
+def _groups_by_source_unit_owner(
+    inline_segments: list[InlineSegment],
+) -> list[list[InlineSegment]]:
+    """Split PCEX canonical-validation work at logical ``<text>`` owners.
+
+    This helper is deliberately activated only for the optional canonical
+    validation path.  The ordinary XML translator keeps its generic batching
+    semantics, while PCEX gets one first-stage translation result per
+    TextFlowItem and therefore never infers ownership from translated prose.
+    """
+    groups: list[list[InlineSegment]] = []
+    previous_owner: Element | None = None
+    for segment in inline_segments:
+        owner = next(
+            (element for element in segment.head.parent_stack if element.tag == "text"),
+            segment.parent,
+        )
+        if owner is not previous_owner:
+            groups.append([])
+            previous_owner = owner
+        groups[-1].append(segment)
+    return groups
 
 
 @dataclass
@@ -67,6 +92,7 @@ class XMLTranslator:
         interrupt_block_element: Callable[[Element], Element] | None = None,
         immutable_elements_for_inline_segments: Callable[[list[InlineSegment]], list[ImmutableBlockElement]] | None = None,
         source_text_renderer: SourceTextRenderer | None = None,
+        canonical_text_validator: CanonicalTextValidator | None = None,
         on_fill_failed: Callable[[FillFailedEvent], None] | None = None,
         on_translation_event: Callable[[TranslationEvent], None] | None = None,
         completed_characters: int = 0,
@@ -82,6 +108,7 @@ class XMLTranslator:
             interrupt_block_element=interrupt_block_element,
             immutable_elements_for_inline_segments=immutable_elements_for_inline_segments,
             source_text_renderer=source_text_renderer,
+            canonical_text_validator=canonical_text_validator,
             on_fill_failed=on_fill_failed,
             on_translation_event=on_translation_event,
             completed_characters=completed_characters,
@@ -108,6 +135,7 @@ class XMLTranslator:
         interrupt_block_element: Callable[[Element], Element] | None = None,
         immutable_elements_for_inline_segments: Callable[[list[InlineSegment]], list[ImmutableBlockElement]] | None = None,
         source_text_renderer: SourceTextRenderer | None = None,
+        canonical_text_validator: CanonicalTextValidator | None = None,
         on_fill_failed: Callable[[FillFailedEvent], None] | None = None,
         on_translation_event: Callable[[TranslationEvent], None] | None = None,
         completed_characters: int = 0,
@@ -161,11 +189,9 @@ class XMLTranslator:
             map=lambda inline_segments: self._translate_inline_segments(
                 inline_segments=inline_segments,
                 callbacks=callbacks,
-                immutable_elements=(
-                    immutable_elements_for_inline_segments(inline_segments)
-                    if immutable_elements_for_inline_segments is not None else []
-                ),
+                immutable_elements_for_inline_segments=immutable_elements_for_inline_segments,
                 source_text_renderer=source_text_renderer,
+                canonical_text_validator=canonical_text_validator,
             ),
         ):
             task = element2task.get(id(element), None)
@@ -209,8 +235,44 @@ class XMLTranslator:
         self,
         inline_segments: list[InlineSegment],
         callbacks: Callbacks,
+        immutable_elements_for_inline_segments: Callable[
+            [list[InlineSegment]], list[ImmutableBlockElement]
+        ] | None,
+        source_text_renderer: SourceTextRenderer | None,
+        canonical_text_validator: CanonicalTextValidator | None,
+    ) -> list[InlineSegmentMapping | None]:
+        # A canonical validator is defined for one logical unit.  PCEX uses a
+        # ``<text>`` owner for that unit, whereas its fragment children are
+        # only geometry slots.  Do not attempt to recover owner boundaries
+        # from translated prose: a perfectly valid translation can itself
+        # contain blank lines.  Keeping one owner per first-stage request
+        # gives the fill validator an unambiguous canonical string.
+        segment_groups = (
+            _groups_by_source_unit_owner(inline_segments)
+            if canonical_text_validator is not None
+            else [inline_segments]
+        )
+        mappings: list[InlineSegmentMapping | None] = []
+        for group in segment_groups:
+            mappings.extend(self._translate_inline_segment_group(
+                inline_segments=group,
+                callbacks=callbacks,
+                immutable_elements=(
+                    immutable_elements_for_inline_segments(group)
+                    if immutable_elements_for_inline_segments is not None else []
+                ),
+                source_text_renderer=source_text_renderer,
+                canonical_text_validator=canonical_text_validator,
+            ))
+        return mappings
+
+    def _translate_inline_segment_group(
+        self,
+        inline_segments: list[InlineSegment],
+        callbacks: Callbacks,
         immutable_elements: list[ImmutableBlockElement],
         source_text_renderer: SourceTextRenderer | None,
+        canonical_text_validator: CanonicalTextValidator | None,
     ) -> list[InlineSegmentMapping | None]:
         hill_climbing = HillClimbing(
             encoding=self._fill_llm.encoding,
@@ -233,6 +295,12 @@ class XMLTranslator:
             source_text=source_text,
             translated_text=translated_text,
             callbacks=callbacks,
+            canonical_text_validator=(
+                lambda element: canonical_text_validator(
+                    inline_segments, translated_text, element,
+                )
+                if canonical_text_validator is not None else None
+            ),
         )
         mappings: list[InlineSegmentMapping | None] = []
         for mapping in hill_climbing.gen_mappings():
@@ -272,12 +340,21 @@ class XMLTranslator:
         source_text: str,
         translated_text: str,
         callbacks: Callbacks,
+        canonical_text_validator: Callable[[Element], str | None] | None = None,
     ) -> None:
         user_message = (
             f"Source text:\n{source_text}\n\n"
             f"XML template:\n```XML\n{encode_friendly(hill_climbing.request_element())}\n```\n\n"
             f"Translated text:\n{translated_text}"
         )
+        if canonical_text_validator is not None:
+            user_message += (
+                "\n\nCanonical visible-text constraint:\n"
+                "For each PCEX <text> unit, concatenating all visible text in its "
+                "fragment slots must exactly reproduce the corresponding canonical "
+                "translation above. <anchor .../> nodes are zero-width structural "
+                "tokens: do not add a space or any character on either side of one."
+            )
         fixed_messages: list[Message] = [
             Message(
                 role=MessageRole.SYSTEM,
@@ -295,7 +372,19 @@ class XMLTranslator:
                 def validate(self, response: str, state, attempt: int, max_attempts: int):
                     nonlocal last_error
                     validated = translator._extract_xml_element(response)
-                    error = validated if isinstance(validated, str) else hill_climbing.submit(validated)
+                    if isinstance(validated, str):
+                        error = validated
+                    elif canonical_text_validator is None:
+                        # Preserve the generic XMLTranslator path exactly: it
+                        # lets HillClimbing both validate and record partial
+                        # improvements in one operation.
+                        error = hill_climbing.submit(validated)
+                    else:
+                        error = hill_climbing.validate(validated)
+                        if error is None:
+                            error = canonical_text_validator(validated)
+                        if error is None:
+                            error = hill_climbing.submit(validated)
                     if error is None:
                         last_error = None
                         return ProtocolSuccess(None, state)

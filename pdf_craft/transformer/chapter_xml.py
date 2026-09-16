@@ -11,6 +11,8 @@ from pdf_craft.markdown.paragraph import flatten
 from pdf_craft.transformer.xml_translator.segment import search_text_segments
 from pdf_craft.transformer.xml_translator.segment import ImmutableBlockElement, InlineSegment
 from pdf_craft.transformer.xml_translator.xml import clone_element
+from pdf_craft.transformer.xml_translator.xml.const import ID_KEY
+from pdf_craft.transformer.xml_translator.utils import normalize_whitespace
 from pdf_craft.transformer.events import TranslationEvent, TranslationItemKind
 from .chapter_formula_interrupter import ChapterFormulaInterrupter
 from .xml_translator.xml_translator import SubmitKind, TranslationTask
@@ -74,6 +76,7 @@ class ChapterXMLTransformer:
             interrupt_block_element=formula_interrupter.interrupt_block_element,
             immutable_elements_for_inline_segments=anchors.immutable_elements_for_inline_segments,
             source_text_renderer=_render_chapter_source_text,
+            canonical_text_validator=_validate_chapter_fill_canonical_text,
         )
         anchors.restore_assets(translated)
         _restore_fragment_owned_inline_expressions(translated)
@@ -169,6 +172,91 @@ def _source_unit_owner(inline_segment) -> Element:
             return element
     # Display formulas and other non-text XML content remain hard boundaries.
     return inline_segment.parent
+
+
+def _validate_chapter_fill_canonical_text(
+    inline_segments: list[InlineSegment],
+    translated_text: str,
+    response: Element,
+) -> str | None:
+    """Reject a PCEX fill response that changes text at fragment boundaries.
+
+    ``translated_text`` is the canonical result of the first LLM request.  A
+    narrative ``<text>`` is one TextFlowItem, while its fragments and opaque
+    anchors are only the mapping structure required for later PDF geometry.
+    The fill model may choose which fragment owns a character, but concatenating
+    visible content from all slots of that TextFlowItem must reproduce its
+    canonical translation exactly.  This check runs before HillClimbing admits
+    a candidate, so a structurally valid ``How / ever`` attempt cannot become
+    the immutable baseline for a later repair.
+
+    XMLTranslator invokes this validator once per TextFlowItem, so canonical
+    ownership never has to be inferred from a translated blank line.  The XML
+    segment layer canonicalizes runs of whitespace to one space; comparison
+    uses that same representation while still catching a space independently
+    introduced on both sides of a fragment boundary.
+    """
+    owners = _ordered_source_unit_owners(inline_segments)
+    if len(owners) != 1:
+        return (
+            "PCEX canonical fill validation received multiple TextFlowItems; "
+            "each canonical fill request must contain exactly one <text> unit."
+        )
+
+    response_by_id = {
+        int(child.get(ID_KEY, "")): child
+        for child in response
+        if child.get(ID_KEY, "").isdigit()
+    }
+    actual_by_owner: dict[int, list[str]] = {id(owner): [] for owner in owners}
+    owner_by_segment = {
+        segment.id: _source_unit_owner(segment)
+        for segment in inline_segments
+        if segment.id is not None
+    }
+    for segment_id, owner in owner_by_segment.items():
+        filled = response_by_id.get(segment_id)
+        if filled is None:
+            # Structural validation supplies the useful diagnostic first.
+            return None
+        actual_by_owner[id(owner)].extend(
+            text_segment.text for text_segment in search_text_segments(filled)
+        )
+
+    owner = owners[0]
+    # Display formulas and temporary formula-context nodes are not
+    # TextFlowItems. Their dedicated interruption protocol owns fidelity, so
+    # this text-only invariant must not reinterpret their token stream.
+    if owner.tag != "text" or _text_owner_has_formula(owner):
+        return None
+    expected = normalize_whitespace(translated_text)
+    actual = "".join(actual_by_owner[id(owner)])
+    if actual != expected:
+        return (
+            "Visible text for one PCEX <text> differs from the canonical "
+            "translation. Anchors are zero-width and must not add spaces "
+            f"or characters. Expected {expected!r}, got {actual!r}."
+        )
+    return None
+
+
+def _ordered_source_unit_owners(inline_segments: list[InlineSegment]) -> list[Element]:
+    owners: list[Element] = []
+    seen: set[int] = set()
+    for segment in inline_segments:
+        owner = _source_unit_owner(segment)
+        if id(owner) in seen:
+            continue
+        seen.add(id(owner))
+        owners.append(owner)
+    return owners
+
+
+def _text_owner_has_formula(owner: Element) -> bool:
+    return any(
+        element.tag == "inline_expr" and element.get("kind") != "text"
+        for element in owner.iter()
+    )
 
 
 _ANCHOR_TAG = "anchor"
