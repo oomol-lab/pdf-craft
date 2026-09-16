@@ -6,10 +6,10 @@
 
 PDF 回填是两个嵌套的流式阶段，不能把它们混为同一个“字号选择”步骤：
 
-1. **第一阶段是 ParagraphLayout 级操作。** 输入一个完整 ParagraphLayout 的连续 bbox，输出统一字号及跨 bbox 的初始文字流。
+1. **第一阶段是 TextFlowItem 级操作。** 输入一个完整 TextFlowItem 的连续 text-fragment bbox，输出统一字号及跨 bbox 的初始文字流；ParagraphLayout 是 v2 术语。
 2. **第二阶段是页级操作。** 只有该页不再会被任何未关闭的第一阶段 ParagraphLayout 触及时，才读取该页的初始结果，并为每个 bbox 独立计算最终字号和绘制位置。
 
-ParagraphLayout 可以跨页。因此窗口关闭不是“读完一个页面”就发生：必须等所有可能继续流入该页的 ParagraphLayout 已在第一阶段关闭。窗口只保留当前可触及页面的排版数据；不得为了页级归一化把整本书的 Qt 行、页面 raster 或完整几何留在内存。
+TextFlowItem 可以跨页。因此窗口关闭不是“读完一个页面”就发生：必须等所有可能继续流入该页的 TextFlowItem 已在第一阶段关闭。窗口只保留当前可触及页面的排版数据；不得为了页级归一化把整本书的 Qt 行、页面 raster 或完整几何留在内存。嵌入图表是障碍区，不属于可填文字 bbox；DisplayFormula 是独立流节点。
 
 ## 第一阶段：局部连续流
 

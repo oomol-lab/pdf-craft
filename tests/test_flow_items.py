@@ -8,6 +8,8 @@ from pdf_craft.extractor.chapter import (
 from pdf_craft.expression import ExpressionKind
 from pdf_craft.extractor.chapter.generation import _assemble_flow_items
 from pdf_craft.pipeline.pdf.pipeline import _chapter_obstacle_regions
+from pdf_craft.extractor.chapter.reference import References
+from pdf_craft.extractor.chapter.mark import transform2mark
 
 
 def _fragment(order: int, text: str) -> SourceTextFragment:
@@ -59,6 +61,25 @@ def test_pdf_obstacles_include_asset_nested_in_text_flow_item():
     chapter = Chapter(None, -1, [TextFlowItem("body", 0, [_fragment(1, "before"), image])])
     obstacles = _chapter_obstacle_regions(chapter, {1: (100, 100)}, 300)
     assert [(item.page_index, item.bbox) for item in obstacles] == [(1, image.bbox)]
+
+
+def test_reference_assembly_writes_real_flow_items_not_legacy_projection():
+    paragraph = TextFlowItem("body", 0, [SourceTextFragment(
+        1, 0, (0, 0, 10, 10), ["① Footnote body"],
+    )])
+    mark = transform2mark("①")
+    assert mark is not None
+    reference = References(1, [paragraph]).get(mark)
+    assert reference is not None
+    assert len(reference.flow_items) == 1
+    assert isinstance(reference.flow_items[0], TextFlowItem)
+    assert reference.flow_items[0].children[0].content == ["Footnote body"]
+
+
+def test_children_are_mutated_for_cross_page_fragment_aggregation():
+    paragraph = TextFlowItem("body", 0, [_fragment(1, "first")])
+    paragraph.children.extend([_fragment(2, "second")])
+    assert [fragment.source_order for fragment in paragraph.blocks] == [1, 2]
 
 
 def test_extraction_anchors_figure_but_never_joins_across_display_formula():

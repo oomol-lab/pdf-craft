@@ -211,7 +211,7 @@ Variable folios are represented structurally rather than as the text of a reusab
 
 ```json
 {
-  "format_version": 2,
+  "format_version": 3,
   "producer": {
     "name": "pdf-craft",
     "version": "2.0.0"
@@ -240,12 +240,12 @@ The top-level value must be a JSON object. Unlisted top-level fields are not all
 
 | Field | Type | Required | Meaning and constraints |
 | --- | --- | --- | --- |
-| `format_version` | integer | Yes | The canonical value is `2`; readers also accept legacy v1 archives. |
+| `format_version` | integer | Yes | The canonical value is `3`; readers also accept legacy v1/v2 archives. |
 | `producer` | object | Yes | Identifies the software that created the archive; must contain exactly `name` and `version` |
 | `created_at` | string or null | No | Archive creation time; a string must be a parseable ISO 8601 datetime |
 | `document` | object | Yes | Document-level metadata; must contain exactly the fields in the next section |
 
-The canonical `format_version` value is the JSON number `2`. Readers retain v1 support so existing extractions remain usable; unknown versions are rejected.
+The canonical `format_version` value is the JSON number `3`. Readers retain v1/v2 support so existing extractions remain usable; unknown versions are rejected.
 
 When pdf-craft writes an archive, `producer.name` is always `pdf-craft`, and `producer.version` is the installed pdf-craft package version. It falls back to `unknown` when the installed version cannot be determined. The current validator permits other producers, but both `name` and `version` must be non-empty strings.
 
@@ -311,7 +311,7 @@ A `<page>` may not contain child elements, and its canonical form has no text. T
 
 ### Coordinates and bounding boxes
 
-Every `det` attribute in chapter XML has this form:
+Every v3 `bbox` attribute in chapter XML has this form:
 
 ```text
 left,top,right,bottom
@@ -354,7 +354,7 @@ Both the root element and an `<item>` may contain any number of direct `<item>` 
 
 Together, `page_index` and `order` identify the heading layout from which the TOC item was generated. `level` also contributes to Markdown and EPUB heading depth, while XML nesting expresses the parent-child relationship.
 
-The current v2 validator checks the root element, the integer list in `page_indexes`, all child element names, and the four required integer attributes of every item. It does not yet check that pages exist in `pages.xml`, that IDs are unique, that `level` agrees with nesting depth, or that an ID actually corresponds to a chapter. Producers must still preserve those relationships.
+The current v3 validator checks the root element, the integer list in `page_indexes`, all child element names, and the four required integer attributes of every item. It does not yet check that pages exist in `pages.xml`, that IDs are unique, that `level` agrees with nesting depth, or that an ID actually corresponds to a chapter. Producers must still preserve those relationships.
 
 ## `chapters/`
 
@@ -415,7 +415,13 @@ The root element must be `<chapter>`.
 
 Every canonical chapter contains `<flow>`, followed by optional `<references>`. Direct flow children appear in reading order and are `<text>`, `<display-formula>`, or `<standalone-asset>`. A v3 `<text>` has `role="body"` or `role="heading"` and ordered `<fragment>` / image-table `<asset>` children. Text fragments use `page_index`, `source_order`, and `bbox`; assets use `page_index`, `bbox`, and optional `asset_hash`.
 
-### `<paragraph>`
+### Legacy v1/v2 reader-only elements
+
+The following `<paragraph>`, `<block>`, `det`, `order`, and `hash` descriptions
+apply only while reading historic v1/v2 bodies. They are never written by the
+v3 encoder; use the v3 `<flow>` schema above for new artifacts.
+
+#### `<paragraph>`
 
 ```xml
 <paragraph ref="text" level="1">
@@ -435,7 +441,7 @@ For a heading paragraph, `level="0"` identifies the chapter's main heading, with
 
 A paragraph contains zero or more `<block>` elements. A paragraph merged across pages or OCR layout regions contains multiple blocks, so source positioning belongs to each block rather than to the paragraph.
 
-### `<block>`
+#### `<block>`
 
 | Attribute | Required | Type and meaning |
 | --- | --- | --- |
@@ -447,7 +453,7 @@ A block is the smallest mapping unit between text and a source-PDF location. Its
 
 PDF patching processes blocks only in paragraphs whose `ref` is `text` or `sub_title`. It uses `page_index`, `det`, `order`, and the page geometry from `pages.xml` to position replacement text. Other renderers still consume all paragraph content.
 
-### `<asset>`
+#### `<asset>`
 
 ```xml
 <asset
@@ -601,7 +607,7 @@ It then extracts into a temporary directory and validates the contents. Before `
 
 The current implementation imposes no limit on archive size, expanded size, or compression ratio, and it has no content signature. For an untrusted source, callers should enforce file-size and provenance restrictions before passing the archive to pdf-craft. Format versioning provides structural compatibility only, not authenticity or tamper protection.
 
-## v2 validation details
+## v3 validation details
 
 `PDFCraftExtraction.open()` immediately performs these checks:
 
@@ -613,7 +619,7 @@ The current implementation imposes no limit on archive size, expanded size, or c
 6. Every chapter XML and optional XML sidecar parse successfully, have the expected root, and expose decodable core fields; furniture coverage entries must reference existing furniture units.
 7. Chapter page references, bounding boxes, and hashed asset references are valid.
 
-The current v2 validation contract does not include:
+The current v3 validation contract does not include:
 
 - correspondence between TOC page indexes and `pages.xml`;
 - uniqueness or correspondence among TOC IDs, chapter filenames, and chapter root IDs;
@@ -670,6 +676,6 @@ It cannot prove that the input PDF and extraction came from the same source file
 
 ## Version compatibility
 
-The current format version is `2`. The reader accepts canonical v2 archives and legacy `format_version: 1` archives; unknown versions are rejected. A v1 reader rejects the v2 document schema, so applications that need v2 bibliographic metadata should use pdf-craft 2.2.2 or later.
+The current format version is `3`. The reader accepts canonical v3 archives and legacy `format_version: 1` / `2` archives; unknown versions are rejected. Historic readers do not understand the v3 flow schema.
 
 Applications that only need downstream rendering or translation should let `PDFCraftExtraction.open()` perform version and integrity checks. A ZIP that can merely be extracted is not necessarily a usable PDFCraftExtraction.

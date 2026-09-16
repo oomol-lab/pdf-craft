@@ -1,7 +1,10 @@
 import re
 from typing import Iterable
 
-from .chapter import AssetLayout, BlockLayout, ParagraphLayout, Reference
+from .chapter import (
+    AssetLayout, BlockLayout, DisplayFormula, ParagraphLayout, Reference,
+    StandaloneAsset,
+)
 from .content import Content
 from .mark import Mark, transform2mark
 
@@ -46,7 +49,14 @@ class References:
                 )
                 order += 1
             elif reference:
-                reference.layouts.append(item)
+                # ``layouts`` is a read-only legacy projection.  Footnotes
+                # must retain their actual v3 flow ownership while being
+                # assembled, otherwise the freshly found body is discarded.
+                reference.flow_items.append(
+                    DisplayFormula(item) if isinstance(item, AssetLayout) and item.ref == "equation"
+                    else StandaloneAsset(item) if isinstance(item, AssetLayout)
+                    else item
+                )
             else:
                 # TODO: 多余的内容可能是上一页的跨页页脚注释 / 引用，也可能是必须忽略的多余内容。
                 #       此处没有能力进行判断，以后看看有什么好办法。
@@ -76,7 +86,7 @@ class References:
         for block in to_split_layout.blocks:
             mark, content = self._extract_head_mark(block.content)
             if mark is None:
-                mark_layout[1].blocks.append(block)
+                mark_layout[1].children.append(block)
             else:
                 if mark_layout[1].blocks:
                     yield mark_layout

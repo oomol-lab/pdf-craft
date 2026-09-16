@@ -85,7 +85,7 @@ book.pcex                       # ZIP（Deflate 压缩）
 
 pdf-craft 写出的 JSON 和 XML 文本均使用 UTF-8；XML 文件带有 `<?xml version="1.0" encoding="UTF-8"?>` 声明。ZIP 内路径统一使用 `/`。
 
-v2 没有 `document.json` 或 `source-map.json`。文档元数据集中在 `manifest.json`，页面几何集中在 `pages.xml`，每个内容块到原 PDF 的位置映射直接保存在章节 XML 中。
+v3 没有 `document.json` 或 `source-map.json`。文档元数据集中在 `manifest.json`，页面几何集中在 `pages.xml`，每个 FlowItem 到原 PDF 的位置映射直接保存在章节 XML 中。
 
 ## 获取、保存和继续处理
 
@@ -204,7 +204,7 @@ translated = craft.translate_extraction(
 
 ```json
 {
-  "format_version": 2,
+  "format_version": 3,
   "producer": {
     "name": "pdf-craft",
     "version": "2.0.0"
@@ -233,12 +233,12 @@ translated = craft.translate_extraction(
 
 | 字段 | 类型 | 必需 | 含义与约束 |
 | --- | --- | --- | --- |
-| `format_version` | integer | 是 | 规范值为 `2`；读取器同时接受旧的 v1 归档。 |
+| `format_version` | integer | 是 | 规范值为 `3`；读取器同时接受旧的 v1/v2 归档。 |
 | `producer` | object | 是 | 创建归档的软件标识；必须且只能含 `name`、`version` |
 | `created_at` | string 或 null | 否 | 归档创建时间；字符串须为可解析的 ISO 8601 时间 |
 | `document` | object | 是 | 文档级元数据；必须且只能含下一节的字段 |
 
-规范值 `format_version` 是 JSON 数字 `2`。读取器保留 v1 兼容性，未知版本会被拒绝。
+规范值 `format_version` 是 JSON 数字 `3`。读取器保留 v1/v2 兼容性，未知版本会被拒绝。
 
 pdf-craft 自身写出时，`producer.name` 固定为 `pdf-craft`，`producer.version` 是已安装的 pdf-craft 包版本；无法取得安装版本时为 `unknown`。当前校验器允许其他生产者，但 `name` 和 `version` 都必须是非空字符串。
 
@@ -304,7 +304,7 @@ pdf-craft 自身总会写出 `created_at`，使用带 UTC 时区偏移的当前�
 
 ### 坐标和 bbox
 
-章节中的 `det` 属性统一写成：
+v3 chapter 中的 `bbox` 属性统一写成：
 
 ```text
 left,top,right,bottom
@@ -347,7 +347,7 @@ left,top,right,bottom
 
 `page_index` 和 `order` 共同指向生成该目录项的标题布局。`level` 同时用于计算 Markdown/EPUB 标题层级；XML 的嵌套结构则表达父子关系。
 
-当前 v2 校验器会检查根元素、`page_indexes` 的整数列表、所有子元素名称，以及每项四个必需整数属性；它暂不检查页码是否存在于 `pages.xml`、ID 是否唯一、`level` 是否与嵌套深度一致，也不检查 ID 是否确实对应章节。格式生产者仍应保持上述关系。
+当前 v3 校验器会检查根元素、`page_indexes` 的整数列表、所有子元素名称，以及每项四个必需整数属性；它暂不检查页码是否存在于 `pages.xml`、ID 是否唯一、`level` 是否与嵌套深度一致，也不检查 ID 是否确实对应章节。格式生产者仍应保持上述关系。
 
 ## `chapters/`
 
@@ -408,7 +408,12 @@ assets/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.png
 
 规范章节必须包含 `<flow>`，之后可有 `<references>`。flow 直接子节点按阅读顺序排列，为 `<text>`、`<display-formula>` 或 `<standalone-asset>`。v3 的 `<text>` 使用 `role="body"` 或 `role="heading"`，并按顺序包含 `<fragment>` 与图片/表格 `<asset>`；fragment 使用 `page_index`、`source_order`、`bbox`，asset 使用 `page_index`、`bbox` 和可选 `asset_hash`。
 
-### `<paragraph>`
+### v1/v2 读取兼容元素
+
+下列 `<paragraph>`、`<block>`、`det`、`order`、`hash` 的说明只适用于读取历史 v1/v2 body。
+v3 编码器不会写出它们；新产物应使用上文的 `<flow>` schema。
+
+#### `<paragraph>`
 
 ```xml
 <paragraph ref="text" level="1">
@@ -428,7 +433,7 @@ assets/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.png
 
 一个段落由零个或多个 `<block>` 组成。跨页或跨 OCR 布局合并的段落会含多个 block，因此位置映射属于 block 而不是 paragraph。
 
-### `<block>`
+#### `<block>`
 
 | 属性 | 必需 | 类型与含义 |
 | --- | --- | --- |
@@ -440,7 +445,7 @@ block 是文本与原 PDF 位置之间的最小映射单位。其内容使用 XM
 
 PDF 写回只处理 `ref` 为 `text` 或 `sub_title` 的段落 block；它使用 `page_index`、`det`、`order` 以及 `pages.xml` 的页面几何来放置文字。其他渲染器仍会消费全部段落内容。
 
-### `<asset>`
+#### `<asset>`
 
 ```xml
 <asset
@@ -594,7 +599,7 @@ Markdown 渲染会把封面复制到输出资源目录，但不会自动在 Mark
 
 当前实现没有归档大小、展开后大小或压缩比上限，也没有内容签名；对于不可信来源，调用方应在进入 pdf-craft 前额外限制文件大小和来源。格式版本只解决结构兼容性，不提供真实性或防篡改保证。
 
-## v2 校验明细
+## v3 校验明细
 
 `PDFCraftExtraction.open()` 会立即执行以下校验：
 
@@ -606,7 +611,7 @@ Markdown 渲染会把封面复制到输出资源目录，但不会自动在 Mark
 6. 所有章节 XML 与可选 XML 附属文件可解析，根元素正确且核心字段可解码；furniture 覆盖记录必须引用现有 furniture 单元；
 7. 章节页引用、bbox 和带 hash 的资源引用有效。
 
-以下内容不是当前 v2 校验承诺：
+以下内容不是当前 v3 校验承诺：
 
 - TOC 页码与 `pages.xml` 的对应；
 - TOC ID、章节文件名和章节根 ID 的唯一性及对应；
@@ -663,6 +668,6 @@ craft.patch_pdf_with_extraction(
 
 ## 版本兼容
 
-当前格式版本为 `2`。读取器接受规范的 v2 归档和旧的 `format_version: 1` 归档，但会拒绝未知版本。v1 读取器会拒绝 v2 的 document schema；需要 v2 书籍元信息的应用应使用 pdf-craft 2.2.2 或更高版本。
+当前格式版本为 `3`。读取器接受规范的 v3 归档和旧的 `format_version: 1` / `2` 归档，但会拒绝未知版本。历史读取器不理解 v3 flow schema。
 
 应用程序若只需要后续渲染或翻译，应让 `PDFCraftExtraction.open()` 负责版本和完整性检查，不要仅凭 ZIP 可解压就认定包可用。

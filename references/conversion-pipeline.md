@@ -18,7 +18,8 @@ Extractor 生成 PDFCraftExtraction 后，Renderer 可直接生成 Markdown 或 
 3. 在 `analysing_path/ocr/` 写入 OCR 页 XML 和恢复缓存，在
    `analysing_path/extraction/assets/` 写入资源。
 4. 分析 TOC 数据。
-5. 在 `analysing_path/extraction/` 生成章节、TOC、页面几何和 manifest。
+5. 在 `analysing_path/extraction/` 生成章节、TOC、页面几何和 manifest；章节使用 PCEX v3
+   FlowItem，保留文字 fragment、段内 anchored image/table 与独立段落公式的阅读顺序。
 6. 仅从该 extraction 渲染 Markdown 或 EPUB。
 
 当未传入 `analysing_path` 时，`EnsureFolder` 会创建临时目录。当传入该路径时，它会成为可持久复用的缓存和调试输出目录。
@@ -33,7 +34,8 @@ analysis 与稳定 extraction 明确分离：
 - `extraction/manifest.json`：格式版本、producer、创建时间和文档元数据。
 - `extraction/pages.xml`：1-based OCR 像素坐标空间、实际渲染 DPI 和逐页像素宽高。
 - `extraction/assets/`：按内容 hash 存放裁剪出的图片、公式和表格。
-- `extraction/chapters/chapter_*.xml`：生成的章节记录及原 PDF page/bbox 映射。
+- `extraction/chapters/chapter_*.xml`：生成的 v3 FlowItem 章节记录及原 PDF page/bbox 映射；
+  图表可嵌在 TextFlowItem fragment 之间，DisplayFormula 必须独立且不能被段落拼接跨越。
 - `extraction/toc.xml`、`extraction/cover.png`：可选目录和封面。
 - `extraction/furnitures.xml`：可选的页面家具 pattern 与页级 section。
 - `extraction/translation.xml`：仅存在于 furniture 翻译后的 pcex；记录每个可回填

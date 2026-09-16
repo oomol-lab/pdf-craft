@@ -84,7 +84,9 @@ class Jointer:
             if last_tail and self._can_merge_paragraphs(
                 last_tail.page_para, first_layout
             ):
-                last_tail.page_para.blocks.extend(first_layout.blocks)
+                # ``blocks`` is a compatibility projection.  Extend the real
+                # ordered v3 children so cross-page source fragments survive.
+                last_tail.page_para.children.extend(first_layout.children)
                 del body[0]
 
             if not body:
@@ -488,7 +490,10 @@ def _normalize_paragraph_content(paragraph: ParagraphLayout):
             del block2.content[0]
 
     # 极端情况下 block2 会因为单词被移走而被清空。此时要将其整个删去。
-    paragraph.blocks = [block for block in paragraph.blocks if block.content]
+    paragraph.children = [
+        child for child in paragraph.children
+        if not isinstance(child, BlockLayout) or child.content
+    ]
 
 
 def _parse_block_content(text: str | None) -> Content:
