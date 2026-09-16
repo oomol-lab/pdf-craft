@@ -1,6 +1,6 @@
 from xml.etree.ElementTree import fromstring, tostring
 from inspect import signature
-from typing import cast
+from typing import Literal, cast
 import pytest
 
 import pdf_craft.extractor.chapter as chapter_module
@@ -153,11 +153,14 @@ def test_v3_codec_rejects_text_level_inline_expression():
         decode(source, allow_legacy=False)
 
 
-def test_pdf_obstacles_include_asset_nested_in_text_flow_item():
-    image = SourceAsset(1, "image", (11, 22, 77, 88), asset_hash="d" * 64)
-    chapter = Chapter(None, -1, [TextFlowItem("body", 0, [_fragment(1, "before"), image])])
+@pytest.mark.parametrize("asset_ref", ["image", "table"])
+def test_pdf_obstacles_exclude_asset_nested_in_text_flow_item(
+    asset_ref: Literal["image", "table"],
+):
+    asset = SourceAsset(1, asset_ref, (11, 22, 77, 88), asset_hash="d" * 64)
+    chapter = Chapter(None, -1, [TextFlowItem("body", 0, [_fragment(1, "before"), asset])])
     obstacles = _chapter_obstacle_regions(chapter, {1: (100, 100)}, 300)
-    assert [(item.page_index, item.bbox) for item in obstacles] == [(1, image.bbox)]
+    assert obstacles == ()
 
 
 def test_reference_assembly_writes_real_flow_items_not_legacy_projection():
