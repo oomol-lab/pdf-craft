@@ -658,8 +658,9 @@ def _validate_workspace_members(paths: ExtractionPaths) -> None:
 
 
 def _write_archive(paths: ExtractionPaths, target: Path) -> None:
+    manifest = _read_manifest(paths.manifest)
+    legacy = manifest["format_version"] in {1, 2}
     members: list[tuple[Path, str]] = [
-        (paths.manifest, "manifest.json"),
         (paths.pages, "pages.xml"),
     ]
     if paths.furnitures.exists():
@@ -679,12 +680,62 @@ def _write_archive(paths: ExtractionPaths, target: Path) -> None:
         with ZipFile(temporary_path, "w", compression=ZIP_DEFLATED) as archive:
             archive.writestr("chapters/", b"")
             archive.writestr("assets/", b"")
+            if legacy:
+                archive.writestr(
+                    "manifest.json",
+                    json.dumps(_v3_manifest(manifest), ensure_ascii=False, indent=2).encode(),
+                )
+            else:
+                archive.write(paths.manifest, "manifest.json")
             for source, member in members:
-                archive.write(source, member)
+                if legacy and member.startswith("chapters/"):
+                    archive.writestr(member, _v3_chapter_xml(source))
+                else:
+                    archive.write(source, member)
         temporary_path.replace(target)
     except Exception:
         temporary_path.unlink(missing_ok=True)
         raise
+
+
+def _v3_manifest(manifest: dict[str, Any]) -> dict[str, Any]:
+    """Normalize a validated v1/v2 manifest at the public export boundary."""
+    document = manifest["document"]
+    raw_authors = document.get("authors", [])
+    authors = (
+        [{"name": author, "original_name": None, "nationality": None} for author in raw_authors]
+        if manifest["format_version"] == 1 else raw_authors
+    )
+    return {
+        "format_version": FORMAT_VERSION,
+        "producer": manifest["producer"],
+        "created_at": manifest.get("created_at"),
+        "document": {
+            "title": document.get("title"),
+            "original_title": document.get("original_title"),
+            "description": document.get("description"),
+            "publisher": document.get("publisher"),
+            "isbn": document.get("isbn"),
+            "authors": authors,
+            "editors": document.get("editors", []),
+            "translators": document.get("translators", []),
+            "publication_date": document.get("publication_date"),
+            "edition": document.get("edition"),
+            "subjects": document.get("subjects", []),
+            "rights": document.get("rights"),
+            "modified": document.get("modified"),
+            "language": document.get("language"),
+        },
+    }
+
+
+def _v3_chapter_xml(path: Path) -> bytes:
+    """Decode a legacy chapter and serialize its canonical v3 FlowItem form."""
+    from ..extractor.chapter.chapter import decode as decode_chapter, encode as encode_chapter
+
+    root = _require_xml_root(path, "chapter")
+    chapter = decode_chapter(root, allow_legacy=True)
+    return ElementTree.tostring(encode_chapter(chapter), encoding="utf-8", xml_declaration=True)
 
 
 def _extract_archive(archive_path: Path, target: Path) -> None:

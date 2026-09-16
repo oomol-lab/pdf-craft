@@ -394,6 +394,16 @@ class TestPDFCraftExtraction(unittest.TestCase):
                     migrated = decode_chapter(ElementTree.parse(paths.chapters / "chapter_head.xml").getroot())
                 self.assertIsInstance(migrated.flow_items[1], StandaloneAsset)
                 self.assertIsInstance(migrated.flow_items[2], DisplayFormula)
+                normalized_path = root / f"v{version}-normalized.pcex"
+                opened.export(normalized_path)
+                with ZipFile(normalized_path) as archive:
+                    normalized_manifest = json.loads(archive.read("manifest.json"))
+                    normalized_chapter = ElementTree.fromstring(
+                        archive.read("chapters/chapter_head.xml")
+                    )
+                self.assertEqual(normalized_manifest["format_version"], 3)
+                self.assertIsNotNone(normalized_chapter.find("flow"))
+                self.assertIsNone(normalized_chapter.find("body"))
 
     def test_translation_preserves_manifest_pages_toc_cover_and_assets(self):
         with tempfile.TemporaryDirectory() as directory:
