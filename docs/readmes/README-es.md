@@ -12,7 +12,7 @@
     <a href="https://trendshift.io/repositories/15538"><img src="https://trendshift.io/api/badge/repositories/15538" alt="PDF Craft | GitHub Trending on Trendshift" width="250" height="55" /></a>
   </p>
   <p>
-    <a href="https://inkora.oomol.com/pdf-craft/"><strong>Probar en línea</strong></a> ·
+    <a href="https://pdfcraft.ai/pdf-craft/"><strong>Probar en línea</strong></a> ·
     <a href="#quick-start"><strong>Inicio rápido con Python</strong></a> ·
     <a href="#documentation"><strong>Documentación</strong></a>
   </p>
@@ -48,7 +48,7 @@ El resultado depende de la calidad del escaneo, la maquetación y el modelo OCR.
 
 | Opción | Para quién | Requisitos |
 | --- | --- | --- |
-| **[En línea](https://inkora.oomol.com/pdf-craft/)** | Quienes quieran probar el resultado | Navegador; funciones y condiciones indicadas en la aplicación en línea |
+| **[En línea](https://pdfcraft.ai/pdf-craft/)** | Quienes quieran probar el resultado | Navegador; funciones y condiciones indicadas en la aplicación en línea |
 | **Python + OCR remoto** | Desarrolladores que no ejecutan modelos localmente | Python, Poppler, URL y credenciales de un servicio compatible |
 | **Python + OCR local** | Desarrolladores con GPU NVIDIA | Python, Poppler, CUDA, suficiente VRAM y archivos de modelos |
 
@@ -56,7 +56,7 @@ El OCR remoto envía las páginas al servicio configurado y no necesita CUDA loc
 
 **Vista de la aplicación en línea, en inglés**
 
-[![PDF Craft en línea](../images/website-en.png)](https://inkora.oomol.com/pdf-craft/)
+[![PDF Craft en línea](../images/website-en.png)](https://pdfcraft.ai/pdf-craft/)
 
 <a id="quick-start"></a>
 

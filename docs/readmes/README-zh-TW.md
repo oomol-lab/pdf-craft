@@ -12,7 +12,7 @@
     <a href="https://trendshift.io/repositories/15538"><img src="https://trendshift.io/api/badge/repositories/15538" alt="PDF Craft | GitHub Trending on Trendshift" width="250" height="55" /></a>
   </p>
   <p>
-    <a href="https://inkora.oomol.com/pdf-craft/"><strong>線上體驗</strong></a> ·
+    <a href="https://pdfcraft.ai/pdf-craft/"><strong>線上體驗</strong></a> ·
     <a href="#quick-start"><strong>Python 快速開始</strong></a> ·
     <a href="#documentation"><strong>使用文件</strong></a>
   </p>
@@ -48,7 +48,7 @@ PDF Craft 是面向掃描書籍及學術、技術文件的 Python 函式庫。�
 
 | 方式 | 適用對象 | 需求 |
 | --- | --- | --- |
-| **[線上體驗](https://inkora.oomol.com/pdf-craft/)** | 希望先看效果的使用者 | 瀏覽器；功能與使用要求以線上應用程式為準 |
+| **[線上體驗](https://pdfcraft.ai/pdf-craft/)** | 希望先看效果的使用者 | 瀏覽器；功能與使用要求以線上應用程式為準 |
 | **Python + 遠端 OCR** | 不在本機執行 OCR 模型的開發者 | Python、Poppler、相容服務的網址與憑證 |
 | **Python + 本機 OCR** | 擁有 NVIDIA GPU 的開發者 | Python、Poppler、CUDA、足夠的顯示記憶體與模型檔案 |
 
@@ -56,7 +56,7 @@ PDF Craft 是面向掃描書籍及學術、技術文件的 Python 函式庫。�
 
 **查看線上應用程式介面（簡體中文）**
 
-[![PDF Craft 線上應用程式](../images/website-cn.png)](https://inkora.oomol.com/pdf-craft/)
+[![PDF Craft 線上應用程式](../images/website-cn.png)](https://pdfcraft.ai/pdf-craft/)
 
 <a id="quick-start"></a>
 
