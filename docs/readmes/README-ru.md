@@ -12,7 +12,7 @@
     <a href="https://trendshift.io/repositories/15538"><img src="https://trendshift.io/api/badge/repositories/15538" alt="PDF Craft | GitHub Trending on Trendshift" width="250" height="55" /></a>
   </p>
   <p>
-    <a href="https://inkora.oomol.com/pdf-craft/"><strong>Попробовать онлайн</strong></a> ·
+    <a href="https://pdfcraft.ai/"><strong>Попробовать онлайн</strong></a> ·
     <a href="#quick-start"><strong>Быстрый старт с Python</strong></a> ·
     <a href="#documentation"><strong>Документация</strong></a>
   </p>
@@ -48,7 +48,7 @@ PDF Craft — библиотека Python для сканированных кн
 
 | Способ | Для кого | Требования |
 | --- | --- | --- |
-| **[Онлайн](https://inkora.oomol.com/pdf-craft/)** | Для знакомства с результатом | Браузер; функции и условия использования указаны в онлайн-приложении |
+| **[Онлайн](https://pdfcraft.ai/)** | Для знакомства с результатом | Браузер; функции и условия использования указаны в онлайн-приложении |
 | **Python + удалённый OCR** | Для разработчиков без локального запуска моделей | Python, Poppler, URL совместимого сервиса и учётные данные |
 | **Python + локальный OCR** | Для разработчиков с NVIDIA GPU | Python, Poppler, CUDA, достаточная видеопамять и файлы моделей |
 
@@ -56,7 +56,7 @@ PDF Craft — библиотека Python для сканированных кн
 
 **Интерфейс онлайн-приложения на английском языке**
 
-[![PDF Craft Online](../images/website-en.png)](https://inkora.oomol.com/pdf-craft/)
+[![PDF Craft Online](../images/website-en.png)](https://pdfcraft.ai/)
 
 <a id="quick-start"></a>
 

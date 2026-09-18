@@ -12,7 +12,7 @@
     <a href="https://trendshift.io/repositories/15538"><img src="https://trendshift.io/api/badge/repositories/15538" alt="PDF Craft | GitHub Trending on Trendshift" width="250" height="55" /></a>
   </p>
   <p>
-    <a href="https://inkora.oomol.com/pdf-craft/"><strong>オンラインで試す</strong></a> ·
+    <a href="https://pdfcraft.ai/"><strong>オンラインで試す</strong></a> ·
     <a href="#quick-start"><strong>Python クイックスタート</strong></a> ·
     <a href="#documentation"><strong>ドキュメント</strong></a>
   </p>
@@ -48,7 +48,7 @@ PDF Craft は、スキャンした書籍や学術・技術文書を扱う Python
 
 | 方法 | 対象 | 必要なもの |
 | --- | --- | --- |
-| **[オンライン](https://inkora.oomol.com/pdf-craft/)** | まず試したい方 | ブラウザー。機能と利用条件はオンラインアプリで確認 |
+| **[オンライン](https://pdfcraft.ai/)** | まず試したい方 | ブラウザー。機能と利用条件はオンラインアプリで確認 |
 | **Python + リモート OCR** | ローカルでモデルを実行しない開発者 | Python、Poppler、対応サービスの URL と認証情報 |
 | **Python + ローカル OCR** | NVIDIA GPU を使う開発者 | Python、Poppler、CUDA、十分な VRAM、モデルファイル |
 
@@ -56,7 +56,7 @@ PDF Craft は、スキャンした書籍や学術・技術文書を扱う Python
 
 **オンラインアプリの画面を見る（英語）**
 
-[![PDF Craft オンライン版](../images/website-en.png)](https://inkora.oomol.com/pdf-craft/)
+[![PDF Craft オンライン版](../images/website-en.png)](https://pdfcraft.ai/)
 
 <a id="quick-start"></a>
 

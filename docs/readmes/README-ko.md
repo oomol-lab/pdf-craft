@@ -12,7 +12,7 @@
     <a href="https://trendshift.io/repositories/15538"><img src="https://trendshift.io/api/badge/repositories/15538" alt="PDF Craft | GitHub Trending on Trendshift" width="250" height="55" /></a>
   </p>
   <p>
-    <a href="https://inkora.oomol.com/pdf-craft/"><strong>온라인 체험</strong></a> ·
+    <a href="https://pdfcraft.ai/"><strong>온라인 체험</strong></a> ·
     <a href="#quick-start"><strong>Python 빠른 시작</strong></a> ·
     <a href="#documentation"><strong>문서</strong></a>
   </p>
@@ -48,7 +48,7 @@ PDF Craft는 스캔한 책과 학술·기술 문서를 위한 Python 라이브�
 
 | 방식 | 대상 | 준비 사항 |
 | --- | --- | --- |
-| **[온라인 체험](https://inkora.oomol.com/pdf-craft/)** | 먼저 결과를 확인하려는 사용자 | 브라우저, 기능과 이용 조건은 온라인 앱에서 확인 |
+| **[온라인 체험](https://pdfcraft.ai/)** | 먼저 결과를 확인하려는 사용자 | 브라우저, 기능과 이용 조건은 온라인 앱에서 확인 |
 | **Python + 원격 OCR** | 모델을 로컬에서 실행하지 않는 개발자 | Python, Poppler, 호환 서비스 URL과 인증 정보 |
 | **Python + 로컬 OCR** | NVIDIA GPU를 사용하는 개발자 | Python, Poppler, CUDA, 충분한 VRAM, 모델 파일 |
 
@@ -56,7 +56,7 @@ PDF Craft는 스캔한 책과 학술·기술 문서를 위한 Python 라이브�
 
 **온라인 앱 화면 보기 — 영어**
 
-[![PDF Craft 온라인 앱](../images/website-en.png)](https://inkora.oomol.com/pdf-craft/)
+[![PDF Craft 온라인 앱](../images/website-en.png)](https://pdfcraft.ai/)
 
 <a id="quick-start"></a>
 

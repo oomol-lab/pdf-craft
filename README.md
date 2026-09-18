@@ -11,7 +11,7 @@
     <a href="https://trendshift.io/repositories/15538"><img src="https://trendshift.io/api/badge/repositories/15538" alt="PDF Craft | GitHub Trending on Trendshift" width="250" height="55" /></a>
   </p>
   <p>
-    <a href="https://inkora.oomol.com/pdf-craft/"><strong>Try online</strong></a> ·
+    <a href="https://pdfcraft.ai/"><strong>Try online</strong></a> ·
     <a href="#quick-start"><strong>Python quick start</strong></a> ·
     <a href="#documentation"><strong>Documentation</strong></a>
   </p>
@@ -51,7 +51,7 @@ file properties only to fill missing fields, never to override printed book info
 
 | Path | Best for | Requirements |
 | --- | --- | --- |
-| **[Online](https://inkora.oomol.com/pdf-craft/)** | Trying the workflow | A browser; features and usage requirements are defined by the online app |
+| **[Online](https://pdfcraft.ai/)** | Trying the workflow | A browser; features and usage requirements are defined by the online app |
 | **Python + remote OCR** | Developers who do not want to run OCR models locally | Python, Poppler, a compatible OCR service URL and credentials |
 | **Python + local OCR** | Developers with their own NVIDIA GPU | Python, Poppler, CUDA, sufficient VRAM, and model files |
 
@@ -59,7 +59,7 @@ Remote OCR sends pages to the configured service and does not require local CUDA
 
 **Preview the online app**
 
-[![PDF Craft Online](docs/images/website-en.png)](https://inkora.oomol.com/pdf-craft/)
+[![PDF Craft Online](docs/images/website-en.png)](https://pdfcraft.ai/)
 
 <a id="quick-start"></a>
 
