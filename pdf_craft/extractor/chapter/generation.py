@@ -13,6 +13,7 @@ from .content import expand_text_in_content, join_texts_in_content
 from .jointer import Jointer
 from .mark import Mark, search_marks
 from .mergeable import check_mergeable
+from .page_analysis import analyse_pages, restore_streams
 from .punctuation import normalize_punctuation_in_chapter
 from .reference import References
 
@@ -93,21 +94,32 @@ def _extract_body_layouts(pages_path: Path, toc: TocInfo):
         decode=decode,
     )
     toc_page_indexes = set(toc.page_indexes)
+    source_pages = [
+        page for page in pages.read() if page.index not in toc_page_indexes
+    ]
+    paragraphs, citations = _resolve_pages(source_pages)
+    analysed_pages = analyse_pages(
+        page_indexes=(page.index for page in source_pages),
+        paragraphs=paragraphs,
+        citations=citations,
+    )
+    yield from restore_streams(analysed_pages).paragraphs
+
+
+def _resolve_pages(
+    pages: Iterable[Page],
+) -> tuple[list[TextFlowItem | SourceAsset], list[Reference]]:
+    """Run the traditional algorithms up to the reversible page boundary."""
+
+    page_list = list(pages)
     body_jointer = Jointer(
-        (
-            (p.index, p.body_layouts)
-            for p in pages.read()
-            if p.index not in toc_page_indexes
-        )
+        (page.index, page.body_layouts) for page in page_list
     )
     footnotes_jointer = Jointer(
-        (
-            (p.index, p.footnotes_layouts)
-            for p in pages.read()
-            if p.index not in toc_page_indexes
-        )
+        (page.index, page.footnotes_layouts) for page in page_list
     )
-    references_generator = _extract_page_references(footnotes_jointer)
+    page_references = list(_extract_page_references(footnotes_jointer))
+    references_generator = iter(page_references)
     current_references: References | None = next(references_generator, None)
 
     def get_references(page_index: int) -> References | None:
@@ -124,6 +136,7 @@ def _extract_body_layouts(pages_path: Path, toc: TocInfo):
             return current_references
         return None
 
+    paragraphs: list[TextFlowItem | SourceAsset] = []
     for layout in body_jointer.execute():
         if isinstance(layout, TextFlowItem):
             for fragment in layout.children:
@@ -134,7 +147,14 @@ def _extract_body_layouts(pages_path: Path, toc: TocInfo):
                     _replace_mark_with_reference(references, fragment)
                 join_texts_in_content(fragment.content)
 
-        yield layout
+        paragraphs.append(layout)
+
+    citations = [
+        reference
+        for references in page_references
+        for reference in references.values
+    ]
+    return paragraphs, citations
 
 
 def _assemble_flow_items(

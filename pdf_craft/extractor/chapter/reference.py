@@ -29,6 +29,10 @@ class References:
     def page_index(self) -> int:
         return self._page_index
 
+    @property
+    def values(self) -> tuple[Reference, ...]:
+        return tuple(self._references)
+
     def get(self, mark: str | Mark) -> Reference | None:
         return self._mark2reference.get(mark, None)
 

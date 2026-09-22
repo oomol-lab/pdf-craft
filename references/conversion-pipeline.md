@@ -22,6 +22,11 @@ Extractor 生成 PDFCraftExtraction 后，Renderer 可直接生成 Markdown 或 
    FlowItem，保留文字 fragment、段内 anchored image/table 与独立段落公式的阅读顺序。
 6. 仅从该 extraction 渲染 Markdown 或 EPUB。
 
+章节生成在第 5 步内部以 TOC 排除后的 OCR `Page` 为起点：传统 join、citation 拆分与同页
+ref 匹配先产出既有的正文/citation 结果，再投影为内存中的 `PageAnalysis`，随后恢复成相同的
+两条逻辑流，最后才进入 FlowItem 组装。`PageAnalysis` 是 analysis-only 的可逆页级边界，不是
+OCR `Page`、PCEX schema 或持久化缓存；未安装后续审查器时，这次投影与恢复必须是行为无效操作。
+
 当未传入 `analysing_path` 时，`EnsureFolder` 会创建临时目录。当传入该路径时，它会成为可持久复用的缓存和调试输出目录。
 
 ## 中间产物契约
