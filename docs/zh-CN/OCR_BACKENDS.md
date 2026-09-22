@@ -2,7 +2,7 @@
 
 本指南面向需要在库层配置 OCR 的用户。README 已经给出选择方向：没有合适的本地 GPU
 时使用 vendor OCR；希望在本机运行模型时使用 local OCR。本指南进一步说明六种配置对象
-的差异、字段和运行约束。
+的差异、字段和运行约束。另外提供实验性的 GLM-OCR service 配置，见下文。
 
 ## 先决定运行位置
 
@@ -33,6 +33,23 @@ DeepSeek OCR 2 来自 [DeepSeek](https://github.com/deepseek-ai/DeepSeek-OCR) �
 库 API 通过 `PDFOptions(ocr=...)` 接收配置对象，不读取环境变量。下面的例子都可以传给
 `PDFCraft(pdf=PDFOptions(...))`，再用于 `convert_pdf_to_markdown`、`convert_pdf_to_epub`
 或 `extract_pdf`。
+
+## GLM-OCR 与 Apple Silicon（实验性）
+
+`GLMOCRServiceConfig(endpoint_url=None, api_key=None, timeout_seconds=180)` 连接
+完整的 GLM-OCR SDK `/glmocr/parse` 服务，而不是 MLX 的 chat completions endpoint。
+默认 URL 是 `http://127.0.0.1:5002/glmocr/parse`；URL 必须使用 HTTP(S)，超时必须为
+有限正数。服务端可用 MLX 在 Apple GPU 上识别、在 CPU 上分析布局，不需要 CUDA。
+
+此配置需要配套的 `doc-page-extractor` adapter，目前尚未发布；仅安装 1.2.0 不足以
+使用它。请按[Apple Silicon 开发安装说明（英文）](../en/GLM_OCR_APPLE_SILICON.md)
+设置独立环境，并使用保留脚注且关闭布局合并的 SDK 配置。现有三个 local backend
+仍然要求 CUDA。
+
+客户端只管理 endpoint、可选认证和超时，不启动服务或下载模型。该模式归入独立的
+`ServiceOCRConfig`，不属于 CUDA local 配置。SDK 不提供完整 token 统计，因此不能设置
+OCR token 预算；返回的零计数不表示没有消耗 token。脚注需要模型检测到、SDK 保留，
+并设置 `includes_footnotes=True`。切换 backend 或服务配置时请使用新的 analysis 目录。
 
 ## Local OCR 配置
 

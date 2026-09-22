@@ -2,16 +2,37 @@
 
 ## Status and objective
 
-**Status:** Proposed; no backend implementation or runtime validation yet.
+**Status:** Experimental paired implementation; upstream release and full quality
+acceptance remain pending.
 
 Enable PDF Craft to extract scanned PDFs using GLM-OCR running locally on an
 Apple Silicon GPU, while preserving its structured extraction contract and
 existing Markdown/EPUB renderers. Initial integration should use an explicitly
 configured local service, not embed a new ML runtime into the library.
 
-This plan is based on repository source and upstream documentation. Model
-inference, memory consumption, throughput, and end-to-end extraction quality
-have **not** been measured on this machine.
+The initial feasibility assessment used repository source and upstream documents.
+Implementation has now been exercised on an M4 Pro (48 GB): Metal recognition,
+CPU layout, a retained-label SDK response, and two-page PDF → PCEX → Markdown/EPUB.
+Stopped-server PCEX reuse also passed. This is a small synthetic smoke test, not
+full quality acceptance: a formula was missed and rendered footnote preservation
+has not passed. See [setup and measured limitations](../en/GLM_OCR_APPLE_SILICON.md)
+and the [validation record](glm-ocr-validation.md).
+
+### Implementation checkpoint
+
+- Added upstream service adapter/factory and sanitized real-response tests in the
+  paired `doc-page-extractor` branch; PDF Craft has a frozen, lazy service config.
+- SDK default label loss was reproduced, then corrected with an explicit retained
+  label mapping and disabled formatter merges. Native labels drive block kinds.
+- Runtime used SDK revision `cef4d0ea120d1741f5cefe8985eee45f6c8eff1d`, MLX-VLM
+  0.7.2, MLX 0.32.2, Transformers 5.17.0, and Python 3.12.13.
+- Package dependency constraints and lockfile are deliberately unchanged: no
+  upstream release exists yet. Integration uses a documented sibling editable
+  installation, and unmodified upstream 1.2.0 produces an actionable error.
+- **Sequencing deviation:** PDF wiring is prepared as a draft in parallel with
+  upstream release review, not shipped as supported released functionality.
+- Original phase checklists below remain acceptance requirements; partially
+  demonstrated phases must not be treated as entirely complete.
 
 ## Scope
 

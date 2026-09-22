@@ -1,3 +1,5 @@
+# pyright: reportMissingImports=false
+
 from epub_generator import BookMeta, LaTeXRender, TableRender
 
 from .error import (
@@ -50,9 +52,11 @@ from .ocr_config import (
     DeepSeekOCR2VendorConfig,
     DeepSeekOCRLocalConfig,
     DeepSeekOCRVendorConfig,
+    GLMOCRServiceConfig,
     LocalOCRConfig,
     OCRConfig,
     OCRMode,
+    ServiceOCRConfig,
     VendorOCRConfig,
     UnlimitedOCRLocalConfig,
     UnlimitedOCRVendorConfig,

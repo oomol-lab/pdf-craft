@@ -14,7 +14,7 @@ from pdf_craft import PDFCraft, PDFOptions
 
 - `PDFCraft`、`PDFOptions`、`ExtractionOptions`
 - `PDFCraftExtraction`、`PDFExtractor`
-- 六种 OCR 配置对象和 `OCRConfig`
+- 六种已有 OCR 配置对象、实验性的 `GLMOCRServiceConfig` 和 `OCRConfig`
 - `predownload_models`
 - `LLM`
 - `ExtractionTransformer`、`ChapterExtractionTransformer`、`ChapterXMLTransformer`、
@@ -77,6 +77,11 @@ PDFOptions(
 远程 OCR 直接把对应 vendor 配置传给 `ocr`；
 本地 OCR 可以把模型缓存和离线选项写进 local 配置，也可以使用 `models_cache_path` 和
 `local_only` 的默认 local OCR 路径。
+
+实验性的 `GLMOCRServiceConfig` 通过 `ServiceOCRConfig` 加入 `OCRConfig`，其
+`OCRMode` 为 `glm-ocr-service`。它连接完整 SDK 服务，可在 Apple Silicon 上使用本地
+MLX 推理。需要尚未发布的配套上游 adapter，不支持 `predownload_models` 或 OCR token
+预算；配置字段与服务设置见 [OCR backend 配置指南](OCR_BACKENDS.md)。
 
 ### 自定义 PDFHandler
 

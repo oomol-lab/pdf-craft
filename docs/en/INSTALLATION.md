@@ -20,6 +20,10 @@ python -m pip install "pdf-craft[local]"
 
 The extra supplies the Python runtime for local models. It does not choose a PyTorch wheel for your platform. Install a CUDA-compatible PyTorch build that matches your Python version, driver, and operating system. If you are unsure, use vendor OCR.
 
+For experimental GLM-OCR on an Apple Silicon GPU, use separate MLX and SDK
+services instead of the CUDA local extra. The paired upstream adapter is not yet
+released; see [the development setup](GLM_OCR_APPLE_SILICON.md).
+
 ## Requirements
 
 - Python `>=3.11,<3.14`

@@ -12,6 +12,7 @@ from ..ocr_config import (
     DeepSeekOCR2VendorConfig,
     DeepSeekOCRLocalConfig,
     DeepSeekOCRVendorConfig,
+    GLMOCRServiceConfig,
     OCRConfig,
     UnlimitedOCRLocalConfig,
     UnlimitedOCRVendorConfig,
@@ -150,6 +151,32 @@ class PageExtractorNode:
                     base_url=self._ocr.base_url,
                     poll_interval_seconds=self._ocr.poll_interval_seconds,
                     timeout_seconds=self._ocr.timeout_seconds,
+                )
+            )
+        if isinstance(self._ocr, GLMOCRServiceConfig):
+            ocr = self._ocr
+            try:
+                from doc_page_extractor.extractor import (
+                    create_glm_ocr_service_page_extractor,  # type: ignore[attr-defined]
+                )
+                from doc_page_extractor.adapters.glmocr import (  # type: ignore[import-not-found]
+                    GLMOCRServiceConfig as UpstreamGLMOCRServiceConfig,
+                )
+            except ImportError as error:
+                raise ImportError(
+                    "GLM-OCR service mode requires the paired upstream "
+                    "doc-page-extractor build exposing "
+                    "create_glm_ocr_service_page_extractor. Install or update "
+                    "doc-page-extractor from the upstream GLM-OCR integration; "
+                    "the currently released dependency does not provide this "
+                    "factory."
+                ) from error
+
+            return create_glm_ocr_service_page_extractor(
+                UpstreamGLMOCRServiceConfig(
+                    endpoint_url=ocr.endpoint_url,
+                    api_key=ocr.api_key,
+                    timeout_seconds=ocr.timeout_seconds,
                 )
             )
         raise TypeError(f"Unsupported OCR config: {type(self._ocr).__name__}")

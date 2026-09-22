@@ -12,8 +12,18 @@ DeepSeek OCR and DeepSeek OCR 2 are from [DeepSeek](https://github.com/deepseek-
 | `DeepSeekOCRVendorConfig` | DeepSeek OCR | OpenAI-compatible remote service |
 | `DeepSeekOCR2VendorConfig` | DeepSeek OCR 2 | OpenAI-compatible remote service |
 | `UnlimitedOCRVendorConfig` | Unlimited OCR | Baidu remote service |
+| `GLMOCRServiceConfig` (experimental) | GLM-OCR | Full SDK service; supports Apple Silicon MLX deployment |
 
 Pass a configuration through `PDFOptions(ocr=...)`; the library does not load `.env` files.
+
+## GLM-OCR on Apple Silicon (experimental)
+
+`GLMOCRServiceConfig` connects to the full GLM-OCR SDK `/glmocr/parse` service,
+which can use MLX-VLM on a local Apple GPU and CPU layout detection. It requires
+the paired, not-yet-released `doc-page-extractor` adapter; version 1.2.0 alone is
+insufficient. Follow [setup and limitations](GLM_OCR_APPLE_SILICON.md), including
+the SDK configuration that retains footnotes and source geometry. This does not
+change the CUDA requirements of the three existing local backends.
 
 ## Local backends
 

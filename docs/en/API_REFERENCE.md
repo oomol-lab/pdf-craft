@@ -77,7 +77,7 @@ extraction; they do not fall back to an analysis/OCR directory.
 
 `PDFOptions(ocr=None, pdf_handler=None, models_cache_path=None, local_only=False)` holds infrastructure that is reused across PDF extractions.
 
-- `ocr`: one of the local or vendor OCR configuration objects below.
+- `ocr`: one of the local, vendor, or service OCR configuration objects below.
 - `pdf_handler`: an optional `PDFHandler` implementation. Use it only to replace the PDF reading/rendering layer or manage that layer in your application.
 - `models_cache_path` and `local_only`: convenience settings for the default local DeepSeek OCR configuration when `ocr` is not supplied. They must not be combined with an explicit `ocr` configuration.
 
@@ -127,6 +127,14 @@ All OCR configuration objects are immutable dataclasses and are passed to `PDFOp
 | `DeepSeekOCRVendorConfig` | `base_url`, `api_key`, `model` | `temperature`, `top_p`, `max_tokens=8000`, `timeout_seconds=180` |
 | `DeepSeekOCR2VendorConfig` | `base_url`, `api_key`, `model` | `temperature`, `top_p`, `max_tokens=8000`, `timeout_seconds=180` |
 | `UnlimitedOCRVendorConfig` | `ak`, `sk` | `base_url="https://aip.baidubce.com"`, `poll_interval_seconds=2.0`, `timeout_seconds=180` |
+
+Experimental `GLMOCRServiceConfig(endpoint_url=None, api_key=None, timeout_seconds=180)`
+connects to the full SDK parsing service. `None` selects
+`http://127.0.0.1:5002/glmocr/parse`. The URL must be HTTP(S), and timeout finite and
+positive. It belongs to `ServiceOCRConfig`, which is included in `OCRConfig`; its
+`OCRMode` is `glm-ocr-service`. It requires the paired upstream adapter (not yet
+released), rejects OCR token budgets, and does not support local model lifecycle
+operations. See [Apple Silicon setup and limitations](GLM_OCR_APPLE_SILICON.md).
 
 See [OCR backends](OCR_BACKENDS.md) for model origin, runtime requirements, and selection guidance.
 

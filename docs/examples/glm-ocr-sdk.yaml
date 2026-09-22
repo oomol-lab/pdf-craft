@@ -1,0 +1,55 @@
+# GLM-OCR SDK configuration, not a PDF Craft configuration file.
+# Tested SDK revision: cef4d0ea120d1741f5cefe8985eee45f6c8eff1d.
+# Replace both absolute model paths before launching glmocr.server.
+server:
+  host: 127.0.0.1
+  port: 5002
+  debug: false
+pipeline:
+  maas:
+    enabled: false
+  ocr_api:
+    api_url: http://127.0.0.1:8080/v1/chat/completions
+    api_mode: openai
+    model: /absolute/path/models/GLM-OCR-bf16
+    request_timeout: 180
+    retry_max_attempts: 0
+  max_workers: 1
+  page_maxsize: 1
+  region_maxsize: 1
+  page_loader:
+    image_format: PNG
+    max_tokens: 4096
+    temperature: 0.0
+  result_formatter:
+    enable_merge_formula_numbers: false
+    enable_merge_text_blocks: false
+  layout:
+    model_dir: /absolute/path/models/PP-DocLayoutV3
+    device: cpu
+    batch_size: 1
+    workers: 1
+    use_polygon: false
+    label_task_mapping:
+      text:
+        - abstract
+        - algorithm
+        - aside_text
+        - content
+        - doc_title
+        - figure_title
+        - footer
+        - footnote
+        - formula_number
+        - header
+        - number
+        - paragraph_title
+        - reference
+        - reference_content
+        - seal
+        - text
+        - vertical_text
+        - vision_footnote
+      table: [table]
+      formula: [display_formula, inline_formula]
+      skip: [chart, image, footer_image, header_image]
