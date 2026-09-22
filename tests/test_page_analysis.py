@@ -43,6 +43,111 @@ def _fragment(
 
 
 class PageAnalysisTests(unittest.TestCase):
+    def test_footnote_flow_stops_at_page_without_footnotes(self):
+        source_pages = [
+            decode(fromstring("""<page index='1'><body>
+                <layout ref='text' det='1,1,90,20'>Body①</layout>
+                </body><footnotes>
+                <layout ref='text' det='1,90,90,105'>① First note continues</layout>
+                </footnotes></page>""")),
+            decode(fromstring("""<page index='2'><body>
+                <layout ref='text' det='1,1,90,20'>Middle page.</layout>
+                </body><footnotes></footnotes></page>""")),
+            decode(fromstring("""<page index='3'><body>
+                <layout ref='text' det='1,1,90,20'>Final page.</layout>
+                </body><footnotes>
+                <layout ref='text' det='1,90,90,105'>detached footnote text.</layout>
+                </footnotes></page>""")),
+        ]
+
+        _, citations = _resolve_pages(source_pages)
+
+        self.assertEqual(len(citations), 2)
+        first = citations[0]
+        detached = citations[1]
+        self.assertIsInstance(first, Reference)
+        self.assertIsInstance(detached, UnindexedCitation)
+        assert isinstance(first, Reference)
+        assert isinstance(detached, UnindexedCitation)
+        self.assertEqual(first.page_index, 1)
+        self.assertEqual(
+            [fragment.page_index
+             for item in first.flow_items
+             if isinstance(item, TextFlowItem)
+             for fragment in item.children
+             if isinstance(fragment, SourceTextFragment)],
+            [1],
+        )
+        self.assertEqual(detached.page_index, 3)
+
+    def test_new_footnote_mark_uses_the_fragment_page_as_its_origin(self):
+        source_pages = [
+            decode(fromstring("""<page index='1'><body>
+                <layout ref='text' det='1,1,90,20'>First body①</layout>
+                </body><footnotes>
+                <layout ref='text' det='1,90,90,105'>① First note continues</layout>
+                </footnotes></page>""")),
+            decode(fromstring("""<page index='2'><body>
+                <layout ref='text' det='1,1,90,20'>Second body①</layout>
+                </body><footnotes>
+                <layout ref='text' det='1,90,90,105'>① Second note.</layout>
+                </footnotes></page>""")),
+        ]
+
+        paragraphs, citations = _resolve_pages(source_pages)
+        references = [
+            citation for citation in citations
+            if isinstance(citation, Reference)
+        ]
+
+        self.assertEqual(
+            [(reference.page_index, reference.order) for reference in references],
+            [(1, 1), (2, 1)],
+        )
+        body_references = [
+            part
+            for paragraph in paragraphs
+            if isinstance(paragraph, TextFlowItem)
+            for fragment in paragraph.children
+            if isinstance(fragment, SourceTextFragment)
+            for part in fragment.content
+            if isinstance(part, Reference)
+        ]
+        self.assertEqual(
+            [(reference.page_index, reference.order) for reference in body_references],
+            [(1, 1), (2, 1)],
+        )
+
+    def test_unmarked_next_page_footnote_remains_a_continuation(self):
+        source_pages = [
+            decode(fromstring("""<page index='1'><body>
+                <layout ref='text' det='1,1,90,20'>Body①</layout>
+                </body><footnotes>
+                <layout ref='text' det='1,90,90,105'>① First note continues</layout>
+                </footnotes></page>""")),
+            decode(fromstring("""<page index='2'><body>
+                <layout ref='text' det='1,1,90,20'>Next body.</layout>
+                </body><footnotes>
+                <layout ref='text' det='1,90,90,105'>onto the next page.</layout>
+                </footnotes></page>""")),
+        ]
+
+        _, citations = _resolve_pages(source_pages)
+
+        self.assertEqual(len(citations), 1)
+        reference = citations[0]
+        self.assertIsInstance(reference, Reference)
+        assert isinstance(reference, Reference)
+        self.assertEqual((reference.page_index, reference.order), (1, 1))
+        self.assertEqual(
+            [fragment.page_index
+             for item in reference.flow_items
+             if isinstance(item, TextFlowItem)
+             for fragment in item.children
+             if isinstance(fragment, SourceTextFragment)],
+            [1, 2],
+        )
+
     def test_round_trip_preserves_empty_pages_and_cross_page_paragraph(self):
         paragraph = TextFlowItem(
             "body",

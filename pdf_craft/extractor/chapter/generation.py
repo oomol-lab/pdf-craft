@@ -15,7 +15,7 @@ from .mark import Mark, search_marks
 from .mergeable import check_mergeable
 from .page_analysis import UnindexedCitation, analyse_pages, restore_streams
 from .punctuation import normalize_punctuation_in_chapter
-from .reference import References
+from .reference import References, extract_head_mark
 
 
 def generate_chapter_files(pages_path: Path, chapters_path: Path, toc: TocInfo):
@@ -221,16 +221,16 @@ def _extract_page_references(jointer: Jointer) -> Generator[References, None, No
     layout_buffer: list[SourceAsset | TextFlowItem] = []
 
     for layout in jointer.execute():
-        page_index = _page_index_from_layout(layout)
-        if page_index != last_page_index:
-            if layout_buffer:
-                yield References(
-                    page_index=last_page_index,
-                    items=layout_buffer,
-                )
-            last_page_index = page_index
-            layout_buffer = []
-        layout_buffer.append(layout)
+        for page_index, page_layout in _split_reference_origins(layout):
+            if page_index != last_page_index:
+                if layout_buffer:
+                    yield References(
+                        page_index=last_page_index,
+                        items=layout_buffer,
+                    )
+                last_page_index = page_index
+                layout_buffer = []
+            layout_buffer.append(page_layout)
 
     if layout_buffer:
         yield References(
@@ -239,18 +239,45 @@ def _extract_page_references(jointer: Jointer) -> Generator[References, None, No
         )
 
 
-def _page_index_from_layout(layout: SourceAsset | TextFlowItem) -> int:
-    if isinstance(layout, TextFlowItem):
-        fragment = next((child for child in layout.children if isinstance(child, SourceTextFragment)), None)
-        if fragment is None:
-            raise ValueError("TextFlowItem has no source fragments to get page index")
-        return fragment.page_index
-    elif isinstance(layout, SourceAsset):
-        return layout.page_index
-    else:
-        raise TypeError(f"Unknown layout type: {type(layout).__name__}")
+def _split_reference_origins(
+    layout: SourceAsset | TextFlowItem,
+) -> Generator[tuple[int, SourceAsset | TextFlowItem], None, None]:
+    if isinstance(layout, SourceAsset):
+        yield layout.page_index, layout
+        return
 
+    children: list[SourceTextFragment | SourceAsset] = []
+    origin_page_index: int | None = None
+    for child in layout.children:
+        if not isinstance(child, SourceTextFragment):
+            raise ValueError(
+                "footnote TextFlowItem cannot contain anchored assets before "
+                "flow assembly"
+            )
+        mark, _ = extract_head_mark(child.content)
+        if (
+            mark is not None
+            and origin_page_index is not None
+            and child.page_index != origin_page_index
+        ):
+            yield origin_page_index, TextFlowItem(
+                role=layout.role,
+                level=layout.level,
+                children=children,
+            )
+            children = []
+            origin_page_index = child.page_index
+        elif origin_page_index is None:
+            origin_page_index = child.page_index
+        children.append(child)
 
+    if origin_page_index is None:
+        raise ValueError("TextFlowItem has no source fragments to get page index")
+    yield origin_page_index, TextFlowItem(
+        role=layout.role,
+        level=layout.level,
+        children=children,
+    )
 def _replace_mark_with_reference(references: References, block: SourceTextFragment):
     def expand(text: str):
         for item in search_marks(text):

@@ -94,7 +94,7 @@ class References:
         for block in to_split_layout.children:
             if not isinstance(block, SourceTextFragment):
                 raise ValueError("footnote TextFlowItem cannot contain anchored assets before flow assembly")
-            mark, content = self._extract_head_mark(block.content)
+            mark, content = extract_head_mark(block.content)
             if mark is None:
                 mark_layout[1].children.append(block)
             else:
@@ -118,29 +118,30 @@ class References:
         if mark_layout[1].children:
             yield mark_layout
 
-    def _extract_head_mark(self, content: Content) -> tuple[Mark | str | None, Content]:
-        if not content or not isinstance(content[0], str):
-            return None, content
-        head_text = content[0].lstrip()
-        if not head_text:
-            return None, content
 
-        mark: Mark | str | None = None
-        rest: str = ""
-        matched = _START_PREFIX_PATTERN.match(head_text)
-        new_content: Content = content[1:]
+def extract_head_mark(content: Content) -> tuple[Mark | str | None, Content]:
+    if not content or not isinstance(content[0], str):
+        return None, content
+    head_text = content[0].lstrip()
+    if not head_text:
+        return None, content
 
-        if matched:
-            prefix = matched.group(0)
-            mark = prefix.strip()
-            rest = head_text[matched.end() :].lstrip()
-        else:
-            mark = transform2mark(head_text[0])
-            if mark is not None:
-                rest = head_text[1:].lstrip()
+    mark: Mark | str | None = None
+    rest: str = ""
+    matched = _START_PREFIX_PATTERN.match(head_text)
+    new_content: Content = content[1:]
 
-        rest = rest.lstrip()
-        if rest:
-            new_content = [rest] + content[1:]
+    if matched:
+        prefix = matched.group(0)
+        mark = prefix.strip()
+        rest = head_text[matched.end() :].lstrip()
+    else:
+        mark = transform2mark(head_text[0])
+        if mark is not None:
+            rest = head_text[1:].lstrip()
 
-        return mark, new_content
+    rest = rest.lstrip()
+    if rest:
+        new_content = [rest] + content[1:]
+
+    return mark, new_content
