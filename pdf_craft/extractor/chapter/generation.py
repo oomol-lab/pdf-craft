@@ -13,7 +13,7 @@ from .content import expand_text_in_content, join_texts_in_content
 from .jointer import Jointer
 from .mark import Mark, search_marks
 from .mergeable import check_mergeable
-from .page_analysis import analyse_pages, restore_streams
+from .page_analysis import UnindexedCitation, analyse_pages, restore_streams
 from .punctuation import normalize_punctuation_in_chapter
 from .reference import References
 
@@ -108,7 +108,10 @@ def _extract_body_layouts(pages_path: Path, toc: TocInfo):
 
 def _resolve_pages(
     pages: Iterable[Page],
-) -> tuple[list[TextFlowItem | SourceAsset], list[Reference]]:
+) -> tuple[
+    list[TextFlowItem | SourceAsset],
+    list[Reference | UnindexedCitation],
+]:
     """Run the traditional algorithms up to the reversible page boundary."""
 
     page_list = list(pages)
@@ -149,11 +152,16 @@ def _resolve_pages(
 
         paragraphs.append(layout)
 
-    citations = [
-        reference
-        for references in page_references
-        for reference in references.values
-    ]
+    citations: list[Reference | UnindexedCitation] = []
+    for references in page_references:
+        if references.unindexed_items:
+            citations.append(
+                UnindexedCitation(
+                    page_index=references.page_index,
+                    flow_items=references.unindexed_items,
+                )
+            )
+        citations.extend(references.values)
     return paragraphs, citations
 
 

@@ -8,7 +8,7 @@ restore those decisions without changing source text or geometry.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Iterable, Literal, TypeAlias
 
 from ...expression import ExpressionKind
@@ -96,12 +96,21 @@ _CitationMark: TypeAlias = str | _AnalysedMark
 
 @dataclass
 class AnalysedCitation:
-    """Page-local citation identity, including citations with no body."""
+    """One page-local segment of a logical citation."""
+
+    citation_id: str
+    page_index: int
+    index: int | None
+    mark: _CitationMark | None
+    stream_order: int
+
+
+@dataclass(frozen=True)
+class UnindexedCitation:
+    """Footnote content retained even though the legacy split omitted it."""
 
     page_index: int
-    index: int
-    mark: _CitationMark
-    stream_order: int
+    flow_items: tuple[SourceAsset | TextFlowItem, ...]
 
 
 @dataclass
@@ -113,7 +122,7 @@ class LayoutAnnotations:
     continues_to_next: bool
     paragraph_role: str | None = None
     paragraph_level: int | None = None
-    citation_page_index: int | None = None
+    citation_id: str | None = None
     citation_index: int | None = None
     references: list[ReferenceLocation] = field(default_factory=list)
 
@@ -123,7 +132,7 @@ class AnalysedLayout:
     """An immutable source layout decorated with editable resolution facts."""
 
     source: _AnalysedSource
-    stream_order: int
+    document_order: int
     annotations: LayoutAnnotations
 
     @property
@@ -161,8 +170,8 @@ class AnalysedLayout:
         return self.annotations.paragraph_level
 
     @property
-    def citation_page_index(self) -> int | None:
-        return self.annotations.citation_page_index
+    def citation_id(self) -> str | None:
+        return self.annotations.citation_id
 
     @property
     def citation_index(self) -> int | None:
@@ -193,7 +202,7 @@ class RestoredStreams:
 def analyse_pages(
     page_indexes: Iterable[int],
     paragraphs: Iterable[TextFlowItem | SourceAsset],
-    citations: Iterable[Reference],
+    citations: Iterable[Reference | UnindexedCitation],
 ) -> list[PageAnalysis]:
     """Project traditional resolution results back onto their source pages."""
 
@@ -203,23 +212,15 @@ def analyse_pages(
             raise ValueError(f"Duplicate PageAnalysis page index: {page_index}")
         pages[page_index] = PageAnalysis(page_index=page_index)
 
-    def get_page(page_index: int) -> PageAnalysis:
-        if page_index not in pages:
-            pages[page_index] = PageAnalysis(page_index=page_index)
-        return pages[page_index]
-
-    paragraph_order = 0
     for item in paragraphs:
         if isinstance(item, SourceAsset):
             layout = _analyse_layout(
                 source=item,
                 ownership="paragraph",
-                stream_order=paragraph_order,
                 continues_from_previous=False,
                 continues_to_next=False,
             )
-            get_page(layout.page_index).layouts.append(layout)
-            paragraph_order += 1
+            _get_page(pages, layout.page_index).layouts.append(layout)
             continue
 
         for index, fragment in enumerate(item.children):
@@ -230,25 +231,33 @@ def analyse_pages(
             layout = _analyse_layout(
                 source=fragment,
                 ownership="paragraph",
-                stream_order=paragraph_order,
                 continues_from_previous=index > 0,
                 continues_to_next=index < len(item.children) - 1,
                 paragraph_role=item.role,
                 paragraph_level=item.level,
             )
-            get_page(layout.page_index).layouts.append(layout)
-            paragraph_order += 1
+            _get_page(pages, layout.page_index).layouts.append(layout)
 
-    citation_layout_order = 0
     for citation_order, citation in enumerate(citations):
-        page = get_page(citation.page_index)
-        page.citations.append(
-            AnalysedCitation(
-                page_index=citation.page_index,
-                index=citation.order,
-                mark=_analyse_mark(citation.mark),
-                stream_order=citation_order,
-            )
+        citation_id = f"citation-{citation_order}"
+        citation_index = (
+            citation.order if isinstance(citation, Reference) else None
+        )
+        citation_mark = (
+            _analyse_mark(citation.mark)
+            if isinstance(citation, Reference)
+            else None
+        )
+        segments: dict[int, AnalysedCitation] = {}
+        _get_citation_segment(
+            pages=pages,
+            segments=segments,
+            citation_id=citation_id,
+            origin_page_index=citation.page_index,
+            page_index=citation.page_index,
+            citation_index=citation_index,
+            citation_mark=citation_mark,
+            stream_order=citation_order,
         )
         for flow_item in citation.flow_items:
             if isinstance(flow_item, TextFlowItem):
@@ -257,42 +266,107 @@ def analyse_pages(
                         raise ValueError(
                             "Citation analysis cannot contain assembled anchored assets"
                         )
-                    layout = _analyse_layout(
-                        source=fragment,
-                        ownership="citation",
-                        stream_order=citation_layout_order,
-                        continues_from_previous=index > 0,
-                        continues_to_next=index < len(flow_item.children) - 1,
-                        paragraph_role=flow_item.role,
-                        paragraph_level=flow_item.level,
-                        citation_page_index=citation.page_index,
-                        citation_index=citation.order,
+                    segment = _get_citation_segment(
+                        pages=pages,
+                        segments=segments,
+                        citation_id=citation_id,
+                        origin_page_index=citation.page_index,
+                        page_index=fragment.page_index,
+                        citation_index=citation_index,
+                        citation_mark=citation_mark,
+                        stream_order=citation_order,
                     )
-                    get_page(layout.page_index).layouts.append(layout)
-                    citation_layout_order += 1
+                    _get_page(pages, fragment.page_index).layouts.append(
+                        _analyse_layout(
+                            source=fragment,
+                            ownership="citation",
+                            continues_from_previous=index > 0,
+                            continues_to_next=index < len(flow_item.children) - 1,
+                            paragraph_role=flow_item.role,
+                            paragraph_level=flow_item.level,
+                            citation_id=citation_id,
+                            citation_index=segment.index,
+                        )
+                    )
             else:
-                source = flow_item.asset
-                layout = _analyse_layout(
-                    source=source,
-                    ownership="citation",
-                    stream_order=citation_layout_order,
-                    continues_from_previous=False,
-                    continues_to_next=False,
-                    citation_page_index=citation.page_index,
-                    citation_index=citation.order,
+                source = (
+                    flow_item
+                    if isinstance(flow_item, SourceAsset)
+                    else flow_item.asset
                 )
-                get_page(layout.page_index).layouts.append(layout)
-                citation_layout_order += 1
+                segment = _get_citation_segment(
+                    pages=pages,
+                    segments=segments,
+                    citation_id=citation_id,
+                    origin_page_index=citation.page_index,
+                    page_index=source.page_index,
+                    citation_index=citation_index,
+                    citation_mark=citation_mark,
+                    stream_order=citation_order,
+                )
+                _get_page(pages, source.page_index).layouts.append(
+                    _analyse_layout(
+                        source=source,
+                        ownership="citation",
+                        continues_from_previous=False,
+                        continues_to_next=False,
+                        citation_id=citation_id,
+                        citation_index=segment.index,
+                    )
+                )
+
+    document_order = 0
+    for page in pages.values():
+        for index, layout in enumerate(page.layouts):
+            page.layouts[index] = replace(
+                layout,
+                document_order=document_order,
+            )
+            document_order += 1
 
     return list(pages.values())
+
+
+def _get_page(pages: dict[int, PageAnalysis], page_index: int) -> PageAnalysis:
+    if page_index not in pages:
+        pages[page_index] = PageAnalysis(page_index=page_index)
+    return pages[page_index]
+
+
+def _get_citation_segment(
+    pages: dict[int, PageAnalysis],
+    segments: dict[int, AnalysedCitation],
+    citation_id: str,
+    origin_page_index: int,
+    page_index: int,
+    citation_index: int | None,
+    citation_mark: _CitationMark | None,
+    stream_order: int,
+) -> AnalysedCitation:
+    segment = segments.get(page_index)
+    if segment is not None:
+        return segment
+    is_origin = page_index == origin_page_index
+    segment = AnalysedCitation(
+        citation_id=citation_id,
+        page_index=page_index,
+        index=citation_index if is_origin else None,
+        mark=citation_mark if is_origin else None,
+        stream_order=stream_order,
+    )
+    _get_page(pages, page_index).citations.append(segment)
+    segments[page_index] = segment
+    return segment
 
 
 def restore_streams(pages: Iterable[PageAnalysis]) -> RestoredStreams:
     """Restore paragraph and citation streams from editable page annotations."""
 
     page_list = list(pages)
+    _validate_pages(page_list)
     citation_annotations = [
         citation for page in page_list for citation in page.citations
+        if citation.index is not None
     ]
     citation_annotations.sort(key=lambda citation: citation.stream_order)
 
@@ -302,18 +376,20 @@ def restore_streams(pages: Iterable[PageAnalysis]) -> RestoredStreams:
         for layout in page.layouts
         if layout.ownership == "citation"
     ]
-    citation_layouts.sort(key=lambda layout: layout.stream_order)
+    citation_layouts.sort(key=lambda layout: layout.document_order)
 
     references: list[Reference] = []
     reference_map: dict[tuple[int, int], Reference] = {}
     for annotation in citation_annotations:
+        if annotation.index is None or annotation.mark is None:
+            raise ValueError("Indexed citation is missing its index or mark")
         key = (annotation.page_index, annotation.index)
         if key in reference_map:
             raise ValueError(f"Duplicate citation index: {key}")
         owned_layouts = [
             layout
             for layout in citation_layouts
-            if (layout.citation_page_index, layout.citation_index) == key
+            if layout.citation_id == annotation.citation_id
         ]
         raw_items = _restore_layouts(owned_layouts, {})
         flow_items = []
@@ -335,22 +411,13 @@ def restore_streams(pages: Iterable[PageAnalysis]) -> RestoredStreams:
         references.append(reference)
         reference_map[key] = reference
 
-    known_citations = set(reference_map)
-    orphaned = {
-        (layout.citation_page_index, layout.citation_index)
-        for layout in citation_layouts
-        if (layout.citation_page_index, layout.citation_index) not in known_citations
-    }
-    if orphaned:
-        raise ValueError(f"Citation layouts have no citation annotation: {orphaned}")
-
     paragraph_layouts = [
         layout
         for page in page_list
         for layout in page.layouts
         if layout.ownership == "paragraph"
     ]
-    paragraph_layouts.sort(key=lambda layout: layout.stream_order)
+    paragraph_layouts.sort(key=lambda layout: layout.document_order)
     paragraphs = _restore_layouts(paragraph_layouts, reference_map)
     return RestoredStreams(paragraphs=paragraphs, citations=references)
 
@@ -358,12 +425,11 @@ def restore_streams(pages: Iterable[PageAnalysis]) -> RestoredStreams:
 def _analyse_layout(
     source: SourceTextFragment | SourceAsset,
     ownership: LayoutOwnership,
-    stream_order: int,
     continues_from_previous: bool,
     continues_to_next: bool,
     paragraph_role: str | None = None,
     paragraph_level: int | None = None,
-    citation_page_index: int | None = None,
+    citation_id: str | None = None,
     citation_index: int | None = None,
 ) -> AnalysedLayout:
     references: list[ReferenceLocation] = []
@@ -386,18 +452,96 @@ def _analyse_layout(
         )
     return AnalysedLayout(
         source=analysed_source,
-        stream_order=stream_order,
+        document_order=-1,
         annotations=LayoutAnnotations(
             ownership=ownership,
             continues_from_previous=continues_from_previous,
             continues_to_next=continues_to_next,
             paragraph_role=paragraph_role,
             paragraph_level=paragraph_level,
-            citation_page_index=citation_page_index,
+            citation_id=citation_id,
             citation_index=citation_index,
             references=references,
         ),
     )
+
+
+def _validate_pages(pages: list[PageAnalysis]) -> None:
+    page_indexes: set[int] = set()
+    document_orders: set[int] = set()
+    segments: dict[tuple[str, int], AnalysedCitation] = {}
+    indexed_segments: dict[str, AnalysedCitation] = {}
+
+    for page in pages:
+        if page.page_index in page_indexes:
+            raise ValueError(f"Duplicate PageAnalysis page index: {page.page_index}")
+        page_indexes.add(page.page_index)
+
+        expected_index = 1
+        found_indexed = False
+        for citation in page.citations:
+            if citation.page_index != page.page_index:
+                raise ValueError("Citation segment belongs to a different page")
+            key = (citation.citation_id, citation.page_index)
+            if key in segments:
+                raise ValueError(f"Duplicate citation segment: {key}")
+            segments[key] = citation
+
+            if citation.index is None:
+                if found_indexed:
+                    raise ValueError(
+                        "Unindexed citations must precede indexed citations"
+                    )
+                if citation.mark is not None:
+                    raise ValueError("Unindexed citation cannot have a mark")
+                continue
+
+            found_indexed = True
+            if citation.index != expected_index:
+                raise ValueError(
+                    "Page-local citation indexes must be contiguous and "
+                    f"increasing from 1; expected {expected_index}, "
+                    f"got {citation.index} on page {page.page_index}"
+                )
+            if citation.mark is None:
+                raise ValueError("Indexed citation must have a mark")
+            if citation.citation_id in indexed_segments:
+                raise ValueError(
+                    f"Citation identity has multiple indexes: {citation.citation_id}"
+                )
+            indexed_segments[citation.citation_id] = citation
+            expected_index += 1
+
+        for layout in page.layouts:
+            if layout.page_index != page.page_index:
+                raise ValueError("Analysed layout belongs to a different page")
+            if layout.document_order in document_orders:
+                raise ValueError(
+                    f"Duplicate layout document order: {layout.document_order}"
+                )
+            document_orders.add(layout.document_order)
+
+    for page in pages:
+        for layout in page.layouts:
+            if layout.ownership == "paragraph":
+                if layout.citation_id is not None or layout.citation_index is not None:
+                    raise ValueError(
+                        "Paragraph layout cannot carry citation annotations"
+                    )
+                continue
+
+            if layout.citation_id is None:
+                raise ValueError("Citation layout is missing its citation identity")
+            segment = segments.get((layout.citation_id, layout.page_index))
+            if segment is None:
+                raise ValueError(
+                    "Citation layout has no page-local citation segment: "
+                    f"{layout.citation_id} on page {layout.page_index}"
+                )
+            if layout.citation_index != segment.index:
+                raise ValueError(
+                    "Citation layout index disagrees with its page-local segment"
+                )
 
 
 def _analyse_content(

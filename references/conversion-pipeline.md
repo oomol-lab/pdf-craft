@@ -26,6 +26,10 @@ Extractor 生成 PDFCraftExtraction 后，Renderer 可直接生成 Markdown 或 
 ref 匹配先产出既有的正文/citation 结果，再投影为内存中的 `PageAnalysis`，随后恢复成相同的
 两条逻辑流，最后才进入 FlowItem 组装。`PageAnalysis` 是 analysis-only 的可逆页级边界，不是
 OCR `Page`、PCEX schema 或持久化缓存；未安装后续审查器时，这次投影与恢复必须是行为无效操作。
+它会保留传统 citation 拆分未采用的页脚前缀，但无修改恢复时仍按旧行为忽略；跨页 citation
+使用稳定内部身份连接各页片段，只有 citation 在本页开始时才具有页内索引，续页片段的索引为
+空。每页无索引 citation 必须排在有索引 citation 之前，有索引部分必须从 1 连续递增。
+所有 layout 共用一套文档顺序，使 ownership 修改后仍能确定地恢复到目标逻辑流。
 
 当未传入 `analysing_path` 时，`EnsureFolder` 会创建临时目录。当传入该路径时，它会成为可持久复用的缓存和调试输出目录。
 

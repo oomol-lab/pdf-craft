@@ -16,6 +16,7 @@ class References:
         self, page_index: int, items: Iterable[SourceAsset | TextFlowItem]
     ) -> None:
         self._page_index: int = page_index
+        self._unindexed_items: list[SourceAsset | TextFlowItem] = []
         self._references: list[Reference] = list(
             self._extract_references(page_index, items)
         )
@@ -32,6 +33,12 @@ class References:
     @property
     def values(self) -> tuple[Reference, ...]:
         return tuple(self._references)
+
+    @property
+    def unindexed_items(self) -> tuple[SourceAsset | TextFlowItem, ...]:
+        """Footnote content seen before the first page-local citation mark."""
+
+        return tuple(self._unindexed_items)
 
     def get(self, mark: str | Mark) -> Reference | None:
         return self._mark2reference.get(mark, None)
@@ -61,7 +68,7 @@ class References:
             else:
                 # TODO: 多余的内容可能是上一页的跨页页脚注释 / 引用，也可能是必须忽略的多余内容。
                 #       此处没有能力进行判断，以后看看有什么好办法。
-                pass
+                self._unindexed_items.append(item)
         if reference:
             yield reference
 

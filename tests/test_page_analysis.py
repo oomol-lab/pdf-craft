@@ -20,6 +20,7 @@ from pdf_craft.extractor.chapter.generation import (
 )
 from pdf_craft.extractor.chapter.mark import transform2mark
 from pdf_craft.extractor.chapter.page_analysis import (
+    UnindexedCitation,
     analyse_pages,
     restore_streams,
 )
@@ -135,12 +136,76 @@ class PageAnalysisTests(unittest.TestCase):
             for layout in pages[1].layouts
             if layout.ownership == "citation"
         )
+        origin = next(
+            layout
+            for layout in pages[0].layouts
+            if layout.ownership == "citation"
+        )
         restored = restore_streams(pages)
 
-        self.assertEqual(continuation.citation_page_index, 1)
-        self.assertEqual(continuation.citation_index, 1)
+        self.assertEqual(continuation.citation_id, origin.citation_id)
+        self.assertIsNone(continuation.citation_index)
+        self.assertIsNone(pages[1].citations[0].index)
         self.assertTrue(continuation.continues_from_previous)
         self.assertEqual(restored.citations, [continued, empty])
+
+    def test_unindexed_citation_is_retained_but_legacy_restore_omits_it(self):
+        orphaned = TextFlowItem(
+            "body",
+            -1,
+            [_fragment(1, 0, "possible previous-page continuation")],
+        )
+
+        pages = analyse_pages(
+            [1],
+            [],
+            [UnindexedCitation(1, (orphaned,))],
+        )
+        restored = restore_streams(pages)
+
+        self.assertEqual(len(pages[0].layouts), 1)
+        self.assertEqual(len(pages[0].citations), 1)
+        self.assertIsNone(pages[0].citations[0].index)
+        self.assertIsNone(pages[0].layouts[0].citation_index)
+        self.assertEqual(restored.citations, [])
+
+    def test_unindexed_citations_must_precede_page_local_indexes(self):
+        mark = transform2mark("①")
+        assert mark is not None
+        indexed = Reference(
+            1,
+            1,
+            mark,
+            [TextFlowItem("body", -1, [_fragment(1, 1, "Indexed")])],
+        )
+        unindexed = UnindexedCitation(
+            1,
+            (TextFlowItem("body", -1, [_fragment(1, 0, "Unindexed")]),),
+        )
+        pages = analyse_pages([1], [], [unindexed, indexed])
+        pages[0].citations.reverse()
+
+        with self.assertRaisesRegex(
+            ValueError,
+            "Unindexed citations must precede indexed citations",
+        ):
+            restore_streams(pages)
+
+    def test_page_local_citation_indexes_must_start_at_one_and_be_contiguous(self):
+        first_mark = transform2mark("①")
+        second_mark = transform2mark("②")
+        assert first_mark is not None
+        assert second_mark is not None
+        first = Reference(1, 1, first_mark, [])
+        second = Reference(1, 2, second_mark, [])
+        pages = analyse_pages([1], [], [first, second])
+        pages[0].citations[1].index = 3
+
+        with self.assertRaisesRegex(
+            ValueError,
+            "citation indexes must be contiguous",
+        ):
+            restore_streams(pages)
 
     def test_restoration_is_driven_by_editable_gap_annotations(self):
         paragraph = TextFlowItem(
@@ -157,6 +222,41 @@ class PageAnalysisTests(unittest.TestCase):
         self.assertEqual(len(restored.paragraphs), 2)
         self.assertEqual(paragraph.children[0].content, ["first"])
         self.assertEqual(paragraph.children[1].content, [" second"])
+
+    def test_ownership_change_uses_one_collision_free_document_order(self):
+        mark = transform2mark("①")
+        assert mark is not None
+        paragraphs = [
+            TextFlowItem("body", -1, [_fragment(1, 0, "first")]),
+            TextFlowItem("body", -1, [_fragment(1, 1, "second")]),
+        ]
+        citation = Reference(
+            1,
+            1,
+            mark,
+            [TextFlowItem("body", -1, [_fragment(1, 2, "moved")])],
+        )
+        pages = analyse_pages([1], paragraphs, [citation])
+        moved = next(
+            layout for layout in pages[0].layouts if layout.ownership == "citation"
+        )
+        moved.annotations.ownership = "paragraph"
+        moved.annotations.citation_id = None
+        moved.annotations.citation_index = None
+
+        restored = restore_streams(pages)
+
+        self.assertTrue(
+            all(isinstance(item, TextFlowItem) for item in restored.paragraphs)
+        )
+        self.assertEqual(
+            [
+                item.children[0].content
+                for item in restored.paragraphs
+                if isinstance(item, TextFlowItem)
+            ],
+            [["first"], ["second"], ["moved"]],
+        )
 
     def test_round_trip_preserves_assets_at_flow_item_boundary(self):
         first = TextFlowItem("body", -1, [_fragment(1, 0, "sentence continues")])
@@ -217,7 +317,13 @@ class PageAnalysisTests(unittest.TestCase):
                 )
                 source_pages.append(decode(fromstring(source)))
 
-            legacy_paragraphs, legacy_citations = _resolve_pages(source_pages)
+            legacy_paragraphs, citation_resolutions = _resolve_pages(source_pages)
+            legacy_citations = [
+                citation
+                for citation in citation_resolutions
+                if isinstance(citation, Reference)
+            ]
+            self.assertIsInstance(citation_resolutions[0], UnindexedCitation)
             legacy = Chapter(
                 None,
                 -1,
