@@ -1,5 +1,6 @@
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Generator, Iterable
+from typing import Generator, Iterable, Mapping
 
 from ...common import XMLReader, save_xml
 from ...pdf import Page, decode
@@ -13,20 +14,24 @@ from .content import expand_text_in_content, join_texts_in_content
 from .jointer import Jointer
 from .mark import Mark, search_marks
 from .mergeable import check_mergeable
-from .page_analysis import UnindexedCitation, analyse_pages, restore_streams
-from .page_review import (
-    PageAnalysisProcessor,
-    load_page_pixel_sizes,
-)
+from .page_analysis import PageAnalysis, UnindexedCitation, analyse_pages, restore_streams
+from .page_review import load_page_pixel_sizes
 from .punctuation import normalize_punctuation_in_chapter
 from .reference import References, extract_head_mark
+
+
+@dataclass(frozen=True)
+class ChapterAnalysis:
+    source_pages: list[Page]
+    pages: list[PageAnalysis]
+    page_pixel_sizes: Mapping[int, tuple[int, int]]
 
 
 def generate_chapter_files(
     pages_path: Path,
     chapters_path: Path,
     toc: TocInfo,
-    page_analysis_processor: PageAnalysisProcessor | None = None,
+    analysed_pages: Iterable[PageAnalysis] | None = None,
 ):
     chapters_path.mkdir(parents=True, exist_ok=True)
     for chapter_file in chapters_path.glob("chapter_*.xml"):
@@ -35,7 +40,7 @@ def generate_chapter_files(
     for chapter in _generate_chapters(
         pages_path=pages_path,
         toc=toc,
-        page_analysis_processor=page_analysis_processor,
+        analysed_pages=analysed_pages,
     ):
         tail: str
         if chapter.id is None:
@@ -53,7 +58,7 @@ def generate_chapter_files(
 def _generate_chapters(
     pages_path: Path,
     toc: TocInfo,
-    page_analysis_processor: PageAnalysisProcessor | None = None,
+    analysed_pages: Iterable[PageAnalysis] | None = None,
 ) -> Generator[Chapter, None, None]:
     chapter: Chapter | None = None
     ref2toc: dict[tuple[int, int], Toc] = {}
@@ -61,9 +66,12 @@ def _generate_chapters(
     for item in iter_toc(toc.content):
         ref2toc[(item.page_index, item.order)] = item
 
-    for layout in _assemble_flow_items(_extract_body_layouts(
-        pages_path, toc, page_analysis_processor
-    )):
+    body_layouts = (
+        _extract_body_layouts(pages_path, toc)
+        if analysed_pages is None
+        else restore_streams(analysed_pages).paragraphs
+    )
+    for layout in _assemble_flow_items(body_layouts):
         matched_toc = False
         if (
             isinstance(layout, TextFlowItem)
@@ -104,8 +112,31 @@ def _generate_chapters(
 def _extract_body_layouts(
     pages_path: Path,
     toc: TocInfo,
-    page_analysis_processor: PageAnalysisProcessor | None = None,
 ):
+    _, analysed_pages = _analyse_chapter_pages(pages_path, toc)
+    yield from restore_streams(analysed_pages).paragraphs
+
+
+def prepare_chapter_analysis(
+    pages_path: Path,
+    toc: TocInfo,
+) -> ChapterAnalysis:
+    """Resolve OCR pages up to the reversible page-analysis boundary."""
+
+    source_pages, analysed_pages = _analyse_chapter_pages(pages_path, toc)
+    return ChapterAnalysis(
+        source_pages=source_pages,
+        pages=analysed_pages,
+        page_pixel_sizes=load_page_pixel_sizes(
+            pages_path / "page_pixel_sizes.json"
+        ),
+    )
+
+
+def _analyse_chapter_pages(
+    pages_path: Path,
+    toc: TocInfo,
+) -> tuple[list[Page], list[PageAnalysis]]:
     pages: XMLReader[Page] = XMLReader(
         prefix="page",
         dir_path=pages_path,
@@ -121,13 +152,7 @@ def _extract_body_layouts(
         paragraphs=paragraphs,
         citations=citations,
     )
-    if page_analysis_processor is not None:
-        analysed_pages = page_analysis_processor(
-            source_pages,
-            analysed_pages,
-            load_page_pixel_sizes(pages_path / "page_pixel_sizes.json"),
-        )
-    yield from restore_streams(analysed_pages).paragraphs
+    return source_pages, analysed_pages
 
 
 def _resolve_pages(

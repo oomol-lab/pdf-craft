@@ -26,15 +26,17 @@ Extractor 生成 PDFCraftExtraction 后，Renderer 可直接生成 Markdown 或 
 ref 匹配先产出既有的正文/citation 结果，再投影为内存中的 `PageAnalysis`，随后恢复成相同的
 两条逻辑流，最后才进入 FlowItem 组装。`PageAnalysis` 是 analysis-only 的可逆页级边界，不是
 OCR `Page`、PCEX schema 或持久化缓存；未安装后续审查器时，这次投影与恢复必须是行为无效操作。
-投影与恢复之间保留可选的 `PageAnalysisProcessor` hook：processor 可以按页读取相邻页语义边界，
-并返回经过审查或修正的 PageAnalysis 列表。当前仓库私有 CLI 既可让实验性 JEV processor 只打分，
-也可让 JEV 只负责筛选低置信页，再把上一页、目标页、下一页的完整文本 PageAnalysis 交给 LLM，
+投影与恢复之间保留可选的异步 `PageAnalysisProcessor` hook：processor 可以按页读取相邻页语义边界，
+并返回经过审查或修正的 PageAnalysis 列表。配置带 `FootnoteRefinement` 的
+`ExtractionOptions.footnotes` 时，OCR 与传统算法先在
+OCR execution domain 生成 PageAnalysis，随后调用方 event loop 通过官方 TypeSafe SDK 并发执行 JEV
+筛选，再把低置信页连同上一页、目标页、下一页的完整文本 PageAnalysis 交给 LLM，
 且只允许 LLM 返回目标页的完整 JSON 语义层。LLM 返回值通过 `request_guaranteed_json` 检查 schema、
 layout 不可变性、citation/ref 一一对应和 gap 等业务约束；错误会携带具体字段和候选现场进入修复
 循环。ref 使用 `layout_id + citation_index + before/mark/after` 定位，算法在对应 layout 内将其解析
 为内部 path，不要求 LLM 计算字符 offset。`ignored` ownership 保留页码、running header 等原始
-layout，但恢复时不让它进入 paragraph/citation 流。正式转换默认不安装 processor，因此不会产生
-网络请求或行为变化。
+layout，但恢复时不让它进入 paragraph/citation 流。修复后的 PageAnalysis 最后回到 OCR execution
+domain 恢复两条流并组装 FlowItem。正式转换默认不安装 processor，因此不会产生网络请求或行为变化。
 它会保留传统 citation 拆分未采用的页脚前缀，但无修改恢复时仍按旧行为忽略；跨页 citation
 使用稳定内部身份连接各页片段，只有 citation 在本页开始时才具有页内索引，续页片段的索引为
 空。每页无索引 citation 必须排在有索引 citation 之前，有索引部分必须从 1 连续递增。

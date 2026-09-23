@@ -15,6 +15,7 @@ from pdf_craft import (
     ChapterExtractionTransformer,
     ChapterXMLTransformer,
     ExtractionOptions,
+    FootnoteOptions,
     LLM,
     OCRConfig,
     OCRMode,
@@ -246,7 +247,9 @@ def _run_pdf(
                     max_ocr_tokens=run.max_ocr_tokens,
                     max_ocr_output_tokens=run.max_ocr_output_tokens,
                     includes_cover=run.includes_cover,
-                    includes_footnotes=run.includes_footnotes,
+                    footnotes=(
+                        FootnoteOptions() if run.includes_footnotes else None
+                    ),
                 generate_plot=run.generate_plot, toc_assumed=run.toc_assumed,
                 on_ocr_event=report.on_ocr_event,
                 ),

@@ -97,6 +97,23 @@ class _CancellableEngine:
         raise RuntimeError("cancelled by cooperative engine")
 
 
+class _NativeAsyncEngine:
+    def __init__(self) -> None:
+        self.thread_id: int | None = None
+
+    async def extract_package_async(self, *, analysing_path, **_kwargs):
+        self.thread_id = threading.get_ident()
+        await asyncio.sleep(0)
+        make_extraction(
+            analysing_path / "extraction",
+            page_pixel_sizes={1: (10, 10)},
+        )
+        return None, None, None, None, "async-metering"
+
+    def extract_package(self, **_kwargs):
+        raise AssertionError("native async extraction must not use the sync hook")
+
+
 class _AsyncXMLTranslator:
     def __init__(self) -> None:
         self.thread_id: int | None = None
@@ -232,6 +249,19 @@ class TestAsyncAPI(unittest.IsolatedAsyncioTestCase):
                     self.assertEqual(events, ["page"])
                     self.assertEqual(callback_threads, [loop_thread])
                     self.assertNotEqual(engine.thread_name, threading.current_thread().name)
+
+    async def test_direct_extractor_prefers_native_async_engine_hook(self):
+        engine = _NativeAsyncEngine()
+        caller_thread = threading.get_ident()
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            extraction, metering = await PDFExtractor(engine).extract_with_metering(
+                Path("source.pdf"), root / "book.pcex"
+            )
+
+        self.assertIsInstance(extraction, PDFCraftExtraction)
+        self.assertEqual(metering, "async-metering")
+        self.assertEqual(engine.thread_id, caller_thread)
 
     async def test_sync_transformer_callbacks_run_on_caller_loop(self):
         loop_thread = threading.get_ident()

@@ -8,7 +8,7 @@ from typing import Any, Iterator
 
 from ...document import PDFCraftExtraction
 from ...document.package import EXTRACTION_SUFFIX
-from ...runtime import OCR_DOMAIN, callback_bridge, run_cancellable
+from ...runtime import IO_DOMAIN, OCR_DOMAIN, callback_bridge, run_cancellable
 
 
 class PDFExtractor:
@@ -63,10 +63,15 @@ class PDFExtractor:
             "aborted": lambda: False, "max_tokens": None,
             "max_output_tokens": None, "on_ocr_event": lambda _: None,
             "page_indexes": None,
+            "footnote_refinement": None,
         }
         defaults.update(kwargs)
         defaults["analysing_path"] = analysing_path
         _, _, _, _, metering = self._transform.extract_package(pdf_path=pdf_path, **defaults)
+        return self._load_workspace(analysing_path, metering)
+
+    @staticmethod
+    def _load_workspace(analysing_path: Path, metering):
         extraction = PDFCraftExtraction._from_workspace(analysing_path / "extraction")
         extraction._validate()
         return extraction, metering
@@ -94,6 +99,24 @@ class PDFExtractor:
         **kwargs: Any,
     ):
         """Keep the complete synchronous OCR generator on one OCR worker."""
+        if getattr(self._transform, "extract_package_async", None) is not None:
+            if extraction_path.suffix.lower() != EXTRACTION_SUFFIX:
+                raise ValueError(
+                    f"PDFCraftExtraction path must end with {EXTRACTION_SUFFIX}"
+                )
+            if extraction_path.exists():
+                raise FileExistsError(
+                    f"PDFCraftExtraction already exists: {extraction_path}"
+                )
+            with _analysis_workspace(analysing_path) as workspace:
+                extraction, metering = await self._extract_to_workspace_async(
+                    pdf_path,
+                    workspace,
+                    **kwargs,
+                )
+                exported = await extraction._export_async(extraction_path)
+            return exported, metering
+
         kwargs = await self._prepare_async(pdf_path, kwargs)
         original_aborted = kwargs.get("aborted")
         on_ocr_event = callback_bridge(
@@ -128,6 +151,34 @@ class PDFExtractor:
         on_ocr_event = callback_bridge(
             asyncio.get_running_loop(), kwargs.get("on_ocr_event"),
         )
+        extract_package_async = getattr(
+            self._transform, "extract_package_async", None
+        )
+        if extract_package_async is not None:
+            defaults = {
+                "analysing_path": analysing_path,
+                "ocr_size": "gundam", "dpi": None,
+                "max_page_image_file_size": None, "includes_cover": False,
+                "includes_footnotes": False, "includes_furniture": True,
+                "ignore_pdf_errors": False, "ignore_ocr_errors": False,
+                "generate_plot": False, "toc_llm": None,
+                "toc_assumed": False, "extract_book_metadata": False,
+                "metadata_llm": None, "aborted": original_aborted or (lambda: False),
+                "max_tokens": None, "max_output_tokens": None,
+                "on_ocr_event": on_ocr_event, "page_indexes": None,
+                "footnote_refinement": None,
+            }
+            defaults.update(kwargs)
+            defaults["analysing_path"] = analysing_path
+            defaults["aborted"] = original_aborted or (lambda: False)
+            defaults["on_ocr_event"] = on_ocr_event
+            _, _, _, _, metering = await extract_package_async(
+                pdf_path=pdf_path,
+                **defaults,
+            )
+            return await IO_DOMAIN.run(
+                self._load_workspace, analysing_path, metering
+            )
 
         def execute(aborted):
             worker_kwargs = dict(kwargs)

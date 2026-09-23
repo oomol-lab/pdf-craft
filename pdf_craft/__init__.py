@@ -45,6 +45,8 @@ from .transformer import (
     TranslationItemKind,
 )
 from .llm import LLM
+from .jev import JEV
+from .footnote import FootnoteOptions, FootnoteRefinement
 from .metering import AbortedCheck, InterruptedKind, OCRTokensMetering
 from .ocr_config import (
     DeepSeekOCR2LocalConfig,

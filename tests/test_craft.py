@@ -9,7 +9,10 @@ from xml.etree.ElementTree import fromstring
 
 from epub_generator import BookMeta
 
-from pdf_craft import AsyncPDFCraft, ExtractionOptions, PDFCraft, PDFOptions
+from pdf_craft import (
+    AsyncPDFCraft, ExtractionOptions, FootnoteOptions, FootnoteRefinement,
+    JEV, LLM, PDFCraft, PDFOptions,
+)
 from pdf_craft.document import PDFCraftExtraction
 from pdf_craft.extractor import PDFExtractor
 from pdf_craft.extractor.chapter.chapter import SourceTextFragment, Chapter, TextFlowItem, encode
@@ -252,10 +255,17 @@ class TestPDFCraft(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             engine = _Engine()
+            refinement = FootnoteRefinement(
+                jev=JEV("jev-key"),
+                llm=LLM("llm-key", "https://example.invalid/v1", "model", "o200k_base"),
+            )
             extraction, metering = PDFCraft.from_engine(engine).extract_pdf_with_metering(
                 "source.pdf",
                 root / "book.pcex",
-                ExtractionOptions(page_indexes=(2, 4), max_ocr_tokens=12),
+                ExtractionOptions(
+                    page_indexes=(2, 4), max_ocr_tokens=12,
+                    footnotes=FootnoteOptions(refinement=refinement),
+                ),
                 analysing_path=root / "analysis",
             )
             self.assertEqual(metering, "metering")
@@ -263,8 +273,23 @@ class TestPDFCraft(unittest.TestCase):
             self.assertEqual(engine.kwargs["page_indexes"], (2, 4))
             self.assertEqual(engine.kwargs["max_tokens"], 12)
             self.assertTrue(engine.kwargs["includes_furniture"])
+            self.assertTrue(engine.kwargs["includes_footnotes"])
+            self.assertIs(engine.kwargs["footnote_refinement"], refinement)
             extraction._validate(require_toc=True)
             self.assertTrue((root / "analysis" / "extraction").is_dir())
+
+    def test_algorithmic_footnotes_need_no_model_configuration(self):
+        with tempfile.TemporaryDirectory() as directory:
+            engine = _Engine()
+            PDFCraft.from_engine(engine).extract_pdf(
+                "source.pdf",
+                Path(directory) / "book.pcex",
+                ExtractionOptions(footnotes=FootnoteOptions()),
+            )
+
+        assert engine.kwargs is not None
+        self.assertTrue(engine.kwargs["includes_footnotes"])
+        self.assertIsNone(engine.kwargs["footnote_refinement"])
 
     def test_public_extraction_requires_pcex_output(self):
         with tempfile.TemporaryDirectory() as directory:

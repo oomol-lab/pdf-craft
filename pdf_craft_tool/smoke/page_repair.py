@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 from pathlib import Path
 from typing import Any
 
 from pdf_craft import LLM
-from pdf_craft.extractor.chapter.generation import _extract_body_layouts
+from pdf_craft.extractor.chapter.generation import prepare_chapter_analysis
 from pdf_craft.extractor.chapter.page_analysis import (
     PageAnalysis,
     layout_reference_spans,
@@ -27,6 +28,16 @@ def run_page_repair_smoke(
     report,
 ) -> tuple[str, list[str], dict[str, Any]]:
     """Replay JEV routing, run live LLM repair, and compare semantic changes."""
+
+    return asyncio.run(_run_page_repair_smoke(ocr_path, run_path, config, report))
+
+
+async def _run_page_repair_smoke(
+    ocr_path: Path,
+    run_path: Path,
+    config: dict[str, Any] | None,
+    report,
+) -> tuple[str, list[str], dict[str, Any]]:
 
     if not config or not isinstance(config.get("llm"), dict):
         for stage in ("configure", "repair", "check"):
@@ -53,7 +64,7 @@ def run_page_repair_smoke(
         raw_path = run_path / "llm-raw"
         raw_path.mkdir()
 
-    def request(messages, index, maximum):
+    async def request(messages, index, maximum):
         payload = json.loads(messages[1].message)
         page_index = payload["target_page"]["page_index"]
         stem = f"page_{page_index:03d}-attempt_{index + 1:02d}"
@@ -61,7 +72,7 @@ def run_page_repair_smoke(
             {"role": message.role.name.lower(), "content": message.message}
             for message in messages
         ])
-        response = runtime.request(
+        response = await runtime.request(
             messages,
             max_tokens=16000,
             retry_index=index,
@@ -79,16 +90,20 @@ def run_page_repair_smoke(
         threshold=float(config.get("threshold", JEV_REVIEW_THRESHOLD)),
         max_retries=int(config.get("max_retries", 4)),
     )
-    capture = _CaptureProcessor(processor)
+    analysis = prepare_chapter_analysis(ocr_path, TocInfo([], []))
     with report.stage("repair"):
-        list(_extract_body_layouts(ocr_path, TocInfo([], []), capture))
+        repaired = await processor(
+            analysis.source_pages,
+            analysis.pages,
+            analysis.page_pixel_sizes,
+        )
     actual = {
         "review_page_indexes": [
             result.page_index
             for result in processor.results
             if result.requires_review
         ],
-        "changes": _semantic_changes(capture.before, capture.after),
+        "changes": _semantic_changes(analysis.pages, repaired),
     }
     result_path = run_path / "page-repair-result.json"
     _write_json(result_path, actual)
@@ -116,18 +131,6 @@ def run_page_repair_smoke(
             }
         },
     )
-
-
-class _CaptureProcessor:
-    def __init__(self, delegate) -> None:
-        self._delegate = delegate
-        self.before: list[PageAnalysis] = []
-        self.after: list[PageAnalysis] = []
-
-    def __call__(self, source_pages, analyses, page_pixel_sizes):
-        self.before = analyses
-        self.after = self._delegate(source_pages, analyses, page_pixel_sizes)
-        return self.after
 
 
 def _semantic_changes(

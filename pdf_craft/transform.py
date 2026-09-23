@@ -1,6 +1,7 @@
 # pylint: disable=protected-access
 
 from collections.abc import Callable, Container
+from dataclasses import dataclass
 from os import PathLike
 from pathlib import Path
 
@@ -10,15 +11,22 @@ from .error import (
     NoUsableOCRPagesError,
     PDFError,
 )
-from .llm import LLM
+from .footnote import FootnoteRefinement
+from .jev import JEVRuntime
+from .llm import LLM, runtime_for
 from .metering import AbortedCheck, OCRTokensMetering
 from .ocr_config import OCRConfig, ensure_ocr_config
 from .pdf import DeepSeekOCRSize, OCR, OCREvent, OCREventKind, PDFHandler
 from .pdf.furniture import write_furnitures
-from .runtime import run_subprocess
+from .runtime import OCR_DOMAIN, run_cancellable, run_subprocess
 from .extractor.metadata import extract_book_metadata_from_ocr, merge_ocr_and_pdf_metadata
-from .extractor.chapter import generate_chapter_files
-from .extractor.toc import analyse_toc
+from .extractor.chapter import (
+    ChapterAnalysis,
+    generate_chapter_files,
+    prepare_chapter_analysis,
+)
+from .extractor.chapter.page_repair import JevLlmRepairProcessor
+from .extractor.toc import TocInfo, analyse_toc
 from .document import (
     DocumentMetadata,
     ExtractionPaths,
@@ -26,6 +34,24 @@ from .document import (
     write_manifest,
     write_pages,
 )
+
+
+@dataclass(frozen=True)
+class _ExtractionDraft:
+    pdf_path: Path
+    extraction_path: Path
+    extraction_paths: ExtractionPaths
+    pages_path: Path
+    chapters_path: Path
+    toc_path: Path
+    toc: TocInfo
+    cover_path: Path | None
+    document_metadata: DocumentMetadata | None
+    metering: OCRTokensMetering
+    dpi: int | None
+    includes_furniture: bool
+    native_pdf_text: bytes | None
+    native_pdf_text_prepared: bool
 
 
 class PDFExtractionEngine:
@@ -53,6 +79,66 @@ class PDFExtractionEngine:
         """Extraction hook used by :class:`~pdf_craft.extractor.PDFExtractor`."""
         return self._extract_from_pdf(**kwargs)
 
+    async def extract_package_async(self, **kwargs):
+        """Run optional footnote refinement between two OCR-domain phases."""
+
+        footnote_refinement = kwargs.pop("footnote_refinement", None)
+        original_aborted = kwargs.get("aborted")
+        if footnote_refinement is None:
+            return await run_cancellable(
+                OCR_DOMAIN,
+                lambda aborted: self._extract_from_pdf(
+                    **{**kwargs, "aborted": aborted}
+                ),
+                original_aborted=original_aborted,
+            )
+        if not isinstance(footnote_refinement, FootnoteRefinement):
+            raise TypeError("footnote_refinement must be FootnoteRefinement")
+
+        draft, chapter_analysis = await run_cancellable(
+            OCR_DOMAIN,
+            lambda aborted: self._prepare_repair(
+                **{**kwargs, "aborted": aborted}
+            ),
+            original_aborted=original_aborted,
+        )
+        runtime = runtime_for(
+            footnote_refinement.llm,
+            protocol_version="footnote-refinement-json-v1",
+        )
+
+        async def request(messages, index, maximum):
+            return await runtime.request(
+                messages,
+                max_tokens=footnote_refinement.max_output_tokens,
+                retry_index=index,
+                retry_max=maximum,
+            )
+
+        async with JEVRuntime(footnote_refinement.jev) as jev:
+            processor = JevLlmRepairProcessor(
+                jev.evaluate,
+                request,
+                threshold=footnote_refinement.risk_threshold,
+                max_retries=footnote_refinement.max_retries,
+                concurrency=footnote_refinement.jev.concurrency,
+            )
+            repaired_pages = await processor(
+                chapter_analysis.source_pages,
+                chapter_analysis.pages,
+                chapter_analysis.page_pixel_sizes,
+            )
+
+        return await run_cancellable(
+            OCR_DOMAIN,
+            lambda aborted: self._finish_extraction(
+                draft,
+                aborted=aborted,
+                analysed_pages=repaired_pages,
+            ),
+            original_aborted=original_aborted,
+        )
+
     async def prepare_extract(
         self,
         *,
@@ -74,7 +160,15 @@ class PDFExtractionEngine:
             "native_pdf_text_prepared": True,
         }
 
-    def _extract_from_pdf(
+    def _extract_from_pdf(self, **kwargs):
+        draft = self._prepare_extraction(**kwargs)
+        return self._finish_extraction(draft, aborted=kwargs["aborted"])
+
+    def _prepare_repair(self, **kwargs) -> tuple[_ExtractionDraft, ChapterAnalysis]:
+        draft = self._prepare_extraction(**kwargs)
+        return draft, prepare_chapter_analysis(draft.pages_path, draft.toc)
+
+    def _prepare_extraction(
         self,
         pdf_path: Path,
         analysing_path: Path,
@@ -156,29 +250,70 @@ class PDFExtractionEngine:
             toc_llm=toc_llm,
             toc_assumed=toc_assumed,
         )
-        generate_chapter_files(pages_path=pages_path, chapters_path=chapters_path, toc=toc)
-        if includes_furniture:
+        return _ExtractionDraft(
+            pdf_path=pdf_path,
+            extraction_path=extraction_path,
+            extraction_paths=extraction_paths,
+            pages_path=pages_path,
+            chapters_path=chapters_path,
+            toc_path=toc_path,
+            toc=toc,
+            cover_path=cover_path,
+            document_metadata=document_metadata,
+            metering=metering,
+            dpi=dpi,
+            includes_furniture=includes_furniture,
+            native_pdf_text=native_pdf_text,
+            native_pdf_text_prepared=native_pdf_text_prepared,
+        )
+
+    def _finish_extraction(
+        self,
+        draft: _ExtractionDraft,
+        *,
+        aborted: AbortedCheck,
+        analysed_pages=None,
+    ):
+        generate_chapter_files(
+            pages_path=draft.pages_path,
+            chapters_path=draft.chapters_path,
+            toc=draft.toc,
+            analysed_pages=analysed_pages,
+        )
+        if draft.includes_furniture:
             write_furnitures(
-                pdf_path, pages_path, extraction_paths.furnitures,
-                toc=toc,
-                dpi=dpi if dpi is not None else 300,
+                draft.pdf_path,
+                draft.pages_path,
+                draft.extraction_paths.furnitures,
+                toc=draft.toc,
+                dpi=draft.dpi if draft.dpi is not None else 300,
                 aborted=aborted,
-                native_pdf_text=native_pdf_text,
-                native_pdf_text_prepared=native_pdf_text_prepared,
+                native_pdf_text=draft.native_pdf_text,
+                native_pdf_text_prepared=draft.native_pdf_text_prepared,
             )
-        if cover_path and not cover_path.exists():
+        cover_path = draft.cover_path
+        if cover_path is not None and not cover_path.exists():
             cover_path = None
 
-        assets_path.mkdir(parents=True, exist_ok=True)
-        render_dpi = dpi if dpi is not None else 300
+        draft.extraction_paths.assets.mkdir(parents=True, exist_ok=True)
+        render_dpi = draft.dpi if draft.dpi is not None else 300
         write_pages(
-            extraction_path,
+            draft.extraction_path,
             render_dpi=render_dpi,
             page_pixel_sizes=self._ocr.last_page_pixel_sizes,
         )
-        write_manifest(extraction_path, document_metadata=document_metadata)
-        PDFCraftExtraction._from_workspace(extraction_path)._validate()
-        return assets_path, chapters_path, toc_path, cover_path, metering
+        write_manifest(
+            draft.extraction_path,
+            document_metadata=draft.document_metadata,
+        )
+        PDFCraftExtraction._from_workspace(draft.extraction_path)._validate()
+        return (
+            draft.extraction_paths.assets,
+            draft.chapters_path,
+            draft.toc_path,
+            cover_path,
+            draft.metering,
+        )
 
     def _extract_book_metadata(
         self,

@@ -117,9 +117,9 @@ preset：
   这个预算中扣除；`max_ocr_output_tokens` 则只累计限制输出 token。预算在进入下一页前耗尽
   时，提取会以 `TokenLimitError` 中断，而不是继续处理剩余页面。此时先记录异常和已发出的
   OCR 事件，再减少 `page_indexes` 或提高相应上限；提高上限也会增加供应商费用或本地显存压力。
-- `includes_cover=True` 才会把识别到的封面图写入 extraction；`includes_footnotes=True` 才会
-  请求并保留脚注内容。遇到“正文有了但封面或脚注缺失”时，先检查这两个选项，而不是重复
-  下载模型或更换 OCR backend。
+- `includes_cover=True` 才会把识别到的封面图写入 extraction；脚注则应配置
+  `footnotes=FootnoteOptions()`，需要 JEV + LLM 矫正时再加入 `FootnoteRefinement`。
+  遇到“正文有了但封面或脚注缺失”时，先检查这些选项，而不是重复下载模型或更换 OCR backend。
 
 ### 目录识别或输出结构异常
 

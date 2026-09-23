@@ -24,6 +24,7 @@ from .extractor.chapter.chapter import SourceTextFragment, TextFlowItem
 from .extractor.chapter.reader import create_chapters_reader
 from .error import IgnoreFillErrorsChecker, IgnoreOCRErrorsChecker, IgnorePDFErrorsChecker
 from .extractor import PDFExtractor
+from .footnote import FootnoteOptions
 from .llm import LLM
 from .metering import AbortedCheck, OCRTokensMetering
 from .ocr_config import OCRConfig
@@ -80,13 +81,13 @@ class ExtractionOptions:
     max_ocr_tokens: int | None = None
     max_ocr_output_tokens: int | None = None
     includes_cover: bool = False
-    includes_footnotes: bool = False
     includes_furniture: bool = True
     extract_book_metadata: bool = False
     metadata_llm: LLM | None = None
     generate_plot: bool = False
     toc_assumed: bool = False
     toc_llm: LLM | None = None
+    footnotes: FootnoteOptions | None = None
     ignore_pdf_errors: IgnorePDFErrorsChecker = False
     ignore_ocr_errors: IgnoreOCRErrorsChecker = False
     aborted: AbortedCheck = lambda: False
@@ -138,6 +139,7 @@ class AsyncPDFCraft:
         *, analysing_path: PathLike | str | None = None,
     ) -> tuple[PDFCraftExtraction, OCRTokensMetering]:
         options = options or ExtractionOptions()
+        footnotes = options.footnotes
         return await PDFExtractor(self._pdf_engine()).extract_with_metering(
             Path(source), Path(extraction_path),
             analysing_path=Path(analysing_path) if analysing_path is not None else None,
@@ -147,12 +149,15 @@ class AsyncPDFCraft:
             max_tokens=options.max_ocr_tokens,
             max_output_tokens=options.max_ocr_output_tokens,
             includes_cover=options.includes_cover,
-            includes_footnotes=options.includes_footnotes,
+            includes_footnotes=footnotes is not None,
             includes_furniture=options.includes_furniture,
             extract_book_metadata=options.extract_book_metadata,
             metadata_llm=options.metadata_llm,
             generate_plot=options.generate_plot,
             toc_assumed=options.toc_assumed, toc_llm=options.toc_llm,
+            footnote_refinement=(
+                footnotes.refinement if footnotes is not None else None
+            ),
             ignore_pdf_errors=options.ignore_pdf_errors,
             ignore_ocr_errors=options.ignore_ocr_errors,
             aborted=options.aborted,
@@ -380,6 +385,7 @@ class AsyncPDFCraft:
         self, source: PathLike | str, analysing_path: Path,
         options: ExtractionOptions,
     ) -> tuple[PDFCraftExtraction, OCRTokensMetering]:
+        footnotes = options.footnotes
         return await PDFExtractor(self._pdf_engine())._extract_to_workspace_async(
             Path(source), analysing_path,
             page_indexes=options.page_indexes,
@@ -388,12 +394,15 @@ class AsyncPDFCraft:
             max_tokens=options.max_ocr_tokens,
             max_output_tokens=options.max_ocr_output_tokens,
             includes_cover=options.includes_cover,
-            includes_footnotes=options.includes_footnotes,
+            includes_footnotes=footnotes is not None,
             includes_furniture=options.includes_furniture,
             extract_book_metadata=options.extract_book_metadata,
             metadata_llm=options.metadata_llm,
             generate_plot=options.generate_plot,
             toc_assumed=options.toc_assumed, toc_llm=options.toc_llm,
+            footnote_refinement=(
+                footnotes.refinement if footnotes is not None else None
+            ),
             ignore_pdf_errors=options.ignore_pdf_errors,
             ignore_ocr_errors=options.ignore_ocr_errors,
             aborted=options.aborted, on_ocr_event=options.on_ocr_event,

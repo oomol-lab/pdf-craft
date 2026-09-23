@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from collections.abc import Callable, Iterable, Mapping
+from collections.abc import Awaitable, Callable, Iterable, Mapping
 from dataclasses import replace
 from difflib import SequenceMatcher
 from typing import Literal, cast
@@ -31,7 +31,7 @@ from .page_review import (
 )
 
 
-PageRepairRequest = Callable[[list[Message], int, int], str]
+PageRepairRequest = Callable[[list[Message], int, int], Awaitable[str]]
 _MIN_FUZZY_SCORE = 0.82
 _MIN_FUZZY_GAP = 0.12
 
@@ -133,8 +133,9 @@ class JevLlmRepairProcessor:
         *,
         threshold: float = JEV_REVIEW_THRESHOLD,
         max_retries: int = 4,
+        concurrency: int = 4,
     ) -> None:
-        self._reviewer = JevReviewProcessor(evaluator, threshold)
+        self._reviewer = JevReviewProcessor(evaluator, threshold, concurrency)
         self._request = request
         self._max_retries = max_retries
 
@@ -142,15 +143,15 @@ class JevLlmRepairProcessor:
     def results(self) -> list[PageReviewResult]:
         return self._reviewer.results
 
-    def __call__(
+    async def __call__(
         self,
         source_pages: list[Page],
         analyses: list[PageAnalysis],
         page_pixel_sizes: Mapping[int, tuple[int, int]],
     ) -> list[PageAnalysis]:
-        self._reviewer(source_pages, analyses, page_pixel_sizes)
+        await self._reviewer(source_pages, analyses, page_pixel_sizes)
         reviews = {result.page_index: result for result in self.results}
-        return _repair_pages(
+        return await _repair_pages(
             analyses=analyses,
             page_indexes=[
                 result.page_index
@@ -180,7 +181,7 @@ class AllPageLlmRepairProcessor:
         self._max_retries = max_retries
         self.page_indexes: list[int] = []
 
-    def __call__(
+    async def __call__(
         self,
         source_pages: list[Page],
         analyses: list[PageAnalysis],
@@ -200,7 +201,7 @@ class AllPageLlmRepairProcessor:
                 page.page_index for page in analyses
                 if page.page_index in selected
             ]
-        return _repair_pages(
+        return await _repair_pages(
             analyses=analyses,
             page_indexes=self.page_indexes,
             reviews={},
@@ -209,7 +210,7 @@ class AllPageLlmRepairProcessor:
         )
 
 
-def _repair_pages(
+async def _repair_pages(
     *,
     analyses: list[PageAnalysis],
     page_indexes: list[int],
@@ -225,7 +226,7 @@ def _repair_pages(
         target = repaired[position]
         previous = repaired[position - 1] if position > 0 else None
         following = repaired[position + 1] if position + 1 < len(repaired) else None
-        repaired[position] = repair_page_with_llm(
+        repaired[position] = await repair_page_with_llm(
             previous_page=previous,
             target_page=target,
             next_page=following,
@@ -239,7 +240,7 @@ def _repair_pages(
     return repaired
 
 
-def repair_page_with_llm(
+async def repair_page_with_llm(
     *,
     previous_page: PageAnalysis | None,
     target_page: PageAnalysis,
@@ -258,7 +259,7 @@ def repair_page_with_llm(
         previous_pass_probability=previous_pass_probability,
         next_pass_probability=next_pass_probability,
     )
-    return request_guaranteed_json(GuaranteedOptions(
+    return await request_guaranteed_json(GuaranteedOptions(
         messages=messages,
         request=request,
         schema=RepairedPage,

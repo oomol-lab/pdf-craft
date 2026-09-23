@@ -64,8 +64,8 @@ def _page_with_reference(text_before="Body", text_after=" end"):
     return analyse_pages([1], [paragraph], [citation])[0]
 
 
-class PageRepairTests(unittest.TestCase):
-    def test_all_page_processor_skips_jev_and_hides_neighbor_scores(self):
+class PageRepairTests(unittest.IsolatedAsyncioTestCase):
+    async def test_all_page_processor_skips_jev_and_hides_neighbor_scores(self):
         source_pages = [
             decode(fromstring(
                 f"<page index='{index}'><body><layout ref='text' "
@@ -78,12 +78,12 @@ class PageRepairTests(unittest.TestCase):
         analyses = analyse_pages((1, 2, 3), paragraphs, citations)
         payloads = []
 
-        def request(messages, _index, _maximum):
+        async def request(messages, _index, _maximum):
             payloads.append(json.loads(messages[1].message))
             return json.dumps(_response_from_message(messages[1]))
 
         processor = AllPageLlmRepairProcessor(request)
-        repaired = processor(source_pages, analyses, {})
+        repaired = await processor(source_pages, analyses, {})
 
         self.assertEqual(processor.page_indexes, [1, 2, 3])
         self.assertEqual([page.page_index for page in repaired], [1, 2, 3])
@@ -94,7 +94,7 @@ class PageRepairTests(unittest.TestCase):
                 if payload[key] is not None:
                     self.assertIsNone(payload[key]["jev_p_pass"])
 
-    def test_direct_llm_processor_can_select_pages_without_jev(self):
+    async def test_direct_llm_processor_can_select_pages_without_jev(self):
         source_pages = [
             decode(fromstring(
                 f"<page index='{index}'><body><layout ref='text' "
@@ -107,12 +107,12 @@ class PageRepairTests(unittest.TestCase):
         analyses = analyse_pages((1, 2, 3), paragraphs, citations)
         payloads = []
 
-        def request(messages, _index, _maximum):
+        async def request(messages, _index, _maximum):
             payloads.append(json.loads(messages[1].message))
             return json.dumps(_response_from_message(messages[1]))
 
         processor = AllPageLlmRepairProcessor(request, page_indexes=(1, 3))
-        processor(source_pages, analyses, {})
+        await processor(source_pages, analyses, {})
 
         self.assertEqual(processor.page_indexes, [1, 3])
         self.assertEqual(
@@ -149,12 +149,12 @@ class PageRepairTests(unittest.TestCase):
             self.assertFalse(page.layouts[0].continues_from_previous)
             self.assertFalse(page.layouts[0].continues_to_next)
 
-    def test_ignored_layout_remains_in_page_but_not_restored_stream(self):
+    async def test_ignored_layout_remains_in_page_but_not_restored_stream(self):
         page = analyse_pages([1], [TextFlowItem(
             "body", -1, [_fragment(1, 0, "207")]
         )], [])[0]
 
-        def request(messages, _index, _maximum):
+        async def request(messages, _index, _maximum):
             response = _response_from_message(messages[1])
             response["layouts"][0].update({
                 "ownership": "ignored",
@@ -167,7 +167,7 @@ class PageRepairTests(unittest.TestCase):
             })
             return json.dumps(response)
 
-        repaired = repair_page_with_llm(
+        repaired = await repair_page_with_llm(
             previous_page=None,
             target_page=page,
             next_page=None,
@@ -179,7 +179,7 @@ class PageRepairTests(unittest.TestCase):
         self.assertEqual(repaired.layouts[0].ownership, "ignored")
         self.assertEqual(restore_streams([repaired]).paragraphs, [])
 
-    def test_jev_routes_one_page_and_neighbor_scores_only(self):
+    async def test_jev_routes_one_page_and_neighbor_scores_only(self):
         source_pages = [
             decode(fromstring(
                 f"<page index='{index}'><body><layout ref='text' "
@@ -193,17 +193,17 @@ class PageRepairTests(unittest.TestCase):
         probabilities = {1: 0.9, 2: 0.2, 3: 0.8}
         llm_payloads = []
 
-        def request(messages, _index, _maximum):
+        async def request(messages, _index, _maximum):
             llm_payloads.append(json.loads(messages[1].message))
             response = _response_from_message(messages[1])
             response["layouts"][0]["continues_from_previous"] = True
             return json.dumps(response)
 
-        processor = JevLlmRepairProcessor(
-            lambda page_index, _request: probabilities[page_index],
-            request,
-        )
-        repaired = processor(
+        async def evaluate(page_index, _request):
+            return probabilities[page_index]
+
+        processor = JevLlmRepairProcessor(evaluate, request)
+        repaired = await processor(
             source_pages,
             analyses,
             {1: (100, 100), 2: (100, 100), 3: (100, 100)},
@@ -254,13 +254,13 @@ class PageRepairTests(unittest.TestCase):
             paragraph_layouts[0]["initial_stream_boundary_from_previous"]
         )
 
-    def test_complete_noop_json_round_trips_through_guaranteed_loop(self):
+    async def test_complete_noop_json_round_trips_through_guaranteed_loop(self):
         page = _page_with_reference()
 
-        def request(messages, _index, _maximum):
+        async def request(messages, _index, _maximum):
             return json.dumps(_response_from_message(messages[1]))
 
-        repaired = repair_page_with_llm(
+        repaired = await repair_page_with_llm(
             previous_page=None,
             target_page=page,
             next_page=None,
@@ -271,11 +271,11 @@ class PageRepairTests(unittest.TestCase):
 
         self.assertEqual(restore_streams([repaired]), restore_streams([page]))
 
-    def test_ambiguous_anchor_feedback_retries_without_cascade_error(self):
+    async def test_ambiguous_anchor_feedback_retries_without_cascade_error(self):
         page = _page_with_reference("Alpha① middle Alpha", "")
         calls = []
 
-        def request(messages, index, _maximum):
+        async def request(messages, index, _maximum):
             calls.append(messages)
             response = _response_from_message(messages[1])
             reference = response["references"][0]
@@ -286,7 +286,7 @@ class PageRepairTests(unittest.TestCase):
             )
             return json.dumps(response)
 
-        repaired = repair_page_with_llm(
+        repaired = await repair_page_with_llm(
             previous_page=None,
             target_page=page,
             next_page=None,
@@ -301,10 +301,10 @@ class PageRepairTests(unittest.TestCase):
         self.assertNotIn("REF_CITATION_BIJECTION", feedback)
         self.assertEqual(len(restore_streams([repaired]).citations), 1)
 
-    def test_unique_fuzzy_context_transmits_position_without_exact_quote(self):
+    async def test_unique_fuzzy_context_transmits_position_without_exact_quote(self):
         page = _page_with_reference("Alpha① middle Alpha", "")
 
-        def request(messages, _index, _maximum):
+        async def request(messages, _index, _maximum):
             response = _response_from_message(messages[1])
             response["references"][0]["anchor"] = {
                 "before": "midle Alpha",
@@ -313,7 +313,7 @@ class PageRepairTests(unittest.TestCase):
             }
             return json.dumps(response)
 
-        repaired = repair_page_with_llm(
+        repaired = await repair_page_with_llm(
             previous_page=None,
             target_page=page,
             next_page=None,
