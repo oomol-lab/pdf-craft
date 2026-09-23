@@ -8,6 +8,7 @@ from xml.etree.ElementTree import Element
 
 from pdf_craft.extractor.chapter.chapter import Chapter, Reference, SourceAsset, StandaloneAsset, decode, encode
 from pdf_craft.markdown.paragraph import HTMLTag, flatten
+from pdf_craft.runtime import TRANSLATION_DOMAIN
 from pdf_craft.transformer.chapter_formula_interrupter import ChapterFormulaInterrupter
 from pdf_craft.transformer.xml_translator.xml_translator import SubmitKind, TranslationTask
 
@@ -115,6 +116,8 @@ class AnchoredContentXMLTransformer:
         self,
         assets: Sequence[AnchoredContent],
     ) -> Sequence[AnchoredContentTranslation | None]:
+        if not hasattr(self._translator, "translate_element_async"):
+            return await TRANSLATION_DOMAIN.run(self.transform_assets, assets)
         if not assets:
             return ()
         source = Chapter(None, -1, [StandaloneAsset(item.asset) for item in assets])

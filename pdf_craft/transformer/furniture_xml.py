@@ -6,6 +6,7 @@ from collections.abc import Sequence
 from typing import Protocol, cast
 from xml.etree.ElementTree import Element, SubElement
 
+from pdf_craft.runtime import TRANSLATION_DOMAIN
 from .furniture import FurniturePosition, FurnitureSection
 from .xml_translator.xml_translator import SubmitKind, TranslationTask
 
@@ -56,6 +57,8 @@ class FurnitureXMLTransformer:
     async def transform_position_async(
         self, position: FurniturePosition,
     ) -> str | None:
+        if not hasattr(self._translator, "translate_element_async"):
+            return await TRANSLATION_DOMAIN.run(self.transform_position, position)
         element = Element("furniture-position")
         element.text = position.content
         translated, _ = await cast(
@@ -104,6 +107,10 @@ class FurnitureXMLTransformer:
         page_index: int,
         sections: Sequence[FurnitureSection],
     ) -> Sequence[str | None]:
+        if not hasattr(self._translator, "translate_element_async"):
+            return await TRANSLATION_DOMAIN.run(
+                self.transform_sections, page_index, sections,
+            )
         element = Element("furniture-page", {"index": str(page_index)})
         for index, section in enumerate(sections):
             child = SubElement(element, "section", {"id": str(index)})

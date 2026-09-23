@@ -25,9 +25,20 @@ await craft.render_markdown(extraction, "book.md")
 OCR and translation event callbacks may be synchronous functions or async
 functions. They execute on the event-loop thread and async callbacks are
 awaited. Cancelling an async task cancels native network/subprocess work and
-signals cooperative blocking stages through their abort callback.
+signals cooperative blocking stages through their abort callback. The await
+does not finish cancelling until that worker has unwound, so temporary
+workspaces remain valid through its final writes and cleanup.
 
-`PDFCraft` retains the same synchronous API for scripts. It must not be called
+Extension authors can implement `AsyncChapterTransformer` with
+`async def transform(chapter)`; the async façade awaits it directly on the
+caller loop. `PDFOptions.pdf_handler` also accepts `AsyncPDFHandler`, whose
+`open()` returns an `AsyncPDFDocument` with awaitable `pages_count()`,
+`metadata()`, `page_size()`, `render_page()`, and `close()` methods. The SDK
+adapts that document at the synchronous OCR boundary without running its
+coroutines in a worker thread.
+
+`PDFCraft` retains the same synchronous API for scripts as a compatibility
+adapter over the async implementation. It must not be called
 from a thread that already has a running event loop; doing so raises a clear
 `RuntimeError` instead of nesting an event loop. Use `AsyncPDFCraft` there.
 
@@ -114,7 +125,7 @@ extraction; they do not fall back to an analysis/OCR directory.
 `PDFOptions(ocr=None, pdf_handler=None, models_cache_path=None, local_only=False)` holds infrastructure that is reused across PDF extractions.
 
 - `ocr`: one of the local or vendor OCR configuration objects below.
-- `pdf_handler`: an optional `PDFHandler` implementation. Use it only to replace the PDF reading/rendering layer or manage that layer in your application.
+- `pdf_handler`: an optional `PDFHandler` or `AsyncPDFHandler` implementation. Use it only to replace the PDF reading/rendering layer or manage that layer in your application.
 - `models_cache_path` and `local_only`: convenience settings for the default local DeepSeek OCR configuration when `ocr` is not supplied. They must not be combined with an explicit `ocr` configuration.
 
 ### `ExtractionOptions`

@@ -22,9 +22,17 @@ await craft.render_markdown(extraction, "book.md")
 
 OCR 和翻译事件回调既可以是普通函数，也可以是 `async def`；它们在调用方事件循环
 线程执行，异步回调会被等待。取消异步任务时，原生网络请求和子进程会被取消，线程池中
-支持协作取消的阶段会通过原有 abort 回调收到信号。
+支持协作取消的阶段会通过原有 abort 回调收到信号；直到工作线程真正退出后，调用方才会
+收到取消完成，因此临时工作区会保留到 worker 的最后写入和清理结束。
 
-`PDFCraft` 继续提供兼容的同步 API，适合普通脚本；但不能从已经运行事件循环的线程中
+扩展实现可以采用 `AsyncChapterTransformer` 协议，实现
+`async def transform(chapter)`；异步门面会直接在调用方事件循环中等待它。
+`PDFOptions.pdf_handler` 也接受 `AsyncPDFHandler`：其 `open()` 返回
+`AsyncPDFDocument`，并提供可等待的 `pages_count()`、`metadata()`、
+`page_size()`、`render_page()` 和 `close()`。SDK 会在同步 OCR 边界进行适配，
+不会把这些协程送进工作线程执行。
+
+`PDFCraft` 作为异步实现之上的兼容适配层，继续提供适合普通脚本的同步 API；但不能从已经运行事件循环的线程中
 调用，否则会明确抛出 `RuntimeError`，而不会嵌套启动事件循环。此时应改用
 `AsyncPDFCraft`。
 
@@ -50,7 +58,8 @@ OCR 和翻译事件回调既可以是普通函数，也可以是 `async def`；�
 - `BookMeta`、`TableRender`、`LaTeXRender`
 - `OCRTokensMetering`、`OCREvent`、`OCREventKind`、`TranslationEvent`、
   `TranslationEventKind`、`TranslationItemKind`、`FillFailedEvent`
-- `PDFHandler`、`DefaultPDFHandler`、`PDFDocument`、`DefaultPDFDocument`、
+- `PDFHandler`、`AsyncPDFHandler`、`DefaultPDFHandler`、`PDFDocument`、
+  `AsyncPDFDocument`、`DefaultPDFDocument`、
   `PDFDocumentMetadata`
 - `PDFPatcher`、`PDFReplacement`、`PDFReplacementRegion`、`PDFInlineFormula`、
   `PatchTextOptions`、`PatchTextStyle`、`FontResolution`、`QTextParagraphFiller`、`EraseOptions`、
@@ -59,8 +68,8 @@ OCR 和翻译事件回调既可以是普通函数，也可以是 `async def`；�
   `IgnoreOCRErrorsChecker`、`IgnoreFillErrorsChecker`
 - `translate_epub`、`translate_epub_async`
 
-`ChapterTransformer` 是公共协议，但导入路径为
-`from pdf_craft.transformer import ChapterTransformer`，而不是包顶层。本文不把以下内容当作
+`ChapterTransformer` 与 `AsyncChapterTransformer` 是公共协议；前者的导入路径为
+`from pdf_craft.transformer import ChapterTransformer`，后者也可直接从包顶层导入。本文不把以下内容当作
 公共扩展点：内部 engine、`pdf_craft_tool` CLI、`pdf_craft` 的私有模块路径，以及
 `doc-page-extractor` 的内部 extractor/factory。
 
@@ -107,7 +116,7 @@ PDFOptions(
 
 ### 自定义 PDFHandler
 
-`PDFHandler` 是替换 PDF 读取和页面渲染实现的协议。默认的
+`PDFHandler` 是替换 PDF 读取和页面渲染实现的同步协议。默认的
 `DefaultPDFHandler(poppler_path=...)` 使用 `pypdf` 读取元数据、使用 Poppler 渲染页面；系统
 PATH 中没有 Poppler 时，可以把其安装目录传给 `poppler_path`。只有接入其他 PDF 渲染器时才需要
 自定义 handler，并将它传给 `PDFOptions(pdf_handler=handler)`。
@@ -122,6 +131,11 @@ PATH 中没有 Poppler 时，可以把其安装目录传给 `poppler_path`。只
 
 这些方法的 `page_index` 均从 1 开始。调用方负责在使用完成后关闭自定义 document；框架自己的
 提取和写回流程会关闭由 handler 打开的 document。
+
+异步应用也可实现 `AsyncPDFHandler`。它的 `open()` 以及返回的
+`AsyncPDFDocument` 的 `pages_count()`、`metadata()`、`page_size()`、
+`render_page()`、`close()` 都是异步方法；提取流水线会在调用方事件循环中等待这些方法，
+同时让同步 OCR 引擎继续留在专用工作线程。
 
 ### ExtractionOptions
 

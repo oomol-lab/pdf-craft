@@ -33,6 +33,7 @@ from .transformer import (
     AnchoredContentTransformer,
     AnchoredContentTranslation,
     AnchoredContentXMLTransformer,
+    AsyncChapterTransformer,
     ChapterExtractionTransformer,
     ChapterXMLTransformer,
     ExtractionTransformer,
@@ -58,6 +59,8 @@ from .ocr_config import (
     UnlimitedOCRVendorConfig,
 )
 from .pdf import (
+    AsyncPDFDocument,
+    AsyncPDFHandler,
     DeepSeekOCRSize,
     DefaultPDFDocument,
     DefaultPDFHandler,

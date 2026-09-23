@@ -3,12 +3,12 @@
 import tempfile
 import unittest
 from pathlib import Path
-from unittest.mock import Mock, patch
+from unittest.mock import AsyncMock, Mock, patch
 from xml.etree.ElementTree import fromstring
 
 from epub_generator import BookMeta
 
-from pdf_craft.craft import ExtractionOptions, PDFCraft, PDFOptions
+from pdf_craft.craft import AsyncPDFCraft, ExtractionOptions, PDFCraft, PDFOptions
 from pdf_craft.document import PDFCraftExtraction
 from pdf_craft.extractor import PDFExtractor
 from pdf_craft.extractor.chapter.chapter import SourceTextFragment, Chapter, TextFlowItem, encode
@@ -152,35 +152,39 @@ class TestPDFCraft(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             extraction = _source_extraction(Path(directory) / "source")
             craft = PDFCraft()
-            with patch.object(craft, "translate_extraction", return_value=extraction) as translate, \
-                    patch.object(craft, "patch_pdf_with_extraction") as patch_pdf:
+            with patch.object(
+                AsyncPDFCraft, "translate_extraction",
+                new_callable=AsyncMock, return_value=extraction,
+            ) as translate, patch.object(
+                AsyncPDFCraft, "patch_pdf_with_extraction", new_callable=AsyncMock,
+            ) as patch_pdf:
                 craft.translate_pdf(
                     "source.pdf", extraction, "target.pdf", _Upper(), with_furniture=True,
                 )
             self.assertTrue(translate.call_args.kwargs["with_furniture"])
-            patch_pdf.assert_called_once()
+            patch_pdf.assert_awaited_once()
 
     def test_patch_pdf_with_extraction_delegates_to_pdf_patch_pipeline(self):
         with tempfile.TemporaryDirectory() as directory:
             extraction = _source_extraction(Path(directory) / "source")
-            with patch("pdf_craft.craft._validate_extraction_for_pdf") as validate, \
-                    patch("pdf_craft.craft.PDFTranslationPipeline.patch") as patch_pdf:
+            with patch(
+                "pdf_craft.craft.QT_DOMAIN.run", new_callable=AsyncMock,
+            ) as run:
                 PDFCraft().patch_pdf_with_extraction("source.pdf", extraction, "target.pdf")
-            validate.assert_called_once()
-            patch_pdf.assert_called_once()
+            run.assert_awaited_once()
+            self.assertFalse(run.call_args.args[-1])
 
     def test_patch_pdf_with_extraction_defers_page_validation_when_ignoring_errors(self):
         with tempfile.TemporaryDirectory() as directory:
             extraction = _source_extraction(Path(directory) / "source")
-            with patch("pdf_craft.craft._validate_extraction_for_pdf") as validate, \
-                    patch("pdf_craft.craft.PDFTranslationPipeline.patch") as patch_pdf:
+            with patch(
+                "pdf_craft.craft.QT_DOMAIN.run", new_callable=AsyncMock,
+            ) as run:
                 PDFCraft().patch_pdf_with_extraction(
                     "source.pdf", extraction, "target.pdf", ignore_errors=True,
                 )
-            validate.assert_not_called()
-            patch_pdf.assert_called_once_with(
-                Path("source.pdf"), Path("target.pdf"), extraction, ignore_errors=True,
-            )
+            run.assert_awaited_once()
+            self.assertTrue(run.call_args.args[-1])
 
     def test_extraction_transform_creates_independent_archive(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -230,12 +234,14 @@ class TestPDFCraft(unittest.TestCase):
 
     def test_epub_only_facade_needs_no_pdf_options(self):
         craft = PDFCraft()
-        with patch("pdf_craft.craft.run_epub_translation") as translate:
+        with patch(
+            "pdf_craft.craft.run_epub_translation_async", new_callable=AsyncMock,
+        ) as translate:
             craft.translate_epub(
                 "source.epub", "target.epub", target_language="zh",
                 submit=SubmitKind.REPLACE,
             )
-        translate.assert_called_once()
+        translate.assert_awaited_once()
 
     def test_pdf_extraction_requires_options_only_when_used(self):
         with self.assertRaisesRegex(ValueError, "PDFOptions"):
@@ -274,21 +280,23 @@ class TestPDFCraft(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             extraction = _source_extraction(root / "source")
-            with patch("pdf_craft.craft.MarkdownRenderer.render") as render:
+            with patch(
+                "pdf_craft.craft.MarkdownRenderer.render_async", new_callable=AsyncMock,
+            ) as render:
                 PDFCraft().render_markdown(extraction, root / "book.md")
-            render.assert_called_once()
+            render.assert_awaited_once()
 
     def test_one_shot_workflow_uses_workspace_without_zip_churn(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             craft = PDFCraft.from_engine(_Engine())
-            with patch.object(PDFCraftExtraction, "export") as export, \
-                    patch.object(craft, "render_markdown") as render:
+            with patch.object(PDFCraftExtraction, "export_async", new_callable=AsyncMock) as export, \
+                    patch("pdf_craft.craft.MarkdownRenderer.render_async", new_callable=AsyncMock) as render:
                 result = craft.convert_pdf_to_markdown(
                     "source.pdf", root / "book.md", analysing_path=root / "analysis"
                 )
             self.assertEqual(result, "metering")
-            export.assert_not_called()
+            export.assert_not_awaited()
             rendered_extraction = render.call_args.args[0]
             with rendered_extraction._materialize() as paths:
                 self.assertEqual(paths.root, root / "analysis" / "extraction")
@@ -297,7 +305,7 @@ class TestPDFCraft(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             craft = PDFCraft.from_engine(_Engine())
-            with patch.object(craft, "render_markdown"), \
+            with patch("pdf_craft.craft.MarkdownRenderer.render_async", new_callable=AsyncMock), \
                     patch("pdf_craft.document.package._extract_archive") as unpack:
                 craft.convert_pdf_to_markdown(
                     "source.pdf",
@@ -311,7 +319,7 @@ class TestPDFCraft(unittest.TestCase):
     def test_one_shot_markdown_cleans_implicit_analysis_workspace(self):
         engine = _Engine()
         craft = PDFCraft.from_engine(engine)
-        with patch.object(craft, "render_markdown"):
+        with patch("pdf_craft.craft.MarkdownRenderer.render_async", new_callable=AsyncMock):
             result = craft.convert_pdf_to_markdown("source.pdf", "book.md")
         self.assertEqual(result, "metering")
         assert engine.analysing_path is not None
@@ -322,7 +330,8 @@ class TestPDFCraft(unittest.TestCase):
             with self.subTest(method=method):
                 engine = _Engine()
                 craft = PDFCraft.from_engine(engine)
-                with patch.object(craft, "render_markdown"), patch.object(craft, "render_epub"):
+                with patch("pdf_craft.craft.MarkdownRenderer.render_async", new_callable=AsyncMock), \
+                        patch("pdf_craft.craft.EpubRenderer.render_async", new_callable=AsyncMock):
                     getattr(craft, method)(
                         "source.pdf", output,
                         extraction=ExtractionOptions(includes_furniture=True),
@@ -334,13 +343,16 @@ class TestPDFCraft(unittest.TestCase):
         craft = PDFCraft.from_engine(_Engine())
         observed = {}
 
-        def inspect_manifest(extraction, _output, **kwargs):
+        async def inspect_manifest(extraction, _output, **kwargs):
             observed["title"] = extraction.book_meta().title
             observed["language"] = extraction.language()
             observed["book_meta"] = kwargs["book_meta"]
             observed["lan"] = kwargs["lan"]
 
-        with patch.object(craft, "render_epub", side_effect=inspect_manifest):
+        with patch(
+            "pdf_craft.craft.EpubRenderer.render_async",
+            new_callable=AsyncMock, side_effect=inspect_manifest,
+        ):
             craft.convert_pdf_to_epub("source.pdf", "book.epub")
         self.assertEqual(observed["title"], "Detected title")
         self.assertEqual(observed["language"], "en")
@@ -351,8 +363,13 @@ class TestPDFCraft(unittest.TestCase):
         craft = PDFCraft.from_engine(_Engine())
         callback = Mock()
         translator = Mock()
-        with patch.object(craft, "_translate_to_workspace", return_value=Mock()) as translate, \
-                patch.object(craft, "render_epub"):
+        with patch.object(
+            AsyncPDFCraft, "_translate_to_workspace",
+            new_callable=AsyncMock,
+            side_effect=lambda extraction, *_args, **_kwargs: extraction,
+        ) as translate, patch(
+            "pdf_craft.craft.EpubRenderer.render_async", new_callable=AsyncMock,
+        ):
             craft.convert_pdf_to_epub(
                 "source.pdf", "book.epub", translator=translator,
                 on_translation_event=callback,
@@ -362,7 +379,9 @@ class TestPDFCraft(unittest.TestCase):
     def test_markdown_workflow_forwards_aborted_to_renderer(self):
         craft = PDFCraft.from_engine(_Engine())
         stopped = lambda: False
-        with patch.object(craft, "render_markdown") as render:
+        with patch(
+            "pdf_craft.craft.MarkdownRenderer.render_async", new_callable=AsyncMock,
+        ) as render:
             craft.convert_pdf_to_markdown(
                 "source.pdf", "book.md", extraction=ExtractionOptions(aborted=stopped)
             )

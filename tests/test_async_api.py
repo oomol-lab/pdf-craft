@@ -1,19 +1,28 @@
 # pylint: disable=protected-access
 import asyncio
+import os
 import sys
 import tempfile
 import threading
+import time
 import unittest
 from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
-from pdf_craft import AsyncPDFCraft, ExtractionOptions, PDFCraft, SubmitKind
+from pdf_craft import (
+    AsyncPDFCraft, ExtractionOptions, PDFCraft, PDFDocumentMetadata, PDFOptions,
+    SubmitKind,
+)
+from pdf_craft.craft import _AsyncPDFHandlerBridge
 from pdf_craft.common import save_xml
 from pdf_craft.extractor.chapter.chapter import (
     Chapter, SourceTextFragment, TextFlowItem, encode,
 )
 from pdf_craft.llm import LLM, runtime_for
 from pdf_craft.runtime import QT_DOMAIN, invoke_callback, run_subprocess
+from pdf_craft.pipeline.pdf.text_layout import (
+    _ensure_qt_application, _qt_lifecycle_probe, _qt_modules,
+)
 from pdf_craft.transformer import ChapterXMLTransformer
 from pdf_craft.transformer.xml_translator.xml_translator.concurrency import (
     run_concurrency_async,
@@ -39,12 +48,24 @@ class _CancellableEngine:
     def __init__(self) -> None:
         self.started = threading.Event()
         self.observed_cancel = threading.Event()
+        self.finished = threading.Event()
+        self.late_write_succeeded = False
+        self.analysing_path: Path | None = None
 
-    def extract_package(self, *, aborted, **_kwargs):
+    def extract_package(self, *, aborted, analysing_path, **_kwargs):
+        self.analysing_path = analysing_path
         self.started.set()
         while not aborted():
             self.observed_cancel.wait(0.01)
         self.observed_cancel.set()
+        time.sleep(0.15)
+        try:
+            (analysing_path / "late-worker-write.txt").write_text(
+                "worker still owned workspace", encoding="utf-8",
+            )
+            self.late_write_succeeded = True
+        finally:
+            self.finished.set()
         raise RuntimeError("cancelled by cooperative engine")
 
 
@@ -62,6 +83,59 @@ class _AsyncXMLTranslator:
             if element.text:
                 element.text = f"async:{element.text}"
         return task.element, task.payload
+
+
+class _AsyncChapterTransformer:
+    def __init__(self) -> None:
+        self.thread_id: int | None = None
+
+    async def transform(self, chapter: Chapter) -> Chapter:
+        self.thread_id = threading.get_ident()
+        await asyncio.sleep(0)
+        flow = chapter.flow_items[0]
+        assert isinstance(flow, TextFlowItem)
+        fragment = flow.children[0]
+        assert isinstance(fragment, SourceTextFragment)
+        fragment.content = ["native async extension"]
+        return chapter
+
+
+class _AsyncDocument:
+    def __init__(self) -> None:
+        self.thread_ids: list[int] = []
+        self.closed = False
+
+    async def pages_count(self) -> int:
+        self.thread_ids.append(threading.get_ident())
+        return 2
+
+    async def metadata(self) -> PDFDocumentMetadata:
+        self.thread_ids.append(threading.get_ident())
+        raise AssertionError("not used")
+
+    async def page_size(self, page_index: int) -> tuple[float, float]:
+        del page_index
+        self.thread_ids.append(threading.get_ident())
+        return 8.5, 11.0
+
+    async def render_page(self, page_index: int, dpi: int):
+        del page_index, dpi
+        raise AssertionError("not used")
+
+    async def close(self) -> None:
+        self.thread_ids.append(threading.get_ident())
+        self.closed = True
+
+
+class _AsyncHandler:
+    def __init__(self, document: _AsyncDocument) -> None:
+        self.document = document
+        self.thread_id: int | None = None
+
+    async def open(self, pdf_path: Path) -> _AsyncDocument:
+        del pdf_path
+        self.thread_id = threading.get_ident()
+        return self.document
 
 
 class TestAsyncAPI(unittest.IsolatedAsyncioTestCase):
@@ -159,9 +233,24 @@ class TestAsyncAPI(unittest.IsolatedAsyncioTestCase):
             runtime.request("hello", use_cache=False)
 
     async def test_qt_domain_has_stable_thread_affinity(self):
-        first = await QT_DOMAIN.run(threading.get_ident)
-        second = await QT_DOMAIN.run(threading.get_ident)
-        self.assertEqual(first, second)
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            first = await QT_DOMAIN.run(_qt_lifecycle_probe, root / "first.pdf")
+            second = await QT_DOMAIN.run(_qt_lifecycle_probe, root / "second.pdf")
+            self.assertNotEqual(first[0], os.getpid())
+            self.assertNotEqual(second[0], os.getpid())
+            self.assertNotEqual(first[0], second[0])
+            self.assertGreater((root / "first.pdf").stat().st_size, 0)
+            self.assertGreater((root / "second.pdf").stat().st_size, 0)
+
+    async def test_qt_process_is_safe_after_main_thread_initialization(self):
+        _QtCore, QtGui = _qt_modules()
+        _ensure_qt_application(QtGui)
+        with tempfile.TemporaryDirectory() as directory:
+            identity = await QT_DOMAIN.run(
+                _qt_lifecycle_probe, Path(directory) / "isolated.pdf",
+            )
+            self.assertNotEqual(identity[0], os.getpid())
 
     async def test_epub_translation_uses_native_async_pipeline(self):
         with patch(
@@ -198,6 +287,46 @@ class TestAsyncAPI(unittest.IsolatedAsyncioTestCase):
                     (paths.chapters / "chapter_1.xml").read_text(encoding="utf-8"),
                 )
 
+    async def test_custom_async_transform_protocol_is_awaited(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = make_extraction(root / "source", page_pixel_sizes={1: (10, 10)})
+            chapter = Chapter(None, -1, [TextFlowItem(
+                "body", 0,
+                [SourceTextFragment(1, 1, (1, 1, 5, 5), ["original"])],
+            )])
+            save_xml(encode(chapter), root / "source" / "chapters" / "chapter_1.xml")
+            source.validate()
+            transformer = _AsyncChapterTransformer()
+            target = await AsyncPDFCraft().translate_extraction(
+                source, root / "target.pcex", transformer,
+            )
+            self.assertEqual(transformer.thread_id, threading.get_ident())
+            with target._materialize() as paths:
+                self.assertIn(
+                    "native async extension",
+                    (paths.chapters / "chapter_1.xml").read_text(encoding="utf-8"),
+                )
+
+    async def test_async_pdf_handler_protocol_is_awaited_on_caller_loop(self):
+        loop_thread = threading.get_ident()
+        async_document = _AsyncDocument()
+        async_handler = _AsyncHandler(async_document)
+        craft = AsyncPDFCraft(PDFOptions(pdf_handler=async_handler))
+        bridge = craft._sync_pdf_handler()
+        self.assertIsInstance(bridge, _AsyncPDFHandlerBridge)
+        assert bridge is not None
+
+        document = await asyncio.to_thread(bridge.open, Path("source.pdf"))
+        self.assertEqual(await asyncio.to_thread(lambda: document.pages_count), 2)
+        self.assertEqual(
+            await asyncio.to_thread(document.page_size, 1), (8.5, 11.0),
+        )
+        await asyncio.to_thread(document.close)
+        self.assertEqual(async_handler.thread_id, loop_thread)
+        self.assertEqual(async_document.thread_ids, [loop_thread] * 3)
+        self.assertTrue(async_document.closed)
+
     async def test_async_subprocess_and_cancellation_cleanup(self):
         stdout, _ = await run_subprocess(
             sys.executable, "-c", "print('ready')",
@@ -215,16 +344,22 @@ class TestAsyncAPI(unittest.IsolatedAsyncioTestCase):
         with tempfile.TemporaryDirectory() as directory:
             engine = _CancellableEngine()
             task = asyncio.create_task(
-                AsyncPDFCraft.from_engine(engine).extract_pdf(
-                    "source.pdf", Path(directory) / "book.pcex",
+                AsyncPDFCraft.from_engine(engine).convert_pdf_to_markdown(
+                    "source.pdf", Path(directory) / "book.md",
                 )
             )
             await asyncio.to_thread(engine.started.wait, 1)
+            started = asyncio.get_running_loop().time()
             task.cancel()
             with self.assertRaises(asyncio.CancelledError):
                 await task
-            observed = await asyncio.to_thread(engine.observed_cancel.wait, 1)
-            self.assertTrue(observed)
+            elapsed = asyncio.get_running_loop().time() - started
+            self.assertTrue(engine.observed_cancel.is_set())
+            self.assertTrue(engine.finished.is_set())
+            self.assertTrue(engine.late_write_succeeded)
+            self.assertGreaterEqual(elapsed, 0.12)
+            assert engine.analysing_path is not None
+            self.assertFalse(engine.analysing_path.exists())
 
 
 if __name__ == "__main__":

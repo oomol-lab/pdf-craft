@@ -3,6 +3,7 @@
 # Internal workspace methods keep one-shot conversions directory-backed.
 # pylint: disable=protected-access
 
+import inspect
 from collections.abc import Callable
 from pathlib import Path
 from shutil import copy2, copytree
@@ -17,7 +18,7 @@ from pdf_craft.runtime import IO_DOMAIN, TRANSLATION_DOMAIN, invoke_callback
 from pdf_craft.extractor.chapter.chapter import (
     SourceTextFragment, TextFlowItem, decode, encode,
 )
-from pdf_craft.transformer.protocol import ChapterTransformer
+from pdf_craft.transformer.protocol import AsyncChapterTransformer, ChapterTransformer
 from pdf_craft.transformer.events import TranslationEvent, TranslationEventKind, TranslationItemKind
 from pdf_craft.transformer.xml_translator.segment import search_text_segments
 from pdf_craft.transformer.chapter_xml import ChapterXMLTransformer
@@ -52,7 +53,7 @@ class ChapterExtractionTransformer:
 
     def __init__(
         self,
-        chapter_transformer: ChapterTransformer,
+        chapter_transformer: ChapterTransformer | AsyncChapterTransformer,
         *,
         mode: SubmitKind = SubmitKind.REPLACE,
         toc_transformer: Callable[[Element], Element] | None = None,
@@ -114,7 +115,11 @@ class ChapterExtractionTransformer:
         on_translation_event: Callable[[TranslationEvent], object] | None = None,
         emit_translation_events: bool = False,
     ) -> PDFCraftExtraction:
-        if not isinstance(self.chapter_transformer, ChapterXMLTransformer):
+        is_xml_transformer = isinstance(self.chapter_transformer, ChapterXMLTransformer)
+        is_async_transformer = inspect.iscoroutinefunction(
+            self.chapter_transformer.transform
+        )
+        if not is_xml_transformer and not is_async_transformer:
             return await TRANSLATION_DOMAIN.run(
                 self._transform_to_workspace,
                 extraction,
@@ -138,7 +143,6 @@ class ChapterExtractionTransformer:
 
         completed_characters = 0
         narrative_coverage: list[NarrativeCoverage] = []
-        transformer = cast(ChapterXMLTransformer, self.chapter_transformer)
         for path, chapter, item_id, character_count in chapter_tasks:
             source_layouts = {
                 identity: layout
@@ -147,16 +151,31 @@ class ChapterExtractionTransformer:
                 and layout.role in {"body", "heading"}
                 and (identity := paragraph_identity(chapter, layout)) is not None
             }
-            transformed = await transformer.transform_async(
-                chapter,
-                on_translation_event=(
-                    on_translation_event if emit_translation_events else None
-                ),
-                item_id=item_id,
-                completed_characters=completed_characters,
-                total_characters=total_characters,
-                emit_scope_events=False,
-            )
+            if is_xml_transformer:
+                transformed = await cast(
+                    ChapterXMLTransformer, self.chapter_transformer,
+                ).transform_async(
+                    chapter,
+                    on_translation_event=(
+                        on_translation_event if emit_translation_events else None
+                    ),
+                    item_id=item_id,
+                    completed_characters=completed_characters,
+                    total_characters=total_characters,
+                    emit_scope_events=False,
+                )
+            else:
+                if emit_translation_events and on_translation_event is not None:
+                    await invoke_callback(on_translation_event, TranslationEvent(
+                        kind=TranslationEventKind.ITEM_START,
+                        item_kind=TranslationItemKind.CHAPTER,
+                        item_id=item_id,
+                        item_completed_characters=0,
+                        item_total_characters=character_count,
+                    ))
+                transformed = await cast(
+                    AsyncChapterTransformer, self.chapter_transformer,
+                ).transform(chapter)
             await IO_DOMAIN.run(save_xml, encode(transformed), path)
             targets = {
                 identity: layout
@@ -173,6 +192,24 @@ class ChapterExtractionTransformer:
                 )
                 narrative_coverage.append(NarrativeCoverage(*identity, state))
             completed_characters += character_count
+            if (
+                not is_xml_transformer
+                and emit_translation_events
+                and on_translation_event is not None
+            ):
+                for event_kind in (
+                    TranslationEventKind.PROGRESS,
+                    TranslationEventKind.ITEM_COMPLETE,
+                ):
+                    await invoke_callback(on_translation_event, TranslationEvent(
+                        kind=event_kind,
+                        item_kind=TranslationItemKind.CHAPTER,
+                        item_id=item_id,
+                        item_completed_characters=character_count,
+                        item_total_characters=character_count,
+                        completed_characters=completed_characters,
+                        total_characters=total_characters,
+                    ))
 
         result = await IO_DOMAIN.run(
             self._finish_async_workspace,
@@ -197,17 +234,23 @@ class ChapterExtractionTransformer:
             raise FileExistsError(f"output extraction workspace already exists: {output_path}")
         output_path.mkdir(parents=True)
         _copy_extraction_to_workspace(extraction, output_path)
-        transformer = cast(ChapterXMLTransformer, self.chapter_transformer)
         tasks = []
         for path in sorted((output_path / "chapters").glob("chapter*.xml")):
             chapter = decode(read_xml(path))
-            if transformer.has_translatable_content(chapter):
+            if isinstance(self.chapter_transformer, ChapterXMLTransformer):
+                character_count = self.chapter_transformer.source_character_count(chapter)
+                has_content = self.chapter_transformer.has_translatable_content(chapter)
+            else:
+                segments = list(search_text_segments(encode(chapter)))
+                character_count = sum(len(segment.text) for segment in segments)
+                has_content = any(segment.text.strip() for segment in segments)
+            if has_content:
                 item_id: str | int = chapter.id if chapter.id is not None else "head"
                 tasks.append((
                     path,
                     chapter,
                     item_id,
-                    transformer.source_character_count(chapter),
+                    character_count,
                 ))
         return tasks
 
@@ -291,7 +334,9 @@ class ChapterExtractionTransformer:
                     emit_scope_events=False,
                 )
             else:
-                transformed = self.chapter_transformer.transform(chapter)
+                transformed = cast(ChapterTransformer, self.chapter_transformer).transform(
+                    chapter
+                )
             save_xml(encode(transformed), path)
             targets = {
                 identity: layout
