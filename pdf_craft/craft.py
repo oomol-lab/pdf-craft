@@ -81,8 +81,6 @@ class ExtractionOptions:
     max_ocr_tokens: int | None = None
     max_ocr_output_tokens: int | None = None
     includes_cover: bool = False
-    # Compatibility alias for FootnoteOptions() from the 2.3 API.
-    includes_footnotes: bool = False
     includes_furniture: bool = True
     extract_book_metadata: bool = False
     metadata_llm: LLM | None = None
@@ -94,10 +92,6 @@ class ExtractionOptions:
     ignore_ocr_errors: IgnoreOCRErrorsChecker = False
     aborted: AbortedCheck = lambda: False
     on_ocr_event: Callable[[OCREvent], object] = lambda _: None
-
-    def __post_init__(self) -> None:
-        if self.includes_footnotes and self.footnotes is not None:
-            raise ValueError("footnotes cannot be combined with includes_footnotes=True")
 
 
 class AsyncPDFCraft:
@@ -145,7 +139,7 @@ class AsyncPDFCraft:
         *, analysing_path: PathLike | str | None = None,
     ) -> tuple[PDFCraftExtraction, OCRTokensMetering]:
         options = options or ExtractionOptions()
-        footnotes = _resolve_footnotes(options)
+        footnotes = options.footnotes
         return await PDFExtractor(self._pdf_engine()).extract_with_metering(
             Path(source), Path(extraction_path),
             analysing_path=Path(analysing_path) if analysing_path is not None else None,
@@ -391,7 +385,7 @@ class AsyncPDFCraft:
         self, source: PathLike | str, analysing_path: Path,
         options: ExtractionOptions,
     ) -> tuple[PDFCraftExtraction, OCRTokensMetering]:
-        footnotes = _resolve_footnotes(options)
+        footnotes = options.footnotes
         return await PDFExtractor(self._pdf_engine())._extract_to_workspace_async(
             Path(source), analysing_path,
             page_indexes=options.page_indexes,
@@ -799,14 +793,6 @@ def _validate_extraction_for_pdf(source: Path, extraction: PDFCraftExtraction) -
 def _ignore_errors_requested(checker: IgnoreFillErrorsChecker) -> bool:
     """Defer page-addressable validation when a fill recovery policy exists."""
     return checker is True or callable(checker)
-
-
-def _resolve_footnotes(options: ExtractionOptions) -> FootnoteOptions | None:
-    if options.footnotes is not None:
-        return options.footnotes
-    if options.includes_footnotes:
-        return FootnoteOptions()
-    return None
 
 
 def _furniture_transformer_for(

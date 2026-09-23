@@ -163,7 +163,6 @@ ExtractionOptions(
     max_ocr_tokens=None,
     max_ocr_output_tokens=None,
     includes_cover=False,
-    includes_footnotes=False,
     footnotes=None,
     includes_furniture=True,
     extract_book_metadata=False,
@@ -208,7 +207,6 @@ options = ExtractionOptions(
 
 传统算法仍先完整生成可逆的 PageAnalysis；JEV 只负责筛选低置信页，LLM 返回的完整目标页必须通过
 schema、layout 不可变性、citation/ref 一一对应和 gap 等确定性约束，之后才继续组装 FlowItem。
-旧写法 `includes_footnotes=True` 仍兼容纯算法档，但不能与新的 `footnotes` 同时使用。
 
 `extract_book_metadata` 默认关闭。开启后必须通过独立的 `metadata_llm` 参数显式提供 LLM，
 不会隐式复用 `toc_llm`。它会先向 LLM 提供前三个原始 OCR 页；模型可继续请求前部页面，但总数最多为

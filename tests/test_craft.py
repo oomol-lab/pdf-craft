@@ -291,26 +291,6 @@ class TestPDFCraft(unittest.TestCase):
         self.assertTrue(engine.kwargs["includes_footnotes"])
         self.assertIsNone(engine.kwargs["footnote_refinement"])
 
-    def test_legacy_footnote_flag_maps_to_algorithmic_tier(self):
-        with tempfile.TemporaryDirectory() as directory:
-            engine = _Engine()
-            PDFCraft.from_engine(engine).extract_pdf(
-                "source.pdf",
-                Path(directory) / "book.pcex",
-                ExtractionOptions(includes_footnotes=True),
-            )
-
-        assert engine.kwargs is not None
-        self.assertTrue(engine.kwargs["includes_footnotes"])
-        self.assertIsNone(engine.kwargs["footnote_refinement"])
-
-    def test_legacy_footnote_flag_cannot_be_combined_with_new_options(self):
-        with self.assertRaisesRegex(ValueError, "cannot be combined"):
-            ExtractionOptions(
-                includes_footnotes=True,
-                footnotes=FootnoteOptions(),
-            )
-
     def test_public_extraction_requires_pcex_output(self):
         with tempfile.TemporaryDirectory() as directory:
             engine = _Engine()

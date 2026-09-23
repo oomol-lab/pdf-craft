@@ -161,7 +161,6 @@ extraction; they do not fall back to an analysis/OCR directory.
 | `max_ocr_tokens` | `None` | Cumulative OCR input-plus-output token budget. |
 | `max_ocr_output_tokens` | `None` | Cumulative OCR output-token budget. |
 | `includes_cover` | `False` | Retain a recognized cover image. |
-| `includes_footnotes` | `False` | Compatibility alias for algorithmic footnote extraction; prefer `footnotes=FootnoteOptions()`. |
 | `includes_furniture` | `True` | Include native page furniture in the extracted PCEX as `furnitures.xml`; it does not translate it. |
 | `extract_book_metadata` | `False` | Extract bibliographic metadata from the first OCR pages. It is persisted in PCEX and, when that PCEX is patched to PDF, corrects the output PDF's document metadata. |
 | `metadata_llm` | `None` | Required LLM for `extract_book_metadata=True`; it is independent of `toc_llm`. |
@@ -198,8 +197,7 @@ options = ExtractionOptions(
 OCR and traditional footnote resolution still run first. JEV only selects pages for the LLM;
 the repaired page must pass the deterministic schema and integrity checks before chapter
 `FlowItem` assembly continues. Use `FootnoteOptions()` without `refinement` for the
-algorithm-only tier. The former `includes_footnotes=True` remains supported as a compatibility
-alias for that tier and cannot be combined with `footnotes`.
+algorithm-only tier.
 
 Book-metadata extraction is deliberately opt-in. When enabled, PDF Craft lets a dedicated LLM
 read the first three raw OCR pages and request further front pages in batches, up to twelve pages.
