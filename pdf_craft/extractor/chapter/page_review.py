@@ -4,7 +4,8 @@ from __future__ import annotations
 
 import json
 import re
-from collections.abc import Callable, Iterable, Mapping
+import asyncio
+from collections.abc import Awaitable, Callable, Iterable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Protocol
@@ -85,13 +86,13 @@ class PageReviewResult:
     requires_review: bool
 
 
-PageEvaluator = Callable[[int, dict[str, Any]], float]
+PageEvaluator = Callable[[int, dict[str, Any]], Awaitable[float]]
 
 
 class PageAnalysisProcessor(Protocol):
     """Optional stage allowed to inspect or replace the reversible pages."""
 
-    def __call__(
+    async def __call__(
         self,
         source_pages: list[Page],
         analyses: list[PageAnalysis],
@@ -106,14 +107,18 @@ class JevReviewProcessor:
         self,
         evaluator: PageEvaluator,
         threshold: float = JEV_REVIEW_THRESHOLD,
+        concurrency: int = 4,
     ) -> None:
         if not 0 <= threshold <= 1:
             raise ValueError("JEV review threshold must be between 0 and 1")
         self._evaluator = evaluator
         self._threshold = threshold
+        if concurrency < 1:
+            raise ValueError("JEV review concurrency must be at least 1")
+        self._concurrency = concurrency
         self.results: list[PageReviewResult] = []
 
-    def __call__(
+    async def __call__(
         self,
         source_pages: list[Page],
         analyses: list[PageAnalysis],
@@ -122,9 +127,20 @@ class JevReviewProcessor:
         requests = build_jev_review_requests(
             source_pages, analyses, page_pixel_sizes
         )
+        semaphore = asyncio.Semaphore(self._concurrency)
+
+        async def evaluate(page_index: int, request: dict[str, Any]):
+            async with semaphore:
+                return page_index, await self._evaluator(page_index, request)
+
+        async with asyncio.TaskGroup() as group:
+            tasks = [
+                group.create_task(evaluate(page_index, request))
+                for page_index, request in requests
+            ]
+        evaluated = [task.result() for task in tasks]
         self.results = []
-        for page_index, request in requests:
-            pass_probability = self._evaluator(page_index, request)
+        for page_index, pass_probability in evaluated:
             if not 0 <= pass_probability <= 1:
                 raise ValueError("JEV pass probability must be between 0 and 1")
             risk = round(1 - pass_probability, 12)

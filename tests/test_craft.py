@@ -9,7 +9,10 @@ from xml.etree.ElementTree import fromstring
 
 from epub_generator import BookMeta
 
-from pdf_craft import AsyncPDFCraft, ExtractionOptions, PDFCraft, PDFOptions
+from pdf_craft import (
+    AsyncPDFCraft, ExtractionOptions, JEV, LLM, PDFCraft, PDFOptions,
+    PageRepairOptions,
+)
 from pdf_craft.document import PDFCraftExtraction
 from pdf_craft.extractor import PDFExtractor
 from pdf_craft.extractor.chapter.chapter import SourceTextFragment, Chapter, TextFlowItem, encode
@@ -252,10 +255,17 @@ class TestPDFCraft(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             engine = _Engine()
+            page_repair = PageRepairOptions(
+                jev=JEV("jev-key"),
+                llm=LLM("llm-key", "https://example.invalid/v1", "model", "o200k_base"),
+            )
             extraction, metering = PDFCraft.from_engine(engine).extract_pdf_with_metering(
                 "source.pdf",
                 root / "book.pcex",
-                ExtractionOptions(page_indexes=(2, 4), max_ocr_tokens=12),
+                ExtractionOptions(
+                    page_indexes=(2, 4), max_ocr_tokens=12,
+                    includes_footnotes=True, page_repair=page_repair,
+                ),
                 analysing_path=root / "analysis",
             )
             self.assertEqual(metering, "metering")
@@ -263,8 +273,23 @@ class TestPDFCraft(unittest.TestCase):
             self.assertEqual(engine.kwargs["page_indexes"], (2, 4))
             self.assertEqual(engine.kwargs["max_tokens"], 12)
             self.assertTrue(engine.kwargs["includes_furniture"])
+            self.assertIs(engine.kwargs["page_repair"], page_repair)
             extraction._validate(require_toc=True)
             self.assertTrue((root / "analysis" / "extraction").is_dir())
+
+    def test_page_repair_requires_footnote_extraction(self):
+        repair = PageRepairOptions(
+            jev=JEV("jev-key"),
+            llm=LLM("llm-key", "https://example.invalid/v1", "model", "o200k_base"),
+        )
+        with tempfile.TemporaryDirectory() as directory, self.assertRaisesRegex(
+            ValueError, "includes_footnotes"
+        ):
+            PDFCraft.from_engine(_Engine()).extract_pdf(
+                "source.pdf",
+                Path(directory) / "book.pcex",
+                ExtractionOptions(page_repair=repair),
+            )
 
     def test_public_extraction_requires_pcex_output(self):
         with tempfile.TemporaryDirectory() as directory:

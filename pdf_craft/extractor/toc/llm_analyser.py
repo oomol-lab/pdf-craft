@@ -11,7 +11,7 @@ from pydantic import BaseModel, StrictInt, ValidationError, field_validator, mod
 from ...common import XMLReader, split_by_cv
 from .config import MAX_LEVELS, MAX_TITLE_CV
 from ...llm import LLM, Message, MessageRole, runtime_for
-from ...llm.guaranteed import GuaranteedOptions, request_guaranteed_json
+from ...llm.guaranteed import GuaranteedOptions, request_guaranteed_json_blocking
 from ...pdf import TITLE_TAGS, Page
 from .toc_levels import Ref2Level
 from .toc_pages import PageRef
@@ -590,7 +590,7 @@ class _LLMAnalyser(Generic[_P, _R]):
         # The business validators already extract RESULT and enforce their own
         # schema. The guaranteed layer supplies typed retries and bounded history.
         try:
-            return request_guaranteed_json(GuaranteedOptions(
+            return request_guaranteed_json_blocking(GuaranteedOptions(
                 messages=list(messages),
                 request=lambda current, index, maximum: (
                     self._runtime._request_blocking(

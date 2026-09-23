@@ -27,6 +27,7 @@ from .extractor import PDFExtractor
 from .llm import LLM
 from .metering import AbortedCheck, OCRTokensMetering
 from .ocr_config import OCRConfig
+from .page_repair import PageRepairOptions
 from .pdf import (
     AsyncPDFDocument,
     AsyncPDFHandler,
@@ -87,6 +88,7 @@ class ExtractionOptions:
     generate_plot: bool = False
     toc_assumed: bool = False
     toc_llm: LLM | None = None
+    page_repair: PageRepairOptions | None = None
     ignore_pdf_errors: IgnorePDFErrorsChecker = False
     ignore_ocr_errors: IgnoreOCRErrorsChecker = False
     aborted: AbortedCheck = lambda: False
@@ -138,6 +140,8 @@ class AsyncPDFCraft:
         *, analysing_path: PathLike | str | None = None,
     ) -> tuple[PDFCraftExtraction, OCRTokensMetering]:
         options = options or ExtractionOptions()
+        if options.page_repair is not None and not options.includes_footnotes:
+            raise ValueError("page_repair requires includes_footnotes=True")
         return await PDFExtractor(self._pdf_engine()).extract_with_metering(
             Path(source), Path(extraction_path),
             analysing_path=Path(analysing_path) if analysing_path is not None else None,
@@ -153,6 +157,7 @@ class AsyncPDFCraft:
             metadata_llm=options.metadata_llm,
             generate_plot=options.generate_plot,
             toc_assumed=options.toc_assumed, toc_llm=options.toc_llm,
+            page_repair=options.page_repair,
             ignore_pdf_errors=options.ignore_pdf_errors,
             ignore_ocr_errors=options.ignore_ocr_errors,
             aborted=options.aborted,
@@ -380,6 +385,8 @@ class AsyncPDFCraft:
         self, source: PathLike | str, analysing_path: Path,
         options: ExtractionOptions,
     ) -> tuple[PDFCraftExtraction, OCRTokensMetering]:
+        if options.page_repair is not None and not options.includes_footnotes:
+            raise ValueError("page_repair requires includes_footnotes=True")
         return await PDFExtractor(self._pdf_engine())._extract_to_workspace_async(
             Path(source), analysing_path,
             page_indexes=options.page_indexes,
@@ -394,6 +401,7 @@ class AsyncPDFCraft:
             metadata_llm=options.metadata_llm,
             generate_plot=options.generate_plot,
             toc_assumed=options.toc_assumed, toc_llm=options.toc_llm,
+            page_repair=options.page_repair,
             ignore_pdf_errors=options.ignore_pdf_errors,
             ignore_ocr_errors=options.ignore_ocr_errors,
             aborted=options.aborted, on_ocr_event=options.on_ocr_event,

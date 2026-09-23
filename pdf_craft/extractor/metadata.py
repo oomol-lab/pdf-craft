@@ -14,7 +14,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 
 from ..document import DocumentAuthor, DocumentMetadata
 from ..llm import LLM, Message, MessageRole, runtime_for
-from ..llm.guaranteed import GuaranteedOptions, request_guaranteed_json
+from ..llm.guaranteed import GuaranteedOptions, request_guaranteed_json_blocking
 from ..pdf import PDFDocumentMetadata
 
 
@@ -189,7 +189,7 @@ def _request_turn(
         _validate_metadata_evidence(data.metadata, page_text)
         return data
 
-    return request_guaranteed_json(GuaranteedOptions(
+    return request_guaranteed_json_blocking(GuaranteedOptions(
         messages=messages,
         request=lambda current, index, maximum: _request_llm(
             metadata_llm, runtime, current, index, maximum,

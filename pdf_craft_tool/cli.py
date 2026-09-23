@@ -1,6 +1,7 @@
 """Repository-local CLI for repeatable pdf-craft conversions and smoke runs."""
 
 import argparse
+import asyncio
 import json
 from dataclasses import dataclass, replace
 from pathlib import Path
@@ -17,7 +18,8 @@ from pdf_craft import (
     SubmitKind,
     XMLTranslator,
 )
-from pdf_craft.extractor.chapter.generation import _extract_body_layouts
+from pdf_craft.jev import JEVRuntime
+from pdf_craft.extractor.chapter.generation import prepare_chapter_analysis
 from pdf_craft.extractor.chapter.page_review import (
     JEV_REVIEW_THRESHOLD,
     JevReviewProcessor,
@@ -29,8 +31,9 @@ from pdf_craft.extractor.chapter.page_repair import (
 from pdf_craft.extractor.toc import TocInfo
 from pdf_craft.llm import runtime_for
 
-from .jev import OoJevEvaluator, PinnedJevEvaluator
+from .jev import PinnedJevEvaluator
 from .runtime import (
+    create_jev_from_env,
     create_ocr_config_from_env,
     create_llm_from_env,
     load_project_env,
@@ -175,7 +178,7 @@ def _parser() -> argparse.ArgumentParser:
         dest="analysis_command", required=True
     )
     review_jev = analysis_commands.add_parser(
-        "review-jev", help="review cached OCR pages with JEV through oo"
+        "review-jev", help="review cached OCR pages with the official JEV service"
     )
     review_jev.add_argument("ocr_path", type=Path)
     review_jev.add_argument("--output", type=Path, required=True)
@@ -483,15 +486,25 @@ def _run_matrix(args: argparse.Namespace) -> int:
 
 
 def _review_jev(args: argparse.Namespace) -> None:
+    load_project_env(_project_root())
+    asyncio.run(_review_jev_async(args))
+
+
+async def _review_jev_async(args: argparse.Namespace) -> None:
     raw_path = args.output / "raw"
-    reviewer = JevReviewProcessor(
-        OoJevEvaluator(raw_path), threshold=args.threshold
-    )
-    list(_extract_body_layouts(
-        args.ocr_path,
-        TocInfo([], []),
-        reviewer,
-    ))
+    analysis = prepare_chapter_analysis(args.ocr_path, TocInfo([], []))
+    config = create_jev_from_env()
+    async with JEVRuntime(config) as runtime:
+        reviewer = JevReviewProcessor(
+            _recording_jev_evaluator(runtime.evaluate, raw_path),
+            threshold=args.threshold,
+            concurrency=config.concurrency,
+        )
+        await reviewer(
+            analysis.source_pages,
+            analysis.pages,
+            analysis.page_pixel_sizes,
+        )
     args.output.mkdir(parents=True, exist_ok=True)
     report = {
         "threshold": args.threshold,
@@ -521,6 +534,10 @@ def _review_jev(args: argparse.Namespace) -> None:
 
 def _repair_jev_llm(args: argparse.Namespace) -> None:
     load_project_env(_project_root())
+    asyncio.run(_repair_jev_llm_async(args))
+
+
+async def _repair_jev_llm_async(args: argparse.Namespace) -> None:
     args.output.mkdir(parents=True, exist_ok=True)
     llm = create_llm_from_env(
         args.llm_profile,
@@ -531,7 +548,7 @@ def _repair_jev_llm(args: argparse.Namespace) -> None:
     llm_raw_path = args.output / "llm-raw"
     llm_raw_path.mkdir(parents=True, exist_ok=True)
 
-    def request(messages, index, maximum):
+    async def request(messages, index, maximum):
         payload = json.loads(messages[1].message)
         page_index = payload["target_page"]["page_index"]
         stem = f"page_{page_index:03d}-attempt_{index + 1:02d}"
@@ -546,7 +563,7 @@ def _repair_jev_llm(args: argparse.Namespace) -> None:
             ) + "\n",
             encoding="utf-8",
         )
-        response = runtime.request(
+        response = await runtime.request(
             messages,
             max_tokens=16000,
             retry_index=index,
@@ -561,6 +578,8 @@ def _repair_jev_llm(args: argparse.Namespace) -> None:
     llm_page_indexes = _page_indexes(args.llm_pages)
     if args.all_pages and llm_page_indexes is not None:
         raise ValueError("--all-pages cannot be combined with --llm-pages")
+    jev_runtime = None
+    jev_concurrency = 4
     if args.all_pages or llm_page_indexes is not None:
         if args.jev_baseline is not None or args.jev_run is not None:
             raise ValueError("direct LLM page selection cannot be combined with JEV options")
@@ -589,22 +608,36 @@ def _repair_jev_llm(args: argparse.Namespace) -> None:
         else:
             if args.jev_run is not None:
                 raise ValueError("--jev-run requires --jev-baseline")
-            evaluator = OoJevEvaluator(
-                args.output / "jev-raw", reuse_existing=True
+            jev_config = create_jev_from_env()
+            jev_concurrency = jev_config.concurrency
+            jev_runtime = JEVRuntime(jev_config)
+            await jev_runtime.__aenter__()
+            evaluator = _recording_jev_evaluator(
+                jev_runtime.evaluate,
+                args.output / "jev-raw",
             )
-            jev_source = {"type": "oo-connector"}
+            jev_source = {
+                "type": "typesafe-sdk",
+                "model": jev_config.model,
+            }
         jev_processor = JevLlmRepairProcessor(
             evaluator,
             request,
             threshold=args.threshold,
             max_retries=args.max_retries,
+            concurrency=jev_concurrency,
         )
         processor = jev_processor
-    list(_extract_body_layouts(
-        args.ocr_path,
-        TocInfo([], []),
-        processor,
-    ))
+    analysis = prepare_chapter_analysis(args.ocr_path, TocInfo([], []))
+    try:
+        await processor(
+            analysis.source_pages,
+            analysis.pages,
+            analysis.page_pixel_sizes,
+        )
+    finally:
+        if jev_runtime is not None:
+            await jev_runtime.__aexit__(None, None, None)
     if args.all_pages or llm_page_indexes is not None:
         assert all_page_processor is not None
         review_page_indexes = all_page_processor.page_indexes
@@ -649,6 +682,30 @@ def _repair_jev_llm(args: argparse.Namespace) -> None:
         encoding="utf-8",
     )
     print(report_path)
+
+
+def _recording_jev_evaluator(evaluator, output_path: Path):
+    output_path.mkdir(parents=True, exist_ok=True)
+
+    async def evaluate(page_index: int, request: dict[str, Any]) -> float:
+        request_path = output_path / f"page_{page_index:03d}-request.json"
+        response_path = output_path / f"page_{page_index:03d}-response.json"
+        request_path.write_text(
+            json.dumps(request, ensure_ascii=False, indent=2) + "\n",
+            encoding="utf-8",
+        )
+        probability = await evaluator(page_index, request)
+        response_path.write_text(
+            json.dumps(
+                {"pass_probability": probability},
+                ensure_ascii=False,
+                indent=2,
+            ) + "\n",
+            encoding="utf-8",
+        )
+        return probability
+
+    return evaluate
 
 
 def _smoke_exit_code(run_path: Path) -> int:

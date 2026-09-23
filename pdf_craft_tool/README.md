@@ -14,6 +14,16 @@ poetry run python -m pdf_craft_tool --help
 backend 时不需要再修改 `.env`。翻译
 翻译或可选的 TOC 层级增强需要文本 chat-completion LLM profile；OCR-only endpoint
 不能代替它。默认 profile 使用本机 `oo llm config --json` 提供的 OOMOL 连接，凭据不写入 `.env`。
+JEV 页审核通过官方 TypeSafe SDK 直连，使用 `.env` 中独立的
+`PDF_CRAFT_JEV_API_KEY`、`PDF_CRAFT_JEV_BASE_URL` 和 `PDF_CRAFT_JEV_MODEL`；它不再通过 `oo` 转发。
+
+缓存 OCR 页可直接运行官方 JEV 审核：
+
+```shell
+poetry run python -m pdf_craft_tool analysis review-jev \
+  tests/assets/analysis/citation_large_ocr \
+  --output pdf-craft-output/official-jev-review
+```
 
 ## OCR backend 配置与选择
 

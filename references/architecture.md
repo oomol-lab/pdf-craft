@@ -48,6 +48,7 @@ analysis/OCR 缓存。
 - `ChapterTransformer`
 - `predownload_models`
 - `LLM`
+- `JEV`、`PageRepairOptions`
 - `DeepSeekOCRLocalConfig`、`DeepSeekOCR2LocalConfig`、`UnlimitedOCRLocalConfig`
 - `DeepSeekOCRVendorConfig`、`DeepSeekOCR2VendorConfig`、`UnlimitedOCRVendorConfig`
 - `PDFHandler`、`AsyncPDFHandler`、`PDFDocument`、`AsyncPDFDocument`、`DefaultPDFHandler`、`DefaultPDFDocument`

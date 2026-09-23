@@ -168,10 +168,29 @@ extraction; they do not fall back to an analysis/OCR directory.
 | `generate_plot` | `False` | Generate plot diagnostics in the analysis workspace (not in `.pcex`). |
 | `toc_assumed` | `False` | Treat the document as already having usable TOC information. |
 | `toc_llm` | `None` | LLM used when TOC analysis is needed. |
+| `page_repair` | `None` | Optional `PageRepairOptions`; JEV reviews reversible pages and the LLM repairs low-confidence pages. Requires `includes_footnotes=True`. |
 | `ignore_pdf_errors` | `False` | `True` or a predicate that decides whether a PDF error may be skipped. |
 | `ignore_ocr_errors` | `False` | `True` or a predicate that decides whether an OCR error may be skipped. |
 | `aborted` | a callback returning `False` | A callback checked during processing to request cancellation. |
 | `on_ocr_event` | no-op callback | Receives per-page `OCREvent` updates. |
+
+Page repair is opt-in and uses explicit credentials, like other model-backed features:
+
+```python
+from pdf_craft import ExtractionOptions, JEV, LLM, PageRepairOptions
+
+options = ExtractionOptions(
+    includes_footnotes=True,
+    page_repair=PageRepairOptions(
+        jev=JEV(key="...", model="jev-latest"),
+        llm=LLM("...", "https://example.com/v1", "model", "o200k_base"),
+    ),
+)
+```
+
+OCR and traditional footnote resolution still run first. JEV only selects pages for the LLM;
+the repaired page must pass the deterministic schema and integrity checks before chapter
+`FlowItem` assembly continues.
 
 Book-metadata extraction is deliberately opt-in. When enabled, PDF Craft lets a dedicated LLM
 read the first three raw OCR pages and request further front pages in batches, up to twelve pages.

@@ -170,6 +170,7 @@ ExtractionOptions(
     generate_plot=False,
     toc_assumed=False,
     toc_llm=None,
+    page_repair=None,
     ignore_pdf_errors=False,
     ignore_ocr_errors=False,
     aborted=lambda: False,
@@ -181,6 +182,24 @@ ExtractionOptions(
 默认值为 `False`；如果需要目录页检测，应在 EPUB 或 Markdown 提取时显式传入 `True`。
 `toc_llm` 是可选的目录层级分析
 LLM，不是 OCR 配置，也不是章节翻译器。
+
+`page_repair` 是可选的页级脚注矫正配置，启用时必须同时设置 `includes_footnotes=True`。
+凭据与模型配置和 `LLM` 一样由调用方显式传入：
+
+```python
+from pdf_craft import ExtractionOptions, JEV, LLM, PageRepairOptions
+
+options = ExtractionOptions(
+    includes_footnotes=True,
+    page_repair=PageRepairOptions(
+        jev=JEV(key="...", model="jev-latest"),
+        llm=LLM("...", "https://example.com/v1", "model", "o200k_base"),
+    ),
+)
+```
+
+传统算法仍先完整生成可逆的 PageAnalysis；JEV 只负责筛选低置信页，LLM 返回的完整目标页必须通过
+schema、layout 不可变性、citation/ref 一一对应和 gap 等确定性约束，之后才继续组装 FlowItem。
 
 `extract_book_metadata` 默认关闭。开启后必须通过独立的 `metadata_llm` 参数显式提供 LLM，
 不会隐式复用 `toc_llm`。它会先向 LLM 提供前三个原始 OCR 页；模型可继续请求前部页面，但总数最多为

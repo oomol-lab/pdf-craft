@@ -18,6 +18,6 @@ from .chapter import (
     search_references_in_chapter,
 )
 from .content import Content
-from .generation import generate_chapter_files
+from .generation import ChapterAnalysis, generate_chapter_files, prepare_chapter_analysis
 from .mark import Mark, NumberClass, NumberStyle
 from .reader import create_chapters_reader
