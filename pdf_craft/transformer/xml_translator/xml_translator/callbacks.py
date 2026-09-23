@@ -17,14 +17,14 @@ class Callbacks:
     interrupt_source_text_segments: Callable[[Iterable[TextSegment]], Iterable[TextSegment]]
     interrupt_translated_text_segments: Callable[[Iterable[TextSegment]], Iterable[TextSegment]]
     interrupt_block_element: Callable[[Element], Element]
-    on_fill_failed: Callable[[FillFailedEvent], None]
+    on_fill_failed: Callable[[FillFailedEvent], object]
 
 
 def warp_callbacks(
     interrupt_source_text_segments: Callable[[Iterable[TextSegment]], Iterable[TextSegment]] | None,
     interrupt_translated_text_segments: Callable[[Iterable[TextSegment]], Iterable[TextSegment]] | None,
     interrupt_block_element: Callable[[Element], Element] | None,
-    on_fill_failed: Callable[[FillFailedEvent], None] | None,
+    on_fill_failed: Callable[[FillFailedEvent], object] | None,
 ) -> Callbacks:
     return Callbacks(
         interrupt_source_text_segments=interrupt_source_text_segments or (lambda x: x),

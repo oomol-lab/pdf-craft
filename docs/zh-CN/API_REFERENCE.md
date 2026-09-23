@@ -30,7 +30,11 @@ OCR 和翻译事件回调既可以是普通函数，也可以是 `async def`；�
 `PDFOptions.pdf_handler` 也接受 `AsyncPDFHandler`：其 `open()` 返回
 `AsyncPDFDocument`，并提供可等待的 `pages_count()`、`metadata()`、
 `page_size()`、`render_page()` 和 `close()`。SDK 会在同步 OCR 边界进行适配，
-不会把这些协程送进工作线程执行。
+不会把这些协程送进工作线程执行。PDF 回填时，需要的源页面会先在调用方事件循环中
+等待并临时落盘，只有页面路径和元数据会跨入隔离的 Qt 进程。
+
+异步 XML/EPUB 翻译的 `on_fill_failed` 同样可以是普通函数或 `async def`；每次修复失败
+通知都在调用方事件循环中执行，异步 callback 会在进入下一次修复步骤前被完整等待。
 
 `PDFCraft` 作为异步实现之上的兼容适配层，继续提供适合普通脚本的同步 API；但不能从已经运行事件循环的线程中
 调用，否则会明确抛出 `RuntimeError`，而不会嵌套启动事件循环。此时应改用

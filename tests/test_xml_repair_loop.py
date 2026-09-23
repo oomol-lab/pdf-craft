@@ -1,4 +1,6 @@
  # pylint: disable=protected-access,unused-argument
+import asyncio
+import threading
 import unittest
 from types import SimpleNamespace
 from typing import Any, cast
@@ -32,6 +34,26 @@ class _Runtime:
         return self.context_value
 
 
+class _AsyncContext(_Context):
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *args):
+        return None
+
+    async def request_async(self, messages, **kwargs):
+        self.calls += 1
+        return next(self.responses)
+
+
+class _AsyncRuntime:
+    def __init__(self, responses):
+        self.context_value = _AsyncContext(responses)
+
+    def context(self, **kwargs):
+        return self.context_value
+
+
 class _Hill:
     def __init__(self, errors):
         self.errors = iter(errors)
@@ -47,6 +69,19 @@ def _translator(responses, retries=2):
     translator = object.__new__(XMLTranslator)
     translator._fill_runtime = cast(Any, _Runtime(responses))
     translator._fill_llm = cast(Any, SimpleNamespace(template=lambda name: SimpleNamespace(render=lambda: "fill")))
+    translator._cache_seed_content = None
+    translator._max_retries = retries
+    return translator
+
+
+def _async_translator(responses, retries=2):
+    translator = object.__new__(XMLTranslator)
+    translator._fill_runtime = cast(Any, _AsyncRuntime(responses))
+
+    async def template_async(_name):
+        return SimpleNamespace(render=lambda: "fill")
+
+    translator._fill_llm = cast(Any, SimpleNamespace(template_async=template_async))
     translator._cache_seed_content = None
     translator._max_retries = retries
     return translator
@@ -86,6 +121,42 @@ class TestXMLRepairLoop(unittest.TestCase):
                 cast(Any, _Hill(["error"])), "s", "t",
                 Callbacks(lambda x: x, lambda x: x, lambda x: x, fail),
             )
+
+
+class TestAsyncXMLRepairLoop(unittest.IsolatedAsyncioTestCase):
+    async def test_async_fill_callback_is_awaited_for_empty_and_exhausted(self):
+        events = []
+        callback_threads = []
+
+        async def callback(event):
+            await asyncio.sleep(0)
+            events.append(event)
+            callback_threads.append(threading.get_ident())
+
+        await _async_translator([""], retries=1)._request_and_submit_async(
+            cast(Any, _Hill([])), "source", "translated",
+            Callbacks(lambda x: x, lambda x: x, lambda x: x, callback),
+        )
+
+        self.assertEqual(len(events), 2)
+        self.assertFalse(events[0].over_maximum_retries)
+        self.assertTrue(events[1].over_maximum_retries)
+        self.assertEqual(callback_threads, [threading.get_ident()] * 2)
+
+    async def test_sync_fill_callback_runs_on_async_caller_loop(self):
+        callback_threads = []
+
+        def callback(_event):
+            callback_threads.append(threading.get_ident())
+
+        await _async_translator(
+            ["<xml>bad</xml>", "<xml>good</xml>"], retries=2,
+        )._request_and_submit_async(
+            cast(Any, _Hill(["structural error", None])), "source", "translated",
+            Callbacks(lambda x: x, lambda x: x, lambda x: x, callback),
+        )
+
+        self.assertEqual(callback_threads, [threading.get_ident()])
 
 
 if __name__ == "__main__":

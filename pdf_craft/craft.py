@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import AsyncIterator, Literal, cast
 
 from epub_generator import BookMeta, LaTeXRender, TableRender
+from PIL import Image
 
 from .document import PDFCraftExtraction
 from .extractor.chapter.chapter import SourceTextFragment, TextFlowItem
@@ -28,6 +29,7 @@ from .pdf import (
     DeepSeekOCRSize,
     OCREvent,
     PDFDocument,
+    PDFDocumentMetadata,
     PDFHandler,
 )
 from .pipeline.epub import translate_epub_async as run_epub_translation_async
@@ -46,6 +48,7 @@ from .transformer.chapter_xml import ChapterXMLTransformer
 from .transformer.furniture_xml import FurnitureXMLTransformer
 from .transformer.package import FurnitureExtractionTransformer
 from .runtime import (
+    IO_DOMAIN,
     QT_DOMAIN,
     TRANSLATION_DOMAIN,
     callback_bridge,
@@ -427,13 +430,31 @@ class AsyncPDFCraft:
         *, ignore_errors: IgnoreFillErrorsChecker = False,
     ) -> None:
         document = await _ensure_extraction_async(extraction)
-        # A single stable worker owns QGuiApplication, QTextLayout, pypdf and
-        # reportlab objects for the complete patch operation.
-        await QT_DOMAIN.run(
-            _patch_pdf_sync,
-            Path(source), document, Path(output),
-            self._sync_pdf_handler(), ignore_errors,
-        )
+        source_path = Path(source)
+        output_path = Path(output)
+        configured_handler = self._pdf.pdf_handler if self._pdf else None
+        if configured_handler is None:
+            await QT_DOMAIN.run(
+                _patch_pdf_sync,
+                source_path, document, output_path, None, ignore_errors,
+            )
+            return
+
+        # A caller-owned handler can contain an event loop, locks, sessions,
+        # or other intentionally non-pickleable state. Render the PCEX pages
+        # through that handler in its proper execution domain, then give the
+        # isolated Qt process a path-only, serializable document adapter.
+        page_indexes = tuple(sorted((await document.page_pixel_sizes_async()).keys()))
+        dpi = await document.render_dpi_async()
+        async with temporary_directory("pdf-craft-pdf-pages-") as directory:
+            materialized_handler = await _materialize_pdf_handler(
+                configured_handler, source_path, page_indexes, dpi, directory,
+            )
+            await QT_DOMAIN.run(
+                _patch_pdf_sync,
+                source_path, document, output_path,
+                materialized_handler, ignore_errors,
+            )
 
     async def translate_epub(
         self, source: PathLike | str, output: PathLike | str, *,
@@ -641,6 +662,127 @@ class _AsyncPDFHandlerBridge:
             self._handler.open(pdf_path), self._loop,
         ).result()
         return cast(PDFDocument, _AsyncPDFDocumentBridge(self._loop, document))
+
+
+@dataclass(frozen=True)
+class _MaterializedPDFHandler:
+    """Serializable PDF handler whose page rasters live in a temp workspace."""
+
+    root: Path
+    count: int
+    document_metadata: PDFDocumentMetadata
+    page_sizes: dict[int, tuple[float, float]]
+    dpi: int
+
+    def open(self, pdf_path: Path) -> PDFDocument:
+        del pdf_path
+        return _MaterializedPDFDocument(
+            self.root, self.count, self.document_metadata, self.page_sizes, self.dpi,
+        )
+
+
+class _MaterializedPDFDocument:
+    def __init__(
+        self,
+        root: Path,
+        count: int,
+        document_metadata: PDFDocumentMetadata,
+        page_sizes: dict[int, tuple[float, float]],
+        dpi: int,
+    ) -> None:
+        self._root = root
+        self._count = count
+        self._metadata = document_metadata
+        self._page_sizes = page_sizes
+        self._dpi = dpi
+
+    @property
+    def pages_count(self) -> int:
+        return self._count
+
+    def metadata(self) -> PDFDocumentMetadata:
+        return self._metadata
+
+    def page_size(self, page_index: int) -> tuple[float, float]:
+        return self._page_sizes[page_index]
+
+    def render_page(self, page_index: int, dpi: int) -> Image.Image:
+        if dpi != self._dpi:
+            raise ValueError(
+                f"materialized PDF page uses {self._dpi} DPI, requested {dpi} DPI"
+            )
+        image = Image.open(self._root / f"page-{page_index}.png")
+        image.load()
+        return image
+
+    def close(self) -> None:
+        return None
+
+
+async def _materialize_pdf_handler(
+    handler: PDFHandler | AsyncPDFHandler,
+    source: Path,
+    page_indexes: tuple[int, ...],
+    dpi: int,
+    root: Path,
+) -> _MaterializedPDFHandler:
+    if not inspect.iscoroutinefunction(handler.open):
+        return await IO_DOMAIN.run(
+            _materialize_sync_pdf_handler,
+            cast(PDFHandler, handler), source, page_indexes, dpi, root,
+        )
+
+    document = await cast(AsyncPDFHandler, handler).open(source)
+    try:
+        count = await document.pages_count()
+        metadata = await document.metadata()
+        page_sizes = {
+            page_index: await document.page_size(page_index)
+            for page_index in range(1, count + 1)
+        }
+        for page_index in page_indexes:
+            if not 1 <= page_index <= count:
+                continue
+            image = await document.render_page(page_index, dpi)
+            await IO_DOMAIN.run(
+                _save_and_close_page_image, image, root / f"page-{page_index}.png",
+            )
+    finally:
+        await document.close()
+    return _MaterializedPDFHandler(root, count, metadata, page_sizes, dpi)
+
+
+def _materialize_sync_pdf_handler(
+    handler: PDFHandler,
+    source: Path,
+    page_indexes: tuple[int, ...],
+    dpi: int,
+    root: Path,
+) -> _MaterializedPDFHandler:
+    document = handler.open(source)
+    try:
+        count = document.pages_count
+        metadata = document.metadata()
+        page_sizes = {
+            page_index: document.page_size(page_index)
+            for page_index in range(1, count + 1)
+        }
+        for page_index in page_indexes:
+            if not 1 <= page_index <= count:
+                continue
+            _save_and_close_page_image(
+                document.render_page(page_index, dpi), root / f"page-{page_index}.png",
+            )
+    finally:
+        document.close()
+    return _MaterializedPDFHandler(root, count, metadata, page_sizes, dpi)
+
+
+def _save_and_close_page_image(image: Image.Image, path: Path) -> None:
+    try:
+        image.save(path, format="PNG")
+    finally:
+        image.close()
 
 
 def _patch_pdf_sync(

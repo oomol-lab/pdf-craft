@@ -134,7 +134,7 @@ async def translate_async(
     translation_llm: LLM | None = None,
     fill_llm: LLM | None = None,
     on_translation_event: Callable[[TranslationEvent], object] | None = None,
-    on_fill_failed: Callable[[FillFailedEvent], None] | None = None,
+    on_fill_failed: Callable[[FillFailedEvent], object] | None = None,
 ) -> None:
     """Translate an EPUB with native async LLM concurrency and pooled ZIP I/O."""
     translation_llm = translation_llm or llm

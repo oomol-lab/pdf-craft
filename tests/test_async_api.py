@@ -1,5 +1,6 @@
 # pylint: disable=protected-access
 import asyncio
+from datetime import datetime, timezone
 import os
 import sys
 import tempfile
@@ -8,6 +9,9 @@ import time
 import unittest
 from pathlib import Path
 from unittest.mock import AsyncMock, patch
+
+from PIL import Image
+from reportlab.pdfgen import canvas
 
 from pdf_craft import (
     AsyncPDFCraft, ExtractionOptions, PDFCraft, PDFDocumentMetadata, PDFOptions,
@@ -111,16 +115,21 @@ class _AsyncDocument:
 
     async def metadata(self) -> PDFDocumentMetadata:
         self.thread_ids.append(threading.get_ident())
-        raise AssertionError("not used")
+        return PDFDocumentMetadata(
+            title=None, description=None, publisher=None, isbn=None,
+            authors=[], editors=[], translators=[],
+            modified=datetime.now(timezone.utc),
+        )
 
     async def page_size(self, page_index: int) -> tuple[float, float]:
         del page_index
         self.thread_ids.append(threading.get_ident())
         return 8.5, 11.0
 
-    async def render_page(self, page_index: int, dpi: int):
+    async def render_page(self, page_index: int, dpi: int) -> Image.Image:
         del page_index, dpi
-        raise AssertionError("not used")
+        self.thread_ids.append(threading.get_ident())
+        return Image.new("RGB", (100, 100), "white")
 
     async def close(self) -> None:
         self.thread_ids.append(threading.get_ident())
@@ -131,10 +140,12 @@ class _AsyncHandler:
     def __init__(self, document: _AsyncDocument) -> None:
         self.document = document
         self.thread_id: int | None = None
+        self.open_count = 0
 
     async def open(self, pdf_path: Path) -> _AsyncDocument:
         del pdf_path
         self.thread_id = threading.get_ident()
+        self.open_count += 1
         return self.document
 
 
@@ -326,6 +337,42 @@ class TestAsyncAPI(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(async_handler.thread_id, loop_thread)
         self.assertEqual(async_document.thread_ids, [loop_thread] * 3)
         self.assertTrue(async_document.closed)
+
+    async def test_async_pdf_handler_works_through_patch_and_translate_pdf(self):
+        loop_thread = threading.get_ident()
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = root / "source.pdf"
+            source_pdf = canvas.Canvas(str(source), pagesize=(100, 100))
+            source_pdf.drawString(5, 50, "Original")
+            source_pdf.save()
+            extraction = make_extraction(
+                root / "extraction", page_pixel_sizes={1: (100, 100)}, render_dpi=72,
+            )
+            async_document = _AsyncDocument()
+            async_handler = _AsyncHandler(async_document)
+            craft = AsyncPDFCraft(PDFOptions(pdf_handler=async_handler))
+
+            await craft.patch_pdf_with_extraction(
+                source, extraction, root / "patched.pdf", ignore_errors=True,
+            )
+            with patch.object(
+                craft, "translate_extraction",
+                new_callable=AsyncMock, return_value=extraction,
+            ) as translate:
+                await craft.translate_pdf(
+                    source, extraction, root / "translated.pdf",
+                    _AsyncChapterTransformer(), ignore_errors=True,
+                )
+
+            translate.assert_awaited_once()
+            self.assertTrue((root / "patched.pdf").is_file())
+            self.assertTrue((root / "translated.pdf").is_file())
+            self.assertEqual(async_handler.thread_id, loop_thread)
+            self.assertEqual(async_handler.open_count, 2)
+            self.assertTrue(async_document.closed)
+            self.assertTrue(async_document.thread_ids)
+            self.assertEqual(set(async_document.thread_ids), {loop_thread})
 
     async def test_async_subprocess_and_cancellation_cleanup(self):
         stdout, _ = await run_subprocess(

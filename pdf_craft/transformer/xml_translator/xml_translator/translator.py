@@ -171,7 +171,7 @@ class XMLTranslator:
         immutable_elements_for_inline_segments: Callable[[list[InlineSegment]], list[ImmutableBlockElement]] | None = None,
         source_text_renderer: SourceTextRenderer | None = None,
         canonical_text_validator: CanonicalTextValidator | None = None,
-        on_fill_failed: Callable[[FillFailedEvent], None] | None = None,
+        on_fill_failed: Callable[[FillFailedEvent], object] | None = None,
         on_translation_event: Callable[[TranslationEvent], object] | None = None,
         completed_characters: int = 0,
         total_characters: int | None = None,
@@ -675,7 +675,7 @@ class XMLTranslator:
             last_error: str | None = None
 
             class _XMLProtocol:
-                def validate(self, response: str, state, attempt: int, max_attempts: int):
+                async def validate(self, response: str, state, attempt: int, max_attempts: int):
                     nonlocal last_error
                     validated = translator._extract_xml_element(response)
                     if isinstance(validated, str):
@@ -692,19 +692,28 @@ class XMLTranslator:
                         last_error = None
                         return ProtocolSuccess(None, state)
                     last_error = error
-                    callbacks.on_fill_failed(FillFailedEvent(error, attempt + 1, False))
+                    await invoke_callback(
+                        callbacks.on_fill_failed,
+                        FillFailedEvent(error, attempt + 1, False),
+                    )
                     return ProtocolRetry(error, state, include_response=True, reset_history=True)
 
-                def empty(self, state, attempt: int, max_attempts: int):
+                async def empty(self, state, attempt: int, max_attempts: int):
                     nonlocal last_error
                     error = "LLM returned an empty XML response. Please return one complete <xml> block."
                     last_error = error
-                    callbacks.on_fill_failed(FillFailedEvent(error, attempt + 1, False))
+                    await invoke_callback(
+                        callbacks.on_fill_failed,
+                        FillFailedEvent(error, attempt + 1, False),
+                    )
                     return ProtocolRetry(error, state)
 
-                def exhausted(self, state, attempts: int, response: str | None):
+                async def exhausted(self, state, attempts: int, response: str | None):
                     error = last_error or "XML fill exhausted retries; no usable response was produced."
-                    callbacks.on_fill_failed(FillFailedEvent(error, attempts, True))
+                    await invoke_callback(
+                        callbacks.on_fill_failed,
+                        FillFailedEvent(error, attempts, True),
+                    )
                     return None
 
             await run_repair_loop_async(AsyncRepairLoopOptions(

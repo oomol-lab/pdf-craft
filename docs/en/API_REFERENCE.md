@@ -35,7 +35,13 @@ caller loop. `PDFOptions.pdf_handler` also accepts `AsyncPDFHandler`, whose
 `open()` returns an `AsyncPDFDocument` with awaitable `pages_count()`,
 `metadata()`, `page_size()`, `render_page()`, and `close()` methods. The SDK
 adapts that document at the synchronous OCR boundary without running its
-coroutines in a worker thread.
+coroutines in a worker thread. For PDF patching, required source-page rasters
+are awaited on the caller loop and materialized temporarily; only the resulting
+paths and metadata cross into the isolated Qt process.
+
+The async XML/EPUB translation APIs likewise accept a synchronous or async
+`on_fill_failed` callback. Each repair notification runs on the caller's event
+loop, and an async callback is awaited before the next repair step proceeds.
 
 `PDFCraft` retains the same synchronous API for scripts as a compatibility
 adapter over the async implementation. It must not be called
