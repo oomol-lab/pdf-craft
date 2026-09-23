@@ -11,6 +11,7 @@ from pdf_craft.extractor.chapter.chapter import (
 from pdf_craft.extractor.chapter.mark import transform2mark
 from pdf_craft.extractor.chapter.page_analysis import analyse_pages, restore_streams
 from pdf_craft.extractor.chapter.page_repair import (
+    AllPageLlmRepairProcessor,
     JevLlmRepairProcessor,
     _reconcile_cross_page_gaps,
     build_page_repair_messages,
@@ -64,6 +65,35 @@ def _page_with_reference(text_before="Body", text_after=" end"):
 
 
 class PageRepairTests(unittest.TestCase):
+    def test_all_page_processor_skips_jev_and_hides_neighbor_scores(self):
+        source_pages = [
+            decode(fromstring(
+                f"<page index='{index}'><body><layout ref='text' "
+                f"det='1,1,99,20'>Page {index}.</layout></body>"
+                "<footnotes></footnotes></page>"
+            ))
+            for index in (1, 2, 3)
+        ]
+        paragraphs, citations = _resolve_pages(source_pages)
+        analyses = analyse_pages((1, 2, 3), paragraphs, citations)
+        payloads = []
+
+        def request(messages, _index, _maximum):
+            payloads.append(json.loads(messages[1].message))
+            return json.dumps(_response_from_message(messages[1]))
+
+        processor = AllPageLlmRepairProcessor(request)
+        repaired = processor(source_pages, analyses, {})
+
+        self.assertEqual(processor.page_indexes, [1, 2, 3])
+        self.assertEqual([page.page_index for page in repaired], [1, 2, 3])
+        self.assertEqual(len(payloads), 3)
+        for payload in payloads:
+            self.assertNotIn("jev_p_pass", payload["target_page"])
+            for key in ("previous_page", "next_page"):
+                if payload[key] is not None:
+                    self.assertIsNone(payload[key]["jev_p_pass"])
+
     def test_each_citation_id_has_independent_flow_endpoints(self):
         mark = transform2mark("①")
         assert mark is not None

@@ -22,7 +22,10 @@ from pdf_craft.extractor.chapter.page_review import (
     JEV_REVIEW_THRESHOLD,
     JevReviewProcessor,
 )
-from pdf_craft.extractor.chapter.page_repair import JevLlmRepairProcessor
+from pdf_craft.extractor.chapter.page_repair import (
+    AllPageLlmRepairProcessor,
+    JevLlmRepairProcessor,
+)
 from pdf_craft.extractor.toc import TocInfo
 from pdf_craft.llm import runtime_for
 
@@ -183,6 +186,11 @@ def _parser() -> argparse.ArgumentParser:
     repair_pages.add_argument("ocr_path", type=Path)
     repair_pages.add_argument("--output", type=Path, required=True)
     repair_pages.add_argument("--llm-profile", default="page-repair")
+    repair_pages.add_argument(
+        "--all-pages",
+        action="store_true",
+        help="skip JEV and repair every page without disclosing JEV scores",
+    )
     repair_pages.add_argument(
         "--jev-baseline",
         type=Path,
@@ -514,48 +522,78 @@ def _repair_jev_llm(args: argparse.Namespace) -> None:
         )
         return response
 
-    if args.jev_baseline is not None:
-        evaluator = PinnedJevEvaluator(args.jev_baseline, args.jev_run)
-        jev_source = {
-            "type": "pinned-baseline",
-            "path": str(args.jev_baseline),
-            "run": evaluator.run_name,
-        }
+    if args.all_pages:
+        if args.jev_baseline is not None or args.jev_run is not None:
+            raise ValueError("--all-pages cannot be combined with JEV options")
+        all_page_processor = AllPageLlmRepairProcessor(
+            request,
+            max_retries=args.max_retries,
+        )
+        processor = all_page_processor
+        jev_processor = None
+        jev_source = {"type": "skipped-all-pages"}
     else:
-        if args.jev_run is not None:
-            raise ValueError("--jev-run requires --jev-baseline")
-        evaluator = OoJevEvaluator(args.output / "jev-raw", reuse_existing=True)
-        jev_source = {"type": "oo-connector"}
-
-    processor = JevLlmRepairProcessor(
-        evaluator,
-        request,
-        threshold=args.threshold,
-        max_retries=args.max_retries,
-    )
+        all_page_processor = None
+        if args.jev_baseline is not None:
+            evaluator = PinnedJevEvaluator(args.jev_baseline, args.jev_run)
+            jev_source = {
+                "type": "pinned-baseline",
+                "path": str(args.jev_baseline),
+                "run": evaluator.run_name,
+            }
+        else:
+            if args.jev_run is not None:
+                raise ValueError("--jev-run requires --jev-baseline")
+            evaluator = OoJevEvaluator(
+                args.output / "jev-raw", reuse_existing=True
+            )
+            jev_source = {"type": "oo-connector"}
+        jev_processor = JevLlmRepairProcessor(
+            evaluator,
+            request,
+            threshold=args.threshold,
+            max_retries=args.max_retries,
+        )
+        processor = jev_processor
     list(_extract_body_layouts(
         args.ocr_path,
         TocInfo([], []),
         processor,
     ))
-    report = {
-        "jev_source": jev_source,
-        "threshold": args.threshold,
-        "page_count": len(processor.results),
-        "review_page_indexes": [
+    if args.all_pages:
+        assert all_page_processor is not None
+        review_page_indexes = all_page_processor.page_indexes
+        page_reports = [
+            {
+                "page_index": page_index,
+                "pass_probability": None,
+                "risk": None,
+                "requires_review": True,
+            }
+            for page_index in all_page_processor.page_indexes
+        ]
+    else:
+        assert jev_processor is not None
+        review_page_indexes = [
             result.page_index
-            for result in processor.results
+            for result in jev_processor.results
             if result.requires_review
-        ],
-        "pages": [
+        ]
+        page_reports = [
             {
                 "page_index": result.page_index,
                 "pass_probability": result.pass_probability,
                 "risk": result.risk,
                 "requires_review": result.requires_review,
             }
-            for result in processor.results
-        ],
+            for result in jev_processor.results
+        ]
+    report = {
+        "jev_source": jev_source,
+        "threshold": None if args.all_pages else args.threshold,
+        "page_count": len(page_reports),
+        "review_page_indexes": review_page_indexes,
+        "pages": page_reports,
     }
     report_path = args.output / "report.json"
     report_path.write_text(

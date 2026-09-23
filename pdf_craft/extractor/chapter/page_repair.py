@@ -145,28 +145,77 @@ class JevLlmRepairProcessor:
     ) -> list[PageAnalysis]:
         self._reviewer(source_pages, analyses, page_pixel_sizes)
         reviews = {result.page_index: result for result in self.results}
-        repaired = [_clone_page(page) for page in analyses]
-        positions = {page.page_index: index for index, page in enumerate(repaired)}
-        repair_order: dict[int, int] = {}
-        for result in self.results:
-            if not result.requires_review:
-                continue
-            position = positions[result.page_index]
-            target = repaired[position]
-            previous = repaired[position - 1] if position > 0 else None
-            following = repaired[position + 1] if position + 1 < len(repaired) else None
-            repaired[position] = repair_page_with_llm(
-                previous_page=previous,
-                target_page=target,
-                next_page=following,
-                previous_pass_probability=_neighbor_probability(previous, reviews),
-                next_pass_probability=_neighbor_probability(following, reviews),
-                request=self._request,
-                max_retries=self._max_retries,
-            )
-            repair_order[result.page_index] = len(repair_order)
-        _reconcile_cross_page_gaps(repaired, repair_order)
-        return repaired
+        return _repair_pages(
+            analyses=analyses,
+            page_indexes=[
+                result.page_index
+                for result in self.results
+                if result.requires_review
+            ],
+            reviews=reviews,
+            request=self._request,
+            max_retries=self._max_retries,
+        )
+
+
+class AllPageLlmRepairProcessor:
+    """Repair every page with LLM without running or disclosing JEV."""
+
+    def __init__(
+        self,
+        request: PageRepairRequest,
+        *,
+        max_retries: int = 4,
+    ) -> None:
+        self._request = request
+        self._max_retries = max_retries
+        self.page_indexes: list[int] = []
+
+    def __call__(
+        self,
+        source_pages: list[Page],
+        analyses: list[PageAnalysis],
+        page_pixel_sizes: Mapping[int, tuple[int, int]],
+    ) -> list[PageAnalysis]:
+        del source_pages, page_pixel_sizes
+        self.page_indexes = [page.page_index for page in analyses]
+        return _repair_pages(
+            analyses=analyses,
+            page_indexes=self.page_indexes,
+            reviews={},
+            request=self._request,
+            max_retries=self._max_retries,
+        )
+
+
+def _repair_pages(
+    *,
+    analyses: list[PageAnalysis],
+    page_indexes: list[int],
+    reviews: Mapping[int, PageReviewResult],
+    request: PageRepairRequest,
+    max_retries: int,
+) -> list[PageAnalysis]:
+    repaired = [_clone_page(page) for page in analyses]
+    positions = {page.page_index: index for index, page in enumerate(repaired)}
+    repair_order: dict[int, int] = {}
+    for page_index in page_indexes:
+        position = positions[page_index]
+        target = repaired[position]
+        previous = repaired[position - 1] if position > 0 else None
+        following = repaired[position + 1] if position + 1 < len(repaired) else None
+        repaired[position] = repair_page_with_llm(
+            previous_page=previous,
+            target_page=target,
+            next_page=following,
+            previous_pass_probability=_neighbor_probability(previous, reviews),
+            next_pass_probability=_neighbor_probability(following, reviews),
+            request=request,
+            max_retries=max_retries,
+        )
+        repair_order[page_index] = len(repair_order)
+    _reconcile_cross_page_gaps(repaired, repair_order)
+    return repaired
 
 
 def repair_page_with_llm(

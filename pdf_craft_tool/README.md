@@ -147,6 +147,8 @@ poetry run python -m pdf_craft_tool analysis repair-jev-llm \
 传入 `--jev-baseline` 时只重放已提交的 JEV 概率，不会调用 JEV 网络服务；
 这适合固定路由结果后反复调整 LLM prompt。这仍是实验性私有 CLI 通路，
 正式转换不会默认调用 JEV 或 LLM。
+`--all-pages` 会完全跳过 JEV，不披露任何 JEV 分数，并将每一页都交给 LLM；
+它主要用于检查 LLM 面对误选正常页时的抗干扰能力。
 
 ## 冒烟矩阵
 

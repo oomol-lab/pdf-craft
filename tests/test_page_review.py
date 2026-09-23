@@ -54,6 +54,14 @@ class PageReviewTests(unittest.TestCase):
         self.assertEqual(args.jev_baseline, Path("baseline.json"))
         self.assertEqual(args.jev_run, "first-run")
 
+    def test_cli_can_skip_jev_and_repair_all_pages(self):
+        args = _parser().parse_args([
+            "analysis", "repair-jev-llm", "analysis/ocr",
+            "--output", "repair-output",
+            "--all-pages",
+        ])
+        self.assertTrue(args.all_pages)
+
     def test_selected_prompt_builds_semantic_page_packet(self):
         page = decode(fromstring("""<page index='1'><body>
             <layout ref='text' det='10,10,90,40'>Body①</layout>
