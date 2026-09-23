@@ -50,8 +50,6 @@ from .transformer.package import FurnitureExtractionTransformer
 from .runtime import (
     IO_DOMAIN,
     QT_DOMAIN,
-    TRANSLATION_DOMAIN,
-    callback_bridge,
     run_sync,
     temporary_directory,
 )
@@ -288,30 +286,25 @@ class AsyncPDFCraft:
         *, analysing_path: PathLike | str | None = None,
     ) -> tuple[PDFCraftExtraction, OCRTokensMetering]:
         options = options or ExtractionOptions()
-        loop = asyncio.get_running_loop()
-        worker_options = replace(
-            options,
-            on_ocr_event=callback_bridge(loop, options.on_ocr_event),
-        )
         return await PDFExtractor(self._pdf_engine()).extract_with_metering_async(
             Path(source), Path(extraction_path),
             analysing_path=Path(analysing_path) if analysing_path is not None else None,
-            page_indexes=worker_options.page_indexes,
-            ocr_size=worker_options.ocr_size, dpi=worker_options.dpi,
-            max_page_image_file_size=worker_options.max_page_image_file_size,
-            max_tokens=worker_options.max_ocr_tokens,
-            max_output_tokens=worker_options.max_ocr_output_tokens,
-            includes_cover=worker_options.includes_cover,
-            includes_footnotes=worker_options.includes_footnotes,
-            includes_furniture=worker_options.includes_furniture,
-            extract_book_metadata=worker_options.extract_book_metadata,
-            metadata_llm=worker_options.metadata_llm,
-            generate_plot=worker_options.generate_plot,
-            toc_assumed=worker_options.toc_assumed, toc_llm=worker_options.toc_llm,
-            ignore_pdf_errors=worker_options.ignore_pdf_errors,
-            ignore_ocr_errors=worker_options.ignore_ocr_errors,
-            aborted=worker_options.aborted,
-            on_ocr_event=worker_options.on_ocr_event,
+            page_indexes=options.page_indexes,
+            ocr_size=options.ocr_size, dpi=options.dpi,
+            max_page_image_file_size=options.max_page_image_file_size,
+            max_tokens=options.max_ocr_tokens,
+            max_output_tokens=options.max_ocr_output_tokens,
+            includes_cover=options.includes_cover,
+            includes_footnotes=options.includes_footnotes,
+            includes_furniture=options.includes_furniture,
+            extract_book_metadata=options.extract_book_metadata,
+            metadata_llm=options.metadata_llm,
+            generate_plot=options.generate_plot,
+            toc_assumed=options.toc_assumed, toc_llm=options.toc_llm,
+            ignore_pdf_errors=options.ignore_pdf_errors,
+            ignore_ocr_errors=options.ignore_ocr_errors,
+            aborted=options.aborted,
+            on_ocr_event=options.on_ocr_event,
         )
 
     async def render_markdown(
@@ -339,41 +332,32 @@ class AsyncPDFCraft:
             extraction_transformer.chapter_transformer, ChapterXMLTransformer,
         ):
             raise ValueError("with_furniture=True requires a ChapterXMLTransformer")
-        if _is_async_chapter_transformer(extraction_transformer.chapter_transformer):
-            if not with_furniture:
-                return await extraction_transformer.transform_async(
-                    document,
-                    Path(output_path),
-                    on_translation_event=on_translation_event,
-                    emit_translation_events=True,
-                )
-            target = Path(output_path)
-            if target.suffix.lower() != ".pcex":
-                raise ValueError("PDFCraftExtraction path must end with .pcex")
-            async with temporary_directory(
-                "pdf-craft-translated-extraction-"
-            ) as root:
-                narrative = await extraction_transformer._transform_to_workspace_async(
-                    document,
-                    root / "narrative",
-                    on_translation_event=on_translation_event,
-                    emit_translation_events=True,
-                )
-                furniture_transformer = _furniture_transformer_for(
-                    extraction_transformer.chapter_transformer,
-                )
-                translated = await FurnitureExtractionTransformer(
-                    furniture_transformer,
-                )._transform_to_workspace_async(narrative, root / "translated")
-                return await translated.export_async(target)
-        callback = callback_bridge(asyncio.get_running_loop(), on_translation_event)
-        return await TRANSLATION_DOMAIN.run(
-            extraction_transformer.transform,
-            document,
-            Path(output_path),
-            on_translation_event=callback,
-            emit_translation_events=True,
-        )
+        if not with_furniture:
+            return await extraction_transformer.transform_async(
+                document,
+                Path(output_path),
+                on_translation_event=on_translation_event,
+                emit_translation_events=True,
+            )
+        target = Path(output_path)
+        if target.suffix.lower() != ".pcex":
+            raise ValueError("PDFCraftExtraction path must end with .pcex")
+        async with temporary_directory(
+            "pdf-craft-translated-extraction-"
+        ) as root:
+            narrative = await extraction_transformer._transform_to_workspace_async(
+                document,
+                root / "narrative",
+                on_translation_event=on_translation_event,
+                emit_translation_events=True,
+            )
+            furniture_transformer = _furniture_transformer_for(
+                extraction_transformer.chapter_transformer,
+            )
+            translated = await FurnitureExtractionTransformer(
+                furniture_transformer,
+            )._transform_to_workspace_async(narrative, root / "translated")
+            return await translated.export_async(target)
 
     async def translate_anchored_contents(
         self,
@@ -541,8 +525,6 @@ class AsyncPDFCraft:
         self, source: PathLike | str, analysing_path: Path,
         options: ExtractionOptions,
     ) -> tuple[PDFCraftExtraction, OCRTokensMetering]:
-        loop = asyncio.get_running_loop()
-        callback = callback_bridge(loop, options.on_ocr_event)
         return await PDFExtractor(self._pdf_engine())._extract_to_workspace_async(
             Path(source), analysing_path,
             page_indexes=options.page_indexes,
@@ -559,7 +541,7 @@ class AsyncPDFCraft:
             toc_assumed=options.toc_assumed, toc_llm=options.toc_llm,
             ignore_pdf_errors=options.ignore_pdf_errors,
             ignore_ocr_errors=options.ignore_ocr_errors,
-            aborted=options.aborted, on_ocr_event=callback,
+            aborted=options.aborted, on_ocr_event=options.on_ocr_event,
         )
 
     async def _translate_to_workspace(
@@ -569,19 +551,10 @@ class AsyncPDFCraft:
         on_translation_event: Callable[[TranslationEvent], object] | None = None,
     ) -> PDFCraftExtraction:
         extraction_transformer = ChapterExtractionTransformer(transformer, mode=submit)
-        if _is_async_chapter_transformer(extraction_transformer.chapter_transformer):
-            return await extraction_transformer._transform_to_workspace_async(
-                extraction,
-                output_path,
-                on_translation_event=on_translation_event,
-                emit_translation_events=True,
-            )
-        callback = callback_bridge(asyncio.get_running_loop(), on_translation_event)
-        return await TRANSLATION_DOMAIN.run(
-            extraction_transformer._transform_to_workspace,
+        return await extraction_transformer._transform_to_workspace_async(
             extraction,
             output_path,
-            on_translation_event=callback,
+            on_translation_event=on_translation_event,
             emit_translation_events=True,
         )
 
@@ -845,14 +818,6 @@ def _furniture_transformer_for(
     if not isinstance(transformer, ChapterXMLTransformer):
         raise ValueError("with_furniture=True requires a ChapterXMLTransformer")
     return transformer._furniture_transformer()
-
-
-def _is_async_chapter_transformer(
-    transformer: ChapterTransformer | AsyncChapterTransformer,
-) -> bool:
-    return isinstance(transformer, ChapterXMLTransformer) or inspect.iscoroutinefunction(
-        transformer.transform
-    )
 
 
 async def _ensure_extraction_async(

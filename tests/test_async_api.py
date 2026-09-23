@@ -1,5 +1,6 @@
 # pylint: disable=protected-access
 import asyncio
+from collections.abc import Awaitable, Callable
 from datetime import datetime, timezone
 import os
 import sys
@@ -8,20 +9,23 @@ import threading
 import time
 import unittest
 from pathlib import Path
+from typing import TypeVar
 from unittest.mock import AsyncMock, patch
 
 from PIL import Image
 from reportlab.pdfgen import canvas
 
 from pdf_craft import (
-    AsyncPDFCraft, ExtractionOptions, PDFCraft, PDFDocumentMetadata, PDFOptions,
-    SubmitKind, translate_epub,
+    AsyncPDFCraft, ChapterExtractionTransformer, ExtractionOptions, PDFCraft,
+    PDFDocumentMetadata, PDFOptions, SubmitKind, TranslationEventKind,
+    TranslationEvent, translate_epub,
 )
 from pdf_craft.craft import _AsyncPDFHandlerBridge
 from pdf_craft.common import save_xml
 from pdf_craft.extractor.chapter.chapter import (
     Chapter, SourceTextFragment, TextFlowItem, encode,
 )
+from pdf_craft.extractor import PDFExtractor
 from pdf_craft.llm import LLM, runtime_for
 from pdf_craft.runtime import QT_DOMAIN, invoke_callback, run_subprocess
 from pdf_craft.pipeline.pdf.text_layout import (
@@ -32,6 +36,24 @@ from pdf_craft.transformer.xml_translator.xml_translator.concurrency import (
     run_concurrency_async,
 )
 from tests.extraction_helpers import make_extraction
+
+
+_EventT = TypeVar("_EventT")
+
+
+def _recording_callbacks(
+    events: list[_EventT], callback_threads: list[int],
+) -> tuple[Callable[[_EventT], None], Callable[[_EventT], Awaitable[None]]]:
+    def sync_callback(event: _EventT) -> None:
+        events.append(event)
+        callback_threads.append(threading.get_ident())
+
+    async def async_callback(event: _EventT) -> None:
+        await asyncio.sleep(0)
+        events.append(event)
+        callback_threads.append(threading.get_ident())
+
+    return sync_callback, async_callback
 
 
 class _Engine:
@@ -104,6 +126,15 @@ class _AsyncChapterTransformer:
         return chapter
 
 
+class _SyncChapterTransformer:
+    def __init__(self) -> None:
+        self.thread_id: int | None = None
+
+    def transform(self, chapter: Chapter) -> Chapter:
+        self.thread_id = threading.get_ident()
+        return chapter
+
+
 class _AsyncDocument:
     def __init__(self) -> None:
         self.thread_ids: list[int] = []
@@ -150,6 +181,77 @@ class _AsyncHandler:
 
 
 class TestAsyncAPI(unittest.IsolatedAsyncioTestCase):
+    async def test_direct_extractor_callbacks_run_on_caller_loop(self):
+        loop_thread = threading.get_ident()
+        cases = (
+            ("extract_async", False),
+            ("extract_async", True),
+            ("extract_with_metering_async", False),
+            ("extract_with_metering_async", True),
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            for index, (method_name, is_async) in enumerate(cases):
+                with self.subTest(method=method_name, async_callback=is_async):
+                    events: list[str] = []
+                    callback_threads: list[int] = []
+                    sync_callback, async_callback = _recording_callbacks(
+                        events, callback_threads,
+                    )
+
+                    engine = _Engine()
+                    method = getattr(PDFExtractor(engine), method_name)
+                    await method(
+                        Path("source.pdf"), root / f"book-{index}.pcex",
+                        on_ocr_event=async_callback if is_async else sync_callback,
+                    )
+                    self.assertEqual(events, ["page"])
+                    self.assertEqual(callback_threads, [loop_thread])
+                    self.assertNotEqual(engine.thread_name, threading.current_thread().name)
+
+    async def test_sync_transformer_callbacks_run_on_caller_loop(self):
+        loop_thread = threading.get_ident()
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source_root = root / "source"
+            source = make_extraction(
+                source_root, page_pixel_sizes={1: (10, 10)},
+            )
+            save_xml(encode(Chapter(None, -1, [TextFlowItem(
+                "body", 0,
+                [SourceTextFragment(1, 1, (1, 1, 5, 5), ["source"])],
+            )])), source_root / "chapters" / "chapter_head.xml")
+
+            for index, is_async in enumerate((False, True)):
+                with self.subTest(async_callback=is_async):
+                    events: list[TranslationEvent] = []
+                    callback_threads: list[int] = []
+                    sync_callback, async_callback = _recording_callbacks(
+                        events, callback_threads,
+                    )
+
+                    transformer = _SyncChapterTransformer()
+                    await ChapterExtractionTransformer(transformer).transform_async(
+                        source,
+                        root / f"target-{index}.pcex",
+                        on_translation_event=(
+                            async_callback if is_async else sync_callback
+                        ),
+                        emit_translation_events=True,
+                    )
+                    self.assertNotEqual(transformer.thread_id, loop_thread)
+                    self.assertEqual(set(callback_threads), {loop_thread})
+                    self.assertEqual(
+                        [event.kind for event in events],
+                        [
+                            TranslationEventKind.START,
+                            TranslationEventKind.ITEM_START,
+                            TranslationEventKind.PROGRESS,
+                            TranslationEventKind.ITEM_COMPLETE,
+                            TranslationEventKind.COMPLETE,
+                        ],
+                    )
+
     async def test_extraction_keeps_engine_on_ocr_domain(self):
         with tempfile.TemporaryDirectory() as directory:
             engine = _Engine()

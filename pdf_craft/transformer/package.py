@@ -3,6 +3,7 @@
 # Internal workspace methods keep one-shot conversions directory-backed.
 # pylint: disable=protected-access
 
+import asyncio
 import inspect
 from collections.abc import Callable
 from pathlib import Path
@@ -14,7 +15,9 @@ from xml.etree.ElementTree import Element
 from pdf_craft.common.xml import read_xml, save_xml
 from pdf_craft.document import PDFCraftExtraction
 from pdf_craft.document.package import EXTRACTION_SUFFIX
-from pdf_craft.runtime import IO_DOMAIN, TRANSLATION_DOMAIN, invoke_callback
+from pdf_craft.runtime import (
+    IO_DOMAIN, TRANSLATION_DOMAIN, callback_bridge, invoke_callback,
+)
 from pdf_craft.extractor.chapter.chapter import (
     SourceTextFragment, TextFlowItem, decode, encode,
 )
@@ -120,12 +123,15 @@ class ChapterExtractionTransformer:
             self.chapter_transformer.transform
         )
         if not is_xml_transformer and not is_async_transformer:
+            callback = callback_bridge(
+                asyncio.get_running_loop(), on_translation_event,
+            )
             return await TRANSLATION_DOMAIN.run(
                 self._transform_to_workspace,
                 extraction,
                 output_path,
-                on_translation_event=None,
-                emit_translation_events=False,
+                on_translation_event=callback,
+                emit_translation_events=emit_translation_events,
             )
         chapter_tasks = await IO_DOMAIN.run(
             self._prepare_async_workspace, extraction, output_path,

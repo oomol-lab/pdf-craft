@@ -1,5 +1,6 @@
 # pylint: disable=protected-access
 
+import asyncio
 from contextlib import contextmanager
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -7,7 +8,7 @@ from typing import Any, Iterator
 
 from ...document import PDFCraftExtraction
 from ...document.package import EXTRACTION_SUFFIX
-from ...runtime import OCR_DOMAIN, require_sync_context, run_cancellable
+from ...runtime import OCR_DOMAIN, callback_bridge, require_sync_context, run_cancellable
 
 
 class PDFExtractor:
@@ -96,10 +97,14 @@ class PDFExtractor:
     ):
         """Keep the complete synchronous OCR generator on one OCR worker."""
         original_aborted = kwargs.get("aborted")
+        on_ocr_event = callback_bridge(
+            asyncio.get_running_loop(), kwargs.get("on_ocr_event"),
+        )
 
         def execute(aborted):
             worker_kwargs = dict(kwargs)
             worker_kwargs["aborted"] = aborted
+            worker_kwargs["on_ocr_event"] = on_ocr_event
             return self.extract_with_metering(
                 pdf_path,
                 extraction_path,
@@ -120,10 +125,14 @@ class PDFExtractor:
         **kwargs: Any,
     ):
         original_aborted = kwargs.get("aborted")
+        on_ocr_event = callback_bridge(
+            asyncio.get_running_loop(), kwargs.get("on_ocr_event"),
+        )
 
         def execute(aborted):
             worker_kwargs = dict(kwargs)
             worker_kwargs["aborted"] = aborted
+            worker_kwargs["on_ocr_event"] = on_ocr_event
             return self._extract_to_workspace(pdf_path, analysing_path, **worker_kwargs)
 
         return await run_cancellable(
