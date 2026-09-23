@@ -1,11 +1,12 @@
 """The public PDF Craft Extraction artifact and its internal workspace storage."""
 
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from importlib.metadata import PackageNotFoundError, version
 import json
+import os
 from pathlib import Path, PurePosixPath
 from tempfile import NamedTemporaryFile, TemporaryDirectory
 from typing import Any, Protocol
@@ -15,7 +16,7 @@ from zipfile import BadZipFile, ZIP_DEFLATED, ZipFile, ZipInfo
 from epub_generator import BookMeta
 
 from ..common import indent, save_xml
-from ..runtime import IO_DOMAIN
+from ..runtime import IO_DOMAIN, run_atomic_cancellable
 
 
 FORMAT_VERSION = 3
@@ -192,17 +193,44 @@ class PDFCraftExtraction:
 
     def export(self, path: str | Path) -> "PDFCraftExtraction":
         target = Path(path)
+        self._export_sync(target, _commit_unconditionally)
+        return PDFCraftExtraction._from_exported_archive(target)
+
+    async def export_async(self, path: str | Path) -> "PDFCraftExtraction":
+        target = Path(path)
+        await run_atomic_cancellable(
+            IO_DOMAIN,
+            lambda bridge: self._export_sync(target, bridge.commit),
+        )
+        return PDFCraftExtraction._from_exported_archive(target)
+
+    def _export_sync(
+        self,
+        target: Path,
+        commit: Callable[[Callable[[], object]], bool],
+    ) -> bool:
         _require_pcex_path(target)
         if target.exists():
             raise FileExistsError(f"PDFCraftExtraction already exists: {target}")
         target.parent.mkdir(parents=True, exist_ok=True)
-        with self._materialize() as paths:
-            _validate_workspace(paths)
-            _write_archive(paths, target)
-        return PDFCraftExtraction._from_exported_archive(target)
-
-    async def export_async(self, path: str | Path) -> "PDFCraftExtraction":
-        return await IO_DOMAIN.run(self.export, path)
+        temporary_path: Path | None = None
+        try:
+            with NamedTemporaryFile(
+                mode="wb", prefix=f".{target.name}.", suffix=".tmp",
+                dir=target.parent, delete=False,
+            ) as temporary:
+                temporary_path = Path(temporary.name)
+            with self._materialize() as paths:
+                _validate_workspace(paths)
+                _write_archive(paths, temporary_path)
+            archive_path = temporary_path
+            if not commit(lambda: os.replace(archive_path, target)):
+                return False
+            temporary_path = None
+            return True
+        finally:
+            if temporary_path is not None:
+                temporary_path.unlink(missing_ok=True)
 
     def page_pixel_sizes(self) -> dict[int, tuple[int, int]]:
         with self._materialize() as paths:
@@ -244,6 +272,11 @@ class PDFCraftExtraction:
 
     async def document_metadata_async(self) -> dict[str, Any]:
         return await IO_DOMAIN.run(self.document_metadata)
+
+
+def _commit_unconditionally(action: Callable[[], object]) -> bool:
+    action()
+    return True
 
 
 def write_manifest(

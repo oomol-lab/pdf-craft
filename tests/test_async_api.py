@@ -22,6 +22,7 @@ from pdf_craft import (
 )
 from pdf_craft.craft import _AsyncPDFHandlerBridge
 from pdf_craft.common import save_xml
+import pdf_craft.document.package as document_package
 from pdf_craft.extractor.chapter.chapter import (
     Chapter, SourceTextFragment, TextFlowItem, encode,
 )
@@ -251,6 +252,110 @@ class TestAsyncAPI(unittest.IsolatedAsyncioTestCase):
                             TranslationEventKind.COMPLETE,
                         ],
                     )
+
+    async def test_export_cancellation_waits_for_writer_and_does_not_publish(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = make_extraction(root / "source", page_pixel_sizes={1: (10, 10)})
+            target = root / "target.pcex"
+            started = threading.Event()
+            release = threading.Event()
+            finished = threading.Event()
+            original_write = document_package._write_archive
+
+            def delayed_write(paths, output):
+                started.set()
+                release.wait(1)
+                try:
+                    return original_write(paths, output)
+                finally:
+                    finished.set()
+
+            with patch.object(document_package, "_write_archive", delayed_write):
+                task = asyncio.create_task(source.export_async(target))
+                await asyncio.to_thread(started.wait, 1)
+                task.cancel()
+                await asyncio.sleep(0.02)
+                self.assertFalse(task.done())
+                release.set()
+                with self.assertRaises(asyncio.CancelledError):
+                    await task
+
+            self.assertTrue(finished.is_set())
+            self.assertFalse(target.exists())
+            self.assertEqual(list(root.glob(f".{target.name}.*.tmp")), [])
+
+    async def test_export_publication_wins_a_late_cancellation(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = make_extraction(root / "source", page_pixel_sizes={1: (10, 10)})
+            target = root / "target.pcex"
+            published = threading.Event()
+            release = threading.Event()
+            original_export = source._export_sync
+
+            def pause_after_publication(path, commit):
+                result = original_export(path, commit)
+                published.set()
+                release.wait(1)
+                return result
+
+            with patch.object(source, "_export_sync", pause_after_publication):
+                task = asyncio.create_task(source.export_async(target))
+                await asyncio.to_thread(published.wait, 1)
+                self.assertTrue(target.exists())
+                task.cancel()
+                release.set()
+                exported = await task
+
+            self.assertFalse(task.cancelled())
+            self.assertIsNotNone(exported)
+            self.assertTrue(target.is_file())
+
+    async def test_transformer_cancellation_cleans_workspace_after_export_worker(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = make_extraction(root / "source", page_pixel_sizes={1: (10, 10)})
+            chapter = Chapter(None, -1, [TextFlowItem(
+                "body", 0,
+                [SourceTextFragment(1, 1, (1, 1, 5, 5), ["source"])],
+            )])
+            save_xml(encode(chapter), root / "source" / "chapters" / "chapter_head.xml")
+            target = root / "target.pcex"
+            started = threading.Event()
+            release = threading.Event()
+            finished = threading.Event()
+            workspace_root: list[Path] = []
+            original_write = document_package._write_archive
+
+            def delayed_write(paths, output):
+                workspace_root.append(paths.root)
+                started.set()
+                release.wait(1)
+                try:
+                    return original_write(paths, output)
+                finally:
+                    finished.set()
+
+            with patch.object(document_package, "_write_archive", delayed_write):
+                task = asyncio.create_task(
+                    ChapterExtractionTransformer(_SyncChapterTransformer()).transform_async(
+                        source, target,
+                    )
+                )
+                await asyncio.to_thread(started.wait, 1)
+                self.assertTrue(workspace_root[0].exists())
+                task.cancel()
+                await asyncio.sleep(0.02)
+                self.assertFalse(task.done())
+                self.assertTrue(workspace_root[0].exists())
+                release.set()
+                with self.assertRaises(asyncio.CancelledError):
+                    await task
+
+            self.assertTrue(finished.is_set())
+            self.assertFalse(workspace_root[0].exists())
+            self.assertFalse(target.exists())
 
     async def test_extraction_keeps_engine_on_ocr_domain(self):
         with tempfile.TemporaryDirectory() as directory:

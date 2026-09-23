@@ -28,6 +28,10 @@ awaited. Cancelling an async task cancels native network/subprocess work and
 signals cooperative blocking stages through their abort callback. The await
 does not finish cancelling until that worker has unwound, so temporary
 workspaces remain valid through its final writes and cleanup.
+Async PCEX export writes a sibling temporary archive and publishes it with one
+atomic replace. Cancellation before that boundary waits for the writer, removes
+the temporary archive, and leaves the requested target absent; cancellation
+after publication is treated as arriving after successful completion.
 External tools such as `pdftotext`, Ghostscript, and LaTeX run in tracked
 POSIX process groups or Windows Job Objects. Cancellation or an internal
 timeout terminates the command and its descendants; successful and failed

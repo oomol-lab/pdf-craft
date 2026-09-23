@@ -20,7 +20,7 @@ from contextlib import asynccontextmanager
 from functools import partial
 from pathlib import Path
 from tempfile import TemporaryDirectory, mkstemp
-from threading import Event
+from threading import Event, Lock
 from typing import Any, ParamSpec, TypeVar, cast
 
 
@@ -197,6 +197,40 @@ class CancellationBridge:
         return self._event.is_set() or (self._original() if self._original else False)
 
 
+class AtomicCancellationBridge:
+    """Serialize cancellation against one irreversible completion action."""
+
+    def __init__(self) -> None:
+        self._event = Event()
+        self._lock = Lock()
+        self._committed = False
+
+    def check(self) -> bool:
+        return self._event.is_set()
+
+    def cancel(self) -> bool:
+        """Return whether cancellation won before the completion boundary."""
+        with self._lock:
+            if self._committed:
+                return False
+            self._event.set()
+            return True
+
+    def commit(self, action: Callable[[], object]) -> bool:
+        """Run an irreversible action only if cancellation has not won."""
+        with self._lock:
+            if self._event.is_set():
+                return False
+            action()
+            self._committed = True
+            return True
+
+    @property
+    def committed(self) -> bool:
+        with self._lock:
+            return self._committed
+
+
 async def run_cancellable(
     domain: ExecutionDomain,
     function: Callable[[Callable[[], bool]], R],
@@ -225,6 +259,44 @@ async def run_cancellable(
         if task.done() and not task.cancelled():
             task.exception()
         raise
+
+
+async def run_atomic_cancellable(
+    domain: ExecutionDomain,
+    function: Callable[[AtomicCancellationBridge], R],
+) -> R:
+    """Run blocking work whose final mutation is an atomic completion boundary.
+
+    Cancellation before ``bridge.commit`` prevents that mutation and waits for
+    the worker to unwind. Cancellation racing after commit is suppressed: the
+    operation already completed and its result is returned.
+    """
+    bridge = AtomicCancellationBridge()
+    task = asyncio.create_task(domain.run(function, bridge))
+    try:
+        return await asyncio.shield(task)
+    except asyncio.CancelledError:
+        cancellation_won = bridge.cancel()
+        cancellation_count = 1
+        while not task.done():
+            try:
+                await asyncio.shield(task)
+            except asyncio.CancelledError:
+                cancellation_count += 1
+                cancellation_won = bridge.cancel() or cancellation_won
+            except Exception:
+                break
+        if cancellation_won:
+            if task.done() and not task.cancelled():
+                task.exception()
+            raise
+        if not bridge.committed:
+            raise
+        current = asyncio.current_task()
+        if current is not None:
+            for _ in range(cancellation_count):
+                current.uncancel()
+        return task.result()
 
 
 async def run_subprocess(
