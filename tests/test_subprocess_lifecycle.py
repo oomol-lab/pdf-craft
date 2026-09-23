@@ -3,9 +3,12 @@
 # pylint: disable=protected-access
 
 import asyncio
+import csv
 from datetime import datetime, timezone
 import os
 from pathlib import Path
+import subprocess
+import sys
 import tempfile
 import unittest
 from unittest.mock import patch
@@ -19,6 +22,7 @@ from pdf_craft.extractor.chapter.chapter import (
     Chapter, SourceTextFragment, TextFlowItem, encode,
 )
 from pdf_craft.pdf.furniture import extract_furnitures
+from pdf_craft.runtime import run_subprocess, run_subprocess_sync
 from tests.extraction_helpers import make_extraction
 
 
@@ -100,8 +104,39 @@ class _AsyncPatchHandler:
         return _AsyncPatchDocument()
 
 
-@unittest.skipIf(os.name == "nt", "executable PATH fixtures require a POSIX host")
 class TestSubprocessLifecycle(unittest.IsolatedAsyncioTestCase):
+    async def test_direct_commands_reap_children_after_success_and_failure(self):
+        runners = (
+            run_subprocess,
+            _run_subprocess_sync_async,
+        )
+        for runner in runners:
+            for mode in ("success", "fail"):
+                with self.subTest(runner=runner, mode=mode), tempfile.TemporaryDirectory() as directory:
+                    pid_path = Path(directory) / "pid"
+                    operation = runner(*_tree_command(pid_path, mode))
+                    if mode == "success":
+                        await operation
+                    else:
+                        with self.assertRaisesRegex(RuntimeError, "exit code 9"):
+                            await operation
+                    await _assert_processes_dead(
+                        self, await _wait_for_pids(pid_path),
+                    )
+
+    async def test_direct_async_command_cancellation_reaps_children(self):
+        with tempfile.TemporaryDirectory() as directory:
+            pid_path = Path(directory) / "pid"
+            task = asyncio.create_task(run_subprocess(
+                *_tree_command(pid_path, "sleep"),
+            ))
+            pids = await _wait_for_pids(pid_path)
+            task.cancel()
+            with self.assertRaises(asyncio.CancelledError):
+                await asyncio.wait_for(task, timeout=5)
+            await _assert_processes_dead(self, pids)
+
+    @unittest.skipIf(os.name == "nt", "executable PATH fixture is POSIX-only")
     async def test_pdftotext_success_and_failure_are_reaped(self):
         for mode in ("success", "fail"):
             with self.subTest(mode=mode), tempfile.TemporaryDirectory() as directory:
@@ -127,6 +162,7 @@ class TestSubprocessLifecycle(unittest.IsolatedAsyncioTestCase):
                     ["Header"] if mode == "success" else [],
                 )
 
+    @unittest.skipIf(os.name == "nt", "executable PATH fixture is POSIX-only")
     async def test_extract_cancellation_reaps_pdftotext_process_tree(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -144,6 +180,7 @@ class TestSubprocessLifecycle(unittest.IsolatedAsyncioTestCase):
                     await asyncio.wait_for(task, timeout=5)
             await _assert_processes_dead(self, pids)
 
+    @unittest.skipIf(os.name == "nt", "executable PATH fixture is POSIX-only")
     async def test_qt_patch_success_and_failure_reap_ghostscript(self):
         for mode in ("success", "fail"):
             with self.subTest(mode=mode), tempfile.TemporaryDirectory() as directory:
@@ -165,6 +202,7 @@ class TestSubprocessLifecycle(unittest.IsolatedAsyncioTestCase):
                 pids = await _wait_for_pids(pid_path)
                 await _assert_processes_dead(self, pids)
 
+    @unittest.skipIf(os.name == "nt", "executable PATH fixture is POSIX-only")
     async def test_qt_patch_cancellation_reaps_ghostscript_process_tree(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -190,6 +228,23 @@ def _write_fake_tool(root: Path, name: str) -> Path:
     executable.write_text(_FAKE_TOOL, encoding="utf-8")
     executable.chmod(0o755)
     return executable
+
+
+def _tree_command(pid_path: Path, mode: str) -> tuple[str, ...]:
+    script = (
+        "from pathlib import Path; import subprocess,sys,time; "
+        "child=subprocess.Popen([sys.executable,'-c','import time; time.sleep(60)'],"
+        "stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL); "
+        "Path(sys.argv[1]).write_text(f'{os.getpid()},{child.pid}'); "
+        "mode=sys.argv[2]; "
+        "time.sleep(60) if mode == 'sleep' else None; "
+        "raise SystemExit(9 if mode == 'fail' else 0)"
+    )
+    return sys.executable, "-c", f"import os; {script}", str(pid_path), mode
+
+
+async def _run_subprocess_sync_async(*command: str) -> tuple[bytes, bytes]:
+    return await asyncio.to_thread(run_subprocess_sync, *command)
 
 
 def _tool_environment(root: Path, pid_path: Path, mode: str):
@@ -219,9 +274,20 @@ async def _assert_processes_dead(
 
 
 def _process_exists(pid: int) -> bool:
+    if os.name == "nt":
+        result = subprocess.run(
+            ("tasklist", "/FI", f"PID eq {pid}", "/FO", "CSV", "/NH"),
+            capture_output=True,
+            check=False,
+            text=True,
+        )
+        return any(
+            len(row) > 1 and row[1] == str(pid)
+            for row in csv.reader(result.stdout.splitlines())
+        )
     try:
         os.kill(pid, 0)
-    except ProcessLookupError:
+    except OSError:
         return False
     return True
 

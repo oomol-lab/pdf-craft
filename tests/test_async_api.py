@@ -15,7 +15,7 @@ from reportlab.pdfgen import canvas
 
 from pdf_craft import (
     AsyncPDFCraft, ExtractionOptions, PDFCraft, PDFDocumentMetadata, PDFOptions,
-    SubmitKind,
+    SubmitKind, translate_epub,
 )
 from pdf_craft.craft import _AsyncPDFHandlerBridge
 from pdf_craft.common import save_xml
@@ -268,6 +268,35 @@ class TestAsyncAPI(unittest.IsolatedAsyncioTestCase):
             "pdf_craft.craft.run_epub_translation_async", new_callable=AsyncMock,
         ) as translate:
             await AsyncPDFCraft().translate_epub(
+                "source.epub",
+                "target.epub",
+                target_language="zh",
+                submit=SubmitKind.REPLACE,
+            )
+        translate.assert_awaited_once()
+
+    async def test_public_sync_epub_entry_rejects_active_loop_before_io(self):
+        with patch(
+            "pdf_craft.pipeline.epub.translation.translator.translate_async",
+            new_callable=AsyncMock,
+        ) as translate:
+            with self.assertRaisesRegex(RuntimeError, "active event loop"):
+                translate_epub(
+                    "source.epub",
+                    "target.epub",
+                    target_language="zh",
+                    submit=SubmitKind.REPLACE,
+                )
+        translate.assert_called_once()
+        translate.assert_not_awaited()
+
+    async def test_public_sync_epub_entry_delegates_to_async_pipeline(self):
+        with patch(
+            "pdf_craft.pipeline.epub.translation.translator.translate_async",
+            new_callable=AsyncMock,
+        ) as translate:
+            await asyncio.to_thread(
+                translate_epub,
                 "source.epub",
                 "target.epub",
                 target_language="zh",

@@ -16,7 +16,7 @@ from pdf_craft.pipeline.epub.adapter import (
     write_toc,
 )
 from pdf_craft.llm import LLM
-from pdf_craft.runtime import ARCHIVE_DOMAIN
+from pdf_craft.runtime import ARCHIVE_DOMAIN, run_sync
 from pdf_craft.transformer.events import TranslationEvent, TranslationItemKind
 from pdf_craft.transformer.xml_translator.segment import search_text_segments
 from pdf_craft.transformer.xml_translator.xml import XMLLikeNode, deduplicate_ids_in_element, find_first
@@ -55,70 +55,21 @@ def translate(
     on_translation_event: Callable[[TranslationEvent], None] | None = None,
     on_fill_failed: Callable[[FillFailedEvent], None] | None = None,
 ) -> None:
-    translation_llm = translation_llm or llm
-    fill_llm = fill_llm or llm
-    if translation_llm is None:
-        raise ValueError("Either translation_llm or llm must be provided")
-    if fill_llm is None:
-        raise ValueError("Either fill_llm or llm must be provided")
-
-    translator = XMLTranslator(
+    run_sync(translate_async(
+        source_path=source_path,
+        target_path=target_path,
+        target_language=target_language,
+        submit=submit,
+        user_prompt=user_prompt,
+        max_retries=max_retries,
+        max_group_tokens=max_group_tokens,
+        concurrency=concurrency,
+        llm=llm,
         translation_llm=translation_llm,
         fill_llm=fill_llm,
-        target_language=target_language,
-        user_prompt=user_prompt,
-        ignore_translated_error=False,
-        max_retries=max_retries,
-        max_fill_displaying_errors=10,
-        max_group_score=max_group_tokens,
-        cache_seed_content=f"{_get_version()}:{target_language}",
-    )
-    with Zip(
-        source_path=Path(source_path).resolve(),
-        target_path=Path(target_path).resolve(),
-    ) as zip:
-        # mimetype should be the first file in the EPUB ZIP
-        zip.migrate(Path("mimetype"))
-
-        toc_list, toc_context = read_toc(zip)
-        metadata_fields, metadata_context = read_metadata(zip)
-        tasks = list(_generate_tasks_from_book(
-            zip=zip,
-            toc_list=toc_list,
-            toc_context=toc_context,
-            metadata_fields=metadata_fields,
-            metadata_context=metadata_context,
-            submit=submit,
-        ))
-        interrupter = XMLInterrupter()
-
-        for translated_elem, context in translator.translate_elements(
-            concurrency=concurrency,
-            interrupt_source_text_segments=interrupter.interrupt_source_text_segments,
-            interrupt_translated_text_segments=interrupter.interrupt_translated_text_segments,
-            interrupt_block_element=interrupter.interrupt_block_element,
-            on_fill_failed=on_fill_failed,
-            on_translation_event=on_translation_event,
-            tasks=tasks,
-        ):
-            if context.element_type == _ElementType.TOC:
-                translated_elem = unwrap_french_quotes(translated_elem)
-                decoded_toc = decode_toc_list(translated_elem)
-                if context.toc_context is not None:
-                    write_toc(zip, decoded_toc, context.toc_context)
-
-            elif context.element_type == _ElementType.METADATA:
-                translated_elem = unwrap_french_quotes(translated_elem)
-                decoded_metadata = decode_metadata(translated_elem)
-                if context.metadata_context is not None:
-                    write_metadata(zip, decoded_metadata, context.metadata_context)
-
-            elif context.element_type == _ElementType.CHAPTER:
-                if context.chapter_data is not None:
-                    chapter_path, xml = context.chapter_data
-                    deduplicate_ids_in_element(xml.element)
-                    with zip.replace(chapter_path) as target_file:
-                        xml.save(target_file)
+        on_translation_event=on_translation_event,
+        on_fill_failed=on_fill_failed,
+    ))
 
 
 async def translate_async(

@@ -232,8 +232,9 @@ async def run_subprocess(
     input_data: bytes | None = None,
 ) -> tuple[bytes, bytes]:
     """Run a system command without blocking the loop and reap it on cancel."""
+    platform_command = _platform_command(command)
     process = await asyncio.create_subprocess_exec(
-        *command,
+        *platform_command,
         stdin=asyncio.subprocess.PIPE if input_data is not None else None,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
@@ -248,7 +249,7 @@ async def run_subprocess(
         await _terminate_async_process(process, process_tree=True)
         raise
     finally:
-        if process.returncode is not None:
+        if process.returncode is not None and os.name != "nt":
             _signal_process(process.pid, signal.SIGKILL, process_tree=True)
         if registry_path is not None:
             _unregister_process_group(registry_path, process.pid)
@@ -266,7 +267,7 @@ def run_subprocess_sync(
 ) -> tuple[bytes, bytes]:
     """Run a command in a worker thread with cooperative tree cancellation."""
     process = cast(subprocess.Popen[bytes], subprocess.Popen(  # pylint: disable=consider-using-with
-        command,
+        _platform_command(command),
         stdin=subprocess.DEVNULL,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
@@ -303,6 +304,13 @@ def _process_group_options() -> dict[str, Any]:
     if os.name == "nt":
         return {"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP}
     return {"start_new_session": True}
+
+
+def _platform_command(command: tuple[str, ...]) -> tuple[str, ...]:
+    """Give Windows commands a Job Object that outlives their descendants."""
+    if os.name != "nt":
+        return command
+    return (sys.executable, "-m", "pdf_craft._windows_process_wrapper", *command)
 
 
 def _create_process_group_registry() -> Path:

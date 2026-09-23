@@ -24,9 +24,9 @@ OCR 和翻译事件回调既可以是普通函数，也可以是 `async def`；�
 线程执行，异步回调会被等待。取消异步任务时，原生网络请求和子进程会被取消，线程池中
 支持协作取消的阶段会通过原有 abort 回调收到信号；直到工作线程真正退出后，调用方才会
 收到取消完成，因此临时工作区会保留到 worker 的最后写入和清理结束。
-`pdftotext`、Ghostscript、LaTeX 等外部工具在受跟踪的独立进程组中运行；取消或内部超时会
-终止命令及其派生进程。取消 Qt worker 时，会先回收该 worker 登记的所有命令进程组，再结束
-worker 本身。
+`pdftotext`、Ghostscript、LaTeX 等外部工具在受跟踪的 POSIX 进程组或 Windows Job Object
+中运行；取消或内部超时会终止命令及其派生进程，正常完成或失败也会回收晚于父进程退出的
+后代。取消 Qt worker 时，会先完成这些清理，再结束 worker 本身。
 
 扩展实现可以采用 `AsyncChapterTransformer` 协议，实现
 `async def transform(chapter)`；异步门面会直接在调用方事件循环中等待它。
