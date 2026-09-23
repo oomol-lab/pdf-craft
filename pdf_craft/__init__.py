@@ -12,9 +12,9 @@ from .error import (
     OCRError,
     PDFError,
 )
-from .functions import predownload_models
-from .craft import ExtractionOptions, PDFCraft, PDFOptions
-from .pipeline.epub import translate_epub
+from .functions import predownload_models, predownload_models_async
+from .craft import AsyncPDFCraft, ExtractionOptions, PDFCraft, PDFOptions
+from .pipeline.epub import translate_epub, translate_epub_async
 from .pipeline.pdf import (
     PDFPatcher,
     PDFInlineFormula,

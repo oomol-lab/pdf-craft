@@ -3,8 +3,44 @@
 This reference covers the supported library surface imported from `pdf_craft`. Most applications only need `PDFCraft`, one OCR configuration, and—when translating—an `LLM`. The lower-level rendering, transformation, and PDF patching classes are available for applications that need explicit control.
 
 ```python
-from pdf_craft import PDFCraft, PDFOptions
+from pdf_craft import AsyncPDFCraft, PDFCraft, PDFOptions
 ```
+
+## Async and synchronous façades
+
+`AsyncPDFCraft` is the primary integration surface for servers, notebooks, and
+other asyncio applications. It exposes async counterparts of every `PDFCraft`
+workflow: extraction, rendering, PCEX translation, PDF patching, EPUB
+translation, and the two one-shot conversions. OCR, PDF/ZIP/image processing,
+Qt layout, and other synchronous third-party libraries run in bounded execution
+domains so they do not block the caller's event loop. Translation and LLM
+network concurrency are native asyncio operations.
+
+```python
+craft = AsyncPDFCraft(pdf=PDFOptions(ocr=your_ocr_config))
+extraction = await craft.extract_pdf("input.pdf", "book.pcex")
+await craft.render_markdown(extraction, "book.md")
+```
+
+OCR and translation event callbacks may be synchronous functions or async
+functions. They execute on the event-loop thread and async callbacks are
+awaited. Cancelling an async task cancels native network/subprocess work and
+signals cooperative blocking stages through their abort callback.
+
+`PDFCraft` retains the same synchronous API for scripts. It must not be called
+from a thread that already has a running event loop; doing so raises a clear
+`RuntimeError` instead of nesting an event loop. Use `AsyncPDFCraft` there.
+
+`PDFCraftExtraction` also provides async persistence and metadata methods:
+`open_async`, `validate_async`, `export_async`, `page_pixel_sizes_async`,
+`render_dpi_async`, and `document_metadata_async`. Component users can call
+`PDFExtractor.extract_async`, `MarkdownRenderer.render_async`, and
+`EpubRenderer.render_async`. Model preloading is available as
+`predownload_models_async`.
+
+The standalone existing-EPUB entry is likewise available as
+`translate_epub_async`; await it instead of calling `translate_epub` in an
+async application.
 
 ## `PDFCraft`
 

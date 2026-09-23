@@ -14,12 +14,12 @@ from dataclasses import dataclass, field
 import json
 from pathlib import Path
 import re
-import subprocess
 from typing import cast
 from xml.etree import ElementTree as ET
 
 from pypdf import PdfReader
 from pypdf.errors import PdfReadError
+from ..runtime import run_subprocess, run_sync
 
 from ..common import indent, save_xml
 from ..extractor.toc.types import TocInfo, iter_toc
@@ -292,18 +292,21 @@ def _native_pages(pdf_path: Path, ocr_path: Path) -> dict[int, list[FurnitureSec
     ``pdftotext -bbox-layout`` executable belongs to the Poppler installation
     already required to rasterize PDFs and exposes line/word boxes directly.
     """
+    return run_sync(_native_pages_async(pdf_path, ocr_path))
+
+
+async def _native_pages_async(
+    pdf_path: Path, ocr_path: Path,
+) -> dict[int, list[FurnitureSection]]:
+    """Async Poppler boundary used by both async and worker-backed callers."""
     available_pages = _available_ocr_pages(ocr_path)
     page_sizes = _read_page_sizes(ocr_path / "page_pixel_sizes.json")
     try:
-        completed = subprocess.run(
-            ["pdftotext", "-bbox-layout", str(pdf_path), "-"],
-            check=True,
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
+        stdout, _ = await run_subprocess(
+            "pdftotext", "-bbox-layout", str(pdf_path), "-",
         )
-        root = ET.fromstring(completed.stdout)
-    except (FileNotFoundError, subprocess.CalledProcessError, ET.ParseError):
+        root = ET.fromstring(stdout.decode("utf-8"))
+    except (FileNotFoundError, RuntimeError, ET.ParseError):
         # Furniture is optional. A PDF page remains usable if Poppler cannot
         # provide native geometry, just as a scanned page has no such output.
         return {index: [] for index in sorted(available_pages)}

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
-from typing import Protocol
+from typing import Protocol, cast
 from xml.etree.ElementTree import Element, SubElement
 
 from .furniture import FurniturePosition, FurnitureSection
@@ -14,6 +14,14 @@ class XMLTaskTranslator(Protocol):
     """The XMLTranslator subset needed for furniture payloads."""
 
     def translate_element(
+        self,
+        task: TranslationTask[object],
+        **kwargs,
+    ) -> tuple[Element, object]: ...
+
+
+class AsyncXMLTaskTranslator(Protocol):
+    async def translate_element_async(
         self,
         task: TranslationTask[object],
         **kwargs,
@@ -45,6 +53,24 @@ class FurnitureXMLTransformer:
         )
         return translated.text
 
+    async def transform_position_async(
+        self, position: FurniturePosition,
+    ) -> str | None:
+        element = Element("furniture-position")
+        element.text = position.content
+        translated, _ = await cast(
+            AsyncXMLTaskTranslator, self._translator,
+        ).translate_element_async(
+            TranslationTask(
+                element=element,
+                action=self._mode,
+                payload=position,
+                item_id=f"pattern-{position.pattern_id}-position-{position.position_id}",
+                character_count=len(position.content),
+            )
+        )
+        return translated.text
+
     def transform_sections(
         self,
         page_index: int,
@@ -55,6 +81,36 @@ class FurnitureXMLTransformer:
             child = SubElement(element, "section", {"id": str(index)})
             child.text = section.content
         translated, _ = self._translator.translate_element(
+            TranslationTask(
+                element=element,
+                action=self._mode,
+                payload=tuple(sections),
+                item_id=f"furniture-page-{page_index}",
+                character_count=sum(len(section.content) for section in sections),
+            )
+        )
+        children = translated.findall("section")
+        if len(children) != len(sections):
+            return (None,) * len(sections)
+        values: list[str | None] = []
+        for index, child in enumerate(children):
+            if child.get("id") != str(index):
+                return (None,) * len(sections)
+            values.append(child.text)
+        return values
+
+    async def transform_sections_async(
+        self,
+        page_index: int,
+        sections: Sequence[FurnitureSection],
+    ) -> Sequence[str | None]:
+        element = Element("furniture-page", {"index": str(page_index)})
+        for index, section in enumerate(sections):
+            child = SubElement(element, "section", {"id": str(index)})
+            child.text = section.content
+        translated, _ = await cast(
+            AsyncXMLTaskTranslator, self._translator,
+        ).translate_element_async(
             TranslationTask(
                 element=element,
                 action=self._mode,

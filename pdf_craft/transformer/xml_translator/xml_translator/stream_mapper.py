@@ -1,4 +1,4 @@
-from collections.abc import Callable, Generator, Iterable, Iterator
+from collections.abc import AsyncGenerator, Awaitable, Callable, Generator, Iterable, Iterator
 from typing import TypeVar
 from xml.etree.ElementTree import Element
 
@@ -7,7 +7,7 @@ from tiktoken import Encoding
 
 from pdf_craft.transformer.xml_translator.segment import InlineSegment, TextSegment, search_inline_segments, search_text_segments
 from .callbacks import Callbacks
-from .concurrency import run_concurrency
+from .concurrency import run_concurrency, run_concurrency_async
 from .score import ScoreSegment, expand_to_score_segments, truncate_score_segment
 
 _PAGE_INCISION = 0
@@ -19,6 +19,9 @@ _ResourcePayload = tuple[InlineSegment, list[ScoreSegment]]
 
 InlineSegmentMapping = tuple[Element, list[TextSegment]]
 InlineSegmentGroupMap = Callable[[list[InlineSegment]], list[InlineSegmentMapping | None]]
+AsyncInlineSegmentGroupMap = Callable[
+    [list[InlineSegment]], Awaitable[list[InlineSegmentMapping | None]]
+]
 
 
 class XMLStreamMapper:
@@ -44,6 +47,48 @@ class XMLStreamMapper:
             return zip(body, target_body, strict=False)
 
         for mapping_pairs in run_concurrency(
+            parameters=self._split_into_serial_groups(elements, callbacks),
+            execute=execute,
+            concurrency=concurrency,
+        ):
+            for origin, target in mapping_pairs:
+                origin_element = origin.head.root
+                if current_element is None:
+                    current_element = origin_element
+
+                if id(current_element) != id(origin_element):
+                    yield current_element, mapping_buffer
+                    current_element = origin_element
+                    mapping_buffer = []
+
+                if target:
+                    block_element, text_segments = target
+                    block_element = callbacks.interrupt_block_element(block_element)
+                    text_segments = list(callbacks.interrupt_translated_text_segments(text_segments))
+                    if text_segments:
+                        mapping_buffer.append((block_element, text_segments))
+
+        if current_element is not None:
+            yield current_element, mapping_buffer
+
+    async def map_stream_async(
+        self,
+        elements: Iterator[Element],
+        callbacks: Callbacks,
+        map: AsyncInlineSegmentGroupMap,
+        concurrency: int,
+    ) -> AsyncGenerator[tuple[Element, list[InlineSegmentMapping]], None]:
+        current_element: Element | None = None
+        mapping_buffer: list[InlineSegmentMapping] = []
+
+        async def execute(group: Group[_ResourcePayload]):
+            head, body, tail = self._truncate_and_transform_group(group)
+            head = [segment.clone() for segment in head]
+            tail = [segment.clone() for segment in tail]
+            target_body = (await map(head + body + tail))[len(head) : len(head) + len(body)]
+            return zip(body, target_body, strict=False)
+
+        async for mapping_pairs in run_concurrency_async(
             parameters=self._split_into_serial_groups(elements, callbacks),
             execute=execute,
             concurrency=concurrency,

@@ -15,6 +15,7 @@ from zipfile import BadZipFile, ZIP_DEFLATED, ZipFile, ZipInfo
 from epub_generator import BookMeta
 
 from ..common import indent, save_xml
+from ..runtime import IO_DOMAIN
 
 
 FORMAT_VERSION = 3
@@ -153,6 +154,11 @@ class PDFCraftExtraction:
         return cls(path)
 
     @classmethod
+    async def open_async(cls, path: str | Path) -> "PDFCraftExtraction":
+        """Load, extract, and validate a PCEX without blocking the event loop."""
+        return await IO_DOMAIN.run(cls.open, path)
+
+    @classmethod
     def load(cls, path: str | Path) -> "PDFCraftExtraction":
         """Alias for :meth:`open` for callers that prefer artifact terminology."""
         return cls(path)
@@ -181,6 +187,9 @@ class PDFCraftExtraction:
             _validate_workspace(paths, require_toc=require_toc)
         return self
 
+    async def validate_async(self, *, require_toc: bool = False) -> "PDFCraftExtraction":
+        return await IO_DOMAIN.run(self.validate, require_toc=require_toc)
+
     def export(self, path: str | Path) -> "PDFCraftExtraction":
         target = Path(path)
         _require_pcex_path(target)
@@ -192,13 +201,22 @@ class PDFCraftExtraction:
             _write_archive(paths, target)
         return PDFCraftExtraction._from_exported_archive(target)
 
+    async def export_async(self, path: str | Path) -> "PDFCraftExtraction":
+        return await IO_DOMAIN.run(self.export, path)
+
     def page_pixel_sizes(self) -> dict[int, tuple[int, int]]:
         with self._materialize() as paths:
             return _read_pages(paths.pages)[1]
 
+    async def page_pixel_sizes_async(self) -> dict[int, tuple[int, int]]:
+        return await IO_DOMAIN.run(self.page_pixel_sizes)
+
     def render_dpi(self) -> int:
         with self._materialize() as paths:
             return _read_pages(paths.pages)[0]
+
+    async def render_dpi_async(self) -> int:
+        return await IO_DOMAIN.run(self.render_dpi)
 
     def book_meta(self) -> BookMeta | None:
         document = self.document_metadata()
@@ -223,6 +241,9 @@ class PDFCraftExtraction:
     def document_metadata(self) -> dict[str, Any]:
         with self._materialize() as paths:
             return dict(_read_manifest(paths.manifest)["document"])
+
+    async def document_metadata_async(self) -> dict[str, Any]:
+        return await IO_DOMAIN.run(self.document_metadata)
 
 
 def write_manifest(

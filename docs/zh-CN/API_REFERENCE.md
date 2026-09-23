@@ -4,18 +4,45 @@
 README；本文只说明稳定的公共导入和它们如何组合。示例默认使用：
 
 ```python
-from pdf_craft import PDFCraft, PDFOptions
+from pdf_craft import AsyncPDFCraft, PDFCraft, PDFOptions
 ```
+
+## 异步与同步门面
+
+`AsyncPDFCraft` 是服务端、Notebook 和其他 asyncio 程序的首选入口。它为
+`PDFCraft` 的提取、渲染、PCEX 翻译、PDF 回填、EPUB 翻译和两个一站式转换流程提供
+对应的异步方法。OCR、PDF/ZIP/图片处理、Qt 排版等同步第三方库会进入有界执行域，
+不会阻塞调用方事件循环；翻译并发和 LLM 网络请求则使用原生 asyncio。
+
+```python
+craft = AsyncPDFCraft(pdf=PDFOptions(ocr=your_ocr_config))
+extraction = await craft.extract_pdf("input.pdf", "book.pcex")
+await craft.render_markdown(extraction, "book.md")
+```
+
+OCR 和翻译事件回调既可以是普通函数，也可以是 `async def`；它们在调用方事件循环
+线程执行，异步回调会被等待。取消异步任务时，原生网络请求和子进程会被取消，线程池中
+支持协作取消的阶段会通过原有 abort 回调收到信号。
+
+`PDFCraft` 继续提供兼容的同步 API，适合普通脚本；但不能从已经运行事件循环的线程中
+调用，否则会明确抛出 `RuntimeError`，而不会嵌套启动事件循环。此时应改用
+`AsyncPDFCraft`。
+
+`PDFCraftExtraction` 还提供 `open_async`、`validate_async`、`export_async`、
+`page_pixel_sizes_async`、`render_dpi_async` 和 `document_metadata_async`。组件级调用方可使用
+`PDFExtractor.extract_async`、`MarkdownRenderer.render_async`、
+`EpubRenderer.render_async`；模型预下载入口为 `predownload_models_async`。独立的 EPUB
+翻译函数也提供 `translate_epub_async`，异步程序应等待它，而不是调用 `translate_epub`。
 
 ## 公共入口
 
 `pdf_craft` 包顶层导出常用类型。最主要的入口是 `PDFCraft`，它把 PDF 提取、渲染、
 翻译和 PDF 写回组合成一组方法。下面这些对象可直接从 `pdf_craft` 导入：
 
-- `PDFCraft`、`PDFOptions`、`ExtractionOptions`
+- `AsyncPDFCraft`、`PDFCraft`、`PDFOptions`、`ExtractionOptions`
 - `PDFCraftExtraction`、`PDFExtractor`
 - 六种 OCR 配置对象和 `OCRConfig`
-- `predownload_models`
+- `predownload_models`、`predownload_models_async`
 - `LLM`
 - `ExtractionTransformer`、`ChapterExtractionTransformer`、`ChapterXMLTransformer`、
   `AnchoredContentExtractionTransformer`、`AnchoredContentTransformer`、
@@ -30,7 +57,7 @@ from pdf_craft import PDFCraft, PDFOptions
   `PDFTranslationPipeline`
 - `PDFError`、`OCRError`、`NoUsableFillPagesError`、`IgnorePDFErrorsChecker`、
   `IgnoreOCRErrorsChecker`、`IgnoreFillErrorsChecker`
-- `translate_epub`
+- `translate_epub`、`translate_epub_async`
 
 `ChapterTransformer` 是公共协议，但导入路径为
 `from pdf_craft.transformer import ChapterTransformer`，而不是包顶层。本文不把以下内容当作

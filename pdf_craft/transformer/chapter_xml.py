@@ -1,3 +1,4 @@
+import asyncio
 from collections.abc import Callable
 from typing import Protocol, cast
 from xml.etree.ElementTree import Element
@@ -8,6 +9,7 @@ from pdf_craft.extractor.chapter.chapter import (
     search_references_in_chapter,
 )
 from pdf_craft.markdown.paragraph import flatten
+from pdf_craft.runtime import TRANSLATION_DOMAIN, callback_bridge
 from pdf_craft.transformer.xml_translator.segment import search_text_segments
 from pdf_craft.transformer.xml_translator.segment import ImmutableBlockElement, InlineSegment
 from pdf_craft.transformer.xml_translator.xml import clone_element
@@ -22,6 +24,13 @@ from .xml_translator.xml_translator import SubmitKind, TranslationTask
 class XMLTaskTranslator(Protocol):
     """The public XMLTranslator subset required for a Chapter task."""
     def translate_element(self, task: TranslationTask[Chapter], **kwargs) -> tuple[Element, Chapter]: ...
+
+
+class AsyncXMLTaskTranslator(Protocol):
+
+    async def translate_element_async(
+        self, task: TranslationTask[Chapter], **kwargs
+    ) -> tuple[Element, Chapter]: ...
 
 
 class ChapterXMLTransformer:
@@ -72,6 +81,65 @@ class ChapterXMLTransformer:
                 item_kind=TranslationItemKind.CHAPTER,
                 item_id=item_id if item_id is not None else chapter.id,
                 character_count=sum(len(segment.text) for segment in search_text_segments(element)),
+            ),
+            on_translation_event=on_translation_event,
+            completed_characters=completed_characters,
+            total_characters=total_characters,
+            emit_scope_events=emit_scope_events,
+            emit_item_events=emit_item_events,
+            interrupt_source_text_segments=formula_interrupter.interrupt_source_text_segments,
+            interrupt_translated_text_segments=formula_interrupter.interrupt_translated_text_segments,
+            interrupt_block_element=formula_interrupter.interrupt_block_element,
+            immutable_elements_for_inline_segments=anchors.immutable_elements_for_inline_segments,
+            source_text_renderer=_render_chapter_source_text,
+            canonical_text_validator=_validate_chapter_fill_canonical_text,
+        )
+        anchors.restore_assets(translated)
+        _restore_fragment_owned_inline_expressions(translated)
+        return decode(translated)
+
+    async def transform_async(
+        self,
+        chapter: Chapter,
+        *,
+        on_translation_event: Callable[[TranslationEvent], object] | None = None,
+        item_id: str | int | None = None,
+        completed_characters: int = 0,
+        total_characters: int | None = None,
+        emit_scope_events: bool = True,
+        emit_item_events: bool = True,
+    ) -> Chapter:
+        if not hasattr(self._translator, "translate_element_async"):
+            callback = callback_bridge(
+                asyncio.get_running_loop(), on_translation_event,
+            )
+            return await TRANSLATION_DOMAIN.run(
+                self.transform,
+                chapter,
+                on_translation_event=callback,
+                item_id=item_id,
+                completed_characters=completed_characters,
+                total_characters=total_characters,
+                emit_scope_events=emit_scope_events,
+                emit_item_events=emit_item_events,
+            )
+        element = encode(chapter)
+        if not self.has_translatable_content(chapter):
+            return chapter
+        anchors = _NarrativeAnchorProjection(element)
+        anchors.replace_assets()
+        formula_interrupter = ChapterFormulaInterrupter()
+        async_translator = cast(AsyncXMLTaskTranslator, self._translator)
+        translated, _ = await async_translator.translate_element_async(
+            TranslationTask(
+                element=element,
+                action=self._mode,
+                payload=chapter,
+                item_kind=TranslationItemKind.CHAPTER,
+                item_id=item_id if item_id is not None else chapter.id,
+                character_count=sum(
+                    len(segment.text) for segment in search_text_segments(element)
+                ),
             ),
             on_translation_event=on_translation_event,
             completed_characters=completed_characters,

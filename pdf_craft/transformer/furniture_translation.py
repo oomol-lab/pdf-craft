@@ -15,7 +15,9 @@ from pdf_craft.extractor.chapter.chapter import (
 )
 from pdf_craft.extractor.toc import decode as decode_toc, iter_toc
 from pdf_craft.markdown.paragraph import flatten
+from pdf_craft.runtime import IO_DOMAIN
 from .furniture import Box, FurniturePosition, FurnitureSection, FurnitureTransformer
+from .furniture_xml import FurnitureXMLTransformer
 from .translation_coverage import (
     FurniturePositionCoverage, FurnitureSectionCoverage, write_furniture_coverage,
 )
@@ -90,6 +92,145 @@ def translate_furnitures_in_workspace(
         (FurniturePositionCoverage(*entry) for entry in position_coverage),
         (FurnitureSectionCoverage(int(page_index), det, state) for page_index, det, state in section_coverage),
     )
+
+
+async def translate_furnitures_in_workspace_async(
+    *,
+    chapters_path: Path,
+    toc_path: Path,
+    furnitures_path: Path,
+    translation_path: Path,
+    transformer: FurnitureXMLTransformer,
+) -> None:
+    """Native-async furniture translation with filesystem work off-loop."""
+    def prepare():
+        if not furnitures_path.exists():
+            return None
+        return read_xml(furnitures_path), _translated_titles(chapters_path, toc_path)
+
+    prepared = await IO_DOMAIN.run(prepare)
+    if prepared is None:
+        return
+    root, titles = prepared
+    position_coverage: list[tuple[str, str, str]] = []
+    section_coverage: list[tuple[str, str, str]] = []
+
+    for pattern in root.findall("patterns/pattern"):
+        pattern_id = pattern.get("id", "")
+        kind = pattern.get("kind", "")
+        for position in pattern.findall("position"):
+            position_id = position.get("id", "")
+            translated = await _translate_position_async(
+                position, pattern_id, position_id, kind, titles, transformer,
+            )
+            position_coverage.append((pattern_id, position_id, translated))
+
+    for page in root.findall("pages/page"):
+        page_index = page.get("index", "")
+        ordinary: list[tuple[Element, FurnitureSection]] = []
+        for section in page.findall("section"):
+            if len(section):
+                continue
+            det = section.get("det", "")
+            if section.get("toc_id") is not None:
+                section_coverage.append((
+                    page_index, det, _reconcile_toc_section(section, titles),
+                ))
+                continue
+            ordinary.append((section, _as_section(page_index, det, section.text or "")))
+        section_coverage.extend(await _translate_page_sections_async(
+            page_index, ordinary, transformer,
+        ))
+
+    def finish():
+        save_xml(root, furnitures_path)
+        write_furniture_coverage(
+            translation_path,
+            (FurniturePositionCoverage(*entry) for entry in position_coverage),
+            (
+                FurnitureSectionCoverage(int(page_index), det, state)
+                for page_index, det, state in section_coverage
+            ),
+        )
+
+    await IO_DOMAIN.run(finish)
+
+
+async def _translate_position_async(
+    position: Element,
+    pattern_id: str,
+    position_id: str,
+    kind: str,
+    titles: dict[int, str],
+    transformer: FurnitureXMLTransformer,
+) -> str:
+    if position.get("folio_style") is not None:
+        prefix = position.get("folio_prefix", "")
+        suffix = position.get("folio_suffix", "")
+        if not prefix and not suffix:
+            return "preserved"
+        try:
+            result = await transformer.transform_position_async(FurniturePosition(
+                int(pattern_id), int(position_id), kind,
+                prefix + _FOLIO_MARKER + suffix,
+            ))
+        except Exception:
+            return "preserved"
+        if (
+            not isinstance(result, str)
+            or not result.strip()
+            or result.count(_FOLIO_MARKER) != 1
+            or not result.replace(_FOLIO_MARKER, "").strip()
+        ):
+            return "preserved"
+        translated_prefix, translated_suffix = result.split(_FOLIO_MARKER)
+        _set_optional_attribute(position, "folio_prefix", translated_prefix)
+        _set_optional_attribute(position, "folio_suffix", translated_suffix)
+        return "translated"
+
+    toc_id = _integer_attribute(position, "toc_id")
+    if toc_id is not None:
+        title = titles.get(toc_id)
+        if title is None:
+            return "preserved"
+        position.text = title
+        return "translated"
+    try:
+        result = await transformer.transform_position_async(FurniturePosition(
+            int(pattern_id), int(position_id), kind, position.text or "",
+        ))
+    except Exception:
+        return "preserved"
+    if not _usable_target(result):
+        return "preserved"
+    position.text = result
+    return "translated"
+
+
+async def _translate_page_sections_async(
+    page_index: str,
+    entries: list[tuple[Element, FurnitureSection]],
+    transformer: FurnitureXMLTransformer,
+) -> list[tuple[str, str, str]]:
+    if not entries:
+        return []
+    try:
+        translated = await transformer.transform_sections_async(
+            int(page_index), [section for _, section in entries],
+        )
+    except Exception:
+        translated = ()
+    if len(translated) != len(entries):
+        translated = (None,) * len(entries)
+    coverage = []
+    for (element, _section), target in zip(entries, translated, strict=True):
+        det = element.get("det", "")
+        if _usable_target(target):
+            element.text = target
+            coverage.append((page_index, det, "translated"))
+        else:
+            coverage.append((page_index, det, "preserved"))
+    return coverage
 
 
 def _translated_titles(chapters_path: Path, toc_path: Path) -> dict[int, str]:

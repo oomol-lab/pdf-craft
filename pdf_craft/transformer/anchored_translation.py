@@ -20,12 +20,14 @@ from pdf_craft.extractor.chapter.chapter import (
 )
 from pdf_craft.extractor.chapter.text_projection import iter_continuous_content
 from pdf_craft.markdown.paragraph import HTMLTag, flatten
+from pdf_craft.runtime import IO_DOMAIN
 
 from .anchored_content import (
     AnchoredContent,
     AnchoredContentTransformer,
     AnchoredContentTranslation,
 )
+from .anchored_xml import AnchoredContentXMLTransformer
 from .translation_coverage import AnchoredContentCoverage, write_anchored_coverage
 
 
@@ -64,6 +66,75 @@ def translate_anchored_contents_in_workspace(
 
     if coverage:
         write_anchored_coverage(translation_path, coverage)
+
+
+async def translate_anchored_contents_in_workspace_async(
+    chapters_path: Path,
+    translation_path: Path,
+    transformer: AnchoredContentXMLTransformer,
+) -> None:
+    """Translate anchored payloads with native async LLM calls and pooled I/O."""
+    paths = await IO_DOMAIN.run(
+        lambda: sorted(chapters_path.glob("chapter_*.xml"))
+    )
+    coverage: list[AnchoredContentCoverage] = []
+    for path in paths:
+        chapter = await IO_DOMAIN.run(lambda path=path: decode(read_xml(path)))
+        slots = list(_asset_slots(chapter))
+        if not slots:
+            continue
+        translated = await _translate_slots_async(slots, transformer)
+        for slot, target in zip(slots, translated, strict=True):
+            state = "preserved"
+            if target is not None:
+                slot.asset.title = target.title
+                slot.asset.content = target.content
+                slot.asset.caption = target.caption
+                state = "translated"
+            coverage.append(AnchoredContentCoverage(*slot.payload.identity, state))
+        await IO_DOMAIN.run(save_xml, encode(chapter), path)
+    if coverage:
+        await IO_DOMAIN.run(write_anchored_coverage, translation_path, coverage)
+
+
+async def _translate_slots_async(
+    slots: Sequence[_AssetSlot],
+    transformer: AnchoredContentXMLTransformer,
+) -> list[AnchoredContentTranslation | None]:
+    results: list[AnchoredContentTranslation | None] = [None] * len(slots)
+    translatable = [
+        (index, slot) for index, slot in enumerate(slots)
+        if _asset_has_text(slot.asset)
+    ]
+    for start in range(0, len(translatable), _BATCH_SIZE):
+        batch_with_indexes = translatable[start : start + _BATCH_SIZE]
+        payloads = tuple(slot.payload for _, slot in batch_with_indexes)
+        translated = await _transform_batch_async(payloads, transformer)
+        for (index, _), value in zip(batch_with_indexes, translated, strict=True):
+            results[index] = value
+    return results
+
+
+async def _transform_batch_async(
+    payloads: Sequence[AnchoredContent],
+    transformer: AnchoredContentXMLTransformer,
+) -> Sequence[AnchoredContentTranslation | None]:
+    try:
+        translated = await transformer.transform_assets_async(payloads)
+        matched = _match_translations(payloads, translated)
+        if matched is not None:
+            return matched
+    except Exception:
+        pass
+    result: list[AnchoredContentTranslation | None] = []
+    for payload in payloads:
+        try:
+            translated = await transformer.transform_assets_async((payload,))
+            matched = _match_translations((payload,), translated)
+            result.append(matched[0] if matched is not None else None)
+        except Exception:
+            result.append(None)
+    return result
 
 
 def _translate_slots(
