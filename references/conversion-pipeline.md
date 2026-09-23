@@ -27,7 +27,8 @@ ref 匹配先产出既有的正文/citation 结果，再投影为内存中的 `P
 两条逻辑流，最后才进入 FlowItem 组装。`PageAnalysis` 是 analysis-only 的可逆页级边界，不是
 OCR `Page`、PCEX schema 或持久化缓存；未安装后续审查器时，这次投影与恢复必须是行为无效操作。
 投影与恢复之间保留可选的异步 `PageAnalysisProcessor` hook：processor 可以按页读取相邻页语义边界，
-并返回经过审查或修正的 PageAnalysis 列表。配置 `ExtractionOptions.page_repair` 时，OCR 与传统算法先在
+并返回经过审查或修正的 PageAnalysis 列表。配置带 `FootnoteRefinement` 的
+`ExtractionOptions.footnotes` 时，OCR 与传统算法先在
 OCR execution domain 生成 PageAnalysis，随后调用方 event loop 通过官方 TypeSafe SDK 并发执行 JEV
 筛选，再把低置信页连同上一页、目标页、下一页的完整文本 PageAnalysis 交给 LLM，
 且只允许 LLM 返回目标页的完整 JSON 语义层。LLM 返回值通过 `request_guaranteed_json` 检查 schema、

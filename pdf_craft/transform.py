@@ -11,13 +11,13 @@ from .error import (
     NoUsableOCRPagesError,
     PDFError,
 )
-from .llm import LLM, runtime_for
+from .footnote import FootnoteRefinement
 from .jev import JEVRuntime
+from .llm import LLM, runtime_for
 from .metering import AbortedCheck, OCRTokensMetering
 from .ocr_config import OCRConfig, ensure_ocr_config
 from .pdf import DeepSeekOCRSize, OCR, OCREvent, OCREventKind, PDFHandler
 from .pdf.furniture import write_furnitures
-from .page_repair import PageRepairOptions
 from .runtime import OCR_DOMAIN, run_cancellable, run_subprocess
 from .extractor.metadata import extract_book_metadata_from_ocr, merge_ocr_and_pdf_metadata
 from .extractor.chapter import (
@@ -80,11 +80,11 @@ class PDFExtractionEngine:
         return self._extract_from_pdf(**kwargs)
 
     async def extract_package_async(self, **kwargs):
-        """Run optional network page repair between two OCR-domain phases."""
+        """Run optional footnote refinement between two OCR-domain phases."""
 
-        page_repair = kwargs.pop("page_repair", None)
+        footnote_refinement = kwargs.pop("footnote_refinement", None)
         original_aborted = kwargs.get("aborted")
-        if page_repair is None:
+        if footnote_refinement is None:
             return await run_cancellable(
                 OCR_DOMAIN,
                 lambda aborted: self._extract_from_pdf(
@@ -92,8 +92,8 @@ class PDFExtractionEngine:
                 ),
                 original_aborted=original_aborted,
             )
-        if not isinstance(page_repair, PageRepairOptions):
-            raise TypeError("page_repair must be PageRepairOptions")
+        if not isinstance(footnote_refinement, FootnoteRefinement):
+            raise TypeError("footnote_refinement must be FootnoteRefinement")
 
         draft, chapter_analysis = await run_cancellable(
             OCR_DOMAIN,
@@ -103,25 +103,25 @@ class PDFExtractionEngine:
             original_aborted=original_aborted,
         )
         runtime = runtime_for(
-            page_repair.llm,
-            protocol_version="page-repair-json-v1",
+            footnote_refinement.llm,
+            protocol_version="footnote-refinement-json-v1",
         )
 
         async def request(messages, index, maximum):
             return await runtime.request(
                 messages,
-                max_tokens=page_repair.max_output_tokens,
+                max_tokens=footnote_refinement.max_output_tokens,
                 retry_index=index,
                 retry_max=maximum,
             )
 
-        async with JEVRuntime(page_repair.jev) as jev:
+        async with JEVRuntime(footnote_refinement.jev) as jev:
             processor = JevLlmRepairProcessor(
                 jev.evaluate,
                 request,
-                threshold=page_repair.risk_threshold,
-                max_retries=page_repair.max_retries,
-                concurrency=page_repair.jev.concurrency,
+                threshold=footnote_refinement.risk_threshold,
+                max_retries=footnote_refinement.max_retries,
+                concurrency=footnote_refinement.jev.concurrency,
             )
             repaired_pages = await processor(
                 chapter_analysis.source_pages,

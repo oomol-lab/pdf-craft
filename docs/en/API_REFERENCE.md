@@ -161,36 +161,45 @@ extraction; they do not fall back to an analysis/OCR directory.
 | `max_ocr_tokens` | `None` | Cumulative OCR input-plus-output token budget. |
 | `max_ocr_output_tokens` | `None` | Cumulative OCR output-token budget. |
 | `includes_cover` | `False` | Retain a recognized cover image. |
-| `includes_footnotes` | `False` | Request and retain footnotes. |
+| `includes_footnotes` | `False` | Compatibility alias for algorithmic footnote extraction; prefer `footnotes=FootnoteOptions()`. |
 | `includes_furniture` | `True` | Include native page furniture in the extracted PCEX as `furnitures.xml`; it does not translate it. |
 | `extract_book_metadata` | `False` | Extract bibliographic metadata from the first OCR pages. It is persisted in PCEX and, when that PCEX is patched to PDF, corrects the output PDF's document metadata. |
 | `metadata_llm` | `None` | Required LLM for `extract_book_metadata=True`; it is independent of `toc_llm`. |
 | `generate_plot` | `False` | Generate plot diagnostics in the analysis workspace (not in `.pcex`). |
 | `toc_assumed` | `False` | Treat the document as already having usable TOC information. |
 | `toc_llm` | `None` | LLM used when TOC analysis is needed. |
-| `page_repair` | `None` | Optional `PageRepairOptions`; JEV reviews reversible pages and the LLM repairs low-confidence pages. Requires `includes_footnotes=True`. |
+| `footnotes` | `None` | `None` disables footnotes; `FootnoteOptions()` uses the traditional algorithm; adding `FootnoteRefinement` enables JEV and LLM refinement. |
 | `ignore_pdf_errors` | `False` | `True` or a predicate that decides whether a PDF error may be skipped. |
 | `ignore_ocr_errors` | `False` | `True` or a predicate that decides whether an OCR error may be skipped. |
 | `aborted` | a callback returning `False` | A callback checked during processing to request cancellation. |
 | `on_ocr_event` | no-op callback | Receives per-page `OCREvent` updates. |
 
-Page repair is opt-in and uses explicit credentials, like other model-backed features:
+Footnote extraction has an optional refinement tier with explicit credentials:
 
 ```python
-from pdf_craft import ExtractionOptions, JEV, LLM, PageRepairOptions
+from pdf_craft import (
+    ExtractionOptions,
+    FootnoteOptions,
+    FootnoteRefinement,
+    JEV,
+    LLM,
+)
 
 options = ExtractionOptions(
-    includes_footnotes=True,
-    page_repair=PageRepairOptions(
-        jev=JEV(key="...", model="jev-latest"),
-        llm=LLM("...", "https://example.com/v1", "model", "o200k_base"),
+    footnotes=FootnoteOptions(
+        refinement=FootnoteRefinement(
+            jev=JEV(key="...", model="jev-latest"),
+            llm=LLM("...", "https://example.com/v1", "model", "o200k_base"),
+        ),
     ),
 )
 ```
 
 OCR and traditional footnote resolution still run first. JEV only selects pages for the LLM;
 the repaired page must pass the deterministic schema and integrity checks before chapter
-`FlowItem` assembly continues.
+`FlowItem` assembly continues. Use `FootnoteOptions()` without `refinement` for the
+algorithm-only tier. The former `includes_footnotes=True` remains supported as a compatibility
+alias for that tier and cannot be combined with `footnotes`.
 
 Book-metadata extraction is deliberately opt-in. When enabled, PDF Craft lets a dedicated LLM
 read the first three raw OCR pages and request further front pages in batches, up to twelve pages.

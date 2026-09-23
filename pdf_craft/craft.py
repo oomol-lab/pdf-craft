@@ -24,10 +24,10 @@ from .extractor.chapter.chapter import SourceTextFragment, TextFlowItem
 from .extractor.chapter.reader import create_chapters_reader
 from .error import IgnoreFillErrorsChecker, IgnoreOCRErrorsChecker, IgnorePDFErrorsChecker
 from .extractor import PDFExtractor
+from .footnote import FootnoteOptions
 from .llm import LLM
 from .metering import AbortedCheck, OCRTokensMetering
 from .ocr_config import OCRConfig
-from .page_repair import PageRepairOptions
 from .pdf import (
     AsyncPDFDocument,
     AsyncPDFHandler,
@@ -81,6 +81,7 @@ class ExtractionOptions:
     max_ocr_tokens: int | None = None
     max_ocr_output_tokens: int | None = None
     includes_cover: bool = False
+    # Compatibility alias for FootnoteOptions() from the 2.3 API.
     includes_footnotes: bool = False
     includes_furniture: bool = True
     extract_book_metadata: bool = False
@@ -88,11 +89,15 @@ class ExtractionOptions:
     generate_plot: bool = False
     toc_assumed: bool = False
     toc_llm: LLM | None = None
-    page_repair: PageRepairOptions | None = None
+    footnotes: FootnoteOptions | None = None
     ignore_pdf_errors: IgnorePDFErrorsChecker = False
     ignore_ocr_errors: IgnoreOCRErrorsChecker = False
     aborted: AbortedCheck = lambda: False
     on_ocr_event: Callable[[OCREvent], object] = lambda _: None
+
+    def __post_init__(self) -> None:
+        if self.includes_footnotes and self.footnotes is not None:
+            raise ValueError("footnotes cannot be combined with includes_footnotes=True")
 
 
 class AsyncPDFCraft:
@@ -140,8 +145,7 @@ class AsyncPDFCraft:
         *, analysing_path: PathLike | str | None = None,
     ) -> tuple[PDFCraftExtraction, OCRTokensMetering]:
         options = options or ExtractionOptions()
-        if options.page_repair is not None and not options.includes_footnotes:
-            raise ValueError("page_repair requires includes_footnotes=True")
+        footnotes = _resolve_footnotes(options)
         return await PDFExtractor(self._pdf_engine()).extract_with_metering(
             Path(source), Path(extraction_path),
             analysing_path=Path(analysing_path) if analysing_path is not None else None,
@@ -151,13 +155,15 @@ class AsyncPDFCraft:
             max_tokens=options.max_ocr_tokens,
             max_output_tokens=options.max_ocr_output_tokens,
             includes_cover=options.includes_cover,
-            includes_footnotes=options.includes_footnotes,
+            includes_footnotes=footnotes is not None,
             includes_furniture=options.includes_furniture,
             extract_book_metadata=options.extract_book_metadata,
             metadata_llm=options.metadata_llm,
             generate_plot=options.generate_plot,
             toc_assumed=options.toc_assumed, toc_llm=options.toc_llm,
-            page_repair=options.page_repair,
+            footnote_refinement=(
+                footnotes.refinement if footnotes is not None else None
+            ),
             ignore_pdf_errors=options.ignore_pdf_errors,
             ignore_ocr_errors=options.ignore_ocr_errors,
             aborted=options.aborted,
@@ -385,8 +391,7 @@ class AsyncPDFCraft:
         self, source: PathLike | str, analysing_path: Path,
         options: ExtractionOptions,
     ) -> tuple[PDFCraftExtraction, OCRTokensMetering]:
-        if options.page_repair is not None and not options.includes_footnotes:
-            raise ValueError("page_repair requires includes_footnotes=True")
+        footnotes = _resolve_footnotes(options)
         return await PDFExtractor(self._pdf_engine())._extract_to_workspace_async(
             Path(source), analysing_path,
             page_indexes=options.page_indexes,
@@ -395,13 +400,15 @@ class AsyncPDFCraft:
             max_tokens=options.max_ocr_tokens,
             max_output_tokens=options.max_ocr_output_tokens,
             includes_cover=options.includes_cover,
-            includes_footnotes=options.includes_footnotes,
+            includes_footnotes=footnotes is not None,
             includes_furniture=options.includes_furniture,
             extract_book_metadata=options.extract_book_metadata,
             metadata_llm=options.metadata_llm,
             generate_plot=options.generate_plot,
             toc_assumed=options.toc_assumed, toc_llm=options.toc_llm,
-            page_repair=options.page_repair,
+            footnote_refinement=(
+                footnotes.refinement if footnotes is not None else None
+            ),
             ignore_pdf_errors=options.ignore_pdf_errors,
             ignore_ocr_errors=options.ignore_ocr_errors,
             aborted=options.aborted, on_ocr_event=options.on_ocr_event,
@@ -792,6 +799,14 @@ def _validate_extraction_for_pdf(source: Path, extraction: PDFCraftExtraction) -
 def _ignore_errors_requested(checker: IgnoreFillErrorsChecker) -> bool:
     """Defer page-addressable validation when a fill recovery policy exists."""
     return checker is True or callable(checker)
+
+
+def _resolve_footnotes(options: ExtractionOptions) -> FootnoteOptions | None:
+    if options.footnotes is not None:
+        return options.footnotes
+    if options.includes_footnotes:
+        return FootnoteOptions()
+    return None
 
 
 def _furniture_transformer_for(

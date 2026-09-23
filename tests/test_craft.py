@@ -10,8 +10,8 @@ from xml.etree.ElementTree import fromstring
 from epub_generator import BookMeta
 
 from pdf_craft import (
-    AsyncPDFCraft, ExtractionOptions, JEV, LLM, PDFCraft, PDFOptions,
-    PageRepairOptions,
+    AsyncPDFCraft, ExtractionOptions, FootnoteOptions, FootnoteRefinement,
+    JEV, LLM, PDFCraft, PDFOptions,
 )
 from pdf_craft.document import PDFCraftExtraction
 from pdf_craft.extractor import PDFExtractor
@@ -255,7 +255,7 @@ class TestPDFCraft(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             engine = _Engine()
-            page_repair = PageRepairOptions(
+            refinement = FootnoteRefinement(
                 jev=JEV("jev-key"),
                 llm=LLM("llm-key", "https://example.invalid/v1", "model", "o200k_base"),
             )
@@ -264,7 +264,7 @@ class TestPDFCraft(unittest.TestCase):
                 root / "book.pcex",
                 ExtractionOptions(
                     page_indexes=(2, 4), max_ocr_tokens=12,
-                    includes_footnotes=True, page_repair=page_repair,
+                    footnotes=FootnoteOptions(refinement=refinement),
                 ),
                 analysing_path=root / "analysis",
             )
@@ -273,22 +273,42 @@ class TestPDFCraft(unittest.TestCase):
             self.assertEqual(engine.kwargs["page_indexes"], (2, 4))
             self.assertEqual(engine.kwargs["max_tokens"], 12)
             self.assertTrue(engine.kwargs["includes_furniture"])
-            self.assertIs(engine.kwargs["page_repair"], page_repair)
+            self.assertTrue(engine.kwargs["includes_footnotes"])
+            self.assertIs(engine.kwargs["footnote_refinement"], refinement)
             extraction._validate(require_toc=True)
             self.assertTrue((root / "analysis" / "extraction").is_dir())
 
-    def test_page_repair_requires_footnote_extraction(self):
-        repair = PageRepairOptions(
-            jev=JEV("jev-key"),
-            llm=LLM("llm-key", "https://example.invalid/v1", "model", "o200k_base"),
-        )
-        with tempfile.TemporaryDirectory() as directory, self.assertRaisesRegex(
-            ValueError, "includes_footnotes"
-        ):
-            PDFCraft.from_engine(_Engine()).extract_pdf(
+    def test_algorithmic_footnotes_need_no_model_configuration(self):
+        with tempfile.TemporaryDirectory() as directory:
+            engine = _Engine()
+            PDFCraft.from_engine(engine).extract_pdf(
                 "source.pdf",
                 Path(directory) / "book.pcex",
-                ExtractionOptions(page_repair=repair),
+                ExtractionOptions(footnotes=FootnoteOptions()),
+            )
+
+        assert engine.kwargs is not None
+        self.assertTrue(engine.kwargs["includes_footnotes"])
+        self.assertIsNone(engine.kwargs["footnote_refinement"])
+
+    def test_legacy_footnote_flag_maps_to_algorithmic_tier(self):
+        with tempfile.TemporaryDirectory() as directory:
+            engine = _Engine()
+            PDFCraft.from_engine(engine).extract_pdf(
+                "source.pdf",
+                Path(directory) / "book.pcex",
+                ExtractionOptions(includes_footnotes=True),
+            )
+
+        assert engine.kwargs is not None
+        self.assertTrue(engine.kwargs["includes_footnotes"])
+        self.assertIsNone(engine.kwargs["footnote_refinement"])
+
+    def test_legacy_footnote_flag_cannot_be_combined_with_new_options(self):
+        with self.assertRaisesRegex(ValueError, "cannot be combined"):
+            ExtractionOptions(
+                includes_footnotes=True,
+                footnotes=FootnoteOptions(),
             )
 
     def test_public_extraction_requires_pcex_output(self):

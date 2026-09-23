@@ -10,6 +10,7 @@ from typing import Any, cast
 from pdf_craft import (
     ChapterXMLTransformer,
     ExtractionOptions,
+    FootnoteOptions,
     OCRMode,
     OCRTokensMetering,
     PDFCraft,
@@ -802,7 +803,8 @@ def _extract(
             page_indexes=_page_indexes(args.pages), ocr_size=cast(Any, ocr_size), dpi=args.dpi,
             max_page_image_file_size=args.max_page_image_file_size,
             max_ocr_tokens=args.max_ocr_tokens, max_ocr_output_tokens=args.max_ocr_output_tokens,
-            includes_cover=args.cover, includes_footnotes=args.footnotes,
+            includes_cover=args.cover,
+            footnotes=FootnoteOptions() if args.footnotes else None,
             includes_furniture=includes_furniture,
             extract_book_metadata=args.book_metadata,
             metadata_llm=(create_llm_from_env(args.metadata_llm, cache_path=extraction_path.parent / "metadata-cache",

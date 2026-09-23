@@ -164,13 +164,13 @@ ExtractionOptions(
     max_ocr_output_tokens=None,
     includes_cover=False,
     includes_footnotes=False,
+    footnotes=None,
     includes_furniture=True,
     extract_book_metadata=False,
     metadata_llm=None,
     generate_plot=False,
     toc_assumed=False,
     toc_llm=None,
-    page_repair=None,
     ignore_pdf_errors=False,
     ignore_ocr_errors=False,
     aborted=lambda: False,
@@ -183,23 +183,32 @@ ExtractionOptions(
 `toc_llm` 是可选的目录层级分析
 LLM，不是 OCR 配置，也不是章节翻译器。
 
-`page_repair` 是可选的页级脚注矫正配置，启用时必须同时设置 `includes_footnotes=True`。
-凭据与模型配置和 `LLM` 一样由调用方显式传入：
+`footnotes` 表示脚注处理档位：`None` 完全关闭，`FootnoteOptions()` 使用传统算法，配置
+`FootnoteRefinement` 后再由 JEV 筛选低置信页并交给 LLM 矫正。凭据与模型配置和 `LLM`
+一样由调用方显式传入：
 
 ```python
-from pdf_craft import ExtractionOptions, JEV, LLM, PageRepairOptions
+from pdf_craft import (
+    ExtractionOptions,
+    FootnoteOptions,
+    FootnoteRefinement,
+    JEV,
+    LLM,
+)
 
 options = ExtractionOptions(
-    includes_footnotes=True,
-    page_repair=PageRepairOptions(
-        jev=JEV(key="...", model="jev-latest"),
-        llm=LLM("...", "https://example.com/v1", "model", "o200k_base"),
+    footnotes=FootnoteOptions(
+        refinement=FootnoteRefinement(
+            jev=JEV(key="...", model="jev-latest"),
+            llm=LLM("...", "https://example.com/v1", "model", "o200k_base"),
+        ),
     ),
 )
 ```
 
 传统算法仍先完整生成可逆的 PageAnalysis；JEV 只负责筛选低置信页，LLM 返回的完整目标页必须通过
 schema、layout 不可变性、citation/ref 一一对应和 gap 等确定性约束，之后才继续组装 FlowItem。
+旧写法 `includes_footnotes=True` 仍兼容纯算法档，但不能与新的 `footnotes` 同时使用。
 
 `extract_book_metadata` 默认关闭。开启后必须通过独立的 `metadata_llm` 参数显式提供 LLM，
 不会隐式复用 `toc_llm`。它会先向 LLM 提供前三个原始 OCR 页；模型可继续请求前部页面，但总数最多为

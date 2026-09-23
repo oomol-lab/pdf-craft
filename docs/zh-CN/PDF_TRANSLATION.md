@@ -358,7 +358,8 @@ NarrativeFlow，再翻译包中已有的 furniture，并把覆盖状态写入 `t
 | `max_page_image_file_size` | `None` | 限制页面图片大小，必要时调整分辨率 |
 | `max_ocr_tokens` / `max_ocr_output_tokens` | `None` | 限制 OCR 请求的 token 数 |
 | `includes_cover` | `False` | 生成封面图片 |
-| `includes_footnotes` | `False` | 提取脚注内容 |
+| `footnotes` | `None` | `None` 关闭脚注；`FootnoteOptions()` 使用传统算法；配置 `FootnoteRefinement` 后启用 JEV + LLM 矫正 |
+| `includes_footnotes` | `False` | 兼容旧版纯算法脚注提取；新代码应使用 `footnotes` |
 | `includes_furniture` | `True` | 将 native PDF 的页眉、页脚和页码等页面 furniture 保留为 `furnitures.xml`；不翻译它们 |
 | `extract_book_metadata` | `False` | 从前几页 OCR 提取书目元数据 |
 | `metadata_llm` | `None` | 开启 `extract_book_metadata=True` 时必需的独立 LLM；不复用 `toc_llm` |

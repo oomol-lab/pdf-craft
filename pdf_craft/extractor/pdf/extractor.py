@@ -63,7 +63,7 @@ class PDFExtractor:
             "aborted": lambda: False, "max_tokens": None,
             "max_output_tokens": None, "on_ocr_event": lambda _: None,
             "page_indexes": None,
-            "page_repair": None,
+            "footnote_refinement": None,
         }
         defaults.update(kwargs)
         defaults["analysing_path"] = analysing_path
@@ -166,7 +166,7 @@ class PDFExtractor:
                 "metadata_llm": None, "aborted": original_aborted or (lambda: False),
                 "max_tokens": None, "max_output_tokens": None,
                 "on_ocr_event": on_ocr_event, "page_indexes": None,
-                "page_repair": None,
+                "footnote_refinement": None,
             }
             defaults.update(kwargs)
             defaults["analysing_path"] = analysing_path
