@@ -11,13 +11,15 @@ import asyncio
 import inspect
 import os
 import pickle
+import signal
+import subprocess
 import sys
 from collections.abc import AsyncIterator, Awaitable, Callable
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import asynccontextmanager
 from functools import partial
 from pathlib import Path
-from tempfile import TemporaryDirectory
+from tempfile import TemporaryDirectory, mkstemp
 from threading import Event
 from typing import Any, ParamSpec, TypeVar, cast
 
@@ -55,23 +57,38 @@ class ProcessExecutionDomain:
             (function.__module__, function.__qualname__, args, kwargs),
             protocol=pickle.HIGHEST_PROTOCOL,
         )
-        process = await asyncio.create_subprocess_exec(
-            sys.executable, "-m", "pdf_craft._process_worker", self.name,
-            stdin=asyncio.subprocess.PIPE,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-        )
+        registry_path = await asyncio.to_thread(_create_process_group_registry)
+        process: asyncio.subprocess.Process | None = None
         try:
-            stdout, stderr = await process.communicate(request)
-        except asyncio.CancelledError:
-            if process.returncode is None:
-                process.terminate()
-                try:
-                    await asyncio.wait_for(process.wait(), timeout=2)
-                except asyncio.TimeoutError:
-                    process.kill()
-                    await process.wait()
-            raise
+            process = await asyncio.create_subprocess_exec(
+                sys.executable, "-m", "pdf_craft._process_worker", self.name,
+                stdin=asyncio.subprocess.PIPE,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+                env={
+                    **os.environ,
+                    "PDF_CRAFT_PROCESS_GROUP_REGISTRY": str(registry_path),
+                },
+                **_process_group_options(),
+            )
+            try:
+                stdout, stderr = await process.communicate(request)
+            except asyncio.CancelledError:
+                await asyncio.to_thread(
+                    _terminate_registered_process_groups, registry_path,
+                )
+                await _terminate_async_process(process, process_tree=True)
+                await asyncio.to_thread(
+                    _terminate_registered_process_groups, registry_path,
+                )
+                raise
+        finally:
+            if process is not None and process.returncode not in (None, 0):
+                await asyncio.to_thread(
+                    _terminate_registered_process_groups, registry_path,
+                )
+            await asyncio.to_thread(registry_path.unlink, missing_ok=True)
+        assert process is not None
         if process.returncode:
             detail = stderr.decode(errors="replace").strip()
             raise RuntimeError(
@@ -220,20 +237,190 @@ async def run_subprocess(
         stdin=asyncio.subprocess.PIPE if input_data is not None else None,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
+        **_process_group_options(),
     )
+    registry_path = _process_group_registry_path()
+    if registry_path is not None:
+        _register_process_group(registry_path, process.pid)
     try:
         stdout, stderr = await process.communicate(input_data)
     except asyncio.CancelledError:
-        process.terminate()
-        try:
-            await asyncio.wait_for(process.wait(), timeout=2)
-        except asyncio.TimeoutError:
-            process.kill()
-            await process.wait()
+        await _terminate_async_process(process, process_tree=True)
         raise
+    finally:
+        if process.returncode is not None:
+            _signal_process(process.pid, signal.SIGKILL, process_tree=True)
+        if registry_path is not None:
+            _unregister_process_group(registry_path, process.pid)
     if process.returncode:
         detail = stderr.decode(errors="replace").strip()
         raise RuntimeError(
             f"Command {command[0]!r} failed with exit code {process.returncode}: {detail}"
         )
     return stdout, stderr
+
+
+def run_subprocess_sync(
+    *command: str,
+    aborted: Callable[[], bool] | None = None,
+) -> tuple[bytes, bytes]:
+    """Run a command in a worker thread with cooperative tree cancellation."""
+    process = cast(subprocess.Popen[bytes], subprocess.Popen(  # pylint: disable=consider-using-with
+        command,
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=False,
+        **_process_group_options(),
+    ))
+    try:
+        while True:
+            try:
+                stdout, stderr = process.communicate(timeout=0.05)
+                break
+            except subprocess.TimeoutExpired as error:
+                if aborted is not None and aborted():
+                    _terminate_sync_process(process, process_tree=True)
+                    raise asyncio.CancelledError from error
+    finally:
+        if process.poll() is None:
+            _terminate_sync_process(process, process_tree=True)
+        elif os.name != "nt":
+            _signal_process(process.pid, signal.SIGKILL, process_tree=True)
+        if process.stdout is not None:
+            process.stdout.close()
+        if process.stderr is not None:
+            process.stderr.close()
+    if process.returncode:
+        detail = stderr.decode(errors="replace").strip()
+        raise RuntimeError(
+            f"Command {command[0]!r} failed with exit code {process.returncode}: {detail}"
+        )
+    return stdout, stderr
+
+
+def _process_group_options() -> dict[str, Any]:
+    if os.name == "nt":
+        return {"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP}
+    return {"start_new_session": True}
+
+
+def _create_process_group_registry() -> Path:
+    descriptor, raw_path = mkstemp(prefix="pdf-craft-process-groups-")
+    os.close(descriptor)
+    return Path(raw_path)
+
+
+def _process_group_registry_path() -> Path | None:
+    raw_path = os.environ.get("PDF_CRAFT_PROCESS_GROUP_REGISTRY")
+    return Path(raw_path) if raw_path else None
+
+
+def _register_process_group(path: Path, pid: int) -> None:
+    with path.open("a", encoding="ascii") as registry:
+        registry.write(f"{pid}\n")
+
+
+def _unregister_process_group(path: Path, pid: int) -> None:
+    try:
+        registered = {
+            int(value) for value in path.read_text(encoding="ascii").splitlines()
+            if value.isdigit() and int(value) != pid
+        }
+        path.write_text(
+            "".join(f"{value}\n" for value in sorted(registered)),
+            encoding="ascii",
+        )
+    except FileNotFoundError:
+        pass
+
+
+def _terminate_registered_process_groups(path: Path) -> None:
+    try:
+        pids = {
+            int(value) for value in path.read_text(encoding="ascii").splitlines()
+            if value.isdigit()
+        }
+    except FileNotFoundError:
+        return
+    for pid in pids:
+        if os.name == "nt":
+            subprocess.run(
+                ("taskkill", "/PID", str(pid), "/T", "/F"),
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                check=False,
+            )
+        else:
+            _signal_process(pid, signal.SIGKILL, process_tree=True)
+
+
+async def _terminate_async_process(
+    process: asyncio.subprocess.Process,
+    *,
+    process_tree: bool,
+) -> None:
+    if process.returncode is not None:
+        return
+    if os.name == "nt" and process_tree:
+        killer = await asyncio.create_subprocess_exec(
+            "taskkill", "/PID", str(process.pid), "/T", "/F",
+            stdout=asyncio.subprocess.DEVNULL,
+            stderr=asyncio.subprocess.DEVNULL,
+        )
+        await killer.wait()
+    else:
+        _signal_process(process.pid, signal.SIGTERM, process_tree=process_tree)
+    try:
+        await asyncio.wait_for(process.wait(), timeout=2)
+    except asyncio.TimeoutError:
+        if os.name == "nt":
+            process.kill()
+        else:
+            _signal_process(process.pid, signal.SIGKILL, process_tree=process_tree)
+        await process.wait()
+    finally:
+        if process_tree and os.name != "nt":
+            # The group leader can exit before a descendant that ignored
+            # SIGTERM. The process group remains addressable until its final
+            # member exits, so force-reap any survivor after the worker ends.
+            _signal_process(process.pid, signal.SIGKILL, process_tree=True)
+
+
+def _terminate_sync_process(
+    process: subprocess.Popen[bytes],
+    *,
+    process_tree: bool,
+) -> None:
+    if process.poll() is not None:
+        return
+    if os.name == "nt" and process_tree:
+        subprocess.run(
+            ("taskkill", "/PID", str(process.pid), "/T", "/F"),
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            check=False,
+        )
+    else:
+        _signal_process(process.pid, signal.SIGTERM, process_tree=process_tree)
+    try:
+        process.wait(timeout=2)
+    except subprocess.TimeoutExpired:
+        if os.name == "nt":
+            process.kill()
+        else:
+            _signal_process(process.pid, signal.SIGKILL, process_tree=process_tree)
+        process.wait()
+    finally:
+        if process_tree and os.name != "nt":
+            _signal_process(process.pid, signal.SIGKILL, process_tree=True)
+
+
+def _signal_process(pid: int, sig: signal.Signals, *, process_tree: bool) -> None:
+    try:
+        if process_tree and os.name != "nt":
+            os.killpg(pid, sig)
+        else:
+            os.kill(pid, sig)
+    except ProcessLookupError:
+        pass

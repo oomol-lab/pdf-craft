@@ -28,6 +28,10 @@ awaited. Cancelling an async task cancels native network/subprocess work and
 signals cooperative blocking stages through their abort callback. The await
 does not finish cancelling until that worker has unwound, so temporary
 workspaces remain valid through its final writes and cleanup.
+External tools such as `pdftotext`, Ghostscript, and LaTeX run in tracked
+process groups. Cancellation or an internal timeout terminates the command and
+its descendants; Qt-worker cancellation also reaps every command group the
+worker registered before the worker itself exits.
 
 Extension authors can implement `AsyncChapterTransformer` with
 `async def transform(chapter)`; the async façade awaits it directly on the

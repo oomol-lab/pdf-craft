@@ -9,7 +9,7 @@ translation-facing ``furnitures.xml`` leaves this module.
 from __future__ import annotations
 
 from collections import Counter
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 import json
 from pathlib import Path
@@ -19,7 +19,7 @@ from xml.etree import ElementTree as ET
 
 from pypdf import PdfReader
 from pypdf.errors import PdfReadError
-from ..runtime import run_subprocess, run_sync
+from ..runtime import run_subprocess_sync
 
 from ..common import indent, save_xml
 from ..extractor.toc.types import TocInfo, iter_toc
@@ -95,6 +95,7 @@ def extract_furnitures(
     *,
     toc: TocInfo | None = None,
     dpi: int = 300,
+    aborted: Callable[[], bool] = lambda: False,
 ) -> ET.Element:
     """Extract native text not covered by OCR flow boxes.
 
@@ -105,7 +106,7 @@ def extract_furnitures(
     """
     del dpi
     toc_page_indexes = set(toc.page_indexes) if toc is not None else set()
-    pages = _native_pages(pdf_path, ocr_path)
+    pages = _native_pages(pdf_path, ocr_path, aborted=aborted)
     for page_index, sections in pages.items():
         if page_index in toc_page_indexes:
             continue
@@ -176,8 +177,14 @@ def write_furnitures(
     *,
     toc: TocInfo | None = None,
     dpi: int = 300,
+    aborted: Callable[[], bool] = lambda: False,
 ) -> None:
-    save_xml(extract_furnitures(pdf_path, ocr_path, toc=toc, dpi=dpi), destination)
+    save_xml(
+        extract_furnitures(
+            pdf_path, ocr_path, toc=toc, dpi=dpi, aborted=aborted,
+        ),
+        destination,
+    )
 
 
 def _toc_headings(ocr_path: Path, toc: TocInfo) -> dict[int, str]:
@@ -284,7 +291,12 @@ def _explicit_page_labels(pdf_path: Path) -> dict[int, str]:
         return {}
 
 
-def _native_pages(pdf_path: Path, ocr_path: Path) -> dict[int, list[FurnitureSection]]:
+def _native_pages(
+    pdf_path: Path,
+    ocr_path: Path,
+    *,
+    aborted: Callable[[], bool] = lambda: False,
+) -> dict[int, list[FurnitureSection]]:
     """Read exact Poppler-native text lines in the OCR coordinate space.
 
     pypdf's visitor callback can lose Form-XObject transforms. In particular it
@@ -292,18 +304,12 @@ def _native_pages(pdf_path: Path, ocr_path: Path) -> dict[int, list[FurnitureSec
     ``pdftotext -bbox-layout`` executable belongs to the Poppler installation
     already required to rasterize PDFs and exposes line/word boxes directly.
     """
-    return run_sync(_native_pages_async(pdf_path, ocr_path))
-
-
-async def _native_pages_async(
-    pdf_path: Path, ocr_path: Path,
-) -> dict[int, list[FurnitureSection]]:
-    """Async Poppler boundary used by both async and worker-backed callers."""
     available_pages = _available_ocr_pages(ocr_path)
     page_sizes = _read_page_sizes(ocr_path / "page_pixel_sizes.json")
     try:
-        stdout, _ = await run_subprocess(
+        stdout, _ = run_subprocess_sync(
             "pdftotext", "-bbox-layout", str(pdf_path), "-",
+            aborted=aborted,
         )
         root = ET.fromstring(stdout.decode("utf-8"))
     except (FileNotFoundError, RuntimeError, ET.ParseError):

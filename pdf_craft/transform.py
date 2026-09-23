@@ -138,6 +138,7 @@ class PDFExtractionEngine:
                 pdf_path, pages_path, extraction_paths.furnitures,
                 toc=toc,
                 dpi=dpi if dpi is not None else 300,
+                aborted=aborted,
             )
         if cover_path and not cover_path.exists():
             cover_path = None
