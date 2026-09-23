@@ -14,6 +14,7 @@ from contextlib import AbstractAsyncContextManager
 from pathlib import Path
 from typing import Self, cast
 
+import httpx
 import openai
 from openai.types.chat import ChatCompletionMessageParam
 
@@ -83,21 +84,40 @@ class LLMRuntime:
             {"role": message.role.name.lower(), "content": message.message} for message in messages
         ])
         async with self._limiter:
-            # Scope the client to its event loop. This remains safe when the
-            # legacy sync adapter is used by a dedicated translation worker.
-            async with openai.AsyncOpenAI(
-                api_key=self.config.key, base_url=self.config.url,
-                timeout=self.config.timeout, max_retries=0,
-            ) as client:
-                stream = await client.chat.completions.create(
-                    model=self.config.model, messages=converted, stream=True,
-                    top_p=top_p, temperature=temperature, max_tokens=max_tokens,
+            try:
+                return await self._invoke_stream(
+                    converted, max_tokens, temperature, top_p, force_ipv4=False,
                 )
-                parts: list[str] = []
-                async for chunk in stream:
-                    if chunk.choices and chunk.choices[0].delta.content:
-                        parts.append(chunk.choices[0].delta.content)
-                return "".join(parts)
+            except (openai.APIConnectionError, httpx.ConnectError) as error:
+                if not _caused_by_connect_error(error):
+                    raise
+                return await self._invoke_stream(
+                    converted, max_tokens, temperature, top_p, force_ipv4=True,
+                )
+
+    async def _invoke_stream(
+        self, messages: list[ChatCompletionMessageParam], max_tokens,
+        temperature, top_p, *, force_ipv4: bool,
+    ) -> str:
+        http_client = (
+            httpx.AsyncClient(transport=httpx.AsyncHTTPTransport(local_address="0.0.0.0"))
+            if force_ipv4 else None
+        )
+        # Scope the client to its event loop. This remains safe when the
+        # legacy sync adapter is used by a dedicated translation worker.
+        async with openai.AsyncOpenAI(
+            api_key=self.config.key, base_url=self.config.url,
+            timeout=self.config.timeout, max_retries=0, http_client=http_client,
+        ) as client:
+            stream = await client.chat.completions.create(
+                model=self.config.model, messages=messages, stream=True,
+                top_p=top_p, temperature=temperature, max_tokens=max_tokens,
+            )
+            parts: list[str] = []
+            async for chunk in stream:
+                if chunk.choices and chunk.choices[0].delta.content:
+                    parts.append(chunk.choices[0].delta.content)
+            return "".join(parts)
 
     async def _invoke_for_request(self, messages, max_tokens, temperature, top_p) -> str:
         # Preserve the established test/custom transport seam. Production has
@@ -227,6 +247,17 @@ class LLMContext(AbstractAsyncContextManager["LLMContext"]):
 
 def runtime_for(config: LLM, *, protocol_version: str = "1") -> LLMRuntime:
     return LLMRuntime(config, protocol_version=protocol_version)
+
+
+def _caused_by_connect_error(error: BaseException) -> bool:
+    current: BaseException | None = error
+    visited: set[int] = set()
+    while current is not None and id(current) not in visited:
+        if isinstance(current, httpx.ConnectError):
+            return True
+        visited.add(id(current))
+        current = current.__cause__ or current.__context__
+    return False
 
 
 def _read_cached(path: Path) -> str | None:

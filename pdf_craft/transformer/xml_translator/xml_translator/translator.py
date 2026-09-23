@@ -5,6 +5,7 @@ from typing import Generic, TypeVar
 from xml.etree.ElementTree import Element
 
 from pdf_craft.llm import LLM, Message, MessageRole, runtime_for
+from pdf_craft.language import is_han_char, is_latin_letter
 from pdf_craft.llm.loop import (
     _BlockingRepairLoopOptions,
     _run_repair_loop_blocking,
@@ -27,6 +28,17 @@ from .submitter import SubmitKind, submit
 T = TypeVar("T")
 SourceTextRenderer = Callable[[list[InlineSegment]], str]
 CanonicalTextValidator = Callable[[list[InlineSegment], str, Element], str | None]
+
+
+def _already_in_target_language(text: str, target_language: str) -> bool:
+    normalized = target_language.strip().casefold().replace("_", "-")
+    if normalized not in {
+        "zh", "zh-cn", "zh-hans", "chinese", "simplified chinese", "中文", "简体中文",
+    }:
+        return False
+    han_count = sum(is_han_char(char) for char in text)
+    latin_count = sum(is_latin_letter(char) for char in text)
+    return han_count >= 2 and han_count >= latin_count
 
 
 def _groups_by_source_unit_owner(
@@ -531,6 +543,8 @@ class XMLTranslator:
                 yield text_segment.text
 
     def _translate_text(self, text: str) -> str:
+        if _already_in_target_language(text, self._target_language):
+            return text
         with self._translation_runtime.context(cache_seed_content=self._cache_seed_content) as ctx:
             return ctx._request_blocking(
                 input=[
@@ -546,6 +560,8 @@ class XMLTranslator:
             )
 
     async def _translate_text_async(self, text: str) -> str:
+        if _already_in_target_language(text, self._target_language):
+            return text
         template = await self._translation_llm._template_async("translate")
         async with self._translation_runtime.context(
             cache_seed_content=self._cache_seed_content

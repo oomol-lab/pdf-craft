@@ -3,9 +3,13 @@ import tempfile
 import unittest
 from os import chdir
 from pathlib import Path
+from unittest.mock import AsyncMock, Mock
+
+import httpx
 
 from pdf_craft.llm import LLM, Message, MessageRole, runtime_for
 from pdf_craft.llm.runtime import LLMEmptyResponseError, LLMTransportError
+from pdf_craft.transformer.xml_translator import XMLTranslator
 
 
 def _config(path: Path) -> LLM:
@@ -83,6 +87,33 @@ class TestLLMRuntime(unittest.IsolatedAsyncioTestCase):
                 await runtime.request("hello", use_cache=False)
             self.assertEqual(raised.exception.attempts, 1)
             self.assertIsInstance(raised.exception.__cause__, ValueError)
+
+    async def test_async_transport_retries_connect_failure_over_ipv4(self):
+        with tempfile.TemporaryDirectory() as directory:
+            runtime = runtime_for(_config(Path(directory)))
+            invoke = AsyncMock(side_effect=[httpx.ConnectError("TLS failed"), "ok"])
+            runtime._invoke_stream = invoke  # type: ignore[method-assign]
+
+            result = await runtime._invoke_async(
+                [Message(MessageRole.USER, "hello")], None, None, None,
+            )
+
+            self.assertEqual(result, "ok")
+            self.assertEqual(
+                [call.kwargs["force_ipv4"] for call in invoke.await_args_list],
+                [False, True],
+            )
+
+    async def test_chinese_target_preserves_chinese_dominant_text_without_llm(self):
+        config = LLM("key", "https://example.invalid/v1", "model", "o200k_base")
+        translator = XMLTranslator(config, config, "zh", None, False, 1, 3, 10_000)
+        runtime = Mock()
+        translator._translation_runtime = runtime  # type: ignore[assignment]
+        source = "这是已经写成中文的正文，其中保留 API 和 Lacan 等专名。"
+
+        self.assertEqual(translator._translate_text(source), source)
+        self.assertEqual(await translator._translate_text_async(source), source)
+        runtime.context.assert_not_called()
 
 
 if __name__ == "__main__":
