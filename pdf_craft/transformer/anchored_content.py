@@ -57,16 +57,15 @@ class AnchoredContentTransformer(Protocol):
     and is otherwise treated as an invalid batch response.
     """
 
-    def transform_assets(
+    async def transform_assets(
         self,
         assets: Sequence[AnchoredContent],
     ) -> Sequence[AnchoredContentTranslation | None]: ...
 
 
-class AsyncAnchoredContentTransformer(Protocol):
-    """Native async extension contract for anchored image/table translation."""
-
-    async def transform_assets(
+class SyncAnchoredContentTransformer(Protocol):
+    """Synchronous transformer accepted only by compatibility facades."""
+    def transform_assets(
         self,
         assets: Sequence[AnchoredContent],
     ) -> Sequence[AnchoredContentTranslation | None]: ...

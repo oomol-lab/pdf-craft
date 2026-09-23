@@ -53,7 +53,7 @@ class PDFExtractionEngine:
         """Extraction hook used by :class:`~pdf_craft.extractor.PDFExtractor`."""
         return self._extract_from_pdf(**kwargs)
 
-    async def prepare_extract_async(
+    async def prepare_extract(
         self,
         *,
         pdf_path: Path,
@@ -177,7 +177,7 @@ class PDFExtractionEngine:
             page_pixel_sizes=self._ocr.last_page_pixel_sizes,
         )
         write_manifest(extraction_path, document_metadata=document_metadata)
-        PDFCraftExtraction._from_workspace(extraction_path).validate()
+        PDFCraftExtraction._from_workspace(extraction_path)._validate()
         return assets_path, chapters_path, toc_path, cover_path, metering
 
     def _extract_book_metadata(

@@ -170,7 +170,7 @@ async def _translate_position_async(
         if not prefix and not suffix:
             return "preserved"
         try:
-            result = await transformer.transform_position_async(FurniturePosition(
+            result = await transformer.transform_position(FurniturePosition(
                 int(pattern_id), int(position_id), kind,
                 prefix + _FOLIO_MARKER + suffix,
             ))
@@ -196,7 +196,7 @@ async def _translate_position_async(
         position.text = title
         return "translated"
     try:
-        result = await transformer.transform_position_async(FurniturePosition(
+        result = await transformer.transform_position(FurniturePosition(
             int(pattern_id), int(position_id), kind, position.text or "",
         ))
     except Exception:
@@ -215,7 +215,7 @@ async def _translate_page_sections_async(
     if not entries:
         return []
     try:
-        translated = await transformer.transform_sections_async(
+        translated = await transformer.transform_sections(
             int(page_index), [section for _, section in entries],
         )
     except Exception:

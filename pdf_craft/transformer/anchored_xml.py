@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
+import inspect
 from typing import Protocol, cast
 from xml.etree.ElementTree import Element
 
@@ -29,7 +30,7 @@ class XMLTaskTranslator(Protocol):
 
 
 class AsyncXMLTaskTranslator(Protocol):
-    async def translate_element_async(
+    async def translate_element(
         self,
         task: TranslationTask[object],
         **kwargs,
@@ -41,13 +42,13 @@ class AnchoredContentXMLTransformer:
 
     def __init__(
         self,
-        translator: XMLTaskTranslator,
+        translator: XMLTaskTranslator | AsyncXMLTaskTranslator,
         mode: SubmitKind = SubmitKind.REPLACE,
     ) -> None:
         self._translator = translator
         self._mode = mode
 
-    def transform_assets(
+    def _transform_assets_blocking(
         self,
         assets: Sequence[AnchoredContent],
     ) -> Sequence[AnchoredContentTranslation | None]:
@@ -74,7 +75,7 @@ class AnchoredContentXMLTransformer:
                 asset.insert(0, context)
 
         formula_interrupter = ChapterFormulaInterrupter()
-        translated, _ = self._translator.translate_element(
+        translated, _ = cast(XMLTaskTranslator, self._translator).translate_element(
             TranslationTask(
                 element=element,
                 action=self._mode,
@@ -112,12 +113,12 @@ class AnchoredContentXMLTransformer:
             for identity, asset in ((item.identity, translated_assets[item.identity]) for item in assets)
         )
 
-    async def transform_assets_async(
+    async def transform_assets(
         self,
         assets: Sequence[AnchoredContent],
     ) -> Sequence[AnchoredContentTranslation | None]:
-        if not hasattr(self._translator, "translate_element_async"):
-            return await TRANSLATION_DOMAIN.run(self.transform_assets, assets)
+        if not inspect.iscoroutinefunction(self._translator.translate_element):
+            return await TRANSLATION_DOMAIN.run(self._transform_assets_blocking, assets)
         if not assets:
             return ()
         source = Chapter(None, -1, [StandaloneAsset(item.asset) for item in assets])
@@ -137,7 +138,7 @@ class AnchoredContentXMLTransformer:
 
         formula_interrupter = ChapterFormulaInterrupter()
         translator = cast(AsyncXMLTaskTranslator, self._translator)
-        translated, _ = await translator.translate_element_async(
+        translated, _ = await translator.translate_element(
             TranslationTask(
                 element=element,
                 action=self._mode,

@@ -304,7 +304,7 @@ class TestSmokeMatrix(unittest.TestCase):
     def test_page_indexes_are_forwarded_to_public_extractor(self):
         with tempfile.TemporaryDirectory() as directory:
             transform = _CaptureTransform()
-            PDFExtractor(transform).extract(
+            PDFExtractor(transform)._extract_blocking(
                 Path("source.pdf"), Path(directory) / "book.pcex", page_indexes=(2, 4)
             )
             kwargs = transform.kwargs
@@ -364,7 +364,7 @@ class TestSmokeMatrix(unittest.TestCase):
                 translation={"package_marker": "[translated]", "package_submit": "APPEND_BLOCK"},
             )
             asset = SmokeAsset("pdf/double_column.pdf", "pdf", Path("source.pdf"))
-            from pdf_craft.craft import PDFCraft
+            from pdf_craft import PDFCraft
             craft = PDFCraft()
             with patch("pdf_craft_tool.smoke.runner.PDFCraft", return_value=craft), \
                     patch.object(craft, "extract_pdf_with_metering", return_value=(

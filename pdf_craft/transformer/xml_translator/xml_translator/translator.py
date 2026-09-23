@@ -6,12 +6,12 @@ from xml.etree.ElementTree import Element
 
 from pdf_craft.llm import LLM, Message, MessageRole, runtime_for
 from pdf_craft.llm.loop import (
-    AsyncRepairLoopOptions,
+    _BlockingRepairLoopOptions,
+    _run_repair_loop_blocking,
     ProtocolRetry,
     ProtocolSuccess,
     RepairLoopOptions,
     run_repair_loop,
-    run_repair_loop_async,
 )
 from pdf_craft.runtime import invoke_callback
 from pdf_craft.transformer.xml_translator.segment import (
@@ -100,12 +100,12 @@ class XMLTranslator:
     async def _stream_mapper_async(self) -> XMLStreamMapper:
         if self._stream_mapper is None:
             self._stream_mapper = XMLStreamMapper(
-                encoding=await self._translation_llm.encoding_async(),
+                encoding=await self._translation_llm._encoding_async(),
                 max_group_score=self._max_group_score,
             )
         return self._stream_mapper
 
-    def translate_element(
+    def _translate_element_blocking(
         self,
         task: TranslationTask[T],
         concurrency: int = 1,
@@ -122,7 +122,7 @@ class XMLTranslator:
         emit_scope_events: bool = True,
         emit_item_events: bool = True,
     ) -> tuple[Element, T]:
-        translated_elements = self.translate_elements(
+        translated_elements = self._translate_elements_blocking(
             tasks=((task),),
             concurrency=concurrency,
             interrupt_source_text_segments=interrupt_source_text_segments,
@@ -148,20 +148,20 @@ class XMLTranslator:
 
         raise RuntimeError("Translation failed unexpectedly")
 
-    async def translate_element_async(
+    async def translate_element(
         self,
         task: TranslationTask[T],
         concurrency: int = 1,
         **kwargs,
     ) -> tuple[Element, T]:
-        translated = await self.translate_elements_async(
+        translated = await self.translate_elements(
             tasks=(task,), concurrency=concurrency, **kwargs,
         )
         if translated:
             return translated[0]
         raise RuntimeError("Translation failed unexpectedly")
 
-    async def translate_elements_async(
+    async def translate_elements(
         self,
         tasks: Iterable[TranslationTask[T]],
         concurrency: int = 1,
@@ -268,7 +268,7 @@ class XMLTranslator:
             ))
         return results
 
-    def translate_elements(
+    def _translate_elements_blocking(
         self,
         tasks: Iterable[TranslationTask[T]],
         concurrency: int = 1,
@@ -491,7 +491,7 @@ class XMLTranslator:
         canonical_text_validator: CanonicalTextValidator | None,
     ) -> list[InlineSegmentMapping | None]:
         hill_climbing = HillClimbing(
-            encoding=await self._fill_llm.encoding_async(),
+            encoding=await self._fill_llm._encoding_async(),
             max_fill_displaying_errors=self._max_fill_displaying_errors,
             block_segment=BlockSegment(
                 root_tag="xml",
@@ -532,7 +532,7 @@ class XMLTranslator:
 
     def _translate_text(self, text: str) -> str:
         with self._translation_runtime.context(cache_seed_content=self._cache_seed_content) as ctx:
-            return ctx.request(
+            return ctx._request_blocking(
                 input=[
                     Message(
                         role=MessageRole.SYSTEM,
@@ -546,11 +546,11 @@ class XMLTranslator:
             )
 
     async def _translate_text_async(self, text: str) -> str:
-        template = await self._translation_llm.template_async("translate")
+        template = await self._translation_llm._template_async("translate")
         async with self._translation_runtime.context(
             cache_seed_content=self._cache_seed_content
         ) as ctx:
-            return await ctx.request_async(input=[
+            return await ctx.request(input=[
                 Message(
                     role=MessageRole.SYSTEM,
                     message=template.render(
@@ -634,9 +634,9 @@ class XMLTranslator:
                     ))
                     return None
 
-            run_repair_loop(RepairLoopOptions(
+            _run_repair_loop_blocking(_BlockingRepairLoopOptions(
                 messages=fixed_messages,
-                request=lambda current, index, maximum: llm_context.request(
+                request=lambda current, index, maximum: llm_context._request_blocking(
                     current, retry_index=index, retry_max=maximum, use_cache=False),
                 protocol=_XMLProtocol(), state=None,
                 max_attempts=max(1, self._max_retries),
@@ -663,7 +663,7 @@ class XMLTranslator:
                 "translation above. <anchor .../> nodes are zero-width structural "
                 "tokens: do not add a space or any character on either side of one."
             )
-        fill_template = await self._fill_llm.template_async("fill")
+        fill_template = await self._fill_llm._template_async("fill")
         fixed_messages = [
             Message(MessageRole.SYSTEM, fill_template.render()),
             Message(MessageRole.USER, user_message),
@@ -716,9 +716,9 @@ class XMLTranslator:
                     )
                     return None
 
-            await run_repair_loop_async(AsyncRepairLoopOptions(
+            await run_repair_loop(RepairLoopOptions(
                 messages=fixed_messages,
-                request=lambda current, index, maximum: llm_context.request_async(
+                request=lambda current, index, maximum: llm_context.request(
                     current, retry_index=index, retry_max=maximum, use_cache=False,
                 ),
                 protocol=_XMLProtocol(),

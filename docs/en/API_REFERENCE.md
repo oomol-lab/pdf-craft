@@ -40,10 +40,10 @@ timeout terminates the command and its descendants; successful and failed
 commands also reap descendants that outlive their parent. Qt-worker
 cancellation performs this cleanup before the worker itself exits.
 
-Extension authors can implement `AsyncChapterTransformer` with
+Extension authors implement the async-only `ChapterTransformer` protocol with
 `async def transform(chapter)`; the async façade awaits it directly on the
-caller loop. Independent image/table translation likewise accepts
-`AsyncAnchoredContentTransformer` with `async def transform_assets(assets)`.
+caller loop. Independent image/table translation likewise uses the async-only
+`AnchoredContentTransformer` protocol with `async def transform_assets(assets)`.
 `PDFOptions.pdf_handler` also accepts `AsyncPDFHandler`, whose
 `open()` returns an `AsyncPDFDocument` with awaitable `pages_count()`,
 `metadata()`, `page_size()`, `render_page()`, and `close()` methods. The SDK
@@ -61,17 +61,15 @@ adapter over the async implementation. It must not be called
 from a thread that already has a running event loop; doing so raises a clear
 `RuntimeError` instead of nesting an event loop. Use `AsyncPDFCraft` there.
 
-`PDFCraftExtraction` also provides async persistence and metadata methods:
-`open_async`, `validate_async`, `export_async`, `page_pixel_sizes_async`,
-`render_dpi_async`, `document_metadata_async`, `book_meta_async`, and
-`language_async`. Component users can call
-`PDFExtractor.extract_async`, `MarkdownRenderer.render_async`, and
-`EpubRenderer.render_async`. Model preloading is available as
-`predownload_models_async`.
-
-The standalone existing-EPUB entry is likewise available as
-`translate_epub_async`; await it instead of calling `translate_epub` in an
-async application.
+Choose the façade once, then use the same method names in that mode.
+`PDFCraftExtraction` is an opaque handle: open and export it through
+`PDFCraft.open_extraction()` / `export_extraction()` or their awaitable
+`AsyncPDFCraft` counterparts, then pass it back to façade methods. Advanced
+components are async-only and use unsuffixed methods:
+`PDFExtractor.extract`, `MarkdownRenderer.render`, `EpubRenderer.render`, and
+the transformer APIs. Existing-EPUB translation is likewise a façade method.
+Model preloading is deliberately setup-only and remains the synchronous
+`predownload_models(...)` function.
 
 ## `PDFCraft`
 
@@ -85,6 +83,8 @@ craft = PDFCraft(pdf=PDFOptions(ocr=your_ocr_config))
 
 | Method | Signature and purpose |
 | --- | --- |
+| `open_extraction` | `open_extraction(path) -> PDFCraftExtraction` opens and validates a `.pcex` as an opaque handle. |
+| `export_extraction` | `export_extraction(extraction, path) -> PDFCraftExtraction` writes a handle to a new `.pcex`. |
 | `extract_pdf` | `extract_pdf(source, extraction_path, options=None, *, analysing_path=None) -> PDFCraftExtraction` extracts a PDF into a persistent `.pcex` archive. |
 | `extract_pdf_with_metering` | `extract_pdf_with_metering(source, extraction_path, options=None, *, analysing_path=None) -> tuple[PDFCraftExtraction, OCRTokensMetering]` is the same extraction with OCR token accounting. |
 | `render_markdown` | `render_markdown(extraction, output, assets_path=None, *, aborted=...)` writes Markdown and optional assets from a `PDFCraftExtraction` or `.pcex` path. |
@@ -212,9 +212,8 @@ The following classes are exposed for applications that need custom structured t
 | `ChapterXMLTransformer` | Adapts XML-oriented work to chapter transformation. |
 | `AnchoredContentXMLTransformer` | Adapts XML-oriented work to independent image/table text translation, validating each immutable asset slot before applying fields. |
 | `AnchoredContentTransformer` | Protocol for contextual batches of extracted image/table text; every non-preserved result carries its source `identity`. |
-| `AsyncAnchoredContentTransformer` | Awaitable version of the anchored-content extension protocol, executed on the caller's event loop. |
 | `ChapterExtractionTransformer` | Applies a chapter transformer across an extraction and writes a new `.pcex`. |
-| `ExtractionTransformer` | Public protocol for `transform(extraction, output_path) -> PDFCraftExtraction`. |
+| `ExtractionTransformer` | Async public protocol for `await transform(extraction, output_path) -> PDFCraftExtraction`. |
 | `XMLTranslator` | XML-aware translation engine for integrations that need direct structured translation. |
 | `FillFailedEvent` | Information passed to EPUB XML-repair failure callbacks. |
 
@@ -279,8 +278,8 @@ The patcher merges two independent overlays over a Ghostscript-compiled, fontles
 
 ## Other useful exports
 
-- `PDFCraftExtraction` represents a validated extracted or transformed document. Use `PDFCraftExtraction.open("book.pcex")` to load the portable ZIP-based artifact. Ordinary directories are intentionally not public inputs.
-- `PDFExtractor`, `MarkdownRenderer`, and `EpubRenderer` are the component-level extraction and rendering APIs behind the façade.
+- `PDFCraftExtraction` is an opaque handle for a validated extracted or transformed document. Use `PDFCraft.open_extraction("book.pcex")` or `await AsyncPDFCraft.open_extraction(...)` to load it. Ordinary directories are intentionally not public inputs.
+- `PDFExtractor`, `MarkdownRenderer`, and `EpubRenderer` are async-only component APIs behind the façade; their `extract` and `render` methods must be awaited.
 - `OCRTokensMetering` exposes `input_tokens` and `output_tokens`.
 - `OCREvent` and `OCREventKind` support per-page progress and diagnostics.
 - `predownload_models(...)` prepares local OCR models before an offline `local_only=True` run.

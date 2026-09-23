@@ -31,7 +31,7 @@ class LLM:
     def encoding(self) -> Encoding:
         return self._load_encoding()
 
-    async def encoding_async(self) -> Encoding:
+    async def _encoding_async(self) -> Encoding:
         """Load tiktoken's first-use resources outside the event loop."""
         return await IO_DOMAIN.run(self._load_encoding)
 
@@ -44,7 +44,7 @@ class LLM:
     def template(self, template_name: str) -> Template:
         return self._load_template(template_name)
 
-    async def template_async(self, template_name: str) -> Template:
+    async def _template_async(self, template_name: str) -> Template:
         """Read and compile a prompt template on the filesystem domain."""
         return await IO_DOMAIN.run(self._load_template, template_name)
 

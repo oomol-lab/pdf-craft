@@ -10,7 +10,7 @@ Extractor 生成 PDFCraftExtraction 后，Renderer 可直接生成 Markdown 或 
 可以在渲染前修改结构化文本；`pipeline/epub` 也可把既有 EPUB 的 XHTML、目录和元数据交给
 同一个 XML Transformer。PDF Translation Pipeline 只处理已记录来源 bbox 内的文本。
 
-`PDFCraft.convert_pdf_to_markdown()` 和 `PDFCraft.convert_pdf_to_epub()` 会先提取到内部 workspace，
+`AsyncPDFCraft.convert_pdf_to_markdown()` 和 `AsyncPDFCraft.convert_pdf_to_epub()` 会先提取到内部 workspace，
 再渲染目标输出。提取流程是：
 
 1. 通过 `PDFHandler` 渲染 PDF 页面。
@@ -65,6 +65,8 @@ analysis 与稳定 extraction 明确分离：
 `PDFCraftExtraction`。一键转换直接使用 workspace，只有显式 `extraction_path` 时才额外导出
 `.pcex`，避免压缩往返。翻译后的 `.pcex` 必须保留 manifest、pages、TOC、封面、furniture、
 覆盖记录和资源。
+`PDFCraftExtraction` 只作为 opaque handle 流转；归档的打开、校验和导出由 `AsyncPDFCraft`
+负责，`PDFCraft` 仅同步转发这些操作。
 
 修改 XML schema、文件命名或跳过语义会影响多个模块，应视为跨流水线变更，并配套有针对性的测试。
 

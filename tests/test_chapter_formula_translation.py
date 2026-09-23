@@ -1,5 +1,7 @@
 """PCEX formula interruption tests without network-backed language models."""
 
+# pylint: disable=protected-access
+
 from __future__ import annotations
 
 import unittest
@@ -113,7 +115,7 @@ class TestChapterFormulaTranslation(unittest.TestCase):
         ])
         translator = _FormulaAwareTranslator()
 
-        translated = ChapterXMLTransformer(translator).transform(chapter)
+        translated = ChapterXMLTransformer(translator)._transform_blocking(chapter)
 
         source = "\n".join(translator.model_sources)
         self.assertIn("$x^2$", source)
@@ -146,7 +148,7 @@ class TestChapterFormulaTranslation(unittest.TestCase):
             )]),
         ])
 
-        translated = ChapterXMLTransformer(_ReorderingFormulaTranslator()).transform(chapter)
+        translated = ChapterXMLTransformer(_ReorderingFormulaTranslator())._transform_blocking(chapter)
 
         layout = translated.flow_items[0]
         self.assertIsInstance(layout, TextFlowItem)
@@ -178,7 +180,7 @@ class TestChapterFormulaTranslation(unittest.TestCase):
             ]),
         ])
 
-        translated = ChapterXMLTransformer(_FormulaAwareTranslator()).transform(chapter)
+        translated = ChapterXMLTransformer(_FormulaAwareTranslator())._transform_blocking(chapter)
 
         layout = translated.flow_items[0]
         self.assertIsInstance(layout, TextFlowItem)
@@ -206,7 +208,7 @@ class TestChapterFormulaTranslation(unittest.TestCase):
         ])
         translator = _FormulaAwareTranslator(max_group_score=1)
 
-        translated = ChapterXMLTransformer(translator).transform(chapter)
+        translated = ChapterXMLTransformer(translator)._transform_blocking(chapter)
 
         self.assertTrue(any(
             "Before equation." in source and r"$$\int_0^1 x^2 dx$$" in source
@@ -244,7 +246,7 @@ class TestChapterFormulaTranslation(unittest.TestCase):
                 ])
 
                 translator = _FormulaAwareTranslator()
-                translated = ChapterXMLTransformer(translator).transform(chapter)
+                translated = ChapterXMLTransformer(translator)._transform_blocking(chapter)
 
                 restored = translated.flow_items[1]
                 self.assertIsInstance(restored, DisplayFormula)
@@ -274,7 +276,7 @@ class TestChapterFormulaTranslation(unittest.TestCase):
         )
         translator = _FormulaAwareTranslator()
 
-        translated = ChapterXMLTransformer(translator).transform(
+        translated = ChapterXMLTransformer(translator)._transform_blocking(
             Chapter(None, 0, [DisplayFormula(equation)])
         )
 
@@ -304,7 +306,7 @@ class TestChapterFormulaTranslation(unittest.TestCase):
         )
         translator = _FormulaAwareTranslator(max_group_score=1)
 
-        translated = ChapterXMLTransformer(translator).transform(
+        translated = ChapterXMLTransformer(translator)._transform_blocking(
             Chapter(None, 0, [DisplayFormula(equation)])
         )
 
@@ -316,7 +318,7 @@ class TestChapterFormulaTranslation(unittest.TestCase):
             TextFlowItem("body", 0, [SourceTextFragment(1, 1, (1, 1, 100, 30), ["plain text"])]),
         ])
 
-        translated = ChapterXMLTransformer(_FormulaAwareTranslator()).transform(chapter)
+        translated = ChapterXMLTransformer(_FormulaAwareTranslator())._transform_blocking(chapter)
 
         layout = translated.flow_items[0]
         self.assertIsInstance(layout, TextFlowItem)

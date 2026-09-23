@@ -28,18 +28,25 @@ asset 文本；`StandaloneAsset` 不伪造 paragraph anchor，并与 NarrativeFl
 目录-backed 形态只供一键转换在 `analysing_path/extraction/` 内部衔接前后端；普通目录不是
 公开输入。`ocr/`、`plots/`、`done` 和其他 analysis 文件仅是可丢弃的诊断/恢复缓存。
 
-`pdf_craft/__init__.py` 是公共导入面。`PDFCraft` 是门面；`pdf_craft/transform.py` 是 PDF 前端
+`pdf_craft/__init__.py` 是公共导入面。`AsyncPDFCraft` 是业务核心，`PDFCraft` 是位于
+`pdf_craft/sync/` 的同步兼容门面；`pdf_craft/transform.py` 是 PDF 前端
 提取 engine。Markdown、EPUB、翻译和 PDF 写回后端只能读取 PDFCraftExtraction，不得读取
 analysis/OCR 缓存。
+
+`PDFCraftExtraction` 是公开但不包含业务方法的 opaque handle。用户只能通过两个 Craft 门面的
+`open_extraction` / `export_extraction` 打开和导出，再把句柄传回门面或高级组件。高级可组合组件
+（Extractor、Renderer、Transformer、LLM runtime）仅提供无 `_async` 后缀的异步方法；同步适配
+不得进入业务核心。配置、选项、事件和数据类不拆分同步/异步版本。模型下载和环境探测属于启动前
+准备，只保留同步入口。
 
 除非任务明确要求破坏性 API 变更，否则把以下名称和默认值视为公共 API：
 
 - `PDFCraft`、`AsyncPDFCraft`、`PDFOptions`、`ExtractionOptions`、`PDFCraftExtraction`
 - `PDFExtractor`、`MarkdownRenderer`、`EpubRenderer`
 - `ExtractionTransformer`、`ChapterExtractionTransformer`、`ChapterXMLTransformer`
-- `AnchoredContentExtractionTransformer`、`AnchoredContentTransformer`、`AsyncAnchoredContentTransformer`、`AnchoredContentXMLTransformer`
-- `ChapterTransformer`、`AsyncChapterTransformer`
-- `predownload_models`、`predownload_models_async`
+- `AnchoredContentExtractionTransformer`、`AnchoredContentTransformer`、`AnchoredContentXMLTransformer`
+- `ChapterTransformer`
+- `predownload_models`
 - `LLM`
 - `DeepSeekOCRLocalConfig`、`DeepSeekOCR2LocalConfig`、`UnlimitedOCRLocalConfig`
 - `DeepSeekOCRVendorConfig`、`DeepSeekOCR2VendorConfig`、`UnlimitedOCRVendorConfig`

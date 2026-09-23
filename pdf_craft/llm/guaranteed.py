@@ -11,8 +11,10 @@ from json_repair import repair_json
 from pydantic import BaseModel, ValidationError
 
 from .types import Message, MessageRole
-from .loop import (ProtocolFailure, ProtocolRetry, ProtocolSuccess, RepairLoopOptions,
-                   run_repair_loop)
+from .loop import (
+    ProtocolFailure, ProtocolRetry, ProtocolSuccess,
+    _BlockingRepairLoopOptions, _run_repair_loop_blocking,
+)
 
 TData = TypeVar("TData")
 TResult = TypeVar("TResult")
@@ -87,7 +89,7 @@ def request_guaranteed_json(options: GuaranteedOptions[TData, TResult]) -> TResu
                 raise self.last_error
             raise GuaranteedEmptyResponseError("LLM returned empty response after all retries", attempts=attempts, response=response)
 
-    return run_repair_loop(RepairLoopOptions(messages=options.messages, request=options.request,
+    return _run_repair_loop_blocking(_BlockingRepairLoopOptions(messages=options.messages, request=options.request,
         protocol=_JsonProtocol(), state=None, max_attempts=options.max_retries + 1))
 
 

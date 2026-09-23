@@ -64,7 +64,7 @@ class AsyncResponseProtocol(Protocol[T, S]):
 
 
 @dataclass
-class RepairLoopOptions(Generic[T, S]):
+class _BlockingRepairLoopOptions(Generic[T, S]):
     messages: Sequence[Message]
     request: Callable[[list[Message], int, int], str]
     protocol: ResponseProtocol[T, S]
@@ -74,7 +74,7 @@ class RepairLoopOptions(Generic[T, S]):
 
 
 @dataclass
-class AsyncRepairLoopOptions(Generic[T, S]):
+class RepairLoopOptions(Generic[T, S]):
     messages: Sequence[Message]
     request: Callable[[list[Message], int, int], Awaitable[str]]
     protocol: AsyncResponseProtocol[T, S]
@@ -83,7 +83,7 @@ class AsyncRepairLoopOptions(Generic[T, S]):
     history_limit: int = 2
 
 
-def run_repair_loop(options: RepairLoopOptions[T, S]) -> T:
+def _run_repair_loop_blocking(options: _BlockingRepairLoopOptions[T, S]) -> T:
     initial = list(options.messages)
     current = list(initial)
     retry_history: list[Message] = []
@@ -112,7 +112,7 @@ def run_repair_loop(options: RepairLoopOptions[T, S]) -> T:
     return options.protocol.exhausted(state, attempts, last_response)
 
 
-async def run_repair_loop_async(options: AsyncRepairLoopOptions[T, S]) -> T:
+async def run_repair_loop(options: RepairLoopOptions[T, S]) -> T:
     initial = list(options.messages)
     current = list(initial)
     retry_history: list[Message] = []

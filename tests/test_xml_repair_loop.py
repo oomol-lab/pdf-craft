@@ -1,4 +1,4 @@
- # pylint: disable=protected-access,unused-argument
+# pylint: disable=invalid-overridden-method,protected-access,unused-argument
 import asyncio
 import threading
 import unittest
@@ -25,6 +25,8 @@ class _Context:
         self.calls += 1
         return next(self.responses)
 
+    _request_blocking = request
+
 
 class _Runtime:
     def __init__(self, responses):
@@ -41,7 +43,7 @@ class _AsyncContext(_Context):
     async def __aexit__(self, *args):
         return None
 
-    async def request_async(self, messages, **kwargs):
+    async def request(self, messages, **kwargs):
         self.calls += 1
         return next(self.responses)
 
@@ -81,7 +83,7 @@ def _async_translator(responses, retries=2):
     async def template_async(_name):
         return SimpleNamespace(render=lambda: "fill")
 
-    translator._fill_llm = cast(Any, SimpleNamespace(template_async=template_async))
+    translator._fill_llm = cast(Any, SimpleNamespace(_template_async=template_async))
     translator._cache_seed_content = None
     translator._max_retries = retries
     return translator

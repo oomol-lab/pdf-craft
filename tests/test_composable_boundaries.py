@@ -1,5 +1,6 @@
 # pylint: disable=protected-access
 
+import asyncio
 import tempfile
 import unittest
 from pathlib import Path
@@ -210,12 +211,9 @@ class TestComposableBoundaries(unittest.TestCase):
                 "</pages></furnitures>",
                 encoding="utf-8",
             )
-            translated = FurnitureExtractionTransformer(
+            translated = asyncio.run(FurnitureExtractionTransformer(
                 FurnitureXMLTransformer(_DeterministicXMLTranslator())
-            ).transform(
-                extraction,
-                root / "translated.pcex",
-            )
+            ).transform(extraction, root / "translated.pcex"))
             capture = _CapturePatcher()
 
             PDFTranslationPipeline(patcher=cast(PDFPatcher, capture)).patch(
@@ -370,9 +368,9 @@ class TestComposableBoundaries(unittest.TestCase):
             )
 
             translator = _DeterministicXMLTranslator()
-            target = ChapterExtractionTransformer(
+            target = asyncio.run(ChapterExtractionTransformer(
                 ChapterXMLTransformer(translator)
-            ).transform(source, root / "target.pcex")
+            ).transform(source, root / "target.pcex"))
 
             self.assertEqual(translator.calls, 1)
             with target._materialize() as paths:
@@ -385,7 +383,7 @@ class TestComposableBoundaries(unittest.TestCase):
     def test_extractor_creates_empty_assets_directory_for_asset_free_pages(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            extraction, _ = PDFExtractor(_NoAssetTransform()).extract_with_metering(
+            extraction, _ = PDFExtractor(_NoAssetTransform())._extract_with_metering_sync(
                 root / "input.pdf", root / "book.pcex"
             )
             with extraction._materialize() as paths:
@@ -394,17 +392,17 @@ class TestComposableBoundaries(unittest.TestCase):
     def test_extractor_produces_extraction_consumed_without_analysis_cache(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            extraction, metering = PDFExtractor(_FakeTransform()).extract_with_metering(
+            extraction, metering = PDFExtractor(_FakeTransform())._extract_with_metering_sync(
                 root / "input.pdf", root / "book.pcex", analysing_path=root / "analysis"
             )
             self.assertEqual(metering, "metering")
             self.assertFalse((root / "analysis" / "extraction" / "ocr").exists())
-            self.assertEqual(extraction.page_pixel_sizes(), {1: (100, 100)})
+            self.assertEqual(extraction._page_pixel_sizes(), {1: (100, 100)})
             with patch("pdf_craft.renderer.markdown.renderer.render_markdown_file") as markdown:
-                MarkdownRenderer().render(extraction, root / "book.md")
+                MarkdownRenderer()._render_blocking(extraction, root / "book.md")
             self.assertEqual(markdown.call_args.args[0].name, "chapters")
             with patch("pdf_craft.renderer.epub.renderer.render_epub_file") as epub:
-                EpubRenderer().render(extraction, root / "book.epub")
+                EpubRenderer()._render_blocking(extraction, root / "book.epub")
             self.assertEqual(epub.call_args.args[0].name, "chapters")
 
     def test_explicit_epub_book_meta_overrides_only_its_nonempty_fields(self):
@@ -426,7 +424,7 @@ class TestComposableBoundaries(unittest.TestCase):
                 language="en",
             )
             with patch("pdf_craft.renderer.epub.renderer.render_epub_file") as epub:
-                EpubRenderer().render(
+                EpubRenderer()._render_blocking(
                     extraction,
                     root / "book.epub",
                     book_meta=BookMeta(title="Manual title", description=""),
@@ -465,14 +463,14 @@ class TestComposableBoundaries(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             extraction = make_extraction(root, page_pixel_sizes={1: (30, 30)})
-            self.assertEqual(extraction.page_pixel_sizes(), {1: (30, 30)})
+            self.assertEqual(extraction._page_pixel_sizes(), {1: (30, 30)})
 
     def test_epub_renderer_rejects_unsupported_language(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             extraction = make_extraction(root, with_toc=True)
             with self.assertRaises(ValueError):
-                EpubRenderer().render(extraction, root / "book.epub", lan="fr")  # type: ignore[arg-type]
+                EpubRenderer()._render_blocking(extraction, root / "book.epub", lan="fr")  # type: ignore[arg-type]
 
     def test_ocr_geometry_cache_survives_interrupted_resume_without_rerendering(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -528,13 +526,13 @@ class TestComposableBoundaries(unittest.TestCase):
                 '<page index="1" width="1" /></pages>'
             )
             with self.assertRaisesRegex(ValueError, "pages.xml"):
-                extraction.validate()
+                extraction._validate()
             (root / "pages.xml").write_text(
                 '<pages index_base="1" coordinate_space="ocr_pixels" render_dpi="300">'
                 '<page index="1" width="1.5" height="2" /></pages>'
             )
             with self.assertRaisesRegex(ValueError, "pages.xml"):
-                extraction.validate()
+                extraction._validate()
 
     def test_ocr_rejects_malformed_geometry_cache(self):
         with tempfile.TemporaryDirectory() as directory:

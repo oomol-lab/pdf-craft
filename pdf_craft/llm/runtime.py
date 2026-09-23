@@ -10,7 +10,7 @@ import json
 import logging
 import threading
 import uuid
-from contextlib import AbstractAsyncContextManager, AbstractContextManager
+from contextlib import AbstractAsyncContextManager
 from pathlib import Path
 from typing import Self, cast
 
@@ -53,20 +53,20 @@ class LLMRuntime:
     def context(self, cache_seed_content: str | None = None) -> "LLMContext":
         return LLMContext(self, cache_seed_content)
 
-    async def request_async(
+    async def request(
         self, input: str | list[Message], max_tokens: int | None = None,
         temperature: float | None = None, top_p: float | None = None, *,
         cache_seed_content: str | None = None, retry_index: int | None = None,
         retry_max: int | None = None, use_cache: bool = True,
     ) -> str:
         async with self.context(cache_seed_content) as context:
-            return await context.request_async(
+            return await context.request(
                 input, max_tokens, temperature, top_p,
                 retry_index=retry_index, retry_max=retry_max, use_cache=use_cache,
             )
 
-    def request(self, *args, **kwargs) -> str:
-        return run_sync(self.request_async(*args, **kwargs))
+    def _request_blocking(self, *args, **kwargs) -> str:
+        return run_sync(self.request(*args, **kwargs))
 
     @staticmethod
     def _scheduled(value, source: Increasable, index, maximum):
@@ -111,10 +111,7 @@ class LLMRuntime:
         return cast(str, result)
 
 
-class LLMContext(
-    AbstractContextManager["LLMContext"],
-    AbstractAsyncContextManager["LLMContext"],
-):
+class LLMContext(AbstractAsyncContextManager["LLMContext"]):
     def __init__(self, runtime: LLMRuntime, cache_seed_content: str | None) -> None:
         self.runtime, self.cache_seed_content = runtime, cache_seed_content
         self.context_id, self._pending = uuid.uuid4().hex[:12], set()
@@ -132,10 +129,7 @@ class LLMContext(
     async def __aexit__(self, exc_type, exc_val, exc_tb) -> None:
         await IO_DOMAIN.run(_commit_pending, self._pending, exc_type)
 
-    def request(self, *args, **kwargs) -> str:
-        return run_sync(self.request_async(*args, **kwargs))
-
-    async def request_async(
+    async def request(
         self, input, max_tokens=None, temperature=None, top_p=None, *,
         retry_index=None, retry_max=None, use_cache=True,
     ) -> str:
@@ -193,6 +187,9 @@ class LLMContext(
             self._temperature.increase()
             self._top_p.increase()
         raise RuntimeError("LLM request failed") from last_error
+
+    def _request_blocking(self, *args, **kwargs) -> str:
+        return run_sync(self.request(*args, **kwargs))
 
     def _cache_key(self, messages, max_tokens, temperature, top_p) -> str:
         payload = {

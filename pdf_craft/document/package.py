@@ -106,63 +106,40 @@ class _WorkspaceStorage:
 
 
 class _ArchiveStorage:
-    """Validated archive snapshot materialized once for an extraction's lifetime."""
+    """Archive reference materialized only for the duration of one operation."""
 
-    def __init__(self, path: Path, *, eager: bool = True) -> None:
+    def __init__(self, path: Path) -> None:
         self.path = path
-        self._temporary: TemporaryDirectory[str] | None = None
-        self._paths: ExtractionPaths | None = None
-        if eager:
-            self._ensure_materialized()
-
-    def _ensure_materialized(self) -> ExtractionPaths:
-        if self._paths is not None:
-            return self._paths
-        temporary = TemporaryDirectory(prefix="pdf-craft-extraction-")
-        paths = ExtractionPaths.at(Path(temporary.name))
-        try:
-            _extract_archive(self.path, paths.root)
-            _validate_workspace(paths)
-        except Exception:
-            temporary.cleanup()
-            raise
-        self._temporary = temporary
-        self._paths = paths
-        return paths
 
     @contextmanager
     def materialize(self) -> Iterator[ExtractionPaths]:
-        yield self._ensure_materialized()
+        with TemporaryDirectory(prefix="pdf-craft-extraction-") as directory:
+            paths = ExtractionPaths.at(Path(directory))
+            _extract_archive(self.path, paths.root)
+            _validate_workspace(paths)
+            yield paths
 
 
 class PDFCraftExtraction:
-    """A structured PDF extraction backed by a workspace or ``.pcex`` archive.
+    """An opaque, validated PCEX handle created by a PDFCraft facade."""
 
-    Directory-backed instances are internal and keep one-shot conversion paths
-    fast. Public persistence and interchange use :meth:`open` and :meth:`export`.
-    """
+    _CONSTRUCTION_TOKEN = object()
 
-    def __init__(self, path: str | Path) -> None:
+    def __init__(self, path: str | Path, *, _token: object | None = None) -> None:
+        if _token is not self._CONSTRUCTION_TOKEN:
+            raise TypeError(
+                "PDFCraftExtraction handles must be opened through PDFCraft or AsyncPDFCraft"
+            )
         archive = Path(path)
         _require_pcex_path(archive)
         if not archive.is_file():
             raise FileNotFoundError(f"PDFCraftExtraction does not exist: {archive}")
         self._storage: _Storage = _ArchiveStorage(archive)
+        self._validate()
 
     @classmethod
-    def open(cls, path: str | Path) -> "PDFCraftExtraction":
-        """Load and validate a public ``.pcex`` artifact."""
-        return cls(path)
-
-    @classmethod
-    async def open_async(cls, path: str | Path) -> "PDFCraftExtraction":
-        """Load, extract, and validate a PCEX without blocking the event loop."""
-        return await IO_DOMAIN.run(cls.open, path)
-
-    @classmethod
-    def load(cls, path: str | Path) -> "PDFCraftExtraction":
-        """Alias for :meth:`open` for callers that prefer artifact terminology."""
-        return cls(path)
+    def _open(cls, path: str | Path) -> "PDFCraftExtraction":
+        return cls(path, _token=cls._CONSTRUCTION_TOKEN)
 
     @classmethod
     def _from_workspace(cls, root: Path) -> "PDFCraftExtraction":
@@ -175,7 +152,7 @@ class PDFCraftExtraction:
     def _from_exported_archive(cls, path: Path) -> "PDFCraftExtraction":
         """Create a lazy view of an archive just written by this process."""
         extraction = cls.__new__(cls)
-        extraction._storage = _ArchiveStorage(path, eager=False)
+        extraction._storage = _ArchiveStorage(path)
         return extraction
 
     @contextmanager
@@ -183,20 +160,17 @@ class PDFCraftExtraction:
         with self._storage.materialize() as paths:
             yield paths
 
-    def validate(self, *, require_toc: bool = False) -> "PDFCraftExtraction":
+    def _validate(self, *, require_toc: bool = False) -> "PDFCraftExtraction":
         with self._materialize() as paths:
             _validate_workspace(paths, require_toc=require_toc)
         return self
 
-    async def validate_async(self, *, require_toc: bool = False) -> "PDFCraftExtraction":
-        return await IO_DOMAIN.run(self.validate, require_toc=require_toc)
-
-    def export(self, path: str | Path) -> "PDFCraftExtraction":
+    def _export(self, path: str | Path) -> "PDFCraftExtraction":
         target = Path(path)
         self._export_sync(target, _commit_unconditionally)
         return PDFCraftExtraction._from_exported_archive(target)
 
-    async def export_async(self, path: str | Path) -> "PDFCraftExtraction":
+    async def _export_async(self, path: str | Path) -> "PDFCraftExtraction":
         target = Path(path)
         await run_atomic_cancellable(
             IO_DOMAIN,
@@ -232,38 +206,23 @@ class PDFCraftExtraction:
             if temporary_path is not None:
                 temporary_path.unlink(missing_ok=True)
 
-    def page_pixel_sizes(self) -> dict[int, tuple[int, int]]:
+    def _page_pixel_sizes(self) -> dict[int, tuple[int, int]]:
         with self._materialize() as paths:
             return _read_pages(paths.pages)[1]
 
-    async def page_pixel_sizes_async(self) -> dict[int, tuple[int, int]]:
-        return await IO_DOMAIN.run(self.page_pixel_sizes)
-
-    def render_dpi(self) -> int:
+    def _render_dpi(self) -> int:
         with self._materialize() as paths:
             return _read_pages(paths.pages)[0]
 
-    async def render_dpi_async(self) -> int:
-        return await IO_DOMAIN.run(self.render_dpi)
+    def _book_meta(self) -> BookMeta | None:
+        return _book_meta(self._document_metadata())
 
-    def book_meta(self) -> BookMeta | None:
-        return _book_meta(self.document_metadata())
+    def _language(self) -> str | None:
+        return _optional_string(self._document_metadata().get("language"))
 
-    async def book_meta_async(self) -> BookMeta | None:
-        return _book_meta(await self.document_metadata_async())
-
-    def language(self) -> str | None:
-        return _optional_string(self.document_metadata().get("language"))
-
-    async def language_async(self) -> str | None:
-        return _optional_string((await self.document_metadata_async()).get("language"))
-
-    def document_metadata(self) -> dict[str, Any]:
+    def _document_metadata(self) -> dict[str, Any]:
         with self._materialize() as paths:
             return dict(_read_manifest(paths.manifest)["document"])
-
-    async def document_metadata_async(self) -> dict[str, Any]:
-        return await IO_DOMAIN.run(self.document_metadata)
 
 
 def _book_meta(document: dict[str, Any]) -> BookMeta | None:

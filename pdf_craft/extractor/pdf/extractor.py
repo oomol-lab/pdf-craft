@@ -8,7 +8,7 @@ from typing import Any, Iterator
 
 from ...document import PDFCraftExtraction
 from ...document.package import EXTRACTION_SUFFIX
-from ...runtime import OCR_DOMAIN, callback_bridge, run_cancellable, run_sync
+from ...runtime import OCR_DOMAIN, callback_bridge, run_cancellable
 
 
 class PDFExtractor:
@@ -17,7 +17,7 @@ class PDFExtractor:
     def __init__(self, transform: Any) -> None:
         self._transform = transform
 
-    def extract(
+    def _extract_blocking(
         self,
         pdf_path: Path,
         extraction_path: Path,
@@ -25,21 +25,10 @@ class PDFExtractor:
         analysing_path: Path | None = None,
         **kwargs: Any,
     ) -> PDFCraftExtraction:
-        return run_sync(self.extract_async(
-            pdf_path, extraction_path, analysing_path=analysing_path, **kwargs
-        ))
-
-    def extract_with_metering(
-        self,
-        pdf_path: Path,
-        extraction_path: Path,
-        *,
-        analysing_path: Path | None = None,
-        **kwargs: Any,
-    ):
-        return run_sync(self.extract_with_metering_async(
+        extraction, _ = self._extract_with_metering_sync(
             pdf_path, extraction_path, analysing_path=analysing_path, **kwargs,
-        ))
+        )
+        return extraction
 
     def _extract_with_metering_sync(
         self,
@@ -55,7 +44,7 @@ class PDFExtractor:
             raise FileExistsError(f"PDFCraftExtraction already exists: {extraction_path}")
         with _analysis_workspace(analysing_path) as workspace:
             extraction, metering = self._extract_to_workspace(pdf_path, workspace, **kwargs)
-            exported = extraction.export(extraction_path)
+            exported = extraction._export(extraction_path)
         return exported, metering
 
     def _extract_to_workspace(
@@ -79,10 +68,10 @@ class PDFExtractor:
         defaults["analysing_path"] = analysing_path
         _, _, _, _, metering = self._transform.extract_package(pdf_path=pdf_path, **defaults)
         extraction = PDFCraftExtraction._from_workspace(analysing_path / "extraction")
-        extraction.validate()
+        extraction._validate()
         return extraction, metering
 
-    async def extract_async(
+    async def extract(
         self,
         pdf_path: Path,
         extraction_path: Path,
@@ -91,12 +80,12 @@ class PDFExtractor:
         **kwargs: Any,
     ) -> PDFCraftExtraction:
         """Extract without blocking the caller's event loop."""
-        extraction, _ = await self.extract_with_metering_async(
+        extraction, _ = await self.extract_with_metering(
             pdf_path, extraction_path, analysing_path=analysing_path, **kwargs
         )
         return extraction
 
-    async def extract_with_metering_async(
+    async def extract_with_metering(
         self,
         pdf_path: Path,
         extraction_path: Path,
@@ -157,7 +146,7 @@ class PDFExtractor:
         pdf_path: Path,
         kwargs: dict[str, Any],
     ) -> dict[str, Any]:
-        prepare = getattr(self._transform, "prepare_extract_async", None)
+        prepare = getattr(self._transform, "prepare_extract", None)
         if prepare is None:
             return kwargs
         prepared = await prepare(pdf_path=pdf_path, **kwargs)

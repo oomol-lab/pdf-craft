@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
+import inspect
 from typing import Protocol, cast
 from xml.etree.ElementTree import Element, SubElement
 
@@ -22,7 +23,7 @@ class XMLTaskTranslator(Protocol):
 
 
 class AsyncXMLTaskTranslator(Protocol):
-    async def translate_element_async(
+    async def translate_element(
         self,
         task: TranslationTask[object],
         **kwargs,
@@ -34,16 +35,16 @@ class FurnitureXMLTransformer:
 
     def __init__(
         self,
-        translator: XMLTaskTranslator,
+        translator: XMLTaskTranslator | AsyncXMLTaskTranslator,
         mode: SubmitKind = SubmitKind.REPLACE,
     ) -> None:
         self._translator = translator
         self._mode = mode
 
-    def transform_position(self, position: FurniturePosition) -> str | None:
+    def _transform_position_blocking(self, position: FurniturePosition) -> str | None:
         element = Element("furniture-position")
         element.text = position.content
-        translated, _ = self._translator.translate_element(
+        translated, _ = cast(XMLTaskTranslator, self._translator).translate_element(
             TranslationTask(
                 element=element,
                 action=self._mode,
@@ -54,16 +55,16 @@ class FurnitureXMLTransformer:
         )
         return translated.text
 
-    async def transform_position_async(
+    async def transform_position(
         self, position: FurniturePosition,
     ) -> str | None:
-        if not hasattr(self._translator, "translate_element_async"):
-            return await TRANSLATION_DOMAIN.run(self.transform_position, position)
+        if not inspect.iscoroutinefunction(self._translator.translate_element):
+            return await TRANSLATION_DOMAIN.run(self._transform_position_blocking, position)
         element = Element("furniture-position")
         element.text = position.content
         translated, _ = await cast(
             AsyncXMLTaskTranslator, self._translator,
-        ).translate_element_async(
+        ).translate_element(
             TranslationTask(
                 element=element,
                 action=self._mode,
@@ -74,7 +75,7 @@ class FurnitureXMLTransformer:
         )
         return translated.text
 
-    def transform_sections(
+    def _transform_sections_blocking(
         self,
         page_index: int,
         sections: Sequence[FurnitureSection],
@@ -83,7 +84,7 @@ class FurnitureXMLTransformer:
         for index, section in enumerate(sections):
             child = SubElement(element, "section", {"id": str(index)})
             child.text = section.content
-        translated, _ = self._translator.translate_element(
+        translated, _ = cast(XMLTaskTranslator, self._translator).translate_element(
             TranslationTask(
                 element=element,
                 action=self._mode,
@@ -102,14 +103,14 @@ class FurnitureXMLTransformer:
             values.append(child.text)
         return values
 
-    async def transform_sections_async(
+    async def transform_sections(
         self,
         page_index: int,
         sections: Sequence[FurnitureSection],
     ) -> Sequence[str | None]:
-        if not hasattr(self._translator, "translate_element_async"):
+        if not inspect.iscoroutinefunction(self._translator.translate_element):
             return await TRANSLATION_DOMAIN.run(
-                self.transform_sections, page_index, sections,
+                self._transform_sections_blocking, page_index, sections,
             )
         element = Element("furniture-page", {"index": str(page_index)})
         for index, section in enumerate(sections):
@@ -117,7 +118,7 @@ class FurnitureXMLTransformer:
             child.text = section.content
         translated, _ = await cast(
             AsyncXMLTaskTranslator, self._translator,
-        ).translate_element_async(
+        ).translate_element(
             TranslationTask(
                 element=element,
                 action=self._mode,

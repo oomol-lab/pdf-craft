@@ -14,8 +14,8 @@ def _config(path: Path) -> LLM:
                log_dir_path=path / "logs")
 
 
-class TestLLMRuntime(unittest.TestCase):
-    def test_relative_output_paths_are_bound_at_construction(self):
+class TestLLMRuntime(unittest.IsolatedAsyncioTestCase):
+    async def test_relative_output_paths_are_bound_at_construction(self):
         original = Path.cwd()
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -35,7 +35,7 @@ class TestLLMRuntime(unittest.TestCase):
             finally:
                 chdir(original)
 
-    def test_cache_commits_only_after_context_success_and_writes_logs(self):
+    async def test_cache_commits_only_after_context_success_and_writes_logs(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             runtime = runtime_for(_config(root))
@@ -47,38 +47,40 @@ class TestLLMRuntime(unittest.TestCase):
                 return "ok"
 
             runtime._invoke = invoke  # type: ignore[method-assign]
-            with runtime.context("seed") as context:
-                self.assertEqual(context.request([Message(MessageRole.USER, "hello")]), "ok")
-            self.assertEqual(runtime.request([Message(MessageRole.USER, "hello")], cache_seed_content="seed"), "ok")
+            async with runtime.context("seed") as context:
+                self.assertEqual(await context.request([Message(MessageRole.USER, "hello")]), "ok")
+            self.assertEqual(await runtime.request(
+                [Message(MessageRole.USER, "hello")], cache_seed_content="seed",
+            ), "ok")
             self.assertEqual(calls, 1)
             self.assertTrue(list((root / "logs").glob("*.log")))
 
-    def test_cache_key_is_short_enough_for_deep_windows_work_dirs(self):
+    async def test_cache_key_is_short_enough_for_deep_windows_work_dirs(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             deep = root / ("nested-" + "x" * 40) / ("work-" + "y" * 40)
             runtime = runtime_for(_config(deep))
             runtime._invoke = lambda *_args: "ok"  # type: ignore[method-assign]
 
-            self.assertEqual(runtime.request("hello", cache_seed_content="seed"), "ok")
+            self.assertEqual(await runtime.request("hello", cache_seed_content="seed"), "ok")
             cached = list((deep / "cache").glob("*.txt"))
             self.assertEqual(len(cached), 1)
             self.assertLessEqual(len(cached[0].stem), 64)
 
-    def test_empty_response_is_typed_after_retries(self):
+    async def test_empty_response_is_typed_after_retries(self):
         with tempfile.TemporaryDirectory() as directory:
             runtime = runtime_for(_config(Path(directory)))
             runtime._invoke = lambda *args: ""  # type: ignore[method-assign]
             with self.assertRaises(LLMEmptyResponseError) as raised:
-                runtime.request("hello", use_cache=False)
+                await runtime.request("hello", use_cache=False)
             self.assertEqual(raised.exception.attempts, 2)
 
-    def test_transport_failure_reports_attempts_and_cause(self):
+    async def test_transport_failure_reports_attempts_and_cause(self):
         with tempfile.TemporaryDirectory() as directory:
             runtime = runtime_for(_config(Path(directory)))
             runtime._invoke = lambda *args: (_ for _ in ()).throw(ValueError("bad credentials"))  # type: ignore[method-assign]
             with self.assertRaises(LLMTransportError) as raised:
-                runtime.request("hello", use_cache=False)
+                await runtime.request("hello", use_cache=False)
             self.assertEqual(raised.exception.attempts, 1)
             self.assertIsInstance(raised.exception.__cause__, ValueError)
 

@@ -16,7 +16,7 @@ from xml.etree.ElementTree import parse, tostring
 from tiktoken import get_encoding
 
 from pdf_craft.common import read_xml, save_xml
-from pdf_craft.craft import AsyncPDFCraft, PDFCraft
+from pdf_craft import AsyncPDFCraft, PDFCraft
 from pdf_craft.document import PDFCraftExtraction
 from pdf_craft.pipeline.pdf import PDFPatcher
 from pdf_craft.pipeline.pdf.pipeline import PDFTranslationPipeline
@@ -192,13 +192,13 @@ class _ResponseContext:
         self.calls = 0
         self.messages = []
 
-    def __enter__(self):
+    async def __aenter__(self):
         return self
 
-    def __exit__(self, *_args):
+    async def __aexit__(self, *_args):
         return None
 
-    def request(self, *_args, **_kwargs):
+    async def request(self, *_args, **_kwargs):
         self.messages.append(_args)
         self.calls += 1
         return next(self._responses)
@@ -228,6 +228,11 @@ def _repairing_translator(fill_responses: Sequence[str]) -> tuple[XMLTranslator,
         config, config, "English", None, False, 2, 10_000, 10_000,
     )
     translator._translate_text = lambda text: text  # type: ignore[method-assign]
+
+    async def translate_text(text: str) -> str:
+        return translator._translate_text(text)
+
+    translator._translate_text_async = translate_text  # type: ignore[method-assign]
     runtime = _ResponseRuntime(fill_responses)
     translator._fill_runtime = runtime  # type: ignore[assignment]
     return translator, runtime
@@ -297,7 +302,7 @@ class AnchoredContentTranslationTests(unittest.TestCase):
         ])])
         translator = _TemplateTranslator()
 
-        translated = ChapterXMLTransformer(translator).transform(chapter)
+        translated = asyncio.run(ChapterXMLTransformer(translator).transform(chapter))
 
         source = "\n".join(translator.sources)
         self.assertIn("Before.", source)
@@ -322,7 +327,7 @@ class AnchoredContentTranslationTests(unittest.TestCase):
         ])])
 
         with self.assertRaisesRegex(ValueError, "anchored-content structure"):
-            ChapterXMLTransformer(_BrokenAnchorTranslator()).transform(chapter)
+            asyncio.run(ChapterXMLTransformer(_BrokenAnchorTranslator()).transform(chapter))
 
     def test_narrative_translation_restores_multiple_assets_in_source_order(self):
         first = SourceAsset(1, "image", (10, 20, 20, 30), asset_hash="a" * 64)
@@ -336,7 +341,7 @@ class AnchoredContentTranslationTests(unittest.TestCase):
         ])])
         translator = _TemplateTranslator()
 
-        translated = ChapterXMLTransformer(translator).transform(chapter)
+        translated = asyncio.run(ChapterXMLTransformer(translator).transform(chapter))
 
         item = translated.flow_items[0]
         assert isinstance(item, TextFlowItem)
@@ -359,7 +364,7 @@ class AnchoredContentTranslationTests(unittest.TestCase):
         ])
         translator = _TemplateTranslator()
 
-        translated = ChapterXMLTransformer(translator).transform(chapter)
+        translated = asyncio.run(ChapterXMLTransformer(translator).transform(chapter))
 
         source = "\n".join(translator.sources)
         self.assertIn("Narrative.", source)
@@ -405,7 +410,7 @@ class AnchoredContentTranslationTests(unittest.TestCase):
         for invalid in invalid_responses:
             with self.subTest(invalid=invalid):
                 translator, runtime = _repairing_translator((invalid, valid))
-                translated = ChapterXMLTransformer(cast(Any, translator)).transform(chapter)
+                translated = asyncio.run(ChapterXMLTransformer(cast(Any, translator)).transform(chapter))
                 self.assertEqual(runtime.context_value.calls, 2)
                 fill_request = runtime.context_value.messages[0][0][1].message
                 self.assertIn('<anchor anchor_key="0"/>', fill_request)
@@ -432,7 +437,7 @@ class AnchoredContentTranslationTests(unittest.TestCase):
         translator, runtime = _repairing_translator((incorrect, corrected))
         translator._translate_text = lambda _source: "However, the Council."  # type: ignore[method-assign]
 
-        translated = ChapterXMLTransformer(cast(Any, translator)).transform(chapter)
+        translated = asyncio.run(ChapterXMLTransformer(cast(Any, translator)).transform(chapter))
 
         text = translated.flow_items[0]
         assert isinstance(text, TextFlowItem)
@@ -465,7 +470,7 @@ class AnchoredContentTranslationTests(unittest.TestCase):
         translator, runtime = _repairing_translator((incorrect, corrected))
         translator._translate_text = lambda _source: "corruption is harmful."  # type: ignore[method-assign]
 
-        translated = ChapterXMLTransformer(cast(Any, translator)).transform(chapter)
+        translated = asyncio.run(ChapterXMLTransformer(cast(Any, translator)).transform(chapter))
 
         text = translated.flow_items[0]
         assert isinstance(text, TextFlowItem)
@@ -493,7 +498,7 @@ class AnchoredContentTranslationTests(unittest.TestCase):
         translator, runtime = _repairing_translator((incorrect, corrected))
         translator._translate_text = lambda _source: "First.\n\nSecond."  # type: ignore[method-assign]
 
-        translated = ChapterXMLTransformer(cast(Any, translator)).transform(chapter)
+        translated = asyncio.run(ChapterXMLTransformer(cast(Any, translator)).transform(chapter))
 
         text = translated.flow_items[0]
         assert isinstance(text, TextFlowItem)
@@ -526,7 +531,7 @@ class AnchoredContentTranslationTests(unittest.TestCase):
 
         translator._translate_text = translate  # type: ignore[method-assign]
 
-        translated = ChapterXMLTransformer(cast(Any, translator)).transform(chapter)
+        translated = asyncio.run(ChapterXMLTransformer(cast(Any, translator)).transform(chapter))
 
         self.assertEqual(sources, ["First source.", "Second source."])
         self.assertEqual(runtime.context_value.calls, 2)
@@ -592,14 +597,14 @@ class AnchoredContentTranslationTests(unittest.TestCase):
                     ],
                     [("7", "1", "1", "translated"), ("7", "2", "-1", "translated")],
                 )
-            translated.validate()
+            translated._validate()
 
     def test_xml_adapter_keeps_context_transient_and_maps_all_asset_fields(self):
         source = SourceAsset(
             1, "image", (1, 1, 10, 10), title=["Title"], content=["Content"], caption=["Caption"],
         )
         translator = _XMLTaskTranslator()
-        result = AnchoredContentXMLTransformer(translator).transform_assets((
+        result = AnchoredContentXMLTransformer(translator)._transform_assets_blocking((
             AnchoredContent("head", 0, 1, source, "Nearby narrative."),
         ))
 
@@ -612,7 +617,9 @@ class AnchoredContentTranslationTests(unittest.TestCase):
     def test_xml_adapter_uses_slot_identity_when_transport_reorders_assets(self):
         first = SourceAsset(1, "image", (1, 1, 10, 10), title=["first"])
         second = SourceAsset(1, "table", (1, 11, 10, 20), title=["second"])
-        result = AnchoredContentXMLTransformer(_ReorderedAssetXMLTaskTranslator()).transform_assets((
+        result = AnchoredContentXMLTransformer(
+            _ReorderedAssetXMLTaskTranslator()
+        )._transform_assets_blocking((
             AnchoredContent("head", 0, 0, first, "first context"),
             AnchoredContent("head", 1, -1, second, "second context"),
         ))
@@ -623,7 +630,9 @@ class AnchoredContentTranslationTests(unittest.TestCase):
     def test_xml_adapter_preserves_whole_batch_when_a_slot_changes(self):
         first = SourceAsset(1, "image", (1, 1, 10, 10), title=["first"])
         second = SourceAsset(1, "table", (1, 11, 10, 20), title=["second"])
-        result = AnchoredContentXMLTransformer(_ChangedAssetSlotXMLTaskTranslator()).transform_assets((
+        result = AnchoredContentXMLTransformer(
+            _ChangedAssetSlotXMLTaskTranslator()
+        )._transform_assets_blocking((
             AnchoredContent("head", 0, 0, first, "first context"),
             AnchoredContent("head", 1, -1, second, "second context"),
         ))
@@ -679,7 +688,7 @@ class AnchoredContentTranslationTests(unittest.TestCase):
             )
 
             with self.assertRaisesRegex(ValueError, "invalid anchored asset"):
-                PDFCraftExtraction._from_workspace(source_root).validate()
+                PDFCraftExtraction._from_workspace(source_root)._validate()
 
 
 class AsyncAnchoredContentTranslationTests(unittest.IsolatedAsyncioTestCase):

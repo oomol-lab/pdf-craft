@@ -65,7 +65,7 @@ else:
 
 
 class _FurnitureEngine:
-    async def prepare_extract_async(self, *, pdf_path, **_kwargs):
+    async def prepare_extract(self, *, pdf_path, **_kwargs):
         stdout, _ = await run_subprocess(
             "pdftotext", "-bbox-layout", str(pdf_path), "-",
         )
@@ -341,4 +341,4 @@ def _patch_fixture(root: Path):
         "order='1' state='translated'/></narrative></translation>",
         encoding="utf-8",
     )
-    return source, extraction.validate()
+    return source, extraction._validate()

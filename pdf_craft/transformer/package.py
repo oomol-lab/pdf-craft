@@ -17,12 +17,11 @@ from pdf_craft.document import PDFCraftExtraction
 from pdf_craft.document.package import EXTRACTION_SUFFIX
 from pdf_craft.runtime import (
     IO_DOMAIN, TRANSLATION_DOMAIN, callback_bridge, invoke_callback,
-    run_sync,
 )
 from pdf_craft.extractor.chapter.chapter import (
     SourceTextFragment, TextFlowItem, decode, encode,
 )
-from pdf_craft.transformer.protocol import AsyncChapterTransformer, ChapterTransformer
+from pdf_craft.transformer.protocol import ChapterTransformer, SyncChapterTransformer
 from pdf_craft.transformer.events import TranslationEvent, TranslationEventKind, TranslationItemKind
 from pdf_craft.transformer.xml_translator.segment import search_text_segments
 from pdf_craft.transformer.chapter_xml import ChapterXMLTransformer
@@ -34,7 +33,7 @@ from pdf_craft.transformer.furniture_translation import (
     translate_furnitures_in_workspace_async,
 )
 from pdf_craft.transformer.anchored_content import AnchoredContentTransformer
-from pdf_craft.transformer.anchored_content import AsyncAnchoredContentTransformer
+from pdf_craft.transformer.anchored_content import SyncAnchoredContentTransformer
 from pdf_craft.transformer.anchored_translation import (
     translate_anchored_contents_in_workspace,
     translate_anchored_contents_in_workspace_async,
@@ -48,7 +47,7 @@ from pdf_craft.transformer.translation_coverage import (
 class ExtractionTransformer(Protocol):
     """A format-neutral transformation from one extraction to another."""
 
-    def transform(
+    async def transform(
         self, extraction: PDFCraftExtraction, output_path: Path
     ) -> PDFCraftExtraction: ...
 
@@ -58,7 +57,7 @@ class ChapterExtractionTransformer:
 
     def __init__(
         self,
-        chapter_transformer: ChapterTransformer | AsyncChapterTransformer,
+        chapter_transformer: ChapterTransformer | SyncChapterTransformer,
         *,
         mode: SubmitKind = SubmitKind.REPLACE,
         toc_transformer: Callable[[Element], Element] | None = None,
@@ -69,7 +68,7 @@ class ChapterExtractionTransformer:
         self.mode = mode
         self.toc_transformer = toc_transformer
 
-    def transform(
+    def _transform_blocking(
         self,
         extraction: PDFCraftExtraction,
         output_path: Path,
@@ -86,9 +85,9 @@ class ChapterExtractionTransformer:
                 on_translation_event=on_translation_event,
                 emit_translation_events=emit_translation_events,
             )
-            return transformed.export(output_path)
+            return transformed._export(output_path)
 
-    async def transform_async(
+    async def transform(
         self,
         extraction: PDFCraftExtraction,
         output_path: Path,
@@ -108,7 +107,7 @@ class ChapterExtractionTransformer:
                 on_translation_event=on_translation_event,
                 emit_translation_events=emit_translation_events,
             )
-            return await transformed.export_async(output_path)
+            return await transformed._export_async(output_path)
         finally:
             await IO_DOMAIN.run(temporary.cleanup)
 
@@ -162,7 +161,7 @@ class ChapterExtractionTransformer:
             if is_xml_transformer:
                 transformed = await cast(
                     ChapterXMLTransformer, self.chapter_transformer,
-                ).transform_async(
+                ).transform(
                     chapter,
                     on_translation_event=(
                         on_translation_event if emit_translation_events else None
@@ -182,7 +181,7 @@ class ChapterExtractionTransformer:
                         item_total_characters=character_count,
                     ))
                 transformed = await cast(
-                    AsyncChapterTransformer, self.chapter_transformer,
+                    ChapterTransformer, self.chapter_transformer,
                 ).transform(chapter)
             await IO_DOMAIN.run(save_xml, encode(transformed), path)
             targets = {
@@ -237,7 +236,7 @@ class ChapterExtractionTransformer:
         extraction: PDFCraftExtraction,
         output_path: Path,
     ):
-        extraction.validate()
+        extraction._validate()
         if output_path.exists():
             raise FileExistsError(f"output extraction workspace already exists: {output_path}")
         output_path.mkdir(parents=True)
@@ -271,7 +270,7 @@ class ChapterExtractionTransformer:
         if self.toc_transformer is not None and toc_path.exists():
             save_xml(self.toc_transformer(read_xml(toc_path)), toc_path)
         write_narrative_coverage(output_path / "translation.xml", narrative_coverage)
-        return PDFCraftExtraction._from_workspace(output_path).validate()
+        return PDFCraftExtraction._from_workspace(output_path)._validate()
 
     def _transform_to_workspace(
         self,
@@ -281,7 +280,7 @@ class ChapterExtractionTransformer:
         on_translation_event: Callable[[TranslationEvent], None] | None = None,
         emit_translation_events: bool = False,
     ) -> PDFCraftExtraction:
-        extraction.validate()
+        extraction._validate()
         if output_path.exists():
             raise FileExistsError(f"output extraction workspace already exists: {output_path}")
         output_path.mkdir(parents=True)
@@ -333,7 +332,9 @@ class ChapterExtractionTransformer:
                     item_total_characters=character_count,
                 ))
             if is_xml_transformer:
-                transformed = cast(ChapterXMLTransformer, self.chapter_transformer).transform(
+                transformed = cast(
+                    ChapterXMLTransformer, self.chapter_transformer,
+                )._transform_blocking(
                     chapter,
                     on_translation_event=on_translation_event if emit_translation_events else None,
                     item_id=item_id,
@@ -342,7 +343,9 @@ class ChapterExtractionTransformer:
                     emit_scope_events=False,
                 )
             else:
-                transformed = cast(ChapterTransformer, self.chapter_transformer).transform(
+                transformed = cast(
+                    SyncChapterTransformer, self.chapter_transformer,
+                ).transform(
                     chapter
                 )
             save_xml(encode(transformed), path)
@@ -390,16 +393,19 @@ class ChapterExtractionTransformer:
                 completed_characters=completed_characters,
                 total_characters=total_characters,
             ))
-        return PDFCraftExtraction._from_workspace(output_path).validate()
+        return PDFCraftExtraction._from_workspace(output_path)._validate()
 
 
 class FurnitureExtractionTransformer:
     """Translate only the page-furniture layer of a translated pcex."""
 
-    def __init__(self, furniture_transformer: FurnitureTransformer) -> None:
+    def __init__(
+        self,
+        furniture_transformer: FurnitureTransformer | FurnitureXMLTransformer,
+    ) -> None:
         self.furniture_transformer = furniture_transformer
 
-    def transform(
+    def _transform_blocking(
         self,
         extraction: PDFCraftExtraction,
         output_path: Path,
@@ -411,14 +417,32 @@ class FurnitureExtractionTransformer:
                 extraction,
                 Path(directory) / "extraction",
             )
-            return transformed.export(output_path)
+            return transformed._export(output_path)
+
+    async def transform(
+        self,
+        extraction: PDFCraftExtraction,
+        output_path: Path,
+    ) -> PDFCraftExtraction:
+        if output_path.suffix.lower() != EXTRACTION_SUFFIX:
+            raise ValueError(f"PDFCraftExtraction path must end with {EXTRACTION_SUFFIX}")
+        temporary = await IO_DOMAIN.run(
+            TemporaryDirectory, prefix="pdf-craft-furnitures-transformed-",
+        )
+        try:
+            transformed = await self._transform_to_workspace_async(
+                extraction, Path(temporary.name) / "extraction",
+            )
+            return await transformed._export_async(output_path)
+        finally:
+            await IO_DOMAIN.run(temporary.cleanup)
 
     def _transform_to_workspace(
         self,
         extraction: PDFCraftExtraction,
         output_path: Path,
     ) -> PDFCraftExtraction:
-        extraction.validate()
+        extraction._validate()
         if output_path.exists():
             raise FileExistsError(f"output extraction workspace already exists: {output_path}")
         output_path.mkdir(parents=True)
@@ -428,9 +452,9 @@ class FurnitureExtractionTransformer:
             toc_path=output_path / "toc.xml",
             furnitures_path=output_path / "furnitures.xml",
             translation_path=output_path / "translation.xml",
-            transformer=self.furniture_transformer,
+            transformer=cast(FurnitureTransformer, self.furniture_transformer),
         )
-        return PDFCraftExtraction._from_workspace(output_path).validate()
+        return PDFCraftExtraction._from_workspace(output_path)._validate()
 
     async def _transform_to_workspace_async(
         self,
@@ -443,7 +467,7 @@ class FurnitureExtractionTransformer:
             )
 
         def prepare():
-            extraction.validate()
+            extraction._validate()
             if output_path.exists():
                 raise FileExistsError(
                     f"output extraction workspace already exists: {output_path}"
@@ -460,7 +484,7 @@ class FurnitureExtractionTransformer:
             transformer=self.furniture_transformer,
         )
         return await IO_DOMAIN.run(
-            PDFCraftExtraction._from_workspace(output_path).validate,
+            PDFCraftExtraction._from_workspace(output_path)._validate,
         )
 
 
@@ -469,18 +493,9 @@ class AnchoredContentExtractionTransformer:
 
     def __init__(
         self,
-        anchored_transformer: AnchoredContentTransformer | AsyncAnchoredContentTransformer,
+        anchored_transformer: AnchoredContentTransformer | SyncAnchoredContentTransformer,
     ) -> None:
         self.anchored_transformer = anchored_transformer
-
-    def transform(
-        self,
-        extraction: PDFCraftExtraction,
-        output_path: Path,
-    ) -> PDFCraftExtraction:
-        if inspect.iscoroutinefunction(self.anchored_transformer.transform_assets):
-            return run_sync(self.transform_async(extraction, output_path))
-        return self._transform_sync(extraction, output_path)
 
     def _transform_sync(
         self,
@@ -494,14 +509,14 @@ class AnchoredContentExtractionTransformer:
                 extraction,
                 Path(directory) / "extraction",
             )
-            return transformed.export(output_path)
+            return transformed._export(output_path)
 
     def _transform_to_workspace(
         self,
         extraction: PDFCraftExtraction,
         output_path: Path,
     ) -> PDFCraftExtraction:
-        extraction.validate()
+        extraction._validate()
         if output_path.exists():
             raise FileExistsError(f"output extraction workspace already exists: {output_path}")
         output_path.mkdir(parents=True)
@@ -509,11 +524,13 @@ class AnchoredContentExtractionTransformer:
         translate_anchored_contents_in_workspace(
             chapters_path=output_path / "chapters",
             translation_path=output_path / "translation.xml",
-            transformer=cast(AnchoredContentTransformer, self.anchored_transformer),
+            transformer=cast(
+                SyncAnchoredContentTransformer, self.anchored_transformer,
+            ),
         )
-        return PDFCraftExtraction._from_workspace(output_path).validate()
+        return PDFCraftExtraction._from_workspace(output_path)._validate()
 
-    async def transform_async(
+    async def transform(
         self,
         extraction: PDFCraftExtraction,
         output_path: Path,
@@ -531,7 +548,7 @@ class AnchoredContentExtractionTransformer:
             transformed = await self._transform_to_workspace_async(
                 extraction, Path(temporary.name) / "extraction",
             )
-            return await transformed.export_async(output_path)
+            return await transformed._export_async(output_path)
         finally:
             await IO_DOMAIN.run(temporary.cleanup)
 
@@ -541,12 +558,12 @@ class AnchoredContentExtractionTransformer:
         output_path: Path,
     ) -> PDFCraftExtraction:
         transformer = cast(
-            AnchoredContentXMLTransformer | AsyncAnchoredContentTransformer,
+            AnchoredContentXMLTransformer | AnchoredContentTransformer,
             self.anchored_transformer,
         )
 
         def prepare():
-            extraction.validate()
+            extraction._validate()
             if output_path.exists():
                 raise FileExistsError(
                     f"output extraction workspace already exists: {output_path}"
@@ -561,7 +578,7 @@ class AnchoredContentExtractionTransformer:
             transformer=transformer,
         )
         return await IO_DOMAIN.run(
-            PDFCraftExtraction._from_workspace(output_path).validate,
+            PDFCraftExtraction._from_workspace(output_path)._validate,
         )
 
 

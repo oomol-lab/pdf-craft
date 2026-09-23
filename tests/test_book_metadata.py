@@ -295,8 +295,8 @@ class TestBookMetadata(unittest.TestCase):
             ))
             extraction = PDFCraftExtraction._from_workspace(workspace)
             archive_path = root / "v2.pcex"
-            extraction.export(archive_path)
-            book_meta = PDFCraftExtraction.open(archive_path).book_meta()
+            extraction._export(archive_path)
+            book_meta = PDFCraftExtraction._open(archive_path)._book_meta()
             assert book_meta is not None
             self.assertEqual(book_meta.authors, ["译名"])
 
@@ -316,8 +316,8 @@ class TestBookMetadata(unittest.TestCase):
                 for info in source.infolist():
                     content = json.dumps(manifest).encode() if info.filename == "manifest.json" else source.read(info.filename)
                     target.writestr(info, content)
-            opened = PDFCraftExtraction.open(legacy_path)
-            legacy_book_meta = opened.book_meta()
+            opened = PDFCraftExtraction._open(legacy_path)
+            legacy_book_meta = opened._book_meta()
             assert legacy_book_meta is not None
             self.assertEqual(legacy_book_meta.authors, ["Legacy Author"])
 
