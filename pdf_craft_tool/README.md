@@ -149,6 +149,7 @@ poetry run python -m pdf_craft_tool analysis repair-jev-llm \
 正式转换不会默认调用 JEV 或 LLM。
 `--all-pages` 会完全跳过 JEV，不披露任何 JEV 分数，并将每一页都交给 LLM；
 它主要用于检查 LLM 面对误选正常页时的抗干扰能力。
+`--llm-pages 2,4,25` 使用同样的无 JEV 条件，只处理指定页，便于反复调试 prompt。
 
 ## 冒烟矩阵
 

@@ -62,6 +62,14 @@ class PageReviewTests(unittest.TestCase):
         ])
         self.assertTrue(args.all_pages)
 
+    def test_cli_can_skip_jev_and_repair_selected_pages(self):
+        args = _parser().parse_args([
+            "analysis", "repair-jev-llm", "analysis/ocr",
+            "--output", "repair-output",
+            "--llm-pages", "2,4,25",
+        ])
+        self.assertEqual(args.llm_pages, "2,4,25")
+
     def test_selected_prompt_builds_semantic_page_packet(self):
         page = decode(fromstring("""<page index='1'><body>
             <layout ref='text' det='10,10,90,40'>Body①</layout>

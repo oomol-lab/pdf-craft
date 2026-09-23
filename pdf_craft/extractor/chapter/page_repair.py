@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Iterable, Mapping
 from dataclasses import replace
 from difflib import SequenceMatcher
 from typing import Literal, cast
@@ -90,6 +90,10 @@ PAGE_REPAIR_SYSTEM_PROMPT = """\
 - 现有标注是一套已闭环的候选结果，不是让你从头重做的空白草稿。默认保留每个字段；只在文本语义、几何位置或引用对应给出具体证据时修改。
 - 发现页码或 running header 时，将该 layout 改为 ignored，但不要顺手改写与它无关的 citation、ref 或段落边界。
 - 判断 gap 时，在心中直接拼接前一 layout 末尾和后一 layout 开头。只有拼接后语法与意义显然是同一自然段或同一条 citation 时才设为 true；空间相邻、冒号、缩进或排版分块单独都不足以决定连接。结合 bbox 判断：同缩进且行距正常的冒号引导句与后续文字可能是同一段；而前文说“阅读下面的段落”之类引导语，后面内容明显整体缩进且增加垂直留白时，后者是独立块引文，gap 应为 false。
+- 对现有 false 边界采用很高的合并门槛。两个 layout 主题相关、后者解释前者、处在同一引文中，或普通行距接近，都不表示它们是同一自然段；完整句之后开始的新段必须保持 false。只有存在明确的 OCR/跨栏/跨页人工断裂证据，而且前后文字拼接后才形成一个原本无法各自成立的句子或同一脚注段落时，才把 false 改成 true。
+- 特别检查页首的跨页尾句：如果某 layout 的 continues_from_previous 已为 true，它只是承接上一页并以句号等终止标点结束的短尾部，而下一 layout 从完整新句开始，则二者之间的既有 false 必须保留。不能因为同缩进、普通行距或主题连续，把上一段的页首尾句并入下一段。
+- initial_stream_boundary_from_previous 是根据现有归属预先计算的几何提示：vertical_gap 是上下间距，left_delta 为正表示当前块左侧向内缩，right_inset_delta 为正表示当前块右侧也向内缩。它只是证据，归属有误时可以忽略；但同时出现明显左右缩进和较大留白时，应认真检查当前块是否为独立块引文。
+- 同一流内两个相邻 layout 之间的边界是一个原子决定。修改边界时必须同时设置前者 continues_to_next 和后者 continues_from_previous，且两值相等；不要只改一侧再依赖校验循环提醒。
 - 已有 citation_id、citation 记录与 ref 对应是强证据。citation 开头的 mark 已从 layout.text 拆入 citations[].mark，并在原所在 layout 上以 detached_citation_mark 提示。判断语义时要把它视为 layout.text 原本的前缀；不得因为 text 里看不到 mark 就把该 layout 改成 paragraph。
 - citation 成员关系与 gap 是两个正交维度：多个 layout 可以都属于同一 citation_id，却因为是脚注内的不同自然段而将相邻 gap 设为 false。常见脚注会依次包含以冒号结尾的引导句、缩进引文和后续评论；它们可以是三个自然段，但仍全部属于同一 citation。不要为了拆段而把引导句改成 paragraph。
 - 修好已有具体错误后就停止。页面被送来不意味着每种结构都有错，不得为了显示做过审查而制造额外修改。
@@ -159,15 +163,19 @@ class JevLlmRepairProcessor:
 
 
 class AllPageLlmRepairProcessor:
-    """Repair every page with LLM without running or disclosing JEV."""
+    """Repair selected or all pages with LLM without running or disclosing JEV."""
 
     def __init__(
         self,
         request: PageRepairRequest,
         *,
+        page_indexes: Iterable[int] | None = None,
         max_retries: int = 4,
     ) -> None:
         self._request = request
+        self._configured_page_indexes = (
+            None if page_indexes is None else tuple(page_indexes)
+        )
         self._max_retries = max_retries
         self.page_indexes: list[int] = []
 
@@ -178,7 +186,19 @@ class AllPageLlmRepairProcessor:
         page_pixel_sizes: Mapping[int, tuple[int, int]],
     ) -> list[PageAnalysis]:
         del source_pages, page_pixel_sizes
-        self.page_indexes = [page.page_index for page in analyses]
+        available = {page.page_index for page in analyses}
+        configured = self._configured_page_indexes
+        if configured is None:
+            self.page_indexes = [page.page_index for page in analyses]
+        else:
+            missing = sorted(set(configured) - available)
+            if missing:
+                raise ValueError(f"LLM repair pages do not exist: {missing}")
+            selected = set(configured)
+            self.page_indexes = [
+                page.page_index for page in analyses
+                if page.page_index in selected
+            ]
         return _repair_pages(
             analyses=analyses,
             page_indexes=self.page_indexes,
@@ -299,20 +319,26 @@ def _page_packet(page: PageAnalysis) -> dict:
             and layout.citation_id not in mark_layouts
         ):
             mark_layouts[layout.citation_id] = _layout_id(layout)
+    previous_by_stream: dict[tuple[str, str | None], AnalysedLayout] = {}
+    layout_packets = []
+    for layout in page.layouts:
+        stream_key = _initial_stream_key(layout)
+        previous = previous_by_stream.get(stream_key) if stream_key else None
+        layout_packets.append(_layout_packet(
+            layout,
+            citation_marks[layout.citation_id]
+            if (
+                layout.citation_id is not None
+                and mark_layouts.get(layout.citation_id) == _layout_id(layout)
+            )
+            else None,
+            previous,
+        ))
+        if stream_key is not None:
+            previous_by_stream[stream_key] = layout
     return {
         "page_index": page.page_index,
-        "layouts": [
-            _layout_packet(
-                layout,
-                citation_marks[layout.citation_id]
-                if (
-                    layout.citation_id is not None
-                    and mark_layouts.get(layout.citation_id) == _layout_id(layout)
-                )
-                else None,
-            )
-            for layout in page.layouts
-        ],
+        "layouts": layout_packets,
         "citations": [
             {
                 "citation_id": citation.citation_id,
@@ -339,6 +365,7 @@ def _page_packet(page: PageAnalysis) -> dict:
 def _layout_packet(
     layout: AnalysedLayout,
     detached_citation_mark: str | None,
+    previous_in_initial_stream: AnalysedLayout | None,
 ) -> dict:
     try:
         text = layout_reference_text(layout)
@@ -352,6 +379,10 @@ def _layout_packet(
         "bbox": list(layout.bbox),
         "text": text,
         "detached_citation_mark": detached_citation_mark,
+        "initial_stream_boundary_from_previous": (
+            _boundary_geometry(previous_in_initial_stream, layout)
+            if previous_in_initial_stream is not None else None
+        ),
         "ownership": layout.ownership,
         "continues_from_previous": layout.continues_from_previous,
         "continues_to_next": layout.continues_to_next,
@@ -359,6 +390,26 @@ def _layout_packet(
         "paragraph_level": layout.paragraph_level,
         "citation_id": layout.citation_id,
         "citation_index": layout.citation_index,
+    }
+
+
+def _initial_stream_key(layout: AnalysedLayout) -> tuple[str, str | None] | None:
+    if layout.ownership == "paragraph":
+        return ("paragraph", None)
+    if layout.ownership == "citation":
+        return ("citation", layout.citation_id)
+    return None
+
+
+def _boundary_geometry(
+    previous: AnalysedLayout,
+    current: AnalysedLayout,
+) -> dict[str, int | str]:
+    return {
+        "previous_layout_id": _layout_id(previous),
+        "vertical_gap": current.bbox[1] - previous.bbox[3],
+        "left_delta": current.bbox[0] - previous.bbox[0],
+        "right_inset_delta": previous.bbox[2] - current.bbox[2],
     }
 
 

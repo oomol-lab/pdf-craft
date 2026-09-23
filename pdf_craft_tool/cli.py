@@ -192,6 +192,13 @@ def _parser() -> argparse.ArgumentParser:
         help="skip JEV and repair every page without disclosing JEV scores",
     )
     repair_pages.add_argument(
+        "--llm-pages",
+        help=(
+            "skip JEV and repair comma-separated 1-based pages without "
+            "disclosing JEV scores"
+        ),
+    )
+    repair_pages.add_argument(
         "--jev-baseline",
         type=Path,
         help="replay a committed JEV probability baseline instead of calling oo",
@@ -522,16 +529,25 @@ def _repair_jev_llm(args: argparse.Namespace) -> None:
         )
         return response
 
-    if args.all_pages:
+    llm_page_indexes = _page_indexes(args.llm_pages)
+    if args.all_pages and llm_page_indexes is not None:
+        raise ValueError("--all-pages cannot be combined with --llm-pages")
+    if args.all_pages or llm_page_indexes is not None:
         if args.jev_baseline is not None or args.jev_run is not None:
-            raise ValueError("--all-pages cannot be combined with JEV options")
+            raise ValueError("direct LLM page selection cannot be combined with JEV options")
         all_page_processor = AllPageLlmRepairProcessor(
             request,
+            page_indexes=llm_page_indexes,
             max_retries=args.max_retries,
         )
         processor = all_page_processor
         jev_processor = None
-        jev_source = {"type": "skipped-all-pages"}
+        jev_source = {
+            "type": (
+                "skipped-all-pages" if args.all_pages
+                else "skipped-selected-pages"
+            )
+        }
     else:
         all_page_processor = None
         if args.jev_baseline is not None:
@@ -560,7 +576,7 @@ def _repair_jev_llm(args: argparse.Namespace) -> None:
         TocInfo([], []),
         processor,
     ))
-    if args.all_pages:
+    if args.all_pages or llm_page_indexes is not None:
         assert all_page_processor is not None
         review_page_indexes = all_page_processor.page_indexes
         page_reports = [
@@ -590,7 +606,10 @@ def _repair_jev_llm(args: argparse.Namespace) -> None:
         ]
     report = {
         "jev_source": jev_source,
-        "threshold": None if args.all_pages else args.threshold,
+        "threshold": (
+            None if args.all_pages or llm_page_indexes is not None
+            else args.threshold
+        ),
         "page_count": len(page_reports),
         "review_page_indexes": review_page_indexes,
         "pages": page_reports,

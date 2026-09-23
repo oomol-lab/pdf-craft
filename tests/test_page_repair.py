@@ -94,6 +94,36 @@ class PageRepairTests(unittest.TestCase):
                 if payload[key] is not None:
                     self.assertIsNone(payload[key]["jev_p_pass"])
 
+    def test_direct_llm_processor_can_select_pages_without_jev(self):
+        source_pages = [
+            decode(fromstring(
+                f"<page index='{index}'><body><layout ref='text' "
+                f"det='1,1,99,20'>Page {index}.</layout></body>"
+                "<footnotes></footnotes></page>"
+            ))
+            for index in (1, 2, 3)
+        ]
+        paragraphs, citations = _resolve_pages(source_pages)
+        analyses = analyse_pages((1, 2, 3), paragraphs, citations)
+        payloads = []
+
+        def request(messages, _index, _maximum):
+            payloads.append(json.loads(messages[1].message))
+            return json.dumps(_response_from_message(messages[1]))
+
+        processor = AllPageLlmRepairProcessor(request, page_indexes=(1, 3))
+        processor(source_pages, analyses, {})
+
+        self.assertEqual(processor.page_indexes, [1, 3])
+        self.assertEqual(
+            [payload["target_page"]["page_index"] for payload in payloads],
+            [1, 3],
+        )
+        for payload in payloads:
+            for key in ("previous_page", "next_page"):
+                if payload[key] is not None:
+                    self.assertIsNone(payload[key]["jev_p_pass"])
+
     def test_each_citation_id_has_independent_flow_endpoints(self):
         mark = transform2mark("①")
         assert mark is not None
@@ -216,6 +246,13 @@ class PageRepairTests(unittest.TestCase):
             if layout["ownership"] == "citation"
         )
         self.assertEqual(citation_layout["detached_citation_mark"], "①")
+        paragraph_layouts = [
+            layout for layout in payload["target_page"]["layouts"]
+            if layout["ownership"] == "paragraph"
+        ]
+        self.assertIsNone(
+            paragraph_layouts[0]["initial_stream_boundary_from_previous"]
+        )
 
     def test_complete_noop_json_round_trips_through_guaranteed_loop(self):
         page = _page_with_reference()
