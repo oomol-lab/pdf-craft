@@ -196,6 +196,28 @@ class _AsyncHandler:
 
 
 class TestAsyncAPI(unittest.IsolatedAsyncioTestCase):
+    async def test_extraction_metadata_helpers_run_off_loop(self):
+        loop_thread = threading.get_ident()
+        with tempfile.TemporaryDirectory() as directory:
+            extraction = make_extraction(
+                Path(directory) / "source",
+                language="en",
+            )
+            original = extraction.document_metadata
+            worker_threads: list[int] = []
+
+            def document_metadata():
+                worker_threads.append(threading.get_ident())
+                return original()
+
+            extraction.document_metadata = document_metadata  # type: ignore[method-assign]
+            self.assertEqual(await extraction.language_async(), "en")
+            book_meta = await extraction.book_meta_async()
+            assert book_meta is not None
+            self.assertIsNone(book_meta.title)
+            self.assertEqual(len(worker_threads), 2)
+            self.assertTrue(all(thread != loop_thread for thread in worker_threads))
+
     async def test_direct_extractor_callbacks_run_on_caller_loop(self):
         loop_thread = threading.get_ident()
         cases = (

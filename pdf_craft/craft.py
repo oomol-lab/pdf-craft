@@ -41,6 +41,7 @@ from .pipeline.pdf import PDFTranslationPipeline
 from .renderer import EpubRenderer, MarkdownRenderer
 from .transformer import (
     ChapterExtractionTransformer,
+    AsyncAnchoredContentTransformer,
     AsyncChapterTransformer,
     ChapterTransformer,
     AnchoredContentExtractionTransformer,
@@ -162,7 +163,7 @@ class PDFCraft:
         self,
         extraction: PDFCraftExtraction | PathLike | str,
         output_path: PathLike | str,
-        transformer: AnchoredContentTransformer,
+        transformer: AnchoredContentTransformer | AsyncAnchoredContentTransformer,
     ) -> PDFCraftExtraction:
         """Translate extracted image/table text without entering NarrativeFlow."""
         return run_sync(self._async().translate_anchored_contents(
@@ -367,7 +368,7 @@ class AsyncPDFCraft:
         self,
         extraction: PDFCraftExtraction | PathLike | str,
         output_path: PathLike | str,
-        transformer: AnchoredContentTransformer,
+        transformer: AnchoredContentTransformer | AsyncAnchoredContentTransformer,
     ) -> PDFCraftExtraction:
         document = await _ensure_extraction_async(extraction)
         return await AnchoredContentExtractionTransformer(

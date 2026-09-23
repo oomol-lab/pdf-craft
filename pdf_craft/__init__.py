@@ -33,6 +33,7 @@ from .transformer import (
     AnchoredContentTransformer,
     AnchoredContentTranslation,
     AnchoredContentXMLTransformer,
+    AsyncAnchoredContentTransformer,
     AsyncChapterTransformer,
     ChapterExtractionTransformer,
     ChapterXMLTransformer,

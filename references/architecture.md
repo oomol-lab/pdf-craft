@@ -34,15 +34,16 @@ analysis/OCR 缓存。
 
 除非任务明确要求破坏性 API 变更，否则把以下名称和默认值视为公共 API：
 
-- `PDFCraft`、`PDFOptions`、`ExtractionOptions`、`PDFCraftExtraction`
+- `PDFCraft`、`AsyncPDFCraft`、`PDFOptions`、`ExtractionOptions`、`PDFCraftExtraction`
 - `PDFExtractor`、`MarkdownRenderer`、`EpubRenderer`
 - `ExtractionTransformer`、`ChapterExtractionTransformer`、`ChapterXMLTransformer`
-- `AnchoredContentExtractionTransformer`、`AnchoredContentTransformer`、`AnchoredContentXMLTransformer`
-- `predownload_models`
+- `AnchoredContentExtractionTransformer`、`AnchoredContentTransformer`、`AsyncAnchoredContentTransformer`、`AnchoredContentXMLTransformer`
+- `ChapterTransformer`、`AsyncChapterTransformer`
+- `predownload_models`、`predownload_models_async`
 - `LLM`
 - `DeepSeekOCRLocalConfig`、`DeepSeekOCR2LocalConfig`、`UnlimitedOCRLocalConfig`
 - `DeepSeekOCRVendorConfig`、`DeepSeekOCR2VendorConfig`、`UnlimitedOCRVendorConfig`
-- `PDFHandler`、`PDFDocument`、`DefaultPDFHandler`、`DefaultPDFDocument`
+- `PDFHandler`、`AsyncPDFHandler`、`PDFDocument`、`AsyncPDFDocument`、`DefaultPDFHandler`、`DefaultPDFDocument`
 - `BookMeta`、`TableRender`、`LaTeXRender`
 
 ## 模块归属

@@ -63,4 +63,7 @@ class LLM:
 def _directory(path: PathLike | str | None) -> Path | None:
     if path is None:
         return None
-    return Path(path).expanduser()
+    result = Path(path).expanduser()
+    if not result.is_absolute():
+        result = Path.cwd() / result
+    return result

@@ -15,6 +15,7 @@ from .metering import AbortedCheck, OCRTokensMetering
 from .ocr_config import OCRConfig, ensure_ocr_config
 from .pdf import DeepSeekOCRSize, OCR, OCREvent, OCREventKind, PDFHandler
 from .pdf.furniture import write_furnitures
+from .runtime import run_subprocess
 from .extractor.metadata import extract_book_metadata_from_ocr, merge_ocr_and_pdf_metadata
 from .extractor.chapter import generate_chapter_files
 from .extractor.toc import analyse_toc
@@ -52,6 +53,27 @@ class PDFExtractionEngine:
         """Extraction hook used by :class:`~pdf_craft.extractor.PDFExtractor`."""
         return self._extract_from_pdf(**kwargs)
 
+    async def prepare_extract_async(
+        self,
+        *,
+        pdf_path: Path,
+        includes_furniture: bool = True,
+        **_kwargs,
+    ) -> dict[str, object]:
+        """Fetch direct subprocess inputs before entering the OCR worker."""
+        if not includes_furniture:
+            return {}
+        try:
+            stdout, _ = await run_subprocess(
+                "pdftotext", "-bbox-layout", str(pdf_path), "-",
+            )
+        except (FileNotFoundError, RuntimeError):
+            stdout = None
+        return {
+            "native_pdf_text": stdout,
+            "native_pdf_text_prepared": True,
+        }
+
     def _extract_from_pdf(
         self,
         pdf_path: Path,
@@ -74,6 +96,8 @@ class PDFExtractionEngine:
         includes_furniture: bool = True,
         extract_book_metadata: bool = False,
         metadata_llm: LLM | None = None,
+        native_pdf_text: bytes | None = None,
+        native_pdf_text_prepared: bool = False,
     ):
         if extract_book_metadata and metadata_llm is None:
             raise ValueError("extract_book_metadata=True requires metadata_llm")
@@ -139,6 +163,8 @@ class PDFExtractionEngine:
                 toc=toc,
                 dpi=dpi if dpi is not None else 300,
                 aborted=aborted,
+                native_pdf_text=native_pdf_text,
+                native_pdf_text_prepared=native_pdf_text_prepared,
             )
         if cover_path and not cover_path.exists():
             cover_path = None

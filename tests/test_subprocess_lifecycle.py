@@ -65,14 +65,38 @@ else:
 
 
 class _FurnitureEngine:
-    def extract_package(self, *, pdf_path, analysing_path, aborted, **_kwargs):
+    async def prepare_extract_async(self, *, pdf_path, **_kwargs):
+        stdout, _ = await run_subprocess(
+            "pdftotext", "-bbox-layout", str(pdf_path), "-",
+        )
+        return {
+            "native_pdf_text": stdout,
+            "native_pdf_text_prepared": True,
+        }
+
+    def extract_package(
+        self,
+        *,
+        pdf_path,
+        analysing_path,
+        aborted,
+        native_pdf_text,
+        native_pdf_text_prepared,
+        **_kwargs,
+    ):
         ocr = analysing_path / "ocr"
         ocr.mkdir(parents=True)
         (ocr / "page_1.xml").write_text("<page/>", encoding="utf-8")
         (ocr / "page_pixel_sizes.json").write_text(
             '{"1": [100, 100]}', encoding="utf-8",
         )
-        extract_furnitures(pdf_path, ocr, aborted=aborted)
+        extract_furnitures(
+            pdf_path,
+            ocr,
+            aborted=aborted,
+            native_pdf_text=native_pdf_text,
+            native_pdf_text_prepared=native_pdf_text_prepared,
+        )
         raise AssertionError("sleeping pdftotext unexpectedly returned")
 
 

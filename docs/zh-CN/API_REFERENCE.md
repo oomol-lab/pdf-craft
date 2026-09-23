@@ -34,6 +34,8 @@ writer 收尾、删除临时归档并保持目标不存在；若发布边界先�
 
 扩展实现可以采用 `AsyncChapterTransformer` 协议，实现
 `async def transform(chapter)`；异步门面会直接在调用方事件循环中等待它。
+图片/表格独立翻译也可以实现 `AsyncAnchoredContentTransformer`，提供
+`async def transform_assets(assets)`。
 `PDFOptions.pdf_handler` 也接受 `AsyncPDFHandler`：其 `open()` 返回
 `AsyncPDFDocument`，并提供可等待的 `pages_count()`、`metadata()`、
 `page_size()`、`render_page()` 和 `close()`。SDK 会在同步 OCR 边界进行适配，
@@ -48,7 +50,8 @@ writer 收尾、删除临时归档并保持目标不存在；若发布边界先�
 `AsyncPDFCraft`。
 
 `PDFCraftExtraction` 还提供 `open_async`、`validate_async`、`export_async`、
-`page_pixel_sizes_async`、`render_dpi_async` 和 `document_metadata_async`。组件级调用方可使用
+`page_pixel_sizes_async`、`render_dpi_async`、`document_metadata_async`、
+`book_meta_async` 和 `language_async`。组件级调用方可使用
 `PDFExtractor.extract_async`、`MarkdownRenderer.render_async`、
 `EpubRenderer.render_async`；模型预下载入口为 `predownload_models_async`。独立的 EPUB
 翻译函数也提供 `translate_epub_async`，异步程序应等待它，而不是调用 `translate_epub`。
@@ -65,6 +68,7 @@ writer 收尾、删除临时归档并保持目标不存在；若发布边界先�
 - `LLM`
 - `ExtractionTransformer`、`ChapterExtractionTransformer`、`ChapterXMLTransformer`、
   `AnchoredContentExtractionTransformer`、`AnchoredContentTransformer`、
+  `AsyncAnchoredContentTransformer`、
   `AnchoredContentXMLTransformer`、`XMLTranslator`、`SubmitKind`
 - `BookMeta`、`TableRender`、`LaTeXRender`
 - `OCRTokensMetering`、`OCREvent`、`OCREventKind`、`TranslationEvent`、
@@ -79,7 +83,8 @@ writer 收尾、删除临时归档并保持目标不存在；若发布边界先�
   `IgnoreOCRErrorsChecker`、`IgnoreFillErrorsChecker`
 - `translate_epub`、`translate_epub_async`
 
-`ChapterTransformer` 与 `AsyncChapterTransformer` 是公共协议；前者的导入路径为
+`ChapterTransformer`、`AsyncChapterTransformer` 与
+`AsyncAnchoredContentTransformer` 是公共扩展协议；前者的导入路径为
 `from pdf_craft.transformer import ChapterTransformer`，后者也可直接从包顶层导入。本文不把以下内容当作
 公共扩展点：内部 engine、`pdf_craft_tool` CLI、`pdf_craft` 的私有模块路径，以及
 `doc-page-extractor` 的内部 extractor/factory。

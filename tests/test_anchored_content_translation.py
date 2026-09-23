@@ -4,7 +4,9 @@
 
 from __future__ import annotations
 
+import asyncio
 import tempfile
+import threading
 import unittest
 from collections.abc import Sequence
 from pathlib import Path
@@ -14,7 +16,7 @@ from xml.etree.ElementTree import parse, tostring
 from tiktoken import get_encoding
 
 from pdf_craft.common import read_xml, save_xml
-from pdf_craft.craft import PDFCraft
+from pdf_craft.craft import AsyncPDFCraft, PDFCraft
 from pdf_craft.document import PDFCraftExtraction
 from pdf_craft.pipeline.pdf import PDFPatcher
 from pdf_craft.pipeline.pdf.pipeline import PDFTranslationPipeline
@@ -108,6 +110,26 @@ class _AssetTranslator:
                 [f"T:{_text(asset.asset.title)}"],
                 [f"T:{_text(asset.asset.content)}"],
                 [f"T:{_text(asset.asset.caption)}"],
+            )
+            for asset in assets
+        ]
+
+
+class _AsyncAssetTranslator:
+    def __init__(self) -> None:
+        self.thread_id: int | None = None
+
+    async def transform_assets(
+        self, assets: Sequence[AnchoredContent],
+    ) -> Sequence[AnchoredContentTranslation | None]:
+        await asyncio.sleep(0)
+        self.thread_id = threading.get_ident()
+        return [
+            AnchoredContentTranslation(
+                asset.identity,
+                ["Async title"],
+                ["Async content"],
+                ["Async caption"],
             )
             for asset in assets
         ]
@@ -658,6 +680,43 @@ class AnchoredContentTranslationTests(unittest.TestCase):
 
             with self.assertRaisesRegex(ValueError, "invalid anchored asset"):
                 PDFCraftExtraction._from_workspace(source_root).validate()
+
+
+class AsyncAnchoredContentTranslationTests(unittest.IsolatedAsyncioTestCase):
+    async def test_public_facade_awaits_native_async_asset_transformer(self):
+        loop_thread = threading.get_ident()
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source_root = root / "source"
+            source = make_extraction(source_root, page_pixel_sizes={1: (100, 100)})
+            image = SourceAsset(
+                1,
+                "image",
+                (1, 1, 20, 20),
+                title=["Title"],
+                content=["Content"],
+                caption=["Caption"],
+                asset_hash="e" * 64,
+            )
+            (source_root / "assets" / f"{image.asset_hash}.png").write_bytes(b"image")
+            save_xml(
+                encode(Chapter(None, -1, [StandaloneAsset(image)])),
+                source_root / "chapters/chapter_head.xml",
+            )
+            transformer = _AsyncAssetTranslator()
+
+            translated = await AsyncPDFCraft().translate_anchored_contents(
+                source,
+                root / "translated.pcex",
+                transformer,
+            )
+
+            self.assertEqual(transformer.thread_id, loop_thread)
+            with translated._materialize() as paths:
+                chapter = decode(parse(paths.chapters / "chapter_head.xml").getroot())
+            asset = chapter.flow_items[0]
+            assert isinstance(asset, StandaloneAsset)
+            self.assertEqual(asset.asset.content, ["Async content"])
 
 
 def _text(content) -> str:

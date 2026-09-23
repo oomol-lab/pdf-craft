@@ -96,6 +96,8 @@ def extract_furnitures(
     toc: TocInfo | None = None,
     dpi: int = 300,
     aborted: Callable[[], bool] = lambda: False,
+    native_pdf_text: bytes | None = None,
+    native_pdf_text_prepared: bool = False,
 ) -> ET.Element:
     """Extract native text not covered by OCR flow boxes.
 
@@ -106,7 +108,13 @@ def extract_furnitures(
     """
     del dpi
     toc_page_indexes = set(toc.page_indexes) if toc is not None else set()
-    pages = _native_pages(pdf_path, ocr_path, aborted=aborted)
+    pages = _native_pages(
+        pdf_path,
+        ocr_path,
+        aborted=aborted,
+        native_pdf_text=native_pdf_text,
+        native_pdf_text_prepared=native_pdf_text_prepared,
+    )
     for page_index, sections in pages.items():
         if page_index in toc_page_indexes:
             continue
@@ -178,10 +186,18 @@ def write_furnitures(
     toc: TocInfo | None = None,
     dpi: int = 300,
     aborted: Callable[[], bool] = lambda: False,
+    native_pdf_text: bytes | None = None,
+    native_pdf_text_prepared: bool = False,
 ) -> None:
     save_xml(
         extract_furnitures(
-            pdf_path, ocr_path, toc=toc, dpi=dpi, aborted=aborted,
+            pdf_path,
+            ocr_path,
+            toc=toc,
+            dpi=dpi,
+            aborted=aborted,
+            native_pdf_text=native_pdf_text,
+            native_pdf_text_prepared=native_pdf_text_prepared,
         ),
         destination,
     )
@@ -296,6 +312,8 @@ def _native_pages(
     ocr_path: Path,
     *,
     aborted: Callable[[], bool] = lambda: False,
+    native_pdf_text: bytes | None = None,
+    native_pdf_text_prepared: bool = False,
 ) -> dict[int, list[FurnitureSection]]:
     """Read exact Poppler-native text lines in the OCR coordinate space.
 
@@ -307,10 +325,15 @@ def _native_pages(
     available_pages = _available_ocr_pages(ocr_path)
     page_sizes = _read_page_sizes(ocr_path / "page_pixel_sizes.json")
     try:
-        stdout, _ = run_subprocess_sync(
-            "pdftotext", "-bbox-layout", str(pdf_path), "-",
-            aborted=aborted,
-        )
+        if native_pdf_text_prepared:
+            if native_pdf_text is None:
+                raise RuntimeError("pdftotext output is unavailable")
+            stdout = native_pdf_text
+        else:
+            stdout, _ = run_subprocess_sync(
+                "pdftotext", "-bbox-layout", str(pdf_path), "-",
+                aborted=aborted,
+            )
         root = ET.fromstring(stdout.decode("utf-8"))
     except (FileNotFoundError, RuntimeError, ET.ParseError):
         # Furniture is optional. A PDF page remains usable if Poppler cannot

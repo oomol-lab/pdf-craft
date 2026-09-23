@@ -8,7 +8,7 @@ from typing import Any, Iterator
 
 from ...document import PDFCraftExtraction
 from ...document.package import EXTRACTION_SUFFIX
-from ...runtime import OCR_DOMAIN, callback_bridge, require_sync_context, run_cancellable
+from ...runtime import OCR_DOMAIN, callback_bridge, run_cancellable, run_sync
 
 
 class PDFExtractor:
@@ -25,11 +25,9 @@ class PDFExtractor:
         analysing_path: Path | None = None,
         **kwargs: Any,
     ) -> PDFCraftExtraction:
-        require_sync_context()
-        extraction, _ = self.extract_with_metering(
+        return run_sync(self.extract_async(
             pdf_path, extraction_path, analysing_path=analysing_path, **kwargs
-        )
-        return extraction
+        ))
 
     def extract_with_metering(
         self,
@@ -39,7 +37,18 @@ class PDFExtractor:
         analysing_path: Path | None = None,
         **kwargs: Any,
     ):
-        require_sync_context()
+        return run_sync(self.extract_with_metering_async(
+            pdf_path, extraction_path, analysing_path=analysing_path, **kwargs,
+        ))
+
+    def _extract_with_metering_sync(
+        self,
+        pdf_path: Path,
+        extraction_path: Path,
+        *,
+        analysing_path: Path | None = None,
+        **kwargs: Any,
+    ):
         if extraction_path.suffix.lower() != EXTRACTION_SUFFIX:
             raise ValueError(f"PDFCraftExtraction path must end with {EXTRACTION_SUFFIX}")
         if extraction_path.exists():
@@ -96,6 +105,7 @@ class PDFExtractor:
         **kwargs: Any,
     ):
         """Keep the complete synchronous OCR generator on one OCR worker."""
+        kwargs = await self._prepare_async(pdf_path, kwargs)
         original_aborted = kwargs.get("aborted")
         on_ocr_event = callback_bridge(
             asyncio.get_running_loop(), kwargs.get("on_ocr_event"),
@@ -105,7 +115,7 @@ class PDFExtractor:
             worker_kwargs = dict(kwargs)
             worker_kwargs["aborted"] = aborted
             worker_kwargs["on_ocr_event"] = on_ocr_event
-            return self.extract_with_metering(
+            return self._extract_with_metering_sync(
                 pdf_path,
                 extraction_path,
                 analysing_path=analysing_path,
@@ -124,6 +134,7 @@ class PDFExtractor:
         analysing_path: Path,
         **kwargs: Any,
     ):
+        kwargs = await self._prepare_async(pdf_path, kwargs)
         original_aborted = kwargs.get("aborted")
         on_ocr_event = callback_bridge(
             asyncio.get_running_loop(), kwargs.get("on_ocr_event"),
@@ -140,6 +151,17 @@ class PDFExtractor:
             execute,
             original_aborted=original_aborted,
         )
+
+    async def _prepare_async(
+        self,
+        pdf_path: Path,
+        kwargs: dict[str, Any],
+    ) -> dict[str, Any]:
+        prepare = getattr(self._transform, "prepare_extract_async", None)
+        if prepare is None:
+            return kwargs
+        prepared = await prepare(pdf_path=pdf_path, **kwargs)
+        return {**kwargs, **prepared}
 
 
 @contextmanager

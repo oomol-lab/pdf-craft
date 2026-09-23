@@ -17,6 +17,7 @@ from pdf_craft.document import PDFCraftExtraction
 from pdf_craft.document.package import EXTRACTION_SUFFIX
 from pdf_craft.runtime import (
     IO_DOMAIN, TRANSLATION_DOMAIN, callback_bridge, invoke_callback,
+    run_sync,
 )
 from pdf_craft.extractor.chapter.chapter import (
     SourceTextFragment, TextFlowItem, decode, encode,
@@ -33,6 +34,7 @@ from pdf_craft.transformer.furniture_translation import (
     translate_furnitures_in_workspace_async,
 )
 from pdf_craft.transformer.anchored_content import AnchoredContentTransformer
+from pdf_craft.transformer.anchored_content import AsyncAnchoredContentTransformer
 from pdf_craft.transformer.anchored_translation import (
     translate_anchored_contents_in_workspace,
     translate_anchored_contents_in_workspace_async,
@@ -465,10 +467,22 @@ class FurnitureExtractionTransformer:
 class AnchoredContentExtractionTransformer:
     """Translate image/table text independently from NarrativeFlow."""
 
-    def __init__(self, anchored_transformer: AnchoredContentTransformer) -> None:
+    def __init__(
+        self,
+        anchored_transformer: AnchoredContentTransformer | AsyncAnchoredContentTransformer,
+    ) -> None:
         self.anchored_transformer = anchored_transformer
 
     def transform(
+        self,
+        extraction: PDFCraftExtraction,
+        output_path: Path,
+    ) -> PDFCraftExtraction:
+        if inspect.iscoroutinefunction(self.anchored_transformer.transform_assets):
+            return run_sync(self.transform_async(extraction, output_path))
+        return self._transform_sync(extraction, output_path)
+
+    def _transform_sync(
         self,
         extraction: PDFCraftExtraction,
         output_path: Path,
@@ -495,7 +509,7 @@ class AnchoredContentExtractionTransformer:
         translate_anchored_contents_in_workspace(
             chapters_path=output_path / "chapters",
             translation_path=output_path / "translation.xml",
-            transformer=self.anchored_transformer,
+            transformer=cast(AnchoredContentTransformer, self.anchored_transformer),
         )
         return PDFCraftExtraction._from_workspace(output_path).validate()
 
@@ -504,9 +518,11 @@ class AnchoredContentExtractionTransformer:
         extraction: PDFCraftExtraction,
         output_path: Path,
     ) -> PDFCraftExtraction:
-        if not isinstance(self.anchored_transformer, AnchoredContentXMLTransformer):
+        if not isinstance(self.anchored_transformer, AnchoredContentXMLTransformer) and not inspect.iscoroutinefunction(
+            self.anchored_transformer.transform_assets,
+        ):
             return await TRANSLATION_DOMAIN.run(
-                self.transform, extraction, output_path,
+                self._transform_sync, extraction, output_path,
             )
         temporary = await IO_DOMAIN.run(
             TemporaryDirectory, prefix="pdf-craft-anchored-transformed-",
@@ -524,7 +540,10 @@ class AnchoredContentExtractionTransformer:
         extraction: PDFCraftExtraction,
         output_path: Path,
     ) -> PDFCraftExtraction:
-        transformer = cast(AnchoredContentXMLTransformer, self.anchored_transformer)
+        transformer = cast(
+            AnchoredContentXMLTransformer | AsyncAnchoredContentTransformer,
+            self.anchored_transformer,
+        )
 
         def prepare():
             extraction.validate()

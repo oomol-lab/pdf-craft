@@ -61,3 +61,12 @@ class AnchoredContentTransformer(Protocol):
         self,
         assets: Sequence[AnchoredContent],
     ) -> Sequence[AnchoredContentTranslation | None]: ...
+
+
+class AsyncAnchoredContentTransformer(Protocol):
+    """Native async extension contract for anchored image/table translation."""
+
+    async def transform_assets(
+        self,
+        assets: Sequence[AnchoredContent],
+    ) -> Sequence[AnchoredContentTranslation | None]: ...

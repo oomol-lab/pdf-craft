@@ -247,24 +247,16 @@ class PDFCraftExtraction:
         return await IO_DOMAIN.run(self.render_dpi)
 
     def book_meta(self) -> BookMeta | None:
-        document = self.document_metadata()
-        if not document:
-            return None
-        modified = document.get("modified")
-        parsed_modified = datetime.fromisoformat(modified) if isinstance(modified, str) else None
-        return BookMeta(
-            title=_optional_string(document.get("title")),
-            description=_optional_string(document.get("description")),
-            publisher=_optional_string(document.get("publisher")),
-            isbn=_optional_string(document.get("isbn")),
-            authors=_author_names(document.get("authors")),
-            editors=_string_list(document.get("editors")),
-            translators=_string_list(document.get("translators")),
-            modified=parsed_modified,
-        )
+        return _book_meta(self.document_metadata())
+
+    async def book_meta_async(self) -> BookMeta | None:
+        return _book_meta(await self.document_metadata_async())
 
     def language(self) -> str | None:
         return _optional_string(self.document_metadata().get("language"))
+
+    async def language_async(self) -> str | None:
+        return _optional_string((await self.document_metadata_async()).get("language"))
 
     def document_metadata(self) -> dict[str, Any]:
         with self._materialize() as paths:
@@ -272,6 +264,23 @@ class PDFCraftExtraction:
 
     async def document_metadata_async(self) -> dict[str, Any]:
         return await IO_DOMAIN.run(self.document_metadata)
+
+
+def _book_meta(document: dict[str, Any]) -> BookMeta | None:
+    if not document:
+        return None
+    modified = document.get("modified")
+    parsed_modified = datetime.fromisoformat(modified) if isinstance(modified, str) else None
+    return BookMeta(
+        title=_optional_string(document.get("title")),
+        description=_optional_string(document.get("description")),
+        publisher=_optional_string(document.get("publisher")),
+        isbn=_optional_string(document.get("isbn")),
+        authors=_author_names(document.get("authors")),
+        editors=_string_list(document.get("editors")),
+        translators=_string_list(document.get("translators")),
+        modified=parsed_modified,
+    )
 
 
 def _commit_unconditionally(action: Callable[[], object]) -> bool:

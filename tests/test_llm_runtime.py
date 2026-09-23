@@ -1,6 +1,7 @@
 # pylint: disable=protected-access
 import tempfile
 import unittest
+from os import chdir
 from pathlib import Path
 
 from pdf_craft.llm import LLM, Message, MessageRole, runtime_for
@@ -14,6 +15,26 @@ def _config(path: Path) -> LLM:
 
 
 class TestLLMRuntime(unittest.TestCase):
+    def test_relative_output_paths_are_bound_at_construction(self):
+        original = Path.cwd()
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            first = root / "first"
+            second = root / "second"
+            first.mkdir()
+            second.mkdir()
+            try:
+                chdir(first)
+                config = LLM(
+                    "key", "https://example.invalid/v1", "model", "o200k_base",
+                    cache_path="cache", log_dir_path="logs",
+                )
+                chdir(second)
+                self.assertEqual(config.cache_path, first.resolve() / "cache")
+                self.assertEqual(config.log_dir_path, first.resolve() / "logs")
+            finally:
+                chdir(original)
+
     def test_cache_commits_only_after_context_success_and_writes_logs(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

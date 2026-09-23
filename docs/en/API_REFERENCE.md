@@ -42,7 +42,9 @@ cancellation performs this cleanup before the worker itself exits.
 
 Extension authors can implement `AsyncChapterTransformer` with
 `async def transform(chapter)`; the async façade awaits it directly on the
-caller loop. `PDFOptions.pdf_handler` also accepts `AsyncPDFHandler`, whose
+caller loop. Independent image/table translation likewise accepts
+`AsyncAnchoredContentTransformer` with `async def transform_assets(assets)`.
+`PDFOptions.pdf_handler` also accepts `AsyncPDFHandler`, whose
 `open()` returns an `AsyncPDFDocument` with awaitable `pages_count()`,
 `metadata()`, `page_size()`, `render_page()`, and `close()` methods. The SDK
 adapts that document at the synchronous OCR boundary without running its
@@ -61,7 +63,8 @@ from a thread that already has a running event loop; doing so raises a clear
 
 `PDFCraftExtraction` also provides async persistence and metadata methods:
 `open_async`, `validate_async`, `export_async`, `page_pixel_sizes_async`,
-`render_dpi_async`, and `document_metadata_async`. Component users can call
+`render_dpi_async`, `document_metadata_async`, `book_meta_async`, and
+`language_async`. Component users can call
 `PDFExtractor.extract_async`, `MarkdownRenderer.render_async`, and
 `EpubRenderer.render_async`. Model preloading is available as
 `predownload_models_async`.
@@ -209,6 +212,7 @@ The following classes are exposed for applications that need custom structured t
 | `ChapterXMLTransformer` | Adapts XML-oriented work to chapter transformation. |
 | `AnchoredContentXMLTransformer` | Adapts XML-oriented work to independent image/table text translation, validating each immutable asset slot before applying fields. |
 | `AnchoredContentTransformer` | Protocol for contextual batches of extracted image/table text; every non-preserved result carries its source `identity`. |
+| `AsyncAnchoredContentTransformer` | Awaitable version of the anchored-content extension protocol, executed on the caller's event loop. |
 | `ChapterExtractionTransformer` | Applies a chapter transformer across an extraction and writes a new `.pcex`. |
 | `ExtractionTransformer` | Public protocol for `transform(extraction, output_path) -> PDFCraftExtraction`. |
 | `XMLTranslator` | XML-aware translation engine for integrations that need direct structured translation. |
