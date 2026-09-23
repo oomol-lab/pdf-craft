@@ -137,12 +137,16 @@ poetry run python -m pdf_craft_tool analysis review-jev \
 ```shell
 PDF_CRAFT_LLM_DEFAULT_PROVIDER=oomol \
 poetry run python -m pdf_craft_tool analysis repair-jev-llm \
-  pdf-craft-output/analysis-baselines/citation-large-v1-unlimited/analysis/ocr \
+  tests/assets/analysis/citation_large_ocr \
   --output pdf-craft-output/analysis-baselines/citation-large-llm-current \
-  --llm-profile default
+  --llm-profile default \
+  --jev-baseline tests/assets/analysis/citation_large_jev_baseline.json \
+  --jev-run strict-rubric
 ```
 
-这是实验性私有 CLI 通路；正式转换仍不会默认调用 JEV 或 LLM。
+传入 `--jev-baseline` 时只重放已提交的 JEV 概率，不会调用 JEV 网络服务；
+这适合固定路由结果后反复调整 LLM prompt。这仍是实验性私有 CLI 通路，
+正式转换不会默认调用 JEV 或 LLM。
 
 ## 冒烟矩阵
 

@@ -20,7 +20,7 @@ from pdf_craft.extractor.chapter.page_review import (
 from pdf_craft.extractor.toc import TocInfo
 from pdf_craft.pdf import decode
 from pdf_craft_tool.cli import _parser
-from pdf_craft_tool.jev import OoJevEvaluator
+from pdf_craft_tool.jev import OoJevEvaluator, PinnedJevEvaluator
 
 
 class PageReviewTests(unittest.TestCase):
@@ -43,6 +43,16 @@ class PageReviewTests(unittest.TestCase):
         self.assertEqual(args.output, Path("repair-output"))
         self.assertEqual(args.llm_profile, "repair-test")
         self.assertEqual(args.threshold, JEV_REVIEW_THRESHOLD)
+
+    def test_cli_accepts_pinned_jev_baseline(self):
+        args = _parser().parse_args([
+            "analysis", "repair-jev-llm", "analysis/ocr",
+            "--output", "repair-output",
+            "--jev-baseline", "baseline.json",
+            "--jev-run", "first-run",
+        ])
+        self.assertEqual(args.jev_baseline, Path("baseline.json"))
+        self.assertEqual(args.jev_run, "first-run")
 
     def test_selected_prompt_builds_semantic_page_packet(self):
         page = decode(fromstring("""<page index='1'><body>
@@ -154,6 +164,17 @@ class PageReviewTests(unittest.TestCase):
 
         self.assertEqual(probability, 0.73)
         execute.assert_not_called()
+
+    def test_pinned_evaluator_replays_first_named_run(self):
+        baseline_path = (
+            Path(__file__).parent
+            / "assets/analysis/citation_large_jev_baseline.json"
+        )
+        evaluator = PinnedJevEvaluator(baseline_path, "strict-rubric")
+
+        self.assertEqual(evaluator.run_name, "strict-rubric")
+        self.assertEqual(evaluator(1, {}), 0.45)
+        self.assertEqual(evaluator(26, {}), 0.16)
 
     def test_citation_large_baseline_keeps_zero_false_negatives(self):
         baseline_path = (

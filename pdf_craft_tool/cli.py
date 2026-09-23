@@ -26,7 +26,7 @@ from pdf_craft.extractor.chapter.page_repair import JevLlmRepairProcessor
 from pdf_craft.extractor.toc import TocInfo
 from pdf_craft.llm import runtime_for
 
-from .jev import OoJevEvaluator
+from .jev import OoJevEvaluator, PinnedJevEvaluator
 from .runtime import (
     create_ocr_config_from_env,
     create_llm_from_env,
@@ -183,6 +183,15 @@ def _parser() -> argparse.ArgumentParser:
     repair_pages.add_argument("ocr_path", type=Path)
     repair_pages.add_argument("--output", type=Path, required=True)
     repair_pages.add_argument("--llm-profile", default="page-repair")
+    repair_pages.add_argument(
+        "--jev-baseline",
+        type=Path,
+        help="replay a committed JEV probability baseline instead of calling oo",
+    )
+    repair_pages.add_argument(
+        "--jev-run",
+        help="named run in --jev-baseline; defaults to its first run",
+    )
     repair_pages.add_argument(
         "--threshold", type=float, default=JEV_REVIEW_THRESHOLD
     )
@@ -505,8 +514,21 @@ def _repair_jev_llm(args: argparse.Namespace) -> None:
         )
         return response
 
+    if args.jev_baseline is not None:
+        evaluator = PinnedJevEvaluator(args.jev_baseline, args.jev_run)
+        jev_source = {
+            "type": "pinned-baseline",
+            "path": str(args.jev_baseline),
+            "run": evaluator.run_name,
+        }
+    else:
+        if args.jev_run is not None:
+            raise ValueError("--jev-run requires --jev-baseline")
+        evaluator = OoJevEvaluator(args.output / "jev-raw", reuse_existing=True)
+        jev_source = {"type": "oo-connector"}
+
     processor = JevLlmRepairProcessor(
-        OoJevEvaluator(args.output / "jev-raw", reuse_existing=True),
+        evaluator,
         request,
         threshold=args.threshold,
         max_retries=args.max_retries,
@@ -517,6 +539,7 @@ def _repair_jev_llm(args: argparse.Namespace) -> None:
         processor,
     ))
     report = {
+        "jev_source": jev_source,
         "threshold": args.threshold,
         "page_count": len(processor.results),
         "review_page_indexes": [

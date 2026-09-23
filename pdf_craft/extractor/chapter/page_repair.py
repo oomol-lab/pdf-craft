@@ -86,6 +86,15 @@ PAGE_REPAIR_SYSTEM_PROMPT = """\
 
 相邻页只是历史现场，可能错误。相邻页的 jev_p_pass 是较弱审核器对其现有标注可靠性的估计，不是事实或约束。目标页分数被刻意隐藏，请独立检查；如果原结果正确，可以原样返回。
 
+修改纪律：
+- 现有标注是一套已闭环的候选结果，不是让你从头重做的空白草稿。默认保留每个字段；只在文本语义、几何位置或引用对应给出具体证据时修改。
+- 发现页码或 running header 时，将该 layout 改为 ignored，但不要顺手改写与它无关的 citation、ref 或段落边界。
+- 判断 gap 时，在心中直接拼接前一 layout 末尾和后一 layout 开头。只有拼接后语法与意义显然是同一自然段或同一条 citation 时才设为 true；空间相邻、冒号、缩进或排版分块单独都不足以决定连接。结合 bbox 判断：同缩进且行距正常的冒号引导句与后续文字可能是同一段；而前文说“阅读下面的段落”之类引导语，后面内容明显整体缩进且增加垂直留白时，后者是独立块引文，gap 应为 false。
+- 已有 citation_id、citation 记录与 ref 对应是强证据。citation 开头的 mark 已从 layout.text 拆入 citations[].mark，并在原所在 layout 上以 detached_citation_mark 提示。判断语义时要把它视为 layout.text 原本的前缀；不得因为 text 里看不到 mark 就把该 layout 改成 paragraph。
+- citation 成员关系与 gap 是两个正交维度：多个 layout 可以都属于同一 citation_id，却因为是脚注内的不同自然段而将相邻 gap 设为 false。常见脚注会依次包含以冒号结尾的引导句、缩进引文和后续评论；它们可以是三个自然段，但仍全部属于同一 citation。不要为了拆段而把引导句改成 paragraph。
+- 修好已有具体错误后就停止。页面被送来不意味着每种结构都有错，不得为了显示做过审查而制造额外修改。
+- 校验错误只说明结果存在矛盾，不代表必须修改错误消息中的某一侧。回到文本语义判断哪个 ownership 或 gap 才是根因，不要为了过校验而拼接不相干的文字。
+
 ref 规则：
 - 每个 ref 返回 layout_id、citation_index 和 anchor。
 - anchor.before、anchor.mark、anchor.after 表示同一 layout.text 中连续相邻的三段；mark 是 ref 覆盖的实际字符，before/after 只是定位上下文。
@@ -99,6 +108,12 @@ citation 规则：
 - 本页新开始的 citation 使用从 1 连续递增的 index，并具有非空 mark。
 - 上一页 citation 的续页片段 index 和 mark 都为 null，且必须排在有索引 citation 之前。
 - citation layout 的 citation_id/index 必须与 citations 中相应项一致；paragraph layout 不得携带 citation_id/index。
+
+返回前逐项自检：
+1. 所有 ignored layout 的 gap 均为 false，所有语义字段均为 null。
+2. 删去 ignored 后，按 document_order 查看相邻 paragraph：前者 continues_to_next 必须等于后者 continues_from_previous。不要把被忽略页码曾经携带的 gap 原样留给下一 layout。
+3. 对每个 citation_id 独立做同样的相邻 gap 检查，不要把不同 citation 串成一条流。
+4. 有索引 citation 与 references 按 citation_index 一一对应，每个 anchor 都只能在指定 layout_id 内定位到一处。
 
 返回一个完整目标页 JSON，字段严格遵守给定 output_contract。不要解释，不要使用 Markdown 围栏。每次收到校验错误后，都重新返回完整目标页 JSON。"""
 
@@ -222,9 +237,33 @@ def _context_packet(
 
 
 def _page_packet(page: PageAnalysis) -> dict:
+    citation_marks = {
+        citation.citation_id: _mark_text(citation.mark)
+        for citation in page.citations
+        if citation.index is not None
+    }
+    mark_layouts: dict[str, str] = {}
+    for layout in sorted(page.layouts, key=lambda item: item.document_order):
+        if (
+            layout.ownership == "citation"
+            and layout.citation_id in citation_marks
+            and layout.citation_id not in mark_layouts
+        ):
+            mark_layouts[layout.citation_id] = _layout_id(layout)
     return {
         "page_index": page.page_index,
-        "layouts": [_layout_packet(layout) for layout in page.layouts],
+        "layouts": [
+            _layout_packet(
+                layout,
+                citation_marks[layout.citation_id]
+                if (
+                    layout.citation_id is not None
+                    and mark_layouts.get(layout.citation_id) == _layout_id(layout)
+                )
+                else None,
+            )
+            for layout in page.layouts
+        ],
         "citations": [
             {
                 "citation_id": citation.citation_id,
@@ -248,7 +287,10 @@ def _page_packet(page: PageAnalysis) -> dict:
     }
 
 
-def _layout_packet(layout: AnalysedLayout) -> dict:
+def _layout_packet(
+    layout: AnalysedLayout,
+    detached_citation_mark: str | None,
+) -> dict:
     try:
         text = layout_reference_text(layout)
     except ValueError:
@@ -260,6 +302,7 @@ def _layout_packet(layout: AnalysedLayout) -> dict:
         "source_type": getattr(layout.source, "ref", "text"),
         "bbox": list(layout.bbox),
         "text": text,
+        "detached_citation_mark": detached_citation_mark,
         "ownership": layout.ownership,
         "continues_from_previous": layout.continues_from_previous,
         "continues_to_next": layout.continues_to_next,

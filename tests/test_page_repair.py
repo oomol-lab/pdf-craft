@@ -181,6 +181,11 @@ class PageRepairTests(unittest.TestCase):
         self.assertEqual(payload["previous_page"]["jev_p_pass"], 0.91)
         self.assertEqual(payload["next_page"]["jev_p_pass"], 0.34)
         self.assertNotIn("jev_p_pass", payload["target_page"])
+        citation_layout = next(
+            layout for layout in payload["target_page"]["layouts"]
+            if layout["ownership"] == "citation"
+        )
+        self.assertEqual(citation_layout["detached_citation_mark"], "①")
 
     def test_complete_noop_json_round_trips_through_guaranteed_loop(self):
         page = _page_with_reference()
