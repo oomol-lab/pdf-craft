@@ -129,6 +129,21 @@ poetry run python -m pdf_craft_tool analysis review-jev \
 时把页面列入 `review_page_indexes`；`raw/` 保留逐页 JEV 请求和响应，便于继续调 prompt。
 这是 branch 内跑通流程的临时 oo 适配器，不属于发布包的正式 JEV 客户端。
 
+`analysis repair-jev-llm` 使用同一 JEV 门槛筛选页面，再以三页纯文本上下文调用指定 LLM profile；
+目标页不披露自己的 JEV 分数，前后页只披露 `jev_p_pass` 作为弱可靠性提示。LLM 每次返回完整
+目标页 JSON，并由 schema 与业务完整性修复循环校验。运行记录分别保存在 `jev-raw/`、
+`llm-raw/` 和 `llm-logs/`：
+
+```shell
+PDF_CRAFT_LLM_DEFAULT_PROVIDER=oomol \
+poetry run python -m pdf_craft_tool analysis repair-jev-llm \
+  pdf-craft-output/analysis-baselines/citation-large-v1-unlimited/analysis/ocr \
+  --output pdf-craft-output/analysis-baselines/citation-large-llm-current \
+  --llm-profile default
+```
+
+这是实验性私有 CLI 通路；正式转换仍不会默认调用 JEV 或 LLM。
+
 ## 冒烟矩阵
 
 先查看全部真实样本：

@@ -25,12 +25,16 @@ from .chapter import (
 from .mark import Mark, NumberClass, NumberStyle
 
 
-LayoutOwnership: TypeAlias = Literal["paragraph", "citation"]
+LayoutOwnership: TypeAlias = Literal["paragraph", "citation", "ignored"]
 
 
 @dataclass(frozen=True)
 class _ReferencePlaceholder:
     """Immutable position occupied by a reference in source content."""
+
+    text: str
+    citation_page_index: int
+    citation_index: int
 
 
 @dataclass(frozen=True)
@@ -81,6 +85,17 @@ class ReferenceLocation:
     path: tuple[int, ...]
     citation_page_index: int
     citation_index: int
+
+
+@dataclass(frozen=True)
+class ReferenceSpan:
+    """A validated visible-text range compiled into a reference placeholder."""
+
+    start: int
+    end: int
+    citation_page_index: int
+    citation_index: int
+    mark_text: str
 
 
 @dataclass(frozen=True)
@@ -189,6 +204,100 @@ class PageAnalysis:
     page_index: int
     layouts: list[AnalysedLayout] = field(default_factory=list)
     citations: list[AnalysedCitation] = field(default_factory=list)
+
+
+def layout_reference_text(layout: AnalysedLayout) -> str:
+    """Return the exact visible text surface used to locate paragraph refs."""
+
+    source = layout.source
+    if not isinstance(source, _AnalysedTextSource):
+        raise ValueError("References can only be located in text layouts")
+    return _visible_content_text(source.content)
+
+
+def layout_reference_spans(layout: AnalysedLayout) -> list[ReferenceSpan]:
+    """Return existing ref locations on the same visible-text surface."""
+
+    source = layout.source
+    if not isinstance(source, _AnalysedTextSource):
+        return []
+    spans: list[ReferenceSpan] = []
+    offset = 0
+
+    def visit(parts: _AnalysedContent) -> None:
+        nonlocal offset
+        for part in parts:
+            if isinstance(part, str):
+                offset += len(part)
+            elif isinstance(part, _ReferencePlaceholder):
+                start = offset
+                offset += len(part.text)
+                spans.append(ReferenceSpan(
+                    start=start,
+                    end=offset,
+                    citation_page_index=part.citation_page_index,
+                    citation_index=part.citation_index,
+                    mark_text=part.text,
+                ))
+            elif isinstance(part, _AnalysedInlineExpression):
+                offset += len(part.content)
+            else:
+                visit(part.children)
+
+    visit(source.content)
+    return spans
+
+
+def replace_layout_references(
+    layout: AnalysedLayout,
+    spans: Iterable[ReferenceSpan],
+) -> AnalysedLayout:
+    """Compile validated visible ranges back into immutable content paths."""
+
+    source = layout.source
+    if not isinstance(source, _AnalysedTextSource):
+        raise ValueError("References can only be placed in text layouts")
+
+    materialized = _materialize_reference_text(source.content)
+    visible_text = _visible_content_text(materialized)
+    ordered = sorted(spans, key=lambda span: (span.start, span.end))
+    previous_end = -1
+    for span in ordered:
+        if span.start < 0 or span.end < span.start or span.end > len(visible_text):
+            raise ValueError(
+                f"Reference span is outside layout text: {span.start}..{span.end}"
+            )
+        if span.start < previous_end:
+            raise ValueError("Reference spans cannot overlap")
+        if visible_text[span.start:span.end] != span.mark_text:
+            raise ValueError(
+                "Reference span mark does not match layout text: "
+                f"{visible_text[span.start:span.end]!r} != {span.mark_text!r}"
+            )
+        previous_end = span.end
+
+    leaves = _content_text_leaves(materialized)
+    replacements: dict[tuple[int, ...], list[tuple[int, int, ReferenceSpan]]] = {}
+    for span in ordered:
+        matched = _leaf_for_span(leaves, span.start, span.end)
+        if matched is None:
+            raise ValueError(
+                "Reference span crosses a structured content boundary: "
+                f"{span.start}..{span.end}"
+            )
+        path, leaf_start, _leaf_end = matched
+        replacements.setdefault(path, []).append(
+            (span.start - leaf_start, span.end - leaf_start, span)
+        )
+
+    rebuilt = _replace_content_text_leaves(materialized, replacements)
+    references: list[ReferenceLocation] = []
+    _collect_reference_locations(rebuilt, references)
+    return replace(
+        layout,
+        source=replace(source, content=rebuilt),
+        annotations=replace(layout.annotations, references=references),
+    )
 
 
 @dataclass
@@ -523,6 +632,18 @@ def _validate_pages(pages: list[PageAnalysis]) -> None:
 
     for page in pages:
         for layout in page.layouts:
+            if layout.ownership == "ignored":
+                if layout.continues_from_previous or layout.continues_to_next:
+                    raise ValueError("Ignored layout cannot carry continuation gaps")
+                if (
+                    layout.paragraph_role is not None
+                    or layout.paragraph_level is not None
+                    or layout.citation_id is not None
+                    or layout.citation_index is not None
+                    or layout.references
+                ):
+                    raise ValueError("Ignored layout cannot carry semantic annotations")
+                continue
             if layout.ownership == "paragraph":
                 if layout.citation_id is not None or layout.citation_index is not None:
                     raise ValueError(
@@ -560,7 +681,11 @@ def _analyse_content(
                     citation_index=part.order,
                 )
             )
-            result.append(_ReferencePlaceholder())
+            result.append(_ReferencePlaceholder(
+                text=str(getattr(part.mark, "char", part.mark)),
+                citation_page_index=part.page_index,
+                citation_index=part.order,
+            ))
         elif isinstance(part, InlineExpression):
             result.append(_AnalysedInlineExpression(part.kind, part.content))
         elif isinstance(part, HTMLTag):
@@ -576,6 +701,126 @@ def _analyse_content(
         else:
             raise TypeError(f"Unsupported source content member: {type(part).__name__}")
     return tuple(result)
+
+
+def _visible_content_text(content: _AnalysedContent) -> str:
+    parts: list[str] = []
+    for part in content:
+        if isinstance(part, str):
+            parts.append(part)
+        elif isinstance(part, _ReferencePlaceholder):
+            parts.append(part.text)
+        elif isinstance(part, _AnalysedInlineExpression):
+            parts.append(part.content)
+        else:
+            parts.append(_visible_content_text(part.children))
+    return "".join(parts)
+
+
+def _materialize_reference_text(content: _AnalysedContent) -> _AnalysedContent:
+    result: list[_AnalysedContentPart] = []
+    for part in content:
+        if isinstance(part, _ReferencePlaceholder):
+            result.append(part.text)
+        elif isinstance(part, _AnalysedHTMLTag):
+            result.append(replace(
+                part,
+                children=_materialize_reference_text(part.children),
+            ))
+        else:
+            result.append(part)
+    return tuple(result)
+
+
+def _content_text_leaves(
+    content: _AnalysedContent,
+) -> list[tuple[tuple[int, ...], int, int]]:
+    leaves: list[tuple[tuple[int, ...], int, int]] = []
+    offset = 0
+
+    def visit(parts: _AnalysedContent, prefix: tuple[int, ...]) -> None:
+        nonlocal offset
+        for index, part in enumerate(parts):
+            path = (*prefix, index)
+            if isinstance(part, str):
+                leaves.append((path, offset, offset + len(part)))
+                offset += len(part)
+            elif isinstance(part, _ReferencePlaceholder):
+                offset += len(part.text)
+            elif isinstance(part, _AnalysedInlineExpression):
+                offset += len(part.content)
+            else:
+                visit(part.children, path)
+
+    visit(content, ())
+    return leaves
+
+
+def _leaf_for_span(
+    leaves: list[tuple[tuple[int, ...], int, int]],
+    start: int,
+    end: int,
+) -> tuple[tuple[int, ...], int, int] | None:
+    if start != end:
+        return next((leaf for leaf in leaves if leaf[1] <= start and end <= leaf[2]), None)
+    candidates = [leaf for leaf in leaves if leaf[1] <= start <= leaf[2]]
+    if not candidates:
+        return None
+    # At a structured boundary, attach a zero-width ref to the text on its
+    # left. This preserves the natural reading position without crossing tags.
+    return candidates[-1]
+
+
+def _replace_content_text_leaves(
+    content: _AnalysedContent,
+    replacements: dict[tuple[int, ...], list[tuple[int, int, ReferenceSpan]]],
+    prefix: tuple[int, ...] = (),
+) -> _AnalysedContent:
+    result: list[_AnalysedContentPart] = []
+    for index, part in enumerate(content):
+        path = (*prefix, index)
+        if isinstance(part, str) and path in replacements:
+            cursor = 0
+            for start, end, span in sorted(
+                replacements[path], key=lambda item: (item[0], item[1])
+            ):
+                if start > cursor:
+                    result.append(part[cursor:start])
+                result.append(_ReferencePlaceholder(
+                    text=span.mark_text,
+                    citation_page_index=span.citation_page_index,
+                    citation_index=span.citation_index,
+                ))
+                cursor = end
+            if cursor < len(part):
+                result.append(part[cursor:])
+        elif isinstance(part, _AnalysedHTMLTag):
+            result.append(replace(
+                part,
+                children=_replace_content_text_leaves(
+                    part.children, replacements, path
+                ),
+            ))
+        else:
+            result.append(part)
+    return tuple(result)
+
+
+def _collect_reference_locations(
+    content: _AnalysedContent,
+    references: list[ReferenceLocation],
+    prefix: tuple[int, ...] = (),
+) -> None:
+    for index, part in enumerate(content):
+        path = (*prefix, index)
+        if isinstance(part, _ReferencePlaceholder):
+            references.append(ReferenceLocation(
+                path=path,
+                citation_page_index=part.citation_page_index,
+                citation_index=part.citation_index,
+            ))
+        elif isinstance(part, _AnalysedHTMLTag):
+            _collect_reference_locations(part.children, references, path)
 
 
 def _restore_layouts(

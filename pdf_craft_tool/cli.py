@@ -22,7 +22,9 @@ from pdf_craft.extractor.chapter.page_review import (
     JEV_REVIEW_THRESHOLD,
     JevReviewProcessor,
 )
+from pdf_craft.extractor.chapter.page_repair import JevLlmRepairProcessor
 from pdf_craft.extractor.toc import TocInfo
+from pdf_craft.llm import runtime_for
 
 from .jev import OoJevEvaluator
 from .runtime import (
@@ -174,6 +176,18 @@ def _parser() -> argparse.ArgumentParser:
         "--threshold", type=float, default=JEV_REVIEW_THRESHOLD
     )
     review_jev.set_defaults(handler=_review_jev)
+    repair_pages = analysis_commands.add_parser(
+        "repair-jev-llm",
+        help="route cached OCR pages through JEV and repair selected pages with LLM",
+    )
+    repair_pages.add_argument("ocr_path", type=Path)
+    repair_pages.add_argument("--output", type=Path, required=True)
+    repair_pages.add_argument("--llm-profile", default="page-repair")
+    repair_pages.add_argument(
+        "--threshold", type=float, default=JEV_REVIEW_THRESHOLD
+    )
+    repair_pages.add_argument("--max-retries", type=int, default=4)
+    repair_pages.set_defaults(handler=_repair_jev_llm)
     return parser
 
 
@@ -442,6 +456,82 @@ def _review_jev(args: argparse.Namespace) -> None:
                 "requires_review": result.requires_review,
             }
             for result in reviewer.results
+        ],
+    }
+    report_path = args.output / "report.json"
+    report_path.write_text(
+        json.dumps(report, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
+    print(report_path)
+
+
+def _repair_jev_llm(args: argparse.Namespace) -> None:
+    load_project_env(_project_root())
+    args.output.mkdir(parents=True, exist_ok=True)
+    llm = create_llm_from_env(
+        args.llm_profile,
+        cache_path=args.output / "llm-cache",
+        log_dir_path=args.output / "llm-logs",
+    )
+    runtime = runtime_for(llm, protocol_version="page-repair-json-v1")
+    llm_raw_path = args.output / "llm-raw"
+    llm_raw_path.mkdir(parents=True, exist_ok=True)
+
+    def request(messages, index, maximum):
+        payload = json.loads(messages[1].message)
+        page_index = payload["target_page"]["page_index"]
+        stem = f"page_{page_index:03d}-attempt_{index + 1:02d}"
+        (llm_raw_path / f"{stem}-request.json").write_text(
+            json.dumps(
+                [
+                    {"role": message.role.name.lower(), "content": message.message}
+                    for message in messages
+                ],
+                ensure_ascii=False,
+                indent=2,
+            ) + "\n",
+            encoding="utf-8",
+        )
+        response = runtime.request(
+            messages,
+            max_tokens=16000,
+            retry_index=index,
+            retry_max=maximum,
+            use_cache=False,
+        )
+        (llm_raw_path / f"{stem}-response.txt").write_text(
+            response + "\n", encoding="utf-8"
+        )
+        return response
+
+    processor = JevLlmRepairProcessor(
+        OoJevEvaluator(args.output / "jev-raw", reuse_existing=True),
+        request,
+        threshold=args.threshold,
+        max_retries=args.max_retries,
+    )
+    list(_extract_body_layouts(
+        args.ocr_path,
+        TocInfo([], []),
+        processor,
+    ))
+    report = {
+        "threshold": args.threshold,
+        "page_count": len(processor.results),
+        "review_page_indexes": [
+            result.page_index
+            for result in processor.results
+            if result.requires_review
+        ],
+        "pages": [
+            {
+                "page_index": result.page_index,
+                "pass_probability": result.pass_probability,
+                "risk": result.risk,
+                "requires_review": result.requires_review,
+            }
+            for result in processor.results
         ],
     }
     report_path = args.output / "report.json"

@@ -33,6 +33,17 @@ class PageReviewTests(unittest.TestCase):
         self.assertEqual(args.output, Path("review-output"))
         self.assertEqual(args.threshold, JEV_REVIEW_THRESHOLD)
 
+    def test_cli_exposes_jev_llm_page_repair(self):
+        args = _parser().parse_args([
+            "analysis", "repair-jev-llm", "analysis/ocr",
+            "--output", "repair-output",
+            "--llm-profile", "repair-test",
+        ])
+        self.assertEqual(args.ocr_path, Path("analysis/ocr"))
+        self.assertEqual(args.output, Path("repair-output"))
+        self.assertEqual(args.llm_profile, "repair-test")
+        self.assertEqual(args.threshold, JEV_REVIEW_THRESHOLD)
+
     def test_selected_prompt_builds_semantic_page_packet(self):
         page = decode(fromstring("""<page index='1'><body>
             <layout ref='text' det='10,10,90,40'>Body①</layout>
@@ -119,6 +130,30 @@ class PageReviewTests(unittest.TestCase):
             "oo", "connector", "run", "jev", "--action", "evaluate"
         ])
         self.assertIn("--json", command)
+
+    def test_oo_adapter_reuses_matching_saved_evaluation(self):
+        request = {"state": {"page": 1}, "questions": {}}
+        response = {
+            "data": {
+                "answers": {
+                    JEV_QUESTION_NAME: {"type": "noul", "noul": 0.73}
+                }
+            }
+        }
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory)
+            (output / "page_001-request.json").write_text(
+                json.dumps(request), encoding="utf-8"
+            )
+            (output / "page_001-response.json").write_text(
+                json.dumps(response), encoding="utf-8"
+            )
+            evaluator = OoJevEvaluator(output, reuse_existing=True)
+            with patch("pdf_craft_tool.jev.subprocess.run") as execute:
+                probability = evaluator(1, request)
+
+        self.assertEqual(probability, 0.73)
+        execute.assert_not_called()
 
     def test_citation_large_baseline_keeps_zero_false_negatives(self):
         baseline_path = (
