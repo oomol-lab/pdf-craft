@@ -2,7 +2,7 @@ from os import PathLike
 
 from .ocr_config import OCRConfig, ensure_ocr_config
 from .pdf import OCR, PDFHandler
-from .runtime import OCR_DOMAIN, require_sync_context
+from .runtime import require_sync_context
 
 
 def predownload_models(
@@ -18,19 +18,3 @@ def predownload_models(
         pdf_handler=pdf_handler,
     )
     recognizer.predownload(revision)
-
-
-async def predownload_models_async(
-    models_cache_path: PathLike | None = None,
-    pdf_handler: PDFHandler | None = None,
-    revision: str | None = None,
-    ocr: OCRConfig | None = None,
-) -> None:
-    """Download local OCR models without blocking the event loop."""
-    await OCR_DOMAIN.run(
-        predownload_models,
-        models_cache_path,
-        pdf_handler,
-        revision,
-        ocr,
-    )

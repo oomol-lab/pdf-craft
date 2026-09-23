@@ -15,7 +15,7 @@ from pdf_craft.extractor.chapter.reader import create_chapters_reader
 
 
 def check_package(extraction: PDFCraftExtraction, require_geometry: bool = False) -> list[str]:
-    extraction.validate()
+    extraction._validate()
     errors: list[str] = []
     with extraction._materialize() as paths:
         chapters = sorted(paths.chapters.glob("chapter*.xml"))
@@ -31,7 +31,7 @@ def check_package(extraction: PDFCraftExtraction, require_geometry: bool = False
                 ElementTree.parse(paths.toc)
             except ElementTree.ParseError as error:
                 errors.append(f"invalid toc.xml: {error}")
-    if require_geometry and not extraction.page_pixel_sizes():
+    if require_geometry and not extraction._page_pixel_sizes():
         errors.append("PDFCraftExtraction lacks required page geometry metadata")
     return errors
 
@@ -39,7 +39,7 @@ def check_package(extraction: PDFCraftExtraction, require_geometry: bool = False
 def check_pdf_patch_geometry(extraction: PDFCraftExtraction) -> list[str]:
     """Require extraction-owned geometry for every block a PDF patch may replace."""
     try:
-        page_sizes = extraction.page_pixel_sizes()
+        page_sizes = extraction._page_pixel_sizes()
     except (OSError, ValueError) as error:
         return [f"PDF patch has invalid PDFCraftExtraction geometry metadata: {error}"]
     needed_pages: set[int] = set()

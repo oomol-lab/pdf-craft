@@ -1,10 +1,12 @@
+# pylint: disable=protected-access
+
 import tempfile
 import unittest
 from pathlib import Path
 from xml.etree.ElementTree import tostring
 
 from pdf_craft import ChapterExtractionTransformer, TranslationEventKind, TranslationItemKind
-from pdf_craft.craft import PDFCraft
+from pdf_craft import PDFCraft
 from pdf_craft.extractor.chapter.chapter import SourceTextFragment, Chapter, TextFlowItem, encode
 from tests.extraction_helpers import make_extraction
 
@@ -28,7 +30,7 @@ class TestTranslationEvents(unittest.TestCase):
                     return chapter
 
             events = []
-            ChapterExtractionTransformer(Identity()).transform(
+            ChapterExtractionTransformer(Identity())._transform_blocking(
                 source, root / "target.pcex", on_translation_event=events.append
             )
             self.assertEqual(events, [])

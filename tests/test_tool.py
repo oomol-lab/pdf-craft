@@ -12,9 +12,12 @@ from pdf_craft_tool.cli import (
     _page_indexes,
     _parser,
     _record_pdf_cache_owner,
+    _render_package,
     _resolve_ocr_size,
     _run_matrix,
     _smoke_exit_code,
+    _patch_package_pdf,
+    _translate_package,
     _translate_pdf,
     _validate_ocr_size,
     _work_dir,
@@ -78,6 +81,49 @@ class TestPDFCraftTool(unittest.TestCase):
 
             self.assertEqual(extract.call_args.kwargs["includes_furniture"], True)
             self.assertEqual(craft.translate_pdf.call_args.kwargs["with_furniture"], True)
+
+    def test_package_commands_open_extractions_through_craft_facade(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            package = root / "book.pcex"
+            source = root / "source.pdf"
+            handle = object()
+
+            translate_args = _parser().parse_args([
+                "package", "translate", str(package), "zh",
+                "--work-dir", str(root / "translate"),
+            ])
+            translate_craft = Mock()
+            translate_craft.open_extraction.return_value = handle
+            with patch("pdf_craft_tool.cli.load_project_env"), \
+                    patch("pdf_craft_tool.cli.PDFCraft", return_value=translate_craft), \
+                    patch("pdf_craft_tool.cli._xml_transformer", return_value=Mock()):
+                _translate_package(translate_args)
+            translate_craft.open_extraction.assert_called_once_with(package)
+            self.assertIs(translate_craft.translate_extraction.call_args.args[0], handle)
+
+            render_args = _parser().parse_args([
+                "package", "render", str(package), "--format", "markdown",
+                "--work-dir", str(root / "render"),
+            ])
+            render_craft = Mock()
+            render_craft.open_extraction.return_value = handle
+            with patch("pdf_craft_tool.cli.PDFCraft", return_value=render_craft), \
+                    patch("pdf_craft_tool.cli._render") as render:
+                _render_package(render_args)
+            render_craft.open_extraction.assert_called_once_with(package)
+            self.assertIs(render.call_args.args[1], handle)
+
+            patch_args = _parser().parse_args([
+                "package", "patch-pdf", str(source), str(package),
+                "--work-dir", str(root / "patch"),
+            ])
+            patch_craft = Mock()
+            patch_craft.open_extraction.return_value = handle
+            with patch("pdf_craft_tool.cli.PDFCraft", return_value=patch_craft):
+                _patch_package_pdf(patch_args)
+            patch_craft.open_extraction.assert_called_once_with(package)
+            self.assertIs(patch_craft.patch_pdf_with_extraction.call_args.args[1], handle)
 
     def test_smoke_exit_code_rejects_failed_and_skipped_reports(self):
         with tempfile.TemporaryDirectory() as directory:

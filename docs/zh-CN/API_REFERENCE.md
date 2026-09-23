@@ -32,8 +32,10 @@ writer 收尾、删除临时归档并保持目标不存在；若发布边界先�
 中运行；取消或内部超时会终止命令及其派生进程，正常完成或失败也会回收晚于父进程退出的
 后代。取消 Qt worker 时，会先完成这些清理，再结束 worker 本身。
 
-扩展实现可以采用 `AsyncChapterTransformer` 协议，实现
+扩展实现采用仅异步的 `ChapterTransformer` 协议，实现
 `async def transform(chapter)`；异步门面会直接在调用方事件循环中等待它。
+图片/表格独立翻译采用仅异步的 `AnchoredContentTransformer`，提供
+`async def transform_assets(assets)`。
 `PDFOptions.pdf_handler` 也接受 `AsyncPDFHandler`：其 `open()` 返回
 `AsyncPDFDocument`，并提供可等待的 `pages_count()`、`metadata()`、
 `page_size()`、`render_page()` 和 `close()`。SDK 会在同步 OCR 边界进行适配，
@@ -47,11 +49,12 @@ writer 收尾、删除临时归档并保持目标不存在；若发布边界先�
 调用，否则会明确抛出 `RuntimeError`，而不会嵌套启动事件循环。此时应改用
 `AsyncPDFCraft`。
 
-`PDFCraftExtraction` 还提供 `open_async`、`validate_async`、`export_async`、
-`page_pixel_sizes_async`、`render_dpi_async` 和 `document_metadata_async`。组件级调用方可使用
-`PDFExtractor.extract_async`、`MarkdownRenderer.render_async`、
-`EpubRenderer.render_async`；模型预下载入口为 `predownload_models_async`。独立的 EPUB
-翻译函数也提供 `translate_epub_async`，异步程序应等待它，而不是调用 `translate_epub`。
+用户只需在构造时选择门面，之后两种模式使用相同的方法名。
+`PDFCraftExtraction` 是不暴露内部操作的句柄：通过 `PDFCraft.open_extraction()` /
+`export_extraction()` 或 `AsyncPDFCraft` 上的可等待同名方法打开、导出，再把句柄交回门面。
+高级组件仅提供无后缀的异步方法，包括 `PDFExtractor.extract`、
+`MarkdownRenderer.render`、`EpubRenderer.render` 和各 transformer API。已有 EPUB
+翻译同样只通过门面调用。模型预下载属于环境准备，只保留同步的 `predownload_models(...)`。
 
 ## 公共入口
 
@@ -61,7 +64,7 @@ writer 收尾、删除临时归档并保持目标不存在；若发布边界先�
 - `AsyncPDFCraft`、`PDFCraft`、`PDFOptions`、`ExtractionOptions`
 - `PDFCraftExtraction`、`PDFExtractor`
 - 六种 OCR 配置对象和 `OCRConfig`
-- `predownload_models`、`predownload_models_async`
+- `predownload_models`
 - `LLM`
 - `ExtractionTransformer`、`ChapterExtractionTransformer`、`ChapterXMLTransformer`、
   `AnchoredContentExtractionTransformer`、`AnchoredContentTransformer`、
@@ -77,10 +80,9 @@ writer 收尾、删除临时归档并保持目标不存在；若发布边界先�
   `PDFTranslationPipeline`
 - `PDFError`、`OCRError`、`NoUsableFillPagesError`、`IgnorePDFErrorsChecker`、
   `IgnoreOCRErrorsChecker`、`IgnoreFillErrorsChecker`
-- `translate_epub`、`translate_epub_async`
 
-`ChapterTransformer` 与 `AsyncChapterTransformer` 是公共协议；前者的导入路径为
-`from pdf_craft.transformer import ChapterTransformer`，后者也可直接从包顶层导入。本文不把以下内容当作
+`ChapterTransformer` 与 `AnchoredContentTransformer` 是仅异步的公共扩展协议。前者的导入路径为
+`from pdf_craft.transformer import ChapterTransformer`，`AnchoredContentTransformer` 也可直接从包顶层导入。本文不把以下内容当作
 公共扩展点：内部 engine、`pdf_craft_tool` CLI、`pdf_craft` 的私有模块路径，以及
 `doc-page-extractor` 的内部 extractor/factory。
 
@@ -315,9 +317,10 @@ craft.patch_pdf_with_extraction("input.pdf", "work/translated.pcex", "translated
 统一为 `.pcex`（ZIP），通过以下方式加载：
 
 ```python
-extraction = PDFCraftExtraction.open("work/book.pcex")
-extraction.validate()
+extraction = craft.open_extraction("work/book.pcex")
 ```
+
+门面会在返回句柄前完成校验；`PDFCraftExtraction` 自身不公开打开、校验、导出或元数据读取方法。
 
 归档固定包含 `manifest.json`、`pages.xml`、`chapters/`、`assets/`，并可选包含 `toc.xml` 与
 `cover.png`。manifest 保存格式版本、producer、创建时间及书名、作者、出版社、语言等文档
@@ -331,7 +334,7 @@ plot 和 done 标记属于 analysis 诊断信息，不进入 `.pcex`。
 
 ### ChapterTransformer
 
-章节变换器实现一个 `transform(chapter) -> chapter` 方法。它可以修改章节文本、段落或布局，
+章节变换器实现一个可等待的 `transform(chapter) -> chapter` 方法。它可以修改章节文本、段落或布局，
 并被 `translate_extraction` 和 `translate_pdf` 使用。实现该低层协议时，需从
 它的实际定义处导入 `Chapter`：
 
@@ -340,7 +343,7 @@ from pdf_craft.extractor.chapter.chapter import Chapter
 from pdf_craft.transformer import ChapterTransformer
 
 class KeepChapterStructure:
-    def transform(self, chapter: Chapter) -> Chapter:
+    async def transform(self, chapter: Chapter) -> Chapter:
         # 修改 chapter 后返回同一个 Chapter；必须保留来源坐标和页面信息。
         return chapter
 
@@ -355,7 +358,7 @@ transformer: ChapterTransformer = KeepChapterStructure()
 extraction 变换器实现：
 
 ```python
-def transform(extraction: PDFCraftExtraction, output_path: Path) -> PDFCraftExtraction:
+async def transform(extraction: PDFCraftExtraction, output_path: Path) -> PDFCraftExtraction:
     ...
 ```
 
@@ -449,19 +452,8 @@ PDFCraft().translate_epub(
 `concurrency`、`translation_llm`、`fill_llm`、`on_translation_event` 和 `on_fill_failed`；完整行为
 和回调字段请参阅 EPUB 翻译专题文档。
 
-对于不需要保留 `PDFCraft` 实例的 EPUB-only 程序，也可直接从顶层导入同一能力：
-
-```python
-from pdf_craft import SubmitKind, translate_epub
-
-translate_epub(
-    "source.epub", "translated.epub",
-    target_language="zh", submit=SubmitKind.REPLACE, llm=llm,
-)
-```
-
-`PDFCraft().translate_epub()` 会将其翻译关键字参数转发给顶层 `translate_epub()`；两种调用都
-不需要 PDF OCR 配置。顶层函数显式接受前文列出的 EPUB 翻译参数。
+EPUB-only 程序直接构造不带 PDF 配置的 `PDFCraft()` 或 `AsyncPDFCraft()` 即可；该能力不再
+作为顶层独立函数导出。
 
 ## 低层 PDF 写回 API
 

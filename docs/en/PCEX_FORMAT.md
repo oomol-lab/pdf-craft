@@ -2,7 +2,7 @@
 
 This document is the English-language reference for PDFCraftExtraction v3. It describes the public intermediate format that the current pdf-craft implementation can produce, read, and validate, as well as how each member is used by downstream rendering, translation, and PDF patching workflows.
 
-This reference distinguishes a *canonical artifact*—a `.pcex` file written by pdf-craft—from the *current validator* implemented by `PDFCraftExtraction.open()` and `PDFCraftExtraction.validate()`. Canonical artifacts preserve all relationships described here. The current validator does not enforce every semantic relationship. The legacy v2 chapter examples below remain accepted reader input only; canonical writers use the v3 flow described above.
+This reference distinguishes a *canonical artifact*—a `.pcex` file written by pdf-craft—from the *current validator* invoked by the Craft façades when opening a handle. Canonical artifacts preserve all relationships described here. The current validator does not enforce every semantic relationship. The legacy v2 chapter examples below remain accepted reader input only; canonical writers use the v3 flow described above.
 
 ## Purpose and scope
 
@@ -145,23 +145,18 @@ During a complete conversion, `convert_pdf_to_markdown()` and `convert_pdf_to_ep
 ### Opening and validating
 
 ```python
-from pdf_craft import PDFCraftExtraction
+from pdf_craft import PDFCraft
 
-extraction = PDFCraftExtraction.open("output/book.pcex")
-extraction.validate()
-```
-
-The following forms are equivalent. Each opens, extracts, and validates the archive during construction:
-
-```python
-PDFCraftExtraction("output/book.pcex")
-PDFCraftExtraction.open("output/book.pcex")
-PDFCraftExtraction.load("output/book.pcex")
+craft = PDFCraft()
+extraction = craft.open_extraction("output/book.pcex")
 ```
 
 If the path is not a regular file, pdf-craft raises `FileNotFoundError`. If its suffix is not `.pcex`, pdf-craft raises `ValueError`. A directory is not a valid public input even if it contains every required member.
 
-On success, `validate()` returns the extraction itself to support chaining. `validate(require_toc=True)` additionally requires `toc.xml`; EPUB rendering uses this mode, whereas Markdown rendering only requires the base format to be valid.
+Opening validates the archive before returning an opaque `PDFCraftExtraction`
+handle. The handle has no public I/O or metadata methods; pass it back to a
+Craft façade. EPUB rendering additionally requires `toc.xml`, whereas Markdown
+rendering only requires the base format to be valid.
 
 ### Resuming on another machine
 
@@ -175,10 +170,10 @@ craft.extract_pdf("book.pdf", "book.pcex")
 After transferring the single `book.pcex` file, machine B can continue without configuring PDF or OCR infrastructure:
 
 ```python
-from pdf_craft import PDFCraft, PDFCraftExtraction
+from pdf_craft import PDFCraft
 
-extraction = PDFCraftExtraction.open("book.pcex")
 craft = PDFCraft()
+extraction = craft.open_extraction("book.pcex")
 craft.render_markdown(extraction, "book.md")
 craft.render_epub(extraction, "book.epub")  # requires toc.xml in the archive
 ```
@@ -213,19 +208,7 @@ translated.
 
 Variable folios are represented structurally rather than as the text of a reusable pattern position: a folio `position` has `folio_style` (`D`, `R`, `r`, `A`, or `a`) and `folio_offset`, with optional `folio_prefix` and `folio_suffix`. Its associated page sections retain the actual printed label. During furniture translation, only the fixed decoration is translated; PDF patching reconstructs the number from each associated page and its offset. This prevents a sample page number from being translated once and incorrectly stamped onto every page that shares the position.
 
-`PDFCraftExtraction.export(path)` revalidates the current object, writes a new `.pcex`, and returns an object backed by the new archive. It writes to a temporary file in the destination directory before atomically replacing the target name; an existing target is still never overwritten. Container metadata such as ZIP member timestamps is not stable format data, so two exports are not guaranteed to be byte-for-byte identical.
-
-### Public metadata accessors
-
-`PDFCraftExtraction` does not expose its internal extraction directory or offer a public editing interface for the chapter directory. It provides these read-only methods:
-
-| Method | Return value |
-| --- | --- |
-| `page_pixel_sizes()` | A new `{page_index: (pixel_width, pixel_height)}` dictionary |
-| `render_dpi()` | The positive integer DPI from `pages.xml` |
-| `document_metadata()` | A shallow copy of the `document` object from `manifest.json` |
-| `language()` | The `document.language` string, or `None` |
-| `book_meta()` | An `epub_generator.BookMeta` constructed from document metadata |
+`craft.export_extraction(extraction, path)` revalidates the handle, writes a new `.pcex`, and returns a handle backed by the new archive. It writes to a temporary file in the destination directory before atomically replacing the target name; an existing target is still never overwritten. Container metadata such as ZIP member timestamps is not stable format data, so two exports are not guaranteed to be byte-for-byte identical.
 
 ## `manifest.json`
 
@@ -629,13 +612,13 @@ Before extraction, the loader checks:
 - the absence of `..`, backslashes, absolute paths, and symbolic links;
 - that only defined root members, chapter files, and asset files are present.
 
-It then extracts into a temporary directory and validates the contents. Before `open()` returns, it creates and retains a validated snapshot; later reads no longer depend on the source archive's contents. The object returned by `export()` materializes the newly written archive lazily on first use. Temporary directories and materialization timing are implementation details and must not be discovered or relied upon by callers.
+It then extracts into a temporary directory and validates the contents before the façade returns a handle. A path-backed handle materializes and revalidates the archive for each operation, so callers must keep the source archive available and must not replace it with untrusted content. Temporary directories and materialization timing are implementation details and must not be discovered or relied upon by callers.
 
 The current implementation imposes no limit on archive size, expanded size, or compression ratio, and it has no content signature. For an untrusted source, callers should enforce file-size and provenance restrictions before passing the archive to pdf-craft. Format versioning provides structural compatibility only, not authenticity or tamper protection.
 
 ## v3 validation details
 
-`PDFCraftExtraction.open()` immediately performs these checks:
+`PDFCraft.open_extraction()` (or `await AsyncPDFCraft.open_extraction(...)`) performs these checks before returning:
 
 1. The path is an existing regular file with a `.pcex` suffix.
 2. The ZIP is readable, paths are safe, member names are unique, and the member set is supported.
@@ -704,4 +687,4 @@ It cannot prove that the input PDF and extraction came from the same source file
 
 The current format version is `3`. The reader accepts canonical v3 archives and legacy `format_version: 1` / `2` archives; unknown versions are rejected. Historic readers do not understand the v3 flow schema.
 
-Applications that only need downstream rendering or translation should let `PDFCraftExtraction.open()` perform version and integrity checks. A ZIP that can merely be extracted is not necessarily a usable PDFCraftExtraction.
+Applications that only need downstream rendering or translation should open the archive through a Craft façade so version and integrity checks run. A ZIP that can merely be extracted is not necessarily a usable PDFCraftExtraction.

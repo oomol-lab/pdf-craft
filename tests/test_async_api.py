@@ -17,8 +17,8 @@ from reportlab.pdfgen import canvas
 
 from pdf_craft import (
     AsyncPDFCraft, ChapterExtractionTransformer, ExtractionOptions, PDFCraft,
-    PDFDocumentMetadata, PDFOptions, SubmitKind, TranslationEventKind,
-    TranslationEvent, translate_epub,
+    PDFCraftExtraction, PDFDocumentMetadata, PDFOptions, SubmitKind, TranslationEventKind,
+    TranslationEvent,
 )
 from pdf_craft.craft import _AsyncPDFHandlerBridge
 from pdf_craft.common import save_xml
@@ -101,10 +101,7 @@ class _AsyncXMLTranslator:
     def __init__(self) -> None:
         self.thread_id: int | None = None
 
-    def translate_element(self, task, **_kwargs):
-        return task.element, task.payload
-
-    async def translate_element_async(self, task, **_kwargs):
+    async def translate_element(self, task, **_kwargs):
         self.thread_id = threading.get_ident()
         await asyncio.sleep(0)
         for element in task.element.iter():
@@ -196,13 +193,25 @@ class _AsyncHandler:
 
 
 class TestAsyncAPI(unittest.IsolatedAsyncioTestCase):
+    async def test_extraction_io_is_owned_by_async_facade(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = make_extraction(root / "source", language="en")
+            craft = AsyncPDFCraft()
+            exported = await craft.export_extraction(source, root / "book.pcex")
+            opened = await craft.open_extraction(root / "book.pcex")
+            self.assertIsInstance(exported, PDFCraftExtraction)
+            self.assertIsInstance(opened, PDFCraftExtraction)
+            self.assertFalse(hasattr(opened, "open"))
+            self.assertFalse(hasattr(opened, "export"))
+
     async def test_direct_extractor_callbacks_run_on_caller_loop(self):
         loop_thread = threading.get_ident()
         cases = (
-            ("extract_async", False),
-            ("extract_async", True),
-            ("extract_with_metering_async", False),
-            ("extract_with_metering_async", True),
+            ("extract", False),
+            ("extract", True),
+            ("extract_with_metering", False),
+            ("extract_with_metering", True),
         )
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -246,7 +255,7 @@ class TestAsyncAPI(unittest.IsolatedAsyncioTestCase):
                     )
 
                     transformer = _SyncChapterTransformer()
-                    await ChapterExtractionTransformer(transformer).transform_async(
+                    await ChapterExtractionTransformer(transformer).transform(
                         source,
                         root / f"target-{index}.pcex",
                         on_translation_event=(
@@ -286,7 +295,9 @@ class TestAsyncAPI(unittest.IsolatedAsyncioTestCase):
                     finished.set()
 
             with patch.object(document_package, "_write_archive", delayed_write):
-                task = asyncio.create_task(source.export_async(target))
+                task = asyncio.create_task(
+                    AsyncPDFCraft().export_extraction(source, target)
+                )
                 await asyncio.to_thread(started.wait, 1)
                 task.cancel()
                 await asyncio.sleep(0.02)
@@ -315,7 +326,9 @@ class TestAsyncAPI(unittest.IsolatedAsyncioTestCase):
                 return result
 
             with patch.object(source, "_export_sync", pause_after_publication):
-                task = asyncio.create_task(source.export_async(target))
+                task = asyncio.create_task(
+                    AsyncPDFCraft().export_extraction(source, target)
+                )
                 await asyncio.to_thread(published.wait, 1)
                 self.assertTrue(target.exists())
                 task.cancel()
@@ -353,7 +366,7 @@ class TestAsyncAPI(unittest.IsolatedAsyncioTestCase):
 
             with patch.object(document_package, "_write_archive", delayed_write):
                 task = asyncio.create_task(
-                    ChapterExtractionTransformer(_SyncChapterTransformer()).transform_async(
+                    ChapterExtractionTransformer(_SyncChapterTransformer()).transform(
                         source, target,
                     )
                 )
@@ -394,7 +407,7 @@ class TestAsyncAPI(unittest.IsolatedAsyncioTestCase):
                 transformer_package, "TemporaryDirectory", capture_temporary,
             ):
                 task = asyncio.create_task(
-                    ChapterExtractionTransformer(transformer).transform_async(
+                    ChapterExtractionTransformer(transformer).transform(
                         source, target,
                     )
                 )
@@ -430,7 +443,7 @@ class TestAsyncAPI(unittest.IsolatedAsyncioTestCase):
                 ExtractionOptions(on_ocr_event=on_ocr_event),
             )
             self.assertEqual(metering, "metering")
-            self.assertTrue(extraction.validate())
+            self.assertTrue(extraction._validate())
             self.assertIsNotNone(engine.thread_name)
             assert engine.thread_name is not None
             self.assertTrue(engine.thread_name.startswith("pdf-craft-ocr"))
@@ -491,7 +504,7 @@ class TestAsyncAPI(unittest.IsolatedAsyncioTestCase):
             await next_result
         self.assertEqual(cancelled, 2)
 
-    async def test_llm_transport_is_awaitable_and_sync_adapter_is_guarded(self):
+    async def test_llm_transport_is_awaitable(self):
         config = LLM(
             "key", "https://example.invalid/v1", "model", "o200k_base",
             retry_times=0,
@@ -503,9 +516,7 @@ class TestAsyncAPI(unittest.IsolatedAsyncioTestCase):
             return "translated"
 
         runtime._invoke = invoke  # type: ignore[method-assign]
-        self.assertEqual(await runtime.request_async("hello", use_cache=False), "translated")
-        with self.assertRaisesRegex(RuntimeError, "active event loop"):
-            runtime.request("hello", use_cache=False)
+        self.assertEqual(await runtime.request("hello", use_cache=False), "translated")
 
     async def test_qt_domain_has_stable_thread_affinity(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -529,7 +540,7 @@ class TestAsyncAPI(unittest.IsolatedAsyncioTestCase):
 
     async def test_epub_translation_uses_native_async_pipeline(self):
         with patch(
-            "pdf_craft.craft.run_epub_translation_async", new_callable=AsyncMock,
+            "pdf_craft.craft.run_epub_translation", new_callable=AsyncMock,
         ) as translate:
             await AsyncPDFCraft().translate_epub(
                 "source.epub",
@@ -541,26 +552,26 @@ class TestAsyncAPI(unittest.IsolatedAsyncioTestCase):
 
     async def test_public_sync_epub_entry_rejects_active_loop_before_io(self):
         with patch(
-            "pdf_craft.pipeline.epub.translation.translator.translate_async",
+            "pdf_craft.craft.run_epub_translation",
             new_callable=AsyncMock,
         ) as translate:
             with self.assertRaisesRegex(RuntimeError, "active event loop"):
-                translate_epub(
+                PDFCraft().translate_epub(
                     "source.epub",
                     "target.epub",
                     target_language="zh",
                     submit=SubmitKind.REPLACE,
                 )
-        translate.assert_called_once()
+        translate.assert_not_called()
         translate.assert_not_awaited()
 
     async def test_public_sync_epub_entry_delegates_to_async_pipeline(self):
         with patch(
-            "pdf_craft.pipeline.epub.translation.translator.translate_async",
+            "pdf_craft.craft.run_epub_translation",
             new_callable=AsyncMock,
         ) as translate:
             await asyncio.to_thread(
-                translate_epub,
+                PDFCraft().translate_epub,
                 "source.epub",
                 "target.epub",
                 target_language="zh",
@@ -577,7 +588,7 @@ class TestAsyncAPI(unittest.IsolatedAsyncioTestCase):
                 [SourceTextFragment(1, 1, (1, 1, 5, 5), ["original"])],
             )])
             save_xml(encode(chapter), root / "source" / "chapters" / "chapter_1.xml")
-            source.validate()
+            source._validate()
             translator = _AsyncXMLTranslator()
             target = await AsyncPDFCraft().translate_extraction(
                 source,
@@ -600,7 +611,7 @@ class TestAsyncAPI(unittest.IsolatedAsyncioTestCase):
                 [SourceTextFragment(1, 1, (1, 1, 5, 5), ["original"])],
             )])
             save_xml(encode(chapter), root / "source" / "chapters" / "chapter_1.xml")
-            source.validate()
+            source._validate()
             transformer = _AsyncChapterTransformer()
             target = await AsyncPDFCraft().translate_extraction(
                 source, root / "target.pcex", transformer,
@@ -688,7 +699,7 @@ class TestAsyncAPI(unittest.IsolatedAsyncioTestCase):
                 "page_index='1' order='1' state='translated'/></narrative></translation>",
                 encoding="utf-8",
             )
-            extraction.validate()
+            extraction._validate()
 
             for mode in ("async", "sync"):
                 with self.subTest(mode=mode):
@@ -742,7 +753,7 @@ class TestAsyncAPI(unittest.IsolatedAsyncioTestCase):
                 "</narrative></translation>",
                 encoding="utf-8",
             )
-            extraction.validate()
+            extraction._validate()
             observed: list[tuple[Exception, int]] = []
 
             def checker(error: Exception) -> bool:

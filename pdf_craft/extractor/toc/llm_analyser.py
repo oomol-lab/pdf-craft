@@ -1,3 +1,5 @@
+# pylint: disable=protected-access
+
 import json
 import re
 from dataclasses import dataclass
@@ -591,7 +593,9 @@ class _LLMAnalyser(Generic[_P, _R]):
             return request_guaranteed_json(GuaranteedOptions(
                 messages=list(messages),
                 request=lambda current, index, maximum: (
-                    self._runtime.request(current, retry_index=index, retry_max=maximum, use_cache=False)
+                    self._runtime._request_blocking(
+                        current, retry_index=index, retry_max=maximum, use_cache=False,
+                    )
                     if self._runtime is not None
                     else cast(Any, self._llm).request(input=current)
                 ),

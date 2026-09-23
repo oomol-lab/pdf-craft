@@ -16,7 +16,7 @@ from pdf_craft.pipeline.epub.adapter import (
     write_toc,
 )
 from pdf_craft.llm import LLM
-from pdf_craft.runtime import ARCHIVE_DOMAIN, run_sync
+from pdf_craft.runtime import ARCHIVE_DOMAIN
 from pdf_craft.transformer.events import TranslationEvent, TranslationItemKind
 from pdf_craft.transformer.xml_translator.segment import search_text_segments
 from pdf_craft.transformer.xml_translator.xml import XMLLikeNode, deduplicate_ids_in_element, find_first
@@ -40,39 +40,7 @@ class _ElementContext:
     metadata_context: MetadataContext | None = None
 
 
-def translate(
-    source_path: PathLike | str,
-    target_path: PathLike | str,
-    target_language: str,
-    submit: SubmitKind,
-    user_prompt: str | None = None,
-    max_retries: int = 5,
-    max_group_tokens: int = 2600,
-    concurrency: int = 1,
-    llm: LLM | None = None,
-    translation_llm: LLM | None = None,
-    fill_llm: LLM | None = None,
-    on_translation_event: Callable[[TranslationEvent], None] | None = None,
-    on_fill_failed: Callable[[FillFailedEvent], None] | None = None,
-) -> None:
-    run_sync(translate_async(
-        source_path=source_path,
-        target_path=target_path,
-        target_language=target_language,
-        submit=submit,
-        user_prompt=user_prompt,
-        max_retries=max_retries,
-        max_group_tokens=max_group_tokens,
-        concurrency=concurrency,
-        llm=llm,
-        translation_llm=translation_llm,
-        fill_llm=fill_llm,
-        on_translation_event=on_translation_event,
-        on_fill_failed=on_fill_failed,
-    ))
-
-
-async def translate_async(
+async def translate(
     source_path: PathLike | str,
     target_path: PathLike | str,
     target_language: str,
@@ -154,7 +122,7 @@ async def translate_async(
     try:
         tasks = await ARCHIVE_DOMAIN.run(prepare)
         interrupter = XMLInterrupter()
-        results = await translator.translate_elements_async(
+        results = await translator.translate_elements(
             concurrency=concurrency,
             interrupt_source_text_segments=interrupter.interrupt_source_text_segments,
             interrupt_translated_text_segments=interrupter.interrupt_translated_text_segments,

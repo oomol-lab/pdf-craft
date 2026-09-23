@@ -36,7 +36,7 @@ class TestPDFDocumentMetadata(unittest.TestCase):
             self.assertEqual(metadata.subject, "Printed description")
             self.assertEqual(metadata.get("/Keywords"), "history; mathematics")
             self.assertEqual(
-                json.loads(cast(str, metadata["/PDFCraftDocumentMetadata"])), extraction.document_metadata(),
+                json.loads(cast(str, metadata["/PDFCraftDocumentMetadata"])), extraction._document_metadata(),
             )
 
     def test_translate_pdf_carries_translated_pcex_metadata_into_output(self):
@@ -55,7 +55,7 @@ class TestPDFDocumentMetadata(unittest.TestCase):
             assert metadata is not None
             self.assertEqual(metadata.title, "Printed Title")
             self.assertEqual(
-                json.loads(cast(str, metadata["/PDFCraftDocumentMetadata"])), extraction.document_metadata(),
+                json.loads(cast(str, metadata["/PDFCraftDocumentMetadata"])), extraction._document_metadata(),
             )
 
     def test_overlay_patch_keeps_pcex_metadata(self):
@@ -118,7 +118,7 @@ class TestPDFDocumentMetadata(unittest.TestCase):
             rights="All rights reserved",
             language="en",
         ))
-        return PDFCraftExtraction._from_workspace(root).validate()
+        return PDFCraftExtraction._from_workspace(root)._validate()
 
 
 class _IdentityTransformer:

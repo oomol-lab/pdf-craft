@@ -11,10 +11,10 @@ from unittest.mock import Mock, patch
 
 import pypdf
 from pypdf.generic import ArrayObject, ContentStream, DictionaryObject, NameObject, NumberObject, TextStringObject
-from PIL import Image
+from PIL import Image, ImageChops
 from reportlab.pdfgen import canvas
 
-from pdf_craft.pdf.handler import PDFHandler
+from pdf_craft.pdf.handler import DefaultPDFHandler, PDFHandler
 from pdf_craft.error import NoUsableFillPagesError
 from pdf_craft.pipeline.pdf import (
     FillWindowPlan, FittedParagraph, GhostscriptVisualBaseCompiler, PDFInlineFormula, PDFPatcher, PDFReplacement,
@@ -64,6 +64,43 @@ class TestPDFPatcher(unittest.TestCase):
             PDFReplacement(1, (10, 10, 190, 70), "First translated", (200, 100)),
             PDFReplacement(2, (10, 10, 190, 70), "Second translated", (200, 100)),
         ]
+
+    @staticmethod
+    def _add_full_page_visual_stamp(path: Path) -> None:
+        from pypdf.generic import DecodedStreamObject
+
+        reader = pypdf.PdfReader(str(path))
+        writer = pypdf.PdfWriter(clone_from=reader)
+        appearance = DecodedStreamObject()
+        appearance.set_data(b"q 0.8 0.9 1 rg 0 0 200 200 re f Q")
+        appearance.update({
+            NameObject("/Type"): NameObject("/XObject"),
+            NameObject("/Subtype"): NameObject("/Form"),
+            NameObject("/FormType"): NumberObject(1),
+            NameObject("/BBox"): ArrayObject([
+                NumberObject(0), NumberObject(0), NumberObject(200), NumberObject(200),
+            ]),
+            NameObject("/Resources"): DictionaryObject(),
+        })
+        appearance_reference = writer._add_object(appearance)  # pylint: disable=protected-access
+        stamp = DictionaryObject({
+            NameObject("/Type"): NameObject("/Annot"),
+            NameObject("/Subtype"): NameObject("/Stamp"),
+            NameObject("/Rect"): ArrayObject([
+                NumberObject(0), NumberObject(0), NumberObject(200), NumberObject(200),
+            ]),
+            NameObject("/F"): NumberObject(4),
+            NameObject("/AP"): DictionaryObject({NameObject("/N"): appearance_reference}),
+        })
+        stamp_reference = writer._add_object(stamp)  # pylint: disable=protected-access
+        page: Any = writer.pages[0]
+        annotations = ArrayObject([stamp_reference])
+        existing_annotations = page.get("/Annots")
+        if existing_annotations is not None:
+            annotations.extend(existing_annotations)
+        page[NameObject("/Annots")] = annotations  # pylint: disable=unsupported-assignment-operation
+        with path.open("wb") as output:
+            writer.write(output)
 
     def test_ignore_errors_preserves_original_page_for_one_failed_fill_page(self):
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -767,6 +804,43 @@ class TestPDFPatcher(unittest.TestCase):
             self.assertEqual(annotation.raw_get("/P").idnum, page.indirect_reference.idnum)
             self.assertNotIn("Original", page.extract_text())
             self.assertIn("Translated", page.extract_text())
+
+    @unittest.skipUnless(which("gs"), "requires local Ghostscript")
+    def test_flattens_full_page_visual_stamp_below_visible_translation(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            source = root / "source.pdf"
+            target = root / "target.pdf"
+            doc = canvas.Canvas(str(source), pagesize=(200, 200))
+            doc.linkURL("https://example.invalid/original", (10, 10, 30, 30), relative=0)
+            doc.showPage()
+            doc.save()
+            self._add_full_page_visual_stamp(source)
+
+            PDFPatcher(font_size=12).patch(
+                source, target, [PDFReplacement(1, (30, 70, 170, 110), "Translated", (200, 200))]
+            )
+
+            page: Any = pypdf.PdfReader(str(target)).pages[0]
+            annotations = page["/Annots"]
+            self.assertEqual(len(annotations), 1)
+            self.assertEqual(annotations[0].get_object()["/Subtype"], "/Link")
+            self.assertIn("Translated", page.extract_text() or "")
+
+            handler = DefaultPDFHandler()
+            source_document = handler.open(source)
+            target_document = handler.open(target)
+            try:
+                source_image = source_document.render_page(1, 72)
+                target_image = target_document.render_page(1, 72)
+            finally:
+                source_document.close()
+                target_document.close()
+            background_pixel = cast(tuple[int, int, int], target_image.getpixel((100, 180)))
+            self.assertLess(sum(abs(channel - expected) for channel, expected in zip(
+                background_pixel, (204, 229, 255), strict=True,
+            )), 20)
+            self.assertIsNotNone(ImageChops.difference(source_image, target_image).getbbox())
 
     def test_preserves_popup_parent_and_reply_annotation_relationships(self):
         with tempfile.TemporaryDirectory() as temp_dir:

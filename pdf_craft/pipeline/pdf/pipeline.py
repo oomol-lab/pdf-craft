@@ -49,10 +49,10 @@ class PDFTranslationPipeline:
         transformer is involved.
         """
         extraction = _ensure_extraction(extraction)
-        extraction.validate()
-        document_metadata = pdf_document_metadata(extraction.document_metadata())
-        pages = extraction.page_pixel_sizes()
-        render_dpi = extraction.render_dpi()
+        extraction._validate()
+        document_metadata = pdf_document_metadata(extraction._document_metadata())
+        pages = extraction._page_pixel_sizes()
+        render_dpi = extraction._render_dpi()
         with extraction._materialize() as paths:
             chapters = tuple(create_chapters_reader(paths.chapters)())
             coverage = read_coverage(paths.translation)
@@ -447,4 +447,4 @@ def _chapter_obstacle_regions(
 def _ensure_extraction(value: PDFCraftExtraction | Path) -> PDFCraftExtraction:
     if isinstance(value, PDFCraftExtraction):
         return value
-    return PDFCraftExtraction.open(value)
+    return PDFCraftExtraction._open(value)

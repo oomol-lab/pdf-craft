@@ -1,4 +1,5 @@
 import asyncio
+import inspect
 from collections.abc import Callable
 from typing import Protocol, cast
 from xml.etree.ElementTree import Element
@@ -27,15 +28,18 @@ class XMLTaskTranslator(Protocol):
 
 
 class AsyncXMLTaskTranslator(Protocol):
-
-    async def translate_element_async(
+    async def translate_element(
         self, task: TranslationTask[Chapter], **kwargs
     ) -> tuple[Element, Chapter]: ...
 
 
 class ChapterXMLTransformer:
     """Adapt a format-neutral XML translator to the Chapter transformer protocol."""
-    def __init__(self, translator: XMLTaskTranslator, mode: SubmitKind = SubmitKind.REPLACE) -> None:
+    def __init__(
+        self,
+        translator: XMLTaskTranslator | AsyncXMLTaskTranslator,
+        mode: SubmitKind = SubmitKind.REPLACE,
+    ) -> None:
         self._translator = translator
         self._mode = mode
 
@@ -53,7 +57,7 @@ class ChapterXMLTransformer:
             cast(FurnitureXMLTaskTranslator, self._translator), self._mode,
         )
 
-    def transform(
+    def _transform_blocking(
         self,
         chapter: Chapter,
         *,
@@ -73,7 +77,7 @@ class ChapterXMLTransformer:
         anchors = _NarrativeAnchorProjection(element)
         anchors.replace_assets()
         formula_interrupter = ChapterFormulaInterrupter()
-        translated, _ = self._translator.translate_element(
+        translated, _ = cast(XMLTaskTranslator, self._translator).translate_element(
             TranslationTask(
                 element=element,
                 action=self._mode,
@@ -98,7 +102,7 @@ class ChapterXMLTransformer:
         _restore_fragment_owned_inline_expressions(translated)
         return decode(translated)
 
-    async def transform_async(
+    async def transform(
         self,
         chapter: Chapter,
         *,
@@ -109,12 +113,12 @@ class ChapterXMLTransformer:
         emit_scope_events: bool = True,
         emit_item_events: bool = True,
     ) -> Chapter:
-        if not hasattr(self._translator, "translate_element_async"):
+        if not inspect.iscoroutinefunction(self._translator.translate_element):
             callback = callback_bridge(
                 asyncio.get_running_loop(), on_translation_event,
             )
             return await TRANSLATION_DOMAIN.run(
-                self.transform,
+                self._transform_blocking,
                 chapter,
                 on_translation_event=callback,
                 item_id=item_id,
@@ -130,7 +134,7 @@ class ChapterXMLTransformer:
         anchors.replace_assets()
         formula_interrupter = ChapterFormulaInterrupter()
         async_translator = cast(AsyncXMLTaskTranslator, self._translator)
-        translated, _ = await async_translator.translate_element_async(
+        translated, _ = await async_translator.translate_element(
             TranslationTask(
                 element=element,
                 action=self._mode,

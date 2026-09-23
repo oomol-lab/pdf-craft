@@ -32,8 +32,9 @@ class PDFPatcher:
 
     The eraser owns a locally sampled background-color rectangle overlay and
     the filler owns a separate Qt-generated PDF text overlay.  The original
-    page is first compiled to a font-free visual base, while its Annotation
-    objects are restored only after both overlays are complete.
+    page is first compiled to a font-free visual base. Interactive Annotation
+    objects are restored only after both overlays are complete, while full-page
+    visual Stamps are flattened below them.
     """
 
     def __init__(

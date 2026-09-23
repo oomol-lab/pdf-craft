@@ -2,7 +2,7 @@
 
 本文是 PDFCraftExtraction v3 的中文版格式参考。它描述当前 pdf-craft 代码能够生成、读取和校验的公开中间格式，以及各成员被后续渲染、翻译和 PDF 写回流程使用的方式。
 
-本文中的“规范产物”指 pdf-craft 自身写出的 `.pcex`；“当前校验器”指 `PDFCraftExtraction.open()` 或 `PDFCraftExtraction.validate()` 所执行的校验。两者需要区分：规范产物会遵循本文给出的字段关系，但当前校验器并未检查其中每一项语义关系。下文保留的 v2 chapter 示例仅用于说明读取兼容；规范写入端使用上文所述 v3 flow。
+本文中的“规范产物”指 pdf-craft 自身写出的 `.pcex`；“当前校验器”指 Craft 门面在打开句柄时执行的校验。两者需要区分：规范产物会遵循本文给出的字段关系，但当前校验器并未检查其中每一项语义关系。下文保留的 v2 chapter 示例仅用于说明读取兼容；规范写入端使用上文所述 v3 flow。
 
 ## 格式定位
 
@@ -134,23 +134,16 @@ craft.convert_pdf_to_markdown(
 ### 打开和校验
 
 ```python
-from pdf_craft import PDFCraftExtraction
+from pdf_craft import PDFCraft
 
-extraction = PDFCraftExtraction.open("output/book.pcex")
-extraction.validate()
-```
-
-以下三种写法等价，都会在构造期间打开、解压并校验归档：
-
-```python
-PDFCraftExtraction("output/book.pcex")
-PDFCraftExtraction.open("output/book.pcex")
-PDFCraftExtraction.load("output/book.pcex")
+craft = PDFCraft()
+extraction = craft.open_extraction("output/book.pcex")
 ```
 
 路径不是普通文件时抛出 `FileNotFoundError`；后缀不是 `.pcex` 时抛出 `ValueError`。目录即使包含完整成员也不能作为公开输入。
 
-`validate()` 校验成功时返回对象自身，便于链式使用。`validate(require_toc=True)` 还会要求 `toc.xml` 存在；EPUB 渲染使用这一模式，Markdown 渲染只要求基本格式有效。
+门面会在返回前完成校验，所得 `PDFCraftExtraction` 是不公开 I/O 或元数据方法的 opaque handle，
+后续应把它传回 Craft 门面。EPUB 渲染还会要求 `toc.xml` 存在，Markdown 渲染只要求基本格式有效。
 
 ### 跨机器继续后端
 
@@ -164,10 +157,10 @@ craft.extract_pdf("book.pdf", "book.pcex")
 将单个 `book.pcex` 传到机器 B 后，可以不配置 PDF/OCR 基础设施：
 
 ```python
-from pdf_craft import PDFCraft, PDFCraftExtraction
+from pdf_craft import PDFCraft
 
-extraction = PDFCraftExtraction.open("book.pcex")
 craft = PDFCraft()
+extraction = craft.open_extraction("book.pcex")
 craft.render_markdown(extraction, "book.md")
 craft.render_epub(extraction, "book.epub")  # 要求包内有 toc.xml
 ```
@@ -197,19 +190,7 @@ translated = craft.translate_extraction(
 
 可变页码以结构化信息表示，而不是作为可复用 pattern position 的文本：folio `position` 带有 `folio_style`（`D`、`R`、`r`、`A` 或 `a`）和 `folio_offset`，也可带 `folio_prefix`、`folio_suffix`。关联到每页的 section 仍保留实际印刷出的页码。翻译 furniture 时只翻译固定修饰文字；PDF 回填会根据每个关联页及 offset 重建页码，从而不会把抽样页的页码翻译一次后错误地写到所有共享该 position 的页面。
 
-`PDFCraftExtraction.export(path)` 会把当前对象重新校验并写成新的 `.pcex`，返回由新归档支撑的对象。写入使用同目标目录中的临时文件，成功后原子替换为目标名称；现有目标仍不会被覆盖。ZIP 成员的时间戳等容器元数据不属于稳定格式，不能假设两次导出逐字节相同。
-
-### 公开元数据读取方法
-
-`PDFCraftExtraction` 不公开内部解压目录，也不把章节目录暴露为公共编辑接口。它提供以下只读方法：
-
-| 方法 | 返回值 |
-| --- | --- |
-| `page_pixel_sizes()` | `{页码: (像素宽度, 像素高度)}` 的新字典 |
-| `render_dpi()` | `pages.xml` 中的正整数 DPI |
-| `document_metadata()` | `manifest.json` 中 `document` 对象的浅拷贝 |
-| `language()` | `document.language` 的字符串或 `None` |
-| `book_meta()` | 由文档元数据构造的 `epub_generator.BookMeta` |
+`craft.export_extraction(extraction, path)` 会把句柄重新校验并写成新的 `.pcex`，返回由新归档支撑的句柄。写入使用同目标目录中的临时文件，成功后原子替换为目标名称；现有目标仍不会被覆盖。ZIP 成员的时间戳等容器元数据不属于稳定格式，不能假设两次导出逐字节相同。
 
 ## `manifest.json`
 
@@ -612,13 +593,13 @@ Markdown 渲染会把封面复制到输出资源目录，但不会自动在 Mark
 - 是否包含 `..`、反斜杠、绝对路径或符号链接；
 - 是否只包含规定的根成员、章节文件和资源文件。
 
-随后在临时目录中解压并执行内容校验。`open()` 在返回前建立并持有已校验快照，之后读取不再依赖源归档内容；`export()` 返回的新对象会在首次使用时按需打开刚写出的归档。临时目录和物化时机都是实现细节，调用方不应查找或依赖它们。
+随后在临时目录中解压并执行内容校验，门面只在校验成功后返回句柄。路径支撑的句柄会在每次操作时物化并重新校验归档，因此调用方必须保留源文件，也不能把它替换成不可信内容。临时目录和物化时机都是实现细节，调用方不应查找或依赖它们。
 
 当前实现没有归档大小、展开后大小或压缩比上限，也没有内容签名；对于不可信来源，调用方应在进入 pdf-craft 前额外限制文件大小和来源。格式版本只解决结构兼容性，不提供真实性或防篡改保证。
 
 ## v3 校验明细
 
-`PDFCraftExtraction.open()` 会立即执行以下校验：
+`PDFCraft.open_extraction()`（或 `await AsyncPDFCraft.open_extraction(...)`）会在返回前执行以下校验：
 
 1. 路径是现有 `.pcex` 普通文件；
 2. ZIP 可读取、路径安全、成员不重复且成员集合受支持；
@@ -687,4 +668,4 @@ craft.patch_pdf_with_extraction(
 
 当前格式版本为 `3`。读取器接受规范的 v3 归档和旧的 `format_version: 1` / `2` 归档，但会拒绝未知版本。历史读取器不理解 v3 flow schema。
 
-应用程序若只需要后续渲染或翻译，应让 `PDFCraftExtraction.open()` 负责版本和完整性检查，不要仅凭 ZIP 可解压就认定包可用。
+应用程序若只需要后续渲染或翻译，也应通过 Craft 门面打开归档并执行版本和完整性检查，不要仅凭 ZIP 可解压就认定包可用。

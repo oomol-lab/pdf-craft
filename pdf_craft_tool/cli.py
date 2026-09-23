@@ -330,11 +330,12 @@ def _translate_pdf(args: argparse.Namespace) -> None:
 def _translate_package(args: argparse.Namespace) -> None:
     load_project_env(_project_root())
     work_dir = _work_dir(args.package, args.work_dir, "package-translate")
-    extraction = PDFCraftExtraction.open(args.package)
+    craft = PDFCraft()
+    extraction = craft.open_extraction(args.package)
     output_package = args.output_package or work_dir / "translated.pcex"
     transformer = _xml_transformer(args, work_dir)
     mode = SubmitKind[args.submit.replace("-", "_").upper()]
-    PDFCraft().translate_extraction(
+    craft.translate_extraction(
         extraction, output_package, transformer, submit=mode,
         with_furniture=args.with_furniture,
     )
@@ -343,19 +344,21 @@ def _translate_package(args: argparse.Namespace) -> None:
 
 def _patch_package_pdf(args: argparse.Namespace) -> None:
     work_dir = _work_dir(args.source, args.work_dir, "package-patch")
-    extraction = PDFCraftExtraction.open(args.package)
+    craft = PDFCraft()
+    extraction = craft.open_extraction(args.package)
     output = args.output or work_dir / f"{args.source.stem}-patched.pdf"
     output.parent.mkdir(parents=True, exist_ok=True)
-    PDFCraft().patch_pdf_with_extraction(args.source, extraction, output)
+    craft.patch_pdf_with_extraction(args.source, extraction, output)
     print(f"Output: {output}")
 
 
 def _render_package(args: argparse.Namespace) -> None:
     work_dir = _work_dir(args.package, args.work_dir, "render")
-    extraction = PDFCraftExtraction.open(args.package)
+    craft = PDFCraft()
+    extraction = craft.open_extraction(args.package)
     output = args.output or work_dir / ("book.md" if args.format == "markdown" else "book.epub")
     output.parent.mkdir(parents=True, exist_ok=True)
-    _render(PDFCraft(), extraction, args.format, output)
+    _render(craft, extraction, args.format, output)
     print(f"Output: {output}")
 
 

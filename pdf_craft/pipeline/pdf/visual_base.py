@@ -3,8 +3,9 @@
 The patcher must not leave the original page below its translated text.  PDF
 text remains selectable even when a rectangle visually covers it, and page
 annotations are interactive independently of the content stream.  This module
-therefore separates annotations from a document before Ghostscript turns the
-remaining page display list into a font-free PDF.
+therefore separates interactive annotations from a document before Ghostscript
+turns the remaining page display list into a font-free PDF.  A narrowly defined
+full-page visual Stamp stays behind so its appearance becomes page content.
 """
 
 from __future__ import annotations
@@ -30,15 +31,16 @@ class GhostscriptVisualBaseCompiler:
     ``pdfwrite`` interprets the page before writing it again.  With
     ``-dNoOutputFonts`` it writes text as linework (or as bitmap glyphs when
     necessary), so viewers cannot select the source text in the result.
-    Annotations are deliberately removed before invoking this compiler and
-    restored by :func:`reattach_annotations` after translated text is drawn.
+    Interactive annotations are deliberately removed before invoking this
+    compiler and restored by :func:`reattach_annotations` after translated text
+    is drawn.  Full-page visual Stamps are instead flattened into the base.
     """
 
     def __init__(self, executable: str | Path | None = None) -> None:
         self.executable = str(executable) if executable is not None else None
 
     def compile(self, source_path: Path, target_path: Path) -> None:
-        """Compile an annotation-free source PDF to a visual-only PDF."""
+        """Compile a source stripped of interactive annotations to a visual-only PDF."""
         run_sync(self.compile_async(source_path, target_path))
 
     async def compile_async(self, source_path: Path, target_path: Path) -> None:
@@ -53,7 +55,7 @@ class GhostscriptVisualBaseCompiler:
             "-sDEVICE=pdfwrite",
             "-dNoOutputFonts",
             "-dPreserveAnnots=false",
-            "-dShowAnnots=false",
+            "-dShowAnnots=true",
             "-dNO_PDFMARK_OUTLINES",
             "-sUseOCR=Never",
             f"-sOutputFile={target_path}",
@@ -86,39 +88,88 @@ class GhostscriptVisualBaseCompiler:
 
 
 def extract_annotations(reader: Any) -> tuple[tuple[Any, ...], ...]:
-    """Return the page-level ``/Annots`` objects in page order.
-
-    This intentionally does not classify annotation subtypes.  Annotation is
-    the product boundary: every entry in ``/Annots`` is lifted above the
-    translated text, regardless of whether it is a link, a widget, markup, or
-    a reader note.
-    """
+    """Return annotations which must remain interactive above translated text."""
     annotations_by_page: list[tuple[Any, ...]] = []
     for page in reader.pages:
         annotations = page.get("/Annots")
-        annotations_by_page.append(tuple(annotations) if annotations is not None else ())
+        annotations_by_page.append(tuple(
+            annotation
+            for annotation in _annotation_items(annotations)
+            if not _is_full_page_visual_stamp(annotation, page)
+        ))
     return tuple(annotations_by_page)
 
 
 def write_annotation_free_copy(reader: Any, target_path: Path) -> None:
-    """Write the source pages without their page-level Annotation arrays."""
+    """Write pages containing only visual Stamps which must become page content."""
     import pypdf
-    from pypdf.generic import NameObject
+    from pypdf.generic import ArrayObject, NameObject
 
     writer = pypdf.PdfWriter()
     for page in reader.pages:
         writer.add_page(page)
         target_page: Any = writer.pages[-1]
+        visual_stamps = ArrayObject(
+            annotation
+            for annotation in _annotation_items(target_page.get("/Annots"))  # pylint: disable=no-member
+            if _is_full_page_visual_stamp(annotation, target_page)
+        )
         # These page-level entries can trigger actions or article navigation.
         # They are not Annotation objects and must not survive in the visual
         # base. The writer starts a new document root, so catalog-level actions
         # and outlines are not inherited either.
-        for key in ("/Annots", "/AA", "/B"):
+        for key in ("/AA", "/B"):
             name = NameObject(key)
             if name in target_page:
                 del target_page[name]
+        annots_name = NameObject("/Annots")
+        if visual_stamps:
+            target_page[annots_name] = visual_stamps  # pylint: disable=unsupported-assignment-operation
+        elif annots_name in target_page:
+            del target_page[annots_name]
     with target_path.open("wb") as output:
         writer.write(output)
+
+
+def _annotation_items(annotations: Any | None) -> tuple[Any, ...]:
+    if annotations is None:
+        return ()
+    return tuple(_dereference(annotations))
+
+
+def _is_full_page_visual_stamp(annotation: Any, page: Any) -> bool:
+    """Identify page artwork stored as a non-interactive Stamp appearance."""
+    from pypdf.generic import DictionaryObject, StreamObject
+
+    source = _dereference(annotation)
+    if not isinstance(source, DictionaryObject) or source.get("/Subtype") != "/Stamp":
+        return False
+    if any(key in source for key in ("/A", "/AA", "/Dest", "/Contents", "/Popup", "/IRT")):
+        return False
+    appearance = _dereference(source.get("/AP"))
+    if not isinstance(appearance, DictionaryObject):
+        return False
+    normal_appearance = _dereference(appearance.get("/N"))
+    if not isinstance(normal_appearance, StreamObject):
+        return False
+    rectangle = source.get("/Rect")
+    if rectangle is None or len(rectangle) != 4:
+        return False
+    try:
+        left, bottom, right, top = (float(value) for value in rectangle)
+        page_left = float(page.cropbox.left)
+        page_bottom = float(page.cropbox.bottom)
+        page_right = float(page.cropbox.right)
+        page_top = float(page.cropbox.top)
+    except (TypeError, ValueError):
+        return False
+    page_width = page_right - page_left
+    page_height = page_top - page_bottom
+    if page_width <= 0 or page_height <= 0:
+        return False
+    covered_width = max(0.0, min(right, page_right) - max(left, page_left))
+    covered_height = max(0.0, min(top, page_top) - max(bottom, page_bottom))
+    return covered_width / page_width >= 0.9 and covered_height / page_height >= 0.9
 
 
 def reattach_annotations(

@@ -60,7 +60,7 @@ class FurnitureTranslationTests(unittest.TestCase):
             source = _translated_narrative_extraction(root / "source")
             translator = _FurnitureTranslator()
 
-            translated = FurnitureExtractionTransformer(translator).transform(
+            translated = FurnitureExtractionTransformer(translator)._transform_blocking(
                 source, root / "furniture-translated.pcex"
             )
 
@@ -119,7 +119,7 @@ class FurnitureTranslationTests(unittest.TestCase):
                 )
                 self.assertFalse(any(entry.get("det") == "1,85,90,95" for entry in coverage.iter("section")))
 
-            PDFCraftExtraction.open(root / "furniture-translated.pcex").validate()
+            PDFCraftExtraction._open(root / "furniture-translated.pcex")._validate()
 
     def test_internal_pass_without_furniture_is_a_valid_no_op(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -128,7 +128,7 @@ class FurnitureTranslationTests(unittest.TestCase):
             save_xml(encode(Chapter(None, -1, [])), root / "source/chapters/chapter_head.xml")
             translator = _FurnitureTranslator()
 
-            translated = FurnitureExtractionTransformer(translator).transform(
+            translated = FurnitureExtractionTransformer(translator)._transform_blocking(
                 source, root / "target.pcex"
             )
 
@@ -153,7 +153,7 @@ class FurnitureTranslationTests(unittest.TestCase):
             )
             translator = _FurnitureTranslator()
 
-            translated = FurnitureExtractionTransformer(translator).transform(
+            translated = FurnitureExtractionTransformer(translator)._transform_blocking(
                 source, root / "target.pcex"
             )
 
@@ -167,7 +167,7 @@ class FurnitureTranslationTests(unittest.TestCase):
                 self.assertIsNotNone(coverage)
                 assert coverage is not None
                 self.assertEqual(coverage.get("state"), "preserved")
-            translated.validate()
+            translated._validate()
 
     def test_internal_pass_translates_only_folio_decoration(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -184,7 +184,7 @@ class FurnitureTranslationTests(unittest.TestCase):
             )
             translator = _FurnitureTranslator()
 
-            translated = FurnitureExtractionTransformer(translator).transform(
+            translated = FurnitureExtractionTransformer(translator)._transform_blocking(
                 source, root / "target.pcex"
             )
 
@@ -202,7 +202,7 @@ class FurnitureTranslationTests(unittest.TestCase):
                 self.assertIsNotNone(coverage)
                 assert coverage is not None
                 self.assertEqual(coverage.get("state"), "translated")
-            translated.validate()
+            translated._validate()
 
     def test_translation_coverage_rejects_unknown_furniture_unit(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -216,7 +216,7 @@ class FurnitureTranslationTests(unittest.TestCase):
             )
 
             with self.assertRaisesRegex(ValueError, "invalid furniture position"):
-                PDFCraftExtraction._from_workspace(root).validate()
+                PDFCraftExtraction._from_workspace(root)._validate()
 
     def test_toc_section_preserves_supported_number_prefixes(self):
         cases = [
@@ -240,11 +240,11 @@ class FurnitureTranslationTests(unittest.TestCase):
         furniture = FurnitureXMLTransformer(translator)
 
         self.assertEqual(
-            furniture.transform_position(FurniturePosition(1, 2, "universal", "Header")),
+            furniture._transform_position_blocking(FurniturePosition(1, 2, "universal", "Header")),
             "X:Header",
         )
         self.assertEqual(
-            furniture.transform_sections(
+            furniture._transform_sections_blocking(
                 7,
                 [
                     FurnitureSection(7, (1, 2, 3, 4), "Left"),
@@ -281,4 +281,4 @@ def _translated_narrative_extraction(root: Path) -> PDFCraftExtraction:
         "</narrative></translation>",
         encoding="utf-8",
     )
-    return PDFCraftExtraction._from_workspace(root).validate()
+    return PDFCraftExtraction._from_workspace(root)._validate()

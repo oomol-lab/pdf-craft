@@ -36,13 +36,14 @@ from .pdf import (
     PDFDocumentMetadata,
     PDFHandler,
 )
-from .pipeline.epub import translate_epub_async as run_epub_translation_async
+from .pipeline.epub import translate_epub as run_epub_translation
 from .pipeline.pdf import PDFTranslationPipeline
 from .renderer import EpubRenderer, MarkdownRenderer
 from .transformer import (
     ChapterExtractionTransformer,
-    AsyncChapterTransformer,
     ChapterTransformer,
+    SyncAnchoredContentTransformer,
+    SyncChapterTransformer,
     AnchoredContentExtractionTransformer,
     AnchoredContentTransformer,
     SubmitKind,
@@ -54,7 +55,6 @@ from .transformer.package import FurnitureExtractionTransformer
 from .runtime import (
     IO_DOMAIN,
     QT_DOMAIN,
-    run_sync,
     temporary_directory,
 )
 
@@ -93,171 +93,6 @@ class ExtractionOptions:
     on_ocr_event: Callable[[OCREvent], object] = lambda _: None
 
 
-class PDFCraft:
-    """Compose extraction, rendering, and format-specific translation workflows.
-
-    Constructing this facade does not initialise OCR.  EPUB-only callers can
-    therefore use ``PDFCraft()`` without PDF infrastructure or credentials.
-    """
-
-    def __init__(self, pdf: PDFOptions | None = None, *, _engine=None) -> None:
-        self._pdf = pdf
-        self._engine = _engine
-
-    def _async(self) -> "AsyncPDFCraft":
-        return AsyncPDFCraft(pdf=self._pdf, _engine=self._engine)
-
-    @classmethod
-    def from_engine(cls, engine) -> "PDFCraft":
-        return cls(_engine=engine)
-
-    def extract_pdf(
-        self, source: PathLike | str, extraction_path: PathLike | str,
-        options: ExtractionOptions | None = None,
-        *, analysing_path: PathLike | str | None = None,
-    ) -> PDFCraftExtraction:
-        return run_sync(self._async().extract_pdf(
-            source, extraction_path, options, analysing_path=analysing_path,
-        ))
-
-    def extract_pdf_with_metering(
-        self, source: PathLike | str, extraction_path: PathLike | str,
-        options: ExtractionOptions | None = None,
-        *, analysing_path: PathLike | str | None = None,
-    ) -> tuple[PDFCraftExtraction, OCRTokensMetering]:
-        return run_sync(self._async().extract_pdf_with_metering(
-            source, extraction_path, options, analysing_path=analysing_path,
-        ))
-
-    def render_markdown(
-        self, extraction: PDFCraftExtraction | PathLike | str, output: PathLike | str,
-        assets_path: PathLike | str | None = None,
-        *, aborted: AbortedCheck = lambda: False,
-    ) -> None:
-        run_sync(self._async().render_markdown(
-            extraction, output, assets_path, aborted=aborted,
-        ))
-
-    def translate_extraction(
-        self, extraction: PDFCraftExtraction | PathLike | str, output_path: PathLike | str,
-        translator: ChapterTransformer | AsyncChapterTransformer,
-        *, submit: SubmitKind = SubmitKind.REPLACE,
-        with_furniture: bool = False,
-        on_translation_event: Callable[[TranslationEvent], None] | None = None,
-    ) -> PDFCraftExtraction:
-        """Translate one PDFCraftExtraction into another ``.pcex`` artifact.
-
-        ``with_furniture`` composes the page-furniture pass into the same public
-        operation.  It is intentionally separate from extraction's
-        ``includes_furniture``: an existing pcex may or may not contain that
-        optional source layer.
-        """
-        return run_sync(self._async().translate_extraction(
-            extraction, output_path, translator, submit=submit,
-            with_furniture=with_furniture,
-            on_translation_event=on_translation_event,
-        ))
-
-    def translate_anchored_contents(
-        self,
-        extraction: PDFCraftExtraction | PathLike | str,
-        output_path: PathLike | str,
-        transformer: AnchoredContentTransformer,
-    ) -> PDFCraftExtraction:
-        """Translate extracted image/table text without entering NarrativeFlow."""
-        return run_sync(self._async().translate_anchored_contents(
-            extraction, output_path, transformer,
-        ))
-
-    def render_epub(
-        self, extraction: PDFCraftExtraction | PathLike | str, output: PathLike | str, *,
-        book_meta: BookMeta | None = None, lan: Literal["zh", "en"] | None = None,
-        table_render: TableRender = TableRender.HTML,
-        latex_render: LaTeXRender = LaTeXRender.MATHML,
-        inline_latex: bool = True,
-        aborted: AbortedCheck = lambda: False,
-    ) -> None:
-        run_sync(self._async().render_epub(
-            extraction, output, book_meta=book_meta, lan=lan,
-            table_render=table_render, latex_render=latex_render,
-            inline_latex=inline_latex, aborted=aborted,
-        ))
-
-    def translate_pdf(
-        self, source: PathLike | str, extraction: PDFCraftExtraction | PathLike | str,
-        output: PathLike | str,
-        transformer: ChapterTransformer | AsyncChapterTransformer,
-        *,
-        with_furniture: bool = False,
-        on_translation_event: Callable[[TranslationEvent], None] | None = None,
-        ignore_errors: IgnoreFillErrorsChecker = False,
-    ) -> None:
-        run_sync(self._async().translate_pdf(
-            source, extraction, output, transformer,
-            with_furniture=with_furniture,
-            on_translation_event=on_translation_event,
-            ignore_errors=ignore_errors,
-        ))
-
-    def patch_pdf_with_extraction(
-        self,
-        source: PathLike | str,
-        extraction: PDFCraftExtraction | PathLike | str,
-        output: PathLike | str,
-        *,
-        ignore_errors: IgnoreFillErrorsChecker = False,
-    ) -> None:
-        """Patch an existing PDF with text and geometry from a PDFCraftExtraction."""
-        run_sync(self._async().patch_pdf_with_extraction(
-            source, extraction, output, ignore_errors=ignore_errors,
-        ))
-
-    def translate_epub(self, source: PathLike | str, output: PathLike | str, *,
-                       target_language: str, submit: SubmitKind,
-                       **options) -> None:
-        run_sync(self._async().translate_epub(
-            source, output, target_language=target_language, submit=submit, **options,
-        ))
-
-    def convert_pdf_to_markdown(
-        self, source: PathLike | str, output: PathLike | str, *,
-        analysing_path: PathLike | str | None = None,
-        extraction_path: PathLike | str | None = None,
-        extraction: ExtractionOptions | None = None,
-        assets_path: PathLike | str | None = None,
-        translator: ChapterTransformer | AsyncChapterTransformer | None = None,
-        submit: SubmitKind = SubmitKind.REPLACE,
-        on_translation_event: Callable[[TranslationEvent], None] | None = None,
-    ) -> OCRTokensMetering:
-        return run_sync(self._async().convert_pdf_to_markdown(
-            source, output, analysing_path=analysing_path,
-            extraction_path=extraction_path, extraction=extraction,
-            assets_path=assets_path, translator=translator, submit=submit,
-            on_translation_event=on_translation_event,
-        ))
-
-    def convert_pdf_to_epub(
-        self, source: PathLike | str, output: PathLike | str, *,
-        analysing_path: PathLike | str | None = None,
-        extraction_path: PathLike | str | None = None,
-        extraction: ExtractionOptions | None = None,
-        book_meta: BookMeta | None = None, lan: Literal["zh", "en"] | None = None,
-        table_render: TableRender = TableRender.HTML,
-        latex_render: LaTeXRender = LaTeXRender.MATHML,
-        inline_latex: bool = True,
-        translator: ChapterTransformer | AsyncChapterTransformer | None = None,
-        submit: SubmitKind = SubmitKind.REPLACE,
-        on_translation_event: Callable[[TranslationEvent], None] | None = None,
-    ) -> OCRTokensMetering:
-        return run_sync(self._async().convert_pdf_to_epub(
-            source, output, analysing_path=analysing_path,
-            extraction_path=extraction_path, extraction=extraction,
-            book_meta=book_meta, lan=lan, table_render=table_render,
-            latex_render=latex_render, inline_latex=inline_latex,
-            translator=translator, submit=submit,
-            on_translation_event=on_translation_event,
-        ))
-
 class AsyncPDFCraft:
     """Async-first facade for extraction, rendering, and translation.
 
@@ -273,6 +108,19 @@ class AsyncPDFCraft:
     @classmethod
     def from_engine(cls, engine) -> "AsyncPDFCraft":
         return cls(_engine=engine)
+
+    async def open_extraction(self, path: PathLike | str) -> PDFCraftExtraction:
+        """Open and validate a PCEX artifact without blocking the event loop."""
+        return await IO_DOMAIN.run(PDFCraftExtraction._open, Path(path))
+
+    async def export_extraction(
+        self,
+        extraction: PDFCraftExtraction | PathLike | str,
+        path: PathLike | str,
+    ) -> PDFCraftExtraction:
+        """Export a validated PCEX handle through the owning facade."""
+        document = await _ensure_extraction_async(extraction)
+        return await document._export_async(Path(path))
 
     async def extract_pdf(
         self, source: PathLike | str, extraction_path: PathLike | str,
@@ -290,7 +138,7 @@ class AsyncPDFCraft:
         *, analysing_path: PathLike | str | None = None,
     ) -> tuple[PDFCraftExtraction, OCRTokensMetering]:
         options = options or ExtractionOptions()
-        return await PDFExtractor(self._pdf_engine()).extract_with_metering_async(
+        return await PDFExtractor(self._pdf_engine()).extract_with_metering(
             Path(source), Path(extraction_path),
             analysing_path=Path(analysing_path) if analysing_path is not None else None,
             page_indexes=options.page_indexes,
@@ -317,7 +165,7 @@ class AsyncPDFCraft:
         *, aborted: AbortedCheck = lambda: False,
     ) -> None:
         document = await _ensure_extraction_async(extraction)
-        await MarkdownRenderer().render_async(
+        await MarkdownRenderer().render(
             document, Path(output),
             Path(assets_path) if assets_path is not None else None,
             aborted=aborted,
@@ -325,7 +173,7 @@ class AsyncPDFCraft:
 
     async def translate_extraction(
         self, extraction: PDFCraftExtraction | PathLike | str, output_path: PathLike | str,
-        translator: ChapterTransformer | AsyncChapterTransformer,
+        translator: ChapterTransformer | SyncChapterTransformer,
         *, submit: SubmitKind = SubmitKind.REPLACE,
         with_furniture: bool = False,
         on_translation_event: Callable[[TranslationEvent], object] | None = None,
@@ -337,7 +185,7 @@ class AsyncPDFCraft:
         ):
             raise ValueError("with_furniture=True requires a ChapterXMLTransformer")
         if not with_furniture:
-            return await extraction_transformer.transform_async(
+            return await extraction_transformer.transform(
                 document,
                 Path(output_path),
                 on_translation_event=on_translation_event,
@@ -361,18 +209,18 @@ class AsyncPDFCraft:
             translated = await FurnitureExtractionTransformer(
                 furniture_transformer,
             )._transform_to_workspace_async(narrative, root / "translated")
-            return await translated.export_async(target)
+            return await translated._export_async(target)
 
     async def translate_anchored_contents(
         self,
         extraction: PDFCraftExtraction | PathLike | str,
         output_path: PathLike | str,
-        transformer: AnchoredContentTransformer,
+        transformer: AnchoredContentTransformer | SyncAnchoredContentTransformer,
     ) -> PDFCraftExtraction:
         document = await _ensure_extraction_async(extraction)
         return await AnchoredContentExtractionTransformer(
             transformer,
-        ).transform_async(
+        ).transform(
             document, Path(output_path),
         )
 
@@ -385,7 +233,7 @@ class AsyncPDFCraft:
         aborted: AbortedCheck = lambda: False,
     ) -> None:
         document = await _ensure_extraction_async(extraction)
-        await EpubRenderer().render_async(
+        await EpubRenderer().render(
             document, Path(output), book_meta=book_meta, lan=lan,
             table_render=table_render, latex_render=latex_render,
             inline_latex=inline_latex, aborted=aborted,
@@ -394,7 +242,7 @@ class AsyncPDFCraft:
     async def translate_pdf(
         self, source: PathLike | str, extraction: PDFCraftExtraction | PathLike | str,
         output: PathLike | str,
-        transformer: ChapterTransformer | AsyncChapterTransformer,
+        transformer: ChapterTransformer | SyncChapterTransformer,
         *, with_furniture: bool = False,
         on_translation_event: Callable[[TranslationEvent], object] | None = None,
         ignore_errors: IgnoreFillErrorsChecker = False,
@@ -432,8 +280,11 @@ class AsyncPDFCraft:
             # Caller-owned handlers and callbacks can contain loops, locks, or
             # other non-pickleable state. Keep them in the caller process and
             # pass only materialized pages / an RPC checker into the Qt worker.
-            page_indexes = tuple(sorted((await document.page_pixel_sizes_async()).keys()))
-            dpi = await document.render_dpi_async()
+            page_indexes, dpi = await asyncio.gather(
+                IO_DOMAIN.run(document._page_pixel_sizes),
+                IO_DOMAIN.run(document._render_dpi),
+            )
+            page_indexes = tuple(sorted(page_indexes.keys()))
             async with temporary_directory("pdf-craft-pdf-pages-") as directory:
                 materialized_handler = await _materialize_pdf_handler(
                     configured_handler, source_path, page_indexes, dpi, directory,
@@ -448,7 +299,7 @@ class AsyncPDFCraft:
         self, source: PathLike | str, output: PathLike | str, *,
         target_language: str, submit: SubmitKind, **options,
     ) -> None:
-        await run_epub_translation_async(
+        await run_epub_translation(
             source,
             output,
             target_language=target_language,
@@ -462,7 +313,7 @@ class AsyncPDFCraft:
         extraction_path: PathLike | str | None = None,
         extraction: ExtractionOptions | None = None,
         assets_path: PathLike | str | None = None,
-        translator: ChapterTransformer | AsyncChapterTransformer | None = None,
+        translator: ChapterTransformer | SyncChapterTransformer | None = None,
         submit: SubmitKind = SubmitKind.REPLACE,
         on_translation_event: Callable[[TranslationEvent], object] | None = None,
     ) -> OCRTokensMetering:
@@ -470,7 +321,7 @@ class AsyncPDFCraft:
         async with _analysis_workspace_async(analysing_path) as workspace:
             document, metering = await self._extract_to_workspace(source, workspace, options)
             if extraction_path is not None:
-                await document.export_async(Path(extraction_path))
+                await document._export_async(Path(extraction_path))
             if translator is not None:
                 async with temporary_directory(
                     "pdf-craft-translated-extraction-"
@@ -495,7 +346,7 @@ class AsyncPDFCraft:
         table_render: TableRender = TableRender.HTML,
         latex_render: LaTeXRender = LaTeXRender.MATHML,
         inline_latex: bool = True,
-        translator: ChapterTransformer | AsyncChapterTransformer | None = None,
+        translator: ChapterTransformer | SyncChapterTransformer | None = None,
         submit: SubmitKind = SubmitKind.REPLACE,
         on_translation_event: Callable[[TranslationEvent], object] | None = None,
     ) -> OCRTokensMetering:
@@ -503,7 +354,7 @@ class AsyncPDFCraft:
         async with _analysis_workspace_async(analysing_path) as workspace:
             document, metering = await self._extract_to_workspace(source, workspace, options)
             if extraction_path is not None:
-                await document.export_async(Path(extraction_path))
+                await document._export_async(Path(extraction_path))
             if translator is not None:
                 async with temporary_directory(
                     "pdf-craft-translated-extraction-"
@@ -550,7 +401,7 @@ class AsyncPDFCraft:
 
     async def _translate_to_workspace(
         self, extraction: PDFCraftExtraction, output_path: Path,
-        transformer: ChapterTransformer | AsyncChapterTransformer, *,
+        transformer: ChapterTransformer | SyncChapterTransformer, *,
         submit: SubmitKind = SubmitKind.REPLACE,
         on_translation_event: Callable[[TranslationEvent], object] | None = None,
     ) -> PDFCraftExtraction:
@@ -769,7 +620,7 @@ def _patch_pdf_sync(
     pdf_handler: PDFHandler | None,
     ignore_errors: IgnoreFillErrorsChecker,
 ) -> None:
-    extraction.validate()
+    extraction._validate()
     if not _ignore_errors_requested(ignore_errors):
         _validate_extraction_for_pdf(source, extraction)
     PDFTranslationPipeline(pdf_handler=pdf_handler).patch(
@@ -903,7 +754,7 @@ def _validate_extraction_for_pdf(source: Path, extraction: PDFCraftExtraction) -
         import pypdf
     except ImportError as error:
         raise RuntimeError("PDF patching requires the optional 'pypdf' dependency") from error
-    page_sizes = extraction.page_pixel_sizes()
+    page_sizes = extraction._page_pixel_sizes()
     if not page_sizes:
         raise ValueError("PDFCraftExtraction is missing page geometry required for PDF patching")
     page_count = len(pypdf.PdfReader(str(source)).pages)
@@ -936,7 +787,7 @@ def _ignore_errors_requested(checker: IgnoreFillErrorsChecker) -> bool:
 
 
 def _furniture_transformer_for(
-    transformer: ChapterTransformer | AsyncChapterTransformer,
+    transformer: ChapterTransformer | SyncChapterTransformer,
 ) -> FurnitureXMLTransformer:
     """Reuse the XML translation runtime for the optional furniture pass."""
     if not isinstance(transformer, ChapterXMLTransformer):
@@ -949,4 +800,4 @@ async def _ensure_extraction_async(
 ) -> PDFCraftExtraction:
     if isinstance(value, PDFCraftExtraction):
         return value
-    return await PDFCraftExtraction.open_async(Path(value))
+    return await IO_DOMAIN.run(PDFCraftExtraction._open, Path(value))
