@@ -33,6 +33,7 @@ from pdf_craft.pipeline.pdf.text_layout import (
     _ensure_qt_application, _qt_lifecycle_probe, _qt_modules,
 )
 from pdf_craft.transformer import ChapterXMLTransformer
+import pdf_craft.transformer.package as transformer_package
 from pdf_craft.transformer.xml_translator.xml_translator.concurrency import (
     run_concurrency_async,
 )
@@ -133,6 +134,19 @@ class _SyncChapterTransformer:
 
     def transform(self, chapter: Chapter) -> Chapter:
         self.thread_id = threading.get_ident()
+        return chapter
+
+
+class _BlockingSyncChapterTransformer:
+    def __init__(self) -> None:
+        self.started = threading.Event()
+        self.release = threading.Event()
+        self.finished = threading.Event()
+
+    def transform(self, chapter: Chapter) -> Chapter:
+        self.started.set()
+        self.release.wait(1)
+        self.finished.set()
         return chapter
 
 
@@ -355,6 +369,49 @@ class TestAsyncAPI(unittest.IsolatedAsyncioTestCase):
 
             self.assertTrue(finished.is_set())
             self.assertFalse(workspace_root[0].exists())
+            self.assertFalse(target.exists())
+
+    async def test_sync_transformer_cancellation_waits_before_workspace_cleanup(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = make_extraction(root / "source", page_pixel_sizes={1: (10, 10)})
+            chapter = Chapter(None, -1, [TextFlowItem(
+                "body", 0,
+                [SourceTextFragment(1, 1, (1, 1, 5, 5), ["source"])],
+            )])
+            save_xml(encode(chapter), root / "source" / "chapters" / "chapter_head.xml")
+            target = root / "target.pcex"
+            transformer = _BlockingSyncChapterTransformer()
+            workspaces: list[Path] = []
+            original_temporary = tempfile.TemporaryDirectory
+
+            def capture_temporary(*args, **kwargs):
+                temporary = original_temporary(*args, **kwargs)
+                workspaces.append(Path(temporary.name))
+                return temporary
+
+            with patch.object(
+                transformer_package, "TemporaryDirectory", capture_temporary,
+            ):
+                task = asyncio.create_task(
+                    ChapterExtractionTransformer(transformer).transform_async(
+                        source, target,
+                    )
+                )
+                await asyncio.to_thread(transformer.started.wait, 1)
+                self.assertTrue(workspaces[0].exists())
+                task.cancel()
+                await asyncio.sleep(0.02)
+                self.assertFalse(task.done())
+                self.assertFalse(transformer.finished.is_set())
+                self.assertTrue(workspaces[0].exists())
+                self.assertFalse(target.exists())
+                transformer.release.set()
+                with self.assertRaises(asyncio.CancelledError):
+                    await task
+
+            self.assertTrue(transformer.finished.is_set())
+            self.assertFalse(workspaces[0].exists())
             self.assertFalse(target.exists())
 
     async def test_extraction_keeps_engine_on_ocr_domain(self):

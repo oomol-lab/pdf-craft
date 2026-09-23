@@ -28,6 +28,8 @@ awaited. Cancelling an async task cancels native network/subprocess work and
 signals cooperative blocking stages through their abort callback. The await
 does not finish cancelling until that worker has unwound, so temporary
 workspaces remain valid through its final writes and cleanup.
+This applies to every thread-pooled boundary, including synchronous extension
+transformers and synchronous PDF handlers, not only cooperative OCR workers.
 Async PCEX export writes a sibling temporary archive and publishes it with one
 atomic replace. Cancellation before that boundary waits for the writer, removes
 the temporary archive, and leaves the requested target absent; cancellation

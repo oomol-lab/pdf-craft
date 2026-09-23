@@ -41,7 +41,25 @@ class ExecutionDomain:
 
     async def run(self, function: Callable[P, R], /, *args: P.args, **kwargs: P.kwargs) -> R:
         loop = asyncio.get_running_loop()
-        return await loop.run_in_executor(self._executor, partial(function, *args, **kwargs))
+        future = loop.run_in_executor(
+            self._executor, partial(function, *args, **kwargs),
+        )
+        try:
+            return await asyncio.shield(future)
+        except asyncio.CancelledError:
+            # Python cannot stop a running executor thread. Keep ownership of
+            # every path, handle, and mutable object used by that worker until
+            # it has really unwound, even under repeated cancellation.
+            while not future.done():
+                try:
+                    await asyncio.shield(future)
+                except asyncio.CancelledError:
+                    continue
+                except Exception:
+                    break
+            if future.done() and not future.cancelled():
+                future.exception()
+            raise
 
 
 class ProcessExecutionDomain:
