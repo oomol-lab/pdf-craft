@@ -1,6 +1,13 @@
+"""Bounded concurrency helpers for XML translation.
+
+The synchronous helper deliberately stays sequential. Network concurrency is
+owned by the asynchronous pipeline; running one event loop per worker thread
+would make cancellation and the LLM semaphore ineffective.
+"""
+
+import asyncio
 from collections import deque
-from collections.abc import Callable, Iterable
-from concurrent.futures import Future, ThreadPoolExecutor
+from collections.abc import AsyncIterator, Awaitable, Callable, Iterable, Iterator
 from typing import TypeVar
 
 P = TypeVar("P")
@@ -11,42 +18,38 @@ def run_concurrency(
     parameters: Iterable[P],
     execute: Callable[[P], R],
     concurrency: int,
-) -> Iterable[R]:
+) -> Iterator[R]:
     assert concurrency >= 1, "the concurrency must be at least 1"
-    # Fast path: concurrency == 1, no thread overhead
-    if concurrency == 1:
-        for param in parameters:
-            yield execute(param)
-        return
+    for parameter in parameters:
+        yield execute(parameter)
 
-    executor = ThreadPoolExecutor(max_workers=concurrency)
-    did_shutdown = False
+
+async def run_concurrency_async(
+    parameters: Iterable[P],
+    execute: Callable[[P], Awaitable[R]],
+    concurrency: int,
+) -> AsyncIterator[R]:
+    """Execute at most ``concurrency`` awaitables, yielding in input order."""
+    assert concurrency >= 1, "the concurrency must be at least 1"
+    iterator = iter(parameters)
+    pending: deque[asyncio.Future[R]] = deque()
     try:
-        futures: deque[Future[R]] = deque()
-        params_iter = iter(parameters)
         for _ in range(concurrency):
             try:
-                param = next(params_iter)
-                future = executor.submit(execute, param)
-                futures.append(future)
+                parameter = next(iterator)
             except StopIteration:
                 break
+            pending.append(asyncio.ensure_future(execute(parameter)))
 
-        while futures:
-            future = futures.popleft()
-            yield future.result()
+        while pending:
+            yield await pending.popleft()
             try:
-                param = next(params_iter)
-                new_future = executor.submit(execute, param)
-                futures.append(new_future)
+                parameter = next(iterator)
             except StopIteration:
-                pass
-
-    except KeyboardInterrupt:
-        executor.shutdown(wait=False, cancel_futures=True)
-        did_shutdown = True
-        raise
-
+                continue
+            pending.append(asyncio.ensure_future(execute(parameter)))
     finally:
-        if not did_shutdown:
-            executor.shutdown(wait=True)
+        for task in pending:
+            task.cancel()
+        if pending:
+            await asyncio.gather(*pending, return_exceptions=True)

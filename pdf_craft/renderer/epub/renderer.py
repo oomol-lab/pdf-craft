@@ -6,6 +6,7 @@ from epub_generator import BookMeta, LaTeXRender, TableRender
 
 from ...document import PDFCraftExtraction
 from .render import render_epub_file
+from ...runtime import TEX_DOMAIN, require_sync_context, run_cancellable
 
 
 class EpubRenderer:
@@ -15,6 +16,7 @@ class EpubRenderer:
                lan: Literal["zh", "en"] | None = None, table_render=TableRender.HTML,
                latex_render=LaTeXRender.MATHML, inline_latex: bool = True,
         aborted=lambda: False) -> None:
+        require_sync_context()
         extraction.validate(require_toc=True)
         language = lan or extraction.language() or "zh"
         book_meta = _merge_book_meta(extraction.book_meta(), book_meta)
@@ -26,6 +28,24 @@ class EpubRenderer:
                              output_path, paths.cover if paths.cover.exists() else None,
                              book_meta, language, table_render,
                              latex_render, inline_latex, aborted)
+
+    async def render_async(self, extraction: PDFCraftExtraction, output_path: Path, *,
+                           book_meta: BookMeta | None = None,
+                           lan: Literal["zh", "en"] | None = None,
+                           table_render=TableRender.HTML,
+                           latex_render=LaTeXRender.MATHML, inline_latex: bool = True,
+                           aborted=lambda: False) -> None:
+        """Keep epub-generator and ZIP I/O off the event-loop thread."""
+        await run_cancellable(
+            TEX_DOMAIN,
+            lambda cancelled: self.render(
+                extraction, output_path, book_meta=book_meta, lan=lan,
+                table_render=table_render, latex_render=latex_render,
+                inline_latex=inline_latex,
+                aborted=lambda: cancelled() or aborted(),
+            ),
+            original_aborted=aborted,
+        )
 
 
 def _merge_book_meta(extracted: BookMeta | None, explicit: BookMeta | None) -> BookMeta | None:

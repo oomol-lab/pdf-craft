@@ -16,6 +16,7 @@ from pdf_craft.pipeline.epub.adapter import (
     write_toc,
 )
 from pdf_craft.llm import LLM
+from pdf_craft.runtime import ARCHIVE_DOMAIN, run_sync
 from pdf_craft.transformer.events import TranslationEvent, TranslationItemKind
 from pdf_craft.transformer.xml_translator.segment import search_text_segments
 from pdf_craft.transformer.xml_translator.xml import XMLLikeNode, deduplicate_ids_in_element, find_first
@@ -54,13 +55,45 @@ def translate(
     on_translation_event: Callable[[TranslationEvent], None] | None = None,
     on_fill_failed: Callable[[FillFailedEvent], None] | None = None,
 ) -> None:
+    run_sync(translate_async(
+        source_path=source_path,
+        target_path=target_path,
+        target_language=target_language,
+        submit=submit,
+        user_prompt=user_prompt,
+        max_retries=max_retries,
+        max_group_tokens=max_group_tokens,
+        concurrency=concurrency,
+        llm=llm,
+        translation_llm=translation_llm,
+        fill_llm=fill_llm,
+        on_translation_event=on_translation_event,
+        on_fill_failed=on_fill_failed,
+    ))
+
+
+async def translate_async(
+    source_path: PathLike | str,
+    target_path: PathLike | str,
+    target_language: str,
+    submit: SubmitKind,
+    user_prompt: str | None = None,
+    max_retries: int = 5,
+    max_group_tokens: int = 2600,
+    concurrency: int = 1,
+    llm: LLM | None = None,
+    translation_llm: LLM | None = None,
+    fill_llm: LLM | None = None,
+    on_translation_event: Callable[[TranslationEvent], object] | None = None,
+    on_fill_failed: Callable[[FillFailedEvent], object] | None = None,
+) -> None:
+    """Translate an EPUB with native async LLM concurrency and pooled ZIP I/O."""
     translation_llm = translation_llm or llm
     fill_llm = fill_llm or llm
     if translation_llm is None:
         raise ValueError("Either translation_llm or llm must be provided")
     if fill_llm is None:
         raise ValueError("Either fill_llm or llm must be provided")
-
     translator = XMLTranslator(
         translation_llm=translation_llm,
         fill_llm=fill_llm,
@@ -72,26 +105,56 @@ def translate(
         max_group_score=max_group_tokens,
         cache_seed_content=f"{_get_version()}:{target_language}",
     )
-    with Zip(
-        source_path=Path(source_path).resolve(),
-        target_path=Path(target_path).resolve(),
-    ) as zip:
-        # mimetype should be the first file in the EPUB ZIP
-        zip.migrate(Path("mimetype"))
+    archive: Zip | None = None
 
-        toc_list, toc_context = read_toc(zip)
-        metadata_fields, metadata_context = read_metadata(zip)
-        tasks = list(_generate_tasks_from_book(
-            zip=zip,
-            toc_list=toc_list,
-            toc_context=toc_context,
-            metadata_fields=metadata_fields,
-            metadata_context=metadata_context,
-            submit=submit,
-        ))
+    def prepare():
+        nonlocal archive
+        archive = Zip(
+            source_path=Path(source_path).resolve(),
+            target_path=Path(target_path).resolve(),
+        )
+        try:
+            archive.__enter__()
+            archive.migrate(Path("mimetype"))
+            toc_list, toc_context = read_toc(archive)
+            metadata_fields, metadata_context = read_metadata(archive)
+            return list(_generate_tasks_from_book(
+                zip=archive,
+                toc_list=toc_list,
+                toc_context=toc_context,
+                metadata_fields=metadata_fields,
+                metadata_context=metadata_context,
+                submit=submit,
+            ))
+        except BaseException as error:
+            archive.__exit__(type(error), error, error.__traceback__)
+            archive = None
+            raise
+
+    def write_results(results):
+        assert archive is not None
+        for translated_elem, context in results:
+            if context.element_type == _ElementType.TOC:
+                translated_elem = unwrap_french_quotes(translated_elem)
+                if context.toc_context is not None:
+                    write_toc(archive, decode_toc_list(translated_elem), context.toc_context)
+            elif context.element_type == _ElementType.METADATA:
+                translated_elem = unwrap_french_quotes(translated_elem)
+                if context.metadata_context is not None:
+                    write_metadata(
+                        archive, decode_metadata(translated_elem), context.metadata_context,
+                    )
+            elif context.element_type == _ElementType.CHAPTER and context.chapter_data is not None:
+                chapter_path, xml = context.chapter_data
+                deduplicate_ids_in_element(xml.element)
+                with archive.replace(chapter_path) as target_file:
+                    xml.save(target_file)
+
+    failure: BaseException | None = None
+    try:
+        tasks = await ARCHIVE_DOMAIN.run(prepare)
         interrupter = XMLInterrupter()
-
-        for translated_elem, context in translator.translate_elements(
+        results = await translator.translate_elements_async(
             concurrency=concurrency,
             interrupt_source_text_segments=interrupter.interrupt_source_text_segments,
             interrupt_translated_text_segments=interrupter.interrupt_translated_text_segments,
@@ -99,25 +162,19 @@ def translate(
             on_fill_failed=on_fill_failed,
             on_translation_event=on_translation_event,
             tasks=tasks,
-        ):
-            if context.element_type == _ElementType.TOC:
-                translated_elem = unwrap_french_quotes(translated_elem)
-                decoded_toc = decode_toc_list(translated_elem)
-                if context.toc_context is not None:
-                    write_toc(zip, decoded_toc, context.toc_context)
-
-            elif context.element_type == _ElementType.METADATA:
-                translated_elem = unwrap_french_quotes(translated_elem)
-                decoded_metadata = decode_metadata(translated_elem)
-                if context.metadata_context is not None:
-                    write_metadata(zip, decoded_metadata, context.metadata_context)
-
-            elif context.element_type == _ElementType.CHAPTER:
-                if context.chapter_data is not None:
-                    chapter_path, xml = context.chapter_data
-                    deduplicate_ids_in_element(xml.element)
-                    with zip.replace(chapter_path) as target_file:
-                        xml.save(target_file)
+        )
+        await ARCHIVE_DOMAIN.run(write_results, results)
+    except BaseException as error:
+        failure = error
+        raise
+    finally:
+        if archive is not None:
+            await ARCHIVE_DOMAIN.run(
+                archive.__exit__,
+                type(failure) if failure is not None else None,
+                failure,
+                failure.__traceback__ if failure is not None else None,
+            )
 
 
 def _generate_tasks_from_book(

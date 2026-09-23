@@ -93,6 +93,27 @@ craft = PDFCraft(
 craft.convert_pdf_to_markdown("input.pdf", "output.md")
 ```
 
+Async applications use the same options through `AsyncPDFCraft`; callbacks may
+also be `async def` functions and run on the caller's event loop:
+
+```python
+import asyncio
+from pdf_craft import AsyncPDFCraft, DeepSeekOCRVendorConfig, PDFOptions
+
+async def main():
+    craft = AsyncPDFCraft(pdf=PDFOptions(ocr=DeepSeekOCRVendorConfig(
+        base_url="https://example.com/v1",
+        api_key="your-api-key",
+        model="deepseek-ocr",
+    )))
+    await craft.convert_pdf_to_markdown("input.pdf", "output.md")
+
+asyncio.run(main())
+```
+
+Do not call the synchronous `PDFCraft` facade from a running event loop; use
+`AsyncPDFCraft` and `await` its corresponding method instead.
+
 `https://example.com/v1` is a placeholder, not a working endpoint. Use a compatible service that actually provides the OCR model. See [OCR configuration](docs/en/OCR_BACKENDS.md) for other models.
 
 Open `output.md` after conversion. Documents containing images also produce asset files; keep those files with the Markdown when moving or sharing it.

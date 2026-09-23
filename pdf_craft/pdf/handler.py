@@ -28,6 +28,28 @@ class PDFHandler(Protocol):
     def open(self, pdf_path: Path) -> PDFDocument: ...
 
 
+@runtime_checkable
+class AsyncPDFDocument(Protocol):
+    """Awaitable PDF document contract for async SDK extensions."""
+
+    async def pages_count(self) -> int: ...
+
+    async def metadata(self) -> PDFDocumentMetadata: ...
+
+    async def page_size(self, page_index: int) -> tuple[float, float]: ...
+
+    async def render_page(self, page_index: int, dpi: int) -> Image.Image: ...
+
+    async def close(self) -> None: ...
+
+
+@runtime_checkable
+class AsyncPDFHandler(Protocol):
+    """Native async PDF provider accepted by :class:`AsyncPDFCraft`."""
+
+    async def open(self, pdf_path: Path) -> AsyncPDFDocument: ...
+
+
 class DefaultPDFHandler:
     def __init__(self, poppler_path: PathLike | str | None = None) -> None:
         self._poppler_path: Path | None = None

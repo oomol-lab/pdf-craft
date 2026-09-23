@@ -12,8 +12,9 @@ from __future__ import annotations
 from collections.abc import Iterable
 from pathlib import Path
 import shutil
-import subprocess
 from typing import Any, Protocol
+
+from ...runtime import run_subprocess, run_sync
 
 
 class VisualBaseCompiler(Protocol):
@@ -38,6 +39,10 @@ class GhostscriptVisualBaseCompiler:
 
     def compile(self, source_path: Path, target_path: Path) -> None:
         """Compile an annotation-free source PDF to a visual-only PDF."""
+        run_sync(self.compile_async(source_path, target_path))
+
+    async def compile_async(self, source_path: Path, target_path: Path) -> None:
+        """Compile through a cancellable async Ghostscript subprocess."""
         executable = self._find_executable()
         command = [
             executable,
@@ -55,10 +60,9 @@ class GhostscriptVisualBaseCompiler:
             str(source_path),
         ]
         try:
-            subprocess.run(command, check=True, capture_output=True, text=True)
-        except subprocess.CalledProcessError as error:
-            detail = error.stderr.strip() or error.stdout.strip() or "unknown Ghostscript failure"
-            raise RuntimeError(f"Ghostscript could not compile the PDF visual base: {detail}") from error
+            await run_subprocess(*command)
+        except RuntimeError as error:
+            raise RuntimeError(f"Ghostscript could not compile the PDF visual base: {error}") from error
         if not target_path.is_file():  # pragma: no cover - defensive against broken external tools.
             raise RuntimeError("Ghostscript did not produce a PDF visual base")
 

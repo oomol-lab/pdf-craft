@@ -2741,7 +2741,34 @@ def _qt_modules():
 def _ensure_qt_application(QtGui) -> None:
     """Initialise Qt's font database for headless library use exactly once."""
     global _QT_APPLICATION  # pylint: disable=global-statement
-    if QtGui.QGuiApplication.instance() is not None:
+    application = QtGui.QGuiApplication.instance()
+    if application is not None:
+        owner_thread = application.thread()
+        if owner_thread != type(owner_thread).currentThread():
+            raise RuntimeError(
+                "QGuiApplication already belongs to another thread. Create and use "
+                "PDF/Qt objects through one PDFCraft facade; do not initialize Qt "
+                "on the main thread before async PDF patching."
+            )
         return
     os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
     _QT_APPLICATION = QtGui.QGuiApplication([])
+
+
+def _qt_lifecycle_probe(output_path: Path) -> tuple[int, int]:
+    """Exercise real Qt layout/PDF objects inside the isolated Qt process."""
+    import threading
+
+    QtCore, QtGui = _qt_modules()
+    _ensure_qt_application(QtGui)
+    layout = QtGui.QTextLayout("pdf-craft affinity", QtGui.QFont())
+    layout.beginLayout()
+    line = layout.createLine()
+    line.setLineWidth(200)
+    layout.endLayout()
+    writer = QtGui.QPdfWriter(str(output_path))
+    painter = QtGui.QPainter(writer)
+    painter.drawText(QtCore.QPointF(10, 10), "pdf-craft affinity")
+    painter.end()
+    del painter, writer, line, layout
+    return os.getpid(), threading.get_ident()

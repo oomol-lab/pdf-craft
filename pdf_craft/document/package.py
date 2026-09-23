@@ -1,11 +1,12 @@
 """The public PDF Craft Extraction artifact and its internal workspace storage."""
 
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from importlib.metadata import PackageNotFoundError, version
 import json
+import os
 from pathlib import Path, PurePosixPath
 from tempfile import NamedTemporaryFile, TemporaryDirectory
 from typing import Any, Protocol
@@ -15,6 +16,7 @@ from zipfile import BadZipFile, ZIP_DEFLATED, ZipFile, ZipInfo
 from epub_generator import BookMeta
 
 from ..common import indent, save_xml
+from ..runtime import IO_DOMAIN, run_atomic_cancellable
 
 
 FORMAT_VERSION = 3
@@ -153,6 +155,11 @@ class PDFCraftExtraction:
         return cls(path)
 
     @classmethod
+    async def open_async(cls, path: str | Path) -> "PDFCraftExtraction":
+        """Load, extract, and validate a PCEX without blocking the event loop."""
+        return await IO_DOMAIN.run(cls.open, path)
+
+    @classmethod
     def load(cls, path: str | Path) -> "PDFCraftExtraction":
         """Alias for :meth:`open` for callers that prefer artifact terminology."""
         return cls(path)
@@ -181,24 +188,63 @@ class PDFCraftExtraction:
             _validate_workspace(paths, require_toc=require_toc)
         return self
 
+    async def validate_async(self, *, require_toc: bool = False) -> "PDFCraftExtraction":
+        return await IO_DOMAIN.run(self.validate, require_toc=require_toc)
+
     def export(self, path: str | Path) -> "PDFCraftExtraction":
         target = Path(path)
+        self._export_sync(target, _commit_unconditionally)
+        return PDFCraftExtraction._from_exported_archive(target)
+
+    async def export_async(self, path: str | Path) -> "PDFCraftExtraction":
+        target = Path(path)
+        await run_atomic_cancellable(
+            IO_DOMAIN,
+            lambda bridge: self._export_sync(target, bridge.commit),
+        )
+        return PDFCraftExtraction._from_exported_archive(target)
+
+    def _export_sync(
+        self,
+        target: Path,
+        commit: Callable[[Callable[[], object]], bool],
+    ) -> bool:
         _require_pcex_path(target)
         if target.exists():
             raise FileExistsError(f"PDFCraftExtraction already exists: {target}")
         target.parent.mkdir(parents=True, exist_ok=True)
-        with self._materialize() as paths:
-            _validate_workspace(paths)
-            _write_archive(paths, target)
-        return PDFCraftExtraction._from_exported_archive(target)
+        temporary_path: Path | None = None
+        try:
+            with NamedTemporaryFile(
+                mode="wb", prefix=f".{target.name}.", suffix=".tmp",
+                dir=target.parent, delete=False,
+            ) as temporary:
+                temporary_path = Path(temporary.name)
+            with self._materialize() as paths:
+                _validate_workspace(paths)
+                _write_archive(paths, temporary_path)
+            archive_path = temporary_path
+            if not commit(lambda: os.replace(archive_path, target)):
+                return False
+            temporary_path = None
+            return True
+        finally:
+            if temporary_path is not None:
+                temporary_path.unlink(missing_ok=True)
 
     def page_pixel_sizes(self) -> dict[int, tuple[int, int]]:
         with self._materialize() as paths:
             return _read_pages(paths.pages)[1]
 
+    async def page_pixel_sizes_async(self) -> dict[int, tuple[int, int]]:
+        return await IO_DOMAIN.run(self.page_pixel_sizes)
+
     def render_dpi(self) -> int:
         with self._materialize() as paths:
             return _read_pages(paths.pages)[0]
+
+    async def render_dpi_async(self) -> int:
+        return await IO_DOMAIN.run(self.render_dpi)
 
     def book_meta(self) -> BookMeta | None:
         document = self.document_metadata()
@@ -223,6 +269,14 @@ class PDFCraftExtraction:
     def document_metadata(self) -> dict[str, Any]:
         with self._materialize() as paths:
             return dict(_read_manifest(paths.manifest)["document"])
+
+    async def document_metadata_async(self) -> dict[str, Any]:
+        return await IO_DOMAIN.run(self.document_metadata)
+
+
+def _commit_unconditionally(action: Callable[[], object]) -> bool:
+    action()
+    return True
 
 
 def write_manifest(

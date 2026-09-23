@@ -1,5 +1,5 @@
 from .xml_translator.xml_translator import FillFailedEvent, SubmitKind, TranslationTask, XMLTranslator
-from .protocol import ChapterTransformer
+from .protocol import AsyncChapterTransformer, ChapterTransformer
 from .chapter_xml import ChapterXMLTransformer
 from .anchored_content import AnchoredContent, AnchoredContentTransformer, AnchoredContentTranslation
 from .anchored_xml import AnchoredContentXMLTransformer
@@ -10,4 +10,4 @@ from .package import (
 )
 from .events import TranslationEvent, TranslationEventKind, TranslationItemKind
 
-__all__ = ["AnchoredContent", "AnchoredContentExtractionTransformer", "AnchoredContentTransformer", "AnchoredContentTranslation", "AnchoredContentXMLTransformer", "ChapterTransformer", "ChapterXMLTransformer", "ChapterExtractionTransformer", "ExtractionTransformer", "FillFailedEvent", "SubmitKind", "TranslationTask", "XMLTranslator", "TranslationEvent", "TranslationEventKind", "TranslationItemKind"]
+__all__ = ["AnchoredContent", "AnchoredContentExtractionTransformer", "AnchoredContentTransformer", "AnchoredContentTranslation", "AnchoredContentXMLTransformer", "AsyncChapterTransformer", "ChapterTransformer", "ChapterXMLTransformer", "ChapterExtractionTransformer", "ExtractionTransformer", "FillFailedEvent", "SubmitKind", "TranslationTask", "XMLTranslator", "TranslationEvent", "TranslationEventKind", "TranslationItemKind"]

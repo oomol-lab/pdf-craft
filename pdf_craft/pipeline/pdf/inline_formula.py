@@ -6,9 +6,11 @@ retain the plain-text path below it.
 """
 
 from dataclasses import dataclass
+import asyncio
 from io import BytesIO
 from shutil import which
-import subprocess
+
+from ...runtime import run_subprocess, run_sync
 
 
 _TEX_PREAMBLE = r"\usepackage{amsfonts}"
@@ -47,9 +49,8 @@ class InlineFormulaPDFRenderer:
                 self._available = False
             else:
                 try:
-                    subprocess.run([latex, "--version"], check=True, timeout=5,
-                                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-                except (OSError, subprocess.SubprocessError):
+                    run_sync(self._probe_latex(latex))
+                except (OSError, RuntimeError):
                     self._available = False
                 else:
                     self._available = True
@@ -117,3 +118,7 @@ class InlineFormulaPDFRenderer:
         except Exception:  # local TeX packages and individual expressions vary widely.
             self._cache[key] = None
         return self._cache[key]
+
+    @staticmethod
+    async def _probe_latex(executable: str) -> None:
+        await asyncio.wait_for(run_subprocess(executable, "--version"), timeout=5)

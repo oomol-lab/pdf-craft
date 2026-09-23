@@ -4,18 +4,64 @@
 README；本文只说明稳定的公共导入和它们如何组合。示例默认使用：
 
 ```python
-from pdf_craft import PDFCraft, PDFOptions
+from pdf_craft import AsyncPDFCraft, PDFCraft, PDFOptions
 ```
+
+## 异步与同步门面
+
+`AsyncPDFCraft` 是服务端、Notebook 和其他 asyncio 程序的首选入口。它为
+`PDFCraft` 的提取、渲染、PCEX 翻译、PDF 回填、EPUB 翻译和两个一站式转换流程提供
+对应的异步方法。OCR、PDF/ZIP/图片处理、Qt 排版等同步第三方库会进入有界执行域，
+不会阻塞调用方事件循环；翻译并发和 LLM 网络请求则使用原生 asyncio。
+
+```python
+craft = AsyncPDFCraft(pdf=PDFOptions(ocr=your_ocr_config))
+extraction = await craft.extract_pdf("input.pdf", "book.pcex")
+await craft.render_markdown(extraction, "book.md")
+```
+
+OCR 和翻译事件回调既可以是普通函数，也可以是 `async def`；它们在调用方事件循环
+线程执行，异步回调会被等待。取消异步任务时，原生网络请求和子进程会被取消，线程池中
+支持协作取消的阶段会通过原有 abort 回调收到信号；直到工作线程真正退出后，调用方才会
+收到取消完成，因此临时工作区会保留到 worker 的最后写入和清理结束。
+该规则覆盖所有线程池边界，包括同步扩展 transformer 和同步 PDF handler，而不只限于支持
+协作取消的 OCR worker。
+异步 PCEX 导出会先写同目录临时归档，再通过一次原子替换发布。若取消先到达，调用会等待
+writer 收尾、删除临时归档并保持目标不存在；若发布边界先完成，则该取消视为晚于成功完成。
+`pdftotext`、Ghostscript、LaTeX 等外部工具在受跟踪的 POSIX 进程组或 Windows Job Object
+中运行；取消或内部超时会终止命令及其派生进程，正常完成或失败也会回收晚于父进程退出的
+后代。取消 Qt worker 时，会先完成这些清理，再结束 worker 本身。
+
+扩展实现可以采用 `AsyncChapterTransformer` 协议，实现
+`async def transform(chapter)`；异步门面会直接在调用方事件循环中等待它。
+`PDFOptions.pdf_handler` 也接受 `AsyncPDFHandler`：其 `open()` 返回
+`AsyncPDFDocument`，并提供可等待的 `pages_count()`、`metadata()`、
+`page_size()`、`render_page()` 和 `close()`。SDK 会在同步 OCR 边界进行适配，
+不会把这些协程送进工作线程执行。PDF 回填时，需要的源页面会先在调用方事件循环中
+等待并临时落盘，只有页面路径和元数据会跨入隔离的 Qt 进程。
+
+异步 XML/EPUB 翻译的 `on_fill_failed` 同样可以是普通函数或 `async def`；每次修复失败
+通知都在调用方事件循环中执行，异步 callback 会在进入下一次修复步骤前被完整等待。
+
+`PDFCraft` 作为异步实现之上的兼容适配层，继续提供适合普通脚本的同步 API；但不能从已经运行事件循环的线程中
+调用，否则会明确抛出 `RuntimeError`，而不会嵌套启动事件循环。此时应改用
+`AsyncPDFCraft`。
+
+`PDFCraftExtraction` 还提供 `open_async`、`validate_async`、`export_async`、
+`page_pixel_sizes_async`、`render_dpi_async` 和 `document_metadata_async`。组件级调用方可使用
+`PDFExtractor.extract_async`、`MarkdownRenderer.render_async`、
+`EpubRenderer.render_async`；模型预下载入口为 `predownload_models_async`。独立的 EPUB
+翻译函数也提供 `translate_epub_async`，异步程序应等待它，而不是调用 `translate_epub`。
 
 ## 公共入口
 
 `pdf_craft` 包顶层导出常用类型。最主要的入口是 `PDFCraft`，它把 PDF 提取、渲染、
 翻译和 PDF 写回组合成一组方法。下面这些对象可直接从 `pdf_craft` 导入：
 
-- `PDFCraft`、`PDFOptions`、`ExtractionOptions`
+- `AsyncPDFCraft`、`PDFCraft`、`PDFOptions`、`ExtractionOptions`
 - `PDFCraftExtraction`、`PDFExtractor`
 - 六种 OCR 配置对象和 `OCRConfig`
-- `predownload_models`
+- `predownload_models`、`predownload_models_async`
 - `LLM`
 - `ExtractionTransformer`、`ChapterExtractionTransformer`、`ChapterXMLTransformer`、
   `AnchoredContentExtractionTransformer`、`AnchoredContentTransformer`、
@@ -23,17 +69,18 @@ from pdf_craft import PDFCraft, PDFOptions
 - `BookMeta`、`TableRender`、`LaTeXRender`
 - `OCRTokensMetering`、`OCREvent`、`OCREventKind`、`TranslationEvent`、
   `TranslationEventKind`、`TranslationItemKind`、`FillFailedEvent`
-- `PDFHandler`、`DefaultPDFHandler`、`PDFDocument`、`DefaultPDFDocument`、
+- `PDFHandler`、`AsyncPDFHandler`、`DefaultPDFHandler`、`PDFDocument`、
+  `AsyncPDFDocument`、`DefaultPDFDocument`、
   `PDFDocumentMetadata`
 - `PDFPatcher`、`PDFReplacement`、`PDFReplacementRegion`、`PDFInlineFormula`、
   `PatchTextOptions`、`PatchTextStyle`、`FontResolution`、`QTextParagraphFiller`、`EraseOptions`、
   `PDFTranslationPipeline`
 - `PDFError`、`OCRError`、`NoUsableFillPagesError`、`IgnorePDFErrorsChecker`、
   `IgnoreOCRErrorsChecker`、`IgnoreFillErrorsChecker`
-- `translate_epub`
+- `translate_epub`、`translate_epub_async`
 
-`ChapterTransformer` 是公共协议，但导入路径为
-`from pdf_craft.transformer import ChapterTransformer`，而不是包顶层。本文不把以下内容当作
+`ChapterTransformer` 与 `AsyncChapterTransformer` 是公共协议；前者的导入路径为
+`from pdf_craft.transformer import ChapterTransformer`，后者也可直接从包顶层导入。本文不把以下内容当作
 公共扩展点：内部 engine、`pdf_craft_tool` CLI、`pdf_craft` 的私有模块路径，以及
 `doc-page-extractor` 的内部 extractor/factory。
 
@@ -80,7 +127,7 @@ PDFOptions(
 
 ### 自定义 PDFHandler
 
-`PDFHandler` 是替换 PDF 读取和页面渲染实现的协议。默认的
+`PDFHandler` 是替换 PDF 读取和页面渲染实现的同步协议。默认的
 `DefaultPDFHandler(poppler_path=...)` 使用 `pypdf` 读取元数据、使用 Poppler 渲染页面；系统
 PATH 中没有 Poppler 时，可以把其安装目录传给 `poppler_path`。只有接入其他 PDF 渲染器时才需要
 自定义 handler，并将它传给 `PDFOptions(pdf_handler=handler)`。
@@ -95,6 +142,11 @@ PATH 中没有 Poppler 时，可以把其安装目录传给 `poppler_path`。只
 
 这些方法的 `page_index` 均从 1 开始。调用方负责在使用完成后关闭自定义 document；框架自己的
 提取和写回流程会关闭由 handler 打开的 document。
+
+异步应用也可实现 `AsyncPDFHandler`。它的 `open()` 以及返回的
+`AsyncPDFDocument` 的 `pages_count()`、`metadata()`、`page_size()`、
+`render_page()`、`close()` 都是异步方法；提取流水线会在调用方事件循环中等待这些方法，
+同时让同步 OCR 引擎继续留在专用工作线程。
 
 ### ExtractionOptions
 
@@ -253,7 +305,8 @@ craft.patch_pdf_with_extraction("input.pdf", "work/translated.pcex", "translated
 为视觉底图的源 PDF 没有可回退页，仍会直接失败。
 
 `ignore_errors` 还可以传入 `Callable[[Exception], bool]`，在每个可归属页面的异常发生时决定是否
-允许该页回退。默认 `False` 保持 fail-fast；只有业务可以接受“未翻译视觉底图页与已翻译页面并存”时，
+允许该页回退。局部函数和 lambda 均受支持：Qt 回填在隔离进程运行时，predicate 仍留在调用方进程，
+无需可 pickle；异步调用会在调用方事件循环线程执行 predicate。默认 `False` 保持 fail-fast；只有业务可以接受“未翻译视觉底图页与已翻译页面并存”时，
 才应启用此恢复策略。
 
 ## PDFCraftExtraction 与 `.pcex`

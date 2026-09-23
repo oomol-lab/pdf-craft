@@ -3,8 +3,12 @@ from .runtime import LLMContext as LLMContext, LLMRuntime as LLMRuntime, runtime
 from .types import Message as Message, MessageRole as MessageRole
 from .loop import (ProtocolFailure as ProtocolFailure, ProtocolPartial as ProtocolPartial,
                    ProtocolRetry as ProtocolRetry, ProtocolSuccess as ProtocolSuccess,
-                   RepairLoopOptions as RepairLoopOptions, run_repair_loop as run_repair_loop)
+                   AsyncRepairLoopOptions as AsyncRepairLoopOptions,
+                   RepairLoopOptions as RepairLoopOptions,
+                   run_repair_loop as run_repair_loop,
+                   run_repair_loop_async as run_repair_loop_async)
 
 __all__ = ["LLM", "LLMContext", "LLMRuntime", "Message", "MessageRole", "runtime_for",
            "ProtocolFailure", "ProtocolPartial", "ProtocolRetry", "ProtocolSuccess",
-           "RepairLoopOptions", "run_repair_loop"]
+           "AsyncRepairLoopOptions", "RepairLoopOptions", "run_repair_loop",
+           "run_repair_loop_async"]
