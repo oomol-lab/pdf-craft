@@ -29,14 +29,16 @@ from pdf_craft.extractor.chapter.chapter import SourceTextFragment, BlockMember,
 from .assets import SmokeAsset, discover_assets
 from .checks import check_epub, check_markdown, check_package, check_pdf_patch_geometry
 from .ocr import create_ocr_config
+from .page_repair import run_page_repair_smoke
 from ..paths import DEFAULT_OUTPUT_ROOT, create_run_directory
 
 SmokeRoute = Literal[
     "package", "package-markdown", "package-epub", "markdown", "epub",
-    "pdf-patch", "epub-check", "epub-translate",
+    "pdf-patch", "epub-check", "epub-translate", "page-repair",
 ]
 PDF_ROUTES = {"package", "package-markdown", "package-epub", "markdown", "epub", "pdf-patch"}
 EPUB_ROUTES = {"epub-check", "epub-translate"}
+OCR_PAGE_ROUTES = {"page-repair"}
 
 
 @dataclass(frozen=True)
@@ -56,6 +58,7 @@ class SmokeRun:
     toc_assumed: bool = False
     ocr: dict[str, Any] | None = None
     translation: dict[str, Any] | None = None
+    page_repair: dict[str, Any] | None = None
     configuration_error: str | None = None
 
 
@@ -122,6 +125,8 @@ def expand_matrix(config: dict[str, Any], assets_root: Path) -> list[SmokeRun]:
             raise ValueError(f"PDF asset {asset} cannot use route {route}")
         if known[asset].format == "epub" and route not in EPUB_ROUTES:
             raise ValueError(f"EPUB asset {asset} cannot use route {route}")
+        if known[asset].format == "ocr-pages" and route not in OCR_PAGE_ROUTES:
+            raise ValueError(f"OCR page asset {asset} cannot use route {route}")
         pages = item.get("page_indexes")
         runs.append(SmokeRun(**(item | {"page_indexes": tuple(pages) if pages else None})))
     return runs
@@ -178,6 +183,13 @@ def run_smoke(
 
 def _execute(run: SmokeRun, asset: SmokeAsset, run_path: Path,
              report: _ExecutionReport) -> tuple[str, list[str], dict[str, Any]]:
+    if asset.format == "ocr-pages":
+        return run_page_repair_smoke(
+            asset.path,
+            run_path,
+            run.page_repair,
+            report,
+        )
     if asset.format == "epub":
         output = run_path / "output" / "book.epub"
         report.skipped("configure", "EPUB routes do not require OCR configuration")
@@ -499,4 +511,5 @@ def _secret_values(run: SmokeRun) -> list[str]:
 
     visit(run.ocr)
     visit(run.translation)
+    visit(run.page_repair)
     return sorted(set(values), key=len, reverse=True)

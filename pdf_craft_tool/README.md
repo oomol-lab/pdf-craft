@@ -151,6 +151,22 @@ poetry run python -m pdf_craft_tool analysis repair-jev-llm \
 它主要用于检查 LLM 面对误选正常页时的抗干扰能力。
 `--llm-pages 2,4,25` 使用同样的无 JEV 条件，只处理指定页，便于反复调试 prompt。
 
+## 页级修复 smoke
+
+`tests/smoke/citation_large_page_repair.json` 固化了 citation_large 的页级修复通路：直接读取
+已提交的 `analysis/citation_large_ocr/page_*.xml`，重放固定 JEV baseline，只将低置信页交给
+LLM，并用 `citation_large_page_repair_expected.json` 严格校验最终语义变更。它不会重新运行 OCR，
+也不会在线调用 JEV：
+
+```shell
+MPLCONFIGDIR=/tmp/pdf-craft-mpl PDF_CRAFT_LLM_DEFAULT_PROVIDER=oomol \
+poetry run python -m pdf_craft_tool smoke matrix \
+  --config tests/smoke/citation_large_page_repair.json
+```
+
+smoke 的 `checks.json` 只接受最终结果完全匹配；Loop 中间重试不会导致失败，但会记录在
+`manifest.json` 的 `page_repair.attempts` 中。
+
 ## 冒烟矩阵
 
 先查看全部真实样本：

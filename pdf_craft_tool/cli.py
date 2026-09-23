@@ -146,7 +146,7 @@ def _parser() -> argparse.ArgumentParser:
         "--route",
         choices=(
             "package", "package-markdown", "package-epub", "markdown", "epub",
-            "pdf-patch", "epub-check", "epub-translate",
+            "pdf-patch", "epub-check", "epub-translate", "page-repair",
         ),
         required=True,
     )
@@ -154,6 +154,10 @@ def _parser() -> argparse.ArgumentParser:
     run.add_argument("--output-root", type=Path, default=DEFAULT_OUTPUT_ROOT / "smoke")
     run.add_argument("--dry-run", action="store_true")
     run.add_argument("--ocr-mode", choices=_ocr_modes())
+    run.add_argument("--jev-baseline", type=Path)
+    run.add_argument("--jev-run")
+    run.add_argument("--page-repair-expected", type=Path)
+    run.add_argument("--llm-profile", default="default")
     _add_smoke_options(run)
     run.set_defaults(handler=_run_smoke)
 
@@ -392,7 +396,10 @@ def _run_smoke(args: argparse.Namespace) -> int:
     is_pdf_route = args.route in {
         "package", "package-markdown", "package-epub", "markdown", "epub", "pdf-patch",
     }
-    if (is_pdf_route or args.route == "epub-translate") and not args.dry_run:
+    if (
+        is_pdf_route
+        or args.route in {"epub-translate", "page-repair"}
+    ) and not args.dry_run:
         load_project_env(_project_root())
     ocr_mode = cast(OCRMode | None, args.ocr_mode)
     if is_pdf_route:
@@ -414,6 +421,24 @@ def _run_smoke(args: argparse.Namespace) -> int:
         })
         if not args.dry_run:
             translation = _resolve_translation_profiles(translation, args.output_root) or {}
+    page_repair = None
+    if args.route == "page-repair":
+        if args.jev_baseline is None or args.page_repair_expected is None:
+            raise SystemExit(
+                "page-repair smoke requires --jev-baseline and "
+                "--page-repair-expected"
+            )
+        page_repair = {
+            "jev_baseline": str(args.jev_baseline),
+            "jev_run": args.jev_run,
+            "expected": str(args.page_repair_expected),
+            "llm_profile": args.llm_profile,
+            "max_retries": args.max_retries,
+        }
+        if not args.dry_run:
+            page_repair = _resolve_page_repair_profile(
+                page_repair, args.output_root
+            )
     run = SmokeRun(
         asset=args.asset, route=args.route, backend=ocr_mode,
         page_indexes=_page_indexes(args.pages), ocr_size=ocr_size, dpi=args.dpi,
@@ -423,6 +448,7 @@ def _run_smoke(args: argparse.Namespace) -> int:
         generate_plot=args.plot, toc_assumed=args.toc_assumed,
         ocr=ocr_values_from_env(ocr_mode) if ocr_mode and not args.dry_run else None,
         translation=translation or None,
+        page_repair=page_repair,
     )
     run_path = run_smoke(run, assets_root=args.assets_root, output_root=args.output_root, dry_run=args.dry_run)
     print(run_path)
@@ -635,10 +661,12 @@ def _matrix_run_needs_env(run: SmokeRun) -> bool:
     if run.backend and run.ocr is None:
         return True
     translation = run.translation or {}
-    return any(
+    if any(
         key in translation
         for key in ("llm_profile", "translation_llm_profile", "fill_llm_profile")
-    )
+    ):
+        return True
+    return "llm_profile" in (run.page_repair or {})
 
 
 def _resolve_matrix_runtime(run: SmokeRun, output_root: Path) -> SmokeRun:
@@ -647,7 +675,30 @@ def _resolve_matrix_runtime(run: SmokeRun, output_root: Path) -> SmokeRun:
     if run.backend and ocr is None:
         ocr = ocr_values_from_env(run.backend)
     translation = _resolve_translation_profiles(run.translation, output_root)
-    return replace(run, ocr=ocr, translation=translation)
+    page_repair = _resolve_page_repair_profile(run.page_repair, output_root)
+    return replace(
+        run,
+        ocr=ocr,
+        translation=translation,
+        page_repair=page_repair,
+    )
+
+
+def _resolve_page_repair_profile(
+    page_repair: dict[str, Any] | None,
+    output_root: Path,
+) -> dict[str, Any] | None:
+    if not page_repair:
+        return page_repair
+    resolved = dict(page_repair)
+    profile = resolved.pop("llm_profile", None)
+    if profile and "llm" not in resolved:
+        resolved["llm"] = llm_values_from_env(
+            str(profile),
+            cache_path=output_root / "_c" / "page-repair",
+            log_dir_path=output_root / "_l" / "page-repair",
+        )
+    return resolved
 
 
 def _resolve_translation_profiles(translation: dict[str, Any] | None, output_root: Path) -> dict[str, Any] | None:

@@ -12,6 +12,15 @@ class SmokeAsset:
 def discover_assets(root: Path) -> list[SmokeAsset]:
     assets: list[SmokeAsset] = []
     for path in sorted(root.rglob("*")):
+        if (
+            path.is_dir()
+            and (path / "page_pixel_sizes.json").is_file()
+            and any(path.glob("page_*.xml"))
+        ):
+            assets.append(SmokeAsset(
+                path.relative_to(root).as_posix(), "ocr-pages", path
+            ))
+            continue
         if not path.is_file():
             continue
         name = path.relative_to(root).as_posix()

@@ -92,6 +92,7 @@ PAGE_REPAIR_SYSTEM_PROMPT = """\
 - 判断 gap 时，在心中直接拼接前一 layout 末尾和后一 layout 开头。只有拼接后语法与意义显然是同一自然段或同一条 citation 时才设为 true；空间相邻、冒号、缩进或排版分块单独都不足以决定连接。结合 bbox 判断：同缩进且行距正常的冒号引导句与后续文字可能是同一段；而前文说“阅读下面的段落”之类引导语，后面内容明显整体缩进且增加垂直留白时，后者是独立块引文，gap 应为 false。
 - 对现有 false 边界采用很高的合并门槛。两个 layout 主题相关、后者解释前者、处在同一引文中，或普通行距接近，都不表示它们是同一自然段；完整句之后开始的新段必须保持 false。只有存在明确的 OCR/跨栏/跨页人工断裂证据，而且前后文字拼接后才形成一个原本无法各自成立的句子或同一脚注段落时，才把 false 改成 true。
 - 特别检查页首的跨页尾句：如果某 layout 的 continues_from_previous 已为 true，它只是承接上一页并以句号等终止标点结束的短尾部，而下一 layout 从完整新句开始，则二者之间的既有 false 必须保留。不能因为同缩进、普通行距或主题连续，把上一段的页首尾句并入下一段。
+- 同页已有的 false 边界默认不可打开。除非前一 layout 明显以未完句结束、后一 layout 明显只是该句的直接续文，并且没有段落缩进或垂直留白证据，否则禁止把它改成 true；两个完整句子即使主题连续，也必须保持 false。
 - initial_stream_boundary_from_previous 是根据现有归属预先计算的几何提示：vertical_gap 是上下间距，left_delta 为正表示当前块左侧向内缩，right_inset_delta 为正表示当前块右侧也向内缩。它只是证据，归属有误时可以忽略；但同时出现明显左右缩进和较大留白时，应认真检查当前块是否为独立块引文。
 - 同一流内两个相邻 layout 之间的边界是一个原子决定。修改边界时必须同时设置前者 continues_to_next 和后者 continues_from_previous，且两值相等；不要只改一侧再依赖校验循环提醒。
 - 已有 citation_id、citation 记录与 ref 对应是强证据。citation 开头的 mark 已从 layout.text 拆入 citations[].mark，并在原所在 layout 上以 detached_citation_mark 提示。判断语义时要把它视为 layout.text 原本的前缀；不得因为 text 里看不到 mark 就把该 layout 改成 paragraph。
