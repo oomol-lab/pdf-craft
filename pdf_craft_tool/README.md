@@ -113,6 +113,22 @@ poetry run python -m pdf_craft_tool epub translate tests/assets/epub/Cambridge.e
 两者相同（默认都是 `translation`）时复用同一个 `LLM` 对象。`pdf translate --format pdf`
 只允许 `--submit replace`。PDF 提取命令还可通过 `--toc-llm PROFILE` 使用 LLM 改善目录层级判断。
 
+## 实验性 PageAnalysis 审查
+
+`analysis review-jev` 从已有 OCR 缓存重新执行传统 paragraph/citation resolution，投影为
+PageAnalysis，并通过本机 `oo` 调用 `jev.evaluate`。它只输出页级风险，不调用 LLM，也不修改
+PageAnalysis 或章节文件：
+
+```shell
+poetry run python -m pdf_craft_tool analysis review-jev \
+  pdf-craft-output/analysis-baselines/citation-large-v1-unlimited/analysis/ocr \
+  --output pdf-craft-output/analysis-baselines/citation-large-jev-current
+```
+
+输出目录中的 `report.json` 使用 `risk = 1 - pass_probability`，默认在 `risk >= 0.70`
+时把页面列入 `review_page_indexes`；`raw/` 保留逐页 JEV 请求和响应，便于继续调 prompt。
+这是 branch 内跑通流程的临时 oo 适配器，不属于发布包的正式 JEV 客户端。
+
 ## 冒烟矩阵
 
 先查看全部真实样本：

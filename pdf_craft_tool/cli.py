@@ -17,7 +17,14 @@ from pdf_craft import (
     SubmitKind,
     XMLTranslator,
 )
+from pdf_craft.extractor.chapter.generation import _extract_body_layouts
+from pdf_craft.extractor.chapter.page_review import (
+    JEV_REVIEW_THRESHOLD,
+    JevReviewProcessor,
+)
+from pdf_craft.extractor.toc import TocInfo
 
+from .jev import OoJevEvaluator
 from .runtime import (
     create_ocr_config_from_env,
     create_llm_from_env,
@@ -151,6 +158,22 @@ def _parser() -> argparse.ArgumentParser:
     matrix.add_argument("--output-root", type=Path, default=DEFAULT_OUTPUT_ROOT / "smoke")
     matrix.add_argument("--dry-run", action="store_true")
     matrix.set_defaults(handler=_run_matrix)
+
+    analysis = commands.add_parser(
+        "analysis", help="inspect experimental page-analysis stages"
+    )
+    analysis_commands = analysis.add_subparsers(
+        dest="analysis_command", required=True
+    )
+    review_jev = analysis_commands.add_parser(
+        "review-jev", help="review cached OCR pages with JEV through oo"
+    )
+    review_jev.add_argument("ocr_path", type=Path)
+    review_jev.add_argument("--output", type=Path, required=True)
+    review_jev.add_argument(
+        "--threshold", type=float, default=JEV_REVIEW_THRESHOLD
+    )
+    review_jev.set_defaults(handler=_review_jev)
     return parser
 
 
@@ -390,6 +413,43 @@ def _run_matrix(args: argparse.Namespace) -> int:
         print(run_path)
         exit_code = max(exit_code, _smoke_exit_code(run_path))
     return exit_code
+
+
+def _review_jev(args: argparse.Namespace) -> None:
+    raw_path = args.output / "raw"
+    reviewer = JevReviewProcessor(
+        OoJevEvaluator(raw_path), threshold=args.threshold
+    )
+    list(_extract_body_layouts(
+        args.ocr_path,
+        TocInfo([], []),
+        reviewer,
+    ))
+    args.output.mkdir(parents=True, exist_ok=True)
+    report = {
+        "threshold": args.threshold,
+        "page_count": len(reviewer.results),
+        "review_page_indexes": [
+            result.page_index
+            for result in reviewer.results
+            if result.requires_review
+        ],
+        "pages": [
+            {
+                "page_index": result.page_index,
+                "pass_probability": result.pass_probability,
+                "risk": result.risk,
+                "requires_review": result.requires_review,
+            }
+            for result in reviewer.results
+        ],
+    }
+    report_path = args.output / "report.json"
+    report_path.write_text(
+        json.dumps(report, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
+    print(report_path)
 
 
 def _smoke_exit_code(run_path: Path) -> int:

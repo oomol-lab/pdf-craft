@@ -14,11 +14,20 @@ from .jointer import Jointer
 from .mark import Mark, search_marks
 from .mergeable import check_mergeable
 from .page_analysis import UnindexedCitation, analyse_pages, restore_streams
+from .page_review import (
+    PageAnalysisProcessor,
+    load_page_pixel_sizes,
+)
 from .punctuation import normalize_punctuation_in_chapter
 from .reference import References, extract_head_mark
 
 
-def generate_chapter_files(pages_path: Path, chapters_path: Path, toc: TocInfo):
+def generate_chapter_files(
+    pages_path: Path,
+    chapters_path: Path,
+    toc: TocInfo,
+    page_analysis_processor: PageAnalysisProcessor | None = None,
+):
     chapters_path.mkdir(parents=True, exist_ok=True)
     for chapter_file in chapters_path.glob("chapter_*.xml"):
         chapter_file.unlink()
@@ -26,6 +35,7 @@ def generate_chapter_files(pages_path: Path, chapters_path: Path, toc: TocInfo):
     for chapter in _generate_chapters(
         pages_path=pages_path,
         toc=toc,
+        page_analysis_processor=page_analysis_processor,
     ):
         tail: str
         if chapter.id is None:
@@ -41,7 +51,9 @@ def generate_chapter_files(pages_path: Path, chapters_path: Path, toc: TocInfo):
 
 
 def _generate_chapters(
-    pages_path: Path, toc: TocInfo
+    pages_path: Path,
+    toc: TocInfo,
+    page_analysis_processor: PageAnalysisProcessor | None = None,
 ) -> Generator[Chapter, None, None]:
     chapter: Chapter | None = None
     ref2toc: dict[tuple[int, int], Toc] = {}
@@ -49,7 +61,9 @@ def _generate_chapters(
     for item in iter_toc(toc.content):
         ref2toc[(item.page_index, item.order)] = item
 
-    for layout in _assemble_flow_items(_extract_body_layouts(pages_path, toc)):
+    for layout in _assemble_flow_items(_extract_body_layouts(
+        pages_path, toc, page_analysis_processor
+    )):
         matched_toc = False
         if (
             isinstance(layout, TextFlowItem)
@@ -87,7 +101,11 @@ def _generate_chapters(
         yield chapter
 
 
-def _extract_body_layouts(pages_path: Path, toc: TocInfo):
+def _extract_body_layouts(
+    pages_path: Path,
+    toc: TocInfo,
+    page_analysis_processor: PageAnalysisProcessor | None = None,
+):
     pages: XMLReader[Page] = XMLReader(
         prefix="page",
         dir_path=pages_path,
@@ -103,6 +121,12 @@ def _extract_body_layouts(pages_path: Path, toc: TocInfo):
         paragraphs=paragraphs,
         citations=citations,
     )
+    if page_analysis_processor is not None:
+        analysed_pages = page_analysis_processor(
+            source_pages,
+            analysed_pages,
+            load_page_pixel_sizes(pages_path / "page_pixel_sizes.json"),
+        )
     yield from restore_streams(analysed_pages).paragraphs
 
 
