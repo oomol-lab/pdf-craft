@@ -10,6 +10,7 @@ from pathlib import Path
 import subprocess
 import sys
 import tempfile
+import threading
 import unittest
 from unittest.mock import patch
 
@@ -214,6 +215,7 @@ class TestSubprocessLifecycle(unittest.IsolatedAsyncioTestCase):
                 task = asyncio.create_task(
                     craft.patch_pdf_with_extraction(
                         source, extraction, root / "target.pdf",
+                        ignore_errors=lambda _error: True,
                     )
                 )
                 pids = await _wait_for_pids(pid_path)
@@ -221,6 +223,10 @@ class TestSubprocessLifecycle(unittest.IsolatedAsyncioTestCase):
                 with self.assertRaises(asyncio.CancelledError):
                     await asyncio.wait_for(task, timeout=5)
             await _assert_processes_dead(self, pids)
+            self.assertFalse(any(
+                thread.name == "pdf-craft-ignore-errors" and thread.is_alive()
+                for thread in threading.enumerate()
+            ))
 
 
 def _write_fake_tool(root: Path, name: str) -> Path:

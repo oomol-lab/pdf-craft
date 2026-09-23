@@ -667,6 +667,101 @@ class TestAsyncAPI(unittest.IsolatedAsyncioTestCase):
             self.assertTrue(async_document.thread_ids)
             self.assertEqual(set(async_document.thread_ids), {loop_thread})
 
+    async def test_patch_facades_accept_local_ignore_errors_checker(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = root / "source.pdf"
+            source_pdf = canvas.Canvas(str(source), pagesize=(100, 100))
+            source_pdf.drawString(5, 50, "Original")
+            source_pdf.save()
+            extraction_root = root / "extraction"
+            extraction = make_extraction(
+                extraction_root, page_pixel_sizes={1: (100, 100)}, render_dpi=72,
+            )
+            chapter = Chapter(None, -1, [TextFlowItem(
+                "body", 0,
+                [SourceTextFragment(1, 1, (5, 40, 80, 60), ["Translated"])],
+            )])
+            save_xml(encode(chapter), extraction_root / "chapters" / "chapter_head.xml")
+            (extraction_root / "translation.xml").write_text(
+                "<translation><narrative><paragraph chapter_id='head' "
+                "page_index='1' order='1' state='translated'/></narrative></translation>",
+                encoding="utf-8",
+            )
+            extraction.validate()
+
+            for mode in ("async", "sync"):
+                with self.subTest(mode=mode):
+                    target = root / f"{mode}.pdf"
+                    checker = lambda _error: True  # noqa: E731
+                    if mode == "async":
+                        await AsyncPDFCraft().patch_pdf_with_extraction(
+                            source, extraction, target, ignore_errors=checker,
+                        )
+                    else:
+                        await asyncio.to_thread(
+                            PDFCraft().patch_pdf_with_extraction,
+                            source, extraction, target,
+                            ignore_errors=checker,
+                        )
+                    self.assertTrue(target.is_file())
+            self.assertFalse(any(
+                thread.name == "pdf-craft-ignore-errors" and thread.is_alive()
+                for thread in threading.enumerate()
+            ))
+
+    async def test_local_ignore_checker_receives_remote_page_error(self):
+        loop_thread = threading.get_ident()
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = root / "source.pdf"
+            source_pdf = canvas.Canvas(str(source), pagesize=(100, 100))
+            source_pdf.drawString(5, 50, "Original")
+            source_pdf.save()
+            extraction_root = root / "extraction"
+            extraction = make_extraction(
+                extraction_root,
+                page_pixel_sizes={1: (100, 100), 2: (100, 100)},
+                render_dpi=72,
+            )
+            chapter = Chapter(None, -1, [
+                TextFlowItem(
+                    "body", 0,
+                    [SourceTextFragment(1, 1, (5, 40, 80, 60), ["First"])],
+                ),
+                TextFlowItem(
+                    "body", 0,
+                    [SourceTextFragment(2, 1, (5, 40, 80, 60), ["Second"])],
+                ),
+            ])
+            save_xml(encode(chapter), extraction_root / "chapters" / "chapter_head.xml")
+            (extraction_root / "translation.xml").write_text(
+                "<translation><narrative>"
+                "<paragraph chapter_id='head' page_index='1' order='1' state='translated'/>"
+                "<paragraph chapter_id='head' page_index='2' order='1' state='translated'/>"
+                "</narrative></translation>",
+                encoding="utf-8",
+            )
+            extraction.validate()
+            observed: list[tuple[Exception, int]] = []
+
+            def checker(error: Exception) -> bool:
+                observed.append((error, threading.get_ident()))
+                return True
+
+            with self.assertRaisesRegex(ValueError, "page_index 2"):
+                await AsyncPDFCraft().patch_pdf_with_extraction(
+                    source, extraction, root / "target.pdf", ignore_errors=checker,
+                )
+
+            self.assertEqual(len(observed), 1)
+            self.assertIsInstance(observed[0][0], ValueError)
+            self.assertEqual(observed[0][1], loop_thread)
+            self.assertFalse(any(
+                thread.name == "pdf-craft-ignore-errors" and thread.is_alive()
+                for thread in threading.enumerate()
+            ))
+
     async def test_async_subprocess_and_cancellation_cleanup(self):
         stdout, _ = await run_subprocess(
             sys.executable, "-c", "print('ready')",

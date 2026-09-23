@@ -305,7 +305,8 @@ craft.patch_pdf_with_extraction("input.pdf", "work/translated.pcex", "translated
 为视觉底图的源 PDF 没有可回退页，仍会直接失败。
 
 `ignore_errors` 还可以传入 `Callable[[Exception], bool]`，在每个可归属页面的异常发生时决定是否
-允许该页回退。默认 `False` 保持 fail-fast；只有业务可以接受“未翻译视觉底图页与已翻译页面并存”时，
+允许该页回退。局部函数和 lambda 均受支持：Qt 回填在隔离进程运行时，predicate 仍留在调用方进程，
+无需可 pickle；异步调用会在调用方事件循环线程执行 predicate。默认 `False` 保持 fail-fast；只有业务可以接受“未翻译视觉底图页与已翻译页面并存”时，
 才应启用此恢复策略。
 
 ## PDFCraftExtraction 与 `.pcex`

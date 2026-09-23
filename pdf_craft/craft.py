@@ -5,12 +5,16 @@
 
 import asyncio
 import inspect
-from collections.abc import Callable, Container
+import pickle
+import secrets
+from collections.abc import Awaitable, Callable, Container
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, replace
+from multiprocessing.connection import Client, Listener
 from os import PathLike
 from pathlib import Path
-from typing import AsyncIterator, Literal, cast
+from threading import Thread
+from typing import Any, AsyncIterator, Literal, cast
 
 from epub_generator import BookMeta, LaTeXRender, TableRender
 from PIL import Image
@@ -417,28 +421,28 @@ class AsyncPDFCraft:
         source_path = Path(source)
         output_path = Path(output)
         configured_handler = self._pdf.pdf_handler if self._pdf else None
-        if configured_handler is None:
-            await QT_DOMAIN.run(
-                _patch_pdf_sync,
-                source_path, document, output_path, None, ignore_errors,
-            )
-            return
+        async with _process_ignore_errors_checker(ignore_errors) as worker_checker:
+            if configured_handler is None:
+                await QT_DOMAIN.run(
+                    _patch_pdf_sync,
+                    source_path, document, output_path, None, worker_checker,
+                )
+                return
 
-        # A caller-owned handler can contain an event loop, locks, sessions,
-        # or other intentionally non-pickleable state. Render the PCEX pages
-        # through that handler in its proper execution domain, then give the
-        # isolated Qt process a path-only, serializable document adapter.
-        page_indexes = tuple(sorted((await document.page_pixel_sizes_async()).keys()))
-        dpi = await document.render_dpi_async()
-        async with temporary_directory("pdf-craft-pdf-pages-") as directory:
-            materialized_handler = await _materialize_pdf_handler(
-                configured_handler, source_path, page_indexes, dpi, directory,
-            )
-            await QT_DOMAIN.run(
-                _patch_pdf_sync,
-                source_path, document, output_path,
-                materialized_handler, ignore_errors,
-            )
+            # Caller-owned handlers and callbacks can contain loops, locks, or
+            # other non-pickleable state. Keep them in the caller process and
+            # pass only materialized pages / an RPC checker into the Qt worker.
+            page_indexes = tuple(sorted((await document.page_pixel_sizes_async()).keys()))
+            dpi = await document.render_dpi_async()
+            async with temporary_directory("pdf-craft-pdf-pages-") as directory:
+                materialized_handler = await _materialize_pdf_handler(
+                    configured_handler, source_path, page_indexes, dpi, directory,
+                )
+                await QT_DOMAIN.run(
+                    _patch_pdf_sync,
+                    source_path, document, output_path,
+                    materialized_handler, worker_checker,
+                )
 
     async def translate_epub(
         self, source: PathLike | str, output: PathLike | str, *,
@@ -771,6 +775,126 @@ def _patch_pdf_sync(
     PDFTranslationPipeline(pdf_handler=pdf_handler).patch(
         source, output, extraction, ignore_errors=ignore_errors,
     )
+
+
+@dataclass(frozen=True)
+class _RemoteIgnoreErrorsChecker:
+    """Pickle-safe proxy for a caller-owned fill recovery predicate."""
+
+    address: Any
+    authkey: bytes
+
+    def __call__(self, error: Exception) -> bool:
+        connection = Client(self.address, authkey=self.authkey)
+        try:
+            connection.send(_pickle_safe_exception(error))
+            status, value = connection.recv()
+        finally:
+            connection.close()
+        if status == "error":
+            if isinstance(value, BaseException):
+                raise value
+            raise RuntimeError(f"ignore_errors callback failed: {value}")
+        return bool(value)
+
+
+class _IgnoreErrorsCheckerServer:
+    """Serve a local predicate to an isolated process without pickling it."""
+
+    def __init__(
+        self,
+        loop: asyncio.AbstractEventLoop,
+        checker: Callable[[Exception], bool],
+    ) -> None:
+        self._loop = loop
+        self._checker = checker
+        self._authkey = secrets.token_bytes(32)
+        self._listener = Listener(("127.0.0.1", 0), authkey=self._authkey)
+        self._thread = Thread(
+            target=self._serve,
+            name="pdf-craft-ignore-errors",
+            daemon=True,
+        )
+        self._thread.start()
+
+    def proxy(self) -> _RemoteIgnoreErrorsChecker:
+        return _RemoteIgnoreErrorsChecker(self._listener.address, self._authkey)
+
+    def _serve(self) -> None:
+        while True:
+            try:
+                connection = self._listener.accept()
+            except OSError:
+                return
+            try:
+                error = connection.recv()
+                if error is None:
+                    return
+                if not isinstance(error, Exception):
+                    error = RuntimeError(str(error))
+                future = asyncio.run_coroutine_threadsafe(
+                    _invoke_ignore_errors_checker(self._checker, error),
+                    self._loop,
+                )
+                try:
+                    response = ("ok", future.result())
+                except BaseException as callback_error:  # pylint: disable=broad-exception-caught
+                    response = ("error", _pickle_safe_exception(callback_error))
+                connection.send(response)
+            except (EOFError, OSError):
+                pass
+            finally:
+                connection.close()
+
+    def close(self) -> None:
+        try:
+            connection = Client(self._listener.address, authkey=self._authkey)
+            try:
+                connection.send(None)
+            finally:
+                connection.close()
+        except (ConnectionError, OSError):
+            pass
+        self._thread.join(timeout=5)
+        self._listener.close()
+        if self._thread.is_alive():
+            raise RuntimeError("ignore_errors callback server did not stop")
+
+
+async def _invoke_ignore_errors_checker(
+    checker: Callable[[Exception], bool],
+    error: Exception,
+) -> bool:
+    result = checker(error)
+    if inspect.isawaitable(result):
+        result = await cast(Awaitable[bool], result)
+    return bool(result)
+
+
+def _pickle_safe_exception(error: BaseException) -> BaseException:
+    try:
+        pickle.dumps(error, protocol=pickle.HIGHEST_PROTOCOL)
+    except Exception:  # pylint: disable=broad-exception-caught
+        return RuntimeError(f"{type(error).__module__}.{type(error).__qualname__}: {error}")
+    return error
+
+
+@asynccontextmanager
+async def _process_ignore_errors_checker(
+    checker: IgnoreFillErrorsChecker,
+) -> AsyncIterator[IgnoreFillErrorsChecker]:
+    if not callable(checker):
+        yield checker
+        return
+    server = await IO_DOMAIN.run(
+        _IgnoreErrorsCheckerServer,
+        asyncio.get_running_loop(),
+        checker,
+    )
+    try:
+        yield server.proxy()
+    finally:
+        await IO_DOMAIN.run(server.close)
 
 
 def _validate_extraction_for_pdf(source: Path, extraction: PDFCraftExtraction) -> None:
