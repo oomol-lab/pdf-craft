@@ -17,7 +17,19 @@ from pdf_craft import (
     SubmitKind,
     XMLTranslator,
 )
+from pdf_craft.extractor.chapter.generation import _extract_body_layouts
+from pdf_craft.extractor.chapter.page_review import (
+    JEV_REVIEW_THRESHOLD,
+    JevReviewProcessor,
+)
+from pdf_craft.extractor.chapter.page_repair import (
+    AllPageLlmRepairProcessor,
+    JevLlmRepairProcessor,
+)
+from pdf_craft.extractor.toc import TocInfo
+from pdf_craft.llm import runtime_for
 
+from .jev import OoJevEvaluator, PinnedJevEvaluator
 from .runtime import (
     create_ocr_config_from_env,
     create_llm_from_env,
@@ -134,7 +146,7 @@ def _parser() -> argparse.ArgumentParser:
         "--route",
         choices=(
             "package", "package-markdown", "package-epub", "markdown", "epub",
-            "pdf-patch", "epub-check", "epub-translate",
+            "pdf-patch", "epub-check", "epub-translate", "page-repair",
         ),
         required=True,
     )
@@ -142,6 +154,10 @@ def _parser() -> argparse.ArgumentParser:
     run.add_argument("--output-root", type=Path, default=DEFAULT_OUTPUT_ROOT / "smoke")
     run.add_argument("--dry-run", action="store_true")
     run.add_argument("--ocr-mode", choices=_ocr_modes())
+    run.add_argument("--jev-baseline", type=Path)
+    run.add_argument("--jev-run")
+    run.add_argument("--page-repair-expected", type=Path)
+    run.add_argument("--llm-profile", default="default")
     _add_smoke_options(run)
     run.set_defaults(handler=_run_smoke)
 
@@ -151,6 +167,55 @@ def _parser() -> argparse.ArgumentParser:
     matrix.add_argument("--output-root", type=Path, default=DEFAULT_OUTPUT_ROOT / "smoke")
     matrix.add_argument("--dry-run", action="store_true")
     matrix.set_defaults(handler=_run_matrix)
+
+    analysis = commands.add_parser(
+        "analysis", help="inspect experimental page-analysis stages"
+    )
+    analysis_commands = analysis.add_subparsers(
+        dest="analysis_command", required=True
+    )
+    review_jev = analysis_commands.add_parser(
+        "review-jev", help="review cached OCR pages with JEV through oo"
+    )
+    review_jev.add_argument("ocr_path", type=Path)
+    review_jev.add_argument("--output", type=Path, required=True)
+    review_jev.add_argument(
+        "--threshold", type=float, default=JEV_REVIEW_THRESHOLD
+    )
+    review_jev.set_defaults(handler=_review_jev)
+    repair_pages = analysis_commands.add_parser(
+        "repair-jev-llm",
+        help="route cached OCR pages through JEV and repair selected pages with LLM",
+    )
+    repair_pages.add_argument("ocr_path", type=Path)
+    repair_pages.add_argument("--output", type=Path, required=True)
+    repair_pages.add_argument("--llm-profile", default="page-repair")
+    repair_pages.add_argument(
+        "--all-pages",
+        action="store_true",
+        help="skip JEV and repair every page without disclosing JEV scores",
+    )
+    repair_pages.add_argument(
+        "--llm-pages",
+        help=(
+            "skip JEV and repair comma-separated 1-based pages without "
+            "disclosing JEV scores"
+        ),
+    )
+    repair_pages.add_argument(
+        "--jev-baseline",
+        type=Path,
+        help="replay a committed JEV probability baseline instead of calling oo",
+    )
+    repair_pages.add_argument(
+        "--jev-run",
+        help="named run in --jev-baseline; defaults to its first run",
+    )
+    repair_pages.add_argument(
+        "--threshold", type=float, default=JEV_REVIEW_THRESHOLD
+    )
+    repair_pages.add_argument("--max-retries", type=int, default=4)
+    repair_pages.set_defaults(handler=_repair_jev_llm)
     return parser
 
 
@@ -331,7 +396,10 @@ def _run_smoke(args: argparse.Namespace) -> int:
     is_pdf_route = args.route in {
         "package", "package-markdown", "package-epub", "markdown", "epub", "pdf-patch",
     }
-    if (is_pdf_route or args.route == "epub-translate") and not args.dry_run:
+    if (
+        is_pdf_route
+        or args.route in {"epub-translate", "page-repair"}
+    ) and not args.dry_run:
         load_project_env(_project_root())
     ocr_mode = cast(OCRMode | None, args.ocr_mode)
     if is_pdf_route:
@@ -353,6 +421,24 @@ def _run_smoke(args: argparse.Namespace) -> int:
         })
         if not args.dry_run:
             translation = _resolve_translation_profiles(translation, args.output_root) or {}
+    page_repair = None
+    if args.route == "page-repair":
+        if args.jev_baseline is None or args.page_repair_expected is None:
+            raise SystemExit(
+                "page-repair smoke requires --jev-baseline and "
+                "--page-repair-expected"
+            )
+        page_repair = {
+            "jev_baseline": str(args.jev_baseline),
+            "jev_run": args.jev_run,
+            "expected": str(args.page_repair_expected),
+            "llm_profile": args.llm_profile,
+            "max_retries": args.max_retries,
+        }
+        if not args.dry_run:
+            page_repair = _resolve_page_repair_profile(
+                page_repair, args.output_root
+            )
     run = SmokeRun(
         asset=args.asset, route=args.route, backend=ocr_mode,
         page_indexes=_page_indexes(args.pages), ocr_size=ocr_size, dpi=args.dpi,
@@ -362,6 +448,7 @@ def _run_smoke(args: argparse.Namespace) -> int:
         generate_plot=args.plot, toc_assumed=args.toc_assumed,
         ocr=ocr_values_from_env(ocr_mode) if ocr_mode and not args.dry_run else None,
         translation=translation or None,
+        page_repair=page_repair,
     )
     run_path = run_smoke(run, assets_root=args.assets_root, output_root=args.output_root, dry_run=args.dry_run)
     print(run_path)
@@ -392,6 +479,175 @@ def _run_matrix(args: argparse.Namespace) -> int:
     return exit_code
 
 
+def _review_jev(args: argparse.Namespace) -> None:
+    raw_path = args.output / "raw"
+    reviewer = JevReviewProcessor(
+        OoJevEvaluator(raw_path), threshold=args.threshold
+    )
+    list(_extract_body_layouts(
+        args.ocr_path,
+        TocInfo([], []),
+        reviewer,
+    ))
+    args.output.mkdir(parents=True, exist_ok=True)
+    report = {
+        "threshold": args.threshold,
+        "page_count": len(reviewer.results),
+        "review_page_indexes": [
+            result.page_index
+            for result in reviewer.results
+            if result.requires_review
+        ],
+        "pages": [
+            {
+                "page_index": result.page_index,
+                "pass_probability": result.pass_probability,
+                "risk": result.risk,
+                "requires_review": result.requires_review,
+            }
+            for result in reviewer.results
+        ],
+    }
+    report_path = args.output / "report.json"
+    report_path.write_text(
+        json.dumps(report, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
+    print(report_path)
+
+
+def _repair_jev_llm(args: argparse.Namespace) -> None:
+    load_project_env(_project_root())
+    args.output.mkdir(parents=True, exist_ok=True)
+    llm = create_llm_from_env(
+        args.llm_profile,
+        cache_path=args.output / "llm-cache",
+        log_dir_path=args.output / "llm-logs",
+    )
+    runtime = runtime_for(llm, protocol_version="page-repair-json-v1")
+    llm_raw_path = args.output / "llm-raw"
+    llm_raw_path.mkdir(parents=True, exist_ok=True)
+
+    def request(messages, index, maximum):
+        payload = json.loads(messages[1].message)
+        page_index = payload["target_page"]["page_index"]
+        stem = f"page_{page_index:03d}-attempt_{index + 1:02d}"
+        (llm_raw_path / f"{stem}-request.json").write_text(
+            json.dumps(
+                [
+                    {"role": message.role.name.lower(), "content": message.message}
+                    for message in messages
+                ],
+                ensure_ascii=False,
+                indent=2,
+            ) + "\n",
+            encoding="utf-8",
+        )
+        response = runtime.request(
+            messages,
+            max_tokens=16000,
+            retry_index=index,
+            retry_max=maximum,
+            use_cache=False,
+        )
+        (llm_raw_path / f"{stem}-response.txt").write_text(
+            response + "\n", encoding="utf-8"
+        )
+        return response
+
+    llm_page_indexes = _page_indexes(args.llm_pages)
+    if args.all_pages and llm_page_indexes is not None:
+        raise ValueError("--all-pages cannot be combined with --llm-pages")
+    if args.all_pages or llm_page_indexes is not None:
+        if args.jev_baseline is not None or args.jev_run is not None:
+            raise ValueError("direct LLM page selection cannot be combined with JEV options")
+        all_page_processor = AllPageLlmRepairProcessor(
+            request,
+            page_indexes=llm_page_indexes,
+            max_retries=args.max_retries,
+        )
+        processor = all_page_processor
+        jev_processor = None
+        jev_source = {
+            "type": (
+                "skipped-all-pages" if args.all_pages
+                else "skipped-selected-pages"
+            )
+        }
+    else:
+        all_page_processor = None
+        if args.jev_baseline is not None:
+            evaluator = PinnedJevEvaluator(args.jev_baseline, args.jev_run)
+            jev_source = {
+                "type": "pinned-baseline",
+                "path": str(args.jev_baseline),
+                "run": evaluator.run_name,
+            }
+        else:
+            if args.jev_run is not None:
+                raise ValueError("--jev-run requires --jev-baseline")
+            evaluator = OoJevEvaluator(
+                args.output / "jev-raw", reuse_existing=True
+            )
+            jev_source = {"type": "oo-connector"}
+        jev_processor = JevLlmRepairProcessor(
+            evaluator,
+            request,
+            threshold=args.threshold,
+            max_retries=args.max_retries,
+        )
+        processor = jev_processor
+    list(_extract_body_layouts(
+        args.ocr_path,
+        TocInfo([], []),
+        processor,
+    ))
+    if args.all_pages or llm_page_indexes is not None:
+        assert all_page_processor is not None
+        review_page_indexes = all_page_processor.page_indexes
+        page_reports = [
+            {
+                "page_index": page_index,
+                "pass_probability": None,
+                "risk": None,
+                "requires_review": True,
+            }
+            for page_index in all_page_processor.page_indexes
+        ]
+    else:
+        assert jev_processor is not None
+        review_page_indexes = [
+            result.page_index
+            for result in jev_processor.results
+            if result.requires_review
+        ]
+        page_reports = [
+            {
+                "page_index": result.page_index,
+                "pass_probability": result.pass_probability,
+                "risk": result.risk,
+                "requires_review": result.requires_review,
+            }
+            for result in jev_processor.results
+        ]
+    report = {
+        "jev_source": jev_source,
+        "threshold": (
+            None if args.all_pages or llm_page_indexes is not None
+            else args.threshold
+        ),
+        "page_count": len(page_reports),
+        "review_page_indexes": review_page_indexes,
+        "pages": page_reports,
+    }
+    report_path = args.output / "report.json"
+    report_path.write_text(
+        json.dumps(report, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
+    print(report_path)
+
+
 def _smoke_exit_code(run_path: Path) -> int:
     """Return a non-zero code for failed or skipped required smoke runs."""
     try:
@@ -405,10 +661,12 @@ def _matrix_run_needs_env(run: SmokeRun) -> bool:
     if run.backend and run.ocr is None:
         return True
     translation = run.translation or {}
-    return any(
+    if any(
         key in translation
         for key in ("llm_profile", "translation_llm_profile", "fill_llm_profile")
-    )
+    ):
+        return True
+    return "llm_profile" in (run.page_repair or {})
 
 
 def _resolve_matrix_runtime(run: SmokeRun, output_root: Path) -> SmokeRun:
@@ -417,7 +675,30 @@ def _resolve_matrix_runtime(run: SmokeRun, output_root: Path) -> SmokeRun:
     if run.backend and ocr is None:
         ocr = ocr_values_from_env(run.backend)
     translation = _resolve_translation_profiles(run.translation, output_root)
-    return replace(run, ocr=ocr, translation=translation)
+    page_repair = _resolve_page_repair_profile(run.page_repair, output_root)
+    return replace(
+        run,
+        ocr=ocr,
+        translation=translation,
+        page_repair=page_repair,
+    )
+
+
+def _resolve_page_repair_profile(
+    page_repair: dict[str, Any] | None,
+    output_root: Path,
+) -> dict[str, Any] | None:
+    if not page_repair:
+        return page_repair
+    resolved = dict(page_repair)
+    profile = resolved.pop("llm_profile", None)
+    if profile and "llm" not in resolved:
+        resolved["llm"] = llm_values_from_env(
+            str(profile),
+            cache_path=output_root / "_c" / "page-repair",
+            log_dir_path=output_root / "_l" / "page-repair",
+        )
+    return resolved
 
 
 def _resolve_translation_profiles(translation: dict[str, Any] | None, output_root: Path) -> dict[str, Any] | None:

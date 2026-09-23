@@ -9,6 +9,8 @@ repository-local smoke CLI. It is not included in the published package.
 - `epub/`: EPUB input fixtures.
 - `expected/`: reserved for small checked-in expected outputs; generated conversion
   output belongs in the ignored `pdf-craft-output/` directory instead.
+- `analysis/`: cached OCR pages plus pinned review/repair expectations used by
+  analysis-only smoke routes; these routes do not rerun OCR.
 
 `pdf/friendly.pdf` is also used by `test_pdf_patch_smoke.py` to exercise real PDF
 replacement and Qt text-layer output without running OCR. Run it with

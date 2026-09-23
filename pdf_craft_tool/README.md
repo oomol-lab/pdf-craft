@@ -113,6 +113,60 @@ poetry run python -m pdf_craft_tool epub translate tests/assets/epub/Cambridge.e
 两者相同（默认都是 `translation`）时复用同一个 `LLM` 对象。`pdf translate --format pdf`
 只允许 `--submit replace`。PDF 提取命令还可通过 `--toc-llm PROFILE` 使用 LLM 改善目录层级判断。
 
+## 实验性 PageAnalysis 审查
+
+`analysis review-jev` 从已有 OCR 缓存重新执行传统 paragraph/citation resolution，投影为
+PageAnalysis，并通过本机 `oo` 调用 `jev.evaluate`。它只输出页级风险，不调用 LLM，也不修改
+PageAnalysis 或章节文件：
+
+```shell
+poetry run python -m pdf_craft_tool analysis review-jev \
+  pdf-craft-output/analysis-baselines/citation-large-v1-unlimited/analysis/ocr \
+  --output pdf-craft-output/analysis-baselines/citation-large-jev-current
+```
+
+输出目录中的 `report.json` 使用 `risk = 1 - pass_probability`，默认在 `risk >= 0.70`
+时把页面列入 `review_page_indexes`；`raw/` 保留逐页 JEV 请求和响应，便于继续调 prompt。
+这是 branch 内跑通流程的临时 oo 适配器，不属于发布包的正式 JEV 客户端。
+
+`analysis repair-jev-llm` 使用同一 JEV 门槛筛选页面，再以三页纯文本上下文调用指定 LLM profile；
+目标页不披露自己的 JEV 分数，前后页只披露 `jev_p_pass` 作为弱可靠性提示。LLM 每次返回完整
+目标页 JSON，并由 schema 与业务完整性修复循环校验。运行记录分别保存在 `jev-raw/`、
+`llm-raw/` 和 `llm-logs/`：
+
+```shell
+PDF_CRAFT_LLM_DEFAULT_PROVIDER=oomol \
+poetry run python -m pdf_craft_tool analysis repair-jev-llm \
+  tests/assets/analysis/citation_large_ocr \
+  --output pdf-craft-output/analysis-baselines/citation-large-llm-current \
+  --llm-profile default \
+  --jev-baseline tests/assets/analysis/citation_large_jev_baseline.json \
+  --jev-run strict-rubric
+```
+
+传入 `--jev-baseline` 时只重放已提交的 JEV 概率，不会调用 JEV 网络服务；
+这适合固定路由结果后反复调整 LLM prompt。这仍是实验性私有 CLI 通路，
+正式转换不会默认调用 JEV 或 LLM。
+`--all-pages` 会完全跳过 JEV，不披露任何 JEV 分数，并将每一页都交给 LLM；
+它主要用于检查 LLM 面对误选正常页时的抗干扰能力。
+`--llm-pages 2,4,25` 使用同样的无 JEV 条件，只处理指定页，便于反复调试 prompt。
+
+## 页级修复 smoke
+
+`tests/smoke/citation_large_page_repair.json` 固化了 citation_large 的页级修复通路：直接读取
+已提交的 `analysis/citation_large_ocr/page_*.xml`，重放固定 JEV baseline，只将低置信页交给
+LLM，并用 `citation_large_page_repair_expected.json` 严格校验最终语义变更。它不会重新运行 OCR，
+也不会在线调用 JEV：
+
+```shell
+MPLCONFIGDIR=/tmp/pdf-craft-mpl PDF_CRAFT_LLM_DEFAULT_PROVIDER=oomol \
+poetry run python -m pdf_craft_tool smoke matrix \
+  --config tests/smoke/citation_large_page_repair.json
+```
+
+smoke 的 `checks.json` 只接受最终结果完全匹配；Loop 中间重试不会导致失败，但会记录在
+`manifest.json` 的 `page_repair.attempts` 中。
+
 ## 冒烟矩阵
 
 先查看全部真实样本：

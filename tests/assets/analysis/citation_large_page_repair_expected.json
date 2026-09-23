@@ -1,0 +1,130 @@
+{
+  "review_page_indexes": [2, 4, 6, 12, 20, 26],
+  "changes": [
+    {
+      "page_index": 2,
+      "layouts": {
+        "layout-9": {
+          "ownership": "ignored",
+          "continues_from_previous": false,
+          "continues_to_next": false,
+          "paragraph_role": null,
+          "paragraph_level": null,
+          "citation_id": null,
+          "citation_index": null
+        }
+      }
+    },
+    {
+      "page_index": 4,
+      "layouts": {
+        "layout-25": {
+          "ownership": "ignored",
+          "continues_from_previous": false,
+          "continues_to_next": false,
+          "paragraph_role": null,
+          "paragraph_level": null,
+          "citation_id": null,
+          "citation_index": null
+        }
+      }
+    },
+    {
+      "page_index": 6,
+      "layouts": {
+        "layout-36": {
+          "ownership": "ignored",
+          "continues_from_previous": false,
+          "continues_to_next": false,
+          "paragraph_role": null,
+          "paragraph_level": null,
+          "citation_id": null,
+          "citation_index": null
+        }
+      }
+    },
+    {
+      "page_index": 12,
+      "layouts": {
+        "layout-73": {
+          "ownership": "ignored",
+          "continues_from_previous": false,
+          "continues_to_next": false,
+          "paragraph_role": null,
+          "paragraph_level": null,
+          "citation_id": null,
+          "citation_index": null
+        },
+        "layout-74": {
+          "ownership": "paragraph",
+          "continues_from_previous": false,
+          "continues_to_next": false,
+          "paragraph_role": "body",
+          "paragraph_level": -1,
+          "citation_id": null,
+          "citation_index": null
+        }
+      }
+    },
+    {
+      "page_index": 20,
+      "layouts": {
+        "layout-116": {
+          "ownership": "ignored",
+          "continues_from_previous": false,
+          "continues_to_next": false,
+          "paragraph_role": null,
+          "paragraph_level": null,
+          "citation_id": null,
+          "citation_index": null
+        },
+        "layout-117": {
+          "ownership": "paragraph",
+          "continues_from_previous": true,
+          "continues_to_next": false,
+          "paragraph_role": "body",
+          "paragraph_level": -1,
+          "citation_id": null,
+          "citation_index": null
+        },
+        "layout-118": {
+          "ownership": "paragraph",
+          "continues_from_previous": false,
+          "continues_to_next": false,
+          "paragraph_role": "body",
+          "paragraph_level": -1,
+          "citation_id": null,
+          "citation_index": null
+        }
+      }
+    },
+    {
+      "page_index": 25,
+      "layouts": {
+        "layout-147": {
+          "ownership": "paragraph",
+          "continues_from_previous": false,
+          "continues_to_next": false,
+          "paragraph_role": "body",
+          "paragraph_level": -1,
+          "citation_id": null,
+          "citation_index": null
+        }
+      }
+    },
+    {
+      "page_index": 26,
+      "layouts": {
+        "layout-149": {
+          "ownership": "ignored",
+          "continues_from_previous": false,
+          "continues_to_next": false,
+          "paragraph_role": null,
+          "paragraph_level": null,
+          "citation_id": null,
+          "citation_index": null
+        }
+      }
+    }
+  ]
+}

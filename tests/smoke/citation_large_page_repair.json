@@ -1,0 +1,15 @@
+{
+  "runs": [
+    {
+      "asset": "analysis/citation_large_ocr",
+      "route": "page-repair",
+      "page_repair": {
+        "jev_baseline": "tests/assets/analysis/citation_large_jev_baseline.json",
+        "jev_run": "strict-rubric",
+        "expected": "tests/assets/analysis/citation_large_page_repair_expected.json",
+        "llm_profile": "default",
+        "max_retries": 4
+      }
+    }
+  ]
+}

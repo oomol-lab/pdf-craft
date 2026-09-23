@@ -49,6 +49,10 @@ class TestSmokeMatrix(unittest.TestCase):
         assets = discover_assets(Path("tests/assets"))
         self.assertIn("pdf/double_column.pdf", {asset.name for asset in assets})
         self.assertIn("epub/Cambridge.epub", {asset.name for asset in assets})
+        self.assertIn(
+            "analysis/citation_large_ocr",
+            {asset.name for asset in assets if asset.format == "ocr-pages"},
+        )
 
     def test_expands_config_without_fixed_profiles(self):
         runs = expand_matrix(
@@ -70,6 +74,44 @@ class TestSmokeMatrix(unittest.TestCase):
             Path("tests/assets"),
         )
         self.assertEqual([run.route for run in runs], ["package-markdown", "package-epub"])
+
+    def test_expands_cached_page_repair_route(self):
+        runs = expand_matrix(
+            {"runs": [{
+                "asset": "analysis/citation_large_ocr",
+                "route": "page-repair",
+                "page_repair": {
+                    "jev_baseline": "tests/assets/analysis/citation_large_jev_baseline.json",
+                    "expected": "tests/assets/analysis/citation_large_page_repair_expected.json",
+                    "llm_profile": "default",
+                },
+            }]},
+            Path("tests/assets"),
+        )
+        self.assertEqual(runs[0].route, "page-repair")
+        page_repair = runs[0].page_repair
+        assert page_repair is not None
+        self.assertEqual(page_repair["llm_profile"], "default")
+
+    def test_cached_page_repair_route_writes_standard_smoke_report(self):
+        with tempfile.TemporaryDirectory() as directory:
+            with patch(
+                "pdf_craft_tool.smoke.runner.run_page_repair_smoke",
+                return_value=("passed", [], {"page_repair": {"attempts": {"2": 1}}}),
+            ) as execute:
+                run_path = run_smoke(
+                    SmokeRun(
+                        "analysis/citation_large_ocr",
+                        "page-repair",
+                        page_repair={"llm": {"key": "secret"}},
+                    ),
+                    assets_root=Path("tests/assets"),
+                    output_root=Path(directory),
+                )
+                manifest = json.loads((run_path / "manifest.json").read_text())
+                self.assertEqual(manifest["status"], "passed")
+                self.assertEqual(manifest["page_repair"]["attempts"], {"2": 1})
+                execute.assert_called_once()
 
     def test_dry_run_writes_isolated_plan_and_redacts_credentials(self):
         with tempfile.TemporaryDirectory() as directory:
