@@ -49,7 +49,7 @@ def _source_extraction(root: Path, *, with_toc: bool = False) -> PDFCraftExtract
         -1,
         [TextFlowItem("body", 0, [SourceTextFragment(1, 1, (1, 1, 5, 5), ["original"])])],
     )
-    save_xml(encode(chapter), root / "chapters" / "chapter_1.xml")
+    save_xml(encode(chapter), root / "chapters" / "chapter_head.xml")
     return extraction._validate()
 
 
@@ -89,9 +89,9 @@ class TestPDFCraft(unittest.TestCase):
             self.assertTrue(target_path.is_file())
             self.assertEqual(target._page_pixel_sizes(), {1: (10, 10)})
             with target._materialize() as paths:
-                self.assertIn("original", (paths.chapters / "chapter_1.xml").read_text())
+                self.assertIn("original", (paths.chapters / "chapter_head.xml").read_text())
                 layer = paths.translations / "test-en"
-                self.assertIn("translated", (layer / "chapters/chapter_1.xml").read_text())
+                self.assertIn("translated", (layer / "chapters/chapter_head.xml").read_text())
                 coverage = fromstring((layer / "coverage.xml").read_text(encoding="utf-8"))
                 paragraph = coverage.find("narrative/paragraph")
                 self.assertIsNotNone(paragraph)
@@ -217,9 +217,9 @@ class TestPDFCraft(unittest.TestCase):
             )
 
             with source._materialize() as paths:
-                self.assertIn("original", (paths.chapters / "chapter_1.xml").read_text())
+                self.assertIn("original", (paths.chapters / "chapter_head.xml").read_text())
             with target._materialize() as paths:
-                self.assertIn("translated", (paths.chapters / "chapter_1.xml").read_text())
+                self.assertIn("translated", (paths.chapters / "chapter_head.xml").read_text())
                 self.assertTrue(paths.toc.is_file())
 
     def test_extraction_transform_preserves_furnitures(self):

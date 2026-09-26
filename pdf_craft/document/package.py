@@ -370,7 +370,7 @@ def _validate_workspace(paths: ExtractionPaths, *, require_toc: bool = False) ->
     chapter_paths = list(paths.chapters.glob("chapter_*.xml"))
     narrative_identities: set[tuple[str, str, str]] = set()
     anchored_identities: set[tuple[str, int, int]] = set()
-    chapter_structures: dict[str, tuple[set[tuple[str, str]], set[tuple[str, str]], tuple[bytes, ...]]] = {}
+    chapter_structures: dict[str, tuple[Any, ...]] = {}
     seen_chapter_ids: set[str] = set()
     for path in chapter_paths:
         if path.name != "chapter_head.xml":
@@ -383,10 +383,15 @@ def _validate_workspace(paths: ExtractionPaths, *, require_toc: bool = False) ->
         except ValueError as error:
             raise ValueError(f"invalid chapter schema in {path.name}: {error}") from error
         chapter_identity = str(chapter.id) if chapter.id is not None else "head"
-        if chapter.id is not None and chapter_identity in seen_chapter_ids:
+        expected_identity = (
+            "head" if path.name == "chapter_head.xml"
+            else path.stem.removeprefix("chapter_")
+        )
+        if chapter_identity != expected_identity:
+            raise ValueError(f"{path.name} does not match its chapter id")
+        if chapter_identity in seen_chapter_ids:
             raise ValueError(f"{path.name} has a duplicate chapter id")
-        if chapter.id is not None:
-            seen_chapter_ids.add(chapter_identity)
+        seen_chapter_ids.add(chapter_identity)
         fragment_identities: set[tuple[str, str]] = set()
         for fragment in root.iter("fragment"):
             identity = (fragment.get("page_index", ""), fragment.get("source_order", ""))
@@ -402,14 +407,7 @@ def _validate_workspace(paths: ExtractionPaths, *, require_toc: bool = False) ->
             if identity in reference_identities:
                 raise ValueError(f"{path.name} contains duplicate reference identity {identity}")
             reference_identities.add(identity)
-        immutable_assets = tuple(
-            ElementTree.tostring(element, encoding="utf-8")
-            for element in root.iter("asset")
-            if element.get("ref") in {"image", "table"}
-        )
-        chapter_structures[path.name] = (
-            fragment_identities, reference_identities, immutable_assets,
-        )
+        chapter_structures[path.name] = _chapter_structure(root)
         for item in chapter.flow_items:
             if not isinstance(item, TextFlowItem) or item.role not in {"body", "heading"}:
                 continue
@@ -457,6 +455,9 @@ def _validate_workspace(paths: ExtractionPaths, *, require_toc: bool = False) ->
                     raise ValueError(f"invalid asset hash in {path.name}: {asset_hash}")
                 if not (paths.assets / f"{asset_hash}.png").is_file():
                     raise ValueError(f"{path.name} references missing asset: {asset_hash}.png")
+    source_chapter_ids = {int(value) for value in seen_chapter_ids if value != "head"}
+    if paths.toc.exists() and source_chapter_ids != toc_ids:
+        raise ValueError("chapter IDs do not match toc.xml item IDs")
     if paths.translation.exists():
         _validate_translation(
             paths.translation, paths.furnitures, narrative_identities, anchored_identities,
@@ -701,13 +702,65 @@ def _valid_toc_id(toc_id: str | None, toc_ids: set[int]) -> bool:
     return toc_id.isdigit() and int(toc_id) in toc_ids
 
 
+def _chapter_structure(root: ElementTree.Element) -> tuple[Any, ...]:
+    """Return ordered source identities and geometry, excluding translatable text."""
+    flow = root.find("flow")
+    references = root.find("references")
+    return (
+        tuple(sorted(root.attrib.items())),
+        tuple(_flow_item_structure(item) for item in flow or []),
+        tuple(
+            (
+                reference.get("id", ""),
+                reference.findtext("mark", ""),
+                tuple(
+                    _flow_item_structure(item)
+                    for item in (reference.find("flow") or [])
+                ),
+            )
+            for reference in references or []
+        ),
+    )
+
+
+def _flow_item_structure(element: ElementTree.Element) -> tuple[Any, ...]:
+    if element.tag == "text":
+        children: list[tuple[Any, ...]] = []
+        for child in element:
+            if child.tag == "fragment":
+                children.append(("fragment", tuple(sorted(child.attrib.items()))))
+            else:
+                children.append(_asset_structure(child))
+        return ("text", tuple(sorted(element.attrib.items())), tuple(children))
+    asset = next(iter(element), None)
+    return (
+        element.tag,
+        _asset_structure(asset) if asset is not None else ("missing-asset",),
+    )
+
+
+def _asset_structure(element: ElementTree.Element) -> tuple[Any, ...]:
+    if element.get("ref") in {"image", "table"}:
+        return ("immutable-asset", ElementTree.tostring(element, encoding="utf-8"))
+    return ("asset", tuple(sorted(element.attrib.items())))
+
+
+def _xml_structure(element: ElementTree.Element) -> tuple[Any, ...]:
+    """Return XML tag/attribute/child structure while ignoring translated text."""
+    return (
+        element.tag,
+        tuple(sorted(element.attrib.items())),
+        tuple(_xml_structure(child) for child in element),
+    )
+
+
 def _validate_translation_layer(
     paths: ExtractionPaths,
     translation: TranslationInfo,
     page_sizes: dict[int, tuple[int, int]],
     toc_ids: set[int],
     source_structures: dict[
-        str, tuple[set[tuple[str, str]], set[tuple[str, str]], tuple[bytes, ...]]
+        str, tuple[Any, ...]
     ],
     narrative_identities: set[tuple[str, str, str]],
     anchored_identities: set[tuple[str, int, int]],
@@ -740,24 +793,10 @@ def _validate_translation_layer(
         actual_id = str(chapter.id) if chapter.id is not None else "head"
         if actual_id != expected_id:
             raise ValueError(f"translation chapter {name} has an invalid chapter id")
-        fragments = {
-            (element.get("page_index", ""), element.get("source_order", ""))
-            for element in root.iter("fragment")
-        }
-        reference_ids = {
-            tuple(element.get("id", "").split("-", 1))
-            for element in (root.find("references") or [])
-        }
-        immutable_assets = tuple(
-            ElementTree.tostring(element, encoding="utf-8")
-            for element in root.iter("asset")
-            if element.get("ref") in {"image", "table"}
-        )
-        source_fragments, source_references, source_assets = source_structures[name]
-        if fragments != source_fragments or reference_ids != source_references:
-            raise ValueError(f"translation chapter {name} does not preserve source identities")
-        if immutable_assets != source_assets:
-            raise ValueError(f"translation chapter {name} modifies source image/table assets")
+        if _chapter_structure(root) != source_structures[name]:
+            raise ValueError(
+                f"translation chapter {name} does not preserve source structure and geometry"
+            )
         for element in root.iter():
             page_index = element.get("page_index")
             bbox = element.get("bbox")
@@ -792,7 +831,15 @@ def _validate_translation_layer(
     coverage = layer / "coverage.xml"
     furniture = layer / "furnitures.xml"
     if furniture.exists():
+        if not paths.furnitures.is_file():
+            raise ValueError(f"translation {translation.id} furniture has no source")
         _validate_furnitures(furniture, page_sizes, toc_ids)
+        if _xml_structure(_require_xml_root(furniture, "furnitures")) != _xml_structure(
+            _require_xml_root(paths.furnitures, "furnitures")
+        ):
+            raise ValueError(
+                f"translation {translation.id} furniture does not preserve source structure"
+            )
     _validate_translation(
         coverage, furniture, narrative_identities, anchored_identities,
     )

@@ -617,7 +617,7 @@ class TestAsyncAPI(unittest.IsolatedAsyncioTestCase):
                 "body", 0,
                 [SourceTextFragment(1, 1, (1, 1, 5, 5), ["original"])],
             )])
-            save_xml(encode(chapter), root / "source" / "chapters" / "chapter_1.xml")
+            save_xml(encode(chapter), root / "source" / "chapters" / "chapter_head.xml")
             source._validate()
             translator = _AsyncXMLTranslator()
             target = await AsyncPDFCraft().translate_extraction(
@@ -630,7 +630,7 @@ class TestAsyncAPI(unittest.IsolatedAsyncioTestCase):
                 translation_id = (await AsyncPDFCraft().list_translations(target))[0].id
                 self.assertIn(
                     "async:original",
-                    (paths.translations / translation_id / "chapters/chapter_1.xml").read_text(
+                    (paths.translations / translation_id / "chapters/chapter_head.xml").read_text(
                         encoding="utf-8"
                     ),
                 )
@@ -643,7 +643,7 @@ class TestAsyncAPI(unittest.IsolatedAsyncioTestCase):
                 "body", 0,
                 [SourceTextFragment(1, 1, (1, 1, 5, 5), ["original"])],
             )])
-            save_xml(encode(chapter), root / "source" / "chapters" / "chapter_1.xml")
+            save_xml(encode(chapter), root / "source" / "chapters" / "chapter_head.xml")
             source._validate()
             transformer = _AsyncChapterTransformer()
             target = await AsyncPDFCraft().translate_extraction(
@@ -654,7 +654,7 @@ class TestAsyncAPI(unittest.IsolatedAsyncioTestCase):
                 translation_id = (await AsyncPDFCraft().list_translations(target))[0].id
                 self.assertIn(
                     "native async extension",
-                    (paths.translations / translation_id / "chapters/chapter_1.xml").read_text(
+                    (paths.translations / translation_id / "chapters/chapter_head.xml").read_text(
                         encoding="utf-8"
                     ),
                 )

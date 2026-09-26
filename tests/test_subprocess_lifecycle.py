@@ -335,7 +335,7 @@ def _patch_fixture(root: Path):
         "body", 0,
         [SourceTextFragment(1, 1, (5, 40, 80, 60), ["Translated text"])],
     )])
-    save_xml(encode(chapter), extraction_root / "chapters" / "chapter_1.xml")
+    save_xml(encode(chapter), extraction_root / "chapters" / "chapter_head.xml")
     (extraction_root / "translation.xml").write_text(
         "<translation><narrative><paragraph chapter_id='head' page_index='1' "
         "order='1' state='translated'/></narrative></translation>",

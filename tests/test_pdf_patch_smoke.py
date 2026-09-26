@@ -44,7 +44,7 @@ class TestPDFPatchSmoke(unittest.TestCase):
                 SourceTextFragment(1, 1, (85, 270, 785, 303), ["source first line "]),
                 SourceTextFragment(1, 2, (85, 309, 785, 342), ["source second line"]),
             ])])
-            (extraction_root / "chapters/chapter_1.xml").write_text(
+            (extraction_root / "chapters/chapter_head.xml").write_text(
                 '<?xml version="1.0" encoding="UTF-8"?>\n'
                 + tostring(encode(chapter), encoding="unicode")
             )
@@ -56,7 +56,7 @@ class TestPDFPatchSmoke(unittest.TestCase):
             assert isinstance(layout, TextFlowItem)
             layout.children[0].content = [translated]
             layout.children[1].content = []
-            (extraction_root / "chapters/chapter_1.xml").write_text(
+            (extraction_root / "chapters/chapter_head.xml").write_text(
                 '<?xml version="1.0" encoding="UTF-8"?>\n'
                 + tostring(encode(chapter), encoding="unicode")
             )
@@ -134,7 +134,7 @@ class TestPDFPatchSmoke(unittest.TestCase):
             chapter = Chapter(None, -1, [TextFlowItem("body", 0, [
                 SourceTextFragment(1, 0, bbox, [source_text]),
             ])])
-            (extraction_root / "chapters/chapter_1.xml").write_text(
+            (extraction_root / "chapters/chapter_head.xml").write_text(
                 '<?xml version="1.0" encoding="UTF-8"?>\n'
                 + tostring(encode(chapter), encoding="unicode")
             )
@@ -142,7 +142,7 @@ class TestPDFPatchSmoke(unittest.TestCase):
             layout = chapter.flow_items[0]
             assert isinstance(layout, TextFlowItem)
             layout.children[0].content = [translated]
-            (extraction_root / "chapters/chapter_1.xml").write_text(
+            (extraction_root / "chapters/chapter_head.xml").write_text(
                 '<?xml version="1.0" encoding="UTF-8"?>\n' + tostring(encode(chapter), encoding="unicode")
             )
             (extraction_root / "translation.xml").write_text(
@@ -177,7 +177,7 @@ class TestPDFPatchSmoke(unittest.TestCase):
                 SourceTextFragment(1, 1, (576, 904, 4184, 1022), [source_lines[0]]),
                 SourceTextFragment(1, 2, (568, 1096, 4184, 1214), [source_lines[1]]),
             ])])
-            (extraction_root / "chapters/chapter_1.xml").write_text(
+            (extraction_root / "chapters/chapter_head.xml").write_text(
                 '<?xml version="1.0" encoding="UTF-8"?>\n'
                 + tostring(encode(chapter), encoding="unicode")
             )
@@ -186,7 +186,7 @@ class TestPDFPatchSmoke(unittest.TestCase):
             assert isinstance(layout, TextFlowItem)
             layout.children[0].content = [translated]
             layout.children[1].content = []
-            (extraction_root / "chapters/chapter_1.xml").write_text(
+            (extraction_root / "chapters/chapter_head.xml").write_text(
                 '<?xml version="1.0" encoding="UTF-8"?>\n' + tostring(encode(chapter), encoding="unicode")
             )
             (extraction_root / "translation.xml").write_text(
