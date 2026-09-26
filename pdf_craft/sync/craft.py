@@ -7,7 +7,7 @@ from typing import Literal
 from epub_generator import BookMeta, LaTeXRender, TableRender
 
 from ..craft import AsyncPDFCraft, ExtractionOptions, PDFOptions
-from ..document import PDFCraftExtraction
+from ..document import PDFCraftExtraction, TranslationInfo
 from ..error import IgnoreFillErrorsChecker
 from ..metering import AbortedCheck, OCRTokensMetering
 from ..runtime import run_sync
@@ -38,6 +38,11 @@ class PDFCraft:
         self, extraction: PDFCraftExtraction | PathLike | str, path: PathLike | str,
     ) -> PDFCraftExtraction:
         return run_sync(self._async_craft.export_extraction(extraction, path))
+
+    def list_translations(
+        self, extraction: PDFCraftExtraction | PathLike | str,
+    ) -> tuple[TranslationInfo, ...]:
+        return run_sync(self._async_craft.list_translations(extraction))
 
     def extract_pdf(
         self, source: PathLike | str, extraction_path: PathLike | str,
@@ -71,11 +76,14 @@ class PDFCraft:
         translator: ChapterTransformer | SyncChapterTransformer,
         *, submit: SubmitKind = SubmitKind.REPLACE,
         with_furniture: bool = False,
+        translation_id: str | None = None,
+        target_language: str | None = None,
         on_translation_event: Callable[[TranslationEvent], None] | None = None,
     ) -> PDFCraftExtraction:
         return run_sync(self._async_craft.translate_extraction(
             extraction, output_path, translator, submit=submit,
             with_furniture=with_furniture,
+            translation_id=translation_id, target_language=target_language,
             on_translation_event=on_translation_event,
         ))
 

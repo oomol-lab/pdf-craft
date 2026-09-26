@@ -18,6 +18,7 @@ from pdf_craft.extractor import PDFExtractor
 from pdf_craft.extractor.chapter.chapter import SourceTextFragment, Chapter, TextFlowItem, encode
 from pdf_craft.common import save_xml
 from pdf_craft.transformer import ChapterExtractionTransformer, ChapterXMLTransformer, SubmitKind
+from pdf_craft.transformer.package import FurnitureExtractionTransformer
 from tests.extraction_helpers import make_extraction
 
 
@@ -80,13 +81,18 @@ class TestPDFCraft(unittest.TestCase):
             source = _source_extraction(root / "source")
             target_path = root / "target.pcex"
 
-            target = PDFCraft().translate_extraction(source, target_path, _Upper())
+            target = PDFCraft().translate_extraction(
+                source, target_path, _Upper(),
+                translation_id="test-en", target_language="en",
+            )
 
             self.assertTrue(target_path.is_file())
             self.assertEqual(target._page_pixel_sizes(), {1: (10, 10)})
             with target._materialize() as paths:
-                self.assertIn("translated", (paths.chapters / "chapter_1.xml").read_text())
-                coverage = fromstring(paths.translation.read_text(encoding="utf-8"))
+                self.assertIn("original", (paths.chapters / "chapter_1.xml").read_text())
+                layer = paths.translations / "test-en"
+                self.assertIn("translated", (layer / "chapters/chapter_1.xml").read_text())
+                coverage = fromstring((layer / "coverage.xml").read_text(encoding="utf-8"))
                 paragraph = coverage.find("narrative/paragraph")
                 self.assertIsNotNone(paragraph)
                 assert paragraph is not None
@@ -112,17 +118,23 @@ class TestPDFCraft(unittest.TestCase):
 
             without = PDFCraft().translate_extraction(
                 source, root / "without.pcex", transformer,
+                translation_id="without", target_language="en",
             )
             with without._materialize() as paths:
-                self.assertIsNone(fromstring(paths.translation.read_text(encoding="utf-8")).find("furnitures"))
+                layer = paths.translations / "without"
+                self.assertIsNone(fromstring((layer / "coverage.xml").read_text(encoding="utf-8")).find("furnitures"))
                 self.assertIn("Header", paths.furnitures.read_text(encoding="utf-8"))
+                self.assertFalse((layer / "furnitures.xml").exists())
 
             with_furniture = PDFCraft().translate_extraction(
                 source, root / "with.pcex", transformer, with_furniture=True,
+                translation_id="with-en", target_language="en",
             )
             with with_furniture._materialize() as paths:
-                self.assertIn("translated:Header", paths.furnitures.read_text(encoding="utf-8"))
-                coverage = fromstring(paths.translation.read_text(encoding="utf-8"))
+                self.assertIn("Header", paths.furnitures.read_text(encoding="utf-8"))
+                layer = paths.translations / "with-en"
+                self.assertIn("translated:Header", (layer / "furnitures.xml").read_text(encoding="utf-8"))
+                coverage = fromstring((layer / "coverage.xml").read_text(encoding="utf-8"))
                 position = coverage.find("furnitures/position")
                 self.assertIsNotNone(position)
                 assert position is not None
@@ -140,7 +152,8 @@ class TestPDFCraft(unittest.TestCase):
 
             with translated._materialize() as paths:
                 self.assertFalse(paths.furnitures.exists())
-                self.assertTrue(paths.translation.exists())
+                info = PDFCraft().list_translations(translated)[0]
+                self.assertTrue((paths.translations / info.id / "coverage.xml").exists())
 
     def test_translate_extraction_requires_xml_adapter_for_furniture(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -152,20 +165,25 @@ class TestPDFCraft(unittest.TestCase):
                     source, root / "target.pcex", _Upper(), with_furniture=True,
                 )
 
-    def test_translate_pdf_forwards_with_furniture(self):
+    def test_translate_pdf_uses_materialized_translation_for_furniture(self):
         with tempfile.TemporaryDirectory() as directory:
             extraction = _source_extraction(Path(directory) / "source")
             craft = PDFCraft()
             with patch.object(
-                AsyncPDFCraft, "translate_extraction",
+                AsyncPDFCraft, "_translate_to_workspace",
                 new_callable=AsyncMock, return_value=extraction,
             ) as translate, patch.object(
+                FurnitureExtractionTransformer, "_transform_to_workspace_async",
+                new_callable=AsyncMock, return_value=extraction,
+            ) as furniture, patch.object(
                 AsyncPDFCraft, "patch_pdf_with_extraction", new_callable=AsyncMock,
             ) as patch_pdf:
                 craft.translate_pdf(
-                    "source.pdf", extraction, "target.pdf", _Upper(), with_furniture=True,
+                    "source.pdf", extraction, "target.pdf",
+                    ChapterXMLTransformer(_PrefixXMLTranslator()), with_furniture=True,
                 )
-            self.assertTrue(translate.call_args.kwargs["with_furniture"])
+            translate.assert_awaited_once()
+            furniture.assert_awaited_once()
             patch_pdf.assert_awaited_once()
 
     def test_patch_pdf_with_extraction_delegates_to_pdf_patch_pipeline(self):

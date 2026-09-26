@@ -1,7 +1,7 @@
 import asyncio
 import inspect
 from collections.abc import Callable
-from typing import Protocol, cast
+from typing import Any, Protocol, cast
 from xml.etree.ElementTree import Element
 
 from pdf_craft.extractor.chapter.chapter import (
@@ -33,6 +33,31 @@ class AsyncXMLTaskTranslator(Protocol):
     ) -> tuple[Element, Chapter]: ...
 
 
+def _metadata_element(
+    metadata: dict[str, Any],
+) -> tuple[Element, list[tuple[str, str, int | None]]]:
+    root = Element("metadata")
+    fields: list[tuple[str, str, int | None]] = []
+    for key in (
+        "title", "original_title", "description", "publisher", "edition", "rights",
+    ):
+        value = metadata.get(key)
+        if isinstance(value, str) and value.strip():
+            child = Element(key)
+            child.text = value
+            root.append(child)
+            fields.append((key, key, None))
+    subjects = metadata.get("subjects")
+    if isinstance(subjects, list):
+        for index, value in enumerate(subjects):
+            if isinstance(value, str) and value.strip():
+                child = Element("subject")
+                child.text = value
+                root.append(child)
+                fields.append(("subject", "subjects", index))
+    return root, fields
+
+
 class ChapterXMLTransformer:
     """Adapt a format-neutral XML translator to the Chapter transformer protocol."""
     def __init__(
@@ -47,6 +72,14 @@ class ChapterXMLTransformer:
     def mode(self) -> SubmitKind:
         return self._mode
 
+    @property
+    def target_language(self) -> str | None:
+        """Target language advertised by the underlying translation runtime."""
+        value = getattr(self._translator, "target_language", None)
+        if value is None:
+            value = getattr(self._translator, "_target_language", None)
+        return value if isinstance(value, str) else None
+
     def with_mode(self, mode: SubmitKind) -> "ChapterXMLTransformer":
         """Return a transformer using the requested XML submission mode."""
         return ChapterXMLTransformer(self._translator, mode)
@@ -56,6 +89,45 @@ class ChapterXMLTransformer:
         return FurnitureXMLTransformer(
             cast(FurnitureXMLTaskTranslator, self._translator), self._mode,
         )
+
+    async def translate_metadata(self, metadata: dict[str, Any]) -> dict[str, Any]:
+        """Translate human-readable bibliographic fields into a layer overlay."""
+        element, fields = _metadata_element(metadata)
+        if not fields:
+            return {}
+        task = TranslationTask(
+            element=element,
+            action=SubmitKind.REPLACE,
+            payload=Chapter(None, -1, []),
+            item_kind=TranslationItemKind.METADATA,
+            item_id="metadata",
+            character_count=sum(len(child.text or "") for child in element),
+        )
+        if inspect.iscoroutinefunction(self._translator.translate_element):
+            translated, _ = await cast(AsyncXMLTaskTranslator, self._translator).translate_element(
+                task, emit_scope_events=False, emit_item_events=False,
+            )
+        else:
+            translated, _ = await TRANSLATION_DOMAIN.run(
+                cast(XMLTaskTranslator, self._translator).translate_element,
+                task,
+                emit_scope_events=False,
+                emit_item_events=False,
+            )
+        children = list(translated)
+        if len(children) != len(fields) or any(
+            child.tag != tag for child, (tag, _, _) in zip(children, fields)
+        ):
+            raise ValueError("translated metadata does not preserve field structure")
+        overlay: dict[str, Any] = {}
+        for child, (_, key, index) in zip(children, fields):
+            value = child.text or ""
+            if index is None:
+                overlay[key] = value
+            else:
+                values = overlay.setdefault(key, [])
+                values.append(value)
+        return overlay
 
     def _transform_blocking(
         self,

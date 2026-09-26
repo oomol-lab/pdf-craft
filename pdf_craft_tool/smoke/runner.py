@@ -26,6 +26,7 @@ from pdf_craft import (
     XMLTranslator,
 )
 from pdf_craft.extractor.chapter.chapter import SourceTextFragment, BlockMember, Chapter, HTMLTag, TextFlowItem
+from pdf_craft.runtime import run_sync
 
 from .assets import SmokeAsset, discover_assets
 from .checks import check_epub, check_markdown, check_package, check_pdf_patch_geometry
@@ -410,15 +411,17 @@ def _translate_package(
     run_path: Path,
     transformer,
 ):
-    """Run one smoke package translation through the public facade method."""
+    """Materialize a translated package for renderers that do not select layers yet."""
     if not isinstance(transformer, ChapterExtractionTransformer):
         raise TypeError("smoke extraction routes require a ChapterExtractionTransformer")
-    return craft.translate_extraction(
-        package,
-        run_path / "translated.pcex",
-        transformer.chapter_transformer,
-        submit=transformer.mode,
+    del craft
+    chapter_transformer = transformer.chapter_transformer
+    if hasattr(chapter_transformer, "with_mode"):
+        chapter_transformer = chapter_transformer.with_mode(SubmitKind.REPLACE)
+    render_transformer = ChapterExtractionTransformer(
+        chapter_transformer, mode=SubmitKind.REPLACE,
     )
+    return run_sync(render_transformer.transform(package, run_path / "translated.pcex"))
 
 
 def _xml_translation_transformer(run: SmokeRun, run_path: Path) -> ChapterXMLTransformer | None:
