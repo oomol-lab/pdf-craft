@@ -120,12 +120,13 @@ translated = craft.translate_extraction(
     "work/book.zh.pcex",
     translator,
     submit=SubmitKind.REPLACE,
+    translation_id="zh-main",
+    target_language="zh",
 )
-craft.render_markdown(translated, "book.zh.md", assets_path="output/assets")
-craft.render_epub(translated, "book.zh.epub", lan="zh")
+print(craft.list_translations(translated))
 ```
 
-`extract_pdf()` deliberately requires a `.pcex` path: its result is meant to survive after the method returns. `translate_extraction()` creates a new archive at `output_path`; it does not overwrite the source extraction. Rendering, translation, and PDF patching accept either the returned object or a `.pcex` path, but not an ordinary directory.
+`extract_pdf()` deliberately requires a `.pcex` path: its result is meant to survive after the method returns. `translate_extraction()` creates a new archive at `output_path`; it does not overwrite the source extraction or source layer. It appends an independently identified replacement-text layer. Current Markdown/EPUB/PDF renderers do not yet expose layer selection; rendering that translation is a separate follow-up capability. One-shot conversions and `translate_pdf()` retain their existing behavior through internal materialized translations.
 
 ## Translate and patch a PDF
 

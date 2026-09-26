@@ -101,6 +101,10 @@ class XMLTranslator:
         self._max_group_score = max_group_score
         self._stream_mapper: XMLStreamMapper | None = None
 
+    @property
+    def target_language(self) -> str:
+        return self._target_language
+
     def _stream_mapper_sync(self) -> XMLStreamMapper:
         if self._stream_mapper is None:
             self._stream_mapper = XMLStreamMapper(

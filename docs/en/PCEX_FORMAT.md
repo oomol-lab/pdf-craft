@@ -1,6 +1,6 @@
 # PDFCraftExtraction (`.pcex`) Format Reference
 
-This document is the English-language reference for PDFCraftExtraction v3. It describes the public intermediate format that the current pdf-craft implementation can produce, read, and validate, as well as how each member is used by downstream rendering, translation, and PDF patching workflows.
+This document is the English-language reference for PDFCraftExtraction v4. It describes the public intermediate format that the current pdf-craft implementation can produce, read, and validate, as well as how each member is used by downstream rendering, translation, and PDF patching workflows.
 
 This reference distinguishes a *canonical artifact*—a `.pcex` file written by pdf-craft—from the *current validator* invoked by the Craft façades when opening a handle. Canonical artifacts preserve all relationships described here. The current validator does not enforce every semantic relationship. The legacy v2 chapter examples below remain accepted reader input only; canonical writers use the v3 flow described above.
 
@@ -87,7 +87,14 @@ book.pcex                       # ZIP archive using Deflate compression
 ├── toc.xml                     # optional: hierarchical table of contents
 ├── cover.png                   # optional: cover image
 ├── furnitures.xml              # optional: page-furniture patterns and sections
-└── translation.xml             # optional: Narrative, furniture, and asset-text coverage
+├── translation.xml             # optional legacy materialized-translation coverage
+└── translations/               # optional: zero or more independent translations
+    ├── index.json
+    └── <translation-id>/
+        ├── chapters/
+        ├── metadata.json
+        ├── coverage.xml
+        └── furnitures.xml       # optional
 ```
 
 The archive root and its two subdirectories may not contain members other than those shown above. Member names are case-sensitive. The `.pcex` suffix check on the public file path is case-insensitive.
@@ -102,10 +109,11 @@ The archive root and its two subdirectories may not contain members other than t
 | `cover.png` | No | Cover image | Markdown and EPUB renderers |
 | `furnitures.xml` | No | Page-furniture patterns and page-local sections | Furniture translation and PDF patching |
 | `translation.xml` | No | `translated` / `preserved` coverage for Narrative, furniture, and image/table text units | Translation stages and PDF patching |
+| `translations/` | No | Independent translated chapter variants, metadata overlays, and coverage keyed by opaque ID | Translation inspection and future render selection |
 
 JSON and XML written by pdf-craft use UTF-8. XML files include an `<?xml version="1.0" encoding="UTF-8"?>` declaration. Paths inside the ZIP use `/` as their separator.
 
-Version 3 has no `document.json` or `source-map.json`. Document metadata is centralized in `manifest.json`, page geometry in `pages.xml`, and the source-PDF position of each content block is stored directly in the chapter XML.
+Version 4 has no `document.json` or `source-map.json`. Document metadata is centralized in `manifest.json`, page geometry in `pages.xml`, and the source-PDF position of each content block is stored directly in the chapter XML.
 
 ## Creating, saving, and resuming an extraction
 
@@ -189,11 +197,21 @@ craft.render_markdown("book.pcex", "book.md", assets_path="book-assets")
 craft.render_epub("book.pcex", "book.epub")
 
 translated = craft.translate_extraction(
-    "book.pcex", "book.zh.pcex", translator, with_furniture=True
+    "book.pcex", "book.zh.pcex", translator, with_furniture=True,
+    translation_id="zh-main", target_language="zh",
 )
+translations = craft.list_translations(translated)
 ```
 
-`translate_extraction()` creates a new `.pcex`. It preserves the source archive's manifest, page geometry, TOC, cover, and assets, and rewrites the chapter XML processed by the transformer. The output path must end in `.pcex` and must not already exist. Its `with_furniture` argument defaults to `False`; when `True` it requires `ChapterXMLTransformer` and, if the source contains `furnitures.xml`, the same operation first translates NarrativeFlow, then resolves furniture linked by `toc_id`, translates reusable pattern positions once and unbound sections in page scope, and records patch eligibility in `translation.xml`. A package without `furnitures.xml` safely remains Narrative-only.
+`translate_extraction()` creates a new `.pcex` without replacing the source layer. It appends one entry under `translations/`; callers may supply a 4-32 character opaque `translation_id`, or let pdf-craft generate an eight-hex-character ID. IDs are unique within the file, while `target_language` is metadata, so several IDs may use the same language. The layer contains a complete translated chapter variant, a metadata overlay whose `language` is the target language, and independent coverage. `with_furniture=True` additionally stores translated furniture inside that layer. Image/table asset fields remain byte-for-byte source content and receive no unsupported or untranslated marker.
+
+Translation layers contain replacement text only. `SubmitKind.APPEND_*` is rejected here because bilingual versus replacement output is a later rendering choice. The current Markdown, EPUB, and PDF renderers do not yet select a translation layer; that selection is intentionally outside v4 translation creation. One-shot conversion and `translate_pdf()` continue to materialize a private translated view for their existing output behavior.
+
+### `translations/` identity and isolation
+
+`translations/index.json` contains exactly one `translations` array. Each item has exactly `id`, `target_language`, and ISO 8601 `created_at` fields. The ID must be 4-32 ASCII letters, digits, underscores, or hyphens, begin with a letter or digit, be unique in this file, and name the matching directory. Language is deliberately not an identity.
+
+Every layer has the same chapter filenames as the source. Correspondence uses existing PCEX identities: chapter identity, fragment `(page_index, source_order)`, paragraph first-fragment identity, reference `(page_index, order)` within its chapter, and image/table asset flow slot. A layer may change translated text but must not change those identities, page geometry, or image/table asset fields. `coverage.xml` uses the existing translation coverage schema and may refer only to source identities. Optional translated furniture retains `(pattern_id, position_id)` and `(page_index, det)` identities. `metadata.json` is a field-name overlay; it needs no artificial node IDs and must contain a `language` equal to the indexed target language.
 
 `translate_extraction()` treats an image/table asset nested in `<text>` as an
 opaque, self-closing anchor. Its title, content, and caption are not included
@@ -216,7 +234,7 @@ Variable folios are represented structurally rather than as the text of a reusab
 
 ```json
 {
-  "format_version": 3,
+  "format_version": 4,
   "producer": {
     "name": "pdf-craft",
     "version": "2.0.0"
@@ -245,12 +263,12 @@ The top-level value must be a JSON object. Unlisted top-level fields are not all
 
 | Field | Type | Required | Meaning and constraints |
 | --- | --- | --- | --- |
-| `format_version` | integer | Yes | The canonical value is `3`; readers also accept legacy v1/v2 archives. |
+| `format_version` | integer | Yes | The canonical value is `4`; readers also accept legacy v1/v2/v3 archives. |
 | `producer` | object | Yes | Identifies the software that created the archive; must contain exactly `name` and `version` |
 | `created_at` | string or null | No | Archive creation time; a string must be a parseable ISO 8601 datetime |
 | `document` | object | Yes | Document-level metadata; must contain exactly the fields in the next section |
 
-The canonical `format_version` value is the JSON number `3`. Readers retain v1/v2 support so existing extractions remain usable; unknown versions are rejected.
+The canonical `format_version` value is the JSON number `4`. Readers retain v1/v2/v3 support so existing extractions remain usable; unknown versions are rejected.
 
 When pdf-craft writes an archive, `producer.name` is always `pdf-craft`, and `producer.version` is the installed pdf-craft package version. It falls back to `unknown` when the installed version cannot be determined. The current validator permits other producers, but both `name` and `version` must be non-empty strings.
 
@@ -685,6 +703,6 @@ It cannot prove that the input PDF and extraction came from the same source file
 
 ## Version compatibility
 
-The current format version is `3`. The reader accepts canonical v3 archives and legacy `format_version: 1` / `2` archives; unknown versions are rejected. Historic readers do not understand the v3 flow schema.
+The current format version is `4`. The reader accepts canonical v4 archives and legacy `format_version: 1`, `2`, and `3` archives; unknown versions are rejected. v1/v2 chapters are normalized to the v3 flow schema when exported, while a v3 archive is upgraded without being interpreted as containing translation layers.
 
 Applications that only need downstream rendering or translation should open the archive through a Craft façade so version and integrity checks run. A ZIP that can merely be extracted is not necessarily a usable PDFCraftExtraction.

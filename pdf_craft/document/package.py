@@ -8,6 +8,7 @@ from importlib.metadata import PackageNotFoundError, version
 import json
 import os
 from pathlib import Path, PurePosixPath
+import re
 from tempfile import NamedTemporaryFile, TemporaryDirectory
 from typing import Any, Protocol
 from xml.etree import ElementTree
@@ -19,7 +20,7 @@ from ..common import indent, save_xml
 from ..runtime import IO_DOMAIN, run_atomic_cancellable
 
 
-FORMAT_VERSION = 3
+FORMAT_VERSION = 4
 EXTRACTION_SUFFIX = ".pcex"
 _MANIFEST_FIELDS = {"format_version", "producer", "created_at", "document"}
 _DOCUMENT_FIELDS_V1 = {
@@ -31,6 +32,16 @@ _DOCUMENT_FIELDS = {
     "editors", "translators", "publication_date", "edition", "subjects", "rights",
     "modified", "language",
 }
+_TRANSLATION_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9_-]{3,31}")
+
+
+def validate_translation_id(value: str) -> str:
+    """Validate a file-local opaque translation identifier."""
+    if _TRANSLATION_ID.fullmatch(value) is None:
+        raise ValueError(
+            "translation_id must be 4-32 ASCII letters, digits, underscores, or hyphens"
+        )
+    return value
 
 
 @dataclass(frozen=True)
@@ -63,6 +74,15 @@ class DocumentMetadata:
 
 
 @dataclass(frozen=True)
+class TranslationInfo:
+    """One independently selectable translation stored in a PCEX artifact."""
+
+    id: str
+    target_language: str
+    created_at: datetime
+
+
+@dataclass(frozen=True)
 class ExtractionPaths:
     """Filesystem view used only while an extraction is materialized."""
 
@@ -75,6 +95,7 @@ class ExtractionPaths:
     cover: Path
     furnitures: Path
     translation: Path
+    translations: Path
 
     @classmethod
     def at(cls, root: Path) -> "ExtractionPaths":
@@ -88,6 +109,7 @@ class ExtractionPaths:
             cover=root / "cover.png",
             furnitures=root / "furnitures.xml",
             translation=root / "translation.xml",
+            translations=root / "translations",
         )
 
 
@@ -224,6 +246,10 @@ class PDFCraftExtraction:
         with self._materialize() as paths:
             return dict(_read_manifest(paths.manifest)["document"])
 
+    def _translations(self) -> tuple[TranslationInfo, ...]:
+        with self._materialize() as paths:
+            return _read_translation_index(paths.translations)
+
 
 def _book_meta(document: dict[str, Any]) -> BookMeta | None:
     if not document:
@@ -331,6 +357,8 @@ def _validate_workspace(paths: ExtractionPaths, *, require_toc: bool = False) ->
         stack = list(toc.content)
         while stack:
             item = stack.pop()
+            if item.id in toc_ids:
+                raise ValueError(f"toc.xml contains duplicate item id {item.id}")
             toc_ids.add(item.id)
             stack.extend(item.children)
     if paths.furnitures.exists():
@@ -342,6 +370,8 @@ def _validate_workspace(paths: ExtractionPaths, *, require_toc: bool = False) ->
     chapter_paths = list(paths.chapters.glob("chapter_*.xml"))
     narrative_identities: set[tuple[str, str, str]] = set()
     anchored_identities: set[tuple[str, int, int]] = set()
+    chapter_structures: dict[str, tuple[Any, ...]] = {}
+    seen_chapter_ids: set[str] = set()
     for path in chapter_paths:
         if path.name != "chapter_head.xml":
             suffix = path.stem.removeprefix("chapter_")
@@ -352,27 +382,60 @@ def _validate_workspace(paths: ExtractionPaths, *, require_toc: bool = False) ->
             chapter = decode_chapter(root, allow_legacy=manifest["format_version"] in {1, 2})
         except ValueError as error:
             raise ValueError(f"invalid chapter schema in {path.name}: {error}") from error
+        chapter_identity = str(chapter.id) if chapter.id is not None else "head"
+        expected_identity = (
+            "head" if path.name == "chapter_head.xml"
+            else path.stem.removeprefix("chapter_")
+        )
+        if chapter_identity != expected_identity:
+            raise ValueError(f"{path.name} does not match its chapter id")
+        if chapter_identity in seen_chapter_ids:
+            raise ValueError(f"{path.name} has a duplicate chapter id")
+        seen_chapter_ids.add(chapter_identity)
+        fragment_identities: set[tuple[str, str]] = set()
+        for fragment in root.iter("fragment"):
+            identity = (fragment.get("page_index", ""), fragment.get("source_order", ""))
+            if identity in fragment_identities:
+                raise ValueError(f"{path.name} contains duplicate fragment identity {identity}")
+            fragment_identities.add(identity)
+        reference_identities: set[tuple[str, str]] = set()
+        references = root.find("references")
+        for reference in references or []:
+            raw_identity = reference.get("id", "")
+            parts = raw_identity.split("-", 1)
+            identity = (parts[0], parts[1]) if len(parts) == 2 else (raw_identity, "")
+            if identity in reference_identities:
+                raise ValueError(f"{path.name} contains duplicate reference identity {identity}")
+            reference_identities.add(identity)
+        chapter_structures[path.name] = _chapter_structure(root)
         for item in chapter.flow_items:
             if not isinstance(item, TextFlowItem) or item.role not in {"body", "heading"}:
                 continue
             first = next((child for child in item.children if isinstance(child, SourceTextFragment)), None)
             if first is None:
                 continue
-            narrative_identities.add((
+            identity = (
                 str(chapter.id) if chapter.id is not None else "head",
                 str(first.page_index),
                 str(first.source_order),
-            ))
-        chapter_identity = str(chapter.id) if chapter.id is not None else "head"
+            )
+            if identity in narrative_identities:
+                raise ValueError(f"{path.name} contains duplicate narrative paragraph identity")
+            narrative_identities.add(identity)
         for flow_index, item in enumerate(chapter.flow_items):
             if isinstance(item, TextFlowItem):
-                anchored_identities.update(
+                identities = {
                     (chapter_identity, flow_index, child_index)
                     for child_index, child in enumerate(item.children)
                     if isinstance(child, SourceAsset) and child.ref in {"image", "table"}
-                )
+                }
             elif isinstance(item, StandaloneAsset) and item.asset.ref in {"image", "table"}:
-                anchored_identities.add((chapter_identity, flow_index, -1))
+                identities = {(chapter_identity, flow_index, -1)}
+            else:
+                identities = set()
+            if identities & anchored_identities:
+                raise ValueError(f"{path.name} contains duplicate anchored asset identity")
+            anchored_identities.update(identities)
         for element in root.iter():
             page_index = element.get("page_index")
             det = element.get("bbox", element.get("det"))
@@ -392,9 +455,20 @@ def _validate_workspace(paths: ExtractionPaths, *, require_toc: bool = False) ->
                     raise ValueError(f"invalid asset hash in {path.name}: {asset_hash}")
                 if not (paths.assets / f"{asset_hash}.png").is_file():
                     raise ValueError(f"{path.name} references missing asset: {asset_hash}.png")
+    source_chapter_ids = {int(value) for value in seen_chapter_ids if value != "head"}
+    if paths.toc.exists() and source_chapter_ids != toc_ids:
+        raise ValueError("chapter IDs do not match toc.xml item IDs")
     if paths.translation.exists():
         _validate_translation(
             paths.translation, paths.furnitures, narrative_identities, anchored_identities,
+        )
+    translations = _read_translation_index(paths.translations)
+    if translations and manifest["format_version"] != FORMAT_VERSION:
+        raise ValueError("translation layers require PCEX format version 4")
+    for translation in translations:
+        _validate_translation_layer(
+            paths, translation, page_sizes, toc_ids, chapter_structures,
+            narrative_identities, anchored_identities,
         )
 
 
@@ -408,7 +482,7 @@ def _read_manifest(path: Path) -> dict[str, Any]:
     if not isinstance(payload, dict) or set(payload) - _MANIFEST_FIELDS:
         raise ValueError("manifest.json contains unsupported fields")
     format_version = payload.get("format_version")
-    if format_version not in {1, 2, FORMAT_VERSION}:
+    if format_version not in {1, 2, 3, FORMAT_VERSION}:
         raise ValueError("unsupported PDFCraftExtraction format version")
     producer = payload.get("producer")
     if not isinstance(producer, dict) or set(producer) != {"name", "version"} or not all(
@@ -451,6 +525,58 @@ def _read_manifest(path: Path) -> dict[str, Any]:
             raise ValueError("manifest.json document.modified must be ISO 8601") from error
     payload["document"] = document
     return payload
+
+
+def _read_translation_index(path: Path) -> tuple[TranslationInfo, ...]:
+    if not path.exists():
+        return ()
+    if not path.is_dir() or path.is_symlink():
+        raise ValueError("translations must be a directory")
+    index_path = path / "index.json"
+    if not index_path.is_file():
+        raise ValueError("translations/index.json is missing")
+    try:
+        payload = json.loads(index_path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as error:
+        raise ValueError("invalid translations/index.json") from error
+    if not isinstance(payload, dict) or set(payload) != {"translations"}:
+        raise ValueError("translations/index.json has unsupported fields")
+    entries = payload["translations"]
+    if not isinstance(entries, list):
+        raise ValueError("translations/index.json translations must be an array")
+    result: list[TranslationInfo] = []
+    seen: set[str] = set()
+    for entry in entries:
+        if not isinstance(entry, dict) or set(entry) != {
+            "id", "target_language", "created_at",
+        }:
+            raise ValueError("translations/index.json has an invalid entry")
+        translation_id = entry["id"]
+        language = entry["target_language"]
+        created_at = entry["created_at"]
+        if (
+            not isinstance(translation_id, str)
+            or _TRANSLATION_ID.fullmatch(translation_id) is None
+            or translation_id in seen
+        ):
+            raise ValueError("translations/index.json has an invalid or duplicate id")
+        if not isinstance(language, str) or not language.strip():
+            raise ValueError("translation target_language must be a non-empty string")
+        if not isinstance(created_at, str):
+            raise ValueError("translation created_at must be ISO 8601")
+        try:
+            timestamp = datetime.fromisoformat(created_at)
+        except ValueError as error:
+            raise ValueError("translation created_at must be ISO 8601") from error
+        seen.add(translation_id)
+        result.append(TranslationInfo(translation_id, language, timestamp))
+    member_ids = {
+        member.name for member in path.iterdir()
+        if member.name != "index.json"
+    }
+    if member_ids != seen:
+        raise ValueError("translation directories do not match translations/index.json")
+    return tuple(result)
 
 
 def _read_pages(path: Path) -> tuple[int, dict[int, tuple[int, int]]]:
@@ -516,6 +642,7 @@ def _validate_furnitures(
                 and folio_offset is not None
                 and folio_offset.lstrip("-").isdigit()
             )
+            position_identity = (pattern_id, position_id)
             if (
                 position.tag != "position"
                 or not set(position.attrib).issubset(allowed_attributes)
@@ -530,10 +657,12 @@ def _validate_furnitures(
                 or (not has_folio and not (position.text or "").strip())
                 or (has_folio and (position.text or "").strip())
                 or not _valid_toc_id(toc_id, toc_ids)
+                or position_identity in positions
             ):
                 raise ValueError("furnitures.xml has invalid position")
-            positions.add((pattern_id, position_id))
+            positions.add(position_identity)
     seen_pages: set[int] = set()
+    sections: set[tuple[int, str]] = set()
     for page in root.find("pages") or []:
         if page.tag != "page" or set(page.attrib) != {"index"}:
             raise ValueError("furnitures.xml has invalid page")
@@ -548,6 +677,10 @@ def _validate_furnitures(
             if section.tag != "section" or "det" not in section.attrib:
                 raise ValueError("furnitures.xml has invalid section")
             _validate_bbox(section.attrib["det"], page_sizes[index], path.name)
+            section_identity = (index, section.attrib["det"])
+            if section_identity in sections:
+                raise ValueError("furnitures.xml has duplicate section identity")
+            sections.add(section_identity)
             if set(section.attrib).issubset({"det", "toc_id"}):
                 toc_id = section.get("toc_id")
                 if not _valid_toc_id(toc_id, toc_ids):
@@ -567,6 +700,149 @@ def _valid_toc_id(toc_id: str | None, toc_ids: set[int]) -> bool:
     if toc_id is None:
         return True
     return toc_id.isdigit() and int(toc_id) in toc_ids
+
+
+def _chapter_structure(root: ElementTree.Element) -> tuple[Any, ...]:
+    """Return ordered source identities and geometry, excluding translatable text."""
+    flow = root.find("flow")
+    references = root.find("references")
+    return (
+        tuple(sorted(root.attrib.items())),
+        tuple(_flow_item_structure(item) for item in flow or []),
+        tuple(
+            (
+                reference.get("id", ""),
+                reference.findtext("mark", ""),
+                tuple(
+                    _flow_item_structure(item)
+                    for item in (reference.find("flow") or [])
+                ),
+            )
+            for reference in references or []
+        ),
+    )
+
+
+def _flow_item_structure(element: ElementTree.Element) -> tuple[Any, ...]:
+    if element.tag == "text":
+        children: list[tuple[Any, ...]] = []
+        for child in element:
+            if child.tag == "fragment":
+                children.append(("fragment", tuple(sorted(child.attrib.items()))))
+            else:
+                children.append(_asset_structure(child))
+        return ("text", tuple(sorted(element.attrib.items())), tuple(children))
+    asset = next(iter(element), None)
+    return (
+        element.tag,
+        _asset_structure(asset) if asset is not None else ("missing-asset",),
+    )
+
+
+def _asset_structure(element: ElementTree.Element) -> tuple[Any, ...]:
+    if element.get("ref") in {"image", "table"}:
+        return ("immutable-asset", ElementTree.tostring(element, encoding="utf-8"))
+    return ("asset", tuple(sorted(element.attrib.items())))
+
+
+def _xml_structure(element: ElementTree.Element) -> tuple[Any, ...]:
+    """Return XML tag/attribute/child structure while ignoring translated text."""
+    return (
+        element.tag,
+        tuple(sorted(element.attrib.items())),
+        tuple(_xml_structure(child) for child in element),
+    )
+
+
+def _validate_translation_layer(
+    paths: ExtractionPaths,
+    translation: TranslationInfo,
+    page_sizes: dict[int, tuple[int, int]],
+    toc_ids: set[int],
+    source_structures: dict[
+        str, tuple[Any, ...]
+    ],
+    narrative_identities: set[tuple[str, str, str]],
+    anchored_identities: set[tuple[str, int, int]],
+) -> None:
+    from ..extractor.chapter.chapter import decode as decode_chapter
+
+    layer = paths.translations / translation.id
+    if not layer.is_dir() or layer.is_symlink():
+        raise ValueError(f"translation {translation.id} is not a directory")
+    allowed = {"chapters", "metadata.json", "coverage.xml", "furnitures.xml"}
+    if any(member.name not in allowed or member.is_symlink() for member in layer.iterdir()):
+        raise ValueError(f"translation {translation.id} contains an unsupported member")
+    chapters = layer / "chapters"
+    if not chapters.is_dir() or chapters.is_symlink():
+        raise ValueError(f"translation {translation.id} is missing chapters")
+    chapter_paths = {path.name: path for path in chapters.iterdir()}
+    if set(chapter_paths) != set(source_structures) or any(
+        not path.is_file() or path.is_symlink() for path in chapter_paths.values()
+    ):
+        raise ValueError(f"translation {translation.id} chapters do not match source chapters")
+    for name, path in chapter_paths.items():
+        root = _require_xml_root(path, "chapter")
+        try:
+            chapter = decode_chapter(root, allow_legacy=False)
+        except ValueError as error:
+            raise ValueError(f"invalid translation chapter schema in {name}: {error}") from error
+        source_root = _require_xml_root(paths.chapters / name, "chapter")
+        source_chapter = decode_chapter(source_root, allow_legacy=False)
+        expected_id = str(source_chapter.id) if source_chapter.id is not None else "head"
+        actual_id = str(chapter.id) if chapter.id is not None else "head"
+        if actual_id != expected_id:
+            raise ValueError(f"translation chapter {name} has an invalid chapter id")
+        if _chapter_structure(root) != source_structures[name]:
+            raise ValueError(
+                f"translation chapter {name} does not preserve source structure and geometry"
+            )
+        for element in root.iter():
+            page_index = element.get("page_index")
+            bbox = element.get("bbox")
+            if page_index is None:
+                continue
+            try:
+                index = int(page_index)
+            except ValueError as error:
+                raise ValueError(f"invalid page_index in translation chapter {name}") from error
+            if index not in page_sizes:
+                raise ValueError(f"translation chapter {name} references an invalid page")
+            if bbox is not None:
+                _validate_bbox(bbox, page_sizes[index], name)
+
+    metadata_path = layer / "metadata.json"
+    try:
+        metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as error:
+        raise ValueError(f"translation {translation.id} has invalid metadata.json") from error
+    if not isinstance(metadata, dict) or set(metadata) - _DOCUMENT_FIELDS:
+        raise ValueError(f"translation {translation.id} metadata has unsupported fields")
+    if metadata.get("language") != translation.target_language:
+        raise ValueError(f"translation {translation.id} metadata language does not match index")
+    for key, value in metadata.items():
+        if key in {"editors", "translators", "subjects"}:
+            _string_list(value)
+        elif key == "authors":
+            _author_list(value)
+        elif value is not None and not isinstance(value, str):
+            raise ValueError(f"translation metadata {key} must be a string or null")
+
+    coverage = layer / "coverage.xml"
+    furniture = layer / "furnitures.xml"
+    if furniture.exists():
+        if not paths.furnitures.is_file():
+            raise ValueError(f"translation {translation.id} furniture has no source")
+        _validate_furnitures(furniture, page_sizes, toc_ids)
+        if _xml_structure(_require_xml_root(furniture, "furnitures")) != _xml_structure(
+            _require_xml_root(paths.furnitures, "furnitures")
+        ):
+            raise ValueError(
+                f"translation {translation.id} furniture does not preserve source structure"
+            )
+    _validate_translation(
+        coverage, furniture, narrative_identities, anchored_identities,
+    )
 
 
 def _validate_translation(
@@ -694,6 +970,7 @@ def _validate_workspace_members(paths: ExtractionPaths) -> None:
     allowed_root = {
         paths.manifest.name, paths.pages.name, paths.chapters.name, paths.assets.name,
         paths.toc.name, paths.cover.name, paths.furnitures.name, paths.translation.name,
+        paths.translations.name,
     }
     for path in paths.root.iterdir():
         if path.name not in allowed_root or path.is_symlink():
@@ -720,9 +997,23 @@ def _validate_workspace_members(paths: ExtractionPaths) -> None:
             raise ValueError(f"invalid asset member: {path.name}")
 
 
+def _translation_members(root: Path) -> Iterator[tuple[Path, str]]:
+    if not root.exists():
+        return
+    yield root / "index.json", "translations/index.json"
+    for layer in sorted(path for path in root.iterdir() if path.name != "index.json"):
+        yield layer / "metadata.json", f"translations/{layer.name}/metadata.json"
+        yield layer / "coverage.xml", f"translations/{layer.name}/coverage.xml"
+        if (layer / "furnitures.xml").is_file():
+            yield layer / "furnitures.xml", f"translations/{layer.name}/furnitures.xml"
+        for chapter in sorted((layer / "chapters").glob("*.xml")):
+            yield chapter, f"translations/{layer.name}/chapters/{chapter.name}"
+
+
 def _write_archive(paths: ExtractionPaths, target: Path) -> None:
     manifest = _read_manifest(paths.manifest)
-    legacy = manifest["format_version"] in {1, 2}
+    legacy_chapters = manifest["format_version"] in {1, 2}
+    legacy_manifest = manifest["format_version"] in {1, 2, 3}
     members: list[tuple[Path, str]] = [
         (paths.pages, "pages.xml"),
     ]
@@ -736,6 +1027,7 @@ def _write_archive(paths: ExtractionPaths, target: Path) -> None:
         members.append((paths.cover, "cover.png"))
     members.extend((path, f"chapters/{path.name}") for path in sorted(paths.chapters.glob("*.xml")))
     members.extend((path, f"assets/{path.name}") for path in sorted(paths.assets.glob("*.png")))
+    members.extend(_translation_members(paths.translations))
 
     with NamedTemporaryFile(dir=target.parent, suffix=EXTRACTION_SUFFIX, delete=False) as temporary:
         temporary_path = Path(temporary.name)
@@ -743,7 +1035,12 @@ def _write_archive(paths: ExtractionPaths, target: Path) -> None:
         with ZipFile(temporary_path, "w", compression=ZIP_DEFLATED) as archive:
             archive.writestr("chapters/", b"")
             archive.writestr("assets/", b"")
-            if legacy:
+            if paths.translations.exists():
+                archive.writestr("translations/", b"")
+                for info in _read_translation_index(paths.translations):
+                    archive.writestr(f"translations/{info.id}/", b"")
+                    archive.writestr(f"translations/{info.id}/chapters/", b"")
+            if legacy_manifest:
                 archive.writestr(
                     "manifest.json",
                     json.dumps(_v3_manifest(manifest), ensure_ascii=False, indent=2).encode(),
@@ -751,7 +1048,7 @@ def _write_archive(paths: ExtractionPaths, target: Path) -> None:
             else:
                 archive.write(paths.manifest, "manifest.json")
             for source, member in members:
-                if legacy and member.startswith("chapters/"):
+                if legacy_chapters and member.startswith("chapters/"):
                     archive.writestr(member, _v3_chapter_xml(source))
                 else:
                     archive.write(source, member)
@@ -832,7 +1129,8 @@ def _validate_archive_member(info: ZipInfo) -> None:
     if (info.external_attr >> 16) & 0o170000 == 0o120000:
         raise ValueError(f"PDFCraftExtraction cannot contain symlinks: {name}")
     allowed = name in {
-        "manifest.json", "pages.xml", "toc.xml", "cover.png", "furnitures.xml", "translation.xml", "chapters/", "assets/"
+        "manifest.json", "pages.xml", "toc.xml", "cover.png", "furnitures.xml",
+        "translation.xml", "chapters/", "assets/", "translations/",
     }
     allowed = allowed or (
         len(pure.parts) == 2
@@ -842,6 +1140,40 @@ def _validate_archive_member(info: ZipInfo) -> None:
             and pure.parts[1].endswith(".xml")
             and pure.parts[1][8:-4].isdigit()
         ))
+    )
+    allowed = allowed or (
+        len(pure.parts) == 2
+        and pure.parts[0] == "translations"
+        and (
+            pure.parts[1] == "index.json"
+            or (info.is_dir() and _TRANSLATION_ID.fullmatch(pure.parts[1]) is not None)
+        )
+    )
+    allowed = allowed or (
+        len(pure.parts) == 3
+        and pure.parts[0] == "translations"
+        and _TRANSLATION_ID.fullmatch(pure.parts[1]) is not None
+        and (
+            (info.is_dir() and pure.parts[2] == "chapters")
+            or (not info.is_dir() and pure.parts[2] in {
+                "metadata.json", "coverage.xml", "furnitures.xml",
+            })
+        )
+    )
+    allowed = allowed or (
+        len(pure.parts) == 4
+        and pure.parts[0] == "translations"
+        and _TRANSLATION_ID.fullmatch(pure.parts[1]) is not None
+        and pure.parts[2] == "chapters"
+        and not info.is_dir()
+        and (
+            pure.parts[3] == "chapter_head.xml"
+            or (
+                pure.parts[3].startswith("chapter_")
+                and pure.parts[3].endswith(".xml")
+                and pure.parts[3][8:-4].isdigit()
+            )
+        )
     )
     allowed = allowed or (
         len(pure.parts) == 2

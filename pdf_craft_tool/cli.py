@@ -341,7 +341,7 @@ def _translate_package(args: argparse.Namespace) -> None:
     mode = SubmitKind[args.submit.replace("-", "_").upper()]
     craft.translate_extraction(
         extraction, output_package, transformer, submit=mode,
-        with_furniture=args.with_furniture,
+        with_furniture=args.with_furniture, target_language=args.target_language,
     )
     print(f"Extraction: {output_package}")
 

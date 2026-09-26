@@ -357,7 +357,7 @@ class TestSmokeMatrix(unittest.TestCase):
             chapter = Chapter(None, -1, [TextFlowItem("body", 0, [
                 SourceTextFragment(1, 1, (1, 1, 2, 2), ["original"])
             ])])
-            save_xml(encode_chapter(chapter), package_path / "chapters" / "chapter_1.xml")
+            save_xml(encode_chapter(chapter), package_path / "chapters" / "chapter_head.xml")
 
             run = SmokeRun(
                 "pdf/double_column.pdf", "markdown",

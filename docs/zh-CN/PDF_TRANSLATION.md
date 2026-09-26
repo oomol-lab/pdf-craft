@@ -340,11 +340,12 @@ extraction, metering = craft.extract_pdf_with_metering(
 
 ### `translate_extraction`
 
-`translate_extraction` 将一个 `.pcex` 中的章节交给章节变换器，并生成另一个 `.pcex`。输出会
-保留 manifest、pages、TOC、封面、assets 及其可选附属成员；任意变换链不属于公共 API。
-`with_furniture=False` 是其翻译选项：设为 `True` 时，需使用 `ChapterXMLTransformer`，同一次操作会先翻译
-NarrativeFlow，再翻译包中已有的 furniture，并把覆盖状态写入 `translation.xml` 供后续 PDF 写回使用。
-它不重新 OCR；没有 `furnitures.xml` 时会安全退化为只翻译 NarrativeFlow。
+`translate_extraction` 将一个 `.pcex` 中的章节交给章节变换器，并生成另一个 `.pcex`。输出保留
+source layer，在 `translations/` 下追加一个独立纯译文层；可用调用方指定或自动生成的短 ID 选择，
+同一目标语言允许多个 ID。`list_translations` 可读取 ID、目标语言和创建时间。该接口只接受
+`REPLACE`，双语或替换属于后续渲染选择；当前 Markdown/EPUB/PDF 渲染器尚未开放 layer 选择。
+`with_furniture=True` 需要 `ChapterXMLTransformer`，并把 furniture 译文和 coverage 放在同一层。
+图片/表格 asset 文本保持原样。它不重新 OCR。
 
 ## `ExtractionOptions`
 

@@ -307,6 +307,29 @@ class TestPDFCraftExtraction(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "invalid asset hash"):
                 PDFCraftExtraction._open(invalid)
 
+    def test_valid_v3_archive_is_readable_and_exports_as_v4(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            workspace = root / "workspace"
+            extraction = make_extraction(workspace)
+            save_xml(encode(Chapter(None, -1, [])), workspace / "chapters/chapter_head.xml")
+            current = root / "current.pcex"
+            extraction._export(current)
+            with ZipFile(current) as archive:
+                manifest = json.loads(archive.read("manifest.json"))
+            manifest["format_version"] = 3
+            legacy = root / "v3.pcex"
+            _replace_archive_members(
+                current, legacy, {"manifest.json": json.dumps(manifest).encode("utf-8")},
+            )
+
+            opened = PDFCraftExtraction._open(legacy)
+            normalized = root / "normalized.pcex"
+            opened._export(normalized)
+            with ZipFile(normalized) as archive:
+                self.assertEqual(json.loads(archive.read("manifest.json"))["format_version"], 4)
+                self.assertNotIn("translations/index.json", archive.namelist())
+
     def test_v3_archive_rejects_legacy_reference_flow(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -360,7 +383,7 @@ class TestPDFCraftExtraction(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "unsupported attributes"):
                 PDFCraftExtraction._open(invalid)
 
-    def test_v1_and_v2_archives_migrate_flat_assets_to_v3_flow_items(self):
+    def test_v1_and_v2_archives_migrate_flat_assets_to_current_flow_items(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             workspace = root / "workspace"
@@ -407,7 +430,7 @@ class TestPDFCraftExtraction(unittest.TestCase):
                     normalized_chapter = ElementTree.fromstring(
                         archive.read("chapters/chapter_head.xml")
                     )
-                self.assertEqual(normalized_manifest["format_version"], 3)
+                self.assertEqual(normalized_manifest["format_version"], 4)
                 self.assertIsNotNone(normalized_chapter.find("flow"))
                 self.assertIsNone(normalized_chapter.find("body"))
                 self.assertEqual(normalized_chapter.findall("flow/text")[1].get("role"), "body")

@@ -617,7 +617,7 @@ class TestAsyncAPI(unittest.IsolatedAsyncioTestCase):
                 "body", 0,
                 [SourceTextFragment(1, 1, (1, 1, 5, 5), ["original"])],
             )])
-            save_xml(encode(chapter), root / "source" / "chapters" / "chapter_1.xml")
+            save_xml(encode(chapter), root / "source" / "chapters" / "chapter_head.xml")
             source._validate()
             translator = _AsyncXMLTranslator()
             target = await AsyncPDFCraft().translate_extraction(
@@ -627,9 +627,12 @@ class TestAsyncAPI(unittest.IsolatedAsyncioTestCase):
             )
             self.assertEqual(translator.thread_id, threading.get_ident())
             with target._materialize() as paths:
+                translation_id = (await AsyncPDFCraft().list_translations(target))[0].id
                 self.assertIn(
                     "async:original",
-                    (paths.chapters / "chapter_1.xml").read_text(encoding="utf-8"),
+                    (paths.translations / translation_id / "chapters/chapter_head.xml").read_text(
+                        encoding="utf-8"
+                    ),
                 )
 
     async def test_custom_async_transform_protocol_is_awaited(self):
@@ -640,7 +643,7 @@ class TestAsyncAPI(unittest.IsolatedAsyncioTestCase):
                 "body", 0,
                 [SourceTextFragment(1, 1, (1, 1, 5, 5), ["original"])],
             )])
-            save_xml(encode(chapter), root / "source" / "chapters" / "chapter_1.xml")
+            save_xml(encode(chapter), root / "source" / "chapters" / "chapter_head.xml")
             source._validate()
             transformer = _AsyncChapterTransformer()
             target = await AsyncPDFCraft().translate_extraction(
@@ -648,9 +651,12 @@ class TestAsyncAPI(unittest.IsolatedAsyncioTestCase):
             )
             self.assertEqual(transformer.thread_id, threading.get_ident())
             with target._materialize() as paths:
+                translation_id = (await AsyncPDFCraft().list_translations(target))[0].id
                 self.assertIn(
                     "native async extension",
-                    (paths.chapters / "chapter_1.xml").read_text(encoding="utf-8"),
+                    (paths.translations / translation_id / "chapters/chapter_head.xml").read_text(
+                        encoding="utf-8"
+                    ),
                 )
 
     async def test_async_pdf_handler_protocol_is_awaited_on_caller_loop(self):
@@ -691,7 +697,7 @@ class TestAsyncAPI(unittest.IsolatedAsyncioTestCase):
                 source, extraction, root / "patched.pdf", ignore_errors=True,
             )
             with patch.object(
-                craft, "translate_extraction",
+                craft, "_translate_to_workspace",
                 new_callable=AsyncMock, return_value=extraction,
             ) as translate:
                 await craft.translate_pdf(

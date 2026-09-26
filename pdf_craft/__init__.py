@@ -73,6 +73,6 @@ from .pdf import (
     PDFHandler,
     pdf_pages_count,
 )
-from .document import PDFCraftExtraction, SourceLocation
+from .document import PDFCraftExtraction, SourceLocation, TranslationInfo
 from .extractor import PDFExtractor
 from .renderer import EpubRenderer, MarkdownRenderer

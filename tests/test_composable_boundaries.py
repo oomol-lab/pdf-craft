@@ -355,14 +355,14 @@ class TestComposableBoundaries(unittest.TestCase):
             source_root = root / "source"
             source = make_extraction(source_root, page_pixel_sizes={1: (100, 100)})
             empty = Chapter(None, 0, [])
-            text = Chapter(None, 0, [TextFlowItem(
+            text = Chapter(1, 0, [TextFlowItem(
                 "body", 0, [SourceTextFragment(1, 1, (1, 1, 50, 50), ["text"])]
             )])
-            (source_root / "chapters/chapter_1.xml").write_text(
+            (source_root / "chapters/chapter_head.xml").write_text(
                 '<?xml version="1.0" encoding="UTF-8"?>\n'
                 + tostring(encode(empty), encoding="unicode")
             )
-            (source_root / "chapters/chapter_2.xml").write_text(
+            (source_root / "chapters/chapter_1.xml").write_text(
                 '<?xml version="1.0" encoding="UTF-8"?>\n'
                 + tostring(encode(text), encoding="unicode")
             )
@@ -375,10 +375,10 @@ class TestComposableBoundaries(unittest.TestCase):
             self.assertEqual(translator.calls, 1)
             with target._materialize() as paths:
                 self.assertEqual(
-                    (paths.chapters / "chapter_1.xml").read_text(),
-                    (source_root / "chapters/chapter_1.xml").read_text(),
+                    (paths.chapters / "chapter_head.xml").read_text(),
+                    (source_root / "chapters/chapter_head.xml").read_text(),
                 )
-                self.assertIn("T:text", (paths.chapters / "chapter_2.xml").read_text())
+                self.assertIn("T:text", (paths.chapters / "chapter_1.xml").read_text())
 
     def test_extractor_creates_empty_assets_directory_for_asset_free_pages(self):
         with tempfile.TemporaryDirectory() as directory:

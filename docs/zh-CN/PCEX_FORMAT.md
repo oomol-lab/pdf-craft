@@ -1,6 +1,6 @@
 # PDFCraftExtraction（`.pcex`）格式参考
 
-本文是 PDFCraftExtraction v3 的中文版格式参考。它描述当前 pdf-craft 代码能够生成、读取和校验的公开中间格式，以及各成员被后续渲染、翻译和 PDF 写回流程使用的方式。
+本文是 PDFCraftExtraction v4 的中文版格式参考。它描述当前 pdf-craft 代码能够生成、读取和校验的公开中间格式，以及各成员被后续渲染、翻译和 PDF 写回流程使用的方式。
 
 本文中的“规范产物”指 pdf-craft 自身写出的 `.pcex`；“当前校验器”指 Craft 门面在打开句柄时执行的校验。两者需要区分：规范产物会遵循本文给出的字段关系，但当前校验器并未检查其中每一项语义关系。下文保留的 v2 chapter 示例仅用于说明读取兼容；规范写入端使用上文所述 v3 flow。
 
@@ -76,7 +76,14 @@ book.pcex                       # ZIP（Deflate 压缩）
 ├── toc.xml                     # 可选：层级目录
 ├── cover.png                   # 可选：封面
 ├── furnitures.xml              # 可选：页面 furniture 模式与 section
-└── translation.xml             # 可选：Narrative、furniture 与 asset 文本翻译覆盖记录
+├── translation.xml             # 可选：旧的物化译文覆盖记录
+└── translations/               # 可选：零个或多个独立译文
+    ├── index.json
+    └── <translation-id>/
+        ├── chapters/
+        ├── metadata.json
+        ├── coverage.xml
+        └── furnitures.xml       # 可选
 ```
 
 根目录和两个子目录不允许出现上表之外的成员。成员名称区分大小写；公开文件路径的 `.pcex` 后缀检查不区分大小写。
@@ -91,10 +98,11 @@ book.pcex                       # ZIP（Deflate 压缩）
 | `cover.png` | 否 | 封面图 | Markdown/EPUB 渲染 |
 | `furnitures.xml` | 否 | 页面 furniture 模式与页级 section | furniture 翻译、PDF 写回 |
 | `translation.xml` | 否 | Narrative、furniture、图片/表格文本单元的 `translated` / `preserved` 覆盖状态 | 翻译阶段、PDF 写回 |
+| `translations/` | 否 | 以 opaque ID 区分的独立章节译文、metadata overlay 与覆盖状态 | 译文检查及后续渲染选择 |
 
 pdf-craft 写出的 JSON 和 XML 文本均使用 UTF-8；XML 文件带有 `<?xml version="1.0" encoding="UTF-8"?>` 声明。ZIP 内路径统一使用 `/`。
 
-v3 没有 `document.json` 或 `source-map.json`。文档元数据集中在 `manifest.json`，页面几何集中在 `pages.xml`，每个 FlowItem 到原 PDF 的位置映射直接保存在章节 XML 中。
+v4 没有 `document.json` 或 `source-map.json`。文档元数据集中在 `manifest.json`，页面几何集中在 `pages.xml`，每个 FlowItem 到原 PDF 的位置映射直接保存在章节 XML 中。
 
 ## 获取、保存和继续处理
 
@@ -176,11 +184,28 @@ craft.render_markdown("book.pcex", "book.md", assets_path="book-assets")
 craft.render_epub("book.pcex", "book.epub")
 
 translated = craft.translate_extraction(
-    "book.pcex", "book.zh.pcex", translator, with_furniture=True
+    "book.pcex", "book.zh.pcex", translator, with_furniture=True,
+    translation_id="zh-main", target_language="zh",
 )
+translations = craft.list_translations(translated)
 ```
 
-`translate_extraction()` 创建新的 `.pcex`，保留原包的 manifest、页面几何、目录、封面和资源，并重写经过 transformer 处理的章节 XML。输出路径必须以 `.pcex` 结尾且不能已存在。其 `with_furniture` 默认是 `False`；设为 `True` 时需使用 `ChapterXMLTransformer`，且源包包含 `furnitures.xml` 时，同一操作会先翻译 NarrativeFlow，再按 `toc_id` 使用已译正文标题收敛关联 furniture，模板 position 仅翻译一次、未绑定 section 以页为范围翻译，并写入 `translation.xml` 记录后续 PDF 回填是否可覆盖。不含 `furnitures.xml` 的包会安全退化为仅翻译 NarrativeFlow。
+`translate_extraction()` 创建新的 `.pcex`，但不替换 source layer，而是在 `translations/` 下追加一个译文。调用方可指定 4 到 32 字符的 opaque `translation_id`，也可让 pdf-craft 生成 8 位十六进制 ID。ID 在文件内唯一；`target_language` 只是元数据，因此同一语言可以有多个 ID。每层包含完整章节译文、`language` 为目标语言的 metadata overlay 与独立 coverage；`with_furniture=True` 时还在该层保存 furniture 译文。图片/表格 asset 字段保持原文，不增加“不支持”或“未翻译”标记。
+
+译文层只保存替换式的纯译文。这里拒绝 `SubmitKind.APPEND_*`，因为替换或双语属于后续渲染选择。当前 Markdown、EPUB、PDF 渲染器尚不能选择 translation layer；该能力不属于本阶段。一站式转换和 `translate_pdf()` 仍会为既有输出行为生成内部临时译文视图。
+
+### `translations/` 的 identity 与隔离
+
+`translations/index.json` 必须且只能包含一个 `translations` 数组。每项必须且只能包含 `id`、
+`target_language` 和 ISO 8601 `created_at`。ID 长 4 到 32 位，以字母或数字开头，其余字符可为
+ASCII 字母、数字、下划线或连字符；它在当前文件中唯一，并对应同名目录。语言明确不参与 identity。
+
+每个译文层与 source 使用完全相同的章节文件名。对应关系复用 PCEX 原有 identity：chapter identity、
+fragment 的 `(page_index, source_order)`、自然段首 fragment identity、chapter scope 内 reference 的
+`(page_index, order)`，以及图片/表格 asset 的 flow slot。译文可以改变文字，但不能改变这些 identity、
+页面几何或图片/表格 asset 字段。`coverage.xml` 复用现有 coverage schema，且只能引用 source identity。
+可选 furniture 译文保留 `(pattern_id, position_id)` 和 `(page_index, det)` identity。`metadata.json` 是
+按字段名覆盖的 overlay，不增加人工节点 ID；其中 `language` 必须等于 index 中的目标语言。
 
 `translate_extraction()` 会把嵌在 `<text>` 内的图片/表格 asset 视为不透明、自闭合的 anchor：它们的 title、content、caption
 不会进入 NarrativeFlow 的 LLM 请求，而是以临时、不可变的位置标记维持段落前后关系，并由 XML 修复协议严格校验。`<standalone-asset>`
@@ -198,7 +223,7 @@ translated = craft.translate_extraction(
 
 ```json
 {
-  "format_version": 3,
+  "format_version": 4,
   "producer": {
     "name": "pdf-craft",
     "version": "2.0.0"
@@ -227,12 +252,12 @@ translated = craft.translate_extraction(
 
 | 字段 | 类型 | 必需 | 含义与约束 |
 | --- | --- | --- | --- |
-| `format_version` | integer | 是 | 规范值为 `3`；读取器同时接受旧的 v1/v2 归档。 |
+| `format_version` | integer | 是 | 规范值为 `4`；读取器同时接受旧的 v1/v2/v3 归档。 |
 | `producer` | object | 是 | 创建归档的软件标识；必须且只能含 `name`、`version` |
 | `created_at` | string 或 null | 否 | 归档创建时间；字符串须为可解析的 ISO 8601 时间 |
 | `document` | object | 是 | 文档级元数据；必须且只能含下一节的字段 |
 
-规范值 `format_version` 是 JSON 数字 `3`。读取器保留 v1/v2 兼容性，未知版本会被拒绝。
+规范值 `format_version` 是 JSON 数字 `4`。读取器保留 v1/v2/v3 兼容性，未知版本会被拒绝。
 
 pdf-craft 自身写出时，`producer.name` 固定为 `pdf-craft`，`producer.version` 是已安装的 pdf-craft 包版本；无法取得安装版本时为 `unknown`。当前校验器允许其他生产者，但 `name` 和 `version` 都必须是非空字符串。
 
@@ -666,6 +691,6 @@ craft.patch_pdf_with_extraction(
 
 ## 版本兼容
 
-当前格式版本为 `3`。读取器接受规范的 v3 归档和旧的 `format_version: 1` / `2` 归档，但会拒绝未知版本。历史读取器不理解 v3 flow schema。
+当前格式版本为 `4`。读取器接受规范的 v4 归档和旧的 `format_version: 1`、`2`、`3` 归档，但会拒绝未知版本。v1/v2 章节在导出时规范化为 v3 flow；v3 归档升级时不会被误认为已经包含 translation layer。
 
 应用程序若只需要后续渲染或翻译，也应通过 Craft 门面打开归档并执行版本和完整性检查，不要仅凭 ZIP 可解压就认定包可用。

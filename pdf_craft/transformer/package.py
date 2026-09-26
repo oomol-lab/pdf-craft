@@ -5,7 +5,9 @@
 
 import asyncio
 import inspect
+import json
 from collections.abc import Callable
+from datetime import datetime, timezone
 from pathlib import Path
 from shutil import copy2, copytree
 from tempfile import TemporaryDirectory
@@ -14,7 +16,10 @@ from xml.etree.ElementTree import Element
 
 from pdf_craft.common.xml import read_xml, save_xml
 from pdf_craft.document import PDFCraftExtraction
-from pdf_craft.document.package import EXTRACTION_SUFFIX
+from pdf_craft.document.package import (
+    EXTRACTION_SUFFIX, FORMAT_VERSION, _read_manifest, _v3_manifest,
+    validate_translation_id,
+)
 from pdf_craft.runtime import (
     IO_DOMAIN, TRANSLATION_DOMAIN, callback_bridge, invoke_callback,
 )
@@ -589,6 +594,8 @@ def _copy_extraction_to_workspace(
     with extraction._materialize() as paths:
         copytree(paths.chapters, output_path / "chapters")
         copytree(paths.assets, output_path / "assets")
+        if paths.translations.exists():
+            copytree(paths.translations, output_path / "translations")
         for source in (
             paths.manifest,
             paths.pages,
@@ -599,6 +606,67 @@ def _copy_extraction_to_workspace(
         ):
             if source.exists():
                 copy2(source, output_path / source.name)
+
+
+def append_translation_layer_to_workspace(
+    source: PDFCraftExtraction,
+    translated: PDFCraftExtraction,
+    output_path: Path,
+    *,
+    translation_id: str,
+    target_language: str,
+    include_furniture: bool = False,
+    metadata_overlay: dict[str, object] | None = None,
+) -> PDFCraftExtraction:
+    """Append a translated variant while retaining the source root unchanged."""
+    validate_translation_id(translation_id)
+    if not target_language.strip():
+        raise ValueError("target_language must be a non-empty string")
+    source._validate()
+    translated._validate()
+    if output_path.exists():
+        raise FileExistsError(f"output extraction workspace already exists: {output_path}")
+    output_path.mkdir(parents=True)
+    _copy_extraction_to_workspace(source, output_path)
+
+    translations = output_path / "translations"
+    index_path = translations / "index.json"
+    if translations.exists():
+        index = json.loads(index_path.read_text(encoding="utf-8"))
+    else:
+        translations.mkdir()
+        index = {"translations": []}
+    if any(entry["id"] == translation_id for entry in index["translations"]):
+        raise ValueError(f"translation_id already exists: {translation_id}")
+
+    layer = translations / translation_id
+    layer.mkdir()
+    with translated._materialize() as translated_paths:
+        copytree(translated_paths.chapters, layer / "chapters")
+        copy2(translated_paths.translation, layer / "coverage.xml")
+        if include_furniture and translated_paths.furnitures.exists():
+            copy2(translated_paths.furnitures, layer / "furnitures.xml")
+    overlay = dict(metadata_overlay or {})
+    overlay["language"] = target_language
+    (layer / "metadata.json").write_text(
+        json.dumps(overlay, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+    index["translations"].append({
+        "id": translation_id,
+        "target_language": target_language,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    })
+    index_path.write_text(json.dumps(index, ensure_ascii=False, indent=2), encoding="utf-8")
+
+    manifest_path = output_path / "manifest.json"
+    manifest = _read_manifest(manifest_path)
+    if manifest["format_version"] != FORMAT_VERSION:
+        manifest = _v3_manifest(manifest)
+        manifest_path.write_text(
+            json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8",
+        )
+    return PDFCraftExtraction._from_workspace(output_path)._validate()
 
 
 def _has_visible_content(layout: TextFlowItem) -> bool:
