@@ -4,7 +4,8 @@ from pathlib import Path
 from typing import Literal, cast
 from epub_generator import BookMeta, LaTeXRender, TableRender
 
-from ...document import PDFCraftExtraction
+from ...document import PDFCraftExtraction, RenderMode
+from ...document.render import materialize_render_view
 from .render import render_epub_file
 from ...runtime import TEX_DOMAIN, run_cancellable
 
@@ -18,18 +19,20 @@ class EpubRenderer:
         book_meta: BookMeta | None = None,
         lan: Literal["zh", "en"] | None = None, table_render=TableRender.HTML,
         latex_render=LaTeXRender.MATHML, inline_latex: bool = True,
+        mode: RenderMode = RenderMode.SOURCE, translation_id: str | None = None,
         aborted=lambda: False,
     ) -> None:
-        extraction._validate(require_toc=True)
-        language = lan or extraction._language() or "zh"
-        book_meta = _merge_book_meta(extraction._book_meta(), book_meta)
-        if language not in {"zh", "en"}:
-            raise ValueError(f"unsupported EPUB language: {language}")
-        language = cast(Literal["zh", "en"], language)
-        with extraction._materialize() as paths:
-            render_epub_file(paths.chapters, paths.toc, paths.assets,
-                             output_path, paths.cover if paths.cover.exists() else None,
-                             book_meta, language, table_render,
+        with materialize_render_view(
+            extraction, mode, translation_id, require_toc=True,
+        ) as view:
+            language = lan or view.language or "zh"
+            effective_meta = _merge_book_meta(view.book_meta(), book_meta)
+            if language not in {"zh", "en"}:
+                raise ValueError(f"unsupported EPUB language: {language}")
+            language = cast(Literal["zh", "en"], language)
+            render_epub_file(view.chapters, view.toc, view.assets,
+                             output_path, view.cover if view.cover.exists() else None,
+                             effective_meta, language, table_render,
                              latex_render, inline_latex, aborted)
 
     async def render(self, extraction: PDFCraftExtraction, output_path: Path, *,
@@ -37,6 +40,8 @@ class EpubRenderer:
                      lan: Literal["zh", "en"] | None = None,
                      table_render=TableRender.HTML,
                      latex_render=LaTeXRender.MATHML, inline_latex: bool = True,
+                     mode: RenderMode = RenderMode.SOURCE,
+                     translation_id: str | None = None,
                      aborted=lambda: False) -> None:
         """Keep epub-generator and ZIP I/O off the event-loop thread."""
         await run_cancellable(
@@ -45,6 +50,7 @@ class EpubRenderer:
                 extraction, output_path, book_meta=book_meta, lan=lan,
                 table_render=table_render, latex_render=latex_render,
                 inline_latex=inline_latex,
+                mode=mode, translation_id=translation_id,
                 aborted=lambda: cancelled() or aborted(),
             ),
             original_aborted=aborted,

@@ -62,7 +62,7 @@ writer 收尾、删除临时归档并保持目标不存在；若发布边界先�
 翻译和 PDF 写回组合成一组方法。下面这些对象可直接从 `pdf_craft` 导入：
 
 - `AsyncPDFCraft`、`PDFCraft`、`PDFOptions`、`ExtractionOptions`
-- `PDFCraftExtraction`、`PDFExtractor`
+- `PDFCraftExtraction`、`PDFExtractor`、`RenderMode`
 - 六种 OCR 配置对象和 `OCRConfig`
 - `predownload_models`
 - `LLM`
@@ -269,16 +269,36 @@ craft.convert_pdf_to_epub(
 ### 从已有 extraction 渲染
 
 ```python
+from pdf_craft import RenderMode
+
 craft.render_markdown(extraction, "book.md", assets_path="book-assets")
 craft.render_epub(
     extraction, "book.epub",
     book_meta=BookMeta(title="Book title", authors=["Author"]),
+)
+
+# translation_id 省略时，稳定选择 translations/index.json 中的第一项。
+craft.render_markdown(
+    extraction, "translated.md", mode=RenderMode.REPLACE,
+)
+craft.render_epub(
+    extraction, "bilingual.epub", mode=RenderMode.BILINGUAL,
+    translation_id="zh-main",
 )
 ```
 
 渲染不会重新 OCR，也不会读取 PDF。Markdown 要求 extraction 校验通过；EPUB 额外要求
 `toc.xml`。Markdown 可选复制图片资源；EPUB 从 `manifest.json` 读取默认元数据和语言，调用时
 显式提供的 `book_meta` / `lan` 优先。
+
+`RenderMode.SOURCE` 只渲染 source layer，不选择译文。`RenderMode.REPLACE` 用所选译文替换
+已翻译单元；coverage 标记为 preserved 或缺少 coverage 的单元回退到 source。
+`RenderMode.BILINGUAL` 输出 source 加所选译文。后两种模式可传文件内唯一的
+`translation_id`；省略时稳定选择 `translations/index.json` 的第一项。没有任何译文、显式 ID
+不存在或 ID 格式非法时会明确失败，不会静默改选其他译文。也可先调用
+`resolve_translation(extraction, translation_id=None)` 得到实际选择的 `TranslationInfo`。
+译文 metadata 覆盖 source metadata，缺少的字段保留 source；双语书名、描述、章节标题和目录标题
+同时包含两种文本。图片/表格 asset 及其提取文本始终保留 source 一份，不增加未翻译标记。
 
 ### PDF 转换时翻译
 
@@ -452,7 +472,7 @@ translations = craft.list_translations(translated_extraction)
 所以同一语言可有多个译文。重复 ID 会在翻译开始前拒绝。`list_translations()` 返回每层的 ID、
 目标语言和创建时间。目标语言可以由调用方显式传入，也可以由 translator 声明；两者都未提供时，
 调用会在翻译开始前失败。PCEX 层不编码双语排版，因此该方法只接受 `REPLACE`；双语或替换是后续
-渲染选择，当前渲染器尚未实现 layer 选择。
+渲染选择；`render_markdown` 和 `render_epub` 通过 `RenderMode` 选择 source、译文替换或双语输出。
 
 `with_furniture` 默认是 `False`；设为 `True` 时需要 `ChapterXMLTransformer`，译后的 furniture 与
 coverage 保存在新层内。图片/表格 asset 文本保持原样，不增加未翻译标记。`translate_pdf()` 为保持

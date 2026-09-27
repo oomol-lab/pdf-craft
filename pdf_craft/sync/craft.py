@@ -7,7 +7,7 @@ from typing import Literal
 from epub_generator import BookMeta, LaTeXRender, TableRender
 
 from ..craft import AsyncPDFCraft, ExtractionOptions, PDFOptions
-from ..document import PDFCraftExtraction, TranslationInfo
+from ..document import PDFCraftExtraction, RenderMode, TranslationInfo
 from ..error import IgnoreFillErrorsChecker
 from ..metering import AbortedCheck, OCRTokensMetering
 from ..runtime import run_sync
@@ -44,6 +44,12 @@ class PDFCraft:
     ) -> tuple[TranslationInfo, ...]:
         return run_sync(self._async_craft.list_translations(extraction))
 
+    def resolve_translation(
+        self, extraction: PDFCraftExtraction | PathLike | str,
+        translation_id: str | None = None,
+    ) -> TranslationInfo:
+        return run_sync(self._async_craft.resolve_translation(extraction, translation_id))
+
     def extract_pdf(
         self, source: PathLike | str, extraction_path: PathLike | str,
         options: ExtractionOptions | None = None,
@@ -65,10 +71,13 @@ class PDFCraft:
     def render_markdown(
         self, extraction: PDFCraftExtraction | PathLike | str, output: PathLike | str,
         assets_path: PathLike | str | None = None,
-        *, aborted: AbortedCheck = lambda: False,
+        *, mode: RenderMode = RenderMode.SOURCE,
+        translation_id: str | None = None,
+        aborted: AbortedCheck = lambda: False,
     ) -> None:
         run_sync(self._async_craft.render_markdown(
-            extraction, output, assets_path, aborted=aborted,
+            extraction, output, assets_path, mode=mode,
+            translation_id=translation_id, aborted=aborted,
         ))
 
     def translate_extraction(
@@ -103,12 +112,15 @@ class PDFCraft:
         table_render: TableRender = TableRender.HTML,
         latex_render: LaTeXRender = LaTeXRender.MATHML,
         inline_latex: bool = True,
+        mode: RenderMode = RenderMode.SOURCE,
+        translation_id: str | None = None,
         aborted: AbortedCheck = lambda: False,
     ) -> None:
         run_sync(self._async_craft.render_epub(
             extraction, output, book_meta=book_meta, lan=lan,
             table_render=table_render, latex_render=latex_render,
-            inline_latex=inline_latex, aborted=aborted,
+            inline_latex=inline_latex, mode=mode,
+            translation_id=translation_id, aborted=aborted,
         ))
 
     def translate_pdf(

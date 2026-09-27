@@ -8,8 +8,9 @@ from .package import (
     write_pages,
 )
 from .source import SourceLocation, source_location
+from .render import RenderMode, resolve_translation
 
 __all__ = [
     "DocumentAuthor", "DocumentMetadata", "PDFCraftExtraction", "TranslationInfo", "SourceLocation",
-    "source_location",
+    "RenderMode", "resolve_translation", "source_location",
 ]

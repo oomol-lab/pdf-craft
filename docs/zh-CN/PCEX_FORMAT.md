@@ -192,7 +192,7 @@ translations = craft.list_translations(translated)
 
 `translate_extraction()` 创建新的 `.pcex`，但不替换 source layer，而是在 `translations/` 下追加一个译文。调用方可指定 4 到 32 字符的 opaque `translation_id`，也可让 pdf-craft 生成 8 位十六进制 ID。ID 在文件内唯一；`target_language` 只是元数据，因此同一语言可以有多个 ID。每层包含完整章节译文、`language` 为目标语言的 metadata overlay 与独立 coverage；`with_furniture=True` 时还在该层保存 furniture 译文。图片/表格 asset 字段保持原文，不增加“不支持”或“未翻译”标记。
 
-译文层只保存替换式的纯译文。这里拒绝 `SubmitKind.APPEND_*`，因为替换或双语属于后续渲染选择。当前 Markdown、EPUB、PDF 渲染器尚不能选择 translation layer；该能力不属于本阶段。一站式转换和 `translate_pdf()` 仍会为既有输出行为生成内部临时译文视图。
+译文层只保存替换式的纯译文。这里拒绝 `SubmitKind.APPEND_*`，因为替换或双语属于后续渲染选择。Markdown 和 EPUB 渲染通过 `RenderMode` 选择仅 source、译文替换或双语输出；替换与双语模式可指定 translation ID，省略时稳定选择 index 中的第一层。PDF 渲染尚不能选择已存储的 translation layer。一站式转换和 `translate_pdf()` 仍会为既有输出行为生成内部临时译文视图。
 
 ### `translations/` 的 identity 与隔离
 
