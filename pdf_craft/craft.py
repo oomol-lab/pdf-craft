@@ -19,7 +19,7 @@ from typing import Any, AsyncIterator, Literal, cast
 from epub_generator import BookMeta, LaTeXRender, TableRender
 from PIL import Image
 
-from .document import PDFCraftExtraction, TranslationInfo
+from .document import PDFCraftExtraction, RenderMode, TranslationInfo, resolve_translation
 from .document.package import validate_translation_id
 from .extractor.chapter.chapter import SourceTextFragment, TextFlowItem
 from .extractor.chapter.reader import create_chapters_reader
@@ -133,6 +133,14 @@ class AsyncPDFCraft:
         document = await _ensure_extraction_async(extraction)
         return await IO_DOMAIN.run(document._translations)
 
+    async def resolve_translation(
+        self, extraction: PDFCraftExtraction | PathLike | str,
+        translation_id: str | None = None,
+    ) -> TranslationInfo:
+        """Resolve an explicit translation or the stable first-index default."""
+        document = await _ensure_extraction_async(extraction)
+        return await IO_DOMAIN.run(resolve_translation, document, translation_id)
+
     async def extract_pdf(
         self, source: PathLike | str, extraction_path: PathLike | str,
         options: ExtractionOptions | None = None,
@@ -177,12 +185,15 @@ class AsyncPDFCraft:
     async def render_markdown(
         self, extraction: PDFCraftExtraction | PathLike | str, output: PathLike | str,
         assets_path: PathLike | str | None = None,
-        *, aborted: AbortedCheck = lambda: False,
+        *, mode: RenderMode = RenderMode.SOURCE,
+        translation_id: str | None = None,
+        aborted: AbortedCheck = lambda: False,
     ) -> None:
         document = await _ensure_extraction_async(extraction)
         await MarkdownRenderer().render(
             document, Path(output),
             Path(assets_path) if assets_path is not None else None,
+            mode=mode, translation_id=translation_id,
             aborted=aborted,
         )
 
@@ -278,13 +289,16 @@ class AsyncPDFCraft:
         table_render: TableRender = TableRender.HTML,
         latex_render: LaTeXRender = LaTeXRender.MATHML,
         inline_latex: bool = True,
+        mode: RenderMode = RenderMode.SOURCE,
+        translation_id: str | None = None,
         aborted: AbortedCheck = lambda: False,
     ) -> None:
         document = await _ensure_extraction_async(extraction)
         await EpubRenderer().render(
             document, Path(output), book_meta=book_meta, lan=lan,
             table_render=table_render, latex_render=latex_render,
-            inline_latex=inline_latex, aborted=aborted,
+            inline_latex=inline_latex, mode=mode,
+            translation_id=translation_id, aborted=aborted,
         )
 
     async def translate_pdf(
