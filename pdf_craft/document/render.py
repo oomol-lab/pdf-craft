@@ -13,7 +13,10 @@ from typing import Any, Iterator
 from xml.etree import ElementTree
 
 from ..common import save_xml
-from .package import PDFCraftExtraction, TranslationInfo, _book_meta, _read_translation_index
+from .package import (
+    PDFCraftExtraction, TranslationInfo, _book_meta, _read_translation_index,
+    validate_translation_id,
+)
 
 
 class RenderMode(str, Enum):
@@ -57,6 +60,7 @@ def _select_translation(
         if not translations:
             raise ValueError("PCEX has no translations")
         return translations[0]
+    validate_translation_id(translation_id)
     for translation in translations:
         if translation.id == translation_id:
             return translation
@@ -92,20 +96,14 @@ def materialize_render_view(
         overlay = _read_metadata_overlay(layer / "metadata.json")
         metadata = _effective_metadata(source_metadata, overlay, mode)
         language = _language(metadata) or translation.target_language
-        if mode == RenderMode.REPLACE:
-            yield RenderView(
-                layer / "chapters", paths.assets, paths.toc, paths.cover,
-                metadata, language, translation,
-            )
-            return
-
-        if mode != RenderMode.BILINGUAL:
+        if mode not in {RenderMode.REPLACE, RenderMode.BILINGUAL}:
             raise ValueError(f"unsupported render mode: {mode}")
         with TemporaryDirectory(prefix="pdf-craft-render-") as directory:
             chapters = Path(directory) / "chapters"
             chapters.mkdir()
-            _write_bilingual_chapters(
-                paths.chapters, layer / "chapters", layer / "coverage.xml", chapters,
+            _write_effective_chapters(
+                paths.chapters, layer / "chapters", layer / "coverage.xml",
+                chapters, mode,
             )
             yield RenderView(
                 chapters, paths.assets, paths.toc, paths.cover,
@@ -160,14 +158,15 @@ def _language(metadata: dict[str, Any]) -> str | None:
     return value if isinstance(value, str) and value.strip() else None
 
 
-def _write_bilingual_chapters(
+def _write_effective_chapters(
     source_path: Path, translated_path: Path, coverage_path: Path, output_path: Path,
+    mode: RenderMode,
 ) -> None:
     translated_identities = _translated_narrative_identities(coverage_path)
     for source_file in source_path.glob("*.xml"):
         source = ElementTree.parse(source_file).getroot()
         translated = ElementTree.parse(translated_path / source_file.name).getroot()
-        _merge_chapter(source, translated, translated_identities)
+        _compose_chapter(source, translated, translated_identities, mode)
         save_xml(source, output_path / source_file.name)
 
 
@@ -184,10 +183,11 @@ def _translated_narrative_identities(path: Path) -> set[tuple[str, int, int]]:
     return result
 
 
-def _merge_chapter(
+def _compose_chapter(
     source: ElementTree.Element,
     translated: ElementTree.Element,
     translated_identities: set[tuple[str, int, int]],
+    mode: RenderMode,
 ) -> None:
     chapter_id = source.get("id", "head")
     source_flow = source.find("flow")
@@ -198,16 +198,19 @@ def _merge_chapter(
             for item in translated_flow
             if (identity := _text_identity(item)) is not None
         }
-        _merge_flow(
-            source_flow, targets,
-            lambda identity, _source, _target: (
-                (chapter_id, identity[0], identity[1]) in translated_identities
-            ),
+        is_translated = lambda identity: (
+            (chapter_id, identity[0], identity[1]) in translated_identities
         )
-    _merge_references(source, translated)
+        if mode == RenderMode.REPLACE:
+            _replace_flow(source_flow, targets, is_translated)
+        else:
+            _merge_flow(source_flow, targets, is_translated)
+    _compose_references(source, translated, mode)
 
 
-def _merge_references(source: ElementTree.Element, translated: ElementTree.Element) -> None:
+def _compose_references(
+    source: ElementTree.Element, translated: ElementTree.Element, mode: RenderMode,
+) -> None:
     source_references = source.find("references")
     translated_references = translated.find("references")
     if source_references is None or translated_references is None:
@@ -226,12 +229,34 @@ def _merge_references(source: ElementTree.Element, translated: ElementTree.Eleme
             for item in target_flow
             if (identity := _text_identity(item)) is not None
         }
-        _merge_flow(
-            source_flow, target_items,
-            lambda _identity, source_item, target_item: (
-                _visible_text(source_item) != _visible_text(target_item)
-            ),
-        )
+        # References have no coverage-sidecar entries. Their established ref
+        # and fragment identities locate the target; non-empty target content
+        # is availability, even when its visible text equals the source.
+        available_targets = {
+            identity for identity, item in target_items.items() if _visible_text(item)
+        }
+        has_target = available_targets.__contains__
+        if mode == RenderMode.REPLACE:
+            _replace_flow(source_flow, target_items, has_target)
+        else:
+            _merge_flow(source_flow, target_items, has_target)
+
+
+def _replace_flow(source_flow, targets, should_replace) -> None:
+    effective: list[ElementTree.Element] = []
+    for source_item in source_flow:
+        identity = _text_identity(source_item)
+        target = targets.get(identity) if identity is not None else None
+        if (
+            identity is not None
+            and target is not None
+            and should_replace(identity)
+            and _visible_text(target)
+        ):
+            effective.append(deepcopy(target))
+        else:
+            effective.append(source_item)
+    source_flow[:] = effective
 
 
 def _merge_flow(source_flow, targets, should_append) -> None:
@@ -240,7 +265,7 @@ def _merge_flow(source_flow, targets, should_append) -> None:
         merged.append(source_item)
         identity = _text_identity(source_item)
         target = targets.get(identity) if identity is not None else None
-        if target is None or not should_append(identity, source_item, target):
+        if target is None or not should_append(identity) or not _visible_text(target):
             continue
         if source_item.get("role") == "heading":
             _append_heading(source_item, target)

@@ -101,6 +101,45 @@ def _epub_text(path: Path) -> str:
         )
 
 
+def _legacy_archive(root: Path, version: int) -> Path:
+    workspace = root / f"v{version}"
+    make_extraction(workspace, with_toc=True, language="en")
+    (workspace / "assets" / f"{'f' * 64}.png").write_bytes(b"unused")
+    chapter_path = workspace / "chapters/chapter_head.xml"
+    if version in {1, 2}:
+        chapter_path.write_text(
+            "<chapter><body><paragraph ref='text'>"
+            "<block page_index='1' order='1' det='1,1,90,20'>Legacy source</block>"
+            "</paragraph></body></chapter>",
+            encoding="utf-8",
+        )
+    else:
+        save_xml(encode(Chapter(None, -1, [
+            TextFlowItem("body", 0, [
+                SourceTextFragment(1, 1, (1, 1, 90, 20), ["Legacy source"]),
+            ]),
+        ])), chapter_path)
+    manifest_path = workspace / "manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest["format_version"] = version
+    if version == 1:
+        document = manifest["document"]
+        manifest["document"] = {
+            key: ([] if key in {"authors", "editors", "translators"} else document[key])
+            for key in (
+                "title", "description", "publisher", "isbn", "authors", "editors",
+                "translators", "modified", "language",
+            )
+        }
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+    archive_path = root / f"v{version}.pcex"
+    with ZipFile(archive_path, "w") as archive:
+        for path in workspace.rglob("*"):
+            if path.is_file():
+                archive.write(path, path.relative_to(workspace).as_posix())
+    return archive_path
+
+
 class TestPCEXTranslationRendering(unittest.TestCase):
     def test_source_needs_no_translation_and_translation_modes_fail_clearly(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -140,6 +179,100 @@ class TestPCEXTranslationRendering(unittest.TestCase):
             self.assertIn("TWO:原正文", (root / "explicit.md").read_text(encoding="utf-8"))
             with self.assertRaisesRegex(ValueError, "no translation with id: missing-id"):
                 PDFCraft().resolve_translation(extraction, "missing-id")
+            with self.assertRaisesRegex(ValueError, "translation_id must be"):
+                PDFCraft().resolve_translation(extraction, "bad/id")
+            with self.assertRaisesRegex(ValueError, "translation_id must be"):
+                PDFCraft().render_markdown(
+                    extraction, root / "invalid.md", mode=RenderMode.REPLACE,
+                    translation_id="bad/id",
+                )
+
+    def test_replace_falls_back_for_preserved_and_missing_narrative_coverage(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            extraction = _source(root / "source")
+            _add_translation(root / "source", "english-a", "EN")
+            layer = root / "source/translations/english-a"
+            chapter_path = layer / "chapters/chapter_1.xml"
+            chapter = ElementTree.parse(chapter_path)
+            fragments = chapter.findall("flow/text/fragment")
+            fragments[0].text = None
+            fragments[1].text = None
+            chapter.write(chapter_path, encoding="utf-8", xml_declaration=True)
+            coverage = ElementTree.parse(layer / "coverage.xml")
+            narrative = coverage.find("narrative")
+            assert narrative is not None
+            narrative.remove(narrative[0])
+            narrative[0].set("state", "preserved")
+            coverage.write(layer / "coverage.xml", encoding="utf-8", xml_declaration=True)
+            extraction._validate(require_toc=True)
+
+            markdown_path = root / "replace.md"
+            epub_path = root / "replace.epub"
+            PDFCraft().render_markdown(extraction, markdown_path, mode=RenderMode.REPLACE)
+            PDFCraft().render_epub(extraction, epub_path, mode=RenderMode.REPLACE)
+            markdown = markdown_path.read_text(encoding="utf-8")
+            epub = _epub_text(epub_path)
+            self.assertIn("原标题", markdown)
+            self.assertIn("原正文", markdown)
+            self.assertIn("原标题", epub)
+            self.assertIn("原正文", epub)
+
+    def test_reference_uses_identity_and_target_presence_not_text_equality(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            extraction = _source(root / "source")
+            _add_translation(root / "source", "english-a", "EN")
+            chapter_path = root / "source/translations/english-a/chapters/chapter_1.xml"
+            chapter = ElementTree.parse(chapter_path)
+            target = chapter.find("references/ref/flow/text/fragment")
+            assert target is not None
+            target.text = None
+            chapter.write(chapter_path, encoding="utf-8", xml_declaration=True)
+            extraction._validate()
+
+            preserved_path = root / "preserved.md"
+            preserved_epub = root / "preserved.epub"
+            PDFCraft().render_markdown(
+                extraction, preserved_path, mode=RenderMode.BILINGUAL,
+            )
+            PDFCraft().render_epub(
+                extraction, preserved_epub, mode=RenderMode.BILINGUAL,
+            )
+            self.assertEqual(
+                preserved_path.read_text(encoding="utf-8").count("原注释"), 1,
+            )
+            self.assertEqual(_epub_text(preserved_epub).count("原注释"), 1)
+
+            chapter = ElementTree.parse(chapter_path)
+            target = chapter.find("references/ref/flow/text/fragment")
+            assert target is not None
+            target.text = "原注释"
+            chapter.write(chapter_path, encoding="utf-8", xml_declaration=True)
+            extraction._validate()
+            equal_path = root / "equal.md"
+            equal_epub = root / "equal.epub"
+            PDFCraft().render_markdown(
+                extraction, equal_path, mode=RenderMode.BILINGUAL,
+            )
+            PDFCraft().render_epub(
+                extraction, equal_epub, mode=RenderMode.BILINGUAL,
+            )
+            self.assertEqual(equal_path.read_text(encoding="utf-8").count("原注释"), 2)
+            self.assertEqual(_epub_text(equal_epub).count("原注释"), 2)
+
+    def test_legacy_v1_v2_v3_source_layers_render_to_markdown_and_epub(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            for version in (1, 2, 3):
+                with self.subTest(version=version):
+                    archive = _legacy_archive(root, version)
+                    markdown = root / f"v{version}.md"
+                    epub = root / f"v{version}.epub"
+                    PDFCraft().render_markdown(archive, markdown)
+                    PDFCraft().render_epub(archive, epub)
+                    self.assertIn("Legacy source", markdown.read_text(encoding="utf-8"))
+                    self.assertIn("Legacy source", _epub_text(epub))
 
     def test_markdown_bilingual_merges_heading_and_body_but_not_assets(self):
         with tempfile.TemporaryDirectory() as directory:
