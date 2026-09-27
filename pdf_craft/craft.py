@@ -198,9 +198,15 @@ class AsyncPDFCraft:
         document = await _ensure_extraction_async(extraction)
         if submit != SubmitKind.REPLACE:
             raise ValueError("PCEX translation layers store replacement text; choose a render mode later")
-        language = target_language or _transformer_target_language(translator) or "und"
-        if not language.strip():
-            raise ValueError("target_language must be a non-empty string")
+        language = (
+            target_language
+            if target_language is not None
+            else _transformer_target_language(translator)
+        )
+        if language is None or not language.strip():
+            raise ValueError(
+                "target_language must be supplied or declared by the translator"
+            )
         existing = {item.id for item in await IO_DOMAIN.run(document._translations)}
         selected_id = translation_id or _new_translation_id(existing)
         validate_translation_id(selected_id)

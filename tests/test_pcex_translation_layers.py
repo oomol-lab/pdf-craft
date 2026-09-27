@@ -109,6 +109,22 @@ class TestPCEXTranslationLayers(unittest.TestCase):
             self.assertTrue(all(character in "0123456789abcdef" for character in info.id))
             self.assertEqual(info.target_language, "fr")
 
+    def test_target_language_is_required_before_translation(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            transformer = _Prefix("translated")
+            output = root / "translated.pcex"
+
+            with self.assertRaisesRegex(
+                ValueError, "target_language must be supplied or declared"
+            ):
+                PDFCraft().translate_extraction(
+                    _source(root / "source"), output, transformer,
+                )
+
+            self.assertEqual(transformer.calls, 0)
+            self.assertFalse(output.exists())
+
     def test_xml_translation_writes_an_isolated_metadata_overlay(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

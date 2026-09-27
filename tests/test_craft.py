@@ -147,7 +147,7 @@ class TestPDFCraft(unittest.TestCase):
 
             translated = PDFCraft().translate_extraction(
                 source, root / "target.pcex", ChapterXMLTransformer(_PrefixXMLTranslator()),
-                with_furniture=True,
+                with_furniture=True, target_language="en",
             )
 
             with translated._materialize() as paths:
@@ -163,6 +163,7 @@ class TestPDFCraft(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "requires a ChapterXMLTransformer"):
                 PDFCraft().translate_extraction(
                     source, root / "target.pcex", _Upper(), with_furniture=True,
+                    target_language="en",
                 )
 
     def test_translate_pdf_uses_materialized_translation_for_furniture(self):

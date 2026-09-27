@@ -98,7 +98,8 @@ class TestPDFCraftExtraction(unittest.TestCase):
             )
 
             translated = PDFCraft().translate_extraction(
-                source, root / "translated.pcex", _TranslateHeadline()
+                source, root / "translated.pcex", _TranslateHeadline(),
+                target_language="en",
             )
             with translated._materialize() as paths:
                 furniture = ElementTree.parse(paths.furnitures).getroot()
@@ -452,7 +453,8 @@ class TestPDFCraftExtraction(unittest.TestCase):
             (source_workspace / "assets" / asset_name).write_bytes(b"asset")
 
             translated = PDFCraft().translate_extraction(
-                source, root / "translated.pcex", _Identity()
+                source, root / "translated.pcex", _Identity(),
+                target_language="en",
             )
 
             with source._materialize() as original, translated._materialize() as result:
