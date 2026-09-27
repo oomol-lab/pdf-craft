@@ -16,7 +16,14 @@
 
 公开中间格式为 `PDFCraftExtraction`，持久化与交换载体必须是 `.pcex` ZIP。其内容为
 `manifest.json`、`pages.xml`、`chapters/`、`assets/`，以及可选 `toc.xml`、`cover.png`、
-`furnitures.xml`。`translation.xml` 记录 Narrative、furniture 与独立 asset 文本翻译的覆盖状态。
+`furnitures.xml` 和 v4 `translations/`。`translations/index.json` 按文件内唯一 ID 排列零到多个
+译文层；每层包含完整章节译文、metadata overlay、`coverage.xml`，以及可选 furniture 译文。
+目标语言只是层的元数据，同一种语言可以有多个 ID。根级 `translation.xml` 仍是旧式或内部物化
+译文视图的覆盖记录，不代表 v4 中可供渲染选择的持久化译文层。
+
+PCEX 格式版本以已经发布的 Git tag 为兼容基线，不随开发期间的中间 commit 逐次递增。只有准备
+新版本且格式相对上一个已发布版本发生 schema 变化时，才评估是否增加 `format_version`。当前 v4
+相对 `v2.3.1` 的 v3 增加了可叠加 translation layer；读取器继续接受 v1/v2/v3。
 
 PCEX chapter 的阅读流使用 `FlowItem`：`TextFlowItem` 是作者意义的正文/标题段，包含保留
 来源 bbox 的 `SourceTextFragment`，并可在 fragment 之间嵌入图片/表格 `SourceAsset`。
@@ -38,6 +45,10 @@ analysis/OCR 缓存。
 （Extractor、Renderer、Transformer、LLM runtime）仅提供无 `_async` 后缀的异步方法；同步适配
 不得进入业务核心。配置、选项、事件和数据类不拆分同步/异步版本。模型下载和环境探测属于启动前
 准备，只保留同步入口。
+
+`translate_extraction()` 保留 source layer 并追加 replacement-only 译文层。Markdown/EPUB 渲染
+通过 `RenderMode.SOURCE`、`REPLACE`、`BILINGUAL` 决定只读原文、选择一份译文或合并原译文；
+后两种模式可显式传 translation ID，省略时稳定选择 index 第一项。PDF 写回暂不选择持久化译文层。
 
 除非任务明确要求破坏性 API 变更，否则把以下名称和默认值视为公共 API：
 

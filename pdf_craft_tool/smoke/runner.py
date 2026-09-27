@@ -12,7 +12,6 @@ from time import perf_counter
 from typing import Any, Literal, cast
 
 from pdf_craft import (
-    ChapterExtractionTransformer,
     ChapterXMLTransformer,
     ExtractionOptions,
     FootnoteOptions,
@@ -22,12 +21,11 @@ from pdf_craft import (
     OCREvent,
     PDFCraft,
     PDFOptions,
+    RenderMode,
     SubmitKind,
     XMLTranslator,
 )
 from pdf_craft.extractor.chapter.chapter import SourceTextFragment, BlockMember, Chapter, HTMLTag, TextFlowItem
-from pdf_craft.runtime import run_sync
-
 from .assets import SmokeAsset, discover_assets
 from .checks import check_epub, check_markdown, check_package, check_pdf_patch_geometry
 from .ocr import create_ocr_config
@@ -275,10 +273,14 @@ def _run_pdf(
         markdown = output_path / "book.md"
         markdown_assets = Path("assets")
         transformer = _package_translation(run, run_path)
+        mode, translation_id = _package_render_selection(run, transformer)
         with report.stage("render"):
             if transformer is not None:
-                package = _translate_package(craft, package, run_path, transformer)
-            craft.render_markdown(package, markdown, markdown_assets)
+                package = _translate_package(craft, package, run_path, transformer, run)
+            craft.render_markdown(
+                package, markdown, markdown_assets,
+                mode=mode, translation_id=translation_id,
+            )
         with report.stage("check"):
             errors = check_package(package)
             errors.extend(check_markdown(markdown))
@@ -291,10 +293,14 @@ def _run_pdf(
     if run.route in {"package-epub", "epub"}:
         epub = output_path / "book.epub"
         transformer = _package_translation(run, run_path)
+        mode, translation_id = _package_render_selection(run, transformer)
         with report.stage("render"):
             if transformer is not None:
-                package = _translate_package(craft, package, run_path, transformer)
-            craft.render_epub(package, epub)
+                package = _translate_package(craft, package, run_path, transformer, run)
+            craft.render_epub(
+                package, epub, lan=_package_epub_language(run, transformer),
+                mode=mode, translation_id=translation_id,
+            )
         with report.stage("check"):
             errors = check_package(package)
             errors.extend(check_epub(epub))
@@ -393,16 +399,43 @@ class _DeterministicChapterTransformer:
 def _package_translation(run: SmokeRun, run_path: Path):
     translation_transformer = _xml_translation_transformer(run, run_path)
     if translation_transformer is not None:
-        translation = run.translation or {}
-        mode = SubmitKind[translation.get("submit", "REPLACE").upper()]
-        return ChapterExtractionTransformer(translation_transformer, mode=mode)
+        return translation_transformer.with_mode(SubmitKind.REPLACE)
 
     translation = run.translation or {}
     marker = translation.get("package_marker")
     if not isinstance(marker, str):
         return None
-    mode = SubmitKind[translation.get("package_submit", "REPLACE").upper()]
-    return ChapterExtractionTransformer(_DeterministicChapterTransformer(marker), mode=mode)
+    return _DeterministicChapterTransformer(marker)
+
+
+def _package_render_selection(
+    run: SmokeRun, transformer,
+) -> tuple[RenderMode, str | None]:
+    if transformer is None:
+        return RenderMode.SOURCE, None
+    translation = run.translation or {}
+    configured = translation.get("render_mode")
+    if configured is None:
+        submit = translation.get(
+            "package_submit", translation.get("submit", "REPLACE")
+        )
+        configured = "BILINGUAL" if str(submit).upper() == "APPEND_BLOCK" else "REPLACE"
+    mode = RenderMode(str(configured).lower())
+    translation_id = translation.get("translation_id")
+    return mode, translation_id if isinstance(translation_id, str) else None
+
+
+def _package_epub_language(
+    run: SmokeRun, transformer,
+) -> Literal["zh", "en"] | None:
+    if transformer is None:
+        return None
+    language = str((run.translation or {}).get("target_language", "en")).lower()
+    if language in {"zh", "chinese", "simplified chinese"}:
+        return "zh"
+    if language in {"en", "english"}:
+        return "en"
+    return None
 
 
 def _translate_package(
@@ -410,18 +443,16 @@ def _translate_package(
     package,
     run_path: Path,
     transformer,
+    run: SmokeRun,
 ):
-    """Materialize a translated package for renderers that do not select layers yet."""
-    if not isinstance(transformer, ChapterExtractionTransformer):
-        raise TypeError("smoke extraction routes require a ChapterExtractionTransformer")
-    del craft
-    chapter_transformer = transformer.chapter_transformer
-    if hasattr(chapter_transformer, "with_mode"):
-        chapter_transformer = chapter_transformer.with_mode(SubmitKind.REPLACE)
-    render_transformer = ChapterExtractionTransformer(
-        chapter_transformer, mode=SubmitKind.REPLACE,
+    """Persist one PCEX translation layer before exercising renderer selection."""
+    translation = run.translation or {}
+    translation_id = translation.get("translation_id")
+    return craft.translate_extraction(
+        package, run_path / "translated.pcex", transformer,
+        translation_id=translation_id if isinstance(translation_id, str) else None,
+        target_language=str(translation.get("target_language", "en")),
     )
-    return run_sync(render_transformer.transform(package, run_path / "translated.pcex"))
 
 
 def _xml_translation_transformer(run: SmokeRun, run_path: Path) -> ChapterXMLTransformer | None:

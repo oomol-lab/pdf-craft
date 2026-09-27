@@ -13,6 +13,18 @@
       "route": "markdown",
       "backend": "deepseek-ocr-local",
       "ocr": {}
+    },
+    {
+      "asset": "pdf/double_column.pdf",
+      "route": "epub",
+      "backend": "deepseek-ocr-local",
+      "ocr": {},
+      "translation": {
+        "package_marker": "[smoke-translated]",
+        "render_mode": "BILINGUAL",
+        "translation_id": "smoke-en",
+        "target_language": "en"
+      }
     }
   ]
 }
