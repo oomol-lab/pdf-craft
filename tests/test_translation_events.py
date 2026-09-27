@@ -62,7 +62,8 @@ class TestTranslationEvents(unittest.TestCase):
 
             events = []
             PDFCraft().translate_extraction(
-                source, root / "target.pcex", Identity(), on_translation_event=events.append
+                source, root / "target.pcex", Identity(), target_language="en",
+                on_translation_event=events.append,
             )
 
             self.assertEqual(events[0].kind, TranslationEventKind.START)

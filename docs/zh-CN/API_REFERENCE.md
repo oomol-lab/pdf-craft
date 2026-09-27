@@ -450,7 +450,8 @@ translations = craft.list_translations(translated_extraction)
 `translate_extraction()` 保留 source layer，并追加一个只含纯译文的 translation layer。调用方可指定
 文件内唯一的短 opaque `translation_id`，也可自动生成；ID 才是 identity，目标语言只是元数据，
 所以同一语言可有多个译文。重复 ID 会在翻译开始前拒绝。`list_translations()` 返回每层的 ID、
-目标语言和创建时间。PCEX 层不编码双语排版，因此该方法只接受 `REPLACE`；双语或替换是后续
+目标语言和创建时间。目标语言可以由调用方显式传入，也可以由 translator 声明；两者都未提供时，
+调用会在翻译开始前失败。PCEX 层不编码双语排版，因此该方法只接受 `REPLACE`；双语或替换是后续
 渲染选择，当前渲染器尚未实现 layer 选择。
 
 `with_furniture` 默认是 `False`；设为 `True` 时需要 `ChapterXMLTransformer`，译后的 furniture 与

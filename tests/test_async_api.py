@@ -624,6 +624,7 @@ class TestAsyncAPI(unittest.IsolatedAsyncioTestCase):
                 source,
                 root / "target.pcex",
                 ChapterXMLTransformer(translator),
+                target_language="en",
             )
             self.assertEqual(translator.thread_id, threading.get_ident())
             with target._materialize() as paths:
@@ -648,6 +649,7 @@ class TestAsyncAPI(unittest.IsolatedAsyncioTestCase):
             transformer = _AsyncChapterTransformer()
             target = await AsyncPDFCraft().translate_extraction(
                 source, root / "target.pcex", transformer,
+                target_language="en",
             )
             self.assertEqual(transformer.thread_id, threading.get_ident())
             with target._materialize() as paths:
