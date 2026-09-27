@@ -101,6 +101,15 @@ def _epub_text(path: Path) -> str:
         )
 
 
+def _epub_documents(path: Path) -> tuple[tuple[str, str], ...]:
+    with ZipFile(path) as archive:
+        return tuple(
+            (name, archive.read(name).decode("utf-8"))
+            for name in sorted(archive.namelist())
+            if name.endswith((".xhtml", ".html"))
+        )
+
+
 def _legacy_archive(root: Path, version: int) -> Path:
     workspace = root / f"v{version}"
     make_extraction(workspace, with_toc=True, language="en")
@@ -141,6 +150,61 @@ def _legacy_archive(root: Path, version: int) -> Path:
 
 
 class TestPCEXTranslationRendering(unittest.TestCase):
+    def test_sync_and_async_render_facades_match_for_every_mode_and_errors(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            extraction = _source(root / "source")
+            _add_translation(root / "source", "english-a", "ONE")
+            _add_translation(root / "source", "english-b", "TWO")
+            extraction._validate(require_toc=True)
+
+            selections = (
+                (RenderMode.SOURCE, None),
+                (RenderMode.REPLACE, None),
+                (RenderMode.BILINGUAL, "english-b"),
+            )
+            for mode, translation_id in selections:
+                with self.subTest(mode=mode, translation_id=translation_id):
+                    sync_markdown = root / f"sync-{mode.value}.md"
+                    async_markdown = root / f"async-{mode.value}.md"
+                    sync_epub = root / f"sync-{mode.value}.epub"
+                    async_epub = root / f"async-{mode.value}.epub"
+                    assets_path = Path(f"{mode.value}-assets")
+                    PDFCraft().render_markdown(
+                        extraction, sync_markdown, assets_path,
+                        mode=mode, translation_id=translation_id,
+                    )
+                    PDFCraft().render_epub(
+                        extraction, sync_epub, mode=mode,
+                        translation_id=translation_id,
+                    )
+                    asyncio.run(AsyncPDFCraft().render_markdown(
+                        extraction, async_markdown, assets_path,
+                        mode=mode, translation_id=translation_id,
+                    ))
+                    asyncio.run(AsyncPDFCraft().render_epub(
+                        extraction, async_epub, mode=mode,
+                        translation_id=translation_id,
+                    ))
+                    self.assertEqual(
+                        sync_markdown.read_text(encoding="utf-8"),
+                        async_markdown.read_text(encoding="utf-8"),
+                    )
+                    self.assertEqual(
+                        _epub_documents(sync_epub), _epub_documents(async_epub),
+                    )
+
+            with self.assertRaisesRegex(ValueError, "translation_id must be"):
+                asyncio.run(AsyncPDFCraft().render_markdown(
+                    extraction, root / "async-invalid.md", mode=RenderMode.REPLACE,
+                    translation_id="bad/id",
+                ))
+            with self.assertRaisesRegex(ValueError, "no translation with id: missing-id"):
+                asyncio.run(AsyncPDFCraft().render_epub(
+                    extraction, root / "async-missing.epub", mode=RenderMode.BILINGUAL,
+                    translation_id="missing-id",
+                ))
+
     def test_source_needs_no_translation_and_translation_modes_fail_clearly(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
