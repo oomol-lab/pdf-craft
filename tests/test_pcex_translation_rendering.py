@@ -14,8 +14,8 @@ from epub_generator import BookMeta
 from pdf_craft import AsyncPDFCraft, PDFCraft, RenderMode
 from pdf_craft.common import save_xml
 from pdf_craft.extractor.chapter.chapter import (
-    Chapter, Reference, SourceAsset, SourceTextFragment, TextFlowItem, decode, encode,
-    search_references_in_chapter,
+    Chapter, DisplayFormula, Reference, SourceAsset, SourceTextFragment, TextFlowItem,
+    decode, encode, search_references_in_chapter,
 )
 from pdf_craft.extractor.toc.types import Toc, TocInfo, encode as encode_toc
 from tests.extraction_helpers import make_extraction
@@ -357,6 +357,88 @@ class TestPCEXTranslationRendering(unittest.TestCase):
             self.assertEqual(
                 (root / "source/chapters/chapter_1.xml").read_bytes(), source_xml,
             )
+
+    def test_bilingual_heading_appends_the_complete_translation_after_source(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            extraction = _source(root / "source")
+            chapter_path = root / "source/chapters/chapter_1.xml"
+            chapter = decode(ElementTree.parse(chapter_path).getroot())
+            heading = chapter.flow_items[0]
+            assert isinstance(heading, TextFlowItem)
+            heading.children.append(
+                SourceTextFragment(1, 4, (1, 10, 90, 12), ["续"]),
+            )
+            save_xml(encode(chapter), chapter_path)
+            _add_translation(root / "source", "english-a", "EN")
+            extraction._validate(require_toc=True)
+
+            output = root / "bilingual.md"
+            PDFCraft().render_markdown(extraction, output, mode=RenderMode.BILINGUAL)
+
+            heading_line = output.read_text(encoding="utf-8").splitlines()[0]
+            self.assertEqual(heading_line, "## 原标题续 EN:原标题EN:续")
+
+    def test_formula_translation_renders_in_chapters_and_references(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            extraction = _source(root / "source")
+            chapter_path = root / "source/chapters/chapter_1.xml"
+            chapter = decode(ElementTree.parse(chapter_path).getroot())
+            chapter.flow_items.insert(1, DisplayFormula(SourceAsset(
+                1, "formula", (1, 30, 90, 45), ["原公式标题"],
+                [r"x^2"], ["原公式说明"],
+            )))
+            reference = next(search_references_in_chapter(chapter))
+            reference.flow_items.append(DisplayFormula(SourceAsset(
+                1, "formula", (1, 85, 90, 98), ["原注释公式标题"],
+                [r"y^2"], ["原注释公式说明"],
+            )))
+            save_xml(encode(chapter), chapter_path)
+            _add_translation(root / "source", "english-a", "EN")
+
+            translated_path = (
+                root / "source/translations/english-a/chapters/chapter_1.xml"
+            )
+            translated = decode(ElementTree.parse(translated_path).getroot())
+            formula = translated.flow_items[1]
+            assert isinstance(formula, DisplayFormula)
+            formula.asset.title = ["Translated formula title"]
+            formula.asset.caption = ["Translated formula caption"]
+            translated_reference = next(search_references_in_chapter(translated))
+            reference_formula = translated_reference.flow_items[1]
+            assert isinstance(reference_formula, DisplayFormula)
+            reference_formula.asset.title = ["Translated note formula title"]
+            reference_formula.asset.caption = ["Translated note formula caption"]
+            save_xml(encode(translated), translated_path)
+            extraction._validate(require_toc=True)
+
+            markers = (
+                ("原公式标题", "Translated formula title"),
+                ("原公式说明", "Translated formula caption"),
+                ("原注释公式标题", "Translated note formula title"),
+                ("原注释公式说明", "Translated note formula caption"),
+            )
+            for mode in (RenderMode.REPLACE, RenderMode.BILINGUAL):
+                with self.subTest(mode=mode):
+                    markdown_path = root / f"{mode.value}.md"
+                    epub_path = root / f"{mode.value}.epub"
+                    PDFCraft().render_markdown(extraction, markdown_path, mode=mode)
+                    PDFCraft().render_epub(extraction, epub_path, mode=mode)
+                    outputs = (
+                        markdown_path.read_text(encoding="utf-8"),
+                        _epub_text(epub_path),
+                    )
+                    for output in outputs:
+                        for source, target in markers:
+                            self.assertIn(target, output)
+                            if mode == RenderMode.REPLACE:
+                                self.assertNotIn(source, output)
+                            else:
+                                self.assertIn(source, output)
+                    markdown = outputs[0]
+                    self.assertEqual(markdown.count("x^2"), 1)
+                    self.assertEqual(markdown.count("y^2"), 1)
 
     def test_epub_replace_and_bilingual_apply_content_metadata_and_toc(self):
         with tempfile.TemporaryDirectory() as directory:

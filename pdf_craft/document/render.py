@@ -193,13 +193,10 @@ def _compose_chapter(
     source_flow = source.find("flow")
     translated_flow = translated.find("flow")
     if source_flow is not None and translated_flow is not None:
-        targets = {
-            identity: item
-            for item in translated_flow
-            if (identity := _text_identity(item)) is not None
-        }
+        targets = _flow_targets(translated_flow)
         is_translated = lambda identity: (
-            (chapter_id, identity[0], identity[1]) in translated_identities
+            identity[0] == "display-formula"
+            or (chapter_id, identity[0], identity[1]) in translated_identities
         )
         if mode == RenderMode.REPLACE:
             _replace_flow(source_flow, targets, is_translated)
@@ -224,11 +221,7 @@ def _compose_references(
         target_flow = target.find("flow")
         if source_flow is None or target_flow is None:
             continue
-        target_items = {
-            identity: item
-            for item in target_flow
-            if (identity := _text_identity(item)) is not None
-        }
+        target_items = _flow_targets(target_flow)
         # References have no coverage-sidecar entries. Their established ref
         # and fragment identities locate the target; non-empty target content
         # is availability, even when its visible text equals the source.
@@ -244,8 +237,8 @@ def _compose_references(
 
 def _replace_flow(source_flow, targets, should_replace) -> None:
     effective: list[ElementTree.Element] = []
-    for source_item in source_flow:
-        identity = _text_identity(source_item)
+    for index, source_item in enumerate(source_flow):
+        identity = _flow_identity(source_item, index)
         target = targets.get(identity) if identity is not None else None
         if (
             identity is not None
@@ -261,13 +254,15 @@ def _replace_flow(source_flow, targets, should_replace) -> None:
 
 def _merge_flow(source_flow, targets, should_append) -> None:
     merged: list[ElementTree.Element] = []
-    for source_item in list(source_flow):
+    for index, source_item in enumerate(list(source_flow)):
         merged.append(source_item)
-        identity = _text_identity(source_item)
+        identity = _flow_identity(source_item, index)
         target = targets.get(identity) if identity is not None else None
         if target is None or not should_append(identity) or not _visible_text(target):
             continue
-        if source_item.get("role") == "heading":
+        if source_item.tag == "display-formula":
+            _merge_display_formula(source_item, target)
+        elif source_item.get("role") == "heading":
             _append_heading(source_item, target)
         else:
             target_copy = deepcopy(target)
@@ -276,6 +271,24 @@ def _merge_flow(source_flow, targets, should_append) -> None:
             if _visible_text(target_copy):
                 merged.append(target_copy)
     source_flow[:] = merged
+
+
+def _flow_targets(flow: ElementTree.Element) -> dict[tuple[Any, ...], ElementTree.Element]:
+    return {
+        identity: item
+        for index, item in enumerate(flow)
+        if (identity := _flow_identity(item, index)) is not None
+    }
+
+
+def _flow_identity(
+    item: ElementTree.Element, index: int,
+) -> tuple[Any, ...] | None:
+    if item.tag == "display-formula":
+        # Translation-layer validation guarantees identical ordered flow
+        # structure and formula geometry within the chapter/reference scope.
+        return ("display-formula", index)
+    return _text_identity(item)
 
 
 def _text_identity(item: ElementTree.Element) -> tuple[int, int] | None:
@@ -292,10 +305,37 @@ def _append_heading(source: ElementTree.Element, translated: ElementTree.Element
         (fragment.get("page_index"), fragment.get("source_order")): fragment
         for fragment in translated.findall("fragment")
     }
+    translated_fragments: list[ElementTree.Element] = []
     for fragment in source.findall("fragment"):
         target = targets.get((fragment.get("page_index"), fragment.get("source_order")))
         if target is not None and _visible_text(target):
-            _append_element_content(fragment, target)
+            translated_fragments.append(deepcopy(target))
+    if translated_fragments:
+        first = translated_fragments[0]
+        first.text = " " + (first.text or "")
+        source.extend(translated_fragments)
+
+
+def _merge_display_formula(
+    source: ElementTree.Element, translated: ElementTree.Element,
+) -> None:
+    source_asset = source.find("asset")
+    translated_asset = translated.find("asset")
+    if source_asset is None or translated_asset is None:
+        return
+    for name in ("title", "caption"):
+        target = translated_asset.find(name)
+        if target is None or not _visible_text(target):
+            continue
+        destination = source_asset.find(name)
+        if destination is not None:
+            _append_element_content(destination, target)
+            continue
+        copy = deepcopy(target)
+        if name == "title":
+            source_asset.insert(0, copy)
+        else:
+            source_asset.append(copy)
 
 
 def _append_element_content(
