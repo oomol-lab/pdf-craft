@@ -143,10 +143,15 @@ class TestPDFCraftTool(unittest.TestCase):
         args = _parser().parse_args([
             "smoke", "run", "--asset", "pdf/citation.pdf", "--route", "package-markdown",
             "--translation-llm-profile", "translation", "--fill-llm-profile", "fill",
+            "--render-mode", "bilingual", "--translation-id", "smoke-zh",
+            "--target-language", "zh",
         ])
         self.assertEqual(args.route, "package-markdown")
         self.assertEqual(args.translation_llm_profile, "translation")
         self.assertEqual(args.fill_llm_profile, "fill")
+        self.assertEqual(args.render_mode, "bilingual")
+        self.assertEqual(args.translation_id, "smoke-zh")
+        self.assertEqual(args.target_language, "zh")
 
     def test_smoke_dry_run_does_not_require_project_env(self):
         args = _parser().parse_args([

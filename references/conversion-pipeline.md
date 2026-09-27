@@ -10,6 +10,11 @@ Extractor 生成 PDFCraftExtraction 后，Renderer 可直接生成 Markdown 或 
 可以在渲染前修改结构化文本；`pipeline/epub` 也可把既有 EPUB 的 XHTML、目录和元数据交给
 同一个 XML Transformer。PDF Translation Pipeline 只处理已记录来源 bbox 内的文本。
 
+PCEX 翻译不再覆盖 source：`translate_extraction()` 在 v4 `translations/` 下追加一个完整的
+replacement-only 层。Markdown/EPUB 随后选择 source、某一译文替换或 source 加某一译文；选择
+依赖 translation ID，未指定时使用 index 第一项。这个渲染选择与直接 EPUB 输入的 append/replace
+提交模式是不同阶段的概念。PDF Translation Pipeline 暂不消费这些持久化层。
+
 `AsyncPDFCraft.convert_pdf_to_markdown()` 和 `AsyncPDFCraft.convert_pdf_to_epub()` 会先提取到内部 workspace，
 再渲染目标输出。提取流程是：
 
@@ -58,15 +63,20 @@ analysis 与稳定 extraction 明确分离：
   图表可嵌在 TextFlowItem fragment 之间，DisplayFormula 必须独立且不能被段落拼接跨越。
 - `extraction/toc.xml`、`extraction/cover.png`：可选目录和封面。
 - `extraction/furnitures.xml`：可选的页面家具 pattern 与页级 section。
-- `extraction/translation.xml`：可选翻译覆盖记录；包含 Narrative、furniture position/section，
-  以及独立图片/表格文本 asset 的 `translated` / `preserved` 状态。Narrative 翻译中的段内
-  段内 asset 只以无文本临时 anchor 保持位置；独立 asset 不伪造 anchor。两者的
-  title/content/caption 均由独立步骤翻译。
+- `extraction/translations/index.json`：v4 可选译文索引；条目以 ID 区分，记录目标语言和创建时间。
+- `extraction/translations/<id>/chapters/`、`metadata.json`、`coverage.xml`：一份独立译文层；章节
+  结构与 source 对齐，coverage 记录 Narrative、furniture position/section 及独立图片/表格文本的
+  `translated` / `preserved` 状态。可选 `furnitures.xml` 保存该层的 furniture 译文。
+- `extraction/translation.xml`：旧式或内部临时物化译文视图的根级 coverage；不要把它当作 v4
+  translation layer 索引。
+
+Narrative 翻译中的段内 asset 只以无文本临时 anchor 保持位置；独立 asset 不伪造 anchor。图片/
+表格 title/content/caption 属于独立翻译阶段，目前 v4 translation layer 仍原样保留这些 asset 文本。
 
 公共分段流程把 `extraction/` 打包为 `.pcex`；恢复后端只接受 `.pcex` 或已加载的
 `PDFCraftExtraction`。一键转换直接使用 workspace，只有显式 `extraction_path` 时才额外导出
-`.pcex`，避免压缩往返。翻译后的 `.pcex` 必须保留 manifest、pages、TOC、封面、furniture、
-覆盖记录和资源。
+`.pcex`，避免压缩往返。翻译后的 `.pcex` 必须保留 source 的 manifest、pages、章节、TOC、封面、
+furniture 和资源，并把每份译文及其 coverage 隔离在对应 translation layer 中。
 `PDFCraftExtraction` 只作为 opaque handle 流转；归档的打开、校验和导出由 `AsyncPDFCraft`
 负责，`PDFCraft` 仅同步转发这些操作。
 

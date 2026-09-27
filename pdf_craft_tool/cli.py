@@ -274,6 +274,8 @@ def _add_smoke_options(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--toc-assumed", action="store_true")
     parser.add_argument("--marker", help="deterministic package-transform marker for Markdown or EPUB routes")
     parser.add_argument("--submit", choices=("replace", "append-block"), default="replace")
+    parser.add_argument("--render-mode", choices=("replace", "bilingual"))
+    parser.add_argument("--translation-id")
     parser.add_argument("--patch-prefix", help="deterministic prefix used by the PDF patch smoke route")
     parser.add_argument("--target-language", default="zh")
     parser.add_argument("--prompt")
@@ -398,6 +400,11 @@ def _run_smoke(args: argparse.Namespace) -> int:
     if args.marker:
         translation["package_marker"] = args.marker
         translation["package_submit"] = args.submit.replace("-", "_").upper()
+        translation["target_language"] = args.target_language
+    if args.render_mode:
+        translation["render_mode"] = args.render_mode.upper()
+    if args.translation_id:
+        translation["translation_id"] = args.translation_id
     if args.patch_prefix:
         translation["patch_prefix"] = args.patch_prefix
     is_pdf_route = args.route in {

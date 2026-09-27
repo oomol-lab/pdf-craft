@@ -375,7 +375,60 @@ class TestSmokeMatrix(unittest.TestCase):
             rendered = (root / "output" / "book.md").read_text()
             self.assertIn("original", rendered)
             self.assertIn("original[translated]", rendered)
+            self.assertEqual(rendered.count("original"), 2)
             self.assertEqual(details["outputs"], [str(root / "output" / "book.md")])
+            with zipfile.ZipFile(root / "translated.pcex") as archive:
+                manifest = json.loads(archive.read("manifest.json"))
+                index = json.loads(archive.read("translations/index.json"))
+            self.assertEqual(manifest["format_version"], 4)
+            self.assertEqual(len(index["translations"]), 1)
+            translated = craft.open_extraction(root / "translated.pcex")
+            translations = craft.list_translations(translated)
+            self.assertEqual(len(translations), 1)
+            self.assertEqual(translations[0].target_language, "en")
+            self.assertEqual(craft.resolve_translation(translated).id, translations[0].id)
+
+    def test_epub_route_renders_an_explicit_pcex_translation_layer(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "output").mkdir()
+            package_path = root / "fixture-extraction"
+            package = make_extraction(
+                package_path, page_pixel_sizes={1: (10, 10)}, with_toc=True
+            )
+            chapter = Chapter(None, -1, [TextFlowItem("body", 0, [
+                SourceTextFragment(1, 1, (1, 1, 2, 2), ["original"])
+            ])])
+            save_xml(encode_chapter(chapter), package_path / "chapters" / "chapter_head.xml")
+
+            run = SmokeRun(
+                "pdf/double_column.pdf", "package-epub",
+                translation={
+                    "package_marker": "[translated]",
+                    "render_mode": "REPLACE",
+                    "translation_id": "smoke-en",
+                    "target_language": "en",
+                },
+            )
+            asset = SmokeAsset("pdf/double_column.pdf", "pdf", Path("source.pdf"))
+            from pdf_craft import PDFCraft
+            craft = PDFCraft()
+            with patch("pdf_craft_tool.smoke.runner.PDFCraft", return_value=craft), \
+                    patch.object(craft, "extract_pdf_with_metering", return_value=(
+                        package, OCRTokensMetering(0, 0)
+                    )):
+                status, errors, details = _run_pdf(
+                    run, asset, root, cast(OCRConfig, None),
+                )
+
+            self.assertEqual(status, "passed", errors)
+            self.assertEqual(details["outputs"], [str(root / "output" / "book.epub")])
+            translated = craft.open_extraction(root / "translated.pcex")
+            self.assertEqual(
+                [item.id for item in craft.list_translations(translated)],
+                ["smoke-en"],
+            )
+            self.assertEqual(craft.resolve_translation(translated, "smoke-en").id, "smoke-en")
 
 
 def _write_epub(path: Path, files: dict[str, str]) -> Path:
