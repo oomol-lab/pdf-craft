@@ -13,6 +13,7 @@ from xml.etree import ElementTree
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from ..document import DocumentAuthor, DocumentMetadata
+from ..concurrency import ConcurrentExecutor, FixedCapacity
 from ..llm import LLM, Message, MessageRole, runtime_for
 from ..llm.guaranteed import GuaranteedOptions, request_guaranteed_json_blocking
 from ..pdf import PDFDocumentMetadata
@@ -108,7 +109,11 @@ def extract_book_metadata_from_ocr(pages_path: Path, metadata_llm: LLM) -> Docum
         Message(MessageRole.SYSTEM, _SYSTEM_PROMPT),
         Message(MessageRole.USER, _render_pages_message(loaded, remaining=len(pages) - cursor)),
     ]
-    runtime = runtime_for(metadata_llm, protocol_version="book-metadata-json-v1") \
+    runtime = runtime_for(
+        metadata_llm,
+        ConcurrentExecutor(FixedCapacity(1)),
+        protocol_version="book-metadata-json-v1",
+    ) \
         if isinstance(metadata_llm, LLM) else None
 
     while True:

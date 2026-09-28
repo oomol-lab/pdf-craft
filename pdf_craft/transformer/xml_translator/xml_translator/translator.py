@@ -32,16 +32,6 @@ SourceTextRenderer = Callable[[list[InlineSegment]], str]
 CanonicalTextValidator = Callable[[list[InlineSegment], str, Element], str | None]
 
 
-def _resolve_window(concurrency: int, window: int | None) -> int:
-    """Keep the original concurrency spelling while accepting window."""
-    if window is not None and concurrency != 1 and concurrency != window:
-        raise ValueError("window and concurrency must match when both are provided")
-    resolved = concurrency if window is None else window
-    if resolved < 1:
-        raise ValueError("window must be at least 1")
-    return resolved
-
-
 def _already_in_target_language(text: str, target_language: str) -> bool:
     normalized = target_language.strip().casefold().replace("_", "-")
     if normalized not in {
@@ -105,6 +95,10 @@ class XMLTranslator:
     ) -> None:
         translation_executor = translation_executor or executor
         fill_executor = fill_executor or executor
+        if translation_executor is None:
+            raise ValueError("XML translation requires a translation executor")
+        if fill_executor is None:
+            raise ValueError("XML translation requires a fill executor")
         self._translation_llm: LLM = translation_llm
         self._fill_llm: LLM = fill_llm
         self._translation_runtime = runtime_for(
@@ -190,13 +184,12 @@ class XMLTranslator:
     async def translate_element(
         self,
         task: TranslationTask[T],
-        concurrency: int = 1,
-        window: int | None = None,
+        window: int = 1,
         **kwargs,
     ) -> tuple[Element, T]:
         translated = await self.translate_elements(
             tasks=(task,),
-            concurrency=_resolve_window(concurrency, window),
+            window=window,
             **kwargs,
         )
         if translated:
@@ -206,7 +199,6 @@ class XMLTranslator:
     async def translate_elements(
         self,
         tasks: Iterable[TranslationTask[T]],
-        concurrency: int = 1,
         interrupt_source_text_segments: Callable[[Iterable[TextSegment]], Iterable[TextSegment]] | None = None,
         interrupt_translated_text_segments: Callable[[Iterable[TextSegment]], Iterable[TextSegment]] | None = None,
         interrupt_block_element: Callable[[Element], Element] | None = None,
@@ -219,9 +211,10 @@ class XMLTranslator:
         total_characters: int | None = None,
         emit_scope_events: bool = True,
         emit_item_events: bool = True,
-        window: int | None = None,
+        window: int = 1,
     ) -> list[tuple[Element, T]]:
-        window = _resolve_window(concurrency, window)
+        if window < 1:
+            raise ValueError("window must be at least 1")
         element2task: dict[int, TranslationTask[T]] = {}
         callbacks = warp_callbacks(
             interrupt_source_text_segments=interrupt_source_text_segments,

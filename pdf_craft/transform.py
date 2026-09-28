@@ -71,6 +71,8 @@ class PDFExtractionEngine:
             ocr=ensure_ocr_config(ocr, models_cache_path, local_only),
             pdf_handler=pdf_handler,
         )
+        if self._ocr.is_vendor and ocr_executor is None:
+            raise ValueError("Vendor OCR requires an explicit OCR executor")
         self._ocr_executor = ocr_executor
 
     def predownload(self, revision: str | None = None) -> None:

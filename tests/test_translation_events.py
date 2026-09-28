@@ -163,29 +163,23 @@ class TestCrossChapterTranslation(unittest.IsolatedAsyncioTestCase):
                 emit_translation_events=True,
             ))
             await asyncio.wait_for(translator.slow_started.wait(), timeout=1)
-            try:
-                await asyncio.wait_for(fast_reported.wait(), timeout=1)
-                self.assertFalse(any(
-                    event.kind == TranslationEventKind.ITEM_COMPLETE
-                    and event.item_id == 1
-                    for event in events
-                ))
-                fast_progress = next(
-                    event for event in events
-                    if event.kind == TranslationEventKind.PROGRESS
-                    and event.item_id == 2
-                )
-                self.assertEqual(
-                    fast_progress.completed_characters,
-                    len(texts[2]),
-                )
-            finally:
-                translator.release_slow.set()
+            self.assertFalse(fast_reported.is_set())
+            translator.release_slow.set()
+            await asyncio.wait_for(fast_reported.wait(), timeout=1)
+            fast_progress = next(
+                event for event in events
+                if event.kind == TranslationEventKind.PROGRESS
+                and event.item_id == 2
+            )
+            self.assertEqual(
+                fast_progress.completed_characters,
+                len(texts[1]) + len(texts[2]),
+            )
             result = await pending
             self.assertTrue(result._validate())
             self.assertFalse(callback_active)
 
-    async def test_xml_chapters_can_translate_at_the_same_time(self):
+    async def test_xml_chapters_share_one_book_wide_group_window(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             source_root = root / "source"
@@ -204,32 +198,32 @@ class TestCrossChapterTranslation(unittest.IsolatedAsyncioTestCase):
                     + tostring(encode(chapter), encoding="unicode")
                 )
 
-            class GatedTranslator:
+            class BatchTranslator:
                 target_language = "en"
 
                 def __init__(self):
-                    self.started = 0
-                    self.both_started = asyncio.Event()
-                    self.release = asyncio.Event()
+                    self.calls = []
 
                 async def translate_element(self, task, **_kwargs):
-                    self.started += 1
-                    if self.started == 2:
-                        self.both_started.set()
-                    await self.release.wait()
-                    return task.element, task.payload
+                    raise AssertionError(f"unexpected per-chapter call: {task.item_id}")
 
-            translator = GatedTranslator()
+                async def translate_elements(self, tasks, **kwargs):
+                    task_list = list(tasks)
+                    self.calls.append((task_list, kwargs["window"]))
+                    return [(task.element, task.payload) for task in task_list]
+
+            translator = BatchTranslator()
             transform = ChapterExtractionTransformer(
-                ChapterXMLTransformer(translator)
+                ChapterXMLTransformer(translator, window=2)
             )
-            pending = asyncio.create_task(transform._transform_to_workspace_async(
+            result = await transform._transform_to_workspace_async(
                 source, root / "target",
-            ))
-            await asyncio.wait_for(translator.both_started.wait(), timeout=1)
-            translator.release.set()
-            result = await pending
+            )
             self.assertTrue(result._validate())
+            self.assertEqual(len(translator.calls), 1)
+            tasks, window = translator.calls[0]
+            self.assertEqual([task.item_id for task in tasks], [1, 2])
+            self.assertEqual(window, 2)
 
     async def test_chapter_failure_is_direct_and_cancels_siblings(self):
         with tempfile.TemporaryDirectory() as directory:

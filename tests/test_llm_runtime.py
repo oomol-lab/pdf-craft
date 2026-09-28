@@ -25,23 +25,26 @@ def _config(path: Path) -> LLM:
 
 
 class TestLLMRuntime(unittest.IsolatedAsyncioTestCase):
-    async def test_runtime_preserves_legacy_optional_executor_constructor(self):
+    async def test_runtime_requires_explicit_executor(self):
         config = LLM("key", "https://example.invalid/v1", "model", "o200k_base")
-        runtime = LLMRuntime(config, protocol_version="legacy")
+        executor = ConcurrentExecutor(FixedCapacity(1))
+        runtime = LLMRuntime(config, executor=executor, protocol_version="explicit")
         runtime._invoke = lambda *_args: "ok"  # type: ignore[method-assign]
 
-        self.assertIsInstance(runtime.executor, ConcurrentExecutor)
-        self.assertEqual(runtime.protocol_version, "legacy")
+        self.assertIs(runtime.executor, executor)
+        self.assertEqual(runtime.protocol_version, "explicit")
         self.assertEqual(await runtime.request("hello", use_cache=False), "ok")
 
-    async def test_xml_translator_preserves_legacy_constructor_and_concurrency(self):
+    async def test_xml_translator_uses_explicit_executor_and_window(self):
         config = LLM("key", "https://example.invalid/v1", "model", "o200k_base")
+        executor = ConcurrentExecutor(FixedCapacity(2))
         translator = XMLTranslator(
             config, config, "en", None, False, 1, 3, 10_000, "legacy-seed",
+            executor=executor,
         )
         self.assertEqual(translator._cache_seed_content, "legacy-seed")
-        self.assertIsInstance(translator._translation_runtime.executor, ConcurrentExecutor)
-        self.assertIsInstance(translator._fill_runtime.executor, ConcurrentExecutor)
+        self.assertIs(translator._translation_runtime.executor, executor)
+        self.assertIs(translator._fill_runtime.executor, executor)
 
         class Mapper:
             def __init__(self):
@@ -59,11 +62,11 @@ class TestLLMRuntime(unittest.IsolatedAsyncioTestCase):
         third = TranslationTask(Element("p"), SubmitKind.REPLACE, "third")
 
         self.assertEqual(
-            (await translator.translate_element(first, concurrency=2))[1],
+            (await translator.translate_element(first, window=2))[1],
             "first",
         )
         self.assertEqual(
-            (await translator.translate_elements((second,), concurrency=3))[0][1],
+            (await translator.translate_elements((second,), window=3))[0][1],
             "second",
         )
         self.assertEqual(
@@ -72,11 +75,12 @@ class TestLLMRuntime(unittest.IsolatedAsyncioTestCase):
         )
         self.assertEqual(mapper.windows, [2, 3, 4])
 
-    def test_epub_translate_preserves_legacy_positional_parameter_order(self):
+    def test_epub_translate_exposes_window_without_concurrency_alias(self):
         parameters = list(signature(translate_epub).parameters)
-        self.assertEqual(parameters[:13], [
+        self.assertNotIn("concurrency", parameters)
+        self.assertEqual(parameters[:12], [
             "source_path", "target_path", "target_language", "submit",
-            "user_prompt", "max_retries", "max_group_tokens", "concurrency",
+            "user_prompt", "max_retries", "max_group_tokens",
             "llm", "translation_llm", "fill_llm",
             "on_translation_event", "on_fill_failed",
         ])
@@ -104,7 +108,9 @@ class TestLLMRuntime(unittest.IsolatedAsyncioTestCase):
     async def test_cache_commits_only_after_context_success_and_writes_logs(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            runtime = runtime_for(_config(root))
+            runtime = runtime_for(
+                _config(root), ConcurrentExecutor(FixedCapacity(1)),
+            )
             calls = 0
 
             def invoke(*_args):
@@ -125,7 +131,9 @@ class TestLLMRuntime(unittest.IsolatedAsyncioTestCase):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             deep = root / ("nested-" + "x" * 40) / ("work-" + "y" * 40)
-            runtime = runtime_for(_config(deep))
+            runtime = runtime_for(
+                _config(deep), ConcurrentExecutor(FixedCapacity(1)),
+            )
             runtime._invoke = lambda *_args: "ok"  # type: ignore[method-assign]
 
             self.assertEqual(await runtime.request("hello", cache_seed_content="seed"), "ok")
@@ -135,7 +143,9 @@ class TestLLMRuntime(unittest.IsolatedAsyncioTestCase):
 
     async def test_empty_response_is_typed_after_retries(self):
         with tempfile.TemporaryDirectory() as directory:
-            runtime = runtime_for(_config(Path(directory)))
+            runtime = runtime_for(
+                _config(Path(directory)), ConcurrentExecutor(FixedCapacity(1)),
+            )
             runtime._invoke = lambda *args: ""  # type: ignore[method-assign]
             with self.assertRaises(LLMEmptyResponseError) as raised:
                 await runtime.request("hello", use_cache=False)
@@ -143,7 +153,9 @@ class TestLLMRuntime(unittest.IsolatedAsyncioTestCase):
 
     async def test_transport_failure_reports_attempts_and_cause(self):
         with tempfile.TemporaryDirectory() as directory:
-            runtime = runtime_for(_config(Path(directory)))
+            runtime = runtime_for(
+                _config(Path(directory)), ConcurrentExecutor(FixedCapacity(1)),
+            )
             runtime._invoke = lambda *args: (_ for _ in ()).throw(ValueError("bad credentials"))  # type: ignore[method-assign]
             with self.assertRaises(LLMTransportError) as raised:
                 await runtime.request("hello", use_cache=False)
@@ -152,7 +164,9 @@ class TestLLMRuntime(unittest.IsolatedAsyncioTestCase):
 
     async def test_async_transport_retries_connect_failure_over_ipv4(self):
         with tempfile.TemporaryDirectory() as directory:
-            runtime = runtime_for(_config(Path(directory)))
+            runtime = runtime_for(
+                _config(Path(directory)), ConcurrentExecutor(FixedCapacity(1)),
+            )
             invoke = AsyncMock(side_effect=[httpx.ConnectError("TLS failed"), "ok"])
             runtime._invoke_stream = invoke  # type: ignore[method-assign]
 

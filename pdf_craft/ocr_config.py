@@ -90,6 +90,11 @@ class DeepSeekOCRVendorConfig:
     top_p: float | None = None
     max_tokens: int = 8000
     timeout_seconds: int = 180
+    retry_times: int = 2
+    retry_interval_seconds: float = 1.0
+
+    def __post_init__(self) -> None:
+        _validate_vendor_retry(self.retry_times, self.retry_interval_seconds)
 
 
 @dataclass(frozen=True)
@@ -101,6 +106,11 @@ class DeepSeekOCR2VendorConfig:
     top_p: float | None = None
     max_tokens: int = 8000
     timeout_seconds: int = 180
+    retry_times: int = 2
+    retry_interval_seconds: float = 1.0
+
+    def __post_init__(self) -> None:
+        _validate_vendor_retry(self.retry_times, self.retry_interval_seconds)
 
 
 @dataclass(frozen=True)
@@ -110,6 +120,18 @@ class UnlimitedOCRVendorConfig:
     base_url: str = "https://aip.baidubce.com"
     poll_interval_seconds: float = 2.0
     timeout_seconds: int = 180
+    retry_times: int = 2
+    retry_interval_seconds: float = 1.0
+
+    def __post_init__(self) -> None:
+        _validate_vendor_retry(self.retry_times, self.retry_interval_seconds)
+
+
+def _validate_vendor_retry(retry_times: int, retry_interval_seconds: float) -> None:
+    if retry_times < 0:
+        raise ValueError("retry_times cannot be negative")
+    if retry_interval_seconds < 0:
+        raise ValueError("retry_interval_seconds cannot be negative")
 
 
 LocalOCRConfig: TypeAlias = (

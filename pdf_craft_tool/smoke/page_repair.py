@@ -7,7 +7,7 @@ import json
 from pathlib import Path
 from typing import Any
 
-from pdf_craft import LLM
+from pdf_craft import ConcurrentExecutor, FixedCapacity, LLM
 from pdf_craft.extractor.chapter.generation import prepare_chapter_analysis
 from pdf_craft.extractor.chapter.page_analysis import (
     PageAnalysis,
@@ -60,7 +60,11 @@ async def _run_page_repair_smoke(
             str(config["jev_run"]) if config.get("jev_run") else None,
         )
         llm = LLM(**config["llm"])
-        runtime = runtime_for(llm, protocol_version="page-repair-json-v1")
+        runtime = runtime_for(
+            llm,
+            ConcurrentExecutor(FixedCapacity(1)),
+            protocol_version="page-repair-json-v1",
+        )
         raw_path = run_path / "llm-raw"
         raw_path.mkdir()
 

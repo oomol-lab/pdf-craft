@@ -49,7 +49,6 @@ async def translate(
     user_prompt: str | None = None,
     max_retries: int = 5,
     max_group_tokens: int = 2600,
-    concurrency: int | None = 1,
     llm: LLM | None = None,
     translation_llm: LLM | None = None,
     fill_llm: LLM | None = None,
@@ -58,10 +57,11 @@ async def translate(
     executor: AsyncExecutor | None = None,
     translation_executor: AsyncExecutor | None = None,
     fill_executor: AsyncExecutor | None = None,
-    window: int | None = None,
+    window: int = 1,
 ) -> None:
     """Translate an EPUB with native async LLM concurrency and pooled ZIP I/O."""
-    window = _resolve_window(window, concurrency)
+    if window < 1:
+        raise ValueError("window must be at least 1")
     translation_llm = translation_llm or llm
     fill_llm = fill_llm or llm
     if translation_llm is None:
@@ -152,23 +152,6 @@ async def translate(
                 failure,
                 failure.__traceback__ if failure is not None else None,
             )
-
-
-def _resolve_window(window: int | None, concurrency: int | None) -> int:
-    """Resolve the legacy ``concurrency`` spelling to the XML work window."""
-    if (
-        window is not None
-        and concurrency not in (None, 1, window)
-    ):
-        raise ValueError("window and concurrency must match when both are provided")
-    resolved = window if window is not None else concurrency
-    if resolved is None:
-        return 1
-    if resolved < 1:
-        raise ValueError("window must be at least 1")
-    return resolved
-
-
 def _generate_tasks_from_book(
     zip: Zip,
     toc_list: list,

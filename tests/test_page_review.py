@@ -77,7 +77,9 @@ class PageReviewTests(unittest.IsolatedAsyncioTestCase):
         paragraphs, citations = _resolve_pages([page])
         analyses = analyse_pages([1], paragraphs, citations)
 
-        requests = build_jev_review_requests([page], analyses, {1: (100, 100)})
+        requests = list(build_jev_review_requests(
+            [page], analyses, {1: (100, 100)},
+        ))
 
         self.assertEqual(len(requests), 1)
         page_index, request = requests[0]

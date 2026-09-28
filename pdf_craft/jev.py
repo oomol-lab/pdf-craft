@@ -29,7 +29,6 @@ class JEV:
     url: str = "https://api.typesafe.ai"
     timeout: float | None = 60.0
     retry_times: int = 2
-    concurrency: int = 4
 
     def __post_init__(self) -> None:
         if not self.key.strip():
@@ -38,8 +37,8 @@ class JEV:
             raise ValueError("JEV model cannot be empty")
         if self.retry_times < 0:
             raise ValueError("JEV retry_times cannot be negative")
-        if self.concurrency < 1:
-            raise ValueError("JEV concurrency must be at least 1")
+
+
 class JEVRuntime:
     """One event-loop-bound official JEV client reused for a review run."""
 
@@ -75,19 +74,25 @@ class JEVRuntime:
     ) -> list[tuple[int, float]]:
         if self._client is None:
             raise RuntimeError("JEVRuntime must be entered before evaluation")
-        pending = list(requests)
-        request_order = {
-            page_index: order for order, (page_index, _) in enumerate(pending)
-        }
-        attempts = {page_index: 0 for page_index, _ in pending}
-        completed: list[tuple[int, float]] = []
-        while pending:
-            current = pending
-            pending = []
+        def initial_requests():
+            for order, (page_index, request) in enumerate(requests):
+                yield order, page_index, request
+
+        pending: Iterable[tuple[int, int, dict[str, Any]]] = initial_requests()
+        attempts: dict[int, int] = {}
+        completed: list[tuple[int, int, float]] = []
+        while True:
+            scheduled: dict[int, tuple[int, int, dict[str, Any]]] = {}
 
             def operations():
-                for page_index, request in current:
-                    async def invoke(operation_id: int, page_index=page_index, request=request):
+                for order, page_index, request in pending:
+                    async def invoke(
+                        operation_id: int,
+                        order=order,
+                        page_index=page_index,
+                        request=request,
+                    ):
+                        scheduled[operation_id] = (order, page_index, request)
                         assert self._client is not None
                         try:
                             response = await self._client.system_one(
@@ -99,34 +104,43 @@ class JEVRuntime:
                         probability = float(
                             response.nouls["page_passes_strict_standard"].noul
                         )
-                        return operation_id, (page_index, probability)
+                        return operation_id, probability
                     yield invoke
 
+            retried: list[tuple[int, int, dict[str, Any]]] = []
             delays: list[float] = []
             async with aclosing(self.executor.map(operations())) as results:
                 async for result in results:
-                    source_page_index = current[result.operation_id][0]
+                    order, page_index, request = scheduled.pop(result.operation_id)
                     if result.succeeded:
                         assert result.value is not None
-                        completed.append(result.value)
+                        completed.append((order, page_index, result.value))
                         continue
                     error = result.error
                     assert error is not None
-                    attempts[source_page_index] += 1
+                    attempts[order] = attempts.get(order, 0) + 1
                     if (
                         _is_retryable(error)
-                        and attempts[source_page_index] <= self.config.retry_times
+                        and attempts[order] <= self.config.retry_times
                     ):
-                        pending.append(current[result.operation_id])
+                        retried.append((order, page_index, request))
                         if isinstance(error, RateLimitedError):
-                            delays.append(error.retry_after or 0)
+                            delays.append(
+                                error.retry_after
+                                if error.retry_after is not None else 0.5
+                            )
                         continue
                     raise error
-            if pending:
-                delay = max(delays, default=0.5)
-                if delay > 0:
-                    await asyncio.sleep(delay)
-        return sorted(completed, key=lambda result: request_order[result[0]])
+            if not retried:
+                break
+            pending = retried
+            delay = max(delays, default=0.5)
+            if delay > 0:
+                await asyncio.sleep(delay)
+        return [
+            (page_index, probability)
+            for _, page_index, probability in sorted(completed)
+        ]
 
 
 JEVRequest = Callable[[int, dict[str, Any]], Awaitable[float]]

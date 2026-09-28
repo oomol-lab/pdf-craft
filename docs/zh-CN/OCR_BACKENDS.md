@@ -190,6 +190,8 @@ Unlimited OCR vendor 配置使用百度服务凭据：
 | `base_url` | `str` | `https://aip.baidubce.com` | 百度服务基础 URL |
 | `poll_interval_seconds` | `float` | `2.0` | 轮询异步任务的间隔 |
 | `timeout_seconds` | `int` | `180` | OCR 任务超时时间 |
+| `retry_times` | `int` | `2` | 可重试网络错误的重试次数 |
+| `retry_interval_seconds` | `float` | `1.0` | 供应商未给出等待时间时的重试间隔 |
 
 ```python
 from pdf_craft import (

@@ -2,13 +2,12 @@ import sys
 import time
 import json
 from collections.abc import AsyncGenerator
-from contextlib import aclosing
 from tempfile import TemporaryDirectory
 from dataclasses import dataclass
 from enum import Enum, auto
 from pathlib import Path
 from threading import Lock
-from typing import Callable, Container, Generator, TypeVar
+from typing import Any, Callable, Container, Generator, TypeVar, cast
 
 from PIL.Image import Image
 
@@ -18,13 +17,14 @@ from ..error import IgnoreOCRErrorsChecker, IgnorePDFErrorsChecker, OCRError, PD
 from ..metering import AbortedCheck, check_aborted
 from ..ocr_config import (
     DeepSeekOCR2VendorConfig, DeepSeekOCRVendorConfig, OCRConfig,
-    UnlimitedOCRVendorConfig,
+    UnlimitedOCRVendorConfig, VendorOCRConfig,
 )
-from ..runtime import IO_DOMAIN, run_cancellable
+from ..runtime import IO_DOMAIN, OCR_DOMAIN, run_cancellable
 from .handler import DefaultPDFHandler, PDFHandler
 from .page_extractor import Page, PageExtractorNode, PageLayout
 from .page_ref import PageRefContext
 from .types import DeepSeekOCRSize, PDFDocumentMetadata, encode
+from .vendor_ocr import VendorOCRInput, VendorOCRRuntime, VendorOCRResponse
 
 
 class OCREventKind(Enum):
@@ -45,6 +45,17 @@ class OCREvent:
     input_tokens: int = 0
     output_tokens: int = 0
     error: Exception | None = None
+
+
+@dataclass(frozen=True)
+class _PreparedVendorPage:
+    page_index: int
+    image_path: Path
+    request_path: Path
+    started: float
+    total_pages: int
+    scale_x: float = 1.0
+    scale_y: float = 1.0
 
 
 class OCR:
@@ -101,6 +112,7 @@ class OCR:
         max_output_tokens: int | None = None,
     ) -> AsyncGenerator[OCREvent, None]:
         """Keep PDF rendering serial while vendor page calls share async capacity."""
+        del ocr_size
         if not self.is_vendor:
             raise RuntimeError("recognize_vendor is only available for vendor OCR")
         ocr_path.mkdir(parents=True, exist_ok=True)
@@ -176,12 +188,39 @@ class OCR:
                         self._last_page_pixel_sizes[ref.page_index] = image.size
                         image_path = Path(temporary.name) / f"page_{ref.page_index}.png"
                         image.save(image_path, format="PNG")
+                        request_path = image_path
+                        scale_x = 1.0
+                        scale_y = 1.0
+                        if isinstance(self._config, UnlimitedOCRVendorConfig):
+                            width, height = image.size
+                            maximum = max(width, height)
+                            if maximum > 8192:
+                                ratio = 8192 / maximum
+                                resized_width = max(1, round(width * ratio))
+                                resized_height = max(1, round(height * ratio))
+                                resized = image.resize((resized_width, resized_height))
+                                request_path = (
+                                    Path(temporary.name)
+                                    / f"page_{ref.page_index}_request.png"
+                                )
+                                resized.save(request_path, format="PNG")
+                                resized.close()
+                                scale_x = width / resized_width
+                                scale_y = height / resized_height
                         image.close()
                         events.append(OCREvent(
                             OCREventKind.RENDERED, ref.page_index, total_pages,
                             int((time.perf_counter() - started) * 1000),
                         ))
-                        prepared.append((ref.page_index, image_path, started, total_pages))
+                        prepared.append(_PreparedVendorPage(
+                            page_index=ref.page_index,
+                            image_path=image_path,
+                            request_path=request_path,
+                            started=started,
+                            total_pages=total_pages,
+                            scale_x=scale_x,
+                            scale_y=scale_y,
+                        ))
                 return prepared
 
             prepared = await run_cancellable(
@@ -192,44 +231,13 @@ class OCR:
             for event in events:
                 yield event
 
-            async def recognize_page(
-                item: tuple[int, Path, float, int],
-                remaining_tokens: int | None,
-                remaining_output_tokens: int | None,
-            ) -> Page:
-                page_index, image_path, _, _ = item
-
-                def execute(cooperative_aborted: AbortedCheck):
-                    from PIL import Image as PILImage
-                    with PILImage.open(image_path) as opened:
-                        image = opened.copy()
-                    return self._extractor.image2page(
-                        image=image,
-                        page_index=page_index,
-                        asset_hub=asset_hub,
-                        ocr_size=ocr_size,
-                        includes_footnotes=includes_footnotes,
-                        includes_raw_image=(page_index == 1),
-                        plot_path=plot_path,
-                        max_tokens=remaining_tokens,
-                        max_output_tokens=remaining_output_tokens,
-                        device_number=None,
-                        aborted=cooperative_aborted,
-                    )
-
-                return await run_cancellable(
-                    IO_DOMAIN,
-                    execute,
-                    original_aborted=aborted,
-                )
-
             async def finish_page(
-                item: tuple[int, Path, float, int],
+                item: _PreparedVendorPage,
                 page: Page | None,
                 operation_error: OperationError | None,
             ) -> OCREvent:
                 nonlocal usable_pages
-                page_index, image_path, started, total_pages = item
+                page_index = item.page_index
                 recognized_error: Exception | None = None
                 if operation_error is not None:
                     cause = operation_error.__cause__
@@ -251,7 +259,7 @@ class OCR:
 
                     def fallback():
                         from PIL import Image as PILImage
-                        with PILImage.open(image_path) as opened:
+                        with PILImage.open(item.image_path) as opened:
                             image = opened.copy()
                         return self._create_fallback_page(
                             asset_hub, page_index, image,
@@ -288,59 +296,62 @@ class OCR:
                     terminal_failures.append(page_index)
                 return OCREvent(
                     OCREventKind.COMPLETE if recognized_error is None else OCREventKind.FAILED,
-                    page_index, total_pages,
-                    int((time.perf_counter() - started) * 1000),
+                    page_index, item.total_pages,
+                    int((time.perf_counter() - item.started) * 1000),
                     committed_page.input_tokens,
                     committed_page.output_tokens,
                     recognized_error,
                 )
 
-            if max_tokens is not None or max_output_tokens is not None:
-                # Cumulative limits require each completed page to settle before
-                # the next request is admitted.  This keeps the public budget
-                # exact instead of multiplying it by concurrent in-flight pages.
-                remaining_tokens = max_tokens
-                remaining_output_tokens = max_output_tokens
-                from doc_page_extractor.extraction_context import TokenLimitError
+            async with VendorOCRRuntime(
+                cast(VendorOCRConfig, self._config), executor,
+            ) as runtime:
+                if max_tokens is not None or max_output_tokens is not None:
+                    # Exact cumulative budgets settle a complete page before
+                    # admitting the next vendor operation.
+                    remaining_tokens = max_tokens
+                    remaining_output_tokens = max_output_tokens
+                    from doc_page_extractor.extraction_context import TokenLimitError
 
-                for item in prepared:
-                    if remaining_tokens is not None and remaining_tokens <= 0:
-                        raise TokenLimitError()
-                    if (
-                        remaining_output_tokens is not None
-                        and remaining_output_tokens <= 0
-                    ):
-                        raise TokenLimitError()
-                    page = None
-                    operation_error = None
-                    try:
-                        page = await executor.run(lambda item=item: recognize_page(
-                            item, remaining_tokens, remaining_output_tokens,
-                        ))
-                    except NonContinuableError:
-                        raise
-                    except OperationError as error:
-                        operation_error = error
-                    event = await finish_page(item, page, operation_error)
-                    if remaining_tokens is not None:
-                        remaining_tokens -= event.input_tokens + event.output_tokens
-                    if remaining_output_tokens is not None:
-                        remaining_output_tokens -= event.output_tokens
-                    yield event
-            else:
-                def operations():
                     for item in prepared:
-                        async def recognize(operation_id: int, item=item):
-                            page = await recognize_page(item, None, None)
-                            return operation_id, page
-                        yield recognize
-
-                async with aclosing(executor.map(operations())) as results:
-                    async for result in results:
-                        item = prepared[result.operation_id]
-                        page = result.value if result.succeeded else None
-                        event = await finish_page(item, page, result.error)
+                        if remaining_tokens is not None and remaining_tokens <= 0:
+                            raise TokenLimitError()
+                        if (
+                            remaining_output_tokens is not None
+                            and remaining_output_tokens <= 0
+                        ):
+                            raise TokenLimitError()
+                        page = None
+                        operation_error = None
+                        try:
+                            page = await self._recognize_vendor_page(
+                                runtime,
+                                item,
+                                asset_hub=asset_hub,
+                                includes_footnotes=includes_footnotes,
+                                plot_path=plot_path,
+                                aborted=aborted,
+                            )
+                        except NonContinuableError:
+                            raise
+                        except OperationError as error:
+                            operation_error = error
+                        event = await finish_page(item, page, operation_error)
+                        if remaining_tokens is not None:
+                            remaining_tokens -= event.input_tokens + event.output_tokens
+                        if remaining_output_tokens is not None:
+                            remaining_output_tokens -= event.output_tokens
                         yield event
+                else:
+                    async for item, page, error in self._recognize_vendor_pages(
+                        runtime,
+                        prepared,
+                        asset_hub=asset_hub,
+                        includes_footnotes=includes_footnotes,
+                        plot_path=plot_path,
+                        aborted=aborted,
+                    ):
+                        yield await finish_page(item, page, error)
             await IO_DOMAIN.run(self._save_page_pixel_sizes, geometry_path)
             if terminal_failures and usable_pages == 0:
                 from ..error import NoUsableOCRPagesError
@@ -349,6 +360,207 @@ class OCR:
                 await IO_DOMAIN.run(done_path.touch)
         finally:
             await IO_DOMAIN.run(temporary.cleanup)
+
+    async def _recognize_vendor_page(
+        self,
+        runtime: VendorOCRRuntime,
+        item: _PreparedVendorPage,
+        *,
+        asset_hub: AssetHub,
+        includes_footnotes: bool,
+        plot_path: Path | None,
+        aborted: AbortedCheck,
+    ) -> Page:
+        first_response = await runtime.request(VendorOCRInput(
+            item.page_index, item.request_path, aborted,
+        ))
+        try:
+            first_result = await OCR_DOMAIN.run(
+                _parse_vendor_response, self._config, item, first_response,
+            )
+            results = [(item.image_path, first_result)]
+            input_tokens = first_response.input_tokens
+            output_tokens = first_response.output_tokens
+            if includes_footnotes and _supports_vendor_stages(self._config):
+                second_path = await OCR_DOMAIN.run(
+                    _prepare_second_stage,
+                    item,
+                    first_result,
+                    Path(item.image_path.parent),
+                    aborted,
+                )
+                second_response = await runtime.request(VendorOCRInput(
+                    item.page_index, second_path, aborted,
+                ))
+                second_result = await OCR_DOMAIN.run(
+                    _parse_vendor_response,
+                    self._config,
+                    _PreparedVendorPage(
+                        item.page_index,
+                        item.image_path,
+                        second_path,
+                        item.started,
+                        item.total_pages,
+                    ),
+                    second_response,
+                )
+                results.append((second_path, second_result))
+                input_tokens += second_response.input_tokens
+                output_tokens += second_response.output_tokens
+            return await OCR_DOMAIN.run(
+                self._finish_vendor_results,
+                item,
+                results,
+                asset_hub,
+                includes_footnotes,
+                plot_path,
+                input_tokens,
+                output_tokens,
+                aborted,
+            )
+        except OperationError:
+            raise
+        except Exception as error:
+            raise _vendor_page_error(item.page_index, 1, error) from error
+
+    async def _recognize_vendor_pages(
+        self,
+        runtime: VendorOCRRuntime,
+        prepared: list[_PreparedVendorPage],
+        *,
+        asset_hub: AssetHub,
+        includes_footnotes: bool,
+        plot_path: Path | None,
+        aborted: AbortedCheck,
+    ):
+        by_page = {item.page_index: item for item in prepared}
+        second_stage: dict[
+            int, tuple[_PreparedVendorPage, object, VendorOCRResponse, Path]
+        ] = {}
+
+        first_requests = (
+            VendorOCRInput(item.page_index, item.request_path, aborted)
+            for item in prepared
+        )
+        async for result in runtime.request_many(first_requests):
+            item = by_page[result.request.page_index]
+            if result.error is not None:
+                yield item, None, result.error
+                continue
+            assert result.response is not None
+            try:
+                first_result = await OCR_DOMAIN.run(
+                    _parse_vendor_response, self._config, item, result.response,
+                )
+                if includes_footnotes and _supports_vendor_stages(self._config):
+                    second_path = await OCR_DOMAIN.run(
+                        _prepare_second_stage,
+                        item,
+                        first_result,
+                        Path(item.image_path.parent),
+                        aborted,
+                    )
+                    second_stage[item.page_index] = (
+                        item, first_result, result.response, second_path,
+                    )
+                    continue
+                page = await OCR_DOMAIN.run(
+                    self._finish_vendor_results,
+                    item,
+                    [(item.image_path, first_result)],
+                    asset_hub,
+                    includes_footnotes,
+                    plot_path,
+                    result.response.input_tokens,
+                    result.response.output_tokens,
+                    aborted,
+                )
+                yield item, page, None
+            except Exception as error:
+                yield item, None, _vendor_page_error(item.page_index, 1, error)
+
+        if not second_stage:
+            return
+
+        second_requests = (
+            VendorOCRInput(page_index, values[3], aborted)
+            for page_index, values in second_stage.items()
+        )
+        async for result in runtime.request_many(second_requests):
+            item, first_result, first_response, second_path = second_stage[
+                result.request.page_index
+            ]
+            if result.error is not None:
+                yield item, None, result.error
+                continue
+            assert result.response is not None
+            try:
+                second_result = await OCR_DOMAIN.run(
+                    _parse_vendor_response,
+                    self._config,
+                    _PreparedVendorPage(
+                        item.page_index,
+                        item.image_path,
+                        second_path,
+                        item.started,
+                        item.total_pages,
+                    ),
+                    result.response,
+                )
+                page = await OCR_DOMAIN.run(
+                    self._finish_vendor_results,
+                    item,
+                    [
+                        (item.image_path, first_result),
+                        (second_path, second_result),
+                    ],
+                    asset_hub,
+                    includes_footnotes,
+                    plot_path,
+                    first_response.input_tokens + result.response.input_tokens,
+                    first_response.output_tokens + result.response.output_tokens,
+                    aborted,
+                )
+                yield item, page, None
+            except Exception as error:
+                yield item, None, _vendor_page_error(item.page_index, 2, error)
+
+    def _finish_vendor_results(
+        self,
+        item: _PreparedVendorPage,
+        results,
+        asset_hub: AssetHub,
+        includes_footnotes: bool,
+        plot_path: Path | None,
+        input_tokens: int,
+        output_tokens: int,
+        aborted: AbortedCheck,
+    ) -> Page:
+        from PIL import Image as PILImage
+
+        loaded = []
+        raw_image = None
+        try:
+            for path, page_result in results:
+                with PILImage.open(path) as opened:
+                    image = opened.copy()
+                loaded.append((image, page_result))
+            if item.page_index == 1 and loaded:
+                raw_image = loaded[0][0].copy()
+            return self._extractor.results2page(
+                results=loaded,
+                page_index=item.page_index,
+                asset_hub=asset_hub,
+                includes_footnotes=includes_footnotes,
+                raw_image=raw_image,
+                plot_path=plot_path,
+                input_tokens=input_tokens,
+                output_tokens=output_tokens,
+                aborted=aborted,
+            )
+        finally:
+            for image, _ in loaded:
+                image.close()
 
     def recognize(
         self,
@@ -610,6 +822,141 @@ class OCR:
             input_tokens=0,
             output_tokens=0,
         )
+
+
+def _supports_vendor_stages(config: OCRConfig) -> bool:
+    return isinstance(config, (
+        DeepSeekOCRVendorConfig,
+        DeepSeekOCR2VendorConfig,
+    ))
+
+
+def _parse_vendor_response(
+    config: OCRConfig,
+    item: _PreparedVendorPage,
+    response: VendorOCRResponse,
+):
+    from PIL import Image as PILImage
+    from doc_page_extractor.structure import build_structured_page
+    from doc_page_extractor.types import OCRPageResult
+
+    if isinstance(config, DeepSeekOCRVendorConfig):
+        from doc_page_extractor.adapters.deepseek import parse_deepseek_ocr_layouts
+        with PILImage.open(item.request_path) as image:
+            layouts = parse_deepseek_ocr_layouts(
+                cast(Any, image), response.raw_text or "", source="deepseek-ocr-vendor",
+            )
+        source = "deepseek-ocr-vendor"
+    elif isinstance(config, DeepSeekOCR2VendorConfig):
+        from doc_page_extractor.adapters.deepseek import parse_deepseek_ocr2_layouts
+        with PILImage.open(item.request_path) as image:
+            layouts = parse_deepseek_ocr2_layouts(
+                cast(Any, image), response.raw_text or "", source="deepseek-ocr2-vendor",
+            )
+        source = "deepseek-ocr2-vendor"
+    elif isinstance(config, UnlimitedOCRVendorConfig):
+        from doc_page_extractor.adapters.unlimited import parse_unlimited_ocr_layouts
+        layouts = parse_unlimited_ocr_layouts(
+            response.data["parse_result"], source="unlimited-ocr-vendor",
+        )
+        if item.scale_x != 1.0 or item.scale_y != 1.0:
+            for layout in layouts:
+                x1, y1, x2, y2 = layout.det
+                layout.det = (
+                    round(x1 * item.scale_x),
+                    round(y1 * item.scale_y),
+                    round(x2 * item.scale_x),
+                    round(y2 * item.scale_y),
+                )
+                if layout.polygon is not None:
+                    layout.polygon = [
+                        (
+                            round(x * item.scale_x),
+                            round(y * item.scale_y),
+                        )
+                        for x, y in layout.polygon
+                    ]
+        source = "unlimited-ocr-vendor"
+    else:
+        raise TypeError(f"Unsupported vendor OCR config: {type(config).__name__}")
+    return OCRPageResult(
+        layouts=layouts,
+        source=source,
+        structured=build_structured_page(layouts),
+        raw_text=response.raw_text,
+        raw=response.data,
+    )
+
+
+def _prepare_second_stage(
+    item: _PreparedVendorPage,
+    first_result,
+    directory: Path,
+    aborted: AbortedCheck,
+) -> Path:
+    from PIL import Image as PILImage
+    from doc_page_extractor.redacter import background_color, redact
+
+    check_aborted(aborted)
+    with PILImage.open(item.image_path) as opened:
+        image = opened.copy()
+    try:
+        redacted = redact(
+            image=image,
+            fill_color=background_color(image),
+            rectangles=_redact_rectangles(image.size, (
+                layout.det for layout in first_result.layouts
+            )),
+        )
+        path = directory / f"page_{item.page_index}_stage_2.png"
+        redacted.save(path, format="PNG")
+        if redacted is not image:
+            redacted.close()
+        check_aborted(aborted)
+        return path
+    finally:
+        image.close()
+
+
+def _redact_rectangles(
+    size: tuple[int, int],
+    dets,
+):
+    width, height = size
+    y_cutted = round(height * (2 / 3))
+    yield (0, 0, width, y_cutted)
+    parts: list[tuple[int, int, int]] = []
+    for x1, _, x2, y2 in dets:
+        part_height = y2 - y_cutted
+        if part_height > 0:
+            parts.append((x1, x2, part_height))
+    parts.sort()
+    forbidden = -sys.maxsize
+    for index, (x1, x2, part_height) in enumerate(parts):
+        left = max(x1, forbidden)
+        right = x2
+        for next_x1, _, next_height in parts[index + 1:]:
+            if next_height > part_height:
+                right = min(right, next_x1)
+        if left < right:
+            yield (left, y_cutted, right, y_cutted + part_height)
+            forbidden = right
+
+
+def _vendor_page_error(
+    page_index: int,
+    step_index: int,
+    error: Exception,
+) -> OperationError:
+    if isinstance(error, OperationError):
+        return error
+    ocr_error = OCRError(
+        f"Failed to extract page {page_index} layout at stage {step_index}.",
+        page_index=page_index,
+        step_index=step_index,
+    )
+    ocr_error.__cause__ = error
+    return OperationError(str(ocr_error), cause=ocr_error)
 
 
 _T = TypeVar("_T", bound=Exception)

@@ -50,12 +50,14 @@ For example:
 PDFCraft().translate_epub(
     "source.epub", "book.zh.epub",
     target_language="zh", submit=SubmitKind.REPLACE, llm=llm,
+    executor=executor,
 )
 
 # A bilingual edition with visibly separate original and translated paragraphs.
 PDFCraft().translate_epub(
     "source.epub", "book.bilingual.zh.epub",
     target_language="zh", submit=SubmitKind.APPEND_BLOCK, llm=llm,
+    executor=executor,
 )
 ```
 
@@ -118,7 +120,7 @@ PDFCraft().translate_epub(
 - `executor` is the shared capacity channel for real LLM requests. Reuse one executor when translation and XML repair use the same provider quota.
 - `translation_executor` and `fill_executor` may replace the common executor when the two models use separate provider quotas.
 - `window` defaults to `1`. While the next ordered group is still running, at most `window` later groups may run ahead; the executor controls the actual provider concurrency.
-- `concurrency` remains accepted as a compatibility alias for `window`; new code should use `window`.
+- `window` is the only XML look-ahead control. Provider capacity is supplied explicitly through an executor.
 - `max_retries` controls XML structure-repair attempts and defaults to `5`. It is distinct from `LLM.retry_times`, which controls text-request retries.
 
 ### Use separate translation and repair models

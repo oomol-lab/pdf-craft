@@ -1,6 +1,6 @@
 import asyncio
 import inspect
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from typing import Any, Protocol, cast
 from xml.etree.ElementTree import Element
 
@@ -31,6 +31,12 @@ class AsyncXMLTaskTranslator(Protocol):
     async def translate_element(
         self, task: TranslationTask[Chapter], **kwargs
     ) -> tuple[Element, Chapter]: ...
+
+
+class AsyncXMLBatchTranslator(AsyncXMLTaskTranslator, Protocol):
+    async def translate_elements(
+        self, tasks: Iterable[TranslationTask[Any]], **kwargs,
+    ) -> list[tuple[Element, Any]]: ...
 
 
 def _metadata_element(
@@ -64,9 +70,14 @@ class ChapterXMLTransformer:
         self,
         translator: XMLTaskTranslator | AsyncXMLTaskTranslator,
         mode: SubmitKind = SubmitKind.REPLACE,
+        *,
+        window: int = 1,
     ) -> None:
+        if window < 1:
+            raise ValueError("window must be at least 1")
         self._translator = translator
         self._mode = mode
+        self._window = window
 
     @property
     def mode(self) -> SubmitKind:
@@ -82,7 +93,7 @@ class ChapterXMLTransformer:
 
     def with_mode(self, mode: SubmitKind) -> "ChapterXMLTransformer":
         """Return a transformer using the requested XML submission mode."""
-        return ChapterXMLTransformer(self._translator, mode)
+        return ChapterXMLTransformer(self._translator, mode, window=self._window)
 
     def _furniture_transformer(self) -> "FurnitureXMLTransformer":
         """Build the private furniture adapter over this XML translation runtime."""
@@ -228,10 +239,93 @@ class ChapterXMLTransformer:
             immutable_elements_for_inline_segments=anchors.immutable_elements_for_inline_segments,
             source_text_renderer=_render_chapter_source_text,
             canonical_text_validator=_validate_chapter_fill_canonical_text,
+            window=self._window,
         )
         anchors.restore_assets(translated)
         _restore_fragment_owned_inline_expressions(translated)
         return decode(translated)
+
+    async def transform_many(
+        self,
+        chapters: Iterable[tuple[Chapter, str | int]],
+    ) -> list[Chapter]:
+        """Translate all chapter groups through one book-wide XML window."""
+        if not inspect.iscoroutinefunction(self._translator.translate_element):
+            return [
+                await self.transform(chapter, item_id=item_id)
+                for chapter, item_id in chapters
+            ]
+        if not hasattr(self._translator, "translate_elements"):
+            pending = [
+                asyncio.create_task(self.transform(chapter, item_id=item_id))
+                for chapter, item_id in chapters
+            ]
+            try:
+                return list(await asyncio.gather(*pending))
+            except BaseException:
+                for task in pending:
+                    task.cancel()
+                await asyncio.gather(*pending, return_exceptions=True)
+                raise
+
+        prepared: list[
+            tuple[Chapter, Element, _NarrativeAnchorProjection | None]
+        ] = []
+        tasks: list[TranslationTask[int]] = []
+        anchors_by_root: dict[int, _NarrativeAnchorProjection] = {}
+        formula_interrupter = ChapterFormulaInterrupter()
+        for index, (chapter, item_id) in enumerate(chapters):
+            if not self.has_translatable_content(chapter):
+                prepared.append((chapter, Element("empty"), None))
+                continue
+            element = encode(chapter)
+            anchors = _NarrativeAnchorProjection(element)
+            anchors.replace_assets()
+            prepared.append((chapter, element, anchors))
+            anchors_by_root[id(element)] = anchors
+            tasks.append(TranslationTask(
+                element=element,
+                action=self._mode,
+                payload=index,
+                item_kind=TranslationItemKind.CHAPTER,
+                item_id=item_id,
+                character_count=sum(
+                    len(segment.text) for segment in search_text_segments(element)
+                ),
+            ))
+
+        if not tasks:
+            return [chapter for chapter, _, _ in prepared]
+
+        def immutable_elements(
+            inline_segments: list[InlineSegment],
+        ) -> list[ImmutableBlockElement]:
+            if not inline_segments:
+                return []
+            anchors = anchors_by_root[id(inline_segments[0].head.root)]
+            return anchors.immutable_elements_for_inline_segments(inline_segments)
+
+        async_translator = cast(AsyncXMLBatchTranslator, self._translator)
+        translated = await async_translator.translate_elements(
+            tasks,
+            window=self._window,
+            emit_scope_events=False,
+            emit_item_events=False,
+            interrupt_source_text_segments=formula_interrupter.interrupt_source_text_segments,
+            interrupt_translated_text_segments=formula_interrupter.interrupt_translated_text_segments,
+            interrupt_block_element=formula_interrupter.interrupt_block_element,
+            immutable_elements_for_inline_segments=immutable_elements,
+            source_text_renderer=_render_chapter_source_text,
+            canonical_text_validator=_validate_chapter_fill_canonical_text,
+        )
+        results = [chapter for chapter, _, _ in prepared]
+        for translated_element, index in translated:
+            anchors = prepared[index][2]
+            assert anchors is not None
+            anchors.restore_assets(translated_element)
+            _restore_fragment_owned_inline_expressions(translated_element)
+            results[index] = decode(translated_element)
+        return results
 
     def source_character_count(self, chapter: Chapter) -> int:
         """Count the NarrativeFlow payload, excluding anchored asset text."""
