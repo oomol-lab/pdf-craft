@@ -7,6 +7,7 @@ import unittest
 from contextlib import aclosing
 from pathlib import Path
 from typing import Any, AsyncGenerator, cast
+from urllib.parse import parse_qs
 from unittest.mock import patch
 
 import httpx
@@ -598,6 +599,82 @@ class VendorOCRConcurrencyTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(raw.response.json()["error"], "invalid_client")
         with self.assertRaises(OCRFatalError):
             await executor.run(lambda: asyncio.sleep(0))
+
+    async def test_unlimited_malformed_page_response_reaches_fallback(self):
+        def handler(request: httpx.Request) -> httpx.Response:
+            path = request.url.path
+            if path.endswith("/oauth/2.0/token"):
+                return httpx.Response(
+                    200, request=request, json={"access_token": "token"},
+                )
+            if path.endswith("/task/query"):
+                task_id = parse_qs(request.content.decode())["task_id"][0]
+                return httpx.Response(200, request=request, json={
+                    "result": {
+                        "status": "success",
+                        "parse_result_url": f"https://download.invalid/{task_id}",
+                    },
+                })
+            if path.endswith("/task"):
+                file_name = parse_qs(request.content.decode())["file_name"][0]
+                if file_name == "page_2.png":
+                    return httpx.Response(
+                        200, request=request, json={"result": ["malformed"]},
+                    )
+                return httpx.Response(200, request=request, json={
+                    "result": {"task_id": file_name},
+                })
+            return httpx.Response(200, request=request, json={})
+
+        client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+        ignored: list[OCRError] = []
+        rendered: list[int] = []
+        ocr = OCR(
+            UnlimitedOCRVendorConfig(
+                ak="ak", sk="sk", retry_times=0, poll_interval_seconds=0,
+            ),
+            cast(Any, _Handler(rendered)),
+        )
+
+        with tempfile.TemporaryDirectory() as directory, patch(
+            "pdf_craft.pdf.vendor_ocr.httpx.AsyncClient",
+            return_value=client,
+        ):
+            root = Path(directory)
+            events = [
+                event
+                async for event in ocr.recognize_vendor(
+                    ConcurrentExecutor(FixedCapacity(2)),
+                    pdf_path=root / "source.pdf",
+                    asset_path=root / "assets",
+                    ocr_path=root / "ocr",
+                    ignore_ocr_errors=lambda error: ignored.append(error) or True,
+                )
+            ]
+
+            self.assertEqual([error.page_index for error in ignored], [2])
+            self.assertTrue((root / "ocr/page_2.failed").exists())
+            self.assertTrue(all(
+                (root / "ocr" / f"page_{page_index}.xml").exists()
+                for page_index in (1, 2, 3)
+            ))
+            page_two = next(
+                event for event in events
+                if event.page_index == 2 and event.kind == OCREventKind.FAILED
+            )
+            self.assertIs(page_two.error, ignored[0])
+
+        operation_error = ignored[0].__cause__
+        self.assertIsInstance(operation_error, OperationError)
+        assert isinstance(operation_error, OperationError)
+        envelope = operation_error.__cause__
+        self.assertIsInstance(envelope, VendorOCRRequestError)
+        assert isinstance(envelope, VendorOCRRequestError)
+        raw = envelope.__cause__
+        self.assertIsInstance(raw, httpx.HTTPStatusError)
+        assert isinstance(raw, httpx.HTTPStatusError)
+        self.assertEqual(raw.response.status_code, 200)
+        self.assertEqual(raw.response.json()["result"], ["malformed"])
 
     async def test_cancellation_stops_serial_render_and_cleans_temporary_files(self):
         render_started = threading.Event()

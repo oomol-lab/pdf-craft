@@ -81,8 +81,7 @@ class VendorOCRRuntime:
 
     async def request(self, request: VendorOCRInput) -> VendorOCRResponse:
         if isinstance(self.config, UnlimitedOCRVendorConfig):
-            check_aborted(request.aborted)
-            return await self._request_unlimited(request)
+            return await self._request_once(request)
         try:
             return await self.executor.run(
                 lambda: self._request_once(request),
@@ -236,8 +235,8 @@ class VendorOCRRuntime:
                 close()
 
     async def _request_once(self, request: VendorOCRInput) -> VendorOCRResponse:
-        check_aborted(request.aborted)
         try:
+            check_aborted(request.aborted)
             if isinstance(self.config, (
                 DeepSeekOCRVendorConfig, DeepSeekOCR2VendorConfig,
             )):
@@ -255,6 +254,18 @@ class VendorOCRRuntime:
             )
             raise OperationError(str(envelope), cause=envelope) from envelope
         except Exception as error:
+            from doc_page_extractor.extraction_context import (
+                ExtractionAbortedError,
+            )
+            if isinstance(error, ExtractionAbortedError):
+                raise
+            if isinstance(self.config, UnlimitedOCRVendorConfig):
+                envelope = _vendor_error(
+                    str(error) or type(error).__name__, error,
+                )
+                raise OperationError(
+                    str(envelope), cause=envelope,
+                ) from envelope
             raise OperationError(
                 str(error) or type(error).__name__, cause=error,
             ) from error
@@ -457,6 +468,13 @@ class VendorOCRRuntime:
             _raise_unlimited_error(
                 action, page_index, error_code, result, response,
             )
+        if not isinstance(result.get("result"), dict):
+            message = f"{action} response has invalid result: {result}"
+            raw_error = httpx.HTTPStatusError(
+                message, request=response.request, response=response,
+            )
+            envelope = _vendor_error(message, raw_error)
+            raise OperationError(message, cause=envelope) from envelope
         return result
 
     async def _run_io_with_retry(
