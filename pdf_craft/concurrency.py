@@ -307,6 +307,7 @@ class ConcurrentExecutor:
         completed: asyncio.Queue[_Completed[T]] = asyncio.Queue(maxsize=1)
         running: set[asyncio.Task[None]] = set()
         producer: asyncio.Task[None] | None = None
+        teardown_requested = False
 
         async def execute_one(
             operation_id: int,
@@ -334,13 +335,16 @@ class ConcurrentExecutor:
                 report = ExecutionReport(
                     time.monotonic() - started, ExecutionOutcome.CANCELLED, error,
                 )
-                # A cancellation raised by the operation itself is its visible
-                # terminal result.  Cancellation requested on this worker comes
-                # from map teardown or executor-wide fatal shutdown and is
-                # settled silently by the owner of that shutdown.
-                if task is not None and task.cancelling():
+                # Only this map's explicit teardown may consume worker
+                # cancellation silently.  A shared executor fatal must wake
+                # every affected map, while operation self-cancellation remains
+                # an observable terminal result even when it used task.cancel().
+                if teardown_requested:
                     raise
-                await completed.put(_Completed(cancelled=error))
+                if self._terminal_error is not None:
+                    await completed.put(_Completed(fatal=self._terminal_error))
+                else:
+                    await completed.put(_Completed(cancelled=error))
             except NonContinuableError as error:
                 error.for_operation(operation_id)
                 report = ExecutionReport(
@@ -431,6 +435,7 @@ class ConcurrentExecutor:
                 if item.result is not None:
                     yield item.result
         finally:
+            teardown_requested = True
             if producer is not None and not producer.done():
                 producer.cancel()
             for task in tuple(running):

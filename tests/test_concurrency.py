@@ -125,6 +125,20 @@ class AsyncExecutorTests(unittest.IsolatedAsyncioTestCase):
         with self.assertRaisesRegex(asyncio.CancelledError, "inner cancellation"):
             await anext(stream)
 
+    async def test_map_propagates_operation_task_self_cancellation(self):
+        executor = ConcurrentExecutor(FixedCapacity(1))
+
+        async def cancelled(_operation_id: int):
+            task = asyncio.current_task()
+            assert task is not None
+            task.cancel("task self cancellation")
+            await asyncio.sleep(0)
+            raise AssertionError("cancelled task continued")
+
+        stream = executor.map([cancelled])
+        with self.assertRaisesRegex(asyncio.CancelledError, "task self cancellation"):
+            await asyncio.wait_for(anext(stream), timeout=1)
+
     async def test_map_does_not_return_partial_results_after_self_cancellation(self):
         executor = ConcurrentExecutor(FixedCapacity(2))
         release_cancelled = asyncio.Event()
@@ -160,6 +174,47 @@ class AsyncExecutorTests(unittest.IsolatedAsyncioTestCase):
             await second
         with self.assertRaises(NonContinuableError):
             await executor.run(lambda: asyncio.sleep(0))
+
+    async def test_shared_run_fatal_wakes_exhausted_map_and_settles_worker(self):
+        executor = ConcurrentExecutor(FixedCapacity(2))
+        worker_started = asyncio.Event()
+        worker_cancelled = asyncio.Event()
+        producer_exhausted = asyncio.Event()
+        never = asyncio.Event()
+
+        async def blocked(operation_id: int):
+            worker_started.set()
+            try:
+                await never.wait()
+            except asyncio.CancelledError:
+                worker_cancelled.set()
+                raise
+            return operation_id, "unreachable"
+
+        def operations():
+            yield blocked
+            producer_exhausted.set()
+
+        stream = executor.map(operations())
+        result_task = asyncio.ensure_future(anext(stream))
+        await worker_started.wait()
+        await producer_exhausted.wait()
+        # Let the map consumer observe producer_done before the shared fatal.
+        await asyncio.sleep(0)
+        self.assertFalse(result_task.done())
+
+        async def fatal():
+            raise NonContinuableError("fatal from shared channel")
+
+        with self.assertRaisesRegex(
+            NonContinuableError, "fatal from shared channel",
+        ):
+            await executor.run(fatal)
+        with self.assertRaisesRegex(
+            NonContinuableError, "fatal from shared channel",
+        ):
+            await asyncio.wait_for(result_task, timeout=1)
+        self.assertTrue(worker_cancelled.is_set())
 
     async def test_map_fatal_error_discards_the_lazy_tail(self):
         executor = ConcurrentExecutor(FixedCapacity(1))
