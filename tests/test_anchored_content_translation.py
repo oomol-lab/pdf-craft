@@ -5,6 +5,7 @@
 from __future__ import annotations
 
 import asyncio
+from copy import deepcopy
 import tempfile
 import threading
 import unittest
@@ -22,7 +23,9 @@ from pdf_craft.document import PDFCraftExtraction
 from pdf_craft.pipeline.pdf import PDFPatcher
 from pdf_craft.pipeline.pdf.pipeline import PDFTranslationPipeline
 from pdf_craft.llm import LLM
+from pdf_craft.markdown.paragraph import HTMLTag, tag_definition
 from pdf_craft.extractor.chapter.chapter import (
+    BlockMember,
     Chapter,
     InlineExpression,
     SourceAsset,
@@ -42,7 +45,10 @@ from pdf_craft.transformer.chapter_xml import (
     _NarrativeAnchorProjection,
     _render_chapter_source_text,
 )
-from pdf_craft.transformer.anchored_translation import _transform_batch
+from pdf_craft.transformer.anchored_translation import (
+    _transform_batch,
+    _transform_batch_async,
+)
 from pdf_craft.transformer.xml_translator.segment import search_inline_segments, search_text_segments
 from pdf_craft.transformer.xml_translator.xml_translator.callbacks import warp_callbacks
 from pdf_craft.transformer.xml_translator.xml_translator.stream_mapper import XMLStreamMapper
@@ -173,6 +179,33 @@ class _ChangedAssetSlotXMLTaskTranslator(_XMLTaskTranslator):
         asset = translated.find("flow/standalone-asset/asset")
         assert asset is not None
         asset.set("translation_slot", "corrupted")
+        return translated, payload
+
+
+class _BrokenTableFormulaXMLTaskTranslator(_XMLTaskTranslator):
+    """A hostile transport that changes an inline formula's table position."""
+
+    def __init__(self, action: str) -> None:
+        super().__init__()
+        self.action = action
+
+    def translate_element(self, task, **kwargs):
+        translated, payload = super().translate_element(task, **kwargs)
+        cell = translated.find("flow/standalone-asset/asset/content/table/tr/td")
+        if cell is None:
+            return translated, payload
+        expression = cell.find("inline_expr")
+        assert expression is not None
+        row = next(node for node in translated.iter() if node.tag == "tr")
+        if self.action == "move":
+            cell.remove(expression)
+            row.append(expression)
+        elif self.action == "copy":
+            row.append(deepcopy(expression))
+        elif self.action == "drop":
+            cell.remove(expression)
+        else:
+            raise AssertionError(f"unknown action: {self.action}")
         return translated, payload
 
 
@@ -711,6 +744,67 @@ class AnchoredContentTranslationTests(unittest.TestCase):
         ))
 
         self.assertEqual(result, (None, None))
+
+    def test_xml_adapter_preserves_table_when_formula_structure_changes(self):
+        table_tag = tag_definition("table")
+        row_tag = tag_definition("tr")
+        cell_tag = tag_definition("td")
+        assert table_tag is not None
+        assert row_tag is not None
+        assert cell_tag is not None
+        cell = HTMLTag[BlockMember](
+            cell_tag,
+            [],
+            ["value ", InlineExpression(ExpressionKind.INLINE_DOLLAR, "x")],
+        )
+        row = HTMLTag[BlockMember](row_tag, [], [cell])
+        table_content = HTMLTag[BlockMember](table_tag, [], [row])
+        table = SourceAsset(
+            1,
+            "table",
+            (1, 1, 20, 20),
+            content=[table_content],
+        )
+        payload = AnchoredContent("head", 0, -1, table, "")
+
+        for action in ("move", "copy", "drop"):
+            with self.subTest(action=action):
+                result = AnchoredContentXMLTransformer(
+                    _BrokenTableFormulaXMLTaskTranslator(action)
+                )._transform_assets_blocking((payload,))
+
+                self.assertEqual(result, (None,))
+
+    def test_xml_adapter_retries_invalid_batch_as_individual_assets(self):
+        table_tag = tag_definition("table")
+        row_tag = tag_definition("tr")
+        cell_tag = tag_definition("td")
+        assert table_tag is not None
+        assert row_tag is not None
+        assert cell_tag is not None
+        expression = InlineExpression(ExpressionKind.INLINE_DOLLAR, "x")
+        cell = HTMLTag[BlockMember](cell_tag, [], ["value ", expression])
+        row = HTMLTag[BlockMember](row_tag, [], [cell])
+        table = SourceAsset(
+            1, "table", (1, 1, 20, 20),
+            content=[HTMLTag[BlockMember](table_tag, [], [row])],
+        )
+        image = SourceAsset(
+            1, "image", (21, 1, 40, 20), title=["Image title"],
+        )
+        payloads = (
+            AnchoredContent("head", 0, -1, table, ""),
+            AnchoredContent("head", 1, -1, image, ""),
+        )
+        transformer = AnchoredContentXMLTransformer(
+            _BrokenTableFormulaXMLTaskTranslator("copy")
+        )
+
+        result = asyncio.run(_transform_batch_async(payloads, transformer))
+
+        self.assertIsNone(result[0])
+        assert result[1] is not None
+        self.assertEqual(result[1].title, ["T:Image title"])
 
     def test_generic_transformer_preserves_assets_when_result_identity_is_wrong(self):
         first = AnchoredContent("head", 0, 0, SourceAsset(1, "image", (1, 1, 10, 10)), "")
