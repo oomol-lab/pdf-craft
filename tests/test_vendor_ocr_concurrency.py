@@ -17,7 +17,9 @@ from pdf_craft import (
     NonContinuableError, OperationError, OperationResult, RateLimitedError,
     UnlimitedOCRVendorConfig, create_vendor_ocr_request,
 )
-from pdf_craft.error import OCRBillingError, OCRError, PDFError
+from pdf_craft.error import (
+    NoUsableOCRPagesError, OCRBillingError, OCRError, OCRFatalError, PDFError,
+)
 from pdf_craft.pdf.ocr import OCR, OCREventKind
 from pdf_craft.pdf import ocr as ocr_module
 from pdf_craft.pdf.vendor_ocr import (
@@ -462,6 +464,54 @@ class VendorOCRConcurrencyTests(unittest.IsolatedAsyncioTestCase):
             self.assertIsInstance(envelope, VendorOCRRequestError)
         await client.aclose()
 
+    async def test_unlimited_oauth_error_is_fatal_and_bypasses_fallback(self):
+        def handler(request: httpx.Request) -> httpx.Response:
+            self.assertTrue(request.url.path.endswith("/oauth/2.0/token"))
+            return httpx.Response(200, request=request, json={
+                "error": "invalid_client",
+                "error_description": "unknown client id",
+            })
+
+        client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+        executor = ConcurrentExecutor(FixedCapacity(2))
+        ignored: list[OCRError] = []
+        rendered: list[int] = []
+        ocr = OCR(
+            UnlimitedOCRVendorConfig(
+                ak="invalid", sk="invalid", retry_times=0,
+            ),
+            cast(Any, _Handler(rendered)),
+        )
+
+        with tempfile.TemporaryDirectory() as directory, patch(
+            "pdf_craft.pdf.vendor_ocr.httpx.AsyncClient",
+            return_value=client,
+        ):
+            root = Path(directory)
+            with self.assertRaises(OCRFatalError) as raised:
+                async for _ in ocr.recognize_vendor(
+                    executor,
+                    pdf_path=root / "source.pdf",
+                    asset_path=root / "assets",
+                    ocr_path=root / "ocr",
+                    ignore_ocr_errors=lambda error: ignored.append(error) or True,
+                ):
+                    pass
+
+            self.assertEqual(ignored, [])
+            self.assertEqual(list((root / "ocr").glob("page_*.failed")), [])
+
+        envelope = raised.exception.__cause__
+        self.assertIsInstance(envelope, VendorOCRRequestError)
+        assert isinstance(envelope, VendorOCRRequestError)
+        raw = envelope.__cause__
+        self.assertIsInstance(raw, httpx.HTTPStatusError)
+        assert isinstance(raw, httpx.HTTPStatusError)
+        self.assertEqual(raw.response.status_code, 200)
+        self.assertEqual(raw.response.json()["error"], "invalid_client")
+        with self.assertRaises(OCRFatalError):
+            await executor.run(lambda: asyncio.sleep(0))
+
     async def test_cancellation_stops_serial_render_and_cleans_temporary_files(self):
         render_started = threading.Event()
         rendered: list[int] = []
@@ -830,6 +880,53 @@ class VendorOCRConcurrencyTests(unittest.IsolatedAsyncioTestCase):
                     [event.page_index for event in events
                      if event.kind == OCREventKind.FAILED],
                     [2],
+                )
+
+    async def test_two_stage_finish_failure_is_stage_two_in_both_paths(self):
+        for max_tokens in (None, 100):
+            with self.subTest(max_tokens=max_tokens):
+                rendered: list[int] = []
+                ocr = OCR(
+                    DeepSeekOCRVendorConfig(
+                        base_url="https://example.invalid/v1",
+                        api_key="key", model="model", retry_times=0,
+                    ),
+                    cast(Any, _Handler(rendered)),
+                )
+                ignored: list[OCRError] = []
+
+                async def request(_runtime, _vendor_request):
+                    return VendorOCRResponse(
+                        {}, raw_text="", input_tokens=1, output_tokens=1,
+                    )
+
+                def fail_finish(*_args, **_kwargs):
+                    raise RuntimeError("cannot assemble OCR page")
+
+                with tempfile.TemporaryDirectory() as directory, patch.object(
+                    VendorOCRRuntime, "_request_deepseek", new=request,
+                ), patch.object(
+                    ocr, "_finish_vendor_results", new=fail_finish,
+                ):
+                    root = Path(directory)
+                    with self.assertRaises(NoUsableOCRPagesError):
+                        async for _ in ocr.recognize_vendor(
+                            ConcurrentExecutor(FixedCapacity(3)),
+                            pdf_path=root / "source.pdf",
+                            asset_path=root / "assets",
+                            ocr_path=root / "ocr",
+                            includes_footnotes=True,
+                            ignore_ocr_errors=(
+                                lambda error: ignored.append(error) or True
+                            ),
+                            max_tokens=max_tokens,
+                        ):
+                            pass
+
+                self.assertEqual(len(ignored), 3)
+                self.assertTrue(
+                    all(error.step_index == 2 for error in ignored),
+                    (max_tokens, [error.step_index for error in ignored]),
                 )
 
     async def test_total_token_budget_is_cumulative_across_vendor_pages(self):

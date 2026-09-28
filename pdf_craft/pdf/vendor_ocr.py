@@ -397,9 +397,15 @@ class VendorOCRRuntime:
                         "client_secret": config.sk,
                     },
                 )
-                return _checked_response(
+                data = _checked_response(
                     response, page_index, "Unlimited OCR token",
                 )
+                oauth_error = str(data.get("error") or "")
+                if oauth_error:
+                    _raise_unlimited_oauth_error(
+                        page_index, oauth_error, data, response,
+                    )
+                return data
 
             data = await self._run_io_with_retry(fetch_token)
             token = str(data.get("access_token") or "")
@@ -640,5 +646,32 @@ def _raise_unlimited_error(
         raise error from envelope
     if error_code in {6, 14, 100, 110, 111}:
         error = OCRFatalError(message)
+        raise error from envelope
+    raise OperationError(message, cause=envelope) from envelope
+
+
+def _raise_unlimited_oauth_error(
+    page_index: int,
+    error_code: str,
+    response_data: dict[str, Any],
+    response: httpx.Response,
+) -> None:
+    message = (
+        f"Unlimited OCR token request failed ({error_code}): {response_data}"
+    )
+    raw_error = httpx.HTTPStatusError(
+        message, request=response.request, response=response,
+    )
+    envelope = _vendor_error(message, raw_error)
+    if error_code in {
+        "access_denied",
+        "invalid_client",
+        "invalid_grant",
+        "unauthorized_client",
+    }:
+        error = OCRFatalError(
+            f"Unlimited OCR authentication failed for page {page_index}: "
+            f"{error_code}"
+        )
         raise error from envelope
     raise OperationError(message, cause=envelope) from envelope

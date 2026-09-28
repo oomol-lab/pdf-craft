@@ -422,17 +422,25 @@ class OCR:
                 results.append((second_path, second_result))
                 input_tokens += second_response.input_tokens
                 output_tokens += second_response.output_tokens
-            return await OCR_DOMAIN.run(
-                self._finish_vendor_results,
-                item,
-                results,
-                asset_hub,
-                includes_footnotes,
-                plot_path,
-                input_tokens,
-                output_tokens,
-                aborted,
-            )
+            finish_stage = len(results)
+            try:
+                return await OCR_DOMAIN.run(
+                    self._finish_vendor_results,
+                    item,
+                    results,
+                    asset_hub,
+                    includes_footnotes,
+                    plot_path,
+                    input_tokens,
+                    output_tokens,
+                    aborted,
+                )
+            except NonContinuableError:
+                raise
+            except Exception as error:
+                _raise_vendor_page_error(
+                    item.page_index, finish_stage, error,
+                )
         except OperationError:
             raise
         except Exception as error:
