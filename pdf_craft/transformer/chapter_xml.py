@@ -13,11 +13,12 @@ from pdf_craft.markdown.paragraph import flatten
 from pdf_craft.runtime import TRANSLATION_DOMAIN, callback_bridge
 from pdf_craft.transformer.xml_translator.segment import search_text_segments
 from pdf_craft.transformer.xml_translator.segment import ImmutableBlockElement, InlineSegment
-from pdf_craft.transformer.xml_translator.xml import clone_element
+from pdf_craft.transformer.xml_translator.xml import clone_element, plain_text
 from pdf_craft.transformer.xml_translator.xml.const import ID_KEY
 from pdf_craft.transformer.xml_translator.utils import normalize_whitespace
 from pdf_craft.transformer.events import TranslationEvent, TranslationItemKind
 from .chapter_formula_interrupter import ChapterFormulaInterrupter
+from .anchored_xml import AnchoredContentXMLTransformer
 from .furniture_xml import FurnitureXMLTransformer, XMLTaskTranslator as FurnitureXMLTaskTranslator
 from .xml_translator.xml_translator import SubmitKind, TranslationTask
 
@@ -100,6 +101,10 @@ class ChapterXMLTransformer:
         return FurnitureXMLTransformer(
             cast(FurnitureXMLTaskTranslator, self._translator), self._mode,
         )
+
+    def _anchored_transformer(self) -> AnchoredContentXMLTransformer:
+        """Build the private anchored-content adapter over this runtime."""
+        return AnchoredContentXMLTransformer(cast(Any, self._translator), self._mode)
 
     async def translate_metadata(self, metadata: dict[str, Any]) -> dict[str, Any]:
         """Translate human-readable bibliographic fields into a layer overlay."""
@@ -453,6 +458,22 @@ def _validate_chapter_fill_canonical_text(
         for child in response
         if child.get(ID_KEY, "").isdigit()
     }
+    expected_formulas = {
+        formula_id: normalize_whitespace(plain_text(formula)).strip()
+        for segment in inline_segments
+        for formula in segment.create_element().iter("expression")
+        if (formula_id := formula.get(ID_KEY)) is not None
+    }
+    for formula in response.iter("expression"):
+        formula_id = formula.get(ID_KEY)
+        if formula_id in expected_formulas and normalize_whitespace(
+            plain_text(formula)
+        ).strip() != expected_formulas[formula_id]:
+            return (
+                f"Formula token #{formula_id} no longer contains its source formula. "
+                "Move the complete <expression> element, including its id, instead "
+                "of moving formula text between expression slots."
+            )
     actual_by_owner: dict[int, list[str]] = {id(owner): [] for owner in owners}
     owner_by_segment = {
         segment.id: _source_unit_owner(segment)
@@ -472,7 +493,7 @@ def _validate_chapter_fill_canonical_text(
     # Display formulas and temporary formula-context nodes are not
     # TextFlowItems. Their dedicated interruption protocol owns fidelity, so
     # this text-only invariant must not reinterpret their token stream.
-    if owner.tag != "text" or _text_owner_has_formula(owner):
+    if owner.tag != "text":
         return None
     expected = normalize_whitespace(translated_text)
     actual = "".join(actual_by_owner[id(owner)])
@@ -495,13 +516,6 @@ def _ordered_source_unit_owners(inline_segments: list[InlineSegment]) -> list[El
         seen.add(id(owner))
         owners.append(owner)
     return owners
-
-
-def _text_owner_has_formula(owner: Element) -> bool:
-    return any(
-        element.tag == "inline_expr" and element.get("kind") != "text"
-        for element in owner.iter()
-    )
 
 
 _ANCHOR_TAG = "anchor"

@@ -156,6 +156,8 @@ def _replace_child(root: Element, tag: str, replacement: Element, *, before: str
             root.insert(list(root).index(sibling), replacement)
             return
     root.append(replacement)
+    order = {"narrative": 0, "furnitures": 1, "anchored": 2}
+    root[:] = sorted(root, key=lambda child: order.get(child.tag, len(order)))
 
 
 def _narrative_element(entries: Iterable[NarrativeCoverage]) -> Element:

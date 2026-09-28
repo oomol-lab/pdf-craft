@@ -16,6 +16,7 @@ from pdf_craft import (
 from pdf_craft.document import PDFCraftExtraction
 from pdf_craft.extractor import PDFExtractor
 from pdf_craft.extractor.chapter.chapter import SourceTextFragment, Chapter, TextFlowItem, encode
+from pdf_craft.extractor.chapter.chapter import SourceAsset, StandaloneAsset, decode
 from pdf_craft.common import save_xml
 from pdf_craft.transformer import ChapterExtractionTransformer, ChapterXMLTransformer, SubmitKind
 from pdf_craft.transformer.package import FurnitureExtractionTransformer
@@ -104,6 +105,14 @@ class _PrefixXMLTranslator:
         return task.element, task.payload
 
 
+class _AssetPrefixXMLTranslator(_PrefixXMLTranslator):
+    def translate_element(self, task, **_kwargs):
+        for element in task.element.iter():
+            if element.tag in {"title", "content", "caption"} and element.text:
+                element.text = f"translated:{element.text}"
+        return task.element, task.payload
+
+
 class TestPDFCraft(unittest.TestCase):
     def test_translate_extraction_is_the_public_translation_entry(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -169,6 +178,39 @@ class TestPDFCraft(unittest.TestCase):
                 self.assertIsNotNone(position)
                 assert position is not None
                 self.assertEqual(position.get("state"), "translated")
+
+    def test_translate_extraction_composes_anchored_content_for_xml_translation(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = _source_extraction(root / "source")
+            chapter = decode(fromstring(
+                (root / "source/chapters/chapter_head.xml").read_text(encoding="utf-8")
+            ))
+            chapter.flow_items.append(StandaloneAsset(SourceAsset(
+                1, "table", (1, 6, 9, 9),
+                title=["Table title"], content=["Table cells"], caption=[],
+            )))
+            save_xml(encode(chapter), root / "source/chapters/chapter_head.xml")
+            source = PDFCraftExtraction._from_workspace(root / "source")._validate()
+
+            translated = PDFCraft().translate_extraction(
+                source,
+                root / "target.pcex",
+                ChapterXMLTransformer(_AssetPrefixXMLTranslator()),
+                translation_id="translated",
+                target_language="zh",
+            )
+
+            with translated._materialize() as paths:
+                layer = paths.translations / "translated"
+                chapter_xml = (layer / "chapters/chapter_head.xml").read_text(encoding="utf-8")
+                self.assertIn("translated:Table title", chapter_xml)
+                self.assertIn("translated:Table cells", chapter_xml)
+                coverage = fromstring((layer / "coverage.xml").read_text(encoding="utf-8"))
+                asset = coverage.find("anchored/asset")
+                self.assertIsNotNone(asset)
+                assert asset is not None
+                self.assertEqual(asset.get("state"), "translated")
 
     def test_translate_extraction_with_furniture_without_source_layer_is_safe(self):
         with tempfile.TemporaryDirectory() as directory:

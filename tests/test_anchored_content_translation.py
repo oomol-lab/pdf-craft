@@ -16,6 +16,7 @@ from xml.etree.ElementTree import parse, tostring
 from tiktoken import get_encoding
 
 from pdf_craft.common import read_xml, save_xml
+from pdf_craft.expression import ExpressionKind
 from pdf_craft import AsyncPDFCraft, ConcurrentExecutor, FixedCapacity, PDFCraft
 from pdf_craft.document import PDFCraftExtraction
 from pdf_craft.pipeline.pdf import PDFPatcher
@@ -23,6 +24,7 @@ from pdf_craft.pipeline.pdf.pipeline import PDFTranslationPipeline
 from pdf_craft.llm import LLM
 from pdf_craft.extractor.chapter.chapter import (
     Chapter,
+    InlineExpression,
     SourceAsset,
     SourceTextFragment,
     StandaloneAsset,
@@ -481,6 +483,76 @@ class AnchoredContentTranslationTests(unittest.TestCase):
         self.assertEqual(runtime.context_value.calls, 2)
         retry_messages = runtime.context_value.messages[1][0]
         self.assertIn("canonical translation", retry_messages[-1].message)
+
+    def test_fill_repairs_formula_position_to_match_canonical_translation(self):
+        chapter = Chapter(None, -1, [TextFlowItem("body", 0, [
+            SourceTextFragment(1, 1, (1, 1, 90, 15), [
+                "Character ",
+                InlineExpression(ExpressionKind.INLINE_PAREN, r"\chi"),
+                " vanishes.",
+            ]),
+        ])])
+        incorrect = (
+            '<xml><fragment id="1"><expression id="2"> \\(\\chi\\) </expression>'
+            'Character vanishes.</fragment></xml>'
+        )
+        corrected = (
+            '<xml><fragment id="1">Character <expression id="2"> \\(\\chi\\) '
+            '</expression> vanishes.</fragment></xml>'
+        )
+        translator, runtime = _repairing_translator((incorrect, corrected))
+        translator._translate_text = (  # type: ignore[method-assign]
+            lambda _source: r"Character \(\chi\) vanishes."
+        )
+
+        translated = asyncio.run(ChapterXMLTransformer(cast(Any, translator)).transform(chapter))
+
+        self.assertEqual(runtime.context_value.calls, 2)
+        text = translated.flow_items[0]
+        assert isinstance(text, TextFlowItem)
+        content = text.children[0].content
+        self.assertEqual(_text(content), "Character  vanishes.")
+        self.assertIsInstance(content[1], InlineExpression)
+
+    def test_fill_keeps_formula_identity_when_translation_reorders_two_formulas(self):
+        chapter = Chapter(None, -1, [TextFlowItem("body", 0, [
+            SourceTextFragment(1, 1, (1, 1, 90, 15), [
+                "A character ",
+                InlineExpression(ExpressionKind.INLINE_PAREN, r"\chi"),
+                " modulo ",
+                InlineExpression(ExpressionKind.INLINE_PAREN, "q"),
+                ".",
+            ]),
+        ])])
+        incorrect = (
+            '<xml><fragment id="1">模 <expression id="2">\\(q\\)'
+            '</expression> 的特征 <expression id="3">\\(\\chi\\)'
+            '</expression>。</fragment></xml>'
+        )
+        corrected = (
+            '<xml><fragment id="1">模 <expression id="3">\\(q\\)'
+            '</expression> 的特征 <expression id="2">\\(\\chi\\)'
+            '</expression>。</fragment></xml>'
+        )
+        translator, runtime = _repairing_translator((incorrect, corrected))
+        translator._translate_text = (  # type: ignore[method-assign]
+            lambda _source: r"模 \(q\) 的特征 \(\chi\)。"
+        )
+
+        translated = asyncio.run(ChapterXMLTransformer(cast(Any, translator)).transform(chapter))
+
+        self.assertEqual(runtime.context_value.calls, 2)
+        text = translated.flow_items[0]
+        assert isinstance(text, TextFlowItem)
+        content = text.children[0].content
+        formulas = [item for item in content if isinstance(item, InlineExpression)]
+        self.assertEqual([formula.content for formula in formulas], ["q", r"\chi"])
+        retry_messages = runtime.context_value.messages[1][0]
+        self.assertIn("source formula", retry_messages[-1].message)
+        self.assertNotIn(
+            "__PDF_CRAFT_CHAPTER_FORMULA_ID",
+            tostring(encode(translated), encoding="unicode"),
+        )
 
     def test_fill_validates_one_owner_when_canonical_translation_has_blank_lines(self):
         """A translated paragraph break is content, not a TextFlowItem separator."""

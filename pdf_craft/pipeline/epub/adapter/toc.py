@@ -67,14 +67,28 @@ def read_toc(zip: Zip) -> tuple[list[Toc], TocContext]:
     return toc_list, context
 
 
-def write_toc(zip: Zip, toc: list[Toc], context: TocContext) -> None:
+def write_toc(
+    zip: Zip,
+    toc: list[Toc],
+    context: TocContext,
+    *,
+    document_title: str | None = None,
+) -> None:
     if context.version == 2:
         _update_ncx_toc(context.xml_node.element, toc)
+        if document_title is not None:
+            _update_ncx_document_title(context.xml_node.element, document_title)
     else:
         _update_nav_toc(context.xml_node.element, toc)
 
     with zip.replace(context.toc_path) as f:
         context.xml_node.save(f)
+
+
+def _update_ncx_document_title(root: Element, title: str) -> None:
+    text = root.find(".//docTitle/text")
+    if text is not None:
+        text.text = title
 
 
 def _detect_epub_version(zip: Zip) -> int:

@@ -46,7 +46,7 @@ PDFCraft().translate_epub(
 | `SubmitKind.APPEND_TEXT` | 将译文直接接在原文后面 | 希望在同一段落中连续阅读双语文本 |
 | `SubmitKind.APPEND_BLOCK` | 将译文作为独立文本块追加到原文后 | 双语对照阅读，通常最清晰 |
 
-章节正文会严格按照所选模式提交。目录和可翻译的书籍元数据也会翻译；在 `APPEND_BLOCK` 模式下，
+章节正文会严格按照所选模式提交。目录、XHTML 文档标题和可翻译的书籍元数据也会翻译；EPUB 2 的 NCX `docTitle` 跟随翻译后的书名，`dc:language` 直接写为 `target_language`。在 `APPEND_BLOCK` 模式下，
 为了保持目录和元数据的结构可用，它们的译文会以内联方式接在原文后，而不是创建新的目录
 或元数据块。
 

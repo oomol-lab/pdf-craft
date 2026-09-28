@@ -305,8 +305,8 @@ craft.render_epub(
 `translation_id`；省略时稳定选择 `translations/index.json` 的第一项。没有任何译文、显式 ID
 不存在或 ID 格式非法时会明确失败，不会静默改选其他译文。也可先调用
 `resolve_translation(extraction, translation_id=None)` 得到实际选择的 `TranslationInfo`。
-译文 metadata 覆盖 source metadata，缺少的字段保留 source；双语书名、描述、章节标题和目录标题
-同时包含两种文本。图片/表格 asset 及其提取文本始终保留 source 一份，不增加未翻译标记。
+译文 metadata 覆盖 source metadata，缺少的字段保留 source；双语书名、描述、章节标题、目录标题
+以及 coverage 标记为已翻译的图片/表格字段同时包含两种文本。
 
 ### PDF 转换时翻译
 
@@ -488,13 +488,13 @@ translations = craft.list_translations(translated_extraction)
 渲染选择；`render_markdown` 和 `render_epub` 通过 `RenderMode` 选择 source、译文替换或双语输出。
 
 `with_furniture` 默认是 `False`；设为 `True` 时需要 `ChapterXMLTransformer`，译后的 furniture 与
-coverage 保存在新层内。图片/表格 asset 文本保持原样，不增加未翻译标记。`translate_pdf()` 为保持
+coverage 保存在新层内。使用 `ChapterXMLTransformer` 时，图片/表格 asset 文本会通过独立 anchored-content 阶段翻译并记录 coverage。`translate_pdf()` 为保持
 既有 PDF 输出仍使用内部临时译文视图，不直接渲染这些 layer。
 
 `translate_extraction` 不会把图片/表格的 title、content、caption 混入正文 LLM 上下文；只有段内
-asset 以无文本、不可变 anchor 维持前后文本的位置，`StandaloneAsset` 不伪造 anchor。独立 asset 翻译的每个非保留结果都以稳定 identity 绑定来源 slot。若要翻译这些已提取的 asset 文本，请使用
-`translate_anchored_contents(extraction, output_path, transformer)`。其 transformer 处理带局部上下文
-的小批 asset，返回 `None` 即保留单个 asset；该阶段也不会自动组合到其他工作流。
+asset 以无文本、不可变 anchor 维持前后文本的位置，`StandaloneAsset` 不伪造 anchor。随后自动组合的独立 asset 阶段以稳定 identity 绑定每个结果。底层
+`translate_anchored_contents(extraction, output_path, transformer)` 仍可用于自定义流水线；其 transformer 处理带局部上下文
+的小批 asset，返回 `None` 即保留单个 asset。
 
 ### 翻译 EPUB
 
