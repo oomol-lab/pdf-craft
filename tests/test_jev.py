@@ -148,7 +148,7 @@ class JEVTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(results, [(1, 0.1), (2, 0.2)])
         self.assertEqual(page_one_calls, 2)
 
-    async def test_batch_retry_window_bounds_input_and_pending_tasks(self):
+    async def test_batch_retry_does_not_cap_initial_requests_at_sixteen(self):
         client = MagicMock()
         client.__aenter__ = AsyncMock(return_value=client)
         client.__aexit__ = AsyncMock(return_value=None)
@@ -157,12 +157,12 @@ class JEVTests(unittest.IsolatedAsyncioTestCase):
         )
         consumed = 0
         retries_started = 0
-        window_full = asyncio.Event()
+        all_retries_started = asyncio.Event()
         release = asyncio.Event()
 
         def requests():
             nonlocal consumed
-            for page_index in range(1000):
+            for page_index in range(32):
                 consumed += 1
                 yield page_index, {
                     "state": {"target_page": {"page_index": page_index}},
@@ -175,8 +175,8 @@ class JEVTests(unittest.IsolatedAsyncioTestCase):
             nonlocal retries_started
             self.assertEqual(attempts_used, 1)
             retries_started += 1
-            if retries_started == 16:
-                window_full.set()
+            if retries_started == 32:
+                all_retries_started.set()
             await release.wait()
             return 0.5
 
@@ -188,15 +188,13 @@ class JEVTests(unittest.IsolatedAsyncioTestCase):
                 ConcurrentExecutor(FixedCapacity(2)),
             ) as runtime:
                 pending = asyncio.create_task(runtime.evaluate_many(requests()))
-                await asyncio.wait_for(window_full.wait(), 1)
-                await asyncio.sleep(0)
-                self.assertEqual(retries_started, 16)
-                # Retry window + two active leases + map's one-result handoff.
-                self.assertLessEqual(consumed, 19)
+                await asyncio.wait_for(all_retries_started.wait(), 1)
+                self.assertEqual(retries_started, 32)
+                self.assertEqual(consumed, 32)
                 self.assertFalse(pending.done())
-                pending.cancel()
-                with self.assertRaises(asyncio.CancelledError):
-                    await pending
+                release.set()
+                results = await asyncio.wait_for(pending, 1)
+                self.assertEqual(len(results), 32)
 
     async def test_retry_fatal_precedes_cancelled_sibling(self):
         requests = [
@@ -282,7 +280,7 @@ class JEVTests(unittest.IsolatedAsyncioTestCase):
 
         client.__aexit__.assert_awaited_once()
 
-    async def test_batch_consumes_request_generator_only_when_capacity_opens(self):
+    async def test_batch_keeps_only_one_unadmitted_request_as_lookahead(self):
         client = MagicMock()
         client.__aenter__ = AsyncMock(return_value=client)
         client.__aexit__ = AsyncMock(return_value=None)
@@ -320,7 +318,8 @@ class JEVTests(unittest.IsolatedAsyncioTestCase):
             ) as runtime:
                 pending = asyncio.create_task(runtime.evaluate_many(requests()))
                 await asyncio.wait_for(two_started.wait(), 1)
-                self.assertEqual(consumed, 2)
+                await asyncio.sleep(0)
+                self.assertLessEqual(consumed, 3)
                 release.set()
                 self.assertEqual(
                     [page for page, _ in await pending], [1, 2, 3, 4],

@@ -7,7 +7,7 @@ import base64
 import json
 import time
 from collections.abc import AsyncIterator, Awaitable, Callable, Iterable
-from contextlib import aclosing, asynccontextmanager
+from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Literal, Never, Self
@@ -19,7 +19,6 @@ from ..concurrency import (
     AsyncExecutor,
     NonContinuableError,
     OperationError,
-    OperationResult,
     RateLimitedError,
     task_group_fatal_error,
 )
@@ -32,10 +31,6 @@ from ..ocr_config import (
     VendorOCRConfig,
 )
 from ..runtime import IO_DOMAIN
-
-
-# Bounds failed page orchestration; provider IO capacity remains executor-owned.
-_BATCH_RETRY_WINDOW = 16
 
 
 @dataclass(frozen=True)
@@ -92,13 +87,16 @@ class VendorOCRRuntime:
         if client is not None:
             await client.aclose()
 
-    async def request(self, request: VendorOCRInput) -> VendorOCRResponse:
+    async def request(
+        self,
+        request: VendorOCRInput,
+        *,
+        _started: asyncio.Event | None = None,
+    ) -> VendorOCRResponse:
         if isinstance(self.config, UnlimitedOCRVendorConfig):
-            return await self._request_once(request)
+            return await self._request_once(request, _started)
         try:
-            return await self.executor.run(
-                lambda: self._request_once(request),
-            )
+            return await self._request_once(request, _started)
         except NonContinuableError:
             raise
         except OperationError as error:
@@ -111,101 +109,94 @@ class VendorOCRRuntime:
     async def request_many(
         self, requests: Iterable[VendorOCRInput],
     ) -> AsyncIterator[VendorOCRResult]:
-        if isinstance(self.config, UnlimitedOCRVendorConfig):
-            async for result in self._request_many_independent(requests):
-                yield result
-            return
+        iterator = iter(requests)
+        tasks: dict[asyncio.Task[VendorOCRResponse], VendorOCRInput] = {}
+        admission: asyncio.Task[bool] | None = None
+        admission_owner: asyncio.Task[VendorOCRResponse] | None = None
+        exhausted = False
 
-        scheduled: dict[int, VendorOCRInput] = {}
-        retries: dict[asyncio.Task[VendorOCRResponse], VendorOCRInput] = {}
-
-        def operations():
-            for request in requests:
-                async def invoke(operation_id: int, request=request):
-                    scheduled[operation_id] = request
-                    response = await self._request_once(request)
-                    return operation_id, response
-                yield invoke
-
-        async with aclosing(self.executor.map(operations())) as results:
-            initial: asyncio.Task[OperationResult[VendorOCRResponse]] | None = None
-            initial_exhausted = False
+        def start_next() -> None:
+            nonlocal admission, admission_owner, exhausted
+            if exhausted:
+                return
             try:
-                while not initial_exhausted or initial is not None or retries:
-                    if (
-                        initial is None
-                        and not initial_exhausted
-                        and len(retries) < _BATCH_RETRY_WINDOW
-                    ):
-                        initial = asyncio.create_task(anext(results))
+                request = next(iterator)
+            except StopIteration:
+                exhausted = True
+                return
+            started = asyncio.Event()
+            task = asyncio.create_task(self.request(request, _started=started))
+            tasks[task] = request
+            admission_owner = task
+            admission = asyncio.create_task(started.wait())
 
-                    pending: set[asyncio.Task[Any]] = set(retries)
-                    if initial is not None:
-                        pending.add(initial)
-                    if not pending:
-                        break
-                    done, _ = await asyncio.wait(
-                        pending, return_when=asyncio.FIRST_COMPLETED,
-                    )
-                    fatal = task_group_fatal_error(
-                        task for task in done if task in retries
-                    )
-                    if fatal is not None:
-                        raise fatal
+        try:
+            start_next()
+            while tasks:
+                pending: set[asyncio.Task[Any]] = set(tasks)
+                if admission is not None:
+                    pending.add(admission)
+                done, _ = await asyncio.wait(
+                    pending, return_when=asyncio.FIRST_COMPLETED,
+                )
+                for task in done:
+                    if task not in tasks or not task.cancelled():
+                        continue
+                    try:
+                        task.result()
+                    except asyncio.CancelledError as error:
+                        fatal = next((
+                            argument for argument in error.args
+                            if isinstance(argument, NonContinuableError)
+                        ), None)
+                        if fatal is not None:
+                            raise fatal from error
+                        raise
+                fatal = task_group_fatal_error(
+                    task for task in done
+                    if task in tasks and not task.cancelled()
+                )
+                if fatal is not None:
+                    raise fatal
 
-                    if initial is not None and initial in done:
-                        completed_initial, initial = initial, None
-                        try:
-                            result = completed_initial.result()
-                        except StopAsyncIteration:
-                            initial_exhausted = True
-                            result = None
-                    else:
-                        result = None
+                owner_finished_before_admission = (
+                    admission_owner is not None
+                    and admission_owner in done
+                    and admission is not None
+                    and admission not in done
+                )
+                admitted = admission is not None and admission in done
+                if admitted or owner_finished_before_admission:
+                    if admission is not None:
+                        admission.cancel()
+                        await asyncio.gather(admission, return_exceptions=True)
+                    admission = None
+                    admission_owner = None
+                    start_next()
 
-                    if result is not None:
-                        request = scheduled.pop(result.operation_id)
-                        if result.succeeded:
-                            assert result.value is not None
-                            yield VendorOCRResult(request, response=result.value)
-                        else:
-                            error = result.error
-                            assert error is not None
-                            if (
-                                _is_retryable(error)
-                                and self.config.retry_times > 0
-                            ):
-                                task = asyncio.create_task(
-                                    self._retry_request_after_error(
-                                        request, error, attempts_used=1,
-                                    )
-                                )
-                                retries[task] = request
-                            else:
-                                yield VendorOCRResult(request, error=error)
-
-                    for task in done:
-                        if task not in retries:
-                            continue
-                        request = retries.pop(task)
-                        try:
-                            yield VendorOCRResult(
-                                request, response=task.result(),
-                            )
-                        except NonContinuableError:
-                            raise
-                        except OperationError as error:
-                            yield VendorOCRResult(request, error=error)
-            finally:
-                if initial is not None:
-                    initial.cancel()
-                for task in retries:
-                    task.cancel()
-                teardown: list[asyncio.Task[Any]] = list(retries)
-                if initial is not None:
-                    teardown.append(initial)
-                if teardown:
-                    await asyncio.gather(*teardown, return_exceptions=True)
+                for task in done:
+                    if task not in tasks:
+                        continue
+                    request = tasks.pop(task)
+                    try:
+                        yield VendorOCRResult(request, response=task.result())
+                    except NonContinuableError:
+                        raise
+                    except OperationError as error:
+                        yield VendorOCRResult(request, error=error)
+        finally:
+            if admission is not None:
+                admission.cancel()
+            for task in tasks:
+                task.cancel()
+            teardown: list[asyncio.Task[Any]] = list(tasks)
+            if admission is not None:
+                teardown.append(admission)
+            if teardown:
+                await asyncio.gather(*teardown, return_exceptions=True)
+            close = getattr(iterator, "close", None)
+            if close is not None:
+                close()
 
     async def _retry_request_after_error(
         self,
@@ -225,9 +216,7 @@ class VendorOCRRuntime:
             if delay > 0:
                 await asyncio.sleep(delay)
             try:
-                return await self.executor.run(
-                    lambda: self._request_once(request),
-                )
+                return await self._request_once(request)
             except NonContinuableError:
                 raise
             except OperationError as next_error:
@@ -237,67 +226,19 @@ class VendorOCRRuntime:
                     raise
         raise current
 
-    async def _request_many_independent(
-        self, requests: Iterable[VendorOCRInput],
-    ) -> AsyncIterator[VendorOCRResult]:
-        """Run page orchestration outside provider leases.
-
-        Unlimited OCR consists of several separately limited HTTP operations.
-        A page task owns only its task id and retry state; every token, submit,
-        query and download call reacquires the shared executor independently.
-        """
-        config = self.config
-        assert isinstance(config, UnlimitedOCRVendorConfig)
-        iterator = iter(requests)
-        tasks: dict[asyncio.Task[VendorOCRResponse], VendorOCRInput] = {}
-        exhausted = False
-
-        def admit() -> None:
-            nonlocal exhausted
-            while not exhausted and len(tasks) < config.page_window:
-                try:
-                    request = next(iterator)
-                except StopIteration:
-                    exhausted = True
-                    break
-                tasks[asyncio.create_task(self.request(request))] = request
-
-        try:
-            admit()
-            while tasks:
-                done, _ = await asyncio.wait(
-                    tasks, return_when=asyncio.FIRST_COMPLETED,
-                )
-                fatal = task_group_fatal_error(done)
-                if fatal is not None:
-                    raise fatal
-                for task in done:
-                    request = tasks.pop(task)
-                    try:
-                        yield VendorOCRResult(request, response=task.result())
-                    except NonContinuableError:
-                        raise
-                    except OperationError as error:
-                        yield VendorOCRResult(request, error=error)
-                admit()
-        finally:
-            for task in tasks:
-                task.cancel()
-            if tasks:
-                await asyncio.gather(*tasks, return_exceptions=True)
-            close = getattr(iterator, "close", None)
-            if close is not None:
-                close()
-
-    async def _request_once(self, request: VendorOCRInput) -> VendorOCRResponse:
+    async def _request_once(
+        self,
+        request: VendorOCRInput,
+        started: asyncio.Event | None = None,
+    ) -> VendorOCRResponse:
         try:
             check_aborted(request.aborted)
             if isinstance(self.config, (
                 DeepSeekOCRVendorConfig, DeepSeekOCR2VendorConfig,
             )):
-                return await self._request_deepseek(request)
+                return await self._request_deepseek(request, started)
             if isinstance(self.config, UnlimitedOCRVendorConfig):
-                return await self._request_unlimited(request)
+                return await self._request_unlimited(request, started)
             raise TypeError(
                 f"Unsupported vendor OCR config: {type(self.config).__name__}"
             )
@@ -326,50 +267,39 @@ class VendorOCRRuntime:
             ) from error
 
     async def _request_deepseek(
-        self, request: VendorOCRInput,
+        self,
+        request: VendorOCRInput,
+        started: asyncio.Event | None,
     ) -> VendorOCRResponse:
         config = self.config
         assert isinstance(config, (
             DeepSeekOCRVendorConfig, DeepSeekOCR2VendorConfig,
         ))
-        image = await IO_DOMAIN.run(request.image_path.read_bytes)
-        payload: dict[str, Any] = {
-            "model": config.model,
-            "messages": [{
-                "role": "user",
-                "content": [
-                    {
-                        "type": "image_url",
-                        "image_url": {
-                            "url": "data:image/png;base64,"
-                            + base64.b64encode(image).decode("ascii"),
-                        },
-                    },
-                    {
-                        "type": "text",
-                        "text": "<image>\n<|grounding|>Convert the document to markdown.",
-                    },
-                ],
-            }],
-            "max_tokens": config.max_tokens,
-            "stream": False,
-        }
-        if config.temperature is not None:
-            payload["temperature"] = config.temperature
-        if config.top_p is not None:
-            payload["top_p"] = config.top_p
-        client = self._require_client()
-        response = await client.post(
-            _chat_completions_url(config.base_url),
-            headers={
-                "Authorization": f"Bearer {config.api_key}",
-                "Content-Type": "application/json",
-                "Accept": "application/json",
-                "User-Agent": "pdf-craft-vendor-ocr/1.0",
-            },
-            json=payload,
+        payload = await IO_DOMAIN.run(
+            _deepseek_payload, request.image_path, config,
         )
-        data = _checked_response(response, request.page_index, "DeepSeek OCR")
+
+        async def send() -> dict[str, Any]:
+            if started is not None:
+                started.set()
+            response = await self._require_client().post(
+                _chat_completions_url(config.base_url),
+                headers={
+                    "Authorization": f"Bearer {config.api_key}",
+                    "Content-Type": "application/json",
+                    "Accept": "application/json",
+                    "User-Agent": "pdf-craft-vendor-ocr/1.0",
+                },
+                json=payload,
+            )
+            data = _checked_response(response, request.page_index, "DeepSeek OCR")
+            return {"data": data, "response": response}
+
+        sent = await self.executor.run(send)
+        data = sent["data"]
+        response = sent["response"]
+        assert isinstance(data, dict)
+        assert isinstance(response, httpx.Response)
         usage_value = data.get("usage")
         if usage_value is not None and not isinstance(usage_value, dict):
             _raise_malformed_response(
@@ -415,14 +345,16 @@ class VendorOCRRuntime:
         )
 
     async def _request_unlimited(
-        self, request: VendorOCRInput,
+        self,
+        request: VendorOCRInput,
+        started: asyncio.Event | None,
     ) -> VendorOCRResponse:
         config = self.config
         assert isinstance(config, UnlimitedOCRVendorConfig)
         resubmissions = 0
         while True:
             try:
-                return await self._request_unlimited_task(request)
+                return await self._request_unlimited_task(request, started)
             except _UnlimitedResubmitError:
                 if resubmissions >= config.retry_times:
                     raise
@@ -431,29 +363,13 @@ class VendorOCRRuntime:
                 resubmissions += 1
 
     async def _request_unlimited_task(
-        self, request: VendorOCRInput,
+        self,
+        request: VendorOCRInput,
+        started: asyncio.Event | None,
     ) -> VendorOCRResponse:
         config = self.config
         assert isinstance(config, UnlimitedOCRVendorConfig)
-        encoded = base64.b64encode(
-            await IO_DOMAIN.run(request.image_path.read_bytes)
-        ).decode("ascii")
-        submit = await self._run_unlimited_with_token(
-            request.page_index,
-            lambda token: self._post_form(
-                self._unlimited_url(
-                    "/rest/2.0/brain/online/v2/unlimited-ocr-parser/task", token,
-                ),
-                {
-                    "file_data": encoded,
-                    "file_name": request.image_path.name,
-                },
-                request.page_index,
-                "Unlimited OCR submit",
-                result_kind="submit",
-            ),
-        )
-        del encoded
+        submit = await self._submit_unlimited(request, started)
         submit_result = submit["result"]
         assert isinstance(submit_result, dict)
         task_id = str(submit_result["task_id"])
@@ -496,6 +412,70 @@ class VendorOCRRuntime:
             if time.monotonic() >= deadline:
                 raise OperationError(f"Unlimited OCR task {task_id} timed out")
             await asyncio.sleep(config.poll_interval_seconds)
+
+    async def _submit_unlimited(
+        self,
+        request: VendorOCRInput,
+        started: asyncio.Event | None,
+    ) -> dict[str, Any]:
+        config = self.config
+        assert isinstance(config, UnlimitedOCRVendorConfig)
+        retry_attempt = 0
+        token_attempt = 0
+        while True:
+            token = await self._get_access_token(request.page_index)
+            try:
+                return await self._submit_unlimited_once(
+                    request, token, started,
+                )
+            except _UnlimitedTokenExpiredError:
+                await self._invalidate_access_token(token)
+                if token_attempt >= config.retry_times:
+                    raise
+                token_attempt += 1
+            except NonContinuableError:
+                raise
+            except OperationError as error:
+                if not _is_retryable(error) or retry_attempt >= config.retry_times:
+                    raise
+                retry_attempt += 1
+                rate_limit = error if isinstance(error, RateLimitedError) else None
+                delay = (
+                    rate_limit.retry_after
+                    if rate_limit is not None
+                    and rate_limit.retry_after is not None
+                    else config.retry_interval_seconds
+                )
+                if delay > 0:
+                    await asyncio.sleep(delay)
+                continue
+            if config.retry_interval_seconds > 0:
+                await asyncio.sleep(config.retry_interval_seconds)
+
+    async def _submit_unlimited_once(
+        self,
+        request: VendorOCRInput,
+        token: str,
+        started: asyncio.Event | None,
+    ) -> dict[str, Any]:
+        encoded = await IO_DOMAIN.run(_encode_image, request.image_path)
+
+        async def submit() -> dict[str, Any]:
+            return await self._post_form(
+                self._unlimited_url(
+                    "/rest/2.0/brain/online/v2/unlimited-ocr-parser/task",
+                    token,
+                ),
+                {
+                    "file_data": encoded,
+                    "file_name": request.image_path.name,
+                },
+                request.page_index,
+                "Unlimited OCR submit",
+                result_kind="submit",
+            )
+
+        return await self._run_io_once(submit, started)
 
     async def _run_unlimited_with_token(
         self,
@@ -639,9 +619,7 @@ class VendorOCRRuntime:
         attempt = 0
         while True:
             try:
-                return await self.executor.run(
-                    lambda: _invoke_vendor_io(operation),
-                )
+                return await self._run_io_once(operation)
             except NonContinuableError:
                 raise
             except OperationError as error:
@@ -657,6 +635,18 @@ class VendorOCRRuntime:
                 if delay > 0:
                     await asyncio.sleep(delay)
                 attempt += 1
+
+    async def _run_io_once(
+        self,
+        operation: Callable[[], Awaitable[dict[str, Any]]],
+        started: asyncio.Event | None = None,
+    ) -> dict[str, Any]:
+        async def invoke() -> dict[str, Any]:
+            if started is not None:
+                started.set()
+            return await _invoke_vendor_io(operation)
+
+        return await self.executor.run(invoke)
 
     def _unlimited_url(self, path: str, token: str) -> str:
         config = self.config
@@ -687,6 +677,41 @@ def _chat_completions_url(base_url: str) -> str:
     if normalized.endswith("/v1"):
         return f"{normalized}/chat/completions"
     return f"{normalized}/v1/chat/completions"
+
+
+def _encode_image(path: Path) -> str:
+    return base64.b64encode(path.read_bytes()).decode("ascii")
+
+
+def _deepseek_payload(
+    image_path: Path,
+    config: DeepSeekOCRVendorConfig | DeepSeekOCR2VendorConfig,
+) -> dict[str, Any]:
+    payload: dict[str, Any] = {
+        "model": config.model,
+        "messages": [{
+            "role": "user",
+            "content": [
+                {
+                    "type": "image_url",
+                    "image_url": {
+                        "url": "data:image/png;base64," + _encode_image(image_path),
+                    },
+                },
+                {
+                    "type": "text",
+                    "text": "<image>\n<|grounding|>Convert the document to markdown.",
+                },
+            ],
+        }],
+        "max_tokens": config.max_tokens,
+        "stream": False,
+    }
+    if config.temperature is not None:
+        payload["temperature"] = config.temperature
+    if config.top_p is not None:
+        payload["top_p"] = config.top_p
+    return payload
 
 
 def _checked_response(

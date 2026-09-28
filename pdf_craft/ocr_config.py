@@ -122,12 +122,9 @@ class UnlimitedOCRVendorConfig:
     timeout_seconds: int = 180
     retry_times: int = 2
     retry_interval_seconds: float = 1.0
-    page_window: int = 16
 
     def __post_init__(self) -> None:
         _validate_vendor_retry(self.retry_times, self.retry_interval_seconds)
-        if self.page_window < 1:
-            raise ValueError("page_window must be at least 1")
 
 
 def _validate_vendor_retry(retry_times: int, retry_interval_seconds: float) -> None:

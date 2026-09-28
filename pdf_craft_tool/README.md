@@ -203,7 +203,7 @@ poetry run python -m pdf_craft_tool smoke run \
 # 运行真实 PDF -> Markdown 路径，并执行 Package / Markdown 检查
 poetry run python -m pdf_craft_tool smoke run \
   --asset pdf/citation.pdf --route markdown --ocr-mode deepseek-ocr-vendor \
-  --pages 1 --ocr-size tiny --marker '[translated]'
+  --pages 1,2,3 --ocr-size tiny --ocr-concurrency 3 --marker '[translated]'
 
 # 运行 EPUB 格式检查，不需要 OCR 或 .env
 poetry run python -m pdf_craft_tool smoke run \
@@ -212,18 +212,21 @@ poetry run python -m pdf_craft_tool smoke run \
 # 运行真实 EPUB 翻译路径，并检查生成的 EPUB
 poetry run python -m pdf_craft_tool smoke run \
   --asset epub/Cambridge.epub --route epub-translate \
-  --target-language zh --submit append-block
+  --target-language zh --submit append-block --concurrency 3
 ```
 
 `--route` 可选 `package`、`markdown`、`epub`、`pdf-patch`、`epub-check`、
-`epub-translate`，以及专门验证 Package renderer 分支的
+`epub-translate`、`page-repair`，以及专门验证 Package renderer 分支的
 `package-markdown`、`package-epub`。PDF route 可使用同一组限制参数：
 `--pages`、`--ocr-size`、
 `--dpi`、token 限额、图片限额、`--cover`、`--footnotes`、`--plot` 和
-`--toc-assumed`。`markdown` 和 `epub` 使用 `--marker` / `--submit` 覆盖确定性的
+`--toc-assumed`；`--ocr-concurrency` 控制 vendor OCR 的共享并发容量。
+`markdown` 和 `epub` 使用 `--marker` / `--submit` 覆盖确定性的
 Package 变换；`pdf-patch` 使用 `--patch-prefix` 检验 patch 产物和 geometry。
 需要真实 LLM 翻译时，可以给 `smoke run` 传入 `--translation-llm-profile`
-和 `--fill-llm-profile`；`epub-translate` 默认使用 `translation` profile。
+和 `--fill-llm-profile`；`epub-translate` 默认使用 `translation` profile，
+`--concurrency` 同时设置 XML 翻译 window 和 LLM executor 容量。对于
+`page-repair`，`--concurrency` 设置页修复 LLM executor 容量。
 
 对于需要稳定保存或批量执行的组合，使用 JSON 矩阵：
 

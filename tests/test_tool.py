@@ -163,6 +163,26 @@ class TestPDFCraftTool(unittest.TestCase):
             _run_smoke(args)
         load_env.assert_not_called()
 
+    def test_page_repair_smoke_forwards_concurrency(self):
+        with tempfile.TemporaryDirectory() as directory:
+            output_root = Path(directory)
+            args = _parser().parse_args([
+                "smoke", "run",
+                "--asset", "analysis/citation_large_ocr",
+                "--route", "page-repair",
+                "--jev-baseline", "baseline.json",
+                "--page-repair-expected", "expected.json",
+                "--concurrency", "3",
+                "--output-root", str(output_root),
+                "--dry-run",
+            ])
+            from pdf_craft_tool.cli import _run_smoke
+            self.assertEqual(_run_smoke(args), 0)
+
+            manifest_path = next(output_root.glob("*/manifest.json"))
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            self.assertEqual(manifest["run"]["page_repair"]["concurrency"], 3)
+
     def test_run_directories_use_a_date_and_shared_daily_sequence(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

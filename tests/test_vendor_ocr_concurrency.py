@@ -15,7 +15,7 @@ from PIL import Image
 
 from pdf_craft import (
     ConcurrentExecutor, DeepSeekOCRVendorConfig, FixedCapacity,
-    NonContinuableError, OperationError, OperationResult, RateLimitedError,
+    NonContinuableError, OperationError, RateLimitedError,
     UnlimitedOCRVendorConfig, create_vendor_ocr_request,
 )
 from pdf_craft.error import (
@@ -97,43 +97,17 @@ class _Extractor:
                 self.active -= 1
 
 
-class _SequentialResultIterator:
-    def __init__(self, operations) -> None:
-        self._operations = iter(operations)
-        self._operation_id = 0
-        self.closed = False
-
-    def __aiter__(self):
-        return self
-
-    async def __anext__(self):
-        try:
-            operation = next(self._operations)
-        except StopIteration:
-            raise StopAsyncIteration from None
-        operation_id = self._operation_id
-        self._operation_id += 1
-        returned_id, value = await operation(operation_id)
-        return OperationResult(returned_id, value=value)
-
-    async def aclose(self) -> None:
-        self.closed = True
-        close = getattr(self._operations, "close", None)
-        if close is not None:
-            close()
-
-
 class _SequentialExecutor:
     def __init__(self) -> None:
-        self.results: list[_SequentialResultIterator] = []
+        self.run_calls = 0
 
     async def run(self, operation):
+        self.run_calls += 1
         return await operation()
 
     def map(self, operations):
-        results = _SequentialResultIterator(operations)
-        self.results.append(results)
-        return results
+        del operations
+        raise AssertionError("vendor requests should use run()")
 
 
 class VendorOCRConcurrencyTests(unittest.IsolatedAsyncioTestCase):
@@ -199,7 +173,9 @@ class VendorOCRConcurrencyTests(unittest.IsolatedAsyncioTestCase):
         retried = asyncio.Event()
         first_calls = 0
 
-        async def request(_runtime, vendor_request):
+        async def request(_runtime, vendor_request, started=None):
+            if started is not None:
+                started.set()
             nonlocal first_calls
             if vendor_request.page_index == 1:
                 first_calls += 1
@@ -232,7 +208,102 @@ class VendorOCRConcurrencyTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(all(result.succeeded for result in results))
         self.assertEqual(first_calls, 2)
 
-    async def test_batch_retry_window_bounds_input_and_pending_tasks(self):
+    async def test_deepseek_prepares_image_before_acquiring_provider_capacity(self):
+        prepared = threading.Event()
+        preparation_threads: list[int] = []
+        event_loop_thread = threading.get_ident()
+
+        def prepare(_path, config):
+            preparation_threads.append(threading.get_ident())
+            prepared.set()
+            return {
+                "model": config.model,
+                "messages": [],
+                "max_tokens": config.max_tokens,
+                "stream": False,
+            }
+
+        class Executor:
+            async def run(self, operation):
+                self.assert_prepared()
+                return await operation()
+
+            @staticmethod
+            def assert_prepared():
+                if not prepared.is_set():
+                    raise AssertionError("provider capacity acquired before preparation")
+
+            def map(self, _operations):
+                raise AssertionError("request() should use run()")
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            return httpx.Response(200, request=request, json={
+                "usage": {"prompt_tokens": 1, "completion_tokens": 2},
+                "choices": [{"message": {"content": "ok"}}],
+            })
+
+        client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+        runtime = VendorOCRRuntime(
+            DeepSeekOCRVendorConfig(
+                base_url="https://example.invalid/v1",
+                api_key="key",
+                model="model",
+            ),
+            cast(Any, Executor()),
+        )
+        runtime._client = client
+        with patch("pdf_craft.pdf.vendor_ocr._deepseek_payload", new=prepare):
+            response = await runtime.request(VendorOCRInput(
+                1, Path("unused.png"), lambda: False,
+            ))
+
+        self.assertEqual(response.raw_text, "ok")
+        self.assertEqual(len(preparation_threads), 1)
+        self.assertNotEqual(preparation_threads[0], event_loop_thread)
+        await client.aclose()
+
+    async def test_unlimited_prepares_image_before_acquiring_submit_capacity(self):
+        prepared = threading.Event()
+        preparation_threads: list[int] = []
+        event_loop_thread = threading.get_ident()
+
+        def encode(_path):
+            preparation_threads.append(threading.get_ident())
+            prepared.set()
+            return "encoded"
+
+        class Executor:
+            async def run(self, operation):
+                if not prepared.is_set():
+                    raise AssertionError("provider capacity acquired before preparation")
+                return await operation()
+
+            def map(self, _operations):
+                raise AssertionError("submit should use run()")
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            return httpx.Response(200, request=request, json={
+                "result": {"task_id": "task-1"},
+            })
+
+        client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+        runtime = VendorOCRRuntime(
+            UnlimitedOCRVendorConfig(ak="ak", sk="sk"),
+            cast(Any, Executor()),
+        )
+        runtime._client = client
+        runtime._access_token = "token"
+        with patch("pdf_craft.pdf.vendor_ocr._encode_image", new=encode):
+            response = await runtime._submit_unlimited(
+                VendorOCRInput(1, Path("unused.png"), lambda: False), None,
+            )
+
+        self.assertEqual(response["result"]["task_id"], "task-1")
+        self.assertEqual(len(preparation_threads), 1)
+        self.assertNotEqual(preparation_threads[0], event_loop_thread)
+        await client.aclose()
+
+    async def test_batch_retry_does_not_cap_initial_requests_at_sixteen(self):
         config = DeepSeekOCRVendorConfig(
             base_url="https://example.invalid/v1",
             api_key="key",
@@ -242,18 +313,20 @@ class VendorOCRConcurrencyTests(unittest.IsolatedAsyncioTestCase):
         )
         consumed = 0
         retries_started = 0
-        window_full = asyncio.Event()
+        all_retries_started = asyncio.Event()
         release = asyncio.Event()
 
         def requests():
             nonlocal consumed
-            for page_index in range(1000):
+            for page_index in range(32):
                 consumed += 1
                 yield VendorOCRInput(
                     page_index, Path("unused.png"), lambda: False,
                 )
 
-        async def request(_runtime, _request):
+        async def request(_runtime, _request, started=None):
+            if started is not None:
+                started.set()
             raise RateLimitedError(retry_after=0)
 
         async def retry(
@@ -262,8 +335,8 @@ class VendorOCRConcurrencyTests(unittest.IsolatedAsyncioTestCase):
             nonlocal retries_started
             self.assertEqual(attempts_used, 1)
             retries_started += 1
-            if retries_started == 16:
-                window_full.set()
+            if retries_started == 32:
+                all_retries_started.set()
             await release.wait()
             return VendorOCRResponse({}, raw_text="")
 
@@ -280,15 +353,12 @@ class VendorOCRConcurrencyTests(unittest.IsolatedAsyncioTestCase):
                         pass
 
                 pending = asyncio.create_task(consume())
-                await asyncio.wait_for(window_full.wait(), 1)
-                await asyncio.sleep(0)
-                self.assertEqual(retries_started, 16)
-                # Retry window + two active leases + map's one-result handoff.
-                self.assertLessEqual(consumed, 19)
+                await asyncio.wait_for(all_retries_started.wait(), 1)
+                self.assertEqual(retries_started, 32)
+                self.assertEqual(consumed, 32)
                 self.assertFalse(pending.done())
-                pending.cancel()
-                with self.assertRaises(asyncio.CancelledError):
-                    await pending
+                release.set()
+                await asyncio.wait_for(pending, 1)
 
     async def test_deepseek_retry_fatal_precedes_cancelled_sibling(self):
         config = DeepSeekOCRVendorConfig(
@@ -307,7 +377,9 @@ class VendorOCRConcurrencyTests(unittest.IsolatedAsyncioTestCase):
                 retries_started = asyncio.Event()
                 never = asyncio.Event()
 
-                async def request(_runtime, vendor_request):
+                async def request(_runtime, vendor_request, started=None):
+                    if started is not None:
+                        started.set()
                     page_index = vendor_request.page_index
                     calls[page_index] += 1
                     if calls[page_index] == 1:
@@ -620,28 +692,28 @@ class VendorOCRConcurrencyTests(unittest.IsolatedAsyncioTestCase):
         )
         await client.aclose()
 
-    async def test_unlimited_page_window_consumes_requests_lazily(self):
-        config = UnlimitedOCRVendorConfig(
-            ak="ak", sk="sk", page_window=3,
-        )
+    async def test_unlimited_requests_are_not_capped_by_a_page_window(self):
+        config = UnlimitedOCRVendorConfig(ak="ak", sk="sk")
         consumed = 0
         started = 0
-        window_started = asyncio.Event()
+        all_started = asyncio.Event()
         release = asyncio.Event()
 
         def requests():
             nonlocal consumed
-            for page_index in range(1, 1001):
+            for page_index in range(1, 33):
                 consumed += 1
                 yield VendorOCRInput(
                     page_index, Path(f"page-{page_index}.png"), lambda: False,
                 )
 
-        async def request(_runtime, _request):
+        async def request(_runtime, _request, _started=None):
             nonlocal started
             started += 1
-            if started == config.page_window:
-                window_started.set()
+            if _started is not None:
+                _started.set()
+            if started == 32:
+                all_started.set()
             await release.wait()
             return VendorOCRResponse({})
 
@@ -655,13 +727,13 @@ class VendorOCRConcurrencyTests(unittest.IsolatedAsyncioTestCase):
             )
             async with aclosing(results):
                 first = asyncio.create_task(anext(results))
-                await asyncio.wait_for(window_started.wait(), 1)
-                self.assertEqual(consumed, config.page_window)
-                self.assertEqual(started, config.page_window)
+                await asyncio.wait_for(all_started.wait(), 1)
+                self.assertEqual(consumed, 32)
+                self.assertEqual(started, 32)
                 release.set()
                 self.assertTrue((await first).succeeded)
 
-        self.assertLess(consumed, 1000)
+        self.assertEqual(consumed, 32)
 
     async def test_unlimited_retryable_application_codes_reacquire_capacity(self):
         for error_code in (1, 2, 4, 18):
@@ -1161,7 +1233,9 @@ class VendorOCRConcurrencyTests(unittest.IsolatedAsyncioTestCase):
         two_started = asyncio.Event()
         never = asyncio.Event()
 
-        async def request(_runtime, request):
+        async def request(_runtime, request, started=None):
+            if started is not None:
+                started.set()
             started_pages.append(request.page_index)
             if len(started_pages) == 2:
                 two_started.set()
@@ -1212,7 +1286,7 @@ class VendorOCRConcurrencyTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(temporary_paths)
         self.assertTrue(all(not path.exists() for path in temporary_paths))
 
-    async def test_vendor_ocr_accepts_custom_closable_executor_iterator(self):
+    async def test_vendor_ocr_accepts_custom_executor_run(self):
         rendered: list[int] = []
         ocr = OCR(
             DeepSeekOCRVendorConfig(
@@ -1224,8 +1298,15 @@ class VendorOCRConcurrencyTests(unittest.IsolatedAsyncioTestCase):
         )
         executor = _SequentialExecutor()
 
-        async def request(_runtime, _vendor_request):
-            return VendorOCRResponse({}, raw_text="", input_tokens=1, output_tokens=1)
+        async def request(runtime, _vendor_request, started=None):
+            async def invoke():
+                if started is not None:
+                    started.set()
+                return VendorOCRResponse(
+                    {}, raw_text="", input_tokens=1, output_tokens=1,
+                )
+
+            return await runtime.executor.run(invoke)
 
         with tempfile.TemporaryDirectory() as directory, patch.object(
             VendorOCRRuntime, "_request_deepseek", new=request,
@@ -1245,8 +1326,7 @@ class VendorOCRConcurrencyTests(unittest.IsolatedAsyncioTestCase):
             [event.page_index for event in events if event.kind == OCREventKind.COMPLETE],
             [1, 2, 3],
         )
-        self.assertEqual(len(executor.results), 1)
-        self.assertTrue(executor.results[0].closed)
+        self.assertEqual(executor.run_calls, 3)
 
     async def test_vendor_io_is_concurrent_after_serial_render_and_fallback_finishes(self):
         rendered: list[int] = []
@@ -1262,22 +1342,27 @@ class VendorOCRConcurrencyTests(unittest.IsolatedAsyncioTestCase):
         maximum = 0
         started_after_render: list[bool] = []
 
-        async def request(_runtime, vendor_request):
-            nonlocal active, maximum
-            started_after_render.append(rendered == [1, 2, 3])
-            active += 1
-            maximum = max(maximum, active)
-            try:
-                await asyncio.sleep(0.02)
-                if vendor_request.page_index == 2:
-                    raise OCRError("ignored", page_index=2, step_index=1)
-                return VendorOCRResponse(
-                    {}, raw_text="",
-                    input_tokens=vendor_request.page_index,
-                    output_tokens=vendor_request.page_index,
-                )
-            finally:
-                active -= 1
+        async def request(runtime, vendor_request, started=None):
+            async def invoke():
+                if started is not None:
+                    started.set()
+                nonlocal active, maximum
+                started_after_render.append(rendered == [1, 2, 3])
+                active += 1
+                maximum = max(maximum, active)
+                try:
+                    await asyncio.sleep(0.02)
+                    if vendor_request.page_index == 2:
+                        raise OCRError("ignored", page_index=2, step_index=1)
+                    return VendorOCRResponse(
+                        {}, raw_text="",
+                        input_tokens=vendor_request.page_index,
+                        output_tokens=vendor_request.page_index,
+                    )
+                finally:
+                    active -= 1
+
+            return await runtime.executor.run(invoke)
 
         with tempfile.TemporaryDirectory() as directory, patch.object(
             VendorOCRRuntime, "_request_deepseek", new=request,
@@ -1324,7 +1409,9 @@ class VendorOCRConcurrencyTests(unittest.IsolatedAsyncioTestCase):
             cast(Any, _Handler(rendered)),
         )
 
-        async def request(_runtime, vendor_request):
+        async def request(_runtime, vendor_request, started=None):
+            if started is not None:
+                started.set()
             requests.append((vendor_request.page_index, vendor_request.image_path.name))
             return VendorOCRResponse({}, raw_text="", input_tokens=1, output_tokens=1)
 
@@ -1366,7 +1453,9 @@ class VendorOCRConcurrencyTests(unittest.IsolatedAsyncioTestCase):
         ignored: list[OCRError] = []
         original = RuntimeError("second-stage transport")
 
-        async def request(_runtime, vendor_request):
+        async def request(_runtime, vendor_request, started=None):
+            if started is not None:
+                started.set()
             if vendor_request.page_index == 2 and vendor_request.stage_index == 2:
                 raise OperationError("stage two failed", cause=original)
             return VendorOCRResponse({}, raw_text="", input_tokens=1, output_tokens=1)
@@ -1414,7 +1503,9 @@ class VendorOCRConcurrencyTests(unittest.IsolatedAsyncioTestCase):
                 )
                 ignored: list[OCRError] = []
 
-                async def request(_runtime, _vendor_request):
+                async def request(_runtime, _vendor_request, started=None):
+                    if started is not None:
+                        started.set()
                     return VendorOCRResponse(
                         {}, raw_text="", input_tokens=1, output_tokens=1,
                     )
@@ -1468,7 +1559,9 @@ class VendorOCRConcurrencyTests(unittest.IsolatedAsyncioTestCase):
                 )
                 ignored: list[OCRError] = []
 
-                async def request(_runtime, _vendor_request):
+                async def request(_runtime, _vendor_request, started=None):
+                    if started is not None:
+                        started.set()
                     return VendorOCRResponse(
                         {}, raw_text="", input_tokens=1, output_tokens=1,
                     )
@@ -1514,7 +1607,9 @@ class VendorOCRConcurrencyTests(unittest.IsolatedAsyncioTestCase):
         )
         requested: list[int] = []
 
-        async def request(_runtime, vendor_request):
+        async def request(_runtime, vendor_request, started=None):
+            if started is not None:
+                started.set()
             requested.append(vendor_request.page_index)
             return VendorOCRResponse({}, raw_text="", input_tokens=1, output_tokens=1)
 
@@ -1546,7 +1641,9 @@ class VendorOCRConcurrencyTests(unittest.IsolatedAsyncioTestCase):
         )
         requested: list[int] = []
 
-        async def request(_runtime, vendor_request):
+        async def request(_runtime, vendor_request, started=None):
+            if started is not None:
+                started.set()
             requested.append(vendor_request.page_index)
             return VendorOCRResponse({}, raw_text="", input_tokens=0, output_tokens=1)
 
@@ -1578,7 +1675,9 @@ class VendorOCRConcurrencyTests(unittest.IsolatedAsyncioTestCase):
         )
         failed = False
 
-        async def request(_runtime, vendor_request):
+        async def request(_runtime, vendor_request, started=None):
+            if started is not None:
+                started.set()
             nonlocal failed
             if vendor_request.page_index == 2 and not failed:
                 failed = True
@@ -1675,7 +1774,8 @@ class VendorOCRConcurrencyTests(unittest.IsolatedAsyncioTestCase):
                     cast(Any, _Handler(rendered)),
                 )
                 async def request(
-                    _runtime, _vendor_request, error_type=error_type,
+                    _runtime, _vendor_request, _started=None,
+                    error_type=error_type,
                 ):
                     raise error_type()
 

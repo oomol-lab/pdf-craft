@@ -1,7 +1,8 @@
 {
   "defaults": {
-    "page_indexes": [1],
-    "ocr_size": "tiny"
+    "page_indexes": [1, 2, 3],
+    "ocr_size": "tiny",
+    "ocr_concurrency": 3
   },
   "runs": [
     {
@@ -19,7 +20,8 @@
         "target_language": "zh",
         "submit": "REPLACE",
         "max_retries": 3,
-        "max_group_tokens": 2600
+        "max_group_tokens": 2600,
+        "concurrency": 3
       }
     },
     {
@@ -32,7 +34,7 @@
         "submit": "REPLACE",
         "max_retries": 3,
         "max_group_tokens": 2600,
-        "concurrency": 1
+        "concurrency": 3
       }
     }
   ]
