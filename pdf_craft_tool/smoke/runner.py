@@ -13,8 +13,10 @@ from typing import Any, Literal, cast
 
 from pdf_craft import (
     ChapterXMLTransformer,
+    ConcurrentExecutor,
     ExtractionOptions,
     FootnoteOptions,
+    FixedCapacity,
     LLM,
     OCRConfig,
     OCRMode,
@@ -52,6 +54,7 @@ class SmokeRun:
     max_page_image_file_size: int | None = None
     max_ocr_tokens: int | None = None
     max_ocr_output_tokens: int | None = None
+    ocr_concurrency: int = 1
     includes_cover: bool = False
     includes_footnotes: bool = False
     generate_plot: bool = False
@@ -212,7 +215,8 @@ def _execute(run: SmokeRun, asset: SmokeAsset, run_path: Path,
                                       submit=submit, user_prompt=run.translation.get("user_prompt"),
                                       max_retries=run.translation.get("max_retries", 5),
                                       max_group_tokens=run.translation.get("max_group_tokens", 2600),
-                                      concurrency=run.translation.get("concurrency", 1),
+                                      window=run.translation.get("concurrency", 1),
+                                      executor=ConcurrentExecutor(FixedCapacity(int(run.translation.get("concurrency", 1)))),
                                       translation_llm=llm, fill_llm=fill_llm)
         with report.stage("check"):
             status, errors = _result_from_errors(check_epub(output))
@@ -235,7 +239,10 @@ def _run_pdf(
 ) -> tuple[str, list[str], dict[str, Any]]:
     extraction_path = run_path / "book.pcex"
     output_path = run_path / "output"
-    craft = PDFCraft(pdf=PDFOptions(ocr=ocr))
+    craft = PDFCraft(pdf=PDFOptions(
+        ocr=ocr,
+        ocr_executor=ConcurrentExecutor(FixedCapacity(run.ocr_concurrency)),
+    ))
     try:
         report = report or _ExecutionReport()
         with report.stage("extract"):
@@ -472,6 +479,7 @@ def _xml_translation_transformer(run: SmokeRun, run_path: Path) -> ChapterXMLTra
         max_retries=translation.get("max_retries", 5),
         max_fill_displaying_errors=translation.get("max_fill_displaying_errors", 3),
         max_group_score=translation.get("max_group_tokens", 2600),
+        executor=ConcurrentExecutor(FixedCapacity(int(translation.get("concurrency", 1)))),
         cache_seed_content=f"pdf-craft-smoke:{run.asset}:{run.route}:{run.backend}:{run_path.name}",
     )
     return ChapterXMLTransformer(cast(Any, translator), SubmitKind[translation.get("submit", "REPLACE").upper()])

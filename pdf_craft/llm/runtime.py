@@ -12,6 +12,7 @@ import threading
 import uuid
 from contextlib import AbstractAsyncContextManager
 from pathlib import Path
+from collections.abc import Awaitable, Callable
 from typing import Self, cast
 
 import httpx
@@ -19,6 +20,10 @@ import openai
 from openai.types.chat import ChatCompletionMessageParam
 
 from ..runtime import IO_DOMAIN, run_sync
+from ..concurrency import (
+    AsyncExecutor, ConcurrentExecutor, FixedCapacity, NonContinuableError,
+    OperationError, RateLimitedError,
+)
 from .core import LLM
 from .error import is_retry_error
 from .increasable import Increasable
@@ -44,11 +49,17 @@ class LLMEmptyResponseError(RuntimeError):
 class LLMRuntime:
     """Provider runtime whose network, streaming, retry and limiter are async."""
 
-    def __init__(self, config: LLM, *, protocol_version: str = "1") -> None:
+    def __init__(
+        self,
+        config: LLM,
+        *,
+        protocol_version: str = "1",
+        executor: AsyncExecutor | None = None,
+    ) -> None:
         self.config = config
+        self.executor = executor or ConcurrentExecutor(FixedCapacity(1))
         self.protocol_version = protocol_version
         self._top_p, self._temperature = Increasable(config.top_p), Increasable(config.temperature)
-        self._limiter = asyncio.Semaphore(6)
         self._logger: logging.Logger | None = None
 
     def context(self, cache_seed_content: str | None = None) -> "LLMContext":
@@ -79,21 +90,16 @@ class LLMRuntime:
             return start + (end - start) * min(max(index, 0), maximum) / maximum
         return source.context().current
 
-    async def _invoke_async(self, messages: list[Message], max_tokens, temperature, top_p) -> str:
+    async def _invoke_async(
+        self, messages: list[Message], max_tokens, temperature, top_p, *,
+        force_ipv4: bool = False,
+    ) -> str:
         converted = cast(list[ChatCompletionMessageParam], [
             {"role": message.role.name.lower(), "content": message.message} for message in messages
         ])
-        async with self._limiter:
-            try:
-                return await self._invoke_stream(
-                    converted, max_tokens, temperature, top_p, force_ipv4=False,
-                )
-            except (openai.APIConnectionError, httpx.ConnectError) as error:
-                if not _caused_by_connect_error(error):
-                    raise
-                return await self._invoke_stream(
-                    converted, max_tokens, temperature, top_p, force_ipv4=True,
-                )
+        return await self._invoke_stream(
+            converted, max_tokens, temperature, top_p, force_ipv4=force_ipv4,
+        )
 
     async def _invoke_stream(
         self, messages: list[ChatCompletionMessageParam], max_tokens,
@@ -119,12 +125,17 @@ class LLMRuntime:
                     parts.append(chunk.choices[0].delta.content)
             return "".join(parts)
 
-    async def _invoke_for_request(self, messages, max_tokens, temperature, top_p) -> str:
+    async def _invoke_for_request(
+        self, messages, max_tokens, temperature, top_p, *, force_ipv4: bool,
+    ) -> str:
         # Preserve the established test/custom transport seam. Production has
         # no synchronous _invoke member and always takes _invoke_async above.
         override = self.__dict__.get("_invoke")
         if override is None:
-            return await self._invoke_async(messages, max_tokens, temperature, top_p)
+            return await self._invoke_async(
+                messages, max_tokens, temperature, top_p,
+                force_ipv4=force_ipv4,
+            )
         result = override(messages, max_tokens, temperature, top_p)
         if inspect.isawaitable(result):
             return await result
@@ -170,17 +181,28 @@ class LLMContext(AbstractAsyncContextManager["LLMContext"]):
         last_error: Exception | None = None
         empty_attempts = 0
         try:
-            for attempt in range(self.runtime.config.retry_times + 1):
+            attempt = 0
+            force_ipv4 = False
+            while attempt <= self.runtime.config.retry_times:
                 try:
                     await self._log_async("request", attempt + 1, key=key)
-                    response = await self.runtime._invoke_for_request(
-                        messages, max_tokens, temperature, top_p,
-                    )
+                    async def invoke_once() -> str:
+                        try:
+                            return await self.runtime._invoke_for_request(
+                                messages, max_tokens, temperature, top_p,
+                                force_ipv4=force_ipv4,
+                            )
+                        except Exception as error:
+                            raise _provider_error(error) from error
+
+                    response = await self.runtime.executor.run(invoke_once)
                     if not response.strip():
                         empty_attempts += 1
                         await self._log_async("empty-response", attempt + 1, key=key)
                         if attempt >= self.runtime.config.retry_times:
                             raise LLMEmptyResponseError(attempts=empty_attempts)
+                        attempt += 1
+                        force_ipv4 = False
                         continue
                     if key and cache_path:
                         temporary = cache_path / f"{key}.{self.context_id}.txt"
@@ -188,21 +210,48 @@ class LLMContext(AbstractAsyncContextManager["LLMContext"]):
                         self._pending.add(temporary)
                     await self._log_async("success", attempt + 1, key=key)
                     return response
-                except Exception as error:
+                except NonContinuableError:
+                    raise
+                except OperationError as error:
                     last_error = error
-                    retryable = is_retry_error(error)
+                    cause = error.__cause__
+                    if (
+                        not force_ipv4
+                        and isinstance(cause, BaseException)
+                        and _caused_by_connect_error(cause)
+                    ):
+                        # This is another remote operation, so the loop leaves
+                        # the executor before reacquiring capacity for IPv4.
+                        force_ipv4 = True
+                        continue
+                    retryable = isinstance(error, RateLimitedError) or (
+                        isinstance(cause, Exception) and is_retry_error(cause)
+                    )
                     await self._log_async(
                         "transport-error" if retryable else "non-retryable-error",
                         attempt + 1, key=key, error=error,
                     )
-                    if isinstance(error, LLMEmptyResponseError):
-                        raise
                     if not retryable or attempt >= self.runtime.config.retry_times:
+                        final_cause = (
+                            error.__cause__
+                            if isinstance(error.__cause__, Exception)
+                            else error
+                        )
                         raise LLMTransportError(
-                            "LLM transport request failed", attempts=attempt + 1, cause=error,
-                        ) from error
-                    if self.runtime.config.retry_interval_seconds > 0:
-                        await asyncio.sleep(self.runtime.config.retry_interval_seconds)
+                            "LLM transport request failed",
+                            attempts=attempt + 1,
+                            cause=final_cause,
+                        ) from final_cause
+                    rate_limit = error if isinstance(error, RateLimitedError) else None
+                    delay = (
+                        rate_limit.retry_after
+                        if rate_limit is not None and rate_limit.retry_after is not None
+                        else self.runtime.config.retry_interval_seconds
+                    )
+                    if delay > 0:
+                        await asyncio.sleep(delay)
+                    attempt += 1
+                    force_ipv4 = False
         finally:
             self._temperature.increase()
             self._top_p.increase()
@@ -245,8 +294,54 @@ class LLMContext(AbstractAsyncContextManager["LLMContext"]):
             _close_file_handlers(logger)
 
 
-def runtime_for(config: LLM, *, protocol_version: str = "1") -> LLMRuntime:
-    return LLMRuntime(config, protocol_version=protocol_version)
+def runtime_for(
+    config: LLM,
+    executor: AsyncExecutor | None = None,
+    *,
+    protocol_version: str = "1",
+) -> LLMRuntime:
+    # The fallback preserves compatibility for low-volume helpers. Public
+    # concurrent pipelines inject and share an executor explicitly.
+    return LLMRuntime(
+        config,
+        protocol_version=protocol_version,
+        executor=executor,
+    )
+
+
+def create_llm_request(
+    config: LLM,
+    executor: AsyncExecutor,
+    *,
+    protocol_version: str = "1",
+) -> Callable[..., Awaitable[str]]:
+    """Bind an LLM config and executor into a retrying request function."""
+    return runtime_for(
+        config, executor, protocol_version=protocol_version,
+    ).request
+
+
+def _provider_error(error: Exception) -> OperationError:
+    if isinstance(error, OperationError):
+        return error
+    status = getattr(error, "status_code", None)
+    if status == 429 or isinstance(error, openai.RateLimitError):
+        response = getattr(error, "response", None)
+        raw_retry_after = (
+            response.headers.get("retry-after") if response is not None else None
+        )
+        try:
+            retry_after = float(raw_retry_after) if raw_retry_after is not None else None
+        except (TypeError, ValueError):
+            retry_after = None
+        return RateLimitedError(retry_after=retry_after, cause=error)
+    if status in (401, 402, 403) or isinstance(
+        error, (openai.AuthenticationError, openai.PermissionDeniedError),
+    ):
+        return NonContinuableError(
+            "The LLM provider cannot continue serving requests.", cause=error,
+        )
+    return OperationError(str(error) or type(error).__name__, cause=error)
 
 
 def _caused_by_connect_error(error: BaseException) -> bool:

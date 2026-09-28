@@ -16,7 +16,7 @@ from xml.etree.ElementTree import parse, tostring
 from tiktoken import get_encoding
 
 from pdf_craft.common import read_xml, save_xml
-from pdf_craft import AsyncPDFCraft, PDFCraft
+from pdf_craft import AsyncPDFCraft, ConcurrentExecutor, FixedCapacity, PDFCraft
 from pdf_craft.document import PDFCraftExtraction
 from pdf_craft.pipeline.pdf import PDFPatcher
 from pdf_craft.pipeline.pdf.pipeline import PDFTranslationPipeline
@@ -83,7 +83,7 @@ class _TemplateTranslator:
         translated = task.element
         for element, mappings in mapper.map_stream(
             elements=iter((task.element,)), callbacks=callbacks,
-            map=translate_group, concurrency=1,
+            map=translate_group, window=1,
         ):
             translated = submit(element, task.action, mappings)
         return translated, task.payload
@@ -226,6 +226,7 @@ def _repairing_translator(fill_responses: Sequence[str]) -> tuple[XMLTranslator,
     config = LLM("test", "https://example.invalid/v1", "test", "cl100k_base")
     translator = XMLTranslator(
         config, config, "English", None, False, 2, 10_000, 10_000,
+        executor=ConcurrentExecutor(FixedCapacity(1)),
     )
     translator._translate_text = lambda text: text  # type: ignore[method-assign]
 

@@ -9,8 +9,10 @@ from typing import Any, cast
 
 from pdf_craft import (
     ChapterXMLTransformer,
+    ConcurrentExecutor,
     ExtractionOptions,
     FootnoteOptions,
+    FixedCapacity,
     OCRMode,
     OCRTokensMetering,
     PDFCraft,
@@ -186,6 +188,7 @@ def _parser() -> argparse.ArgumentParser:
     review_jev.add_argument(
         "--threshold", type=float, default=JEV_REVIEW_THRESHOLD
     )
+    review_jev.add_argument("--concurrency", type=int, default=4)
     review_jev.set_defaults(handler=_review_jev)
     repair_pages = analysis_commands.add_parser(
         "repair-jev-llm",
@@ -219,6 +222,7 @@ def _parser() -> argparse.ArgumentParser:
         "--threshold", type=float, default=JEV_REVIEW_THRESHOLD
     )
     repair_pages.add_argument("--max-retries", type=int, default=4)
+    repair_pages.add_argument("--concurrency", type=int, default=4)
     repair_pages.set_defaults(handler=_repair_jev_llm)
     return parser
 
@@ -241,6 +245,7 @@ def _add_extraction_options(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--max-page-image-file-size", type=int)
     parser.add_argument("--max-ocr-tokens", type=int)
     parser.add_argument("--max-ocr-output-tokens", type=int)
+    parser.add_argument("--ocr-concurrency", type=int, default=1)
     parser.add_argument("--cover", action="store_true")
     parser.add_argument("--footnotes", action="store_true")
     parser.add_argument("--plot", action="store_true")
@@ -268,6 +273,7 @@ def _add_smoke_options(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--max-page-image-file-size", type=int)
     parser.add_argument("--max-ocr-tokens", type=int)
     parser.add_argument("--max-ocr-output-tokens", type=int)
+    parser.add_argument("--ocr-concurrency", type=int, default=1)
     parser.add_argument("--cover", action="store_true")
     parser.add_argument("--footnotes", action="store_true")
     parser.add_argument("--plot", action="store_true")
@@ -383,7 +389,8 @@ def _translate_epub(args: argparse.Namespace) -> None:
         args.source, output, target_language=args.target_language,
         submit=SubmitKind[args.submit.replace("-", "_").upper()],
         user_prompt=args.prompt, max_retries=args.max_retries,
-        max_group_tokens=args.max_group_tokens, concurrency=args.concurrency,
+        max_group_tokens=args.max_group_tokens, window=args.concurrency,
+        executor=ConcurrentExecutor(FixedCapacity(args.concurrency)),
         translation_llm=translation_llm, fill_llm=fill_llm,
     )
     print(f"Output: {output}")
@@ -458,6 +465,7 @@ def _run_smoke(args: argparse.Namespace) -> int:
         page_indexes=_page_indexes(args.pages), ocr_size=ocr_size, dpi=args.dpi,
         max_page_image_file_size=args.max_page_image_file_size,
         max_ocr_tokens=args.max_ocr_tokens, max_ocr_output_tokens=args.max_ocr_output_tokens,
+        ocr_concurrency=args.ocr_concurrency,
         includes_cover=args.cover, includes_footnotes=args.footnotes,
         generate_plot=args.plot, toc_assumed=args.toc_assumed,
         ocr=ocr_values_from_env(ocr_mode) if ocr_mode and not args.dry_run else None,
@@ -502,11 +510,14 @@ async def _review_jev_async(args: argparse.Namespace) -> None:
     raw_path = args.output / "raw"
     analysis = prepare_chapter_analysis(args.ocr_path, TocInfo([], []))
     config = create_jev_from_env()
-    async with JEVRuntime(config) as runtime:
+    executor = ConcurrentExecutor(FixedCapacity(args.concurrency))
+    async with JEVRuntime(config, executor) as runtime:
         reviewer = JevReviewProcessor(
             _recording_jev_evaluator(runtime.evaluate, raw_path),
             threshold=args.threshold,
-            concurrency=config.concurrency,
+            batch_evaluator=_recording_jev_batch_evaluator(
+                runtime.evaluate_many, raw_path,
+            ),
         )
         await reviewer(
             analysis.source_pages,
@@ -552,7 +563,10 @@ async def _repair_jev_llm_async(args: argparse.Namespace) -> None:
         cache_path=args.output / "llm-cache",
         log_dir_path=args.output / "llm-logs",
     )
-    runtime = runtime_for(llm, protocol_version="page-repair-json-v1")
+    executor = ConcurrentExecutor(FixedCapacity(args.concurrency))
+    runtime = runtime_for(
+        llm, executor, protocol_version="page-repair-json-v1",
+    )
     llm_raw_path = args.output / "llm-raw"
     llm_raw_path.mkdir(parents=True, exist_ok=True)
 
@@ -587,7 +601,6 @@ async def _repair_jev_llm_async(args: argparse.Namespace) -> None:
     if args.all_pages and llm_page_indexes is not None:
         raise ValueError("--all-pages cannot be combined with --llm-pages")
     jev_runtime = None
-    jev_concurrency = 4
     if args.all_pages or llm_page_indexes is not None:
         if args.jev_baseline is not None or args.jev_run is not None:
             raise ValueError("direct LLM page selection cannot be combined with JEV options")
@@ -617,8 +630,7 @@ async def _repair_jev_llm_async(args: argparse.Namespace) -> None:
             if args.jev_run is not None:
                 raise ValueError("--jev-run requires --jev-baseline")
             jev_config = create_jev_from_env()
-            jev_concurrency = jev_config.concurrency
-            jev_runtime = JEVRuntime(jev_config)
+            jev_runtime = JEVRuntime(jev_config, executor)
             await jev_runtime.__aenter__()
             evaluator = _recording_jev_evaluator(
                 jev_runtime.evaluate,
@@ -633,7 +645,13 @@ async def _repair_jev_llm_async(args: argparse.Namespace) -> None:
             request,
             threshold=args.threshold,
             max_retries=args.max_retries,
-            concurrency=jev_concurrency,
+            batch_evaluator=(
+                _recording_jev_batch_evaluator(
+                    jev_runtime.evaluate_many,
+                    args.output / "jev-raw",
+                )
+                if jev_runtime is not None else None
+            ),
         )
         processor = jev_processor
     analysis = prepare_chapter_analysis(args.ocr_path, TocInfo([], []))
@@ -712,6 +730,31 @@ def _recording_jev_evaluator(evaluator, output_path: Path):
             encoding="utf-8",
         )
         return probability
+
+    return evaluate
+
+
+def _recording_jev_batch_evaluator(evaluator, output_path: Path):
+    output_path.mkdir(parents=True, exist_ok=True)
+
+    async def evaluate(requests):
+        request_list = list(requests)
+        for page_index, request in request_list:
+            (output_path / f"page_{page_index:03d}-request.json").write_text(
+                json.dumps(request, ensure_ascii=False, indent=2) + "\n",
+                encoding="utf-8",
+            )
+        results = await evaluator(request_list)
+        for page_index, probability in results:
+            (output_path / f"page_{page_index:03d}-response.json").write_text(
+                json.dumps(
+                    {"pass_probability": probability},
+                    ensure_ascii=False,
+                    indent=2,
+                ) + "\n",
+                encoding="utf-8",
+            )
+        return results
 
     return evaluate
 
@@ -804,7 +847,10 @@ def _extract(
     _record_pdf_cache_owner(
         extraction_path.parent, args, ocr_mode, ocr_size, includes_furniture=includes_furniture,
     )
-    craft = PDFCraft(pdf=PDFOptions(ocr=create_ocr_config_from_env(ocr_mode)))
+    craft = PDFCraft(pdf=PDFOptions(
+        ocr=create_ocr_config_from_env(ocr_mode),
+        ocr_executor=ConcurrentExecutor(FixedCapacity(args.ocr_concurrency)),
+    ))
     extraction, metering = craft.extract_pdf_with_metering(
         args.source, extraction_path, ExtractionOptions(
             page_indexes=_page_indexes(args.pages), ocr_size=cast(Any, ocr_size), dpi=args.dpi,
@@ -835,6 +881,7 @@ def _xml_transformer(args: argparse.Namespace, work_dir: Path) -> ChapterXMLTran
         translation_llm=translation_llm, fill_llm=fill_llm, target_language=args.target_language,
         user_prompt=args.prompt, ignore_translated_error=False, max_retries=args.max_retries,
         max_fill_displaying_errors=3, max_group_score=args.max_group_tokens,
+        executor=ConcurrentExecutor(FixedCapacity(args.concurrency)),
         cache_seed_content=f"pdf-craft-tool:{args.target_language}",
     )
     return ChapterXMLTransformer(cast(Any, translator))

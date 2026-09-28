@@ -1,4 +1,5 @@
 import json
+import asyncio
 import unittest
 from xml.etree.ElementTree import fromstring
 
@@ -18,6 +19,7 @@ from pdf_craft.extractor.chapter.page_repair import (
     repair_page_with_llm,
 )
 from pdf_craft.pdf import decode
+from pdf_craft import NonContinuableError
 
 
 def _fragment(page_index, order, *content):
@@ -123,6 +125,43 @@ class PageRepairTests(unittest.IsolatedAsyncioTestCase):
             for key in ("previous_page", "next_page"):
                 if payload[key] is not None:
                     self.assertIsNone(payload[key]["jev_p_pass"])
+
+    async def test_batch_failure_is_direct_and_cancels_sibling_repairs(self):
+        source_pages = [
+            decode(fromstring(
+                f"<page index='{index}'><body><layout ref='text' "
+                f"det='1,1,99,20'>Page {index}.</layout></body>"
+                "<footnotes></footnotes></page>"
+            ))
+            for index in (1, 2)
+        ]
+        paragraphs, citations = _resolve_pages(source_pages)
+        analyses = analyse_pages((1, 2), paragraphs, citations)
+        both_started = asyncio.Event()
+        sibling_cancelled = asyncio.Event()
+        never = asyncio.Event()
+        started = 0
+
+        async def request(messages, _index, _maximum):
+            nonlocal started
+            page_index = json.loads(messages[1].message)["target_page"]["page_index"]
+            started += 1
+            if started == 2:
+                both_started.set()
+            await both_started.wait()
+            if page_index == 1:
+                raise NonContinuableError("quota")
+            try:
+                await never.wait()
+            except asyncio.CancelledError:
+                sibling_cancelled.set()
+                raise
+            return json.dumps(_response_from_message(messages[1]))
+
+        processor = AllPageLlmRepairProcessor(request, max_retries=0)
+        with self.assertRaises(NonContinuableError):
+            await processor(source_pages, analyses, {})
+        self.assertTrue(sibling_cancelled.is_set())
 
     def test_each_citation_id_has_independent_flow_endpoints(self):
         mark = transform2mark("①")

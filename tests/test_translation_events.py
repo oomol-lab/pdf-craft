@@ -1,11 +1,18 @@
 # pylint: disable=protected-access
 
+import asyncio
 import tempfile
 import unittest
 from pathlib import Path
 from xml.etree.ElementTree import tostring
 
-from pdf_craft import ChapterExtractionTransformer, TranslationEventKind, TranslationItemKind
+from pdf_craft import (
+    ChapterExtractionTransformer,
+    ChapterXMLTransformer,
+    NonContinuableError,
+    TranslationEventKind,
+    TranslationItemKind,
+)
 from pdf_craft import PDFCraft
 from pdf_craft.extractor.chapter.chapter import SourceTextFragment, Chapter, TextFlowItem, encode
 from tests.extraction_helpers import make_extraction
@@ -95,3 +102,236 @@ class TestTranslationEvents(unittest.TestCase):
                  for event in progress],
                 [(7, len("chapter"), len("chapter")), ("head", len("head"), len("head"))],
             )
+
+
+class TestCrossChapterTranslation(unittest.IsolatedAsyncioTestCase):
+    async def test_fast_chapter_reports_progress_before_slow_chapter_finishes(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source_root = root / "source"
+            source = make_extraction(source_root, page_pixel_sizes={1: (10, 10)})
+            texts = {1: "slow chapter", 2: "fast chapter"}
+            for chapter_id, text in texts.items():
+                chapter = Chapter(chapter_id, 1, [TextFlowItem(
+                    "body", 0, [SourceTextFragment(
+                        1, 1, (1, 1, 5, 5), [text],
+                    )],
+                )])
+                (source_root / "chapters" / f"chapter_{chapter_id}.xml").write_text(
+                    '<?xml version="1.0" encoding="UTF-8"?>\n'
+                    + tostring(encode(chapter), encoding="unicode")
+                )
+
+            class GatedTranslator:
+                target_language = "en"
+
+                def __init__(self):
+                    self.slow_started = asyncio.Event()
+                    self.release_slow = asyncio.Event()
+
+                async def translate_element(self, task, **_kwargs):
+                    if task.item_id == 1:
+                        self.slow_started.set()
+                        await self.release_slow.wait()
+                    return task.element, task.payload
+
+            translator = GatedTranslator()
+            transform = ChapterExtractionTransformer(
+                ChapterXMLTransformer(translator)
+            )
+            events = []
+            fast_reported = asyncio.Event()
+            callback_active = False
+
+            async def record(event):
+                nonlocal callback_active
+                self.assertFalse(callback_active)
+                callback_active = True
+                await asyncio.sleep(0)
+                events.append(event)
+                if (
+                    event.kind == TranslationEventKind.ITEM_COMPLETE
+                    and event.item_id == 2
+                ):
+                    fast_reported.set()
+                callback_active = False
+
+            pending = asyncio.create_task(transform._transform_to_workspace_async(
+                source,
+                root / "target",
+                on_translation_event=record,
+                emit_translation_events=True,
+            ))
+            await asyncio.wait_for(translator.slow_started.wait(), timeout=1)
+            try:
+                await asyncio.wait_for(fast_reported.wait(), timeout=1)
+                self.assertFalse(any(
+                    event.kind == TranslationEventKind.ITEM_COMPLETE
+                    and event.item_id == 1
+                    for event in events
+                ))
+                fast_progress = next(
+                    event for event in events
+                    if event.kind == TranslationEventKind.PROGRESS
+                    and event.item_id == 2
+                )
+                self.assertEqual(
+                    fast_progress.completed_characters,
+                    len(texts[2]),
+                )
+            finally:
+                translator.release_slow.set()
+            result = await pending
+            self.assertTrue(result._validate())
+            self.assertFalse(callback_active)
+
+    async def test_xml_chapters_can_translate_at_the_same_time(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source_root = root / "source"
+            source = make_extraction(source_root, page_pixel_sizes={1: (10, 10)})
+            chapters = [
+                Chapter(chapter_id, 1, [TextFlowItem(
+                    "body", 0, [SourceTextFragment(
+                        1, 1, (1, 1, 5, 5), [f"chapter {chapter_id}"],
+                    )],
+                )])
+                for chapter_id in (1, 2)
+            ]
+            for chapter in chapters:
+                (source_root / "chapters" / f"chapter_{chapter.id}.xml").write_text(
+                    '<?xml version="1.0" encoding="UTF-8"?>\n'
+                    + tostring(encode(chapter), encoding="unicode")
+                )
+
+            class GatedTranslator:
+                target_language = "en"
+
+                def __init__(self):
+                    self.started = 0
+                    self.both_started = asyncio.Event()
+                    self.release = asyncio.Event()
+
+                async def translate_element(self, task, **_kwargs):
+                    self.started += 1
+                    if self.started == 2:
+                        self.both_started.set()
+                    await self.release.wait()
+                    return task.element, task.payload
+
+            translator = GatedTranslator()
+            transform = ChapterExtractionTransformer(
+                ChapterXMLTransformer(translator)
+            )
+            pending = asyncio.create_task(transform._transform_to_workspace_async(
+                source, root / "target",
+            ))
+            await asyncio.wait_for(translator.both_started.wait(), timeout=1)
+            translator.release.set()
+            result = await pending
+            self.assertTrue(result._validate())
+
+    async def test_chapter_failure_is_direct_and_cancels_siblings(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source_root = root / "source"
+            source = make_extraction(source_root, page_pixel_sizes={1: (10, 10)})
+            for chapter_id in (1, 2):
+                chapter = Chapter(chapter_id, 1, [TextFlowItem(
+                    "body", 0, [SourceTextFragment(
+                        1, 1, (1, 1, 5, 5), [f"chapter {chapter_id}"],
+                    )],
+                )])
+                (source_root / "chapters" / f"chapter_{chapter_id}.xml").write_text(
+                    '<?xml version="1.0" encoding="UTF-8"?>\n'
+                    + tostring(encode(chapter), encoding="unicode")
+                )
+
+            class FailingTranslator:
+                target_language = "en"
+
+                def __init__(self):
+                    self.started = 0
+                    self.both_started = asyncio.Event()
+                    self.sibling_cancelled = asyncio.Event()
+                    self.never = asyncio.Event()
+
+                async def translate_element(self, task, **_kwargs):
+                    self.started += 1
+                    position = self.started
+                    if self.started == 2:
+                        self.both_started.set()
+                    await self.both_started.wait()
+                    if position == 1:
+                        raise NonContinuableError("quota")
+                    try:
+                        await self.never.wait()
+                    except asyncio.CancelledError:
+                        self.sibling_cancelled.set()
+                        raise
+                    return task.element, task.payload
+
+            translator = FailingTranslator()
+            transform = ChapterExtractionTransformer(
+                ChapterXMLTransformer(translator)
+            )
+            with self.assertRaises(NonContinuableError):
+                await transform._transform_to_workspace_async(
+                    source, root / "target",
+                )
+            self.assertTrue(translator.sibling_cancelled.is_set())
+
+    async def test_chapter_self_cancellation_immediately_cancels_siblings(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source_root = root / "source"
+            source = make_extraction(source_root, page_pixel_sizes={1: (10, 10)})
+            for chapter_id in (1, 2):
+                chapter = Chapter(chapter_id, 1, [TextFlowItem(
+                    "body", 0, [SourceTextFragment(
+                        1, 1, (1, 1, 5, 5), [f"chapter {chapter_id}"],
+                    )],
+                )])
+                (source_root / "chapters" / f"chapter_{chapter_id}.xml").write_text(
+                    '<?xml version="1.0" encoding="UTF-8"?>\n'
+                    + tostring(encode(chapter), encoding="unicode")
+                )
+
+            class CancellingTranslator:
+                target_language = "en"
+
+                def __init__(self):
+                    self.started = 0
+                    self.both_started = asyncio.Event()
+                    self.sibling_cancelled = asyncio.Event()
+                    self.never = asyncio.Event()
+
+                async def translate_element(self, task, **_kwargs):
+                    self.started += 1
+                    position = self.started
+                    if self.started == 2:
+                        self.both_started.set()
+                    await self.both_started.wait()
+                    if position == 1:
+                        raise asyncio.CancelledError("inner chapter cancellation")
+                    try:
+                        await self.never.wait()
+                    except asyncio.CancelledError:
+                        self.sibling_cancelled.set()
+                        raise
+                    return task.element, task.payload
+
+            translator = CancellingTranslator()
+            transform = ChapterExtractionTransformer(
+                ChapterXMLTransformer(translator)
+            )
+            with self.assertRaisesRegex(
+                asyncio.CancelledError, "inner chapter cancellation",
+            ):
+                await asyncio.wait_for(
+                    transform._transform_to_workspace_async(
+                        source, root / "target",
+                    ),
+                    timeout=1,
+                )
+            self.assertTrue(translator.sibling_cancelled.is_set())

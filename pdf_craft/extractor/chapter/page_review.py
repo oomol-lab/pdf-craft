@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import json
 import re
-import asyncio
 from collections.abc import Awaitable, Callable, Iterable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
@@ -87,6 +86,10 @@ class PageReviewResult:
 
 
 PageEvaluator = Callable[[int, dict[str, Any]], Awaitable[float]]
+PageBatchEvaluator = Callable[
+    [Iterable[tuple[int, dict[str, Any]]]],
+    Awaitable[list[tuple[int, float]]],
+]
 
 
 class PageAnalysisProcessor(Protocol):
@@ -107,15 +110,13 @@ class JevReviewProcessor:
         self,
         evaluator: PageEvaluator,
         threshold: float = JEV_REVIEW_THRESHOLD,
-        concurrency: int = 4,
+        batch_evaluator: PageBatchEvaluator | None = None,
     ) -> None:
         if not 0 <= threshold <= 1:
             raise ValueError("JEV review threshold must be between 0 and 1")
         self._evaluator = evaluator
+        self._batch_evaluator = batch_evaluator
         self._threshold = threshold
-        if concurrency < 1:
-            raise ValueError("JEV review concurrency must be at least 1")
-        self._concurrency = concurrency
         self.results: list[PageReviewResult] = []
 
     async def __call__(
@@ -127,18 +128,15 @@ class JevReviewProcessor:
         requests = build_jev_review_requests(
             source_pages, analyses, page_pixel_sizes
         )
-        semaphore = asyncio.Semaphore(self._concurrency)
-
-        async def evaluate(page_index: int, request: dict[str, Any]):
-            async with semaphore:
-                return page_index, await self._evaluator(page_index, request)
-
-        async with asyncio.TaskGroup() as group:
-            tasks = [
-                group.create_task(evaluate(page_index, request))
+        if self._batch_evaluator is not None:
+            evaluated = await self._batch_evaluator(iter(requests))
+        else:
+            # Compatibility for custom evaluators. Official JEV runtimes use
+            # the lazy executor-backed batch evaluator above.
+            evaluated = [
+                (page_index, await self._evaluator(page_index, request))
                 for page_index, request in requests
             ]
-        evaluated = [task.result() for task in tasks]
         self.results = []
         for page_index, pass_probability in evaluated:
             if not 0 <= pass_probability <= 1:

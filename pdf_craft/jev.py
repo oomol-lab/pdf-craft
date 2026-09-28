@@ -2,11 +2,22 @@
 
 from __future__ import annotations
 
+import asyncio
+from collections.abc import AsyncIterator, Awaitable, Callable, Iterable
+from contextlib import aclosing, asynccontextmanager
 from dataclasses import dataclass, field
 from typing import Any, Self
 
 import httpx2
-from typesafe_sdk import AsyncTypeSafeClient, RetryPolicy
+from typesafe_sdk import (
+    AsyncTypeSafeClient, RetryPolicy, TypeSafeAPIConnectionError,
+    TypeSafeAPIError, TypeSafeAPITimeoutError, TypeSafeAuthenticationError,
+    TypeSafePermissionDeniedError, TypeSafeRateLimitError,
+)
+
+from .concurrency import (
+    AsyncExecutor, NonContinuableError, OperationError, RateLimitedError,
+)
 
 
 @dataclass(frozen=True)
@@ -29,25 +40,25 @@ class JEV:
             raise ValueError("JEV retry_times cannot be negative")
         if self.concurrency < 1:
             raise ValueError("JEV concurrency must be at least 1")
-
-
 class JEVRuntime:
     """One event-loop-bound official JEV client reused for a review run."""
 
-    def __init__(self, config: JEV) -> None:
+    def __init__(self, config: JEV, executor: AsyncExecutor) -> None:
         self.config = config
+        self.executor = executor
         self._client: AsyncTypeSafeClient | None = None
 
     async def __aenter__(self) -> Self:
-        self._client = AsyncTypeSafeClient(
+        client = AsyncTypeSafeClient(
             api_key=self.config.key,
             model=self.config.model,
             base_url=self.config.url,
             timeout=self.config.timeout,
-            retry=RetryPolicy(max_retries=self.config.retry_times),
+            retry=RetryPolicy(max_retries=0),
             transport=httpx2.AsyncHTTPTransport(local_address="0.0.0.0"),
         )
-        await self._client.__aenter__()
+        self._client = client
+        await client.__aenter__()
         return self
 
     async def __aexit__(self, exc_type, exc_value, traceback) -> None:
@@ -56,11 +67,104 @@ class JEVRuntime:
             await client.__aexit__(exc_type, exc_value, traceback)
 
     async def evaluate(self, page_index: int, request: dict[str, Any]) -> float:
-        del page_index
+        results = await self.evaluate_many(((page_index, request),))
+        return results[0][1]
+
+    async def evaluate_many(
+        self, requests: Iterable[tuple[int, dict[str, Any]]],
+    ) -> list[tuple[int, float]]:
         if self._client is None:
             raise RuntimeError("JEVRuntime must be entered before evaluation")
-        response = await self._client.system_one(
-            state=request["state"],
-            questions=request["questions"],
+        pending = list(requests)
+        request_order = {
+            page_index: order for order, (page_index, _) in enumerate(pending)
+        }
+        attempts = {page_index: 0 for page_index, _ in pending}
+        completed: list[tuple[int, float]] = []
+        while pending:
+            current = pending
+            pending = []
+
+            def operations():
+                for page_index, request in current:
+                    async def invoke(operation_id: int, page_index=page_index, request=request):
+                        assert self._client is not None
+                        try:
+                            response = await self._client.system_one(
+                                state=request["state"],
+                                questions=request["questions"],
+                            )
+                        except Exception as error:
+                            raise _provider_error(error) from error
+                        probability = float(
+                            response.nouls["page_passes_strict_standard"].noul
+                        )
+                        return operation_id, (page_index, probability)
+                    yield invoke
+
+            delays: list[float] = []
+            async with aclosing(self.executor.map(operations())) as results:
+                async for result in results:
+                    source_page_index = current[result.operation_id][0]
+                    if result.succeeded:
+                        assert result.value is not None
+                        completed.append(result.value)
+                        continue
+                    error = result.error
+                    assert error is not None
+                    attempts[source_page_index] += 1
+                    if (
+                        _is_retryable(error)
+                        and attempts[source_page_index] <= self.config.retry_times
+                    ):
+                        pending.append(current[result.operation_id])
+                        if isinstance(error, RateLimitedError):
+                            delays.append(error.retry_after or 0)
+                        continue
+                    raise error
+            if pending:
+                delay = max(delays, default=0.5)
+                if delay > 0:
+                    await asyncio.sleep(delay)
+        return sorted(completed, key=lambda result: request_order[result[0]])
+
+
+JEVRequest = Callable[[int, dict[str, Any]], Awaitable[float]]
+
+
+@asynccontextmanager
+async def create_jev_request(
+    config: JEV, executor: AsyncExecutor,
+) -> AsyncIterator[JEVRequest]:
+    """Bind JEV configuration and capacity into a retrying request function."""
+    async with JEVRuntime(config, executor) as runtime:
+        yield runtime.evaluate
+
+
+def _provider_error(error: Exception) -> OperationError:
+    if isinstance(error, OperationError):
+        return error
+    status = getattr(error, "status", None)
+    if isinstance(error, TypeSafeRateLimitError) or status == 429:
+        retry_after_ms = getattr(error, "retry_after_ms", None)
+        retry_after = retry_after_ms / 1000 if retry_after_ms is not None else None
+        return RateLimitedError(retry_after=retry_after, cause=error)
+    if isinstance(
+        error, (TypeSafeAuthenticationError, TypeSafePermissionDeniedError),
+    ) or status in (401, 402, 403):
+        return NonContinuableError(
+            "The JEV provider cannot continue serving requests.", cause=error,
         )
-        return float(response.nouls["page_passes_strict_standard"].noul)
+    return OperationError(str(error) or type(error).__name__, cause=error)
+
+
+def _is_retryable(error: OperationError) -> bool:
+    if isinstance(error, RateLimitedError):
+        return True
+    cause = error.__cause__
+    if isinstance(cause, (TypeSafeAPIConnectionError, TypeSafeAPITimeoutError)):
+        return True
+    status = getattr(cause, "status", None)
+    return isinstance(cause, TypeSafeAPIError) and isinstance(status, int) and (
+        status == 408 or status >= 500
+    )

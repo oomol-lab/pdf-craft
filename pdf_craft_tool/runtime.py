@@ -55,7 +55,6 @@ def create_jev_from_env() -> JEV:
         model=_str("PDF_CRAFT_JEV_MODEL", default="jev-latest"),
         timeout=_float("PDF_CRAFT_JEV_TIMEOUT_SECONDS", default=60.0),
         retry_times=_int("PDF_CRAFT_JEV_RETRY_TIMES", default=2),
-        concurrency=_int("PDF_CRAFT_JEV_CONCURRENCY", default=4),
     )
 
 

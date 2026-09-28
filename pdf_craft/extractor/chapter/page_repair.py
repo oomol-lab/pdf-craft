@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 from collections.abc import Awaitable, Callable, Iterable, Mapping
 from dataclasses import replace
@@ -28,6 +29,7 @@ from .page_review import (
     JevReviewProcessor,
     PageEvaluator,
     PageReviewResult,
+    PageBatchEvaluator,
 )
 
 
@@ -133,9 +135,11 @@ class JevLlmRepairProcessor:
         *,
         threshold: float = JEV_REVIEW_THRESHOLD,
         max_retries: int = 4,
-        concurrency: int = 4,
+        batch_evaluator: PageBatchEvaluator | None = None,
     ) -> None:
-        self._reviewer = JevReviewProcessor(evaluator, threshold, concurrency)
+        self._reviewer = JevReviewProcessor(
+            evaluator, threshold, batch_evaluator=batch_evaluator,
+        )
         self._request = request
         self._max_retries = max_retries
 
@@ -218,15 +222,17 @@ async def _repair_pages(
     request: PageRepairRequest,
     max_retries: int,
 ) -> list[PageAnalysis]:
+    original = [_clone_page(page) for page in analyses]
     repaired = [_clone_page(page) for page in analyses]
-    positions = {page.page_index: index for index, page in enumerate(repaired)}
+    positions = {page.page_index: index for index, page in enumerate(original)}
     repair_order: dict[int, int] = {}
-    for page_index in page_indexes:
+
+    async def repair(page_index: int) -> tuple[int, PageAnalysis]:
         position = positions[page_index]
-        target = repaired[position]
-        previous = repaired[position - 1] if position > 0 else None
-        following = repaired[position + 1] if position + 1 < len(repaired) else None
-        repaired[position] = await repair_page_with_llm(
+        target = original[position]
+        previous = original[position - 1] if position > 0 else None
+        following = original[position + 1] if position + 1 < len(original) else None
+        result = await repair_page_with_llm(
             previous_page=previous,
             target_page=target,
             next_page=following,
@@ -235,6 +241,19 @@ async def _repair_pages(
             request=request,
             max_retries=max_retries,
         )
+        return page_index, result
+
+    tasks = [asyncio.create_task(repair(page_index)) for page_index in page_indexes]
+    try:
+        completed = await asyncio.gather(*tasks)
+    except BaseException:
+        for task in tasks:
+            task.cancel()
+        await asyncio.gather(*tasks, return_exceptions=True)
+        raise
+    results = dict(completed)
+    for page_index in page_indexes:
+        repaired[positions[page_index]] = results[page_index]
         repair_order[page_index] = len(repair_order)
     _reconcile_cross_page_gaps(repaired, repair_order)
     return repaired

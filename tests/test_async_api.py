@@ -16,9 +16,10 @@ from PIL import Image
 from reportlab.pdfgen import canvas
 
 from pdf_craft import (
-    AsyncPDFCraft, ChapterExtractionTransformer, ExtractionOptions, PDFCraft,
-    PDFCraftExtraction, PDFDocumentMetadata, PDFOptions, SubmitKind, TranslationEventKind,
-    TranslationEvent,
+    AsyncPDFCraft, ChapterExtractionTransformer, ConcurrentExecutor,
+    ExtractionOptions, FixedCapacity, NonContinuableError, PDFCraft,
+    PDFCraftExtraction, PDFDocumentMetadata, PDFOptions, SubmitKind,
+    TranslationEventKind, TranslationEvent,
 )
 from pdf_craft.craft import _AsyncPDFHandlerBridge
 from pdf_craft.common import save_xml
@@ -32,6 +33,7 @@ from pdf_craft.runtime import QT_DOMAIN, invoke_callback, run_subprocess
 from pdf_craft.pipeline.pdf.text_layout import (
     _ensure_qt_application, _qt_lifecycle_probe, _qt_modules,
 )
+from pdf_craft.pipeline.epub.translation.translator import _resolve_window
 from pdf_craft.transformer import ChapterXMLTransformer
 import pdf_craft.transformer.package as transformer_package
 from pdf_craft.transformer.xml_translator.xml_translator.concurrency import (
@@ -513,6 +515,96 @@ class TestAsyncAPI(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result, [0, 1, 2, 3])
         self.assertEqual(maximum, 2)
 
+    async def test_translation_window_refills_behind_a_slow_head(self):
+        release_head = asyncio.Event()
+        third_started = asyncio.Event()
+
+        async def execute(value: int) -> int:
+            if value == 0:
+                await release_head.wait()
+            elif value == 2:
+                third_started.set()
+            return value
+
+        async def collect():
+            return [
+                value
+                async for value in run_concurrency_async(
+                    range(3), execute, concurrency=2,
+                )
+            ]
+
+        pending = asyncio.create_task(collect())
+        await asyncio.wait_for(third_started.wait(), timeout=1)
+        release_head.set()
+        self.assertEqual(await pending, [0, 1, 2])
+
+    async def test_translation_window_bounds_run_ahead_behind_a_slow_head(self):
+        release_head = asyncio.Event()
+        third_started = asyncio.Event()
+        started: list[int] = []
+        pulled = 0
+
+        def parameters():
+            nonlocal pulled
+            for value in range(1_000):
+                pulled += 1
+                yield value
+
+        async def execute(value: int) -> int:
+            started.append(value)
+            if value == 0:
+                await release_head.wait()
+            elif value == 2:
+                third_started.set()
+            return value
+
+        stream = run_concurrency_async(parameters(), execute, concurrency=2)
+        first = asyncio.ensure_future(anext(stream))
+        await asyncio.wait_for(third_started.wait(), timeout=1)
+        await asyncio.sleep(0.05)
+        self.assertEqual(started, [0, 1, 2])
+        self.assertEqual(pulled, 3)
+        await asyncio.sleep(0.05)
+        self.assertEqual(pulled, 3)
+
+        release_head.set()
+        self.assertEqual(await first, 0)
+        remaining = [value async for value in stream]
+        self.assertEqual(remaining, list(range(1, 1_000)))
+
+    async def test_translation_window_preserves_terminal_error_over_sibling_cancel(self):
+        for fatal_index in (0, 3):
+            for _ in range(10):
+                with self.subTest(fatal_index=fatal_index):
+                    await self._assert_terminal_translation_error(fatal_index)
+
+    async def _assert_terminal_translation_error(self, fatal_index: int):
+        executor = ConcurrentExecutor(FixedCapacity(4))
+        all_started = asyncio.Event()
+        never = asyncio.Event()
+        started = 0
+
+        async def execute(value: int) -> int:
+            async def invoke() -> int:
+                nonlocal started
+                started += 1
+                if started == 4:
+                    all_started.set()
+                await all_started.wait()
+                if value == fatal_index:
+                    raise NonContinuableError("quota")
+                await never.wait()
+                return value
+
+            return await executor.run(invoke)
+
+        with self.assertRaises(NonContinuableError):
+            async for _value in run_concurrency_async(
+                range(4), execute, concurrency=4,
+            ):
+                pass
+
     async def test_cancelling_translation_batch_cancels_pending_tasks(self):
         started = asyncio.Event()
         cancelled = 0
@@ -579,6 +671,13 @@ class TestAsyncAPI(unittest.IsolatedAsyncioTestCase):
                 submit=SubmitKind.REPLACE,
             )
         translate.assert_awaited_once()
+
+    def test_epub_concurrency_remains_a_window_compatibility_alias(self):
+        self.assertEqual(_resolve_window(None, 4), 4)
+        self.assertEqual(_resolve_window(4, None), 4)
+        self.assertEqual(_resolve_window(4, 4), 4)
+        with self.assertRaises(ValueError):
+            _resolve_window(3, 4)
 
     async def test_public_sync_epub_entry_rejects_active_loop_before_io(self):
         with patch(

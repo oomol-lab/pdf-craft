@@ -34,7 +34,7 @@ class XMLStreamMapper:
         elements: Iterator[Element],
         callbacks: Callbacks,
         map: InlineSegmentGroupMap,
-        concurrency: int,
+        window: int,
     ) -> Generator[tuple[Element, list[InlineSegmentMapping]], None, None]:
         current_element: Element | None = None
         mapping_buffer: list[InlineSegmentMapping] = []
@@ -49,7 +49,7 @@ class XMLStreamMapper:
         for mapping_pairs in run_concurrency(
             parameters=self._split_into_serial_groups(elements, callbacks),
             execute=execute,
-            concurrency=concurrency,
+            concurrency=window,
         ):
             for origin, target in mapping_pairs:
                 origin_element = origin.head.root
@@ -76,7 +76,7 @@ class XMLStreamMapper:
         elements: Iterator[Element],
         callbacks: Callbacks,
         map: AsyncInlineSegmentGroupMap,
-        concurrency: int,
+        window: int,
     ) -> AsyncGenerator[tuple[Element, list[InlineSegmentMapping]], None]:
         current_element: Element | None = None
         mapping_buffer: list[InlineSegmentMapping] = []
@@ -91,7 +91,7 @@ class XMLStreamMapper:
         async for mapping_pairs in run_concurrency_async(
             parameters=self._split_into_serial_groups(elements, callbacks),
             execute=execute,
-            concurrency=concurrency,
+            concurrency=window,
         ):
             for origin, target in mapping_pairs:
                 origin_element = origin.head.root

@@ -1,5 +1,6 @@
 from typing import Callable
 
+from .concurrency import NonContinuableError
 from .metering import InterruptedKind, OCRTokensMetering
 
 
@@ -16,7 +17,7 @@ class OCRError(Exception):
         self.step_index: int = step_index
 
 
-class OCRFatalError(Exception):
+class OCRFatalError(NonContinuableError):
     """An OCR service failure which must stop conversion immediately."""
 
 

@@ -1,6 +1,7 @@
 # pylint: disable=protected-access
 
 from collections.abc import Callable, Container
+from contextlib import aclosing
 from dataclasses import dataclass
 from os import PathLike
 from pathlib import Path
@@ -12,13 +13,14 @@ from .error import (
     PDFError,
 )
 from .footnote import FootnoteRefinement
+from .concurrency import AsyncExecutor
 from .jev import JEVRuntime
 from .llm import LLM, runtime_for
 from .metering import AbortedCheck, OCRTokensMetering
 from .ocr_config import OCRConfig, ensure_ocr_config
 from .pdf import DeepSeekOCRSize, OCR, OCREvent, OCREventKind, PDFHandler
 from .pdf.furniture import write_furnitures
-from .runtime import OCR_DOMAIN, run_cancellable, run_subprocess
+from .runtime import OCR_DOMAIN, invoke_callback, run_cancellable, run_subprocess
 from .extractor.metadata import extract_book_metadata_from_ocr, merge_ocr_and_pdf_metadata
 from .extractor.chapter import (
     ChapterAnalysis,
@@ -63,11 +65,13 @@ class PDFExtractionEngine:
         pdf_handler: PDFHandler | None = None,
         local_only: bool = False,
         ocr: OCRConfig | None = None,
+        ocr_executor: AsyncExecutor | None = None,
     ) -> None:
         self._ocr = OCR(
             ocr=ensure_ocr_config(ocr, models_cache_path, local_only),
             pdf_handler=pdf_handler,
         )
+        self._ocr_executor = ocr_executor
 
     def predownload(self, revision: str | None = None) -> None:
         self._ocr.predownload(revision)
@@ -83,7 +87,38 @@ class PDFExtractionEngine:
         """Run optional footnote refinement between two OCR-domain phases."""
 
         footnote_refinement = kwargs.pop("footnote_refinement", None)
+        async_event_callback = kwargs.pop("on_ocr_event_async", None)
         original_aborted = kwargs.get("aborted")
+        if self._ocr.is_vendor and self._ocr_executor is not None:
+            ocr_metering = OCRTokensMetering(input_tokens=0, output_tokens=0)
+            event_stream = self._ocr.recognize_vendor(
+                self._ocr_executor,
+                pdf_path=kwargs["pdf_path"],
+                asset_path=kwargs["analysing_path"] / "extraction" / "assets",
+                ocr_path=kwargs["analysing_path"] / "ocr",
+                ocr_size=kwargs["ocr_size"],
+                dpi=kwargs["dpi"],
+                max_page_image_file_size=kwargs["max_page_image_file_size"],
+                includes_footnotes=kwargs["includes_footnotes"],
+                ignore_pdf_errors=kwargs["ignore_pdf_errors"],
+                ignore_ocr_errors=kwargs["ignore_ocr_errors"],
+                plot_path=(kwargs["analysing_path"] / "plots")
+                if kwargs["generate_plot"] else None,
+                cover_path=(kwargs["analysing_path"] / "extraction" / "cover.png")
+                if kwargs["includes_cover"] else None,
+                aborted=kwargs["aborted"],
+                page_indexes=kwargs["page_indexes"]
+                if kwargs["page_indexes"] is not None else range(1, 2**31),
+                max_tokens=kwargs["max_tokens"],
+                max_output_tokens=kwargs["max_output_tokens"],
+            )
+            async with aclosing(event_stream):
+                async for event in event_stream:
+                    ocr_metering.input_tokens += event.input_tokens
+                    ocr_metering.output_tokens += event.output_tokens
+                    await invoke_callback(async_event_callback, event)
+            kwargs["skip_ocr"] = True
+            kwargs["ocr_metering"] = ocr_metering
         if footnote_refinement is None:
             return await run_cancellable(
                 OCR_DOMAIN,
@@ -104,6 +139,7 @@ class PDFExtractionEngine:
         )
         runtime = runtime_for(
             footnote_refinement.llm,
+            footnote_refinement.resolved_llm_executor(),
             protocol_version="footnote-refinement-json-v1",
         )
 
@@ -115,13 +151,16 @@ class PDFExtractionEngine:
                 retry_max=maximum,
             )
 
-        async with JEVRuntime(footnote_refinement.jev) as jev:
+        async with JEVRuntime(
+            footnote_refinement.jev,
+            footnote_refinement.resolved_jev_executor(),
+        ) as jev:
             processor = JevLlmRepairProcessor(
                 jev.evaluate,
                 request,
                 threshold=footnote_refinement.risk_threshold,
                 max_retries=footnote_refinement.max_retries,
-                concurrency=footnote_refinement.jev.concurrency,
+                batch_evaluator=jev.evaluate_many,
             )
             repaired_pages = await processor(
                 chapter_analysis.source_pages,
@@ -192,6 +231,8 @@ class PDFExtractionEngine:
         metadata_llm: LLM | None = None,
         native_pdf_text: bytes | None = None,
         native_pdf_text_prepared: bool = False,
+        skip_ocr: bool = False,
+        ocr_metering: OCRTokensMetering | None = None,
     ):
         if extract_book_metadata and metadata_llm is None:
             raise ValueError("extract_book_metadata=True requires metadata_llm")
@@ -204,10 +245,10 @@ class PDFExtractionEngine:
 
         cover_path: Path | None = extraction_paths.cover if includes_cover else None
         plot_path: Path | None = analysing_path / "plots" if generate_plot else None
-        metering = OCRTokensMetering(input_tokens=0, output_tokens=0)
+        metering = ocr_metering or OCRTokensMetering(input_tokens=0, output_tokens=0)
         usable_pages = 0
         failed_page_indexes: list[int] = []
-        for event in self._ocr.recognize(
+        events = () if skip_ocr else self._ocr.recognize(
             pdf_path=pdf_path,
             asset_path=assets_path,
             ocr_path=pages_path,
@@ -223,7 +264,8 @@ class PDFExtractionEngine:
             max_tokens=max_tokens,
             max_output_tokens=max_output_tokens,
             page_indexes=page_indexes if page_indexes is not None else range(1, 2**31),
-        ):
+        )
+        for event in events:
             on_ocr_event(event)
             metering.input_tokens += event.input_tokens
             metering.output_tokens += event.output_tokens

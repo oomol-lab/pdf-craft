@@ -155,7 +155,11 @@ class ChapterExtractionTransformer:
 
         completed_characters = 0
         narrative_coverage: list[NarrativeCoverage] = []
-        for path, chapter, item_id, character_count in chapter_tasks:
+
+        async def commit_chapter(task_index, transformed):
+            nonlocal completed_characters
+            path, chapter, item_id, character_count = chapter_tasks[task_index]
+            await IO_DOMAIN.run(save_xml, encode(transformed), path)
             source_layouts = {
                 identity: layout
                 for layout in chapter.flow_items
@@ -163,38 +167,13 @@ class ChapterExtractionTransformer:
                 and layout.role in {"body", "heading"}
                 and (identity := paragraph_identity(chapter, layout)) is not None
             }
-            if is_xml_transformer:
-                transformed = await cast(
-                    ChapterXMLTransformer, self.chapter_transformer,
-                ).transform(
-                    chapter,
-                    on_translation_event=(
-                        on_translation_event if emit_translation_events else None
-                    ),
-                    item_id=item_id,
-                    completed_characters=completed_characters,
-                    total_characters=total_characters,
-                    emit_scope_events=False,
-                )
-            else:
-                if emit_translation_events and on_translation_event is not None:
-                    await invoke_callback(on_translation_event, TranslationEvent(
-                        kind=TranslationEventKind.ITEM_START,
-                        item_kind=TranslationItemKind.CHAPTER,
-                        item_id=item_id,
-                        item_completed_characters=0,
-                        item_total_characters=character_count,
-                    ))
-                transformed = await cast(
-                    ChapterTransformer, self.chapter_transformer,
-                ).transform(chapter)
-            await IO_DOMAIN.run(save_xml, encode(transformed), path)
             targets = {
                 identity: layout
                 for layout in transformed.flow_items
                 if isinstance(layout, TextFlowItem)
                 and (identity := paragraph_identity(transformed, layout)) is not None
             }
+            chapter_coverage = []
             for identity in source_layouts:
                 target = targets.get(identity)
                 state = (
@@ -202,13 +181,9 @@ class ChapterExtractionTransformer:
                     if target is not None and _has_visible_content(target)
                     else "preserved"
                 )
-                narrative_coverage.append(NarrativeCoverage(*identity, state))
+                chapter_coverage.append(NarrativeCoverage(*identity, state))
             completed_characters += character_count
-            if (
-                not is_xml_transformer
-                and emit_translation_events
-                and on_translation_event is not None
-            ):
+            if emit_translation_events and on_translation_event is not None:
                 for event_kind in (
                     TranslationEventKind.PROGRESS,
                     TranslationEventKind.ITEM_COMPLETE,
@@ -222,6 +197,94 @@ class ChapterExtractionTransformer:
                         completed_characters=completed_characters,
                         total_characters=total_characters,
                     ))
+            return chapter_coverage
+
+        if is_xml_transformer:
+            if emit_translation_events and on_translation_event is not None:
+                for _, _, item_id, character_count in chapter_tasks:
+                    await invoke_callback(on_translation_event, TranslationEvent(
+                        kind=TranslationEventKind.ITEM_START,
+                        item_kind=TranslationItemKind.CHAPTER,
+                        item_id=item_id,
+                        item_completed_characters=0,
+                        item_total_characters=character_count,
+                    ))
+
+            async def translate_chapter(task):
+                _, chapter, item_id, _ = task
+                return await cast(
+                    ChapterXMLTransformer, self.chapter_transformer,
+                ).transform(
+                    chapter,
+                    on_translation_event=None,
+                    item_id=item_id,
+                    total_characters=total_characters,
+                    emit_scope_events=False,
+                    emit_item_events=False,
+                )
+
+            pending_chapters = {
+                asyncio.create_task(translate_chapter(task)): task_index
+                for task_index, task in enumerate(chapter_tasks)
+            }
+            coverage_by_index = {}
+            try:
+                while pending_chapters:
+                    done, _ = await asyncio.wait(
+                        pending_chapters,
+                        return_when=asyncio.FIRST_COMPLETED,
+                    )
+                    failures = []
+                    cancellations = []
+                    successes = []
+                    for pending in sorted(done, key=pending_chapters.__getitem__):
+                        task_index = pending_chapters.pop(pending)
+                        if pending.cancelled():
+                            try:
+                                pending.result()
+                            except asyncio.CancelledError as error:
+                                cancellations.append((task_index, error))
+                            continue
+                        error = pending.exception()
+                        if error is not None:
+                            failures.append((task_index, error))
+                        else:
+                            successes.append((task_index, pending.result()))
+                    for task_index, transformed in successes:
+                        coverage_by_index[task_index] = await commit_chapter(
+                            task_index, transformed,
+                        )
+                    if failures:
+                        raise failures[0][1]
+                    if cancellations:
+                        raise cancellations[0][1]
+            except BaseException:
+                for pending in pending_chapters:
+                    pending.cancel()
+                if pending_chapters:
+                    await asyncio.gather(
+                        *pending_chapters,
+                        return_exceptions=True,
+                    )
+                raise
+            for task_index in range(len(chapter_tasks)):
+                narrative_coverage.extend(coverage_by_index[task_index])
+        else:
+            for task_index, (_, chapter, item_id, character_count) in enumerate(chapter_tasks):
+                if emit_translation_events and on_translation_event is not None:
+                    await invoke_callback(on_translation_event, TranslationEvent(
+                        kind=TranslationEventKind.ITEM_START,
+                        item_kind=TranslationItemKind.CHAPTER,
+                        item_id=item_id,
+                        item_completed_characters=0,
+                        item_total_characters=character_count,
+                    ))
+                transformed = await cast(
+                    ChapterTransformer, self.chapter_transformer,
+                ).transform(chapter)
+                narrative_coverage.extend(
+                    await commit_chapter(task_index, transformed)
+                )
 
         result = await IO_DOMAIN.run(
             self._finish_async_workspace,

@@ -146,9 +146,10 @@ extraction; they do not fall back to an analysis/OCR directory.
 
 ### `PDFOptions`
 
-`PDFOptions(ocr=None, pdf_handler=None, models_cache_path=None, local_only=False)` holds infrastructure that is reused across PDF extractions.
+`PDFOptions(ocr=None, pdf_handler=None, models_cache_path=None, local_only=False, ocr_executor=None)` holds infrastructure that is reused across PDF extractions. The executor is appended after the original fields so existing positional construction remains valid.
 
 - `ocr`: one of the local or vendor OCR configuration objects below.
+- `ocr_executor`: shared capacity for vendor OCR requests. Local OCR does not use it.
 - `pdf_handler`: an optional `PDFHandler` or `AsyncPDFHandler` implementation. Use it only to replace the PDF reading/rendering layer or manage that layer in your application.
 - `models_cache_path` and `local_only`: convenience settings for the default local DeepSeek OCR configuration when `ocr` is not supplied. They must not be combined with an explicit `ocr` configuration.
 
@@ -186,13 +187,18 @@ from pdf_craft import (
     FootnoteRefinement,
     JEV,
     LLM,
+    ConcurrentExecutor,
+    FixedCapacity,
 )
+
+executor = ConcurrentExecutor(FixedCapacity(4))
 
 options = ExtractionOptions(
     footnotes=FootnoteOptions(
         refinement=FootnoteRefinement(
             jev=JEV(key="...", model="jev-latest"),
             llm=LLM("...", "https://example.com/v1", "model", "o200k_base"),
+            executor=executor,
         ),
     ),
 )
@@ -201,7 +207,9 @@ options = ExtractionOptions(
 OCR and traditional footnote resolution still run first. JEV only selects pages for the LLM;
 the repaired page must pass the deterministic schema and integrity checks before chapter
 `FlowItem` assembly continues. Use `FootnoteOptions()` without `refinement` for the
-algorithm-only tier.
+algorithm-only tier. Use `jev_executor` and `llm_executor` instead of the common `executor`
+when those services have separate provider quotas. Omitting executors preserves the compatibility
+defaults: JEV uses `JEV.concurrency` (default `4`) and LLM repair uses capacity `1`.
 
 Book-metadata extraction is deliberately opt-in. When enabled, PDF Craft lets a dedicated LLM
 read the first three raw OCR pages and request further front pages in batches, up to twelve pages.
@@ -277,6 +285,24 @@ LLM(
 ```
 
 `key`, `url`, `model`, and `token_encoding` are required. `temperature` and `top_p` may be numbers or ranges used while retrying. Successful requests can be reused through `cache_path`; `log_dir_path` records request and cache events. OCR credentials do not configure this object.
+
+## Shared asynchronous capacity
+
+`ConcurrentExecutor(FixedCapacity(n))` provides one event-loop-bound capacity channel for
+remote operations. Pass the same executor to components whose LLM, JEV, or vendor OCR requests
+consume the same provider quota. `run()` and `map()` share that capacity. `map()` consumes a cold
+iterable of `Callable[[int], Awaitable[tuple[int, T]]]` lazily and yields `OperationResult` values
+in completion order; callers use `operation_id` to associate results with their inputs. A custom
+executor's `map()` returns `AsyncResultIterator`, including `aclose()`, so a caller can cancel and
+settle pending operations before releasing the transport or temporary resources.
+
+`CapacityProvider` and `CapacityLease` are public protocols for adaptive policies. A custom
+provider may wait in `acquire()`, learn from the `ExecutionReport` passed to `release()`, and wake
+its own waiters when capacity becomes available. It must also implement `close(error)` so a
+`NonContinuableError` wakes blocked acquisitions. `RateLimitedError` and ordinary
+`OperationError` are returned per operation by `map()`; a `NonContinuableError` closes the shared
+executor and cancels its outstanding work. Provider retry loops remain outside the executor, so
+every real retry reacquires capacity.
 
 ## PDF patching primitives
 

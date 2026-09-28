@@ -148,6 +148,7 @@ class PDFExtractor:
     ):
         kwargs = await self._prepare_async(pdf_path, kwargs)
         original_aborted = kwargs.get("aborted")
+        async_ocr_event = kwargs.get("on_ocr_event")
         on_ocr_event = callback_bridge(
             asyncio.get_running_loop(), kwargs.get("on_ocr_event"),
         )
@@ -172,6 +173,7 @@ class PDFExtractor:
             defaults["analysing_path"] = analysing_path
             defaults["aborted"] = original_aborted or (lambda: False)
             defaults["on_ocr_event"] = on_ocr_event
+            defaults["on_ocr_event_async"] = async_ocr_event
             _, _, _, _, metering = await extract_package_async(
                 pdf_path=pdf_path,
                 **defaults,

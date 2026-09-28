@@ -192,13 +192,19 @@ Unlimited OCR vendor 配置使用百度服务凭据：
 | `timeout_seconds` | `int` | `180` | OCR 任务超时时间 |
 
 ```python
-from pdf_craft import UnlimitedOCRVendorConfig, PDFCraft, PDFOptions
+from pdf_craft import (
+    ConcurrentExecutor, FixedCapacity, UnlimitedOCRVendorConfig,
+    PDFCraft, PDFOptions,
+)
 
 ocr = UnlimitedOCRVendorConfig(
     ak="your-access-key",
     sk="your-secret-key",
 )
-craft = PDFCraft(pdf=PDFOptions(ocr=ocr))
+craft = PDFCraft(pdf=PDFOptions(
+    ocr=ocr,
+    ocr_executor=ConcurrentExecutor(FixedCapacity(8)),
+))
 ```
 
 ## `PDFOptions` 的配置边界
@@ -229,5 +235,7 @@ PDFCraft(pdf=PDFOptions(
 - local OCR 依赖本地 CUDA、GPU 显存和模型缓存；没有这些条件时选择 vendor OCR。
 - `local_only=True` 不会替你下载缺失模型；请先完成模型下载。
 - vendor OCR 依赖网络和有效凭据，`base_url`、模型名及凭据错误会在请求阶段失败。
+- vendor OCR 只把远程供应商请求交给 `ocr_executor` 并发；PDF 渲染与后续处理仍保持串行。
+- 设置任一累计 OCR token 预算后，vendor 请求会逐页结算并将精确的剩余预算传给下一页。
 - `ocr_size` 由提取选项控制，不能用来改变 vendor/local backend；backend 由 OCR 配置对象决定。
 - 翻译所需的文本 LLM 与 OCR backend 是两套独立配置，本指南不讨论翻译配置。

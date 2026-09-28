@@ -4,6 +4,8 @@ from dataclasses import dataclass
 from typing import Generic, TypeVar
 from xml.etree.ElementTree import Element
 
+from pdf_craft.concurrency import AsyncExecutor
+
 from pdf_craft.llm import LLM, Message, MessageRole, runtime_for
 from pdf_craft.language import is_han_char, is_latin_letter
 from pdf_craft.llm.loop import (
@@ -28,6 +30,16 @@ from .submitter import SubmitKind, submit
 T = TypeVar("T")
 SourceTextRenderer = Callable[[list[InlineSegment]], str]
 CanonicalTextValidator = Callable[[list[InlineSegment], str, Element], str | None]
+
+
+def _resolve_window(concurrency: int, window: int | None) -> int:
+    """Keep the original concurrency spelling while accepting window."""
+    if window is not None and concurrency != 1 and concurrency != window:
+        raise ValueError("window and concurrency must match when both are provided")
+    resolved = concurrency if window is None else window
+    if resolved < 1:
+        raise ValueError("window must be at least 1")
+    return resolved
 
 
 def _already_in_target_language(text: str, target_language: str) -> bool:
@@ -87,11 +99,22 @@ class XMLTranslator:
         max_fill_displaying_errors: int,
         max_group_score: int,
         cache_seed_content: str | None = None,
+        executor: AsyncExecutor | None = None,
+        translation_executor: AsyncExecutor | None = None,
+        fill_executor: AsyncExecutor | None = None,
     ) -> None:
+        translation_executor = translation_executor or executor
+        fill_executor = fill_executor or executor
         self._translation_llm: LLM = translation_llm
         self._fill_llm: LLM = fill_llm
-        self._translation_runtime = runtime_for(translation_llm, protocol_version="xml-translation-v1")
-        self._fill_runtime = runtime_for(fill_llm, protocol_version="xml-fill-v1")
+        self._translation_runtime = runtime_for(
+            translation_llm,
+            translation_executor,
+            protocol_version="xml-translation-v1",
+        )
+        self._fill_runtime = runtime_for(
+            fill_llm, fill_executor, protocol_version="xml-fill-v1",
+        )
         self._target_language: str = target_language
         self._user_prompt: str | None = user_prompt
         self._ignore_translated_error: bool = ignore_translated_error
@@ -168,10 +191,13 @@ class XMLTranslator:
         self,
         task: TranslationTask[T],
         concurrency: int = 1,
+        window: int | None = None,
         **kwargs,
     ) -> tuple[Element, T]:
         translated = await self.translate_elements(
-            tasks=(task,), concurrency=concurrency, **kwargs,
+            tasks=(task,),
+            concurrency=_resolve_window(concurrency, window),
+            **kwargs,
         )
         if translated:
             return translated[0]
@@ -193,7 +219,9 @@ class XMLTranslator:
         total_characters: int | None = None,
         emit_scope_events: bool = True,
         emit_item_events: bool = True,
+        window: int | None = None,
     ) -> list[tuple[Element, T]]:
+        window = _resolve_window(concurrency, window)
         element2task: dict[int, TranslationTask[T]] = {}
         callbacks = warp_callbacks(
             interrupt_source_text_segments=interrupt_source_text_segments,
@@ -238,7 +266,7 @@ class XMLTranslator:
         results: list[tuple[Element, T]] = []
         stream_mapper = await self._stream_mapper_async()
         async for element, mappings in stream_mapper.map_stream_async(
-            elements=generate_elements(), callbacks=callbacks, concurrency=concurrency,
+            elements=generate_elements(), callbacks=callbacks, window=window,
             map=lambda inline_segments: self._translate_inline_segments_async(
                 inline_segments=inline_segments,
                 callbacks=callbacks,
@@ -343,7 +371,7 @@ class XMLTranslator:
         for element, mappings in self._stream_mapper_sync().map_stream(
             elements=generate_elements(),
             callbacks=callbacks,
-            concurrency=concurrency,
+            window=concurrency,
             map=lambda inline_segments: self._translate_inline_segments(
                 inline_segments=inline_segments,
                 callbacks=callbacks,
