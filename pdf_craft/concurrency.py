@@ -7,7 +7,7 @@ import inspect
 import time
 from collections import deque
 from collections.abc import AsyncIterator, Awaitable, Callable, Iterable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from enum import Enum
 from typing import Generic, Protocol, TypeVar, cast
 
@@ -76,6 +76,46 @@ class CapacityProvider(Protocol):
     async def acquire(self) -> CapacityLease: ...
 
     async def close(self, error: NonContinuableError) -> None: ...
+
+
+async def _release_without_abandoning(
+    lease: CapacityLease,
+    report: ExecutionReport,
+) -> asyncio.CancelledError | None:
+    """Finish an asynchronous release despite repeated caller cancellation."""
+    release_task = asyncio.create_task(lease.release(report))
+    interrupted: asyncio.CancelledError | None = None
+    while True:
+        try:
+            await asyncio.shield(release_task)
+            return interrupted
+        except asyncio.CancelledError as error:
+            if release_task.done():
+                # If release itself was cancelled, result() propagates that
+                # failure.  Otherwise the caller cancellation raced with a
+                # release that had already completed successfully.
+                release_task.result()
+                return error
+            interrupted = error
+
+
+async def _settle_tasks_without_abandoning(
+    tasks: list[asyncio.Task[object]],
+) -> asyncio.CancelledError | None:
+    """Wait for task teardown even if the owning consumer is cancelled again."""
+    if not tasks:
+        return None
+    settling = asyncio.gather(*tasks, return_exceptions=True)
+    interrupted: asyncio.CancelledError | None = None
+    while True:
+        try:
+            await asyncio.shield(settling)
+            return interrupted
+        except asyncio.CancelledError as error:
+            if settling.done():
+                settling.result()
+                return error
+            interrupted = error
 
 
 class _FixedLease:
@@ -207,6 +247,7 @@ class _Completed(Generic[T]):
     cancelled: asyncio.CancelledError | None = None
     unexpected: BaseException | None = None
     producer_done: bool = False
+    settled: asyncio.Future[None] | None = None
 
 
 class ConcurrentExecutor:
@@ -279,9 +320,13 @@ class ConcurrentExecutor:
             )
             raise
         finally:
-            if task is not None:
-                self._active.discard(cast(asyncio.Task[object], task))
-            await lease.release(report)
+            try:
+                interrupted = await _release_without_abandoning(lease, report)
+                if interrupted is not None:
+                    raise interrupted
+            finally:
+                if task is not None:
+                    self._active.discard(cast(asyncio.Task[object], task))
 
     async def _terminate(
         self,
@@ -308,6 +353,8 @@ class ConcurrentExecutor:
         running: set[asyncio.Task[None]] = set()
         producer: asyncio.Task[None] | None = None
         teardown_requested = False
+        release_failures: list[BaseException] = []
+        settlements: list[asyncio.Future[None]] = []
 
         async def execute_one(
             operation_id: int,
@@ -319,65 +366,107 @@ class ConcurrentExecutor:
             if task is not None:
                 self._active.add(cast(asyncio.Task[object], task))
             report = ExecutionReport(0, ExecutionOutcome.CANCELLED)
+            completion: _Completed[T] | None = None
+            settlement: asyncio.Future[None] | None = None
+            delivery_interrupted: asyncio.CancelledError | None = None
+            delivery_enqueued = False
             try:
-                returned_id, value = await operation(operation_id)
-                if returned_id != operation_id:
-                    raise ValueError(
-                        f"operation returned id {returned_id}, expected {operation_id}"
+                try:
+                    returned_id, value = await operation(operation_id)
+                    if returned_id != operation_id:
+                        raise ValueError(
+                            f"operation returned id {returned_id}, expected {operation_id}"
+                        )
+                    report = ExecutionReport(
+                        time.monotonic() - started, ExecutionOutcome.SUCCESS,
                     )
-                report = ExecutionReport(
-                    time.monotonic() - started, ExecutionOutcome.SUCCESS,
-                )
-                await completed.put(_Completed(
-                    result=OperationResult(operation_id, value=value),
-                ))
-            except asyncio.CancelledError as error:
-                report = ExecutionReport(
-                    time.monotonic() - started, ExecutionOutcome.CANCELLED, error,
-                )
-                # Only this map's explicit teardown may consume worker
-                # cancellation silently.  A shared executor fatal must wake
-                # every affected map, while operation self-cancellation remains
-                # an observable terminal result even when it used task.cancel().
-                if teardown_requested:
-                    raise
-                if self._terminal_error is not None:
-                    await completed.put(_Completed(fatal=self._terminal_error))
-                else:
-                    await completed.put(_Completed(cancelled=error))
-            except NonContinuableError as error:
-                error.for_operation(operation_id)
-                report = ExecutionReport(
-                    time.monotonic() - started, ExecutionOutcome.FAILED, error,
-                )
-                await self._terminate(error, current=task)
-                await completed.put(_Completed(fatal=error))
-            except OperationError as error:
-                report = ExecutionReport(
-                    time.monotonic() - started, ExecutionOutcome.FAILED, error,
-                )
-                await completed.put(_Completed(result=OperationResult(
-                    operation_id, error=error.for_operation(operation_id),
-                )))
-            except Exception as error:
-                wrapped = OperationError(
-                    str(error) or type(error).__name__, cause=error,
-                ).for_operation(operation_id)
-                report = ExecutionReport(
-                    time.monotonic() - started, ExecutionOutcome.FAILED, wrapped,
-                )
-                await completed.put(_Completed(result=OperationResult(
-                    operation_id, error=wrapped,
-                )))
-            except BaseException as error:
-                report = ExecutionReport(
-                    time.monotonic() - started, ExecutionOutcome.FAILED, error,
-                )
-                await completed.put(_Completed(unexpected=error))
+                    completion = _Completed(
+                        result=OperationResult(operation_id, value=value),
+                    )
+                except asyncio.CancelledError as error:
+                    report = ExecutionReport(
+                        time.monotonic() - started, ExecutionOutcome.CANCELLED, error,
+                    )
+                    if not teardown_requested:
+                        completion = (
+                            _Completed(fatal=self._terminal_error)
+                            if self._terminal_error is not None
+                            else _Completed(cancelled=error)
+                        )
+                except NonContinuableError as error:
+                    error.for_operation(operation_id)
+                    report = ExecutionReport(
+                        time.monotonic() - started, ExecutionOutcome.FAILED, error,
+                    )
+                    await self._terminate(error, current=task)
+                    completion = _Completed(fatal=error)
+                except OperationError as error:
+                    report = ExecutionReport(
+                        time.monotonic() - started, ExecutionOutcome.FAILED, error,
+                    )
+                    completion = _Completed(result=OperationResult(
+                        operation_id, error=error.for_operation(operation_id),
+                    ))
+                except Exception as error:
+                    wrapped = OperationError(
+                        str(error) or type(error).__name__, cause=error,
+                    ).for_operation(operation_id)
+                    report = ExecutionReport(
+                        time.monotonic() - started, ExecutionOutcome.FAILED, wrapped,
+                    )
+                    completion = _Completed(result=OperationResult(
+                        operation_id, error=wrapped,
+                    ))
+                except BaseException as error:
+                    report = ExecutionReport(
+                        time.monotonic() - started, ExecutionOutcome.FAILED, error,
+                    )
+                    completion = _Completed(unexpected=error)
+
+                if not teardown_requested and completion is not None:
+                    settlement = asyncio.get_running_loop().create_future()
+                    settlements.append(settlement)
+                    completion = replace(completion, settled=settlement)
+                    try:
+                        await completed.put(completion)
+                        delivery_enqueued = True
+                    except asyncio.CancelledError as error:
+                        delivery_interrupted = error
             finally:
-                if task is not None:
-                    self._active.discard(cast(asyncio.Task[object], task))
-                await lease.release(report)
+                release_error: BaseException | None = None
+                try:
+                    interrupted = await _release_without_abandoning(lease, report)
+                except BaseException as error:
+                    release_failures.append(error)
+                    release_error = error
+                    interrupted = None
+                finally:
+                    if task is not None:
+                        self._active.discard(cast(asyncio.Task[object], task))
+                terminal_interruption = interrupted or delivery_interrupted
+                settlement_error = release_error or (
+                    self._terminal_error
+                    if terminal_interruption is not None
+                    and self._terminal_error is not None
+                    else terminal_interruption
+                )
+                if settlement is not None:
+                    if not delivery_enqueued:
+                        settlement.cancel()
+                    elif settlement_error is not None:
+                        settlement.set_exception(settlement_error)
+                    else:
+                        settlement.set_result(None)
+                if (
+                    not teardown_requested
+                    and not delivery_enqueued
+                    and terminal_interruption is not None
+                ):
+                    await completed.put(
+                        _Completed(fatal=self._terminal_error)
+                        if self._terminal_error is not None
+                        else _Completed(cancelled=terminal_interruption)
+                    )
 
         async def produce() -> None:
             operation_id = 0
@@ -386,15 +475,19 @@ class ConcurrentExecutor:
                     lease = await self._capacity.acquire()
                     try:
                         operation = next(iterator)
-                    except StopIteration:
-                        await lease.release(ExecutionReport(
-                            0, ExecutionOutcome.SUCCESS,
-                        ))
+                    except StopIteration as error:
+                        interrupted = await _release_without_abandoning(
+                            lease, ExecutionReport(0, ExecutionOutcome.SUCCESS),
+                        )
+                        if interrupted is not None:
+                            raise interrupted from error
                         break
-                    except BaseException:
-                        await lease.release(ExecutionReport(
-                            0, ExecutionOutcome.FAILED,
-                        ))
+                    except BaseException as error:
+                        interrupted = await _release_without_abandoning(
+                            lease, ExecutionReport(0, ExecutionOutcome.FAILED),
+                        )
+                        if interrupted is not None:
+                            raise interrupted from error
                         raise
                     task = asyncio.create_task(
                         execute_one(operation_id, operation, lease)
@@ -416,6 +509,8 @@ class ConcurrentExecutor:
                 if producer_done and not running and completed.empty():
                     break
                 item = await completed.get()
+                if item.settled is not None:
+                    await asyncio.shield(item.settled)
                 if item.producer_done:
                     producer_done = True
                     # The queue handoff can wake this consumer before the
@@ -440,13 +535,24 @@ class ConcurrentExecutor:
             for task in tuple(running):
                 task.cancel()
             pending = ([producer] if producer is not None else []) + list(running)
-            if pending:
-                await asyncio.gather(*pending, return_exceptions=True)
+            teardown_interrupted = await _settle_tasks_without_abandoning(
+                cast(list[asyncio.Task[object]], pending),
+            )
             close = getattr(iterator, "close", None)
             if close is not None:
                 result = close()
                 if inspect.isawaitable(result):
                     await result
+            for settlement in settlements:
+                if settlement.done():
+                    try:
+                        settlement.exception()
+                    except asyncio.CancelledError:
+                        pass
+            if release_failures:
+                raise release_failures[0]
+            if teardown_interrupted is not None:
+                raise teardown_interrupted
 
     def map(
         self, operations: Iterable[AsyncOperation[T]],

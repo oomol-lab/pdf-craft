@@ -3,6 +3,7 @@ import unittest
 
 from pdf_craft import (
     ConcurrentExecutor,
+    ExecutionOutcome,
     FixedCapacity,
     NonContinuableError,
     OperationError,
@@ -11,6 +12,110 @@ from pdf_craft import (
 
 
 class AsyncExecutorTests(unittest.IsolatedAsyncioTestCase):
+    async def test_map_propagates_release_failure_after_success(self):
+        class Lease:
+            async def release(self, report):
+                if report.elapsed_seconds > 0:
+                    raise RuntimeError("worker release failed")
+
+        class Provider:
+            async def acquire(self):
+                return Lease()
+
+            async def close(self, error: NonContinuableError):
+                del error
+                return None
+
+        executor = ConcurrentExecutor(Provider())
+
+        async def succeeded(operation_id: int):
+            return operation_id, "ok"
+
+        with self.assertRaisesRegex(RuntimeError, "worker release failed"):
+            async for _ in executor.map([succeeded]):
+                self.fail("success must not be visible before lease release")
+
+    async def test_map_propagates_release_failure_after_operation_error(self):
+        class Lease:
+            async def release(self, report):
+                if report.elapsed_seconds > 0:
+                    raise RuntimeError("failed-operation release failed")
+
+        class Provider:
+            async def acquire(self):
+                return Lease()
+
+            async def close(self, error: NonContinuableError):
+                del error
+                return None
+
+        executor = ConcurrentExecutor(Provider())
+
+        async def failed(_operation_id: int):
+            raise OperationError("recoverable")
+
+        with self.assertRaisesRegex(
+            RuntimeError, "failed-operation release failed",
+        ):
+            async for _ in executor.map([failed]):
+                self.fail("operation error must wait for lease release")
+
+    async def test_map_aclose_waits_for_release_through_repeated_cancellation(self):
+        release_started = asyncio.Event()
+        allow_release = asyncio.Event()
+        release_finished = asyncio.Event()
+        blocked_started = asyncio.Event()
+        blocked_cancelled = asyncio.Event()
+
+        class Lease:
+            async def release(self, report):
+                if report.outcome == ExecutionOutcome.CANCELLED:
+                    release_started.set()
+                    try:
+                        await allow_release.wait()
+                    finally:
+                        release_finished.set()
+
+        class Provider:
+            async def acquire(self):
+                return Lease()
+
+            async def close(self, error: NonContinuableError):
+                del error
+                return None
+
+        executor = ConcurrentExecutor(Provider())
+
+        async def succeeded(operation_id: int):
+            return operation_id, "ok"
+
+        async def blocked(operation_id: int):
+            blocked_started.set()
+            try:
+                await asyncio.Event().wait()
+            except asyncio.CancelledError:
+                blocked_cancelled.set()
+                raise
+            return operation_id, "unreachable"
+
+        stream = executor.map([succeeded, blocked])
+        first = await asyncio.wait_for(anext(stream), timeout=1)
+        self.assertEqual(first.value, "ok")
+        await blocked_started.wait()
+
+        close_task = asyncio.create_task(stream.aclose())
+        await release_started.wait()
+        close_task.cancel("repeated consumer cancellation")
+        await asyncio.sleep(0)
+        self.assertFalse(close_task.done())
+        allow_release.set()
+        with self.assertRaisesRegex(
+            asyncio.CancelledError, "repeated consumer cancellation",
+        ):
+            await close_task
+        self.assertTrue(release_finished.is_set())
+        self.assertTrue(blocked_cancelled.is_set())
+
     async def test_run_and_map_share_capacity_and_map_is_completion_ordered(self):
         executor = ConcurrentExecutor(FixedCapacity(2))
         active = 0
