@@ -247,7 +247,9 @@ poetry run python -m pdf_craft_tool smoke matrix \
 
 该矩阵读取当前工作区 `.env`，会产生真实 OCR 和文本 LLM 请求；执行前应确认
 `PDF_CRAFT_OCR_MODE`、对应 vendor OCR 配置以及 `translation`/`fill` LLM profile
-均已配置。local OCR route 在无 CUDA 环境中会记录为 skipped，不应伪装为 passed。
+均已配置。它覆盖三页 vendor OCR、英文 PDF 的 PCEX 翻译、单文档 EPUB 翻译和
+多章节英文 EPUB 翻译，并统一使用大于 1 的并发容量。local OCR route 在无 CUDA
+环境中会记录为 skipped，不应伪装为 passed。
 
 全部六种 OCR backend 的最小矩阵位于 `tests/smoke/all_ocr_backends.json`：
 

@@ -11,7 +11,7 @@
       "backend": "deepseek-ocr-vendor"
     },
     {
-      "asset": "pdf/citation.pdf",
+      "asset": "pdf/table&formula.pdf",
       "route": "markdown",
       "backend": "deepseek-ocr-vendor",
       "translation": {
@@ -26,6 +26,19 @@
     },
     {
       "asset": "epub/Cambridge.epub",
+      "route": "epub-translate",
+      "translation": {
+        "translation_llm_profile": "translation",
+        "fill_llm_profile": "fill",
+        "target_language": "zh",
+        "submit": "REPLACE",
+        "max_retries": 3,
+        "max_group_tokens": 2600,
+        "concurrency": 3
+      }
+    },
+    {
+      "asset": "epub/The little prince.epub",
       "route": "epub-translate",
       "translation": {
         "translation_llm_profile": "translation",
