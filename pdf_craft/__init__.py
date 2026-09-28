@@ -15,6 +15,7 @@ from .error import (
 from .functions import predownload_models
 from .concurrency import (
     AsyncExecutor,
+    AsyncResultIterator,
     CapacityLease,
     CapacityProvider,
     ConcurrentExecutor,

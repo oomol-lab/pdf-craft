@@ -182,12 +182,22 @@ class OperationResult(Generic[T]):
 AsyncOperation = Callable[[int], Awaitable[tuple[int, T]]]
 
 
+class AsyncResultIterator(Protocol[T]):
+    """A result stream whose pending operations can be settled on early exit."""
+
+    def __aiter__(self) -> "AsyncResultIterator[T]": ...
+
+    async def __anext__(self) -> OperationResult[T]: ...
+
+    async def aclose(self) -> None: ...
+
+
 class AsyncExecutor(Protocol):
     async def run(self, operation: Callable[[], Awaitable[T]]) -> T: ...
 
     def map(
         self, operations: Iterable[AsyncOperation[T]],
-    ) -> AsyncIterator[OperationResult[T]]: ...
+    ) -> AsyncResultIterator[T]: ...
 
 
 @dataclass(frozen=True)
@@ -425,5 +435,5 @@ class ConcurrentExecutor:
 
     def map(
         self, operations: Iterable[AsyncOperation[T]],
-    ) -> AsyncIterator[OperationResult[T]]:
-        return self._map(operations)
+    ) -> AsyncResultIterator[T]:
+        return cast(AsyncResultIterator[T], self._map(operations))

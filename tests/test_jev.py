@@ -1,9 +1,10 @@
+import asyncio
 import unittest
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from pdf_craft import (
-    ConcurrentExecutor, FixedCapacity, JEV, RateLimitedError,
+    ConcurrentExecutor, FixedCapacity, JEV, OperationError, RateLimitedError,
 )
 from pdf_craft.jev import JEVRuntime
 from pdf_craft.extractor.chapter.page_review import JEV_QUESTION_NAME
@@ -78,6 +79,49 @@ class JEVTests(unittest.IsolatedAsyncioTestCase):
                 self.assertEqual(await runtime.evaluate(3, request), 0.81)
 
         self.assertEqual(client.system_one.await_count, 2)
+
+    async def test_terminal_batch_error_cancels_and_settles_sibling_request(self):
+        client = MagicMock()
+        client.__aenter__ = AsyncMock(return_value=client)
+        client.__aexit__ = AsyncMock(return_value=None)
+        both_started = asyncio.Event()
+        sibling_cancelled = asyncio.Event()
+        never = asyncio.Event()
+        started = 0
+
+        async def system_one(*, state, questions):
+            nonlocal started
+            del questions
+            page_index = state["target_page"]["page_index"]
+            started += 1
+            if started == 2:
+                both_started.set()
+            await both_started.wait()
+            if page_index == 1:
+                raise OperationError("invalid request")
+            try:
+                await never.wait()
+            except asyncio.CancelledError:
+                sibling_cancelled.set()
+                raise
+
+        client.system_one = system_one
+        requests = [
+            (page_index, {
+                "state": {"target_page": {"page_index": page_index}},
+                "questions": {JEV_QUESTION_NAME: {"type": "noul"}},
+            })
+            for page_index in (1, 2)
+        ]
+        with patch("pdf_craft.jev.AsyncTypeSafeClient", return_value=client):
+            async with JEVRuntime(
+                JEV("secret"), ConcurrentExecutor(FixedCapacity(2)),
+            ) as runtime:
+                with self.assertRaises(OperationError):
+                    await runtime.evaluate_many(requests)
+                self.assertTrue(sibling_cancelled.is_set())
+
+        client.__aexit__.assert_awaited_once()
 
 
 if __name__ == "__main__":

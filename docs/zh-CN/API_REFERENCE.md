@@ -627,7 +627,9 @@ LLM(
 `ConcurrentExecutor(FixedCapacity(n))` 提供一条绑定到事件循环的远程调用容量通道。LLM、
 JEV 或 vendor OCR 若消耗同一供应商配额，应共享同一个执行器。`run()` 与 `map()` 共享容量；
 `map()` 惰性读取 `Callable[[int], Awaitable[tuple[int, T]]]`，按完成顺序返回
-`OperationResult`，调用方通过 `operation_id` 关联原始输入。
+`OperationResult`，调用方通过 `operation_id` 关联原始输入。自定义执行器的 `map()` 返回
+带 `aclose()` 的 `AsyncResultIterator`，使调用方可在释放网络 client 或临时资源前取消并收敛
+未完成任务。
 
 `CapacityProvider` 与 `CapacityLease` 是自适应策略的公开协议。自定义 provider 可在
 `acquire()` 中异步等待，在 `release()` 收到的 `ExecutionReport` 中观察结果，并在容量恢复时

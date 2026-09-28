@@ -52,12 +52,12 @@ class LLMRuntime:
     def __init__(
         self,
         config: LLM,
-        executor: AsyncExecutor,
         *,
         protocol_version: str = "1",
+        executor: AsyncExecutor | None = None,
     ) -> None:
         self.config = config
-        self.executor = executor
+        self.executor = executor or ConcurrentExecutor(FixedCapacity(1))
         self.protocol_version = protocol_version
         self._top_p, self._temperature = Increasable(config.top_p), Increasable(config.temperature)
         self._logger: logging.Logger | None = None
@@ -304,8 +304,8 @@ def runtime_for(
     # concurrent pipelines inject and share an executor explicitly.
     return LLMRuntime(
         config,
-        executor or ConcurrentExecutor(FixedCapacity(1)),
         protocol_version=protocol_version,
+        executor=executor,
     )
 
 

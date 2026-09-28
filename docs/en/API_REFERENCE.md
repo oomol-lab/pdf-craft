@@ -292,7 +292,9 @@ LLM(
 remote operations. Pass the same executor to components whose LLM, JEV, or vendor OCR requests
 consume the same provider quota. `run()` and `map()` share that capacity. `map()` consumes a cold
 iterable of `Callable[[int], Awaitable[tuple[int, T]]]` lazily and yields `OperationResult` values
-in completion order; callers use `operation_id` to associate results with their inputs.
+in completion order; callers use `operation_id` to associate results with their inputs. A custom
+executor's `map()` returns `AsyncResultIterator`, including `aclose()`, so a caller can cancel and
+settle pending operations before releasing the transport or temporary resources.
 
 `CapacityProvider` and `CapacityLease` are public protocols for adaptive policies. A custom
 provider may wait in `acquire()`, learn from the `ExecutionReport` passed to `release()`, and wake

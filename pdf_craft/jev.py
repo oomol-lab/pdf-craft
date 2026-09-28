@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import AsyncIterator, Awaitable, Callable, Iterable
-from contextlib import asynccontextmanager
+from contextlib import aclosing, asynccontextmanager
 from dataclasses import dataclass, field
 from typing import Any, Self
 
@@ -103,24 +103,25 @@ class JEVRuntime:
                     yield invoke
 
             delays: list[float] = []
-            async for result in self.executor.map(operations()):
-                source_page_index = current[result.operation_id][0]
-                if result.succeeded:
-                    assert result.value is not None
-                    completed.append(result.value)
-                    continue
-                error = result.error
-                assert error is not None
-                attempts[source_page_index] += 1
-                if (
-                    _is_retryable(error)
-                    and attempts[source_page_index] <= self.config.retry_times
-                ):
-                    pending.append(current[result.operation_id])
-                    if isinstance(error, RateLimitedError):
-                        delays.append(error.retry_after or 0)
-                    continue
-                raise error
+            async with aclosing(self.executor.map(operations())) as results:
+                async for result in results:
+                    source_page_index = current[result.operation_id][0]
+                    if result.succeeded:
+                        assert result.value is not None
+                        completed.append(result.value)
+                        continue
+                    error = result.error
+                    assert error is not None
+                    attempts[source_page_index] += 1
+                    if (
+                        _is_retryable(error)
+                        and attempts[source_page_index] <= self.config.retry_times
+                    ):
+                        pending.append(current[result.operation_id])
+                        if isinstance(error, RateLimitedError):
+                            delays.append(error.retry_after or 0)
+                        continue
+                    raise error
             if pending:
                 delay = max(delays, default=0.5)
                 if delay > 0:

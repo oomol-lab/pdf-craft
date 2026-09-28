@@ -7,7 +7,9 @@ from typing import Any, cast
 
 from PIL import Image
 
-from pdf_craft import ConcurrentExecutor, DeepSeekOCRVendorConfig, FixedCapacity
+from pdf_craft import (
+    ConcurrentExecutor, DeepSeekOCRVendorConfig, FixedCapacity, OperationResult,
+)
 from pdf_craft.error import OCRError, PDFError
 from pdf_craft.pdf.ocr import OCR, OCREventKind
 from pdf_craft.pdf.types import Page
@@ -79,7 +81,78 @@ class _Extractor:
                 self.active -= 1
 
 
+class _SequentialResultIterator:
+    def __init__(self, operations) -> None:
+        self._operations = iter(operations)
+        self._operation_id = 0
+        self.closed = False
+
+    def __aiter__(self):
+        return self
+
+    async def __anext__(self):
+        try:
+            operation = next(self._operations)
+        except StopIteration:
+            raise StopAsyncIteration from None
+        operation_id = self._operation_id
+        self._operation_id += 1
+        returned_id, value = await operation(operation_id)
+        return OperationResult(returned_id, value=value)
+
+    async def aclose(self) -> None:
+        self.closed = True
+        close = getattr(self._operations, "close", None)
+        if close is not None:
+            close()
+
+
+class _SequentialExecutor:
+    def __init__(self) -> None:
+        self.results: list[_SequentialResultIterator] = []
+
+    async def run(self, operation):
+        return await operation()
+
+    def map(self, operations):
+        results = _SequentialResultIterator(operations)
+        self.results.append(results)
+        return results
+
+
 class VendorOCRConcurrencyTests(unittest.IsolatedAsyncioTestCase):
+    async def test_vendor_ocr_accepts_custom_closable_executor_iterator(self):
+        rendered: list[int] = []
+        ocr = OCR(
+            DeepSeekOCRVendorConfig(
+                base_url="https://example.invalid/v1",
+                api_key="key",
+                model="model",
+            ),
+            cast(Any, _Handler(rendered)),
+        )
+        ocr.__dict__["_extractor"] = _Extractor(rendered, fail_pages=())
+        executor = _SequentialExecutor()
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            events = [
+                event
+                async for event in ocr.recognize_vendor(
+                    executor,
+                    pdf_path=root / "source.pdf",
+                    asset_path=root / "assets",
+                    ocr_path=root / "ocr",
+                )
+            ]
+
+        self.assertEqual(
+            [event.page_index for event in events if event.kind == OCREventKind.COMPLETE],
+            [1, 2, 3],
+        )
+        self.assertEqual(len(executor.results), 1)
+        self.assertTrue(executor.results[0].closed)
+
     async def test_vendor_io_is_concurrent_after_serial_render_and_fallback_finishes(self):
         rendered: list[int] = []
         ocr = OCR(

@@ -11,7 +11,7 @@ import httpx
 
 from pdf_craft import ConcurrentExecutor, FixedCapacity
 from pdf_craft.llm import LLM, Message, MessageRole, runtime_for
-from pdf_craft.llm.runtime import LLMEmptyResponseError, LLMTransportError
+from pdf_craft.llm.runtime import LLMEmptyResponseError, LLMRuntime, LLMTransportError
 from pdf_craft.pipeline.epub.translation.translator import translate as translate_epub
 from pdf_craft.transformer.xml_translator import (
     SubmitKind, TranslationTask, XMLTranslator,
@@ -25,6 +25,15 @@ def _config(path: Path) -> LLM:
 
 
 class TestLLMRuntime(unittest.IsolatedAsyncioTestCase):
+    async def test_runtime_preserves_legacy_optional_executor_constructor(self):
+        config = LLM("key", "https://example.invalid/v1", "model", "o200k_base")
+        runtime = LLMRuntime(config, protocol_version="legacy")
+        runtime._invoke = lambda *_args: "ok"  # type: ignore[method-assign]
+
+        self.assertIsInstance(runtime.executor, ConcurrentExecutor)
+        self.assertEqual(runtime.protocol_version, "legacy")
+        self.assertEqual(await runtime.request("hello", use_cache=False), "ok")
+
     async def test_xml_translator_preserves_legacy_constructor_and_concurrency(self):
         config = LLM("key", "https://example.invalid/v1", "model", "o200k_base")
         translator = XMLTranslator(
