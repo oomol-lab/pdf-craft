@@ -256,7 +256,7 @@ def _decode_assets_by_slot(
 
 
 def _asset_structure(element: Element) -> tuple[Any, ...]:
-    """Keep asset markup and formula positions while excluding translated text."""
+    """Keep asset markup and mixed-content slots while excluding translated text."""
     return (
         element.tag,
         tuple(sorted(
@@ -264,8 +264,17 @@ def _asset_structure(element: Element) -> tuple[Any, ...]:
             for key, value in element.attrib.items()
             if key != "translation_slot"
         )),
+        # A text/tail slot is part of a formula's position in mixed XML.  Its
+        # wording may change, but moving that wording across a formula must
+        # not make the formula appear before or after a different phrase.
+        bool(element.text),
+        (
+            element.text or ""
+            if element.tag == "inline_expr" and element.get("kind") != "text"
+            else None
+        ),
         tuple(
-            _asset_structure(child)
+            (_asset_structure(child), bool(child.tail))
             for child in element
             if child.tag != "translation-context"
         ),

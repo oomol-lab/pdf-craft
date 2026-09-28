@@ -209,6 +209,37 @@ class _BrokenTableFormulaXMLTaskTranslator(_XMLTaskTranslator):
         return translated, payload
 
 
+class _RepositionedTableFormulaXMLTaskTranslator(_XMLTaskTranslator):
+    """A hostile transport that repositions formulas within one table cell."""
+
+    def __init__(self, action: str) -> None:
+        super().__init__()
+        self.action = action
+
+    def translate_element(self, task, **kwargs):
+        translated, payload = super().translate_element(task, **kwargs)
+        cell = translated.find("flow/standalone-asset/asset/content/table/tr/td")
+        if cell is None:
+            return translated, payload
+        expressions = cell.findall("inline_expr")
+        if self.action == "move_to_start":
+            expression = expressions[0]
+            expression.tail = f"{cell.text or ''}{expression.tail or ''}"
+            cell.text = None
+        elif self.action == "move_to_end":
+            expression = expressions[0]
+            cell.text = f"{cell.text or ''}{expression.tail or ''}"
+            expression.tail = None
+        elif self.action == "swap":
+            first, second = expressions
+            cell.remove(first)
+            cell.remove(second)
+            cell.extend((second, first))
+        else:
+            raise AssertionError(f"unknown action: {self.action}")
+        return translated, payload
+
+
 class _WrongIdentityAssetTransformer:
     def __init__(self) -> None:
         self.calls: list[list[AnchoredContent]] = []
@@ -775,6 +806,64 @@ class AnchoredContentTranslationTests(unittest.TestCase):
 
                 self.assertEqual(result, (None,))
 
+    def test_xml_adapter_preserves_table_when_formula_moves_within_cell(self):
+        table_tag = tag_definition("table")
+        row_tag = tag_definition("tr")
+        cell_tag = tag_definition("td")
+        assert table_tag is not None
+        assert row_tag is not None
+        assert cell_tag is not None
+        cell = HTMLTag[BlockMember](
+            cell_tag,
+            [],
+            ["before ", InlineExpression(ExpressionKind.INLINE_DOLLAR, "x"), " after"],
+        )
+        row = HTMLTag[BlockMember](row_tag, [], [cell])
+        table = SourceAsset(
+            1, "table", (1, 1, 20, 20),
+            content=[HTMLTag[BlockMember](table_tag, [], [row])],
+        )
+        payload = AnchoredContent("head", 0, -1, table, "")
+
+        for action in ("move_to_start", "move_to_end"):
+            with self.subTest(action=action):
+                result = AnchoredContentXMLTransformer(
+                    _RepositionedTableFormulaXMLTaskTranslator(action)
+                )._transform_assets_blocking((payload,))
+
+                self.assertEqual(result, (None,))
+
+    def test_xml_adapter_preserves_table_when_same_shape_formulas_are_swapped(self):
+        table_tag = tag_definition("table")
+        row_tag = tag_definition("tr")
+        cell_tag = tag_definition("td")
+        assert table_tag is not None
+        assert row_tag is not None
+        assert cell_tag is not None
+        cell = HTMLTag[BlockMember](
+            cell_tag,
+            [],
+            [
+                "before ",
+                InlineExpression(ExpressionKind.INLINE_DOLLAR, "x"),
+                " between ",
+                InlineExpression(ExpressionKind.INLINE_DOLLAR, "y"),
+                " after",
+            ],
+        )
+        row = HTMLTag[BlockMember](row_tag, [], [cell])
+        table = SourceAsset(
+            1, "table", (1, 1, 20, 20),
+            content=[HTMLTag[BlockMember](table_tag, [], [row])],
+        )
+        payload = AnchoredContent("head", 0, -1, table, "")
+
+        result = AnchoredContentXMLTransformer(
+            _RepositionedTableFormulaXMLTaskTranslator("swap")
+        )._transform_assets_blocking((payload,))
+
+        self.assertEqual(result, (None,))
+
     def test_xml_adapter_retries_invalid_batch_as_individual_assets(self):
         table_tag = tag_definition("table")
         row_tag = tag_definition("tr")
@@ -797,7 +886,7 @@ class AnchoredContentTranslationTests(unittest.TestCase):
             AnchoredContent("head", 1, -1, image, ""),
         )
         transformer = AnchoredContentXMLTransformer(
-            _BrokenTableFormulaXMLTaskTranslator("copy")
+            _RepositionedTableFormulaXMLTaskTranslator("move_to_end")
         )
 
         result = asyncio.run(_transform_batch_async(payloads, transformer))
