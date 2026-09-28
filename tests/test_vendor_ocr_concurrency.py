@@ -1,4 +1,4 @@
-# pylint: disable=protected-access
+# pylint: disable=cell-var-from-loop,protected-access
 import asyncio
 import tempfile
 import threading
@@ -19,6 +19,7 @@ from pdf_craft import (
 )
 from pdf_craft.error import OCRBillingError, OCRError, PDFError
 from pdf_craft.pdf.ocr import OCR, OCREventKind
+from pdf_craft.pdf import ocr as ocr_module
 from pdf_craft.pdf.vendor_ocr import (
     VendorOCRInput, VendorOCRResponse, VendorOCRRuntime,
 )
@@ -227,6 +228,94 @@ class VendorOCRConcurrencyTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual({result.request.page_index for result in results}, {1, 2})
         self.assertTrue(all(result.succeeded for result in results))
         self.assertEqual(first_calls, 2)
+
+    async def test_deepseek_retry_fatal_precedes_cancelled_sibling(self):
+        config = DeepSeekOCRVendorConfig(
+            base_url="https://example.invalid/v1", api_key="key", model="model",
+            retry_times=1, retry_interval_seconds=0,
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            paths = []
+            for page_index in (1, 2):
+                path = Path(directory) / f"page-{page_index}.png"
+                Image.new("RGB", (4, 4), "white").save(path)
+                paths.append(path)
+
+            for _ in range(25):
+                calls: dict[int, int] = {1: 0, 2: 0}
+                retries_started = asyncio.Event()
+                never = asyncio.Event()
+
+                async def request(_runtime, vendor_request):
+                    page_index = vendor_request.page_index
+                    calls[page_index] += 1
+                    if calls[page_index] == 1:
+                        raise RateLimitedError(retry_after=0)
+                    if sum(count > 1 for count in calls.values()) == 2:
+                        retries_started.set()
+                    await retries_started.wait()
+                    if page_index == 1:
+                        raise NonContinuableError("quota exhausted")
+                    await never.wait()
+                    raise AssertionError("cancelled retry continued")
+
+                with patch.object(
+                    VendorOCRRuntime, "_request_deepseek", new=request,
+                ):
+                    async with VendorOCRRuntime(
+                        config, ConcurrentExecutor(FixedCapacity(2)),
+                    ) as runtime:
+                        with self.assertRaisesRegex(
+                            NonContinuableError, "quota exhausted",
+                        ):
+                            async for _result in runtime.request_many(
+                                VendorOCRInput(index, path, lambda: False)
+                                for index, path in enumerate(paths, start=1)
+                            ):
+                                pass
+
+    async def test_unlimited_fatal_precedes_cancelled_submit_sibling(self):
+        config = UnlimitedOCRVendorConfig(
+            ak="ak", sk="sk", retry_times=0,
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            paths = []
+            for page_index in (1, 2):
+                path = Path(directory) / f"page-{page_index}.png"
+                Image.new("RGB", (4, 4), "white").save(path)
+                paths.append(path)
+
+            for _ in range(25):
+                submits_started = asyncio.Event()
+                started = 0
+                never = asyncio.Event()
+
+                async def post_form(_runtime, _url, data, page_index, action):
+                    nonlocal started
+                    del page_index
+                    self.assertEqual(action, "Unlimited OCR submit")
+                    started += 1
+                    if started == 2:
+                        submits_started.set()
+                    await submits_started.wait()
+                    if data["file_name"] == "page-1.png":
+                        raise OCRBillingError(1)
+                    await never.wait()
+                    raise AssertionError("cancelled submit continued")
+
+                with patch.object(
+                    VendorOCRRuntime, "_post_form", new=post_form,
+                ):
+                    async with VendorOCRRuntime(
+                        config, ConcurrentExecutor(FixedCapacity(2)),
+                    ) as runtime:
+                        runtime._access_token = "token"
+                        with self.assertRaises(OCRBillingError):
+                            async for _result in runtime.request_many(
+                                VendorOCRInput(index, path, lambda: False)
+                                for index, path in enumerate(paths, start=1)
+                            ):
+                                pass
 
     async def test_vendor_payment_error_closes_shared_executor(self):
         def handler(request: httpx.Request) -> httpx.Response:
@@ -686,6 +775,62 @@ class VendorOCRConcurrencyTests(unittest.IsolatedAsyncioTestCase):
             len([event for event in events if event.kind == OCREventKind.FAILED]),
             1,
         )
+
+    async def test_second_stage_prepare_failure_is_stage_two_in_both_paths(self):
+        original_prepare = ocr_module._prepare_second_stage
+
+        for max_tokens in (None, 100):
+            with self.subTest(max_tokens=max_tokens):
+                rendered: list[int] = []
+                ocr = OCR(
+                    DeepSeekOCRVendorConfig(
+                        base_url="https://example.invalid/v1",
+                        api_key="key", model="model", retry_times=0,
+                    ),
+                    cast(Any, _Handler(rendered)),
+                )
+                ignored: list[OCRError] = []
+
+                async def request(_runtime, _vendor_request):
+                    return VendorOCRResponse(
+                        {}, raw_text="", input_tokens=1, output_tokens=1,
+                    )
+
+                def prepare(item, *args, **kwargs):
+                    if item.page_index == 2:
+                        raise RuntimeError("cannot save redacted image")
+                    return original_prepare(item, *args, **kwargs)
+
+                def ignore(error: OCRError) -> bool:
+                    ignored.append(error)
+                    return True
+
+                with tempfile.TemporaryDirectory() as directory, patch.object(
+                    VendorOCRRuntime, "_request_deepseek", new=request,
+                ), patch.object(
+                    ocr_module, "_prepare_second_stage", new=prepare,
+                ):
+                    root = Path(directory)
+                    events = [
+                        event
+                        async for event in ocr.recognize_vendor(
+                            ConcurrentExecutor(FixedCapacity(3)),
+                            pdf_path=root / "source.pdf",
+                            asset_path=root / "assets",
+                            ocr_path=root / "ocr",
+                            includes_footnotes=True,
+                            ignore_ocr_errors=ignore,
+                            max_tokens=max_tokens,
+                        )
+                    ]
+
+                self.assertEqual(len(ignored), 1)
+                self.assertEqual(ignored[0].step_index, 2, max_tokens)
+                self.assertEqual(
+                    [event.page_index for event in events
+                     if event.kind == OCREventKind.FAILED],
+                    [2],
+                )
 
     async def test_total_token_budget_is_cumulative_across_vendor_pages(self):
         rendered: list[int] = []

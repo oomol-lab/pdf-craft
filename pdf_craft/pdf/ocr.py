@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from enum import Enum, auto
 from pathlib import Path
 from threading import Lock
-from typing import Any, Callable, Container, Generator, TypeVar, cast
+from typing import Any, Callable, Container, Generator, Never, TypeVar, cast
 
 from PIL.Image import Image
 
@@ -384,7 +384,7 @@ class OCR:
             except NonContinuableError:
                 raise
             except Exception as error:
-                raise _vendor_page_error(item.page_index, 1, error) from error
+                _raise_vendor_page_error(item.page_index, 1, error)
             first_result = await OCR_DOMAIN.run(
                 _parse_vendor_response, self._config, item, first_response,
             )
@@ -392,14 +392,14 @@ class OCR:
             input_tokens = first_response.input_tokens
             output_tokens = first_response.output_tokens
             if includes_footnotes and _supports_vendor_stages(self._config):
-                second_path = await OCR_DOMAIN.run(
-                    _prepare_second_stage,
-                    item,
-                    first_result,
-                    Path(item.image_path.parent),
-                    aborted,
-                )
                 try:
+                    second_path = await OCR_DOMAIN.run(
+                        _prepare_second_stage,
+                        item,
+                        first_result,
+                        Path(item.image_path.parent),
+                        aborted,
+                    )
                     second_response = await runtime.request(VendorOCRInput(
                         item.page_index, second_path, aborted, 2,
                     ))
@@ -418,7 +418,7 @@ class OCR:
                 except NonContinuableError:
                     raise
                 except Exception as error:
-                    raise _vendor_page_error(item.page_index, 2, error) from error
+                    _raise_vendor_page_error(item.page_index, 2, error)
                 results.append((second_path, second_result))
                 input_tokens += second_response.input_tokens
                 output_tokens += second_response.output_tokens
@@ -436,7 +436,7 @@ class OCR:
         except OperationError:
             raise
         except Exception as error:
-            raise _vendor_page_error(item.page_index, 1, error) from error
+            _raise_vendor_page_error(item.page_index, 1, error)
 
     async def _recognize_vendor_pages(
         self,
@@ -469,7 +469,11 @@ class OCR:
                 first_result = await OCR_DOMAIN.run(
                     _parse_vendor_response, self._config, item, result.response,
                 )
-                if includes_footnotes and _supports_vendor_stages(self._config):
+            except Exception as error:
+                yield item, None, _vendor_page_error(item.page_index, 1, error)
+                continue
+            if includes_footnotes and _supports_vendor_stages(self._config):
+                try:
                     second_path = await OCR_DOMAIN.run(
                         _prepare_second_stage,
                         item,
@@ -480,7 +484,12 @@ class OCR:
                     second_stage[item.page_index] = (
                         item, first_result, result.response, second_path,
                     )
-                    continue
+                except Exception as error:
+                    yield item, None, _vendor_page_error(
+                        item.page_index, 2, error,
+                    )
+                continue
+            try:
                 page = await OCR_DOMAIN.run(
                     self._finish_vendor_results,
                     item,
@@ -974,6 +983,15 @@ def _vendor_page_error(
     )
     ocr_error.__cause__ = error
     return OperationError(str(ocr_error), cause=ocr_error)
+
+
+def _raise_vendor_page_error(
+    page_index: int,
+    step_index: int,
+    error: Exception,
+) -> Never:
+    operation_error = _vendor_page_error(page_index, step_index, error)
+    raise operation_error from operation_error.__cause__
 
 
 def _find_cause(

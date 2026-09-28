@@ -1,3 +1,4 @@
+# pylint: disable=cell-var-from-loop
 import asyncio
 import inspect
 import unittest
@@ -5,7 +6,8 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from pdf_craft import (
-    ConcurrentExecutor, FixedCapacity, JEV, OperationError, RateLimitedError,
+    ConcurrentExecutor, FixedCapacity, JEV, NonContinuableError,
+    OperationError, RateLimitedError,
 )
 from pdf_craft.jev import JEVRuntime
 from pdf_craft.extractor.chapter.page_review import JEV_QUESTION_NAME
@@ -145,6 +147,47 @@ class JEVTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(results, [(1, 0.1), (2, 0.2)])
         self.assertEqual(page_one_calls, 2)
+
+    async def test_retry_fatal_precedes_cancelled_sibling(self):
+        requests = [
+            (page_index, {
+                "state": {"target_page": {"page_index": page_index}},
+                "questions": {JEV_QUESTION_NAME: {"type": "noul"}},
+            })
+            for page_index in (1, 2)
+        ]
+        for _ in range(25):
+            client = MagicMock()
+            client.__aenter__ = AsyncMock(return_value=client)
+            client.__aexit__ = AsyncMock(return_value=None)
+            calls = {1: 0, 2: 0}
+            retries_started = asyncio.Event()
+            never = asyncio.Event()
+
+            async def system_one(*, state, questions):
+                del questions
+                page_index = state["target_page"]["page_index"]
+                calls[page_index] += 1
+                if calls[page_index] == 1:
+                    raise RateLimitedError(retry_after=0)
+                if sum(count > 1 for count in calls.values()) == 2:
+                    retries_started.set()
+                await retries_started.wait()
+                if page_index == 1:
+                    raise NonContinuableError("quota exhausted")
+                await never.wait()
+                raise AssertionError("cancelled retry continued")
+
+            client.system_one = system_one
+            with patch("pdf_craft.jev.AsyncTypeSafeClient", return_value=client):
+                async with JEVRuntime(
+                    JEV("secret", retry_times=1),
+                    ConcurrentExecutor(FixedCapacity(2)),
+                ) as runtime:
+                    with self.assertRaisesRegex(
+                        NonContinuableError, "quota exhausted",
+                    ):
+                        await runtime.evaluate_many(requests)
 
     async def test_terminal_batch_error_cancels_and_settles_sibling_request(self):
         client = MagicMock()

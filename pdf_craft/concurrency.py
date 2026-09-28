@@ -9,7 +9,7 @@ from collections import deque
 from collections.abc import AsyncIterator, Awaitable, Callable, Iterable
 from dataclasses import dataclass, replace
 from enum import Enum
-from typing import Generic, Protocol, TypeVar, cast
+from typing import Any, Generic, Protocol, TypeVar, cast
 
 
 T = TypeVar("T")
@@ -339,7 +339,10 @@ class ConcurrentExecutor:
             await self._capacity.close(error)
         for task in tuple(self._active):
             if task is not current:
-                task.cancel()
+                # Preserve the terminal cause on sibling cancellation.  A
+                # caller collecting several tasks may observe the cancelled
+                # sibling before the task that raised the fatal error itself.
+                task.cancel(error)
 
     async def _map(
         self, operations: Iterable[AsyncOperation[T]],
@@ -563,3 +566,25 @@ class ConcurrentExecutor:
         self, operations: Iterable[AsyncOperation[T]],
     ) -> AsyncResultIterator[T]:
         return cast(AsyncResultIterator[T], self._map(operations))
+
+
+def task_group_fatal_error(
+    tasks: Iterable[asyncio.Task[Any]],
+) -> NonContinuableError | None:
+    """Find a fatal error, including one attached to sibling cancellation."""
+    for task in tasks:
+        if not task.done():
+            continue
+        try:
+            error = task.exception()
+        except asyncio.CancelledError as cancelled:
+            error = next(
+                (
+                    argument for argument in cancelled.args
+                    if isinstance(argument, NonContinuableError)
+                ),
+                None,
+            )
+        if isinstance(error, NonContinuableError):
+            return error
+    return None

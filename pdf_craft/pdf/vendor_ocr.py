@@ -20,6 +20,7 @@ from ..concurrency import (
     NonContinuableError,
     OperationError,
     RateLimitedError,
+    task_group_fatal_error,
 )
 from ..error import OCRBillingError, OCRFatalError
 from ..metering import AbortedCheck, check_aborted
@@ -135,6 +136,9 @@ class VendorOCRRuntime:
                 done, _ = await asyncio.wait(
                     retries, return_when=asyncio.FIRST_COMPLETED,
                 )
+                fatal = task_group_fatal_error(done)
+                if fatal is not None:
+                    raise fatal
                 for task in done:
                     request = retries.pop(task)
                     try:
@@ -197,6 +201,9 @@ class VendorOCRRuntime:
                 done, _ = await asyncio.wait(
                     tasks, return_when=asyncio.FIRST_COMPLETED,
                 )
+                fatal = task_group_fatal_error(done)
+                if fatal is not None:
+                    raise fatal
                 for task in done:
                     request = tasks.pop(task)
                     try:

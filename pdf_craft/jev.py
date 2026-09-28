@@ -17,6 +17,7 @@ from typesafe_sdk import (
 
 from .concurrency import (
     AsyncExecutor, NonContinuableError, OperationError, RateLimitedError,
+    task_group_fatal_error,
 )
 
 
@@ -115,6 +116,9 @@ class JEVRuntime:
                 done, _ = await asyncio.wait(
                     retries, return_when=asyncio.FIRST_COMPLETED,
                 )
+                fatal = task_group_fatal_error(done)
+                if fatal is not None:
+                    raise fatal
                 for task in done:
                     order, page_index = retries.pop(task)
                     completed.append((order, page_index, task.result()))
