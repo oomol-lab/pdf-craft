@@ -9,6 +9,7 @@ from json_repair import repair_json
 from pydantic import BaseModel, StrictInt, ValidationError, field_validator, model_validator
 
 from ...common import XMLReader, split_by_cv
+from ...concurrency import ConcurrentExecutor, FixedCapacity
 from .config import MAX_LEVELS, MAX_TITLE_CV
 from ...llm import LLM, Message, MessageRole, runtime_for
 from ...llm.guaranteed import GuaranteedOptions, request_guaranteed_json_blocking
@@ -567,7 +568,11 @@ class _LLMAnalyser(Generic[_P, _R]):
     ) -> None:
         self._llm = llm
         self._validate: Callable[[str, _P], tuple[_R | None, str | None]] = validate
-        self._runtime = runtime_for(llm, protocol_version="toc-json-v1") if isinstance(llm, LLM) else None
+        self._runtime = runtime_for(
+            llm,
+            ConcurrentExecutor(FixedCapacity(1)),
+            protocol_version="toc-json-v1",
+        ) if isinstance(llm, LLM) else None
 
     def request(self, payload: _P, messages: Iterable[Message]) -> _R:
         class _ResponseSchema(BaseModel):

@@ -33,7 +33,6 @@ from pdf_craft.runtime import QT_DOMAIN, invoke_callback, run_subprocess
 from pdf_craft.pipeline.pdf.text_layout import (
     _ensure_qt_application, _qt_lifecycle_probe, _qt_modules,
 )
-from pdf_craft.pipeline.epub.translation.translator import _resolve_window
 from pdf_craft.transformer import ChapterXMLTransformer
 import pdf_craft.transformer.package as transformer_package
 from pdf_craft.transformer.xml_translator.xml_translator.concurrency import (
@@ -631,7 +630,7 @@ class TestAsyncAPI(unittest.IsolatedAsyncioTestCase):
             "key", "https://example.invalid/v1", "model", "o200k_base",
             retry_times=0,
         )
-        runtime = runtime_for(config)
+        runtime = runtime_for(config, ConcurrentExecutor(FixedCapacity(1)))
 
         async def invoke(*_args):
             await asyncio.sleep(0)
@@ -671,13 +670,6 @@ class TestAsyncAPI(unittest.IsolatedAsyncioTestCase):
                 submit=SubmitKind.REPLACE,
             )
         translate.assert_awaited_once()
-
-    def test_epub_concurrency_remains_a_window_compatibility_alias(self):
-        self.assertEqual(_resolve_window(None, 4), 4)
-        self.assertEqual(_resolve_window(4, None), 4)
-        self.assertEqual(_resolve_window(4, 4), 4)
-        with self.assertRaises(ValueError):
-            _resolve_window(3, 4)
 
     async def test_public_sync_epub_entry_rejects_active_loop_before_io(self):
         with patch(

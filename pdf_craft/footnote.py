@@ -4,7 +4,7 @@ from dataclasses import dataclass
 
 from .jev import JEV
 from .llm import LLM
-from .concurrency import AsyncExecutor, ConcurrentExecutor, FixedCapacity
+from .concurrency import AsyncExecutor
 
 
 @dataclass(frozen=True)
@@ -27,14 +27,20 @@ class FootnoteRefinement:
             raise ValueError("footnote refinement max_retries cannot be negative")
         if self.max_output_tokens < 1:
             raise ValueError("footnote refinement max_output_tokens must be at least 1")
+        if self.jev_executor is None and self.executor is None:
+            raise ValueError("Footnote refinement requires a JEV executor")
+        if self.llm_executor is None and self.executor is None:
+            raise ValueError("Footnote refinement requires an LLM executor")
 
     def resolved_jev_executor(self) -> AsyncExecutor:
         executor = self.jev_executor or self.executor
-        return executor or ConcurrentExecutor(FixedCapacity(self.jev.concurrency))
+        assert executor is not None
+        return executor
 
     def resolved_llm_executor(self) -> AsyncExecutor:
         executor = self.llm_executor or self.executor
-        return executor or ConcurrentExecutor(FixedCapacity(1))
+        assert executor is not None
+        return executor
 
 
 @dataclass(frozen=True)

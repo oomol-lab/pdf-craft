@@ -155,7 +155,7 @@ def build_jev_review_requests(
     source_pages: Iterable[Page],
     analyses: Iterable[PageAnalysis],
     page_pixel_sizes: Mapping[int, tuple[int, int]],
-) -> list[tuple[int, dict[str, Any]]]:
+) -> Iterable[tuple[int, dict[str, Any]]]:
     """Build the selected PageReviewPacket v2 prompt for every page."""
 
     page_by_index = {page.index: page for page in source_pages}
@@ -171,25 +171,25 @@ def build_jev_review_requests(
             )
         packets[analysis.page_index] = _page_packet(analysis, page, size)
 
-    requests: list[tuple[int, dict[str, Any]]] = []
-    for page_index, target in packets.items():
-        requests.append((page_index, {
-            "state": {
-                "format": "pdf-craft PageReviewPacket v2",
-                "coordinate_note": (
-                    "bbox_normalized is [left, top, right, bottom] in page fractions."
-                ),
-                "target_page": target,
-                "previous_page": _boundary_context(
-                    packets.get(page_index - 1), "previous"
-                ),
-                "next_page": _boundary_context(
-                    packets.get(page_index + 1), "next"
-                ),
-            },
-            "questions": JEV_QUESTION,
-        }))
-    return requests
+    def generate():
+        for page_index, target in packets.items():
+            yield page_index, {
+                "state": {
+                    "format": "pdf-craft PageReviewPacket v2",
+                    "coordinate_note": (
+                        "bbox_normalized is [left, top, right, bottom] in page fractions."
+                    ),
+                    "target_page": target,
+                    "previous_page": _boundary_context(
+                        packets.get(page_index - 1), "previous"
+                    ),
+                    "next_page": _boundary_context(
+                        packets.get(page_index + 1), "next"
+                    ),
+                },
+                "questions": JEV_QUESTION,
+            }
+    return generate()
 
 
 def load_page_pixel_sizes(path: Path) -> dict[int, tuple[int, int]]:

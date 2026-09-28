@@ -884,7 +884,9 @@ def _xml_transformer(args: argparse.Namespace, work_dir: Path) -> ChapterXMLTran
         executor=ConcurrentExecutor(FixedCapacity(args.concurrency)),
         cache_seed_content=f"pdf-craft-tool:{args.target_language}",
     )
-    return ChapterXMLTransformer(cast(Any, translator))
+    return ChapterXMLTransformer(
+        cast(Any, translator), window=args.concurrency,
+    )
 
 
 def _render(craft: PDFCraft, extraction: PDFCraftExtraction,

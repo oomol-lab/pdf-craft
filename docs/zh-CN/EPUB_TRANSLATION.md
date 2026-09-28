@@ -57,12 +57,14 @@ PDFCraft().translate_epub(
 PDFCraft().translate_epub(
     "source.epub", "translated.zh.epub",
     target_language="zh", submit=SubmitKind.REPLACE, llm=llm,
+    executor=executor,
 )
 
 # 双语：原文保留，译文按独立文本块追加
 PDFCraft().translate_epub(
     "source.epub", "bilingual.zh.epub",
     target_language="zh", submit=SubmitKind.APPEND_BLOCK, llm=llm,
+    executor=executor,
 )
 ~~~
 
@@ -123,6 +125,7 @@ PDFCraft().translate_epub(
     submit=SubmitKind.APPEND_BLOCK,
     translation_llm=translation_llm,
     fill_llm=fill_llm,
+    executor=executor,
 )
 ~~~
 
@@ -139,6 +142,7 @@ PDFCraft().translate_epub(
     target_language="zh",
     submit=SubmitKind.APPEND_BLOCK,
     llm=llm,
+    executor=executor,
     user_prompt="使用正式书面语，保留人名、专业术语和脚注编号。",
 )
 ~~~
@@ -157,7 +161,7 @@ PDFCraft().translate_epub(
 `executor` 控制真实 LLM 请求共享的供应商容量。翻译和 XML 修复若使用同一供应商配额，
 应复用同一个执行器。`window` 默认值为 1；队首 group 尚未完成时，最多允许后续 `window` 个
 group 提前执行，真实并发仍由
-执行器控制。旧参数 `concurrency` 仍可作为 `window` 的兼容别名，新代码建议使用 `window`。
+执行器控制。XML 预取只使用 `window`，供应商容量必须通过执行器显式提供。
 两个模型使用不同配额时，可分别传 `translation_executor` 与 `fill_executor`：
 
 ~~~python

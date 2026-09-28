@@ -1,4 +1,5 @@
 import asyncio
+import inspect
 import unittest
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -14,12 +15,9 @@ class JEVTests(unittest.IsolatedAsyncioTestCase):
     def test_configuration_rejects_invalid_limits(self):
         with self.assertRaisesRegex(ValueError, "retry_times"):
             JEV("key", retry_times=-1)
-        with self.assertRaisesRegex(ValueError, "concurrency"):
-            JEV("key", concurrency=0)
 
-    def test_configuration_keeps_concurrency_compatibility_field(self):
-        self.assertEqual(JEV("key").concurrency, 4)
-        self.assertEqual(JEV("key", concurrency=7).concurrency, 7)
+    def test_configuration_has_no_independent_concurrency_channel(self):
+        self.assertNotIn("concurrency", inspect.signature(JEV).parameters)
 
     def test_configuration_repr_hides_api_key(self):
         representation = repr(JEV("private-jev-key"))
@@ -80,6 +78,30 @@ class JEVTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(client.system_one.await_count, 2)
 
+    async def test_rate_limit_without_retry_after_uses_default_delay(self):
+        client = MagicMock()
+        client.__aenter__ = AsyncMock(return_value=client)
+        client.__aexit__ = AsyncMock(return_value=None)
+        client.system_one = AsyncMock(side_effect=[
+            RateLimitedError(),
+            SimpleNamespace(nouls={
+                JEV_QUESTION_NAME: SimpleNamespace(noul=0.72),
+            }),
+        ])
+        request = {
+            "state": {"target_page": {"page_index": 4}},
+            "questions": {JEV_QUESTION_NAME: {"type": "noul"}},
+        }
+        with patch("pdf_craft.jev.AsyncTypeSafeClient", return_value=client), patch(
+            "pdf_craft.jev.asyncio.sleep", new_callable=AsyncMock,
+        ) as sleep:
+            async with JEVRuntime(
+                JEV("secret", retry_times=1),
+                ConcurrentExecutor(FixedCapacity(1)),
+            ) as runtime:
+                self.assertEqual(await runtime.evaluate(4, request), 0.72)
+        sleep.assert_awaited_once_with(0.5)
+
     async def test_terminal_batch_error_cancels_and_settles_sibling_request(self):
         client = MagicMock()
         client.__aenter__ = AsyncMock(return_value=client)
@@ -122,6 +144,50 @@ class JEVTests(unittest.IsolatedAsyncioTestCase):
                 self.assertTrue(sibling_cancelled.is_set())
 
         client.__aexit__.assert_awaited_once()
+
+    async def test_batch_consumes_request_generator_only_when_capacity_opens(self):
+        client = MagicMock()
+        client.__aenter__ = AsyncMock(return_value=client)
+        client.__aexit__ = AsyncMock(return_value=None)
+        two_started = asyncio.Event()
+        release = asyncio.Event()
+        started = 0
+        consumed = 0
+
+        async def system_one(*, state, questions):
+            nonlocal started
+            del questions
+            started += 1
+            if started == 2:
+                two_started.set()
+            await release.wait()
+            return SimpleNamespace(nouls={
+                JEV_QUESTION_NAME: SimpleNamespace(
+                    noul=state["target_page"]["page_index"] / 10,
+                ),
+            })
+
+        def requests():
+            nonlocal consumed
+            for page_index in range(1, 5):
+                consumed += 1
+                yield page_index, {
+                    "state": {"target_page": {"page_index": page_index}},
+                    "questions": {JEV_QUESTION_NAME: {"type": "noul"}},
+                }
+
+        client.system_one = system_one
+        with patch("pdf_craft.jev.AsyncTypeSafeClient", return_value=client):
+            async with JEVRuntime(
+                JEV("secret"), ConcurrentExecutor(FixedCapacity(2)),
+            ) as runtime:
+                pending = asyncio.create_task(runtime.evaluate_many(requests()))
+                await asyncio.wait_for(two_started.wait(), 1)
+                self.assertEqual(consumed, 2)
+                release.set()
+                self.assertEqual(
+                    [page for page, _ in await pending], [1, 2, 3, 4],
+                )
 
     async def test_batch_self_cancellation_cannot_return_missing_pages(self):
         client = MagicMock()

@@ -482,7 +482,11 @@ def _xml_translation_transformer(run: SmokeRun, run_path: Path) -> ChapterXMLTra
         executor=ConcurrentExecutor(FixedCapacity(int(translation.get("concurrency", 1)))),
         cache_seed_content=f"pdf-craft-smoke:{run.asset}:{run.route}:{run.backend}:{run_path.name}",
     )
-    return ChapterXMLTransformer(cast(Any, translator), SubmitKind[translation.get("submit", "REPLACE").upper()])
+    return ChapterXMLTransformer(
+        cast(Any, translator),
+        SubmitKind[translation.get("submit", "REPLACE").upper()],
+        window=int(translation.get("concurrency", 1)),
+    )
 
 
 def _result_from_errors(errors: list[str]) -> tuple[str, list[str]]:

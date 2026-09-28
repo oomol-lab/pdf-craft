@@ -50,18 +50,24 @@ class PublicConfigurationCompatibilityTests(unittest.TestCase):
         self.assertTrue(options.local_only)
         self.assertIsNone(options.ocr_executor)
 
-    def test_footnote_refinement_preserves_old_positional_defaults(self):
-        jev = JEV("jev-key", concurrency=3)
+    def test_footnote_refinement_requires_explicit_executors(self):
+        jev = JEV("jev-key")
         llm = LLM(
             "llm-key", "https://example.invalid/v1", "model", "o200k_base",
         )
-        refinement = FootnoteRefinement(jev, llm, 0.4, 2, 1234)
+        executor = ConcurrentExecutor(FixedCapacity(3))
+        refinement = FootnoteRefinement(
+            jev, llm, 0.4, 2, 1234, executor=executor,
+        )
 
         self.assertEqual(refinement.risk_threshold, 0.4)
         self.assertEqual(refinement.max_retries, 2)
         self.assertEqual(refinement.max_output_tokens, 1234)
-        self.assertIsInstance(refinement.resolved_jev_executor(), ConcurrentExecutor)
-        self.assertIsInstance(refinement.resolved_llm_executor(), ConcurrentExecutor)
+        self.assertIs(refinement.resolved_jev_executor(), executor)
+        self.assertIs(refinement.resolved_llm_executor(), executor)
+
+        with self.assertRaisesRegex(ValueError, "JEV executor"):
+            FootnoteRefinement(jev, llm)
 
 
 def _source_extraction(root: Path, *, with_toc: bool = False) -> PDFCraftExtraction:

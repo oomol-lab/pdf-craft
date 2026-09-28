@@ -210,65 +210,16 @@ class ChapterExtractionTransformer:
                         item_total_characters=character_count,
                     ))
 
-            async def translate_chapter(task):
-                _, chapter, item_id, _ = task
-                return await cast(
-                    ChapterXMLTransformer, self.chapter_transformer,
-                ).transform(
-                    chapter,
-                    on_translation_event=None,
-                    item_id=item_id,
-                    total_characters=total_characters,
-                    emit_scope_events=False,
-                    emit_item_events=False,
+            transformed_chapters = await cast(
+                ChapterXMLTransformer, self.chapter_transformer,
+            ).transform_many(
+                (chapter, item_id)
+                for _, chapter, item_id, _ in chapter_tasks
+            )
+            for task_index, transformed in enumerate(transformed_chapters):
+                narrative_coverage.extend(
+                    await commit_chapter(task_index, transformed)
                 )
-
-            pending_chapters = {
-                asyncio.create_task(translate_chapter(task)): task_index
-                for task_index, task in enumerate(chapter_tasks)
-            }
-            coverage_by_index = {}
-            try:
-                while pending_chapters:
-                    done, _ = await asyncio.wait(
-                        pending_chapters,
-                        return_when=asyncio.FIRST_COMPLETED,
-                    )
-                    failures = []
-                    cancellations = []
-                    successes = []
-                    for pending in sorted(done, key=pending_chapters.__getitem__):
-                        task_index = pending_chapters.pop(pending)
-                        if pending.cancelled():
-                            try:
-                                pending.result()
-                            except asyncio.CancelledError as error:
-                                cancellations.append((task_index, error))
-                            continue
-                        error = pending.exception()
-                        if error is not None:
-                            failures.append((task_index, error))
-                        else:
-                            successes.append((task_index, pending.result()))
-                    for task_index, transformed in successes:
-                        coverage_by_index[task_index] = await commit_chapter(
-                            task_index, transformed,
-                        )
-                    if failures:
-                        raise failures[0][1]
-                    if cancellations:
-                        raise cancellations[0][1]
-            except BaseException:
-                for pending in pending_chapters:
-                    pending.cancel()
-                if pending_chapters:
-                    await asyncio.gather(
-                        *pending_chapters,
-                        return_exceptions=True,
-                    )
-                raise
-            for task_index in range(len(chapter_tasks)):
-                narrative_coverage.extend(coverage_by_index[task_index])
         else:
             for task_index, (_, chapter, item_id, character_count) in enumerate(chapter_tasks):
                 if emit_translation_events and on_translation_event is not None:

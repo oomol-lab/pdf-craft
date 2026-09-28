@@ -21,8 +21,7 @@ from openai.types.chat import ChatCompletionMessageParam
 
 from ..runtime import IO_DOMAIN, run_sync
 from ..concurrency import (
-    AsyncExecutor, ConcurrentExecutor, FixedCapacity, NonContinuableError,
-    OperationError, RateLimitedError,
+    AsyncExecutor, NonContinuableError, OperationError, RateLimitedError,
 )
 from .core import LLM
 from .error import is_retry_error
@@ -53,11 +52,11 @@ class LLMRuntime:
         self,
         config: LLM,
         *,
+        executor: AsyncExecutor,
         protocol_version: str = "1",
-        executor: AsyncExecutor | None = None,
     ) -> None:
         self.config = config
-        self.executor = executor or ConcurrentExecutor(FixedCapacity(1))
+        self.executor = executor
         self.protocol_version = protocol_version
         self._top_p, self._temperature = Increasable(config.top_p), Increasable(config.temperature)
         self._logger: logging.Logger | None = None
@@ -296,12 +295,10 @@ class LLMContext(AbstractAsyncContextManager["LLMContext"]):
 
 def runtime_for(
     config: LLM,
-    executor: AsyncExecutor | None = None,
+    executor: AsyncExecutor,
     *,
     protocol_version: str = "1",
 ) -> LLMRuntime:
-    # The fallback preserves compatibility for low-volume helpers. Public
-    # concurrent pipelines inject and share an executor explicitly.
     return LLMRuntime(
         config,
         protocol_version=protocol_version,

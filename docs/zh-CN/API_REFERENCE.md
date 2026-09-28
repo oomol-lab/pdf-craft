@@ -118,7 +118,7 @@ PDFOptions(
     pdf_handler=None,           # PDFHandler；省略时使用默认处理器
     models_cache_path=None,     # local OCR 模型缓存目录
     local_only=False,           # 禁止 local OCR 下载缺失模型
-    ocr_executor=None,          # vendor OCR 请求共享的 AsyncExecutor
+    ocr_executor=None,          # vendor OCR 必须显式提供的共享 AsyncExecutor
 )
 ```
 
@@ -214,8 +214,7 @@ options = ExtractionOptions(
 传统算法仍先完整生成可逆的 PageAnalysis；JEV 只负责筛选低置信页，LLM 返回的完整目标页必须通过
 schema、layout 不可变性、citation/ref 一一对应和 gap 等确定性约束，之后才继续组装 FlowItem。
 JEV 与 LLM 使用不同供应商配额时，可分别传 `jev_executor` 与 `llm_executor`；传共同的
-`executor` 表示两者共享容量。不传执行器时保留旧调用的兼容默认值：JEV 使用
-`JEV.concurrency`（默认 4），LLM 修复使用容量 1。
+`executor` 表示两者共享容量。AI 矫正必须显式传入执行器，不再提供各服务独立的数字并发默认值。
 
 `extract_book_metadata` 默认关闭。开启后必须通过独立的 `metadata_llm` 参数显式提供 LLM，
 不会隐式复用 `toc_llm`。它会先向 LLM 提供前三个原始 OCR 页；模型可继续请求前部页面，但总数最多为
@@ -462,7 +461,7 @@ craft.convert_pdf_to_markdown(
 
 `translation_llm` 负责生成译文，`fill_llm` 负责在必要时修复 XML 结构。两个 LLM 可以使用
 不同的模型、提示参数、缓存或重试策略。省略执行器时保留容量 1 的兼容默认行为；
-`translate_element(s)` 的旧参数 `concurrency` 继续作为业务 `window` 的别名。若目标是双语 Markdown 或 EPUB，可把提交模式设为
+`translate_element(s)` 使用 `window` 控制 XML 业务预取，不再接受 `concurrency` 别名。若目标是双语 Markdown 或 EPUB，可把提交模式设为
 `APPEND_TEXT` 或 `APPEND_BLOCK`；PDF 不支持 `APPEND_BLOCK`，而 `APPEND_TEXT` 虽可使用，
 但需要为双语文本的版面溢出承担处理成本，因此通常推荐 `REPLACE`。
 

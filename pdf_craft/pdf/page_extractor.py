@@ -180,11 +180,8 @@ class PageExtractorNode:
     ) -> Page:
         self._validate_ocr_size(ocr_size)
         from doc_page_extractor.extraction_context import AbortError, TokenLimitError
-        from doc_page_extractor.plot import plot
         from doc_page_extractor.types import ExtractionContext
 
-        body_layouts: list[PageLayout] = []
-        footnotes_layouts: list[PageLayout] = []
         raw_image: Image | None = None
 
         if includes_raw_image:
@@ -199,6 +196,7 @@ class PageExtractorNode:
                 output_dir_path=temp_dir_path,
             )
             step_index: int = 1
+            results = []
             generator = self._get_page_extractor().extract_page_results(
                 image=image,
                 size=ocr_size,
@@ -224,42 +222,75 @@ class PageExtractorNode:
                         step_index=step_index,
                     ) from error
 
-                for page_layout, is_footnote in self._iter_page_layouts(
-                    image=image,
-                    structured=page_result.structured,
-                    asset_hub=asset_hub,
-                    stage_index=step_index,
-                    includes_footnotes=includes_footnotes,
-                ):
-                    if is_footnote:
-                        page_layout.order = len(footnotes_layouts)
-                        footnotes_layouts.append(page_layout)
-                    elif step_index == 1:
-                        page_layout.order = len(body_layouts)
-                        body_layouts.append(page_layout)
-                    elif page_layout.ref not in ASSET_TAGS:
-                        page_layout.order = len(footnotes_layouts)
-                        footnotes_layouts.append(page_layout)
-
-                check_aborted(aborted)
-                if plot_path is not None:
-                    plot_file_path = (
-                        plot_path / f"page_{page_index}_stage_{step_index}.png"
-                    )
-                    image = plot(image.copy(), page_result.layouts)
-                    image.save(plot_file_path, format="PNG")
-                    check_aborted(aborted)
-
+                results.append((image, page_result))
                 step_index += 1
 
-            return Page(
-                index=page_index,
-                image=raw_image,
-                body_layouts=body_layouts,
-                footnotes_layouts=footnotes_layouts,
+            return self.results2page(
+                results=results,
+                page_index=page_index,
+                asset_hub=asset_hub,
+                includes_footnotes=includes_footnotes,
+                raw_image=raw_image,
+                plot_path=plot_path,
                 input_tokens=context.input_tokens,
                 output_tokens=context.output_tokens,
+                aborted=aborted,
             )
+
+    def results2page(
+        self,
+        *,
+        results,
+        page_index: int,
+        asset_hub: AssetHub,
+        includes_footnotes: bool,
+        raw_image: Image | None,
+        plot_path: Path | None,
+        input_tokens: int,
+        output_tokens: int,
+        aborted: AbortedCheck,
+    ) -> Page:
+        """Convert already fetched OCR results without re-entering the vendor."""
+        from doc_page_extractor.plot import plot
+
+        body_layouts: list[PageLayout] = []
+        footnotes_layouts: list[PageLayout] = []
+        for step_index, (image, page_result) in enumerate(results, start=1):
+            for page_layout, is_footnote in self._iter_page_layouts(
+                image=image,
+                structured=page_result.structured,
+                asset_hub=asset_hub,
+                stage_index=step_index,
+                includes_footnotes=includes_footnotes,
+            ):
+                if is_footnote:
+                    page_layout.order = len(footnotes_layouts)
+                    footnotes_layouts.append(page_layout)
+                elif step_index == 1:
+                    page_layout.order = len(body_layouts)
+                    body_layouts.append(page_layout)
+                elif page_layout.ref not in ASSET_TAGS:
+                    page_layout.order = len(footnotes_layouts)
+                    footnotes_layouts.append(page_layout)
+
+            check_aborted(aborted)
+            if plot_path is not None:
+                plot_file_path = (
+                    plot_path / f"page_{page_index}_stage_{step_index}.png"
+                )
+                plotted = plot(image.copy(), page_result.layouts)
+                plotted.save(plot_file_path, format="PNG")
+                plotted.close()
+                check_aborted(aborted)
+
+        return Page(
+            index=page_index,
+            image=raw_image,
+            body_layouts=body_layouts,
+            footnotes_layouts=footnotes_layouts,
+            input_tokens=input_tokens,
+            output_tokens=output_tokens,
+        )
     def _iter_page_layouts(
         self,
         image: Image,
