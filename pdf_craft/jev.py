@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import AsyncIterator, Awaitable, Callable, Iterable
-from contextlib import aclosing, asynccontextmanager
+from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 from typing import Any, Self
 
@@ -17,8 +17,8 @@ from typesafe_sdk import (
 
 from .concurrency import (
     AsyncExecutor, NonContinuableError, OperationError, RateLimitedError,
+    task_group_fatal_error,
 )
-
 
 @dataclass(frozen=True)
 class JEV:
@@ -65,82 +65,174 @@ class JEVRuntime:
         if client is not None:
             await client.__aexit__(exc_type, exc_value, traceback)
 
-    async def evaluate(self, page_index: int, request: dict[str, Any]) -> float:
-        results = await self.evaluate_many(((page_index, request),))
-        return results[0][1]
+    async def evaluate(
+        self,
+        page_index: int,
+        request: dict[str, Any],
+        *,
+        _started: asyncio.Event | None = None,
+    ) -> float:
+        return await self._evaluate_with_retry(page_index, request, _started)
 
     async def evaluate_many(
         self, requests: Iterable[tuple[int, dict[str, Any]]],
     ) -> list[tuple[int, float]]:
         if self._client is None:
             raise RuntimeError("JEVRuntime must be entered before evaluation")
-        def initial_requests():
-            for order, (page_index, request) in enumerate(requests):
-                yield order, page_index, request
-
-        pending: Iterable[tuple[int, int, dict[str, Any]]] = initial_requests()
-        attempts: dict[int, int] = {}
+        iterator = iter(enumerate(requests))
         completed: list[tuple[int, int, float]] = []
-        while True:
-            scheduled: dict[int, tuple[int, int, dict[str, Any]]] = {}
+        tasks: dict[asyncio.Task[float], tuple[int, int]] = {}
+        admission: asyncio.Task[bool] | None = None
+        admission_owner: asyncio.Task[float] | None = None
+        exhausted = False
 
-            def operations():
-                for order, page_index, request in pending:
-                    async def invoke(
-                        operation_id: int,
-                        order=order,
-                        page_index=page_index,
-                        request=request,
-                    ):
-                        scheduled[operation_id] = (order, page_index, request)
-                        assert self._client is not None
-                        try:
-                            response = await self._client.system_one(
-                                state=request["state"],
-                                questions=request["questions"],
-                            )
-                        except Exception as error:
-                            raise _provider_error(error) from error
-                        probability = float(
-                            response.nouls["page_passes_strict_standard"].noul
-                        )
-                        return operation_id, probability
-                    yield invoke
+        def start_next() -> None:
+            nonlocal admission, admission_owner, exhausted
+            if exhausted:
+                return
+            try:
+                order, (page_index, request) = next(iterator)
+            except StopIteration:
+                exhausted = True
+                return
+            started = asyncio.Event()
+            task = asyncio.create_task(self.evaluate(
+                page_index, request, _started=started,
+            ))
+            tasks[task] = (order, page_index)
+            admission_owner = task
+            admission = asyncio.create_task(started.wait())
 
-            retried: list[tuple[int, int, dict[str, Any]]] = []
-            delays: list[float] = []
-            async with aclosing(self.executor.map(operations())) as results:
-                async for result in results:
-                    order, page_index, request = scheduled.pop(result.operation_id)
-                    if result.succeeded:
-                        assert result.value is not None
-                        completed.append((order, page_index, result.value))
+        try:
+            start_next()
+            while tasks:
+                pending: set[asyncio.Task[Any]] = set(tasks)
+                if admission is not None:
+                    pending.add(admission)
+                done, _ = await asyncio.wait(
+                    pending, return_when=asyncio.FIRST_COMPLETED,
+                )
+                for task in done:
+                    if task not in tasks or not task.cancelled():
                         continue
-                    error = result.error
-                    assert error is not None
-                    attempts[order] = attempts.get(order, 0) + 1
-                    if (
-                        _is_retryable(error)
-                        and attempts[order] <= self.config.retry_times
-                    ):
-                        retried.append((order, page_index, request))
-                        if isinstance(error, RateLimitedError):
-                            delays.append(
-                                error.retry_after
-                                if error.retry_after is not None else 0.5
-                            )
+                    try:
+                        task.result()
+                    except asyncio.CancelledError as error:
+                        fatal = next((
+                            argument for argument in error.args
+                            if isinstance(argument, NonContinuableError)
+                        ), None)
+                        if fatal is not None:
+                            raise fatal from error
+                        raise
+                fatal = task_group_fatal_error(
+                    task for task in done
+                    if task in tasks and not task.cancelled()
+                )
+                if fatal is not None:
+                    raise fatal
+
+                owner_finished_before_admission = (
+                    admission_owner is not None
+                    and admission_owner in done
+                    and admission is not None
+                    and admission not in done
+                )
+                admitted = admission is not None and admission in done
+                if admitted or owner_finished_before_admission:
+                    if admission is not None:
+                        admission.cancel()
+                        await asyncio.gather(admission, return_exceptions=True)
+                    admission = None
+                    admission_owner = None
+                    start_next()
+
+                for task in done:
+                    if task not in tasks:
                         continue
-                    raise error
-            if not retried:
-                break
-            pending = retried
-            delay = max(delays, default=0.5)
-            if delay > 0:
-                await asyncio.sleep(delay)
+                    order, page_index = tasks.pop(task)
+                    completed.append((order, page_index, task.result()))
+        finally:
+            if admission is not None:
+                admission.cancel()
+            for task in tasks:
+                task.cancel()
+            teardown: list[asyncio.Task[Any]] = list(tasks)
+            if admission is not None:
+                teardown.append(admission)
+            if teardown:
+                await asyncio.gather(*teardown, return_exceptions=True)
+            close = getattr(iterator, "close", None)
+            if close is not None:
+                close()
         return [
             (page_index, probability)
             for _, page_index, probability in sorted(completed)
         ]
+
+    async def _evaluate_once(self, request: dict[str, Any]) -> float:
+        assert self._client is not None
+        try:
+            response = await self._client.system_one(
+                state=request["state"],
+                questions=request["questions"],
+            )
+        except Exception as error:
+            raise _provider_error(error) from error
+        return float(response.nouls["page_passes_strict_standard"].noul)
+
+    async def _evaluate_with_retry(
+        self,
+        page_index: int,
+        request: dict[str, Any],
+        started: asyncio.Event | None = None,
+    ) -> float:
+        del page_index
+        try:
+            async def invoke() -> float:
+                if started is not None:
+                    started.set()
+                return await self._evaluate_once(request)
+
+            return await self.executor.run(invoke)
+        except NonContinuableError:
+            raise
+        except OperationError as error:
+            if not _is_retryable(error) or self.config.retry_times == 0:
+                raise
+            return await self._retry_after_error(
+                request, error, attempts_used=1,
+            )
+
+    async def _retry_after_error(
+        self,
+        request: dict[str, Any],
+        error: OperationError,
+        *,
+        attempts_used: int,
+    ) -> float:
+        current = error
+        while attempts_used <= self.config.retry_times:
+            delay = (
+                current.retry_after
+                if isinstance(current, RateLimitedError)
+                and current.retry_after is not None
+                else 0.5
+            )
+            if delay > 0:
+                await asyncio.sleep(delay)
+            try:
+                return await self.executor.run(
+                    lambda: self._evaluate_once(request),
+                )
+            except NonContinuableError:
+                raise
+            except OperationError as next_error:
+                current = next_error
+                attempts_used += 1
+                if not _is_retryable(current):
+                    raise
+        raise current
 
 
 JEVRequest = Callable[[int, dict[str, Any]], Awaitable[float]]

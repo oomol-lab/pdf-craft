@@ -61,7 +61,7 @@ PDFCraft().translate_epub(
 )
 ```
 
-The table of contents and translatable book metadata are translated too. Their structure cannot safely gain separate blocks, so `APPEND_BLOCK` is treated as inline append for those two areas while chapter bodies retain the requested block layout.
+The table of contents, XHTML document titles, and translatable book metadata are translated too. EPUB 2 NCX `docTitle` follows the translated book title, and `dc:language` is set directly to `target_language`. Structures that cannot safely gain separate blocks use inline append while chapter bodies retain the requested block layout.
 
 ## Configure the text LLM
 
@@ -178,7 +178,7 @@ PDFCraft().translate_epub(
 
 - Use a readable EPUB input and a different output path.
 - The pipeline follows the EPUB spine and preserves the package's required `mimetype` entry.
-- Technical metadata such as identifiers, dates, language markers, `meta`, and contributor fields is not sent to the LLM. Other text metadata may be translated.
+- Technical metadata such as identifiers, dates, language markers, `meta`, and contributor fields is not sent to the LLM. The output language marker is set directly from `target_language`; other text metadata may be translated.
 - The current implementation requires a recognizable table-of-contents file. An EPUB with a TOC file but no entries can proceed; one with no recognizable TOC fails instead of silently skipping that stage.
 - An unrecoverable error means the destination should not be treated as a complete translation. Inspect the callback report and any `log_dir_path` output, then rerun to a fresh output path.
 

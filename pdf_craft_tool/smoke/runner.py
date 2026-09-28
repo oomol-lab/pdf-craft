@@ -27,7 +27,9 @@ from pdf_craft import (
     SubmitKind,
     XMLTranslator,
 )
-from pdf_craft.extractor.chapter.chapter import SourceTextFragment, BlockMember, Chapter, HTMLTag, TextFlowItem
+from pdf_craft.extractor.chapter.chapter import (
+    BlockMember, Chapter, HTMLTag, SourceAsset, SourceTextFragment, TextFlowItem,
+)
 from .assets import SmokeAsset, discover_assets
 from .checks import check_epub, check_markdown, check_package, check_pdf_patch_geometry
 from .ocr import create_ocr_config
@@ -330,7 +332,7 @@ def _run_pdf(
     target = output_path / "book.pdf"
     with report.stage("render"):
         transformer = translation_transformer if translation_transformer is not None else lambda text: prefix + text
-        craft.translate_pdf(asset.path, package, target, transformer)
+        craft.translate_pdf(asset.path, package, target, cast(Any, transformer))
     from .checks import check_pdf
     import pypdf
     with report.stage("check"):
@@ -378,9 +380,10 @@ class _DeterministicChapterTransformer:
         for layout in chapter.flow_items:
             if not isinstance(layout, TextFlowItem):
                 continue
-            transformed_blocks: list[SourceTextFragment] = []
+            transformed_blocks: list[SourceTextFragment | SourceAsset] = []
             for block in layout.children:
                 if not isinstance(block, SourceTextFragment):
+                    transformed_blocks.append(block)
                     continue
                 translated = SourceTextFragment(
                     page_index=block.page_index,
@@ -534,7 +537,7 @@ def _redact(value: Any) -> Any:
 def _is_secret_key(key: str) -> bool:
     normalized = key.lower().replace("-", "_")
     if normalized in {
-        "ak", "sk", "api_key", "apikey", "access_key", "secret_key", "password", "secret",
+        "ak", "sk", "key", "api_key", "apikey", "access_key", "secret_key", "password", "secret",
         "token", "api_token", "access_token", "refresh_token", "auth_token", "bearer_token",
     }:
         return True

@@ -455,6 +455,7 @@ def _run_smoke(args: argparse.Namespace) -> int:
             "expected": str(args.page_repair_expected),
             "llm_profile": args.llm_profile,
             "max_retries": args.max_retries,
+            "concurrency": args.concurrency,
         }
         if not args.dry_run:
             page_repair = _resolve_page_repair_profile(

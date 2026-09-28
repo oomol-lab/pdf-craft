@@ -4,6 +4,7 @@ from enum import Enum, auto
 from importlib.metadata import version as get_package_version
 from os import PathLike
 from pathlib import Path
+from xml.etree.ElementTree import Element
 
 from pdf_craft.pipeline.epub.adapter import (
     MetadataContext,
@@ -20,7 +21,12 @@ from pdf_craft.concurrency import AsyncExecutor
 from pdf_craft.runtime import ARCHIVE_DOMAIN
 from pdf_craft.transformer.events import TranslationEvent, TranslationItemKind
 from pdf_craft.transformer.xml_translator.segment import search_text_segments
-from pdf_craft.transformer.xml_translator.xml import XMLLikeNode, deduplicate_ids_in_element, find_first
+from pdf_craft.transformer.xml_translator.xml import (
+    XMLLikeNode,
+    clone_element,
+    deduplicate_ids_in_element,
+    find_first,
+)
 from pdf_craft.transformer.xml_translator.xml_translator import FillFailedEvent, SubmitKind, TranslationTask, XMLTranslator
 from .epub_transcode import decode_metadata, decode_toc_list, encode_metadata, encode_toc_list
 from .punctuation import unwrap_french_quotes
@@ -39,6 +45,7 @@ class _ElementContext:
     chapter_data: tuple[Path, XMLLikeNode] | None = None
     toc_context: TocContext | None = None
     metadata_context: MetadataContext | None = None
+    chapter_title_data: tuple[Path, XMLLikeNode, Element] | None = None
 
 
 async def translate(
@@ -83,9 +90,10 @@ async def translate(
         cache_seed_content=f"{_get_version()}:{target_language}",
     )
     archive: Zip | None = None
+    book_metadata_context: MetadataContext | None = None
 
     def prepare():
-        nonlocal archive
+        nonlocal archive, book_metadata_context
         archive = Zip(
             source_path=Path(source_path).resolve(),
             target_path=Path(target_path).resolve(),
@@ -95,6 +103,7 @@ async def translate(
             archive.migrate(Path("mimetype"))
             toc_list, toc_context = read_toc(archive)
             metadata_fields, metadata_context = read_metadata(archive)
+            book_metadata_context = metadata_context
             return list(_generate_tasks_from_book(
                 zip=archive,
                 toc_list=toc_list,
@@ -110,22 +119,59 @@ async def translate(
 
     def write_results(results):
         assert archive is not None
+        chapters_to_write: dict[Path, XMLLikeNode] = {}
+        translated_metadata_element = next(
+            (
+                unwrap_french_quotes(element)
+                for element, context in results
+                if context.element_type == _ElementType.METADATA
+            ),
+            None,
+        )
+        translated_metadata = (
+            decode_metadata(translated_metadata_element)
+            if translated_metadata_element is not None else []
+        )
+        document_title = next(
+            (
+                field.text for field in translated_metadata
+                if field.tag_name == "title"
+            ),
+            None,
+        )
         for translated_elem, context in results:
             if context.element_type == _ElementType.TOC:
                 translated_elem = unwrap_french_quotes(translated_elem)
                 if context.toc_context is not None:
-                    write_toc(archive, decode_toc_list(translated_elem), context.toc_context)
-            elif context.element_type == _ElementType.METADATA:
-                translated_elem = unwrap_french_quotes(translated_elem)
-                if context.metadata_context is not None:
-                    write_metadata(
-                        archive, decode_metadata(translated_elem), context.metadata_context,
+                    write_toc(
+                        archive,
+                        decode_toc_list(translated_elem),
+                        context.toc_context,
+                        document_title=document_title,
                     )
+            elif context.element_type == _ElementType.METADATA:
+                continue
             elif context.element_type == _ElementType.CHAPTER and context.chapter_data is not None:
                 chapter_path, xml = context.chapter_data
-                deduplicate_ids_in_element(xml.element)
-                with archive.replace(chapter_path) as target_file:
-                    xml.save(target_file)
+                chapters_to_write[chapter_path] = xml
+            elif context.chapter_title_data is not None:
+                chapter_path, xml, title = context.chapter_title_data
+                translated_title = find_first(translated_elem, "title")
+                if translated_title is not None:
+                    title.text = translated_title.text
+                    title[:] = [clone_element(child) for child in translated_title]
+                chapters_to_write[chapter_path] = xml
+        for chapter_path, xml in chapters_to_write.items():
+            deduplicate_ids_in_element(xml.element)
+            with archive.replace(chapter_path) as target_file:
+                xml.save(target_file)
+        if book_metadata_context is not None:
+            write_metadata(
+                archive,
+                translated_metadata,
+                book_metadata_context,
+                target_language=target_language,
+            )
 
     failure: BaseException | None = None
     try:
@@ -193,6 +239,26 @@ def _generate_tasks_from_book(
                 is_html_like=(media_type == "text/html"),
             )
         body_element = find_first(xml.element, "body")
+        title_element = find_first(xml.element, "title")
+        if title_element is not None and any(
+            segment.text.strip() for segment in search_text_segments(title_element)
+        ):
+            title_copy = clone_element(title_element)
+            title_wrapper = Element("metadata")
+            title_wrapper.append(title_copy)
+            yield TranslationTask(
+                element=title_wrapper,
+                action=head_submit,
+                payload=_ElementContext(
+                    element_type=_ElementType.CHAPTER,
+                    chapter_title_data=(chapter_path, xml, title_element),
+                ),
+                item_kind=TranslationItemKind.METADATA,
+                item_id=f"{chapter_path}#title",
+                character_count=sum(
+                    len(segment.text) for segment in search_text_segments(title_wrapper)
+                ),
+            )
         if body_element is not None and any(
             segment.text.strip() for segment in search_text_segments(body_element)
         ):

@@ -238,6 +238,14 @@ PDFCraft(pdf=PDFOptions(
 - `local_only=True` 不会替你下载缺失模型；请先完成模型下载。
 - vendor OCR 依赖网络和有效凭据，`base_url`、模型名及凭据错误会在请求阶段失败。
 - vendor OCR 只把远程供应商请求交给 `ocr_executor` 并发；PDF 渲染与后续处理仍保持串行。
+- retry 会先释放 `ocr_executor` 容量，等待结束后每次 HTTP 尝试重新申请容量。Unlimited OCR
+  的 token 获取、任务提交、每次轮询和结果下载分别算一个远程 operation；轮询间隔不占槽，
+  查询或下载重试也不会重新提交页面任务。access token 失效时会刷新 token 后重试当前
+  operation；供应商明确报告任务处理失败时，才会重新提交当前页面。
+- HTTP 429 默认按限流重试；如果响应体明确表示余额或配额耗尽，则立即关闭共享执行器。
+  余额、配额、认证和权限错误不可忽略，其他页面错误仍可交给 `ignore_ocr_errors`。回调收到的
+  `OCRError` 会在异常 cause 链中保留供应商原始异常及可用的 HTTP response。Unlimited OCR
+  query 以 `task_error` 报告“额度不够”时同样属于不可忽略的配额终止错误。
 - 设置任一累计 OCR token 预算后，vendor 请求会逐页结算并将精确的剩余预算传给下一页。
 - `ocr_size` 由提取选项控制，不能用来改变 vendor/local backend；backend 由 OCR 配置对象决定。
 - 翻译所需的文本 LLM 与 OCR backend 是两套独立配置，本指南不讨论翻译配置。

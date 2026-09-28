@@ -70,3 +70,14 @@ Vendor OCR renders PDF pages serially, then submits only the remote OCR operatio
 `ocr_executor`. Skipped pages and ignored failures are terminal page outcomes and do not hold up
 the remaining extraction pipeline. When either cumulative OCR token budget is set, vendor requests
 settle one page at a time so the next request receives the exact remaining budget.
+
+Retries release `ocr_executor` capacity before waiting and reacquire it for every HTTP attempt.
+Unlimited OCR token acquisition, task submission, each poll, and result download are separate
+remote operations; poll intervals therefore do not occupy a provider slot, and retrying a poll or
+download does not submit the page again. Expired access tokens are refreshed before retrying the
+current operation, while a provider task-processing failure resubmits that page. HTTP 429 is
+retried as rate limiting unless the provider body reports exhausted quota. Payment, exhausted
+quota, and authentication or permission failures close the shared executor; other page failures
+remain eligible for `ignore_ocr_errors`. This also applies when an Unlimited OCR query reports a
+failed task whose `task_error` says the quota is insufficient. The resulting
+`OCRError` keeps the original provider exception and HTTP response in its exception cause chain.

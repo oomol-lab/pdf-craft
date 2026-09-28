@@ -323,6 +323,10 @@ def _provider_error(error: Exception) -> OperationError:
         return error
     status = getattr(error, "status_code", None)
     if status == 429 or isinstance(error, openai.RateLimitError):
+        if _is_quota_error(error):
+            return NonContinuableError(
+                "The LLM provider quota is exhausted.", cause=error,
+            )
         response = getattr(error, "response", None)
         raw_retry_after = (
             response.headers.get("retry-after") if response is not None else None
@@ -339,6 +343,25 @@ def _provider_error(error: Exception) -> OperationError:
             "The LLM provider cannot continue serving requests.", cause=error,
         )
     return OperationError(str(error) or type(error).__name__, cause=error)
+
+
+def _is_quota_error(error: Exception) -> bool:
+    response = getattr(error, "response", None)
+    if response is None:
+        return False
+    try:
+        body = response.json()
+    except (AttributeError, ValueError):
+        return False
+    if not isinstance(body, dict):
+        return False
+    provider_error = body.get("error")
+    if not isinstance(provider_error, dict):
+        return False
+    terminal = {"insufficient_quota", "quota_exceeded", "billing_not_active"}
+    code = str(provider_error.get("code") or "").lower()
+    error_type = str(provider_error.get("type") or "").lower()
+    return code in terminal or error_type in terminal
 
 
 def _caused_by_connect_error(error: BaseException) -> bool:

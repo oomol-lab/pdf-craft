@@ -1,3 +1,4 @@
+# pylint: disable=cell-var-from-loop
 import asyncio
 import inspect
 import unittest
@@ -5,7 +6,8 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from pdf_craft import (
-    ConcurrentExecutor, FixedCapacity, JEV, OperationError, RateLimitedError,
+    ConcurrentExecutor, FixedCapacity, JEV, NonContinuableError,
+    OperationError, RateLimitedError,
 )
 from pdf_craft.jev import JEVRuntime
 from pdf_craft.extractor.chapter.page_review import JEV_QUESTION_NAME
@@ -102,6 +104,139 @@ class JEVTests(unittest.IsolatedAsyncioTestCase):
                 self.assertEqual(await runtime.evaluate(4, request), 0.72)
         sleep.assert_awaited_once_with(0.5)
 
+    async def test_batch_retry_is_not_blocked_by_slow_initial_sibling(self):
+        client = MagicMock()
+        client.__aenter__ = AsyncMock(return_value=client)
+        client.__aexit__ = AsyncMock(return_value=None)
+        retried = asyncio.Event()
+        page_one_calls = 0
+
+        async def system_one(*, state, questions):
+            nonlocal page_one_calls
+            del questions
+            page_index = state["target_page"]["page_index"]
+            if page_index == 1:
+                page_one_calls += 1
+                if page_one_calls == 1:
+                    raise RateLimitedError(retry_after=0)
+                retried.set()
+                return SimpleNamespace(nouls={
+                    JEV_QUESTION_NAME: SimpleNamespace(noul=0.1),
+                })
+            await asyncio.wait_for(retried.wait(), 1)
+            return SimpleNamespace(nouls={
+                JEV_QUESTION_NAME: SimpleNamespace(noul=0.2),
+            })
+
+        client.system_one = system_one
+        requests = [
+            (page_index, {
+                "state": {"target_page": {"page_index": page_index}},
+                "questions": {JEV_QUESTION_NAME: {"type": "noul"}},
+            })
+            for page_index in (1, 2)
+        ]
+        with patch("pdf_craft.jev.AsyncTypeSafeClient", return_value=client):
+            async with JEVRuntime(
+                JEV("secret", retry_times=1),
+                ConcurrentExecutor(FixedCapacity(2)),
+            ) as runtime:
+                results = await asyncio.wait_for(
+                    runtime.evaluate_many(requests), 1,
+                )
+
+        self.assertEqual(results, [(1, 0.1), (2, 0.2)])
+        self.assertEqual(page_one_calls, 2)
+
+    async def test_batch_retry_does_not_cap_initial_requests_at_sixteen(self):
+        client = MagicMock()
+        client.__aenter__ = AsyncMock(return_value=client)
+        client.__aexit__ = AsyncMock(return_value=None)
+        client.system_one = AsyncMock(
+            side_effect=RateLimitedError(retry_after=0),
+        )
+        consumed = 0
+        retries_started = 0
+        all_retries_started = asyncio.Event()
+        release = asyncio.Event()
+
+        def requests():
+            nonlocal consumed
+            for page_index in range(32):
+                consumed += 1
+                yield page_index, {
+                    "state": {"target_page": {"page_index": page_index}},
+                    "questions": {JEV_QUESTION_NAME: {"type": "noul"}},
+                }
+
+        async def retry(
+            _runtime, _request, _error, *, attempts_used,
+        ):
+            nonlocal retries_started
+            self.assertEqual(attempts_used, 1)
+            retries_started += 1
+            if retries_started == 32:
+                all_retries_started.set()
+            await release.wait()
+            return 0.5
+
+        with patch("pdf_craft.jev.AsyncTypeSafeClient", return_value=client), patch.object(
+            JEVRuntime, "_retry_after_error", new=retry,
+        ):
+            async with JEVRuntime(
+                JEV("secret", retry_times=1),
+                ConcurrentExecutor(FixedCapacity(2)),
+            ) as runtime:
+                pending = asyncio.create_task(runtime.evaluate_many(requests()))
+                await asyncio.wait_for(all_retries_started.wait(), 1)
+                self.assertEqual(retries_started, 32)
+                self.assertEqual(consumed, 32)
+                self.assertFalse(pending.done())
+                release.set()
+                results = await asyncio.wait_for(pending, 1)
+                self.assertEqual(len(results), 32)
+
+    async def test_retry_fatal_precedes_cancelled_sibling(self):
+        requests = [
+            (page_index, {
+                "state": {"target_page": {"page_index": page_index}},
+                "questions": {JEV_QUESTION_NAME: {"type": "noul"}},
+            })
+            for page_index in (1, 2)
+        ]
+        for _ in range(25):
+            client = MagicMock()
+            client.__aenter__ = AsyncMock(return_value=client)
+            client.__aexit__ = AsyncMock(return_value=None)
+            calls = {1: 0, 2: 0}
+            retries_started = asyncio.Event()
+            never = asyncio.Event()
+
+            async def system_one(*, state, questions):
+                del questions
+                page_index = state["target_page"]["page_index"]
+                calls[page_index] += 1
+                if calls[page_index] == 1:
+                    raise RateLimitedError(retry_after=0)
+                if sum(count > 1 for count in calls.values()) == 2:
+                    retries_started.set()
+                await retries_started.wait()
+                if page_index == 1:
+                    raise NonContinuableError("quota exhausted")
+                await never.wait()
+                raise AssertionError("cancelled retry continued")
+
+            client.system_one = system_one
+            with patch("pdf_craft.jev.AsyncTypeSafeClient", return_value=client):
+                async with JEVRuntime(
+                    JEV("secret", retry_times=1),
+                    ConcurrentExecutor(FixedCapacity(2)),
+                ) as runtime:
+                    with self.assertRaisesRegex(
+                        NonContinuableError, "quota exhausted",
+                    ):
+                        await runtime.evaluate_many(requests)
+
     async def test_terminal_batch_error_cancels_and_settles_sibling_request(self):
         client = MagicMock()
         client.__aenter__ = AsyncMock(return_value=client)
@@ -145,7 +280,7 @@ class JEVTests(unittest.IsolatedAsyncioTestCase):
 
         client.__aexit__.assert_awaited_once()
 
-    async def test_batch_consumes_request_generator_only_when_capacity_opens(self):
+    async def test_batch_keeps_only_one_unadmitted_request_as_lookahead(self):
         client = MagicMock()
         client.__aenter__ = AsyncMock(return_value=client)
         client.__aexit__ = AsyncMock(return_value=None)
@@ -183,7 +318,8 @@ class JEVTests(unittest.IsolatedAsyncioTestCase):
             ) as runtime:
                 pending = asyncio.create_task(runtime.evaluate_many(requests()))
                 await asyncio.wait_for(two_started.wait(), 1)
-                self.assertEqual(consumed, 2)
+                await asyncio.sleep(0)
+                self.assertLessEqual(consumed, 3)
                 release.set()
                 self.assertEqual(
                     [page for page, _ in await pending], [1, 2, 3, 4],

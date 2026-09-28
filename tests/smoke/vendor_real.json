@@ -1,7 +1,8 @@
 {
   "defaults": {
-    "page_indexes": [1],
-    "ocr_size": "tiny"
+    "page_indexes": [1, 2, 3],
+    "ocr_size": "tiny",
+    "ocr_concurrency": 3
   },
   "runs": [
     {
@@ -10,7 +11,7 @@
       "backend": "deepseek-ocr-vendor"
     },
     {
-      "asset": "pdf/citation.pdf",
+      "asset": "pdf/table&formula.pdf",
       "route": "markdown",
       "backend": "deepseek-ocr-vendor",
       "translation": {
@@ -19,7 +20,8 @@
         "target_language": "zh",
         "submit": "REPLACE",
         "max_retries": 3,
-        "max_group_tokens": 2600
+        "max_group_tokens": 2600,
+        "concurrency": 3
       }
     },
     {
@@ -32,7 +34,20 @@
         "submit": "REPLACE",
         "max_retries": 3,
         "max_group_tokens": 2600,
-        "concurrency": 1
+        "concurrency": 3
+      }
+    },
+    {
+      "asset": "epub/The little prince.epub",
+      "route": "epub-translate",
+      "translation": {
+        "translation_llm_profile": "translation",
+        "fill_llm_profile": "fill",
+        "target_language": "zh",
+        "submit": "REPLACE",
+        "max_retries": 3,
+        "max_group_tokens": 2600,
+        "concurrency": 3
       }
     }
   ]

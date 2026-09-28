@@ -132,6 +132,7 @@ class TestSmokeMatrix(unittest.TestCase):
             "deepseek": {"api_key": "key", "max_tokens": 1200},
             "unlimited": [{"ak": "access", "sk": "secret", "max_ocr_tokens": 900}],
             "nested": {"access_key": "access", "secret_key": "secret", "password": "pw"},
+            "translation": {"llm": {"key": "llm-secret"}},
         }
         redacted = _redact(value)
         self.assertEqual(redacted["deepseek"]["api_key"], "[redacted]")
@@ -140,6 +141,7 @@ class TestSmokeMatrix(unittest.TestCase):
         self.assertEqual(redacted["nested"]["access_key"], "[redacted]")
         self.assertEqual(redacted["nested"]["secret_key"], "[redacted]")
         self.assertEqual(redacted["nested"]["password"], "[redacted]")
+        self.assertEqual(redacted["translation"]["llm"]["key"], "[redacted]")
         self.assertEqual(_redact({"cache_path": Path("models-cache")})["cache_path"], str(Path("models-cache")))
         self.assertEqual(redacted["deepseek"]["max_tokens"], 1200)
         self.assertEqual(redacted["unlimited"][0]["max_ocr_tokens"], 900)
@@ -239,7 +241,11 @@ class TestSmokeMatrix(unittest.TestCase):
 
                 craft.extract_pdf_with_metering.side_effect = extract
                 run_path = run_smoke(
-                    SmokeRun("pdf/double_column.pdf", "package", "deepseek-ocr-vendor", ocr=secrets),
+                    SmokeRun(
+                        "pdf/double_column.pdf", "package", "deepseek-ocr-vendor",
+                        ocr=secrets,
+                        translation={"llm": {"key": "translation-secret"}},
+                    ),
                     assets_root=Path("tests/assets"), output_root=Path(directory),
                 )
             persisted = "\n".join((run_path / name).read_text() for name in (
@@ -248,6 +254,7 @@ class TestSmokeMatrix(unittest.TestCase):
             self.assertNotIn("api-secret", persisted)
             self.assertNotIn("access-secret", persisted)
             self.assertNotIn("signing-secret", persisted)
+            self.assertNotIn("translation-secret", persisted)
             self.assertIn("[redacted]", persisted)
 
     def test_epub_check_copies_and_validates_real_fixture(self):

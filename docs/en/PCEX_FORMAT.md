@@ -203,7 +203,7 @@ translated = craft.translate_extraction(
 translations = craft.list_translations(translated)
 ```
 
-`translate_extraction()` creates a new `.pcex` without replacing the source layer. It appends one entry under `translations/`; callers may supply a 4-32 character opaque `translation_id`, or let pdf-craft generate an eight-hex-character ID. IDs are unique within the file, while `target_language` is metadata, so several IDs may use the same language. The layer contains a complete translated chapter variant, a metadata overlay whose `language` is the target language, and independent coverage. `with_furniture=True` additionally stores translated furniture inside that layer. Image/table asset fields remain byte-for-byte source content and receive no unsupported or untranslated marker.
+`translate_extraction()` creates a new `.pcex` without replacing the source layer. It appends one entry under `translations/`; callers may supply a 4-32 character opaque `translation_id`, or let pdf-craft generate an eight-hex-character ID. IDs are unique within the file, while `target_language` is metadata, so several IDs may use the same language. The layer contains a complete translated chapter variant, a metadata overlay whose `language` is the target language, and independent coverage. When the supplied transformer is a `ChapterXMLTransformer`, image/table title, content, and caption fields are translated through the independent anchored-content adapter and recorded in that coverage. `with_furniture=True` additionally stores translated furniture inside the layer.
 
 Translation layers contain replacement text only. `SubmitKind.APPEND_*` is rejected here because bilingual versus replacement output is a later rendering choice. Markdown and EPUB rendering select source-only, replacement, or bilingual output with `RenderMode`; replacement and bilingual modes accept a translation ID or deterministically default to the first indexed layer. The PDF renderer does not select stored translation layers. One-shot conversion and `translate_pdf()` continue to materialize a private translated view for their existing output behavior.
 
@@ -211,15 +211,16 @@ Translation layers contain replacement text only. `SubmitKind.APPEND_*` is rejec
 
 `translations/index.json` contains exactly one `translations` array. Each item has exactly `id`, `target_language`, and ISO 8601 `created_at` fields. The ID must be 4-32 ASCII letters, digits, underscores, or hyphens, begin with a letter or digit, be unique in this file, and name the matching directory. Language is deliberately not an identity.
 
-Every layer has the same chapter filenames as the source. Correspondence uses existing PCEX identities: chapter identity, fragment `(page_index, source_order)`, paragraph first-fragment identity, reference `(page_index, order)` within its chapter, and image/table asset flow slot. A layer may change translated text but must not change those identities, page geometry, or image/table asset fields. `coverage.xml` uses the existing translation coverage schema and may refer only to source identities. Optional translated furniture retains `(pattern_id, position_id)` and `(page_index, det)` identities. `metadata.json` is a field-name overlay; it needs no artificial node IDs and must contain a `language` equal to the indexed target language.
+Every layer has the same chapter filenames as the source. Correspondence uses existing PCEX identities: chapter identity, fragment `(page_index, source_order)`, paragraph first-fragment identity, reference `(page_index, order)` within its chapter, and image/table asset flow slot. A layer may change translated text but must not change those identities, page geometry, or asset structure. Image/table fields may differ only for slots marked `translated` by anchored coverage. `coverage.xml` may refer only to source identities. Optional translated furniture retains `(pattern_id, position_id)` and `(page_index, det)` identities. `metadata.json` is a field-name overlay; it needs no artificial node IDs and must contain a `language` equal to the indexed target language.
 
 `translate_extraction()` treats an image/table asset nested in `<text>` as an
 opaque, self-closing anchor. Its title, content, and caption are not included
 in the NarrativeFlow prompt; the immutable position marker is checked by the
 XML repair protocol. A `<standalone-asset>` is kept outside NarrativeFlow
-without inventing a paragraph anchor. Use the separate
-`translate_anchored_contents()` stage to translate the extracted text fields
-of image/table assets. It receives only small asset batches with nearby source
+without inventing a paragraph anchor. With `ChapterXMLTransformer`,
+`translate_extraction()` follows NarrativeFlow with the separate anchored-content
+stage automatically. The lower-level `translate_anchored_contents()` entry remains
+available for custom pipelines. That stage receives only small asset batches with nearby source
 text as transient context, records `<anchored><asset .../></anchored>` coverage
 in `translation.xml`, and never claims that unextracted visual text was
 translated.

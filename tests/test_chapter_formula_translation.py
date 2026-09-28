@@ -135,7 +135,41 @@ class TestChapterFormulaTranslation(unittest.TestCase):
             ],
         )
         self.assertNotIn("MODEL_CHANGED_FORMULA", tostring(encode(translated), encoding="unicode"))
-        self.assertNotIn("__PDF_CRAFT_CHAPTER_FORMULA_ID", tostring(encode(translated), encoding="unicode"))
+
+    def test_adjacent_formula_split_keeps_the_second_formula_before_following_text(self):
+        chapter = Chapter(None, 0, [
+            TextFlowItem("body", 0, [SourceTextFragment(
+                1, 1, (1, 1, 100, 30), [
+                    "A ",
+                    InlineExpression(ExpressionKind.INLINE_PAREN, "x"),
+                    InlineExpression(ExpressionKind.INLINE_PAREN, "x"),
+                    " B",
+                ],
+            )]),
+        ])
+
+        translated = ChapterXMLTransformer(
+            _FormulaAwareTranslator(),
+        )._transform_blocking(chapter)
+
+        layout = cast(TextFlowItem, translated.flow_items[0])
+        content = cast(SourceTextFragment, layout.children[0]).content
+        self.assertEqual(
+            [item.content for item in content if isinstance(item, InlineExpression)],
+            ["x", "x"],
+        )
+        formula_indexes = [
+            index for index, item in enumerate(content)
+            if isinstance(item, InlineExpression)
+        ]
+        following_text = next(
+            index for index, item in enumerate(content)
+            if isinstance(item, str) and "译文" in item
+        )
+        self.assertLess(formula_indexes[1], following_text)
+        encoded = tostring(encode(translated), encoding="unicode")
+        self.assertNotIn("__PDF_CRAFT_CHAPTER_FORMULA_ID", encoded)
+        self.assertNotIn("__PDF_CRAFT_RESTORED_FORMULA_ID", encoded)
 
     def test_inline_formula_is_restored_when_the_model_moves_its_token(self):
         chapter = Chapter(None, 0, [

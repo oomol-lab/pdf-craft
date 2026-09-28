@@ -741,7 +741,7 @@ def _flow_item_structure(element: ElementTree.Element) -> tuple[Any, ...]:
 
 def _asset_structure(element: ElementTree.Element) -> tuple[Any, ...]:
     if element.get("ref") in {"image", "table"}:
-        return ("immutable-asset", ElementTree.tostring(element, encoding="utf-8"))
+        return ("translatable-asset", _xml_structure(element))
     return ("asset", tuple(sorted(element.attrib.items())))
 
 
@@ -781,6 +781,17 @@ def _validate_translation_layer(
         not path.is_file() or path.is_symlink() for path in chapter_paths.values()
     ):
         raise ValueError(f"translation {translation.id} chapters do not match source chapters")
+    coverage_path = layer / "coverage.xml"
+    coverage_root = _require_xml_root(coverage_path, "translation")
+    translated_anchored = {
+        (
+            entry.get("chapter_id", ""),
+            int(entry.get("flow_index", "0")),
+            int(entry.get("child_index", "0")),
+        )
+        for entry in coverage_root.findall("anchored/asset")
+        if entry.get("state") == "translated"
+    }
     for name, path in chapter_paths.items():
         root = _require_xml_root(path, "chapter")
         try:
@@ -794,6 +805,17 @@ def _validate_translation_layer(
         if actual_id != expected_id:
             raise ValueError(f"translation chapter {name} has an invalid chapter id")
         if _chapter_structure(root) != source_structures[name]:
+            raise ValueError(
+                f"translation chapter {name} does not preserve source structure and geometry"
+            )
+        source_assets = _anchored_asset_elements(source_root)
+        translated_assets = _anchored_asset_elements(root)
+        if any(
+            identity not in translated_anchored
+            and ElementTree.tostring(asset, encoding="utf-8")
+            != ElementTree.tostring(translated_assets[identity], encoding="utf-8")
+            for identity, asset in source_assets.items()
+        ):
             raise ValueError(
                 f"translation chapter {name} does not preserve source structure and geometry"
             )
@@ -828,7 +850,7 @@ def _validate_translation_layer(
         elif value is not None and not isinstance(value, str):
             raise ValueError(f"translation metadata {key} must be a string or null")
 
-    coverage = layer / "coverage.xml"
+    coverage = coverage_path
     furniture = layer / "furnitures.xml"
     if furniture.exists():
         if not paths.furnitures.is_file():
@@ -843,6 +865,24 @@ def _validate_translation_layer(
     _validate_translation(
         coverage, furniture, narrative_identities, anchored_identities,
     )
+
+
+def _anchored_asset_elements(
+    root: ElementTree.Element,
+) -> dict[tuple[str, int, int], ElementTree.Element]:
+    chapter_id = root.get("id") or "head"
+    result: dict[tuple[str, int, int], ElementTree.Element] = {}
+    flow = root.find("flow")
+    for flow_index, item in enumerate(flow or []):
+        if item.tag == "text":
+            for child_index, child in enumerate(item):
+                if child.tag == "asset" and child.get("ref") in {"image", "table"}:
+                    result[(chapter_id, flow_index, child_index)] = child
+        elif item.tag == "standalone-asset":
+            asset = item.find("asset")
+            if asset is not None and asset.get("ref") in {"image", "table"}:
+                result[(chapter_id, flow_index, -1)] = asset
+    return result
 
 
 def _validate_translation(

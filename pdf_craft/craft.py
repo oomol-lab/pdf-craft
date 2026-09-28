@@ -253,6 +253,12 @@ class AsyncPDFCraft:
                 on_translation_event=on_translation_event,
                 emit_translation_events=True,
             )
+            if isinstance(
+                extraction_transformer.chapter_transformer, ChapterXMLTransformer,
+            ):
+                translated = await AnchoredContentExtractionTransformer(
+                    extraction_transformer.chapter_transformer._anchored_transformer(),
+                )._transform_to_workspace_async(translated, root / "anchored")
             if with_furniture:
                 furniture_transformer = _furniture_transformer_for(
                     extraction_transformer.chapter_transformer,

@@ -324,6 +324,7 @@ class InlineSegment:
 
     def _match_children(self, element: Element) -> Generator[tuple["InlineSegment", Element], None, None]:
         tag2elements = nest((c.tag, c) for c in element)
+        element_order = {id(child): index for index, child in enumerate(element)}
         tag2children = nest(
             (c.parent.tag, (i, c)) for i, c in enumerate(c for c in self._children if isinstance(c, InlineSegment))
         )
@@ -362,5 +363,8 @@ class InlineSegment:
                 if child_element is not None:
                     children_and_elements.append((order, child, child_element))
 
-        for _, child, child_element in sorted(children_and_elements, key=lambda x: x[0]):
+        for _, child, child_element in sorted(
+            children_and_elements,
+            key=lambda item: element_order[id(item[2])],
+        ):
             yield child, child_element

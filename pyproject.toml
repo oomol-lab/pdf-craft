@@ -32,7 +32,7 @@ dependencies = [
     "pydantic>=2.12.5,<3.0.0",
     "typesafe-sdk>=0.7.1,<0.8.0",
     "httpx2>=2.0.0,<3.0.0",
-    "doc-page-extractor>=1.2.0,<2.0.0",
+    "doc-page-extractor>=1.2.1,<2.0.0",
     "epub-generator==0.1.7",
     "pylatexenc>=2.10,<3.0.0",
     "pyahocorasick>=2.2.0,<3.0.0",
@@ -51,7 +51,7 @@ Repository = "https://github.com/oomol-lab/pdf-craft"
 [project.optional-dependencies]
 # Keep the upstream local runtime as one dependency declaration so its
 # transformer/CUDA-related requirements remain owned by doc-page-extractor.
-local = ["doc-page-extractor[local]>=1.2.0,<2.0.0"]
+local = ["doc-page-extractor[local]>=1.2.1,<2.0.0"]
 
 [tool.poetry]
 packages = [{include = "pdf_craft"}]

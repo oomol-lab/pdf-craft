@@ -8,7 +8,8 @@
         "jev_run": "strict-rubric",
         "expected": "tests/assets/analysis/citation_large_page_repair_expected.json",
         "llm_profile": "default",
-        "max_retries": 4
+        "max_retries": 4,
+        "concurrency": 3
       }
     }
   ]

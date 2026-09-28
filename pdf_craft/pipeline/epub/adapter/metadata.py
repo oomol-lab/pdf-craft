@@ -55,7 +55,13 @@ def read_metadata(zip: Zip) -> tuple[list[MetadataField], MetadataContext]:
     return fields, context
 
 
-def write_metadata(zip: Zip, fields: list[MetadataField], context: MetadataContext) -> None:
+def write_metadata(
+    zip: Zip,
+    fields: list[MetadataField],
+    context: MetadataContext,
+    *,
+    target_language: str | None = None,
+) -> None:
     metadata_elem = None
     for child in context.xml_node.element:
         if child.tag.endswith("metadata"):
@@ -75,6 +81,9 @@ def write_metadata(zip: Zip, fields: list[MetadataField], context: MetadataConte
 
     for elem in metadata_elem:
         tag_name = elem.tag
+        if tag_name == "language" and target_language is not None:
+            elem.text = target_language
+            continue
         if tag_name in fields_by_tag and elem.text and elem.text.strip():
             counter = tag_counters[tag_name]
             if counter < len(fields_by_tag[tag_name]):
