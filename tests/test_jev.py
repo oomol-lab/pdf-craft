@@ -102,6 +102,50 @@ class JEVTests(unittest.IsolatedAsyncioTestCase):
                 self.assertEqual(await runtime.evaluate(4, request), 0.72)
         sleep.assert_awaited_once_with(0.5)
 
+    async def test_batch_retry_is_not_blocked_by_slow_initial_sibling(self):
+        client = MagicMock()
+        client.__aenter__ = AsyncMock(return_value=client)
+        client.__aexit__ = AsyncMock(return_value=None)
+        retried = asyncio.Event()
+        page_one_calls = 0
+
+        async def system_one(*, state, questions):
+            nonlocal page_one_calls
+            del questions
+            page_index = state["target_page"]["page_index"]
+            if page_index == 1:
+                page_one_calls += 1
+                if page_one_calls == 1:
+                    raise RateLimitedError(retry_after=0)
+                retried.set()
+                return SimpleNamespace(nouls={
+                    JEV_QUESTION_NAME: SimpleNamespace(noul=0.1),
+                })
+            await asyncio.wait_for(retried.wait(), 1)
+            return SimpleNamespace(nouls={
+                JEV_QUESTION_NAME: SimpleNamespace(noul=0.2),
+            })
+
+        client.system_one = system_one
+        requests = [
+            (page_index, {
+                "state": {"target_page": {"page_index": page_index}},
+                "questions": {JEV_QUESTION_NAME: {"type": "noul"}},
+            })
+            for page_index in (1, 2)
+        ]
+        with patch("pdf_craft.jev.AsyncTypeSafeClient", return_value=client):
+            async with JEVRuntime(
+                JEV("secret", retry_times=1),
+                ConcurrentExecutor(FixedCapacity(2)),
+            ) as runtime:
+                results = await asyncio.wait_for(
+                    runtime.evaluate_many(requests), 1,
+                )
+
+        self.assertEqual(results, [(1, 0.1), (2, 0.2)])
+        self.assertEqual(page_one_calls, 2)
+
     async def test_terminal_batch_error_cancels_and_settles_sibling_request(self):
         client = MagicMock()
         client.__aenter__ = AsyncMock(return_value=client)

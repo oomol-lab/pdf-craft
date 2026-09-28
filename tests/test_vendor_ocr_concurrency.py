@@ -1,3 +1,4 @@
+# pylint: disable=protected-access
 import asyncio
 import tempfile
 import threading
@@ -12,8 +13,9 @@ import httpx
 from PIL import Image
 
 from pdf_craft import (
-    ConcurrentExecutor, DeepSeekOCRVendorConfig, FixedCapacity, OperationResult,
-    create_vendor_ocr_request,
+    ConcurrentExecutor, DeepSeekOCRVendorConfig, FixedCapacity,
+    NonContinuableError, OperationError, OperationResult, RateLimitedError,
+    UnlimitedOCRVendorConfig, create_vendor_ocr_request,
 )
 from pdf_craft.error import OCRBillingError, OCRError, PDFError
 from pdf_craft.pdf.ocr import OCR, OCREventKind
@@ -23,6 +25,7 @@ from pdf_craft.pdf.vendor_ocr import (
 from pdf_craft.pdf.types import Page
 from pdf_craft.transform import PDFExtractionEngine
 from doc_page_extractor.extraction_context import AbortError, TokenLimitError
+from doc_page_extractor.errors import VendorOCRRequestError
 
 
 class _Document:
@@ -181,6 +184,50 @@ class VendorOCRConcurrencyTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(calls, 2)
         self.assertEqual((response.input_tokens, response.output_tokens), (2, 3))
 
+    async def test_batch_retry_is_not_blocked_by_slow_initial_page(self):
+        config = DeepSeekOCRVendorConfig(
+            base_url="https://example.invalid/v1",
+            api_key="key",
+            model="model",
+            retry_times=1,
+            retry_interval_seconds=0,
+        )
+        retried = asyncio.Event()
+        first_calls = 0
+
+        async def request(_runtime, vendor_request):
+            nonlocal first_calls
+            if vendor_request.page_index == 1:
+                first_calls += 1
+                if first_calls == 1:
+                    raise RateLimitedError(retry_after=0)
+                retried.set()
+            else:
+                await asyncio.wait_for(retried.wait(), 1)
+            return VendorOCRResponse({}, raw_text="")
+
+        with tempfile.TemporaryDirectory() as directory:
+            paths = []
+            for page_index in (1, 2):
+                path = Path(directory) / f"page-{page_index}.png"
+                Image.new("RGB", (4, 4), "white").save(path)
+                paths.append(path)
+            with patch.object(VendorOCRRuntime, "_request_deepseek", new=request):
+                async with VendorOCRRuntime(
+                    config, ConcurrentExecutor(FixedCapacity(2)),
+                ) as runtime:
+                    results = [
+                        result
+                        async for result in runtime.request_many(
+                            VendorOCRInput(index, path, lambda: False)
+                            for index, path in enumerate(paths, start=1)
+                        )
+                    ]
+
+        self.assertEqual({result.request.page_index for result in results}, {1, 2})
+        self.assertTrue(all(result.succeeded for result in results))
+        self.assertEqual(first_calls, 2)
+
     async def test_vendor_payment_error_closes_shared_executor(self):
         def handler(request: httpx.Request) -> httpx.Response:
             return httpx.Response(402, request=request, json={"error": "balance"})
@@ -205,6 +252,126 @@ class VendorOCRConcurrencyTests(unittest.IsolatedAsyncioTestCase):
                         await request(VendorOCRInput(7, image_path, lambda: False))
                     with self.assertRaises(OCRBillingError):
                         await executor.run(lambda: asyncio.sleep(0))
+
+    async def test_429_insufficient_quota_is_terminal_and_preserves_response(self):
+        def handler(request: httpx.Request) -> httpx.Response:
+            return httpx.Response(429, request=request, json={
+                "error": {"type": "insufficient_quota", "code": None},
+            })
+
+        client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+        executor = ConcurrentExecutor(FixedCapacity(1))
+        config = DeepSeekOCRVendorConfig(
+            base_url="https://example.invalid/v1",
+            api_key="key",
+            model="model",
+            retry_times=3,
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            image_path = Path(directory) / "page.png"
+            Image.new("RGB", (4, 4), "white").save(image_path)
+            with patch(
+                "pdf_craft.pdf.vendor_ocr.httpx.AsyncClient",
+                return_value=client,
+            ):
+                async with create_vendor_ocr_request(config, executor) as request:
+                    with self.assertRaises(OCRBillingError) as raised:
+                        await request(VendorOCRInput(
+                            9, image_path, lambda: False,
+                        ))
+
+        envelope = raised.exception.__cause__
+        self.assertIsInstance(envelope, VendorOCRRequestError)
+        assert isinstance(envelope, VendorOCRRequestError)
+        raw = envelope.__cause__
+        self.assertIsInstance(raw, httpx.HTTPStatusError)
+        assert isinstance(raw, httpx.HTTPStatusError)
+        self.assertEqual(raw.response.status_code, 429)
+
+    async def test_unlimited_query_retry_does_not_resubmit_task(self):
+        calls: list[str] = []
+        query_count = 0
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            nonlocal query_count
+            path = request.url.path
+            calls.append(path)
+            if path.endswith("/oauth/2.0/token"):
+                return httpx.Response(
+                    200, request=request, json={"access_token": "token"},
+                )
+            if path.endswith("/task/query"):
+                query_count += 1
+                if query_count == 1:
+                    return httpx.Response(
+                        500, request=request, json={"error": "temporary"},
+                    )
+                return httpx.Response(200, request=request, json={
+                    "result": {
+                        "status": "success",
+                        "parse_result_url": "https://download.invalid/result",
+                    },
+                })
+            if path.endswith("/task"):
+                return httpx.Response(
+                    200, request=request, json={"result": {"task_id": "task-1"}},
+                )
+            return httpx.Response(200, request=request, json={"pages": []})
+
+        client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+        config = UnlimitedOCRVendorConfig(
+            ak="ak", sk="sk", base_url="https://baidu.invalid",
+            retry_times=1, retry_interval_seconds=0,
+            poll_interval_seconds=0,
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            image_path = Path(directory) / "page.png"
+            Image.new("RGB", (4, 4), "white").save(image_path)
+            with patch(
+                "pdf_craft.pdf.vendor_ocr.httpx.AsyncClient",
+                return_value=client,
+            ):
+                async with create_vendor_ocr_request(
+                    config, ConcurrentExecutor(FixedCapacity(1)),
+                ) as request:
+                    response = await request(VendorOCRInput(
+                        1, image_path, lambda: False,
+                    ))
+
+        self.assertEqual(response.data["task_id"], "task-1")
+        self.assertEqual(sum(path.endswith("/task") for path in calls), 1)
+        self.assertEqual(sum(path.endswith("/task/query") for path in calls), 2)
+
+    async def test_unlimited_application_errors_use_three_error_flows(self):
+        responses = iter((18, 17, 100, 216201))
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            return httpx.Response(200, request=request, json={
+                "error_code": next(responses), "error_msg": "provider error",
+            })
+
+        client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+        config = UnlimitedOCRVendorConfig(
+            ak="ak", sk="sk", retry_times=0,
+        )
+        runtime = VendorOCRRuntime(
+            config, ConcurrentExecutor(FixedCapacity(1)),
+        )
+        runtime._client = client
+        error_types = (
+            RateLimitedError,
+            OCRBillingError,
+            NonContinuableError,
+            OperationError,
+        )
+        for error_type in error_types:
+            with self.assertRaises(error_type) as raised:
+                await runtime._post_form(
+                    "https://example.invalid", {}, 3, "Unlimited OCR query",
+                )
+            envelope = raised.exception.__cause__
+            self.assertIsInstance(envelope, VendorOCRRequestError)
+        await client.aclose()
 
     async def test_cancellation_stops_serial_render_and_cleans_temporary_files(self):
         render_started = threading.Event()
@@ -471,6 +638,53 @@ class VendorOCRConcurrencyTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(
             len([event for event in events if event.kind == OCREventKind.COMPLETE]),
             3,
+        )
+
+    async def test_second_stage_failure_reaches_ignore_callback_with_cause(self):
+        rendered: list[int] = []
+        ocr = OCR(
+            DeepSeekOCRVendorConfig(
+                base_url="https://example.invalid/v1",
+                api_key="key",
+                model="model",
+                retry_times=0,
+            ),
+            cast(Any, _Handler(rendered)),
+        )
+        ignored: list[OCRError] = []
+        original = RuntimeError("second-stage transport")
+
+        async def request(_runtime, vendor_request):
+            if vendor_request.page_index == 2 and vendor_request.stage_index == 2:
+                raise OperationError("stage two failed", cause=original)
+            return VendorOCRResponse({}, raw_text="", input_tokens=1, output_tokens=1)
+
+        def ignore(error: OCRError) -> bool:
+            ignored.append(error)
+            return True
+
+        with tempfile.TemporaryDirectory() as directory, patch.object(
+            VendorOCRRuntime, "_request_deepseek", new=request,
+        ):
+            root = Path(directory)
+            events = [
+                event
+                async for event in ocr.recognize_vendor(
+                    ConcurrentExecutor(FixedCapacity(3)),
+                    pdf_path=root / "source.pdf",
+                    asset_path=root / "assets",
+                    ocr_path=root / "ocr",
+                    includes_footnotes=True,
+                    ignore_ocr_errors=ignore,
+                )
+            ]
+
+        self.assertEqual(len(ignored), 1)
+        self.assertTrue(all(error.step_index == 2 for error in ignored))
+        self.assertTrue(all(error.__cause__ is not None for error in ignored))
+        self.assertEqual(
+            len([event for event in events if event.kind == OCREventKind.FAILED]),
+            1,
         )
 
     async def test_total_token_budget_is_cumulative_across_vendor_pages(self):

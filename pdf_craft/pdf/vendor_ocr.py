@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Any, Self
 
 import httpx
+from doc_page_extractor.errors import VendorOCRRequestError
 
 from ..concurrency import (
     AsyncExecutor,
@@ -36,6 +37,7 @@ class VendorOCRInput:
     page_index: int
     image_path: Path
     aborted: AbortedCheck
+    stage_index: int = 1
 
 
 @dataclass(frozen=True)
@@ -77,67 +79,140 @@ class VendorOCRRuntime:
             await client.aclose()
 
     async def request(self, request: VendorOCRInput) -> VendorOCRResponse:
-        async for result in self.request_many((request,)):
-            if result.error is not None:
-                raise result.error
-            assert result.response is not None
-            return result.response
-        raise RuntimeError("Vendor OCR request did not produce a result")
+        if isinstance(self.config, UnlimitedOCRVendorConfig):
+            check_aborted(request.aborted)
+            return await self._request_unlimited(request)
+        try:
+            return await self.executor.run(
+                lambda: self._request_once(request),
+            )
+        except NonContinuableError:
+            raise
+        except OperationError as error:
+            if not _is_retryable(error) or self.config.retry_times == 0:
+                raise
+            return await self._retry_request_after_error(
+                request, error, attempts_used=1,
+            )
 
     async def request_many(
         self, requests: Iterable[VendorOCRInput],
     ) -> AsyncIterator[VendorOCRResult]:
-        def initial_requests():
-            yield from enumerate(requests)
+        if isinstance(self.config, UnlimitedOCRVendorConfig):
+            async for result in self._request_many_independent(requests):
+                yield result
+            return
 
-        pending: Iterable[tuple[int, VendorOCRInput]] = initial_requests()
-        attempts: dict[int, int] = {}
-        while True:
-            scheduled: dict[int, tuple[int, VendorOCRInput]] = {}
+        scheduled: dict[int, VendorOCRInput] = {}
+        retries: dict[asyncio.Task[VendorOCRResponse], VendorOCRInput] = {}
 
-            def operations():
-                for order, request in pending:
-                    async def invoke(
-                        operation_id: int,
-                        order=order,
-                        request=request,
-                    ):
-                        scheduled[operation_id] = (order, request)
-                        response = await self._request_once(request)
-                        return operation_id, response
-                    yield invoke
+        def operations():
+            for request in requests:
+                async def invoke(operation_id: int, request=request):
+                    scheduled[operation_id] = request
+                    response = await self._request_once(request)
+                    return operation_id, response
+                yield invoke
 
-            retried: list[tuple[int, VendorOCRInput]] = []
-            delays: list[float] = []
+        try:
             async with aclosing(self.executor.map(operations())) as results:
                 async for result in results:
-                    order, request = scheduled.pop(result.operation_id)
+                    request = scheduled.pop(result.operation_id)
                     if result.succeeded:
                         assert result.value is not None
                         yield VendorOCRResult(request, response=result.value)
                         continue
                     error = result.error
                     assert error is not None
-                    attempts[order] = attempts.get(order, 0) + 1
-                    if (
-                        _is_retryable(error)
-                        and attempts[order] <= self.config.retry_times
-                    ):
-                        retried.append((order, request))
-                        delays.append(
-                            error.retry_after
-                            if isinstance(error, RateLimitedError)
-                            and error.retry_after is not None
-                            else self.config.retry_interval_seconds
-                        )
+                    if _is_retryable(error) and self.config.retry_times > 0:
+                        task = asyncio.create_task(self._retry_request_after_error(
+                            request, error, attempts_used=1,
+                        ))
+                        retries[task] = request
                         continue
                     yield VendorOCRResult(request, error=error)
-            if not retried:
-                break
-            pending = retried
-            delay = max(delays, default=self.config.retry_interval_seconds)
+            while retries:
+                done, _ = await asyncio.wait(
+                    retries, return_when=asyncio.FIRST_COMPLETED,
+                )
+                for task in done:
+                    request = retries.pop(task)
+                    try:
+                        yield VendorOCRResult(request, response=task.result())
+                    except NonContinuableError:
+                        raise
+                    except OperationError as error:
+                        yield VendorOCRResult(request, error=error)
+        finally:
+            for task in retries:
+                task.cancel()
+            if retries:
+                await asyncio.gather(*retries, return_exceptions=True)
+
+    async def _retry_request_after_error(
+        self,
+        request: VendorOCRInput,
+        error: OperationError,
+        *,
+        attempts_used: int,
+    ) -> VendorOCRResponse:
+        current = error
+        while attempts_used <= self.config.retry_times:
+            delay = (
+                current.retry_after
+                if isinstance(current, RateLimitedError)
+                and current.retry_after is not None
+                else self.config.retry_interval_seconds
+            )
             if delay > 0:
                 await asyncio.sleep(delay)
+            try:
+                return await self.executor.run(
+                    lambda: self._request_once(request),
+                )
+            except NonContinuableError:
+                raise
+            except OperationError as next_error:
+                current = next_error
+                attempts_used += 1
+                if not _is_retryable(current):
+                    raise
+        raise current
+
+    async def _request_many_independent(
+        self, requests: Iterable[VendorOCRInput],
+    ) -> AsyncIterator[VendorOCRResult]:
+        """Run page orchestration outside provider leases.
+
+        Unlimited OCR consists of several separately limited HTTP operations.
+        A page task owns only its task id and retry state; every token, submit,
+        query and download call reacquires the shared executor independently.
+        """
+        iterator = iter(requests)
+        tasks: dict[asyncio.Task[VendorOCRResponse], VendorOCRInput] = {}
+        try:
+            for request in iterator:
+                tasks[asyncio.create_task(self.request(request))] = request
+            while tasks:
+                done, _ = await asyncio.wait(
+                    tasks, return_when=asyncio.FIRST_COMPLETED,
+                )
+                for task in done:
+                    request = tasks.pop(task)
+                    try:
+                        yield VendorOCRResult(request, response=task.result())
+                    except NonContinuableError:
+                        raise
+                    except OperationError as error:
+                        yield VendorOCRResult(request, error=error)
+        finally:
+            for task in tasks:
+                task.cancel()
+            if tasks:
+                await asyncio.gather(*tasks, return_exceptions=True)
+            close = getattr(iterator, "close", None)
+            if close is not None:
+                close()
 
     async def _request_once(self, request: VendorOCRInput) -> VendorOCRResponse:
         check_aborted(request.aborted)
@@ -153,6 +228,11 @@ class VendorOCRRuntime:
             )
         except (NonContinuableError, OperationError):
             raise
+        except httpx.HTTPError as error:
+            envelope = _vendor_error(
+                str(error) or type(error).__name__, error,
+            )
+            raise OperationError(str(envelope), cause=envelope) from envelope
         except Exception as error:
             raise OperationError(
                 str(error) or type(error).__name__, cause=error,
@@ -224,33 +304,41 @@ class VendorOCRRuntime:
         encoded = base64.b64encode(
             await IO_DOMAIN.run(request.image_path.read_bytes)
         ).decode("ascii")
-        submit = await self._post_form(
-            self._unlimited_url(
-                "/rest/2.0/brain/online/v2/unlimited-ocr-parser/task", token,
-            ),
-            {
-                "file_data": encoded,
-                "file_name": request.image_path.name,
-            },
-            request.page_index,
-            "Unlimited OCR submit",
+        submit = await self._run_io_with_retry(
+            lambda: self._post_form(
+                self._unlimited_url(
+                    "/rest/2.0/brain/online/v2/unlimited-ocr-parser/task", token,
+                ),
+                {
+                    "file_data": encoded,
+                    "file_name": request.image_path.name,
+                },
+                request.page_index,
+                "Unlimited OCR submit",
+            )
         )
         task_id = str((submit.get("result") or {}).get("task_id") or "")
         if not task_id:
-            raise OperationError(
-                f"Unlimited OCR submit response did not include task_id: {submit}"
+            message = (
+                "Unlimited OCR submit response did not include task_id: "
+                f"{submit}"
             )
+            raw_error = RuntimeError(message)
+            envelope = _vendor_error(message, raw_error)
+            raise OperationError(message, cause=envelope) from envelope
         deadline = time.monotonic() + config.timeout_seconds
         while True:
             check_aborted(request.aborted)
-            data = await self._post_form(
-                self._unlimited_url(
-                    "/rest/2.0/brain/online/v2/unlimited-ocr-parser/task/query",
-                    token,
-                ),
-                {"task_id": task_id},
-                request.page_index,
-                "Unlimited OCR query",
+            data = await self._run_io_with_retry(
+                lambda: self._post_form(
+                    self._unlimited_url(
+                        "/rest/2.0/brain/online/v2/unlimited-ocr-parser/task/query",
+                        token,
+                    ),
+                    {"task_id": task_id},
+                    request.page_index,
+                    "Unlimited OCR query",
+                )
             )
             result = data.get("result") or {}
             status = result.get("status")
@@ -260,13 +348,16 @@ class VendorOCRRuntime:
                     raise OperationError(
                         f"Unlimited OCR task {task_id} did not return parse_result_url"
                     )
-                response = await self._require_client().get(
-                    parse_url,
-                    headers={"User-Agent": "pdf-craft-vendor-ocr/1.0"},
-                )
-                parsed = _checked_response(
-                    response, request.page_index, "Unlimited OCR download",
-                )
+                async def download() -> dict[str, Any]:
+                    response = await self._require_client().get(
+                        parse_url,
+                        headers={"User-Agent": "pdf-craft-vendor-ocr/1.0"},
+                    )
+                    return _checked_response(
+                        response, request.page_index, "Unlimited OCR download",
+                    )
+
+                parsed = await self._run_io_with_retry(download)
                 return VendorOCRResponse(data={
                     "task_id": task_id,
                     "status": status,
@@ -286,24 +377,33 @@ class VendorOCRRuntime:
                 return self._access_token
             config = self.config
             assert isinstance(config, UnlimitedOCRVendorConfig)
-            response = await self._require_client().post(
-                f"{config.base_url.rstrip('/')}/oauth/2.0/token",
-                headers={
-                    "Accept": "application/json",
-                    "User-Agent": "pdf-craft-vendor-ocr/1.0",
-                },
-                data={
-                    "grant_type": "client_credentials",
-                    "client_id": config.ak,
-                    "client_secret": config.sk,
-                },
-            )
-            data = _checked_response(response, page_index, "Unlimited OCR token")
+            async def fetch_token() -> dict[str, Any]:
+                response = await self._require_client().post(
+                    f"{config.base_url.rstrip('/')}/oauth/2.0/token",
+                    headers={
+                        "Accept": "application/json",
+                        "User-Agent": "pdf-craft-vendor-ocr/1.0",
+                    },
+                    data={
+                        "grant_type": "client_credentials",
+                        "client_id": config.ak,
+                        "client_secret": config.sk,
+                    },
+                )
+                return _checked_response(
+                    response, page_index, "Unlimited OCR token",
+                )
+
+            data = await self._run_io_with_retry(fetch_token)
             token = str(data.get("access_token") or "")
             if not token:
-                raise OperationError(
-                    f"Unlimited OCR token response did not include access_token: {data}"
+                message = (
+                    "Unlimited OCR token response did not include access_token: "
+                    f"{data}"
                 )
+                raw_error = RuntimeError(message)
+                envelope = _vendor_error(message, raw_error)
+                raise OperationError(message, cause=envelope) from envelope
             self._access_token = token
             return token
 
@@ -324,9 +424,38 @@ class VendorOCRRuntime:
             data=data,
         )
         result = _checked_response(response, page_index, action)
-        if int(result.get("error_code") or 0) != 0:
-            raise OperationError(f"{action} request failed: {result}")
+        error_code = int(result.get("error_code") or 0)
+        if error_code != 0:
+            _raise_unlimited_error(
+                action, page_index, error_code, result, response,
+            )
         return result
+
+    async def _run_io_with_retry(
+        self,
+        operation: Callable[[], Awaitable[dict[str, Any]]],
+    ) -> dict[str, Any]:
+        attempt = 0
+        while True:
+            try:
+                return await self.executor.run(
+                    lambda: _invoke_vendor_io(operation),
+                )
+            except NonContinuableError:
+                raise
+            except OperationError as error:
+                if not _is_retryable(error) or attempt >= self.config.retry_times:
+                    raise
+                rate_limit = error if isinstance(error, RateLimitedError) else None
+                delay = (
+                    rate_limit.retry_after
+                    if rate_limit is not None
+                    and rate_limit.retry_after is not None
+                    else self.config.retry_interval_seconds
+                )
+                if delay > 0:
+                    await asyncio.sleep(delay)
+                attempt += 1
 
     def _unlimited_url(self, path: str, token: str) -> str:
         config = self.config
@@ -366,30 +495,41 @@ def _checked_response(
 ) -> dict[str, Any]:
     if response.status_code >= 400:
         message = _response_message(response)
-        if response.status_code == 429:
-            raise RateLimitedError(
-                f"{action} was rate limited: {message}",
-                retry_after=_retry_after(response),
-            )
-        if response.status_code == 402:
-            raise OCRBillingError(page_index)
-        if response.status_code in (401, 403):
-            raise OCRFatalError(
-                f"{action} authorization failed with HTTP {response.status_code}: "
-                f"{message}"
-            )
-        error = httpx.HTTPStatusError(
+        raw_error = httpx.HTTPStatusError(
             f"{action} failed with HTTP {response.status_code}: {message}",
             request=response.request,
             response=response,
         )
-        raise OperationError(str(error), cause=error) from error
+        envelope = _vendor_error(str(raw_error), raw_error)
+        if response.status_code == 429:
+            if _is_quota_response(response):
+                error = OCRBillingError(page_index)
+                raise error from envelope
+            raise RateLimitedError(
+                f"{action} was rate limited: {message}",
+                retry_after=_retry_after(response),
+                cause=envelope,
+            ) from envelope
+        if response.status_code == 402:
+            error = OCRBillingError(page_index)
+            raise error from envelope
+        if response.status_code in (401, 403):
+            error = OCRFatalError(
+                f"{action} authorization failed with HTTP {response.status_code}: "
+                f"{message}"
+            )
+            raise error from envelope
+        raise OperationError(str(raw_error), cause=envelope) from envelope
     try:
         data = response.json()
     except (json.JSONDecodeError, ValueError) as error:
-        raise OperationError(f"{action} returned invalid JSON", cause=error) from error
+        envelope = _vendor_error(f"{action} returned invalid JSON", error)
+        raise OperationError(str(envelope), cause=envelope) from envelope
     if not isinstance(data, dict):
-        raise OperationError(f"{action} returned a non-object JSON response")
+        message = f"{action} returned a non-object JSON response"
+        raw_error = RuntimeError(message)
+        envelope = _vendor_error(message, raw_error)
+        raise OperationError(message, cause=envelope) from envelope
     return data
 
 
@@ -416,10 +556,82 @@ def _retry_after(response: httpx.Response) -> float | None:
 def _is_retryable(error: OperationError) -> bool:
     if isinstance(error, RateLimitedError):
         return True
-    cause = error.__cause__
+    cause = _root_cause(error)
     if isinstance(cause, httpx.TransportError):
         return True
     return (
         isinstance(cause, httpx.HTTPStatusError)
-        and cause.response.status_code >= 500
+        and (
+            cause.response.status_code == 408
+            or cause.response.status_code >= 500
+        )
     )
+
+
+def _vendor_error(message: str, cause: Exception) -> VendorOCRRequestError:
+    error = VendorOCRRequestError(message)
+    error.__cause__ = cause
+    return error
+
+
+async def _invoke_vendor_io(
+    operation: Callable[[], Awaitable[dict[str, Any]]],
+) -> dict[str, Any]:
+    try:
+        return await operation()
+    except (OperationError, NonContinuableError):
+        raise
+    except Exception as error:
+        envelope = _vendor_error(
+            str(error) or type(error).__name__, error,
+        )
+        raise OperationError(str(envelope), cause=envelope) from envelope
+
+
+def _root_cause(error: BaseException) -> BaseException:
+    current = error
+    visited: set[int] = set()
+    while current.__cause__ is not None and id(current) not in visited:
+        visited.add(id(current))
+        current = current.__cause__
+    return current
+
+
+def _is_quota_response(response: httpx.Response) -> bool:
+    try:
+        body = response.json()
+    except ValueError:
+        return False
+    if not isinstance(body, dict):
+        return False
+    provider_error = body.get("error")
+    if not isinstance(provider_error, dict):
+        return False
+    code = str(provider_error.get("code") or "").lower()
+    error_type = str(provider_error.get("type") or "").lower()
+    return code in {"insufficient_quota", "quota_exceeded", "billing_not_active"} or (
+        error_type in {"insufficient_quota", "quota_exceeded", "billing_not_active"}
+    )
+
+
+def _raise_unlimited_error(
+    action: str,
+    page_index: int,
+    error_code: int,
+    response_data: dict[str, Any],
+    response: httpx.Response,
+) -> None:
+    message = f"{action} request failed ({error_code}): {response_data}"
+    raw_error = httpx.HTTPStatusError(
+        message, request=response.request, response=response,
+    )
+    envelope = _vendor_error(message, raw_error)
+    if error_code == 18:
+        raise RateLimitedError(message, cause=envelope) from envelope
+    if error_code in {4, 17, 19}:
+        error = OCRBillingError(page_index)
+        raise error from envelope
+    if error_code in {6, 14, 100, 110, 111}:
+        error = OCRFatalError(message)
+        raise error from envelope
+    raise OperationError(message, cause=envelope) from envelope

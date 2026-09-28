@@ -27,6 +27,9 @@ from .types import DeepSeekOCRSize, PDFDocumentMetadata, encode
 from .vendor_ocr import VendorOCRInput, VendorOCRRuntime, VendorOCRResponse
 
 
+_T = TypeVar("_T", bound=Exception)
+
+
 class OCREventKind(Enum):
     START = auto()
     IGNORE = auto()
@@ -240,20 +243,22 @@ class OCR:
                 page_index = item.page_index
                 recognized_error: Exception | None = None
                 if operation_error is not None:
-                    cause = operation_error.__cause__
                     from doc_page_extractor.extraction_context import (
                         ExtractionAbortedError,
                     )
-                    if isinstance(cause, ExtractionAbortedError):
-                        raise cause
-                    recognized_error = (
-                        cause if isinstance(cause, Exception) else operation_error
+                    interrupted = _find_cause(
+                        operation_error, ExtractionAbortedError,
                     )
+                    if interrupted is not None:
+                        raise interrupted
+                    cause = operation_error.__cause__
+                    recognized_error = cause if isinstance(cause, OCRError) else None
                     if not isinstance(recognized_error, OCRError):
                         recognized_error = OCRError(
-                            f"Failed to extract page {page_index} layout.",
+                            f"Failed to extract page {page_index} layout at stage 1.",
                             page_index, 1,
                         )
+                        recognized_error.__cause__ = operation_error
                     if not _check_ignore_error(ignore_ocr_errors, recognized_error):
                         raise recognized_error
 
@@ -371,10 +376,15 @@ class OCR:
         plot_path: Path | None,
         aborted: AbortedCheck,
     ) -> Page:
-        first_response = await runtime.request(VendorOCRInput(
-            item.page_index, item.request_path, aborted,
-        ))
         try:
+            try:
+                first_response = await runtime.request(VendorOCRInput(
+                    item.page_index, item.request_path, aborted, 1,
+                ))
+            except NonContinuableError:
+                raise
+            except Exception as error:
+                raise _vendor_page_error(item.page_index, 1, error) from error
             first_result = await OCR_DOMAIN.run(
                 _parse_vendor_response, self._config, item, first_response,
             )
@@ -389,21 +399,26 @@ class OCR:
                     Path(item.image_path.parent),
                     aborted,
                 )
-                second_response = await runtime.request(VendorOCRInput(
-                    item.page_index, second_path, aborted,
-                ))
-                second_result = await OCR_DOMAIN.run(
-                    _parse_vendor_response,
-                    self._config,
-                    _PreparedVendorPage(
-                        item.page_index,
-                        item.image_path,
-                        second_path,
-                        item.started,
-                        item.total_pages,
-                    ),
-                    second_response,
-                )
+                try:
+                    second_response = await runtime.request(VendorOCRInput(
+                        item.page_index, second_path, aborted, 2,
+                    ))
+                    second_result = await OCR_DOMAIN.run(
+                        _parse_vendor_response,
+                        self._config,
+                        _PreparedVendorPage(
+                            item.page_index,
+                            item.image_path,
+                            second_path,
+                            item.started,
+                            item.total_pages,
+                        ),
+                        second_response,
+                    )
+                except NonContinuableError:
+                    raise
+                except Exception as error:
+                    raise _vendor_page_error(item.page_index, 2, error) from error
                 results.append((second_path, second_result))
                 input_tokens += second_response.input_tokens
                 output_tokens += second_response.output_tokens
@@ -439,13 +454,15 @@ class OCR:
         ] = {}
 
         first_requests = (
-            VendorOCRInput(item.page_index, item.request_path, aborted)
+            VendorOCRInput(item.page_index, item.request_path, aborted, 1)
             for item in prepared
         )
         async for result in runtime.request_many(first_requests):
             item = by_page[result.request.page_index]
             if result.error is not None:
-                yield item, None, result.error
+                yield item, None, _vendor_page_error(
+                    item.page_index, result.request.stage_index, result.error,
+                )
                 continue
             assert result.response is not None
             try:
@@ -483,7 +500,7 @@ class OCR:
             return
 
         second_requests = (
-            VendorOCRInput(page_index, values[3], aborted)
+            VendorOCRInput(page_index, values[3], aborted, 2)
             for page_index, values in second_stage.items()
         )
         async for result in runtime.request_many(second_requests):
@@ -491,7 +508,9 @@ class OCR:
                 result.request.page_index
             ]
             if result.error is not None:
-                yield item, None, result.error
+                yield item, None, _vendor_page_error(
+                    item.page_index, result.request.stage_index, result.error,
+                )
                 continue
             assert result.response is not None
             try:
@@ -948,8 +967,6 @@ def _vendor_page_error(
     step_index: int,
     error: Exception,
 ) -> OperationError:
-    if isinstance(error, OperationError):
-        return error
     ocr_error = OCRError(
         f"Failed to extract page {page_index} layout at stage {step_index}.",
         page_index=page_index,
@@ -959,8 +976,18 @@ def _vendor_page_error(
     return OperationError(str(ocr_error), cause=ocr_error)
 
 
-_T = TypeVar("_T", bound=Exception)
-
+def _find_cause(
+    error: BaseException,
+    error_type: type[_T],
+) -> _T | None:
+    current: BaseException | None = error
+    visited: set[int] = set()
+    while current is not None and id(current) not in visited:
+        if isinstance(current, error_type):
+            return current
+        visited.add(id(current))
+        current = current.__cause__ or current.__context__
+    return None
 
 def _check_ignore_error(check: bool | Callable[[_T], bool], error: _T) -> bool:
     if isinstance(check, bool):

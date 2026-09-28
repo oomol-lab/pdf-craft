@@ -9,9 +9,11 @@ from xml.etree.ElementTree import Element
 
 import httpx
 
-from pdf_craft import ConcurrentExecutor, FixedCapacity
+from pdf_craft import ConcurrentExecutor, FixedCapacity, NonContinuableError
 from pdf_craft.llm import LLM, Message, MessageRole, runtime_for
-from pdf_craft.llm.runtime import LLMEmptyResponseError, LLMRuntime, LLMTransportError
+from pdf_craft.llm.runtime import (
+    LLMEmptyResponseError, LLMRuntime, LLMTransportError, _provider_error,
+)
 from pdf_craft.pipeline.epub.translation.translator import translate as translate_epub
 from pdf_craft.transformer.xml_translator import (
     SubmitKind, TranslationTask, XMLTranslator,
@@ -161,6 +163,25 @@ class TestLLMRuntime(unittest.IsolatedAsyncioTestCase):
                 await runtime.request("hello", use_cache=False)
             self.assertEqual(raised.exception.attempts, 1)
             self.assertIsInstance(raised.exception.__cause__, ValueError)
+
+    def test_429_insufficient_quota_is_non_continuable(self):
+        request = httpx.Request("POST", "https://example.invalid/v1/chat")
+        response = httpx.Response(429, request=request, json={
+            "error": {"type": "insufficient_quota", "code": None},
+        })
+
+        class ProviderError(Exception):
+            status_code = 429
+
+            def __init__(self):
+                super().__init__("quota")
+                self.response = response
+
+        error = ProviderError()
+        classified = _provider_error(error)
+
+        self.assertIsInstance(classified, NonContinuableError)
+        self.assertIs(classified.__cause__, error)
 
     async def test_async_transport_retries_connect_failure_over_ipv4(self):
         with tempfile.TemporaryDirectory() as directory:

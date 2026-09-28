@@ -66,8 +66,7 @@ class JEVRuntime:
             await client.__aexit__(exc_type, exc_value, traceback)
 
     async def evaluate(self, page_index: int, request: dict[str, Any]) -> float:
-        results = await self.evaluate_many(((page_index, request),))
-        return results[0][1]
+        return await self._evaluate_with_retry(page_index, request)
 
     async def evaluate_many(
         self, requests: Iterable[tuple[int, dict[str, Any]]],
@@ -78,37 +77,24 @@ class JEVRuntime:
             for order, (page_index, request) in enumerate(requests):
                 yield order, page_index, request
 
-        pending: Iterable[tuple[int, int, dict[str, Any]]] = initial_requests()
-        attempts: dict[int, int] = {}
         completed: list[tuple[int, int, float]] = []
-        while True:
-            scheduled: dict[int, tuple[int, int, dict[str, Any]]] = {}
+        scheduled: dict[int, tuple[int, int, dict[str, Any]]] = {}
+        retries: dict[asyncio.Task[float], tuple[int, int]] = {}
 
-            def operations():
-                for order, page_index, request in pending:
-                    async def invoke(
-                        operation_id: int,
-                        order=order,
-                        page_index=page_index,
-                        request=request,
-                    ):
-                        scheduled[operation_id] = (order, page_index, request)
-                        assert self._client is not None
-                        try:
-                            response = await self._client.system_one(
-                                state=request["state"],
-                                questions=request["questions"],
-                            )
-                        except Exception as error:
-                            raise _provider_error(error) from error
-                        probability = float(
-                            response.nouls["page_passes_strict_standard"].noul
-                        )
-                        return operation_id, probability
-                    yield invoke
+        def operations():
+            for order, page_index, request in initial_requests():
+                async def invoke(
+                    operation_id: int,
+                    order=order,
+                    page_index=page_index,
+                    request=request,
+                ):
+                    scheduled[operation_id] = (order, page_index, request)
+                    probability = await self._evaluate_once(request)
+                    return operation_id, probability
+                yield invoke
 
-            retried: list[tuple[int, int, dict[str, Any]]] = []
-            delays: list[float] = []
+        try:
             async with aclosing(self.executor.map(operations())) as results:
                 async for result in results:
                     order, page_index, request = scheduled.pop(result.operation_id)
@@ -118,29 +104,85 @@ class JEVRuntime:
                         continue
                     error = result.error
                     assert error is not None
-                    attempts[order] = attempts.get(order, 0) + 1
-                    if (
-                        _is_retryable(error)
-                        and attempts[order] <= self.config.retry_times
-                    ):
-                        retried.append((order, page_index, request))
-                        if isinstance(error, RateLimitedError):
-                            delays.append(
-                                error.retry_after
-                                if error.retry_after is not None else 0.5
-                            )
+                    if _is_retryable(error) and self.config.retry_times > 0:
+                        task = asyncio.create_task(self._retry_after_error(
+                            request, error, attempts_used=1,
+                        ))
+                        retries[task] = (order, page_index)
                         continue
                     raise error
-            if not retried:
-                break
-            pending = retried
-            delay = max(delays, default=0.5)
-            if delay > 0:
-                await asyncio.sleep(delay)
+            while retries:
+                done, _ = await asyncio.wait(
+                    retries, return_when=asyncio.FIRST_COMPLETED,
+                )
+                for task in done:
+                    order, page_index = retries.pop(task)
+                    completed.append((order, page_index, task.result()))
+        finally:
+            for task in retries:
+                task.cancel()
+            if retries:
+                await asyncio.gather(*retries, return_exceptions=True)
         return [
             (page_index, probability)
             for _, page_index, probability in sorted(completed)
         ]
+
+    async def _evaluate_once(self, request: dict[str, Any]) -> float:
+        assert self._client is not None
+        try:
+            response = await self._client.system_one(
+                state=request["state"],
+                questions=request["questions"],
+            )
+        except Exception as error:
+            raise _provider_error(error) from error
+        return float(response.nouls["page_passes_strict_standard"].noul)
+
+    async def _evaluate_with_retry(
+        self, page_index: int, request: dict[str, Any],
+    ) -> float:
+        del page_index
+        try:
+            return await self.executor.run(lambda: self._evaluate_once(request))
+        except NonContinuableError:
+            raise
+        except OperationError as error:
+            if not _is_retryable(error) or self.config.retry_times == 0:
+                raise
+            return await self._retry_after_error(
+                request, error, attempts_used=1,
+            )
+
+    async def _retry_after_error(
+        self,
+        request: dict[str, Any],
+        error: OperationError,
+        *,
+        attempts_used: int,
+    ) -> float:
+        current = error
+        while attempts_used <= self.config.retry_times:
+            delay = (
+                current.retry_after
+                if isinstance(current, RateLimitedError)
+                and current.retry_after is not None
+                else 0.5
+            )
+            if delay > 0:
+                await asyncio.sleep(delay)
+            try:
+                return await self.executor.run(
+                    lambda: self._evaluate_once(request),
+                )
+            except NonContinuableError:
+                raise
+            except OperationError as next_error:
+                current = next_error
+                attempts_used += 1
+                if not _is_retryable(current):
+                    raise
+        raise current
 
 
 JEVRequest = Callable[[int, dict[str, Any]], Awaitable[float]]
