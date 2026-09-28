@@ -243,9 +243,15 @@ async def _repair_pages(
         )
         return page_index, result
 
-    async with asyncio.TaskGroup() as group:
-        tasks = [group.create_task(repair(page_index)) for page_index in page_indexes]
-    results = dict(task.result() for task in tasks)
+    tasks = [asyncio.create_task(repair(page_index)) for page_index in page_indexes]
+    try:
+        completed = await asyncio.gather(*tasks)
+    except BaseException:
+        for task in tasks:
+            task.cancel()
+        await asyncio.gather(*tasks, return_exceptions=True)
+        raise
+    results = dict(completed)
     for page_index in page_indexes:
         repaired[positions[page_index]] = results[page_index]
         repair_order[page_index] = len(repair_order)

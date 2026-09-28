@@ -290,7 +290,10 @@ class ConcurrentExecutor:
     ) -> AsyncIterator[OperationResult[T]]:
         self._bind_loop()
         iterator = iter(operations)
-        completed: asyncio.Queue[_Completed[T]] = asyncio.Queue()
+        # A completed operation keeps its lease until the consumer accepts the
+        # result.  Together with this single-slot handoff, that bounds both
+        # input consumption and completed-result buffering by executor capacity.
+        completed: asyncio.Queue[_Completed[T]] = asyncio.Queue(maxsize=1)
         running: set[asyncio.Task[None]] = set()
         producer: asyncio.Task[None] | None = None
 
@@ -299,30 +302,61 @@ class ConcurrentExecutor:
             operation: AsyncOperation[T],
             lease: CapacityLease,
         ) -> None:
+            started = time.monotonic()
+            task = asyncio.current_task()
+            if task is not None:
+                self._active.add(cast(asyncio.Task[object], task))
+            report = ExecutionReport(0, ExecutionOutcome.CANCELLED)
             try:
-                async def invoke() -> T:
-                    returned_id, value = await operation(operation_id)
-                    if returned_id != operation_id:
-                        raise ValueError(
-                            f"operation returned id {returned_id}, expected {operation_id}"
-                        )
-                    return value
-
-                value = await self._execute(invoke, lease)
+                returned_id, value = await operation(operation_id)
+                if returned_id != operation_id:
+                    raise ValueError(
+                        f"operation returned id {returned_id}, expected {operation_id}"
+                    )
+                report = ExecutionReport(
+                    time.monotonic() - started, ExecutionOutcome.SUCCESS,
+                )
                 await completed.put(_Completed(
                     result=OperationResult(operation_id, value=value),
                 ))
+            except asyncio.CancelledError as error:
+                report = ExecutionReport(
+                    time.monotonic() - started, ExecutionOutcome.CANCELLED, error,
+                )
+                raise
             except NonContinuableError as error:
                 error.for_operation(operation_id)
+                report = ExecutionReport(
+                    time.monotonic() - started, ExecutionOutcome.FAILED, error,
+                )
+                await self._terminate(error, current=task)
                 await completed.put(_Completed(fatal=error))
             except OperationError as error:
+                report = ExecutionReport(
+                    time.monotonic() - started, ExecutionOutcome.FAILED, error,
+                )
                 await completed.put(_Completed(result=OperationResult(
                     operation_id, error=error.for_operation(operation_id),
                 )))
-            except asyncio.CancelledError:
-                raise
+            except Exception as error:
+                wrapped = OperationError(
+                    str(error) or type(error).__name__, cause=error,
+                ).for_operation(operation_id)
+                report = ExecutionReport(
+                    time.monotonic() - started, ExecutionOutcome.FAILED, wrapped,
+                )
+                await completed.put(_Completed(result=OperationResult(
+                    operation_id, error=wrapped,
+                )))
             except BaseException as error:
+                report = ExecutionReport(
+                    time.monotonic() - started, ExecutionOutcome.FAILED, error,
+                )
                 await completed.put(_Completed(unexpected=error))
+            finally:
+                if task is not None:
+                    self._active.discard(cast(asyncio.Task[object], task))
+                await lease.release(report)
 
         async def produce() -> None:
             operation_id = 0
@@ -348,7 +382,9 @@ class ConcurrentExecutor:
                     task.add_done_callback(running.discard)
                     operation_id += 1
             finally:
-                await completed.put(_Completed(producer_done=True))
+                current = asyncio.current_task()
+                if current is None or not current.cancelling():
+                    await completed.put(_Completed(producer_done=True))
 
         producer = asyncio.create_task(produce())
         producer_done = False

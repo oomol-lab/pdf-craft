@@ -11,6 +11,7 @@ from pdf_craft import ConcurrentExecutor, DeepSeekOCRVendorConfig, FixedCapacity
 from pdf_craft.error import OCRError
 from pdf_craft.pdf.ocr import OCR, OCREventKind
 from pdf_craft.pdf.types import Page
+from doc_page_extractor.extraction_context import TokenLimitError
 
 
 class _Document:
@@ -46,10 +47,17 @@ class _Extractor:
         self.active = 0
         self.maximum = 0
         self.started_after_render: list[bool] = []
+        self.budgets: list[tuple[int | None, int | None]] = []
 
-    def image2page(self, *, page_index: int, **_kwargs) -> Page:
+    def image2page(
+        self, *, page_index: int,
+        max_tokens: int | None = None,
+        max_output_tokens: int | None = None,
+        **_kwargs,
+    ) -> Page:
         with self._lock:
             self.started_after_render.append(self._rendered == [1, 2, 3])
+            self.budgets.append((max_tokens, max_output_tokens))
             self.active += 1
             self.maximum = max(self.maximum, self.active)
         try:
@@ -106,6 +114,60 @@ class VendorOCRConcurrencyTests(unittest.IsolatedAsyncioTestCase):
                 next(event.kind for event in terminal if event.page_index == 2),
                 OCREventKind.FAILED,
             )
+
+    async def test_total_token_budget_is_cumulative_across_vendor_pages(self):
+        rendered: list[int] = []
+        ocr = OCR(
+            DeepSeekOCRVendorConfig(
+                base_url="https://example.invalid/v1",
+                api_key="key",
+                model="model",
+            ),
+            cast(Any, _Handler(rendered)),
+        )
+        extractor = _Extractor(rendered)
+        ocr.__dict__["_extractor"] = extractor
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            with self.assertRaises(TokenLimitError):
+                async for _ in ocr.recognize_vendor(
+                    ConcurrentExecutor(FixedCapacity(3)),
+                    pdf_path=root / "source.pdf",
+                    asset_path=root / "assets",
+                    ocr_path=root / "ocr",
+                    max_tokens=2,
+                ):
+                    pass
+
+        self.assertEqual(extractor.budgets, [(2, None)])
+
+    async def test_output_token_budget_is_cumulative_across_vendor_pages(self):
+        rendered: list[int] = []
+        ocr = OCR(
+            DeepSeekOCRVendorConfig(
+                base_url="https://example.invalid/v1",
+                api_key="key",
+                model="model",
+            ),
+            cast(Any, _Handler(rendered)),
+        )
+        extractor = _Extractor(rendered)
+        ocr.__dict__["_extractor"] = extractor
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            with self.assertRaises(TokenLimitError):
+                async for _ in ocr.recognize_vendor(
+                    ConcurrentExecutor(FixedCapacity(3)),
+                    pdf_path=root / "source.pdf",
+                    asset_path=root / "assets",
+                    ocr_path=root / "ocr",
+                    max_output_tokens=1,
+                ):
+                    pass
+
+        self.assertEqual(extractor.budgets, [(None, 1)])
 
 
 if __name__ == "__main__":

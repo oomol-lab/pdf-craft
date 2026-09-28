@@ -236,5 +236,6 @@ PDFCraft(pdf=PDFOptions(
 - `local_only=True` 不会替你下载缺失模型；请先完成模型下载。
 - vendor OCR 依赖网络和有效凭据，`base_url`、模型名及凭据错误会在请求阶段失败。
 - vendor OCR 只把远程供应商请求交给 `ocr_executor` 并发；PDF 渲染与后续处理仍保持串行。
+- 设置任一累计 OCR token 预算后，vendor 请求会逐页结算并将精确的剩余预算传给下一页。
 - `ocr_size` 由提取选项控制，不能用来改变 vendor/local backend；backend 由 OCR 配置对象决定。
 - 翻译所需的文本 LLM 与 OCR backend 是两套独立配置，本指南不讨论翻译配置。

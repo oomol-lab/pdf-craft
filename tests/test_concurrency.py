@@ -72,6 +72,29 @@ class AsyncExecutorTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(closed)
         self.assertLess(pulled, 20)
 
+    async def test_map_stops_pulling_while_consumer_leaves_result_queued(self):
+        executor = ConcurrentExecutor(FixedCapacity(1))
+        pulled = 0
+
+        def operations():
+            nonlocal pulled
+            for value in range(10_000):
+                pulled += 1
+
+                async def operation(operation_id: int, value=value):
+                    return operation_id, value
+                yield operation
+
+        stream = executor.map(operations())
+        first = await anext(stream)
+        self.assertEqual(first.value, 0)
+        await asyncio.sleep(0.05)
+        paused_at = pulled
+        await asyncio.sleep(0.05)
+        self.assertEqual(pulled, paused_at)
+        self.assertLessEqual(pulled, 3)
+        await getattr(stream, "aclose")()
+
     async def test_map_returns_recoverable_failures_with_operation_id(self):
         executor = ConcurrentExecutor(FixedCapacity(2))
 

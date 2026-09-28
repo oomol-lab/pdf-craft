@@ -68,4 +68,5 @@ OCR recognizes pages only. Text translation uses a separate LLM configuration; s
 
 Vendor OCR renders PDF pages serially, then submits only the remote OCR operations through
 `ocr_executor`. Skipped pages and ignored failures are terminal page outcomes and do not hold up
-the remaining extraction pipeline.
+the remaining extraction pipeline. When either cumulative OCR token budget is set, vendor requests
+settle one page at a time so the next request receives the exact remaining budget.

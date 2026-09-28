@@ -12,7 +12,7 @@ from typing import Callable, Container, Generator, TypeVar
 from PIL.Image import Image
 
 from ..common import AssetHub, save_xml
-from ..concurrency import AsyncExecutor
+from ..concurrency import AsyncExecutor, NonContinuableError, OperationError
 from ..error import IgnoreOCRErrorsChecker, IgnorePDFErrorsChecker, OCRError, PDFError
 from ..metering import AbortedCheck, check_aborted
 from ..ocr_config import (
@@ -186,48 +186,45 @@ class OCR:
             for event in events:
                 yield event
 
-            def operations():
-                for page_index, image_path, started, total_pages in prepared:
-                    async def recognize(
-                        operation_id: int,
-                        page_index=page_index,
-                        image_path=image_path,
-                        started=started,
-                        total_pages=total_pages,
-                    ):
-                        def execute():
-                            from PIL import Image as PILImage
-                            with PILImage.open(image_path) as opened:
-                                image = opened.copy()
-                            return self._extractor.image2page(
-                                image=image,
-                                page_index=page_index,
-                                asset_hub=asset_hub,
-                                ocr_size=ocr_size,
-                                includes_footnotes=includes_footnotes,
-                                includes_raw_image=(page_index == 1),
-                                plot_path=plot_path,
-                                max_tokens=max_tokens,
-                                max_output_tokens=max_output_tokens,
-                                device_number=None,
-                                aborted=aborted,
-                            )
-                        page = await IO_DOMAIN.run(execute)
-                        return operation_id, (page_index, page, started, total_pages)
-                    yield recognize
+            async def recognize_page(
+                item: tuple[int, Path, float, int],
+                remaining_tokens: int | None,
+                remaining_output_tokens: int | None,
+            ) -> Page:
+                page_index, image_path, _, _ = item
 
-            async for result in executor.map(operations()):
-                page_index, image_path, started, total_pages = prepared[result.operation_id]
+                def execute():
+                    from PIL import Image as PILImage
+                    with PILImage.open(image_path) as opened:
+                        image = opened.copy()
+                    return self._extractor.image2page(
+                        image=image,
+                        page_index=page_index,
+                        asset_hub=asset_hub,
+                        ocr_size=ocr_size,
+                        includes_footnotes=includes_footnotes,
+                        includes_raw_image=(page_index == 1),
+                        plot_path=plot_path,
+                        max_tokens=remaining_tokens,
+                        max_output_tokens=remaining_output_tokens,
+                        device_number=None,
+                        aborted=aborted,
+                    )
+
+                return await IO_DOMAIN.run(execute)
+
+            async def finish_page(
+                item: tuple[int, Path, float, int],
+                page: Page | None,
+                operation_error: OperationError | None,
+            ) -> OCREvent:
+                nonlocal usable_pages
+                page_index, image_path, started, total_pages = item
                 recognized_error: Exception | None = None
-                page: Page | None = None
-                if result.succeeded:
-                    assert result.value is not None
-                    _, page, _, _ = result.value
-                else:
-                    assert result.error is not None
-                    cause = result.error.__cause__
+                if operation_error is not None:
+                    cause = operation_error.__cause__
                     recognized_error = (
-                        cause if isinstance(cause, Exception) else result.error
+                        cause if isinstance(cause, Exception) else operation_error
                     )
                     if not isinstance(recognized_error, OCRError):
                         recognized_error = OCRError(
@@ -270,7 +267,7 @@ class OCR:
                     usable_pages += 1
                 else:
                     terminal_failures.append(page_index)
-                yield OCREvent(
+                return OCREvent(
                     OCREventKind.COMPLETE if recognized_error is None else OCREventKind.FAILED,
                     page_index, total_pages,
                     int((time.perf_counter() - started) * 1000),
@@ -278,6 +275,52 @@ class OCR:
                     committed_page.output_tokens,
                     recognized_error,
                 )
+
+            if max_tokens is not None or max_output_tokens is not None:
+                # Cumulative limits require each completed page to settle before
+                # the next request is admitted.  This keeps the public budget
+                # exact instead of multiplying it by concurrent in-flight pages.
+                remaining_tokens = max_tokens
+                remaining_output_tokens = max_output_tokens
+                from doc_page_extractor.extraction_context import TokenLimitError
+
+                for item in prepared:
+                    if remaining_tokens is not None and remaining_tokens <= 0:
+                        raise TokenLimitError()
+                    if (
+                        remaining_output_tokens is not None
+                        and remaining_output_tokens <= 0
+                    ):
+                        raise TokenLimitError()
+                    page = None
+                    operation_error = None
+                    try:
+                        page = await executor.run(lambda item=item: recognize_page(
+                            item, remaining_tokens, remaining_output_tokens,
+                        ))
+                    except NonContinuableError:
+                        raise
+                    except OperationError as error:
+                        operation_error = error
+                    event = await finish_page(item, page, operation_error)
+                    if remaining_tokens is not None:
+                        remaining_tokens -= event.input_tokens + event.output_tokens
+                    if remaining_output_tokens is not None:
+                        remaining_output_tokens -= event.output_tokens
+                    yield event
+            else:
+                def operations():
+                    for item in prepared:
+                        async def recognize(operation_id: int, item=item):
+                            page = await recognize_page(item, None, None)
+                            return operation_id, page
+                        yield recognize
+
+                async for result in executor.map(operations()):
+                    item = prepared[result.operation_id]
+                    page = result.value if result.succeeded else None
+                    event = await finish_page(item, page, result.error)
+                    yield event
             await IO_DOMAIN.run(self._save_page_pixel_sizes, geometry_path)
             if terminal_failures and usable_pages == 0:
                 from ..error import NoUsableOCRPagesError

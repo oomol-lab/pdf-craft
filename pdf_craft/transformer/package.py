@@ -180,12 +180,17 @@ class ChapterExtractionTransformer:
                     emit_item_events=False,
                 )
 
-            async with asyncio.TaskGroup() as group:
-                pending_chapters = [
-                    group.create_task(translate_chapter(task))
-                    for task in chapter_tasks
-                ]
-            transformed_chapters = [task.result() for task in pending_chapters]
+            pending_chapters = [
+                asyncio.create_task(translate_chapter(task))
+                for task in chapter_tasks
+            ]
+            try:
+                transformed_chapters = await asyncio.gather(*pending_chapters)
+            except BaseException:
+                for pending in pending_chapters:
+                    pending.cancel()
+                await asyncio.gather(*pending_chapters, return_exceptions=True)
+                raise
 
         for task_index, (path, chapter, item_id, character_count) in enumerate(chapter_tasks):
             source_layouts = {
