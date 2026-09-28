@@ -105,6 +105,86 @@ class TestTranslationEvents(unittest.TestCase):
 
 
 class TestCrossChapterTranslation(unittest.IsolatedAsyncioTestCase):
+    async def test_fast_chapter_reports_progress_before_slow_chapter_finishes(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source_root = root / "source"
+            source = make_extraction(source_root, page_pixel_sizes={1: (10, 10)})
+            texts = {1: "slow chapter", 2: "fast chapter"}
+            for chapter_id, text in texts.items():
+                chapter = Chapter(chapter_id, 1, [TextFlowItem(
+                    "body", 0, [SourceTextFragment(
+                        1, 1, (1, 1, 5, 5), [text],
+                    )],
+                )])
+                (source_root / "chapters" / f"chapter_{chapter_id}.xml").write_text(
+                    '<?xml version="1.0" encoding="UTF-8"?>\n'
+                    + tostring(encode(chapter), encoding="unicode")
+                )
+
+            class GatedTranslator:
+                target_language = "en"
+
+                def __init__(self):
+                    self.slow_started = asyncio.Event()
+                    self.release_slow = asyncio.Event()
+
+                async def translate_element(self, task, **_kwargs):
+                    if task.item_id == 1:
+                        self.slow_started.set()
+                        await self.release_slow.wait()
+                    return task.element, task.payload
+
+            translator = GatedTranslator()
+            transform = ChapterExtractionTransformer(
+                ChapterXMLTransformer(translator)
+            )
+            events = []
+            fast_reported = asyncio.Event()
+            callback_active = False
+
+            async def record(event):
+                nonlocal callback_active
+                self.assertFalse(callback_active)
+                callback_active = True
+                await asyncio.sleep(0)
+                events.append(event)
+                if (
+                    event.kind == TranslationEventKind.ITEM_COMPLETE
+                    and event.item_id == 2
+                ):
+                    fast_reported.set()
+                callback_active = False
+
+            pending = asyncio.create_task(transform._transform_to_workspace_async(
+                source,
+                root / "target",
+                on_translation_event=record,
+                emit_translation_events=True,
+            ))
+            await asyncio.wait_for(translator.slow_started.wait(), timeout=1)
+            try:
+                await asyncio.wait_for(fast_reported.wait(), timeout=1)
+                self.assertFalse(any(
+                    event.kind == TranslationEventKind.ITEM_COMPLETE
+                    and event.item_id == 1
+                    for event in events
+                ))
+                fast_progress = next(
+                    event for event in events
+                    if event.kind == TranslationEventKind.PROGRESS
+                    and event.item_id == 2
+                )
+                self.assertEqual(
+                    fast_progress.completed_characters,
+                    len(texts[2]),
+                )
+            finally:
+                translator.release_slow.set()
+            result = await pending
+            self.assertTrue(result._validate())
+            self.assertFalse(callback_active)
+
     async def test_xml_chapters_can_translate_at_the_same_time(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

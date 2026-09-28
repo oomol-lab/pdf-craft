@@ -87,7 +87,7 @@ class _FixedLease:
         if self._released:
             return
         self._released = True
-        await self._provider._release(report)
+        await self._provider.release(report)
 
 
 class FixedCapacity:
@@ -153,7 +153,7 @@ class FixedCapacity:
             if not waiter.done():
                 waiter.set_exception(self._closed)
 
-    async def _release(self, _report: ExecutionReport) -> None:
+    async def release(self, _report: ExecutionReport) -> None:
         self._bind_loop()
         if self._closed is None:
             self._grant_next_or_release()

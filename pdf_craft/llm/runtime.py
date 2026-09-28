@@ -242,10 +242,10 @@ class LLMContext(AbstractAsyncContextManager["LLMContext"]):
                             attempts=attempt + 1,
                             cause=final_cause,
                         ) from final_cause
+                    rate_limit = error if isinstance(error, RateLimitedError) else None
                     delay = (
-                        error.retry_after
-                        if isinstance(error, RateLimitedError)
-                        and error.retry_after is not None
+                        rate_limit.retry_after
+                        if rate_limit is not None and rate_limit.retry_after is not None
                         else self.runtime.config.retry_interval_seconds
                     )
                     if delay > 0:

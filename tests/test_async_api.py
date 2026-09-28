@@ -560,7 +560,7 @@ class TestAsyncAPI(unittest.IsolatedAsyncioTestCase):
             return value
 
         stream = run_concurrency_async(parameters(), execute, concurrency=2)
-        first = asyncio.create_task(anext(stream))
+        first = asyncio.ensure_future(anext(stream))
         await asyncio.wait_for(third_started.wait(), timeout=1)
         await asyncio.sleep(0.05)
         self.assertEqual(started, [0, 1, 2])
@@ -576,31 +576,34 @@ class TestAsyncAPI(unittest.IsolatedAsyncioTestCase):
     async def test_translation_window_preserves_terminal_error_over_sibling_cancel(self):
         for fatal_index in (0, 3):
             for _ in range(10):
-                executor = ConcurrentExecutor(FixedCapacity(4))
-                all_started = asyncio.Event()
-                never = asyncio.Event()
-                started = 0
-
-                async def execute(value: int) -> int:
-                    async def invoke() -> int:
-                        nonlocal started
-                        started += 1
-                        if started == 4:
-                            all_started.set()
-                        await all_started.wait()
-                        if value == fatal_index:
-                            raise NonContinuableError("quota")
-                        await never.wait()
-                        return value
-
-                    return await executor.run(invoke)
-
                 with self.subTest(fatal_index=fatal_index):
-                    with self.assertRaises(NonContinuableError):
-                        async for _value in run_concurrency_async(
-                            range(4), execute, concurrency=4,
-                        ):
-                            pass
+                    await self._assert_terminal_translation_error(fatal_index)
+
+    async def _assert_terminal_translation_error(self, fatal_index: int):
+        executor = ConcurrentExecutor(FixedCapacity(4))
+        all_started = asyncio.Event()
+        never = asyncio.Event()
+        started = 0
+
+        async def execute(value: int) -> int:
+            async def invoke() -> int:
+                nonlocal started
+                started += 1
+                if started == 4:
+                    all_started.set()
+                await all_started.wait()
+                if value == fatal_index:
+                    raise NonContinuableError("quota")
+                await never.wait()
+                return value
+
+            return await executor.run(invoke)
+
+        with self.assertRaises(NonContinuableError):
+            async for _value in run_concurrency_async(
+                range(4), execute, concurrency=4,
+            ):
+                pass
 
     async def test_cancelling_translation_batch_cancels_pending_tasks(self):
         started = asyncio.Event()

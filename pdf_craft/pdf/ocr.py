@@ -20,7 +20,7 @@ from ..ocr_config import (
     DeepSeekOCR2VendorConfig, DeepSeekOCRVendorConfig, OCRConfig,
     UnlimitedOCRVendorConfig,
 )
-from ..runtime import IO_DOMAIN
+from ..runtime import IO_DOMAIN, run_cancellable
 from .handler import DefaultPDFHandler, PDFHandler
 from .page_extractor import Page, PageExtractorNode, PageLayout
 from .page_ref import PageRefContext
@@ -121,7 +121,7 @@ class OCR:
         usable_pages = 0
         did_ignore_any = False
         try:
-            def render_pages():
+            def render_pages(cooperative_aborted: AbortedCheck):
                 nonlocal usable_pages, did_ignore_any
                 prepared = []
                 with PageRefContext(
@@ -130,7 +130,7 @@ class OCR:
                 ) as refs:
                     total_pages = refs.pages_count
                     for ref in refs:
-                        check_aborted(aborted)
+                        check_aborted(cooperative_aborted)
                         started = time.perf_counter()
                         events.append(OCREvent(
                             OCREventKind.START, ref.page_index, total_pages,
@@ -184,7 +184,11 @@ class OCR:
                         prepared.append((ref.page_index, image_path, started, total_pages))
                 return prepared
 
-            prepared = await IO_DOMAIN.run(render_pages)
+            prepared = await run_cancellable(
+                IO_DOMAIN,
+                render_pages,
+                original_aborted=aborted,
+            )
             for event in events:
                 yield event
 
@@ -195,7 +199,7 @@ class OCR:
             ) -> Page:
                 page_index, image_path, _, _ = item
 
-                def execute():
+                def execute(cooperative_aborted: AbortedCheck):
                     from PIL import Image as PILImage
                     with PILImage.open(image_path) as opened:
                         image = opened.copy()
@@ -210,10 +214,14 @@ class OCR:
                         max_tokens=remaining_tokens,
                         max_output_tokens=remaining_output_tokens,
                         device_number=None,
-                        aborted=aborted,
+                        aborted=cooperative_aborted,
                     )
 
-                return await IO_DOMAIN.run(execute)
+                return await run_cancellable(
+                    IO_DOMAIN,
+                    execute,
+                    original_aborted=aborted,
+                )
 
             async def finish_page(
                 item: tuple[int, Path, float, int],

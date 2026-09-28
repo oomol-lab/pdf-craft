@@ -1,6 +1,7 @@
 # pylint: disable=protected-access
 
 from collections.abc import Callable, Container
+from contextlib import aclosing
 from dataclasses import dataclass
 from os import PathLike
 from pathlib import Path
@@ -90,7 +91,7 @@ class PDFExtractionEngine:
         original_aborted = kwargs.get("aborted")
         if self._ocr.is_vendor and self._ocr_executor is not None:
             ocr_metering = OCRTokensMetering(input_tokens=0, output_tokens=0)
-            async for event in self._ocr.recognize_vendor(
+            event_stream = self._ocr.recognize_vendor(
                 self._ocr_executor,
                 pdf_path=kwargs["pdf_path"],
                 asset_path=kwargs["analysing_path"] / "extraction" / "assets",
@@ -110,10 +111,12 @@ class PDFExtractionEngine:
                 if kwargs["page_indexes"] is not None else range(1, 2**31),
                 max_tokens=kwargs["max_tokens"],
                 max_output_tokens=kwargs["max_output_tokens"],
-            ):
-                ocr_metering.input_tokens += event.input_tokens
-                ocr_metering.output_tokens += event.output_tokens
-                await invoke_callback(async_event_callback, event)
+            )
+            async with aclosing(event_stream):
+                async for event in event_stream:
+                    ocr_metering.input_tokens += event.input_tokens
+                    ocr_metering.output_tokens += event.output_tokens
+                    await invoke_callback(async_event_callback, event)
             kwargs["skip_ocr"] = True
             kwargs["ocr_metering"] = ocr_metering
         if footnote_refinement is None:

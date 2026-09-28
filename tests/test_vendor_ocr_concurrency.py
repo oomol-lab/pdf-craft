@@ -1,9 +1,12 @@
+import asyncio
 import tempfile
 import threading
 import time
 import unittest
+from contextlib import aclosing
 from pathlib import Path
 from typing import Any, cast
+from unittest.mock import patch
 
 from PIL import Image
 
@@ -13,6 +16,7 @@ from pdf_craft import (
 from pdf_craft.error import OCRError, PDFError
 from pdf_craft.pdf.ocr import OCR, OCREventKind
 from pdf_craft.pdf.types import Page
+from pdf_craft.transform import PDFExtractionEngine
 from doc_page_extractor.extraction_context import AbortError, TokenLimitError
 
 
@@ -121,6 +125,154 @@ class _SequentialExecutor:
 
 
 class VendorOCRConcurrencyTests(unittest.IsolatedAsyncioTestCase):
+    async def test_cancellation_stops_serial_render_and_cleans_temporary_files(self):
+        render_started = threading.Event()
+        rendered: list[int] = []
+
+        class SlowDocument(_Document):
+            pages_count = 5
+
+            def render_page(self, page_index: int, dpi: int) -> Image.Image:
+                del dpi
+                rendered.append(page_index)
+                render_started.set()
+                time.sleep(0.05)
+                return Image.new("RGB", (12, 16), "white")
+
+        class SlowHandler:
+            def open(self, _pdf_path: Path) -> SlowDocument:
+                return SlowDocument(rendered)
+
+        ocr = OCR(
+            DeepSeekOCRVendorConfig(
+                base_url="https://example.invalid/v1",
+                api_key="key",
+                model="model",
+            ),
+            cast(Any, SlowHandler()),
+        )
+        temporary_paths: list[Path] = []
+
+        def tracked_temporary_directory(*args, **kwargs):
+            temporary = tempfile.TemporaryDirectory(*args, **kwargs)
+            temporary_paths.append(Path(temporary.name))
+            return temporary
+
+        engine = PDFExtractionEngine.__new__(PDFExtractionEngine)
+        engine.__dict__["_ocr"] = ocr
+        engine.__dict__["_ocr_executor"] = ConcurrentExecutor(FixedCapacity(2))
+
+        async def consume(root: Path) -> None:
+            await engine.extract_package_async(
+                pdf_path=root / "source.pdf",
+                analysing_path=root,
+                ocr_size="gundam",
+                dpi=None,
+                max_page_image_file_size=None,
+                includes_footnotes=False,
+                ignore_pdf_errors=False,
+                ignore_ocr_errors=False,
+                generate_plot=False,
+                includes_cover=False,
+                aborted=lambda: False,
+                page_indexes=None,
+                max_tokens=None,
+                max_output_tokens=None,
+            )
+
+        with tempfile.TemporaryDirectory() as directory, patch(
+            "pdf_craft.pdf.ocr.TemporaryDirectory",
+            side_effect=tracked_temporary_directory,
+        ):
+            task = asyncio.create_task(consume(Path(directory)))
+            self.assertTrue(await asyncio.to_thread(render_started.wait, 1))
+            task.cancel()
+            with self.assertRaises(asyncio.CancelledError):
+                await task
+
+        self.assertEqual(rendered, [1])
+        self.assertTrue(temporary_paths)
+        self.assertTrue(all(not path.exists() for path in temporary_paths))
+
+    async def test_cancellation_settles_vendor_siblings_before_cleanup(self):
+        rendered: list[int] = []
+
+        class BlockingExtractor(_Extractor):
+            def __init__(self):
+                super().__init__(rendered, fail_pages=())
+                self.started_pages: list[int] = []
+                self.cancelled_pages: list[int] = []
+                self.two_started = threading.Event()
+
+            def image2page(
+                self,
+                *,
+                page_index: int,
+                max_tokens: int | None = None,
+                max_output_tokens: int | None = None,
+                **kwargs,
+            ) -> Page:
+                del max_tokens, max_output_tokens
+                aborted = kwargs["aborted"]
+                with self._lock:
+                    self.started_pages.append(page_index)
+                    self.active += 1
+                    if len(self.started_pages) == 2:
+                        self.two_started.set()
+                try:
+                    while not aborted():
+                        time.sleep(0.005)
+                    with self._lock:
+                        self.cancelled_pages.append(page_index)
+                    raise AbortError()
+                finally:
+                    with self._lock:
+                        self.active -= 1
+
+        extractor = BlockingExtractor()
+        ocr = OCR(
+            DeepSeekOCRVendorConfig(
+                base_url="https://example.invalid/v1",
+                api_key="key",
+                model="model",
+            ),
+            cast(Any, _Handler(rendered)),
+        )
+        ocr.__dict__["_extractor"] = extractor
+        temporary_paths: list[Path] = []
+
+        def tracked_temporary_directory(*args, **kwargs):
+            temporary = tempfile.TemporaryDirectory(*args, **kwargs)
+            temporary_paths.append(Path(temporary.name))
+            return temporary
+
+        async def consume(root: Path) -> None:
+            stream = ocr.recognize_vendor(
+                ConcurrentExecutor(FixedCapacity(2)),
+                pdf_path=root / "source.pdf",
+                asset_path=root / "assets",
+                ocr_path=root / "ocr",
+            )
+            async with aclosing(stream):
+                async for _ in stream:
+                    pass
+
+        with tempfile.TemporaryDirectory() as directory, patch(
+            "pdf_craft.pdf.ocr.TemporaryDirectory",
+            side_effect=tracked_temporary_directory,
+        ):
+            task = asyncio.create_task(consume(Path(directory)))
+            self.assertTrue(await asyncio.to_thread(extractor.two_started.wait, 1))
+            task.cancel()
+            with self.assertRaises(asyncio.CancelledError):
+                await task
+            self.assertEqual(extractor.active, 0)
+
+        self.assertEqual(set(extractor.started_pages), {1, 2})
+        self.assertEqual(set(extractor.cancelled_pages), {1, 2})
+        self.assertTrue(temporary_paths)
+        self.assertTrue(all(not path.exists() for path in temporary_paths))
+
     async def test_vendor_ocr_accepts_custom_closable_executor_iterator(self):
         rendered: list[int] = []
         ocr = OCR(
