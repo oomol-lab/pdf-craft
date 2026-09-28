@@ -123,6 +123,42 @@ class JEVTests(unittest.IsolatedAsyncioTestCase):
 
         client.__aexit__.assert_awaited_once()
 
+    async def test_batch_self_cancellation_cannot_return_missing_pages(self):
+        client = MagicMock()
+        client.__aenter__ = AsyncMock(return_value=client)
+        client.__aexit__ = AsyncMock(return_value=None)
+        success_finished = asyncio.Event()
+
+        async def system_one(*, state, questions):
+            del questions
+            page_index = state["target_page"]["page_index"]
+            if page_index == 1:
+                await success_finished.wait()
+                raise asyncio.CancelledError("provider cancelled page")
+            success_finished.set()
+            return SimpleNamespace(nouls={
+                JEV_QUESTION_NAME: SimpleNamespace(noul=0.8),
+            })
+
+        client.system_one = system_one
+        requests = [
+            (page_index, {
+                "state": {"target_page": {"page_index": page_index}},
+                "questions": {JEV_QUESTION_NAME: {"type": "noul"}},
+            })
+            for page_index in (1, 2)
+        ]
+        with patch("pdf_craft.jev.AsyncTypeSafeClient", return_value=client):
+            async with JEVRuntime(
+                JEV("secret"), ConcurrentExecutor(FixedCapacity(2)),
+            ) as runtime:
+                with self.assertRaisesRegex(
+                    asyncio.CancelledError, "provider cancelled page",
+                ):
+                    await runtime.evaluate_many(requests)
+
+        client.__aexit__.assert_awaited_once()
+
 
 if __name__ == "__main__":
     unittest.main()

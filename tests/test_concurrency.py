@@ -115,6 +115,34 @@ class AsyncExecutorTests(unittest.IsolatedAsyncioTestCase):
         assert failed_error is not None
         self.assertIsInstance(failed_error.__cause__, ValueError)
 
+    async def test_map_propagates_operation_self_cancellation(self):
+        executor = ConcurrentExecutor(FixedCapacity(1))
+
+        async def cancelled(_operation_id: int):
+            raise asyncio.CancelledError("inner cancellation")
+
+        stream = executor.map([cancelled])
+        with self.assertRaisesRegex(asyncio.CancelledError, "inner cancellation"):
+            await anext(stream)
+
+    async def test_map_does_not_return_partial_results_after_self_cancellation(self):
+        executor = ConcurrentExecutor(FixedCapacity(2))
+        release_cancelled = asyncio.Event()
+
+        async def succeeded(operation_id: int):
+            return operation_id, "complete"
+
+        async def cancelled(_operation_id: int):
+            await release_cancelled.wait()
+            raise asyncio.CancelledError("missing operation")
+
+        stream = executor.map([succeeded, cancelled])
+        first = await anext(stream)
+        self.assertEqual((first.operation_id, first.value), (0, "complete"))
+        release_cancelled.set()
+        with self.assertRaisesRegex(asyncio.CancelledError, "missing operation"):
+            await anext(stream)
+
     async def test_non_continuable_error_closes_executor_and_wakes_waiters(self):
         executor = ConcurrentExecutor(FixedCapacity(1))
         started = asyncio.Event()
@@ -159,6 +187,35 @@ class AsyncExecutorTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(raised.exception.operation_id, 0)
         self.assertEqual(pulled, 1)
         self.assertTrue(closed)
+
+    async def test_map_fatal_error_precedes_cancelled_sibling(self):
+        for fatal_index in (0, 1):
+            for _ in range(10):
+                with self.subTest(fatal_index=fatal_index):
+                    await self._assert_map_fatal_precedes_sibling(fatal_index)
+
+    async def _assert_map_fatal_precedes_sibling(self, fatal_index: int):
+        executor = ConcurrentExecutor(FixedCapacity(2))
+        both_started = asyncio.Event()
+        never = asyncio.Event()
+        started = 0
+
+        def operation(value: int):
+            async def invoke(operation_id: int):
+                nonlocal started
+                started += 1
+                if started == 2:
+                    both_started.set()
+                await both_started.wait()
+                if value == fatal_index:
+                    raise NonContinuableError("quota")
+                await never.wait()
+                return operation_id, value
+            return invoke
+
+        with self.assertRaises(NonContinuableError):
+            async for _ in executor.map([operation(0), operation(1)]):
+                pass
 
 
 class ExecutorCompatibilityTests(unittest.TestCase):

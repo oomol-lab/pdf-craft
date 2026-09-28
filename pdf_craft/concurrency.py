@@ -204,6 +204,7 @@ class AsyncExecutor(Protocol):
 class _Completed(Generic[T]):
     result: OperationResult[T] | None = None
     fatal: NonContinuableError | None = None
+    cancelled: asyncio.CancelledError | None = None
     unexpected: BaseException | None = None
     producer_done: bool = False
 
@@ -333,7 +334,13 @@ class ConcurrentExecutor:
                 report = ExecutionReport(
                     time.monotonic() - started, ExecutionOutcome.CANCELLED, error,
                 )
-                raise
+                # A cancellation raised by the operation itself is its visible
+                # terminal result.  Cancellation requested on this worker comes
+                # from map teardown or executor-wide fatal shutdown and is
+                # settled silently by the owner of that shutdown.
+                if task is not None and task.cancelling():
+                    raise
+                await completed.put(_Completed(cancelled=error))
             except NonContinuableError as error:
                 error.for_operation(operation_id)
                 report = ExecutionReport(
@@ -415,6 +422,10 @@ class ConcurrentExecutor:
                     continue
                 if item.fatal is not None:
                     raise item.fatal
+                if item.cancelled is not None:
+                    if self._terminal_error is not None:
+                        raise self._terminal_error
+                    raise item.cancelled
                 if item.unexpected is not None:
                     raise item.unexpected
                 if item.result is not None:
