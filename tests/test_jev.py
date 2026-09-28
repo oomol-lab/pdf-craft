@@ -148,6 +148,56 @@ class JEVTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(results, [(1, 0.1), (2, 0.2)])
         self.assertEqual(page_one_calls, 2)
 
+    async def test_batch_retry_window_bounds_input_and_pending_tasks(self):
+        client = MagicMock()
+        client.__aenter__ = AsyncMock(return_value=client)
+        client.__aexit__ = AsyncMock(return_value=None)
+        client.system_one = AsyncMock(
+            side_effect=RateLimitedError(retry_after=0),
+        )
+        consumed = 0
+        retries_started = 0
+        window_full = asyncio.Event()
+        release = asyncio.Event()
+
+        def requests():
+            nonlocal consumed
+            for page_index in range(1000):
+                consumed += 1
+                yield page_index, {
+                    "state": {"target_page": {"page_index": page_index}},
+                    "questions": {JEV_QUESTION_NAME: {"type": "noul"}},
+                }
+
+        async def retry(
+            _runtime, _request, _error, *, attempts_used,
+        ):
+            nonlocal retries_started
+            self.assertEqual(attempts_used, 1)
+            retries_started += 1
+            if retries_started == 16:
+                window_full.set()
+            await release.wait()
+            return 0.5
+
+        with patch("pdf_craft.jev.AsyncTypeSafeClient", return_value=client), patch.object(
+            JEVRuntime, "_retry_after_error", new=retry,
+        ):
+            async with JEVRuntime(
+                JEV("secret", retry_times=1),
+                ConcurrentExecutor(FixedCapacity(2)),
+            ) as runtime:
+                pending = asyncio.create_task(runtime.evaluate_many(requests()))
+                await asyncio.wait_for(window_full.wait(), 1)
+                await asyncio.sleep(0)
+                self.assertEqual(retries_started, 16)
+                # Retry window + two active leases + map's one-result handoff.
+                self.assertLessEqual(consumed, 19)
+                self.assertFalse(pending.done())
+                pending.cancel()
+                with self.assertRaises(asyncio.CancelledError):
+                    await pending
+
     async def test_retry_fatal_precedes_cancelled_sibling(self):
         requests = [
             (page_index, {

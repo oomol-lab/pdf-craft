@@ -19,6 +19,7 @@ from ..concurrency import (
     AsyncExecutor,
     NonContinuableError,
     OperationError,
+    OperationResult,
     RateLimitedError,
     task_group_fatal_error,
 )
@@ -31,6 +32,10 @@ from ..ocr_config import (
     VendorOCRConfig,
 )
 from ..runtime import IO_DOMAIN
+
+
+# Bounds failed page orchestration; provider IO capacity remains executor-owned.
+_BATCH_RETRY_WINDOW = 16
 
 
 @dataclass(frozen=True)
@@ -122,43 +127,85 @@ class VendorOCRRuntime:
                     return operation_id, response
                 yield invoke
 
-        try:
-            async with aclosing(self.executor.map(operations())) as results:
-                async for result in results:
-                    request = scheduled.pop(result.operation_id)
-                    if result.succeeded:
-                        assert result.value is not None
-                        yield VendorOCRResult(request, response=result.value)
-                        continue
-                    error = result.error
-                    assert error is not None
-                    if _is_retryable(error) and self.config.retry_times > 0:
-                        task = asyncio.create_task(self._retry_request_after_error(
-                            request, error, attempts_used=1,
-                        ))
-                        retries[task] = request
-                        continue
-                    yield VendorOCRResult(request, error=error)
-            while retries:
-                done, _ = await asyncio.wait(
-                    retries, return_when=asyncio.FIRST_COMPLETED,
-                )
-                fatal = task_group_fatal_error(done)
-                if fatal is not None:
-                    raise fatal
-                for task in done:
-                    request = retries.pop(task)
-                    try:
-                        yield VendorOCRResult(request, response=task.result())
-                    except NonContinuableError:
-                        raise
-                    except OperationError as error:
-                        yield VendorOCRResult(request, error=error)
-        finally:
-            for task in retries:
-                task.cancel()
-            if retries:
-                await asyncio.gather(*retries, return_exceptions=True)
+        async with aclosing(self.executor.map(operations())) as results:
+            initial: asyncio.Task[OperationResult[VendorOCRResponse]] | None = None
+            initial_exhausted = False
+            try:
+                while not initial_exhausted or initial is not None or retries:
+                    if (
+                        initial is None
+                        and not initial_exhausted
+                        and len(retries) < _BATCH_RETRY_WINDOW
+                    ):
+                        initial = asyncio.create_task(anext(results))
+
+                    pending: set[asyncio.Task[Any]] = set(retries)
+                    if initial is not None:
+                        pending.add(initial)
+                    if not pending:
+                        break
+                    done, _ = await asyncio.wait(
+                        pending, return_when=asyncio.FIRST_COMPLETED,
+                    )
+                    fatal = task_group_fatal_error(
+                        task for task in done if task in retries
+                    )
+                    if fatal is not None:
+                        raise fatal
+
+                    if initial is not None and initial in done:
+                        completed_initial, initial = initial, None
+                        try:
+                            result = completed_initial.result()
+                        except StopAsyncIteration:
+                            initial_exhausted = True
+                            result = None
+                    else:
+                        result = None
+
+                    if result is not None:
+                        request = scheduled.pop(result.operation_id)
+                        if result.succeeded:
+                            assert result.value is not None
+                            yield VendorOCRResult(request, response=result.value)
+                        else:
+                            error = result.error
+                            assert error is not None
+                            if (
+                                _is_retryable(error)
+                                and self.config.retry_times > 0
+                            ):
+                                task = asyncio.create_task(
+                                    self._retry_request_after_error(
+                                        request, error, attempts_used=1,
+                                    )
+                                )
+                                retries[task] = request
+                            else:
+                                yield VendorOCRResult(request, error=error)
+
+                    for task in done:
+                        if task not in retries:
+                            continue
+                        request = retries.pop(task)
+                        try:
+                            yield VendorOCRResult(
+                                request, response=task.result(),
+                            )
+                        except NonContinuableError:
+                            raise
+                        except OperationError as error:
+                            yield VendorOCRResult(request, error=error)
+            finally:
+                if initial is not None:
+                    initial.cancel()
+                for task in retries:
+                    task.cancel()
+                teardown: list[asyncio.Task[Any]] = list(retries)
+                if initial is not None:
+                    teardown.append(initial)
+                if teardown:
+                    await asyncio.gather(*teardown, return_exceptions=True)
 
     async def _retry_request_after_error(
         self,

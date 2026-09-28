@@ -232,6 +232,64 @@ class VendorOCRConcurrencyTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(all(result.succeeded for result in results))
         self.assertEqual(first_calls, 2)
 
+    async def test_batch_retry_window_bounds_input_and_pending_tasks(self):
+        config = DeepSeekOCRVendorConfig(
+            base_url="https://example.invalid/v1",
+            api_key="key",
+            model="model",
+            retry_times=1,
+            retry_interval_seconds=0,
+        )
+        consumed = 0
+        retries_started = 0
+        window_full = asyncio.Event()
+        release = asyncio.Event()
+
+        def requests():
+            nonlocal consumed
+            for page_index in range(1000):
+                consumed += 1
+                yield VendorOCRInput(
+                    page_index, Path("unused.png"), lambda: False,
+                )
+
+        async def request(_runtime, _request):
+            raise RateLimitedError(retry_after=0)
+
+        async def retry(
+            _runtime, _request, _error, *, attempts_used,
+        ):
+            nonlocal retries_started
+            self.assertEqual(attempts_used, 1)
+            retries_started += 1
+            if retries_started == 16:
+                window_full.set()
+            await release.wait()
+            return VendorOCRResponse({}, raw_text="")
+
+        with patch.object(
+            VendorOCRRuntime, "_request_deepseek", new=request,
+        ), patch.object(
+            VendorOCRRuntime, "_retry_request_after_error", new=retry,
+        ):
+            async with VendorOCRRuntime(
+                config, ConcurrentExecutor(FixedCapacity(2)),
+            ) as runtime:
+                async def consume() -> None:
+                    async for _ in runtime.request_many(requests()):
+                        pass
+
+                pending = asyncio.create_task(consume())
+                await asyncio.wait_for(window_full.wait(), 1)
+                await asyncio.sleep(0)
+                self.assertEqual(retries_started, 16)
+                # Retry window + two active leases + map's one-result handoff.
+                self.assertLessEqual(consumed, 19)
+                self.assertFalse(pending.done())
+                pending.cancel()
+                with self.assertRaises(asyncio.CancelledError):
+                    await pending
+
     async def test_deepseek_retry_fatal_precedes_cancelled_sibling(self):
         config = DeepSeekOCRVendorConfig(
             base_url="https://example.invalid/v1", api_key="key", model="model",

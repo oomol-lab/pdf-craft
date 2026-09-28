@@ -16,9 +16,13 @@ from typesafe_sdk import (
 )
 
 from .concurrency import (
-    AsyncExecutor, NonContinuableError, OperationError, RateLimitedError,
-    task_group_fatal_error,
+    AsyncExecutor, NonContinuableError, OperationError, OperationResult,
+    RateLimitedError, task_group_fatal_error,
 )
+
+
+# Bounds failed page orchestration; provider IO capacity remains executor-owned.
+_BATCH_RETRY_WINDOW = 16
 
 
 @dataclass(frozen=True)
@@ -95,38 +99,78 @@ class JEVRuntime:
                     return operation_id, probability
                 yield invoke
 
-        try:
-            async with aclosing(self.executor.map(operations())) as results:
-                async for result in results:
-                    order, page_index, request = scheduled.pop(result.operation_id)
-                    if result.succeeded:
-                        assert result.value is not None
-                        completed.append((order, page_index, result.value))
-                        continue
-                    error = result.error
-                    assert error is not None
-                    if _is_retryable(error) and self.config.retry_times > 0:
-                        task = asyncio.create_task(self._retry_after_error(
-                            request, error, attempts_used=1,
-                        ))
-                        retries[task] = (order, page_index)
-                        continue
-                    raise error
-            while retries:
-                done, _ = await asyncio.wait(
-                    retries, return_when=asyncio.FIRST_COMPLETED,
-                )
-                fatal = task_group_fatal_error(done)
-                if fatal is not None:
-                    raise fatal
-                for task in done:
-                    order, page_index = retries.pop(task)
-                    completed.append((order, page_index, task.result()))
-        finally:
-            for task in retries:
-                task.cancel()
-            if retries:
-                await asyncio.gather(*retries, return_exceptions=True)
+        async with aclosing(self.executor.map(operations())) as results:
+            initial: asyncio.Task[OperationResult[float]] | None = None
+            initial_exhausted = False
+            try:
+                while not initial_exhausted or initial is not None or retries:
+                    if (
+                        initial is None
+                        and not initial_exhausted
+                        and len(retries) < _BATCH_RETRY_WINDOW
+                    ):
+                        initial = asyncio.create_task(anext(results))
+
+                    pending: set[asyncio.Task[Any]] = set(retries)
+                    if initial is not None:
+                        pending.add(initial)
+                    if not pending:
+                        break
+                    done, _ = await asyncio.wait(
+                        pending, return_when=asyncio.FIRST_COMPLETED,
+                    )
+                    fatal = task_group_fatal_error(
+                        task for task in done if task in retries
+                    )
+                    if fatal is not None:
+                        raise fatal
+
+                    if initial is not None and initial in done:
+                        completed_initial, initial = initial, None
+                        try:
+                            result = completed_initial.result()
+                        except StopAsyncIteration:
+                            initial_exhausted = True
+                            result = None
+                    else:
+                        result = None
+
+                    if result is not None:
+                        order, page_index, request = scheduled.pop(
+                            result.operation_id,
+                        )
+                        if result.succeeded:
+                            assert result.value is not None
+                            completed.append((order, page_index, result.value))
+                        else:
+                            error = result.error
+                            assert error is not None
+                            if (
+                                _is_retryable(error)
+                                and self.config.retry_times > 0
+                            ):
+                                task = asyncio.create_task(self._retry_after_error(
+                                    request, error, attempts_used=1,
+                                ))
+                                retries[task] = (order, page_index)
+                            else:
+                                raise error
+
+                    for task in done:
+                        if task not in retries:
+                            continue
+                        order, page_index = retries.pop(task)
+                        completed.append((order, page_index, task.result()))
+            finally:
+                if initial is not None:
+                    initial.cancel()
+                for task in retries:
+                    task.cancel()
+                teardown: list[asyncio.Task[Any]] = list(retries)
+                if initial is not None:
+                    teardown.append(initial)
+                if teardown:
+                    await asyncio.gather(*teardown, return_exceptions=True)
         return [
             (page_index, probability)
             for _, page_index, probability in sorted(completed)
