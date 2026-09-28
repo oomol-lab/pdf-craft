@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 import inspect
-from typing import Protocol, cast
+from typing import Any, Protocol, cast
 from xml.etree.ElementTree import Element
 
 from pdf_craft.extractor.chapter.chapter import Chapter, Reference, SourceAsset, StandaloneAsset, decode, encode
@@ -73,6 +73,10 @@ class AnchoredContentXMLTransformer:
                 context = Element("translation-context", {"display": "inline"})
                 context.text = item.context
                 asset.insert(0, context)
+        source_structures = {
+            _slot_key(item): _asset_structure(asset)
+            for asset, item in zip(asset_elements, assets, strict=True)
+        }
 
         formula_interrupter = ChapterFormulaInterrupter()
         translated, _ = cast(XMLTaskTranslator, self._translator).translate_element(
@@ -92,7 +96,9 @@ class AnchoredContentXMLTransformer:
             interrupt_translated_text_segments=formula_interrupter.interrupt_translated_text_segments,
             interrupt_block_element=formula_interrupter.interrupt_block_element,
         )
-        translated_assets = _decode_assets_by_slot(translated, expected_slots)
+        translated_assets = _decode_assets_by_slot(
+            translated, expected_slots, source_structures,
+        )
         if translated_assets is None:
             return (None,) * len(assets)
 
@@ -135,6 +141,10 @@ class AnchoredContentXMLTransformer:
                 context = Element("translation-context", {"display": "inline"})
                 context.text = item.context
                 asset.insert(0, context)
+        source_structures = {
+            _slot_key(item): _asset_structure(asset)
+            for asset, item in zip(asset_elements, assets, strict=True)
+        }
 
         formula_interrupter = ChapterFormulaInterrupter()
         translator = cast(AsyncXMLTaskTranslator, self._translator)
@@ -160,7 +170,9 @@ class AnchoredContentXMLTransformer:
             interrupt_translated_text_segments=formula_interrupter.interrupt_translated_text_segments,
             interrupt_block_element=formula_interrupter.interrupt_block_element,
         )
-        translated_assets = _decode_assets_by_slot(translated, expected_slots)
+        translated_assets = _decode_assets_by_slot(
+            translated, expected_slots, source_structures,
+        )
         if translated_assets is None:
             return (None,) * len(assets)
         source_references = {
@@ -207,23 +219,32 @@ def _remove_translation_context(root: Element) -> None:
 def _decode_assets_by_slot(
     root: Element,
     expected_slots: dict[str, tuple[str, int, int]],
+    source_structures: dict[str, tuple[Any, ...]],
 ) -> dict[tuple[str, int, int], SourceAsset] | None:
     wrappers = root.findall("flow/standalone-asset")
     if len(wrappers) != len(expected_slots):
         return None
     slot_keys: list[str] = []
+    translated_elements: list[Element] = []
     for wrapper in wrappers:
         assets = wrapper.findall("asset")
         if len(assets) != 1:
             return None
-        slot = assets[0].get("translation_slot")
+        asset = assets[0]
+        slot = asset.get("translation_slot")
         if slot is None or slot not in expected_slots or slot in slot_keys:
             return None
         slot_keys.append(slot)
+        translated_elements.append(asset)
     if set(slot_keys) != set(expected_slots):
         return None
 
     _remove_translation_context(root)
+    if any(
+        _asset_structure(asset) != source_structures[slot]
+        for asset, slot in zip(translated_elements, slot_keys, strict=True)
+    ):
+        return None
     chapter = decode(root)
     result: dict[tuple[str, int, int], SourceAsset] = {}
     for slot, item in zip(slot_keys, chapter.flow_items, strict=True):
@@ -232,6 +253,32 @@ def _decode_assets_by_slot(
         identity = expected_slots[slot]
         result[identity] = item.asset
     return result
+
+
+def _asset_structure(element: Element) -> tuple[Any, ...]:
+    """Keep asset markup and mixed-content slots while excluding translated text."""
+    return (
+        element.tag,
+        tuple(sorted(
+            (key, value)
+            for key, value in element.attrib.items()
+            if key != "translation_slot"
+        )),
+        # A text/tail slot is part of a formula's position in mixed XML.  Its
+        # wording may change, but moving that wording across a formula must
+        # not make the formula appear before or after a different phrase.
+        bool(element.text),
+        (
+            element.text or ""
+            if element.tag == "inline_expr" and element.get("kind") != "text"
+            else None
+        ),
+        tuple(
+            (_asset_structure(child), bool(child.tail))
+            for child in element
+            if child.tag != "translation-context"
+        ),
+    )
 
 
 def _restore_source_references(content, references: dict[tuple[int, int], Reference]):
