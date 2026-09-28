@@ -228,7 +228,6 @@ class ChapterExtractionTransformer:
                 for task_index, task in enumerate(chapter_tasks)
             }
             coverage_by_index = {}
-            saw_cancelled = False
             try:
                 while pending_chapters:
                     done, _ = await asyncio.wait(
@@ -236,11 +235,15 @@ class ChapterExtractionTransformer:
                         return_when=asyncio.FIRST_COMPLETED,
                     )
                     failures = []
+                    cancellations = []
                     successes = []
                     for pending in sorted(done, key=pending_chapters.__getitem__):
                         task_index = pending_chapters.pop(pending)
                         if pending.cancelled():
-                            saw_cancelled = True
+                            try:
+                                pending.result()
+                            except asyncio.CancelledError as error:
+                                cancellations.append((task_index, error))
                             continue
                         error = pending.exception()
                         if error is not None:
@@ -253,8 +256,8 @@ class ChapterExtractionTransformer:
                         )
                     if failures:
                         raise failures[0][1]
-                if saw_cancelled:
-                    raise asyncio.CancelledError
+                    if cancellations:
+                        raise cancellations[0][1]
             except BaseException:
                 for pending in pending_chapters:
                     pending.cancel()

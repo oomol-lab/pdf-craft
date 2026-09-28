@@ -280,3 +280,58 @@ class TestCrossChapterTranslation(unittest.IsolatedAsyncioTestCase):
                     source, root / "target",
                 )
             self.assertTrue(translator.sibling_cancelled.is_set())
+
+    async def test_chapter_self_cancellation_immediately_cancels_siblings(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source_root = root / "source"
+            source = make_extraction(source_root, page_pixel_sizes={1: (10, 10)})
+            for chapter_id in (1, 2):
+                chapter = Chapter(chapter_id, 1, [TextFlowItem(
+                    "body", 0, [SourceTextFragment(
+                        1, 1, (1, 1, 5, 5), [f"chapter {chapter_id}"],
+                    )],
+                )])
+                (source_root / "chapters" / f"chapter_{chapter_id}.xml").write_text(
+                    '<?xml version="1.0" encoding="UTF-8"?>\n'
+                    + tostring(encode(chapter), encoding="unicode")
+                )
+
+            class CancellingTranslator:
+                target_language = "en"
+
+                def __init__(self):
+                    self.started = 0
+                    self.both_started = asyncio.Event()
+                    self.sibling_cancelled = asyncio.Event()
+                    self.never = asyncio.Event()
+
+                async def translate_element(self, task, **_kwargs):
+                    self.started += 1
+                    position = self.started
+                    if self.started == 2:
+                        self.both_started.set()
+                    await self.both_started.wait()
+                    if position == 1:
+                        raise asyncio.CancelledError("inner chapter cancellation")
+                    try:
+                        await self.never.wait()
+                    except asyncio.CancelledError:
+                        self.sibling_cancelled.set()
+                        raise
+                    return task.element, task.payload
+
+            translator = CancellingTranslator()
+            transform = ChapterExtractionTransformer(
+                ChapterXMLTransformer(translator)
+            )
+            with self.assertRaisesRegex(
+                asyncio.CancelledError, "inner chapter cancellation",
+            ):
+                await asyncio.wait_for(
+                    transform._transform_to_workspace_async(
+                        source, root / "target",
+                    ),
+                    timeout=1,
+                )
+            self.assertTrue(translator.sibling_cancelled.is_set())
