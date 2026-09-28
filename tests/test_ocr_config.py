@@ -64,6 +64,10 @@ class TestOCRConfig(unittest.TestCase):
         self.assertNotIn("secret-ak", repr(unlimited))
         self.assertNotIn("secret-sk", repr(unlimited))
 
+    def test_unlimited_vendor_page_window_must_be_positive(self):
+        with self.assertRaisesRegex(ValueError, "page_window"):
+            UnlimitedOCRVendorConfig(ak="ak", sk="sk", page_window=0)
+
     def test_ocr_config_cannot_mix_with_models_cache_options(self):
         config = DeepSeekOCRVendorConfig(
             base_url="https://example.com",

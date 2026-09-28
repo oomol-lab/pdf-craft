@@ -192,6 +192,7 @@ Unlimited OCR vendor 配置使用百度服务凭据：
 | `timeout_seconds` | `int` | `180` | OCR 任务超时时间 |
 | `retry_times` | `int` | `2` | 可重试网络错误的重试次数 |
 | `retry_interval_seconds` | `float` | `1.0` | 供应商未给出等待时间时的重试间隔 |
+| `page_window` | `int` | `16` | 限制同时编排的页面任务与图片准备内存；供应商请求容量仍由 `ocr_executor` 控制 |
 
 ```python
 from pdf_craft import (

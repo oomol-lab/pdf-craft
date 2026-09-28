@@ -192,11 +192,24 @@ class VendorOCRRuntime:
         A page task owns only its task id and retry state; every token, submit,
         query and download call reacquires the shared executor independently.
         """
+        config = self.config
+        assert isinstance(config, UnlimitedOCRVendorConfig)
         iterator = iter(requests)
         tasks: dict[asyncio.Task[VendorOCRResponse], VendorOCRInput] = {}
-        try:
-            for request in iterator:
+        exhausted = False
+
+        def admit() -> None:
+            nonlocal exhausted
+            while not exhausted and len(tasks) < config.page_window:
+                try:
+                    request = next(iterator)
+                except StopIteration:
+                    exhausted = True
+                    break
                 tasks[asyncio.create_task(self.request(request))] = request
+
+        try:
+            admit()
             while tasks:
                 done, _ = await asyncio.wait(
                     tasks, return_when=asyncio.FIRST_COMPLETED,
@@ -212,6 +225,7 @@ class VendorOCRRuntime:
                         raise
                     except OperationError as error:
                         yield VendorOCRResult(request, error=error)
+                admit()
         finally:
             for task in tasks:
                 task.cancel()
@@ -324,6 +338,7 @@ class VendorOCRRuntime:
                 "Unlimited OCR submit",
             )
         )
+        del encoded
         task_id = str((submit.get("result") or {}).get("task_id") or "")
         if not task_id:
             message = (
@@ -639,9 +654,9 @@ def _raise_unlimited_error(
         message, request=response.request, response=response,
     )
     envelope = _vendor_error(message, raw_error)
-    if error_code == 18:
+    if error_code in {1, 2, 4, 18}:
         raise RateLimitedError(message, cause=envelope) from envelope
-    if error_code in {4, 17, 19}:
+    if error_code in {17, 19}:
         error = OCRBillingError(page_index)
         raise error from envelope
     if error_code in {6, 14, 100, 110, 111}:

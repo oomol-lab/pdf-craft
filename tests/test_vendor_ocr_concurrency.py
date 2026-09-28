@@ -6,7 +6,7 @@ import time
 import unittest
 from contextlib import aclosing
 from pathlib import Path
-from typing import Any, cast
+from typing import Any, AsyncGenerator, cast
 from unittest.mock import patch
 
 import httpx
@@ -23,7 +23,7 @@ from pdf_craft.error import (
 from pdf_craft.pdf.ocr import OCR, OCREventKind
 from pdf_craft.pdf import ocr as ocr_module
 from pdf_craft.pdf.vendor_ocr import (
-    VendorOCRInput, VendorOCRResponse, VendorOCRRuntime,
+    VendorOCRInput, VendorOCRResponse, VendorOCRResult, VendorOCRRuntime,
 )
 from pdf_craft.pdf.types import Page
 from pdf_craft.transform import PDFExtractionEngine
@@ -432,6 +432,93 @@ class VendorOCRConcurrencyTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(response.data["task_id"], "task-1")
         self.assertEqual(sum(path.endswith("/task") for path in calls), 1)
         self.assertEqual(sum(path.endswith("/task/query") for path in calls), 2)
+
+    async def test_unlimited_page_window_consumes_requests_lazily(self):
+        config = UnlimitedOCRVendorConfig(
+            ak="ak", sk="sk", page_window=3,
+        )
+        consumed = 0
+        started = 0
+        window_started = asyncio.Event()
+        release = asyncio.Event()
+
+        def requests():
+            nonlocal consumed
+            for page_index in range(1, 1001):
+                consumed += 1
+                yield VendorOCRInput(
+                    page_index, Path(f"page-{page_index}.png"), lambda: False,
+                )
+
+        async def request(_runtime, _request):
+            nonlocal started
+            started += 1
+            if started == config.page_window:
+                window_started.set()
+            await release.wait()
+            return VendorOCRResponse({})
+
+        with patch.object(VendorOCRRuntime, "request", new=request):
+            runtime = VendorOCRRuntime(
+                config, ConcurrentExecutor(FixedCapacity(2)),
+            )
+            results = cast(
+                AsyncGenerator[VendorOCRResult, None],
+                runtime.request_many(requests()),
+            )
+            async with aclosing(results):
+                first = asyncio.create_task(anext(results))
+                await asyncio.wait_for(window_started.wait(), 1)
+                self.assertEqual(consumed, config.page_window)
+                self.assertEqual(started, config.page_window)
+                release.set()
+                self.assertTrue((await first).succeeded)
+
+        self.assertLess(consumed, 1000)
+
+    async def test_unlimited_retryable_application_codes_reacquire_capacity(self):
+        for error_code in (1, 2, 4, 18):
+            with self.subTest(error_code=error_code):
+                calls = 0
+
+                def handler(request: httpx.Request) -> httpx.Response:
+                    nonlocal calls
+                    calls += 1
+                    if calls == 1:
+                        return httpx.Response(200, request=request, json={
+                            "error_code": error_code,
+                            "error_msg": "retry the request",
+                        })
+                    return httpx.Response(200, request=request, json={
+                        "result": {"status": "running"},
+                    })
+
+                client = httpx.AsyncClient(
+                    transport=httpx.MockTransport(handler),
+                )
+                executor = ConcurrentExecutor(FixedCapacity(1))
+                runtime = VendorOCRRuntime(
+                    UnlimitedOCRVendorConfig(
+                        ak="ak", sk="sk", retry_times=1,
+                        retry_interval_seconds=0,
+                    ),
+                    executor,
+                )
+                runtime._client = client
+                result = await runtime._run_io_with_retry(
+                    lambda: runtime._post_form(
+                        "https://example.invalid/task/query",
+                        {"task_id": "task"}, 1, "Unlimited OCR query",
+                    )
+                )
+
+                self.assertEqual(result["result"]["status"], "running")
+                self.assertEqual(calls, 2)
+                self.assertEqual(
+                    await executor.run(lambda: asyncio.sleep(0, result="open")),
+                    "open",
+                )
+                await client.aclose()
 
     async def test_unlimited_application_errors_use_three_error_flows(self):
         responses = iter((18, 17, 100, 216201))
