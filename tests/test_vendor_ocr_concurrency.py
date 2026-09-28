@@ -515,6 +515,14 @@ class VendorOCRConcurrencyTests(unittest.IsolatedAsyncioTestCase):
                     return httpx.Response(200, request=request, json={
                         "error_code": 282000, "error_msg": "resubmit",
                     })
+                if task_id == "task-2":
+                    return httpx.Response(200, request=request, json={
+                        "result": {
+                            "task_id": task_id,
+                            "status": "failed",
+                            "task_error": "任务失败",
+                        },
+                    })
                 return httpx.Response(200, request=request, json={
                     "result": {
                         "status": "success",
@@ -532,7 +540,7 @@ class VendorOCRConcurrencyTests(unittest.IsolatedAsyncioTestCase):
         executor = ConcurrentExecutor(FixedCapacity(1))
         runtime = VendorOCRRuntime(
             UnlimitedOCRVendorConfig(
-                ak="ak", sk="sk", retry_times=1, retry_interval_seconds=0,
+                ak="ak", sk="sk", retry_times=2, retry_interval_seconds=0,
                 poll_interval_seconds=0,
             ),
             executor,
@@ -546,9 +554,9 @@ class VendorOCRConcurrencyTests(unittest.IsolatedAsyncioTestCase):
                 1, image_path, lambda: False,
             ))
 
-        self.assertEqual(response.data["task_id"], "task-2")
-        self.assertEqual(submit_count, 2)
-        self.assertEqual(query_count, 2)
+        self.assertEqual(response.data["task_id"], "task-3")
+        self.assertEqual(submit_count, 3)
+        self.assertEqual(query_count, 3)
         self.assertEqual(
             await executor.run(lambda: asyncio.sleep(0, result="open")), "open",
         )
@@ -722,11 +730,77 @@ class VendorOCRConcurrencyTests(unittest.IsolatedAsyncioTestCase):
                 with self.assertRaises(error_type):
                     await executor.run(lambda: asyncio.sleep(0))
 
+    async def test_unlimited_failed_quota_task_bypasses_fallback(self):
+        query_calls = 0
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            nonlocal query_calls
+            path = request.url.path
+            if path.endswith("/oauth/2.0/token"):
+                return httpx.Response(200, request=request, json={
+                    "access_token": "token",
+                })
+            if path.endswith("/task/query"):
+                query_calls += 1
+                return httpx.Response(200, request=request, json={
+                    "error_code": 0,
+                    "result": {
+                        "task_id": "task-1",
+                        "status": "failed",
+                        "task_error": "额度不够",
+                    },
+                })
+            return httpx.Response(200, request=request, json={
+                "result": {"task_id": "task-1"},
+            })
+
+        client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+        executor = ConcurrentExecutor(FixedCapacity(2))
+        ignored: list[OCRError] = []
+        ocr = OCR(
+            UnlimitedOCRVendorConfig(
+                ak="ak", sk="sk", retry_times=0, poll_interval_seconds=0,
+            ),
+            cast(Any, _Handler([])),
+        )
+        with tempfile.TemporaryDirectory() as directory, patch(
+            "pdf_craft.pdf.vendor_ocr.httpx.AsyncClient",
+            return_value=client,
+        ):
+            root = Path(directory)
+            with self.assertRaises(OCRBillingError) as raised:
+                async for _ in ocr.recognize_vendor(
+                    executor,
+                    pdf_path=root / "source.pdf",
+                    asset_path=root / "assets",
+                    ocr_path=root / "ocr",
+                    ignore_ocr_errors=lambda error: ignored.append(error) or True,
+                ):
+                    pass
+
+            self.assertEqual(ignored, [])
+            self.assertEqual(list((root / "ocr").glob("page_*.failed")), [])
+
+        self.assertGreaterEqual(query_calls, 1)
+        envelope = raised.exception.__cause__
+        self.assertIsInstance(envelope, VendorOCRRequestError)
+        assert isinstance(envelope, VendorOCRRequestError)
+        raw = envelope.__cause__
+        self.assertIsInstance(raw, httpx.HTTPStatusError)
+        assert isinstance(raw, httpx.HTTPStatusError)
+        self.assertEqual(raw.response.status_code, 200)
+        self.assertEqual(
+            raw.response.json()["result"]["task_error"], "额度不够",
+        )
+        with self.assertRaises(OCRBillingError):
+            await executor.run(lambda: asyncio.sleep(0))
+
     async def test_vendor_malformed_success_bodies_preserve_response(self):
         unlimited_cases = (
             ("top-level", ["malformed"]),
             ("empty-submit", {"result": {}}),
             ("empty-query", {"result": {}}),
+            ("unknown-query", {"result": {"status": "unknown"}}),
         )
         for case, malformed in unlimited_cases:
             with self.subTest(case=case):
@@ -735,7 +809,9 @@ class VendorOCRConcurrencyTests(unittest.IsolatedAsyncioTestCase):
                 def handler(request: httpx.Request) -> httpx.Response:
                     nonlocal calls
                     calls += 1
-                    if case == "empty-query" and request.url.path.endswith("/task"):
+                    if case in {"empty-query", "unknown-query"} and (
+                        request.url.path.endswith("/task")
+                    ):
                         return httpx.Response(200, request=request, json={
                             "result": {"task_id": "task"},
                         })
@@ -774,7 +850,10 @@ class VendorOCRConcurrencyTests(unittest.IsolatedAsyncioTestCase):
                 assert isinstance(raw, httpx.HTTPStatusError)
                 self.assertEqual(raw.response.status_code, 200)
                 self.assertEqual(raw.response.json(), malformed)
-                self.assertEqual(calls, 2 if case == "empty-query" else 1)
+                self.assertEqual(
+                    calls,
+                    2 if case in {"empty-query", "unknown-query"} else 1,
+                )
                 await client.aclose()
 
         deepseek_cases = (

@@ -78,5 +78,6 @@ download does not submit the page again. Expired access tokens are refreshed bef
 current operation, while a provider task-processing failure resubmits that page. HTTP 429 is
 retried as rate limiting unless the provider body reports exhausted quota. Payment, exhausted
 quota, and authentication or permission failures close the shared executor; other page failures
-remain eligible for `ignore_ocr_errors`. The resulting
+remain eligible for `ignore_ocr_errors`. This also applies when an Unlimited OCR query reports a
+failed task whose `task_error` says the quota is insufficient. The resulting
 `OCRError` keeps the original provider exception and HTTP response in its exception cause chain.

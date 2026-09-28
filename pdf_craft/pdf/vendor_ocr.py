@@ -446,8 +446,6 @@ class VendorOCRRuntime:
                     "status": status,
                     "parse_result": parsed,
                 })
-            if status == "failed":
-                raise OperationError(f"Unlimited OCR task {task_id} failed: {result}")
             if time.monotonic() >= deadline:
                 raise OperationError(f"Unlimited OCR task {task_id} timed out")
             await asyncio.sleep(config.poll_interval_seconds)
@@ -561,9 +559,11 @@ class VendorOCRRuntime:
                 )
         else:
             status = provider_result.get("status")
-            if not isinstance(status, str) or not status:
+            if not isinstance(status, str) or status not in {
+                "pending", "running", "success", "failed",
+            }:
                 _raise_malformed_response(
-                    response, f"{action} response did not include a valid status",
+                    response, f"{action} response has invalid status",
                 )
             parse_url = provider_result.get("parse_result_url")
             if status == "success" and (
@@ -572,6 +572,16 @@ class VendorOCRRuntime:
                 _raise_malformed_response(
                     response,
                     f"{action} success response did not include parse_result_url",
+                )
+            if status == "failed":
+                task_error = provider_result.get("task_error")
+                if not isinstance(task_error, str) or not task_error:
+                    _raise_malformed_response(
+                        response,
+                        f"{action} failed response did not include task_error",
+                    )
+                _raise_unlimited_task_error(
+                    page_index, action, task_error, result, response,
                 )
         return result
 
@@ -798,6 +808,31 @@ def _raise_unlimited_error(
             message, cause=envelope,
         ) from envelope
     if error_code == 282000:
+        raise _UnlimitedResubmitError(
+            message, cause=envelope,
+        ) from envelope
+    raise OperationError(message, cause=envelope) from envelope
+
+
+def _raise_unlimited_task_error(
+    page_index: int,
+    action: str,
+    task_error: str,
+    response_data: dict[str, Any],
+    response: httpx.Response,
+) -> Never:
+    message = f"{action} task failed ({task_error}): {response_data}"
+    raw_error = httpx.HTTPStatusError(
+        message, request=response.request, response=response,
+    )
+    envelope = _vendor_error(message, raw_error)
+    normalized = task_error.strip().lower()
+    if any(marker in normalized for marker in (
+        "额度不够", "额度不足", "配额", "余额不足", "quota",
+    )):
+        error = OCRBillingError(page_index)
+        raise error from envelope
+    if normalized == "任务失败":
         raise _UnlimitedResubmitError(
             message, cause=envelope,
         ) from envelope
