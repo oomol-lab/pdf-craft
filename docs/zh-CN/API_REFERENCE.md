@@ -461,7 +461,8 @@ craft.convert_pdf_to_markdown(
 ```
 
 `translation_llm` 负责生成译文，`fill_llm` 负责在必要时修复 XML 结构。两个 LLM 可以使用
-不同的模型、提示参数、缓存或重试策略。若目标是双语 Markdown 或 EPUB，可把提交模式设为
+不同的模型、提示参数、缓存或重试策略。省略执行器时保留容量 1 的兼容默认行为；
+`translate_element(s)` 的旧参数 `concurrency` 继续作为业务 `window` 的别名。若目标是双语 Markdown 或 EPUB，可把提交模式设为
 `APPEND_TEXT` 或 `APPEND_BLOCK`；PDF 不支持 `APPEND_BLOCK`，而 `APPEND_TEXT` 虽可使用，
 但需要为双语文本的版面溢出承担处理成本，因此通常推荐 `REPLACE`。
 

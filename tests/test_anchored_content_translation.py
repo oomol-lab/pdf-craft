@@ -226,7 +226,7 @@ def _repairing_translator(fill_responses: Sequence[str]) -> tuple[XMLTranslator,
     config = LLM("test", "https://example.invalid/v1", "test", "cl100k_base")
     translator = XMLTranslator(
         config, config, "English", None, False, 2, 10_000, 10_000,
-        ConcurrentExecutor(FixedCapacity(1)),
+        executor=ConcurrentExecutor(FixedCapacity(1)),
     )
     translator._translate_text = lambda text: text  # type: ignore[method-assign]
 

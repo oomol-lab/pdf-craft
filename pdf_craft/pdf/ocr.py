@@ -2,6 +2,7 @@ import sys
 import time
 import json
 from collections.abc import AsyncGenerator
+from contextlib import aclosing
 from tempfile import TemporaryDirectory
 from dataclasses import dataclass
 from enum import Enum, auto
@@ -224,6 +225,11 @@ class OCR:
                 recognized_error: Exception | None = None
                 if operation_error is not None:
                     cause = operation_error.__cause__
+                    from doc_page_extractor.extraction_context import (
+                        ExtractionAbortedError,
+                    )
+                    if isinstance(cause, ExtractionAbortedError):
+                        raise cause
                     recognized_error = (
                         cause if isinstance(cause, Exception) else operation_error
                     )
@@ -321,11 +327,12 @@ class OCR:
                             return operation_id, page
                         yield recognize
 
-                async for result in executor.map(operations()):
-                    item = prepared[result.operation_id]
-                    page = result.value if result.succeeded else None
-                    event = await finish_page(item, page, result.error)
-                    yield event
+                async with aclosing(executor.map(operations())) as results:
+                    async for result in results:
+                        item = prepared[result.operation_id]
+                        page = result.value if result.succeeded else None
+                        event = await finish_page(item, page, result.error)
+                        yield event
             await IO_DOMAIN.run(self._save_page_pixel_sizes, geometry_path)
             if terminal_failures and usable_pages == 0:
                 from ..error import NoUsableOCRPagesError

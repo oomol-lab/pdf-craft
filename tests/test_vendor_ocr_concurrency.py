@@ -11,7 +11,7 @@ from pdf_craft import ConcurrentExecutor, DeepSeekOCRVendorConfig, FixedCapacity
 from pdf_craft.error import OCRError, PDFError
 from pdf_craft.pdf.ocr import OCR, OCREventKind
 from pdf_craft.pdf.types import Page
-from doc_page_extractor.extraction_context import TokenLimitError
+from doc_page_extractor.extraction_context import AbortError, TokenLimitError
 
 
 class _Document:
@@ -41,9 +41,15 @@ class _Handler:
 
 
 class _Extractor:
-    def __init__(self, rendered: list[int], fail_pages: tuple[int, ...] = (2,)) -> None:
+    def __init__(
+        self,
+        rendered: list[int],
+        fail_pages: tuple[int, ...] = (2,),
+        errors: dict[int, Exception] | None = None,
+    ) -> None:
         self._rendered = rendered
         self._fail_pages = fail_pages
+        self._errors = errors or {}
         self._lock = threading.Lock()
         self.active = 0
         self.maximum = 0
@@ -63,6 +69,8 @@ class _Extractor:
             self.maximum = max(self.maximum, self.active)
         try:
             time.sleep(0.02)
+            if page_index in self._errors:
+                raise self._errors[page_index]
             if page_index in self._fail_pages:
                 raise OCRError("ignored", page_index=page_index, step_index=1)
             return Page(page_index, None, [], [], page_index, page_index)
@@ -247,6 +255,48 @@ class VendorOCRConcurrencyTests(unittest.IsolatedAsyncioTestCase):
             self.assertTrue((root / "ocr/page_1.xml").exists())
             self.assertEqual(ocr.last_page_pixel_sizes, {1: (100, 100)})
             self.assertTrue((root / "ocr/page_pixel_sizes.json").exists())
+
+    async def test_extraction_interrupts_bypass_ocr_ignore_and_fallback(self):
+        cases = (
+            (AbortError, None, False),
+            (AbortError, None, True),
+            (TokenLimitError, 100, False),
+            (TokenLimitError, 100, True),
+        )
+        for error_type, max_tokens, ignore_errors in cases:
+            with self.subTest(
+                error_type=error_type.__name__,
+                max_tokens=max_tokens,
+                ignore_errors=ignore_errors,
+            ):
+                rendered: list[int] = []
+                ocr = OCR(
+                    DeepSeekOCRVendorConfig(
+                        base_url="https://example.invalid/v1",
+                        api_key="key",
+                        model="model",
+                    ),
+                    cast(Any, _Handler(rendered)),
+                )
+                ocr.__dict__["_extractor"] = _Extractor(
+                    rendered,
+                    fail_pages=(),
+                    errors={1: error_type()},
+                )
+                with tempfile.TemporaryDirectory() as directory:
+                    root = Path(directory)
+                    with self.assertRaises(error_type):
+                        async for _ in ocr.recognize_vendor(
+                            ConcurrentExecutor(FixedCapacity(1)),
+                            pdf_path=root / "source.pdf",
+                            asset_path=root / "assets",
+                            ocr_path=root / "ocr",
+                            ignore_ocr_errors=ignore_errors,
+                            max_tokens=max_tokens,
+                        ):
+                            pass
+                    self.assertFalse((root / "ocr/page_1.xml").exists())
+                    self.assertFalse((root / "ocr/page_1.failed").exists())
 
 
 if __name__ == "__main__":

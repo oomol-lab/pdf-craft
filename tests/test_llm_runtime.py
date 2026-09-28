@@ -1,16 +1,21 @@
 # pylint: disable=protected-access
 import tempfile
 import unittest
+from inspect import signature
 from os import chdir
 from pathlib import Path
 from unittest.mock import AsyncMock, Mock
+from xml.etree.ElementTree import Element
 
 import httpx
 
 from pdf_craft import ConcurrentExecutor, FixedCapacity
 from pdf_craft.llm import LLM, Message, MessageRole, runtime_for
 from pdf_craft.llm.runtime import LLMEmptyResponseError, LLMTransportError
-from pdf_craft.transformer.xml_translator import XMLTranslator
+from pdf_craft.pipeline.epub.translation.translator import translate as translate_epub
+from pdf_craft.transformer.xml_translator import (
+    SubmitKind, TranslationTask, XMLTranslator,
+)
 
 
 def _config(path: Path) -> LLM:
@@ -20,6 +25,53 @@ def _config(path: Path) -> LLM:
 
 
 class TestLLMRuntime(unittest.IsolatedAsyncioTestCase):
+    async def test_xml_translator_preserves_legacy_constructor_and_concurrency(self):
+        config = LLM("key", "https://example.invalid/v1", "model", "o200k_base")
+        translator = XMLTranslator(
+            config, config, "en", None, False, 1, 3, 10_000, "legacy-seed",
+        )
+        self.assertEqual(translator._cache_seed_content, "legacy-seed")
+        self.assertIsInstance(translator._translation_runtime.executor, ConcurrentExecutor)
+        self.assertIsInstance(translator._fill_runtime.executor, ConcurrentExecutor)
+
+        class Mapper:
+            def __init__(self):
+                self.windows: list[int] = []
+
+            async def map_stream_async(self, *, elements, window, **_kwargs):
+                self.windows.append(window)
+                for element in elements:
+                    yield element, []
+
+        mapper = Mapper()
+        translator._stream_mapper = mapper  # type: ignore[assignment]
+        first = TranslationTask(Element("p"), SubmitKind.REPLACE, "first")
+        second = TranslationTask(Element("p"), SubmitKind.REPLACE, "second")
+        third = TranslationTask(Element("p"), SubmitKind.REPLACE, "third")
+
+        self.assertEqual(
+            (await translator.translate_element(first, concurrency=2))[1],
+            "first",
+        )
+        self.assertEqual(
+            (await translator.translate_elements((second,), concurrency=3))[0][1],
+            "second",
+        )
+        self.assertEqual(
+            (await translator.translate_element(third, window=4))[1],
+            "third",
+        )
+        self.assertEqual(mapper.windows, [2, 3, 4])
+
+    def test_epub_translate_preserves_legacy_positional_parameter_order(self):
+        parameters = list(signature(translate_epub).parameters)
+        self.assertEqual(parameters[:13], [
+            "source_path", "target_path", "target_language", "submit",
+            "user_prompt", "max_retries", "max_group_tokens", "concurrency",
+            "llm", "translation_llm", "fill_llm",
+            "on_translation_event", "on_fill_failed",
+        ])
+
     async def test_relative_output_paths_are_bound_at_construction(self):
         original = Path.cwd()
         with tempfile.TemporaryDirectory() as directory:
@@ -107,7 +159,7 @@ class TestLLMRuntime(unittest.IsolatedAsyncioTestCase):
         config = LLM("key", "https://example.invalid/v1", "model", "o200k_base")
         translator = XMLTranslator(
             config, config, "zh", None, False, 1, 3, 10_000,
-            ConcurrentExecutor(FixedCapacity(1)),
+            executor=ConcurrentExecutor(FixedCapacity(1)),
         )
         runtime = Mock()
         translator._translation_runtime = runtime  # type: ignore[assignment]

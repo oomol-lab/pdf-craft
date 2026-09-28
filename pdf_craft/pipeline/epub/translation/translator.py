@@ -46,19 +46,19 @@ async def translate(
     target_path: PathLike | str,
     target_language: str,
     submit: SubmitKind,
-    executor: AsyncExecutor | None = None,
-    translation_executor: AsyncExecutor | None = None,
-    fill_executor: AsyncExecutor | None = None,
     user_prompt: str | None = None,
     max_retries: int = 5,
     max_group_tokens: int = 2600,
-    window: int | None = None,
-    concurrency: int | None = None,
+    concurrency: int | None = 1,
     llm: LLM | None = None,
     translation_llm: LLM | None = None,
     fill_llm: LLM | None = None,
     on_translation_event: Callable[[TranslationEvent], object] | None = None,
     on_fill_failed: Callable[[FillFailedEvent], object] | None = None,
+    executor: AsyncExecutor | None = None,
+    translation_executor: AsyncExecutor | None = None,
+    fill_executor: AsyncExecutor | None = None,
+    window: int | None = None,
 ) -> None:
     """Translate an EPUB with native async LLM concurrency and pooled ZIP I/O."""
     window = _resolve_window(window, concurrency)
@@ -156,7 +156,10 @@ async def translate(
 
 def _resolve_window(window: int | None, concurrency: int | None) -> int:
     """Resolve the legacy ``concurrency`` spelling to the XML work window."""
-    if window is not None and concurrency is not None and window != concurrency:
+    if (
+        window is not None
+        and concurrency not in (None, 1, window)
+    ):
         raise ValueError("window and concurrency must match when both are provided")
     resolved = window if window is not None else concurrency
     if resolved is None:
