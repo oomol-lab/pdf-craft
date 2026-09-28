@@ -403,8 +403,7 @@ class ConcurrentExecutor:
                     task.add_done_callback(running.discard)
                     operation_id += 1
             finally:
-                current = asyncio.current_task()
-                if current is None or not current.cancelling():
+                if not teardown_requested:
                     await completed.put(_Completed(producer_done=True))
 
         producer = asyncio.create_task(produce())
@@ -419,10 +418,10 @@ class ConcurrentExecutor:
                 item = await completed.get()
                 if item.producer_done:
                     producer_done = True
-                    if producer.done():
-                        error = producer.exception()
-                        if error is not None:
-                            raise error
+                    # The queue handoff can wake this consumer before the
+                    # producer task has fully unwound.  Always settle it so an
+                    # iterator-raised error or self-cancellation is observable.
+                    await asyncio.shield(producer)
                     continue
                 if item.fatal is not None:
                     raise item.fatal

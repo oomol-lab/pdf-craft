@@ -139,6 +139,63 @@ class AsyncExecutorTests(unittest.IsolatedAsyncioTestCase):
         with self.assertRaisesRegex(asyncio.CancelledError, "task self cancellation"):
             await asyncio.wait_for(anext(stream), timeout=1)
 
+    async def test_map_propagates_lazy_iterator_task_self_cancellation(self):
+        executor = ConcurrentExecutor(FixedCapacity(1))
+        closed = False
+        started = 0
+        settled = 0
+
+        async def succeeded(operation_id: int):
+            nonlocal started, settled
+            started += 1
+            try:
+                return operation_id, f"result-{operation_id}"
+            finally:
+                settled += 1
+
+        class CancellingIterator:
+            def __init__(self):
+                self.index = 0
+
+            def __iter__(self):
+                return self
+
+            def __next__(self):
+                if self.index == 0:
+                    self.index += 1
+                    return succeeded
+                if self.index == 1:
+                    self.index += 1
+                    task = asyncio.current_task()
+                    assert task is not None
+                    task.cancel("producer self cancellation")
+                    return succeeded
+                raise StopIteration
+
+            def close(self):
+                nonlocal closed
+                closed = True
+
+        stream = executor.map(CancellingIterator())
+        first = await asyncio.wait_for(anext(stream), timeout=1)
+        self.assertEqual((first.operation_id, first.value), (0, "result-0"))
+
+        async def drain_until_cancelled():
+            values = []
+            try:
+                while True:
+                    values.append(await anext(stream))
+            except asyncio.CancelledError as error:
+                return values, error
+
+        remaining, error = await asyncio.wait_for(
+            drain_until_cancelled(), timeout=1,
+        )
+        self.assertEqual(str(error), "producer self cancellation")
+        self.assertLessEqual(len(remaining), 1)
+        self.assertTrue(closed)
+        self.assertEqual(settled, started)
+
     async def test_map_does_not_return_partial_results_after_self_cancellation(self):
         executor = ConcurrentExecutor(FixedCapacity(2))
         release_cancelled = asyncio.Event()
