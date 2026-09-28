@@ -155,7 +155,8 @@ PDFCraft().translate_epub(
 ### 并发翻译
 
 `executor` 控制真实 LLM 请求共享的供应商容量。翻译和 XML 修复若使用同一供应商配额，
-应复用同一个执行器。`window` 默认值为 1，只限制 XML group 可向前推进的距离；真实并发仍由
+应复用同一个执行器。`window` 默认值为 1；队首 group 尚未完成时，最多允许后续 `window` 个
+group 提前执行，真实并发仍由
 执行器控制。旧参数 `concurrency` 仍可作为 `window` 的兼容别名，新代码建议使用 `window`。
 两个模型使用不同配额时，可分别传 `translation_executor` 与 `fill_executor`：
 

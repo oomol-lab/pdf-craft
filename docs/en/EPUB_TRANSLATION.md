@@ -117,7 +117,7 @@ PDFCraft().translate_epub(
 - `max_group_tokens` defaults to `2600`. Larger groups make fewer, larger requests and increase the cost of retrying a failed request.
 - `executor` is the shared capacity channel for real LLM requests. Reuse one executor when translation and XML repair use the same provider quota.
 - `translation_executor` and `fill_executor` may replace the common executor when the two models use separate provider quotas.
-- `window` defaults to `1`. It limits how far XML groups may run ahead while the executor controls the actual provider concurrency.
+- `window` defaults to `1`. While the next ordered group is still running, at most `window` later groups may run ahead; the executor controls the actual provider concurrency.
 - `concurrency` remains accepted as a compatibility alias for `window`; new code should use `window`.
 - `max_retries` controls XML structure-repair attempts and defaults to `5`. It is distinct from `LLM.retry_times`, which controls text-request retries.
 
