@@ -155,7 +155,39 @@ class ChapterExtractionTransformer:
 
         completed_characters = 0
         narrative_coverage: list[NarrativeCoverage] = []
-        for path, chapter, item_id, character_count in chapter_tasks:
+        transformed_chapters = None
+        if is_xml_transformer:
+            if emit_translation_events and on_translation_event is not None:
+                for _, _, item_id, character_count in chapter_tasks:
+                    await invoke_callback(on_translation_event, TranslationEvent(
+                        kind=TranslationEventKind.ITEM_START,
+                        item_kind=TranslationItemKind.CHAPTER,
+                        item_id=item_id,
+                        item_completed_characters=0,
+                        item_total_characters=character_count,
+                    ))
+
+            async def translate_chapter(task):
+                _, chapter, item_id, _ = task
+                return await cast(
+                    ChapterXMLTransformer, self.chapter_transformer,
+                ).transform(
+                    chapter,
+                    on_translation_event=None,
+                    item_id=item_id,
+                    total_characters=total_characters,
+                    emit_scope_events=False,
+                    emit_item_events=False,
+                )
+
+            async with asyncio.TaskGroup() as group:
+                pending_chapters = [
+                    group.create_task(translate_chapter(task))
+                    for task in chapter_tasks
+                ]
+            transformed_chapters = [task.result() for task in pending_chapters]
+
+        for task_index, (path, chapter, item_id, character_count) in enumerate(chapter_tasks):
             source_layouts = {
                 identity: layout
                 for layout in chapter.flow_items
@@ -164,18 +196,8 @@ class ChapterExtractionTransformer:
                 and (identity := paragraph_identity(chapter, layout)) is not None
             }
             if is_xml_transformer:
-                transformed = await cast(
-                    ChapterXMLTransformer, self.chapter_transformer,
-                ).transform(
-                    chapter,
-                    on_translation_event=(
-                        on_translation_event if emit_translation_events else None
-                    ),
-                    item_id=item_id,
-                    completed_characters=completed_characters,
-                    total_characters=total_characters,
-                    emit_scope_events=False,
-                )
+                assert transformed_chapters is not None
+                transformed = transformed_chapters[task_index]
             else:
                 if emit_translation_events and on_translation_event is not None:
                     await invoke_callback(on_translation_event, TranslationEvent(
@@ -205,8 +227,7 @@ class ChapterExtractionTransformer:
                 narrative_coverage.append(NarrativeCoverage(*identity, state))
             completed_characters += character_count
             if (
-                not is_xml_transformer
-                and emit_translation_events
+                emit_translation_events
                 and on_translation_event is not None
             ):
                 for event_kind in (

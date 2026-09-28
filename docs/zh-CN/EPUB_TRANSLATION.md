@@ -10,7 +10,9 @@ pdf-craft 可以直接翻译已有 EPUB。输入已经是 EPUB 时，不需要 O
 文本 LLM 配置，并指定输入文件、输出文件、目标语言和译文提交模式：
 
 ~~~python
-from pdf_craft import LLM, PDFCraft, SubmitKind
+from pdf_craft import (
+    ConcurrentExecutor, FixedCapacity, LLM, PDFCraft, SubmitKind,
+)
 
 llm = LLM(
     key="your-api-key",
@@ -18,6 +20,7 @@ llm = LLM(
     model="gpt-4.1-mini",
     token_encoding="o200k_base",
 )
+executor = ConcurrentExecutor(FixedCapacity(4))
 
 PDFCraft().translate_epub(
     "source.epub",
@@ -25,6 +28,7 @@ PDFCraft().translate_epub(
     target_language="zh",
     submit=SubmitKind.APPEND_BLOCK,
     llm=llm,
+    executor=executor,
 )
 ~~~
 
@@ -150,9 +154,9 @@ PDFCraft().translate_epub(
 
 ### 并发翻译
 
-`concurrency` 控制同时处理的翻译任务数，默认值为 1。建议先使用默认值确认服务可用，
-再根据供应商的速率限制逐步提高。输出顺序会保持稳定，但并发提高会增加同时进行的请求数
-和服务费用：
+`executor` 控制真实 LLM 请求共享的供应商容量。翻译和 XML 修复若使用同一供应商配额，
+应复用同一个执行器。`window` 默认值为 1，只限制 XML group 可向前推进的距离；真实并发仍由
+执行器控制。两个模型使用不同配额时，可分别传 `translation_executor` 与 `fill_executor`：
 
 ~~~python
 PDFCraft().translate_epub(
@@ -160,7 +164,8 @@ PDFCraft().translate_epub(
     target_language="zh",
     submit=SubmitKind.APPEND_BLOCK,
     llm=llm,
-    concurrency=4,
+    executor=executor,
+    window=4,
 )
 ~~~
 
@@ -216,6 +221,7 @@ PDFCraft().translate_epub(
     target_language="zh",
     submit=SubmitKind.APPEND_BLOCK,
     llm=llm,
+    executor=executor,
     on_translation_event=on_translation_event,
     on_fill_failed=on_fill_failed,
 )

@@ -7,6 +7,7 @@ from unittest.mock import AsyncMock, Mock
 
 import httpx
 
+from pdf_craft import ConcurrentExecutor, FixedCapacity
 from pdf_craft.llm import LLM, Message, MessageRole, runtime_for
 from pdf_craft.llm.runtime import LLMEmptyResponseError, LLMTransportError
 from pdf_craft.transformer.xml_translator import XMLTranslator
@@ -94,9 +95,7 @@ class TestLLMRuntime(unittest.IsolatedAsyncioTestCase):
             invoke = AsyncMock(side_effect=[httpx.ConnectError("TLS failed"), "ok"])
             runtime._invoke_stream = invoke  # type: ignore[method-assign]
 
-            result = await runtime._invoke_async(
-                [Message(MessageRole.USER, "hello")], None, None, None,
-            )
+            result = await runtime.request("hello", use_cache=False)
 
             self.assertEqual(result, "ok")
             self.assertEqual(
@@ -106,7 +105,10 @@ class TestLLMRuntime(unittest.IsolatedAsyncioTestCase):
 
     async def test_chinese_target_preserves_chinese_dominant_text_without_llm(self):
         config = LLM("key", "https://example.invalid/v1", "model", "o200k_base")
-        translator = XMLTranslator(config, config, "zh", None, False, 1, 3, 10_000)
+        translator = XMLTranslator(
+            config, config, "zh", None, False, 1, 3, 10_000,
+            ConcurrentExecutor(FixedCapacity(1)),
+        )
         runtime = Mock()
         translator._translation_runtime = runtime  # type: ignore[assignment]
         source = "这是已经写成中文的正文，其中保留 API 和 Lacan 等专名。"

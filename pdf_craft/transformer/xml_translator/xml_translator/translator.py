@@ -4,6 +4,8 @@ from dataclasses import dataclass
 from typing import Generic, TypeVar
 from xml.etree.ElementTree import Element
 
+from pdf_craft.concurrency import AsyncExecutor
+
 from pdf_craft.llm import LLM, Message, MessageRole, runtime_for
 from pdf_craft.language import is_han_char, is_latin_letter
 from pdf_craft.llm.loop import (
@@ -86,12 +88,27 @@ class XMLTranslator:
         max_retries: int,
         max_fill_displaying_errors: int,
         max_group_score: int,
+        executor: AsyncExecutor | None = None,
+        translation_executor: AsyncExecutor | None = None,
+        fill_executor: AsyncExecutor | None = None,
         cache_seed_content: str | None = None,
     ) -> None:
+        translation_executor = translation_executor or executor
+        fill_executor = fill_executor or executor
+        if translation_executor is None or fill_executor is None:
+            raise ValueError(
+                "translation and fill executors must be provided"
+            )
         self._translation_llm: LLM = translation_llm
         self._fill_llm: LLM = fill_llm
-        self._translation_runtime = runtime_for(translation_llm, protocol_version="xml-translation-v1")
-        self._fill_runtime = runtime_for(fill_llm, protocol_version="xml-fill-v1")
+        self._translation_runtime = runtime_for(
+            translation_llm,
+            translation_executor,
+            protocol_version="xml-translation-v1",
+        )
+        self._fill_runtime = runtime_for(
+            fill_llm, fill_executor, protocol_version="xml-fill-v1",
+        )
         self._target_language: str = target_language
         self._user_prompt: str | None = user_prompt
         self._ignore_translated_error: bool = ignore_translated_error
@@ -124,7 +141,7 @@ class XMLTranslator:
     def _translate_element_blocking(
         self,
         task: TranslationTask[T],
-        concurrency: int = 1,
+        window: int = 1,
         interrupt_source_text_segments: Callable[[Iterable[TextSegment]], Iterable[TextSegment]] | None = None,
         interrupt_translated_text_segments: Callable[[Iterable[TextSegment]], Iterable[TextSegment]] | None = None,
         interrupt_block_element: Callable[[Element], Element] | None = None,
@@ -140,7 +157,7 @@ class XMLTranslator:
     ) -> tuple[Element, T]:
         translated_elements = self._translate_elements_blocking(
             tasks=((task),),
-            concurrency=concurrency,
+            window=window,
             interrupt_source_text_segments=interrupt_source_text_segments,
             interrupt_translated_text_segments=interrupt_translated_text_segments,
             interrupt_block_element=interrupt_block_element,
@@ -167,11 +184,11 @@ class XMLTranslator:
     async def translate_element(
         self,
         task: TranslationTask[T],
-        concurrency: int = 1,
+        window: int = 1,
         **kwargs,
     ) -> tuple[Element, T]:
         translated = await self.translate_elements(
-            tasks=(task,), concurrency=concurrency, **kwargs,
+            tasks=(task,), window=window, **kwargs,
         )
         if translated:
             return translated[0]
@@ -180,7 +197,7 @@ class XMLTranslator:
     async def translate_elements(
         self,
         tasks: Iterable[TranslationTask[T]],
-        concurrency: int = 1,
+        window: int = 1,
         interrupt_source_text_segments: Callable[[Iterable[TextSegment]], Iterable[TextSegment]] | None = None,
         interrupt_translated_text_segments: Callable[[Iterable[TextSegment]], Iterable[TextSegment]] | None = None,
         interrupt_block_element: Callable[[Element], Element] | None = None,
@@ -238,7 +255,7 @@ class XMLTranslator:
         results: list[tuple[Element, T]] = []
         stream_mapper = await self._stream_mapper_async()
         async for element, mappings in stream_mapper.map_stream_async(
-            elements=generate_elements(), callbacks=callbacks, concurrency=concurrency,
+            elements=generate_elements(), callbacks=callbacks, window=window,
             map=lambda inline_segments: self._translate_inline_segments_async(
                 inline_segments=inline_segments,
                 callbacks=callbacks,
@@ -287,7 +304,7 @@ class XMLTranslator:
     def _translate_elements_blocking(
         self,
         tasks: Iterable[TranslationTask[T]],
-        concurrency: int = 1,
+        window: int = 1,
         interrupt_source_text_segments: Callable[[Iterable[TextSegment]], Iterable[TextSegment]] | None = None,
         interrupt_translated_text_segments: Callable[[Iterable[TextSegment]], Iterable[TextSegment]] | None = None,
         interrupt_block_element: Callable[[Element], Element] | None = None,
@@ -343,7 +360,7 @@ class XMLTranslator:
         for element, mappings in self._stream_mapper_sync().map_stream(
             elements=generate_elements(),
             callbacks=callbacks,
-            concurrency=concurrency,
+            window=window,
             map=lambda inline_segments: self._translate_inline_segments(
                 inline_segments=inline_segments,
                 callbacks=callbacks,

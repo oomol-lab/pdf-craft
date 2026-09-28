@@ -115,6 +115,7 @@ craft = PDFCraft(pdf=PDFOptions(...))
 ```python
 PDFOptions(
     ocr=None,                   # OCRConfig；省略时默认为 DeepSeek OCR local 配置
+    ocr_executor=None,          # vendor OCR 请求共享的 AsyncExecutor
     pdf_handler=None,           # PDFHandler；省略时使用默认处理器
     models_cache_path=None,     # local OCR 模型缓存目录
     local_only=False,           # 禁止 local OCR 下载缺失模型
@@ -193,13 +194,18 @@ from pdf_craft import (
     FootnoteRefinement,
     JEV,
     LLM,
+    ConcurrentExecutor,
+    FixedCapacity,
 )
+
+executor = ConcurrentExecutor(FixedCapacity(4))
 
 options = ExtractionOptions(
     footnotes=FootnoteOptions(
         refinement=FootnoteRefinement(
             jev=JEV(key="...", model="jev-latest"),
             llm=LLM("...", "https://example.com/v1", "model", "o200k_base"),
+            executor=executor,
         ),
     ),
 )
@@ -207,6 +213,8 @@ options = ExtractionOptions(
 
 传统算法仍先完整生成可逆的 PageAnalysis；JEV 只负责筛选低置信页，LLM 返回的完整目标页必须通过
 schema、layout 不可变性、citation/ref 一一对应和 gap 等确定性约束，之后才继续组装 FlowItem。
+JEV 与 LLM 使用不同供应商配额时，可分别传 `jev_executor` 与 `llm_executor`；传共同的
+`executor` 表示两者共享容量。
 
 `extract_book_metadata` 默认关闭。开启后必须通过独立的 `metadata_llm` 参数显式提供 LLM，
 不会隐式复用 `toc_llm`。它会先向 LLM 提供前三个原始 OCR 页；模型可继续请求前部页面，但总数最多为
@@ -419,6 +427,8 @@ async def transform(extraction: PDFCraftExtraction, output_path: Path) -> PDFCra
 ```python
 from pdf_craft import (
     ChapterXMLTransformer,
+    ConcurrentExecutor,
+    FixedCapacity,
     LLM,
     SubmitKind,
     XMLTranslator,
@@ -430,6 +440,7 @@ llm = LLM(
     model="your-model",
     token_encoding="o200k_base",
 )
+executor = ConcurrentExecutor(FixedCapacity(4))
 xml_translator = XMLTranslator(
     translation_llm=llm,
     fill_llm=llm,
@@ -439,6 +450,7 @@ xml_translator = XMLTranslator(
     max_retries=5,
     max_fill_displaying_errors=10,
     max_group_score=2600,
+    executor=executor,
 )
 translator = ChapterXMLTransformer(xml_translator)
 craft.convert_pdf_to_markdown(
@@ -486,7 +498,9 @@ asset 以无文本、不可变 anchor 维持前后文本的位置，`StandaloneA
 ### 翻译 EPUB
 
 ```python
-from pdf_craft import LLM, PDFCraft, SubmitKind
+from pdf_craft import (
+    ConcurrentExecutor, FixedCapacity, LLM, PDFCraft, SubmitKind,
+)
 
 llm = LLM(
     key="your-api-key",
@@ -494,15 +508,17 @@ llm = LLM(
     model="your-model",
     token_encoding="o200k_base",
 )
+executor = ConcurrentExecutor(FixedCapacity(4))
 PDFCraft().translate_epub(
     "source.epub", "translated.epub",
-    target_language="zh", submit=SubmitKind.APPEND_BLOCK, llm=llm,
+    target_language="zh", submit=SubmitKind.APPEND_BLOCK,
+    llm=llm, executor=executor,
 )
 ```
 
 `REPLACE` 只输出译文，`APPEND_TEXT` 在原文后追加内联译文，`APPEND_BLOCK` 追加独立译文
 块，适合双语阅读。`translate_epub` 还支持 `user_prompt`、`max_retries`、`max_group_tokens`、
-`concurrency`、`translation_llm`、`fill_llm`、`on_translation_event` 和 `on_fill_failed`；完整行为
+`executor`、`window`、`translation_llm`、`fill_llm`、`on_translation_event` 和 `on_fill_failed`；完整行为
 和回调字段请参阅 EPUB 翻译专题文档。
 
 EPUB-only 程序直接构造不带 PDF 配置的 `PDFCraft()` 或 `AsyncPDFCraft()` 即可；该能力不再
@@ -603,6 +619,20 @@ LLM(
 
 `LLM` 只保存配置，实际请求由 pdf-craft 内部运行时发起。OCR endpoint 和文本翻译 LLM
 是两套独立配置，不要把 OCR 配置当作翻译 LLM 使用。
+
+## 共享异步容量
+
+`ConcurrentExecutor(FixedCapacity(n))` 提供一条绑定到事件循环的远程调用容量通道。LLM、
+JEV 或 vendor OCR 若消耗同一供应商配额，应共享同一个执行器。`run()` 与 `map()` 共享容量；
+`map()` 惰性读取 `Callable[[int], Awaitable[tuple[int, T]]]`，按完成顺序返回
+`OperationResult`，调用方通过 `operation_id` 关联原始输入。
+
+`CapacityProvider` 与 `CapacityLease` 是自适应策略的公开协议。自定义 provider 可在
+`acquire()` 中异步等待，在 `release()` 收到的 `ExecutionReport` 中观察结果，并在容量恢复时
+唤醒自己的等待者；它还必须实现 `close(error)`，让 `NonContinuableError` 唤醒所有阻塞请求。
+`RateLimitedError` 与普通 `OperationError` 在 `map()` 中作为单项结果返回；
+`NonContinuableError` 会关闭共享执行器并取消未完成工作。供应商 retry 循环位于执行器外，
+因此每次真实重试都会重新申请容量。
 
 ## 计量、事件与错误
 

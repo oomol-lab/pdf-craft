@@ -6,7 +6,6 @@ would make cancellation and the LLM semaphore ineffective.
 """
 
 import asyncio
-from collections import deque
 from collections.abc import AsyncIterator, Awaitable, Callable, Iterable, Iterator
 from typing import TypeVar
 
@@ -32,24 +31,42 @@ async def run_concurrency_async(
     """Execute at most ``concurrency`` awaitables, yielding in input order."""
     assert concurrency >= 1, "the concurrency must be at least 1"
     iterator = iter(parameters)
-    pending: deque[asyncio.Future[R]] = deque()
+    pending: dict[asyncio.Future[R], int] = {}
+    completed: dict[int, R] = {}
+    next_input = 0
+    next_output = 0
+
+    def submit(parameter: P) -> None:
+        nonlocal next_input
+        pending[asyncio.ensure_future(execute(parameter))] = next_input
+        next_input += 1
+
     try:
         for _ in range(concurrency):
             try:
                 parameter = next(iterator)
             except StopIteration:
                 break
-            pending.append(asyncio.ensure_future(execute(parameter)))
+            submit(parameter)
 
         while pending:
-            yield await pending.popleft()
-            try:
-                parameter = next(iterator)
-            except StopIteration:
-                continue
-            pending.append(asyncio.ensure_future(execute(parameter)))
+            done, _ = await asyncio.wait(
+                pending, return_when=asyncio.FIRST_COMPLETED,
+            )
+            for task in done:
+                index = pending.pop(task)
+                completed[index] = task.result()
+                try:
+                    parameter = next(iterator)
+                except StopIteration:
+                    pass
+                else:
+                    submit(parameter)
+            while next_output in completed:
+                yield completed.pop(next_output)
+                next_output += 1
     finally:
         for task in pending:
             task.cancel()
         if pending:
-            await asyncio.gather(*pending, return_exceptions=True)
+            await asyncio.gather(*pending.keys(), return_exceptions=True)

@@ -65,7 +65,7 @@ class _FormulaAwareTranslator:
 
         translated = task.element
         for element, mappings in mapper.map_stream(
-            elements=iter((task.element,)), callbacks=callbacks, map=translate_group, concurrency=1,
+            elements=iter((task.element,)), callbacks=callbacks, map=translate_group, window=1,
         ):
             translated = submit(element, task.action, mappings)
         return translated, task.payload

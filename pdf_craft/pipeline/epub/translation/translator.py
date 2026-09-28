@@ -16,6 +16,7 @@ from pdf_craft.pipeline.epub.adapter import (
     write_toc,
 )
 from pdf_craft.llm import LLM
+from pdf_craft.concurrency import AsyncExecutor
 from pdf_craft.runtime import ARCHIVE_DOMAIN
 from pdf_craft.transformer.events import TranslationEvent, TranslationItemKind
 from pdf_craft.transformer.xml_translator.segment import search_text_segments
@@ -45,10 +46,13 @@ async def translate(
     target_path: PathLike | str,
     target_language: str,
     submit: SubmitKind,
+    executor: AsyncExecutor | None = None,
+    translation_executor: AsyncExecutor | None = None,
+    fill_executor: AsyncExecutor | None = None,
     user_prompt: str | None = None,
     max_retries: int = 5,
     max_group_tokens: int = 2600,
-    concurrency: int = 1,
+    window: int = 1,
     llm: LLM | None = None,
     translation_llm: LLM | None = None,
     fill_llm: LLM | None = None,
@@ -71,6 +75,9 @@ async def translate(
         max_retries=max_retries,
         max_fill_displaying_errors=10,
         max_group_score=max_group_tokens,
+        executor=executor,
+        translation_executor=translation_executor,
+        fill_executor=fill_executor,
         cache_seed_content=f"{_get_version()}:{target_language}",
     )
     archive: Zip | None = None
@@ -123,7 +130,7 @@ async def translate(
         tasks = await ARCHIVE_DOMAIN.run(prepare)
         interrupter = XMLInterrupter()
         results = await translator.translate_elements(
-            concurrency=concurrency,
+            window=window,
             interrupt_source_text_segments=interrupter.interrupt_source_text_segments,
             interrupt_translated_text_segments=interrupter.interrupt_translated_text_segments,
             interrupt_block_element=interrupter.interrupt_block_element,

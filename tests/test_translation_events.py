@@ -1,11 +1,17 @@
 # pylint: disable=protected-access
 
+import asyncio
 import tempfile
 import unittest
 from pathlib import Path
 from xml.etree.ElementTree import tostring
 
-from pdf_craft import ChapterExtractionTransformer, TranslationEventKind, TranslationItemKind
+from pdf_craft import (
+    ChapterExtractionTransformer,
+    ChapterXMLTransformer,
+    TranslationEventKind,
+    TranslationItemKind,
+)
 from pdf_craft import PDFCraft
 from pdf_craft.extractor.chapter.chapter import SourceTextFragment, Chapter, TextFlowItem, encode
 from tests.extraction_helpers import make_extraction
@@ -95,3 +101,51 @@ class TestTranslationEvents(unittest.TestCase):
                  for event in progress],
                 [(7, len("chapter"), len("chapter")), ("head", len("head"), len("head"))],
             )
+
+
+class TestCrossChapterTranslation(unittest.IsolatedAsyncioTestCase):
+    async def test_xml_chapters_can_translate_at_the_same_time(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source_root = root / "source"
+            source = make_extraction(source_root, page_pixel_sizes={1: (10, 10)})
+            chapters = [
+                Chapter(chapter_id, 1, [TextFlowItem(
+                    "body", 0, [SourceTextFragment(
+                        1, 1, (1, 1, 5, 5), [f"chapter {chapter_id}"],
+                    )],
+                )])
+                for chapter_id in (1, 2)
+            ]
+            for chapter in chapters:
+                (source_root / "chapters" / f"chapter_{chapter.id}.xml").write_text(
+                    '<?xml version="1.0" encoding="UTF-8"?>\n'
+                    + tostring(encode(chapter), encoding="unicode")
+                )
+
+            class GatedTranslator:
+                target_language = "en"
+
+                def __init__(self):
+                    self.started = 0
+                    self.both_started = asyncio.Event()
+                    self.release = asyncio.Event()
+
+                async def translate_element(self, task, **_kwargs):
+                    self.started += 1
+                    if self.started == 2:
+                        self.both_started.set()
+                    await self.release.wait()
+                    return task.element, task.payload
+
+            translator = GatedTranslator()
+            transform = ChapterExtractionTransformer(
+                ChapterXMLTransformer(translator)
+            )
+            pending = asyncio.create_task(transform._transform_to_workspace_async(
+                source, root / "target",
+            ))
+            await asyncio.wait_for(translator.both_started.wait(), timeout=1)
+            translator.release.set()
+            result = await pending
+            self.assertTrue(result._validate())

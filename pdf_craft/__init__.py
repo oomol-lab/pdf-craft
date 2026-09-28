@@ -13,6 +13,19 @@ from .error import (
     PDFError,
 )
 from .functions import predownload_models
+from .concurrency import (
+    AsyncExecutor,
+    CapacityLease,
+    CapacityProvider,
+    ConcurrentExecutor,
+    ExecutionOutcome,
+    ExecutionReport,
+    FixedCapacity,
+    NonContinuableError,
+    OperationError,
+    OperationResult,
+    RateLimitedError,
+)
 from .craft import AsyncPDFCraft, ExtractionOptions, PDFOptions
 from .sync import PDFCraft
 from .pipeline.pdf import (
@@ -44,8 +57,8 @@ from .transformer import (
     TranslationEventKind,
     TranslationItemKind,
 )
-from .llm import LLM
-from .jev import JEV
+from .llm import LLM, create_llm_request
+from .jev import JEV, create_jev_request
 from .footnote import FootnoteOptions, FootnoteRefinement
 from .metering import AbortedCheck, InterruptedKind, OCRTokensMetering
 from .ocr_config import (

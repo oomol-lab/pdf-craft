@@ -11,7 +11,7 @@ from epub_generator import BookMeta
 
 from pdf_craft import (
     AsyncPDFCraft, ExtractionOptions, FootnoteOptions, FootnoteRefinement,
-    JEV, LLM, PDFCraft, PDFOptions,
+    ConcurrentExecutor, FixedCapacity, JEV, LLM, PDFCraft, PDFOptions,
 )
 from pdf_craft.document import PDFCraftExtraction
 from pdf_craft.extractor import PDFExtractor
@@ -277,6 +277,7 @@ class TestPDFCraft(unittest.TestCase):
             refinement = FootnoteRefinement(
                 jev=JEV("jev-key"),
                 llm=LLM("llm-key", "https://example.invalid/v1", "model", "o200k_base"),
+                executor=ConcurrentExecutor(FixedCapacity(2)),
             )
             extraction, metering = PDFCraft.from_engine(engine).extract_pdf_with_metering(
                 "source.pdf",

@@ -61,6 +61,7 @@ from .runtime import (
     QT_DOMAIN,
     temporary_directory,
 )
+from .concurrency import AsyncExecutor
 
 
 @dataclass(frozen=True)
@@ -68,6 +69,7 @@ class PDFOptions:
     """Long-lived infrastructure needed only when extracting a PDF."""
 
     ocr: OCRConfig | None = None
+    ocr_executor: AsyncExecutor | None = None
     pdf_handler: PDFHandler | AsyncPDFHandler | None = None
     models_cache_path: PathLike | str | None = None
     local_only: bool = False
@@ -506,6 +508,7 @@ class AsyncPDFCraft:
             pdf_handler=self._sync_pdf_handler(),
             local_only=self._pdf.local_only,
             ocr=self._pdf.ocr,
+            ocr_executor=self._pdf.ocr_executor,
         )
 
 

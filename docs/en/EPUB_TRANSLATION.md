@@ -9,7 +9,9 @@ Use it for either a target-language edition or a bilingual edition that retains 
 Configure a text LLM that exposes an OpenAI-compatible Chat Completions endpoint, then choose a target language and submission mode.
 
 ```python
-from pdf_craft import LLM, PDFCraft, SubmitKind
+from pdf_craft import (
+    ConcurrentExecutor, FixedCapacity, LLM, PDFCraft, SubmitKind,
+)
 
 llm = LLM(
     key="your-api-key",
@@ -17,6 +19,7 @@ llm = LLM(
     model="gpt-4.1-mini",
     token_encoding="o200k_base",
 )
+executor = ConcurrentExecutor(FixedCapacity(4))
 
 PDFCraft().translate_epub(
     "source.epub",
@@ -24,6 +27,7 @@ PDFCraft().translate_epub(
     target_language="zh",
     submit=SubmitKind.APPEND_BLOCK,
     llm=llm,
+    executor=executor,
 )
 ```
 
@@ -104,13 +108,16 @@ PDFCraft().translate_epub(
         "and footnote numbers."
     ),
     max_group_tokens=2600,
-    concurrency=4,
+    window=4,
+    executor=executor,
 )
 ```
 
 - `user_prompt` adds project-specific requirements such as terminology or tone. It supplements rather than replaces pdf-craft's structural instructions.
 - `max_group_tokens` defaults to `2600`. Larger groups make fewer, larger requests and increase the cost of retrying a failed request.
-- `concurrency` defaults to `1`. Increase it gradually only after confirming the provider's rate limits and cost behavior. Output order remains stable.
+- `executor` is the shared capacity channel for real LLM requests. Reuse one executor when translation and XML repair use the same provider quota.
+- `translation_executor` and `fill_executor` may replace the common executor when the two models use separate provider quotas.
+- `window` defaults to `1`. It limits how far XML groups may run ahead while the executor controls the actual provider concurrency.
 - `max_retries` controls XML structure-repair attempts and defaults to `5`. It is distinct from `LLM.retry_times`, which controls text-request retries.
 
 ### Use separate translation and repair models
@@ -130,7 +137,7 @@ fill_llm = LLM(
 PDFCraft().translate_epub(
     "source.epub", "translated.epub",
     target_language="zh", submit=SubmitKind.APPEND_BLOCK,
-    translation_llm=translation_llm, fill_llm=fill_llm,
+    translation_llm=translation_llm, fill_llm=fill_llm, executor=executor,
 )
 ```
 
@@ -159,7 +166,7 @@ def report_fill_failure(event: FillFailedEvent) -> None:
 PDFCraft().translate_epub(
     "source.epub", "translated.epub",
     target_language="zh", submit=SubmitKind.APPEND_BLOCK,
-    llm=llm, on_translation_event=on_translation_event,
+    llm=llm, executor=executor, on_translation_event=on_translation_event,
     on_fill_failed=report_fill_failure,
 )
 ```

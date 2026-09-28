@@ -37,13 +37,19 @@ craft = PDFCraft(pdf=PDFOptions(ocr=DeepSeekOCRLocalConfig(
 DeepSeek vendor configurations take `base_url`, `api_key`, and `model`; they also accept `temperature`, `top_p`, `max_tokens` (default `8000`), and `timeout_seconds` (default `180`).
 
 ```python
-from pdf_craft import DeepSeekOCRVendorConfig, PDFCraft, PDFOptions
+from pdf_craft import (
+    ConcurrentExecutor, DeepSeekOCRVendorConfig, FixedCapacity,
+    PDFCraft, PDFOptions,
+)
 
-craft = PDFCraft(pdf=PDFOptions(ocr=DeepSeekOCRVendorConfig(
-    base_url="https://example.com/v1",
-    api_key="your-api-key",
-    model="deepseek-ocr",
-)))
+craft = PDFCraft(pdf=PDFOptions(
+    ocr=DeepSeekOCRVendorConfig(
+        base_url="https://example.com/v1",
+        api_key="your-api-key",
+        model="deepseek-ocr",
+    ),
+    ocr_executor=ConcurrentExecutor(FixedCapacity(8)),
+))
 ```
 
 `UnlimitedOCRVendorConfig` takes Baidu `ak` and `sk`; its `base_url` defaults to `https://aip.baidubce.com`. It also accepts `poll_interval_seconds` and `timeout_seconds`.
@@ -59,3 +65,7 @@ ocr = UnlimitedOCRVendorConfig(ak="your-access-key", sk="your-secret-key")
 When `PDFOptions` has no explicit `ocr`, `models_cache_path` and `local_only` configure the default local DeepSeek OCR setup. Do not combine either convenience field with an explicit `ocr` configuration; that is rejected because the ownership of those settings would be ambiguous.
 
 OCR recognizes pages only. Text translation uses a separate LLM configuration; see the PDF and EPUB guides.
+
+Vendor OCR renders PDF pages serially, then submits only the remote OCR operations through
+`ocr_executor`. Skipped pages and ignored failures are terminal page outcomes and do not hold up
+the remaining extraction pipeline.

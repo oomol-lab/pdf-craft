@@ -513,6 +513,30 @@ class TestAsyncAPI(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result, [0, 1, 2, 3])
         self.assertEqual(maximum, 2)
 
+    async def test_translation_window_refills_behind_a_slow_head(self):
+        release_head = asyncio.Event()
+        third_started = asyncio.Event()
+
+        async def execute(value: int) -> int:
+            if value == 0:
+                await release_head.wait()
+            elif value == 2:
+                third_started.set()
+            return value
+
+        async def collect():
+            return [
+                value
+                async for value in run_concurrency_async(
+                    range(3), execute, concurrency=2,
+                )
+            ]
+
+        pending = asyncio.create_task(collect())
+        await asyncio.wait_for(third_started.wait(), timeout=1)
+        release_head.set()
+        self.assertEqual(await pending, [0, 1, 2])
+
     async def test_cancelling_translation_batch_cancels_pending_tasks(self):
         started = asyncio.Event()
         cancelled = 0
