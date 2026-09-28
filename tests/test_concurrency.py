@@ -12,6 +12,28 @@ from pdf_craft import (
 
 
 class AsyncExecutorTests(unittest.IsolatedAsyncioTestCase):
+    async def test_map_does_not_retain_consumed_settlements_for_long_stream(self):
+        concurrency = 8
+        executor = ConcurrentExecutor(FixedCapacity(concurrency))
+
+        def operations():
+            for value in range(2_000):
+                async def succeeded(operation_id: int, value=value):
+                    return operation_id, value
+                yield succeeded
+
+        stream = executor.map(operations())
+        for expected in range(900):
+            result = await anext(stream)
+            self.assertEqual(result.value, expected)
+        await asyncio.sleep(0)
+
+        frame = getattr(stream, "ag_frame")
+        self.assertIsNotNone(frame)
+        outstanding = getattr(frame, "f_locals")["outstanding_settlements"]
+        self.assertLessEqual(len(outstanding), concurrency)
+        await stream.aclose()
+
     async def test_map_propagates_release_failure_after_success(self):
         class Lease:
             async def release(self, report):

@@ -354,7 +354,7 @@ class ConcurrentExecutor:
         producer: asyncio.Task[None] | None = None
         teardown_requested = False
         release_failures: list[BaseException] = []
-        settlements: list[asyncio.Future[None]] = []
+        outstanding_settlements: set[asyncio.Future[None]] = set()
 
         async def execute_one(
             operation_id: int,
@@ -425,7 +425,7 @@ class ConcurrentExecutor:
 
                 if not teardown_requested and completion is not None:
                     settlement = asyncio.get_running_loop().create_future()
-                    settlements.append(settlement)
+                    outstanding_settlements.add(settlement)
                     completion = replace(completion, settled=settlement)
                     try:
                         await completed.put(completion)
@@ -510,7 +510,11 @@ class ConcurrentExecutor:
                     break
                 item = await completed.get()
                 if item.settled is not None:
-                    await asyncio.shield(item.settled)
+                    try:
+                        await asyncio.shield(item.settled)
+                    finally:
+                        if item.settled.done():
+                            outstanding_settlements.discard(item.settled)
                 if item.producer_done:
                     producer_done = True
                     # The queue handoff can wake this consumer before the
@@ -543,12 +547,13 @@ class ConcurrentExecutor:
                 result = close()
                 if inspect.isawaitable(result):
                     await result
-            for settlement in settlements:
+            for settlement in tuple(outstanding_settlements):
                 if settlement.done():
                     try:
                         settlement.exception()
                     except asyncio.CancelledError:
                         pass
+                    outstanding_settlements.discard(settlement)
             if release_failures:
                 raise release_failures[0]
             if teardown_interrupted is not None:
