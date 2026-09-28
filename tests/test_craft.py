@@ -40,6 +40,30 @@ class _Engine:
         return None, None, None, None, "metering"
 
 
+class PublicConfigurationCompatibilityTests(unittest.TestCase):
+    def test_pdf_options_preserves_original_positional_field_order(self):
+        handler = Mock()
+        options = PDFOptions(None, handler, "models", True)
+
+        self.assertIs(options.pdf_handler, handler)
+        self.assertEqual(options.models_cache_path, "models")
+        self.assertTrue(options.local_only)
+        self.assertIsNone(options.ocr_executor)
+
+    def test_footnote_refinement_preserves_old_positional_defaults(self):
+        jev = JEV("jev-key", concurrency=3)
+        llm = LLM(
+            "llm-key", "https://example.invalid/v1", "model", "o200k_base",
+        )
+        refinement = FootnoteRefinement(jev, llm, 0.4, 2, 1234)
+
+        self.assertEqual(refinement.risk_threshold, 0.4)
+        self.assertEqual(refinement.max_retries, 2)
+        self.assertEqual(refinement.max_output_tokens, 1234)
+        self.assertIsInstance(refinement.resolved_jev_executor(), ConcurrentExecutor)
+        self.assertIsInstance(refinement.resolved_llm_executor(), ConcurrentExecutor)
+
+
 def _source_extraction(root: Path, *, with_toc: bool = False) -> PDFCraftExtraction:
     extraction = make_extraction(
         root, page_pixel_sizes={1: (10, 10)}, with_toc=with_toc

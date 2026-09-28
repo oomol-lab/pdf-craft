@@ -4,7 +4,7 @@ from dataclasses import dataclass
 
 from .jev import JEV
 from .llm import LLM
-from .concurrency import AsyncExecutor
+from .concurrency import AsyncExecutor, ConcurrentExecutor, FixedCapacity
 
 
 @dataclass(frozen=True)
@@ -13,18 +13,14 @@ class FootnoteRefinement:
 
     jev: JEV
     llm: LLM
-    executor: AsyncExecutor | None = None
-    jev_executor: AsyncExecutor | None = None
-    llm_executor: AsyncExecutor | None = None
     risk_threshold: float = 0.70
     max_retries: int = 4
     max_output_tokens: int = 16000
+    executor: AsyncExecutor | None = None
+    jev_executor: AsyncExecutor | None = None
+    llm_executor: AsyncExecutor | None = None
 
     def __post_init__(self) -> None:
-        if self.jev_executor is None and self.executor is None:
-            raise ValueError("footnote refinement requires a JEV executor")
-        if self.llm_executor is None and self.executor is None:
-            raise ValueError("footnote refinement requires an LLM executor")
         if not 0 <= self.risk_threshold <= 1:
             raise ValueError("footnote refinement risk_threshold must be between 0 and 1")
         if self.max_retries < 0:
@@ -34,13 +30,11 @@ class FootnoteRefinement:
 
     def resolved_jev_executor(self) -> AsyncExecutor:
         executor = self.jev_executor or self.executor
-        assert executor is not None
-        return executor
+        return executor or ConcurrentExecutor(FixedCapacity(self.jev.concurrency))
 
     def resolved_llm_executor(self) -> AsyncExecutor:
         executor = self.llm_executor or self.executor
-        assert executor is not None
-        return executor
+        return executor or ConcurrentExecutor(FixedCapacity(1))
 
 
 @dataclass(frozen=True)

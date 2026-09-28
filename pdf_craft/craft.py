@@ -69,10 +69,10 @@ class PDFOptions:
     """Long-lived infrastructure needed only when extracting a PDF."""
 
     ocr: OCRConfig | None = None
-    ocr_executor: AsyncExecutor | None = None
     pdf_handler: PDFHandler | AsyncPDFHandler | None = None
     models_cache_path: PathLike | str | None = None
     local_only: bool = False
+    ocr_executor: AsyncExecutor | None = None
 
 
 @dataclass(frozen=True)

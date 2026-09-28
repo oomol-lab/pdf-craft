@@ -13,6 +13,12 @@ class JEVTests(unittest.IsolatedAsyncioTestCase):
     def test_configuration_rejects_invalid_limits(self):
         with self.assertRaisesRegex(ValueError, "retry_times"):
             JEV("key", retry_times=-1)
+        with self.assertRaisesRegex(ValueError, "concurrency"):
+            JEV("key", concurrency=0)
+
+    def test_configuration_keeps_concurrency_compatibility_field(self):
+        self.assertEqual(JEV("key").concurrency, 4)
+        self.assertEqual(JEV("key", concurrency=7).concurrency, 7)
 
     def test_configuration_repr_hides_api_key(self):
         representation = repr(JEV("private-jev-key"))

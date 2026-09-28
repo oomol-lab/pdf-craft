@@ -8,7 +8,7 @@ from typing import Any, cast
 from PIL import Image
 
 from pdf_craft import ConcurrentExecutor, DeepSeekOCRVendorConfig, FixedCapacity
-from pdf_craft.error import OCRError
+from pdf_craft.error import OCRError, PDFError
 from pdf_craft.pdf.ocr import OCR, OCREventKind
 from pdf_craft.pdf.types import Page
 from doc_page_extractor.extraction_context import TokenLimitError
@@ -41,8 +41,9 @@ class _Handler:
 
 
 class _Extractor:
-    def __init__(self, rendered: list[int]) -> None:
+    def __init__(self, rendered: list[int], fail_pages: tuple[int, ...] = (2,)) -> None:
         self._rendered = rendered
+        self._fail_pages = fail_pages
         self._lock = threading.Lock()
         self.active = 0
         self.maximum = 0
@@ -62,8 +63,8 @@ class _Extractor:
             self.maximum = max(self.maximum, self.active)
         try:
             time.sleep(0.02)
-            if page_index == 2:
-                raise OCRError("ignored", page_index=2, step_index=1)
+            if page_index in self._fail_pages:
+                raise OCRError("ignored", page_index=page_index, step_index=1)
             return Page(page_index, None, [], [], page_index, page_index)
         finally:
             with self._lock:
@@ -168,6 +169,84 @@ class VendorOCRConcurrencyTests(unittest.IsolatedAsyncioTestCase):
                     pass
 
         self.assertEqual(extractor.budgets, [(None, 1)])
+
+    async def test_resume_keeps_geometry_for_pages_committed_before_failure(self):
+        rendered: list[int] = []
+        ocr = OCR(
+            DeepSeekOCRVendorConfig(
+                base_url="https://example.invalid/v1",
+                api_key="key",
+                model="model",
+            ),
+            cast(Any, _Handler(rendered)),
+        )
+        ocr.__dict__["_extractor"] = _Extractor(rendered)
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            with self.assertRaises(OCRError):
+                async for _ in ocr.recognize_vendor(
+                    ConcurrentExecutor(FixedCapacity(1)),
+                    pdf_path=root / "source.pdf",
+                    asset_path=root / "assets",
+                    ocr_path=root / "ocr",
+                ):
+                    pass
+            self.assertTrue((root / "ocr/page_1.xml").exists())
+            self.assertTrue((root / "ocr/page_pixel_sizes.json").exists())
+
+            ocr.__dict__["_extractor"] = _Extractor(rendered, fail_pages=())
+            events = [
+                event
+                async for event in ocr.recognize_vendor(
+                    ConcurrentExecutor(FixedCapacity(1)),
+                    pdf_path=root / "source.pdf",
+                    asset_path=root / "assets",
+                    ocr_path=root / "ocr",
+                )
+            ]
+
+            self.assertIn(OCREventKind.SKIP, [event.kind for event in events])
+            self.assertEqual(
+                ocr.last_page_pixel_sizes,
+                {1: (12, 16), 2: (12, 16), 3: (12, 16)},
+            )
+
+    async def test_ignored_pdf_fallback_checkpoints_geometry_immediately(self):
+        class FailingDocument(_Document):
+            pages_count = 2
+
+            def render_page(self, page_index: int, dpi: int) -> Image.Image:
+                del dpi
+                raise PDFError("render failed", page_index)
+
+        class FailingHandler:
+            def open(self, _pdf_path: Path) -> FailingDocument:
+                return FailingDocument([])
+
+        ocr = OCR(
+            DeepSeekOCRVendorConfig(
+                base_url="https://example.invalid/v1",
+                api_key="key",
+                model="model",
+            ),
+            cast(Any, FailingHandler()),
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            with self.assertRaises(PDFError):
+                async for _ in ocr.recognize_vendor(
+                    ConcurrentExecutor(FixedCapacity(1)),
+                    pdf_path=root / "source.pdf",
+                    asset_path=root / "assets",
+                    ocr_path=root / "ocr",
+                    ignore_pdf_errors=lambda error: error.page_index == 1,
+                ):
+                    pass
+
+            self.assertTrue((root / "ocr/page_1.xml").exists())
+            self.assertEqual(ocr.last_page_pixel_sizes, {1: (100, 100)})
+            self.assertTrue((root / "ocr/page_pixel_sizes.json").exists())
 
 
 if __name__ == "__main__":

@@ -162,6 +162,7 @@ class OCR:
                                 asset_hub, ref.page_index, None,
                             )
                             self._last_page_pixel_sizes[ref.page_index] = (100, 100)
+                            self._save_page_pixel_sizes(geometry_path)
                             save_xml(encode(page), target)
                             failed.write_text(type(error).__name__, encoding="utf-8")
                             terminal_failures.append(ref.page_index)
@@ -248,6 +249,10 @@ class OCR:
 
                 def commit_page():
                     failed = ocr_path / f"page_{page_index}.failed"
+                    # Persist geometry before publishing the page XML.  A page
+                    # that is treated as a resumable cache hit must always have
+                    # its source dimensions available on the next run.
+                    self._save_page_pixel_sizes(geometry_path)
                     if recognized_error is None:
                         failed.unlink(missing_ok=True)
                     else:

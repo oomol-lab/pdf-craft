@@ -146,7 +146,7 @@ extraction; they do not fall back to an analysis/OCR directory.
 
 ### `PDFOptions`
 
-`PDFOptions(ocr=None, ocr_executor=None, pdf_handler=None, models_cache_path=None, local_only=False)` holds infrastructure that is reused across PDF extractions.
+`PDFOptions(ocr=None, pdf_handler=None, models_cache_path=None, local_only=False, ocr_executor=None)` holds infrastructure that is reused across PDF extractions. The executor is appended after the original fields so existing positional construction remains valid.
 
 - `ocr`: one of the local or vendor OCR configuration objects below.
 - `ocr_executor`: shared capacity for vendor OCR requests. Local OCR does not use it.
@@ -208,7 +208,8 @@ OCR and traditional footnote resolution still run first. JEV only selects pages 
 the repaired page must pass the deterministic schema and integrity checks before chapter
 `FlowItem` assembly continues. Use `FootnoteOptions()` without `refinement` for the
 algorithm-only tier. Use `jev_executor` and `llm_executor` instead of the common `executor`
-when those services have separate provider quotas.
+when those services have separate provider quotas. Omitting executors preserves the compatibility
+defaults: JEV uses `JEV.concurrency` (default `4`) and LLM repair uses capacity `1`.
 
 Book-metadata extraction is deliberately opt-in. When enabled, PDF Craft lets a dedicated LLM
 read the first three raw OCR pages and request further front pages in batches, up to twelve pages.

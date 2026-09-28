@@ -115,10 +115,10 @@ craft = PDFCraft(pdf=PDFOptions(...))
 ```python
 PDFOptions(
     ocr=None,                   # OCRConfig；省略时默认为 DeepSeek OCR local 配置
-    ocr_executor=None,          # vendor OCR 请求共享的 AsyncExecutor
     pdf_handler=None,           # PDFHandler；省略时使用默认处理器
     models_cache_path=None,     # local OCR 模型缓存目录
     local_only=False,           # 禁止 local OCR 下载缺失模型
+    ocr_executor=None,          # vendor OCR 请求共享的 AsyncExecutor
 )
 ```
 
@@ -214,7 +214,8 @@ options = ExtractionOptions(
 传统算法仍先完整生成可逆的 PageAnalysis；JEV 只负责筛选低置信页，LLM 返回的完整目标页必须通过
 schema、layout 不可变性、citation/ref 一一对应和 gap 等确定性约束，之后才继续组装 FlowItem。
 JEV 与 LLM 使用不同供应商配额时，可分别传 `jev_executor` 与 `llm_executor`；传共同的
-`executor` 表示两者共享容量。
+`executor` 表示两者共享容量。不传执行器时保留旧调用的兼容默认值：JEV 使用
+`JEV.concurrency`（默认 4），LLM 修复使用容量 1。
 
 `extract_book_metadata` 默认关闭。开启后必须通过独立的 `metadata_llm` 参数显式提供 LLM，
 不会隐式复用 `toc_llm`。它会先向 LLM 提供前三个原始 OCR 页；模型可继续请求前部页面，但总数最多为

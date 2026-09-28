@@ -29,6 +29,7 @@ class JEV:
     url: str = "https://api.typesafe.ai"
     timeout: float | None = 60.0
     retry_times: int = 2
+    concurrency: int = 4
 
     def __post_init__(self) -> None:
         if not self.key.strip():
@@ -37,6 +38,8 @@ class JEV:
             raise ValueError("JEV model cannot be empty")
         if self.retry_times < 0:
             raise ValueError("JEV retry_times cannot be negative")
+        if self.concurrency < 1:
+            raise ValueError("JEV concurrency must be at least 1")
 class JEVRuntime:
     """One event-loop-bound official JEV client reused for a review run."""
 
