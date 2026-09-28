@@ -10,7 +10,7 @@ from collections.abc import AsyncIterator, Awaitable, Callable, Iterable
 from contextlib import aclosing, asynccontextmanager
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Self
+from typing import Any, Literal, Never, Self
 
 import httpx
 from doc_page_extractor.errors import VendorOCRRequestError
@@ -58,6 +58,14 @@ class VendorOCRResult:
     @property
     def succeeded(self) -> bool:
         return self.error is None
+
+
+class _UnlimitedTokenExpiredError(OperationError):
+    """The current cached access token must be replaced before retrying."""
+
+
+class _UnlimitedResubmitError(OperationError):
+    """The provider discarded a task, so the page must be submitted again."""
 
 
 class VendorOCRRuntime:
@@ -315,16 +323,48 @@ class VendorOCRRuntime:
             json=payload,
         )
         data = _checked_response(response, request.page_index, "DeepSeek OCR")
-        usage = data.get("usage") or {}
-        choices = data.get("choices") or []
-        raw_text = ""
-        if choices:
-            raw_text = str((choices[0].get("message") or {}).get("content") or "")
+        usage_value = data.get("usage")
+        if usage_value is not None and not isinstance(usage_value, dict):
+            _raise_malformed_response(
+                response, "DeepSeek OCR response has invalid usage",
+            )
+        usage = usage_value or {}
+        choices_value = data.get("choices")
+        if not isinstance(choices_value, list) or not choices_value:
+            _raise_malformed_response(
+                response, "DeepSeek OCR response has invalid choices",
+            )
+        choice = choices_value[0]
+        if not isinstance(choice, dict):
+            _raise_malformed_response(
+                response, "DeepSeek OCR response has invalid choice",
+            )
+        message = choice.get("message")
+        if not isinstance(message, dict):
+            _raise_malformed_response(
+                response, "DeepSeek OCR response has invalid message",
+            )
+        content = message.get("content")
+        if not isinstance(content, str):
+            _raise_malformed_response(
+                response, "DeepSeek OCR response has invalid content",
+            )
+        token_counts = (
+            usage.get("prompt_tokens", 0),
+            usage.get("completion_tokens", 0),
+        )
+        if any(
+            isinstance(value, bool) or not isinstance(value, int) or value < 0
+            for value in token_counts
+        ):
+            _raise_malformed_response(
+                response, "DeepSeek OCR response has invalid token usage",
+            )
         return VendorOCRResponse(
             data=data,
-            raw_text=raw_text,
-            input_tokens=int(usage.get("prompt_tokens") or 0),
-            output_tokens=int(usage.get("completion_tokens") or 0),
+            raw_text=content,
+            input_tokens=token_counts[0],
+            output_tokens=token_counts[1],
         )
 
     async def _request_unlimited(
@@ -332,12 +372,28 @@ class VendorOCRRuntime:
     ) -> VendorOCRResponse:
         config = self.config
         assert isinstance(config, UnlimitedOCRVendorConfig)
-        token = await self._get_access_token(request.page_index)
+        resubmissions = 0
+        while True:
+            try:
+                return await self._request_unlimited_task(request)
+            except _UnlimitedResubmitError:
+                if resubmissions >= config.retry_times:
+                    raise
+                if config.retry_interval_seconds > 0:
+                    await asyncio.sleep(config.retry_interval_seconds)
+                resubmissions += 1
+
+    async def _request_unlimited_task(
+        self, request: VendorOCRInput,
+    ) -> VendorOCRResponse:
+        config = self.config
+        assert isinstance(config, UnlimitedOCRVendorConfig)
         encoded = base64.b64encode(
             await IO_DOMAIN.run(request.image_path.read_bytes)
         ).decode("ascii")
-        submit = await self._run_io_with_retry(
-            lambda: self._post_form(
+        submit = await self._run_unlimited_with_token(
+            request.page_index,
+            lambda token: self._post_form(
                 self._unlimited_url(
                     "/rest/2.0/brain/online/v2/unlimited-ocr-parser/task", token,
                 ),
@@ -347,23 +403,19 @@ class VendorOCRRuntime:
                 },
                 request.page_index,
                 "Unlimited OCR submit",
-            )
+                result_kind="submit",
+            ),
         )
         del encoded
-        task_id = str((submit.get("result") or {}).get("task_id") or "")
-        if not task_id:
-            message = (
-                "Unlimited OCR submit response did not include task_id: "
-                f"{submit}"
-            )
-            raw_error = RuntimeError(message)
-            envelope = _vendor_error(message, raw_error)
-            raise OperationError(message, cause=envelope) from envelope
+        submit_result = submit["result"]
+        assert isinstance(submit_result, dict)
+        task_id = str(submit_result["task_id"])
         deadline = time.monotonic() + config.timeout_seconds
         while True:
             check_aborted(request.aborted)
-            data = await self._run_io_with_retry(
-                lambda: self._post_form(
+            data = await self._run_unlimited_with_token(
+                request.page_index,
+                lambda token: self._post_form(
                     self._unlimited_url(
                         "/rest/2.0/brain/online/v2/unlimited-ocr-parser/task/query",
                         token,
@@ -371,16 +423,14 @@ class VendorOCRRuntime:
                     {"task_id": task_id},
                     request.page_index,
                     "Unlimited OCR query",
-                )
+                    result_kind="query",
+                ),
             )
-            result = data.get("result") or {}
+            result = data["result"]
+            assert isinstance(result, dict)
             status = result.get("status")
             parse_url = str(result.get("parse_result_url") or "")
-            if status == "success" or parse_url:
-                if not parse_url:
-                    raise OperationError(
-                        f"Unlimited OCR task {task_id} did not return parse_result_url"
-                    )
+            if status == "success":
                 async def download() -> dict[str, Any]:
                     response = await self._require_client().get(
                         parse_url,
@@ -401,6 +451,29 @@ class VendorOCRRuntime:
             if time.monotonic() >= deadline:
                 raise OperationError(f"Unlimited OCR task {task_id} timed out")
             await asyncio.sleep(config.poll_interval_seconds)
+
+    async def _run_unlimited_with_token(
+        self,
+        page_index: int,
+        operation: Callable[[str], Awaitable[dict[str, Any]]],
+    ) -> dict[str, Any]:
+        attempt = 0
+        while True:
+            token = await self._get_access_token(page_index)
+            try:
+                return await self._run_io_with_retry(lambda: operation(token))
+            except _UnlimitedTokenExpiredError:
+                await self._invalidate_access_token(token)
+                if attempt >= self.config.retry_times:
+                    raise
+                if self.config.retry_interval_seconds > 0:
+                    await asyncio.sleep(self.config.retry_interval_seconds)
+                attempt += 1
+
+    async def _invalidate_access_token(self, expired_token: str) -> None:
+        async with self._token_lock:
+            if self._access_token == expired_token:
+                self._access_token = None
 
     async def _get_access_token(self, page_index: int) -> str:
         if self._access_token is not None:
@@ -431,18 +504,18 @@ class VendorOCRRuntime:
                     _raise_unlimited_oauth_error(
                         page_index, oauth_error, data, response,
                     )
+                access_token = data.get("access_token")
+                if not isinstance(access_token, str) or not access_token:
+                    _raise_malformed_response(
+                        response,
+                        "Unlimited OCR token response did not include a valid "
+                        "access_token",
+                    )
                 return data
 
             data = await self._run_io_with_retry(fetch_token)
-            token = str(data.get("access_token") or "")
-            if not token:
-                message = (
-                    "Unlimited OCR token response did not include access_token: "
-                    f"{data}"
-                )
-                raw_error = RuntimeError(message)
-                envelope = _vendor_error(message, raw_error)
-                raise OperationError(message, cause=envelope) from envelope
+            token = data["access_token"]
+            assert isinstance(token, str)
             self._access_token = token
             return token
 
@@ -452,6 +525,8 @@ class VendorOCRRuntime:
         data: dict[str, str],
         page_index: int,
         action: str,
+        *,
+        result_kind: Literal["submit", "query"],
     ) -> dict[str, Any]:
         response = await self._require_client().post(
             url,
@@ -463,18 +538,41 @@ class VendorOCRRuntime:
             data=data,
         )
         result = _checked_response(response, page_index, action)
-        error_code = int(result.get("error_code") or 0)
+        error_code_value = result.get("error_code", 0)
+        try:
+            error_code = int(error_code_value)
+        except (TypeError, ValueError):
+            _raise_malformed_response(
+                response, f"{action} response has invalid error_code",
+            )
         if error_code != 0:
             _raise_unlimited_error(
                 action, page_index, error_code, result, response,
             )
-        if not isinstance(result.get("result"), dict):
+        provider_result = result.get("result")
+        if not isinstance(provider_result, dict):
             message = f"{action} response has invalid result: {result}"
-            raw_error = httpx.HTTPStatusError(
-                message, request=response.request, response=response,
-            )
-            envelope = _vendor_error(message, raw_error)
-            raise OperationError(message, cause=envelope) from envelope
+            _raise_malformed_response(response, message)
+        if result_kind == "submit":
+            task_id = provider_result.get("task_id")
+            if not isinstance(task_id, str) or not task_id:
+                _raise_malformed_response(
+                    response, f"{action} response did not include a valid task_id",
+                )
+        else:
+            status = provider_result.get("status")
+            if not isinstance(status, str) or not status:
+                _raise_malformed_response(
+                    response, f"{action} response did not include a valid status",
+                )
+            parse_url = provider_result.get("parse_result_url")
+            if status == "success" and (
+                not isinstance(parse_url, str) or not parse_url
+            ):
+                _raise_malformed_response(
+                    response,
+                    f"{action} success response did not include parse_result_url",
+                )
         return result
 
     async def _run_io_with_retry(
@@ -569,14 +667,29 @@ def _checked_response(
     try:
         data = response.json()
     except (json.JSONDecodeError, ValueError) as error:
-        envelope = _vendor_error(f"{action} returned invalid JSON", error)
-        raise OperationError(str(envelope), cause=envelope) from envelope
+        _raise_malformed_response(
+            response, f"{action} returned invalid JSON", cause=error,
+        )
     if not isinstance(data, dict):
-        message = f"{action} returned a non-object JSON response"
-        raw_error = RuntimeError(message)
-        envelope = _vendor_error(message, raw_error)
-        raise OperationError(message, cause=envelope) from envelope
+        _raise_malformed_response(
+            response, f"{action} returned a non-object JSON response",
+        )
     return data
+
+
+def _raise_malformed_response(
+    response: httpx.Response,
+    message: str,
+    *,
+    cause: Exception | None = None,
+) -> Never:
+    raw_error = httpx.HTTPStatusError(
+        message, request=response.request, response=response,
+    )
+    if cause is not None:
+        raw_error.__cause__ = cause
+    envelope = _vendor_error(message, raw_error)
+    raise OperationError(message, cause=envelope) from envelope
 
 
 def _response_message(response: httpx.Response) -> str:
@@ -674,12 +787,20 @@ def _raise_unlimited_error(
     envelope = _vendor_error(message, raw_error)
     if error_code in {1, 2, 4, 18}:
         raise RateLimitedError(message, cause=envelope) from envelope
-    if error_code in {17, 19}:
+    if error_code in {17, 19, 282005}:
         error = OCRBillingError(page_index)
         raise error from envelope
-    if error_code in {6, 14, 100, 110, 111}:
+    if error_code in {6, 14, 282006}:
         error = OCRFatalError(message)
         raise error from envelope
+    if error_code in {100, 110, 111}:
+        raise _UnlimitedTokenExpiredError(
+            message, cause=envelope,
+        ) from envelope
+    if error_code == 282000:
+        raise _UnlimitedResubmitError(
+            message, cause=envelope,
+        ) from envelope
     raise OperationError(message, cause=envelope) from envelope
 
 

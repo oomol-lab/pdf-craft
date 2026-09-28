@@ -74,7 +74,9 @@ settle one page at a time so the next request receives the exact remaining budge
 Retries release `ocr_executor` capacity before waiting and reacquire it for every HTTP attempt.
 Unlimited OCR token acquisition, task submission, each poll, and result download are separate
 remote operations; poll intervals therefore do not occupy a provider slot, and retrying a poll or
-download does not submit the page again. HTTP 429 is retried as rate limiting unless the provider
-body reports exhausted quota. Payment, exhausted quota, and authentication failures close the
-shared executor; other page failures remain eligible for `ignore_ocr_errors`. The resulting
+download does not submit the page again. Expired access tokens are refreshed before retrying the
+current operation, while a provider task-processing failure resubmits that page. HTTP 429 is
+retried as rate limiting unless the provider body reports exhausted quota. Payment, exhausted
+quota, and authentication or permission failures close the shared executor; other page failures
+remain eligible for `ignore_ocr_errors`. The resulting
 `OCRError` keeps the original provider exception and HTTP response in its exception cause chain.

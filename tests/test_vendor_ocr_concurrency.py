@@ -293,10 +293,13 @@ class VendorOCRConcurrencyTests(unittest.IsolatedAsyncioTestCase):
                 started = 0
                 never = asyncio.Event()
 
-                async def post_form(_runtime, _url, data, page_index, action):
+                async def post_form(
+                    _runtime, _url, data, page_index, action, *, result_kind,
+                ):
                     nonlocal started
                     del page_index
                     self.assertEqual(action, "Unlimited OCR submit")
+                    self.assertEqual(result_kind, "submit")
                     started += 1
                     if started == 2:
                         submits_started.set()
@@ -434,6 +437,123 @@ class VendorOCRConcurrencyTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(sum(path.endswith("/task") for path in calls), 1)
         self.assertEqual(sum(path.endswith("/task/query") for path in calls), 2)
 
+    async def test_unlimited_expired_token_is_refreshed_for_current_operation(self):
+        token_calls = 0
+        submit_tokens: list[str] = []
+        query_tokens: list[str] = []
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            nonlocal token_calls
+            path = request.url.path
+            if path.endswith("/oauth/2.0/token"):
+                token_calls += 1
+                return httpx.Response(200, request=request, json={
+                    "access_token": f"token-{token_calls}",
+                })
+            if path.endswith("/task/query"):
+                token = request.url.params["access_token"]
+                query_tokens.append(token)
+                token_number = int(token.removeprefix("token-"))
+                if token_number <= 3:
+                    return httpx.Response(200, request=request, json={
+                        "error_code": (100, 110, 111)[token_number - 1],
+                        "error_msg": "expired",
+                    })
+                return httpx.Response(200, request=request, json={
+                    "result": {
+                        "status": "success",
+                        "parse_result_url": "https://download.invalid/result",
+                    },
+                })
+            if path.endswith("/task"):
+                token = request.url.params["access_token"]
+                submit_tokens.append(token)
+                return httpx.Response(200, request=request, json={
+                    "result": {"task_id": "task-1"},
+                })
+            return httpx.Response(200, request=request, json={})
+
+        client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+        executor = ConcurrentExecutor(FixedCapacity(1))
+        config = UnlimitedOCRVendorConfig(
+            ak="ak", sk="sk", retry_times=3, retry_interval_seconds=0,
+            poll_interval_seconds=0,
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            image_path = Path(directory) / "page.png"
+            Image.new("RGB", (4, 4), "white").save(image_path)
+            with patch(
+                "pdf_craft.pdf.vendor_ocr.httpx.AsyncClient",
+                return_value=client,
+            ):
+                async with create_vendor_ocr_request(config, executor) as request:
+                    response = await request(VendorOCRInput(
+                        1, image_path, lambda: False,
+                    ))
+
+        self.assertEqual(response.data["task_id"], "task-1")
+        self.assertEqual(token_calls, 4)
+        self.assertEqual(submit_tokens, ["token-1"])
+        self.assertEqual(query_tokens, [
+            "token-1", "token-2", "token-3", "token-4",
+        ])
+        self.assertEqual(
+            await executor.run(lambda: asyncio.sleep(0, result="open")), "open",
+        )
+
+    async def test_unlimited_task_failure_resubmits_page(self):
+        submit_count = 0
+        query_count = 0
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            nonlocal submit_count, query_count
+            path = request.url.path
+            if path.endswith("/task/query"):
+                query_count += 1
+                task_id = parse_qs(request.content.decode())["task_id"][0]
+                if task_id == "task-1":
+                    return httpx.Response(200, request=request, json={
+                        "error_code": 282000, "error_msg": "resubmit",
+                    })
+                return httpx.Response(200, request=request, json={
+                    "result": {
+                        "status": "success",
+                        "parse_result_url": "https://download.invalid/result",
+                    },
+                })
+            if path.endswith("/task"):
+                submit_count += 1
+                return httpx.Response(200, request=request, json={
+                    "result": {"task_id": f"task-{submit_count}"},
+                })
+            return httpx.Response(200, request=request, json={})
+
+        client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+        executor = ConcurrentExecutor(FixedCapacity(1))
+        runtime = VendorOCRRuntime(
+            UnlimitedOCRVendorConfig(
+                ak="ak", sk="sk", retry_times=1, retry_interval_seconds=0,
+                poll_interval_seconds=0,
+            ),
+            executor,
+        )
+        runtime._client = client
+        runtime._access_token = "token"
+        with tempfile.TemporaryDirectory() as directory:
+            image_path = Path(directory) / "page.png"
+            Image.new("RGB", (4, 4), "white").save(image_path)
+            response = await runtime.request(VendorOCRInput(
+                1, image_path, lambda: False,
+            ))
+
+        self.assertEqual(response.data["task_id"], "task-2")
+        self.assertEqual(submit_count, 2)
+        self.assertEqual(query_count, 2)
+        self.assertEqual(
+            await executor.run(lambda: asyncio.sleep(0, result="open")), "open",
+        )
+        await client.aclose()
+
     async def test_unlimited_page_window_consumes_requests_lazily(self):
         config = UnlimitedOCRVendorConfig(
             ak="ak", sk="sk", page_window=3,
@@ -510,6 +630,7 @@ class VendorOCRConcurrencyTests(unittest.IsolatedAsyncioTestCase):
                     lambda: runtime._post_form(
                         "https://example.invalid/task/query",
                         {"task_id": "task"}, 1, "Unlimited OCR query",
+                        result_kind="query",
                     )
                 )
 
@@ -522,7 +643,7 @@ class VendorOCRConcurrencyTests(unittest.IsolatedAsyncioTestCase):
                 await client.aclose()
 
     async def test_unlimited_application_errors_use_three_error_flows(self):
-        responses = iter((18, 17, 100, 216201))
+        responses = iter((18, 17, 282006, 216201))
 
         def handler(request: httpx.Request) -> httpx.Response:
             return httpx.Response(200, request=request, json={
@@ -547,10 +668,161 @@ class VendorOCRConcurrencyTests(unittest.IsolatedAsyncioTestCase):
             with self.assertRaises(error_type) as raised:
                 await runtime._post_form(
                     "https://example.invalid", {}, 3, "Unlimited OCR query",
+                    result_kind="query",
                 )
             envelope = raised.exception.__cause__
             self.assertIsInstance(envelope, VendorOCRRequestError)
         await client.aclose()
+
+    async def test_unlimited_quota_and_permission_errors_bypass_fallback(self):
+        cases = (
+            (282005, OCRBillingError),
+            (282006, OCRFatalError),
+        )
+        for error_code, error_type in cases:
+            with self.subTest(error_code=error_code):
+                def handler(request: httpx.Request) -> httpx.Response:
+                    if request.url.path.endswith("/oauth/2.0/token"):
+                        return httpx.Response(200, request=request, json={
+                            "access_token": "token",
+                        })
+                    return httpx.Response(200, request=request, json={
+                        "error_code": error_code, "error_msg": "terminal",
+                    })
+
+                client = httpx.AsyncClient(
+                    transport=httpx.MockTransport(handler),
+                )
+                executor = ConcurrentExecutor(FixedCapacity(2))
+                ignored: list[OCRError] = []
+                ocr = OCR(
+                    UnlimitedOCRVendorConfig(
+                        ak="ak", sk="sk", retry_times=0,
+                    ),
+                    cast(Any, _Handler([])),
+                )
+                with tempfile.TemporaryDirectory() as directory, patch(
+                    "pdf_craft.pdf.vendor_ocr.httpx.AsyncClient",
+                    return_value=client,
+                ):
+                    root = Path(directory)
+                    with self.assertRaises(error_type):
+                        async for _ in ocr.recognize_vendor(
+                            executor,
+                            pdf_path=root / "source.pdf",
+                            asset_path=root / "assets",
+                            ocr_path=root / "ocr",
+                            ignore_ocr_errors=(
+                                lambda error: ignored.append(error) or True
+                            ),
+                        ):
+                            pass
+
+                self.assertEqual(ignored, [])
+                with self.assertRaises(error_type):
+                    await executor.run(lambda: asyncio.sleep(0))
+
+    async def test_vendor_malformed_success_bodies_preserve_response(self):
+        unlimited_cases = (
+            ("top-level", ["malformed"]),
+            ("empty-submit", {"result": {}}),
+            ("empty-query", {"result": {}}),
+        )
+        for case, malformed in unlimited_cases:
+            with self.subTest(case=case):
+                calls = 0
+
+                def handler(request: httpx.Request) -> httpx.Response:
+                    nonlocal calls
+                    calls += 1
+                    if case == "empty-query" and request.url.path.endswith("/task"):
+                        return httpx.Response(200, request=request, json={
+                            "result": {"task_id": "task"},
+                        })
+                    return httpx.Response(200, request=request, json=malformed)
+
+                client = httpx.AsyncClient(
+                    transport=httpx.MockTransport(handler),
+                )
+                runtime = VendorOCRRuntime(
+                    UnlimitedOCRVendorConfig(
+                        ak="ak", sk="sk", retry_times=0,
+                        poll_interval_seconds=0,
+                    ),
+                    ConcurrentExecutor(FixedCapacity(1)),
+                )
+                runtime._client = client
+                runtime._access_token = "token"
+                with tempfile.TemporaryDirectory() as directory:
+                    image_path = Path(directory) / "page.png"
+                    Image.new("RGB", (4, 4), "white").save(image_path)
+                    results = [
+                        result async for result in runtime.request_many([
+                            VendorOCRInput(1, image_path, lambda: False),
+                        ])
+                    ]
+
+                self.assertEqual(len(results), 1)
+                error = results[0].error
+                self.assertIsInstance(error, OperationError)
+                assert isinstance(error, OperationError)
+                envelope = error.__cause__
+                self.assertIsInstance(envelope, VendorOCRRequestError)
+                assert isinstance(envelope, VendorOCRRequestError)
+                raw = envelope.__cause__
+                self.assertIsInstance(raw, httpx.HTTPStatusError)
+                assert isinstance(raw, httpx.HTTPStatusError)
+                self.assertEqual(raw.response.status_code, 200)
+                self.assertEqual(raw.response.json(), malformed)
+                self.assertEqual(calls, 2 if case == "empty-query" else 1)
+                await client.aclose()
+
+        deepseek_cases = (
+            {
+                "usage": ["malformed"],
+                "choices": [{"message": {"content": ""}}],
+            },
+            {"usage": {}, "choices": {"malformed": True}},
+        )
+        for malformed in deepseek_cases:
+            with self.subTest(deepseek=malformed):
+                def deepseek_handler(request: httpx.Request) -> httpx.Response:
+                    return httpx.Response(200, request=request, json=malformed)
+
+                client = httpx.AsyncClient(
+                    transport=httpx.MockTransport(deepseek_handler),
+                )
+                runtime = VendorOCRRuntime(
+                    DeepSeekOCRVendorConfig(
+                        base_url="https://example.invalid/v1",
+                        api_key="key",
+                        model="model",
+                        retry_times=0,
+                    ),
+                    ConcurrentExecutor(FixedCapacity(1)),
+                )
+                runtime._client = client
+                with tempfile.TemporaryDirectory() as directory:
+                    image_path = Path(directory) / "page.png"
+                    Image.new("RGB", (4, 4), "white").save(image_path)
+                    results = [
+                        result async for result in runtime.request_many([
+                            VendorOCRInput(1, image_path, lambda: False),
+                        ])
+                    ]
+
+                error = results[0].error
+                self.assertIsInstance(error, OperationError)
+                assert isinstance(error, OperationError)
+                envelope = error.__cause__
+                self.assertIsInstance(envelope, VendorOCRRequestError)
+                assert isinstance(envelope, VendorOCRRequestError)
+                raw = envelope.__cause__
+                self.assertIsInstance(raw, httpx.HTTPStatusError)
+                assert isinstance(raw, httpx.HTTPStatusError)
+                self.assertEqual(raw.response.status_code, 200)
+                self.assertEqual(raw.response.json(), malformed)
+                await client.aclose()
 
     async def test_unlimited_oauth_error_is_fatal_and_bypasses_fallback(self):
         def handler(request: httpx.Request) -> httpx.Response:
