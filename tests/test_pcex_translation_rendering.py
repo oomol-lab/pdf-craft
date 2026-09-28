@@ -14,7 +14,8 @@ from epub_generator import BookMeta
 from pdf_craft import AsyncPDFCraft, PDFCraft, RenderMode
 from pdf_craft.common import save_xml
 from pdf_craft.extractor.chapter.chapter import (
-    Chapter, DisplayFormula, Reference, SourceAsset, SourceTextFragment, TextFlowItem,
+    Chapter, DisplayFormula, Reference, SourceAsset, SourceTextFragment, StandaloneAsset,
+    TextFlowItem,
     decode, encode, search_references_in_chapter,
 )
 from pdf_craft.extractor.toc.types import Toc, TocInfo, encode as encode_toc
@@ -357,6 +358,64 @@ class TestPCEXTranslationRendering(unittest.TestCase):
             self.assertEqual(
                 (root / "source/chapters/chapter_1.xml").read_bytes(), source_xml,
             )
+
+    def test_anchored_coverage_composes_embedded_and_standalone_assets(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            extraction = _source(root / "source")
+            source_path = root / "source/chapters/chapter_1.xml"
+            source = decode(ElementTree.parse(source_path).getroot())
+            source.flow_items.append(StandaloneAsset(SourceAsset(
+                1, "table", (1, 81, 90, 95), ["原表标题"],
+                ["原表内容"], ["原表说明"],
+            )))
+            save_xml(encode(source), source_path)
+            _add_translation(root / "source", "english-a", "EN")
+            layer = root / "source/translations/english-a"
+            translated_path = layer / "chapters/chapter_1.xml"
+            translated = decode(ElementTree.parse(translated_path).getroot())
+            body = translated.flow_items[1]
+            assert isinstance(body, TextFlowItem)
+            embedded = body.children[1]
+            assert isinstance(embedded, SourceAsset)
+            embedded.title = ["译图标题"]
+            embedded.content = ["译图内容"]
+            embedded.caption = ["译图说明"]
+            standalone = translated.flow_items[2]
+            assert isinstance(standalone, StandaloneAsset)
+            standalone.asset.title = ["译表标题"]
+            standalone.asset.content = ["译表内容"]
+            standalone.asset.caption = ["译表说明"]
+            save_xml(encode(translated), translated_path)
+            (layer / "coverage.xml").write_text(
+                "<translation><narrative>"
+                "<paragraph chapter_id='1' page_index='1' order='1' state='translated'/>"
+                "<paragraph chapter_id='1' page_index='1' order='2' state='preserved'/>"
+                "</narrative><anchored>"
+                "<asset chapter_id='1' flow_index='1' child_index='1' state='translated'/>"
+                "<asset chapter_id='1' flow_index='2' child_index='-1' state='translated'/>"
+                "</anchored></translation>",
+                encoding="utf-8",
+            )
+            extraction._validate(require_toc=True)
+
+            for mode in (RenderMode.REPLACE, RenderMode.BILINGUAL):
+                output = root / f"{mode.value}.md"
+                PDFCraft().render_markdown(extraction, output, mode=mode)
+                markdown = output.read_text(encoding="utf-8")
+                for translated_text in (
+                    "译图标题", "译图说明",
+                    "译表标题", "译表内容", "译表说明",
+                ):
+                    self.assertIn(translated_text, markdown)
+                for source_text in (
+                    "图片标题", "图片说明",
+                    "原表标题", "原表内容", "原表说明",
+                ):
+                    if mode == RenderMode.REPLACE:
+                        self.assertNotIn(source_text, markdown)
+                    else:
+                        self.assertIn(source_text, markdown)
 
     def test_bilingual_heading_appends_the_complete_translation_after_source(self):
         with tempfile.TemporaryDirectory() as directory:

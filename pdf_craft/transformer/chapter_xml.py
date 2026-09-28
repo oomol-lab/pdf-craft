@@ -17,7 +17,9 @@ from pdf_craft.transformer.xml_translator.xml import clone_element, plain_text
 from pdf_craft.transformer.xml_translator.xml.const import ID_KEY
 from pdf_craft.transformer.xml_translator.utils import normalize_whitespace
 from pdf_craft.transformer.events import TranslationEvent, TranslationItemKind
-from .chapter_formula_interrupter import ChapterFormulaInterrupter
+from .chapter_formula_interrupter import (
+    _RESTORED_FORMULA_ID_KEY, ChapterFormulaInterrupter,
+)
 from .anchored_xml import AnchoredContentXMLTransformer
 from .furniture_xml import FurnitureXMLTransformer, XMLTaskTranslator as FurnitureXMLTaskTranslator
 from .xml_translator.xml_translator import SubmitKind, TranslationTask
@@ -187,7 +189,9 @@ class ChapterXMLTransformer:
             canonical_text_validator=_validate_chapter_fill_canonical_text,
         )
         anchors.restore_assets(translated)
-        _restore_fragment_owned_inline_expressions(translated)
+        _restore_fragment_owned_inline_expressions(
+            translated, formula_interrupter.adjacent_inline_predecessors,
+        )
         return decode(translated)
 
     async def transform(
@@ -247,7 +251,9 @@ class ChapterXMLTransformer:
             window=self._window,
         )
         anchors.restore_assets(translated)
-        _restore_fragment_owned_inline_expressions(translated)
+        _restore_fragment_owned_inline_expressions(
+            translated, formula_interrupter.adjacent_inline_predecessors,
+        )
         return decode(translated)
 
     async def transform_many(
@@ -328,7 +334,9 @@ class ChapterXMLTransformer:
             anchors = prepared[index][2]
             assert anchors is not None
             anchors.restore_assets(translated_element)
-            _restore_fragment_owned_inline_expressions(translated_element)
+            _restore_fragment_owned_inline_expressions(
+                translated_element, formula_interrupter.adjacent_inline_predecessors,
+            )
             results[index] = decode(translated_element)
         return results
 
@@ -366,7 +374,10 @@ class ChapterXMLTransformer:
         return False
 
 
-def _restore_fragment_owned_inline_expressions(chapter: Element) -> None:
+def _restore_fragment_owned_inline_expressions(
+    chapter: Element,
+    adjacent_predecessors: dict[str, str],
+) -> None:
     """Keep translator-restored inline formulas inside their source fragment.
 
     XMLTranslator may return an interrupted inline token as a sibling of its
@@ -383,14 +394,31 @@ def _restore_fragment_owned_inline_expressions(chapter: Element) -> None:
                 if owner is None:
                     raise ValueError("translator returned inline_expr without a preceding fragment")
                 text.remove(child)
+                token_id = child.get(_RESTORED_FORMULA_ID_KEY, "")
+                predecessor_id = adjacent_predecessors.get(token_id)
+                predecessor = next((
+                    existing for existing in owner.iter("inline_expr")
+                    if existing.get(_RESTORED_FORMULA_ID_KEY) == predecessor_id
+                ), None)
                 duplicate = any(
                     existing.tag == "inline_expr"
-                    and existing.get("kind") == child.get("kind")
-                    and (existing.text or "") == (child.text or "")
+                    and (
+                        existing.get(_RESTORED_FORMULA_ID_KEY) == token_id
+                        if token_id else (
+                            existing.get("kind") == child.get("kind")
+                            and (existing.text or "") == (child.text or "")
+                        )
+                    )
                     for existing in owner.iter("inline_expr")
                 )
                 if not duplicate:
-                    owner.append(child)
+                    if predecessor is None:
+                        owner.append(child)
+                    else:
+                        child.tail, predecessor.tail = predecessor.tail, child.tail
+                        owner.insert(list(owner).index(predecessor) + 1, child)
+    for formula in chapter.iter("inline_expr"):
+        formula.attrib.pop(_RESTORED_FORMULA_ID_KEY, None)
 
 
 def _render_chapter_source_text(inline_segments) -> str:

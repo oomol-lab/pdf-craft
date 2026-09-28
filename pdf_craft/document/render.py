@@ -163,10 +163,13 @@ def _write_effective_chapters(
     mode: RenderMode,
 ) -> None:
     translated_identities = _translated_narrative_identities(coverage_path)
+    translated_assets = _translated_anchored_identities(coverage_path)
     for source_file in source_path.glob("*.xml"):
         source = ElementTree.parse(source_file).getroot()
         translated = ElementTree.parse(translated_path / source_file.name).getroot()
-        _compose_chapter(source, translated, translated_identities, mode)
+        _compose_chapter(
+            source, translated, translated_identities, translated_assets, mode,
+        )
         save_xml(source, output_path / source_file.name)
 
 
@@ -183,10 +186,24 @@ def _translated_narrative_identities(path: Path) -> set[tuple[str, int, int]]:
     return result
 
 
+def _translated_anchored_identities(path: Path) -> set[tuple[str, int, int]]:
+    root = ElementTree.parse(path).getroot()
+    return {
+        (
+            entry.get("chapter_id", ""),
+            int(entry.get("flow_index", "0")),
+            int(entry.get("child_index", "0")),
+        )
+        for entry in root.findall("anchored/asset")
+        if entry.get("state") == "translated"
+    }
+
+
 def _compose_chapter(
     source: ElementTree.Element,
     translated: ElementTree.Element,
     translated_identities: set[tuple[str, int, int]],
+    translated_assets: set[tuple[str, int, int]],
     mode: RenderMode,
 ) -> None:
     chapter_id = source.get("id", "head")
@@ -202,7 +219,62 @@ def _compose_chapter(
             _replace_flow(source_flow, targets, is_translated)
         else:
             _merge_flow(source_flow, targets, is_translated)
+        _compose_anchored_assets(
+            source_flow, translated_flow, chapter_id, translated_assets, mode,
+        )
     _compose_references(source, translated, mode)
+
+
+def _compose_anchored_assets(
+    effective_flow: ElementTree.Element,
+    translated_flow: ElementTree.Element,
+    chapter_id: str,
+    translated_assets: set[tuple[str, int, int]],
+    mode: RenderMode,
+) -> None:
+    """Compose image/table text independently from narrative coverage."""
+    for flow_index, (effective_item, translated_item) in enumerate(zip(
+        effective_flow, translated_flow, strict=False,
+    )):
+        if effective_item.tag == "standalone-asset":
+            if (chapter_id, flow_index, -1) in translated_assets:
+                _compose_asset_element(
+                    effective_item.find("asset"), translated_item.find("asset"), mode,
+                )
+            continue
+        if effective_item.tag != "text" or translated_item.tag != "text":
+            continue
+        for child_index, (effective_child, translated_child) in enumerate(zip(
+            effective_item, translated_item, strict=False,
+        )):
+            if (chapter_id, flow_index, child_index) not in translated_assets:
+                continue
+            if effective_child.tag == "asset" and translated_child.tag == "asset":
+                _compose_asset_element(effective_child, translated_child, mode)
+
+
+def _compose_asset_element(
+    effective: ElementTree.Element | None,
+    translated: ElementTree.Element | None,
+    mode: RenderMode,
+) -> None:
+    if effective is None or translated is None:
+        return
+    for name in ("title", "content", "caption"):
+        target = translated.find(name)
+        if target is None or not _visible_text(target):
+            continue
+        destination = effective.find(name)
+        if mode == RenderMode.REPLACE:
+            copy = deepcopy(target)
+            if destination is None:
+                effective.append(copy)
+            else:
+                effective[list(effective).index(destination)] = copy
+        elif destination is None:
+            effective.append(deepcopy(target))
+        else:
+            _append_element_content(destination, target)
 
 
 def _compose_references(
