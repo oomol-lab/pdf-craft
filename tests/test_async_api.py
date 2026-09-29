@@ -264,6 +264,33 @@ class TestAsyncAPI(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(metering, "async-metering")
         self.assertEqual(engine.thread_id, caller_thread)
 
+    async def test_direct_async_extractor_checks_existing_output_off_loop(self):
+        caller_thread = threading.get_ident()
+        check_threads: list[int] = []
+        original_exists = Path.exists
+
+        with tempfile.TemporaryDirectory() as directory:
+            target = Path(directory) / "book.pcex"
+            target.write_bytes(b"existing")
+
+            def tracked_exists(path: Path) -> bool:
+                if path == target:
+                    check_threads.append(threading.get_ident())
+                return original_exists(path)
+
+            engine = _NativeAsyncEngine()
+            with patch.object(Path, "exists", tracked_exists):
+                with self.assertRaisesRegex(
+                    FileExistsError, "PDFCraftExtraction already exists",
+                ):
+                    await PDFExtractor(engine).extract_with_metering(
+                        Path("source.pdf"), target,
+                    )
+
+        self.assertIsNone(engine.thread_id)
+        self.assertEqual(len(check_threads), 1)
+        self.assertNotEqual(check_threads[0], caller_thread)
+
     async def test_direct_async_extractor_creates_and_cleans_workspace_off_loop(self):
         caller_thread = threading.get_ident()
         created_threads: list[int] = []

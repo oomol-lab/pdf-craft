@@ -108,7 +108,7 @@ class PDFExtractor:
                 raise ValueError(
                     f"PDFCraftExtraction path must end with {EXTRACTION_SUFFIX}"
                 )
-            if extraction_path.exists():
+            if await IO_DOMAIN.run(extraction_path.exists):
                 raise FileExistsError(
                     f"PDFCraftExtraction already exists: {extraction_path}"
                 )
