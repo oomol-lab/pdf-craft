@@ -4,13 +4,16 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import inspect
 import json
+import re
 import time
 from collections.abc import AsyncIterator, Awaitable, Callable, Iterable
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Literal, Never, Self
+from urllib.parse import urlsplit
 
 import httpx
 from doc_page_extractor.errors import VendorOCRRequestError
@@ -31,6 +34,13 @@ from ..ocr_config import (
     VendorOCRConfig,
 )
 from ..runtime import IO_DOMAIN
+
+
+OCRImageURLResolver = Callable[[Path], str | Awaitable[str]]
+
+
+class _InvalidOCRImageURL(ValueError):
+    """A resolver returned a value that cannot be sent to an OCR vendor."""
 
 
 @dataclass(frozen=True)
@@ -60,6 +70,28 @@ class VendorOCRResult:
         return self.error is None
 
 
+@dataclass(frozen=True)
+class _ResolvedVendorOCRInput:
+    source: VendorOCRInput
+    image_url: str
+
+    @property
+    def page_index(self) -> int:
+        return self.source.page_index
+
+    @property
+    def image_path(self) -> Path:
+        return self.source.image_path
+
+    @property
+    def aborted(self) -> AbortedCheck:
+        return self.source.aborted
+
+    @property
+    def stage_index(self) -> int:
+        return self.source.stage_index
+
+
 class _UnlimitedTokenExpiredError(OperationError):
     """The current cached access token must be replaced before retrying."""
 
@@ -71,9 +103,15 @@ class _UnlimitedResubmitError(OperationError):
 class VendorOCRRuntime:
     """One event-loop-bound vendor client with retry outside executor leases."""
 
-    def __init__(self, config: VendorOCRConfig, executor: AsyncExecutor) -> None:
+    def __init__(
+        self,
+        config: VendorOCRConfig,
+        executor: AsyncExecutor,
+        image_url_resolver: OCRImageURLResolver | None = None,
+    ) -> None:
         self.config = config
         self.executor = executor
+        self.image_url_resolver = image_url_resolver or _default_image_url
         self._client: httpx.AsyncClient | None = None
         self._access_token: str | None = None
         self._token_lock = asyncio.Lock()
@@ -93,18 +131,45 @@ class VendorOCRRuntime:
         *,
         _started: asyncio.Event | None = None,
     ) -> VendorOCRResponse:
+        resolved = await self._resolve_image_url(request)
         if isinstance(self.config, UnlimitedOCRVendorConfig):
-            return await self._request_once(request, _started)
+            return await self._request_once(resolved, _started)
         try:
-            return await self._request_once(request, _started)
+            return await self._request_once(resolved, _started)
         except NonContinuableError:
             raise
         except OperationError as error:
             if not _is_retryable(error) or self.config.retry_times == 0:
                 raise
             return await self._retry_request_after_error(
-                request, error, attempts_used=1,
+                resolved, error, attempts_used=1,
             )
+
+    async def _resolve_image_url(
+        self, request: VendorOCRInput,
+    ) -> _ResolvedVendorOCRInput:
+        try:
+            check_aborted(request.aborted)
+            if _is_async_callable(self.image_url_resolver):
+                result = self.image_url_resolver(request.image_path)
+            else:
+                result = await IO_DOMAIN.run(
+                    self.image_url_resolver, request.image_path,
+                )
+            if inspect.isawaitable(result):
+                result = await result
+            return _ResolvedVendorOCRInput(
+                request, _validate_image_url(result),
+            )
+        except (NonContinuableError, OperationError):
+            raise
+        except _InvalidOCRImageURL as error:
+            raise OperationError(str(error), cause=error) from error
+        except Exception as error:
+            raise OperationError(
+                "OCR image URL resolver failed",
+                cause=error,
+            ) from error
 
     async def request_many(
         self, requests: Iterable[VendorOCRInput],
@@ -200,7 +265,7 @@ class VendorOCRRuntime:
 
     async def _retry_request_after_error(
         self,
-        request: VendorOCRInput,
+        request: _ResolvedVendorOCRInput,
         error: OperationError,
         *,
         attempts_used: int,
@@ -228,7 +293,7 @@ class VendorOCRRuntime:
 
     async def _request_once(
         self,
-        request: VendorOCRInput,
+        request: _ResolvedVendorOCRInput,
         started: asyncio.Event | None = None,
     ) -> VendorOCRResponse:
         try:
@@ -268,7 +333,7 @@ class VendorOCRRuntime:
 
     async def _request_deepseek(
         self,
-        request: VendorOCRInput,
+        request: _ResolvedVendorOCRInput,
         started: asyncio.Event | None,
     ) -> VendorOCRResponse:
         config = self.config
@@ -276,7 +341,7 @@ class VendorOCRRuntime:
             DeepSeekOCRVendorConfig, DeepSeekOCR2VendorConfig,
         ))
         payload = await IO_DOMAIN.run(
-            _deepseek_payload, request.image_path, config,
+            _deepseek_payload, request.image_url, config,
         )
 
         async def send() -> dict[str, Any]:
@@ -346,7 +411,7 @@ class VendorOCRRuntime:
 
     async def _request_unlimited(
         self,
-        request: VendorOCRInput,
+        request: _ResolvedVendorOCRInput,
         started: asyncio.Event | None,
     ) -> VendorOCRResponse:
         config = self.config
@@ -364,7 +429,7 @@ class VendorOCRRuntime:
 
     async def _request_unlimited_task(
         self,
-        request: VendorOCRInput,
+        request: _ResolvedVendorOCRInput,
         started: asyncio.Event | None,
     ) -> VendorOCRResponse:
         config = self.config
@@ -415,7 +480,7 @@ class VendorOCRRuntime:
 
     async def _submit_unlimited(
         self,
-        request: VendorOCRInput,
+        request: _ResolvedVendorOCRInput,
         started: asyncio.Event | None,
     ) -> dict[str, Any]:
         config = self.config
@@ -454,11 +519,13 @@ class VendorOCRRuntime:
 
     async def _submit_unlimited_once(
         self,
-        request: VendorOCRInput,
+        request: _ResolvedVendorOCRInput,
         token: str,
         started: asyncio.Event | None,
     ) -> dict[str, Any]:
-        encoded = await IO_DOMAIN.run(_encode_image, request.image_path)
+        image_fields = _unlimited_image_fields(
+            request.image_url, request.image_path.name,
+        )
 
         async def submit() -> dict[str, Any]:
             return await self._post_form(
@@ -466,10 +533,7 @@ class VendorOCRRuntime:
                     "/rest/2.0/brain/online/v2/unlimited-ocr-parser/task",
                     token,
                 ),
-                {
-                    "file_data": encoded,
-                    "file_name": request.image_path.name,
-                },
+                image_fields,
                 request.page_index,
                 "Unlimited OCR submit",
                 result_kind="submit",
@@ -666,9 +730,12 @@ VendorOCRRequest = Callable[[VendorOCRInput], Awaitable[VendorOCRResponse]]
 async def create_vendor_ocr_request(
     config: VendorOCRConfig,
     executor: AsyncExecutor,
+    image_url_resolver: OCRImageURLResolver | None = None,
 ) -> AsyncIterator[VendorOCRRequest]:
     """Bind one vendor configuration and executor into a retrying request."""
-    async with VendorOCRRuntime(config, executor) as runtime:
+    async with VendorOCRRuntime(
+        config, executor, image_url_resolver,
+    ) as runtime:
         yield runtime.request
 
 
@@ -683,8 +750,62 @@ def _encode_image(path: Path) -> str:
     return base64.b64encode(path.read_bytes()).decode("ascii")
 
 
+def _default_image_url(path: Path) -> str:
+    return "data:image/png;base64," + _encode_image(path)
+
+
+def _is_async_callable(resolver: OCRImageURLResolver) -> bool:
+    return inspect.iscoroutinefunction(resolver) or inspect.iscoroutinefunction(
+        getattr(resolver, "__call__", None),
+    )
+
+
+def _validate_image_url(value: object) -> str:
+    if not isinstance(value, str) or not value or value != value.strip():
+        raise _InvalidOCRImageURL(
+            "OCR image URL resolver must return a non-empty URL string",
+        )
+    if value.lower().startswith("data:"):
+        _data_url_base64(value)
+        return value
+    parsed = urlsplit(value)
+    if parsed.scheme.lower() not in {"http", "https"} or not parsed.netloc:
+        raise _InvalidOCRImageURL(
+            "OCR image URL resolver must return an HTTP(S) URL or a "
+            "Base64 image Data URL",
+        )
+    return value
+
+
+def _data_url_base64(image_url: str) -> str:
+    header, separator, encoded = image_url.partition(",")
+    unpadded = encoded.rstrip("=")
+    if (
+        not separator
+        or not header.lower().startswith("data:image/")
+        or not header.lower().endswith(";base64")
+        or not encoded
+        or re.fullmatch(r"[A-Za-z0-9+/]*={0,2}", encoded) is None
+        or len(unpadded) % 4 == 1
+        or (unpadded != encoded and len(encoded) % 4 != 0)
+    ):
+        raise _InvalidOCRImageURL(
+            "OCR image Data URL must contain non-empty Base64 image data",
+        )
+    return encoded
+
+
+def _unlimited_image_fields(image_url: str, file_name: str) -> dict[str, str]:
+    if image_url.lower().startswith("data:"):
+        return {
+            "file_data": _data_url_base64(image_url),
+            "file_name": file_name,
+        }
+    return {"file_url": image_url, "file_name": file_name}
+
+
 def _deepseek_payload(
-    image_path: Path,
+    image_url: str,
     config: DeepSeekOCRVendorConfig | DeepSeekOCR2VendorConfig,
 ) -> dict[str, Any]:
     payload: dict[str, Any] = {
@@ -695,7 +816,7 @@ def _deepseek_payload(
                 {
                     "type": "image_url",
                     "image_url": {
-                        "url": "data:image/png;base64," + _encode_image(image_path),
+                        "url": image_url,
                     },
                 },
                 {

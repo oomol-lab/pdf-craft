@@ -18,7 +18,10 @@ from .jev import JEVRuntime
 from .llm import LLM, runtime_for
 from .metering import AbortedCheck, OCRTokensMetering
 from .ocr_config import OCRConfig, ensure_ocr_config
-from .pdf import DeepSeekOCRSize, OCR, OCREvent, OCREventKind, PDFHandler
+from .pdf import (
+    DeepSeekOCRSize, OCR, OCRImageURLResolver, OCREvent, OCREventKind,
+    PDFHandler,
+)
 from .pdf.furniture import write_furnitures
 from .runtime import OCR_DOMAIN, invoke_callback, run_cancellable, run_subprocess
 from .extractor.metadata import extract_book_metadata_from_ocr, merge_ocr_and_pdf_metadata
@@ -66,6 +69,7 @@ class PDFExtractionEngine:
         local_only: bool = False,
         ocr: OCRConfig | None = None,
         ocr_executor: AsyncExecutor | None = None,
+        ocr_image_url_resolver: OCRImageURLResolver | None = None,
     ) -> None:
         self._ocr = OCR(
             ocr=ensure_ocr_config(ocr, models_cache_path, local_only),
@@ -74,6 +78,7 @@ class PDFExtractionEngine:
         if self._ocr.is_vendor and ocr_executor is None:
             raise ValueError("Vendor OCR requires an explicit OCR executor")
         self._ocr_executor = ocr_executor
+        self._ocr_image_url_resolver = ocr_image_url_resolver
 
     def predownload(self, revision: str | None = None) -> None:
         self._ocr.predownload(revision)
@@ -95,6 +100,7 @@ class PDFExtractionEngine:
             ocr_metering = OCRTokensMetering(input_tokens=0, output_tokens=0)
             event_stream = self._ocr.recognize_vendor(
                 self._ocr_executor,
+                image_url_resolver=self._ocr_image_url_resolver,
                 pdf_path=kwargs["pdf_path"],
                 asset_path=kwargs["analysing_path"] / "extraction" / "assets",
                 ocr_path=kwargs["analysing_path"] / "ocr",

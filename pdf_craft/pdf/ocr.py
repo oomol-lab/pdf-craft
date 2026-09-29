@@ -24,7 +24,12 @@ from .handler import DefaultPDFHandler, PDFHandler
 from .page_extractor import Page, PageExtractorNode, PageLayout
 from .page_ref import PageRefContext
 from .types import DeepSeekOCRSize, PDFDocumentMetadata, encode
-from .vendor_ocr import VendorOCRInput, VendorOCRRuntime, VendorOCRResponse
+from .vendor_ocr import (
+    OCRImageURLResolver,
+    VendorOCRInput,
+    VendorOCRRuntime,
+    VendorOCRResponse,
+)
 
 
 _T = TypeVar("_T", bound=Exception)
@@ -98,6 +103,7 @@ class OCR:
         self,
         executor: AsyncExecutor,
         *,
+        image_url_resolver: OCRImageURLResolver | None = None,
         pdf_path: Path,
         asset_path: Path,
         ocr_path: Path,
@@ -310,6 +316,7 @@ class OCR:
 
             async with VendorOCRRuntime(
                 cast(VendorOCRConfig, self._config), executor,
+                image_url_resolver,
             ) as runtime:
                 if max_tokens is not None or max_output_tokens is not None:
                     # Exact cumulative budgets settle a complete page before

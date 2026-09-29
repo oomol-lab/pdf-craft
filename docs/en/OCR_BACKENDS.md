@@ -60,6 +60,45 @@ from pdf_craft import UnlimitedOCRVendorConfig
 ocr = UnlimitedOCRVendorConfig(ak="your-access-key", sk="your-secret-key")
 ```
 
+### Supplying image URLs
+
+By default, Vendor OCR reads each rendered PNG and sends it as a Base64 Data URL. Applications
+whose provider accepts or requires remote image URLs can supply an `OCRImageURLResolver`. The
+resolver receives the rendered image `Path` and returns either an HTTP(S) URL or a Base64 image
+Data URL:
+
+```python
+from pathlib import Path
+
+from pdf_craft import (
+    ConcurrentExecutor, DeepSeekOCRVendorConfig, FixedCapacity,
+    OCRImageURLResolver, PDFCraft, PDFOptions,
+)
+
+def resolve_ocr_image(path: Path) -> str:
+    return image_service.create_url(path)
+
+resolver: OCRImageURLResolver = resolve_ocr_image
+craft = PDFCraft(pdf=PDFOptions(
+    ocr=DeepSeekOCRVendorConfig(
+        base_url="https://example.com/v1",
+        api_key="your-api-key",
+        model="deepseek-ocr",
+    ),
+    ocr_executor=ConcurrentExecutor(FixedCapacity(8)),
+    ocr_image_url_resolver=resolver,
+))
+```
+
+The resolver may also be asynchronous. Synchronous resolvers run outside the event loop. Each
+logical OCR image is resolved lazily once, and its URL is reused across transport retries. A
+second-stage footnote image is a separate logical image and is resolved independently.
+
+DeepSeek OCR sends the returned value through `image_url.url`. Unlimited OCR sends Base64 Data
+URLs through `file_data` and HTTP(S) URLs through `file_url`. Uploading, signing, expiry,
+cleanup, caching, and storage-specific concurrency belong to the application that provides the
+resolver.
+
 ## Convenience defaults
 
 When `PDFOptions` has no explicit `ocr`, `models_cache_path` and `local_only` configure the default local DeepSeek OCR setup. Do not combine either convenience field with an explicit `ocr` configuration; that is rejected because the ownership of those settings would be ambiguous.

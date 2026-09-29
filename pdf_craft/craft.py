@@ -33,6 +33,7 @@ from .pdf import (
     AsyncPDFDocument,
     AsyncPDFHandler,
     DeepSeekOCRSize,
+    OCRImageURLResolver,
     OCREvent,
     PDFDocument,
     PDFDocumentMetadata,
@@ -73,6 +74,7 @@ class PDFOptions:
     models_cache_path: PathLike | str | None = None
     local_only: bool = False
     ocr_executor: AsyncExecutor | None = None
+    ocr_image_url_resolver: OCRImageURLResolver | None = None
 
 
 @dataclass(frozen=True)
@@ -515,6 +517,7 @@ class AsyncPDFCraft:
             local_only=self._pdf.local_only,
             ocr=self._pdf.ocr,
             ocr_executor=self._pdf.ocr_executor,
+            ocr_image_url_resolver=self._pdf.ocr_image_url_resolver,
         )
 
 

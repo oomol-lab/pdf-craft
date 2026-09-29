@@ -209,6 +209,43 @@ craft = PDFCraft(pdf=PDFOptions(
 ))
 ```
 
+### 自定义图片 URL
+
+默认情况下，Vendor OCR 会读取每张渲染后的 PNG，并生成 Base64 Data URL。若供应商支持或
+要求远程图片 URL，可以通过 `OCRImageURLResolver` 自定义转换。resolver 接收渲染图片的
+`Path`，并返回 HTTP(S) URL 或 Base64 图片 Data URL：
+
+```python
+from pathlib import Path
+
+from pdf_craft import (
+    ConcurrentExecutor, DeepSeekOCRVendorConfig, FixedCapacity,
+    OCRImageURLResolver, PDFCraft, PDFOptions,
+)
+
+def resolve_ocr_image(path: Path) -> str:
+    return image_service.create_url(path)
+
+resolver: OCRImageURLResolver = resolve_ocr_image
+craft = PDFCraft(pdf=PDFOptions(
+    ocr=DeepSeekOCRVendorConfig(
+        base_url="https://example.com/v1",
+        api_key="your-api-key",
+        model="deepseek-ocr",
+    ),
+    ocr_executor=ConcurrentExecutor(FixedCapacity(8)),
+    ocr_image_url_resolver=resolver,
+))
+```
+
+resolver 也可以是异步函数；同步 resolver 会在事件循环之外运行。每张逻辑 OCR 图片只会在
+需要时转换一次，网络重试会复用同一个 URL。脚注处理产生的第二阶段图片属于另一张逻辑图片，
+会单独转换。
+
+DeepSeek OCR 把返回值直接写入 `image_url.url`。Unlimited OCR 会把 Base64 Data URL 写入
+`file_data`，把 HTTP(S) URL 写入 `file_url`。上传、签名、过期时间、清理、缓存与存储服务的
+并发策略由提供 resolver 的应用负责。
+
 ## `PDFOptions` 的配置边界
 
 `PDFOptions` 还提供 `models_cache_path` 和 `local_only` 两个便捷字段，用于在不显式
