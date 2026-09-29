@@ -264,6 +264,150 @@ class TestAsyncAPI(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(metering, "async-metering")
         self.assertEqual(engine.thread_id, caller_thread)
 
+    async def test_direct_async_extractor_checks_existing_output_off_loop(self):
+        caller_thread = threading.get_ident()
+        check_threads: list[int] = []
+        original_exists = Path.exists
+
+        with tempfile.TemporaryDirectory() as directory:
+            target = Path(directory) / "book.pcex"
+            target.write_bytes(b"existing")
+
+            def tracked_exists(path: Path) -> bool:
+                if path == target:
+                    check_threads.append(threading.get_ident())
+                return original_exists(path)
+
+            engine = _NativeAsyncEngine()
+            with patch.object(Path, "exists", tracked_exists):
+                with self.assertRaisesRegex(
+                    FileExistsError, "PDFCraftExtraction already exists",
+                ):
+                    await PDFExtractor(engine).extract_with_metering(
+                        Path("source.pdf"), target,
+                    )
+
+        self.assertIsNone(engine.thread_id)
+        self.assertEqual(len(check_threads), 1)
+        self.assertNotEqual(check_threads[0], caller_thread)
+
+    async def test_direct_async_extractor_creates_and_cleans_workspace_off_loop(self):
+        caller_thread = threading.get_ident()
+        created_threads: list[int] = []
+        cleanup_threads: list[int] = []
+        workspace_paths: list[Path] = []
+
+        class TrackedTemporaryDirectory:
+            def __init__(self, *args, **kwargs) -> None:
+                created_threads.append(threading.get_ident())
+                self._temporary = tempfile.TemporaryDirectory(*args, **kwargs)
+                self.name = self._temporary.name
+                workspace_paths.append(Path(self.name))
+
+            def cleanup(self) -> None:
+                cleanup_threads.append(threading.get_ident())
+                self._temporary.cleanup()
+
+        with tempfile.TemporaryDirectory() as directory, patch(
+            "pdf_craft.runtime.TemporaryDirectory",
+            TrackedTemporaryDirectory,
+        ):
+            root = Path(directory)
+            extraction, metering = await PDFExtractor(
+                _NativeAsyncEngine(),
+            ).extract_with_metering(
+                Path("source.pdf"), root / "book.pcex",
+            )
+
+        self.assertIsInstance(extraction, PDFCraftExtraction)
+        self.assertEqual(metering, "async-metering")
+        self.assertEqual(len(created_threads), 1)
+        self.assertEqual(len(cleanup_threads), 1)
+        self.assertNotEqual(created_threads[0], caller_thread)
+        self.assertNotEqual(cleanup_threads[0], caller_thread)
+        self.assertTrue(workspace_paths)
+        self.assertTrue(all(not path.exists() for path in workspace_paths))
+
+    async def test_direct_async_extractor_cancellation_cleans_workspace(self):
+        class CancellableNativeAsyncEngine:
+            def __init__(self) -> None:
+                self.started = asyncio.Event()
+                self.analysing_path: Path | None = None
+
+            async def extract_package_async(self, *, analysing_path, **_kwargs):
+                self.analysing_path = analysing_path
+                self.started.set()
+                await asyncio.Event().wait()
+
+            def extract_package(self, **_kwargs):
+                raise AssertionError("native async extraction must not use the sync hook")
+
+        engine = CancellableNativeAsyncEngine()
+        with tempfile.TemporaryDirectory() as directory:
+            task = asyncio.create_task(
+                PDFExtractor(engine).extract_with_metering(
+                    Path("source.pdf"), Path(directory) / "book.pcex",
+                )
+            )
+            await engine.started.wait()
+            task.cancel()
+            with self.assertRaises(asyncio.CancelledError):
+                await task
+
+        assert engine.analysing_path is not None
+        self.assertFalse(engine.analysing_path.exists())
+
+    async def test_cancellation_during_workspace_creation_cleans_off_loop(self):
+        caller_thread = threading.get_ident()
+        construction_started = threading.Event()
+        release_construction = threading.Event()
+        cleanup_threads: list[int] = []
+        workspace_paths: list[Path] = []
+
+        class BlockingTemporaryDirectory:
+            def __init__(self, *args, **kwargs) -> None:
+                construction_started.set()
+                release_construction.wait(2)
+                self._temporary = tempfile.TemporaryDirectory(*args, **kwargs)
+                self.name = self._temporary.name
+                self._cleaned = False
+                workspace_paths.append(Path(self.name))
+
+            def cleanup(self) -> None:
+                if self._cleaned:
+                    return
+                cleanup_threads.append(threading.get_ident())
+                self._temporary.cleanup()
+                self._cleaned = True
+
+            def __del__(self) -> None:
+                if hasattr(self, "_cleaned") and not self._cleaned:
+                    self.cleanup()
+
+        engine = _NativeAsyncEngine()
+        with tempfile.TemporaryDirectory() as directory, patch(
+            "pdf_craft.runtime.TemporaryDirectory",
+            BlockingTemporaryDirectory,
+        ):
+            task = asyncio.create_task(
+                PDFExtractor(engine).extract_with_metering(
+                    Path("source.pdf"), Path(directory) / "book.pcex",
+                )
+            )
+            while not construction_started.is_set():
+                await asyncio.sleep(0)
+            task.cancel()
+            await asyncio.sleep(0)
+            release_construction.set()
+            with self.assertRaises(asyncio.CancelledError):
+                await task
+
+        self.assertIsNone(engine.thread_id)
+        self.assertEqual(len(cleanup_threads), 1)
+        self.assertNotEqual(cleanup_threads[0], caller_thread)
+        self.assertEqual(len(workspace_paths), 1)
+        self.assertFalse(workspace_paths[0].exists())
+
     async def test_sync_transformer_callbacks_run_on_caller_loop(self):
         loop_thread = threading.get_ident()
         with tempfile.TemporaryDirectory() as directory:

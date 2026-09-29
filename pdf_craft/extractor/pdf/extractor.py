@@ -1,14 +1,18 @@
 # pylint: disable=protected-access
 
 import asyncio
-from contextlib import contextmanager
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager, contextmanager
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from typing import Any, Iterator
 
 from ...document import PDFCraftExtraction
 from ...document.package import EXTRACTION_SUFFIX
-from ...runtime import IO_DOMAIN, OCR_DOMAIN, callback_bridge, run_cancellable
+from ...runtime import (
+    IO_DOMAIN, OCR_DOMAIN, callback_bridge, run_cancellable,
+    temporary_directory,
+)
 
 
 class PDFExtractor:
@@ -104,11 +108,11 @@ class PDFExtractor:
                 raise ValueError(
                     f"PDFCraftExtraction path must end with {EXTRACTION_SUFFIX}"
                 )
-            if extraction_path.exists():
+            if await IO_DOMAIN.run(extraction_path.exists):
                 raise FileExistsError(
                     f"PDFCraftExtraction already exists: {extraction_path}"
                 )
-            with _analysis_workspace(analysing_path) as workspace:
+            async with _analysis_workspace_async(analysing_path) as workspace:
                 extraction, metering = await self._extract_to_workspace_async(
                     pdf_path,
                     workspace,
@@ -213,3 +217,14 @@ def _analysis_workspace(path: Path | None) -> Iterator[Path]:
         return
     with TemporaryDirectory(prefix="pdf-craft-analysis-") as directory:
         yield Path(directory)
+
+
+@asynccontextmanager
+async def _analysis_workspace_async(
+    path: Path | None,
+) -> AsyncIterator[Path]:
+    if path is not None:
+        yield path
+        return
+    async with temporary_directory("pdf-craft-analysis-") as directory:
+        yield directory

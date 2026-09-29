@@ -111,6 +111,53 @@ class _SequentialExecutor:
 
 
 class VendorOCRConcurrencyTests(unittest.IsolatedAsyncioTestCase):
+    async def test_vendor_workspace_resume_state_is_prepared_off_loop(self):
+        rendered: list[int] = []
+        ocr = OCR(
+            DeepSeekOCRVendorConfig(
+                base_url="https://example.invalid/v1",
+                api_key="key",
+                model="model",
+            ),
+            cast(Any, _Handler(rendered)),
+        )
+        caller_thread = threading.get_ident()
+        prepare_threads: list[int] = []
+        original_prepare = ocr._prepare_vendor_workspace
+
+        def tracked_prepare(ocr_path: Path, plot_path: Path | None):
+            prepare_threads.append(threading.get_ident())
+            return original_prepare(ocr_path, plot_path)
+
+        with tempfile.TemporaryDirectory() as directory, patch.object(
+            ocr, "_prepare_vendor_workspace", side_effect=tracked_prepare,
+        ):
+            root = Path(directory)
+            ocr_path = root / "ocr"
+            ocr_path.mkdir()
+            (ocr_path / "page_pixel_sizes.json").write_text(
+                '{"3": [30, 40]}', encoding="utf-8",
+            )
+            (ocr_path / "done").touch()
+            events = [
+                event
+                async for event in ocr.recognize_vendor(
+                    ConcurrentExecutor(FixedCapacity(1)),
+                    pdf_path=root / "source.pdf",
+                    asset_path=root / "assets",
+                    ocr_path=ocr_path,
+                    plot_path=root / "plots",
+                )
+            ]
+
+            self.assertEqual(events, [])
+            self.assertEqual(ocr._last_page_pixel_sizes, {3: (30, 40)})
+            self.assertTrue((root / "plots").is_dir())
+
+        self.assertEqual(len(prepare_threads), 1)
+        self.assertNotEqual(prepare_threads[0], caller_thread)
+        self.assertEqual(rendered, [])
+
     async def test_vendor_engine_requires_explicit_executor(self):
         config = DeepSeekOCRVendorConfig(
             base_url="https://example.invalid/v1",
@@ -1221,7 +1268,7 @@ class VendorOCRConcurrencyTests(unittest.IsolatedAsyncioTestCase):
             )
 
         with tempfile.TemporaryDirectory() as directory, patch(
-            "pdf_craft.pdf.ocr.TemporaryDirectory",
+            "pdf_craft.runtime.TemporaryDirectory",
             side_effect=tracked_temporary_directory,
         ):
             task = asyncio.create_task(consume(Path(directory)))
@@ -1233,6 +1280,71 @@ class VendorOCRConcurrencyTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(rendered, [1])
         self.assertTrue(temporary_paths)
         self.assertTrue(all(not path.exists() for path in temporary_paths))
+
+    async def test_cancellation_during_vendor_temporary_creation_cleans_off_loop(self):
+        caller_thread = threading.get_ident()
+        construction_started = threading.Event()
+        release_construction = threading.Event()
+        cleanup_threads: list[int] = []
+        temporary_paths: list[Path] = []
+        rendered: list[int] = []
+
+        class BlockingTemporaryDirectory:
+            def __init__(self, *args, **kwargs) -> None:
+                construction_started.set()
+                release_construction.wait(2)
+                self._temporary = tempfile.TemporaryDirectory(*args, **kwargs)
+                self.name = self._temporary.name
+                self._cleaned = False
+                temporary_paths.append(Path(self.name))
+
+            def cleanup(self) -> None:
+                if self._cleaned:
+                    return
+                cleanup_threads.append(threading.get_ident())
+                self._temporary.cleanup()
+                self._cleaned = True
+
+            def __del__(self) -> None:
+                if hasattr(self, "_cleaned") and not self._cleaned:
+                    self.cleanup()
+
+        ocr = OCR(
+            DeepSeekOCRVendorConfig(
+                base_url="https://example.invalid/v1",
+                api_key="key",
+                model="model",
+            ),
+            cast(Any, _Handler(rendered)),
+        )
+
+        async def consume(root: Path) -> None:
+            async for _ in ocr.recognize_vendor(
+                ConcurrentExecutor(FixedCapacity(1)),
+                pdf_path=root / "source.pdf",
+                asset_path=root / "assets",
+                ocr_path=root / "ocr",
+            ):
+                pass
+
+        with tempfile.TemporaryDirectory() as directory, patch(
+            "pdf_craft.runtime.TemporaryDirectory",
+            BlockingTemporaryDirectory,
+        ):
+            task = asyncio.create_task(consume(Path(directory)))
+            while not construction_started.is_set():
+                await asyncio.sleep(0)
+            task.cancel()
+            await asyncio.sleep(0)
+            release_construction.set()
+            with self.assertRaises(asyncio.CancelledError):
+                await task
+
+        self.assertEqual(rendered, [])
+        self.assertEqual(len(cleanup_threads), 1)
+        self.assertNotEqual(cleanup_threads[0], caller_thread)
+        self.assertEqual(len(temporary_paths), 1)
+        self.assertFalse(temporary_paths[0].exists())
 
     async def test_cancellation_settles_vendor_siblings_before_cleanup(self):
         rendered: list[int] = []
@@ -1280,7 +1392,7 @@ class VendorOCRConcurrencyTests(unittest.IsolatedAsyncioTestCase):
                     pass
 
         with tempfile.TemporaryDirectory() as directory, patch(
-            "pdf_craft.pdf.ocr.TemporaryDirectory",
+            "pdf_craft.runtime.TemporaryDirectory",
             side_effect=tracked_temporary_directory,
         ), patch.object(VendorOCRRuntime, "_request_deepseek", new=request):
             task = asyncio.create_task(consume(Path(directory)))

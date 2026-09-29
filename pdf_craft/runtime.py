@@ -142,7 +142,22 @@ TEX_DOMAIN = ExecutionDomain("tex", 1)
 @asynccontextmanager
 async def temporary_directory(prefix: str) -> AsyncIterator[Path]:
     """Create and recursively clean a temporary directory on the I/O domain."""
-    temporary = await IO_DOMAIN.run(TemporaryDirectory, prefix=prefix)
+    temporary: TemporaryDirectory | None = None
+
+    def create() -> TemporaryDirectory:
+        nonlocal temporary
+        temporary = TemporaryDirectory(prefix=prefix)
+        return temporary
+
+    try:
+        temporary = await IO_DOMAIN.run(create)
+    except asyncio.CancelledError:
+        # ExecutionDomain.run waits for a started worker before propagating
+        # cancellation. Recover its result through the shared slot so the
+        # temporary object cannot fall through to event-loop-thread finalization.
+        if temporary is not None:
+            await IO_DOMAIN.run(temporary.cleanup)
+        raise
     try:
         yield Path(temporary.name)
     finally:
