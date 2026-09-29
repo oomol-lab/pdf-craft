@@ -126,7 +126,7 @@ translated = craft.translate_extraction(
 print(craft.list_translations(translated))
 ```
 
-`extract_pdf()` deliberately requires a `.pcex` path: its result is meant to survive after the method returns. `translate_extraction()` creates a new archive at `output_path`; it does not overwrite the source extraction or source layer. It appends an independently identified replacement-text layer. Current Markdown/EPUB/PDF renderers do not yet expose layer selection; rendering that translation is a separate follow-up capability. One-shot conversions and `translate_pdf()` retain their existing behavior through internal materialized translations.
+`extract_pdf()` deliberately requires a `.pcex` path: its result is meant to survive after the method returns. `translate_extraction()` creates a new archive at `output_path`; it does not overwrite the source extraction or source layer. It appends an independently identified replacement-text layer. Markdown and EPUB rendering can select that layer with `RenderMode.REPLACE` or `RenderMode.BILINGUAL` and an optional `translation_id`; PDF rendering does not yet select stored translation layers. One-shot conversions and `translate_pdf()` retain their existing behavior through internal materialized translations. When the translator is a `ChapterXMLTransformer`, image/table title, content, and caption fields are translated through its anchored-content stage and recorded in the layer's coverage.
 
 ## Translate and patch a PDF
 
