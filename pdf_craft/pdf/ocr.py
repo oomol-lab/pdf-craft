@@ -2,7 +2,7 @@ import sys
 import time
 import json
 from collections.abc import AsyncGenerator
-from tempfile import TemporaryDirectory
+from contextlib import AsyncExitStack
 from dataclasses import dataclass
 from enum import Enum, auto
 from pathlib import Path
@@ -19,7 +19,7 @@ from ..ocr_config import (
     DeepSeekOCR2VendorConfig, DeepSeekOCRVendorConfig, OCRConfig,
     UnlimitedOCRVendorConfig, VendorOCRConfig,
 )
-from ..runtime import IO_DOMAIN, OCR_DOMAIN, run_cancellable
+from ..runtime import IO_DOMAIN, OCR_DOMAIN, run_cancellable, temporary_directory
 from .handler import DefaultPDFHandler, PDFHandler
 from .page_extractor import Page, PageExtractorNode, PageLayout
 from .page_ref import PageRefContext
@@ -131,8 +131,9 @@ class OCR:
         if is_complete:
             return
 
-        temporary = await IO_DOMAIN.run(
-            TemporaryDirectory, prefix="pdf-craft-vendor-ocr-",
+        temporary_stack = AsyncExitStack()
+        temporary_path = await temporary_stack.enter_async_context(
+            temporary_directory("pdf-craft-vendor-ocr-"),
         )
         events: list[OCREvent] = []
         asset_hub = AssetHub(asset_path)
@@ -193,7 +194,7 @@ class OCR:
                             ))
                             continue
                         self._last_page_pixel_sizes[ref.page_index] = image.size
-                        image_path = Path(temporary.name) / f"page_{ref.page_index}.png"
+                        image_path = temporary_path / f"page_{ref.page_index}.png"
                         image.save(image_path, format="PNG")
                         request_path = image_path
                         scale_x = 1.0
@@ -207,7 +208,7 @@ class OCR:
                                 resized_height = max(1, round(height * ratio))
                                 resized = image.resize((resized_width, resized_height))
                                 request_path = (
-                                    Path(temporary.name)
+                                    temporary_path
                                     / f"page_{ref.page_index}_request.png"
                                 )
                                 resized.save(request_path, format="PNG")
@@ -369,7 +370,7 @@ class OCR:
             if not did_ignore_any and not terminal_failures:
                 await IO_DOMAIN.run(done_path.touch)
         finally:
-            await IO_DOMAIN.run(temporary.cleanup)
+            await temporary_stack.aclose()
 
     def _prepare_vendor_workspace(
         self,
