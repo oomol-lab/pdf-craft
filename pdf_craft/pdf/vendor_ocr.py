@@ -16,6 +16,7 @@ from typing import Any, Literal, Never, Self
 from urllib.parse import urlsplit
 
 import httpx
+from doc_page_extractor.extraction_context import ExtractionAbortedError
 from doc_page_extractor.errors import VendorOCRRequestError
 
 from ..concurrency import (
@@ -161,7 +162,7 @@ class VendorOCRRuntime:
             return _ResolvedVendorOCRInput(
                 request, _validate_image_url(result),
             )
-        except (NonContinuableError, OperationError):
+        except (ExtractionAbortedError, NonContinuableError, OperationError):
             raise
         except _InvalidOCRImageURL as error:
             raise OperationError(str(error), cause=error) from error
@@ -315,9 +316,6 @@ class VendorOCRRuntime:
             )
             raise OperationError(str(envelope), cause=envelope) from envelope
         except Exception as error:
-            from doc_page_extractor.extraction_context import (
-                ExtractionAbortedError,
-            )
             if isinstance(error, ExtractionAbortedError):
                 raise
             if isinstance(self.config, UnlimitedOCRVendorConfig):

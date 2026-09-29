@@ -9,6 +9,7 @@ from pathlib import Path
 from urllib.parse import parse_qs
 
 import httpx
+from doc_page_extractor.extraction_context import AbortError
 
 from pdf_craft import (
     AsyncPDFCraft,
@@ -20,6 +21,7 @@ from pdf_craft import (
     OperationError,
     PDFOptions,
     UnlimitedOCRVendorConfig,
+    create_vendor_ocr_request,
 )
 from pdf_craft.pdf.vendor_ocr import VendorOCRInput, VendorOCRRuntime
 
@@ -276,6 +278,42 @@ class VendorOCRImageURLTests(unittest.IsolatedAsyncioTestCase):
         pending.cancel()
         with self.assertRaises(asyncio.CancelledError):
             await pending
+
+    async def test_extraction_abort_is_not_wrapped_during_resolution(self):
+        resolver_called = False
+
+        def resolver(_path: Path) -> str:
+            nonlocal resolver_called
+            resolver_called = True
+            return "https://images.invalid/page.png"
+
+        async with create_vendor_ocr_request(
+            DeepSeekOCRVendorConfig(
+                "https://example.invalid/v1", "key", "model",
+            ),
+            ConcurrentExecutor(FixedCapacity(1)),
+            resolver,
+        ) as request:
+            with self.assertRaises(AbortError):
+                await request(VendorOCRInput(
+                    1, Path("unused.png"), lambda: True,
+                ))
+        self.assertFalse(resolver_called)
+
+        def interrupted_resolver(_path: Path) -> str:
+            raise AbortError()
+
+        runtime = VendorOCRRuntime(
+            DeepSeekOCRVendorConfig(
+                "https://example.invalid/v1", "key", "model",
+            ),
+            ConcurrentExecutor(FixedCapacity(1)),
+            interrupted_resolver,
+        )
+        with self.assertRaises(AbortError):
+            await runtime.request(VendorOCRInput(
+                1, Path("unused.png"), lambda: False,
+            ))
 
     async def test_request_iterable_stays_lazy_while_resolution_is_blocked(self):
         consumed = 0

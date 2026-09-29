@@ -1872,6 +1872,37 @@ class VendorOCRConcurrencyTests(unittest.IsolatedAsyncioTestCase):
                     self.assertFalse((root / "ocr/page_1.xml").exists())
                     self.assertFalse((root / "ocr/page_1.failed").exists())
 
+    async def test_resolver_abort_bypasses_ocr_ignore_and_fallback(self):
+        rendered: list[int] = []
+        ignored: list[OCRError] = []
+        ocr = OCR(
+            DeepSeekOCRVendorConfig(
+                base_url="https://example.invalid/v1",
+                api_key="key",
+                model="model",
+            ),
+            cast(Any, _Handler(rendered)),
+        )
+
+        def resolve(_path: Path) -> str:
+            raise AbortError()
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            with self.assertRaises(AbortError):
+                async for _ in ocr.recognize_vendor(
+                    ConcurrentExecutor(FixedCapacity(1)),
+                    image_url_resolver=resolve,
+                    pdf_path=root / "source.pdf",
+                    asset_path=root / "assets",
+                    ocr_path=root / "ocr",
+                    ignore_ocr_errors=lambda error: ignored.append(error) or True,
+                ):
+                    pass
+
+            self.assertEqual(ignored, [])
+            self.assertEqual(list((root / "ocr").glob("page_*.failed")), [])
+
 
 if __name__ == "__main__":
     unittest.main()
