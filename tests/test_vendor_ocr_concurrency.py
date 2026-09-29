@@ -111,6 +111,53 @@ class _SequentialExecutor:
 
 
 class VendorOCRConcurrencyTests(unittest.IsolatedAsyncioTestCase):
+    async def test_vendor_workspace_resume_state_is_prepared_off_loop(self):
+        rendered: list[int] = []
+        ocr = OCR(
+            DeepSeekOCRVendorConfig(
+                base_url="https://example.invalid/v1",
+                api_key="key",
+                model="model",
+            ),
+            cast(Any, _Handler(rendered)),
+        )
+        caller_thread = threading.get_ident()
+        prepare_threads: list[int] = []
+        original_prepare = ocr._prepare_vendor_workspace
+
+        def tracked_prepare(ocr_path: Path, plot_path: Path | None):
+            prepare_threads.append(threading.get_ident())
+            return original_prepare(ocr_path, plot_path)
+
+        with tempfile.TemporaryDirectory() as directory, patch.object(
+            ocr, "_prepare_vendor_workspace", side_effect=tracked_prepare,
+        ):
+            root = Path(directory)
+            ocr_path = root / "ocr"
+            ocr_path.mkdir()
+            (ocr_path / "page_pixel_sizes.json").write_text(
+                '{"3": [30, 40]}', encoding="utf-8",
+            )
+            (ocr_path / "done").touch()
+            events = [
+                event
+                async for event in ocr.recognize_vendor(
+                    ConcurrentExecutor(FixedCapacity(1)),
+                    pdf_path=root / "source.pdf",
+                    asset_path=root / "assets",
+                    ocr_path=ocr_path,
+                    plot_path=root / "plots",
+                )
+            ]
+
+            self.assertEqual(events, [])
+            self.assertEqual(ocr._last_page_pixel_sizes, {3: (30, 40)})
+            self.assertTrue((root / "plots").is_dir())
+
+        self.assertEqual(len(prepare_threads), 1)
+        self.assertNotEqual(prepare_threads[0], caller_thread)
+        self.assertEqual(rendered, [])
+
     async def test_vendor_engine_requires_explicit_executor(self):
         config = DeepSeekOCRVendorConfig(
             base_url="https://example.invalid/v1",

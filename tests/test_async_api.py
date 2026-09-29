@@ -264,6 +264,72 @@ class TestAsyncAPI(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(metering, "async-metering")
         self.assertEqual(engine.thread_id, caller_thread)
 
+    async def test_direct_async_extractor_creates_and_cleans_workspace_off_loop(self):
+        caller_thread = threading.get_ident()
+        created_threads: list[int] = []
+        cleanup_threads: list[int] = []
+        workspace_paths: list[Path] = []
+
+        class TrackedTemporaryDirectory:
+            def __init__(self, *args, **kwargs) -> None:
+                created_threads.append(threading.get_ident())
+                self._temporary = tempfile.TemporaryDirectory(*args, **kwargs)
+                self.name = self._temporary.name
+                workspace_paths.append(Path(self.name))
+
+            def cleanup(self) -> None:
+                cleanup_threads.append(threading.get_ident())
+                self._temporary.cleanup()
+
+        with tempfile.TemporaryDirectory() as directory, patch(
+            "pdf_craft.runtime.TemporaryDirectory",
+            TrackedTemporaryDirectory,
+        ):
+            root = Path(directory)
+            extraction, metering = await PDFExtractor(
+                _NativeAsyncEngine(),
+            ).extract_with_metering(
+                Path("source.pdf"), root / "book.pcex",
+            )
+
+        self.assertIsInstance(extraction, PDFCraftExtraction)
+        self.assertEqual(metering, "async-metering")
+        self.assertEqual(len(created_threads), 1)
+        self.assertEqual(len(cleanup_threads), 1)
+        self.assertNotEqual(created_threads[0], caller_thread)
+        self.assertNotEqual(cleanup_threads[0], caller_thread)
+        self.assertTrue(workspace_paths)
+        self.assertTrue(all(not path.exists() for path in workspace_paths))
+
+    async def test_direct_async_extractor_cancellation_cleans_workspace(self):
+        class CancellableNativeAsyncEngine:
+            def __init__(self) -> None:
+                self.started = asyncio.Event()
+                self.analysing_path: Path | None = None
+
+            async def extract_package_async(self, *, analysing_path, **_kwargs):
+                self.analysing_path = analysing_path
+                self.started.set()
+                await asyncio.Event().wait()
+
+            def extract_package(self, **_kwargs):
+                raise AssertionError("native async extraction must not use the sync hook")
+
+        engine = CancellableNativeAsyncEngine()
+        with tempfile.TemporaryDirectory() as directory:
+            task = asyncio.create_task(
+                PDFExtractor(engine).extract_with_metering(
+                    Path("source.pdf"), Path(directory) / "book.pcex",
+                )
+            )
+            await engine.started.wait()
+            task.cancel()
+            with self.assertRaises(asyncio.CancelledError):
+                await task
+
+        assert engine.analysing_path is not None
+        self.assertFalse(engine.analysing_path.exists())
+
     async def test_sync_transformer_callbacks_run_on_caller_loop(self):
         loop_thread = threading.get_ident()
         with tempfile.TemporaryDirectory() as directory:

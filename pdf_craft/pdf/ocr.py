@@ -124,13 +124,11 @@ class OCR:
         del ocr_size
         if not self.is_vendor:
             raise RuntimeError("recognize_vendor is only available for vendor OCR")
-        ocr_path.mkdir(parents=True, exist_ok=True)
-        if plot_path is not None:
-            plot_path.mkdir(parents=True, exist_ok=True)
-        geometry_path = ocr_path / "page_pixel_sizes.json"
-        self._last_page_pixel_sizes = self._load_page_pixel_sizes(geometry_path)
-        done_path = ocr_path / "done"
-        if done_path.exists() and not any(ocr_path.glob("page_*.failed")):
+        geometry_path, done_path, page_pixel_sizes, is_complete = await IO_DOMAIN.run(
+            self._prepare_vendor_workspace, ocr_path, plot_path,
+        )
+        self._last_page_pixel_sizes = page_pixel_sizes
+        if is_complete:
             return
 
         temporary = await IO_DOMAIN.run(
@@ -372,6 +370,23 @@ class OCR:
                 await IO_DOMAIN.run(done_path.touch)
         finally:
             await IO_DOMAIN.run(temporary.cleanup)
+
+    def _prepare_vendor_workspace(
+        self,
+        ocr_path: Path,
+        plot_path: Path | None,
+    ) -> tuple[Path, Path, dict[int, tuple[int, int]], bool]:
+        """Create Vendor OCR paths and read its resumable state off-loop."""
+        ocr_path.mkdir(parents=True, exist_ok=True)
+        if plot_path is not None:
+            plot_path.mkdir(parents=True, exist_ok=True)
+        geometry_path = ocr_path / "page_pixel_sizes.json"
+        page_pixel_sizes = self._load_page_pixel_sizes(geometry_path)
+        done_path = ocr_path / "done"
+        is_complete = done_path.exists() and not any(
+            ocr_path.glob("page_*.failed")
+        )
+        return geometry_path, done_path, page_pixel_sizes, is_complete
 
     async def _recognize_vendor_page(
         self,
