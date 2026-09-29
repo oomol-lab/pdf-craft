@@ -357,6 +357,57 @@ class TestAsyncAPI(unittest.IsolatedAsyncioTestCase):
         assert engine.analysing_path is not None
         self.assertFalse(engine.analysing_path.exists())
 
+    async def test_cancellation_during_workspace_creation_cleans_off_loop(self):
+        caller_thread = threading.get_ident()
+        construction_started = threading.Event()
+        release_construction = threading.Event()
+        cleanup_threads: list[int] = []
+        workspace_paths: list[Path] = []
+
+        class BlockingTemporaryDirectory:
+            def __init__(self, *args, **kwargs) -> None:
+                construction_started.set()
+                release_construction.wait(2)
+                self._temporary = tempfile.TemporaryDirectory(*args, **kwargs)
+                self.name = self._temporary.name
+                self._cleaned = False
+                workspace_paths.append(Path(self.name))
+
+            def cleanup(self) -> None:
+                if self._cleaned:
+                    return
+                cleanup_threads.append(threading.get_ident())
+                self._temporary.cleanup()
+                self._cleaned = True
+
+            def __del__(self) -> None:
+                if hasattr(self, "_cleaned") and not self._cleaned:
+                    self.cleanup()
+
+        engine = _NativeAsyncEngine()
+        with tempfile.TemporaryDirectory() as directory, patch(
+            "pdf_craft.runtime.TemporaryDirectory",
+            BlockingTemporaryDirectory,
+        ):
+            task = asyncio.create_task(
+                PDFExtractor(engine).extract_with_metering(
+                    Path("source.pdf"), Path(directory) / "book.pcex",
+                )
+            )
+            while not construction_started.is_set():
+                await asyncio.sleep(0)
+            task.cancel()
+            await asyncio.sleep(0)
+            release_construction.set()
+            with self.assertRaises(asyncio.CancelledError):
+                await task
+
+        self.assertIsNone(engine.thread_id)
+        self.assertEqual(len(cleanup_threads), 1)
+        self.assertNotEqual(cleanup_threads[0], caller_thread)
+        self.assertEqual(len(workspace_paths), 1)
+        self.assertFalse(workspace_paths[0].exists())
+
     async def test_sync_transformer_callbacks_run_on_caller_loop(self):
         loop_thread = threading.get_ident()
         with tempfile.TemporaryDirectory() as directory:
