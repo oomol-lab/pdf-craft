@@ -213,9 +213,13 @@ class VendorOCRConcurrencyTests(unittest.IsolatedAsyncioTestCase):
         preparation_threads: list[int] = []
         event_loop_thread = threading.get_ident()
 
-        def prepare(_path, config):
+        def resolve(_path):
             preparation_threads.append(threading.get_ident())
             prepared.set()
+            return "https://images.invalid/page.png"
+
+        def prepare(image_url, config):
+            self.assertEqual(image_url, "https://images.invalid/page.png")
             return {
                 "model": config.model,
                 "messages": [],
@@ -250,6 +254,7 @@ class VendorOCRConcurrencyTests(unittest.IsolatedAsyncioTestCase):
                 model="model",
             ),
             cast(Any, Executor()),
+            resolve,
         )
         runtime._client = client
         with patch("pdf_craft.pdf.vendor_ocr._deepseek_payload", new=prepare):
@@ -267,10 +272,10 @@ class VendorOCRConcurrencyTests(unittest.IsolatedAsyncioTestCase):
         preparation_threads: list[int] = []
         event_loop_thread = threading.get_ident()
 
-        def encode(_path):
+        def resolve(_path):
             preparation_threads.append(threading.get_ident())
             prepared.set()
-            return "encoded"
+            return "data:image/png;base64,ZW5jb2RlZA=="
 
         class Executor:
             async def run(self, operation):
@@ -290,13 +295,14 @@ class VendorOCRConcurrencyTests(unittest.IsolatedAsyncioTestCase):
         runtime = VendorOCRRuntime(
             UnlimitedOCRVendorConfig(ak="ak", sk="sk"),
             cast(Any, Executor()),
+            resolve,
         )
         runtime._client = client
         runtime._access_token = "token"
-        with patch("pdf_craft.pdf.vendor_ocr._encode_image", new=encode):
-            response = await runtime._submit_unlimited(
-                VendorOCRInput(1, Path("unused.png"), lambda: False), None,
-            )
+        resolved = await runtime._resolve_image_url(
+            VendorOCRInput(1, Path("unused.png"), lambda: False),
+        )
+        response = await runtime._submit_unlimited(resolved, None)
 
         self.assertEqual(response["result"]["task_id"], "task-1")
         self.assertEqual(len(preparation_threads), 1)
@@ -347,6 +353,7 @@ class VendorOCRConcurrencyTests(unittest.IsolatedAsyncioTestCase):
         ):
             async with VendorOCRRuntime(
                 config, ConcurrentExecutor(FixedCapacity(2)),
+                lambda _path: "https://images.invalid/page.png",
             ) as runtime:
                 async def consume() -> None:
                     async for _ in runtime.request_many(requests()):
@@ -1193,6 +1200,7 @@ class VendorOCRConcurrencyTests(unittest.IsolatedAsyncioTestCase):
         engine = PDFExtractionEngine.__new__(PDFExtractionEngine)
         engine.__dict__["_ocr"] = ocr
         engine.__dict__["_ocr_executor"] = ConcurrentExecutor(FixedCapacity(2))
+        engine.__dict__["_ocr_image_url_resolver"] = None
 
         async def consume(root: Path) -> None:
             await engine.extract_package_async(
@@ -1399,7 +1407,8 @@ class VendorOCRConcurrencyTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_deepseek_footnote_stage_reuses_network_executor_only(self):
         rendered: list[int] = []
-        requests: list[tuple[int, str]] = []
+        requests: list[tuple[int, int, str]] = []
+        resolved_paths: list[Path] = []
         ocr = OCR(
             DeepSeekOCRVendorConfig(
                 base_url="https://example.invalid/v1",
@@ -1412,8 +1421,16 @@ class VendorOCRConcurrencyTests(unittest.IsolatedAsyncioTestCase):
         async def request(_runtime, vendor_request, started=None):
             if started is not None:
                 started.set()
-            requests.append((vendor_request.page_index, vendor_request.image_path.name))
+            requests.append((
+                vendor_request.page_index,
+                vendor_request.stage_index,
+                vendor_request.image_url,
+            ))
             return VendorOCRResponse({}, raw_text="", input_tokens=1, output_tokens=1)
+
+        def resolve(path: Path) -> str:
+            resolved_paths.append(path)
+            return f"https://images.invalid/{path.name}"
 
         with tempfile.TemporaryDirectory() as directory, patch.object(
             VendorOCRRuntime, "_request_deepseek", new=request,
@@ -1423,6 +1440,7 @@ class VendorOCRConcurrencyTests(unittest.IsolatedAsyncioTestCase):
                 event
                 async for event in ocr.recognize_vendor(
                     ConcurrentExecutor(FixedCapacity(3)),
+                    image_url_resolver=resolve,
                     pdf_path=root / "source.pdf",
                     asset_path=root / "assets",
                     ocr_path=root / "ocr",
@@ -1431,12 +1449,70 @@ class VendorOCRConcurrencyTests(unittest.IsolatedAsyncioTestCase):
             ]
 
         self.assertEqual(rendered, [1, 2, 3])
-        self.assertEqual([page for page, _ in requests].count(1), 2)
-        self.assertEqual([page for page, _ in requests].count(2), 2)
-        self.assertEqual([page for page, _ in requests].count(3), 2)
+        self.assertEqual([page for page, _, _ in requests].count(1), 2)
+        self.assertEqual([page for page, _, _ in requests].count(2), 2)
+        self.assertEqual([page for page, _, _ in requests].count(3), 2)
+        self.assertEqual([stage for _, stage, _ in requests].count(1), 3)
+        self.assertEqual([stage for _, stage, _ in requests].count(2), 3)
+        self.assertEqual(len(resolved_paths), 6)
+        self.assertTrue(all(
+            ("_stage_2.png" in url) == (stage == 2)
+            for _, stage, url in requests
+        ))
         self.assertEqual(
             len([event for event in events if event.kind == OCREventKind.COMPLETE]),
             3,
+        )
+
+    async def test_image_url_resolution_failure_uses_page_fallback(self):
+        rendered: list[int] = []
+        ignored: list[OCRError] = []
+        ocr = OCR(
+            DeepSeekOCRVendorConfig(
+                base_url="https://example.invalid/v1",
+                api_key="key",
+                model="model",
+                retry_times=0,
+            ),
+            cast(Any, _Handler(rendered)),
+        )
+
+        def resolve(path: Path) -> str:
+            if path.name == "page_2.png":
+                return ""
+            return f"https://images.invalid/{path.name}"
+
+        async def request(_runtime, _vendor_request, started=None):
+            if started is not None:
+                started.set()
+            return VendorOCRResponse({}, raw_text="", input_tokens=1, output_tokens=1)
+
+        with tempfile.TemporaryDirectory() as directory, patch.object(
+            VendorOCRRuntime, "_request_deepseek", new=request,
+        ):
+            root = Path(directory)
+            events = [
+                event
+                async for event in ocr.recognize_vendor(
+                    ConcurrentExecutor(FixedCapacity(2)),
+                    image_url_resolver=resolve,
+                    pdf_path=root / "source.pdf",
+                    asset_path=root / "assets",
+                    ocr_path=root / "ocr",
+                    ignore_ocr_errors=lambda error: ignored.append(error) or True,
+                )
+            ]
+
+        self.assertEqual([error.page_index for error in ignored], [2])
+        self.assertEqual(
+            [event.page_index for event in events
+             if event.kind == OCREventKind.COMPLETE],
+            [1, 3],
+        )
+        self.assertEqual(
+            [event.page_index for event in events
+             if event.kind == OCREventKind.FAILED],
+            [2],
         )
 
     async def test_second_stage_failure_reaches_ignore_callback_with_cause(self):
@@ -1795,6 +1871,37 @@ class VendorOCRConcurrencyTests(unittest.IsolatedAsyncioTestCase):
                             pass
                     self.assertFalse((root / "ocr/page_1.xml").exists())
                     self.assertFalse((root / "ocr/page_1.failed").exists())
+
+    async def test_resolver_abort_bypasses_ocr_ignore_and_fallback(self):
+        rendered: list[int] = []
+        ignored: list[OCRError] = []
+        ocr = OCR(
+            DeepSeekOCRVendorConfig(
+                base_url="https://example.invalid/v1",
+                api_key="key",
+                model="model",
+            ),
+            cast(Any, _Handler(rendered)),
+        )
+
+        def resolve(_path: Path) -> str:
+            raise AbortError()
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            with self.assertRaises(AbortError):
+                async for _ in ocr.recognize_vendor(
+                    ConcurrentExecutor(FixedCapacity(1)),
+                    image_url_resolver=resolve,
+                    pdf_path=root / "source.pdf",
+                    asset_path=root / "assets",
+                    ocr_path=root / "ocr",
+                    ignore_ocr_errors=lambda error: ignored.append(error) or True,
+                ):
+                    pass
+
+            self.assertEqual(ignored, [])
+            self.assertEqual(list((root / "ocr").glob("page_*.failed")), [])
 
 
 if __name__ == "__main__":

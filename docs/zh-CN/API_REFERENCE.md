@@ -119,6 +119,7 @@ PDFOptions(
     models_cache_path=None,     # local OCR 模型缓存目录
     local_only=False,           # 禁止 local OCR 下载缺失模型
     ocr_executor=None,          # vendor OCR 必须显式提供的共享 AsyncExecutor
+    ocr_image_url_resolver=None,# 可选的 OCRImageURLResolver
 )
 ```
 
@@ -127,6 +128,10 @@ PDFOptions(
 远程 OCR 直接把对应 vendor 配置传给 `ocr`；
 本地 OCR 可以把模型缓存和离线选项写进 local 配置，也可以使用 `models_cache_path` 和
 `local_only` 的默认 local OCR 路径。
+
+`ocr_image_url_resolver` 接收每张 Vendor OCR 渲染图片的 `Path`，返回 HTTP(S) URL 或
+Base64 图片 Data URL；同步函数与异步函数都支持。未设置时，pdf-craft 默认读取图片并生成
+Base64 Data URL。本地 OCR 不使用该字段。
 
 ### 自定义 PDFHandler
 

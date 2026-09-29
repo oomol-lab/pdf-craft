@@ -8,6 +8,7 @@ from .handler import (
 )
 from .ocr import OCR, OCREvent, OCREventKind
 from .vendor_ocr import (
+    OCRImageURLResolver,
     VendorOCRInput,
     VendorOCRRequest,
     VendorOCRResponse,

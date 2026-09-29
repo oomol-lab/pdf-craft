@@ -61,6 +61,7 @@ from .transformer import (
 from .llm import LLM, create_llm_request
 from .jev import JEV, create_jev_request
 from .pdf.vendor_ocr import (
+    OCRImageURLResolver,
     VendorOCRInput,
     VendorOCRRequest,
     VendorOCRResponse,

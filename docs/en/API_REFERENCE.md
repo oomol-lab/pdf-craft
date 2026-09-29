@@ -146,10 +146,11 @@ extraction; they do not fall back to an analysis/OCR directory.
 
 ### `PDFOptions`
 
-`PDFOptions(ocr=None, pdf_handler=None, models_cache_path=None, local_only=False, ocr_executor=None)` holds infrastructure that is reused across PDF extractions. The executor is appended after the original fields so existing positional construction remains valid.
+`PDFOptions(ocr=None, pdf_handler=None, models_cache_path=None, local_only=False, ocr_executor=None, ocr_image_url_resolver=None)` holds infrastructure that is reused across PDF extractions. New infrastructure fields are appended after the original fields so existing positional construction remains valid.
 
 - `ocr`: one of the local or vendor OCR configuration objects below.
 - `ocr_executor`: required shared capacity for vendor OCR requests. Local OCR does not use it.
+- `ocr_image_url_resolver`: optional `OCRImageURLResolver` used to turn each rendered Vendor OCR image path into an HTTP(S) URL or Base64 image Data URL. It may be synchronous or asynchronous. The default reads the image as a Base64 Data URL.
 - `pdf_handler`: an optional `PDFHandler` or `AsyncPDFHandler` implementation. Use it only to replace the PDF reading/rendering layer or manage that layer in your application.
 - `models_cache_path` and `local_only`: convenience settings for the default local DeepSeek OCR configuration when `ocr` is not supplied. They must not be combined with an explicit `ocr` configuration.
 
