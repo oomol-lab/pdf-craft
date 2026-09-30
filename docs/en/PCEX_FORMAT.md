@@ -205,13 +205,13 @@ translations = craft.list_translations(translated)
 
 `translate_extraction()` creates a new `.pcex` without replacing the source layer. It appends one entry under `translations/`; callers may supply a 4-32 character opaque `translation_id`, or let pdf-craft generate an eight-hex-character ID. IDs are unique within the file, while `target_language` is metadata, so several IDs may use the same language. The layer contains a complete translated chapter variant, a metadata overlay whose `language` is the target language, and independent coverage. Narrative and metadata always use the standard XML pipeline; `with_anchored=True` records translated image/table title, content, and caption fields, while `with_furniture=True` additionally stores translated furniture.
 
-Translation layers contain replacement text only. `SubmitKind.APPEND_*` is rejected here because bilingual versus replacement output is a later rendering choice. Markdown and EPUB rendering select source-only, replacement, or bilingual output with `RenderMode`; replacement and bilingual modes accept a translation ID or deterministically default to the first indexed layer. PDF patching accepts an explicit translation ID and applies its narrative, metadata, and furniture coverage; anchored fields remain reflow-output content because PCEX has no field-level PDF geometry.
+Stored translations contain replacement text only. Markdown and EPUB rendering select source-only, replacement, or bilingual output with `RenderMode`; replacement and bilingual modes accept a translation ID or deterministically default to the first indexed entry. PDF patching accepts an explicit translation ID and applies its narrative, metadata, and furniture coverage; anchored fields remain reflow-output content because PCEX has no field-level PDF geometry.
 
 ### `translations/` identity and isolation
 
 `translations/index.json` contains exactly one `translations` array. Each item has exactly `id`, `target_language`, and ISO 8601 `created_at` fields. The ID must be 4-32 ASCII letters, digits, underscores, or hyphens, begin with a letter or digit, be unique in this file, and name the matching directory. Language is deliberately not an identity.
 
-Every layer has the same chapter filenames as the source. Correspondence uses existing PCEX identities: chapter identity, fragment `(page_index, source_order)`, paragraph first-fragment identity, reference `(page_index, order)` within its chapter, and image/table asset flow slot. A layer may change translated text but must not change those identities, page geometry, or asset structure. Image/table fields may differ only for slots marked `translated` by anchored coverage. `coverage.xml` may refer only to source identities. A component with no coverage entries is omitted; an empty `<translation/>` is valid and means every unit falls back to the source. Optional translated furniture retains `(pattern_id, position_id)` and `(page_index, det)` identities. `metadata.json` is a field-name overlay; it needs no artificial node IDs and must contain a `language` equal to the indexed target language.
+Every layer has the same chapter filenames as the source. Correspondence uses existing PCEX identities: chapter identity, fragment `(page_index, source_order)`, paragraph first-fragment identity, reference `(page_index, order)` within its chapter, and image/table asset flow slot. A layer may change translated text but must not change those identities, page geometry, or asset structure. Image/table fields may differ only for slots marked `translated` by anchored coverage. `coverage.xml` may refer only to source identities. The narrative section remains present when it has no entries; optional anchored and furniture sections are omitted when they have no coverage. Optional translated furniture retains `(pattern_id, position_id)` and `(page_index, det)` identities. `metadata.json` is a field-name overlay; it needs no artificial node IDs and must contain a `language` equal to the indexed target language.
 
 `translate_extraction()` treats an image/table asset nested in `<text>` as an
 opaque, self-closing anchor. Its title, content, and caption are not included
@@ -695,7 +695,7 @@ craft.patch_pdf_with_extraction(
 )
 ```
 
-The explicit `translation_id` selects a stored translation. Omitting it preserves the legacy behavior and patches the PCEX root content instead. The caller should supply the same source PDF from which the extraction was produced. Before patching, the current implementation confirms that:
+The explicit `translation_id` selects a stored translation. Omitting it patches the current PCEX root content. The caller should supply the same source PDF from which the extraction was produced. Before patching, the current implementation confirms that:
 
 - `pages.xml` is not empty;
 - no page index recorded by the extraction exceeds the input PDF's page count;

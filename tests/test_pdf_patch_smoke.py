@@ -5,6 +5,7 @@ review workflow additionally renders its generated output for visual review.
 """
 # pylint: disable=no-member
 
+import json
 import tempfile
 import unittest
 import unicodedata
@@ -56,17 +57,30 @@ class TestPDFPatchSmoke(unittest.TestCase):
             assert isinstance(layout, TextFlowItem)
             layout.children[0].content = [translated]
             layout.children[1].content = []
-            (extraction_root / "chapters/chapter_head.xml").write_text(
+            translated_root = extraction_root / "translations/smoke-main"
+            (translated_root / "chapters").mkdir(parents=True)
+            (translated_root / "chapters/chapter_head.xml").write_text(
                 '<?xml version="1.0" encoding="UTF-8"?>\n'
                 + tostring(encode(chapter), encoding="unicode")
             )
-            (extraction_root / "translation.xml").write_text(
+            (translated_root / "coverage.xml").write_text(
                 "<translation><narrative><paragraph chapter_id='head' page_index='1' order='1' state='translated'/>"
                 "</narrative></translation>", encoding="utf-8",
             )
+            (translated_root / "metadata.json").write_text(
+                json.dumps({"language": "en"}), encoding="utf-8",
+            )
+            (extraction_root / "translations/index.json").write_text(
+                json.dumps({"translations": [{
+                    "id": "smoke-main",
+                    "target_language": "en",
+                    "created_at": "2026-01-01T00:00:00+00:00",
+                }]}),
+                encoding="utf-8",
+            )
             PDFTranslationPipeline(patcher=PDFPatcher(
                 options=PatchTextOptions(max_font_size=10, min_font_size=8)
-            )).patch(source, target, extraction)
+            )).patch(source, target, extraction, translation_id="smoke-main")
 
             reader = pypdf.PdfReader(str(target))
             self.assertEqual(len(reader.pages), 7)

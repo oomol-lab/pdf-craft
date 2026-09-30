@@ -111,7 +111,7 @@ craft.convert_pdf_to_epub("input.pdf", "output.epub")
 
 ## 翻译与提取结果复用
 
-**翻译书籍。** 可以在 PDF 转换为 Markdown 或 EPUB 时加入章节翻译器，也可以直接翻译已有 EPUB。翻译需要独立的文本 LLM 调用；OCR 服务负责页面识别，两者使用各自的配置。已有 EPUB 的翻译支持仅保留译文，或追加译文以便双语阅读。
+**翻译书籍。** 可以在 PDF 转换为 Markdown 或 EPUB 时传入 `XMLTranslator`，也可以直接翻译已有 EPUB。翻译需要独立的文本 LLM 调用；OCR 服务负责页面识别，两者使用各自的配置。已有 EPUB 的翻译支持仅保留译文，或追加译文以便双语阅读。
 
 **生成译文 PDF。** 如果你需要 PDF 输出，可以先提取内容，再将翻译后的文字写回原始页面。此流程还需要 Ghostscript 和可用的本机字体；排版效果需要结合原稿与译文检查。
 

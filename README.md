@@ -130,7 +130,7 @@ Open `output.epub` in an EPUB reader. For title, author, and rendering options, 
 
 ## Translation and reusable extraction
 
-**Translate books.** Supply a chapter translator when converting PDF to Markdown or EPUB, or translate an existing EPUB directly. Translation uses a separate text LLM; OCR and translation have independent configurations. EPUB translation can replace the original text or append the translation for bilingual reading.
+**Translate books.** Supply an `XMLTranslator` when converting PDF to Markdown or EPUB, or translate an existing EPUB directly. Translation uses a separate text LLM; OCR and translation have independent configurations. EPUB translation can replace the original text or append the translation for bilingual reading.
 
 **Create a translated PDF.** Extract the content, translate it, and write the translation back onto the original pages. This workflow also needs Ghostscript and suitable local fonts. Check the resulting layout against the source and translated text.
 

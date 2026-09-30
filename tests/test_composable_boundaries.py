@@ -6,11 +6,12 @@ import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import patch
-from typing import cast
+from typing import Any, cast
 from xml.etree.ElementTree import tostring
 from PIL import Image
 from epub_generator import BookMeta
 
+from pdf_craft import PDFCraft
 from pdf_craft.error import NoUsableOCRPagesError, OCRError
 from pdf_craft.extractor import PDFExtractor
 from pdf_craft.pipeline.pdf.pipeline import PDFTranslationPipeline
@@ -113,6 +114,53 @@ class _DeterministicXMLTranslator:
 
 
 class TestComposableBoundaries(unittest.TestCase):
+    def test_pdf_patch_consumes_translation_created_by_public_facade(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = make_extraction(
+                root / "source", page_pixel_sizes={1: (100, 100)},
+                book_meta=BookMeta(title="Source title", authors=["Source author"]),
+            )
+            save_xml(encode(Chapter(None, -1, [TextFlowItem(
+                "body", 0,
+                [SourceTextFragment(1, 1, (1, 1, 90, 30), ["source text"])],
+            )])), root / "source/chapters/chapter_head.xml")
+            (root / "source/furnitures.xml").write_text(
+                "<furnitures><patterns><pattern id='1' kind='universal'>"
+                "<position id='0'>Source footer</position></pattern></patterns><pages>"
+                "<page index='1'><section det='1,80,90,95'>"
+                "<association kind='universal' pattern_id='1' position_id='0'/>"
+                "</section></page></pages></furnitures>",
+                encoding="utf-8",
+            )
+
+            translated = PDFCraft().translate_extraction(
+                source,
+                root / "translated.pcex",
+                cast(Any, _DeterministicXMLTranslator()),
+                with_anchored=False,
+                with_furniture=True,
+                translation_id="translated-main",
+                target_language="en",
+            )
+            capture = _CapturePatcher()
+
+            PDFTranslationPipeline(patcher=cast(PDFPatcher, capture)).patch(
+                Path("input.pdf"), Path("output.pdf"), translated,
+                translation_id="translated-main",
+            )
+
+            self.assertEqual(
+                [item.text for item in capture.replacements],
+                ["T:Source footer", "T:source text"],
+            )
+            self.assertEqual(
+                capture.kwargs["document_metadata"]["/Title"], "T:Source title",
+            )
+            self.assertEqual(
+                capture.kwargs["document_metadata"]["/Author"], "Source author",
+            )
+
     def test_pdf_patch_selects_a_stored_translation_by_id(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -170,6 +218,31 @@ class TestComposableBoundaries(unittest.TestCase):
             )
             self.assertEqual(
                 capture.kwargs["document_metadata"]["/Author"], "Source author",
+            )
+
+            (layer / "furnitures.xml").write_text(
+                "<furnitures><patterns/><pages><page index='1'>"
+                "<section det='1,80,90,95'>Translated footer</section>"
+                "</page></pages></furnitures>",
+                encoding="utf-8",
+            )
+            (layer / "coverage.xml").write_text(
+                "<translation><narrative><paragraph chapter_id='head' page_index='1' "
+                "order='1' state='translated'/></narrative><furnitures>"
+                "<section page_index='1' det='1,80,90,95' state='translated'/>"
+                "</furnitures></translation>",
+                encoding="utf-8",
+            )
+            translated_furniture = _CapturePatcher()
+            PDFTranslationPipeline(
+                patcher=cast(PDFPatcher, translated_furniture)
+            ).patch(
+                Path("input.pdf"), Path("output.pdf"), extraction,
+                translation_id="translated-main",
+            )
+            self.assertEqual(
+                [item.text for item in translated_furniture.replacements],
+                ["Translated footer", "translated text"],
             )
 
             with self.assertRaisesRegex(ValueError, "no translation with id"):

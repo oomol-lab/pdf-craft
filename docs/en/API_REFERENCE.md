@@ -54,8 +54,8 @@ The async XML/EPUB translation APIs likewise accept a synchronous or async
 `on_fill_failed` callback. Each repair notification runs on the caller's event
 loop, and an async callback is awaited before the next repair step proceeds.
 
-`PDFCraft` retains the same synchronous API for scripts as a compatibility
-adapter over the async implementation. It must not be called
+`PDFCraft` provides a synchronous facade over the async implementation for
+scripts. It must not be called
 from a thread that already has a running event loop; doing so raises a clear
 `RuntimeError` instead of nesting an event loop. Use `AsyncPDFCraft` there.
 
@@ -86,7 +86,7 @@ craft = PDFCraft(pdf=PDFOptions(ocr=your_ocr_config))
 | `extract_pdf` | `extract_pdf(source, extraction_path, options=None, *, analysing_path=None) -> PDFCraftExtraction` extracts a PDF into a persistent `.pcex` archive. |
 | `extract_pdf_with_metering` | `extract_pdf_with_metering(source, extraction_path, options=None, *, analysing_path=None) -> tuple[PDFCraftExtraction, OCRTokensMetering]` is the same extraction with OCR token accounting. |
 | `render_markdown` | `render_markdown(extraction, output, assets_path=None, *, mode=RenderMode.SOURCE, translation_id=None, aborted=...)` writes Markdown and optional assets from a `PDFCraftExtraction` or `.pcex` path. |
-| `render_epub` | `render_epub(extraction, output, *, book_meta=None, lan=None, table_render=..., latex_render=..., inline_latex=True, mode=RenderMode.SOURCE, translation_id=None, aborted=...)` writes an EPUB. Metadata and language default to the selected document layer. |
+| `render_epub` | `render_epub(extraction, output, *, book_meta=None, lan=None, table_render=..., latex_render=..., inline_latex=True, mode=RenderMode.SOURCE, translation_id=None, aborted=...)` writes an EPUB. Metadata and language default to the selected content version. |
 | `convert_pdf_to_markdown` | `convert_pdf_to_markdown(source, output, *, ..., translator=None, submit=SubmitKind.REPLACE, window=1, with_anchored=True, on_translation_event=None) -> OCRTokensMetering` is the one-shot PDF-to-Markdown workflow. |
 | `convert_pdf_to_epub` | `convert_pdf_to_epub(source, output, *, ..., translator=None, submit=SubmitKind.REPLACE, window=1, with_anchored=True, on_translation_event=None) -> OCRTokensMetering` is the one-shot PDF-to-EPUB workflow. |
 
@@ -96,15 +96,15 @@ The two `convert_pdf_to_*` methods use a directory-backed extraction inside thei
 
 | Method | Signature and purpose |
 | --- | --- |
-| `translate_extraction` | `translate_extraction(extraction, output_path, translator, *, submit=SubmitKind.REPLACE, window=1, with_anchored=True, with_furniture=False, translation_id=None, target_language=None, on_translation_event=None) -> PDFCraftExtraction` adds one independently identified translation while retaining the source. |
+| `translate_extraction` | `translate_extraction(extraction, output_path, translator, *, window=1, with_anchored=True, with_furniture=False, translation_id=None, target_language=None, on_translation_event=None) -> PDFCraftExtraction` adds one independently identified translation while retaining the source. |
 | `list_translations` | `list_translations(extraction) -> tuple[TranslationInfo, ...]` returns each translation's file-local ID, target language, and creation time. |
 | `resolve_translation` | `resolve_translation(extraction, translation_id=None) -> TranslationInfo` resolves an explicit translation ID or the stable default. |
 | `translate_anchored_contents` | `translate_anchored_contents(extraction, output_path, transformer) -> PDFCraftExtraction` is the lower-level image/table text transformation entry. |
-| `translate_pdf` | `translate_pdf(source, extraction, output, translator, *, window=1, with_anchored=True, with_furniture=False, on_translation_event=None, ignore_errors=False)` runs the standard XML translation stages, then patches the result onto the source PDF. |
+| `translate_pdf` | `translate_pdf(source, extraction, output, translator, *, window=1, with_furniture=False, on_translation_event=None, ignore_errors=False)` translates PDF-writable narrative and optional furniture, then patches the result onto the source PDF. |
 | `patch_pdf_with_extraction` | `patch_pdf_with_extraction(source, extraction, output, *, translation_id=None, ignore_errors=False)` patches the root content or an explicitly selected stored translation without OCR or LLM calls. |
 | `translate_epub` | `translate_epub(source, output, *, target_language, submit, **options)` translates an existing EPUB. See [EPUB translation](EPUB_TRANSLATION.md) for its options. |
 
-`translate_extraction()` accepts an `XMLTranslator` directly. Narrative and metadata translation always run through `NarrativeXMLTransformer`; `with_anchored` and `with_furniture` only enable or skip their corresponding standard stages. A caller-supplied opaque `translation_id` identifies the result, or pdf-craft generates a short one. The language may be supplied explicitly or declared by the translator. Duplicate IDs are rejected before translation, and append submit modes remain unsupported for stored PCEX translations.
+`translate_extraction()` accepts an `XMLTranslator` directly. Narrative and metadata translation always run through `NarrativeXMLTransformer`; `with_anchored` and `with_furniture` only enable or skip their corresponding standard stages. A caller-supplied opaque `translation_id` identifies the result, or pdf-craft generates a short one. The language may be supplied explicitly or declared by the translator. Duplicate IDs are rejected before translation. The stored version contains replacement text; replacement versus bilingual presentation is selected later when rendering.
 
 `RenderMode.SOURCE` renders the original content and does not select a translation. `RenderMode.REPLACE` renders one translation with source fallback for untranslated units. `RenderMode.BILINGUAL` renders source plus that translation. REPLACE and BILINGUAL accept an explicit file-local `translation_id`; omitting it deterministically selects the first translation. They fail when the PCEX has no translations, and an explicit missing or malformed ID is never replaced by the default. Translated metadata overrides matching source fields while missing fields retain their source values. Bilingual titles, descriptions, headings, TOC titles, and translated image/table fields include both forms.
 
@@ -144,7 +144,7 @@ extraction; they do not fall back to an analysis/OCR directory.
 
 ### `PDFOptions`
 
-`PDFOptions(ocr=None, pdf_handler=None, models_cache_path=None, local_only=False, ocr_executor=None, ocr_image_url_resolver=None)` holds infrastructure that is reused across PDF extractions. New infrastructure fields are appended after the original fields so existing positional construction remains valid.
+`PDFOptions(ocr=None, pdf_handler=None, models_cache_path=None, local_only=False, ocr_executor=None, ocr_image_url_resolver=None)` holds infrastructure that is reused across PDF extractions.
 
 - `ocr`: one of the local or vendor OCR configuration objects below.
 - `ocr_executor`: required shared capacity for vendor OCR requests. Local OCR does not use it.
@@ -236,11 +236,16 @@ See [OCR backends](OCR_BACKENDS.md) for model origin, runtime requirements, and 
 
 ## Transformations and submission modes
 
-`SubmitKind` determines how transformed text is incorporated:
+`SubmitKind` determines how translated text is incorporated by one-shot
+Markdown/EPUB conversion and EPUB translation:
 
 - `SubmitKind.REPLACE`: replace source text.
 - `SubmitKind.APPEND_TEXT`: append translated text to the same text flow.
-- `SubmitKind.APPEND_BLOCK`: append translated content as a separate block. It is not supported for PDF patching.
+- `SubmitKind.APPEND_BLOCK`: append translated content as a separate block.
+
+Stored PCEX translations and PDF patching do not accept a submission mode. A
+stored translation contains replacement text, while Markdown and EPUB rendering
+choose replacement or bilingual presentation with `RenderMode`.
 
 The following classes are exposed for applications that need custom structured transformations:
 

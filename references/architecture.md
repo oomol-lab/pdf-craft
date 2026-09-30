@@ -36,7 +36,7 @@ asset 文本；`StandaloneAsset` 不伪造 paragraph anchor，并与 NarrativeFl
 公开输入。`ocr/`、`plots/`、`done` 和其他 analysis 文件仅是可丢弃的诊断/恢复缓存。
 
 `pdf_craft/__init__.py` 是公共导入面。`AsyncPDFCraft` 是业务核心，`PDFCraft` 是位于
-`pdf_craft/sync/` 的同步兼容门面；`pdf_craft/transform.py` 是 PDF 前端
+`pdf_craft/sync/` 的同步门面；`pdf_craft/transform.py` 是 PDF 前端
 提取 engine。Markdown、EPUB、翻译和 PDF 写回后端只能读取 PDFCraftExtraction，不得读取
 analysis/OCR 缓存。
 

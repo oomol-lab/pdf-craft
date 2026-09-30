@@ -90,12 +90,11 @@ The remaining EPUB options are useful when the default rendering is not appropri
 
 ## Translate during conversion
 
-Pass one chapter translator before Markdown or EPUB rendering. The translator is supplied by your application; it is responsible for calling a text model and returning the transformed chapter.
+Pass an `XMLTranslator` before Markdown or EPUB rendering. It translates structured XML groups through the configured text model before the selected output is rendered.
 
 ```python
 from pdf_craft import SubmitKind
 
-# translator implements transform(chapter).
 craft.convert_pdf_to_markdown(
     "book.pdf",
     "book.zh.md",
@@ -119,7 +118,6 @@ translated = craft.translate_extraction(
     extraction,
     "work/book.zh.pcex",
     translator,
-    submit=SubmitKind.REPLACE,
     translation_id="zh-main",
     target_language="zh",
 )
@@ -149,7 +147,9 @@ craft.translate_pdf(
 
 `translator` is an `XMLTranslator`. PDF translation always
 creates a translated PCEX view before it patches the source PDF; text-only
-callback translation is not supported.
+callback translation is not supported. It translates narrative and optional
+furniture only. Anchored image/table text is skipped because PDF patching does
+not have field-level geometry for it.
 
 `with_furniture` defaults to `False` because page-furniture translation is an
 additional LLM pass. Enable it for a PCEX that contains `furnitures.xml`;
@@ -169,7 +169,7 @@ craft.patch_pdf_with_extraction(
 )
 ```
 
-Omit `translation_id` to retain the legacy root-content behavior. An explicit
+Omit `translation_id` to patch the current PCEX root content. An explicit
 ID selects that stored translation's narrative, metadata, and optional
 furniture. Anchored image/table text remains available to Markdown and EPUB but
 is not patched into PDF because PCEX does not retain field-level PDF geometry.
@@ -184,7 +184,7 @@ PDF patching is a page-overlay workflow, not a general-purpose PDF layout engine
 
 For each padded source box, the eraser renders the original page only to estimate a local, frequency-weighted median RGB background color, then covers the complete rectangle with that color. It intentionally does not restore paper texture, rules, formulae, or artwork. It replaces text and subtitle layouts only; tables and images are not translated in place.
 
-The source PDF and extraction must match. `pages.xml` must contain geometry for every chapter page and its page numbers must be valid for the source file. There is no fallback to OCR caches or re-rendering to recover missing geometry. `APPEND_BLOCK` is rejected for PDF output because new block-level content cannot safely be added to a fixed page. Ordinary text that cannot fit its available source regions is force-written from its first source bbox at the minimum size, even when it extends past normal geometry; a headline first uses its natural rightward overflow and then uses the same final fallback when necessary.
+The source PDF and extraction must match. `pages.xml` must contain geometry for every chapter page and its page numbers must be valid for the source file. There is no fallback to OCR caches or re-rendering to recover missing geometry. PDF translation uses replacement text and does not accept a submission mode. Ordinary text that cannot fit its available source regions is force-written from its first source bbox at the minimum size, even when it extends past normal geometry; a headline first uses its natural rightward overflow and then uses the same final fallback when necessary.
 
 For custom fonts, semantic title/body styles, fit rules, alignment, or erase padding, use the lower-level public `PDFPatcher`, `PatchTextOptions`, `PatchTextStyle`, `EraseOptions`, and `PDFTranslationPipeline` APIs described in the [API reference](API_REFERENCE.md). When `font_name` is omitted (or empty), patching selects one real local Qt font family and keeps it for the entire run. An explicitly configured but unavailable family does not stop patching: Qt uses its normal fallback chain. PDF patching requires the local Qt/PySide6 runtime, Poppler (or a supplied `PDFHandler`), Ghostscript, and suitable fonts. `render_inline_formulas=True` is the default: available Matplotlib and TeX produce vector formula fragments, while a disabled or unavailable renderer (or one failed formula) falls back to readable plain text without failing the PDF. Vector fragments include a plain-text PDF `/ActualText` semantic replacement; this is not a complete tagged-PDF structure, so reader-specific selection and copy order relative to surrounding text are not guaranteed.
 

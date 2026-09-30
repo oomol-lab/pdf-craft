@@ -90,7 +90,7 @@ craft.convert_pdf_to_markdown(
 
 ### 转换时翻译
 
-可以在渲染前传入一个章节翻译器，完成一次翻译，并决定译文以替换方式还是追加方式提交：
+可以在渲染前传入一个 `XMLTranslator`，完成一次翻译，并决定译文以替换方式还是追加方式提交：
 
 ```python
 from pdf_craft import SubmitKind
@@ -103,9 +103,8 @@ craft.convert_pdf_to_markdown(
 )
 ```
 
-这里的 `translator` 必须实现章节变换器接口（提供 `transform(chapter)` 方法），负责调用
-文本 LLM 并返回修改后的章节。本文只说明 pdf-craft 如何接入变换器；LLM 客户端和具体
-提示词由你的应用负责准备。
+这里的 `translator` 使用配置好的文本模型翻译结构化 XML group。章节布局及其内部变换协议
+不是公共扩展面。
 
 高层转换方法只执行一次翻译。需要分段或更细粒度控制时，可以使用
 `extract_pdf()`、`translate_extraction()` 和 `render_*()` 自行组合。
@@ -165,14 +164,13 @@ craft.translate_pdf(
 ```
 
 PDF 写回使用章节中的页面来源和边界框信息，因此不需要重新设计页面布局。`translator`
-直接接收 `XMLTranslator`，不能是接收字符串并返回译文的 callable。
+直接接收 `XMLTranslator`，不能是接收字符串并返回译文的 callable。该入口只翻译 narrative
+和可选 furniture；anchored 图片/表格文字缺少字段级 PDF 坐标，因此不会发起这部分翻译。
 
 `with_furniture` 默认是 `False`，因为翻译页面 furniture 会增加一次 LLM 工作。仅当 PCEX
 已含有 `furnitures.xml` 时才开启；通常直接 PDF → PCEX 时，默认的
 `ExtractionOptions.includes_furniture=True` 会保留它。PDF → Markdown / EPUB 的便利流程会明确
 不提取、不翻译 furniture，因为这两种输出不渲染固定页面 furniture。
-
-PDF 输出不接受 `APPEND_BLOCK` 模式，因为 PDF pipeline 不能在原页面中安全追加新的块级内容。
 
 默认情况下，PDF 写回的异常会立即终止操作。线上服务可以为 `translate_pdf` 或
 `patch_pdf_with_extraction` 传入 `ignore_errors=True`：某页的擦除、译文文字层、行内公式或 PDF
@@ -187,8 +185,7 @@ traceback 会写入日志。若所有需要写回的页面都退回，则抛出 
 
 ### PDF 输出的限制
 
-- PDF 写回明确不支持 `APPEND_BLOCK`，因为 PDF pipeline 不能在原页面中安全追加新的
-  块级内容；`REPLACE` 与 `APPEND_TEXT` 不会被该入口预先拒绝。
+- PDF 翻译固定写入纯译文，不接受 `SubmitKind`。
 - 默认写回会检查结果是否带有页面几何元数据、章节和几何中涉及的页码是否落在源 PDF 页数
   范围内，以及每个章节页面是否具有对应的几何记录。它不验证结果目录是否确实由该源 PDF
   提取而来，因此调用方应自行确保二者匹配；开启 `ignore_errors=True` 后，能归属到某页的
@@ -220,7 +217,7 @@ craft.patch_pdf_with_extraction(
 ```
 
 传入路径时必须是通过校验的 `.pcex`；也可以直接传入 `PDFCraftExtraction` 对象。普通目录
-不是公开输入。省略 `translation_id` 时保持现有根内容写回行为；显式指定时选择对应翻译版本的
+不是公开输入。省略 `translation_id` 时写回当前 PCEX 根内容；显式指定时选择对应翻译版本的
 正文、metadata 和可选 furniture。anchored 图片/表格文字没有字段级 PDF 坐标，本轮不会写回
 PDF。这个入口不会调用 OCR 或 LLM。PDF 写回使用 `pypdf`、`reportlab`、PySide6/Qt、
 本机 Ghostscript，以及 Poppler（或调用方提供的 `PDFHandler`）进行局部背景取色；在依赖被移除或
@@ -346,7 +343,7 @@ extraction, metering = craft.extract_pdf_with_metering(
 `translate_extraction` 接收 `XMLTranslator`，为已有 `.pcex` 生成一个可独立选择的翻译版本。
 narrative 与 metadata 固定翻译；`with_anchored` 和 `with_furniture` 只负责启用各自的标准阶段，
 不会更换翻译算法。调用方可指定或自动生成短 `translation_id`，同一目标语言允许多个 ID；
-`list_translations` 返回 ID、目标语言和创建时间。该接口只接受 `REPLACE`，双语或替换属于后续
+`list_translations` 返回 ID、目标语言和创建时间。保存的翻译版本只包含纯译文，双语或替换属于后续
 渲染选择。Markdown、EPUB 与 PDF 写回均可选择 `translation_id`；没有译文的单元自然回退原文。
 它不会重新 OCR。PDF 写回当前只处理正文和页面 furniture，不写回图片/表格中的文字。
 

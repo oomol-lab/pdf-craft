@@ -43,7 +43,7 @@ writer 收尾、删除临时归档并保持目标不存在；若发布边界先�
 异步 XML/EPUB 翻译的 `on_fill_failed` 同样可以是普通函数或 `async def`；每次修复失败
 通知都在调用方事件循环中执行，异步 callback 会在进入下一次修复步骤前被完整等待。
 
-`PDFCraft` 作为异步实现之上的兼容适配层，继续提供适合普通脚本的同步 API；但不能从已经运行事件循环的线程中
+`PDFCraft` 是异步实现之上的同步门面，适合普通脚本；但不能从已经运行事件循环的线程中
 调用，否则会明确抛出 `RuntimeError`，而不会嵌套启动事件循环。此时应改用
 `AsyncPDFCraft`。
 
@@ -183,7 +183,7 @@ ExtractionOptions(
 `page_indexes` 使用从 1 开始的 PDF 页码。`toc_assumed` 决定是否把目录页作为输入线索，
 默认值为 `False`；如果需要目录页检测，应在 EPUB 或 Markdown 提取时显式传入 `True`。
 `toc_llm` 是可选的目录层级分析
-LLM，不是 OCR 配置，也不是章节翻译器。
+LLM，不是 OCR 配置，也不承担 `XMLTranslator` 的正文翻译职责。
 
 `footnotes` 表示脚注处理档位：`None` 完全关闭，`FootnoteOptions()` 使用传统算法，配置
 `FootnoteRefinement` 后再由 JEV 筛选低置信页并交给 LLM 矫正。凭据与模型配置和 `LLM`
@@ -312,7 +312,7 @@ craft.render_epub(
 
 ### PDF 转换时翻译
 
-PDF 转换入口可以传入一个章节翻译器和提交模式，在渲染前完成一次翻译：
+PDF 转换入口可以传入一个 `XMLTranslator` 和提交模式，在渲染前完成一次翻译：
 
 ```python
 craft.convert_pdf_to_markdown(
@@ -335,8 +335,7 @@ craft.translate_pdf(
 
 `translate_pdf` 会生成翻译后的临时 extraction，再执行 PDF 写回。写回只会替换 extraction
 中记录了来源坐标的原始 PDF 文本，不是通用 PDF 排版器；输入 PDF 必须来自同一源文件，并且
-`pages.xml` 要包含完整页面几何。PDF 写回不支持 `APPEND_BLOCK`；
-`APPEND_TEXT` 可以把双语内容放进原文本框，但更容易超过原有版面，通常优先选 `REPLACE`。
+`pages.xml` 要包含完整页面几何。PDF 翻译固定使用纯译文替换，不接受提交模式。
 
 如果已经有翻译后的 `.pcex`，也可以单独写回：
 
@@ -430,10 +429,10 @@ craft.convert_pdf_to_markdown(
 ```
 
 `translation_llm` 负责生成译文，`fill_llm` 负责在必要时修复 XML 结构。两个 LLM 可以使用
-不同的模型、提示参数、缓存或重试策略。省略执行器时保留容量 1 的兼容默认行为；
+不同的模型、提示参数、缓存或重试策略。必须提供共用的 `executor`，或分别提供
+`translation_executor` 和 `fill_executor`；
 `translate_element(s)` 使用 `window` 控制 XML 业务预取，不再接受 `concurrency` 别名。若目标是双语 Markdown 或 EPUB，可把提交模式设为
-`APPEND_TEXT` 或 `APPEND_BLOCK`；PDF 不支持 `APPEND_BLOCK`，而 `APPEND_TEXT` 虽可使用，
-但需要为双语文本的版面溢出承担处理成本，因此通常推荐 `REPLACE`。
+`APPEND_TEXT` 或 `APPEND_BLOCK`。PCEX 翻译和 PDF 写回没有提交模式。
 
 已有可复用 extraction 时，调用 `translate_extraction` 并显式指定新的 `.pcex`：
 
@@ -442,7 +441,6 @@ translated_extraction = craft.translate_extraction(
     extraction,
     "work/translated.pcex",
     xml_translator,
-    submit=SubmitKind.REPLACE,
     with_anchored=True,
     with_furniture=True,
     translation_id="zh-main",
@@ -454,7 +452,7 @@ translations = craft.list_translations(translated_extraction)
 `translate_extraction()` 保留原文并追加一个翻译版本。调用方可指定文件内唯一的短 opaque
 `translation_id`，也可自动生成；同一语言可以有多个版本。重复 ID 会在翻译开始前拒绝。
 `list_translations()` 返回每个版本的 ID、目标语言和创建时间。目标语言可以由调用方显式传入，
-也可以由 translator 声明；两者都未提供时，调用会在翻译开始前失败。该方法只接受 `REPLACE`；
+也可以由 translator 声明；两者都未提供时，调用会在翻译开始前失败。保存的翻译版本只包含纯译文；
 `render_markdown` 和 `render_epub` 通过 `RenderMode` 选择原文、译文替换或双语输出。
 
 标准入口直接接收 `XMLTranslator`。narrative 与 metadata 固定执行；`with_anchored` 默认是
@@ -629,6 +627,6 @@ JEV 或 vendor OCR 若消耗同一供应商配额，应共享同一个执行器�
   自动管理临时 analysis；需要中间产物时传 `extraction_path`。
 - 需要重复渲染、翻译或写回：先用 `extract_pdf` 保存 `.pcex`，再调用 `render_*`、
   `translate_extraction` 或 `patch_pdf_with_extraction`。
-- PDF → 翻译 PDF：使用同一源 PDF 生成 extraction，再调用 `translate_pdf`；不要把 EPUB 的
-  `APPEND_BLOCK` 语义用于 PDF。
+- PDF → 翻译 PDF：使用同一源 PDF 生成 extraction，再调用 `translate_pdf`；该入口固定使用
+  纯译文替换。
 - EPUB → EPUB：使用 `PDFCraft().translate_epub`，只配置文本 LLM，不需要 OCR。

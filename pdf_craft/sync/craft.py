@@ -82,8 +82,7 @@ class PDFCraft:
     def translate_extraction(
         self, extraction: PDFCraftExtraction | PathLike | str, output_path: PathLike | str,
         translator: XMLTranslator,
-        *, submit: SubmitKind = SubmitKind.REPLACE,
-        window: int = 1,
+        *, window: int = 1,
         with_anchored: bool = True,
         with_furniture: bool = False,
         translation_id: str | None = None,
@@ -91,8 +90,7 @@ class PDFCraft:
         on_translation_event: Callable[[TranslationEvent], None] | None = None,
     ) -> PDFCraftExtraction:
         return run_sync(self._async_craft.translate_extraction(
-            extraction, output_path, translator, submit=submit,
-            window=window,
+            extraction, output_path, translator, window=window,
             with_anchored=with_anchored,
             with_furniture=with_furniture,
             translation_id=translation_id, target_language=target_language,
@@ -132,7 +130,6 @@ class PDFCraft:
         translator: XMLTranslator,
         *,
         window: int = 1,
-        with_anchored: bool = True,
         with_furniture: bool = False,
         on_translation_event: Callable[[TranslationEvent], None] | None = None,
         ignore_errors: IgnoreFillErrorsChecker = False,
@@ -140,7 +137,6 @@ class PDFCraft:
         run_sync(self._async_craft.translate_pdf(
             source, extraction, output, translator,
             window=window,
-            with_anchored=with_anchored,
             with_furniture=with_furniture,
             on_translation_event=on_translation_event,
             ignore_errors=ignore_errors,
