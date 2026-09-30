@@ -214,7 +214,10 @@ class AsyncPDFCraft:
     ) -> PDFCraftExtraction:
         document = await _ensure_extraction_async(extraction)
         if submit != SubmitKind.REPLACE:
-            raise ValueError("PCEX translation layers store replacement text; choose a render mode later")
+            raise ValueError(
+                "Stored PCEX translations support replacement text only; "
+                "choose a render mode later"
+            )
         language = (
             target_language
             if target_language is not None
@@ -305,7 +308,7 @@ class AsyncPDFCraft:
         output: PathLike | str,
         translator: XMLTranslator,
         *, window: int = 1,
-        with_anchored: bool = True, with_furniture: bool = False,
+        with_furniture: bool = False,
         on_translation_event: Callable[[TranslationEvent], object] | None = None,
         ignore_errors: IgnoreFillErrorsChecker = False,
     ) -> None:
@@ -314,7 +317,7 @@ class AsyncPDFCraft:
             translated = await self._translate_to_workspace(
                 document, Path(directory), translator,
                 window=window,
-                with_anchored=with_anchored,
+                with_anchored=False,
                 with_furniture=with_furniture,
                 on_translation_event=on_translation_event,
             )

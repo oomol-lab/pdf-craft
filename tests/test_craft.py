@@ -228,7 +228,7 @@ class TestPDFCraft(unittest.TestCase):
                 info = PDFCraft().list_translations(translated)[0]
                 self.assertTrue((paths.translations / info.id / "coverage.xml").exists())
 
-    def test_translate_extraction_does_not_create_empty_coverage_sections(self):
+    def test_translate_extraction_keeps_required_empty_narrative_coverage(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             source = make_extraction(root / "source", page_pixel_sizes={1: (10, 10)})
@@ -254,7 +254,11 @@ class TestPDFCraft(unittest.TestCase):
                         encoding="utf-8"
                     )
                 )
-                self.assertEqual(list(coverage), [])
+                self.assertEqual([child.tag for child in coverage], ["narrative"])
+                narrative = coverage.find("narrative")
+                self.assertIsNotNone(narrative)
+                assert narrative is not None
+                self.assertEqual(list(narrative), [])
 
     def test_translate_extraction_can_skip_anchored_stage(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -295,6 +299,7 @@ class TestPDFCraft(unittest.TestCase):
                     cast(Any, _PrefixXMLTranslator()), with_furniture=True,
                 )
             translate.assert_awaited_once()
+            self.assertFalse(translate.call_args.kwargs["with_anchored"])
             self.assertTrue(translate.call_args.kwargs["with_furniture"])
             patch_pdf.assert_awaited_once()
 

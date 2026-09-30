@@ -132,7 +132,6 @@ class PDFCraft:
         translator: XMLTranslator,
         *,
         window: int = 1,
-        with_anchored: bool = True,
         with_furniture: bool = False,
         on_translation_event: Callable[[TranslationEvent], None] | None = None,
         ignore_errors: IgnoreFillErrorsChecker = False,
@@ -140,7 +139,6 @@ class PDFCraft:
         run_sync(self._async_craft.translate_pdf(
             source, extraction, output, translator,
             window=window,
-            with_anchored=with_anchored,
             with_furniture=with_furniture,
             on_translation_event=on_translation_event,
             ignore_errors=ignore_errors,

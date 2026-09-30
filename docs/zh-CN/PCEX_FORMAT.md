@@ -203,7 +203,7 @@ ASCII 字母、数字、下划线或连字符；它在当前文件中唯一，�
 每个译文层与 source 使用完全相同的章节文件名。对应关系复用 PCEX 原有 identity：chapter identity、
 fragment 的 `(page_index, source_order)`、自然段首 fragment identity、chapter scope 内 reference 的
 `(page_index, order)`，以及图片/表格 asset 的 flow slot。译文可以改变文字，但不能改变这些 identity、
-页面几何或 asset 结构。图片/表格字段只有在 anchored coverage 标记为 `translated` 的 slot 中才可变化。`coverage.xml` 复用现有 coverage schema，且只能引用 source identity。没有 coverage 条目的组件不生成空节点；空的 `<translation/>` 合法，表示所有单元均回退原文。
+页面几何或 asset 结构。图片/表格字段只有在 anchored coverage 标记为 `translated` 的 slot 中才可变化。`coverage.xml` 复用现有 coverage schema，且只能引用 source identity。narrative 即使没有条目也保留对应节点；可选的 anchored 和 furniture 没有 coverage 时不生成节点。
 可选 furniture 译文保留 `(pattern_id, position_id)` 和 `(page_index, det)` identity。`metadata.json` 是
 按字段名覆盖的 overlay，不增加人工节点 ID；其中 `language` 必须等于 index 中的目标语言。
 

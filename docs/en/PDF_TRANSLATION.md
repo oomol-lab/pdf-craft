@@ -149,7 +149,9 @@ craft.translate_pdf(
 
 `translator` is an `XMLTranslator`. PDF translation always
 creates a translated PCEX view before it patches the source PDF; text-only
-callback translation is not supported.
+callback translation is not supported. It translates narrative and optional
+furniture only. Anchored image/table text is skipped because PDF patching does
+not have field-level geometry for it.
 
 `with_furniture` defaults to `False` because page-furniture translation is an
 additional LLM pass. Enable it for a PCEX that contains `furnitures.xml`;

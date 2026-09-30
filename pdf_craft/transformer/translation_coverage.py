@@ -119,11 +119,7 @@ def read_coverage(path: Path) -> TranslationCoverage:
 
 def write_narrative_coverage(path: Path, entries: Iterable[NarrativeCoverage]) -> None:
     root = _load_or_create(path)
-    values = tuple(entries)
-    _replace_child(
-        root, "narrative", _narrative_element(values) if values else None,
-        before="furnitures",
-    )
+    _replace_child(root, "narrative", _narrative_element(entries), before="furnitures")
     _save(root, path)
 
 

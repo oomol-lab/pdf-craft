@@ -165,7 +165,8 @@ craft.translate_pdf(
 ```
 
 PDF 写回使用章节中的页面来源和边界框信息，因此不需要重新设计页面布局。`translator`
-直接接收 `XMLTranslator`，不能是接收字符串并返回译文的 callable。
+直接接收 `XMLTranslator`，不能是接收字符串并返回译文的 callable。该入口只翻译 narrative
+和可选 furniture；anchored 图片/表格文字缺少字段级 PDF 坐标，因此不会发起这部分翻译。
 
 `with_furniture` 默认是 `False`，因为翻译页面 furniture 会增加一次 LLM 工作。仅当 PCEX
 已含有 `furnitures.xml` 时才开启；通常直接 PDF → PCEX 时，默认的

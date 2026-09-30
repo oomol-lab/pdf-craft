@@ -172,6 +172,31 @@ class TestComposableBoundaries(unittest.TestCase):
                 capture.kwargs["document_metadata"]["/Author"], "Source author",
             )
 
+            (layer / "furnitures.xml").write_text(
+                "<furnitures><patterns/><pages><page index='1'>"
+                "<section det='1,80,90,95'>Translated footer</section>"
+                "</page></pages></furnitures>",
+                encoding="utf-8",
+            )
+            (layer / "coverage.xml").write_text(
+                "<translation><narrative><paragraph chapter_id='head' page_index='1' "
+                "order='1' state='translated'/></narrative><furnitures>"
+                "<section page_index='1' det='1,80,90,95' state='translated'/>"
+                "</furnitures></translation>",
+                encoding="utf-8",
+            )
+            translated_furniture = _CapturePatcher()
+            PDFTranslationPipeline(
+                patcher=cast(PDFPatcher, translated_furniture)
+            ).patch(
+                Path("input.pdf"), Path("output.pdf"), extraction,
+                translation_id="translated-main",
+            )
+            self.assertEqual(
+                [item.text for item in translated_furniture.replacements],
+                ["Translated footer", "translated text"],
+            )
+
             with self.assertRaisesRegex(ValueError, "no translation with id"):
                 PDFTranslationPipeline(patcher=cast(PDFPatcher, capture)).patch(
                     Path("input.pdf"), Path("output.pdf"), extraction,

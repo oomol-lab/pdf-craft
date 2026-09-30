@@ -100,7 +100,7 @@ The two `convert_pdf_to_*` methods use a directory-backed extraction inside thei
 | `list_translations` | `list_translations(extraction) -> tuple[TranslationInfo, ...]` returns each translation's file-local ID, target language, and creation time. |
 | `resolve_translation` | `resolve_translation(extraction, translation_id=None) -> TranslationInfo` resolves an explicit translation ID or the stable default. |
 | `translate_anchored_contents` | `translate_anchored_contents(extraction, output_path, transformer) -> PDFCraftExtraction` is the lower-level image/table text transformation entry. |
-| `translate_pdf` | `translate_pdf(source, extraction, output, translator, *, window=1, with_anchored=True, with_furniture=False, on_translation_event=None, ignore_errors=False)` runs the standard XML translation stages, then patches the result onto the source PDF. |
+| `translate_pdf` | `translate_pdf(source, extraction, output, translator, *, window=1, with_furniture=False, on_translation_event=None, ignore_errors=False)` translates PDF-writable narrative and optional furniture, then patches the result onto the source PDF. |
 | `patch_pdf_with_extraction` | `patch_pdf_with_extraction(source, extraction, output, *, translation_id=None, ignore_errors=False)` patches the root content or an explicitly selected stored translation without OCR or LLM calls. |
 | `translate_epub` | `translate_epub(source, output, *, target_language, submit, **options)` translates an existing EPUB. See [EPUB translation](EPUB_TRANSLATION.md) for its options. |
 
