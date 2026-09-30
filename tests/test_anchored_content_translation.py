@@ -40,8 +40,8 @@ from pdf_craft.transformer import (
     AnchoredContentTranslation,
     AnchoredContentXMLTransformer,
 )
-from pdf_craft.transformer.chapter_xml import (
-    ChapterXMLTransformer,
+from pdf_craft.transformer.narrative_xml import (
+    NarrativeXMLTransformer,
     _NarrativeAnchorProjection,
     _render_chapter_source_text,
 )
@@ -369,7 +369,7 @@ class AnchoredContentTranslationTests(unittest.TestCase):
         ])])
         translator = _TemplateTranslator()
 
-        translated = asyncio.run(ChapterXMLTransformer(translator).transform(chapter))
+        translated = asyncio.run(NarrativeXMLTransformer(translator).transform(chapter))
 
         source = "\n".join(translator.sources)
         self.assertIn("Before.", source)
@@ -394,7 +394,7 @@ class AnchoredContentTranslationTests(unittest.TestCase):
         ])])
 
         with self.assertRaisesRegex(ValueError, "anchored-content structure"):
-            asyncio.run(ChapterXMLTransformer(_BrokenAnchorTranslator()).transform(chapter))
+            asyncio.run(NarrativeXMLTransformer(_BrokenAnchorTranslator()).transform(chapter))
 
     def test_narrative_translation_restores_multiple_assets_in_source_order(self):
         first = SourceAsset(1, "image", (10, 20, 20, 30), asset_hash="a" * 64)
@@ -408,7 +408,7 @@ class AnchoredContentTranslationTests(unittest.TestCase):
         ])])
         translator = _TemplateTranslator()
 
-        translated = asyncio.run(ChapterXMLTransformer(translator).transform(chapter))
+        translated = asyncio.run(NarrativeXMLTransformer(translator).transform(chapter))
 
         item = translated.flow_items[0]
         assert isinstance(item, TextFlowItem)
@@ -431,7 +431,7 @@ class AnchoredContentTranslationTests(unittest.TestCase):
         ])
         translator = _TemplateTranslator()
 
-        translated = asyncio.run(ChapterXMLTransformer(translator).transform(chapter))
+        translated = asyncio.run(NarrativeXMLTransformer(translator).transform(chapter))
 
         source = "\n".join(translator.sources)
         self.assertIn("Narrative.", source)
@@ -477,7 +477,7 @@ class AnchoredContentTranslationTests(unittest.TestCase):
         for invalid in invalid_responses:
             with self.subTest(invalid=invalid):
                 translator, runtime = _repairing_translator((invalid, valid))
-                translated = asyncio.run(ChapterXMLTransformer(cast(Any, translator)).transform(chapter))
+                translated = asyncio.run(NarrativeXMLTransformer(cast(Any, translator)).transform(chapter))
                 self.assertEqual(runtime.context_value.calls, 2)
                 fill_request = runtime.context_value.messages[0][0][1].message
                 self.assertIn('<anchor anchor_key="0"/>', fill_request)
@@ -504,7 +504,7 @@ class AnchoredContentTranslationTests(unittest.TestCase):
         translator, runtime = _repairing_translator((incorrect, corrected))
         translator._translate_text = lambda _source: "However, the Council."  # type: ignore[method-assign]
 
-        translated = asyncio.run(ChapterXMLTransformer(cast(Any, translator)).transform(chapter))
+        translated = asyncio.run(NarrativeXMLTransformer(cast(Any, translator)).transform(chapter))
 
         text = translated.flow_items[0]
         assert isinstance(text, TextFlowItem)
@@ -537,7 +537,7 @@ class AnchoredContentTranslationTests(unittest.TestCase):
         translator, runtime = _repairing_translator((incorrect, corrected))
         translator._translate_text = lambda _source: "corruption is harmful."  # type: ignore[method-assign]
 
-        translated = asyncio.run(ChapterXMLTransformer(cast(Any, translator)).transform(chapter))
+        translated = asyncio.run(NarrativeXMLTransformer(cast(Any, translator)).transform(chapter))
 
         text = translated.flow_items[0]
         assert isinstance(text, TextFlowItem)
@@ -569,7 +569,7 @@ class AnchoredContentTranslationTests(unittest.TestCase):
             lambda _source: r"Character \(\chi\) vanishes."
         )
 
-        translated = asyncio.run(ChapterXMLTransformer(cast(Any, translator)).transform(chapter))
+        translated = asyncio.run(NarrativeXMLTransformer(cast(Any, translator)).transform(chapter))
 
         self.assertEqual(runtime.context_value.calls, 2)
         text = translated.flow_items[0]
@@ -603,7 +603,7 @@ class AnchoredContentTranslationTests(unittest.TestCase):
             lambda _source: r"模 \(q\) 的特征 \(\chi\)。"
         )
 
-        translated = asyncio.run(ChapterXMLTransformer(cast(Any, translator)).transform(chapter))
+        translated = asyncio.run(NarrativeXMLTransformer(cast(Any, translator)).transform(chapter))
 
         self.assertEqual(runtime.context_value.calls, 2)
         text = translated.flow_items[0]
@@ -635,7 +635,7 @@ class AnchoredContentTranslationTests(unittest.TestCase):
         translator, runtime = _repairing_translator((incorrect, corrected))
         translator._translate_text = lambda _source: "First.\n\nSecond."  # type: ignore[method-assign]
 
-        translated = asyncio.run(ChapterXMLTransformer(cast(Any, translator)).transform(chapter))
+        translated = asyncio.run(NarrativeXMLTransformer(cast(Any, translator)).transform(chapter))
 
         text = translated.flow_items[0]
         assert isinstance(text, TextFlowItem)
@@ -668,7 +668,7 @@ class AnchoredContentTranslationTests(unittest.TestCase):
 
         translator._translate_text = translate  # type: ignore[method-assign]
 
-        translated = asyncio.run(ChapterXMLTransformer(cast(Any, translator)).transform(chapter))
+        translated = asyncio.run(NarrativeXMLTransformer(cast(Any, translator)).transform(chapter))
 
         self.assertEqual(sources, ["First source.", "Second source."])
         self.assertEqual(runtime.context_value.calls, 2)

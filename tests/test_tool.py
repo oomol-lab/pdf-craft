@@ -75,7 +75,7 @@ class TestPDFCraftTool(unittest.TestCase):
             )
             transformer = Mock()
             with patch("pdf_craft_tool.cli._extract", return_value=result) as extract, patch(
-                "pdf_craft_tool.cli._xml_transformer", return_value=transformer,
+                "pdf_craft_tool.cli._xml_translator", return_value=transformer,
             ):
                 _translate_pdf(args)
 
@@ -97,7 +97,7 @@ class TestPDFCraftTool(unittest.TestCase):
             translate_craft.open_extraction.return_value = handle
             with patch("pdf_craft_tool.cli.load_project_env"), \
                     patch("pdf_craft_tool.cli.PDFCraft", return_value=translate_craft), \
-                    patch("pdf_craft_tool.cli._xml_transformer", return_value=Mock()):
+                    patch("pdf_craft_tool.cli._xml_translator", return_value=Mock()):
                 _translate_package(translate_args)
             translate_craft.open_extraction.assert_called_once_with(package)
             self.assertIs(translate_craft.translate_extraction.call_args.args[0], handle)
@@ -117,6 +117,7 @@ class TestPDFCraftTool(unittest.TestCase):
             patch_args = _parser().parse_args([
                 "package", "patch-pdf", str(source), str(package),
                 "--work-dir", str(root / "patch"),
+                "--translation-id", "zh-main",
             ])
             patch_craft = Mock()
             patch_craft.open_extraction.return_value = handle
@@ -124,6 +125,10 @@ class TestPDFCraftTool(unittest.TestCase):
                 _patch_package_pdf(patch_args)
             patch_craft.open_extraction.assert_called_once_with(package)
             self.assertIs(patch_craft.patch_pdf_with_extraction.call_args.args[1], handle)
+            self.assertEqual(
+                patch_craft.patch_pdf_with_extraction.call_args.kwargs["translation_id"],
+                "zh-main",
+            )
 
     def test_smoke_exit_code_rejects_failed_and_skipped_reports(self):
         with tempfile.TemporaryDirectory() as directory:

@@ -44,6 +44,53 @@ class RenderView:
         return _book_meta(self.metadata)
 
 
+@dataclass(frozen=True)
+class _PDFPatchView:
+    """Validated paths for patching the source or one stored translation."""
+
+    chapters: Path
+    coverage: Path
+    furnitures: Path
+    metadata: dict[str, Any]
+
+
+@contextmanager
+def materialize_pdf_patch_view(
+    extraction: PDFCraftExtraction,
+    translation_id: str | None = None,
+) -> Iterator[_PDFPatchView]:
+    """Select the exact PCEX content consumed by PDF patching.
+
+    Omitting ``translation_id`` retains the legacy root view.  An explicit ID
+    selects that translation's chapters, coverage, and metadata while falling
+    back to source furniture when the translation did not replace it.
+    """
+    extraction._validate()  # pylint: disable=protected-access
+    with extraction._materialize() as paths:  # pylint: disable=protected-access
+        source_metadata = json.loads(
+            paths.manifest.read_text(encoding="utf-8")
+        )["document"]
+        if translation_id is None:
+            yield _PDFPatchView(
+                paths.chapters, paths.translation, paths.furnitures,
+                source_metadata,
+            )
+            return
+
+        translation = _select_translation(
+            _read_translation_index(paths.translations), translation_id,
+        )
+        translation_path = paths.translations / translation.id
+        overlay = _read_metadata_overlay(translation_path / "metadata.json")
+        translated_furniture = translation_path / "furnitures.xml"
+        yield _PDFPatchView(
+            translation_path / "chapters",
+            translation_path / "coverage.xml",
+            translated_furniture if translated_furniture.exists() else paths.furnitures,
+            _effective_metadata(source_metadata, overlay, RenderMode.REPLACE),
+        )
+
+
 def resolve_translation(
     extraction: PDFCraftExtraction,
     translation_id: str | None = None,

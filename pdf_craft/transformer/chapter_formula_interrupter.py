@@ -204,7 +204,7 @@ class ChapterFormulaInterrupter:
         )
         # The source node may survive a partial XML submission and be moved
         # beside its fragment. Keep a temporary stable identity on both that
-        # fallback node and any restored copy until ChapterXMLTransformer has
+        # fallback node and any restored copy until NarrativeXMLTransformer has
         # repaired ownership.
         element.set(_RESTORED_FORMULA_ID_KEY, formula.token_id)
         return formula

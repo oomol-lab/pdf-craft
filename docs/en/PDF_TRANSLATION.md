@@ -108,7 +108,7 @@ Use `SubmitKind.REPLACE` for a target-language-only document. `APPEND_TEXT` appe
 
 ## Work explicitly with a PDFCraftExtraction
 
-A `PDFCraftExtraction` is pdf-craft's source-mapped intermediate document. It contains chapters, assets, page geometry, document metadata, and optional TOC, cover, page furniture, and translation coverage. On disk it is exchanged as a `.pcex` ZIP file, so it can be stored or moved to another machine without carrying the analysis/OCR cache.
+A `PDFCraftExtraction` is pdf-craft's source-mapped intermediate document. It contains chapters, assets, page geometry, document metadata, and optional TOC, cover, page furniture, and translations. On disk it is exchanged as a `.pcex` ZIP file, so it can be stored or moved to another machine without carrying the analysis/OCR cache.
 
 Use an explicit `.pcex` when the same extraction must feed more than one output, or when translation is a distinct operation:
 
@@ -126,7 +126,7 @@ translated = craft.translate_extraction(
 print(craft.list_translations(translated))
 ```
 
-`extract_pdf()` deliberately requires a `.pcex` path: its result is meant to survive after the method returns. `translate_extraction()` creates a new archive at `output_path`; it does not overwrite the source extraction or source layer. It appends an independently identified replacement-text layer. Markdown and EPUB rendering can select that layer with `RenderMode.REPLACE` or `RenderMode.BILINGUAL` and an optional `translation_id`; PDF rendering does not yet select stored translation layers. One-shot conversions and `translate_pdf()` retain their existing behavior through internal materialized translations. When the translator is a `ChapterXMLTransformer`, image/table title, content, and caption fields are translated through its anchored-content stage and recorded in the layer's coverage.
+`extract_pdf()` deliberately requires a `.pcex` path: its result is meant to survive after the method returns. `translate_extraction()` creates a new archive at `output_path` while retaining the source and adding an independently identified translation. Markdown, EPUB, and PDF patching can select that result with `translation_id`. The standard entry accepts `XMLTranslator` directly: narrative and metadata always run, while `with_anchored` and `with_furniture` independently enable their fixed stages.
 
 ## Translate and patch a PDF
 
@@ -147,13 +147,12 @@ craft.translate_pdf(
 )
 ```
 
-`transformer` is a structured chapter transformer. PDF translation always
+`translator` is an `XMLTranslator`. PDF translation always
 creates a translated PCEX view before it patches the source PDF; text-only
 callback translation is not supported.
 
 `with_furniture` defaults to `False` because page-furniture translation is an
-additional LLM pass. Enable it only with `ChapterXMLTransformer` for a PCEX that
-contains `furnitures.xml`;
+additional LLM pass. Enable it for a PCEX that contains `furnitures.xml`;
 the source PCEX is normally produced with the default
 `ExtractionOptions.includes_furniture=True`. PDF-to-Markdown and PDF-to-EPUB
 workflows explicitly omit furniture because those output formats do not render
@@ -166,10 +165,16 @@ craft.patch_pdf_with_extraction(
     "book.pdf",
     "work/book.zh.pcex",
     "book.zh.pdf",
+    translation_id="zh-main",
 )
 ```
 
-By default a PDF fill error stops the operation. Pass `ignore_errors=True` to either PDF entry point when a service should keep processing later pages: a failing page is emitted as its Ghostscript visual base, with no selectable source text, while successful pages retain their translation layers. If every page scheduled for fill fails, `NoUsableFillPagesError` is raised instead of producing an all-fallback PDF. This option deliberately catches any ordinary exception within a page fill transaction and records its traceback; it cannot recover a source document for which no visual pages can be produced.
+Omit `translation_id` to retain the legacy root-content behavior. An explicit
+ID selects that stored translation's narrative, metadata, and optional
+furniture. Anchored image/table text remains available to Markdown and EPUB but
+is not patched into PDF because PCEX does not retain field-level PDF geometry.
+
+By default a PDF fill error stops the operation. Pass `ignore_errors=True` to either PDF entry point when a service should keep processing later pages: a failing page is emitted as its Ghostscript visual base, with no selectable source text, while successful pages retain selectable translated text. If every page scheduled for fill fails, `NoUsableFillPagesError` is raised instead of producing an all-fallback PDF. This option deliberately catches any ordinary exception within a page fill transaction and records its traceback; it cannot recover a source document for which no visual pages can be produced.
 
 `ignore_errors` may also be a `Callable[[Exception], bool]`; the callable receives each page-scoped exception and decides whether that page may fall back. Leave it as `False` unless a partial result is useful to your application: a recovered document can contain an untranslated visual-base page next to translated pages.
 

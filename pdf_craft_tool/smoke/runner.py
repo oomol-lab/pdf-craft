@@ -3,7 +3,6 @@ import platform
 import shutil
 import traceback
 import zipfile
-from copy import deepcopy
 from contextlib import contextmanager
 from dataclasses import asdict, dataclass, field
 from datetime import UTC, datetime
@@ -12,7 +11,6 @@ from time import perf_counter
 from typing import Any, Literal, cast
 
 from pdf_craft import (
-    ChapterXMLTransformer,
     ConcurrentExecutor,
     ExtractionOptions,
     FootnoteOptions,
@@ -26,9 +24,6 @@ from pdf_craft import (
     RenderMode,
     SubmitKind,
     XMLTranslator,
-)
-from pdf_craft.extractor.chapter.chapter import (
-    BlockMember, Chapter, HTMLTag, SourceAsset, SourceTextFragment, TextFlowItem,
 )
 from .assets import SmokeAsset, discover_assets
 from .checks import check_epub, check_markdown, check_package, check_pdf_patch_geometry
@@ -331,8 +326,12 @@ def _run_pdf(
         ], details
     target = output_path / "book.pdf"
     with report.stage("render"):
-        transformer = translation_transformer if translation_transformer is not None else lambda text: prefix + text
-        craft.translate_pdf(asset.path, package, target, cast(Any, transformer))
+        translator = (
+            translation_transformer
+            if translation_transformer is not None
+            else _DeterministicXMLTranslator(str(prefix))
+        )
+        craft.translate_pdf(asset.path, package, target, cast(Any, translator))
     from .checks import check_pdf
     import pypdf
     with report.stage("check"):
@@ -366,56 +365,30 @@ def _epub_contains_marker(epub: Path, marker: str) -> bool:
         )
 
 
-class _DeterministicChapterTransformer:
+class _DeterministicXMLTranslator:
     def __init__(self, marker: str) -> None:
         self.marker = marker
-        self.mode = SubmitKind.REPLACE
+        self.target_language = "en"
 
-    def with_mode(self, mode: SubmitKind) -> "_DeterministicChapterTransformer":
-        transformer = _DeterministicChapterTransformer(self.marker)
-        transformer.mode = mode
-        return transformer
-
-    def transform(self, chapter: Chapter) -> Chapter:
-        for layout in chapter.flow_items:
-            if not isinstance(layout, TextFlowItem):
-                continue
-            transformed_blocks: list[SourceTextFragment | SourceAsset] = []
-            for block in layout.children:
-                if not isinstance(block, SourceTextFragment):
-                    transformed_blocks.append(block)
-                    continue
-                translated = SourceTextFragment(
-                    page_index=block.page_index,
-                    source_order=block.source_order,
-                    bbox=block.bbox,
-                    content=[self._transform_item(item) for item in deepcopy(block.content)],
-                )
-                if self.mode == SubmitKind.APPEND_BLOCK:
-                    transformed_blocks.extend((block, translated))
-                else:
-                    transformed_blocks.append(translated)
-            layout.children = transformed_blocks
-        return chapter
-
-    def _transform_item(self, item: str | BlockMember | HTMLTag[BlockMember]):
-        if isinstance(item, str):
-            return item + self.marker
-        if isinstance(item, HTMLTag):
-            item.children = [self._transform_item(child) for child in item.children]
-        return item
+    def translate_element(self, task, **_kwargs):
+        for node in task.element.iter():
+            if node.text:
+                node.text += self.marker
+            if node.tail:
+                node.tail += self.marker
+        return task.element, task.payload
 
 
 def _package_translation(run: SmokeRun, run_path: Path):
     translation_transformer = _xml_translation_transformer(run, run_path)
     if translation_transformer is not None:
-        return translation_transformer.with_mode(SubmitKind.REPLACE)
+        return translation_transformer
 
     translation = run.translation or {}
     marker = translation.get("package_marker")
     if not isinstance(marker, str):
         return None
-    return _DeterministicChapterTransformer(marker)
+    return _DeterministicXMLTranslator(marker)
 
 
 def _package_render_selection(
@@ -465,7 +438,7 @@ def _translate_package(
     )
 
 
-def _xml_translation_transformer(run: SmokeRun, run_path: Path) -> ChapterXMLTransformer | None:
+def _xml_translation_transformer(run: SmokeRun, run_path: Path) -> XMLTranslator | None:
     translation = run.translation or {}
     llm_values = translation.get("llm")
     if not isinstance(llm_values, dict):
@@ -473,7 +446,7 @@ def _xml_translation_transformer(run: SmokeRun, run_path: Path) -> ChapterXMLTra
     translation_llm = LLM(**llm_values)
     fill_values = translation.get("fill_llm")
     fill_llm = LLM(**fill_values) if isinstance(fill_values, dict) else translation_llm
-    translator = XMLTranslator(
+    return XMLTranslator(
         translation_llm=translation_llm,
         fill_llm=fill_llm,
         target_language=translation.get("target_language", "zh"),
@@ -484,11 +457,6 @@ def _xml_translation_transformer(run: SmokeRun, run_path: Path) -> ChapterXMLTra
         max_group_score=translation.get("max_group_tokens", 2600),
         executor=ConcurrentExecutor(FixedCapacity(int(translation.get("concurrency", 1)))),
         cache_seed_content=f"pdf-craft-smoke:{run.asset}:{run.route}:{run.backend}:{run_path.name}",
-    )
-    return ChapterXMLTransformer(
-        cast(Any, translator),
-        SubmitKind[translation.get("submit", "REPLACE").upper()],
-        window=int(translation.get("concurrency", 1)),
     )
 
 

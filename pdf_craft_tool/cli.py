@@ -8,7 +8,6 @@ from pathlib import Path
 from typing import Any, cast
 
 from pdf_craft import (
-    ChapterXMLTransformer,
     ConcurrentExecutor,
     ExtractionOptions,
     FootnoteOptions,
@@ -120,6 +119,10 @@ def _parser() -> argparse.ArgumentParser:
     package_patch.add_argument("source", type=Path)
     package_patch.add_argument("package", type=Path)
     package_patch.add_argument("--output", type=Path, help="patched PDF; defaults inside --work-dir")
+    package_patch.add_argument(
+        "--translation-id",
+        help="translation version to patch; omit to use the package root content",
+    )
     _add_work_dir(package_patch, "isolated run directory")
     package_patch.set_defaults(handler=_patch_package_pdf)
 
@@ -318,18 +321,20 @@ def _translate_pdf(args: argparse.Namespace) -> None:
     work_dir = _work_dir(args.source, args.work_dir, "translate")
     with_furniture = args.format == "pdf" and args.with_furniture
     result = _extract(args, work_dir / "book.pcex", includes_furniture=with_furniture)
-    transformer = _xml_transformer(args, work_dir)
+    translator = _xml_translator(args, work_dir)
     if args.format == "pdf":
         output = args.output or work_dir / f"{args.source.stem}-{args.target_language}.pdf"
         output.parent.mkdir(parents=True, exist_ok=True)
         result.craft.translate_pdf(
-            args.source, result.extraction, output, transformer,
+            args.source, result.extraction, output, translator,
+            window=args.concurrency,
             with_furniture=with_furniture,
         )
     else:
         mode = SubmitKind[args.submit.replace("-", "_").upper()]
         translated = result.craft.translate_extraction(
-            result.extraction, work_dir / "translated.pcex", transformer, submit=mode,
+            result.extraction, work_dir / "translated.pcex", translator,
+            submit=mode, window=args.concurrency,
         )
         output = args.output or work_dir / ("book.md" if args.format == "markdown" else "book.epub")
         output.parent.mkdir(parents=True, exist_ok=True)
@@ -345,10 +350,11 @@ def _translate_package(args: argparse.Namespace) -> None:
     craft = PDFCraft()
     extraction = craft.open_extraction(args.package)
     output_package = args.output_package or work_dir / "translated.pcex"
-    transformer = _xml_transformer(args, work_dir)
+    translator = _xml_translator(args, work_dir)
     mode = SubmitKind[args.submit.replace("-", "_").upper()]
     craft.translate_extraction(
-        extraction, output_package, transformer, submit=mode,
+        extraction, output_package, translator, submit=mode,
+        window=args.concurrency,
         with_furniture=args.with_furniture, target_language=args.target_language,
     )
     print(f"Extraction: {output_package}")
@@ -360,7 +366,9 @@ def _patch_package_pdf(args: argparse.Namespace) -> None:
     extraction = craft.open_extraction(args.package)
     output = args.output or work_dir / f"{args.source.stem}-patched.pdf"
     output.parent.mkdir(parents=True, exist_ok=True)
-    craft.patch_pdf_with_extraction(args.source, extraction, output)
+    craft.patch_pdf_with_extraction(
+        args.source, extraction, output, translation_id=args.translation_id,
+    )
     print(f"Output: {output}")
 
 
@@ -873,20 +881,17 @@ def _extract(
     return _ExtractionResult(craft, extraction, extraction_path, metering)
 
 
-def _xml_transformer(args: argparse.Namespace, work_dir: Path) -> ChapterXMLTransformer:
+def _xml_translator(args: argparse.Namespace, work_dir: Path) -> XMLTranslator:
     translation_llm = create_llm_from_env(args.translation_llm,
         cache_path=work_dir / "translation-cache", log_dir_path=work_dir / "translation-logs")
     fill_llm = translation_llm if args.fill_llm == args.translation_llm else create_llm_from_env(args.fill_llm,
         cache_path=work_dir / "fill-cache", log_dir_path=work_dir / "fill-logs")
-    translator = XMLTranslator(
+    return XMLTranslator(
         translation_llm=translation_llm, fill_llm=fill_llm, target_language=args.target_language,
         user_prompt=args.prompt, ignore_translated_error=False, max_retries=args.max_retries,
         max_fill_displaying_errors=3, max_group_score=args.max_group_tokens,
         executor=ConcurrentExecutor(FixedCapacity(args.concurrency)),
         cache_seed_content=f"pdf-craft-tool:{args.target_language}",
-    )
-    return ChapterXMLTransformer(
-        cast(Any, translator), window=args.concurrency,
     )
 
 

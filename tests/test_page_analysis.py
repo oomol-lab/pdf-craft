@@ -390,7 +390,7 @@ class PageAnalysisTests(unittest.TestCase):
             ],
         )
 
-    def test_ocr_fixture_matches_legacy_canonical_chapter_xml(self):
+    def test_ocr_fixture_matches_legacy_canonical_narrative_xml(self):
         with tempfile.TemporaryDirectory() as directory:
             pages_path = Path(directory)
             page_sources = [

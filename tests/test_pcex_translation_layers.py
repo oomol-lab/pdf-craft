@@ -5,6 +5,7 @@ import tempfile
 import unittest
 from copy import deepcopy
 from pathlib import Path
+from typing import Any, cast
 from xml.etree import ElementTree
 
 from pdf_craft import PDFCraft
@@ -14,7 +15,6 @@ from pdf_craft.extractor.chapter.chapter import (
     Chapter, Reference, SourceAsset, SourceTextFragment, TextFlowItem, encode,
 )
 from pdf_craft.extractor.toc.types import Toc, TocInfo, encode as encode_toc
-from pdf_craft.transformer import ChapterXMLTransformer
 from tests.extraction_helpers import make_extraction
 
 
@@ -23,15 +23,12 @@ class _Prefix:
         self.prefix = prefix
         self.calls = 0
 
-    def transform(self, chapter: Chapter) -> Chapter:
+    def translate_element(self, task, **_kwargs):
         self.calls += 1
-        for item in chapter.flow_items:
-            if not isinstance(item, TextFlowItem):
-                continue
-            for child in item.children:
-                if isinstance(child, SourceTextFragment):
-                    child.content = [f"{self.prefix}:{child.content[0]}", *child.content[1:]]
-        return chapter
+        for element in task.element.iter("fragment"):
+            if element.text:
+                element.text = f"{self.prefix}:{element.text}"
+        return task.element, task.payload
 
 
 class _PrefixXML:
@@ -71,11 +68,11 @@ class TestPCEXTranslationLayers(unittest.TestCase):
             source_xml = (root / "source/chapters/chapter_head.xml").read_bytes()
 
             first = PDFCraft().translate_extraction(
-                source, root / "first.pcex", _Prefix("one"),
+                source, root / "first.pcex", cast(Any, _Prefix("one")),
                 translation_id="english-a", target_language="en",
             )
             second = PDFCraft().translate_extraction(
-                first, root / "second.pcex", _Prefix("two"),
+                first, root / "second.pcex", cast(Any, _Prefix("two")),
                 translation_id="english-b", target_language="en",
             )
 
@@ -101,7 +98,7 @@ class TestPCEXTranslationLayers(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             translated = PDFCraft().translate_extraction(
-                _source(root / "source"), root / "translated.pcex", _Prefix("translated"),
+                _source(root / "source"), root / "translated.pcex", cast(Any, _Prefix("translated")),
                 target_language="fr",
             )
             info = PDFCraft().list_translations(translated)[0]
@@ -112,7 +109,7 @@ class TestPCEXTranslationLayers(unittest.TestCase):
     def test_target_language_is_required_before_translation(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            transformer = _Prefix("translated")
+            transformer: Any = _Prefix("translated")
             output = root / "translated.pcex"
 
             with self.assertRaisesRegex(
@@ -139,7 +136,7 @@ class TestPCEXTranslationLayers(unittest.TestCase):
             source._validate()
 
             translated = PDFCraft().translate_extraction(
-                source, root / "translated.pcex", ChapterXMLTransformer(_PrefixXML()),
+                source, root / "translated.pcex", cast(Any, _PrefixXML()),
                 translation_id="french-main",
             )
             with translated._materialize() as paths:
@@ -159,10 +156,10 @@ class TestPCEXTranslationLayers(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             first = PDFCraft().translate_extraction(
-                _source(root / "source"), root / "first.pcex", _Prefix("one"),
+                _source(root / "source"), root / "first.pcex", cast(Any, _Prefix("one")),
                 translation_id="same-id", target_language="en",
             )
-            transformer = _Prefix("two")
+            transformer: Any = _Prefix("two")
             with self.assertRaisesRegex(ValueError, "already exists"):
                 PDFCraft().translate_extraction(
                     first, root / "duplicate.pcex", transformer,
@@ -219,8 +216,8 @@ class TestPCEXTranslationLayers(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             translated = PDFCraft().translate_extraction(
-                _source(root / "source"), root / "translated.pcex", _Prefix("translated"),
-                translation_id="layer-one", target_language="en",
+                _source(root / "source"), root / "translated.pcex", cast(Any, _Prefix("translated")),
+                translation_id="layer-one", target_language="en", with_anchored=False,
             )
             with translated._materialize() as paths:
                 chapter_path = paths.translations / "layer-one/chapters/chapter_head.xml"
@@ -282,7 +279,7 @@ class TestPCEXTranslationLayers(unittest.TestCase):
             translated = PDFCraft().translate_extraction(
                 source,
                 root / "translated.pcex",
-                ChapterXMLTransformer(_PrefixXML()),
+                cast(Any, _PrefixXML()),
                 with_furniture=True,
                 translation_id="layer-one",
             )

@@ -17,6 +17,7 @@ from pdf_craft.extractor.chapter.text_projection import (
 )
 from pdf_craft.markdown.paragraph import HTMLTag, flatten
 from pdf_craft.document import PDFCraftExtraction
+from pdf_craft.document.render import materialize_pdf_patch_view
 from pdf_craft.pdf.handler import PDFHandler
 from pdf_craft.error import IgnoreFillErrorsChecker
 from pdf_craft.pipeline.pdf.models import PDFInlineFormula, PDFReplacement, PDFReplacementRegion
@@ -40,6 +41,7 @@ class PDFTranslationPipeline:
         target_path: Path,
         extraction: PDFCraftExtraction | Path,
         *,
+        translation_id: str | None = None,
         ignore_errors: IgnoreFillErrorsChecker = False,
     ) -> None:
         """Write text already present in ``extraction`` back to ``pdf_path``.
@@ -50,16 +52,19 @@ class PDFTranslationPipeline:
         """
         extraction = _ensure_extraction(extraction)
         extraction._validate()
-        document_metadata = pdf_document_metadata(extraction._document_metadata())
         pages = extraction._page_pixel_sizes()
         render_dpi = extraction._render_dpi()
-        with extraction._materialize() as paths:
-            chapters = tuple(create_chapters_reader(paths.chapters)())
-            coverage = read_coverage(paths.translation)
+        # The patcher consumes replacements synchronously before this view closes.
+        with materialize_pdf_patch_view(  # pylint: disable=contextmanager-generator-missing-cleanup
+            extraction, translation_id,
+        ) as view:
+            document_metadata = pdf_document_metadata(view.metadata)
+            chapters = tuple(create_chapters_reader(view.chapters)())
+            coverage = read_coverage(view.coverage)
 
             def replacements() -> Iterator[PDFReplacement]:
                 yield from self._iter_covered_replacements(
-                    chapters, paths.furnitures, coverage, pages, render_dpi,
+                    chapters, view.furnitures, coverage, pages, render_dpi,
                     ignore_errors=ignore_errors,
                 )
 

@@ -9,14 +9,14 @@ import threading
 import time
 import unittest
 from pathlib import Path
-from typing import TypeVar
+from typing import Any, TypeVar, cast
 from unittest.mock import AsyncMock, patch
 
 from PIL import Image
 from reportlab.pdfgen import canvas
 
 from pdf_craft import (
-    AsyncPDFCraft, ChapterExtractionTransformer, ConcurrentExecutor,
+    AsyncPDFCraft, ConcurrentExecutor,
     ExtractionOptions, FixedCapacity, NonContinuableError, PDFCraft,
     PDFCraftExtraction, PDFDocumentMetadata, PDFOptions, SubmitKind,
     TranslationEventKind, TranslationEvent,
@@ -33,8 +33,8 @@ from pdf_craft.runtime import QT_DOMAIN, invoke_callback, run_subprocess
 from pdf_craft.pipeline.pdf.text_layout import (
     _ensure_qt_application, _qt_lifecycle_probe, _qt_modules,
 )
-from pdf_craft.transformer import ChapterXMLTransformer
 import pdf_craft.transformer.package as transformer_package
+from pdf_craft.transformer.package import ChapterExtractionTransformer
 from pdf_craft.transformer.xml_translator.xml_translator.concurrency import (
     run_concurrency_async,
 )
@@ -858,7 +858,7 @@ class TestAsyncAPI(unittest.IsolatedAsyncioTestCase):
             target = await AsyncPDFCraft().translate_extraction(
                 source,
                 root / "target.pcex",
-                ChapterXMLTransformer(translator),
+                cast(Any, translator),
                 target_language="en",
             )
             self.assertEqual(translator.thread_id, threading.get_ident())
@@ -871,7 +871,7 @@ class TestAsyncAPI(unittest.IsolatedAsyncioTestCase):
                     ),
                 )
 
-    async def test_custom_async_transform_protocol_is_awaited(self):
+    async def test_internal_custom_async_transform_protocol_is_awaited(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             source = make_extraction(root / "source", page_pixel_sizes={1: (10, 10)})
@@ -882,18 +882,14 @@ class TestAsyncAPI(unittest.IsolatedAsyncioTestCase):
             save_xml(encode(chapter), root / "source" / "chapters" / "chapter_head.xml")
             source._validate()
             transformer = _AsyncChapterTransformer()
-            target = await AsyncPDFCraft().translate_extraction(
-                source, root / "target.pcex", transformer,
-                target_language="en",
+            target = await ChapterExtractionTransformer(transformer).transform(
+                source, root / "target.pcex",
             )
             self.assertEqual(transformer.thread_id, threading.get_ident())
             with target._materialize() as paths:
-                translation_id = (await AsyncPDFCraft().list_translations(target))[0].id
                 self.assertIn(
                     "native async extension",
-                    (paths.translations / translation_id / "chapters/chapter_head.xml").read_text(
-                        encoding="utf-8"
-                    ),
+                    (paths.chapters / "chapter_head.xml").read_text(encoding="utf-8"),
                 )
 
     async def test_async_pdf_handler_protocol_is_awaited_on_caller_loop(self):
@@ -939,7 +935,7 @@ class TestAsyncAPI(unittest.IsolatedAsyncioTestCase):
             ) as translate:
                 await craft.translate_pdf(
                     source, extraction, root / "translated.pdf",
-                    _AsyncChapterTransformer(), ignore_errors=True,
+                    cast(Any, _AsyncXMLTranslator()), ignore_errors=True,
                 )
 
             translate.assert_awaited_once()

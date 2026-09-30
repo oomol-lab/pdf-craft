@@ -13,7 +13,9 @@ Extractor 生成 PDFCraftExtraction 后，Renderer 可直接生成 Markdown 或 
 PCEX 翻译不再覆盖 source：`translate_extraction()` 在 v4 `translations/` 下追加一个完整的
 replacement-only 层。Markdown/EPUB 随后选择 source、某一译文替换或 source 加某一译文；选择
 依赖 translation ID，未指定时使用 index 第一项。这个渲染选择与直接 EPUB 输入的 append/replace
-提交模式是不同阶段的概念。PDF Translation Pipeline 暂不消费这些持久化层。
+提交模式是不同阶段的概念。PDF Translation Pipeline 也可通过显式 translation ID 选择持久化译文；
+省略 ID 时继续消费根内容。PDF 写回只处理 narrative 与 furniture，不处理缺少字段级来源坐标的
+anchored 图片/表格文字。
 
 `AsyncPDFCraft.convert_pdf_to_markdown()` 和 `AsyncPDFCraft.convert_pdf_to_epub()` 会先提取到内部 workspace，
 再渲染目标输出。提取流程是：
@@ -71,8 +73,8 @@ analysis 与稳定 extraction 明确分离：
   translation layer 索引。
 
 Narrative 翻译中的段内 asset 只以无文本临时 anchor 保持位置；独立 asset 不伪造 anchor。图片/
-表格 title/content/caption 属于独立翻译阶段；`translate_extraction()` 使用 `ChapterXMLTransformer`
-时会在 NarrativeFlow 后自动组合该阶段，并以 anchored coverage 约束 v4 translation layer 中允许变化的 slot。
+表格 title/content/caption 属于独立翻译阶段；标准高层翻译入口固定先运行 NarrativeFlow，随后由
+`with_anchored` 决定是否运行该阶段，并以 anchored coverage 约束 v4 translation layer 中允许变化的 slot。
 
 公共分段流程把 `extraction/` 打包为 `.pcex`；恢复后端只接受 `.pcex` 或已加载的
 `PDFCraftExtraction`。一键转换直接使用 workspace，只有显式 `extraction_path` 时才额外导出

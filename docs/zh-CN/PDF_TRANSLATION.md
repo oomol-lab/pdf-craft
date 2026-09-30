@@ -165,10 +165,10 @@ craft.translate_pdf(
 ```
 
 PDF 写回使用章节中的页面来源和边界框信息，因此不需要重新设计页面布局。`translator`
-必须是结构化章节变换器，不能是接收字符串并返回译文的 callable。
+直接接收 `XMLTranslator`，不能是接收字符串并返回译文的 callable。
 
 `with_furniture` 默认是 `False`，因为翻译页面 furniture 会增加一次 LLM 工作。仅当 PCEX
-已含有 `furnitures.xml` 且使用 `ChapterXMLTransformer` 时才开启；通常直接 PDF → PCEX 时，默认的
+已含有 `furnitures.xml` 时才开启；通常直接 PDF → PCEX 时，默认的
 `ExtractionOptions.includes_furniture=True` 会保留它。PDF → Markdown / EPUB 的便利流程会明确
 不提取、不翻译 furniture，因为这两种输出不渲染固定页面 furniture。
 
@@ -215,11 +215,14 @@ craft.patch_pdf_with_extraction(
     "input.pdf",
     "work/translated.pcex",
     "translated.pdf",
+    translation_id="zh-main",
 )
 ```
 
 传入路径时必须是通过校验的 `.pcex`；也可以直接传入 `PDFCraftExtraction` 对象。普通目录
-不是公开输入。这个入口不会调用 OCR 或 LLM。PDF 写回使用 `pypdf`、`reportlab`、PySide6/Qt、
+不是公开输入。省略 `translation_id` 时保持现有根内容写回行为；显式指定时选择对应翻译版本的
+正文、metadata 和可选 furniture。anchored 图片/表格文字没有字段级 PDF 坐标，本轮不会写回
+PDF。这个入口不会调用 OCR 或 LLM。PDF 写回使用 `pypdf`、`reportlab`、PySide6/Qt、
 本机 Ghostscript，以及 Poppler（或调用方提供的 `PDFHandler`）进行局部背景取色；在依赖被移除或
 非标准安装的环境中，底层导入失败会抛出 `RuntimeError`。
 
@@ -340,14 +343,12 @@ extraction, metering = craft.extract_pdf_with_metering(
 
 ### `translate_extraction`
 
-`translate_extraction` 将一个 `.pcex` 中的章节交给章节变换器，并生成另一个 `.pcex`。输出保留
-source layer，在 `translations/` 下追加一个独立纯译文层；可用调用方指定或自动生成的短 ID 选择，
-同一目标语言允许多个 ID。`list_translations` 可读取 ID、目标语言和创建时间。该接口只接受
-`REPLACE`，双语或替换属于后续渲染选择。Markdown 和 EPUB 可通过 `RenderMode.REPLACE` 或
-`RenderMode.BILINGUAL` 渲染指定的 `translation_id`；PDF 渲染尚不能选择已存储的 translation layer。
-`with_furniture=True` 需要 `ChapterXMLTransformer`，并把 furniture 译文和 coverage 放在同一层。
-使用 `ChapterXMLTransformer` 时，图片/表格的 title、content 和 caption 会通过 anchored-content
-阶段翻译并记入该层 coverage。它不重新 OCR。
+`translate_extraction` 接收 `XMLTranslator`，为已有 `.pcex` 生成一个可独立选择的翻译版本。
+narrative 与 metadata 固定翻译；`with_anchored` 和 `with_furniture` 只负责启用各自的标准阶段，
+不会更换翻译算法。调用方可指定或自动生成短 `translation_id`，同一目标语言允许多个 ID；
+`list_translations` 返回 ID、目标语言和创建时间。该接口只接受 `REPLACE`，双语或替换属于后续
+渲染选择。Markdown、EPUB 与 PDF 写回均可选择 `translation_id`；没有译文的单元自然回退原文。
+它不会重新 OCR。PDF 写回当前只处理正文和页面 furniture，不写回图片/表格中的文字。
 
 ## `ExtractionOptions`
 

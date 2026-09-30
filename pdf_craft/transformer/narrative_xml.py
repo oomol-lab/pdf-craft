@@ -67,7 +67,7 @@ def _metadata_element(
     return root, fields
 
 
-class ChapterXMLTransformer:
+class NarrativeXMLTransformer:
     """Adapt a format-neutral XML translator to the Chapter transformer protocol."""
     def __init__(
         self,
@@ -94,9 +94,9 @@ class ChapterXMLTransformer:
             value = getattr(self._translator, "_target_language", None)
         return value if isinstance(value, str) else None
 
-    def with_mode(self, mode: SubmitKind) -> "ChapterXMLTransformer":
+    def with_mode(self, mode: SubmitKind) -> "NarrativeXMLTransformer":
         """Return a transformer using the requested XML submission mode."""
-        return ChapterXMLTransformer(self._translator, mode, window=self._window)
+        return NarrativeXMLTransformer(self._translator, mode, window=self._window)
 
     def _furniture_transformer(self) -> "FurnitureXMLTransformer":
         """Build the private furniture adapter over this XML translation runtime."""

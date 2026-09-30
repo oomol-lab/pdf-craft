@@ -5,6 +5,7 @@ import tempfile
 import unittest
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Any, cast
 from xml.etree import ElementTree
 from zipfile import ZipFile
 
@@ -23,22 +24,16 @@ from tests.extraction_helpers import make_extraction
 
 
 class _Identity:
-    def transform(self, chapter: Chapter) -> Chapter:
-        return chapter
+    def translate_element(self, task, **_kwargs):
+        return task.element, task.payload
 
 
 class _TranslateHeadline:
-    def transform(self, chapter: Chapter) -> Chapter:
-        for layout in chapter.flow_items:
-            if isinstance(layout, TextFlowItem):
-                for block in layout.children:
-                    block.content = [
-                        value.replace("Chapter One", "第一章")
-                        if isinstance(value, str)
-                        else value
-                        for value in block.content
-                    ]
-        return chapter
+    def translate_element(self, task, **_kwargs):
+        for element in task.element.iter():
+            if element.text:
+                element.text = element.text.replace("Chapter One", "第一章")
+        return task.element, task.payload
 
 
 def _replace_archive_members(
@@ -98,7 +93,7 @@ class TestPDFCraftExtraction(unittest.TestCase):
             )
 
             translated = PDFCraft().translate_extraction(
-                source, root / "translated.pcex", _TranslateHeadline(),
+                source, root / "translated.pcex", cast(Any, _TranslateHeadline()),
                 target_language="en",
             )
             with translated._materialize() as paths:
@@ -244,7 +239,7 @@ class TestPDFCraftExtraction(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "invalid document metadata"):
                 PDFCraftExtraction._open(incomplete)
 
-    def test_invalid_chapter_xml_and_schema_are_rejected_when_opened(self):
+    def test_invalid_narrative_xml_and_schema_are_rejected_when_opened(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             workspace = root / "workspace"
@@ -257,13 +252,13 @@ class TestPDFCraftExtraction(unittest.TestCase):
                 "malformed": (b"<chapter>", "invalid PDFCraftExtraction XML"),
                 "missing-body": (b"<chapter/>", "invalid chapter schema"),
             }
-            for name, (chapter_xml, error_pattern) in cases.items():
+            for name, (narrative_xml, error_pattern) in cases.items():
                 with self.subTest(name=name):
                     invalid = root / f"{name}.pcex"
                     _replace_archive_members(
                         valid,
                         invalid,
-                        {"chapters/chapter_head.xml": chapter_xml},
+                        {"chapters/chapter_head.xml": narrative_xml},
                     )
                     with self.assertRaisesRegex(ValueError, error_pattern):
                         PDFCraftExtraction._open(invalid)
@@ -295,14 +290,14 @@ class TestPDFCraftExtraction(unittest.TestCase):
             valid = root / "valid.pcex"
             extraction._export(valid)
             invalid = root / "invalid-hash.pcex"
-            chapter_xml = (
+            narrative_xml = (
                 b'<chapter><flow><standalone-asset><asset ref="image" page_index="1" '
                 b'bbox="0,0,1,1" asset_hash="../cover"/></standalone-asset></flow></chapter>'
             )
             _replace_archive_members(
                 valid,
                 invalid,
-                {"chapters/chapter_head.xml": chapter_xml},
+                {"chapters/chapter_head.xml": narrative_xml},
             )
 
             with self.assertRaisesRegex(ValueError, "invalid asset hash"):
@@ -340,12 +335,12 @@ class TestPDFCraftExtraction(unittest.TestCase):
             valid = root / "valid.pcex"
             extraction._export(valid)
             invalid = root / "legacy-reference.pcex"
-            chapter_xml = (
+            narrative_xml = (
                 b'<chapter><flow/><references><ref id="1-1"><mark>1</mark><flow>'
                 b'<display-formula><asset ref="equation" page_index="1" bbox="0,0,1,1"/>'
                 b'</display-formula></flow></ref></references></chapter>'
             )
-            _replace_archive_members(valid, invalid, {"chapters/chapter_head.xml": chapter_xml})
+            _replace_archive_members(valid, invalid, {"chapters/chapter_head.xml": narrative_xml})
             with self.assertRaisesRegex(ValueError, "legacy 'equation'"):
                 PDFCraftExtraction._open(invalid)
 
@@ -358,11 +353,11 @@ class TestPDFCraftExtraction(unittest.TestCase):
             valid = root / "valid.pcex"
             extraction._export(valid)
             invalid = root / "legacy-attributes.pcex"
-            chapter_xml = (
+            narrative_xml = (
                 b'<chapter><flow><standalone-asset><asset ref="image" page_index="1" '
                 b'det="0,0,1,1" hash="a"/></standalone-asset></flow></chapter>'
             )
-            _replace_archive_members(valid, invalid, {"chapters/chapter_head.xml": chapter_xml})
+            _replace_archive_members(valid, invalid, {"chapters/chapter_head.xml": narrative_xml})
             with self.assertRaisesRegex(ValueError, "unsupported attributes"):
                 PDFCraftExtraction._open(invalid)
 
@@ -375,12 +370,12 @@ class TestPDFCraftExtraction(unittest.TestCase):
             valid = root / "valid.pcex"
             extraction._export(valid)
             invalid = root / "legacy-fragment-attributes.pcex"
-            chapter_xml = (
+            narrative_xml = (
                 b'<chapter><flow><text role="body"><fragment '
                 b'page_index="1" source_order="0" order="1" bbox="0,0,1,1" '
                 b'det="0,0,9,9">text</fragment></text></flow></chapter>'
             )
-            _replace_archive_members(valid, invalid, {"chapters/chapter_head.xml": chapter_xml})
+            _replace_archive_members(valid, invalid, {"chapters/chapter_head.xml": narrative_xml})
             with self.assertRaisesRegex(ValueError, "unsupported attributes"):
                 PDFCraftExtraction._open(invalid)
 
@@ -453,7 +448,7 @@ class TestPDFCraftExtraction(unittest.TestCase):
             (source_workspace / "assets" / asset_name).write_bytes(b"asset")
 
             translated = PDFCraft().translate_extraction(
-                source, root / "translated.pcex", _Identity(),
+                source, root / "translated.pcex", cast(Any, _Identity()),
                 target_language="en",
             )
 

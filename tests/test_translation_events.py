@@ -4,15 +4,16 @@ import asyncio
 import tempfile
 import unittest
 from pathlib import Path
+from typing import Any, cast
 from xml.etree.ElementTree import tostring
 
 from pdf_craft import (
-    ChapterExtractionTransformer,
-    ChapterXMLTransformer,
+    NarrativeXMLTransformer,
     NonContinuableError,
     TranslationEventKind,
     TranslationItemKind,
 )
+from pdf_craft.transformer.package import ChapterExtractionTransformer
 from pdf_craft import PDFCraft
 from pdf_craft.extractor.chapter.chapter import SourceTextFragment, Chapter, TextFlowItem, encode
 from tests.extraction_helpers import make_extraction
@@ -64,12 +65,12 @@ class TestTranslationEvents(unittest.TestCase):
                 )
 
             class Identity:
-                def transform(self, chapter):
-                    return chapter
+                def translate_element(self, task, **_kwargs):
+                    return task.element, task.payload
 
             events = []
             PDFCraft().translate_extraction(
-                source, root / "target.pcex", Identity(), target_language="en",
+                source, root / "target.pcex", cast(Any, Identity()), target_language="en",
                 on_translation_event=events.append,
             )
 
@@ -83,16 +84,31 @@ class TestTranslationEvents(unittest.TestCase):
                 [(event.item_id, event.item_total_characters) for event in item_starts],
                 [(7, len("chapter")), ("head", len("head"))],
             )
+            item_events = [
+                event for event in events
+                if event.kind in (
+                    TranslationEventKind.ITEM_START,
+                    TranslationEventKind.ITEM_COMPLETE,
+                )
+            ]
             self.assertEqual(
-                [(event.kind, event.item_kind, event.item_id) for event in events
-                 if event.kind in (TranslationEventKind.ITEM_START, TranslationEventKind.ITEM_COMPLETE)],
-                [
+                {(event.kind, event.item_kind, event.item_id) for event in item_events},
+                {
                     (TranslationEventKind.ITEM_START, TranslationItemKind.CHAPTER, 7),
                     (TranslationEventKind.ITEM_COMPLETE, TranslationItemKind.CHAPTER, 7),
                     (TranslationEventKind.ITEM_START, TranslationItemKind.CHAPTER, "head"),
                     (TranslationEventKind.ITEM_COMPLETE, TranslationItemKind.CHAPTER, "head"),
-                ],
+                },
             )
+            for item_id in (7, "head"):
+                self.assertLess(
+                    next(index for index, event in enumerate(item_events)
+                         if event.kind == TranslationEventKind.ITEM_START
+                         and event.item_id == item_id),
+                    next(index for index, event in enumerate(item_events)
+                         if event.kind == TranslationEventKind.ITEM_COMPLETE
+                         and event.item_id == item_id),
+                )
             self.assertEqual(events[-1].kind, TranslationEventKind.COMPLETE)
             self.assertEqual(events[-1].completed_characters, len("headchapter"))
 
@@ -137,7 +153,7 @@ class TestCrossChapterTranslation(unittest.IsolatedAsyncioTestCase):
 
             translator = GatedTranslator()
             transform = ChapterExtractionTransformer(
-                ChapterXMLTransformer(translator)
+                NarrativeXMLTransformer(translator)
             )
             events = []
             fast_reported = asyncio.Event()
@@ -214,7 +230,7 @@ class TestCrossChapterTranslation(unittest.IsolatedAsyncioTestCase):
 
             translator = BatchTranslator()
             transform = ChapterExtractionTransformer(
-                ChapterXMLTransformer(translator, window=2)
+                NarrativeXMLTransformer(translator, window=2)
             )
             result = await transform._transform_to_workspace_async(
                 source, root / "target",
@@ -267,7 +283,7 @@ class TestCrossChapterTranslation(unittest.IsolatedAsyncioTestCase):
 
             translator = FailingTranslator()
             transform = ChapterExtractionTransformer(
-                ChapterXMLTransformer(translator)
+                NarrativeXMLTransformer(translator)
             )
             with self.assertRaises(NonContinuableError):
                 await transform._transform_to_workspace_async(
@@ -317,7 +333,7 @@ class TestCrossChapterTranslation(unittest.IsolatedAsyncioTestCase):
 
             translator = CancellingTranslator()
             transform = ChapterExtractionTransformer(
-                ChapterXMLTransformer(translator)
+                NarrativeXMLTransformer(translator)
             )
             with self.assertRaisesRegex(
                 asyncio.CancelledError, "inner chapter cancellation",

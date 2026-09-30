@@ -900,7 +900,7 @@ def _validate_translation(
     root = _require_xml_root(path, "translation")
     tags = [child.tag for child in root]
     if tags not in (
-        ["narrative"], ["furnitures"], ["anchored"],
+        [], ["narrative"], ["furnitures"], ["anchored"],
         ["narrative", "furnitures"], ["narrative", "anchored"],
         ["furnitures", "anchored"], ["narrative", "furnitures", "anchored"],
     ):
