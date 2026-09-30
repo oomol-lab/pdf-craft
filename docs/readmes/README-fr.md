@@ -106,7 +106,7 @@ Ouvrez `output.epub` dans un lecteur EPUB. Le titre, l’auteur et les options d
 
 ## Traduction et réutilisation de l’extraction
 
-**Traduire des livres.** Fournissez un traducteur de chapitres lors de la conversion PDF vers Markdown ou EPUB, ou traduisez directement un EPUB existant. La traduction utilise un LLM textuel distinct ; OCR et traduction se configurent séparément. Pour l’EPUB, vous pouvez remplacer l’original ou ajouter la traduction pour une lecture bilingue.
+**Traduire des livres.** Fournissez un `XMLTranslator` lors de la conversion PDF vers Markdown ou EPUB, ou traduisez directement un EPUB existant. La traduction utilise un LLM textuel distinct ; OCR et traduction se configurent séparément. Pour l’EPUB, vous pouvez remplacer l’original ou ajouter la traduction pour une lecture bilingue.
 
 **Créer un PDF traduit.** Extrayez le contenu, traduisez-le et réinsérez le texte sur les pages d’origine. Ce traitement nécessite aussi Ghostscript et des polices locales adaptées. Vérifiez la mise en page avec le texte original et sa traduction.
 

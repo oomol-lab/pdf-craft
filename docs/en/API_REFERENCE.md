@@ -54,8 +54,8 @@ The async XML/EPUB translation APIs likewise accept a synchronous or async
 `on_fill_failed` callback. Each repair notification runs on the caller's event
 loop, and an async callback is awaited before the next repair step proceeds.
 
-`PDFCraft` retains the same synchronous API for scripts as a compatibility
-adapter over the async implementation. It must not be called
+`PDFCraft` provides a synchronous facade over the async implementation for
+scripts. It must not be called
 from a thread that already has a running event loop; doing so raises a clear
 `RuntimeError` instead of nesting an event loop. Use `AsyncPDFCraft` there.
 
@@ -86,7 +86,7 @@ craft = PDFCraft(pdf=PDFOptions(ocr=your_ocr_config))
 | `extract_pdf` | `extract_pdf(source, extraction_path, options=None, *, analysing_path=None) -> PDFCraftExtraction` extracts a PDF into a persistent `.pcex` archive. |
 | `extract_pdf_with_metering` | `extract_pdf_with_metering(source, extraction_path, options=None, *, analysing_path=None) -> tuple[PDFCraftExtraction, OCRTokensMetering]` is the same extraction with OCR token accounting. |
 | `render_markdown` | `render_markdown(extraction, output, assets_path=None, *, mode=RenderMode.SOURCE, translation_id=None, aborted=...)` writes Markdown and optional assets from a `PDFCraftExtraction` or `.pcex` path. |
-| `render_epub` | `render_epub(extraction, output, *, book_meta=None, lan=None, table_render=..., latex_render=..., inline_latex=True, mode=RenderMode.SOURCE, translation_id=None, aborted=...)` writes an EPUB. Metadata and language default to the selected document layer. |
+| `render_epub` | `render_epub(extraction, output, *, book_meta=None, lan=None, table_render=..., latex_render=..., inline_latex=True, mode=RenderMode.SOURCE, translation_id=None, aborted=...)` writes an EPUB. Metadata and language default to the selected content version. |
 | `convert_pdf_to_markdown` | `convert_pdf_to_markdown(source, output, *, ..., translator=None, submit=SubmitKind.REPLACE, window=1, with_anchored=True, on_translation_event=None) -> OCRTokensMetering` is the one-shot PDF-to-Markdown workflow. |
 | `convert_pdf_to_epub` | `convert_pdf_to_epub(source, output, *, ..., translator=None, submit=SubmitKind.REPLACE, window=1, with_anchored=True, on_translation_event=None) -> OCRTokensMetering` is the one-shot PDF-to-EPUB workflow. |
 
@@ -144,7 +144,7 @@ extraction; they do not fall back to an analysis/OCR directory.
 
 ### `PDFOptions`
 
-`PDFOptions(ocr=None, pdf_handler=None, models_cache_path=None, local_only=False, ocr_executor=None, ocr_image_url_resolver=None)` holds infrastructure that is reused across PDF extractions. New infrastructure fields are appended after the original fields so existing positional construction remains valid.
+`PDFOptions(ocr=None, pdf_handler=None, models_cache_path=None, local_only=False, ocr_executor=None, ocr_image_url_resolver=None)` holds infrastructure that is reused across PDF extractions.
 
 - `ocr`: one of the local or vendor OCR configuration objects below.
 - `ocr_executor`: required shared capacity for vendor OCR requests. Local OCR does not use it.
@@ -236,11 +236,16 @@ See [OCR backends](OCR_BACKENDS.md) for model origin, runtime requirements, and 
 
 ## Transformations and submission modes
 
-`SubmitKind` determines how transformed text is incorporated:
+`SubmitKind` determines how translated text is incorporated by one-shot
+Markdown/EPUB conversion and EPUB translation:
 
 - `SubmitKind.REPLACE`: replace source text.
 - `SubmitKind.APPEND_TEXT`: append translated text to the same text flow.
-- `SubmitKind.APPEND_BLOCK`: append translated content as a separate block. It is not supported for PDF patching.
+- `SubmitKind.APPEND_BLOCK`: append translated content as a separate block.
+
+Stored PCEX translations and PDF patching do not accept a submission mode. A
+stored translation contains replacement text, while Markdown and EPUB rendering
+choose replacement or bilingual presentation with `RenderMode`.
 
 The following classes are exposed for applications that need custom structured transformations:
 

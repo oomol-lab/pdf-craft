@@ -106,7 +106,7 @@ craft.convert_pdf_to_epub("input.pdf", "output.epub")
 
 ## Übersetzung und Wiederverwendung der Extraktion
 
-**Bücher übersetzen.** Übergib bei der Konvertierung von PDF in Markdown oder EPUB einen Kapitelübersetzer oder übersetze ein vorhandenes EPUB direkt. Die Übersetzung verwendet ein separates Text-LLM; OCR und Übersetzung werden unabhängig konfiguriert. Bei EPUB kannst du den Originaltext ersetzen oder die Übersetzung zum zweisprachigen Lesen ergänzen.
+**Bücher übersetzen.** Übergib bei der Konvertierung von PDF in Markdown oder EPUB einen `XMLTranslator` oder übersetze ein vorhandenes EPUB direkt. Die Übersetzung verwendet ein separates Text-LLM; OCR und Übersetzung werden unabhängig konfiguriert. Bei EPUB kannst du den Originaltext ersetzen oder die Übersetzung zum zweisprachigen Lesen ergänzen.
 
 **Übersetzte PDF erstellen.** Extrahiere und übersetze den Inhalt und schreibe die Übersetzung auf die ursprünglichen Seiten zurück. Dafür werden zusätzlich Ghostscript und geeignete lokale Schriftarten benötigt. Prüfe das Layout anhand von Original und Übersetzung.
 
