@@ -117,6 +117,7 @@ class TestPDFCraftTool(unittest.TestCase):
             patch_args = _parser().parse_args([
                 "package", "patch-pdf", str(source), str(package),
                 "--work-dir", str(root / "patch"),
+                "--translation-id", "zh-main",
             ])
             patch_craft = Mock()
             patch_craft.open_extraction.return_value = handle
@@ -124,6 +125,10 @@ class TestPDFCraftTool(unittest.TestCase):
                 _patch_package_pdf(patch_args)
             patch_craft.open_extraction.assert_called_once_with(package)
             self.assertIs(patch_craft.patch_pdf_with_extraction.call_args.args[1], handle)
+            self.assertEqual(
+                patch_craft.patch_pdf_with_extraction.call_args.kwargs["translation_id"],
+                "zh-main",
+            )
 
     def test_smoke_exit_code_rejects_failed_and_skipped_reports(self):
         with tempfile.TemporaryDirectory() as directory:

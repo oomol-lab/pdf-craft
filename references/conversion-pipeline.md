@@ -13,7 +13,9 @@ Extractor 生成 PDFCraftExtraction 后，Renderer 可直接生成 Markdown 或 
 PCEX 翻译不再覆盖 source：`translate_extraction()` 在 v4 `translations/` 下追加一个完整的
 replacement-only 层。Markdown/EPUB 随后选择 source、某一译文替换或 source 加某一译文；选择
 依赖 translation ID，未指定时使用 index 第一项。这个渲染选择与直接 EPUB 输入的 append/replace
-提交模式是不同阶段的概念。PDF Translation Pipeline 暂不消费这些持久化层。
+提交模式是不同阶段的概念。PDF Translation Pipeline 也可通过显式 translation ID 选择持久化译文；
+省略 ID 时继续消费根内容。PDF 写回只处理 narrative 与 furniture，不处理缺少字段级来源坐标的
+anchored 图片/表格文字。
 
 `AsyncPDFCraft.convert_pdf_to_markdown()` 和 `AsyncPDFCraft.convert_pdf_to_epub()` 会先提取到内部 workspace，
 再渲染目标输出。提取流程是：

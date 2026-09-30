@@ -119,6 +119,10 @@ def _parser() -> argparse.ArgumentParser:
     package_patch.add_argument("source", type=Path)
     package_patch.add_argument("package", type=Path)
     package_patch.add_argument("--output", type=Path, help="patched PDF; defaults inside --work-dir")
+    package_patch.add_argument(
+        "--translation-id",
+        help="translation version to patch; omit to use the package root content",
+    )
     _add_work_dir(package_patch, "isolated run directory")
     package_patch.set_defaults(handler=_patch_package_pdf)
 
@@ -362,7 +366,9 @@ def _patch_package_pdf(args: argparse.Namespace) -> None:
     extraction = craft.open_extraction(args.package)
     output = args.output or work_dir / f"{args.source.stem}-patched.pdf"
     output.parent.mkdir(parents=True, exist_ok=True)
-    craft.patch_pdf_with_extraction(args.source, extraction, output)
+    craft.patch_pdf_with_extraction(
+        args.source, extraction, output, translation_id=args.translation_id,
+    )
     print(f"Output: {output}")
 
 

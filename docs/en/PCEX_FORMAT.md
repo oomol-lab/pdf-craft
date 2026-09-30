@@ -690,11 +690,12 @@ A `.pcex` stores text positions but neither source-PDF pages nor a hash or other
 
 ```python
 craft.patch_pdf_with_extraction(
-    "original.pdf", "translated.pcex", "translated.pdf"
+    "original.pdf", "translated.pcex", "translated.pdf",
+    translation_id="zh-main",
 )
 ```
 
-the caller should supply the same source PDF from which the extraction was produced. Before patching, the current implementation confirms that:
+The explicit `translation_id` selects a stored translation. Omitting it preserves the legacy behavior and patches the PCEX root content instead. The caller should supply the same source PDF from which the extraction was produced. Before patching, the current implementation confirms that:
 
 - `pages.xml` is not empty;
 - no page index recorded by the extraction exceeds the input PDF's page count;

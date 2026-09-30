@@ -677,11 +677,13 @@ analysing/
 
 ```python
 craft.patch_pdf_with_extraction(
-    "original.pdf", "translated.pcex", "translated.pdf"
+    "original.pdf", "translated.pcex", "translated.pdf",
+    translation_id="zh-main",
 )
 ```
 
-时，调用方应提供生成该 extraction 的同一份原 PDF。当前实现会在写回前确认：
+显式 `translation_id` 用于选择已保存的翻译版本；省略时保持旧行为，写回 PCEX 根内容。调用方应
+提供生成该 extraction 的同一份原 PDF。当前实现会在写回前确认：
 
 - `pages.xml` 非空；
 - extraction 记录的页码没有超过输入 PDF 页数；
