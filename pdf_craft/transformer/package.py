@@ -26,10 +26,10 @@ from pdf_craft.runtime import (
 from pdf_craft.extractor.chapter.chapter import (
     SourceTextFragment, TextFlowItem, decode, encode,
 )
-from pdf_craft.transformer.protocol import ChapterTransformer, SyncChapterTransformer
+from pdf_craft.transformer.protocol import _ChapterTransformer, _SyncChapterTransformer
 from pdf_craft.transformer.events import TranslationEvent, TranslationEventKind, TranslationItemKind
 from pdf_craft.transformer.xml_translator.segment import search_text_segments
-from pdf_craft.transformer.chapter_xml import ChapterXMLTransformer
+from pdf_craft.transformer.narrative_xml import NarrativeXMLTransformer
 from pdf_craft.transformer.furniture_xml import FurnitureXMLTransformer
 from pdf_craft.transformer.xml_translator.xml_translator import SubmitKind
 from pdf_craft.transformer.furniture import FurnitureTransformer
@@ -62,7 +62,7 @@ class ChapterExtractionTransformer:
 
     def __init__(
         self,
-        chapter_transformer: ChapterTransformer | SyncChapterTransformer,
+        chapter_transformer: _ChapterTransformer | _SyncChapterTransformer,
         *,
         mode: SubmitKind = SubmitKind.REPLACE,
         toc_transformer: Callable[[Element], Element] | None = None,
@@ -124,7 +124,7 @@ class ChapterExtractionTransformer:
         on_translation_event: Callable[[TranslationEvent], object] | None = None,
         emit_translation_events: bool = False,
     ) -> PDFCraftExtraction:
-        is_xml_transformer = isinstance(self.chapter_transformer, ChapterXMLTransformer)
+        is_xml_transformer = isinstance(self.chapter_transformer, NarrativeXMLTransformer)
         is_async_transformer = inspect.iscoroutinefunction(
             self.chapter_transformer.transform
         )
@@ -211,7 +211,7 @@ class ChapterExtractionTransformer:
                     ))
 
             transformed_chapters = await cast(
-                ChapterXMLTransformer, self.chapter_transformer,
+                NarrativeXMLTransformer, self.chapter_transformer,
             ).transform_many(
                 (chapter, item_id)
                 for _, chapter, item_id, _ in chapter_tasks
@@ -231,7 +231,7 @@ class ChapterExtractionTransformer:
                         item_total_characters=character_count,
                     ))
                 transformed = await cast(
-                    ChapterTransformer, self.chapter_transformer,
+                    _ChapterTransformer, self.chapter_transformer,
                 ).transform(chapter)
                 narrative_coverage.extend(
                     await commit_chapter(task_index, transformed)
@@ -263,7 +263,7 @@ class ChapterExtractionTransformer:
         tasks = []
         for path in sorted((output_path / "chapters").glob("chapter*.xml")):
             chapter = decode(read_xml(path))
-            if isinstance(self.chapter_transformer, ChapterXMLTransformer):
+            if isinstance(self.chapter_transformer, NarrativeXMLTransformer):
                 character_count = self.chapter_transformer.source_character_count(chapter)
                 has_content = self.chapter_transformer.has_translatable_content(chapter)
             else:
@@ -307,12 +307,12 @@ class ChapterExtractionTransformer:
 
         chapter_paths = sorted((output_path / "chapters").glob("chapter*.xml"))
         chapter_tasks = []
-        is_xml_transformer = isinstance(self.chapter_transformer, ChapterXMLTransformer)
+        is_xml_transformer = isinstance(self.chapter_transformer, NarrativeXMLTransformer)
         for path in chapter_paths:
             chapter = decode(read_xml(path))
             if is_xml_transformer:
-                character_count = cast(ChapterXMLTransformer, self.chapter_transformer).source_character_count(chapter)
-                has_content = cast(ChapterXMLTransformer, self.chapter_transformer).has_translatable_content(chapter)
+                character_count = cast(NarrativeXMLTransformer, self.chapter_transformer).source_character_count(chapter)
+                has_content = cast(NarrativeXMLTransformer, self.chapter_transformer).has_translatable_content(chapter)
             else:
                 segments = list(search_text_segments(encode(chapter)))
                 character_count = sum(len(segment.text) for segment in segments)
@@ -352,7 +352,7 @@ class ChapterExtractionTransformer:
                 ))
             if is_xml_transformer:
                 transformed = cast(
-                    ChapterXMLTransformer, self.chapter_transformer,
+                    NarrativeXMLTransformer, self.chapter_transformer,
                 )._transform_blocking(
                     chapter,
                     on_translation_event=on_translation_event if emit_translation_events else None,
@@ -363,7 +363,7 @@ class ChapterExtractionTransformer:
                 )
             else:
                 transformed = cast(
-                    SyncChapterTransformer, self.chapter_transformer,
+                    _SyncChapterTransformer, self.chapter_transformer,
                 ).transform(
                     chapter
                 )
@@ -681,6 +681,20 @@ def append_translation_layer_to_workspace(
             json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8",
         )
     return PDFCraftExtraction._from_workspace(output_path)._validate()
+
+
+def _apply_metadata_overlay_to_workspace(
+    workspace: Path,
+    overlay: dict[str, object],
+) -> PDFCraftExtraction:
+    """Apply translated document fields to an internal one-shot workspace."""
+    manifest_path = workspace / "manifest.json"
+    manifest = _read_manifest(manifest_path)
+    manifest["document"] = {**manifest["document"], **overlay}
+    manifest_path.write_text(
+        json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8",
+    )
+    return PDFCraftExtraction._from_workspace(workspace)._validate()
 
 
 def _has_visible_content(layout: TextFlowItem) -> bool:

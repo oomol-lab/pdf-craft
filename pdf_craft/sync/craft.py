@@ -13,11 +13,10 @@ from ..metering import AbortedCheck, OCRTokensMetering
 from ..runtime import run_sync
 from ..transformer import (
     AnchoredContentTransformer,
-    ChapterTransformer,
     SyncAnchoredContentTransformer,
-    SyncChapterTransformer,
     SubmitKind,
     TranslationEvent,
+    XMLTranslator,
 )
 
 
@@ -82,8 +81,10 @@ class PDFCraft:
 
     def translate_extraction(
         self, extraction: PDFCraftExtraction | PathLike | str, output_path: PathLike | str,
-        translator: ChapterTransformer | SyncChapterTransformer,
+        translator: XMLTranslator,
         *, submit: SubmitKind = SubmitKind.REPLACE,
+        window: int = 1,
+        with_anchored: bool = True,
         with_furniture: bool = False,
         translation_id: str | None = None,
         target_language: str | None = None,
@@ -91,6 +92,8 @@ class PDFCraft:
     ) -> PDFCraftExtraction:
         return run_sync(self._async_craft.translate_extraction(
             extraction, output_path, translator, submit=submit,
+            window=window,
+            with_anchored=with_anchored,
             with_furniture=with_furniture,
             translation_id=translation_id, target_language=target_language,
             on_translation_event=on_translation_event,
@@ -126,14 +129,18 @@ class PDFCraft:
     def translate_pdf(
         self, source: PathLike | str, extraction: PDFCraftExtraction | PathLike | str,
         output: PathLike | str,
-        transformer: ChapterTransformer | SyncChapterTransformer,
+        translator: XMLTranslator,
         *,
+        window: int = 1,
+        with_anchored: bool = True,
         with_furniture: bool = False,
         on_translation_event: Callable[[TranslationEvent], None] | None = None,
         ignore_errors: IgnoreFillErrorsChecker = False,
     ) -> None:
         run_sync(self._async_craft.translate_pdf(
-            source, extraction, output, transformer,
+            source, extraction, output, translator,
+            window=window,
+            with_anchored=with_anchored,
             with_furniture=with_furniture,
             on_translation_event=on_translation_event,
             ignore_errors=ignore_errors,
@@ -145,10 +152,12 @@ class PDFCraft:
         extraction: PDFCraftExtraction | PathLike | str,
         output: PathLike | str,
         *,
+        translation_id: str | None = None,
         ignore_errors: IgnoreFillErrorsChecker = False,
     ) -> None:
         run_sync(self._async_craft.patch_pdf_with_extraction(
-            source, extraction, output, ignore_errors=ignore_errors,
+            source, extraction, output, translation_id=translation_id,
+            ignore_errors=ignore_errors,
         ))
 
     def translate_epub(
@@ -165,14 +174,18 @@ class PDFCraft:
         extraction_path: PathLike | str | None = None,
         extraction: ExtractionOptions | None = None,
         assets_path: PathLike | str | None = None,
-        translator: ChapterTransformer | SyncChapterTransformer | None = None,
+        translator: XMLTranslator | None = None,
         submit: SubmitKind = SubmitKind.REPLACE,
+        window: int = 1,
+        with_anchored: bool = True,
         on_translation_event: Callable[[TranslationEvent], None] | None = None,
     ) -> OCRTokensMetering:
         return run_sync(self._async_craft.convert_pdf_to_markdown(
             source, output, analysing_path=analysing_path,
             extraction_path=extraction_path, extraction=extraction,
             assets_path=assets_path, translator=translator, submit=submit,
+            window=window,
+            with_anchored=with_anchored,
             on_translation_event=on_translation_event,
         ))
 
@@ -185,8 +198,10 @@ class PDFCraft:
         table_render: TableRender = TableRender.HTML,
         latex_render: LaTeXRender = LaTeXRender.MATHML,
         inline_latex: bool = True,
-        translator: ChapterTransformer | SyncChapterTransformer | None = None,
+        translator: XMLTranslator | None = None,
         submit: SubmitKind = SubmitKind.REPLACE,
+        window: int = 1,
+        with_anchored: bool = True,
         on_translation_event: Callable[[TranslationEvent], None] | None = None,
     ) -> OCRTokensMetering:
         return run_sync(self._async_craft.convert_pdf_to_epub(
@@ -195,5 +210,7 @@ class PDFCraft:
             book_meta=book_meta, lan=lan, table_render=table_render,
             latex_render=latex_render, inline_latex=inline_latex,
             translator=translator, submit=submit,
+            window=window,
+            with_anchored=with_anchored,
             on_translation_event=on_translation_event,
         ))

@@ -22,7 +22,7 @@ from pdf_craft.extractor.chapter.chapter import (
     encode,
 )
 from pdf_craft.markdown.paragraph import HTMLTag, tag_definition
-from pdf_craft.transformer.chapter_xml import ChapterXMLTransformer
+from pdf_craft.transformer.narrative_xml import NarrativeXMLTransformer
 from pdf_craft.transformer.xml_translator.segment import search_text_segments
 from pdf_craft.transformer.xml_translator.xml_translator.callbacks import warp_callbacks
 from pdf_craft.transformer.xml_translator.xml_translator.stream_mapper import XMLStreamMapper
@@ -115,7 +115,7 @@ class TestChapterFormulaTranslation(unittest.TestCase):
         ])
         translator = _FormulaAwareTranslator()
 
-        translated = ChapterXMLTransformer(translator)._transform_blocking(chapter)
+        translated = NarrativeXMLTransformer(translator)._transform_blocking(chapter)
 
         source = "\n".join(translator.model_sources)
         self.assertIn("$x^2$", source)
@@ -148,7 +148,7 @@ class TestChapterFormulaTranslation(unittest.TestCase):
             )]),
         ])
 
-        translated = ChapterXMLTransformer(
+        translated = NarrativeXMLTransformer(
             _FormulaAwareTranslator(),
         )._transform_blocking(chapter)
 
@@ -182,7 +182,7 @@ class TestChapterFormulaTranslation(unittest.TestCase):
             )]),
         ])
 
-        translated = ChapterXMLTransformer(_ReorderingFormulaTranslator())._transform_blocking(chapter)
+        translated = NarrativeXMLTransformer(_ReorderingFormulaTranslator())._transform_blocking(chapter)
 
         layout = translated.flow_items[0]
         self.assertIsInstance(layout, TextFlowItem)
@@ -214,7 +214,7 @@ class TestChapterFormulaTranslation(unittest.TestCase):
             ]),
         ])
 
-        translated = ChapterXMLTransformer(_FormulaAwareTranslator())._transform_blocking(chapter)
+        translated = NarrativeXMLTransformer(_FormulaAwareTranslator())._transform_blocking(chapter)
 
         layout = translated.flow_items[0]
         self.assertIsInstance(layout, TextFlowItem)
@@ -242,7 +242,7 @@ class TestChapterFormulaTranslation(unittest.TestCase):
         ])
         translator = _FormulaAwareTranslator(max_group_score=1)
 
-        translated = ChapterXMLTransformer(translator)._transform_blocking(chapter)
+        translated = NarrativeXMLTransformer(translator)._transform_blocking(chapter)
 
         self.assertTrue(any(
             "Before equation." in source and r"$$\int_0^1 x^2 dx$$" in source
@@ -280,7 +280,7 @@ class TestChapterFormulaTranslation(unittest.TestCase):
                 ])
 
                 translator = _FormulaAwareTranslator()
-                translated = ChapterXMLTransformer(translator)._transform_blocking(chapter)
+                translated = NarrativeXMLTransformer(translator)._transform_blocking(chapter)
 
                 restored = translated.flow_items[1]
                 self.assertIsInstance(restored, DisplayFormula)
@@ -310,7 +310,7 @@ class TestChapterFormulaTranslation(unittest.TestCase):
         )
         translator = _FormulaAwareTranslator()
 
-        translated = ChapterXMLTransformer(translator)._transform_blocking(
+        translated = NarrativeXMLTransformer(translator)._transform_blocking(
             Chapter(None, 0, [DisplayFormula(equation)])
         )
 
@@ -340,7 +340,7 @@ class TestChapterFormulaTranslation(unittest.TestCase):
         )
         translator = _FormulaAwareTranslator(max_group_score=1)
 
-        translated = ChapterXMLTransformer(translator)._transform_blocking(
+        translated = NarrativeXMLTransformer(translator)._transform_blocking(
             Chapter(None, 0, [DisplayFormula(equation)])
         )
 
@@ -352,7 +352,7 @@ class TestChapterFormulaTranslation(unittest.TestCase):
             TextFlowItem("body", 0, [SourceTextFragment(1, 1, (1, 1, 100, 30), ["plain text"])]),
         ])
 
-        translated = ChapterXMLTransformer(_FormulaAwareTranslator())._transform_blocking(chapter)
+        translated = NarrativeXMLTransformer(_FormulaAwareTranslator())._transform_blocking(chapter)
 
         layout = translated.flow_items[0]
         self.assertIsInstance(layout, TextFlowItem)

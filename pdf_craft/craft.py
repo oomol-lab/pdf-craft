@@ -43,19 +43,19 @@ from .pipeline.epub import translate_epub as run_epub_translation
 from .pipeline.pdf import PDFTranslationPipeline
 from .renderer import EpubRenderer, MarkdownRenderer
 from .transformer import (
-    ChapterExtractionTransformer,
-    ChapterTransformer,
     SyncAnchoredContentTransformer,
-    SyncChapterTransformer,
     AnchoredContentExtractionTransformer,
     AnchoredContentTransformer,
     SubmitKind,
     TranslationEvent,
+    XMLTranslator,
 )
-from .transformer.chapter_xml import ChapterXMLTransformer
-from .transformer.furniture_xml import FurnitureXMLTransformer
+from .transformer.narrative_xml import NarrativeXMLTransformer
 from .transformer.package import (
-    FurnitureExtractionTransformer, append_translation_layer_to_workspace,
+    ChapterExtractionTransformer,
+    FurnitureExtractionTransformer,
+    _apply_metadata_overlay_to_workspace,
+    append_translation_layer_to_workspace,
 )
 from .runtime import (
     IO_DOMAIN,
@@ -203,8 +203,10 @@ class AsyncPDFCraft:
 
     async def translate_extraction(
         self, extraction: PDFCraftExtraction | PathLike | str, output_path: PathLike | str,
-        translator: ChapterTransformer | SyncChapterTransformer,
+        translator: XMLTranslator,
         *, submit: SubmitKind = SubmitKind.REPLACE,
+        window: int = 1,
+        with_anchored: bool = True,
         with_furniture: bool = False,
         translation_id: str | None = None,
         target_language: str | None = None,
@@ -216,9 +218,9 @@ class AsyncPDFCraft:
         language = (
             target_language
             if target_language is not None
-            else _transformer_target_language(translator)
+            else getattr(translator, "target_language", None)
         )
-        if language is None or not language.strip():
+        if not isinstance(language, str) or not language.strip():
             raise ValueError(
                 "target_language must be supplied or declared by the translator"
             )
@@ -227,46 +229,33 @@ class AsyncPDFCraft:
         validate_translation_id(selected_id)
         if selected_id in existing:
             raise ValueError(f"translation_id already exists: {selected_id}")
-        extraction_transformer = ChapterExtractionTransformer(
-            translator, mode=SubmitKind.REPLACE,
+        narrative_transformer = NarrativeXMLTransformer(
+            translator, mode=SubmitKind.REPLACE, window=window,
         )
-        if with_furniture and not isinstance(
-            extraction_transformer.chapter_transformer, ChapterXMLTransformer,
-        ):
-            raise ValueError("with_furniture=True requires a ChapterXMLTransformer")
         target = Path(output_path)
         if target.suffix.lower() != ".pcex":
             raise ValueError("PDFCraftExtraction path must end with .pcex")
         async with temporary_directory(
             "pdf-craft-translated-extraction-"
         ) as root:
-            metadata_overlay = (
-                await extraction_transformer.chapter_transformer.translate_metadata(
-                    await IO_DOMAIN.run(document._document_metadata)
-                )
-                if isinstance(
-                    extraction_transformer.chapter_transformer, ChapterXMLTransformer,
-                )
-                else {}
+            metadata_overlay = await narrative_transformer.translate_metadata(
+                await IO_DOMAIN.run(document._document_metadata)
             )
-            translated = await extraction_transformer._transform_to_workspace_async(
+            translated = await ChapterExtractionTransformer(
+                narrative_transformer, mode=SubmitKind.REPLACE,
+            )._transform_to_workspace_async(
                 document,
                 root / "narrative",
                 on_translation_event=on_translation_event,
                 emit_translation_events=True,
             )
-            if isinstance(
-                extraction_transformer.chapter_transformer, ChapterXMLTransformer,
-            ):
+            if with_anchored:
                 translated = await AnchoredContentExtractionTransformer(
-                    extraction_transformer.chapter_transformer._anchored_transformer(),
+                    narrative_transformer._anchored_transformer(),
                 )._transform_to_workspace_async(translated, root / "anchored")
             if with_furniture:
-                furniture_transformer = _furniture_transformer_for(
-                    extraction_transformer.chapter_transformer,
-                )
                 translated = await FurnitureExtractionTransformer(
-                    furniture_transformer,
+                    narrative_transformer._furniture_transformer(),
                 )._transform_to_workspace_async(translated, root / "translated")
             layered = await IO_DOMAIN.run(
                 append_translation_layer_to_workspace,
@@ -314,24 +303,21 @@ class AsyncPDFCraft:
     async def translate_pdf(
         self, source: PathLike | str, extraction: PDFCraftExtraction | PathLike | str,
         output: PathLike | str,
-        transformer: ChapterTransformer | SyncChapterTransformer,
-        *, with_furniture: bool = False,
+        translator: XMLTranslator,
+        *, window: int = 1,
+        with_anchored: bool = True, with_furniture: bool = False,
         on_translation_event: Callable[[TranslationEvent], object] | None = None,
         ignore_errors: IgnoreFillErrorsChecker = False,
     ) -> None:
         document = await _ensure_extraction_async(extraction)
         async with temporary_directory("pdf-craft-translated-extraction-") as directory:
             translated = await self._translate_to_workspace(
-                document, Path(directory) / "narrative", transformer,
+                document, Path(directory), translator,
+                window=window,
+                with_anchored=with_anchored,
+                with_furniture=with_furniture,
                 on_translation_event=on_translation_event,
             )
-            if with_furniture:
-                chapter_transformer = ChapterExtractionTransformer(transformer)
-                if not isinstance(chapter_transformer.chapter_transformer, ChapterXMLTransformer):
-                    raise ValueError("with_furniture=True requires a ChapterXMLTransformer")
-                translated = await FurnitureExtractionTransformer(
-                    _furniture_transformer_for(chapter_transformer.chapter_transformer),
-                )._transform_to_workspace_async(translated, Path(directory) / "translated")
             await self.patch_pdf_with_extraction(
                 source, translated, output, ignore_errors=ignore_errors,
             )
@@ -341,7 +327,8 @@ class AsyncPDFCraft:
         source: PathLike | str,
         extraction: PDFCraftExtraction | PathLike | str,
         output: PathLike | str,
-        *, ignore_errors: IgnoreFillErrorsChecker = False,
+        *, translation_id: str | None = None,
+        ignore_errors: IgnoreFillErrorsChecker = False,
     ) -> None:
         document = await _ensure_extraction_async(extraction)
         source_path = Path(source)
@@ -352,6 +339,7 @@ class AsyncPDFCraft:
                 await QT_DOMAIN.run(
                     _patch_pdf_sync,
                     source_path, document, output_path, None, worker_checker,
+                    translation_id,
                 )
                 return
 
@@ -370,7 +358,7 @@ class AsyncPDFCraft:
                 await QT_DOMAIN.run(
                     _patch_pdf_sync,
                     source_path, document, output_path,
-                    materialized_handler, worker_checker,
+                    materialized_handler, worker_checker, translation_id,
                 )
 
     async def translate_epub(
@@ -391,8 +379,10 @@ class AsyncPDFCraft:
         extraction_path: PathLike | str | None = None,
         extraction: ExtractionOptions | None = None,
         assets_path: PathLike | str | None = None,
-        translator: ChapterTransformer | SyncChapterTransformer | None = None,
+        translator: XMLTranslator | None = None,
         submit: SubmitKind = SubmitKind.REPLACE,
+        window: int = 1,
+        with_anchored: bool = True,
         on_translation_event: Callable[[TranslationEvent], object] | None = None,
     ) -> OCRTokensMetering:
         options = replace(extraction or ExtractionOptions(), includes_furniture=False)
@@ -405,8 +395,10 @@ class AsyncPDFCraft:
                     "pdf-craft-translated-extraction-"
                 ) as directory:
                     document = await self._translate_to_workspace(
-                        document, Path(directory) / "extraction", translator,
-                        submit=submit, on_translation_event=on_translation_event,
+                        document, Path(directory), translator,
+                        submit=submit, window=window,
+                        with_anchored=with_anchored,
+                        on_translation_event=on_translation_event,
                     )
                     await self.render_markdown(
                         document, output, assets_path, aborted=options.aborted,
@@ -424,8 +416,10 @@ class AsyncPDFCraft:
         table_render: TableRender = TableRender.HTML,
         latex_render: LaTeXRender = LaTeXRender.MATHML,
         inline_latex: bool = True,
-        translator: ChapterTransformer | SyncChapterTransformer | None = None,
+        translator: XMLTranslator | None = None,
         submit: SubmitKind = SubmitKind.REPLACE,
+        window: int = 1,
+        with_anchored: bool = True,
         on_translation_event: Callable[[TranslationEvent], object] | None = None,
     ) -> OCRTokensMetering:
         options = replace(extraction or ExtractionOptions(), includes_furniture=False)
@@ -438,8 +432,10 @@ class AsyncPDFCraft:
                     "pdf-craft-translated-extraction-"
                 ) as directory:
                     document = await self._translate_to_workspace(
-                        document, Path(directory) / "extraction", translator,
-                        submit=submit, on_translation_event=on_translation_event,
+                        document, Path(directory), translator,
+                        submit=submit, window=window,
+                        with_anchored=with_anchored,
+                        on_translation_event=on_translation_event,
                     )
                     await self.render_epub(
                         document, output, book_meta=book_meta, lan=lan,
@@ -482,18 +478,43 @@ class AsyncPDFCraft:
         )
 
     async def _translate_to_workspace(
-        self, extraction: PDFCraftExtraction, output_path: Path,
-        transformer: ChapterTransformer | SyncChapterTransformer, *,
+        self, extraction: PDFCraftExtraction, workspace: Path,
+        translator: XMLTranslator, *,
         submit: SubmitKind = SubmitKind.REPLACE,
+        window: int = 1,
+        with_anchored: bool = True,
+        with_furniture: bool = False,
         on_translation_event: Callable[[TranslationEvent], object] | None = None,
     ) -> PDFCraftExtraction:
-        extraction_transformer = ChapterExtractionTransformer(transformer, mode=submit)
-        return await extraction_transformer._transform_to_workspace_async(
+        narrative_transformer = NarrativeXMLTransformer(
+            translator, mode=submit, window=window,
+        )
+        metadata_overlay = await narrative_transformer.translate_metadata(
+            await IO_DOMAIN.run(extraction._document_metadata)
+        )
+        translated = await ChapterExtractionTransformer(
+            narrative_transformer, mode=submit,
+        )._transform_to_workspace_async(
             extraction,
-            output_path,
+            workspace / "narrative",
             on_translation_event=on_translation_event,
             emit_translation_events=True,
         )
+        if metadata_overlay:
+            translated = await IO_DOMAIN.run(
+                _apply_metadata_overlay_to_workspace,
+                workspace / "narrative",
+                metadata_overlay,
+            )
+        if with_anchored:
+            translated = await AnchoredContentExtractionTransformer(
+                narrative_transformer._anchored_transformer(),
+            )._transform_to_workspace_async(translated, workspace / "anchored")
+        if with_furniture:
+            translated = await FurnitureExtractionTransformer(
+                narrative_transformer._furniture_transformer(),
+            )._transform_to_workspace_async(translated, workspace / "furniture")
+        return translated
 
     def _sync_pdf_handler(self) -> PDFHandler | None:
         if self._pdf is None or self._pdf.pdf_handler is None:
@@ -703,12 +724,14 @@ def _patch_pdf_sync(
     output: Path,
     pdf_handler: PDFHandler | None,
     ignore_errors: IgnoreFillErrorsChecker,
+    translation_id: str | None = None,
 ) -> None:
     extraction._validate()
     if not _ignore_errors_requested(ignore_errors):
         _validate_extraction_for_pdf(source, extraction)
     PDFTranslationPipeline(pdf_handler=pdf_handler).patch(
-        source, output, extraction, ignore_errors=ignore_errors,
+        source, output, extraction, translation_id=translation_id,
+        ignore_errors=ignore_errors,
     )
 
 
@@ -868,24 +891,6 @@ def _validate_extraction_for_pdf(source: Path, extraction: PDFCraftExtraction) -
 def _ignore_errors_requested(checker: IgnoreFillErrorsChecker) -> bool:
     """Defer page-addressable validation when a fill recovery policy exists."""
     return checker is True or callable(checker)
-
-
-def _furniture_transformer_for(
-    transformer: ChapterTransformer | SyncChapterTransformer,
-) -> FurnitureXMLTransformer:
-    """Reuse the XML translation runtime for the optional furniture pass."""
-    if not isinstance(transformer, ChapterXMLTransformer):
-        raise ValueError("with_furniture=True requires a ChapterXMLTransformer")
-    return transformer._furniture_transformer()
-
-
-def _transformer_target_language(
-    transformer: ChapterTransformer | SyncChapterTransformer,
-) -> str | None:
-    if isinstance(transformer, ChapterXMLTransformer):
-        return transformer.target_language
-    value = getattr(transformer, "target_language", None)
-    return value if isinstance(value, str) else None
 
 
 def _new_translation_id(existing: set[str]) -> str:

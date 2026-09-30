@@ -190,9 +190,9 @@ translated = craft.translate_extraction(
 translations = craft.list_translations(translated)
 ```
 
-`translate_extraction()` 创建新的 `.pcex`，但不替换 source layer，而是在 `translations/` 下追加一个译文。调用方可指定 4 到 32 字符的 opaque `translation_id`，也可让 pdf-craft 生成 8 位十六进制 ID。ID 在文件内唯一；`target_language` 只是元数据，因此同一语言可以有多个 ID。每层包含完整章节译文、`language` 为目标语言的 metadata overlay 与独立 coverage。使用 `ChapterXMLTransformer` 时，图片/表格的 title、content、caption 会通过独立 anchored-content adapter 翻译并写入 coverage；`with_furniture=True` 时还在该层保存 furniture 译文。
+`translate_extraction()` 创建新的 `.pcex`，但不替换 source layer，而是在 `translations/` 下追加一个译文。调用方可指定 4 到 32 字符的 opaque `translation_id`，也可让 pdf-craft 生成 8 位十六进制 ID。ID 在文件内唯一；`target_language` 只是元数据，因此同一语言可以有多个 ID。每层包含完整章节译文、`language` 为目标语言的 metadata overlay 与独立 coverage。narrative 与 metadata 固定经过标准 XML 流水线；`with_anchored=True` 时记录图片/表格 title、content、caption 译文，`with_furniture=True` 时保存 furniture 译文。
 
-译文层只保存替换式的纯译文。这里拒绝 `SubmitKind.APPEND_*`，因为替换或双语属于后续渲染选择。Markdown 和 EPUB 渲染通过 `RenderMode` 选择仅 source、译文替换或双语输出；替换与双语模式可指定 translation ID，省略时稳定选择 index 中的第一层。PDF 渲染尚不能选择已存储的 translation layer。一站式转换和 `translate_pdf()` 仍会为既有输出行为生成内部临时译文视图。
+译文层只保存替换式的纯译文。这里拒绝 `SubmitKind.APPEND_*`，因为替换或双语属于后续渲染选择。Markdown 和 EPUB 渲染通过 `RenderMode` 选择仅 source、译文替换或双语输出；替换与双语模式可指定 translation ID，省略时稳定选择 index 中的第一层。PDF 写回可显式选择 translation ID，并应用其 narrative、metadata 与 furniture coverage；anchored 字段缺少字段级 PDF 坐标，只供可重排输出使用。
 
 ### `translations/` 的 identity 与隔离
 
@@ -203,14 +203,14 @@ ASCII 字母、数字、下划线或连字符；它在当前文件中唯一，�
 每个译文层与 source 使用完全相同的章节文件名。对应关系复用 PCEX 原有 identity：chapter identity、
 fragment 的 `(page_index, source_order)`、自然段首 fragment identity、chapter scope 内 reference 的
 `(page_index, order)`，以及图片/表格 asset 的 flow slot。译文可以改变文字，但不能改变这些 identity、
-页面几何或 asset 结构。图片/表格字段只有在 anchored coverage 标记为 `translated` 的 slot 中才可变化。`coverage.xml` 复用现有 coverage schema，且只能引用 source identity。
+页面几何或 asset 结构。图片/表格字段只有在 anchored coverage 标记为 `translated` 的 slot 中才可变化。`coverage.xml` 复用现有 coverage schema，且只能引用 source identity。没有 coverage 条目的组件不生成空节点；空的 `<translation/>` 合法，表示所有单元均回退原文。
 可选 furniture 译文保留 `(pattern_id, position_id)` 和 `(page_index, det)` identity。`metadata.json` 是
 按字段名覆盖的 overlay，不增加人工节点 ID；其中 `language` 必须等于 index 中的目标语言。
 
 `translate_extraction()` 会把嵌在 `<text>` 内的图片/表格 asset 视为不透明、自闭合的 anchor：它们的 title、content、caption
 不会进入 NarrativeFlow 的 LLM 请求，而是以临时、不可变的位置标记维持段落前后关系，并由 XML 修复协议严格校验。`<standalone-asset>`
 保留在 NarrativeFlow 之外，不会伪造段落 anchor。
-使用 `ChapterXMLTransformer` 时，`translate_extraction()` 会在 NarrativeFlow 后自动执行独立 anchored-content 阶段；底层 `translate_anchored_contents()` 入口仍可用于自定义流水线。该阶段只处理小批 asset，并可得到邻近正文的临时上下文，随后在 `translation.xml` 的
+`with_anchored=True` 时，`translate_extraction()` 会在 NarrativeFlow 后执行独立 anchored-content 阶段；底层 `translate_anchored_contents()` 入口仍可用于自定义流水线。该阶段只处理小批 asset，并可得到邻近正文的临时上下文，随后在 `translation.xml` 的
 `<anchored><asset .../></anchored>` 中记录覆盖状态。尚未提取的图内视觉文字不会被误标为已翻译。
 
 可变页码以结构化信息表示，而不是作为可复用 pattern position 的文本：folio `position` 带有 `folio_style`（`D`、`R`、`r`、`A` 或 `a`）和 `folio_offset`，也可带 `folio_prefix`、`folio_suffix`。关联到每页的 section 仍保留实际印刷出的页码。翻译 furniture 时只翻译固定修饰文字；PDF 回填会根据每个关联页及 offset 重建页码，从而不会把抽样页的页码翻译一次后错误地写到所有共享该 position 的页面。

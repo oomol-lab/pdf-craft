@@ -5,7 +5,7 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 import unittest
 from unittest.mock import patch
-from typing import cast
+from typing import Any, cast
 
 import pypdf
 from reportlab.pdfgen import canvas
@@ -49,7 +49,7 @@ class TestPDFDocumentMetadata(unittest.TestCase):
             craft = PDFCraft()
 
             with patch.object(craft, "translate_extraction", return_value=extraction):
-                craft.translate_pdf(source, extraction, target, _IdentityTransformer())
+                craft.translate_pdf(source, extraction, target, cast(Any, _IdentityTransformer()))
 
             metadata = pypdf.PdfReader(str(target)).metadata
             assert metadata is not None
@@ -122,8 +122,8 @@ class TestPDFDocumentMetadata(unittest.TestCase):
 
 
 class _IdentityTransformer:
-    def transform(self, chapter):
-        return chapter
+    def translate_element(self, task, **_kwargs):
+        return task.element, task.payload
 
 
 class _BlankVisualBaseCompiler:

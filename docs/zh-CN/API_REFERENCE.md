@@ -32,8 +32,6 @@ writer 收尾、删除临时归档并保持目标不存在；若发布边界先�
 中运行；取消或内部超时会终止命令及其派生进程，正常完成或失败也会回收晚于父进程退出的
 后代。取消 Qt worker 时，会先完成这些清理，再结束 worker 本身。
 
-扩展实现采用仅异步的 `ChapterTransformer` 协议，实现
-`async def transform(chapter)`；异步门面会直接在调用方事件循环中等待它。
 图片/表格独立翻译采用仅异步的 `AnchoredContentTransformer`，提供
 `async def transform_assets(assets)`。
 `PDFOptions.pdf_handler` 也接受 `AsyncPDFHandler`：其 `open()` 返回
@@ -66,7 +64,7 @@ writer 收尾、删除临时归档并保持目标不存在；若发布边界先�
 - 六种 OCR 配置对象和 `OCRConfig`
 - `predownload_models`
 - `LLM`
-- `ExtractionTransformer`、`ChapterExtractionTransformer`、`ChapterXMLTransformer`、
+- `ExtractionTransformer`、`NarrativeXMLTransformer`、
   `AnchoredContentExtractionTransformer`、`AnchoredContentTransformer`、
   `AnchoredContentXMLTransformer`、`XMLTranslator`、`SubmitKind`
 - `BookMeta`、`TableRender`、`LaTeXRender`
@@ -81,8 +79,7 @@ writer 收尾、删除临时归档并保持目标不存在；若发布边界先�
 - `PDFError`、`OCRError`、`NoUsableFillPagesError`、`IgnorePDFErrorsChecker`、
   `IgnoreOCRErrorsChecker`、`IgnoreFillErrorsChecker`
 
-`ChapterTransformer` 与 `AnchoredContentTransformer` 是仅异步的公共扩展协议。前者的导入路径为
-`from pdf_craft.transformer import ChapterTransformer`，`AnchoredContentTransformer` 也可直接从包顶层导入。本文不把以下内容当作
+`AnchoredContentTransformer` 是仅异步的公共扩展协议，也可直接从包顶层导入。本文不把以下内容当作
 公共扩展点：内部 engine、`pdf_craft_tool` CLI、`pdf_craft` 的私有模块路径，以及
 `doc-page-extractor` 的内部 extractor/factory。
 
@@ -290,7 +287,7 @@ craft.render_epub(
     book_meta=BookMeta(title="Book title", authors=["Author"]),
 )
 
-# translation_id 省略时，稳定选择 translations/index.json 中的第一项。
+# translation_id 省略时，稳定选择第一份翻译结果。
 craft.render_markdown(
     extraction, "translated.md", mode=RenderMode.REPLACE,
 )
@@ -304,14 +301,14 @@ craft.render_epub(
 `toc.xml`。Markdown 可选复制图片资源；EPUB 从 `manifest.json` 读取默认元数据和语言，调用时
 显式提供的 `book_meta` / `lan` 优先。
 
-`RenderMode.SOURCE` 只渲染 source layer，不选择译文。`RenderMode.REPLACE` 用所选译文替换
-已翻译单元；coverage 标记为 preserved 或缺少 coverage 的单元回退到 source。
-`RenderMode.BILINGUAL` 输出 source 加所选译文。后两种模式可传文件内唯一的
-`translation_id`；省略时稳定选择 `translations/index.json` 的第一项。没有任何译文、显式 ID
+`RenderMode.SOURCE` 只渲染原文，不选择译文。`RenderMode.REPLACE` 用所选译文替换
+已翻译单元，未翻译单元回退原文。
+`RenderMode.BILINGUAL` 输出原文加所选译文。后两种模式可传文件内唯一的
+`translation_id`；省略时稳定选择第一份翻译结果。没有任何译文、显式 ID
 不存在或 ID 格式非法时会明确失败，不会静默改选其他译文。也可先调用
 `resolve_translation(extraction, translation_id=None)` 得到实际选择的 `TranslationInfo`。
-译文 metadata 覆盖 source metadata，缺少的字段保留 source；双语书名、描述、章节标题、目录标题
-以及 coverage 标记为已翻译的图片/表格字段同时包含两种文本。
+译文 metadata 覆盖原文 metadata，缺少的字段保留原值；双语书名、描述、章节标题、目录标题
+以及已翻译的图片/表格字段同时包含两种文本。
 
 ### PDF 转换时翻译
 
@@ -324,19 +321,7 @@ craft.convert_pdf_to_markdown(
 )
 ```
 
-自定义章节变换器可以实现 `ChapterTransformer` 协议：
-
-```python
-from pdf_craft.transformer import ChapterTransformer
-
-def accepts_transformer(transformer: ChapterTransformer) -> None:
-    ...
-```
-
-这是低层协议：章节的具体 XML/布局对象不从包顶层导出。需要由文本 LLM 完成章节翻译时，
-请使用下一节的 `XMLTranslator` 和 `ChapterXMLTransformer` 组合，而不是自行猜测章节内部
-结构。`SubmitKind.REPLACE`、`SubmitKind.APPEND_TEXT` 和 `SubmitKind.APPEND_BLOCK` 的
-含义取决于变换器；PDF 写回仅拒绝 `APPEND_BLOCK`。
+标准 PDF/PCEX 翻译入口直接接收 `XMLTranslator`，章节内部布局不是公共扩展面。
 
 ### 翻译并写回 PDF
 
@@ -356,7 +341,10 @@ craft.translate_pdf(
 如果已经有翻译后的 `.pcex`，也可以单独写回：
 
 ```python
-craft.patch_pdf_with_extraction("input.pdf", "work/translated.pcex", "translated.pdf")
+craft.patch_pdf_with_extraction(
+    "input.pdf", "work/translated.pcex", "translated.pdf",
+    translation_id="zh-main",
+)
 ```
 
 `translate_pdf` 与 `patch_pdf_with_extraction` 默认在写回错误时立即失败。传入
@@ -391,27 +379,6 @@ plot 和 done 标记属于 analysis 诊断信息，不进入 `.pcex`。
 
 ## 翻译与变换接口
 
-### ChapterTransformer
-
-章节变换器实现一个可等待的 `transform(chapter) -> chapter` 方法。它可以修改章节文本、段落或布局，
-并被 `translate_extraction` 和 `translate_pdf` 使用。实现该低层协议时，需从
-它的实际定义处导入 `Chapter`：
-
-```python
-from pdf_craft.extractor.chapter.chapter import Chapter
-from pdf_craft.transformer import ChapterTransformer
-
-class KeepChapterStructure:
-    async def transform(self, chapter: Chapter) -> Chapter:
-        # 修改 chapter 后返回同一个 Chapter；必须保留来源坐标和页面信息。
-        return chapter
-
-transformer: ChapterTransformer = KeepChapterStructure()
-```
-
-章节布局类型不是顶层 facade 的日常 API。自行编辑它们时必须保留原有页面来源信息，否则 PDF
-写回无法定位原文；纯文本翻译应优先使用下一节的 `XMLTranslator`，避免依赖章节内部结构。
-
 ### ExtractionTransformer
 
 extraction 变换器实现：
@@ -426,12 +393,11 @@ async def transform(extraction: PDFCraftExtraction, output_path: Path) -> PDFCra
 ### 使用 XMLTranslator 翻译 PDF 章节
 
 `XMLTranslator` 是包顶层导出的结构化文本翻译器。它需要分别提供翻译文本和修复 XML
-结构的 LLM；同一个 `LLM` 可以同时承担两项工作。将它包装为 `ChapterXMLTransformer` 后，
-即可作为 `translator` 传给 PDF 转换或 extraction 翻译入口：
+结构的 LLM；同一个 `LLM` 可以同时承担两项工作。标准 PDF 转换或 extraction 翻译入口直接
+接收该对象：
 
 ```python
 from pdf_craft import (
-    ChapterXMLTransformer,
     ConcurrentExecutor,
     FixedCapacity,
     LLM,
@@ -457,9 +423,8 @@ xml_translator = XMLTranslator(
     max_group_score=2600,
     executor=executor,
 )
-translator = ChapterXMLTransformer(xml_translator)
 craft.convert_pdf_to_markdown(
-    "input.pdf", "translated.md", translator=translator,
+    "input.pdf", "translated.md", translator=xml_translator,
     submit=SubmitKind.REPLACE,
 )
 ```
@@ -476,8 +441,9 @@ craft.convert_pdf_to_markdown(
 translated_extraction = craft.translate_extraction(
     extraction,
     "work/translated.pcex",
-    ChapterXMLTransformer(xml_translator),
+    xml_translator,
     submit=SubmitKind.REPLACE,
+    with_anchored=True,
     with_furniture=True,
     translation_id="zh-main",
     target_language="zh",
@@ -485,16 +451,15 @@ translated_extraction = craft.translate_extraction(
 translations = craft.list_translations(translated_extraction)
 ```
 
-`translate_extraction()` 保留 source layer，并追加一个只含纯译文的 translation layer。调用方可指定
-文件内唯一的短 opaque `translation_id`，也可自动生成；ID 才是 identity，目标语言只是元数据，
-所以同一语言可有多个译文。重复 ID 会在翻译开始前拒绝。`list_translations()` 返回每层的 ID、
-目标语言和创建时间。目标语言可以由调用方显式传入，也可以由 translator 声明；两者都未提供时，
-调用会在翻译开始前失败。PCEX 层不编码双语排版，因此该方法只接受 `REPLACE`；双语或替换是后续
-渲染选择；`render_markdown` 和 `render_epub` 通过 `RenderMode` 选择 source、译文替换或双语输出。
+`translate_extraction()` 保留原文并追加一个翻译版本。调用方可指定文件内唯一的短 opaque
+`translation_id`，也可自动生成；同一语言可以有多个版本。重复 ID 会在翻译开始前拒绝。
+`list_translations()` 返回每个版本的 ID、目标语言和创建时间。目标语言可以由调用方显式传入，
+也可以由 translator 声明；两者都未提供时，调用会在翻译开始前失败。该方法只接受 `REPLACE`；
+`render_markdown` 和 `render_epub` 通过 `RenderMode` 选择原文、译文替换或双语输出。
 
-`with_furniture` 默认是 `False`；设为 `True` 时需要 `ChapterXMLTransformer`，译后的 furniture 与
-coverage 保存在新层内。使用 `ChapterXMLTransformer` 时，图片/表格 asset 文本会通过独立 anchored-content 阶段翻译并记录 coverage。`translate_pdf()` 为保持
-既有 PDF 输出仍使用内部临时译文视图，不直接渲染这些 layer。
+标准入口直接接收 `XMLTranslator`。narrative 与 metadata 固定执行；`with_anchored` 默认是
+`True`，只控制独立图片/表格文字阶段；`with_furniture` 默认是 `False`，只控制页面 furniture
+阶段。三个阶段由 pdf-craft 内部使用固定 adapter 编排，开关不会改变翻译算法。
 
 `translate_extraction` 不会把图片/表格的 title、content、caption 混入正文 LLM 上下文；只有段内
 asset 以无文本、不可变 anchor 维持前后文本的位置，`StandaloneAsset` 不伪造 anchor。随后自动组合的独立 asset 阶段以稳定 identity 绑定每个结果。底层

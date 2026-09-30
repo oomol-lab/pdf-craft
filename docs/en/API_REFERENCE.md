@@ -40,9 +40,7 @@ timeout terminates the command and its descendants; successful and failed
 commands also reap descendants that outlive their parent. Qt-worker
 cancellation performs this cleanup before the worker itself exits.
 
-Extension authors implement the async-only `ChapterTransformer` protocol with
-`async def transform(chapter)`; the async façade awaits it directly on the
-caller loop. Independent image/table translation likewise uses the async-only
+Independent image/table translation uses the async-only
 `AnchoredContentTransformer` protocol with `async def transform_assets(assets)`.
 `PDFOptions.pdf_handler` also accepts `AsyncPDFHandler`, whose
 `open()` returns an `AsyncPDFDocument` with awaitable `pages_count()`,
@@ -89,8 +87,8 @@ craft = PDFCraft(pdf=PDFOptions(ocr=your_ocr_config))
 | `extract_pdf_with_metering` | `extract_pdf_with_metering(source, extraction_path, options=None, *, analysing_path=None) -> tuple[PDFCraftExtraction, OCRTokensMetering]` is the same extraction with OCR token accounting. |
 | `render_markdown` | `render_markdown(extraction, output, assets_path=None, *, mode=RenderMode.SOURCE, translation_id=None, aborted=...)` writes Markdown and optional assets from a `PDFCraftExtraction` or `.pcex` path. |
 | `render_epub` | `render_epub(extraction, output, *, book_meta=None, lan=None, table_render=..., latex_render=..., inline_latex=True, mode=RenderMode.SOURCE, translation_id=None, aborted=...)` writes an EPUB. Metadata and language default to the selected document layer. |
-| `convert_pdf_to_markdown` | `convert_pdf_to_markdown(source, output, *, analysing_path=None, extraction_path=None, extraction=None, assets_path=None, translator=None, submit=SubmitKind.REPLACE, on_translation_event=None) -> OCRTokensMetering` is the one-shot PDF-to-Markdown workflow. |
-| `convert_pdf_to_epub` | `convert_pdf_to_epub(source, output, *, analysing_path=None, extraction_path=None, extraction=None, book_meta=None, lan=None, table_render=..., latex_render=..., inline_latex=True, translator=None, submit=SubmitKind.REPLACE, on_translation_event=None) -> OCRTokensMetering` is the one-shot PDF-to-EPUB workflow. |
+| `convert_pdf_to_markdown` | `convert_pdf_to_markdown(source, output, *, ..., translator=None, submit=SubmitKind.REPLACE, window=1, with_anchored=True, on_translation_event=None) -> OCRTokensMetering` is the one-shot PDF-to-Markdown workflow. |
+| `convert_pdf_to_epub` | `convert_pdf_to_epub(source, output, *, ..., translator=None, submit=SubmitKind.REPLACE, window=1, with_anchored=True, on_translation_event=None) -> OCRTokensMetering` is the one-shot PDF-to-EPUB workflow. |
 
 The two `convert_pdf_to_*` methods use a directory-backed extraction inside their analysis workspace, avoiding a ZIP round trip. Give `analysing_path` to retain diagnostics and `extraction_path` to additionally export a `.pcex`. `render_epub` accepts `epub_generator.BookMeta`, `TableRender`, and `LaTeXRender` values for output customization.
 
@@ -98,17 +96,17 @@ The two `convert_pdf_to_*` methods use a directory-backed extraction inside thei
 
 | Method | Signature and purpose |
 | --- | --- |
-| `translate_extraction` | `translate_extraction(extraction, output_path, translator, *, submit=SubmitKind.REPLACE, with_furniture=False, translation_id=None, target_language=None, on_translation_event=None) -> PDFCraftExtraction` appends one independently identified replacement-text layer while retaining the source layer. |
-| `list_translations` | `list_translations(extraction) -> tuple[TranslationInfo, ...]` returns each layer's file-local ID, target language, and creation time. |
-| `resolve_translation` | `resolve_translation(extraction, translation_id=None) -> TranslationInfo` resolves an explicit ID, or the first entry in `translations/index.json` when omitted. |
-| `translate_anchored_contents` | `translate_anchored_contents(extraction, output_path, transformer) -> PDFCraftExtraction` applies the separate image/table text translation stage for custom pipelines. `translate_extraction()` composes its XML adapter automatically when given `ChapterXMLTransformer`. |
-| `translate_pdf` | `translate_pdf(source, extraction, output, transformer, *, with_furniture=False, on_translation_event=None, ignore_errors=False)` translates a PCEX through a structured chapter transformer, then patches it onto the source PDF. |
-| `patch_pdf_with_extraction` | `patch_pdf_with_extraction(source, extraction, output, *, ignore_errors=False)` patches a source PDF from a `PDFCraftExtraction` or `.pcex` path without OCR or LLM calls. |
+| `translate_extraction` | `translate_extraction(extraction, output_path, translator, *, submit=SubmitKind.REPLACE, window=1, with_anchored=True, with_furniture=False, translation_id=None, target_language=None, on_translation_event=None) -> PDFCraftExtraction` adds one independently identified translation while retaining the source. |
+| `list_translations` | `list_translations(extraction) -> tuple[TranslationInfo, ...]` returns each translation's file-local ID, target language, and creation time. |
+| `resolve_translation` | `resolve_translation(extraction, translation_id=None) -> TranslationInfo` resolves an explicit translation ID or the stable default. |
+| `translate_anchored_contents` | `translate_anchored_contents(extraction, output_path, transformer) -> PDFCraftExtraction` is the lower-level image/table text transformation entry. |
+| `translate_pdf` | `translate_pdf(source, extraction, output, translator, *, window=1, with_anchored=True, with_furniture=False, on_translation_event=None, ignore_errors=False)` runs the standard XML translation stages, then patches the result onto the source PDF. |
+| `patch_pdf_with_extraction` | `patch_pdf_with_extraction(source, extraction, output, *, translation_id=None, ignore_errors=False)` patches the root content or an explicitly selected stored translation without OCR or LLM calls. |
 | `translate_epub` | `translate_epub(source, output, *, target_language, submit, **options)` translates an existing EPUB. See [EPUB translation](EPUB_TRANSLATION.md) for its options. |
 
-`translate_extraction()` accepts a caller-supplied opaque `translation_id` or generates a short one. IDs, not languages, identify layers, so one target language may have several translations. It stores `target_language` in the layer metadata. The language may be supplied explicitly or declared by the translator; if neither provides one, the call fails before translation. Duplicate IDs are rejected before translation. PCEX layers contain replacement text only, so this method rejects append submit modes. A `ChapterXMLTransformer` also translates extracted image/table fields through the independent anchored-content stage. `with_furniture=True` stores translated page furniture inside the new layer and requires that same adapter.
+`translate_extraction()` accepts an `XMLTranslator` directly. Narrative and metadata translation always run through `NarrativeXMLTransformer`; `with_anchored` and `with_furniture` only enable or skip their corresponding standard stages. A caller-supplied opaque `translation_id` identifies the result, or pdf-craft generates a short one. The language may be supplied explicitly or declared by the translator. Duplicate IDs are rejected before translation, and append submit modes remain unsupported for stored PCEX translations.
 
-`RenderMode.SOURCE` renders only the source layer and does not select a translation. `RenderMode.REPLACE` renders one translation with source fallback for units marked or treated as preserved. `RenderMode.BILINGUAL` renders source plus that translation. REPLACE and BILINGUAL accept an explicit file-local `translation_id`; omitting it deterministically selects the first entry in `translations/index.json`. They fail when the PCEX has no translations, and an explicit missing or malformed ID is never replaced by the default. Translation metadata overlays source metadata, while missing fields retain their source values. Bilingual titles, descriptions, headings, TOC titles, and translated image/table fields include both forms according to their coverage.
+`RenderMode.SOURCE` renders the original content and does not select a translation. `RenderMode.REPLACE` renders one translation with source fallback for untranslated units. `RenderMode.BILINGUAL` renders source plus that translation. REPLACE and BILINGUAL accept an explicit file-local `translation_id`; omitting it deterministically selects the first translation. They fail when the PCEX has no translations, and an explicit missing or malformed ID is never replaced by the default. Translated metadata overrides matching source fields while missing fields retain their source values. Bilingual titles, descriptions, headings, TOC titles, and translated image/table fields include both forms.
 
 Set `ignore_errors=True` to preserve a page's non-interactive visual base when that page's fill transaction fails, then continue with later pages. The default remains fail-fast. `ignore_errors` may instead be a `Callable[[Exception], bool]` that chooses whether each page-scoped exception may fall back. Local functions and lambdas are supported: they remain in the caller process and are not required to be pickleable when Qt patching runs in isolation. Async calls dispatch the predicate on the caller's event-loop thread. If every page scheduled for fill falls back, `NoUsableFillPagesError` is raised and no output is written. This recovery scope intentionally covers ordinary page-level exceptions, including unexpected fill bugs; it does not recover a source PDF that cannot be opened, enumerated, or compiled into a visual base. Enable it only when an untranslated visual-base page beside successfully translated pages is an acceptable result.
 
@@ -248,10 +246,9 @@ The following classes are exposed for applications that need custom structured t
 
 | Type | Role |
 | --- | --- |
-| `ChapterXMLTransformer` | Adapts XML-oriented work to chapter transformation. |
+| `NarrativeXMLTransformer` | Adapts XML-oriented work to chapter transformation. |
 | `AnchoredContentXMLTransformer` | Adapts XML-oriented work to independent image/table text translation, validating each immutable asset slot before applying fields. |
 | `AnchoredContentTransformer` | Protocol for contextual batches of extracted image/table text; every non-preserved result carries its source `identity`. |
-| `ChapterExtractionTransformer` | Applies a chapter transformer across an extraction and writes a new `.pcex`. |
 | `ExtractionTransformer` | Async public protocol for `await transform(extraction, output_path) -> PDFCraftExtraction`. |
 | `XMLTranslator` | XML-aware translation engine for integrations that need direct structured translation. |
 | `FillFailedEvent` | Information passed to EPUB XML-repair failure callbacks. |

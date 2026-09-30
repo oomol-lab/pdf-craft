@@ -119,7 +119,11 @@ def read_coverage(path: Path) -> TranslationCoverage:
 
 def write_narrative_coverage(path: Path, entries: Iterable[NarrativeCoverage]) -> None:
     root = _load_or_create(path)
-    _replace_child(root, "narrative", _narrative_element(entries), before="furnitures")
+    values = tuple(entries)
+    _replace_child(
+        root, "narrative", _narrative_element(values) if values else None,
+        before="furnitures",
+    )
     _save(root, path)
 
 
@@ -129,7 +133,14 @@ def write_furniture_coverage(
     sections: Iterable[FurnitureSectionCoverage],
 ) -> None:
     root = _load_or_create(path)
-    _replace_child(root, "furnitures", _furniture_element(positions, sections))
+    position_values = tuple(positions)
+    section_values = tuple(sections)
+    _replace_child(
+        root,
+        "furnitures",
+        _furniture_element(position_values, section_values)
+        if position_values or section_values else None,
+    )
     _save(root, path)
 
 
@@ -138,7 +149,8 @@ def write_anchored_coverage(
     entries: Iterable[AnchoredContentCoverage],
 ) -> None:
     root = _load_or_create(path)
-    _replace_child(root, "anchored", _anchored_element(entries))
+    values = tuple(entries)
+    _replace_child(root, "anchored", _anchored_element(values) if values else None)
     _save(root, path)
 
 
@@ -146,10 +158,18 @@ def _load_or_create(path: Path) -> Element:
     return read_xml(path) if path.exists() else Element("translation")
 
 
-def _replace_child(root: Element, tag: str, replacement: Element, *, before: str | None = None) -> None:
+def _replace_child(
+    root: Element,
+    tag: str,
+    replacement: Element | None,
+    *,
+    before: str | None = None,
+) -> None:
     existing = root.find(tag)
     if existing is not None:
         root.remove(existing)
+    if replacement is None:
+        return
     if before is not None:
         sibling = root.find(before)
         if sibling is not None:

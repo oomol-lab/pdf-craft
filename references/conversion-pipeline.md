@@ -71,8 +71,8 @@ analysis 与稳定 extraction 明确分离：
   translation layer 索引。
 
 Narrative 翻译中的段内 asset 只以无文本临时 anchor 保持位置；独立 asset 不伪造 anchor。图片/
-表格 title/content/caption 属于独立翻译阶段；`translate_extraction()` 使用 `ChapterXMLTransformer`
-时会在 NarrativeFlow 后自动组合该阶段，并以 anchored coverage 约束 v4 translation layer 中允许变化的 slot。
+表格 title/content/caption 属于独立翻译阶段；标准高层翻译入口固定先运行 NarrativeFlow，随后由
+`with_anchored` 决定是否运行该阶段，并以 anchored coverage 约束 v4 translation layer 中允许变化的 slot。
 
 公共分段流程把 `extraction/` 打包为 `.pcex`；恢复后端只接受 `.pcex` 或已加载的
 `PDFCraftExtraction`。一键转换直接使用 workspace，只有显式 `extraction_path` 时才额外导出

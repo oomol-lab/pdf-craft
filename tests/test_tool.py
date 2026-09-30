@@ -75,7 +75,7 @@ class TestPDFCraftTool(unittest.TestCase):
             )
             transformer = Mock()
             with patch("pdf_craft_tool.cli._extract", return_value=result) as extract, patch(
-                "pdf_craft_tool.cli._xml_transformer", return_value=transformer,
+                "pdf_craft_tool.cli._xml_translator", return_value=transformer,
             ):
                 _translate_pdf(args)
 
@@ -97,7 +97,7 @@ class TestPDFCraftTool(unittest.TestCase):
             translate_craft.open_extraction.return_value = handle
             with patch("pdf_craft_tool.cli.load_project_env"), \
                     patch("pdf_craft_tool.cli.PDFCraft", return_value=translate_craft), \
-                    patch("pdf_craft_tool.cli._xml_transformer", return_value=Mock()):
+                    patch("pdf_craft_tool.cli._xml_translator", return_value=Mock()):
                 _translate_package(translate_args)
             translate_craft.open_extraction.assert_called_once_with(package)
             self.assertIs(translate_craft.translate_extraction.call_args.args[0], handle)
