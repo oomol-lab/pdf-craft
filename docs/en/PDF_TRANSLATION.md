@@ -90,12 +90,11 @@ The remaining EPUB options are useful when the default rendering is not appropri
 
 ## Translate during conversion
 
-Pass one chapter translator before Markdown or EPUB rendering. The translator is supplied by your application; it is responsible for calling a text model and returning the transformed chapter.
+Pass an `XMLTranslator` before Markdown or EPUB rendering. It translates structured XML groups through the configured text model before the selected output is rendered.
 
 ```python
 from pdf_craft import SubmitKind
 
-# translator implements transform(chapter).
 craft.convert_pdf_to_markdown(
     "book.pdf",
     "book.zh.md",
@@ -119,7 +118,6 @@ translated = craft.translate_extraction(
     extraction,
     "work/book.zh.pcex",
     translator,
-    submit=SubmitKind.REPLACE,
     translation_id="zh-main",
     target_language="zh",
 )
@@ -171,7 +169,7 @@ craft.patch_pdf_with_extraction(
 )
 ```
 
-Omit `translation_id` to retain the legacy root-content behavior. An explicit
+Omit `translation_id` to patch the current PCEX root content. An explicit
 ID selects that stored translation's narrative, metadata, and optional
 furniture. Anchored image/table text remains available to Markdown and EPUB but
 is not patched into PDF because PCEX does not retain field-level PDF geometry.

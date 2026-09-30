@@ -192,7 +192,7 @@ translations = craft.list_translations(translated)
 
 `translate_extraction()` 创建新的 `.pcex`，但不替换 source layer，而是在 `translations/` 下追加一个译文。调用方可指定 4 到 32 字符的 opaque `translation_id`，也可让 pdf-craft 生成 8 位十六进制 ID。ID 在文件内唯一；`target_language` 只是元数据，因此同一语言可以有多个 ID。每层包含完整章节译文、`language` 为目标语言的 metadata overlay 与独立 coverage。narrative 与 metadata 固定经过标准 XML 流水线；`with_anchored=True` 时记录图片/表格 title、content、caption 译文，`with_furniture=True` 时保存 furniture 译文。
 
-译文层只保存替换式的纯译文。这里拒绝 `SubmitKind.APPEND_*`，因为替换或双语属于后续渲染选择。Markdown 和 EPUB 渲染通过 `RenderMode` 选择仅 source、译文替换或双语输出；替换与双语模式可指定 translation ID，省略时稳定选择 index 中的第一层。PDF 写回可显式选择 translation ID，并应用其 narrative、metadata 与 furniture coverage；anchored 字段缺少字段级 PDF 坐标，只供可重排输出使用。
+保存的翻译版本只包含纯译文。Markdown 和 EPUB 渲染通过 `RenderMode` 选择仅 source、译文替换或双语输出；替换与双语模式可指定 translation ID，省略时稳定选择 index 中的第一个版本。PDF 写回可显式选择 translation ID，并应用其 narrative、metadata 与 furniture coverage；anchored 字段缺少字段级 PDF 坐标，只供可重排输出使用。
 
 ### `translations/` 的 identity 与隔离
 
@@ -682,7 +682,7 @@ craft.patch_pdf_with_extraction(
 )
 ```
 
-显式 `translation_id` 用于选择已保存的翻译版本；省略时保持旧行为，写回 PCEX 根内容。调用方应
+显式 `translation_id` 用于选择已保存的翻译版本；省略时写回当前 PCEX 根内容。调用方应
 提供生成该 extraction 的同一份原 PDF。当前实现会在写回前确认：
 
 - `pages.xml` 非空；

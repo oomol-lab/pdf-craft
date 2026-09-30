@@ -312,7 +312,7 @@ craft.render_epub(
 
 ### PDF 转换时翻译
 
-PDF 转换入口可以传入一个章节翻译器和提交模式，在渲染前完成一次翻译：
+PDF 转换入口可以传入一个 `XMLTranslator` 和提交模式，在渲染前完成一次翻译：
 
 ```python
 craft.convert_pdf_to_markdown(
@@ -442,7 +442,6 @@ translated_extraction = craft.translate_extraction(
     extraction,
     "work/translated.pcex",
     xml_translator,
-    submit=SubmitKind.REPLACE,
     with_anchored=True,
     with_furniture=True,
     translation_id="zh-main",
@@ -454,7 +453,7 @@ translations = craft.list_translations(translated_extraction)
 `translate_extraction()` 保留原文并追加一个翻译版本。调用方可指定文件内唯一的短 opaque
 `translation_id`，也可自动生成；同一语言可以有多个版本。重复 ID 会在翻译开始前拒绝。
 `list_translations()` 返回每个版本的 ID、目标语言和创建时间。目标语言可以由调用方显式传入，
-也可以由 translator 声明；两者都未提供时，调用会在翻译开始前失败。该方法只接受 `REPLACE`；
+也可以由 translator 声明；两者都未提供时，调用会在翻译开始前失败。保存的翻译版本只包含纯译文；
 `render_markdown` 和 `render_epub` 通过 `RenderMode` 选择原文、译文替换或双语输出。
 
 标准入口直接接收 `XMLTranslator`。narrative 与 metadata 固定执行；`with_anchored` 默认是

@@ -205,7 +205,7 @@ translations = craft.list_translations(translated)
 
 `translate_extraction()` creates a new `.pcex` without replacing the source layer. It appends one entry under `translations/`; callers may supply a 4-32 character opaque `translation_id`, or let pdf-craft generate an eight-hex-character ID. IDs are unique within the file, while `target_language` is metadata, so several IDs may use the same language. The layer contains a complete translated chapter variant, a metadata overlay whose `language` is the target language, and independent coverage. Narrative and metadata always use the standard XML pipeline; `with_anchored=True` records translated image/table title, content, and caption fields, while `with_furniture=True` additionally stores translated furniture.
 
-Translation layers contain replacement text only. `SubmitKind.APPEND_*` is rejected here because bilingual versus replacement output is a later rendering choice. Markdown and EPUB rendering select source-only, replacement, or bilingual output with `RenderMode`; replacement and bilingual modes accept a translation ID or deterministically default to the first indexed layer. PDF patching accepts an explicit translation ID and applies its narrative, metadata, and furniture coverage; anchored fields remain reflow-output content because PCEX has no field-level PDF geometry.
+Stored translations contain replacement text only. Markdown and EPUB rendering select source-only, replacement, or bilingual output with `RenderMode`; replacement and bilingual modes accept a translation ID or deterministically default to the first indexed entry. PDF patching accepts an explicit translation ID and applies its narrative, metadata, and furniture coverage; anchored fields remain reflow-output content because PCEX has no field-level PDF geometry.
 
 ### `translations/` identity and isolation
 
@@ -695,7 +695,7 @@ craft.patch_pdf_with_extraction(
 )
 ```
 
-The explicit `translation_id` selects a stored translation. Omitting it preserves the legacy behavior and patches the PCEX root content instead. The caller should supply the same source PDF from which the extraction was produced. Before patching, the current implementation confirms that:
+The explicit `translation_id` selects a stored translation. Omitting it patches the current PCEX root content. The caller should supply the same source PDF from which the extraction was produced. Before patching, the current implementation confirms that:
 
 - `pages.xml` is not empty;
 - no page index recorded by the extraction exceeds the input PDF's page count;

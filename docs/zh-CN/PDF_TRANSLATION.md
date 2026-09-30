@@ -90,7 +90,7 @@ craft.convert_pdf_to_markdown(
 
 ### 转换时翻译
 
-可以在渲染前传入一个章节翻译器，完成一次翻译，并决定译文以替换方式还是追加方式提交：
+可以在渲染前传入一个 `XMLTranslator`，完成一次翻译，并决定译文以替换方式还是追加方式提交：
 
 ```python
 from pdf_craft import SubmitKind
@@ -103,9 +103,8 @@ craft.convert_pdf_to_markdown(
 )
 ```
 
-这里的 `translator` 必须实现章节变换器接口（提供 `transform(chapter)` 方法），负责调用
-文本 LLM 并返回修改后的章节。本文只说明 pdf-craft 如何接入变换器；LLM 客户端和具体
-提示词由你的应用负责准备。
+这里的 `translator` 使用配置好的文本模型翻译结构化 XML group。章节布局及其内部变换协议
+不是公共扩展面。
 
 高层转换方法只执行一次翻译。需要分段或更细粒度控制时，可以使用
 `extract_pdf()`、`translate_extraction()` 和 `render_*()` 自行组合。
@@ -347,7 +346,7 @@ extraction, metering = craft.extract_pdf_with_metering(
 `translate_extraction` 接收 `XMLTranslator`，为已有 `.pcex` 生成一个可独立选择的翻译版本。
 narrative 与 metadata 固定翻译；`with_anchored` 和 `with_furniture` 只负责启用各自的标准阶段，
 不会更换翻译算法。调用方可指定或自动生成短 `translation_id`，同一目标语言允许多个 ID；
-`list_translations` 返回 ID、目标语言和创建时间。该接口只接受 `REPLACE`，双语或替换属于后续
+`list_translations` 返回 ID、目标语言和创建时间。保存的翻译版本只包含纯译文，双语或替换属于后续
 渲染选择。Markdown、EPUB 与 PDF 写回均可选择 `translation_id`；没有译文的单元自然回退原文。
 它不会重新 OCR。PDF 写回当前只处理正文和页面 furniture，不写回图片/表格中的文字。
 

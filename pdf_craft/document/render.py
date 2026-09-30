@@ -61,7 +61,7 @@ def materialize_pdf_patch_view(
 ) -> Iterator[_PDFPatchView]:
     """Select the exact PCEX content consumed by PDF patching.
 
-    Omitting ``translation_id`` retains the legacy root view.  An explicit ID
+    Omitting ``translation_id`` selects the current PCEX root content. An explicit ID
     selects that translation's chapters, coverage, and metadata while falling
     back to source furniture when the translation did not replace it.
     """
