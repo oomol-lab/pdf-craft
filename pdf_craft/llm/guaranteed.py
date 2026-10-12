@@ -58,7 +58,7 @@ class _JsonProtocol(Generic[TData, TResult]):
         self.options = options
         self.last_error: GuaranteedRequestError | None = None
 
-    def validate(self, response: str, state: None, attempt: int, max_attempts: int):
+    async def validate(self, response: str, state: None, attempt: int, max_attempts: int):
         options = self.options
         try:
             extractor = options.extractor or _extract_json
@@ -79,10 +79,10 @@ class _JsonProtocol(Generic[TData, TResult]):
             self.last_error = GuaranteedBusinessError("JSON business validation failed after retries", attempts=attempt + 1, response=response, cause=error)
             return ProtocolRetry(f"Fix the business validation error and return complete JSON:\n{error}", state)
 
-    def empty(self, state: None, attempt: int, max_attempts: int):
+    async def empty(self, state: None, attempt: int, max_attempts: int):
         return ProtocolRetry("Return a non-empty complete JSON response.", state)
 
-    def exhausted(self, state: None, attempts: int, response: str | None) -> TResult:
+    async def exhausted(self, state: None, attempts: int, response: str | None) -> TResult:
         if self.last_error is not None:
             raise self.last_error
         raise GuaranteedEmptyResponseError("LLM returned empty response after all retries", attempts=attempts, response=response)

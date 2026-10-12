@@ -38,6 +38,14 @@ class TestAsyncArchitecture(unittest.TestCase):
         self.assertFalse(hasattr(runtime.LLMContext, "__enter__"))
         self.assertTrue(inspect.iscoroutinefunction(runtime.LLMRuntime.request))
 
+    def test_repair_protocol_exposes_only_async_execution(self):
+        self.assertFalse(hasattr(loop, "ResponseProtocol"))
+        for method in ("validate", "empty", "exhausted"):
+            with self.subTest(method=method):
+                self.assertTrue(inspect.iscoroutinefunction(
+                    getattr(loop.AsyncResponseProtocol, method),
+                ))
+
     def test_every_sync_operation_awaits_its_corresponding_async_operation(self):
         facade = PDFCraft()
         for name, method in inspect.getmembers(PDFCraft, inspect.isfunction):
