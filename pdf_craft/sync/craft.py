@@ -10,6 +10,7 @@ from ..craft import AsyncPDFCraft, ExtractionOptions, PDFOptions
 from ..document import PDFCraftExtraction, RenderMode, TranslationInfo
 from ..error import IgnoreFillErrorsChecker
 from ..metering import AbortedCheck, OCRTokensMetering
+from ..ocr_config import OCRConfig
 from ..runtime import run_sync
 from ..transformer import (
     AnchoredContentTransformer,
@@ -28,6 +29,14 @@ class PDFCraft:
     @classmethod
     def from_engine(cls, engine) -> "PDFCraft":
         return cls(_engine=engine)
+
+    def predownload_models(
+        self, *, models_cache_path: PathLike | None = None,
+        revision: str | None = None, ocr: OCRConfig | None = None,
+    ) -> None:
+        return run_sync(self._async_craft.predownload_models(
+            models_cache_path=models_cache_path, revision=revision, ocr=ocr,
+        ))
 
     def open_extraction(self, path: PathLike | str) -> PDFCraftExtraction:
         return run_sync(self._async_craft.open_extraction(path))

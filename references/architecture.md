@@ -43,8 +43,8 @@ analysis/OCR 缓存。
 `PDFCraftExtraction` 是公开但不包含业务方法的 opaque handle。用户只能通过两个 Craft 门面的
 `open_extraction` / `export_extraction` 打开和导出，再把句柄传回门面或高级组件。高级可组合组件
 （Extractor、Renderer、Transformer、LLM runtime）仅提供无 `_async` 后缀的异步方法；同步适配
-不得进入业务核心。配置、选项、事件和数据类不拆分同步/异步版本。模型下载和环境探测属于启动前
-准备，只保留同步入口。
+不得进入业务核心。配置、选项、事件和数据类不拆分同步/异步版本。模型下载同样以 async 实现为准，
+同步使用通过 `PDFCraft.predownload_models()` 委派。
 
 业务执行以 async 为唯一真源：请求、重试、repair loop、编排和转换不能再提供第二套同步实现。
 `run_sync` 只能由 `pdf_craft/sync/` 的用户门面调用；禁止在实现层启动事件循环把同步业务伪装成
@@ -69,7 +69,7 @@ analysis/OCR 缓存。
 - `JEV`、`FootnoteOptions`、`FootnoteRefinement`
 - `DeepSeekOCRLocalConfig`、`DeepSeekOCR2LocalConfig`、`UnlimitedOCRLocalConfig`
 - `DeepSeekOCRVendorConfig`、`DeepSeekOCR2VendorConfig`、`UnlimitedOCRVendorConfig`
-- `PDFHandler`、`AsyncPDFHandler`、`PDFDocument`、`AsyncPDFDocument`、`DefaultPDFHandler`、`DefaultPDFDocument`
+- `AsyncPDFHandler`、`AsyncPDFDocument`
 - `BookMeta`、`TableRender`、`LaTeXRender`
 
 ## 模块归属

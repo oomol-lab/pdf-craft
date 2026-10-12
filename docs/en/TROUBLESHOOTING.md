@@ -20,7 +20,7 @@ When a real conversion fails, first identify the layer: PDF reading and renderin
 
 ### `Poppler not found in PATH`
 
-pdf-craft uses Poppler to render PDF pages as images before OCR and to sample local background colors while patching translated PDFs. It is required for both local and vendor OCR, and for patching unless the caller supplies a different `PDFHandler`, so changing OCR backends does not solve the error.
+pdf-craft uses Poppler to render PDF pages as images before OCR and to sample local background colors while patching translated PDFs. It is required for both local and vendor OCR, and for patching unless the caller supplies a different `AsyncPDFHandler`, so changing OCR backends does not solve the error.
 
 Run `pdfinfo -v` in the same environment that runs Python. If it is unavailable, install Poppler, add its executable directory to `PATH`, and restart the shell or process. The [installation guide](INSTALLATION.md) includes platform-specific commands.
 

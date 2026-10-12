@@ -34,7 +34,7 @@ OCR 请求成功并不代表翻译 LLM 已经配置正确。
 ### `Poppler not found in PATH`
 
 pdf-craft 需要 Poppler 将 PDF 页面渲染为图像，也会在翻译 PDF 写回时用它对局部背景取色。这个错误
-与 OCR backend 无关；除非调用方传入其他 `PDFHandler`，否则在切换 local/vendor OCR 之前都必须先解决。
+与 OCR backend 无关；除非调用方传入其他 `AsyncPDFHandler`，否则在切换 local/vendor OCR 之前都必须先解决。
 
 先在系统终端确认 `pdfinfo` 可执行，并检查它输出的版本信息。如果命令不存在，将 Poppler
 安装目录加入 PATH 后重新启动终端或 Python 进程。也要确认传入的是一个有效的 PDF，而不是

@@ -1,4 +1,5 @@
 from pathlib import Path
+from contextlib import contextmanager
 from os.path import relpath
 from shutil import copy
 from typing import Generator
@@ -11,9 +12,10 @@ from ...extractor.chapter import (
     search_references_in_chapter,
 )
 from .layouts import render_layouts
+from ...runtime import IO_DOMAIN, worker_context, worker_iter
 
 
-def render_markdown_file(
+async def render_markdown_file(
     chapters_path: Path,
     assets_path: Path,
     output_path: Path,
@@ -30,51 +32,57 @@ def render_markdown_file(
         assets_destination = output_path.parent / output_assets_path
     assets_ref_path = Path(relpath(assets_destination, output_path.parent))
 
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-    assets_destination.mkdir(parents=True, exist_ok=True)
-    read_chapters = create_chapters_reader(chapters_path)
+    await IO_DOMAIN.run(output_path.parent.mkdir, parents=True, exist_ok=True)
+    await IO_DOMAIN.run(assets_destination.mkdir, parents=True, exist_ok=True)
+    read_chapters = await IO_DOMAIN.run(create_chapters_reader, chapters_path)
 
     references: list[Reference] = []
-    for chapter in read_chapters():
+    async for chapter in worker_iter(read_chapters()):
         references.extend(search_references_in_chapter(chapter))
 
     references.sort(key=lambda ref: (ref.page_index, ref.order))
     ref_id_to_number = references_to_map(references)
 
-    with open(output_path, "w", encoding="utf-8") as f:
+    async with worker_context(_open_output(output_path)) as f:
         need_blank_line = False
-        for chapter in read_chapters():
+        async for chapter in worker_iter(read_chapters()):
             check_aborted(aborted)
 
             if need_blank_line:
                 need_blank_line = False
-                f.write("\n\n")
+                await IO_DOMAIN.run(f.write, "\n\n")
 
-            for part in render_layouts(
+            parts = await IO_DOMAIN.run(lambda chapter=chapter: tuple(render_layouts(
                 flow_items=chapter.flow_items,
                 assets_path=assets_path,
                 output_assets_path=assets_destination,
                 asset_ref_path=assets_ref_path,
                 toc_level=chapter.level,
                 ref_id_to_number=ref_id_to_number,
-            ):
-                f.write(part)
-                need_blank_line = True
+            )))
+            await IO_DOMAIN.run(f.writelines, parts)
+            need_blank_line = need_blank_line or bool(parts)
 
         check_aborted(aborted)
-        for part in _render_footnotes_section(
+        parts = await IO_DOMAIN.run(lambda: tuple(_render_footnotes_section(
             references=references,
             assets_path=assets_path,
             output_assets_path=assets_destination,
             asset_ref_path=assets_ref_path,
-        ):
-            f.write(part)
+        )))
+        await IO_DOMAIN.run(f.writelines, parts)
 
     if cover_path is not None:
-        copy(
+        await IO_DOMAIN.run(copy,
             src=cover_path,
             dst=assets_destination / cover_path.name,
         )
+
+
+@contextmanager
+def _open_output(path: Path):
+    with path.open("w", encoding="utf-8") as output:
+        yield output
 
 
 def _render_footnotes_section(

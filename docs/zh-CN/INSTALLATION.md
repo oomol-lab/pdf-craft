@@ -170,13 +170,13 @@ python -m pip install "pdf-craft[local]"
 从模型仓库下载较大的文件。你可以先下载模型并在之后完全离线运行：
 
 ```python
-from pdf_craft import DeepSeekOCRLocalConfig, PDFCraft, PDFOptions, predownload_models
+from pdf_craft import DeepSeekOCRLocalConfig, PDFCraft, PDFOptions
 
 download_ocr = DeepSeekOCRLocalConfig(
     models_cache_path="models",
     enable_devices_numbers=[0],
 )
-predownload_models(ocr=download_ocr)
+PDFCraft().predownload_models(ocr=download_ocr)
 
 offline_ocr = DeepSeekOCRLocalConfig(
     models_cache_path="models",

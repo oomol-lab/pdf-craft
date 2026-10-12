@@ -1,20 +1,18 @@
 from os import PathLike
 
 from .ocr_config import OCRConfig, ensure_ocr_config
-from .pdf import OCR, PDFHandler
-from .runtime import require_sync_context
+from .pdf import OCR
+from .runtime import OCR_DOMAIN
 
 
-def predownload_models(
+async def predownload_models(
     models_cache_path: PathLike | None = None,
-    pdf_handler: PDFHandler | None = None,
     revision: str | None = None,
     ocr: OCRConfig | None = None,
 ) -> None:
     """Download the model required by a local OCR configuration."""
-    require_sync_context()
-    recognizer = OCR(
+    recognizer = await OCR_DOMAIN.run(OCR,
         ocr=ensure_ocr_config(ocr, models_cache_path, False),
-        pdf_handler=pdf_handler,
+        pdf_handler=None,
     )
-    recognizer.predownload(revision)
+    await OCR_DOMAIN.run(recognizer.predownload, revision)

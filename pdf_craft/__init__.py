@@ -83,13 +83,9 @@ from .pdf import (
     AsyncPDFDocument,
     AsyncPDFHandler,
     DeepSeekOCRSize,
-    DefaultPDFDocument,
-    DefaultPDFHandler,
     OCREvent,
     OCREventKind,
-    PDFDocument,
     PDFDocumentMetadata,
-    PDFHandler,
     pdf_pages_count,
 )
 from .document import PDFCraftExtraction, RenderMode, SourceLocation, TranslationInfo

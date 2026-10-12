@@ -52,7 +52,7 @@ def _async_translator(responses, retries=2):
     async def template_async(_name):
         return SimpleNamespace(render=lambda: "fill")
 
-    translator._fill_llm = cast(Any, SimpleNamespace(_template_async=template_async))
+    cast(Any, translator._fill_runtime).template = template_async
     translator._cache_seed_content = None
     translator._max_retries = retries
     return translator

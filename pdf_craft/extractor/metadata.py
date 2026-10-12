@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from ..runtime import IO_DOMAIN
+
 import re
 import unicodedata
 from collections.abc import Iterable
@@ -99,7 +101,7 @@ class _TurnResponse(BaseModel):
 
 async def extract_book_metadata_from_ocr(pages_path: Path, metadata_llm: LLM) -> DocumentMetadata:
     """Read up to twelve front OCR pages through a bounded, repairable dialogue."""
-    pages = _read_front_pages(pages_path)
+    pages = await IO_DOMAIN.run(_read_front_pages, pages_path)
     if not pages:
         return DocumentMetadata()
 

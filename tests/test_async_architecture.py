@@ -8,7 +8,10 @@ from types import SimpleNamespace
 import unittest
 from unittest.mock import AsyncMock
 
-from pdf_craft import AsyncPDFCraft, PDFCraft
+from pdf_craft import AsyncPDFCraft, PDFCraft, predownload_models
+from pdf_craft.llm import LLM
+from pdf_craft.pipeline.pdf import PDFPatcher, PDFTranslationPipeline, GhostscriptVisualBaseCompiler
+from pdf_craft.renderer import MarkdownRenderer, EpubRenderer
 from pdf_craft.llm import guaranteed, loop, runtime
 
 
@@ -28,6 +31,9 @@ class TestAsyncArchitecture(unittest.TestCase):
                 )
                 with self.subTest(path=str(path), line=node.lineno):
                     self.assertNotEqual(name, "run_sync")
+                    if path.name != "runtime.py" and isinstance(node.func, ast.Attribute):
+                        if isinstance(node.func.value, ast.Name) and node.func.value.id == "asyncio":
+                            self.assertNotEqual(node.func.attr, "run")
                     if path.name != "runtime.py":
                         self.assertNotIn(name, {"run_until_complete", "new_event_loop"})
 
@@ -37,6 +43,19 @@ class TestAsyncArchitecture(unittest.TestCase):
         self.assertFalse(hasattr(runtime.LLMRuntime, "_request_blocking"))
         self.assertFalse(hasattr(runtime.LLMContext, "__enter__"))
         self.assertTrue(inspect.iscoroutinefunction(runtime.LLMRuntime.request))
+
+    def test_business_components_and_setup_have_only_async_execution(self):
+        for method in (
+            PDFPatcher.patch, PDFTranslationPipeline.patch,
+            GhostscriptVisualBaseCompiler.compile, predownload_models,
+            MarkdownRenderer.render, EpubRenderer.render,
+        ):
+            with self.subTest(method=method):
+                self.assertTrue(inspect.iscoroutinefunction(method))
+        for renderer in (MarkdownRenderer, EpubRenderer):
+            self.assertFalse(hasattr(renderer, "_render_blocking"))
+        for name in ("encoding", "template", "_encoding_async", "_template_async"):
+            self.assertFalse(hasattr(LLM, name))
 
     def test_repair_protocol_exposes_only_async_execution(self):
         self.assertFalse(hasattr(loop, "ResponseProtocol"))

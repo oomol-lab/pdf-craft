@@ -1,3 +1,4 @@
+import asyncio
 # pylint: disable=protected-access
 
 import json
@@ -65,7 +66,7 @@ class TestPDFDocumentMetadata(unittest.TestCase):
             target = root / "target.pdf"
             self._write_source(source, title="Incorrect export title")
 
-            PDFPatcher(visual_base_compiler=_BlankVisualBaseCompiler()).patch(
+            asyncio.run(PDFPatcher(visual_base_compiler=_BlankVisualBaseCompiler()).patch(
                 source,
                 target,
                 [_replacement()],
@@ -73,7 +74,7 @@ class TestPDFDocumentMetadata(unittest.TestCase):
                     "/Title": "Printed Title",
                     "/PDFCraftDocumentMetadata": '{"title":"Printed Title"}',
                 },
-            )
+            ))
 
             metadata = pypdf.PdfReader(str(target)).metadata
             assert metadata is not None
@@ -87,7 +88,7 @@ class TestPDFDocumentMetadata(unittest.TestCase):
             target = root / "target.pdf"
             self._write_source(source, title="Original title")
 
-            PDFPatcher().patch(source, target, [], document_metadata={})
+            asyncio.run(PDFPatcher().patch(source, target, [], document_metadata={}))
 
             self.assertEqual(target.read_bytes(), source.read_bytes())
 
@@ -127,7 +128,7 @@ class _IdentityTransformer:
 
 
 class _BlankVisualBaseCompiler:
-    def compile(self, source_path: Path, target_path: Path) -> None:
+    async def compile(self, source_path: Path, target_path: Path) -> None:
         reader = pypdf.PdfReader(str(source_path))
         writer = pypdf.PdfWriter()
         for page in reader.pages:

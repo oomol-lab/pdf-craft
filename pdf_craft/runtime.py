@@ -14,9 +14,9 @@ import pickle
 import signal
 import subprocess
 import sys
-from collections.abc import AsyncIterator, Awaitable, Callable
+from collections.abc import AsyncIterator, Awaitable, Callable, Iterable
 from concurrent.futures import ThreadPoolExecutor
-from contextlib import asynccontextmanager
+from contextlib import AbstractContextManager, asynccontextmanager
 from functools import partial
 from pathlib import Path
 from tempfile import TemporaryDirectory, mkstemp
@@ -163,6 +163,48 @@ async def temporary_directory(prefix: str) -> AsyncIterator[Path]:
         await IO_DOMAIN.run(temporary.cleanup)
 
 
+@asynccontextmanager
+async def worker_context(context: AbstractContextManager[R]) -> AsyncIterator[R]:
+    """Keep synchronous filesystem context entry and cleanup on the I/O domain."""
+    entered = False
+
+    def enter() -> R:
+        nonlocal entered
+        value = context.__enter__()
+        entered = True
+        return value
+
+    try:
+        value = await IO_DOMAIN.run(enter)
+    except asyncio.CancelledError:
+        if entered:
+            await IO_DOMAIN.run(context.__exit__, None, None, None)
+        raise
+    try:
+        yield value
+    except BaseException:
+        if not await IO_DOMAIN.run(context.__exit__, *sys.exc_info()):
+            raise
+    else:
+        await IO_DOMAIN.run(context.__exit__, None, None, None)
+
+
+async def worker_iter(values: Iterable[R]) -> AsyncIterator[R]:
+    """Advance a lazy filesystem iterator without retaining a whole document."""
+    iterator = await IO_DOMAIN.run(iter, values)
+    sentinel = object()
+    try:
+        while True:
+            value = await IO_DOMAIN.run(next, iterator, sentinel)
+            if value is sentinel:
+                break
+            yield cast(R, value)
+    finally:
+        close = getattr(iterator, "close", None)
+        if close is not None:
+            await IO_DOMAIN.run(close)
+
+
 def run_sync(awaitable: Awaitable[R]) -> R:
     """Run an async SDK operation from the synchronous facade."""
     try:
@@ -173,18 +215,6 @@ def run_sync(awaitable: Awaitable[R]) -> R:
         return asyncio.run(wait())
     if inspect.iscoroutine(awaitable):
         awaitable.close()
-    raise RuntimeError(
-        "The synchronous pdf-craft API cannot run inside an active event loop; "
-        "use AsyncPDFCraft (or the component's async method) and await it instead."
-    )
-
-
-def require_sync_context() -> None:
-    """Reject synchronous SDK work on an already-running event-loop thread."""
-    try:
-        asyncio.get_running_loop()
-    except RuntimeError:
-        return
     raise RuntimeError(
         "The synchronous pdf-craft API cannot run inside an active event loop; "
         "use AsyncPDFCraft (or the component's async method) and await it instead."

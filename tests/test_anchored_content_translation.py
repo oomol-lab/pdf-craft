@@ -271,8 +271,10 @@ class _ResponseContext:
 
 
 class _ResponseRuntime:
-    def __init__(self, responses: Sequence[str]) -> None:
+    def __init__(self, responses: Sequence[str], runtime) -> None:
         self.context_value = _ResponseContext(responses)
+        self.encoding = runtime.encoding
+        self.template = runtime.template
 
     def context(self, **_kwargs):
         return self.context_value
@@ -284,7 +286,7 @@ class _CapturePatcher:
     def __init__(self) -> None:
         self.replacements = []
 
-    def patch(self, _source, _target, replacements) -> None:
+    async def patch(self, _source, _target, replacements, **_kwargs) -> None:
         self.replacements = list(replacements)
 
 
@@ -298,7 +300,7 @@ def _repairing_translator(fill_responses: Sequence[str]) -> tuple[XMLTranslator,
         return text
 
     translator._translate_text_async = translate_text  # type: ignore[method-assign]
-    runtime = _ResponseRuntime(fill_responses)
+    runtime = _ResponseRuntime(fill_responses, translator._fill_runtime)
     translator._fill_runtime = runtime  # type: ignore[assignment]
     return translator, runtime
 
@@ -327,9 +329,9 @@ def _pdf_patch_text(chapter: Chapter) -> str:
             encoding="utf-8",
         )
         capture = _CapturePatcher()
-        PDFTranslationPipeline(patcher=cast(PDFPatcher, capture)).patch(
+        asyncio.run(PDFTranslationPipeline(patcher=cast(PDFPatcher, capture)).patch(
             Path("input.pdf"), Path("output.pdf"), extraction,
-        )
+        ))
         assert len(capture.replacements) == 1
         return capture.replacements[0].text
 
