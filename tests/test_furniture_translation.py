@@ -24,13 +24,13 @@ class _FurnitureTranslator:
         self.positions: list[FurniturePosition] = []
         self.pages: list[tuple[int, list[FurnitureSection]]] = []
 
-    def transform_position(self, position: FurniturePosition) -> str | None:
+    async def transform_position(self, position: FurniturePosition) -> str | None:
         self.positions.append(position)
         if position.content == "keep position":
             return None
         return f"T:{position.content}"
 
-    def transform_sections(
+    async def transform_sections(
         self,
         page_index: int,
         sections: Sequence[FurnitureSection],
@@ -45,7 +45,7 @@ class _XMLTaskTranslator:
     def __init__(self) -> None:
         self.tags: list[str] = []
 
-    def translate_element(self, task, **_kwargs):
+    async def translate_element(self, task, **_kwargs):
         self.tags.append(task.element.tag)
         for element in task.element.iter():
             if element.text:
@@ -53,14 +53,14 @@ class _XMLTaskTranslator:
         return task.element, task.payload
 
 
-class FurnitureTranslationTests(unittest.TestCase):
-    def test_internal_pass_reconciles_toc_and_translates_by_scope(self):
+class FurnitureTranslationTests(unittest.IsolatedAsyncioTestCase):
+    async def test_internal_pass_reconciles_toc_and_translates_by_scope(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             source = _translated_narrative_extraction(root / "source")
             translator = _FurnitureTranslator()
 
-            translated = FurnitureExtractionTransformer(translator)._transform_blocking(
+            translated = await FurnitureExtractionTransformer(translator).transform(
                 source, root / "furniture-translated.pcex"
             )
 
@@ -121,14 +121,14 @@ class FurnitureTranslationTests(unittest.TestCase):
 
             PDFCraftExtraction._open(root / "furniture-translated.pcex")._validate()
 
-    def test_internal_pass_without_furniture_is_a_valid_no_op(self):
+    async def test_internal_pass_without_furniture_is_a_valid_no_op(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             source = make_extraction(root / "source")
             save_xml(encode(Chapter(None, -1, [])), root / "source/chapters/chapter_head.xml")
             translator = _FurnitureTranslator()
 
-            translated = FurnitureExtractionTransformer(translator)._transform_blocking(
+            translated = await FurnitureExtractionTransformer(translator).transform(
                 source, root / "target.pcex"
             )
 
@@ -138,7 +138,7 @@ class FurnitureTranslationTests(unittest.TestCase):
             self.assertEqual(translator.positions, [])
             self.assertEqual(translator.pages, [])
 
-    def test_internal_pass_preserves_variable_folio_position(self):
+    async def test_internal_pass_preserves_variable_folio_position(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             source = make_extraction(root / "source")
@@ -153,7 +153,7 @@ class FurnitureTranslationTests(unittest.TestCase):
             )
             translator = _FurnitureTranslator()
 
-            translated = FurnitureExtractionTransformer(translator)._transform_blocking(
+            translated = await FurnitureExtractionTransformer(translator).transform(
                 source, root / "target.pcex"
             )
 
@@ -169,7 +169,7 @@ class FurnitureTranslationTests(unittest.TestCase):
                 self.assertEqual(coverage.get("state"), "preserved")
             translated._validate()
 
-    def test_internal_pass_translates_only_folio_decoration(self):
+    async def test_internal_pass_translates_only_folio_decoration(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             source = make_extraction(root / "source", page_pixel_sizes={2: (100, 100)})
@@ -184,7 +184,7 @@ class FurnitureTranslationTests(unittest.TestCase):
             )
             translator = _FurnitureTranslator()
 
-            translated = FurnitureExtractionTransformer(translator)._transform_blocking(
+            translated = await FurnitureExtractionTransformer(translator).transform(
                 source, root / "target.pcex"
             )
 
@@ -204,7 +204,7 @@ class FurnitureTranslationTests(unittest.TestCase):
                 self.assertEqual(coverage.get("state"), "translated")
             translated._validate()
 
-    def test_translation_coverage_rejects_unknown_furniture_unit(self):
+    async def test_translation_coverage_rejects_unknown_furniture_unit(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             _translated_narrative_extraction(root)
@@ -218,7 +218,7 @@ class FurnitureTranslationTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "invalid furniture position"):
                 PDFCraftExtraction._from_workspace(root)._validate()
 
-    def test_toc_section_preserves_supported_number_prefixes(self):
+    async def test_toc_section_preserves_supported_number_prefixes(self):
         cases = [
             ("1. Chapter One .... 7", "第一章", "1. 第一章 .... 7"),
             ("1.2. Chapter One … 8", "第一章", "1.2. 第一章 … 8"),
@@ -235,16 +235,16 @@ class FurnitureTranslationTests(unittest.TestCase):
                 self.assertEqual(_reconcile_toc_section(section, {7: title}), "translated")
                 self.assertEqual(section.text, expected)
 
-    def test_xml_transformer_keeps_template_and_page_payloads_separate(self):
+    async def test_xml_transformer_keeps_template_and_page_payloads_separate(self):
         translator = _XMLTaskTranslator()
         furniture = FurnitureXMLTransformer(translator)
 
         self.assertEqual(
-            furniture._transform_position_blocking(FurniturePosition(1, 2, "universal", "Header")),
+            await furniture.transform_position(FurniturePosition(1, 2, "universal", "Header")),
             "X:Header",
         )
         self.assertEqual(
-            furniture._transform_sections_blocking(
+            await furniture.transform_sections(
                 7,
                 [
                     FurnitureSection(7, (1, 2, 3, 4), "Left"),

@@ -1,4 +1,4 @@
-"""Synchronous compatibility wrapper around :class:`AsyncPDFCraft`."""
+"""Synchronous wrapper around :class:`AsyncPDFCraft`."""
 
 from collections.abc import Callable
 from os import PathLike
@@ -13,7 +13,6 @@ from ..metering import AbortedCheck, OCRTokensMetering
 from ..runtime import run_sync
 from ..transformer import (
     AnchoredContentTransformer,
-    SyncAnchoredContentTransformer,
     SubmitKind,
     TranslationEvent,
     XMLTranslator,
@@ -21,7 +20,7 @@ from ..transformer import (
 
 
 class PDFCraft:
-    """Synchronous compatibility facade over the async-first SDK."""
+    """Synchronous facade over the async-first SDK."""
 
     def __init__(self, pdf: PDFOptions | None = None, *, _engine=None) -> None:
         self._async_craft = AsyncPDFCraft(pdf=pdf, _engine=_engine)
@@ -101,7 +100,7 @@ class PDFCraft:
         self,
         extraction: PDFCraftExtraction | PathLike | str,
         output_path: PathLike | str,
-        transformer: AnchoredContentTransformer | SyncAnchoredContentTransformer,
+        transformer: AnchoredContentTransformer,
     ) -> PDFCraftExtraction:
         return run_sync(self._async_craft.translate_anchored_contents(
             extraction, output_path, transformer,

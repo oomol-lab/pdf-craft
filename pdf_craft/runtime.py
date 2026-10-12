@@ -130,7 +130,6 @@ ARCHIVE_DOMAIN = ExecutionDomain("archive", 1)
 # A single conservative slot prevents a model/GPU session from being re-entered.
 # Applications needing parallel OCR should own multiple isolated SDK processes.
 OCR_DOMAIN = ExecutionDomain("ocr", 1)
-TRANSLATION_DOMAIN = ExecutionDomain("translation", max(2, min(8, os.cpu_count() or 1)))
 # QGuiApplication must live on the main thread of its own process on macOS and
 # has process-global state elsewhere. A fresh subprocess per operation avoids
 # inheriting a host application's Qt state and is portable to spawn-only hosts.
@@ -165,7 +164,7 @@ async def temporary_directory(prefix: str) -> AsyncIterator[Path]:
 
 
 def run_sync(awaitable: Awaitable[R]) -> R:
-    """Run an async SDK operation from the synchronous compatibility facade."""
+    """Run an async SDK operation from the synchronous facade."""
     try:
         asyncio.get_running_loop()
     except RuntimeError:
@@ -379,6 +378,9 @@ def run_subprocess_sync(
         text=False,
         **_process_group_options(),
     ))
+    registry_path = _process_group_registry_path()
+    if registry_path is not None:
+        _register_process_group(registry_path, process.pid)
     try:
         while True:
             try:
@@ -397,6 +399,8 @@ def run_subprocess_sync(
             process.stdout.close()
         if process.stderr is not None:
             process.stderr.close()
+        if registry_path is not None:
+            _unregister_process_group(registry_path, process.pid)
     if process.returncode:
         detail = stderr.decode(errors="replace").strip()
         raise RuntimeError(

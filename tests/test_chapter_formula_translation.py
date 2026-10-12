@@ -36,7 +36,7 @@ class _FormulaAwareTranslator:
         self.model_sources: list[str] = []
         self._max_group_score = max_group_score
 
-    def translate_element(self, task, **kwargs):
+    async def translate_element(self, task, **kwargs):
         source_hook = kwargs["interrupt_source_text_segments"]
 
         def record_source(segments):
@@ -51,7 +51,7 @@ class _FormulaAwareTranslator:
         )
         mapper = XMLStreamMapper(get_encoding("cl100k_base"), max_group_score=self._max_group_score)
 
-        def translate_group(inline_segments):
+        async def translate_group(inline_segments):
             self.model_sources.append(
                 "\n\n".join("".join(segment.text for segment in inline) for inline in inline_segments)
             )
@@ -64,7 +64,7 @@ class _FormulaAwareTranslator:
             return mappings
 
         translated = task.element
-        for element, mappings in mapper.map_stream(
+        async for element, mappings in mapper.map_stream_async(
             elements=iter((task.element,)), callbacks=callbacks, map=translate_group, window=1,
         ):
             translated = submit(element, task.action, mappings)
@@ -100,8 +100,8 @@ class _ReorderingFormulaTranslator(_FormulaAwareTranslator):
         super()._corrupt_formula_text_and_move_it(element)
 
 
-class TestChapterFormulaTranslation(unittest.TestCase):
-    def test_inline_formulas_are_visible_to_translation_and_restored_after_reordering(self):
+class TestChapterFormulaTranslation(unittest.IsolatedAsyncioTestCase):
+    async def test_inline_formulas_are_visible_to_translation_and_restored_after_reordering(self):
         chapter = Chapter(None, 0, [
             TextFlowItem("body", 0, [SourceTextFragment(
                 1, 1, (1, 1, 100, 30), [
@@ -115,7 +115,7 @@ class TestChapterFormulaTranslation(unittest.TestCase):
         ])
         translator = _FormulaAwareTranslator()
 
-        translated = NarrativeXMLTransformer(translator)._transform_blocking(chapter)
+        translated = await NarrativeXMLTransformer(translator).transform(chapter)
 
         source = "\n".join(translator.model_sources)
         self.assertIn("$x^2$", source)
@@ -136,7 +136,7 @@ class TestChapterFormulaTranslation(unittest.TestCase):
         )
         self.assertNotIn("MODEL_CHANGED_FORMULA", tostring(encode(translated), encoding="unicode"))
 
-    def test_adjacent_formula_split_keeps_the_second_formula_before_following_text(self):
+    async def test_adjacent_formula_split_keeps_the_second_formula_before_following_text(self):
         chapter = Chapter(None, 0, [
             TextFlowItem("body", 0, [SourceTextFragment(
                 1, 1, (1, 1, 100, 30), [
@@ -148,9 +148,9 @@ class TestChapterFormulaTranslation(unittest.TestCase):
             )]),
         ])
 
-        translated = NarrativeXMLTransformer(
+        translated = await NarrativeXMLTransformer(
             _FormulaAwareTranslator(),
-        )._transform_blocking(chapter)
+        ).transform(chapter)
 
         layout = cast(TextFlowItem, translated.flow_items[0])
         content = cast(SourceTextFragment, layout.children[0]).content
@@ -171,7 +171,7 @@ class TestChapterFormulaTranslation(unittest.TestCase):
         self.assertNotIn("__PDF_CRAFT_CHAPTER_FORMULA_ID", encoded)
         self.assertNotIn("__PDF_CRAFT_RESTORED_FORMULA_ID", encoded)
 
-    def test_inline_formula_is_restored_when_the_model_moves_its_token(self):
+    async def test_inline_formula_is_restored_when_the_model_moves_its_token(self):
         chapter = Chapter(None, 0, [
             TextFlowItem("body", 0, [SourceTextFragment(
                 1, 1, (1, 1, 100, 30), [
@@ -182,7 +182,7 @@ class TestChapterFormulaTranslation(unittest.TestCase):
             )]),
         ])
 
-        translated = NarrativeXMLTransformer(_ReorderingFormulaTranslator())._transform_blocking(chapter)
+        translated = await NarrativeXMLTransformer(_ReorderingFormulaTranslator()).transform(chapter)
 
         layout = translated.flow_items[0]
         self.assertIsInstance(layout, TextFlowItem)
@@ -193,7 +193,7 @@ class TestChapterFormulaTranslation(unittest.TestCase):
         self.assertEqual((content[0].kind, content[0].content), (ExpressionKind.INLINE_PAREN, r"\alpha"))
         self.assertIn("译文后", "".join(item for item in content if isinstance(item, str)))
 
-    def test_inline_formulas_survive_html_and_cross_page_paragraph_blocks(self):
+    async def test_inline_formulas_survive_html_and_cross_page_paragraph_blocks(self):
         emphasis = tag_definition("em")
         assert emphasis is not None
         chapter = Chapter(None, 0, [
@@ -214,7 +214,7 @@ class TestChapterFormulaTranslation(unittest.TestCase):
             ]),
         ])
 
-        translated = NarrativeXMLTransformer(_FormulaAwareTranslator())._transform_blocking(chapter)
+        translated = await NarrativeXMLTransformer(_FormulaAwareTranslator()).transform(chapter)
 
         layout = translated.flow_items[0]
         self.assertIsInstance(layout, TextFlowItem)
@@ -225,7 +225,7 @@ class TestChapterFormulaTranslation(unittest.TestCase):
         self.assertIn(r'<inline_expr kind="\(">\beta</inline_expr>', encoded)
         self.assertIn("<em>", encoded)
 
-    def test_equation_content_is_context_and_is_never_rewritten(self):
+    async def test_equation_content_is_context_and_is_never_rewritten(self):
         equation = SourceAsset(
             page_index=1,
             ref="formula",
@@ -242,7 +242,7 @@ class TestChapterFormulaTranslation(unittest.TestCase):
         ])
         translator = _FormulaAwareTranslator(max_group_score=1)
 
-        translated = NarrativeXMLTransformer(translator)._transform_blocking(chapter)
+        translated = await NarrativeXMLTransformer(translator).transform(chapter)
 
         self.assertTrue(any(
             "Before equation." in source and r"$$\int_0^1 x^2 dx$$" in source
@@ -257,7 +257,7 @@ class TestChapterFormulaTranslation(unittest.TestCase):
         assert isinstance(restored, DisplayFormula)
         self.assertEqual(restored.asset, equation)
 
-    def test_equation_title_and_caption_are_translated_while_content_is_frozen(self):
+    async def test_equation_title_and_caption_are_translated_while_content_is_frozen(self):
         for title, caption in [(["Title"], []), ([], ["Caption"]), (["Title"], ["Caption"])]:
             with self.subTest(title=title, caption=caption):
                 equation = SourceAsset(
@@ -280,7 +280,7 @@ class TestChapterFormulaTranslation(unittest.TestCase):
                 ])
 
                 translator = _FormulaAwareTranslator()
-                translated = NarrativeXMLTransformer(translator)._transform_blocking(chapter)
+                translated = await NarrativeXMLTransformer(translator).transform(chapter)
 
                 restored = translated.flow_items[1]
                 self.assertIsInstance(restored, DisplayFormula)
@@ -296,7 +296,7 @@ class TestChapterFormulaTranslation(unittest.TestCase):
                 )
                 self.assertTrue(any(r"$$x^2$$" in source for source in translator.model_sources))
 
-    def test_equation_metadata_inline_formulas_are_protected_independently(self):
+    async def test_equation_metadata_inline_formulas_are_protected_independently(self):
         title_formula = InlineExpression(ExpressionKind.INLINE_DOLLAR, "n")
         caption_formula = InlineExpression(ExpressionKind.INLINE_PAREN, r"\chi")
         equation = SourceAsset(
@@ -310,7 +310,7 @@ class TestChapterFormulaTranslation(unittest.TestCase):
         )
         translator = _FormulaAwareTranslator()
 
-        translated = NarrativeXMLTransformer(translator)._transform_blocking(
+        translated = await NarrativeXMLTransformer(translator).transform(
             Chapter(None, 0, [DisplayFormula(equation)])
         )
 
@@ -328,7 +328,7 @@ class TestChapterFormulaTranslation(unittest.TestCase):
         self.assertIn("$$f$x$ = 0$$", source)
         self.assertNotIn("MODEL_CHANGED_FORMULA", tostring(encode(translated), encoding="unicode"))
 
-    def test_equation_only_chapter_keeps_the_asset_and_does_not_skip_translation(self):
+    async def test_equation_only_chapter_keeps_the_asset_and_does_not_skip_translation(self):
         equation = SourceAsset(
             page_index=1,
             ref="formula",
@@ -340,19 +340,19 @@ class TestChapterFormulaTranslation(unittest.TestCase):
         )
         translator = _FormulaAwareTranslator(max_group_score=1)
 
-        translated = NarrativeXMLTransformer(translator)._transform_blocking(
+        translated = await NarrativeXMLTransformer(translator).transform(
             Chapter(None, 0, [DisplayFormula(equation)])
         )
 
         self.assertTrue(any(r"$$x^2 + y^2 = z^2$$" in source for source in translator.model_sources))
         self.assertEqual(translated.flow_items, [DisplayFormula(equation)])
 
-    def test_chapter_without_formula_keeps_normal_xml_translation(self):
+    async def test_chapter_without_formula_keeps_normal_xml_translation(self):
         chapter = Chapter(None, 0, [
             TextFlowItem("body", 0, [SourceTextFragment(1, 1, (1, 1, 100, 30), ["plain text"])]),
         ])
 
-        translated = NarrativeXMLTransformer(_FormulaAwareTranslator())._transform_blocking(chapter)
+        translated = await NarrativeXMLTransformer(_FormulaAwareTranslator()).transform(chapter)
 
         layout = translated.flow_items[0]
         self.assertIsInstance(layout, TextFlowItem)

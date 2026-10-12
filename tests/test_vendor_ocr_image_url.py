@@ -33,9 +33,16 @@ def _deepseek_response(request: httpx.Request) -> httpx.Response:
     })
 
 
+def _resolver_returning(value: str) -> OCRImageURLResolver:
+    async def resolve(_path: Path) -> str:
+        return value
+
+    return resolve
+
+
 class VendorOCRImageURLTests(unittest.IsolatedAsyncioTestCase):
     async def test_public_resolver_reaches_the_vendor_engine(self):
-        def resolve(_path: Path) -> str:
+        async def resolve(_path: Path) -> str:
             return "https://images.invalid/page.png"
 
         resolver: OCRImageURLResolver = resolve
@@ -89,7 +96,7 @@ class VendorOCRImageURLTests(unittest.IsolatedAsyncioTestCase):
                         b"rendered image",
                     )
 
-    async def test_sync_and_async_resolvers_use_the_expected_execution_context(self):
+    async def test_resolver_runs_on_the_event_loop(self):
         event_loop_thread = threading.get_ident()
         resolver_threads: list[int] = []
         captured_urls: list[str] = []
@@ -101,43 +108,34 @@ class VendorOCRImageURLTests(unittest.IsolatedAsyncioTestCase):
             )
             return _deepseek_response(request)
 
-        def sync_resolver(_path: Path) -> str:
-            resolver_threads.append(threading.get_ident())
-            return "https://images.invalid/sync.png"
-
-        async def async_resolver(_path: Path) -> str:
+        async def resolver(_path: Path) -> str:
             resolver_threads.append(threading.get_ident())
             await asyncio.sleep(0)
             return "https://images.invalid/async.png"
 
-        for resolver in (sync_resolver, async_resolver):
-            runtime = VendorOCRRuntime(
-                DeepSeekOCRVendorConfig(
-                    "https://example.invalid/v1", "key", "model",
-                ),
-                ConcurrentExecutor(FixedCapacity(1)),
-                resolver,
-            )
-            runtime._client = httpx.AsyncClient(
-                transport=httpx.MockTransport(handler),
-            )
-            await runtime.request(VendorOCRInput(
-                1, Path("unused.png"), lambda: False,
-            ))
-            await runtime._client.aclose()
+        runtime = VendorOCRRuntime(
+            DeepSeekOCRVendorConfig(
+                "https://example.invalid/v1", "key", "model",
+            ),
+            ConcurrentExecutor(FixedCapacity(1)),
+            resolver,
+        )
+        runtime._client = httpx.AsyncClient(
+            transport=httpx.MockTransport(handler),
+        )
+        await runtime.request(VendorOCRInput(
+            1, Path("unused.png"), lambda: False,
+        ))
+        await runtime._client.aclose()
 
-        self.assertNotEqual(resolver_threads[0], event_loop_thread)
-        self.assertEqual(resolver_threads[1], event_loop_thread)
-        self.assertEqual(captured_urls, [
-            "https://images.invalid/sync.png",
-            "https://images.invalid/async.png",
-        ])
+        self.assertEqual(resolver_threads, [event_loop_thread])
+        self.assertEqual(captured_urls, ["https://images.invalid/async.png"])
 
     async def test_unlimited_selects_file_data_or_file_url(self):
         cases = (
             (None, "file_data", base64.b64encode(b"image").decode("ascii")),
             (
-                lambda _path: "https://images.invalid/page.png",
+                _resolver_returning("https://images.invalid/page.png"),
                 "file_url",
                 "https://images.invalid/page.png",
             ),
@@ -188,7 +186,7 @@ class VendorOCRImageURLTests(unittest.IsolatedAsyncioTestCase):
                 return httpx.Response(429, request=request)
             return _deepseek_response(request)
 
-        def resolver(_path: Path) -> str:
+        async def resolver(_path: Path) -> str:
             nonlocal resolutions
             resolutions += 1
             return "https://images.invalid/page.png"
@@ -214,10 +212,10 @@ class VendorOCRImageURLTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_invalid_results_and_resolver_errors_are_safe_and_actionable(self):
         cases = (
-            (lambda _path: "", "non-empty URL string", None),
-            (lambda _path: "ftp://secret.invalid/image", "HTTP", None),
+            (_resolver_returning(""), "non-empty URL string", None),
+            (_resolver_returning("ftp://secret.invalid/image"), "HTTP", None),
             (
-                lambda _path: "data:image/png;base64,%%%",
+                _resolver_returning("data:image/png;base64,%%%"),
                 "non-empty Base64 image data",
                 None,
             ),
@@ -238,7 +236,7 @@ class VendorOCRImageURLTests(unittest.IsolatedAsyncioTestCase):
 
         secret = RuntimeError("https://signed.invalid/private-token")
 
-        def failed_resolver(_path: Path) -> str:
+        async def failed_resolver(_path: Path) -> str:
             raise secret
 
         runtime = VendorOCRRuntime(
@@ -282,7 +280,7 @@ class VendorOCRImageURLTests(unittest.IsolatedAsyncioTestCase):
     async def test_extraction_abort_is_not_wrapped_during_resolution(self):
         resolver_called = False
 
-        def resolver(_path: Path) -> str:
+        async def resolver(_path: Path) -> str:
             nonlocal resolver_called
             resolver_called = True
             return "https://images.invalid/page.png"
@@ -300,7 +298,7 @@ class VendorOCRImageURLTests(unittest.IsolatedAsyncioTestCase):
                 ))
         self.assertFalse(resolver_called)
 
-        def interrupted_resolver(_path: Path) -> str:
+        async def interrupted_resolver(_path: Path) -> str:
             raise AbortError()
 
         runtime = VendorOCRRuntime(

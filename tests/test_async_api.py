@@ -6,7 +6,6 @@ import os
 import sys
 import tempfile
 import threading
-import time
 import unittest
 from pathlib import Path
 from typing import Any, TypeVar, cast
@@ -21,7 +20,6 @@ from pdf_craft import (
     PDFCraftExtraction, PDFDocumentMetadata, PDFOptions, SubmitKind,
     TranslationEventKind, TranslationEvent,
 )
-from pdf_craft.craft import _AsyncPDFHandlerBridge
 from pdf_craft.common import save_xml
 import pdf_craft.document.package as document_package
 from pdf_craft.extractor.chapter.chapter import (
@@ -63,9 +61,9 @@ class _Engine:
     def __init__(self) -> None:
         self.thread_name: str | None = None
 
-    def extract_package(self, *, analysing_path, on_ocr_event, **_kwargs):
+    async def extract_package_async(self, *, analysing_path, on_ocr_event, **_kwargs):
         self.thread_name = threading.current_thread().name
-        on_ocr_event("page")
+        await invoke_callback(on_ocr_event, "page")
         make_extraction(
             analysing_path / "extraction",
             page_pixel_sizes={1: (10, 10)},
@@ -75,27 +73,18 @@ class _Engine:
 
 class _CancellableEngine:
     def __init__(self) -> None:
-        self.started = threading.Event()
-        self.observed_cancel = threading.Event()
-        self.finished = threading.Event()
-        self.late_write_succeeded = False
+        self.started = asyncio.Event()
+        self.observed_cancel = asyncio.Event()
         self.analysing_path: Path | None = None
 
-    def extract_package(self, *, aborted, analysing_path, **_kwargs):
+    async def extract_package_async(self, *, analysing_path, **_kwargs):
         self.analysing_path = analysing_path
         self.started.set()
-        while not aborted():
-            self.observed_cancel.wait(0.01)
-        self.observed_cancel.set()
-        time.sleep(0.15)
         try:
-            (analysing_path / "late-worker-write.txt").write_text(
-                "worker still owned workspace", encoding="utf-8",
-            )
-            self.late_write_succeeded = True
-        finally:
-            self.finished.set()
-        raise RuntimeError("cancelled by cooperative engine")
+            await asyncio.Event().wait()
+        except asyncio.CancelledError:
+            self.observed_cancel.set()
+            raise
 
 
 class _NativeAsyncEngine:
@@ -110,10 +99,6 @@ class _NativeAsyncEngine:
             page_pixel_sizes={1: (10, 10)},
         )
         return None, None, None, None, "async-metering"
-
-    def extract_package(self, **_kwargs):
-        raise AssertionError("native async extraction must not use the sync hook")
-
 
 class _AsyncXMLTranslator:
     def __init__(self) -> None:
@@ -143,24 +128,24 @@ class _AsyncChapterTransformer:
         return chapter
 
 
-class _SyncChapterTransformer:
+class _LoopChapterTransformer:
     def __init__(self) -> None:
         self.thread_id: int | None = None
 
-    def transform(self, chapter: Chapter) -> Chapter:
+    async def transform(self, chapter: Chapter) -> Chapter:
         self.thread_id = threading.get_ident()
         return chapter
 
 
-class _BlockingSyncChapterTransformer:
+class _CancellableChapterTransformer:
     def __init__(self) -> None:
-        self.started = threading.Event()
-        self.release = threading.Event()
-        self.finished = threading.Event()
+        self.started = asyncio.Event()
+        self.release = asyncio.Event()
+        self.finished = asyncio.Event()
 
-    def transform(self, chapter: Chapter) -> Chapter:
+    async def transform(self, chapter: Chapter) -> Chapter:
         self.started.set()
-        self.release.wait(1)
+        await self.release.wait()
         self.finished.set()
         return chapter
 
@@ -249,7 +234,7 @@ class TestAsyncAPI(unittest.IsolatedAsyncioTestCase):
                     )
                     self.assertEqual(events, ["page"])
                     self.assertEqual(callback_threads, [loop_thread])
-                    self.assertNotEqual(engine.thread_name, threading.current_thread().name)
+                    self.assertEqual(engine.thread_name, threading.current_thread().name)
 
     async def test_direct_extractor_prefers_native_async_engine_hook(self):
         engine = _NativeAsyncEngine()
@@ -339,9 +324,6 @@ class TestAsyncAPI(unittest.IsolatedAsyncioTestCase):
                 self.started.set()
                 await asyncio.Event().wait()
 
-            def extract_package(self, **_kwargs):
-                raise AssertionError("native async extraction must not use the sync hook")
-
         engine = CancellableNativeAsyncEngine()
         with tempfile.TemporaryDirectory() as directory:
             task = asyncio.create_task(
@@ -408,7 +390,7 @@ class TestAsyncAPI(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(workspace_paths), 1)
         self.assertFalse(workspace_paths[0].exists())
 
-    async def test_sync_transformer_callbacks_run_on_caller_loop(self):
+    async def test_transformer_callbacks_run_on_caller_loop(self):
         loop_thread = threading.get_ident()
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -429,7 +411,7 @@ class TestAsyncAPI(unittest.IsolatedAsyncioTestCase):
                         events, callback_threads,
                     )
 
-                    transformer = _SyncChapterTransformer()
+                    transformer = _LoopChapterTransformer()
                     await ChapterExtractionTransformer(transformer).transform(
                         source,
                         root / f"target-{index}.pcex",
@@ -438,7 +420,7 @@ class TestAsyncAPI(unittest.IsolatedAsyncioTestCase):
                         ),
                         emit_translation_events=True,
                     )
-                    self.assertNotEqual(transformer.thread_id, loop_thread)
+                    self.assertEqual(transformer.thread_id, loop_thread)
                     self.assertEqual(set(callback_threads), {loop_thread})
                     self.assertEqual(
                         [event.kind for event in events],
@@ -541,7 +523,7 @@ class TestAsyncAPI(unittest.IsolatedAsyncioTestCase):
 
             with patch.object(document_package, "_write_archive", delayed_write):
                 task = asyncio.create_task(
-                    ChapterExtractionTransformer(_SyncChapterTransformer()).transform(
+                    ChapterExtractionTransformer(_LoopChapterTransformer()).transform(
                         source, target,
                     )
                 )
@@ -559,7 +541,7 @@ class TestAsyncAPI(unittest.IsolatedAsyncioTestCase):
             self.assertFalse(workspace_root[0].exists())
             self.assertFalse(target.exists())
 
-    async def test_sync_transformer_cancellation_waits_before_workspace_cleanup(self):
+    async def test_transformer_cancellation_cleans_workspace(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             source = make_extraction(root / "source", page_pixel_sizes={1: (10, 10)})
@@ -569,7 +551,7 @@ class TestAsyncAPI(unittest.IsolatedAsyncioTestCase):
             )])
             save_xml(encode(chapter), root / "source" / "chapters" / "chapter_head.xml")
             target = root / "target.pcex"
-            transformer = _BlockingSyncChapterTransformer()
+            transformer = _CancellableChapterTransformer()
             workspaces: list[Path] = []
             original_temporary = tempfile.TemporaryDirectory
 
@@ -586,23 +568,20 @@ class TestAsyncAPI(unittest.IsolatedAsyncioTestCase):
                         source, target,
                     )
                 )
-                await asyncio.to_thread(transformer.started.wait, 1)
+                await transformer.started.wait()
                 self.assertTrue(workspaces[0].exists())
                 task.cancel()
                 await asyncio.sleep(0.02)
-                self.assertFalse(task.done())
                 self.assertFalse(transformer.finished.is_set())
-                self.assertTrue(workspaces[0].exists())
                 self.assertFalse(target.exists())
-                transformer.release.set()
                 with self.assertRaises(asyncio.CancelledError):
                     await task
 
-            self.assertTrue(transformer.finished.is_set())
+            self.assertFalse(transformer.finished.is_set())
             self.assertFalse(workspaces[0].exists())
             self.assertFalse(target.exists())
 
-    async def test_extraction_keeps_engine_on_ocr_domain(self):
+    async def test_extraction_keeps_async_engine_on_caller_loop(self):
         with tempfile.TemporaryDirectory() as directory:
             engine = _Engine()
             callback_threads: list[int] = []
@@ -621,7 +600,7 @@ class TestAsyncAPI(unittest.IsolatedAsyncioTestCase):
             self.assertTrue(extraction._validate())
             self.assertIsNotNone(engine.thread_name)
             assert engine.thread_name is not None
-            self.assertTrue(engine.thread_name.startswith("pdf-craft-ocr"))
+            self.assertEqual(engine.thread_name, threading.current_thread().name)
             self.assertEqual(callback_threads, [threading.get_ident()])
 
     async def test_sync_facade_rejects_an_active_event_loop(self):
@@ -892,23 +871,22 @@ class TestAsyncAPI(unittest.IsolatedAsyncioTestCase):
                     (paths.chapters / "chapter_head.xml").read_text(encoding="utf-8"),
                 )
 
-    async def test_async_pdf_handler_protocol_is_awaited_on_caller_loop(self):
+    async def test_async_pdf_handler_materialization_runs_on_caller_loop(self):
         loop_thread = threading.get_ident()
         async_document = _AsyncDocument()
         async_handler = _AsyncHandler(async_document)
-        craft = AsyncPDFCraft(PDFOptions(pdf_handler=async_handler))
-        bridge = craft._sync_pdf_handler()
-        self.assertIsInstance(bridge, _AsyncPDFHandlerBridge)
-        assert bridge is not None
+        with tempfile.TemporaryDirectory() as directory:
+            from pdf_craft.craft import _materialize_pdf_handler
 
-        document = await asyncio.to_thread(bridge.open, Path("source.pdf"))
-        self.assertEqual(await asyncio.to_thread(lambda: document.pages_count), 2)
-        self.assertEqual(
-            await asyncio.to_thread(document.page_size, 1), (8.5, 11.0),
-        )
-        await asyncio.to_thread(document.close)
+            handler = await _materialize_pdf_handler(
+                async_handler, Path("source.pdf"), (1,), 72, Path(directory),
+            )
+            document = handler.open(Path("source.pdf"))
+            self.assertEqual(document.pages_count, 2)
+            self.assertEqual(document.page_size(1), (8.5, 11.0))
+            document.close()
         self.assertEqual(async_handler.thread_id, loop_thread)
-        self.assertEqual(async_document.thread_ids, [loop_thread] * 3)
+        self.assertEqual(set(async_document.thread_ids), {loop_thread})
         self.assertTrue(async_document.closed)
 
     async def test_async_pdf_handler_works_through_patch_and_translate_pdf(self):
@@ -1055,7 +1033,7 @@ class TestAsyncAPI(unittest.IsolatedAsyncioTestCase):
         with self.assertRaises(asyncio.CancelledError):
             await task
 
-    async def test_cancellation_reaches_cooperative_ocr_worker(self):
+    async def test_cancellation_reaches_async_extraction_engine(self):
         with tempfile.TemporaryDirectory() as directory:
             engine = _CancellableEngine()
             task = asyncio.create_task(
@@ -1063,16 +1041,11 @@ class TestAsyncAPI(unittest.IsolatedAsyncioTestCase):
                     "source.pdf", Path(directory) / "book.md",
                 )
             )
-            await asyncio.to_thread(engine.started.wait, 1)
-            started = asyncio.get_running_loop().time()
+            await engine.started.wait()
             task.cancel()
             with self.assertRaises(asyncio.CancelledError):
                 await task
-            elapsed = asyncio.get_running_loop().time() - started
             self.assertTrue(engine.observed_cancel.is_set())
-            self.assertTrue(engine.finished.is_set())
-            self.assertTrue(engine.late_write_succeeded)
-            self.assertGreaterEqual(elapsed, 0.12)
             assert engine.analysing_path is not None
             self.assertFalse(engine.analysing_path.exists())
 

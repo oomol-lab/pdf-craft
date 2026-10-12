@@ -1,28 +1,13 @@
-"""Bounded concurrency helpers for XML translation.
-
-The synchronous helper deliberately stays sequential. Network concurrency is
-owned by the asynchronous pipeline; running one event loop per worker thread
-would make cancellation and the LLM semaphore ineffective.
-"""
+"""Bounded asynchronous concurrency for XML translation."""
 
 import asyncio
-from collections.abc import AsyncIterator, Awaitable, Callable, Iterable, Iterator
+from collections.abc import AsyncIterator, Awaitable, Callable, Iterable
 from typing import TypeVar
 
 from pdf_craft.concurrency import NonContinuableError
 
 P = TypeVar("P")
 R = TypeVar("R")
-
-
-def run_concurrency(
-    parameters: Iterable[P],
-    execute: Callable[[P], R],
-    concurrency: int,
-) -> Iterator[R]:
-    assert concurrency >= 1, "the concurrency must be at least 1"
-    for parameter in parameters:
-        yield execute(parameter)
 
 
 async def run_concurrency_async(

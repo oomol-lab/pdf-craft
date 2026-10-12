@@ -9,6 +9,7 @@ from copy import deepcopy
 import tempfile
 import threading
 import unittest
+from unittest.mock import AsyncMock
 from collections.abc import Sequence
 from pathlib import Path
 from typing import Any, cast
@@ -46,7 +47,6 @@ from pdf_craft.transformer.narrative_xml import (
     _render_chapter_source_text,
 )
 from pdf_craft.transformer.anchored_translation import (
-    _transform_batch,
     _transform_batch_async,
 )
 from pdf_craft.transformer.xml_translator.segment import search_inline_segments, search_text_segments
@@ -63,7 +63,7 @@ class _TemplateTranslator:
     def __init__(self) -> None:
         self.sources: list[str] = []
 
-    def translate_element(self, task, **kwargs):
+    async def translate_element(self, task, **kwargs):
         callbacks = warp_callbacks(
             interrupt_source_text_segments=kwargs["interrupt_source_text_segments"],
             interrupt_translated_text_segments=kwargs["interrupt_translated_text_segments"],
@@ -72,7 +72,7 @@ class _TemplateTranslator:
         )
         mapper = XMLStreamMapper(get_encoding("cl100k_base"), max_group_score=10_000)
 
-        def translate_group(inline_segments):
+        async def translate_group(inline_segments):
             self.sources.append(
                 "\n\n".join("".join(segment.text for segment in inline) for inline in inline_segments)
             )
@@ -89,7 +89,7 @@ class _TemplateTranslator:
             return mappings
 
         translated = task.element
-        for element, mappings in mapper.map_stream(
+        async for element, mappings in mapper.map_stream_async(
             elements=iter((task.element,)), callbacks=callbacks,
             map=translate_group, window=1,
         ):
@@ -98,7 +98,7 @@ class _TemplateTranslator:
 
 
 class _BrokenAnchorTranslator:
-    def translate_element(self, task, **_kwargs):
+    async def translate_element(self, task, **_kwargs):
         parent = next(node for node in task.element.iter() if node.find("anchor") is not None)
         parent.remove(parent.find("anchor"))
         return task.element, task.payload
@@ -108,7 +108,7 @@ class _AssetTranslator:
     def __init__(self) -> None:
         self.calls: list[list[AnchoredContent]] = []
 
-    def transform_assets(
+    async def transform_assets(
         self, assets: Sequence[AnchoredContent],
     ) -> Sequence[AnchoredContentTranslation | None]:
         self.calls.append(list(assets))
@@ -147,7 +147,7 @@ class _XMLTaskTranslator:
     def __init__(self) -> None:
         self.sources: list[str] = []
 
-    def translate_element(self, task, **kwargs):
+    async def translate_element(self, task, **kwargs):
         self.sources.extend(
             segment.text
             for segment in kwargs["interrupt_source_text_segments"](
@@ -163,8 +163,8 @@ class _XMLTaskTranslator:
 class _ReorderedAssetXMLTaskTranslator(_XMLTaskTranslator):
     """A hostile transport that changes wrapper order but keeps slot tokens."""
 
-    def translate_element(self, task, **kwargs):
-        translated, payload = super().translate_element(task, **kwargs)
+    async def translate_element(self, task, **kwargs):
+        translated, payload = await super().translate_element(task, **kwargs)
         flow = translated.find("flow")
         assert flow is not None
         flow[:] = list(reversed(flow))
@@ -174,8 +174,8 @@ class _ReorderedAssetXMLTaskTranslator(_XMLTaskTranslator):
 class _ChangedAssetSlotXMLTaskTranslator(_XMLTaskTranslator):
     """A hostile transport that corrupts one stable asset slot."""
 
-    def translate_element(self, task, **kwargs):
-        translated, payload = super().translate_element(task, **kwargs)
+    async def translate_element(self, task, **kwargs):
+        translated, payload = await super().translate_element(task, **kwargs)
         asset = translated.find("flow/standalone-asset/asset")
         assert asset is not None
         asset.set("translation_slot", "corrupted")
@@ -189,8 +189,8 @@ class _BrokenTableFormulaXMLTaskTranslator(_XMLTaskTranslator):
         super().__init__()
         self.action = action
 
-    def translate_element(self, task, **kwargs):
-        translated, payload = super().translate_element(task, **kwargs)
+    async def translate_element(self, task, **kwargs):
+        translated, payload = await super().translate_element(task, **kwargs)
         cell = translated.find("flow/standalone-asset/asset/content/table/tr/td")
         if cell is None:
             return translated, payload
@@ -216,8 +216,8 @@ class _RepositionedTableFormulaXMLTaskTranslator(_XMLTaskTranslator):
         super().__init__()
         self.action = action
 
-    def translate_element(self, task, **kwargs):
-        translated, payload = super().translate_element(task, **kwargs)
+    async def translate_element(self, task, **kwargs):
+        translated, payload = await super().translate_element(task, **kwargs)
         cell = translated.find("flow/standalone-asset/asset/content/table/tr/td")
         if cell is None:
             return translated, payload
@@ -244,7 +244,7 @@ class _WrongIdentityAssetTransformer:
     def __init__(self) -> None:
         self.calls: list[list[AnchoredContent]] = []
 
-    def transform_assets(self, assets: Sequence[AnchoredContent]):
+    async def transform_assets(self, assets: Sequence[AnchoredContent]):
         self.calls.append(list(assets))
         return [
             AnchoredContentTranslation(("wrong", 0, 0), ["wrong"], [], [])
@@ -294,10 +294,8 @@ def _repairing_translator(fill_responses: Sequence[str]) -> tuple[XMLTranslator,
         config, config, "English", None, False, 2, 10_000, 10_000,
         executor=ConcurrentExecutor(FixedCapacity(1)),
     )
-    translator._translate_text = lambda text: text  # type: ignore[method-assign]
-
     async def translate_text(text: str) -> str:
-        return translator._translate_text(text)
+        return text
 
     translator._translate_text_async = translate_text  # type: ignore[method-assign]
     runtime = _ResponseRuntime(fill_responses)
@@ -502,7 +500,7 @@ class AnchoredContentTranslationTests(unittest.TestCase):
             '<fragment id="2">, the Council.</fragment></xml>'
         )
         translator, runtime = _repairing_translator((incorrect, corrected))
-        translator._translate_text = lambda _source: "However, the Council."  # type: ignore[method-assign]
+        translator._translate_text_async = AsyncMock(return_value="However, the Council.")  # type: ignore[method-assign]
 
         translated = asyncio.run(NarrativeXMLTransformer(cast(Any, translator)).transform(chapter))
 
@@ -535,7 +533,7 @@ class AnchoredContentTranslationTests(unittest.TestCase):
             '<fragment id="2"> is harmful.</fragment></xml>'
         )
         translator, runtime = _repairing_translator((incorrect, corrected))
-        translator._translate_text = lambda _source: "corruption is harmful."  # type: ignore[method-assign]
+        translator._translate_text_async = AsyncMock(return_value="corruption is harmful.")  # type: ignore[method-assign]
 
         translated = asyncio.run(NarrativeXMLTransformer(cast(Any, translator)).transform(chapter))
 
@@ -565,9 +563,7 @@ class AnchoredContentTranslationTests(unittest.TestCase):
             '</expression> vanishes.</fragment></xml>'
         )
         translator, runtime = _repairing_translator((incorrect, corrected))
-        translator._translate_text = (  # type: ignore[method-assign]
-            lambda _source: r"Character \(\chi\) vanishes."
-        )
+        translator._translate_text_async = AsyncMock(return_value=r"Character \(\chi\) vanishes.")  # type: ignore[method-assign]
 
         translated = asyncio.run(NarrativeXMLTransformer(cast(Any, translator)).transform(chapter))
 
@@ -599,9 +595,7 @@ class AnchoredContentTranslationTests(unittest.TestCase):
             '</expression>。</fragment></xml>'
         )
         translator, runtime = _repairing_translator((incorrect, corrected))
-        translator._translate_text = (  # type: ignore[method-assign]
-            lambda _source: r"模 \(q\) 的特征 \(\chi\)。"
-        )
+        translator._translate_text_async = AsyncMock(return_value=r"模 \(q\) 的特征 \(\chi\)。")  # type: ignore[method-assign]
 
         translated = asyncio.run(NarrativeXMLTransformer(cast(Any, translator)).transform(chapter))
 
@@ -633,7 +627,7 @@ class AnchoredContentTranslationTests(unittest.TestCase):
             '<fragment id="2"> Second.</fragment></xml>'
         )
         translator, runtime = _repairing_translator((incorrect, corrected))
-        translator._translate_text = lambda _source: "First.\n\nSecond."  # type: ignore[method-assign]
+        translator._translate_text_async = AsyncMock(return_value="First.\n\nSecond.")  # type: ignore[method-assign]
 
         translated = asyncio.run(NarrativeXMLTransformer(cast(Any, translator)).transform(chapter))
 
@@ -662,11 +656,11 @@ class AnchoredContentTranslationTests(unittest.TestCase):
         ))
         sources: list[str] = []
 
-        def translate(source: str) -> str:
+        async def translate(source: str) -> str:
             sources.append(source)
             return f"{source[:-7]} canonical."
 
-        translator._translate_text = translate  # type: ignore[method-assign]
+        translator._translate_text_async = translate  # type: ignore[method-assign]
 
         translated = asyncio.run(NarrativeXMLTransformer(cast(Any, translator)).transform(chapter))
 
@@ -741,9 +735,9 @@ class AnchoredContentTranslationTests(unittest.TestCase):
             1, "image", (1, 1, 10, 10), title=["Title"], content=["Content"], caption=["Caption"],
         )
         translator = _XMLTaskTranslator()
-        result = AnchoredContentXMLTransformer(translator)._transform_assets_blocking((
+        result = asyncio.run(AnchoredContentXMLTransformer(translator).transform_assets((
             AnchoredContent("head", 0, 1, source, "Nearby narrative."),
-        ))
+        )))
 
         self.assertEqual(
             result[0],
@@ -754,12 +748,12 @@ class AnchoredContentTranslationTests(unittest.TestCase):
     def test_xml_adapter_uses_slot_identity_when_transport_reorders_assets(self):
         first = SourceAsset(1, "image", (1, 1, 10, 10), title=["first"])
         second = SourceAsset(1, "table", (1, 11, 10, 20), title=["second"])
-        result = AnchoredContentXMLTransformer(
+        result = asyncio.run(AnchoredContentXMLTransformer(
             _ReorderedAssetXMLTaskTranslator()
-        )._transform_assets_blocking((
+        ).transform_assets((
             AnchoredContent("head", 0, 0, first, "first context"),
             AnchoredContent("head", 1, -1, second, "second context"),
-        ))
+        )))
 
         self.assertEqual([item.identity for item in result if item], [("head", 0, 0), ("head", 1, -1)])
         self.assertEqual([item.title for item in result if item], [["T:first"], ["T:second"]])
@@ -767,12 +761,12 @@ class AnchoredContentTranslationTests(unittest.TestCase):
     def test_xml_adapter_preserves_whole_batch_when_a_slot_changes(self):
         first = SourceAsset(1, "image", (1, 1, 10, 10), title=["first"])
         second = SourceAsset(1, "table", (1, 11, 10, 20), title=["second"])
-        result = AnchoredContentXMLTransformer(
+        result = asyncio.run(AnchoredContentXMLTransformer(
             _ChangedAssetSlotXMLTaskTranslator()
-        )._transform_assets_blocking((
+        ).transform_assets((
             AnchoredContent("head", 0, 0, first, "first context"),
             AnchoredContent("head", 1, -1, second, "second context"),
-        ))
+        )))
 
         self.assertEqual(result, (None, None))
 
@@ -800,9 +794,9 @@ class AnchoredContentTranslationTests(unittest.TestCase):
 
         for action in ("move", "copy", "drop"):
             with self.subTest(action=action):
-                result = AnchoredContentXMLTransformer(
+                result = asyncio.run(AnchoredContentXMLTransformer(
                     _BrokenTableFormulaXMLTaskTranslator(action)
-                )._transform_assets_blocking((payload,))
+                ).transform_assets((payload,)))
 
                 self.assertEqual(result, (None,))
 
@@ -827,9 +821,9 @@ class AnchoredContentTranslationTests(unittest.TestCase):
 
         for action in ("move_to_start", "move_to_end"):
             with self.subTest(action=action):
-                result = AnchoredContentXMLTransformer(
+                result = asyncio.run(AnchoredContentXMLTransformer(
                     _RepositionedTableFormulaXMLTaskTranslator(action)
-                )._transform_assets_blocking((payload,))
+                ).transform_assets((payload,)))
 
                 self.assertEqual(result, (None,))
 
@@ -858,9 +852,9 @@ class AnchoredContentTranslationTests(unittest.TestCase):
         )
         payload = AnchoredContent("head", 0, -1, table, "")
 
-        result = AnchoredContentXMLTransformer(
+        result = asyncio.run(AnchoredContentXMLTransformer(
             _RepositionedTableFormulaXMLTaskTranslator("swap")
-        )._transform_assets_blocking((payload,))
+        ).transform_assets((payload,)))
 
         self.assertEqual(result, (None,))
 
@@ -900,7 +894,7 @@ class AnchoredContentTranslationTests(unittest.TestCase):
         second = AnchoredContent("head", 1, -1, SourceAsset(1, "table", (1, 11, 10, 20)), "")
         transformer = _WrongIdentityAssetTransformer()
 
-        self.assertEqual(_transform_batch((first, second), transformer), [None, None])
+        self.assertEqual(asyncio.run(_transform_batch_async((first, second), transformer)), [None, None])
         self.assertEqual([len(call) for call in transformer.calls], [2, 1, 1])
 
     def test_asset_without_extracted_text_is_preserved_without_a_translation_call(self):

@@ -89,15 +89,7 @@ sudo apt-get install poppler-utils
 ### Windows
 
 下载适用于 Windows 的 Poppler 二进制包，将其中的 `bin` 目录加入系统 `PATH`，然后重新
-打开终端。也可以在应用层通过 `DefaultPDFHandler(poppler_path=...)` 指定 Poppler 路径：
-
-```python
-from pdf_craft import DefaultPDFHandler, PDFCraft, PDFOptions
-
-craft = PDFCraft(pdf=PDFOptions(
-    pdf_handler=DefaultPDFHandler(poppler_path="C:/tools/poppler/bin"),
-))
-```
+打开终端。
 
 ### 验证 Poppler
 

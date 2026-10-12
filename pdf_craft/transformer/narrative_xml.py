@@ -1,5 +1,4 @@
 import asyncio
-import inspect
 from collections.abc import Callable, Iterable
 from typing import Any, Protocol, cast
 from xml.etree.ElementTree import Element
@@ -10,7 +9,6 @@ from pdf_craft.extractor.chapter.chapter import (
     search_references_in_chapter,
 )
 from pdf_craft.markdown.paragraph import flatten
-from pdf_craft.runtime import TRANSLATION_DOMAIN, callback_bridge
 from pdf_craft.transformer.xml_translator.segment import search_text_segments
 from pdf_craft.transformer.xml_translator.segment import ImmutableBlockElement, InlineSegment
 from pdf_craft.transformer.xml_translator.xml import clone_element, plain_text
@@ -21,13 +19,8 @@ from .chapter_formula_interrupter import (
     _RESTORED_FORMULA_ID_KEY, ChapterFormulaInterrupter,
 )
 from .anchored_xml import AnchoredContentXMLTransformer
-from .furniture_xml import FurnitureXMLTransformer, XMLTaskTranslator as FurnitureXMLTaskTranslator
+from .furniture_xml import FurnitureXMLTransformer, AsyncXMLTaskTranslator as FurnitureXMLTaskTranslator
 from .xml_translator.xml_translator import SubmitKind, TranslationTask
-
-
-class XMLTaskTranslator(Protocol):
-    """The public XMLTranslator subset required for a Chapter task."""
-    def translate_element(self, task: TranslationTask[Chapter], **kwargs) -> tuple[Element, Chapter]: ...
 
 
 class AsyncXMLTaskTranslator(Protocol):
@@ -71,7 +64,7 @@ class NarrativeXMLTransformer:
     """Adapt a format-neutral XML translator to the Chapter transformer protocol."""
     def __init__(
         self,
-        translator: XMLTaskTranslator | AsyncXMLTaskTranslator,
+        translator: AsyncXMLTaskTranslator,
         mode: SubmitKind = SubmitKind.REPLACE,
         *,
         window: int = 1,
@@ -121,17 +114,9 @@ class NarrativeXMLTransformer:
             item_id="metadata",
             character_count=sum(len(child.text or "") for child in element),
         )
-        if inspect.iscoroutinefunction(self._translator.translate_element):
-            translated, _ = await cast(AsyncXMLTaskTranslator, self._translator).translate_element(
-                task, emit_scope_events=False, emit_item_events=False,
-            )
-        else:
-            translated, _ = await TRANSLATION_DOMAIN.run(
-                cast(XMLTaskTranslator, self._translator).translate_element,
-                task,
-                emit_scope_events=False,
-                emit_item_events=False,
-            )
+        translated, _ = await self._translator.translate_element(
+            task, emit_scope_events=False, emit_item_events=False,
+        )
         children = list(translated)
         if len(children) != len(fields) or any(
             child.tag != tag for child, (tag, _, _) in zip(children, fields)
@@ -147,53 +132,6 @@ class NarrativeXMLTransformer:
                 values.append(value)
         return overlay
 
-    def _transform_blocking(
-        self,
-        chapter: Chapter,
-        *,
-        on_translation_event: Callable[[TranslationEvent], None] | None = None,
-        item_id: str | int | None = None,
-        completed_characters: int = 0,
-        total_characters: int | None = None,
-        emit_scope_events: bool = True,
-        emit_item_events: bool = True,
-    ) -> Chapter:
-        element = encode(chapter)
-        # OCR can produce chapters for pages that contain no translatable text.
-        # Keep those chapters intact instead of asking XMLTranslator to process
-        # an empty stream, which otherwise raises "Translation failed unexpectedly".
-        if not self.has_translatable_content(chapter):
-            return chapter
-        anchors = _NarrativeAnchorProjection(element)
-        anchors.replace_assets()
-        formula_interrupter = ChapterFormulaInterrupter()
-        translated, _ = cast(XMLTaskTranslator, self._translator).translate_element(
-            TranslationTask(
-                element=element,
-                action=self._mode,
-                payload=chapter,
-                item_kind=TranslationItemKind.CHAPTER,
-                item_id=item_id if item_id is not None else chapter.id,
-                character_count=sum(len(segment.text) for segment in search_text_segments(element)),
-            ),
-            on_translation_event=on_translation_event,
-            completed_characters=completed_characters,
-            total_characters=total_characters,
-            emit_scope_events=emit_scope_events,
-            emit_item_events=emit_item_events,
-            interrupt_source_text_segments=formula_interrupter.interrupt_source_text_segments,
-            interrupt_translated_text_segments=formula_interrupter.interrupt_translated_text_segments,
-            interrupt_block_element=formula_interrupter.interrupt_block_element,
-            immutable_elements_for_inline_segments=anchors.immutable_elements_for_inline_segments,
-            source_text_renderer=_render_chapter_source_text,
-            canonical_text_validator=_validate_chapter_fill_canonical_text,
-        )
-        anchors.restore_assets(translated)
-        _restore_fragment_owned_inline_expressions(
-            translated, formula_interrupter.adjacent_inline_predecessors,
-        )
-        return decode(translated)
-
     async def transform(
         self,
         chapter: Chapter,
@@ -205,20 +143,6 @@ class NarrativeXMLTransformer:
         emit_scope_events: bool = True,
         emit_item_events: bool = True,
     ) -> Chapter:
-        if not inspect.iscoroutinefunction(self._translator.translate_element):
-            callback = callback_bridge(
-                asyncio.get_running_loop(), on_translation_event,
-            )
-            return await TRANSLATION_DOMAIN.run(
-                self._transform_blocking,
-                chapter,
-                on_translation_event=callback,
-                item_id=item_id,
-                completed_characters=completed_characters,
-                total_characters=total_characters,
-                emit_scope_events=emit_scope_events,
-                emit_item_events=emit_item_events,
-            )
         element = encode(chapter)
         if not self.has_translatable_content(chapter):
             return chapter
@@ -261,11 +185,6 @@ class NarrativeXMLTransformer:
         chapters: Iterable[tuple[Chapter, str | int]],
     ) -> list[Chapter]:
         """Translate all chapter groups through one book-wide XML window."""
-        if not inspect.iscoroutinefunction(self._translator.translate_element):
-            return [
-                await self.transform(chapter, item_id=item_id)
-                for chapter, item_id in chapters
-            ]
         if not hasattr(self._translator, "translate_elements"):
             pending = [
                 asyncio.create_task(self.transform(chapter, item_id=item_id))

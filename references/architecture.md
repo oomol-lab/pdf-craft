@@ -46,6 +46,13 @@ analysis/OCR 缓存。
 不得进入业务核心。配置、选项、事件和数据类不拆分同步/异步版本。模型下载和环境探测属于启动前
 准备，只保留同步入口。
 
+业务执行以 async 为唯一真源：请求、重试、repair loop、编排和转换不能再提供第二套同步实现。
+`run_sync` 只能由 `pdf_craft/sync/` 的用户门面调用；禁止在实现层启动事件循环把同步业务伪装成
+异步业务。用户提供的 LLM、Transformer、TOC 转换、PDF handler 和图片 URL resolver 执行方法
+必须是异步契约，不提供同步扩展适配。普通事件通知可以接受同步或异步 callback。
+仅当第三方库没有异步接口时，才在独立执行域中调用同步适配器；适配器只承担第三方调用、
+文件读写和必要资源清理，不复制业务编排。跨域 callback 桥接不得成为另一条请求或转换路径。
+
 `translate_extraction()` 保留 source layer 并追加 replacement-only 译文层。Markdown/EPUB 渲染
 通过 `RenderMode.SOURCE`、`REPLACE`、`BILINGUAL` 决定只读原文、选择一份译文或合并原译文；
 后两种模式可显式传 translation ID，省略时稳定选择 index 第一项。PDF 写回也可显式选择译文层，

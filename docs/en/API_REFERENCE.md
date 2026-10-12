@@ -28,8 +28,8 @@ awaited. Cancelling an async task cancels native network/subprocess work and
 signals cooperative blocking stages through their abort callback. The await
 does not finish cancelling until that worker has unwound, so temporary
 workspaces remain valid through its final writes and cleanup.
-This applies to every thread-pooled boundary, including synchronous extension
-transformers and synchronous PDF handlers, not only cooperative OCR workers.
+This applies to every thread-pooled boundary used for synchronous third-party
+libraries, not to user extension protocols.
 Async PCEX export writes a sibling temporary archive and publishes it with one
 atomic replace. Cancellation before that boundary waits for the writer, removes
 the temporary archive, and leaves the requested target absent; cancellation
@@ -42,13 +42,12 @@ cancellation performs this cleanup before the worker itself exits.
 
 Independent image/table translation uses the async-only
 `AnchoredContentTransformer` protocol with `async def transform_assets(assets)`.
-`PDFOptions.pdf_handler` also accepts `AsyncPDFHandler`, whose
+`PDFOptions.pdf_handler` accepts only `AsyncPDFHandler`, whose
 `open()` returns an `AsyncPDFDocument` with awaitable `pages_count()`,
 `metadata()`, `page_size()`, `render_page()`, and `close()` methods. The SDK
-adapts that document at the synchronous OCR boundary without running its
-coroutines in a worker thread. For PDF patching, required source-page rasters
-are awaited on the caller loop and materialized temporarily; only the resulting
-paths and metadata cross into the isolated Qt process.
+awaits and materializes source pages on the caller loop before entering
+the synchronous OCR or Qt boundary. Only the resulting paths and metadata
+cross into those execution domains.
 
 The async XML/EPUB translation APIs likewise accept a synchronous or async
 `on_fill_failed` callback. Each repair notification runs on the caller's event
@@ -148,8 +147,8 @@ extraction; they do not fall back to an analysis/OCR directory.
 
 - `ocr`: one of the local or vendor OCR configuration objects below.
 - `ocr_executor`: required shared capacity for vendor OCR requests. Local OCR does not use it.
-- `ocr_image_url_resolver`: optional `OCRImageURLResolver` used to turn each rendered Vendor OCR image path into an HTTP(S) URL or Base64 image Data URL. It may be synchronous or asynchronous. The default reads the image as a Base64 Data URL.
-- `pdf_handler`: an optional `PDFHandler` or `AsyncPDFHandler` implementation. Use it only to replace the PDF reading/rendering layer or manage that layer in your application.
+- `ocr_image_url_resolver`: optional async `OCRImageURLResolver` used to turn each rendered Vendor OCR image path into an HTTP(S) URL or Base64 image Data URL. The default reads the image as a Base64 Data URL.
+- `pdf_handler`: an optional `AsyncPDFHandler` implementation. User-provided executable extensions are async-only; the built-in synchronous PDF adapter remains internal to the OCR and patching execution domains.
 - `models_cache_path` and `local_only`: convenience settings for the default local DeepSeek OCR configuration when `ocr` is not supplied. They must not be combined with an explicit `ocr` configuration.
 
 ### `ExtractionOptions`

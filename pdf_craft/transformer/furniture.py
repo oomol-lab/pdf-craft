@@ -43,9 +43,9 @@ class FurnitureTransformer(Protocol):
     NarrativeFlow text.
     """
 
-    def transform_position(self, position: FurniturePosition) -> str | None: ...
+    async def transform_position(self, position: FurniturePosition) -> str | None: ...
 
-    def transform_sections(
+    async def transform_sections(
         self,
         page_index: int,
         sections: Sequence[FurnitureSection],

@@ -25,7 +25,7 @@ class _ScriptedLLM:
         self.responses = responses
         self.calls = []
 
-    def request(self, *, input):
+    async def request(self, *, input):
         self.calls.append(input)
         return self.responses.pop(0)
 
@@ -64,8 +64,36 @@ def _title_complete(title: str, evidence: str) -> str:
     })
 
 
-class TestBookMetadata(unittest.TestCase):
-    def test_disabled_metadata_does_not_read_native_pdf_metadata(self):
+class TestBookMetadata(unittest.IsolatedAsyncioTestCase):
+    async def test_printed_title_reaches_pcex_when_native_title_is_empty(self):
+        class _OCR:
+            @staticmethod
+            def metadata(_pdf_path):
+                return None
+
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            title = "Attention Is All You Need"
+            pages_path = self._write_pages(root / "ocr", [title])
+            engine = PDFExtractionEngine.__new__(PDFExtractionEngine)
+            engine._ocr = _OCR()  # type: ignore[assignment]
+            metadata = await engine._extract_book_metadata_async(
+                pdf_path=root / "paper.pdf", pages_path=pages_path, enabled=True,
+                metadata_llm=_ScriptedLLM([_title_complete(title, title)]),  # type: ignore[arg-type]
+            )
+            workspace = root / "workspace"
+            (workspace / "chapters").mkdir(parents=True)
+            (workspace / "assets").mkdir()
+            write_pages(workspace, render_dpi=300, page_pixel_sizes={1: (100, 100)})
+            write_manifest(workspace, document_metadata=metadata)
+            extraction = PDFCraftExtraction._from_workspace(workspace)
+            archive_path = root / "paper.pcex"
+            await extraction._export_async(archive_path)
+            with ZipFile(archive_path) as archive:
+                manifest = json.loads(archive.read("manifest.json"))
+            self.assertEqual(manifest["document"]["title"], title)
+
+    async def test_disabled_metadata_does_not_read_native_pdf_metadata(self):
         class _OCR:
             def metadata(self, _pdf_path):
                 raise AssertionError("native metadata must stay unread when disabled")
@@ -73,17 +101,17 @@ class TestBookMetadata(unittest.TestCase):
         engine = PDFExtractionEngine.__new__(PDFExtractionEngine)
         engine._ocr = _OCR()  # type: ignore[assignment]
 
-        result = engine._extract_book_metadata(  # pylint: disable=protected-access
+        result = await engine._extract_book_metadata_async(  # pylint: disable=protected-access
             pdf_path=Path("book.pdf"), pages_path=Path("ocr"), enabled=False, metadata_llm=None,
         )
 
         self.assertIsNone(result)
 
-    def test_enabled_metadata_requires_its_explicit_llm_before_ocr_starts(self):
+    async def test_enabled_metadata_requires_its_explicit_llm_before_ocr_starts(self):
         engine = PDFExtractionEngine.__new__(PDFExtractionEngine)
 
         with self.assertRaisesRegex(ValueError, "requires metadata_llm"):
-            engine._extract_from_pdf(  # pylint: disable=protected-access
+            engine._prepare_extraction(  # pylint: disable=protected-access
                 pdf_path=Path("book.pdf"),
                 analysing_path=Path("analysis"),
                 ocr_size="base",
@@ -104,7 +132,7 @@ class TestBookMetadata(unittest.TestCase):
                 metadata_llm=None,
             )
 
-    def test_reads_three_pages_then_appends_requested_pages(self):
+    async def test_reads_three_pages_then_appends_requested_pages(self):
         with TemporaryDirectory() as directory:
             pages_path = self._write_pages(Path(directory) / "ocr", [
                 "A Book\nAda Author", "contents", "preface", "Example Press", "ISBN 978-1-4028-9462-6",
@@ -114,7 +142,7 @@ class TestBookMetadata(unittest.TestCase):
                 _complete("A Book", 1, "A Book"),
             ])
 
-            metadata = extract_book_metadata_from_ocr(pages_path, llm)  # type: ignore[arg-type]
+            metadata = await extract_book_metadata_from_ocr(pages_path, llm)  # type: ignore[arg-type]
 
             self.assertEqual(metadata.title, "A Book")
             self.assertEqual(metadata.publisher, "Example Press")
@@ -125,7 +153,7 @@ class TestBookMetadata(unittest.TestCase):
             self.assertNotIn("Example Press", llm.calls[0][-1].message)
             self.assertIn("Example Press", llm.calls[1][-1].message)
 
-    def test_business_validation_reenters_guaranteed_repair_loop(self):
+    async def test_business_validation_reenters_guaranteed_repair_loop(self):
         with TemporaryDirectory() as directory:
             pages_path = self._write_pages(Path(directory) / "ocr", ["A Book", "", ""])
             llm = _ScriptedLLM([
@@ -136,14 +164,14 @@ class TestBookMetadata(unittest.TestCase):
                 }),
             ])
 
-            metadata = extract_book_metadata_from_ocr(pages_path, llm)  # type: ignore[arg-type]
+            metadata = await extract_book_metadata_from_ocr(pages_path, llm)  # type: ignore[arg-type]
 
             self.assertEqual(metadata.title, "A Book")
             self.assertEqual(len(llm.calls), 2)
             self.assertIn("business validation error", llm.calls[1][-1].message)
             self.assertEqual(llm.calls[1][-2].role.name, "ASSISTANT")
 
-    def test_string_page_count_is_rejected_by_strict_schema_and_repaired(self):
+    async def test_string_page_count_is_rejected_by_strict_schema_and_repaired(self):
         with TemporaryDirectory() as directory:
             pages_path = self._write_pages(Path(directory) / "ocr", ["A Book", "", ""])
             llm = _ScriptedLLM([
@@ -151,14 +179,14 @@ class TestBookMetadata(unittest.TestCase):
                 _title_complete("A Book", "A Book"),
             ])
 
-            metadata = extract_book_metadata_from_ocr(pages_path, llm)  # type: ignore[arg-type]
+            metadata = await extract_book_metadata_from_ocr(pages_path, llm)  # type: ignore[arg-type]
 
             self.assertEqual(metadata.title, "A Book")
             self.assertEqual(len(llm.calls), 2)
             self.assertIn("page_count", llm.calls[1][-1].message)
             self.assertEqual(llm.calls[1][-2].role.name, "ASSISTANT")
 
-    def test_evidence_rejects_case_and_internal_whitespace_rewrites(self):
+    async def test_evidence_rejects_case_and_internal_whitespace_rewrites(self):
         with TemporaryDirectory() as directory:
             pages_path = self._write_pages(Path(directory) / "ocr", ["PDF Craft", "", ""])
             llm = _ScriptedLLM([
@@ -167,14 +195,14 @@ class TestBookMetadata(unittest.TestCase):
                 _title_complete("PDF Craft", "PDF Craft"),
             ])
 
-            metadata = extract_book_metadata_from_ocr(pages_path, llm)  # type: ignore[arg-type]
+            metadata = await extract_book_metadata_from_ocr(pages_path, llm)  # type: ignore[arg-type]
 
             self.assertEqual(metadata.title, "PDF Craft")
             self.assertEqual(len(llm.calls), 3)
             self.assertIn("not supported by its evidence", llm.calls[1][-1].message)
             self.assertIn("not supported by its evidence", llm.calls[2][-1].message)
 
-    def test_invalid_isbn_checksum_reenters_repair_loop_and_accepts_fix(self):
+    async def test_invalid_isbn_checksum_reenters_repair_loop_and_accepts_fix(self):
         with TemporaryDirectory() as directory:
             pages_path = self._write_pages(Path(directory) / "ocr", [
                 "ISBN 978-1-4028-9462-0\nISBN 978-1-4028-9462-6", "", "",
@@ -184,7 +212,7 @@ class TestBookMetadata(unittest.TestCase):
                 _isbn_complete("978-1-4028-9462-6"),
             ])
 
-            metadata = extract_book_metadata_from_ocr(pages_path, llm)  # type: ignore[arg-type]
+            metadata = await extract_book_metadata_from_ocr(pages_path, llm)  # type: ignore[arg-type]
 
             self.assertEqual(metadata.isbn, "978-1-4028-9462-6")
             self.assertEqual(len(llm.calls), 2)
@@ -196,7 +224,7 @@ class TestBookMetadata(unittest.TestCase):
         self.assertTrue(_looks_like_isbn("978-1-4028-9462-6"))
         self.assertFalse(_looks_like_isbn("978-1-4028-9462-0"))
 
-    def test_exhausted_invalid_isbn_uses_safe_pdf_metadata_fallback(self):
+    async def test_exhausted_invalid_isbn_uses_safe_pdf_metadata_fallback(self):
         class _OCR:
             @staticmethod
             def metadata(_pdf_path):
@@ -214,7 +242,7 @@ class TestBookMetadata(unittest.TestCase):
             engine._ocr = _OCR()  # type: ignore[assignment]
             llm = _ScriptedLLM([_isbn_complete("978-1-4028-9462-0")] * 4)
 
-            metadata = engine._extract_book_metadata(  # pylint: disable=protected-access
+            metadata = await engine._extract_book_metadata_async(  # pylint: disable=protected-access
                 pdf_path=Path("book.pdf"), pages_path=pages_path, enabled=True,
                 metadata_llm=llm,  # type: ignore[arg-type]
             )
@@ -224,7 +252,7 @@ class TestBookMetadata(unittest.TestCase):
             self.assertEqual(metadata.isbn, "978-1-4028-9462-6")
             self.assertEqual(len(llm.calls), 4)
 
-    def test_reaching_twelve_pages_forces_complete_through_repair_loop(self):
+    async def test_reaching_twelve_pages_forces_complete_through_repair_loop(self):
         with TemporaryDirectory() as directory:
             pages_path = self._write_pages(Path(directory) / "ocr", [f"page {index}" for index in range(1, 15)])
             llm = _ScriptedLLM([
@@ -238,13 +266,13 @@ class TestBookMetadata(unittest.TestCase):
                 }),
             ])
 
-            metadata = extract_book_metadata_from_ocr(pages_path, llm)  # type: ignore[arg-type]
+            metadata = await extract_book_metadata_from_ocr(pages_path, llm)  # type: ignore[arg-type]
 
             self.assertEqual(metadata.title, "page 1")
             self.assertEqual(len(llm.calls), 5)
             self.assertIn("all available OCR pages", llm.calls[-1][-1].message)
 
-    def test_reaching_the_last_physical_page_forces_complete_through_repair_loop(self):
+    async def test_reaching_the_last_physical_page_forces_complete_through_repair_loop(self):
         with TemporaryDirectory() as directory:
             pages_path = self._write_pages(Path(directory) / "ocr", [
                 "A Book", "contents", "preface", "copyright",
@@ -258,7 +286,7 @@ class TestBookMetadata(unittest.TestCase):
                 }),
             ])
 
-            metadata = extract_book_metadata_from_ocr(pages_path, llm)  # type: ignore[arg-type]
+            metadata = await extract_book_metadata_from_ocr(pages_path, llm)  # type: ignore[arg-type]
 
             self.assertEqual(metadata.title, "A Book")
             self.assertEqual(len(llm.calls), 3)

@@ -370,7 +370,7 @@ class _DeterministicXMLTranslator:
         self.marker = marker
         self.target_language = "en"
 
-    def translate_element(self, task, **_kwargs):
+    async def translate_element(self, task, **_kwargs):
         for node in task.element.iter():
             if node.text:
                 node.text += self.marker

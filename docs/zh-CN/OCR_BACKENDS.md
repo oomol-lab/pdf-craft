@@ -223,8 +223,8 @@ from pdf_craft import (
     OCRImageURLResolver, PDFCraft, PDFOptions,
 )
 
-def resolve_ocr_image(path: Path) -> str:
-    return image_service.create_url(path)
+async def resolve_ocr_image(path: Path) -> str:
+    return await image_service.create_url(path)
 
 resolver: OCRImageURLResolver = resolve_ocr_image
 craft = PDFCraft(pdf=PDFOptions(
@@ -238,9 +238,8 @@ craft = PDFCraft(pdf=PDFOptions(
 ))
 ```
 
-resolver 也可以是异步函数；同步 resolver 会在事件循环之外运行。每张逻辑 OCR 图片只会在
-需要时转换一次，网络重试会复用同一个 URL。脚注处理产生的第二阶段图片属于另一张逻辑图片，
-会单独转换。
+resolver 必须是异步函数，并在调用方事件循环中执行。每张逻辑 OCR 图片只会在需要时转换一次，
+网络重试会复用同一个 URL。脚注处理产生的第二阶段图片属于另一张逻辑图片，会单独转换。
 
 DeepSeek OCR 把返回值直接写入 `image_url.url`。Unlimited OCR 会把 Base64 Data URL 写入
 `file_data`，把 HTTP(S) URL 写入 `file_url`。上传、签名、过期时间、清理、缓存与存储服务的

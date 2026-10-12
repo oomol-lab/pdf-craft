@@ -24,8 +24,7 @@ OCR 和翻译事件回调既可以是普通函数，也可以是 `async def`；�
 线程执行，异步回调会被等待。取消异步任务时，原生网络请求和子进程会被取消，线程池中
 支持协作取消的阶段会通过原有 abort 回调收到信号；直到工作线程真正退出后，调用方才会
 收到取消完成，因此临时工作区会保留到 worker 的最后写入和清理结束。
-该规则覆盖所有线程池边界，包括同步扩展 transformer 和同步 PDF handler，而不只限于支持
-协作取消的 OCR worker。
+该规则覆盖所有用于同步第三方库的线程池边界；用户提供的可执行扩展统一采用异步协议。
 异步 PCEX 导出会先写同目录临时归档，再通过一次原子替换发布。若取消先到达，调用会等待
 writer 收尾、删除临时归档并保持目标不存在；若发布边界先完成，则该取消视为晚于成功完成。
 `pdftotext`、Ghostscript、LaTeX 等外部工具在受跟踪的 POSIX 进程组或 Windows Job Object
@@ -34,11 +33,10 @@ writer 收尾、删除临时归档并保持目标不存在；若发布边界先�
 
 图片/表格独立翻译采用仅异步的 `AnchoredContentTransformer`，提供
 `async def transform_assets(assets)`。
-`PDFOptions.pdf_handler` 也接受 `AsyncPDFHandler`：其 `open()` 返回
+`PDFOptions.pdf_handler` 仅接受 `AsyncPDFHandler`：其 `open()` 返回
 `AsyncPDFDocument`，并提供可等待的 `pages_count()`、`metadata()`、
-`page_size()`、`render_page()` 和 `close()`。SDK 会在同步 OCR 边界进行适配，
-不会把这些协程送进工作线程执行。PDF 回填时，需要的源页面会先在调用方事件循环中
-等待并临时落盘，只有页面路径和元数据会跨入隔离的 Qt 进程。
+`page_size()`、`render_page()` 和 `close()`。SDK 在进入同步 OCR 或 Qt 边界前，
+先在调用方事件循环中等待并临时物化源页面，只有页面路径和元数据会进入这些执行域。
 
 异步 XML/EPUB 翻译的 `on_fill_failed` 同样可以是普通函数或 `async def`；每次修复失败
 通知都在调用方事件循环中执行，异步 callback 会在进入下一次修复步骤前被完整等待。
@@ -112,7 +110,7 @@ craft = PDFCraft(pdf=PDFOptions(...))
 ```python
 PDFOptions(
     ocr=None,                   # OCRConfig；省略时默认为 DeepSeek OCR local 配置
-    pdf_handler=None,           # PDFHandler；省略时使用默认处理器
+    pdf_handler=None,           # AsyncPDFHandler；省略时使用默认处理器
     models_cache_path=None,     # local OCR 模型缓存目录
     local_only=False,           # 禁止 local OCR 下载缺失模型
     ocr_executor=None,          # vendor OCR 必须显式提供的共享 AsyncExecutor
@@ -126,32 +124,30 @@ PDFOptions(
 本地 OCR 可以把模型缓存和离线选项写进 local 配置，也可以使用 `models_cache_path` 和
 `local_only` 的默认 local OCR 路径。
 
-`ocr_image_url_resolver` 接收每张 Vendor OCR 渲染图片的 `Path`，返回 HTTP(S) URL 或
-Base64 图片 Data URL；同步函数与异步函数都支持。未设置时，pdf-craft 默认读取图片并生成
+`ocr_image_url_resolver` 是异步函数，接收每张 Vendor OCR 渲染图片的 `Path`，返回 HTTP(S) URL 或
+Base64 图片 Data URL。未设置时，pdf-craft 默认读取图片并生成
 Base64 Data URL。本地 OCR 不使用该字段。
 
 ### 自定义 PDFHandler
 
-`PDFHandler` 是替换 PDF 读取和页面渲染实现的同步协议。默认的
-`DefaultPDFHandler(poppler_path=...)` 使用 `pypdf` 读取元数据、使用 Poppler 渲染页面；系统
-PATH 中没有 Poppler 时，可以把其安装目录传给 `poppler_path`。只有接入其他 PDF 渲染器时才需要
-自定义 handler，并将它传给 `PDFOptions(pdf_handler=handler)`。
+用户传入 `PDFOptions(pdf_handler=handler)` 的 handler 必须实现异步协议。`open()` 返回的
+`AsyncPDFDocument` 提供可等待的 `pages_count()`、`metadata()`、`page_size()`、
+`render_page()` 和 `close()`。SDK 会在进入同步 OCR 或 Qt 第三方边界前，在调用方事件循环中
+完成页面物化。用户提供的可执行扩展不支持同步协议。
 
-一个 handler 需要实现 `open(pdf_path: Path) -> PDFDocument`。它返回的 document 必须提供：
+`DefaultPDFHandler(poppler_path=...)` 是 pdf-craft 内部使用的同步适配器；底层
+`PDFPatcher` 等低级组件仍可在其专用同步执行域中直接使用它。它不作为 `PDFOptions.pdf_handler`
+的用户扩展协议。
 
-- `pages_count` 属性，返回页面总数；
+一个异步 handler 需要实现 `open(pdf_path: Path) -> AsyncPDFDocument`。它返回的 document 必须提供：
+
+- `pages_count()`，返回页面总数；
 - `metadata()`，返回 `PDFDocumentMetadata`；
 - `page_size(page_index)`，返回以英寸计的宽、高；
 - `render_page(page_index, dpi)`，返回 `PIL.Image.Image`；
 - `close()`，释放打开的文档资源。
 
-这些方法的 `page_index` 均从 1 开始。调用方负责在使用完成后关闭自定义 document；框架自己的
-提取和写回流程会关闭由 handler 打开的 document。
-
-异步应用也可实现 `AsyncPDFHandler`。它的 `open()` 以及返回的
-`AsyncPDFDocument` 的 `pages_count()`、`metadata()`、`page_size()`、
-`render_page()`、`close()` 都是异步方法；提取流水线会在调用方事件循环中等待这些方法，
-同时让同步 OCR 引擎继续留在专用工作线程。
+这些方法的 `page_index` 均从 1 开始，且必须是异步方法。框架会在使用完成后关闭 document。
 
 ### ExtractionOptions
 
