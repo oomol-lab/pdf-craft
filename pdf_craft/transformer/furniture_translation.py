@@ -17,7 +17,6 @@ from pdf_craft.extractor.toc import decode as decode_toc, iter_toc
 from pdf_craft.markdown.paragraph import flatten
 from pdf_craft.runtime import IO_DOMAIN
 from .furniture import Box, FurniturePosition, FurnitureSection, FurnitureTransformer
-from .furniture_xml import FurnitureXMLTransformer
 from .translation_coverage import (
     FurniturePositionCoverage, FurnitureSectionCoverage, write_furniture_coverage,
 )
@@ -37,70 +36,13 @@ _TOC_NUMBER_PREFIX = re.compile(
 _FOLIO_MARKER = "__PDF_CRAFT_FOLIO__"
 
 
-def translate_furnitures_in_workspace(
-    *,
-    chapters_path: Path,
-    toc_path: Path,
-    furnitures_path: Path,
-    translation_path: Path,
-    transformer: FurnitureTransformer,
-) -> None:
-    """Translate furniture and write only furniture coverage into a sidecar.
-
-    ``chapters_path`` is already NarrativeFlow-translated.  The still-source
-    furniture XML plus its ``toc_id`` is enough to resolve printed TOC rows;
-    no original extraction is needed.
-    """
-    if not furnitures_path.exists():
-        return
-    root = read_xml(furnitures_path)
-    titles = _translated_titles(chapters_path, toc_path)
-    position_coverage: list[tuple[str, str, str]] = []
-    section_coverage: list[tuple[str, str, str]] = []
-
-    for pattern in root.findall("patterns/pattern"):
-        pattern_id = pattern.get("id", "")
-        kind = pattern.get("kind", "")
-        for position in pattern.findall("position"):
-            position_id = position.get("id", "")
-            translated = _translate_position(position, pattern_id, position_id, kind, titles, transformer)
-            position_coverage.append((pattern_id, position_id, translated))
-
-    for page in root.findall("pages/page"):
-        page_index = page.get("index", "")
-        ordinary: list[tuple[Element, FurnitureSection]] = []
-        for section in page.findall("section"):
-            if len(section):
-                # A physical associated section is represented by its pattern
-                # position.  It has no own text or coverage identity.
-                continue
-            det = section.get("det", "")
-            toc_id = section.get("toc_id")
-            if toc_id is not None:
-                state = _reconcile_toc_section(section, titles)
-                section_coverage.append((page_index, det, state))
-                continue
-            ordinary.append((section, _as_section(page_index, det, section.text or "")))
-
-        section_coverage.extend(
-            _translate_page_sections(page_index, ordinary, transformer)
-        )
-
-    save_xml(root, furnitures_path)
-    write_furniture_coverage(
-        translation_path,
-        (FurniturePositionCoverage(*entry) for entry in position_coverage),
-        (FurnitureSectionCoverage(int(page_index), det, state) for page_index, det, state in section_coverage),
-    )
-
-
 async def translate_furnitures_in_workspace_async(
     *,
     chapters_path: Path,
     toc_path: Path,
     furnitures_path: Path,
     translation_path: Path,
-    transformer: FurnitureXMLTransformer,
+    transformer: FurnitureTransformer,
 ) -> None:
     """Native-async furniture translation with filesystem work off-loop."""
     def prepare():
@@ -162,7 +104,7 @@ async def _translate_position_async(
     position_id: str,
     kind: str,
     titles: dict[int, str],
-    transformer: FurnitureXMLTransformer,
+    transformer: FurnitureTransformer,
 ) -> str:
     if position.get("folio_style") is not None:
         prefix = position.get("folio_prefix", "")
@@ -210,7 +152,7 @@ async def _translate_position_async(
 async def _translate_page_sections_async(
     page_index: str,
     entries: list[tuple[Element, FurnitureSection]],
-    transformer: FurnitureXMLTransformer,
+    transformer: FurnitureTransformer,
 ) -> list[tuple[str, str, str]]:
     if not entries:
         return []
@@ -247,87 +189,6 @@ def _translated_titles(chapters_path: Path, toc_path: Path) -> dict[int, str]:
         for toc_id, reference in references.items()
         if reference in texts and texts[reference].strip()
     }
-
-
-def _translate_position(
-    position: Element,
-    pattern_id: str,
-    position_id: str,
-    kind: str,
-    titles: dict[int, str],
-    transformer: FurnitureTransformer,
-) -> str:
-    if position.get("folio_style") is not None:
-        return _translate_folio_position(
-            position, pattern_id, position_id, kind, transformer
-        )
-    toc_id = _integer_attribute(position, "toc_id")
-    if toc_id is not None:
-        title = titles.get(toc_id)
-        if title is None:
-            return "preserved"
-        position.text = title
-        return "translated"
-
-    content = position.text or ""
-    try:
-        result = transformer.transform_position(
-            FurniturePosition(
-                pattern_id=int(pattern_id),
-                position_id=int(position_id),
-                kind=kind,
-                content=content,
-            )
-        )
-    except Exception:  # Isolated furniture must never discard a pcex translation.
-        return "preserved"
-    if not _usable_target(result):
-        return "preserved"
-    position.text = result
-    return "translated"
-
-
-def _translate_folio_position(
-    position: Element,
-    pattern_id: str,
-    position_id: str,
-    kind: str,
-    transformer: FurnitureTransformer,
-) -> str:
-    """Translate fixed folio decoration without ever submitting its value.
-
-    The marker is preserved exactly once by a usable translation. It lets the
-    target language place fixed prefix/suffix text on either side of the
-    number while the PDF patcher still reconstructs the actual value from
-    each physical section's page index.
-    """
-    prefix = position.get("folio_prefix", "")
-    suffix = position.get("folio_suffix", "")
-    if not prefix and not suffix:
-        return "preserved"
-    source = prefix + _FOLIO_MARKER + suffix
-    try:
-        result = transformer.transform_position(
-            FurniturePosition(
-                pattern_id=int(pattern_id),
-                position_id=int(position_id),
-                kind=kind,
-                content=source,
-            )
-        )
-    except Exception:  # A failed decoration must leave its source folio intact.
-        return "preserved"
-    if (
-        not isinstance(result, str)
-        or not result.strip()
-        or result.count(_FOLIO_MARKER) != 1
-        or not result.replace(_FOLIO_MARKER, "").strip()
-    ):
-        return "preserved"
-    translated_prefix, translated_suffix = result.split(_FOLIO_MARKER)
-    _set_optional_attribute(position, "folio_prefix", translated_prefix)
-    _set_optional_attribute(position, "folio_suffix", translated_suffix)
-    return "translated"
 
 
 def _set_optional_attribute(element: Element, name: str, value: str) -> None:
@@ -375,32 +236,6 @@ def _replace_toc_title_field(source: str, translated_title: str) -> str:
     if translated_title.startswith(prefix):
         translated_title = translated_title[len(prefix):]
     return prefix + translated_title.lstrip()
-
-
-def _translate_page_sections(
-    page_index: str,
-    entries: list[tuple[Element, FurnitureSection]],
-    transformer: FurnitureTransformer,
-) -> list[tuple[str, str, str]]:
-    if not entries:
-        return []
-    sections = [section for _, section in entries]
-    try:
-        translated = transformer.transform_sections(int(page_index), sections)
-    except Exception:  # The failed page's fragments are preserved independently.
-        translated = ()
-    if len(translated) != len(entries):
-        translated = (None,) * len(entries)
-
-    coverage: list[tuple[str, str, str]] = []
-    for (element, _section), target in zip(entries, translated):
-        det = element.get("det", "")
-        if _usable_target(target):
-            element.text = target
-            coverage.append((page_index, det, "translated"))
-        else:
-            coverage.append((page_index, det, "preserved"))
-    return coverage
 
 
 def _as_section(page_index: str, det: str, content: str) -> FurnitureSection:

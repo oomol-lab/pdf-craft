@@ -4,7 +4,6 @@ from .anchored_content import (
     AnchoredContent,
     AnchoredContentTransformer,
     AnchoredContentTranslation,
-    SyncAnchoredContentTransformer,
 )
 from .anchored_xml import AnchoredContentXMLTransformer
 from .package import (

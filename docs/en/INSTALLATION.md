@@ -57,7 +57,7 @@ brew install poppler
 sudo apt-get update && sudo apt-get install poppler-utils
 ```
 
-On Windows, install a Poppler binary distribution and add its `bin` directory to `PATH`. Alternatively, configure `DefaultPDFHandler(poppler_path="C:/tools/poppler/bin")` through `PDFOptions`.
+On Windows, install a Poppler binary distribution and add its `bin` directory to `PATH`. The built-in Poppler adapter is selected automatically; `PDFOptions.pdf_handler` is reserved for async custom handlers.
 
 Check the installation with `pdfinfo -v`.
 

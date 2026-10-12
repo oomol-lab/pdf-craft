@@ -75,8 +75,8 @@ from pdf_craft import (
     OCRImageURLResolver, PDFCraft, PDFOptions,
 )
 
-def resolve_ocr_image(path: Path) -> str:
-    return image_service.create_url(path)
+async def resolve_ocr_image(path: Path) -> str:
+    return await image_service.create_url(path)
 
 resolver: OCRImageURLResolver = resolve_ocr_image
 craft = PDFCraft(pdf=PDFOptions(
@@ -90,8 +90,8 @@ craft = PDFCraft(pdf=PDFOptions(
 ))
 ```
 
-The resolver may also be asynchronous. Synchronous resolvers run outside the event loop. Each
-logical OCR image is resolved lazily once, and its URL is reused across transport retries. A
+The resolver is asynchronous and runs on the caller's event loop. Each logical OCR image is
+resolved lazily once, and its URL is reused across transport retries. A
 second-stage footnote image is a separate logical image and is resolved independently.
 
 DeepSeek OCR sends the returned value through `image_url.url`. Unlimited OCR sends Base64 Data

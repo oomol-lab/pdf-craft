@@ -23,7 +23,7 @@ class _Prefix:
         self.prefix = prefix
         self.calls = 0
 
-    def translate_element(self, task, **_kwargs):
+    async def translate_element(self, task, **_kwargs):
         self.calls += 1
         for element in task.element.iter("fragment"):
             if element.text:
@@ -34,7 +34,7 @@ class _Prefix:
 class _PrefixXML:
     target_language = "fr"
 
-    def translate_element(self, task, **_kwargs):
+    async def translate_element(self, task, **_kwargs):
         for element in task.element.iter():
             if element.tag != "mark" and element.text and element.text.strip():
                 element.text = f"fr:{element.text}"

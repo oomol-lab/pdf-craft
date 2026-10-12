@@ -22,7 +22,7 @@ logger = logging.getLogger(__name__)
 _TITLE_HEAD_REGX = re.compile(r"^\s*#{1,6}\s*")
 
 
-def analyse_toc(
+async def analyse_toc(
     pages_path: Path,
     toc_path: Path,
     toc_assumed: bool,
@@ -32,13 +32,13 @@ def analyse_toc(
         return decode_toc(read_xml(toc_path))
 
     toc_path.parent.mkdir(parents=True, exist_ok=True)
-    toc_info = _do_analyse_toc(pages_path, toc_llm, toc_assumed)
+    toc_info = await _do_analyse_toc(pages_path, toc_llm, toc_assumed)
     save_xml(encode_toc(toc_info), toc_path)
 
     return toc_info
 
 
-def _do_analyse_toc(
+async def _do_analyse_toc(
     pages_path: Path,
     toc_llm: LLM | None,
     toc_assumed: bool,
@@ -71,7 +71,7 @@ def _do_analyse_toc(
     if toc_pages:
         if toc_llm is not None:
             try:
-                ref2level = analyse_toc_levels_by_llm(
+                ref2level = await analyse_toc_levels_by_llm(
                     llm=toc_llm,
                     toc_page_refs=toc_pages,
                     toc_page_contents=list(
@@ -99,7 +99,7 @@ def _do_analyse_toc(
     else:
         if toc_llm is not None:
             try:
-                ref2level = analyse_title_levels_by_llm(toc_llm, pages)
+                ref2level = await analyse_title_levels_by_llm(toc_llm, pages)
             except LLMAnalysisError as error:
                 print(
                     f"LLM analysis title failed, falling back to statistical method: {error}"

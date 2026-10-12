@@ -2,8 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import dataclass
-import inspect
-from typing import Generic, Protocol, TypeVar, cast
+from typing import Generic, Protocol, TypeVar
 
 from .types import Message, MessageRole
 
@@ -41,36 +40,18 @@ class ProtocolFailure(Generic[S]):
 ProtocolResult = ProtocolSuccess[T, S] | ProtocolRetry[S] | ProtocolPartial[T, S] | ProtocolFailure[S]
 
 
-class ResponseProtocol(Protocol[T, S]):
-    def validate(self, response: str, state: S, attempt: int, max_attempts: int) -> ProtocolResult[T, S]: ...
-
-    def empty(self, state: S, attempt: int, max_attempts: int) -> ProtocolResult[T, S]: ...
-
-    def exhausted(self, state: S, attempts: int, response: str | None) -> T: ...
-
-
 class AsyncResponseProtocol(Protocol[T, S]):
-    def validate(
+    async def validate(
         self, response: str, state: S, attempt: int, max_attempts: int,
-    ) -> ProtocolResult[T, S] | Awaitable[ProtocolResult[T, S]]: ...
+    ) -> ProtocolResult[T, S]: ...
 
-    def empty(
+    async def empty(
         self, state: S, attempt: int, max_attempts: int,
-    ) -> ProtocolResult[T, S] | Awaitable[ProtocolResult[T, S]]: ...
+    ) -> ProtocolResult[T, S]: ...
 
-    def exhausted(
+    async def exhausted(
         self, state: S, attempts: int, response: str | None,
-    ) -> T | Awaitable[T]: ...
-
-
-@dataclass
-class _BlockingRepairLoopOptions(Generic[T, S]):
-    messages: Sequence[Message]
-    request: Callable[[list[Message], int, int], str]
-    protocol: ResponseProtocol[T, S]
-    state: S
-    max_attempts: int = 1
-    history_limit: int = 2
+    ) -> T: ...
 
 
 @dataclass
@@ -83,35 +64,6 @@ class RepairLoopOptions(Generic[T, S]):
     history_limit: int = 2
 
 
-def _run_repair_loop_blocking(options: _BlockingRepairLoopOptions[T, S]) -> T:
-    initial = list(options.messages)
-    current = list(initial)
-    retry_history: list[Message] = []
-    state = options.state
-    last_response: str | None = None
-    attempts = max(1, options.max_attempts)
-    for attempt in range(attempts):
-        response = options.request(current, attempt, attempts - 1)
-        last_response = response
-        result = options.protocol.empty(state, attempt, attempts) if not response.strip() else options.protocol.validate(response, state, attempt, attempts)
-        state = result.state
-        if isinstance(result, ProtocolSuccess):
-            return result.value
-        if isinstance(result, ProtocolPartial):
-            return result.value
-        if isinstance(result, ProtocolFailure):
-            raise result.error
-        if attempt + 1 >= attempts:
-            break
-        if result.reset_history:
-            retry_history = []
-        additions = ([Message(MessageRole.ASSISTANT, response)] if result.include_response and response else [])
-        additions.append(Message(MessageRole.USER, result.feedback))
-        retry_history = [*retry_history, *additions][-max(1, options.history_limit):]
-        current = [*initial, *retry_history]
-    return options.protocol.exhausted(state, attempts, last_response)
-
-
 async def run_repair_loop(options: RepairLoopOptions[T, S]) -> T:
     initial = list(options.messages)
     current = list(initial)
@@ -122,15 +74,10 @@ async def run_repair_loop(options: RepairLoopOptions[T, S]) -> T:
     for attempt in range(attempts):
         response = await options.request(current, attempt, attempts - 1)
         last_response = response
-        result_or_awaitable = (
-            options.protocol.empty(state, attempt, attempts)
-            if not response.strip()
-            else options.protocol.validate(response, state, attempt, attempts)
-        )
         result = (
-            await cast(Awaitable[ProtocolResult[T, S]], result_or_awaitable)
-            if inspect.isawaitable(result_or_awaitable)
-            else result_or_awaitable
+            await options.protocol.empty(state, attempt, attempts)
+            if not response.strip()
+            else await options.protocol.validate(response, state, attempt, attempts)
         )
         state = result.state
         if isinstance(result, ProtocolSuccess):
@@ -150,7 +97,4 @@ async def run_repair_loop(options: RepairLoopOptions[T, S]) -> T:
         additions.append(Message(MessageRole.USER, result.feedback))
         retry_history = [*retry_history, *additions][-max(1, options.history_limit):]
         current = [*initial, *retry_history]
-    exhausted = options.protocol.exhausted(state, attempts, last_response)
-    if inspect.isawaitable(exhausted):
-        return await cast(Awaitable[T], exhausted)
-    return exhausted
+    return await options.protocol.exhausted(state, attempts, last_response)

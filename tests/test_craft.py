@@ -29,7 +29,7 @@ class _Engine:
         self.kwargs = None
         self.analysing_path = None
 
-    def extract_package(self, *, analysing_path, **kwargs):
+    async def extract_package_async(self, *, analysing_path, **kwargs):
         self.kwargs = kwargs
         self.analysing_path = analysing_path
         make_extraction(
@@ -86,7 +86,7 @@ def _source_extraction(root: Path, *, with_toc: bool = False) -> PDFCraftExtract
 
 
 class _Upper:
-    def transform(self, chapter: Chapter) -> Chapter:
+    async def transform(self, chapter: Chapter) -> Chapter:
         layout = chapter.flow_items[0]
         assert isinstance(layout, TextFlowItem)
         layout.children[0].content = ["translated"]
@@ -94,12 +94,12 @@ class _Upper:
 
 
 class _Identity:
-    def transform(self, chapter: Chapter) -> Chapter:
+    async def transform(self, chapter: Chapter) -> Chapter:
         return chapter
 
 
 class _PrefixXMLTranslator:
-    def translate_element(self, task, **_kwargs):
+    async def translate_element(self, task, **_kwargs):
         for element in task.element.iter():
             if element.text:
                 element.text = f"translated:{element.text}"
@@ -107,7 +107,7 @@ class _PrefixXMLTranslator:
 
 
 class _AssetPrefixXMLTranslator(_PrefixXMLTranslator):
-    def translate_element(self, task, **_kwargs):
+    async def translate_element(self, task, **_kwargs):
         for element in task.element.iter():
             if element.tag in {"title", "content", "caption"} and element.text:
                 element.text = f"translated:{element.text}"
@@ -333,9 +333,9 @@ class TestPDFCraft(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             source = _source_extraction(root / "source", with_toc=True)
-            target = ChapterExtractionTransformer(_Upper())._transform_blocking(
+            target = asyncio.run(ChapterExtractionTransformer(_Upper()).transform(
                 source, root / "target.pcex"
-            )
+            ))
 
             with source._materialize() as paths:
                 self.assertIn("original", (paths.chapters / "chapter_head.xml").read_text())
@@ -353,9 +353,9 @@ class TestPDFCraft(unittest.TestCase):
             ), root / "source" / "furnitures.xml")
             source = PDFCraftExtraction._from_workspace(root / "source")._validate()
 
-            target = ChapterExtractionTransformer(_Identity())._transform_blocking(
+            target = asyncio.run(ChapterExtractionTransformer(_Identity()).transform(
                 source, root / "target.pcex"
-            )
+            ))
             with target._materialize() as paths:
                 self.assertTrue(paths.furnitures.is_file())
                 self.assertIn("Header", paths.furnitures.read_text(encoding="utf-8"))
@@ -365,7 +365,7 @@ class TestPDFCraft(unittest.TestCase):
             root = Path(directory)
             source = _source_extraction(root / "source", with_toc=True)
 
-            def translate_toc(element):
+            async def translate_toc(element):
                 element.set("translated", "yes")
                 return element
 

@@ -19,8 +19,8 @@ from pdf_craft.extractor.chapter.chapter import SourceTextFragment, Chapter, Tex
 from tests.extraction_helpers import make_extraction
 
 
-class TestTranslationEvents(unittest.TestCase):
-    def test_direct_extraction_transform_does_not_claim_translation_events(self):
+class TestTranslationEvents(unittest.IsolatedAsyncioTestCase):
+    async def test_direct_extraction_transform_does_not_claim_translation_events(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             source_root = root / "source"
@@ -34,11 +34,11 @@ class TestTranslationEvents(unittest.TestCase):
             )
 
             class Identity:
-                def transform(self, chapter):
+                async def transform(self, chapter):
                     return chapter
 
             events = []
-            ChapterExtractionTransformer(Identity())._transform_blocking(
+            await ChapterExtractionTransformer(Identity()).transform(
                 source, root / "target.pcex", on_translation_event=events.append
             )
             self.assertEqual(events, [])
@@ -65,7 +65,7 @@ class TestTranslationEvents(unittest.TestCase):
                 )
 
             class Identity:
-                def translate_element(self, task, **_kwargs):
+                async def translate_element(self, task, **_kwargs):
                     return task.element, task.payload
 
             events = []

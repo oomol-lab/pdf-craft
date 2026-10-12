@@ -1,3 +1,4 @@
+import asyncio
 import tempfile
 import unittest
 from pathlib import Path
@@ -63,18 +64,18 @@ class TocExtractionTests(unittest.TestCase):
             )
 
             with patch("pdf_craft.extractor.toc.analysing.find_toc_pages") as find:
-                no_printed_toc = analyse_toc(
+                no_printed_toc = asyncio.run(analyse_toc(
                     pages, root / "no-toc.xml", toc_assumed=False
-                )
+                ))
                 find.assert_not_called()
 
             with patch(
                 "pdf_craft.extractor.toc.analysing.find_toc_pages",
                 return_value=[ref],
             ):
-                printed_toc = analyse_toc(
+                printed_toc = asyncio.run(analyse_toc(
                     pages, root / "printed-toc.xml", toc_assumed=True
-                )
+                ))
 
             self.assertEqual(no_printed_toc.page_indexes, [])
             self.assertEqual(printed_toc.page_indexes, [1])

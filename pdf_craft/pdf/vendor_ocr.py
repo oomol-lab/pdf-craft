@@ -37,7 +37,7 @@ from ..ocr_config import (
 from ..runtime import IO_DOMAIN
 
 
-OCRImageURLResolver = Callable[[Path], str | Awaitable[str]]
+OCRImageURLResolver = Callable[[Path], Awaitable[str]]
 
 
 class _InvalidOCRImageURL(ValueError):
@@ -113,6 +113,8 @@ class VendorOCRRuntime:
         self.config = config
         self.executor = executor
         self.image_url_resolver = image_url_resolver or _default_image_url
+        if not _is_async_callable(self.image_url_resolver):
+            raise TypeError("OCRImageURLResolver must be an async callable")
         self._client: httpx.AsyncClient | None = None
         self._access_token: str | None = None
         self._token_lock = asyncio.Lock()
@@ -151,14 +153,7 @@ class VendorOCRRuntime:
     ) -> _ResolvedVendorOCRInput:
         try:
             check_aborted(request.aborted)
-            if _is_async_callable(self.image_url_resolver):
-                result = self.image_url_resolver(request.image_path)
-            else:
-                result = await IO_DOMAIN.run(
-                    self.image_url_resolver, request.image_path,
-                )
-            if inspect.isawaitable(result):
-                result = await result
+            result = await self.image_url_resolver(request.image_path)
             return _ResolvedVendorOCRInput(
                 request, _validate_image_url(result),
             )
@@ -748,8 +743,9 @@ def _encode_image(path: Path) -> str:
     return base64.b64encode(path.read_bytes()).decode("ascii")
 
 
-def _default_image_url(path: Path) -> str:
-    return "data:image/png;base64," + _encode_image(path)
+async def _default_image_url(path: Path) -> str:
+    encoded = await IO_DOMAIN.run(_encode_image, path)
+    return "data:image/png;base64," + encoded
 
 
 def _is_async_callable(resolver: OCRImageURLResolver) -> bool:

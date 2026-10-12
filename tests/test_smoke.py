@@ -1,5 +1,6 @@
 # pylint: disable=protected-access
 
+import asyncio
 import json
 import tempfile
 import unittest
@@ -36,7 +37,7 @@ class _CaptureTransform:
     def __init__(self):
         self.kwargs = None
 
-    def extract_package(self, *, analysing_path, **kwargs):
+    async def extract_package_async(self, *, analysing_path, **kwargs):
         self.kwargs = kwargs
         make_extraction(
             analysing_path / "extraction", page_pixel_sizes={1: (1, 1)}, with_toc=True
@@ -311,9 +312,9 @@ class TestSmokeMatrix(unittest.TestCase):
     def test_page_indexes_are_forwarded_to_public_extractor(self):
         with tempfile.TemporaryDirectory() as directory:
             transform = _CaptureTransform()
-            PDFExtractor(transform)._extract_blocking(
+            asyncio.run(PDFExtractor(transform).extract(
                 Path("source.pdf"), Path(directory) / "book.pcex", page_indexes=(2, 4)
-            )
+            ))
             kwargs = transform.kwargs
             assert kwargs is not None
             self.assertEqual(kwargs["page_indexes"], (2, 4))

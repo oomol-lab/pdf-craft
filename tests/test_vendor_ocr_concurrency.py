@@ -260,7 +260,7 @@ class VendorOCRConcurrencyTests(unittest.IsolatedAsyncioTestCase):
         preparation_threads: list[int] = []
         event_loop_thread = threading.get_ident()
 
-        def resolve(_path):
+        async def resolve(_path):
             preparation_threads.append(threading.get_ident())
             prepared.set()
             return "https://images.invalid/page.png"
@@ -311,7 +311,7 @@ class VendorOCRConcurrencyTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(response.raw_text, "ok")
         self.assertEqual(len(preparation_threads), 1)
-        self.assertNotEqual(preparation_threads[0], event_loop_thread)
+        self.assertEqual(preparation_threads[0], event_loop_thread)
         await client.aclose()
 
     async def test_unlimited_prepares_image_before_acquiring_submit_capacity(self):
@@ -319,7 +319,7 @@ class VendorOCRConcurrencyTests(unittest.IsolatedAsyncioTestCase):
         preparation_threads: list[int] = []
         event_loop_thread = threading.get_ident()
 
-        def resolve(_path):
+        async def resolve(_path):
             preparation_threads.append(threading.get_ident())
             prepared.set()
             return "data:image/png;base64,ZW5jb2RlZA=="
@@ -353,7 +353,7 @@ class VendorOCRConcurrencyTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(response["result"]["task_id"], "task-1")
         self.assertEqual(len(preparation_threads), 1)
-        self.assertNotEqual(preparation_threads[0], event_loop_thread)
+        self.assertEqual(preparation_threads[0], event_loop_thread)
         await client.aclose()
 
     async def test_batch_retry_does_not_cap_initial_requests_at_sixteen(self):
@@ -398,9 +398,12 @@ class VendorOCRConcurrencyTests(unittest.IsolatedAsyncioTestCase):
         ), patch.object(
             VendorOCRRuntime, "_retry_request_after_error", new=retry,
         ):
+            async def resolve(_path: Path) -> str:
+                return "https://images.invalid/page.png"
+
             async with VendorOCRRuntime(
                 config, ConcurrentExecutor(FixedCapacity(2)),
-                lambda _path: "https://images.invalid/page.png",
+                resolve,
             ) as runtime:
                 async def consume() -> None:
                     async for _ in runtime.request_many(requests()):
@@ -1540,7 +1543,7 @@ class VendorOCRConcurrencyTests(unittest.IsolatedAsyncioTestCase):
             ))
             return VendorOCRResponse({}, raw_text="", input_tokens=1, output_tokens=1)
 
-        def resolve(path: Path) -> str:
+        async def resolve(path: Path) -> str:
             resolved_paths.append(path)
             return f"https://images.invalid/{path.name}"
 
@@ -1589,7 +1592,7 @@ class VendorOCRConcurrencyTests(unittest.IsolatedAsyncioTestCase):
             cast(Any, _Handler(rendered)),
         )
 
-        def resolve(path: Path) -> str:
+        async def resolve(path: Path) -> str:
             if path.name == "page_2.png":
                 return ""
             return f"https://images.invalid/{path.name}"
@@ -1996,7 +1999,7 @@ class VendorOCRConcurrencyTests(unittest.IsolatedAsyncioTestCase):
             cast(Any, _Handler(rendered)),
         )
 
-        def resolve(_path: Path) -> str:
+        async def resolve(_path: Path) -> str:
             raise AbortError()
 
         with tempfile.TemporaryDirectory() as directory:

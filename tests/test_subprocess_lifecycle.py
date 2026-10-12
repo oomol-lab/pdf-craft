@@ -74,7 +74,7 @@ class _FurnitureEngine:
             "native_pdf_text_prepared": True,
         }
 
-    def extract_package(
+    async def extract_package_async(
         self,
         *,
         pdf_path,

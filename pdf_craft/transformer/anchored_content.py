@@ -61,11 +61,3 @@ class AnchoredContentTransformer(Protocol):
         self,
         assets: Sequence[AnchoredContent],
     ) -> Sequence[AnchoredContentTranslation | None]: ...
-
-
-class SyncAnchoredContentTransformer(Protocol):
-    """Synchronous transformer accepted only by compatibility facades."""
-    def transform_assets(
-        self,
-        assets: Sequence[AnchoredContent],
-    ) -> Sequence[AnchoredContentTranslation | None]: ...

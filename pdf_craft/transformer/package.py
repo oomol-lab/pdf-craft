@@ -3,10 +3,8 @@
 # Internal workspace methods keep one-shot conversions directory-backed.
 # pylint: disable=protected-access
 
-import asyncio
-import inspect
 import json
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from datetime import datetime, timezone
 from pathlib import Path
 from shutil import copy2, copytree
@@ -20,30 +18,19 @@ from pdf_craft.document.package import (
     EXTRACTION_SUFFIX, FORMAT_VERSION, _read_manifest, _v3_manifest,
     validate_translation_id,
 )
-from pdf_craft.runtime import (
-    IO_DOMAIN, TRANSLATION_DOMAIN, callback_bridge, invoke_callback,
-)
+from pdf_craft.runtime import IO_DOMAIN, invoke_callback
 from pdf_craft.extractor.chapter.chapter import (
     SourceTextFragment, TextFlowItem, decode, encode,
 )
-from pdf_craft.transformer.protocol import _ChapterTransformer, _SyncChapterTransformer
+from pdf_craft.transformer.protocol import _ChapterTransformer
 from pdf_craft.transformer.events import TranslationEvent, TranslationEventKind, TranslationItemKind
 from pdf_craft.transformer.xml_translator.segment import search_text_segments
 from pdf_craft.transformer.narrative_xml import NarrativeXMLTransformer
-from pdf_craft.transformer.furniture_xml import FurnitureXMLTransformer
 from pdf_craft.transformer.xml_translator.xml_translator import SubmitKind
 from pdf_craft.transformer.furniture import FurnitureTransformer
-from pdf_craft.transformer.furniture_translation import (
-    translate_furnitures_in_workspace,
-    translate_furnitures_in_workspace_async,
-)
+from pdf_craft.transformer.furniture_translation import translate_furnitures_in_workspace_async
 from pdf_craft.transformer.anchored_content import AnchoredContentTransformer
-from pdf_craft.transformer.anchored_content import SyncAnchoredContentTransformer
-from pdf_craft.transformer.anchored_translation import (
-    translate_anchored_contents_in_workspace,
-    translate_anchored_contents_in_workspace_async,
-)
-from pdf_craft.transformer.anchored_xml import AnchoredContentXMLTransformer
+from pdf_craft.transformer.anchored_translation import translate_anchored_contents_in_workspace_async
 from pdf_craft.transformer.translation_coverage import (
     NarrativeCoverage, paragraph_identity, write_narrative_coverage,
 )
@@ -62,35 +49,16 @@ class ChapterExtractionTransformer:
 
     def __init__(
         self,
-        chapter_transformer: _ChapterTransformer | _SyncChapterTransformer,
+        chapter_transformer: _ChapterTransformer,
         *,
         mode: SubmitKind = SubmitKind.REPLACE,
-        toc_transformer: Callable[[Element], Element] | None = None,
+        toc_transformer: Callable[[Element], Awaitable[Element]] | None = None,
     ) -> None:
         if mode != SubmitKind.REPLACE and hasattr(chapter_transformer, "with_mode"):
             chapter_transformer = getattr(chapter_transformer, "with_mode")(mode)
         self.chapter_transformer = chapter_transformer
         self.mode = mode
         self.toc_transformer = toc_transformer
-
-    def _transform_blocking(
-        self,
-        extraction: PDFCraftExtraction,
-        output_path: Path,
-        *,
-        on_translation_event: Callable[[TranslationEvent], None] | None = None,
-        emit_translation_events: bool = False,
-    ) -> PDFCraftExtraction:
-        if output_path.suffix.lower() != EXTRACTION_SUFFIX:
-            raise ValueError(f"PDFCraftExtraction path must end with {EXTRACTION_SUFFIX}")
-        with TemporaryDirectory(prefix="pdf-craft-transformed-extraction-") as directory:
-            transformed = self._transform_to_workspace(
-                extraction,
-                Path(directory) / "extraction",
-                on_translation_event=on_translation_event,
-                emit_translation_events=emit_translation_events,
-            )
-            return transformed._export(output_path)
 
     async def transform(
         self,
@@ -125,20 +93,6 @@ class ChapterExtractionTransformer:
         emit_translation_events: bool = False,
     ) -> PDFCraftExtraction:
         is_xml_transformer = isinstance(self.chapter_transformer, NarrativeXMLTransformer)
-        is_async_transformer = inspect.iscoroutinefunction(
-            self.chapter_transformer.transform
-        )
-        if not is_xml_transformer and not is_async_transformer:
-            callback = callback_bridge(
-                asyncio.get_running_loop(), on_translation_event,
-            )
-            return await TRANSLATION_DOMAIN.run(
-                self._transform_to_workspace,
-                extraction,
-                output_path,
-                on_translation_event=callback,
-                emit_translation_events=emit_translation_events,
-            )
         chapter_tasks = await IO_DOMAIN.run(
             self._prepare_async_workspace, extraction, output_path,
         )
@@ -237,6 +191,12 @@ class ChapterExtractionTransformer:
                     await commit_chapter(task_index, transformed)
                 )
 
+        toc_path = output_path / "toc.xml"
+        if self.toc_transformer is not None and await IO_DOMAIN.run(toc_path.exists):
+            toc = await IO_DOMAIN.run(read_xml, toc_path)
+            transformed_toc = await self.toc_transformer(toc)
+            await IO_DOMAIN.run(save_xml, transformed_toc, toc_path)
+
         result = await IO_DOMAIN.run(
             self._finish_async_workspace,
             output_path,
@@ -285,158 +245,17 @@ class ChapterExtractionTransformer:
         output_path: Path,
         narrative_coverage: list[NarrativeCoverage],
     ) -> PDFCraftExtraction:
-        toc_path = output_path / "toc.xml"
-        if self.toc_transformer is not None and toc_path.exists():
-            save_xml(self.toc_transformer(read_xml(toc_path)), toc_path)
         write_narrative_coverage(output_path / "translation.xml", narrative_coverage)
         return PDFCraftExtraction._from_workspace(output_path)._validate()
-
-    def _transform_to_workspace(
-        self,
-        extraction: PDFCraftExtraction,
-        output_path: Path,
-        *,
-        on_translation_event: Callable[[TranslationEvent], None] | None = None,
-        emit_translation_events: bool = False,
-    ) -> PDFCraftExtraction:
-        extraction._validate()
-        if output_path.exists():
-            raise FileExistsError(f"output extraction workspace already exists: {output_path}")
-        output_path.mkdir(parents=True)
-        _copy_extraction_to_workspace(extraction, output_path)
-
-        chapter_paths = sorted((output_path / "chapters").glob("chapter*.xml"))
-        chapter_tasks = []
-        is_xml_transformer = isinstance(self.chapter_transformer, NarrativeXMLTransformer)
-        for path in chapter_paths:
-            chapter = decode(read_xml(path))
-            if is_xml_transformer:
-                character_count = cast(NarrativeXMLTransformer, self.chapter_transformer).source_character_count(chapter)
-                has_content = cast(NarrativeXMLTransformer, self.chapter_transformer).has_translatable_content(chapter)
-            else:
-                segments = list(search_text_segments(encode(chapter)))
-                character_count = sum(len(segment.text) for segment in segments)
-                has_content = any(segment.text.strip() for segment in segments)
-            if has_content:
-                item_id: str | int = chapter.id if chapter.id is not None else "head"
-                chapter_tasks.append((path, chapter, item_id, character_count))
-
-        total_characters = sum(item[3] for item in chapter_tasks)
-        if emit_translation_events and on_translation_event is not None:
-            on_translation_event(TranslationEvent(
-                kind=TranslationEventKind.START,
-                chapter_count=len(chapter_tasks),
-                has_toc=False,
-                has_metadata=False,
-                total_characters=total_characters,
-                completed_characters=0,
-            ))
-
-        completed_characters = 0
-        narrative_coverage: list[NarrativeCoverage] = []
-        for path, chapter, item_id, character_count in chapter_tasks:
-            source_layouts = {
-                identity: layout
-                for layout in chapter.flow_items
-                if isinstance(layout, TextFlowItem)
-                and layout.role in {"body", "heading"}
-                and (identity := paragraph_identity(chapter, layout)) is not None
-            }
-            if emit_translation_events and on_translation_event is not None and not is_xml_transformer:
-                on_translation_event(TranslationEvent(
-                    kind=TranslationEventKind.ITEM_START,
-                    item_kind=TranslationItemKind.CHAPTER,
-                    item_id=item_id,
-                    item_completed_characters=0,
-                    item_total_characters=character_count,
-                ))
-            if is_xml_transformer:
-                transformed = cast(
-                    NarrativeXMLTransformer, self.chapter_transformer,
-                )._transform_blocking(
-                    chapter,
-                    on_translation_event=on_translation_event if emit_translation_events else None,
-                    item_id=item_id,
-                    completed_characters=completed_characters,
-                    total_characters=total_characters,
-                    emit_scope_events=False,
-                )
-            else:
-                transformed = cast(
-                    _SyncChapterTransformer, self.chapter_transformer,
-                ).transform(
-                    chapter
-                )
-            save_xml(encode(transformed), path)
-            targets = {
-                identity: layout
-                for layout in transformed.flow_items
-                if isinstance(layout, TextFlowItem)
-                and (identity := paragraph_identity(transformed, layout)) is not None
-            }
-            for identity in source_layouts:
-                target = targets.get(identity)
-                # A successful transformer invocation is the sole affirmative
-                # translation signal.  Equality with source text is not a
-                # failure; a missing/empty target is explicitly preserved.
-                state = "translated" if target is not None and _has_visible_content(target) else "preserved"
-                narrative_coverage.append(NarrativeCoverage(*identity, state))
-            completed_characters += character_count
-            if emit_translation_events and on_translation_event is not None and not is_xml_transformer:
-                on_translation_event(TranslationEvent(
-                    kind=TranslationEventKind.PROGRESS,
-                    item_kind=TranslationItemKind.CHAPTER,
-                    item_id=item_id,
-                    item_completed_characters=character_count,
-                    item_total_characters=character_count,
-                    completed_characters=completed_characters,
-                    total_characters=total_characters,
-                ))
-                on_translation_event(TranslationEvent(
-                    kind=TranslationEventKind.ITEM_COMPLETE,
-                    item_kind=TranslationItemKind.CHAPTER,
-                    item_id=item_id,
-                    item_completed_characters=character_count,
-                    item_total_characters=character_count,
-                    completed_characters=completed_characters,
-                    total_characters=total_characters,
-                ))
-
-        toc_path = output_path / "toc.xml"
-        if self.toc_transformer is not None and toc_path.exists():
-            save_xml(self.toc_transformer(read_xml(toc_path)), toc_path)
-        write_narrative_coverage(output_path / "translation.xml", narrative_coverage)
-        if emit_translation_events and on_translation_event is not None:
-            on_translation_event(TranslationEvent(
-                kind=TranslationEventKind.COMPLETE,
-                completed_characters=completed_characters,
-                total_characters=total_characters,
-            ))
-        return PDFCraftExtraction._from_workspace(output_path)._validate()
-
 
 class FurnitureExtractionTransformer:
     """Translate only the page-furniture layer of a translated pcex."""
 
     def __init__(
         self,
-        furniture_transformer: FurnitureTransformer | FurnitureXMLTransformer,
+        furniture_transformer: FurnitureTransformer,
     ) -> None:
         self.furniture_transformer = furniture_transformer
-
-    def _transform_blocking(
-        self,
-        extraction: PDFCraftExtraction,
-        output_path: Path,
-    ) -> PDFCraftExtraction:
-        if output_path.suffix.lower() != EXTRACTION_SUFFIX:
-            raise ValueError(f"PDFCraftExtraction path must end with {EXTRACTION_SUFFIX}")
-        with TemporaryDirectory(prefix="pdf-craft-furnitures-transformed-") as directory:
-            transformed = self._transform_to_workspace(
-                extraction,
-                Path(directory) / "extraction",
-            )
-            return transformed._export(output_path)
 
     async def transform(
         self,
@@ -456,35 +275,11 @@ class FurnitureExtractionTransformer:
         finally:
             await IO_DOMAIN.run(temporary.cleanup)
 
-    def _transform_to_workspace(
-        self,
-        extraction: PDFCraftExtraction,
-        output_path: Path,
-    ) -> PDFCraftExtraction:
-        extraction._validate()
-        if output_path.exists():
-            raise FileExistsError(f"output extraction workspace already exists: {output_path}")
-        output_path.mkdir(parents=True)
-        _copy_extraction_to_workspace(extraction, output_path)
-        translate_furnitures_in_workspace(
-            chapters_path=output_path / "chapters",
-            toc_path=output_path / "toc.xml",
-            furnitures_path=output_path / "furnitures.xml",
-            translation_path=output_path / "translation.xml",
-            transformer=cast(FurnitureTransformer, self.furniture_transformer),
-        )
-        return PDFCraftExtraction._from_workspace(output_path)._validate()
-
     async def _transform_to_workspace_async(
         self,
         extraction: PDFCraftExtraction,
         output_path: Path,
     ) -> PDFCraftExtraction:
-        if not isinstance(self.furniture_transformer, FurnitureXMLTransformer):
-            return await TRANSLATION_DOMAIN.run(
-                self._transform_to_workspace, extraction, output_path,
-            )
-
         def prepare():
             extraction._validate()
             if output_path.exists():
@@ -512,54 +307,17 @@ class AnchoredContentExtractionTransformer:
 
     def __init__(
         self,
-        anchored_transformer: AnchoredContentTransformer | SyncAnchoredContentTransformer,
+        anchored_transformer: AnchoredContentTransformer,
     ) -> None:
         self.anchored_transformer = anchored_transformer
-
-    def _transform_sync(
-        self,
-        extraction: PDFCraftExtraction,
-        output_path: Path,
-    ) -> PDFCraftExtraction:
-        if output_path.suffix.lower() != EXTRACTION_SUFFIX:
-            raise ValueError(f"PDFCraftExtraction path must end with {EXTRACTION_SUFFIX}")
-        with TemporaryDirectory(prefix="pdf-craft-anchored-transformed-") as directory:
-            transformed = self._transform_to_workspace(
-                extraction,
-                Path(directory) / "extraction",
-            )
-            return transformed._export(output_path)
-
-    def _transform_to_workspace(
-        self,
-        extraction: PDFCraftExtraction,
-        output_path: Path,
-    ) -> PDFCraftExtraction:
-        extraction._validate()
-        if output_path.exists():
-            raise FileExistsError(f"output extraction workspace already exists: {output_path}")
-        output_path.mkdir(parents=True)
-        _copy_extraction_to_workspace(extraction, output_path)
-        translate_anchored_contents_in_workspace(
-            chapters_path=output_path / "chapters",
-            translation_path=output_path / "translation.xml",
-            transformer=cast(
-                SyncAnchoredContentTransformer, self.anchored_transformer,
-            ),
-        )
-        return PDFCraftExtraction._from_workspace(output_path)._validate()
 
     async def transform(
         self,
         extraction: PDFCraftExtraction,
         output_path: Path,
     ) -> PDFCraftExtraction:
-        if not isinstance(self.anchored_transformer, AnchoredContentXMLTransformer) and not inspect.iscoroutinefunction(
-            self.anchored_transformer.transform_assets,
-        ):
-            return await TRANSLATION_DOMAIN.run(
-                self._transform_sync, extraction, output_path,
-            )
+        if output_path.suffix.lower() != EXTRACTION_SUFFIX:
+            raise ValueError(f"PDFCraftExtraction path must end with {EXTRACTION_SUFFIX}")
         temporary = await IO_DOMAIN.run(
             TemporaryDirectory, prefix="pdf-craft-anchored-transformed-",
         )
@@ -576,11 +334,6 @@ class AnchoredContentExtractionTransformer:
         extraction: PDFCraftExtraction,
         output_path: Path,
     ) -> PDFCraftExtraction:
-        transformer = cast(
-            AnchoredContentXMLTransformer | AnchoredContentTransformer,
-            self.anchored_transformer,
-        )
-
         def prepare():
             extraction._validate()
             if output_path.exists():
@@ -594,7 +347,7 @@ class AnchoredContentExtractionTransformer:
         await translate_anchored_contents_in_workspace_async(
             chapters_path=output_path / "chapters",
             translation_path=output_path / "translation.xml",
-            transformer=transformer,
+            transformer=self.anchored_transformer,
         )
         return await IO_DOMAIN.run(
             PDFCraftExtraction._from_workspace(output_path)._validate,

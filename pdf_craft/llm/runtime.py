@@ -1,11 +1,10 @@
 # pylint: disable=protected-access
-"""Native asynchronous LLM transport with a synchronous compatibility edge."""
+"""Native asynchronous LLM transport."""
 
 from __future__ import annotations
 
 import asyncio
 import hashlib
-import inspect
 import json
 import logging
 import threading
@@ -19,7 +18,7 @@ import httpx
 import openai
 from openai.types.chat import ChatCompletionMessageParam
 
-from ..runtime import IO_DOMAIN, run_sync
+from ..runtime import IO_DOMAIN
 from ..concurrency import (
     AsyncExecutor, NonContinuableError, OperationError, RateLimitedError,
 )
@@ -76,9 +75,6 @@ class LLMRuntime:
                 retry_index=retry_index, retry_max=retry_max, use_cache=use_cache,
             )
 
-    def _request_blocking(self, *args, **kwargs) -> str:
-        return run_sync(self.request(*args, **kwargs))
-
     @staticmethod
     def _scheduled(value, source: Increasable, index, maximum):
         if value is not None:
@@ -108,8 +104,7 @@ class LLMRuntime:
             httpx.AsyncClient(transport=httpx.AsyncHTTPTransport(local_address="0.0.0.0"))
             if force_ipv4 else None
         )
-        # Scope the client to its event loop. This remains safe when the
-        # legacy sync adapter is used by a dedicated translation worker.
+        # Scope the client to its event loop.
         async with openai.AsyncOpenAI(
             api_key=self.config.key, base_url=self.config.url,
             timeout=self.config.timeout, max_retries=0, http_client=http_client,
@@ -127,18 +122,14 @@ class LLMRuntime:
     async def _invoke_for_request(
         self, messages, max_tokens, temperature, top_p, *, force_ipv4: bool,
     ) -> str:
-        # Preserve the established test/custom transport seam. Production has
-        # no synchronous _invoke member and always takes _invoke_async above.
+        # Preserve the test/custom transport seam while keeping its contract async.
         override = self.__dict__.get("_invoke")
         if override is None:
             return await self._invoke_async(
                 messages, max_tokens, temperature, top_p,
                 force_ipv4=force_ipv4,
             )
-        result = override(messages, max_tokens, temperature, top_p)
-        if inspect.isawaitable(result):
-            return await result
-        return cast(str, result)
+        return await override(messages, max_tokens, temperature, top_p)
 
 
 class LLMContext(AbstractAsyncContextManager["LLMContext"]):
@@ -146,12 +137,6 @@ class LLMContext(AbstractAsyncContextManager["LLMContext"]):
         self.runtime, self.cache_seed_content = runtime, cache_seed_content
         self.context_id, self._pending = uuid.uuid4().hex[:12], set()
         self._top_p, self._temperature = runtime._top_p.context(), runtime._temperature.context()
-
-    def __enter__(self) -> Self:
-        return self
-
-    def __exit__(self, exc_type, exc_val, exc_tb) -> None:
-        _commit_pending(self._pending, exc_type)
 
     async def __aenter__(self) -> Self:
         return self
@@ -255,9 +240,6 @@ class LLMContext(AbstractAsyncContextManager["LLMContext"]):
             self._temperature.increase()
             self._top_p.increase()
         raise RuntimeError("LLM request failed") from last_error
-
-    def _request_blocking(self, *args, **kwargs) -> str:
-        return run_sync(self.request(*args, **kwargs))
 
     def _cache_key(self, messages, max_tokens, temperature, top_p) -> str:
         payload = {

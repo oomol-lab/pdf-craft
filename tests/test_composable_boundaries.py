@@ -31,7 +31,7 @@ from tests.extraction_helpers import make_extraction
 
 
 class _FakeTransform:
-    def extract_package(self, *, analysing_path, **_kwargs):
+    async def extract_package_async(self, *, analysing_path, **_kwargs):
         make_extraction(
             analysing_path / "extraction", page_pixel_sizes={1: (100, 100)},
             with_toc=True,
@@ -40,7 +40,7 @@ class _FakeTransform:
 
 
 class _NoAssetTransform:
-    def extract_package(self, *, analysing_path, **_kwargs):
+    async def extract_package_async(self, *, analysing_path, **_kwargs):
         make_extraction(analysing_path / "extraction", page_pixel_sizes={1: (100, 100)})
         return None, None, None, None, "metering"
 
@@ -56,6 +56,7 @@ class _CapturePatcher:
 
 
 class _AllPagesFailOCR:
+    is_vendor = False
     last_page_pixel_sizes: dict[int, tuple[int, int]] = {}
 
     def recognize(self, **_kwargs):
@@ -103,7 +104,7 @@ class _DeterministicXMLTranslator:
     def __init__(self):
         self.calls = 0
 
-    def translate_element(self, task, **_kwargs):
+    async def translate_element(self, task, **_kwargs):
         self.calls += 1
         for node in task.element.iter():
             if node.text:
@@ -467,11 +468,12 @@ class TestComposableBoundaries(unittest.TestCase):
             root = Path(directory)
             engine = object.__new__(PDFExtractionEngine)
             setattr(engine, "_ocr", cast(OCR, _AllPagesFailOCR()))
+            setattr(engine, "_ocr_executor", None)
 
             with patch("pdf_craft.transform.analyse_toc") as analyse_toc, self.assertRaisesRegex(
                 NoUsableOCRPagesError, "no usable pages"
             ) as raised:
-                engine.extract_package(
+                asyncio.run(engine.extract_package_async(
                     pdf_path=root / "input.pdf",
                     analysing_path=root / "package",
                     ocr_size="gundam",
@@ -488,7 +490,7 @@ class TestComposableBoundaries(unittest.TestCase):
                     max_tokens=None,
                     max_output_tokens=None,
                     on_ocr_event=lambda _: None,
-                )
+                ))
 
             self.assertEqual(raised.exception.failed_page_indexes, (1, 2))
             analyse_toc.assert_not_called()
@@ -527,8 +529,10 @@ class TestComposableBoundaries(unittest.TestCase):
     def test_extractor_creates_empty_assets_directory_for_asset_free_pages(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            extraction, _ = PDFExtractor(_NoAssetTransform())._extract_with_metering_sync(
-                root / "input.pdf", root / "book.pcex"
+            extraction, _ = asyncio.run(
+                PDFExtractor(_NoAssetTransform()).extract_with_metering(
+                    root / "input.pdf", root / "book.pcex"
+                )
             )
             with extraction._materialize() as paths:
                 self.assertTrue(paths.assets.is_dir())
@@ -536,8 +540,11 @@ class TestComposableBoundaries(unittest.TestCase):
     def test_extractor_produces_extraction_consumed_without_analysis_cache(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            extraction, metering = PDFExtractor(_FakeTransform())._extract_with_metering_sync(
-                root / "input.pdf", root / "book.pcex", analysing_path=root / "analysis"
+            extraction, metering = asyncio.run(
+                PDFExtractor(_FakeTransform()).extract_with_metering(
+                    root / "input.pdf", root / "book.pcex",
+                    analysing_path=root / "analysis",
+                )
             )
             self.assertEqual(metering, "metering")
             self.assertFalse((root / "analysis" / "extraction" / "ocr").exists())

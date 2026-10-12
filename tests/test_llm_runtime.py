@@ -31,7 +31,7 @@ class TestLLMRuntime(unittest.IsolatedAsyncioTestCase):
         config = LLM("key", "https://example.invalid/v1", "model", "o200k_base")
         executor = ConcurrentExecutor(FixedCapacity(1))
         runtime = LLMRuntime(config, executor=executor, protocol_version="explicit")
-        runtime._invoke = lambda *_args: "ok"  # type: ignore[method-assign]
+        runtime._invoke = AsyncMock(return_value="ok")  # type: ignore[method-assign]
 
         self.assertIs(runtime.executor, executor)
         self.assertEqual(runtime.protocol_version, "explicit")
@@ -115,7 +115,7 @@ class TestLLMRuntime(unittest.IsolatedAsyncioTestCase):
             )
             calls = 0
 
-            def invoke(*_args):
+            async def invoke(*_args):
                 nonlocal calls
                 calls += 1
                 return "ok"
@@ -136,7 +136,7 @@ class TestLLMRuntime(unittest.IsolatedAsyncioTestCase):
             runtime = runtime_for(
                 _config(deep), ConcurrentExecutor(FixedCapacity(1)),
             )
-            runtime._invoke = lambda *_args: "ok"  # type: ignore[method-assign]
+            runtime._invoke = AsyncMock(return_value="ok")  # type: ignore[method-assign]
 
             self.assertEqual(await runtime.request("hello", cache_seed_content="seed"), "ok")
             cached = list((deep / "cache").glob("*.txt"))
@@ -148,7 +148,7 @@ class TestLLMRuntime(unittest.IsolatedAsyncioTestCase):
             runtime = runtime_for(
                 _config(Path(directory)), ConcurrentExecutor(FixedCapacity(1)),
             )
-            runtime._invoke = lambda *args: ""  # type: ignore[method-assign]
+            runtime._invoke = AsyncMock(return_value="")  # type: ignore[method-assign]
             with self.assertRaises(LLMEmptyResponseError) as raised:
                 await runtime.request("hello", use_cache=False)
             self.assertEqual(raised.exception.attempts, 2)
@@ -158,7 +158,7 @@ class TestLLMRuntime(unittest.IsolatedAsyncioTestCase):
             runtime = runtime_for(
                 _config(Path(directory)), ConcurrentExecutor(FixedCapacity(1)),
             )
-            runtime._invoke = lambda *args: (_ for _ in ()).throw(ValueError("bad credentials"))  # type: ignore[method-assign]
+            runtime._invoke = AsyncMock(side_effect=ValueError("bad credentials"))  # type: ignore[method-assign]
             with self.assertRaises(LLMTransportError) as raised:
                 await runtime.request("hello", use_cache=False)
             self.assertEqual(raised.exception.attempts, 1)
@@ -209,7 +209,6 @@ class TestLLMRuntime(unittest.IsolatedAsyncioTestCase):
         translator._translation_runtime = runtime  # type: ignore[assignment]
         source = "这是已经写成中文的正文，其中保留 API 和 Lacan 等专名。"
 
-        self.assertEqual(translator._translate_text(source), source)
         self.assertEqual(await translator._translate_text_async(source), source)
         runtime.context.assert_not_called()
 

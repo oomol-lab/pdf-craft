@@ -24,12 +24,12 @@ from tests.extraction_helpers import make_extraction
 
 
 class _Identity:
-    def translate_element(self, task, **_kwargs):
+    async def translate_element(self, task, **_kwargs):
         return task.element, task.payload
 
 
 class _TranslateHeadline:
-    def translate_element(self, task, **_kwargs):
+    async def translate_element(self, task, **_kwargs):
         for element in task.element.iter():
             if element.text:
                 element.text = element.text.replace("Chapter One", "第一章")

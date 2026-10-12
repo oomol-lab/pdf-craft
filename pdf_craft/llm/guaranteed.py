@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import json
-import inspect
 import re
 from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import dataclass
@@ -12,11 +11,7 @@ from json_repair import repair_json
 from pydantic import BaseModel, ValidationError
 
 from .types import Message, MessageRole
-from .loop import (
-    ProtocolFailure, ProtocolRetry, ProtocolSuccess,
-    _BlockingRepairLoopOptions, _run_repair_loop_blocking,
-    RepairLoopOptions, run_repair_loop,
-)
+from .loop import ProtocolFailure, ProtocolRetry, ProtocolSuccess, RepairLoopOptions, run_repair_loop
 
 TData = TypeVar("TData")
 TResult = TypeVar("TResult")
@@ -51,7 +46,7 @@ class GuaranteedExhaustedError(GuaranteedRequestError):
 @dataclass(frozen=True)
 class GuaranteedOptions(Generic[TData, TResult]):
     messages: Sequence[Message]
-    request: Callable[[list[Message], int, int], str | Awaitable[str]]
+    request: Callable[[list[Message], int, int], Awaitable[str]]
     schema: type[BaseModel]
     parse: Callable[[TData, int, int], TResult]
     max_retries: int = 12
@@ -63,7 +58,7 @@ class _JsonProtocol(Generic[TData, TResult]):
         self.options = options
         self.last_error: GuaranteedRequestError | None = None
 
-    def validate(self, response: str, state: None, attempt: int, max_attempts: int):
+    async def validate(self, response: str, state: None, attempt: int, max_attempts: int):
         options = self.options
         try:
             extractor = options.extractor or _extract_json
@@ -84,10 +79,10 @@ class _JsonProtocol(Generic[TData, TResult]):
             self.last_error = GuaranteedBusinessError("JSON business validation failed after retries", attempts=attempt + 1, response=response, cause=error)
             return ProtocolRetry(f"Fix the business validation error and return complete JSON:\n{error}", state)
 
-    def empty(self, state: None, attempt: int, max_attempts: int):
+    async def empty(self, state: None, attempt: int, max_attempts: int):
         return ProtocolRetry("Return a non-empty complete JSON response.", state)
 
-    def exhausted(self, state: None, attempts: int, response: str | None) -> TResult:
+    async def exhausted(self, state: None, attempts: int, response: str | None) -> TResult:
         if self.last_error is not None:
             raise self.last_error
         raise GuaranteedEmptyResponseError("LLM returned empty response after all retries", attempts=attempts, response=response)
@@ -95,30 +90,9 @@ class _JsonProtocol(Generic[TData, TResult]):
 
 async def request_guaranteed_json(options: GuaranteedOptions[TData, TResult]) -> TResult:
     async def request(messages: list[Message], index: int, maximum: int) -> str:
-        result = options.request(messages, index, maximum)
-        return await result if inspect.isawaitable(result) else result
+        return await options.request(messages, index, maximum)
 
     return await run_repair_loop(RepairLoopOptions(
-        messages=options.messages,
-        request=request,
-        protocol=_JsonProtocol(options),
-        state=None,
-        max_attempts=options.max_retries + 1,
-    ))
-
-
-def request_guaranteed_json_blocking(
-    options: GuaranteedOptions[TData, TResult],
-) -> TResult:
-    """Compatibility edge for legacy synchronous OCR-time LLM analysis."""
-
-    def request(messages: list[Message], index: int, maximum: int) -> str:
-        result = options.request(messages, index, maximum)
-        if inspect.isawaitable(result):
-            raise TypeError("blocking guaranteed JSON request returned an awaitable")
-        return result
-
-    return _run_repair_loop_blocking(_BlockingRepairLoopOptions(
         messages=options.messages,
         request=request,
         protocol=_JsonProtocol(options),

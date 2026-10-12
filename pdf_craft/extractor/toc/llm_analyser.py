@@ -12,7 +12,7 @@ from ...common import XMLReader, split_by_cv
 from ...concurrency import ConcurrentExecutor, FixedCapacity
 from .config import MAX_LEVELS, MAX_TITLE_CV
 from ...llm import LLM, Message, MessageRole, runtime_for
-from ...llm.guaranteed import GuaranteedOptions, request_guaranteed_json_blocking
+from ...llm.guaranteed import GuaranteedOptions, request_guaranteed_json
 from ...pdf import TITLE_TAGS, Page
 from .toc_levels import Ref2Level
 from .toc_pages import PageRef
@@ -27,7 +27,7 @@ class LLMAnalysisError(Exception):
         super().__init__(message)
 
 
-def analyse_title_levels_by_llm(llm: LLM, pages: XMLReader[Page]) -> Ref2Level:
+async def analyse_title_levels_by_llm(llm: LLM, pages: XMLReader[Page]) -> Ref2Level:
     titles: list[_Title] = []
     for page in pages.read():
         for layout in page.body_layouts:
@@ -59,7 +59,7 @@ def analyse_title_levels_by_llm(llm: LLM, pages: XMLReader[Page]) -> Ref2Level:
         llm=llm,
         validate=_validate_title_response,
     )
-    levels = analyser.request(
+    levels = await analyser.request(
         payload=len(titles),
         messages=(
             Message(
@@ -85,7 +85,7 @@ def analyse_title_levels_by_llm(llm: LLM, pages: XMLReader[Page]) -> Ref2Level:
     return ref2level
 
 
-def analyse_toc_levels_by_llm(
+async def analyse_toc_levels_by_llm(
     llm: LLM,
     toc_page_refs: list[PageRef],
     toc_page_contents: list[Page],
@@ -108,7 +108,7 @@ def analyse_toc_levels_by_llm(
         llm=llm,
         validate=_validate_toc_response,
     )
-    levels = analyser.request(
+    levels = await analyser.request(
         payload=len(matched_title2references),
         messages=(
             Message(
@@ -574,7 +574,7 @@ class _LLMAnalyser(Generic[_P, _R]):
             protocol_version="toc-json-v1",
         ) if isinstance(llm, LLM) else None
 
-    def request(self, payload: _P, messages: Iterable[Message]) -> _R:
+    async def request(self, payload: _P, messages: Iterable[Message]) -> _R:
         class _ResponseSchema(BaseModel):
             """Transport schema; TOC validator owns RESULT and ID semantics."""
             payload: dict[str, Any]
@@ -595,10 +595,10 @@ class _LLMAnalyser(Generic[_P, _R]):
         # The business validators already extract RESULT and enforce their own
         # schema. The guaranteed layer supplies typed retries and bounded history.
         try:
-            return request_guaranteed_json_blocking(GuaranteedOptions(
+            return await request_guaranteed_json(GuaranteedOptions(
                 messages=list(messages),
                 request=lambda current, index, maximum: (
-                    self._runtime._request_blocking(
+                    self._runtime.request(
                         current, retry_index=index, retry_max=maximum, use_cache=False,
                     )
                     if self._runtime is not None

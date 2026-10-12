@@ -15,7 +15,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 from ..document import DocumentAuthor, DocumentMetadata
 from ..concurrency import ConcurrentExecutor, FixedCapacity
 from ..llm import LLM, Message, MessageRole, runtime_for
-from ..llm.guaranteed import GuaranteedOptions, request_guaranteed_json_blocking
+from ..llm.guaranteed import GuaranteedOptions, request_guaranteed_json
 from ..pdf import PDFDocumentMetadata
 
 
@@ -97,7 +97,7 @@ class _TurnResponse(BaseModel):
         return self
 
 
-def extract_book_metadata_from_ocr(pages_path: Path, metadata_llm: LLM) -> DocumentMetadata:
+async def extract_book_metadata_from_ocr(pages_path: Path, metadata_llm: LLM) -> DocumentMetadata:
     """Read up to twelve front OCR pages through a bounded, repairable dialogue."""
     pages = _read_front_pages(pages_path)
     if not pages:
@@ -117,7 +117,7 @@ def extract_book_metadata_from_ocr(pages_path: Path, metadata_llm: LLM) -> Docum
         if isinstance(metadata_llm, LLM) else None
 
     while True:
-        turn = _request_turn(
+        turn = await _request_turn(
             metadata_llm,
             runtime,
             messages,
@@ -175,7 +175,7 @@ def merge_ocr_and_pdf_metadata(
     )
 
 
-def _request_turn(
+async def _request_turn(
     metadata_llm: LLM,
     runtime: Any,
     messages: list[Message],
@@ -194,7 +194,7 @@ def _request_turn(
         _validate_metadata_evidence(data.metadata, page_text)
         return data
 
-    return request_guaranteed_json_blocking(GuaranteedOptions(
+    return await request_guaranteed_json(GuaranteedOptions(
         messages=messages,
         request=lambda current, index, maximum: _request_llm(
             metadata_llm, runtime, current, index, maximum,
@@ -205,10 +205,10 @@ def _request_turn(
     ))
 
 
-def _request_llm(metadata_llm: LLM, runtime: Any, messages, index: int, maximum: int) -> str:
+async def _request_llm(metadata_llm: LLM, runtime: Any, messages, index: int, maximum: int) -> str:
     if runtime is not None:
-        return runtime.request(messages, retry_index=index, retry_max=maximum, use_cache=False)
-    return cast(Any, metadata_llm).request(input=messages)
+        return await runtime.request(messages, retry_index=index, retry_max=maximum, use_cache=False)
+    return await cast(Any, metadata_llm).request(input=messages)
 
 
 def _validate_metadata_evidence(metadata: _MetadataResponse, page_text: dict[int, str]) -> None:

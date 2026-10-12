@@ -122,7 +122,7 @@ class TestPDFDocumentMetadata(unittest.TestCase):
 
 
 class _IdentityTransformer:
-    def translate_element(self, task, **_kwargs):
+    async def translate_element(self, task, **_kwargs):
         return task.element, task.payload
 
 

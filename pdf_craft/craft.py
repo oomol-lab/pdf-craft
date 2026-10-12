@@ -30,7 +30,6 @@ from .llm import LLM
 from .metering import AbortedCheck, OCRTokensMetering
 from .ocr_config import OCRConfig
 from .pdf import (
-    AsyncPDFDocument,
     AsyncPDFHandler,
     DeepSeekOCRSize,
     OCRImageURLResolver,
@@ -43,7 +42,6 @@ from .pipeline.epub import translate_epub as run_epub_translation
 from .pipeline.pdf import PDFTranslationPipeline
 from .renderer import EpubRenderer, MarkdownRenderer
 from .transformer import (
-    SyncAnchoredContentTransformer,
     AnchoredContentExtractionTransformer,
     AnchoredContentTransformer,
     SubmitKind,
@@ -70,7 +68,7 @@ class PDFOptions:
     """Long-lived infrastructure needed only when extracting a PDF."""
 
     ocr: OCRConfig | None = None
-    pdf_handler: PDFHandler | AsyncPDFHandler | None = None
+    pdf_handler: AsyncPDFHandler | None = None
     models_cache_path: PathLike | str | None = None
     local_only: bool = False
     ocr_executor: AsyncExecutor | None = None
@@ -162,29 +160,33 @@ class AsyncPDFCraft:
     ) -> tuple[PDFCraftExtraction, OCRTokensMetering]:
         options = options or ExtractionOptions()
         footnotes = options.footnotes
-        return await PDFExtractor(self._pdf_engine()).extract_with_metering(
-            Path(source), Path(extraction_path),
-            analysing_path=Path(analysing_path) if analysing_path is not None else None,
-            page_indexes=options.page_indexes,
-            ocr_size=options.ocr_size, dpi=options.dpi,
-            max_page_image_file_size=options.max_page_image_file_size,
-            max_tokens=options.max_ocr_tokens,
-            max_output_tokens=options.max_ocr_output_tokens,
-            includes_cover=options.includes_cover,
-            includes_footnotes=footnotes is not None,
-            includes_furniture=options.includes_furniture,
-            extract_book_metadata=options.extract_book_metadata,
-            metadata_llm=options.metadata_llm,
-            generate_plot=options.generate_plot,
-            toc_assumed=options.toc_assumed, toc_llm=options.toc_llm,
-            footnote_refinement=(
-                footnotes.refinement if footnotes is not None else None
-            ),
-            ignore_pdf_errors=options.ignore_pdf_errors,
-            ignore_ocr_errors=options.ignore_ocr_errors,
-            aborted=options.aborted,
-            on_ocr_event=options.on_ocr_event,
-        )
+        source_path = Path(source)
+        async with self._pdf_extractor(source_path, options) as extractor:
+            return await extractor.extract_with_metering(
+                source_path, Path(extraction_path),
+                analysing_path=(
+                    Path(analysing_path) if analysing_path is not None else None
+                ),
+                page_indexes=options.page_indexes,
+                ocr_size=options.ocr_size, dpi=options.dpi,
+                max_page_image_file_size=options.max_page_image_file_size,
+                max_tokens=options.max_ocr_tokens,
+                max_output_tokens=options.max_ocr_output_tokens,
+                includes_cover=options.includes_cover,
+                includes_footnotes=footnotes is not None,
+                includes_furniture=options.includes_furniture,
+                extract_book_metadata=options.extract_book_metadata,
+                metadata_llm=options.metadata_llm,
+                generate_plot=options.generate_plot,
+                toc_assumed=options.toc_assumed, toc_llm=options.toc_llm,
+                footnote_refinement=(
+                    footnotes.refinement if footnotes is not None else None
+                ),
+                ignore_pdf_errors=options.ignore_pdf_errors,
+                ignore_ocr_errors=options.ignore_ocr_errors,
+                aborted=options.aborted,
+                on_ocr_event=options.on_ocr_event,
+            )
 
     async def render_markdown(
         self, extraction: PDFCraftExtraction | PathLike | str, output: PathLike | str,
@@ -270,7 +272,7 @@ class AsyncPDFCraft:
         self,
         extraction: PDFCraftExtraction | PathLike | str,
         output_path: PathLike | str,
-        transformer: AnchoredContentTransformer | SyncAnchoredContentTransformer,
+        transformer: AnchoredContentTransformer,
     ) -> PDFCraftExtraction:
         document = await _ensure_extraction_async(extraction)
         return await AnchoredContentExtractionTransformer(
@@ -452,27 +454,29 @@ class AsyncPDFCraft:
         options: ExtractionOptions,
     ) -> tuple[PDFCraftExtraction, OCRTokensMetering]:
         footnotes = options.footnotes
-        return await PDFExtractor(self._pdf_engine())._extract_to_workspace_async(
-            Path(source), analysing_path,
-            page_indexes=options.page_indexes,
-            ocr_size=options.ocr_size, dpi=options.dpi,
-            max_page_image_file_size=options.max_page_image_file_size,
-            max_tokens=options.max_ocr_tokens,
-            max_output_tokens=options.max_ocr_output_tokens,
-            includes_cover=options.includes_cover,
-            includes_footnotes=footnotes is not None,
-            includes_furniture=options.includes_furniture,
-            extract_book_metadata=options.extract_book_metadata,
-            metadata_llm=options.metadata_llm,
-            generate_plot=options.generate_plot,
-            toc_assumed=options.toc_assumed, toc_llm=options.toc_llm,
-            footnote_refinement=(
-                footnotes.refinement if footnotes is not None else None
-            ),
-            ignore_pdf_errors=options.ignore_pdf_errors,
-            ignore_ocr_errors=options.ignore_ocr_errors,
-            aborted=options.aborted, on_ocr_event=options.on_ocr_event,
-        )
+        source_path = Path(source)
+        async with self._pdf_extractor(source_path, options) as extractor:
+            return await extractor._extract_to_workspace_async(
+                source_path, analysing_path,
+                page_indexes=options.page_indexes,
+                ocr_size=options.ocr_size, dpi=options.dpi,
+                max_page_image_file_size=options.max_page_image_file_size,
+                max_tokens=options.max_ocr_tokens,
+                max_output_tokens=options.max_ocr_output_tokens,
+                includes_cover=options.includes_cover,
+                includes_footnotes=footnotes is not None,
+                includes_furniture=options.includes_furniture,
+                extract_book_metadata=options.extract_book_metadata,
+                metadata_llm=options.metadata_llm,
+                generate_plot=options.generate_plot,
+                toc_assumed=options.toc_assumed, toc_llm=options.toc_llm,
+                footnote_refinement=(
+                    footnotes.refinement if footnotes is not None else None
+                ),
+                ignore_pdf_errors=options.ignore_pdf_errors,
+                ignore_ocr_errors=options.ignore_ocr_errors,
+                aborted=options.aborted, on_ocr_event=options.on_ocr_event,
+            )
 
     async def _translate_to_workspace(
         self, extraction: PDFCraftExtraction, workspace: Path,
@@ -513,17 +517,25 @@ class AsyncPDFCraft:
             )._transform_to_workspace_async(translated, workspace / "furniture")
         return translated
 
-    def _sync_pdf_handler(self) -> PDFHandler | None:
-        if self._pdf is None or self._pdf.pdf_handler is None:
-            return None
-        handler = self._pdf.pdf_handler
-        if inspect.iscoroutinefunction(handler.open):
-            return _AsyncPDFHandlerBridge(
-                asyncio.get_running_loop(), cast(AsyncPDFHandler, handler),
+    @asynccontextmanager
+    async def _pdf_extractor(
+        self, source: Path, options: ExtractionOptions,
+    ) -> AsyncIterator[PDFExtractor]:
+        handler = self._pdf.pdf_handler if self._pdf is not None else None
+        if handler is None or self._engine is not None:
+            yield PDFExtractor(self._pdf_engine())
+            return
+        async with temporary_directory("pdf-craft-pdf-pages-") as directory:
+            materialized = await _materialize_pdf_handler(
+                handler,
+                source,
+                options.page_indexes,
+                options.dpi if options.dpi is not None else 300,
+                directory,
             )
-        return cast(PDFHandler, handler)
+            yield PDFExtractor(self._pdf_engine(materialized))
 
-    def _pdf_engine(self):
+    def _pdf_engine(self, pdf_handler: PDFHandler | None = None):
         if self._engine is not None:
             return self._engine
         if self._pdf is None:
@@ -531,7 +543,7 @@ class AsyncPDFCraft:
         from .transform import PDFExtractionEngine
         return PDFExtractionEngine(
             models_cache_path=self._pdf.models_cache_path,
-            pdf_handler=self._sync_pdf_handler(),
+            pdf_handler=pdf_handler,
             local_only=self._pdf.local_only,
             ocr=self._pdf.ocr,
             ocr_executor=self._pdf.ocr_executor,
@@ -549,49 +561,6 @@ async def _analysis_workspace_async(
         return
     async with temporary_directory("pdf-craft-analysis-") as directory:
         yield directory
-
-
-class _AsyncPDFDocumentBridge:
-    """Expose an async PDF document to the synchronous OCR worker."""
-
-    def __init__(
-        self, loop: asyncio.AbstractEventLoop, document: AsyncPDFDocument,
-    ) -> None:
-        self._loop = loop
-        self._document = document
-
-    def _wait(self, awaitable):
-        return asyncio.run_coroutine_threadsafe(awaitable, self._loop).result()
-
-    @property
-    def pages_count(self) -> int:
-        return self._wait(self._document.pages_count())
-
-    def metadata(self):
-        return self._wait(self._document.metadata())
-
-    def page_size(self, page_index: int) -> tuple[float, float]:
-        return self._wait(self._document.page_size(page_index))
-
-    def render_page(self, page_index: int, dpi: int):
-        return self._wait(self._document.render_page(page_index, dpi))
-
-    def close(self) -> None:
-        self._wait(self._document.close())
-
-
-class _AsyncPDFHandlerBridge:
-    def __init__(
-        self, loop: asyncio.AbstractEventLoop, handler: AsyncPDFHandler,
-    ) -> None:
-        self._loop = loop
-        self._handler = handler
-
-    def open(self, pdf_path: Path) -> PDFDocument:
-        document = asyncio.run_coroutine_threadsafe(
-            self._handler.open(pdf_path), self._loop,
-        ).result()
-        return cast(PDFDocument, _AsyncPDFDocumentBridge(self._loop, document))
 
 
 @dataclass(frozen=True)
@@ -650,19 +619,18 @@ class _MaterializedPDFDocument:
 
 
 async def _materialize_pdf_handler(
-    handler: PDFHandler | AsyncPDFHandler,
+    handler: AsyncPDFHandler,
     source: Path,
-    page_indexes: tuple[int, ...],
+    page_indexes: Container[int] | None,
     dpi: int,
     root: Path,
 ) -> _MaterializedPDFHandler:
     if not inspect.iscoroutinefunction(handler.open):
-        return await IO_DOMAIN.run(
-            _materialize_sync_pdf_handler,
-            cast(PDFHandler, handler), source, page_indexes, dpi, root,
+        raise TypeError(
+            "PDFOptions.pdf_handler must implement async def open(); "
+            "synchronous PDF handlers are only supported by low-level internal adapters"
         )
-
-    document = await cast(AsyncPDFHandler, handler).open(source)
+    document = await handler.open(source)
     try:
         count = await document.pages_count()
         metadata = await document.metadata()
@@ -670,7 +638,11 @@ async def _materialize_pdf_handler(
             page_index: await document.page_size(page_index)
             for page_index in range(1, count + 1)
         }
-        for page_index in page_indexes:
+        selected_pages = (
+            (index for index in range(1, count + 1)
+             if page_indexes is None or index in page_indexes)
+        )
+        for page_index in selected_pages:
             if not 1 <= page_index <= count:
                 continue
             image = await document.render_page(page_index, dpi)
@@ -679,32 +651,6 @@ async def _materialize_pdf_handler(
             )
     finally:
         await document.close()
-    return _MaterializedPDFHandler(root, count, metadata, page_sizes, dpi)
-
-
-def _materialize_sync_pdf_handler(
-    handler: PDFHandler,
-    source: Path,
-    page_indexes: tuple[int, ...],
-    dpi: int,
-    root: Path,
-) -> _MaterializedPDFHandler:
-    document = handler.open(source)
-    try:
-        count = document.pages_count
-        metadata = document.metadata()
-        page_sizes = {
-            page_index: document.page_size(page_index)
-            for page_index in range(1, count + 1)
-        }
-        for page_index in page_indexes:
-            if not 1 <= page_index <= count:
-                continue
-            _save_and_close_page_image(
-                document.render_page(page_index, dpi), root / f"page-{page_index}.png",
-            )
-    finally:
-        document.close()
     return _MaterializedPDFHandler(root, count, metadata, page_sizes, dpi)
 
 

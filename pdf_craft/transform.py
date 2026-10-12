@@ -1,8 +1,9 @@
 # pylint: disable=protected-access
 
+import asyncio
 from collections.abc import Callable, Container
 from contextlib import aclosing
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from os import PathLike
 from pathlib import Path
 
@@ -23,10 +24,12 @@ from .pdf import (
     PDFHandler,
 )
 from .pdf.furniture import write_furnitures
-from .runtime import OCR_DOMAIN, invoke_callback, run_cancellable, run_subprocess
+from .runtime import (
+    IO_DOMAIN, OCR_DOMAIN, callback_bridge, invoke_callback, run_cancellable,
+    run_subprocess,
+)
 from .extractor.metadata import extract_book_metadata_from_ocr, merge_ocr_and_pdf_metadata
 from .extractor.chapter import (
-    ChapterAnalysis,
     generate_chapter_files,
     prepare_chapter_analysis,
 )
@@ -86,15 +89,11 @@ class PDFExtractionEngine:
     def load_models(self) -> None:
         self._ocr.load_models()
 
-    def extract_package(self, **kwargs):
-        """Extraction hook used by :class:`~pdf_craft.extractor.PDFExtractor`."""
-        return self._extract_from_pdf(**kwargs)
-
     async def extract_package_async(self, **kwargs):
         """Run optional footnote refinement between two OCR-domain phases."""
 
         footnote_refinement = kwargs.pop("footnote_refinement", None)
-        async_event_callback = kwargs.pop("on_ocr_event_async", None)
+        event_callback = kwargs.get("on_ocr_event")
         original_aborted = kwargs.get("aborted")
         if self._ocr.is_vendor and self._ocr_executor is not None:
             ocr_metering = OCRTokensMetering(input_tokens=0, output_tokens=0)
@@ -124,25 +123,43 @@ class PDFExtractionEngine:
                 async for event in event_stream:
                     ocr_metering.input_tokens += event.input_tokens
                     ocr_metering.output_tokens += event.output_tokens
-                    await invoke_callback(async_event_callback, event)
+                    await invoke_callback(event_callback, event)
             kwargs["skip_ocr"] = True
             kwargs["ocr_metering"] = ocr_metering
+        else:
+            kwargs["on_ocr_event"] = callback_bridge(
+                asyncio.get_running_loop(), event_callback,
+            )
         if footnote_refinement is None:
+            draft = await run_cancellable(
+                OCR_DOMAIN,
+                lambda aborted: self._prepare_extraction(
+                    **{**kwargs, "aborted": aborted}
+                ),
+                original_aborted=original_aborted,
+            )
+            draft = await self._resolve_llm_stages(draft, kwargs)
             return await run_cancellable(
                 OCR_DOMAIN,
-                lambda aborted: self._extract_from_pdf(
-                    **{**kwargs, "aborted": aborted}
+                lambda aborted: self._finish_extraction(
+                    draft, aborted=aborted,
                 ),
                 original_aborted=original_aborted,
             )
         if not isinstance(footnote_refinement, FootnoteRefinement):
             raise TypeError("footnote_refinement must be FootnoteRefinement")
 
-        draft, chapter_analysis = await run_cancellable(
+        draft = await run_cancellable(
             OCR_DOMAIN,
-            lambda aborted: self._prepare_repair(
+            lambda aborted: self._prepare_extraction(
                 **{**kwargs, "aborted": aborted}
             ),
+            original_aborted=original_aborted,
+        )
+        draft = await self._resolve_llm_stages(draft, kwargs)
+        chapter_analysis = await run_cancellable(
+            OCR_DOMAIN,
+            lambda _aborted: prepare_chapter_analysis(draft.pages_path, draft.toc),
             original_aborted=original_aborted,
         )
         runtime = runtime_for(
@@ -207,14 +224,6 @@ class PDFExtractionEngine:
             "native_pdf_text_prepared": True,
         }
 
-    def _extract_from_pdf(self, **kwargs):
-        draft = self._prepare_extraction(**kwargs)
-        return self._finish_extraction(draft, aborted=kwargs["aborted"])
-
-    def _prepare_repair(self, **kwargs) -> tuple[_ExtractionDraft, ChapterAnalysis]:
-        draft = self._prepare_extraction(**kwargs)
-        return draft, prepare_chapter_analysis(draft.pages_path, draft.toc)
-
     def _prepare_extraction(
         self,
         pdf_path: Path,
@@ -227,8 +236,8 @@ class PDFExtractionEngine:
         ignore_pdf_errors: IgnorePDFErrorsChecker,
         ignore_ocr_errors: IgnoreOCRErrorsChecker,
         generate_plot: bool,
-        toc_llm: LLM | None,
-        toc_assumed: bool,
+        toc_llm: LLM | None,  # pylint: disable=unused-argument
+        toc_assumed: bool,  # pylint: disable=unused-argument
         aborted: AbortedCheck,
         max_tokens: int | None,
         max_output_tokens: int | None,
@@ -288,18 +297,6 @@ class PDFExtractionEngine:
         # Read the unmodified page XML while it is still the direct OCR record.
         # Later TOC and chapter stages consume the same files, but must not define
         # what bibliographic evidence is available to this optional feature.
-        document_metadata = self._extract_book_metadata(
-            pdf_path=pdf_path,
-            pages_path=pages_path,
-            enabled=extract_book_metadata,
-            metadata_llm=metadata_llm,
-        )
-        toc = analyse_toc(
-            pages_path=pages_path,
-            toc_path=toc_path,
-            toc_llm=toc_llm,
-            toc_assumed=toc_assumed,
-        )
         return _ExtractionDraft(
             pdf_path=pdf_path,
             extraction_path=extraction_path,
@@ -307,15 +304,53 @@ class PDFExtractionEngine:
             pages_path=pages_path,
             chapters_path=chapters_path,
             toc_path=toc_path,
-            toc=toc,
+            toc=TocInfo(content=[], page_indexes=[]),
             cover_path=cover_path,
-            document_metadata=document_metadata,
+            document_metadata=None,
             metering=metering,
             dpi=dpi,
             includes_furniture=includes_furniture,
             native_pdf_text=native_pdf_text,
             native_pdf_text_prepared=native_pdf_text_prepared,
         )
+
+    async def _resolve_llm_stages(self, draft: _ExtractionDraft, kwargs: dict) -> _ExtractionDraft:
+        metadata = await self._extract_book_metadata_async(
+            pdf_path=draft.pdf_path,
+            pages_path=draft.pages_path,
+            enabled=kwargs["extract_book_metadata"],
+            metadata_llm=kwargs["metadata_llm"],
+        )
+        toc = await analyse_toc(
+            pages_path=draft.pages_path,
+            toc_path=draft.toc_path,
+            toc_llm=kwargs["toc_llm"],
+            toc_assumed=kwargs["toc_assumed"],
+        )
+        return replace(draft, document_metadata=metadata, toc=toc)
+
+    async def _extract_book_metadata_async(
+        self,
+        *,
+        pdf_path: Path,
+        pages_path: Path,
+        enabled: bool,
+        metadata_llm: LLM | None,
+    ) -> DocumentMetadata | None:
+        if not enabled:
+            return None
+        ocr_metadata = None
+        try:
+            assert metadata_llm is not None
+            ocr_metadata = await extract_book_metadata_from_ocr(pages_path, metadata_llm)
+        except Exception as error:
+            print(f"Warning: Failed to extract book metadata from OCR: {error}")
+        pdf_metadata = None
+        try:
+            pdf_metadata = await IO_DOMAIN.run(self._ocr.metadata, pdf_path)
+        except PDFError:
+            print("Warning: Failed to read PDF file metadata for book metadata fallback.")
+        return merge_ocr_and_pdf_metadata(ocr_metadata, pdf_metadata)
 
     def _finish_extraction(
         self,
@@ -364,26 +399,3 @@ class PDFExtractionEngine:
             cover_path,
             draft.metering,
         )
-
-    def _extract_book_metadata(
-        self,
-        *,
-        pdf_path: Path,
-        pages_path: Path,
-        enabled: bool,
-        metadata_llm: LLM | None,
-    ) -> DocumentMetadata | None:
-        if not enabled:
-            return None
-        ocr_metadata = None
-        try:
-            assert metadata_llm is not None
-            ocr_metadata = extract_book_metadata_from_ocr(pages_path, metadata_llm)
-        except Exception as error:  # Metadata is optional; extraction must remain usable.
-            print(f"Warning: Failed to extract book metadata from OCR: {error}")
-        pdf_metadata = None
-        try:
-            pdf_metadata = self._ocr.metadata(pdf_path)
-        except PDFError:
-            print("Warning: Failed to read PDF file metadata for book metadata fallback.")
-        return merge_ocr_and_pdf_metadata(ocr_metadata, pdf_metadata)

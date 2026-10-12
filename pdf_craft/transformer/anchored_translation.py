@@ -26,9 +26,7 @@ from .anchored_content import (
     AnchoredContent,
     AnchoredContentTransformer,
     AnchoredContentTranslation,
-    SyncAnchoredContentTransformer,
 )
-from .anchored_xml import AnchoredContentXMLTransformer
 from .translation_coverage import AnchoredContentCoverage, write_anchored_coverage
 
 
@@ -42,37 +40,10 @@ class _AssetSlot:
     asset: SourceAsset
 
 
-def translate_anchored_contents_in_workspace(
-    chapters_path: Path,
-    translation_path: Path,
-    transformer: SyncAnchoredContentTransformer,
-) -> None:
-    """Translate image/table fields without entering the NarrativeFlow stage."""
-    coverage: list[AnchoredContentCoverage] = []
-    for path in sorted(chapters_path.glob("chapter_*.xml")):
-        chapter = decode(read_xml(path))
-        slots = list(_asset_slots(chapter))
-        if not slots:
-            continue
-        translated = _translate_slots(slots, transformer)
-        for slot, target in zip(slots, translated, strict=True):
-            state = "preserved"
-            if target is not None:
-                slot.asset.title = target.title
-                slot.asset.content = target.content
-                slot.asset.caption = target.caption
-                state = "translated"
-            coverage.append(AnchoredContentCoverage(*slot.payload.identity, state))
-        save_xml(encode(chapter), path)
-
-    if coverage:
-        write_anchored_coverage(translation_path, coverage)
-
-
 async def translate_anchored_contents_in_workspace_async(
     chapters_path: Path,
     translation_path: Path,
-    transformer: AnchoredContentXMLTransformer | AnchoredContentTransformer,
+    transformer: AnchoredContentTransformer,
 ) -> None:
     """Translate anchored payloads with native async LLM calls and pooled I/O."""
     paths = await IO_DOMAIN.run(
@@ -100,7 +71,7 @@ async def translate_anchored_contents_in_workspace_async(
 
 async def _translate_slots_async(
     slots: Sequence[_AssetSlot],
-    transformer: AnchoredContentXMLTransformer | AnchoredContentTransformer,
+    transformer: AnchoredContentTransformer,
 ) -> list[AnchoredContentTranslation | None]:
     results: list[AnchoredContentTranslation | None] = [None] * len(slots)
     translatable = [
@@ -118,7 +89,7 @@ async def _translate_slots_async(
 
 async def _transform_batch_async(
     payloads: Sequence[AnchoredContent],
-    transformer: AnchoredContentXMLTransformer | AnchoredContentTransformer,
+    transformer: AnchoredContentTransformer,
 ) -> Sequence[AnchoredContentTranslation | None]:
     try:
         translated = await _transform_assets_async(transformer, payloads)
@@ -139,53 +110,10 @@ async def _transform_batch_async(
 
 
 async def _transform_assets_async(
-    transformer: AnchoredContentXMLTransformer | AnchoredContentTransformer,
+    transformer: AnchoredContentTransformer,
     assets: Sequence[AnchoredContent],
 ) -> Sequence[AnchoredContentTranslation | None]:
-    if isinstance(transformer, AnchoredContentXMLTransformer):
-        return await transformer.transform_assets(assets)
     return await transformer.transform_assets(assets)
-
-
-def _translate_slots(
-    slots: Sequence[_AssetSlot],
-    transformer: SyncAnchoredContentTransformer,
-) -> list[AnchoredContentTranslation | None]:
-    results: list[AnchoredContentTranslation | None] = [None] * len(slots)
-    translatable = [
-        (index, slot) for index, slot in enumerate(slots)
-        if _asset_has_text(slot.asset)
-    ]
-    for start in range(0, len(translatable), _BATCH_SIZE):
-        batch_with_indexes = translatable[start : start + _BATCH_SIZE]
-        batch = [slot for _, slot in batch_with_indexes]
-        translated = _transform_batch(tuple(slot.payload for slot in batch), transformer)
-        for (index, _), value in zip(batch_with_indexes, translated, strict=True):
-            results[index] = value
-    return results
-
-
-def _transform_batch(
-    payloads: Sequence[AnchoredContent],
-    transformer: SyncAnchoredContentTransformer,
-) -> Sequence[AnchoredContentTranslation | None]:
-    try:
-        translated = transformer.transform_assets(payloads)
-        matched = _match_translations(payloads, translated)
-        if matched is not None:
-            return matched
-    except Exception:  # Individual asset fallback is deliberately resilient.
-        pass
-
-    result: list[AnchoredContentTranslation | None] = []
-    for payload in payloads:
-        try:
-            translated = transformer.transform_assets((payload,))
-            matched = _match_translations((payload,), translated)
-            result.append(matched[0] if matched is not None else None)
-        except Exception:  # A failed asset remains source content.
-            result.append(None)
-    return result
 
 
 def _match_translations(
