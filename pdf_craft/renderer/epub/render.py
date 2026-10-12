@@ -1,4 +1,5 @@
 from pathlib import Path
+from ...runtime import IO_DOMAIN, TEX_DOMAIN, run_cancellable, worker_iter
 from typing import Generator, Literal
 
 from epub_generator import (
@@ -42,7 +43,7 @@ from .latex_to_text import latex_to_plain_text
 from .toc_collection import TocCollection
 
 
-def render_epub_file(
+async def render_epub_file(
     chapters_path: Path,
     toc_path: Path | None,
     assets_path: Path,
@@ -55,18 +56,18 @@ def render_epub_file(
     inline_latex: bool,
     aborted: AbortedCheck,
 ):
-    read_chapters = create_chapters_reader(chapters_path)
+    read_chapters = await IO_DOMAIN.run(create_chapters_reader, chapters_path)
     float_markers = FloatMarkerRegistry()
     references: list[Reference] = []
-    for chapter in read_chapters():
+    async for chapter in worker_iter(read_chapters()):
         references.extend(search_references_in_chapter(chapter))
 
     references.sort(key=lambda ref: (ref.page_index, ref.order))
     ref_id_to_number = references_to_map(references)
     get_head: ChapterGetter | None = None
-    toc_collection = TocCollection(toc_path)
+    toc_collection = await IO_DOMAIN.run(TocCollection, toc_path)
 
-    for chapter in read_chapters():
+    async for chapter in worker_iter(read_chapters()):
 
         def get_chapter(ch=chapter):
             return _convert_chapter_to_epub(
@@ -103,15 +104,19 @@ def render_epub_file(
         cover_image_path=cover_path,
     )
     check_aborted(aborted)
-    generate_epub(
-        epub_data=epub_data,
-        epub_file_path=epub_path,
-        lan=lan,
-        table_render=table_render,
-        latex_render=latex_render,
-        assert_not_aborted=lambda: check_aborted(aborted),
+    await run_cancellable(
+        TEX_DOMAIN,
+        lambda cancelled: generate_epub(
+            epub_data=epub_data,
+            epub_file_path=epub_path,
+            lan=lan,
+            table_render=table_render,
+            latex_render=latex_render,
+            assert_not_aborted=lambda: check_aborted(lambda: cancelled() or aborted()),
+        ),
+        original_aborted=aborted,
     )
-    apply_float_markers(epub_path, float_markers.sides)
+    await IO_DOMAIN.run(apply_float_markers, epub_path, float_markers.sides)
 
 
 def _iter_text_in_title(title_layout: TextFlowItem):

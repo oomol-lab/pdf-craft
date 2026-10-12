@@ -1,3 +1,5 @@
+from contextlib import asynccontextmanager
+import asyncio
 # pylint: disable=no-member,protected-access,c-extension-no-member
 
 import tempfile
@@ -28,7 +30,7 @@ from pdf_craft.pipeline.pdf.text_layout import _CJK_FONT_CANDIDATES, _ensure_qt_
 class BlankVisualBaseCompiler:
     """A deterministic compiler double; production always uses Ghostscript."""
 
-    def compile(self, source_path: Path, target_path: Path) -> None:
+    async def compile(self, source_path: Path, target_path: Path) -> None:
         reader = pypdf.PdfReader(str(source_path))
         writer = pypdf.PdfWriter()
         for page in reader.pages:
@@ -39,6 +41,17 @@ class BlankVisualBaseCompiler:
 
 class TestPDFPatcher(unittest.TestCase):
     def setUp(self):
+        @asynccontextmanager
+        async def local_policy(checker):
+            yield checker
+        policy = patch("pdf_craft.pipeline.pdf.patcher._process_ignore_errors_checker", local_policy)
+        policy.start()
+        self.addCleanup(policy.stop)
+        async def compose(function, *args, **kwargs):
+            return function(*args, **kwargs)
+        native_domain = patch("pdf_craft.pipeline.pdf.patcher.QT_DOMAIN.run", side_effect=compose)
+        native_domain.start()
+        self.addCleanup(native_domain.stop)
         self._compiler = BlankVisualBaseCompiler()
 
     def patcher(self, *args, **kwargs) -> PDFPatcher:
@@ -111,7 +124,7 @@ class TestPDFPatcher(unittest.TestCase):
             document = self._page_document()
             handler: Any = Mock()
             handler.open.return_value = document
-            patcher = self.patcher(font_size=8, pdf_handler=handler)
+            patcher = self.patcher(font_size=8, _native_pdf_handler=handler)
             write_erasure = patcher._write_erasure_overlay  # pylint: disable=protected-access
 
             def fail_first_page(canvas_module, output_path, *args):
@@ -121,7 +134,7 @@ class TestPDFPatcher(unittest.TestCase):
 
             with patch.object(patcher, "_write_erasure_overlay", side_effect=fail_first_page), \
                     self.assertLogs("pdf_craft.pipeline.pdf.patcher", "ERROR") as logged:
-                patcher.patch(source, target, self._two_page_replacements(), ignore_errors=True)
+                asyncio.run(patcher.patch(source, target, self._two_page_replacements(), ignore_errors=True))
 
             reader = pypdf.PdfReader(str(target))
             self.assertEqual(len(reader.pages), 2)
@@ -140,12 +153,12 @@ class TestPDFPatcher(unittest.TestCase):
             document = self._page_document()
             handler: Any = Mock()
             handler.open.return_value = document
-            patcher = self.patcher(font_size=8, pdf_handler=handler)
+            patcher = self.patcher(font_size=8, _native_pdf_handler=handler)
 
             with patch.object(
                 patcher, "_write_erasure_overlay", side_effect=RuntimeError("deliberate page bug"),
             ), self.assertRaisesRegex(RuntimeError, "deliberate page bug"):
-                patcher.patch(source, target, self._two_page_replacements())
+                asyncio.run(patcher.patch(source, target, self._two_page_replacements()))
 
             self.assertFalse(target.exists())
 
@@ -158,12 +171,12 @@ class TestPDFPatcher(unittest.TestCase):
             document = self._page_document()
             handler: Any = Mock()
             handler.open.return_value = document
-            patcher = self.patcher(font_size=8, pdf_handler=handler)
+            patcher = self.patcher(font_size=8, _native_pdf_handler=handler)
 
             with patch.object(
                 patcher, "_write_erasure_overlay", side_effect=RuntimeError("deliberate page bug"),
             ), self.assertRaises(NoUsableFillPagesError) as raised:
-                patcher.patch(source, target, self._two_page_replacements(), ignore_errors=True)
+                asyncio.run(patcher.patch(source, target, self._two_page_replacements(), ignore_errors=True))
 
             self.assertEqual(raised.exception.failed_page_indexes, (1, 2))
             self.assertFalse(target.exists())
@@ -177,13 +190,13 @@ class TestPDFPatcher(unittest.TestCase):
             document = self._page_document()
             handler: Any = Mock()
             handler.open.return_value = document
-            patcher = self.patcher(font_size=8, pdf_handler=handler)
+            patcher = self.patcher(font_size=8, _native_pdf_handler=handler)
             replacements = [
                 PDFReplacement(1, (10, 10, 9, 70), "Invalid", (200, 100)),
                 PDFReplacement(2, (10, 10, 190, 70), "Second translated", (200, 100)),
             ]
 
-            patcher.patch(source, target, replacements, ignore_errors=True)
+            asyncio.run(patcher.patch(source, target, replacements, ignore_errors=True))
 
             reader = pypdf.PdfReader(str(target))
             self.assertNotIn("Invalid", reader.pages[0].extract_text() or "")
@@ -199,7 +212,7 @@ class TestPDFPatcher(unittest.TestCase):
             document = self._page_document()
             handler: Any = Mock()
             handler.open.return_value = document
-            patcher = self.patcher(font_size=8, pdf_handler=handler)
+            patcher = self.patcher(font_size=8, _native_pdf_handler=handler)
             fit = patcher._filler.fit  # pylint: disable=protected-access
 
             def fail_first_page(replacement, page_sizes):
@@ -209,12 +222,12 @@ class TestPDFPatcher(unittest.TestCase):
 
             observed: list[Exception] = []
             with patch.object(patcher._filler, "fit", side_effect=fail_first_page):  # pylint: disable=protected-access
-                patcher.patch(
+                asyncio.run(patcher.patch(
                     source,
                     target,
                     self._two_page_replacements(),
                     ignore_errors=lambda error: observed.append(error) is None,
-                )
+                ))
 
             reader = pypdf.PdfReader(str(target))
             self.assertNotIn("First translated", reader.pages[0].extract_text() or "")
@@ -231,17 +244,17 @@ class TestPDFPatcher(unittest.TestCase):
             document = self._page_document()
             handler: Any = Mock()
             handler.open.return_value = document
-            patcher = self.patcher(font_size=8, pdf_handler=handler)
+            patcher = self.patcher(font_size=8, _native_pdf_handler=handler)
 
             with patch.object(
                 patcher, "_write_erasure_overlay", side_effect=RuntimeError("deliberate page bug"),
             ), self.assertRaises(NoUsableFillPagesError) as raised:
-                patcher.patch(
+                asyncio.run(patcher.patch(
                     source,
                     target,
                     [PDFReplacement(1, (10, 10, 190, 70), "First translated", (200, 100))],
                     ignore_errors=True,
-                )
+                ))
 
             self.assertEqual(raised.exception.failed_page_indexes, (1,))
             self.assertFalse(target.exists())
@@ -255,7 +268,7 @@ class TestPDFPatcher(unittest.TestCase):
             compiler = Mock(wraps=self._compiler)
             patcher = PDFPatcher(visual_base_compiler=compiler)
 
-            patcher.patch(source, target, [])
+            asyncio.run(patcher.patch(source, target, []))
 
             self.assertEqual(target.read_bytes(), source.read_bytes())
             compiler.compile.assert_not_called()
@@ -309,7 +322,7 @@ class TestPDFPatcher(unittest.TestCase):
 
             for index, replacements in enumerate(((body, title), (title, body))):
                 patcher = self.patcher(options=PatchTextOptions(max_font_size=8, min_font_size=8))
-                patcher.patch(source, root / f"target-{index}.pdf", replacements)
+                asyncio.run(patcher.patch(source, root / f"target-{index}.pdf", replacements))
                 resolutions = patcher.font_resolutions
                 self.assertEqual(len(resolutions), 1)
                 self.assertEqual(resolutions[0].source, "automatic")
@@ -328,11 +341,11 @@ class TestPDFPatcher(unittest.TestCase):
             handler: Any = Mock()
             handler.open.return_value = document
 
-            self.patcher(font_size=8, pdf_handler=handler).patch(
+            asyncio.run(self.patcher(font_size=8, _native_pdf_handler=handler).patch(
                 source,
                 target,
                 [PDFReplacement(1, (20, 20, 80, 80), "translated", (100, 100))],
-            )
+            ))
 
             document.render_page.assert_called_once_with(1, 300)
             document.close.assert_called_once_with()
@@ -351,11 +364,11 @@ class TestPDFPatcher(unittest.TestCase):
             doc.drawString(20, 160, "Original")
             doc.save()
 
-            self.patcher(font_size=12).patch(
+            asyncio.run(self.patcher(font_size=12).patch(
                 source,
                 target,
                 [PDFReplacement(1, (50, 25, 450, 100), "Translated", (600, 600))],
-            )
+            ))
 
             reader = pypdf.PdfReader(str(target))
             self.assertEqual(len(reader.pages), 1)
@@ -393,14 +406,14 @@ class TestPDFPatcher(unittest.TestCase):
 
             patcher = self.patcher(options=PatchTextOptions(max_font_size=10, min_font_size=10))
             patcher._filler._formula_renderer = cast(Any, FormulaRenderer())  # pylint: disable=protected-access
-            patcher.patch(
+            asyncio.run(patcher.patch(
                 source,
                 target,
                 [PDFReplacement(
                     1, (10, 10, 190, 70), "before \ufffc after", (200, 100),
                     inline_formulas=(PDFInlineFormula(r"\mathbb{Z}\to\mathbb{C}"),),
                 )],
-            )
+            ))
 
             page: Any = pypdf.PdfReader(str(target)).pages[0]
             contents = page.get_contents()
@@ -431,14 +444,14 @@ class TestPDFPatcher(unittest.TestCase):
 
             patcher = self.patcher(options=PatchTextOptions(max_font_size=10, min_font_size=10))
             patcher._filler._formula_renderer = renderer  # pylint: disable=protected-access
-            patcher.patch(
+            asyncio.run(patcher.patch(
                 source,
                 target,
                 [PDFReplacement(
                     1, (10, 10, 190, 70), "before \ufffc after", (200, 100),
                     inline_formulas=(PDFInlineFormula("x^2"),),
                 )],
-            )
+            ))
 
             extracted = subprocess.run(
                 ["pdftotext", "-layout", str(target), "-"],
@@ -460,14 +473,14 @@ class TestPDFPatcher(unittest.TestCase):
             patcher = self.patcher(options=PatchTextOptions(
                 max_font_size=10, min_font_size=10, render_inline_formulas=False,
             ))
-            patcher.patch(
+            asyncio.run(patcher.patch(
                 source,
                 target,
                 [PDFReplacement(
                     1, (10, 10, 190, 70), "before \ufffc after", (200, 100),
                     inline_formulas=(PDFInlineFormula("x^2"),),
                 )],
-            )
+            ))
 
             page: Any = pypdf.PdfReader(str(target)).pages[0]
             contents = page.get_contents()
@@ -497,7 +510,7 @@ class TestPDFPatcher(unittest.TestCase):
             doc.drawString(0, 90, "Original title")
             doc.save()
 
-            self.patcher(options=options).patch(source, target, [body, title])
+            asyncio.run(self.patcher(options=options).patch(source, target, [body, title]))
 
             extracted = " ".join(
                 pypdf.PdfReader(str(target)).pages[0].extract_text().split()
@@ -527,9 +540,9 @@ class TestPDFPatcher(unittest.TestCase):
             doc.drawString(1, 90, "Original source page")
             doc.save()
 
-            self.patcher(options=PatchTextOptions(max_font_size=8, min_font_size=8)).patch(
+            asyncio.run(self.patcher(options=PatchTextOptions(max_font_size=8, min_font_size=8)).patch(
                 source, target, [replacement]
-            )
+            ))
 
             page: Any = pypdf.PdfReader(str(target)).pages[0]
             self.assertIn("translated", page.extract_text().replace("\n", "").lower())
@@ -556,11 +569,11 @@ class TestPDFPatcher(unittest.TestCase):
             doc.save()
 
             with self.assertRaises(ValueError):
-                self.patcher().patch(
+                asyncio.run(self.patcher().patch(
                     source,
                     root / "target.pdf",
                     [PDFReplacement(2, (1, 1, 10, 10), "text", (100, 100))],
-                )
+                ))
 
     def test_cjk_multiline_replacement_has_text_layer_and_fits_source_bbox(self):
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -576,7 +589,7 @@ class TestPDFPatcher(unittest.TestCase):
             patcher = self.patcher(options=PatchTextOptions(max_font_size=12, min_font_size=4))
             fitted = QTextParagraphFiller(patcher.options).fit(replacement, {1: (200, 200)})
 
-            patcher.patch(source, target, [replacement])
+            asyncio.run(patcher.patch(source, target, [replacement]))
 
             source_page: Any = pypdf.PdfReader(str(source)).pages[0]
             reader = pypdf.PdfReader(str(target))
@@ -616,11 +629,11 @@ class TestPDFPatcher(unittest.TestCase):
             patcher = self.patcher(options=PatchTextOptions(max_font_size=8, min_font_size=8))
 
             text = "forced readable text " * 100
-            patcher.patch(
+            asyncio.run(patcher.patch(
                 source,
                 target,
                 [PDFReplacement(1, (10, 10, 30, 30), text, (200, 200))],
-            )
+            ))
 
             output = pypdf.PdfReader(str(target))
             self.assertEqual(len(output.pages), 1)
@@ -650,14 +663,14 @@ class TestPDFPatcher(unittest.TestCase):
             doc.save()
             patcher = self.patcher(options=PatchTextOptions(max_font_size=10, min_font_size=10))
             cast(Any, patcher._filler)._formula_renderer = TallRenderer()  # pylint: disable=protected-access
-            patcher.patch(
+            asyncio.run(patcher.patch(
                 source,
                 target,
                 [PDFReplacement(
                     1, (0, 0, 100, 60), "before \ufffc afterwords afterwords afterwords",
                     (100, 150), inline_formulas=(PDFInlineFormula("x"),),
                 )],
-            )
+            ))
 
             extracted = " ".join(pypdf.PdfReader(str(target)).pages[0].extract_text().split())
             self.assertIn("before x", extracted)
@@ -686,9 +699,9 @@ class TestPDFPatcher(unittest.TestCase):
             document = canvas.Canvas(str(source), pagesize=(200, 200))
             document.drawString(1, 1, "source")
             document.save()
-            self.patcher(options=PatchTextOptions(styles={
+            asyncio.run(self.patcher(options=PatchTextOptions(styles={
                 "sub_title": PatchTextStyle(max_font_size=20, min_font_size=20),
-            })).patch(source, target, [headline])
+            })).patch(source, target, [headline]))
 
             extracted = subprocess.run(
                 ["pdftotext", "-layout", str(target), "-"],
@@ -757,7 +770,7 @@ class TestPDFPatcher(unittest.TestCase):
             handler = TrackingHandler()
             patcher = self.patcher(
                 options=PatchTextOptions(max_font_size=10, min_font_size=10),
-                pdf_handler=cast(PDFHandler, handler),
+                _native_pdf_handler=cast(PDFHandler, handler),
             )
             patcher._filler = LightweightFiller(patcher.options)  # type: ignore[assignment]
             eraser = RecordingEraser()
@@ -774,7 +787,7 @@ class TestPDFPatcher(unittest.TestCase):
                 raise AssertionError("patcher must stream page contributions")
 
             with patch.object(FillWindowPlan, "paragraphs", new=property(fail_if_materialized)):
-                patcher.patch(source, target, [replacement])
+                asyncio.run(patcher.patch(source, target, [replacement]))
 
             self.assertEqual([image.page_index for image in handler.document.images], list(range(1, 9)))
             self.assertTrue(all(image.closed for image in handler.document.images))
@@ -791,9 +804,9 @@ class TestPDFPatcher(unittest.TestCase):
             doc.linkURL("https://example.invalid/original", (20, 150, 100, 170), relative=0)
             doc.save()
 
-            self.patcher(font_size=12).patch(
+            asyncio.run(self.patcher(font_size=12).patch(
                 source, target, [PDFReplacement(1, (50, 25, 450, 100), "Translated", (600, 600))]
-            )
+            ))
 
             page: Any = pypdf.PdfReader(str(target)).pages[0]
             annotations = page["/Annots"]
@@ -817,9 +830,9 @@ class TestPDFPatcher(unittest.TestCase):
             doc.save()
             self._add_full_page_visual_stamp(source)
 
-            PDFPatcher(font_size=12).patch(
+            asyncio.run(PDFPatcher(font_size=12).patch(
                 source, target, [PDFReplacement(1, (30, 70, 170, 110), "Translated", (200, 200))]
-            )
+            ))
 
             page: Any = pypdf.PdfReader(str(target)).pages[0]
             annotations = page["/Annots"]
@@ -881,9 +894,9 @@ class TestPDFPatcher(unittest.TestCase):
             with source.open("wb") as output:
                 source_writer.write(output)
 
-            self.patcher().patch(source, target, [
+            asyncio.run(self.patcher().patch(source, target, [
                 PDFReplacement(1, (10, 10, 190, 70), "Translated", (200, 200)),
-            ])
+            ]))
 
             page: Any = pypdf.PdfReader(str(target)).pages[0]
             annotations = [reference.get_object() for reference in page["/Annots"]]
@@ -910,9 +923,9 @@ class TestPDFPatcher(unittest.TestCase):
             doc.drawString(20, 160, "second source page")
             doc.save()
 
-            self.patcher().patch(source, target, [
+            asyncio.run(self.patcher().patch(source, target, [
                 PDFReplacement(1, (10, 10, 190, 70), "Translated", (200, 200)),
-            ])
+            ]))
 
             reader = pypdf.PdfReader(str(target))
             first_page: Any = reader.pages[0]
@@ -948,9 +961,9 @@ class TestPDFPatcher(unittest.TestCase):
             with source.open("wb") as output:
                 source_writer.write(output)
 
-            self.patcher().patch(source, target, [
+            asyncio.run(self.patcher().patch(source, target, [
                 PDFReplacement(1, (10, 10, 190, 70), "Translated", (200, 200)),
-            ])
+            ]))
 
             result = pypdf.PdfReader(str(target))
             first_page: Any = result.pages[0]
@@ -987,9 +1000,9 @@ class TestPDFPatcher(unittest.TestCase):
             with source.open("wb") as output:
                 source_writer.write(output)
 
-            self.patcher().patch(source, target, [
+            asyncio.run(self.patcher().patch(source, target, [
                 PDFReplacement(1, (10, 10, 190, 70), "Translated", (200, 200)),
-            ])
+            ]))
 
             reader = pypdf.PdfReader(str(target))
             fields: Any = reader.get_fields()
@@ -1028,9 +1041,9 @@ class TestPDFPatcher(unittest.TestCase):
                 source_writer.write(output)
 
             self.assertEqual(set(pypdf.PdfReader(str(source)).get_fields() or {}), {"orphan_field"})
-            self.patcher().patch(source, target, [
+            asyncio.run(self.patcher().patch(source, target, [
                 PDFReplacement(1, (10, 10, 190, 70), "Translated", (200, 200)),
-            ])
+            ]))
 
             result = pypdf.PdfReader(str(target))
             catalog: Any = result.trailer["/Root"]
@@ -1070,9 +1083,9 @@ class TestPDFPatcher(unittest.TestCase):
             with source.open("wb") as output:
                 source_writer.write(output)
 
-            self.patcher().patch(source, target, [
+            asyncio.run(self.patcher().patch(source, target, [
                 PDFReplacement(1, (10, 10, 190, 70), "Translated", (200, 200)),
-            ])
+            ]))
 
             result = pypdf.PdfReader(str(target))
             result_catalog: Any = result.trailer["/Root"]
@@ -1086,7 +1099,7 @@ class TestGhostscriptVisualBaseCompiler(unittest.TestCase):
     def test_reports_a_missing_explicit_executable(self):
         compiler = GhostscriptVisualBaseCompiler("definitely-not-a-ghostscript-command")
         with self.assertRaisesRegex(RuntimeError, "Ghostscript executable is not available"):
-            compiler.compile(Path("source.pdf"), Path("target.pdf"))
+            asyncio.run(compiler.compile(Path("source.pdf"), Path("target.pdf")))
 
     @unittest.skipUnless(which("gs"), "requires local Ghostscript")
     def test_removes_visible_and_invisible_source_text_without_rasterizing_page(self):
@@ -1103,9 +1116,9 @@ class TestGhostscriptVisualBaseCompiler(unittest.TestCase):
             doc.drawText(hidden)
             doc.save()
 
-            PDFPatcher().patch(source, target, [
+            asyncio.run(PDFPatcher().patch(source, target, [
                 PDFReplacement(1, (10, 10, 190, 70), "Translated", (200, 200)),
-            ])
+            ]))
 
             page: Any = pypdf.PdfReader(str(target)).pages[0]
             self.assertNotIn("Visible source text", page.extract_text())

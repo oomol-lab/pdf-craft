@@ -4,20 +4,15 @@
 # pylint: disable=protected-access
 
 import asyncio
-import inspect
-import pickle
 import secrets
-from collections.abc import Awaitable, Callable, Container
+from collections.abc import Callable, Container
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, replace
-from multiprocessing.connection import Client, Listener
 from os import PathLike
 from pathlib import Path
-from threading import Thread
-from typing import Any, AsyncIterator, Literal, cast
+from typing import AsyncIterator, Literal
 
 from epub_generator import BookMeta, LaTeXRender, TableRender
-from PIL import Image
 
 from .document import PDFCraftExtraction, RenderMode, TranslationInfo, resolve_translation
 from .document.package import validate_translation_id
@@ -29,15 +24,15 @@ from .footnote import FootnoteOptions
 from .llm import LLM
 from .metering import AbortedCheck, OCRTokensMetering
 from .ocr_config import OCRConfig
+from .pdf.handler import _materialize_pdf_handler
 from .pdf import (
     AsyncPDFHandler,
     DeepSeekOCRSize,
     OCRImageURLResolver,
     OCREvent,
-    PDFDocument,
-    PDFDocumentMetadata,
     PDFHandler,
 )
+from .pipeline.pdf.error_policy import _process_ignore_errors_checker
 from .pipeline.epub import translate_epub as run_epub_translation
 from .pipeline.pdf import PDFTranslationPipeline
 from .renderer import EpubRenderer, MarkdownRenderer
@@ -57,7 +52,6 @@ from .transformer.package import (
 )
 from .runtime import (
     IO_DOMAIN,
-    QT_DOMAIN,
     temporary_directory,
 )
 from .concurrency import AsyncExecutor
@@ -103,8 +97,8 @@ class AsyncPDFCraft:
     """Async-first facade for extraction, rendering, and translation.
 
     Native async orchestration owns callbacks and cancellation. Synchronous
-    third-party pipelines are executed as coarse operations in their dedicated
-    domains so their internal objects never escape across worker threads.
+    native third-party operations run in dedicated domains while the event loop
+    owns business orchestration and executable extensions.
     """
 
     def __init__(self, pdf: PDFOptions | None = None, *, _engine=None) -> None:
@@ -114,6 +108,14 @@ class AsyncPDFCraft:
     @classmethod
     def from_engine(cls, engine) -> "AsyncPDFCraft":
         return cls(_engine=engine)
+
+    async def predownload_models(
+        self, *, models_cache_path: PathLike | None = None,
+        revision: str | None = None, ocr: OCRConfig | None = None,
+    ) -> None:
+        """Prepare local OCR models through the async download implementation."""
+        from .functions import predownload_models
+        await predownload_models(models_cache_path=models_cache_path, revision=revision, ocr=ocr)
 
     async def open_extraction(self, path: PathLike | str) -> PDFCraftExtraction:
         """Open and validate a PCEX artifact without blocking the event loop."""
@@ -335,8 +337,7 @@ class AsyncPDFCraft:
         configured_handler = self._pdf.pdf_handler if self._pdf else None
         async with _process_ignore_errors_checker(ignore_errors) as worker_checker:
             if configured_handler is None:
-                await QT_DOMAIN.run(
-                    _patch_pdf_sync,
+                await _patch_pdf(
                     source_path, document, output_path, None, worker_checker,
                     translation_id,
                 )
@@ -354,8 +355,7 @@ class AsyncPDFCraft:
                 materialized_handler = await _materialize_pdf_handler(
                     configured_handler, source_path, page_indexes, dpi, directory,
                 )
-                await QT_DOMAIN.run(
-                    _patch_pdf_sync,
+                await _patch_pdf(
                     source_path, document, output_path,
                     materialized_handler, worker_checker, translation_id,
                 )
@@ -563,105 +563,7 @@ async def _analysis_workspace_async(
         yield directory
 
 
-@dataclass(frozen=True)
-class _MaterializedPDFHandler:
-    """Serializable PDF handler whose page rasters live in a temp workspace."""
-
-    root: Path
-    count: int
-    document_metadata: PDFDocumentMetadata
-    page_sizes: dict[int, tuple[float, float]]
-    dpi: int
-
-    def open(self, pdf_path: Path) -> PDFDocument:
-        del pdf_path
-        return _MaterializedPDFDocument(
-            self.root, self.count, self.document_metadata, self.page_sizes, self.dpi,
-        )
-
-
-class _MaterializedPDFDocument:
-    def __init__(
-        self,
-        root: Path,
-        count: int,
-        document_metadata: PDFDocumentMetadata,
-        page_sizes: dict[int, tuple[float, float]],
-        dpi: int,
-    ) -> None:
-        self._root = root
-        self._count = count
-        self._metadata = document_metadata
-        self._page_sizes = page_sizes
-        self._dpi = dpi
-
-    @property
-    def pages_count(self) -> int:
-        return self._count
-
-    def metadata(self) -> PDFDocumentMetadata:
-        return self._metadata
-
-    def page_size(self, page_index: int) -> tuple[float, float]:
-        return self._page_sizes[page_index]
-
-    def render_page(self, page_index: int, dpi: int) -> Image.Image:
-        if dpi != self._dpi:
-            raise ValueError(
-                f"materialized PDF page uses {self._dpi} DPI, requested {dpi} DPI"
-            )
-        image = Image.open(self._root / f"page-{page_index}.png")
-        image.load()
-        return image
-
-    def close(self) -> None:
-        return None
-
-
-async def _materialize_pdf_handler(
-    handler: AsyncPDFHandler,
-    source: Path,
-    page_indexes: Container[int] | None,
-    dpi: int,
-    root: Path,
-) -> _MaterializedPDFHandler:
-    if not inspect.iscoroutinefunction(handler.open):
-        raise TypeError(
-            "PDFOptions.pdf_handler must implement async def open(); "
-            "synchronous PDF handlers are only supported by low-level internal adapters"
-        )
-    document = await handler.open(source)
-    try:
-        count = await document.pages_count()
-        metadata = await document.metadata()
-        page_sizes = {
-            page_index: await document.page_size(page_index)
-            for page_index in range(1, count + 1)
-        }
-        selected_pages = (
-            (index for index in range(1, count + 1)
-             if page_indexes is None or index in page_indexes)
-        )
-        for page_index in selected_pages:
-            if not 1 <= page_index <= count:
-                continue
-            image = await document.render_page(page_index, dpi)
-            await IO_DOMAIN.run(
-                _save_and_close_page_image, image, root / f"page-{page_index}.png",
-            )
-    finally:
-        await document.close()
-    return _MaterializedPDFHandler(root, count, metadata, page_sizes, dpi)
-
-
-def _save_and_close_page_image(image: Image.Image, path: Path) -> None:
-    try:
-        image.save(path, format="PNG")
-    finally:
-        image.close()
-
-
-def _patch_pdf_sync(
+async def _patch_pdf(
     source: Path,
     extraction: PDFCraftExtraction,
     output: Path,
@@ -669,133 +571,14 @@ def _patch_pdf_sync(
     ignore_errors: IgnoreFillErrorsChecker,
     translation_id: str | None = None,
 ) -> None:
-    extraction._validate()
+    await IO_DOMAIN.run(extraction._validate)
     if not _ignore_errors_requested(ignore_errors):
-        _validate_extraction_for_pdf(source, extraction)
-    PDFTranslationPipeline(pdf_handler=pdf_handler).patch(
+        await IO_DOMAIN.run(_validate_extraction_for_pdf, source, extraction)
+    await PDFTranslationPipeline(_native_pdf_handler=pdf_handler).patch(
         source, output, extraction, translation_id=translation_id,
         ignore_errors=ignore_errors,
     )
 
-
-@dataclass(frozen=True)
-class _RemoteIgnoreErrorsChecker:
-    """Pickle-safe proxy for a caller-owned fill recovery predicate."""
-
-    address: Any
-    authkey: bytes
-
-    def __call__(self, error: Exception) -> bool:
-        connection = Client(self.address, authkey=self.authkey)
-        try:
-            connection.send(_pickle_safe_exception(error))
-            status, value = connection.recv()
-        finally:
-            connection.close()
-        if status == "error":
-            if isinstance(value, BaseException):
-                raise value
-            raise RuntimeError(f"ignore_errors callback failed: {value}")
-        return bool(value)
-
-
-class _IgnoreErrorsCheckerServer:
-    """Serve a local predicate to an isolated process without pickling it."""
-
-    def __init__(
-        self,
-        loop: asyncio.AbstractEventLoop,
-        checker: Callable[[Exception], bool],
-    ) -> None:
-        self._loop = loop
-        self._checker = checker
-        self._authkey = secrets.token_bytes(32)
-        self._listener = Listener(("127.0.0.1", 0), authkey=self._authkey)
-        self._thread = Thread(
-            target=self._serve,
-            name="pdf-craft-ignore-errors",
-            daemon=True,
-        )
-        self._thread.start()
-
-    def proxy(self) -> _RemoteIgnoreErrorsChecker:
-        return _RemoteIgnoreErrorsChecker(self._listener.address, self._authkey)
-
-    def _serve(self) -> None:
-        while True:
-            try:
-                connection = self._listener.accept()
-            except OSError:
-                return
-            try:
-                error = connection.recv()
-                if error is None:
-                    return
-                if not isinstance(error, Exception):
-                    error = RuntimeError(str(error))
-                future = asyncio.run_coroutine_threadsafe(
-                    _invoke_ignore_errors_checker(self._checker, error),
-                    self._loop,
-                )
-                try:
-                    response = ("ok", future.result())
-                except BaseException as callback_error:  # pylint: disable=broad-exception-caught
-                    response = ("error", _pickle_safe_exception(callback_error))
-                connection.send(response)
-            except (EOFError, OSError):
-                pass
-            finally:
-                connection.close()
-
-    def close(self) -> None:
-        try:
-            connection = Client(self._listener.address, authkey=self._authkey)
-            try:
-                connection.send(None)
-            finally:
-                connection.close()
-        except (ConnectionError, OSError):
-            pass
-        self._thread.join(timeout=5)
-        self._listener.close()
-        if self._thread.is_alive():
-            raise RuntimeError("ignore_errors callback server did not stop")
-
-
-async def _invoke_ignore_errors_checker(
-    checker: Callable[[Exception], bool],
-    error: Exception,
-) -> bool:
-    result = checker(error)
-    if inspect.isawaitable(result):
-        result = await cast(Awaitable[bool], result)
-    return bool(result)
-
-
-def _pickle_safe_exception(error: BaseException) -> BaseException:
-    try:
-        pickle.dumps(error, protocol=pickle.HIGHEST_PROTOCOL)
-    except Exception:  # pylint: disable=broad-exception-caught
-        return RuntimeError(f"{type(error).__module__}.{type(error).__qualname__}: {error}")
-    return error
-
-
-@asynccontextmanager
-async def _process_ignore_errors_checker(
-    checker: IgnoreFillErrorsChecker,
-) -> AsyncIterator[IgnoreFillErrorsChecker]:
-    if not callable(checker):
-        yield checker
-        return
-    server = await IO_DOMAIN.run(
-        _IgnoreErrorsCheckerServer,
-        asyncio.get_running_loop(),
-        checker,
-    )
-    try:
-        yield server.proxy()
-    finally:
-        await IO_DOMAIN.run(server.close)
 
 
 def _validate_extraction_for_pdf(source: Path, extraction: PDFCraftExtraction) -> None:

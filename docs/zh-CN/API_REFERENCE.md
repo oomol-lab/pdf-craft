@@ -50,7 +50,7 @@ writer 收尾、删除临时归档并保持目标不存在；若发布边界先�
 `export_extraction()` 或 `AsyncPDFCraft` 上的可等待同名方法打开、导出，再把句柄交回门面。
 高级组件仅提供无后缀的异步方法，包括 `PDFExtractor.extract`、
 `MarkdownRenderer.render`、`EpubRenderer.render` 和各 transformer API。已有 EPUB
-翻译同样只通过门面调用。模型预下载属于环境准备，只保留同步的 `predownload_models(...)`。
+翻译同样只通过门面调用。模型预下载使用异步的 `await predownload_models(...)`；同步调用使用 `PDFCraft().predownload_models(...)`。
 
 ## 公共入口
 
@@ -68,9 +68,7 @@ writer 收尾、删除临时归档并保持目标不存在；若发布边界先�
 - `BookMeta`、`TableRender`、`LaTeXRender`
 - `OCRTokensMetering`、`OCREvent`、`OCREventKind`、`TranslationEvent`、
   `TranslationEventKind`、`TranslationItemKind`、`FillFailedEvent`
-- `PDFHandler`、`AsyncPDFHandler`、`DefaultPDFHandler`、`PDFDocument`、
-  `AsyncPDFDocument`、`DefaultPDFDocument`、
-  `PDFDocumentMetadata`
+- `AsyncPDFHandler`、`AsyncPDFDocument`、`PDFDocumentMetadata`
 - `PDFPatcher`、`PDFReplacement`、`PDFReplacementRegion`、`PDFInlineFormula`、
   `PatchTextOptions`、`PatchTextStyle`、`FontResolution`、`QTextParagraphFiller`、`EraseOptions`、
   `PDFTranslationPipeline`
@@ -134,10 +132,6 @@ Base64 Data URL。本地 OCR 不使用该字段。
 `AsyncPDFDocument` 提供可等待的 `pages_count()`、`metadata()`、`page_size()`、
 `render_page()` 和 `close()`。SDK 会在进入同步 OCR 或 Qt 第三方边界前，在调用方事件循环中
 完成页面物化。用户提供的可执行扩展不支持同步协议。
-
-`DefaultPDFHandler(poppler_path=...)` 是 pdf-craft 内部使用的同步适配器；底层
-`PDFPatcher` 等低级组件仍可在其专用同步执行域中直接使用它。它不作为 `PDFOptions.pdf_handler`
-的用户扩展协议。
 
 一个异步 handler 需要实现 `open(pdf_path: Path) -> AsyncPDFDocument`。它返回的 document 必须提供：
 
@@ -498,7 +492,7 @@ EPUB-only 程序直接构造不带 PDF 配置的 `PDFCraft()` 或 `AsyncPDFCraft
   `page_pixel_size`，以及可选的 `dpi`、`reading_order`。PDF 翻译会以一个 `TextFlowItem` 为单位
   调用翻译器一次，并将该段落全部、有序的来源框保存在 `regions`（`PDFReplacementRegion`）中，而不是把
   同一译文复制到每个框。
-- `PDFPatcher(options=PatchTextOptions(...), erase_options=EraseOptions(...), pdf_handler=...)` 通过 `.patch(source_path,
+- `PDFPatcher(options=PatchTextOptions(...), erase_options=EraseOptions(...), pdf_handler=...)` 通过 `await patcher.patch(source_path,
   target_path, replacements)` 写出 PDF。它接受任意通过字段校验的 `PDFReplacement`，不要求这些
   替换项来自 `PDFCraftExtraction` 或 OCR；`page_pixel_size` 仅用于把像素 `bbox` 换算为 PDF 坐标，
   patcher 不会验证它是否等于源页的实际渲染尺寸。调用方必须自行保证页码、坐标与尺寸对应源 PDF。
@@ -523,7 +517,7 @@ EPUB-only 程序直接构造不带 PDF 配置的 `PDFCraft()` 或 `AsyncPDFCraft
   原生 shaping、断行、字体 fallback 和字形定位；只有公式及其紧随可见空白是不可拆分原子。矢量公式
   片段携带 plain-text 的 PDF `/ActualText` 语义替代，但 pdf-craft 不生成完整 tagged PDF，不能保证
   不同阅读器中该公式相对正文的复制顺序。
-- `PDFTranslationPipeline` 只负责将已经翻译的 extraction `.patch()` 回 PDF。这是 facade 的
+- `PDFTranslationPipeline` 只负责将已经翻译的 extraction `await pipeline.patch(...)` 回 PDF。这是 facade 的
   底层组成部分；翻译应先产生新的 PCEX，再由 `PDFCraft.translate_pdf()` 或
   `PDFCraft.patch_pdf_with_extraction()` 编排写回。它只从 extraction 中带来源坐标的 `body` 和
   `heading` 布局收集替换项。
@@ -557,7 +551,7 @@ DeepSeekOCRVendorConfig(
 `base_url`、`poll_interval_seconds` 和 `timeout_seconds`。local 配置使用本机 CUDA 和模型
 缓存，vendor 配置使用远程服务；六种配置不能混用。
 
-`predownload_models(models_cache_path=None, pdf_handler=None, revision=None, ocr=None)` 可以提前
+`await predownload_models(models_cache_path=None, revision=None, ocr=None)` 可以提前
 下载 local 模型。传入 `ocr` 时不能再同时传入 `models_cache_path`；`pdf_handler` 仅在需要替换
 默认 PDF handler 时使用。`local_only=True` 会禁止缺失模型联网下载。不同模型支持的 `ocr_size`
 preset 不完全相同，应以 OCR 配置指南和具体 backend 的约束为准。

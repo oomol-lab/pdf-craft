@@ -11,6 +11,7 @@ from pydantic import BaseModel, StrictInt, ValidationError, field_validator, mod
 from ...common import XMLReader, split_by_cv
 from ...concurrency import ConcurrentExecutor, FixedCapacity
 from .config import MAX_LEVELS, MAX_TITLE_CV
+from ...runtime import IO_DOMAIN
 from ...llm import LLM, Message, MessageRole, runtime_for
 from ...llm.guaranteed import GuaranteedOptions, request_guaranteed_json
 from ...pdf import TITLE_TAGS, Page
@@ -28,19 +29,7 @@ class LLMAnalysisError(Exception):
 
 
 async def analyse_title_levels_by_llm(llm: LLM, pages: XMLReader[Page]) -> Ref2Level:
-    titles: list[_Title] = []
-    for page in pages.read():
-        for layout in page.body_layouts:
-            if layout.ref not in TITLE_TAGS:
-                continue
-            _, top, _, bottom = layout.det
-            titles.append(
-                _Title(
-                    text=re.sub(r"\s+", " ", layout.text).strip(),
-                    ref=(page.index, layout.order),
-                    height=bottom - top,
-                )
-            )
+    titles = await IO_DOMAIN.run(_read_titles, pages)
 
     if not titles:
         return {}
@@ -83,6 +72,24 @@ async def analyse_title_levels_by_llm(llm: LLM, pages: XMLReader[Page]) -> Ref2L
             ref2level[title.ref] = level
 
     return ref2level
+
+
+def _read_titles(pages: XMLReader[Page]) -> list["_Title"]:
+    titles: list[_Title] = []
+    for page in pages.read():
+        for layout in page.body_layouts:
+            if layout.ref not in TITLE_TAGS:
+                continue
+            _, top, _, bottom = layout.det
+            titles.append(
+                _Title(
+                    text=re.sub(r"\s+", " ", layout.text).strip(),
+                    ref=(page.index, layout.order),
+                    height=bottom - top,
+                )
+            )
+
+    return titles
 
 
 async def analyse_toc_levels_by_llm(

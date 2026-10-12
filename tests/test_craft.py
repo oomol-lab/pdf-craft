@@ -307,7 +307,7 @@ class TestPDFCraft(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             extraction = _source_extraction(Path(directory) / "source")
             with patch(
-                "pdf_craft.craft.QT_DOMAIN.run", new_callable=AsyncMock,
+                "pdf_craft.craft._patch_pdf", new_callable=AsyncMock,
             ) as run:
                 PDFCraft().patch_pdf_with_extraction(
                     "source.pdf", extraction, "target.pdf",
@@ -321,7 +321,7 @@ class TestPDFCraft(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             extraction = _source_extraction(Path(directory) / "source")
             with patch(
-                "pdf_craft.craft.QT_DOMAIN.run", new_callable=AsyncMock,
+                "pdf_craft.craft._patch_pdf", new_callable=AsyncMock,
             ) as run:
                 PDFCraft().patch_pdf_with_extraction(
                     "source.pdf", extraction, "target.pdf", ignore_errors=True,

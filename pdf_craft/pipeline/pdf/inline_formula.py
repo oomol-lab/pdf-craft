@@ -9,7 +9,6 @@ from dataclasses import dataclass
 from io import BytesIO
 from shutil import which
 
-from ...runtime import run_subprocess_sync
 
 
 _TEX_PREAMBLE = r"\usepackage{amsfonts}"
@@ -43,16 +42,7 @@ class InlineFormulaPDFRenderer:
             except ImportError:
                 self._available = False
                 return False
-            latex = which("latex")
-            if latex is None:
-                self._available = False
-            else:
-                try:
-                    run_subprocess_sync(latex, "--version")
-                except (OSError, RuntimeError):
-                    self._available = False
-                else:
-                    self._available = True
+            self._available = which("latex") is not None
         if self._available and not self._probing:
             # Prove the complete Matplotlib -> TeX -> PDF path once.  A
             # present binary alone is not a usable rendering backend.

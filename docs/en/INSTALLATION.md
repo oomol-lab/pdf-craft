@@ -98,9 +98,9 @@ python -c "import torch; print(torch.__version__); print(torch.cuda.is_available
 Local OCR requires `True`. Models download on first use by default. To pre-download a model and later run without downloads:
 
 ```python
-from pdf_craft import DeepSeekOCRLocalConfig, PDFCraft, PDFOptions, predownload_models
+from pdf_craft import DeepSeekOCRLocalConfig, PDFCraft, PDFOptions
 
-predownload_models(ocr=DeepSeekOCRLocalConfig(models_cache_path="models"))
+PDFCraft().predownload_models(ocr=DeepSeekOCRLocalConfig(models_cache_path="models"))
 craft = PDFCraft(pdf=PDFOptions(ocr=DeepSeekOCRLocalConfig(
     models_cache_path="models", local_only=True,
 )))

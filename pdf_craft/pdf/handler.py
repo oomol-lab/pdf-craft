@@ -1,4 +1,8 @@
 from datetime import datetime, timezone
+from dataclasses import dataclass
+from collections.abc import Container
+import inspect
+from ..runtime import IO_DOMAIN
 from os import PathLike
 from pathlib import Path
 from typing import Protocol, cast, runtime_checkable
@@ -202,3 +206,102 @@ class DefaultPDFDocument:
 
     def close(self) -> None:
         self._reader.stream.close()
+
+
+@dataclass(frozen=True)
+class _MaterializedPDFHandler:
+    """Serializable PDF handler whose page rasters live in a temp workspace."""
+
+    root: Path
+    count: int
+    document_metadata: PDFDocumentMetadata
+    page_sizes: dict[int, tuple[float, float]]
+    dpi: int | dict[int, int]
+
+    def open(self, pdf_path: Path) -> PDFDocument:
+        del pdf_path
+        return _MaterializedPDFDocument(
+            self.root, self.count, self.document_metadata, self.page_sizes, self.dpi,
+        )
+
+
+class _MaterializedPDFDocument:
+    def __init__(
+        self,
+        root: Path,
+        count: int,
+        document_metadata: PDFDocumentMetadata,
+        page_sizes: dict[int, tuple[float, float]],
+        dpi: int | dict[int, int],
+    ) -> None:
+        self._root = root
+        self._count = count
+        self._metadata = document_metadata
+        self._page_sizes = page_sizes
+        self._dpi = dpi
+
+    @property
+    def pages_count(self) -> int:
+        return self._count
+
+    def metadata(self) -> PDFDocumentMetadata:
+        return self._metadata
+
+    def page_size(self, page_index: int) -> tuple[float, float]:
+        return self._page_sizes[page_index]
+
+    def render_page(self, page_index: int, dpi: int) -> Image.Image:
+        expected_dpi = self._dpi[page_index] if isinstance(self._dpi, dict) else self._dpi
+        if dpi != expected_dpi:
+            raise ValueError(
+                f"materialized PDF page uses {expected_dpi} DPI, requested {dpi} DPI"
+            )
+        image = Image.open(self._root / f"page-{page_index}.png")
+        image.load()
+        return image
+
+    def close(self) -> None:
+        return None
+
+
+async def _materialize_pdf_handler(
+    handler: AsyncPDFHandler,
+    source: Path,
+    page_indexes: Container[int] | None,
+    dpi: int | dict[int, int],
+    root: Path,
+) -> _MaterializedPDFHandler:
+    if not inspect.iscoroutinefunction(handler.open):
+        raise TypeError(
+            "pdf_handler must implement async def open()"
+        )
+    document = await handler.open(source)
+    try:
+        count = await document.pages_count()
+        metadata = await document.metadata()
+        page_sizes = {
+            page_index: await document.page_size(page_index)
+            for page_index in range(1, count + 1)
+        }
+        selected_pages = (
+            (index for index in range(1, count + 1)
+             if page_indexes is None or index in page_indexes)
+        )
+        for page_index in selected_pages:
+            if not 1 <= page_index <= count:
+                continue
+            page_dpi = dpi[page_index] if isinstance(dpi, dict) else dpi
+            image = await document.render_page(page_index, page_dpi)
+            await IO_DOMAIN.run(
+                _save_and_close_page_image, image, root / f"page-{page_index}.png",
+            )
+    finally:
+        await document.close()
+    return _MaterializedPDFHandler(root, count, metadata, page_sizes, dpi)
+
+
+def _save_and_close_page_image(image: Image.Image, path: Path) -> None:
+    try:
+        image.save(path, format="PNG")
+    finally:
+        image.close()

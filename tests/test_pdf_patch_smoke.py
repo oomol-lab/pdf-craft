@@ -5,6 +5,7 @@ review workflow additionally renders its generated output for visual review.
 """
 # pylint: disable=no-member
 
+import asyncio
 import json
 import tempfile
 import unittest
@@ -78,9 +79,9 @@ class TestPDFPatchSmoke(unittest.TestCase):
                 }]}),
                 encoding="utf-8",
             )
-            PDFTranslationPipeline(patcher=PDFPatcher(
+            asyncio.run(PDFTranslationPipeline(patcher=PDFPatcher(
                 options=PatchTextOptions(max_font_size=10, min_font_size=8)
-            )).patch(source, target, extraction, translation_id="smoke-main")
+            )).patch(source, target, extraction, translation_id="smoke-main"))
 
             reader = pypdf.PdfReader(str(target))
             self.assertEqual(len(reader.pages), 7)
@@ -163,7 +164,7 @@ class TestPDFPatchSmoke(unittest.TestCase):
                 "<translation><narrative><paragraph chapter_id='head' page_index='1' order='0' state='translated'/>"
                 "</narrative></translation>", encoding="utf-8",
             )
-            PDFTranslationPipeline().patch(source, target, extraction)
+            asyncio.run(PDFTranslationPipeline().patch(source, target, extraction))
 
             output_text = " ".join(
                 pypdf.PdfReader(str(target)).pages[0].extract_text().split()
@@ -207,9 +208,9 @@ class TestPDFPatchSmoke(unittest.TestCase):
                 "<translation><narrative><paragraph chapter_id='head' page_index='1' order='1' state='translated'/>"
                 "</narrative></translation>", encoding="utf-8",
             )
-            PDFTranslationPipeline(patcher=PDFPatcher(
+            asyncio.run(PDFTranslationPipeline(patcher=PDFPatcher(
                 options=PatchTextOptions(max_font_size=8, min_font_size=8),
-            )).patch(source, target, extraction)
+            )).patch(source, target, extraction))
 
             reader = pypdf.PdfReader(str(target))
             self.assertEqual(len(reader.pages), 3)

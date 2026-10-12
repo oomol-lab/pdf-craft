@@ -126,9 +126,9 @@ craft.extract_pdf("input.pdf", "book.pcex", options)
 如果希望把模型下载和实际转换分开，可以使用 `predownload_models`：
 
 ```python
-from pdf_craft import DeepSeekOCRLocalConfig, predownload_models
+from pdf_craft import DeepSeekOCRLocalConfig, PDFCraft
 
-predownload_models(
+PDFCraft().predownload_models(
     ocr=DeepSeekOCRLocalConfig(models_cache_path="models-cache"),
     revision=None,
 )

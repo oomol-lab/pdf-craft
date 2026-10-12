@@ -16,6 +16,8 @@ from typing import Self, cast
 
 import httpx
 import openai
+from jinja2 import Template
+from tiktoken import Encoding, get_encoding
 from openai.types.chat import ChatCompletionMessageParam
 
 from ..runtime import IO_DOMAIN
@@ -59,6 +61,14 @@ class LLMRuntime:
         self.protocol_version = protocol_version
         self._top_p, self._temperature = Increasable(config.top_p), Increasable(config.temperature)
         self._logger: logging.Logger | None = None
+
+    async def encoding(self) -> Encoding:
+        """Load tokenizer resources outside the event loop."""
+        return await IO_DOMAIN.run(_load_encoding, self.config)
+
+    async def template(self, name: str) -> Template:
+        """Read and compile a prompt on the filesystem domain."""
+        return await IO_DOMAIN.run(_load_template, self.config, name)
 
     def context(self, cache_seed_content: str | None = None) -> "LLMContext":
         return LLMContext(self, cache_seed_content)
@@ -398,3 +408,21 @@ def _close_file_handlers(logger: logging.Logger) -> None:
     for handler in logger.handlers:
         if isinstance(handler, logging.FileHandler):
             handler.close()
+
+
+def _load_encoding(config: LLM) -> Encoding:
+    with config._resource_lock:
+        if config._encoding is None:
+            config._encoding = get_encoding(config.token_encoding)
+        return config._encoding
+
+def _load_template(config: LLM, template_name: str) -> Template:
+    template = config._templates.get(template_name)
+    if template is None:
+        with config._resource_lock:
+            template = config._templates.get(template_name)
+            if template is None:
+                path = Path(__file__).parent.parent / "transformer" / "xml_translator" / "data" / f"{template_name}.jinja"
+                template = Template(path.read_text(encoding="utf-8"))
+                config._templates[template_name] = template
+    return template

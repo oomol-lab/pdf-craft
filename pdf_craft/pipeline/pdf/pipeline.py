@@ -4,7 +4,9 @@ from collections.abc import Iterable, Iterator
 from pathlib import Path
 from typing import cast
 
+from .error_policy import _process_ignore_errors_checker
 from pdf_craft.common import read_xml
+from pdf_craft.runtime import IO_DOMAIN, worker_context
 from pdf_craft.extractor.chapter.chapter import (
     Chapter, DisplayFormula, SourceAsset, SourceTextFragment, StandaloneAsset,
     TextFlowItem,
@@ -18,7 +20,7 @@ from pdf_craft.extractor.chapter.text_projection import (
 from pdf_craft.markdown.paragraph import HTMLTag, flatten
 from pdf_craft.document import PDFCraftExtraction
 from pdf_craft.document.render import materialize_pdf_patch_view
-from pdf_craft.pdf.handler import PDFHandler
+from pdf_craft.pdf.handler import AsyncPDFHandler, PDFHandler
 from pdf_craft.error import IgnoreFillErrorsChecker
 from pdf_craft.pipeline.pdf.models import PDFInlineFormula, PDFReplacement, PDFReplacementRegion
 from pdf_craft.pipeline.pdf.metadata import pdf_document_metadata
@@ -32,10 +34,10 @@ _INLINE_FORMULA_MARKER = "\ufffc"
 class PDFTranslationPipeline:
     """Patch explicitly translated PCEX content back into its source PDF."""
 
-    def __init__(self, pdf_handler: PDFHandler | None = None, patcher: PDFPatcher | None = None, dpi: int = 300) -> None:
-        self.patcher = patcher or PDFPatcher(pdf_handler=pdf_handler, dpi=dpi)
+    def __init__(self, pdf_handler: AsyncPDFHandler | None = None, patcher: PDFPatcher | None = None, dpi: int = 300, *, _native_pdf_handler: PDFHandler | None = None) -> None:
+        self.patcher = patcher or PDFPatcher(pdf_handler=pdf_handler, dpi=dpi, _native_pdf_handler=_native_pdf_handler)
 
-    def patch(
+    async def patch(
         self,
         pdf_path: Path,
         target_path: Path,
@@ -50,28 +52,26 @@ class PDFTranslationPipeline:
         already the source of the replacement text, so no OCR or LLM
         transformer is involved.
         """
-        extraction = _ensure_extraction(extraction)
-        extraction._validate()
-        pages = extraction._page_pixel_sizes()
-        render_dpi = extraction._render_dpi()
-        # The patcher consumes replacements synchronously before this view closes.
-        with materialize_pdf_patch_view(  # pylint: disable=contextmanager-generator-missing-cleanup
-            extraction, translation_id,
-        ) as view:
-            document_metadata = pdf_document_metadata(view.metadata)
-            chapters = tuple(create_chapters_reader(view.chapters)())
-            coverage = read_coverage(view.coverage)
+        async with _process_ignore_errors_checker(ignore_errors) as worker_checker:
+            extraction = await IO_DOMAIN.run(_ensure_extraction, extraction)
+            await IO_DOMAIN.run(extraction._validate)
+            pages = await IO_DOMAIN.run(extraction._page_pixel_sizes)
+            render_dpi = await IO_DOMAIN.run(extraction._render_dpi)
+            async with worker_context(materialize_pdf_patch_view(  # pylint: disable=contextmanager-generator-missing-cleanup
+                extraction, translation_id,
+            )) as view:
+                document_metadata = pdf_document_metadata(view.metadata)
+                chapters = await IO_DOMAIN.run(lambda: tuple(create_chapters_reader(view.chapters)()))
+                coverage = await IO_DOMAIN.run(read_coverage, view.coverage)
 
-            def replacements() -> Iterator[PDFReplacement]:
-                yield from self._iter_covered_replacements(
+                replacements = await IO_DOMAIN.run(lambda: tuple(self._iter_covered_replacements(
                     chapters, view.furnitures, coverage, pages, render_dpi,
-                    ignore_errors=ignore_errors,
+                    ignore_errors=worker_checker,
+                )))
+                await self.patcher.patch(
+                    pdf_path, target_path, replacements, ignore_errors=worker_checker,
+                    document_metadata=document_metadata,
                 )
-
-            self._patch_replacements(
-                pdf_path, target_path, replacements(), ignore_errors,
-                document_metadata=document_metadata,
-            )
 
     def _iter_covered_replacements(
         self,
@@ -171,33 +171,6 @@ class PDFTranslationPipeline:
         # furniture after late-page narrative and invalidate that stream.
         yield from sorted(replacements, key=_replacement_source_order)
 
-    def _patch_replacements(
-        self,
-        pdf_path: Path,
-        target_path: Path,
-        replacements: Iterator[PDFReplacement],
-        ignore_errors: IgnoreFillErrorsChecker,
-        *,
-        document_metadata: dict[str, str],
-    ) -> None:
-        """Keep existing custom patchers compatible until they opt into recovery."""
-        if _ignore_errors_enabled(ignore_errors):
-            if document_metadata:
-                self.patcher.patch(
-                    pdf_path, target_path, replacements, ignore_errors=ignore_errors,
-                    document_metadata=document_metadata,
-                )
-            else:
-                self.patcher.patch(
-                    pdf_path, target_path, replacements, ignore_errors=ignore_errors,
-                )
-            return
-        if document_metadata:
-            self.patcher.patch(
-                pdf_path, target_path, replacements, document_metadata=document_metadata,
-            )
-        else:
-            self.patcher.patch(pdf_path, target_path, replacements)
 
 def _regions_for_fragments(fragments: Iterable[SourceTextFragment], pages, render_dpi: int, ignore_errors) -> tuple[PDFReplacementRegion, ...]:
     regions: list[PDFReplacementRegion] = []
@@ -332,11 +305,6 @@ def _alphabetic_folio(value: int) -> str:
 def _check_ignore_error(checker: IgnoreFillErrorsChecker, error: Exception) -> bool:
     """Match PDF patcher's bool-or-callable page-fill error policy."""
     return checker(error) if callable(checker) else checker
-
-
-def _ignore_errors_enabled(checker: IgnoreFillErrorsChecker) -> bool:
-    """A callable policy needs an error instance before it can opt in."""
-    return checker is True or callable(checker)
 
 
 def _to_pdf_patch_content(items) -> tuple[str, tuple[PDFInlineFormula, ...]]:

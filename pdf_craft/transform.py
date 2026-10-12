@@ -83,11 +83,11 @@ class PDFExtractionEngine:
         self._ocr_executor = ocr_executor
         self._ocr_image_url_resolver = ocr_image_url_resolver
 
-    def predownload(self, revision: str | None = None) -> None:
-        self._ocr.predownload(revision)
+    async def predownload(self, revision: str | None = None) -> None:
+        await OCR_DOMAIN.run(self._ocr.predownload, revision)
 
-    def load_models(self) -> None:
-        self._ocr.load_models()
+    async def load_models(self) -> None:
+        await OCR_DOMAIN.run(self._ocr.load_models)
 
     async def extract_package_async(self, **kwargs):
         """Run optional footnote refinement between two OCR-domain phases."""

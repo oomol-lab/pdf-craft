@@ -6,6 +6,9 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 import unittest
 from zipfile import ZipFile
+from unittest.mock import AsyncMock, patch
+from pdf_craft.llm import LLM
+from pdf_craft.llm.runtime import LLMRuntime
 
 from pdf_craft.common import save_xml
 from pdf_craft.document import DocumentAuthor, DocumentMetadata, PDFCraftExtraction
@@ -77,10 +80,14 @@ class TestBookMetadata(unittest.IsolatedAsyncioTestCase):
             pages_path = self._write_pages(root / "ocr", [title])
             engine = PDFExtractionEngine.__new__(PDFExtractionEngine)
             engine._ocr = _OCR()  # type: ignore[assignment]
-            metadata = await engine._extract_book_metadata_async(
-                pdf_path=root / "paper.pdf", pages_path=pages_path, enabled=True,
-                metadata_llm=_ScriptedLLM([_title_complete(title, title)]),  # type: ignore[arg-type]
-            )
+            transport = AsyncMock(return_value=_title_complete(title, title))
+            llm = LLM("key", "https://example.invalid/v1", "model", "o200k_base", retry_times=0)
+            with patch.object(LLMRuntime, "_invoke_async", transport):
+                metadata = await engine._extract_book_metadata_async(
+                    pdf_path=root / "paper.pdf", pages_path=pages_path, enabled=True,
+                    metadata_llm=llm,
+                )
+            transport.assert_awaited_once()
             workspace = root / "workspace"
             (workspace / "chapters").mkdir(parents=True)
             (workspace / "assets").mkdir()

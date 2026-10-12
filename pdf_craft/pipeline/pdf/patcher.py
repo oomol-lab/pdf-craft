@@ -1,6 +1,9 @@
 """Compose non-interactive visual bases with independent overlays."""
+# Native worker adapters share patcher state within this module.
+# pylint: disable=protected-access
 
 from collections.abc import Iterable, Mapping
+from copy import copy
 from io import BytesIO
 import logging
 from pathlib import Path
@@ -9,10 +12,15 @@ import shutil
 from tempfile import NamedTemporaryFile, TemporaryDirectory
 from typing import Any
 
-from pdf_craft.pdf.handler import DefaultPDFHandler, PDFHandler
+from pdf_craft.pdf.handler import (
+    AsyncPDFHandler, DefaultPDFHandler, PDFHandler, _materialize_pdf_handler,
+)
 from pdf_craft.formula import latex_to_plain_text
 from pdf_craft.error import IgnoreFillErrorsChecker, NoUsableFillPagesError
 
+from ...runtime import IO_DOMAIN, QT_DOMAIN, temporary_directory
+
+from .error_policy import _process_ignore_errors_checker
 from .eraser import EraseOptions, EraseRectangle, RectangularEraser
 from .models import PDFReplacement, PDFReplacementRegion
 from .text_layout import (
@@ -42,10 +50,11 @@ class PDFPatcher:
         font_name: str | None = None,
         font_size: float | None = None,
         options: PatchTextOptions | None = None,
-        pdf_handler: PDFHandler | None = None,
+        pdf_handler: AsyncPDFHandler | None = None,
         dpi: int = 300,
         erase_options: EraseOptions | None = None,
         visual_base_compiler: VisualBaseCompiler | None = None,
+        *, _native_pdf_handler: PDFHandler | None = None,
     ) -> None:
         """Create a patcher.
 
@@ -70,22 +79,24 @@ class PDFPatcher:
         self.options = options
         self._eraser = RectangularEraser(erase_options)
         self._filler = QTextParagraphFiller(options)
-        self._pdf_handler = pdf_handler or DefaultPDFHandler()
+        self._async_pdf_handler = pdf_handler
+        self._pdf_handler = _native_pdf_handler or DefaultPDFHandler()
         self._visual_base_compiler = visual_base_compiler or GhostscriptVisualBaseCompiler()
         self.dpi = dpi
         self._failed_page_indexes: tuple[int, ...] = ()
+        self._font_resolutions: tuple[FontResolution, ...] = ()
 
     @property
     def font_resolutions(self) -> tuple[FontResolution, ...]:
         """Qt font choices made during the most recent :meth:`patch` run."""
-        return getattr(self._filler, "font_resolutions", ())
+        return self._font_resolutions
 
     @property
     def failed_page_indexes(self) -> tuple[int, ...]:
         """Pages retained as visual bases during the most recent patch run."""
         return self._failed_page_indexes
 
-    def patch(
+    async def patch(
         self,
         source_path: Path,
         target_path: Path,
@@ -93,6 +104,45 @@ class PDFPatcher:
         *,
         ignore_errors: IgnoreFillErrorsChecker = False,
         document_metadata: Mapping[str, str] | None = None,
+    ) -> None:
+        """Prepare and compile asynchronously, then isolate native Qt composition."""
+        async with _process_ignore_errors_checker(ignore_errors) as worker_checker:
+            replacements = await IO_DOMAIN.run(tuple, replacements)
+            async with temporary_directory("pdf-craft-patch-") as root:
+                visual_base = None
+                if replacements:
+                    annotation_free = root / "annotation-free.pdf"
+                    visual_base = root / "visual-base.pdf"
+                    await IO_DOMAIN.run(_write_visual_source, source_path, annotation_free)
+                    await self._visual_base_compiler.compile(annotation_free, visual_base)
+                native = copy(self)
+                # Caller-owned async handlers/compilers never cross the process boundary.
+                native._async_pdf_handler = None
+                del native._visual_base_compiler
+                if replacements and self._async_pdf_handler is not None:
+                    native._pdf_handler = await _materialize_pdf_handler(
+                        self._async_pdf_handler, source_path,
+                        {region.page_index for replacement in replacements
+                         for region in replacement.source_regions()},
+                        {region.page_index: region.dpi for replacement in replacements
+                         for region in replacement.source_regions()}, root,
+                    )
+                resolutions, failed_pages = await QT_DOMAIN.run(
+                    _compose_pdf, native, source_path, target_path, replacements,
+                    worker_checker, dict(document_metadata or {}), visual_base,
+                )
+                self._font_resolutions = resolutions
+                self._failed_page_indexes = failed_pages
+
+    def _compose(
+        self,
+        source_path: Path,
+        target_path: Path,
+        replacements: Iterable[PDFReplacement],
+        *,
+        ignore_errors: IgnoreFillErrorsChecker = False,
+        document_metadata: Mapping[str, str] | None = None,
+        visual_base_path: Path | None = None,
     ) -> None:
         """Compose visual bases, rectangular erasure, Qt text, then Annotations.
 
@@ -143,10 +193,7 @@ class PDFPatcher:
         next_page_index = 1
         with TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
-            annotation_free_source = root / "annotation-free-source.pdf"
-            visual_base_path = root / "visual-base.pdf"
-            write_annotation_free_copy(source_reader, annotation_free_source)
-            self._visual_base_compiler.compile(annotation_free_source, visual_base_path)
+            assert visual_base_path is not None
             reader = pypdf.PdfReader(str(visual_base_path))
             self._restore_source_page_geometry(source_reader, reader)
             self._validate_visual_base(reader, page_sizes)
@@ -545,3 +592,17 @@ def _source_document_metadata(reader) -> dict[str, str]:
         for key, value in (reader.metadata or {}).items()
         if value is not None
     }
+
+
+def _write_visual_source(source: Path, output: Path) -> None:
+    import pypdf
+    write_annotation_free_copy(pypdf.PdfReader(str(source)), output)
+
+
+def _compose_pdf(patcher, source, target, replacements, ignore_errors, metadata, visual_base):
+    """Native pypdf/Qt adapter; no requests or async orchestration run here."""
+    patcher._compose(  # pylint: disable=protected-access
+        source, target, replacements, ignore_errors=ignore_errors,
+        document_metadata=metadata, visual_base_path=visual_base,
+    )
+    return getattr(patcher._filler, "font_resolutions", ()), patcher.failed_page_indexes

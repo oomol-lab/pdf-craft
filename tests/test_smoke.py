@@ -152,8 +152,8 @@ class TestSmokeMatrix(unittest.TestCase):
             root = Path(directory)
             package = _package_with_image(root / "package")
             markdown = root / "output" / "book.md"
-            render_markdown_file(package.chapters, package.assets, markdown,
-                                 Path("assets"), package.cover, lambda: False)
+            asyncio.run(render_markdown_file(package.chapters, package.assets, markdown,
+                                 Path("assets"), package.cover, lambda: False))
             self.assertTrue((root / "output" / "assets" / "image.png").is_file())
             self.assertTrue((root / "output" / "assets" / "cover.png").is_file())
             self.assertIn("![](assets/image.png)", markdown.read_text())
@@ -165,8 +165,8 @@ class TestSmokeMatrix(unittest.TestCase):
             package = _package_with_image(root / "package")
             markdown = root / "output" / "book.md"
             destination = root / "external-assets"
-            render_markdown_file(package.chapters, package.assets, markdown,
-                                 destination, None, lambda: False)
+            asyncio.run(render_markdown_file(package.chapters, package.assets, markdown,
+                                 destination, None, lambda: False))
             self.assertTrue((destination / "image.png").is_file())
             self.assertIn("![](../external-assets/image.png)", markdown.read_text())
             self.assertEqual(check_markdown(markdown), [])
@@ -176,8 +176,8 @@ class TestSmokeMatrix(unittest.TestCase):
             root = Path(directory)
             package = _package_without_assets(root / "package")
             markdown = root / "output" / "book.md"
-            render_markdown_file(package.chapters, package.assets, markdown,
-                                 Path("assets"), None, lambda: False)
+            asyncio.run(render_markdown_file(package.chapters, package.assets, markdown,
+                                 Path("assets"), None, lambda: False))
             self.assertEqual(check_markdown(markdown), [])
 
     def test_markdown_check_skips_urls_and_protocol_relative_links(self):

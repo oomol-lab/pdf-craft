@@ -1,3 +1,4 @@
+import asyncio
 import os
 import unittest
 from pathlib import Path
@@ -273,10 +274,10 @@ class TestOCRConfig(unittest.TestCase):
             "doc_page_extractor.extractor.create_deepseek_ocr_page_extractor",
             return_value=extractor,
         ):
-            predownload_models(
+            asyncio.run(predownload_models(
                 ocr=DeepSeekOCRLocalConfig(models_cache_path="models"),
                 revision="rev",
-            )
+            ))
 
         extractor.download_ocr_model.assert_called_once_with("rev")
 

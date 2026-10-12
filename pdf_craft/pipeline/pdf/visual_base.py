@@ -15,13 +15,13 @@ from pathlib import Path
 import shutil
 from typing import Any, Protocol
 
-from ...runtime import run_subprocess_sync
+from ...runtime import IO_DOMAIN, run_subprocess
 
 
 class VisualBaseCompiler(Protocol):
     """The local compiler boundary used by :class:`PDFPatcher`."""
 
-    def compile(self, source_path: Path, target_path: Path) -> None:
+    async def compile(self, source_path: Path, target_path: Path) -> None:
         """Compile ``source_path`` into a visual-only PDF at ``target_path``."""
 
 
@@ -39,9 +39,9 @@ class GhostscriptVisualBaseCompiler:
     def __init__(self, executable: str | Path | None = None) -> None:
         self.executable = str(executable) if executable is not None else None
 
-    def compile(self, source_path: Path, target_path: Path) -> None:
+    async def compile(self, source_path: Path, target_path: Path) -> None:
         """Compile a source stripped of interactive annotations to a visual-only PDF."""
-        executable = self._find_executable()
+        executable = await IO_DOMAIN.run(self._find_executable)
         command = [
             executable,
             "-q",
@@ -58,10 +58,10 @@ class GhostscriptVisualBaseCompiler:
             str(source_path),
         ]
         try:
-            run_subprocess_sync(*command)
+            await run_subprocess(*command)
         except RuntimeError as error:
             raise RuntimeError(f"Ghostscript could not compile the PDF visual base: {error}") from error
-        if not target_path.is_file():  # pragma: no cover - defensive against broken external tools.
+        if not await IO_DOMAIN.run(target_path.is_file):  # pragma: no cover - defensive against broken external tools.
             raise RuntimeError("Ghostscript did not produce a PDF visual base")
 
     def _find_executable(self) -> str:

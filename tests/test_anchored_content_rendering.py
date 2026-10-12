@@ -1,3 +1,4 @@
+import asyncio
 from hashlib import sha256
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -121,10 +122,10 @@ def test_epub_applies_float_only_to_the_precise_anchored_image_occurrence():
         save_xml(encode(chapter), chapters / "chapter_head.xml")
         epub = root / "book.epub"
 
-        render_epub_file(
+        asyncio.run(render_epub_file(
             chapters, None, assets, epub, None, None, "en", TableRender.HTML,
             LaTeXRender.MATHML, True, lambda: False,
-        )
+        ))
 
         with ZipFile(epub) as archive:
             xhtml = archive.read("OEBPS/Text/head.xhtml").decode("utf-8")
@@ -153,10 +154,10 @@ def test_epub_footnote_keeps_an_anchored_asset_in_its_reading_order():
         save_xml(encode(chapter), chapters / "chapter_head.xml")
         epub = root / "book.epub"
 
-        render_epub_file(
+        asyncio.run(render_epub_file(
             chapters, None, assets, epub, None, None, "en", TableRender.HTML,
             LaTeXRender.MATHML, True, lambda: False,
-        )
+        ))
 
         with ZipFile(epub) as archive:
             xhtml = archive.read("OEBPS/Text/head.xhtml").decode("utf-8")

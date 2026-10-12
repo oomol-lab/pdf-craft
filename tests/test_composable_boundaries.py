@@ -50,7 +50,7 @@ class _CapturePatcher:
         self.replacements = []
         self.kwargs = {}
 
-    def patch(self, _source, _target, replacements, **kwargs):
+    async def patch(self, _source, _target, replacements, **kwargs):
         self.replacements = list(replacements)
         self.kwargs = kwargs
 
@@ -146,10 +146,10 @@ class TestComposableBoundaries(unittest.TestCase):
             )
             capture = _CapturePatcher()
 
-            PDFTranslationPipeline(patcher=cast(PDFPatcher, capture)).patch(
+            asyncio.run(PDFTranslationPipeline(patcher=cast(PDFPatcher, capture)).patch(
                 Path("input.pdf"), Path("output.pdf"), translated,
                 translation_id="translated-main",
-            )
+            ))
 
             self.assertEqual(
                 [item.text for item in capture.replacements],
@@ -204,10 +204,10 @@ class TestComposableBoundaries(unittest.TestCase):
             extraction._validate()
             capture = _CapturePatcher()
 
-            PDFTranslationPipeline(patcher=cast(PDFPatcher, capture)).patch(
+            asyncio.run(PDFTranslationPipeline(patcher=cast(PDFPatcher, capture)).patch(
                 Path("input.pdf"), Path("output.pdf"), extraction,
                 translation_id="translated-main",
-            )
+            ))
 
             self.assertEqual([item.text for item in capture.replacements], ["translated text"])
             self.assertEqual(
@@ -235,27 +235,27 @@ class TestComposableBoundaries(unittest.TestCase):
                 encoding="utf-8",
             )
             translated_furniture = _CapturePatcher()
-            PDFTranslationPipeline(
+            asyncio.run(PDFTranslationPipeline(
                 patcher=cast(PDFPatcher, translated_furniture)
             ).patch(
                 Path("input.pdf"), Path("output.pdf"), extraction,
                 translation_id="translated-main",
-            )
+            ))
             self.assertEqual(
                 [item.text for item in translated_furniture.replacements],
                 ["Translated footer", "translated text"],
             )
 
             with self.assertRaisesRegex(ValueError, "no translation with id"):
-                PDFTranslationPipeline(patcher=cast(PDFPatcher, capture)).patch(
+                asyncio.run(PDFTranslationPipeline(patcher=cast(PDFPatcher, capture)).patch(
                     Path("input.pdf"), Path("output.pdf"), extraction,
                     translation_id="missing-version",
-                )
+                ))
             with self.assertRaisesRegex(ValueError, "translation_id"):
-                PDFTranslationPipeline(patcher=cast(PDFPatcher, capture)).patch(
+                asyncio.run(PDFTranslationPipeline(patcher=cast(PDFPatcher, capture)).patch(
                     Path("input.pdf"), Path("output.pdf"), extraction,
                     translation_id="bad/id",
-                )
+                ))
 
     def test_pdf_patch_uses_only_translated_coverage_and_keeps_preserved_text_as_obstacle(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -271,9 +271,9 @@ class TestComposableBoundaries(unittest.TestCase):
             )
             capture = _CapturePatcher()
 
-            PDFTranslationPipeline(patcher=cast(PDFPatcher, capture)).patch(
+            asyncio.run(PDFTranslationPipeline(patcher=cast(PDFPatcher, capture)).patch(
                 Path("input.pdf"), Path("output.pdf"), extraction,
-            )
+            ))
 
             self.assertEqual([replacement.text for replacement in capture.replacements], ["translated"])
             self.assertEqual(
@@ -298,9 +298,9 @@ class TestComposableBoundaries(unittest.TestCase):
             )
             capture = _CapturePatcher()
 
-            PDFTranslationPipeline(patcher=cast(PDFPatcher, capture)).patch(
+            asyncio.run(PDFTranslationPipeline(patcher=cast(PDFPatcher, capture)).patch(
                 Path("input.pdf"), Path("output.pdf"), extraction,
-            )
+            ))
 
             self.assertEqual(len(capture.replacements), 1)
             replacement = capture.replacements[0]
@@ -329,9 +329,9 @@ class TestComposableBoundaries(unittest.TestCase):
             )
             capture = _CapturePatcher()
 
-            PDFTranslationPipeline(patcher=cast(PDFPatcher, capture)).patch(
+            asyncio.run(PDFTranslationPipeline(patcher=cast(PDFPatcher, capture)).patch(
                 Path("input.pdf"), Path("output.pdf"), extraction,
-            )
+            ))
 
             self.assertEqual(
                 [(replacement.text, replacement.bbox) for replacement in capture.replacements], [
@@ -361,9 +361,9 @@ class TestComposableBoundaries(unittest.TestCase):
             ).transform(extraction, root / "translated.pcex"))
             capture = _CapturePatcher()
 
-            PDFTranslationPipeline(patcher=cast(PDFPatcher, capture)).patch(
+            asyncio.run(PDFTranslationPipeline(patcher=cast(PDFPatcher, capture)).patch(
                 Path("input.pdf"), Path("output.pdf"), translated,
-            )
+            ))
 
             self.assertEqual(
                 [(replacement.page_index, replacement.text) for replacement in capture.replacements],
@@ -390,9 +390,9 @@ class TestComposableBoundaries(unittest.TestCase):
             )
             capture = _CapturePatcher()
 
-            PDFTranslationPipeline(patcher=cast(PDFPatcher, capture)).patch(
+            asyncio.run(PDFTranslationPipeline(patcher=cast(PDFPatcher, capture)).patch(
                 Path("input.pdf"), Path("output.pdf"), extraction,
-            )
+            ))
 
             self.assertEqual(
                 [(replacement.page_index, replacement.layout_ref) for replacement in capture.replacements],
@@ -424,9 +424,9 @@ class TestComposableBoundaries(unittest.TestCase):
             )
             capture = _CapturePatcher()
 
-            PDFTranslationPipeline(patcher=cast(PDFPatcher, capture)).patch(
+            asyncio.run(PDFTranslationPipeline(patcher=cast(PDFPatcher, capture)).patch(
                 Path("input.pdf"), Path("output.pdf"), extraction,
-            )
+            ))
 
             self.assertEqual(
                 [(replacement.text, replacement.bbox) for replacement in capture.replacements],
@@ -457,9 +457,9 @@ class TestComposableBoundaries(unittest.TestCase):
             )
             capture = _CapturePatcher()
 
-            PDFTranslationPipeline(patcher=cast(PDFPatcher, capture)).patch(
+            asyncio.run(PDFTranslationPipeline(patcher=cast(PDFPatcher, capture)).patch(
                 Path("input.pdf"), Path("output.pdf"), extraction,
-            )
+            ))
 
             self.assertEqual(capture.replacements, [])
 
@@ -550,10 +550,10 @@ class TestComposableBoundaries(unittest.TestCase):
             self.assertFalse((root / "analysis" / "extraction" / "ocr").exists())
             self.assertEqual(extraction._page_pixel_sizes(), {1: (100, 100)})
             with patch("pdf_craft.renderer.markdown.renderer.render_markdown_file") as markdown:
-                MarkdownRenderer()._render_blocking(extraction, root / "book.md")
+                asyncio.run(MarkdownRenderer().render(extraction, root / "book.md"))
             self.assertEqual(markdown.call_args.args[0].name, "chapters")
             with patch("pdf_craft.renderer.epub.renderer.render_epub_file") as epub:
-                EpubRenderer()._render_blocking(extraction, root / "book.epub")
+                asyncio.run(EpubRenderer().render(extraction, root / "book.epub"))
             self.assertEqual(epub.call_args.args[0].name, "chapters")
 
     def test_explicit_epub_book_meta_overrides_only_its_nonempty_fields(self):
@@ -575,11 +575,11 @@ class TestComposableBoundaries(unittest.TestCase):
                 language="en",
             )
             with patch("pdf_craft.renderer.epub.renderer.render_epub_file") as epub:
-                EpubRenderer()._render_blocking(
+                asyncio.run(EpubRenderer().render(
                     extraction,
                     root / "book.epub",
                     book_meta=BookMeta(title="Manual title", description=""),
-                )
+                ))
 
             metadata = epub.call_args.args[5]
             self.assertEqual(metadata.title, "Manual title")
@@ -603,10 +603,10 @@ class TestComposableBoundaries(unittest.TestCase):
                 "pdf_craft.pipeline.pdf.pipeline.create_chapters_reader",
                 return_value=lambda: iter([chapter]),
             ), self.assertRaisesRegex(ValueError, "pages.xml is missing page 2"):
-                PDFTranslationPipeline(
-                    pdf_handler=cast(PDFHandler, handler),
+                asyncio.run(PDFTranslationPipeline(
+                    _native_pdf_handler=cast(PDFHandler, handler),
                     patcher=cast(PDFPatcher, patcher),
-                ).patch(root / "input.pdf", root / "out.pdf", extraction)
+                ).patch(root / "input.pdf", root / "out.pdf", extraction))
             self.assertEqual(handler.document.render_count, 0)
             self.assertEqual(patcher.replacements, [])
 
@@ -621,7 +621,7 @@ class TestComposableBoundaries(unittest.TestCase):
             root = Path(directory)
             extraction = make_extraction(root, with_toc=True)
             with self.assertRaises(ValueError):
-                EpubRenderer()._render_blocking(extraction, root / "book.epub", lan="fr")  # type: ignore[arg-type]
+                asyncio.run(EpubRenderer().render(extraction, root / "book.epub", lan="fr"))  # type: ignore[arg-type]
 
     def test_ocr_geometry_cache_survives_interrupted_resume_without_rerendering(self):
         with tempfile.TemporaryDirectory() as directory:

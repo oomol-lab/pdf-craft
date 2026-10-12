@@ -65,8 +65,7 @@ Choose the façade once, then use the same method names in that mode.
 components are async-only and use unsuffixed methods:
 `PDFExtractor.extract`, `MarkdownRenderer.render`, `EpubRenderer.render`, and
 the transformer APIs. Existing-EPUB translation is likewise a façade method.
-Model preloading is deliberately setup-only and remains the synchronous
-`predownload_models(...)` function.
+Model preloading uses the async `await predownload_models(...)` function; synchronous callers use `PDFCraft().predownload_models(...)`.
 
 ## `PDFCraft`
 
@@ -332,6 +331,8 @@ pipeline = PDFTranslationPipeline(patcher=patcher)
 
 The patcher merges two independent overlays over a Ghostscript-compiled, fontless visual base of each source page's non-Annotation content: a local-background RGB rectangle erasure layer and a Qt-generated PDF text layer. `EraseOptions(padding=2)` expands each source box in its OCR-pixel coordinates before sampling and painting it. The supplied `PDFHandler` (or the default Poppler handler) renders original pages only for color sampling; it is never used as an output page image. The visual base preserves the appearance without leaving ordinary source or hidden OCR text selectable, searchable, or extractable. The source `/Annots` array is reattached above translation, so links, highlights, notes, forms, and other PDF Annotations remain independently interactive. The erasure is visual only and deliberately does not restore texture, rules, formulae, or artwork. Qt/PySide6, Ghostscript, a PDF renderer such as Poppler, and the required fonts must be available on the machine producing the PDF.
 
+`PDFTranslationPipeline.patch()` and `PDFPatcher.patch()` are async methods. Custom `pdf_handler` providers implement `AsyncPDFHandler`; custom visual compilers implement `async def compile(source_path, target_path)`.
+
 `PDFTranslationPipeline` is the lower-level patching component for an already translated extraction. Prefer `PDFCraft.translate_pdf()` and `PDFCraft.patch_pdf_with_extraction()` when their fixed layout policy is sufficient.
 
 ## Other useful exports
@@ -340,7 +341,7 @@ The patcher merges two independent overlays over a Ghostscript-compiled, fontles
 - `PDFExtractor`, `MarkdownRenderer`, and `EpubRenderer` are async-only component APIs behind the façade; their `extract` and `render` methods must be awaited.
 - `OCRTokensMetering` exposes `input_tokens` and `output_tokens`.
 - `OCREvent` and `OCREventKind` support per-page progress and diagnostics.
-- `predownload_models(...)` prepares local OCR models before an offline `local_only=True` run.
+- `await predownload_models(...)` prepares local OCR models before an offline `local_only=True` run.
 - `PDFError`, `OCRError`, `NoUsableFillPagesError`, and `InterruptedError` are exported error types for application-level handling.
 
 For complete workflows, start with [PDF conversion and translation](PDF_TRANSLATION.md) or [EPUB translation](EPUB_TRANSLATION.md), rather than composing internal modules.

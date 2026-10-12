@@ -118,7 +118,7 @@ class XMLTranslator:
     async def _stream_mapper_async(self) -> XMLStreamMapper:
         if self._stream_mapper is None:
             self._stream_mapper = XMLStreamMapper(
-                encoding=await self._translation_llm._encoding_async(),
+                encoding=await self._translation_runtime.encoding(),
                 max_group_score=self._max_group_score,
             )
         return self._stream_mapper
@@ -284,7 +284,7 @@ class XMLTranslator:
         canonical_text_validator: CanonicalTextValidator | None,
     ) -> list[InlineSegmentMapping | None]:
         hill_climbing = HillClimbing(
-            encoding=await self._fill_llm._encoding_async(),
+            encoding=await self._fill_runtime.encoding(),
             max_fill_displaying_errors=self._max_fill_displaying_errors,
             block_segment=BlockSegment(
                 root_tag="xml",
@@ -326,7 +326,7 @@ class XMLTranslator:
     async def _translate_text_async(self, text: str) -> str:
         if _already_in_target_language(text, self._target_language):
             return text
-        template = await self._translation_llm._template_async("translate")
+        template = await self._translation_runtime.template("translate")
         async with self._translation_runtime.context(
             cache_seed_content=self._cache_seed_content
         ) as ctx:
@@ -362,7 +362,7 @@ class XMLTranslator:
                 "translation above. <anchor .../> nodes are zero-width structural "
                 "tokens: do not add a space or any character on either side of one."
             )
-        fill_template = await self._fill_llm._template_async("fill")
+        fill_template = await self._fill_runtime.template("fill")
         fixed_messages = [
             Message(MessageRole.SYSTEM, fill_template.render()),
             Message(MessageRole.USER, user_message),
