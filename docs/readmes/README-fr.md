@@ -1,4 +1,4 @@
-<!-- Translation baseline: README.md. Keep capability descriptions and executable examples aligned. -->
+<!-- Content baseline: README-zh-CN.md. Preserve the Chinese README priorities in natural local copy; keep API examples accurate. -->
 <div align="center">
   <img src="../images/pdf-craft-readme-banner-v1.png" alt="PDF Craft — Retrouvez le texte de vos livres numérisés, pour le lire et le modifier." width="100%" />
   <p><a href="../../README.md">English</a> | <a href="README-zh-CN.md">简体中文</a> | <a href="README-zh-TW.md">繁體中文</a> | <a href="README-ja.md">日本語</a> | <a href="README-ko.md">한국어</a> | <a href="README-ru.md">Русский</a> | <strong>Français</strong> | <a href="README-es.md">Español</a> | <a href="README-de.md">Deutsch</a> | <a href="README-it.md">Italiano</a></p>
@@ -12,17 +12,25 @@
     <a href="https://trendshift.io/repositories/15538"><img src="https://trendshift.io/api/badge/repositories/15538" alt="PDF Craft | GitHub Trending on Trendshift" width="250" height="55" /></a>
   </p>
   <p>
-    <a href="https://pdfcraft.ai/pdf-craft/"><strong>Essayer en ligne</strong></a> ·
+    <a href="https://pdfcraft.ai/pdf-craft/"><strong>Convertir un PDF en ligne</strong></a> ·
     <a href="#quick-start"><strong>Démarrage Python</strong></a> ·
     <a href="#documentation"><strong>Documentation</strong></a>
   </p>
 </div>
 
-Convertissez des PDF numérisés en Markdown et EPUB, traduisez leur contenu et réinsérez le texte traduit dans un PDF.
+PDF Craft est une bibliothèque Python conçue pour les livres numérisés, les articles scientifiques et les documents techniques. Elle transforme les PDF numérisés en Markdown facile à modifier ou en EPUB adapté à la lecture. Elle peut aussi traduire le contenu de PDF et d’EPUB dans une autre langue, créer des EPUB traduits ou bilingues et réinsérer la traduction sur les pages du PDF d’origine. Texte, chapitres, table des matières, notes de bas de page, tableaux, formules et images sont reconnus pour rendre le contenu consultable, modifiable et lisible au-delà des pages scannées.
 
-## Des pages numérisées aux documents exploitables
+## Convertissez vos fichiers en ligne, sans rien installer
 
-PDF Craft est une bibliothèque Python pour les livres numérisés et les documents scientifiques ou techniques. Elle extrait le contenu des pages et organise le texte, les chapitres, la table des matières, les notes de bas de page, les tableaux, les formules et les images pour faciliter la lecture et la modification.
+Vous avez un PDF numérisé à modifier en Markdown ou à lire en EPUB ? Avec **[PDF Craft Online · pdfcraft.ai](https://pdfcraft.ai/pdf-craft/)**, importez votre fichier dans le navigateur, lancez la conversion, puis téléchargez le résultat une fois le traitement terminé. Pas de Python à installer, de CUDA à configurer, ni de service OCR ou de clé API à prévoir.
+
+PDF Craft Online est le service en ligne officiel de ce projet open source. Utilisez-le pour convertir directement vos fichiers, ou choisissez la bibliothèque Python ci-dessous pour intégrer la conversion à votre application ou exécuter l’OCR sur votre ordinateur.
+
+**[Importez votre PDF et lancez la conversion →](https://pdfcraft.ai/pdf-craft/)**
+
+[![Interface de conversion PDF Craft Online, en anglais — cliquez pour importer un PDF](../images/website-en.png)](https://pdfcraft.ai/pdf-craft/)
+
+## Exemples de conversion
 
 **Markdown : modifier, rechercher et traiter le contenu.**
 
@@ -33,6 +41,8 @@ PDF Craft est une bibliothèque Python pour les livres numérisés et les docume
 ![Exemple PDF vers EPUB en anglais](../images/pdf2epub-en.png)
 
 Le résultat dépend de la qualité du scan, de la mise en page et du modèle OCR. Vérifiez un document représentatif avant de traiter un ensemble de fichiers.
+
+**Quel résultat obtiendrez-vous avec votre fichier ? [Importez un PDF et convertissez-le en Markdown ou EPUB →](https://pdfcraft.ai/pdf-craft/)**
 
 ## Possibilités
 
@@ -48,21 +58,19 @@ Le résultat dépend de la qualité du scan, de la mise en page et du modèle OC
 
 | Mode | Pour qui | Prérequis |
 | --- | --- | --- |
-| **[En ligne](https://pdfcraft.ai/pdf-craft/)** | Découvrir le résultat | Un navigateur ; fonctionnalités et conditions précisées dans l’application en ligne |
+| **[Conversion en ligne](https://pdfcraft.ai/pdf-craft/)** | Importer un fichier et télécharger du Markdown ou un EPUB | Un navigateur ; aucune installation Python ni configuration OCR |
 | **Python + OCR distant** | Développeurs sans exécution locale des modèles | Python, Poppler, URL et identifiants d’un service compatible |
 | **Python + OCR local** | Développeurs disposant d’un GPU NVIDIA | Python, Poppler, CUDA, VRAM suffisante et fichiers des modèles |
 
 L’OCR distant envoie les pages au service configuré et ne nécessite pas CUDA en local. L’OCR local s’exécute sur votre machine ; si vous utilisez un LLM distant pour la traduction ou l’analyse de la table des matières, le contenu correspondant est tout de même envoyé à ce service.
 
-**Aperçu de l’application en ligne, en anglais**
-
-[![PDF Craft en ligne](../images/website-en.png)](https://pdfcraft.ai/pdf-craft/)
-
 <a id="quick-start"></a>
 
-## Démarrage rapide
+## Démarrage rapide avec Python
 
 Cet exemple convertit un PDF en Markdown avec un OCR distant. Préparez **Python 3.11–3.13, Poppler et une configuration fonctionnelle de service compatible avec DeepSeek OCR**. Consultez le [guide d’installation](../en/INSTALLATION.md). Les guides détaillés liés depuis cette page sont en anglais.
+
+> Vous souhaitez simplement convertir un fichier, sans préparer d’environnement de développement ni de service OCR ? [Utilisez PDF Craft Online](https://pdfcraft.ai/pdf-craft/) et importez votre PDF dans le navigateur.
 
 ### 1. Installer
 
@@ -90,7 +98,7 @@ craft = PDFCraft(
 craft.convert_pdf_to_markdown("input.pdf", "output.md")
 ```
 
-`https://example.com/v1` est une adresse fictive. Utilisez un service compatible qui fournit réellement le modèle OCR. Pour les autres modèles, consultez la [configuration OCR](../en/OCR_BACKENDS.md).
+`https://example.com/v1` est une adresse fictive. Utilisez un service compatible qui fournit réellement le modèle OCR. Pour les autres modèles, consultez la [configuration OCR](../en/OCR_BACKENDS.md). Si vous n’avez pas encore de service OCR, vous pouvez convertir vos fichiers avec [PDF Craft Online](https://pdfcraft.ai/pdf-craft/).
 
 Ouvrez ensuite `output.md`. Les documents contenant des images produisent également des fichiers de ressources : conservez-les avec le Markdown lors d’un déplacement ou d’un partage.
 
@@ -103,6 +111,8 @@ craft.convert_pdf_to_epub("input.pdf", "output.epub")
 ```
 
 Ouvrez `output.epub` dans un lecteur EPUB. Le titre, l’auteur et les options de rendu sont décrits dans [Conversion et traduction PDF](../en/PDF_TRANSLATION.md). En cas de problème, consultez le [dépannage](../en/TROUBLESHOOTING.md).
+
+Pour obtenir les métadonnées bibliographiques d’un EPUB, activez leur extraction par OCR sur les premières pages et configurez un LLM distinct pour les métadonnées. PDF Craft ne retient que les valeurs vérifiables dans le texte OCR. Les propriétés du fichier PDF complètent les champs manquants, sans jamais remplacer les informations imprimées dans le livre.
 
 ## Traduction et réutilisation de l’extraction
 
@@ -154,7 +164,7 @@ Les guides détaillés suivants sont en anglais.
 
 Signalez les problèmes ou suggestions dans les [Issues](https://github.com/oomol-lab/pdf-craft/issues). Pour un problème de conversion, indiquez la version du paquet, le type de configuration OCR, les journaux d’erreur et un fichier minimal partageable publiquement. Retirez les identifiants et les données privées.
 
-Les [Pull Requests](https://github.com/oomol-lab/pdf-craft/pulls) améliorant le code, la documentation et les traductions sont les bienvenues. Les fonctionnalités et exemples des README traduits doivent rester cohérents avec la version anglaise. Si PDF Craft vous aide, une Star permettra à d’autres de le découvrir.
+Les [Pull Requests](https://github.com/oomol-lab/pdf-craft/pulls) améliorant le code, la documentation et les traductions sont les bienvenues. Prenez le README en chinois simplifié comme référence pour le contenu. Adaptez le texte aux lecteurs de chaque langue, en mettant en avant la conversion en ligne et la traduction, tout en gardant les exemples d’API exacts. Si PDF Craft vous aide, une Star permettra à d’autres de le découvrir.
 
 ## Projets associés
 

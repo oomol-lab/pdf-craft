@@ -1,4 +1,4 @@
-<!-- Translation baseline: README.md. Keep capability descriptions and executable examples aligned. -->
+<!-- Content baseline: README-zh-CN.md. Preserve the Chinese README priorities in natural local copy; keep API examples accurate. -->
 <div align="center">
   <img src="../images/pdf-craft-readme-banner-v1.png" alt="PDF Craft — 스캔한 책을 편집하고 읽을 수 있는 텍스트로." width="100%" />
   <p><a href="../../README.md">English</a> | <a href="README-zh-CN.md">简体中文</a> | <a href="README-zh-TW.md">繁體中文</a> | <a href="README-ja.md">日本語</a> | <strong>한국어</strong> | <a href="README-ru.md">Русский</a> | <a href="README-fr.md">Français</a> | <a href="README-es.md">Español</a> | <a href="README-de.md">Deutsch</a> | <a href="README-it.md">Italiano</a></p>
@@ -12,17 +12,25 @@
     <a href="https://trendshift.io/repositories/15538"><img src="https://trendshift.io/api/badge/repositories/15538" alt="PDF Craft | GitHub Trending on Trendshift" width="250" height="55" /></a>
   </p>
   <p>
-    <a href="https://pdfcraft.ai/pdf-craft/"><strong>온라인 체험</strong></a> ·
+    <a href="https://pdfcraft.ai/pdf-craft/"><strong>PDF 온라인 변환</strong></a> ·
     <a href="#quick-start"><strong>Python 빠른 시작</strong></a> ·
     <a href="#documentation"><strong>문서</strong></a>
   </p>
 </div>
 
-스캔 PDF를 Markdown과 EPUB으로 변환하고, 콘텐츠 번역과 번역문 PDF 출력을 지원합니다.
+PDF Craft는 스캔한 책, 논문, 기술 문서를 위한 Python 라이브러리입니다. 스캔 PDF를 편집하기 좋은 Markdown이나 읽기 편한 EPUB으로 변환합니다. PDF와 EPUB의 내용을 다른 언어로 번역해 번역문만 담은 EPUB 또는 원문과 번역문을 함께 담은 이중 언어 EPUB을 만들 수 있으며, 번역문을 원본 PDF 페이지에 넣을 수도 있습니다. 본문, 장, 목차, 각주, 표, 수식, 이미지를 인식해 스캔 이미지에 갇혀 있던 내용을 검색하고 편집하며 읽을 수 있게 합니다.
 
-## 스캔한 페이지를 활용할 수 있는 문서로
+## 설치 없이 브라우저에서 바로 변환하세요
 
-PDF Craft는 스캔한 책과 학술·기술 문서를 위한 Python 라이브러리입니다. 페이지에서 내용을 추출하고 본문, 장, 목차, 각주, 표, 수식, 이미지를 정리하여 편집과 읽기에 활용할 수 있도록 변환합니다.
+스캔 PDF를 편집 가능한 Markdown이나 전자책으로 읽기 좋은 EPUB으로 바꾸고 싶으신가요? **[PDF Craft Online · pdfcraft.ai](https://pdfcraft.ai/pdf-craft/)**에서 브라우저로 파일을 업로드하고 변환 작업을 제출한 뒤, 완료되면 결과를 다운로드하세요. Python 설치나 CUDA 설정이 필요 없고, OCR 서비스를 따로 찾거나 API 키를 입력할 필요도 없습니다.
+
+PDF Craft Online은 이 오픈 소스 프로젝트의 공식 온라인 서비스입니다. 파일을 바로 변환하려면 온라인 버전을, 직접 만드는 앱에 통합하거나 내 컴퓨터에서 OCR을 실행하려면 아래의 Python 라이브러리를 사용하세요.
+
+**[PDF를 업로드하고 온라인으로 변환하기 →](https://pdfcraft.ai/pdf-craft/)**
+
+[![PDF Craft 온라인 변환 화면 — 영어, 클릭하여 PDF 업로드](../images/website-en.png)](https://pdfcraft.ai/pdf-craft/)
+
+## 변환 결과 예시
 
 **Markdown: 편집, 검색, 후속 콘텐츠 처리에 사용합니다.**
 
@@ -33,6 +41,8 @@ PDF Craft는 스캔한 책과 학술·기술 문서를 위한 Python 라이브�
 ![PDF에서 EPUB으로 변환한 예시 — 영어](../images/pdf2epub-en.png)
 
 결과는 스캔 품질, 페이지 배치, OCR 모델에 따라 달라집니다. 대량 처리 전에 대표적인 문서로 결과를 확인하세요.
+
+**내 파일의 변환 결과가 궁금하신가요? [PDF를 업로드하고 Markdown 또는 EPUB으로 변환하세요 →](https://pdfcraft.ai/pdf-craft/)**
 
 ## 주요 기능
 
@@ -48,21 +58,19 @@ PDF Craft는 스캔한 책과 학술·기술 문서를 위한 Python 라이브�
 
 | 방식 | 대상 | 준비 사항 |
 | --- | --- | --- |
-| **[온라인 체험](https://pdfcraft.ai/pdf-craft/)** | 먼저 결과를 확인하려는 사용자 | 브라우저, 기능과 이용 조건은 온라인 앱에서 확인 |
+| **[온라인 변환](https://pdfcraft.ai/pdf-craft/)** | 파일을 업로드하고 Markdown 또는 EPUB 다운로드 | 브라우저만 있으면 됩니다. Python 설치나 OCR 서비스 설정 불필요 |
 | **Python + 원격 OCR** | 모델을 로컬에서 실행하지 않는 개발자 | Python, Poppler, 호환 서비스 URL과 인증 정보 |
 | **Python + 로컬 OCR** | NVIDIA GPU를 사용하는 개발자 | Python, Poppler, CUDA, 충분한 VRAM, 모델 파일 |
 
 원격 OCR은 설정한 서비스에 페이지를 전송하며 로컬 CUDA가 필요하지 않습니다. 로컬 OCR은 사용자 컴퓨터에서 실행되지만, 번역이나 목차 분석에 원격 LLM을 사용하면 해당 콘텐츠는 서비스로 전송됩니다.
 
-**온라인 앱 화면 보기 — 영어**
-
-[![PDF Craft 온라인 앱](../images/website-en.png)](https://pdfcraft.ai/pdf-craft/)
-
 <a id="quick-start"></a>
 
-## 빠른 시작
+## Python 빠른 시작
 
 원격 OCR로 PDF를 Markdown으로 변환하는 예시입니다. **Python 3.11–3.13, Poppler, 사용 가능한 DeepSeek OCR 호환 서비스 설정**을 준비하세요. [설치 안내](../en/INSTALLATION.md)를 참고하세요. 이 페이지에서 연결하는 상세 문서는 영어로 제공됩니다.
+
+> 개발 환경이나 OCR 서비스를 설정하지 않고 파일만 변환하고 싶다면 [PDF Craft Online](https://pdfcraft.ai/pdf-craft/)을 이용하세요. 브라우저에서 PDF를 업로드하면 됩니다.
 
 ### 1. 설치
 
@@ -90,7 +98,7 @@ craft = PDFCraft(
 craft.convert_pdf_to_markdown("input.pdf", "output.md")
 ```
 
-`https://example.com/v1`은 예시 주소입니다. 해당 OCR 모델을 실제로 제공하는 호환 서비스를 사용해야 합니다. 다른 모델은 [OCR 설정](../en/OCR_BACKENDS.md)을 참고하세요.
+`https://example.com/v1`은 예시 주소입니다. 해당 OCR 모델을 실제로 제공하는 호환 서비스를 사용해야 합니다. 다른 모델은 [OCR 설정](../en/OCR_BACKENDS.md)을 참고하세요. 아직 OCR 서비스가 없다면 [PDF Craft Online](https://pdfcraft.ai/pdf-craft/)에서 파일을 변환할 수 있습니다.
 
 완료 후 `output.md`를 여세요. 이미지가 있는 문서는 리소스 파일도 생성합니다. Markdown을 이동하거나 공유할 때 함께 보관하세요.
 
@@ -103,6 +111,8 @@ craft.convert_pdf_to_epub("input.pdf", "output.epub")
 ```
 
 EPUB 리더에서 `output.epub`를 여세요. 제목·저자·출력 옵션은 [PDF 변환과 번역](../en/PDF_TRANSLATION.md), 설치 및 실행 문제는 [문제 해결](../en/TROUBLESHOOTING.md)을 참고하세요.
+
+EPUB에 서지 정보가 필요하면 앞부분 페이지의 OCR에서 메타데이터를 추출하는 기능을 켜고 별도의 metadata LLM을 설정하세요. PDF Craft는 OCR 내용으로 확인할 수 있는 값만 사용합니다. PDF 파일 속성은 빠진 항목을 보완하는 데만 쓰며, 책에 인쇄된 정보를 덮어쓰지 않습니다.
 
 ## 번역과 추출 결과 재사용
 
@@ -154,7 +164,7 @@ python -m pip install "pdf-craft[local]"
 
 문제와 제안은 [Issues](https://github.com/oomol-lab/pdf-craft/issues)에 남겨 주세요. 변환 문제에는 패키지 버전, OCR 설정 유형, 오류 로그, 공개 가능한 최소 재현 파일을 포함하고 인증 정보와 비공개 콘텐츠를 제거해 주세요.
 
-코드, 문서, 번역을 개선하는 [Pull Request](https://github.com/oomol-lab/pdf-craft/pulls)를 환영합니다. 번역된 README는 기능 설명과 예시를 영문 버전과 일치시켜 주세요. 도움이 되었다면 Star로 프로젝트를 알려 주세요.
+코드, 문서, 번역을 개선하는 [Pull Request](https://github.com/oomol-lab/pdf-craft/pulls)를 환영합니다. 각 언어의 README는 중국어 간체 버전을 기준으로 삼아 온라인 변환과 번역 기능의 핵심을 해당 언어에 자연스럽게 표현하고, API 예시는 정확하게 유지해 주세요. 도움이 되었다면 Star로 프로젝트를 알려 주세요.
 
 ## 관련 프로젝트
 

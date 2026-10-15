@@ -1,4 +1,4 @@
-<!-- Translation baseline: README.md. Keep capability descriptions and executable examples aligned. -->
+<!-- Editorial baseline for all READMEs. Preserve these priorities in natural local copy; keep API examples accurate. -->
 <div align="center">
   <img src="../images/pdf-craft-readme-banner-v1.png" alt="PDF Craft — 让扫描书籍，重新成为可以编辑和阅读的文字。" width="100%" />
   <p><a href="../../README.md">English</a> | <strong>简体中文</strong> | <a href="README-zh-TW.md">繁體中文</a> | <a href="README-ja.md">日本語</a> | <a href="README-ko.md">한국어</a> | <a href="README-ru.md">Русский</a> | <a href="README-fr.md">Français</a> | <a href="README-es.md">Español</a> | <a href="README-de.md">Deutsch</a> | <a href="README-it.md">Italiano</a></p>
@@ -29,7 +29,6 @@ PDF Craft Online 是本开源项目的官方在线服务。需要处理文件时
 **[上传你的 PDF，开始在线转换 →](https://pdfcraft.ai/pdf-craft/)**
 
 [![PDF Craft 在线转换界面，点击上传 PDF](../images/website-cn.png)](https://pdfcraft.ai/pdf-craft/)
-
 
 ## 转换效果
 
@@ -168,7 +167,7 @@ python -m pip install "pdf-craft[local]"
 
 欢迎通过 [Issues](https://github.com/oomol-lab/pdf-craft/issues)报告问题或提出建议。转换问题请尽量附上项目版本、OCR 配置类型、错误日志，以及可公开分享的最小复现文件；提交前移除密钥和私人内容。
 
-也欢迎通过 [Pull Requests](https://github.com/oomol-lab/pdf-craft/pulls)改进代码、文档和翻译。贡献新语言版本时，请与英文 README 保持能力说明和示例一致。
+也欢迎通过 [Pull Requests](https://github.com/oomol-lab/pdf-craft/pulls)改进代码、文档和翻译。贡献新语言版本时，请以本中文版为内容基准，用对应语言自然表达在线转换、翻译能力等重点，并保持 API 示例准确。
 
 如果 PDF Craft 对你有帮助，欢迎给项目一颗 Star，让更多需要处理扫描书籍的人发现它。
 
