@@ -1,4 +1,4 @@
-<!-- Translation baseline: README.md. Keep capability descriptions and executable examples aligned. -->
+<!-- Content baseline: README-zh-CN.md. Preserve the Chinese README priorities in natural local copy; keep API examples accurate. -->
 <div align="center">
   <img src="../images/pdf-craft-readme-banner-v1.png" alt="PDF Craft — 讓掃描書籍，重新成為可以編輯與閱讀的文字。" width="100%" />
   <p><a href="../../README.md">English</a> | <a href="README-zh-CN.md">简体中文</a> | <strong>繁體中文</strong> | <a href="README-ja.md">日本語</a> | <a href="README-ko.md">한국어</a> | <a href="README-ru.md">Русский</a> | <a href="README-fr.md">Français</a> | <a href="README-es.md">Español</a> | <a href="README-de.md">Deutsch</a> | <a href="README-it.md">Italiano</a></p>
@@ -12,17 +12,25 @@
     <a href="https://trendshift.io/repositories/15538"><img src="https://trendshift.io/api/badge/repositories/15538" alt="PDF Craft | GitHub Trending on Trendshift" width="250" height="55" /></a>
   </p>
   <p>
-    <a href="https://pdfcraft.ai/pdf-craft/"><strong>線上體驗</strong></a> ·
+    <a href="https://pdfcraft.ai/pdf-craft/"><strong>線上轉換 PDF</strong></a> ·
     <a href="#quick-start"><strong>Python 快速開始</strong></a> ·
     <a href="#documentation"><strong>使用文件</strong></a>
   </p>
 </div>
 
-將掃描版 PDF 轉換為 Markdown 和 EPUB，支援內容翻譯與譯文寫回 PDF。
+PDF Craft 是一個專為掃描書籍、論文與技術文件設計的 Python 函式庫，可將掃描版 PDF 轉換為方便編輯的 Markdown 或適合閱讀的 EPUB。它也能將 PDF 或 EPUB 的內容翻譯成其他語言，產生純譯文或原文與譯文對照的雙語 EPUB，並將譯文寫回原始 PDF 頁面。轉換時會辨識正文、章節、目錄、註腳、表格、公式與圖片，讓掃描頁面中的內容可以繼續搜尋、編輯與閱讀。
 
-## 從掃描頁面，到可用的文件
+## 直接線上轉換，免安裝
 
-PDF Craft 是面向掃描書籍及學術、技術文件的 Python 函式庫。它擷取頁面內容，組織正文、章節、目錄、註腳、表格、公式與圖片，方便後續編輯和閱讀。
+想把手上的掃描 PDF 變成可編輯的 Markdown 或方便閱讀的 EPUB？使用 **[PDF Craft Online · pdfcraft.ai](https://pdfcraft.ai/pdf-craft/)**，在瀏覽器上傳檔案、提交轉換工作，完成後即可下載結果。不必安裝 Python、設定 CUDA，也不用自行尋找 OCR 服務或填寫 API 金鑰。
+
+PDF Craft Online 是本開源專案的官方線上服務。處理檔案可以直接使用線上版；若要整合到自己的程式，或在本機執行 OCR，則可使用下方的 Python 函式庫。
+
+**[上傳你的 PDF，開始線上轉換 →](https://pdfcraft.ai/pdf-craft/)**
+
+[![PDF Craft 線上轉換介面（簡體中文），點擊上傳 PDF](../images/website-cn.png)](https://pdfcraft.ai/pdf-craft/)
+
+## 轉換效果
 
 **Markdown：用於編輯、搜尋與後續內容處理。**
 
@@ -33,6 +41,8 @@ PDF Craft 是面向掃描書籍及學術、技術文件的 Python 函式庫。�
 ![PDF 轉 EPUB 範例](../images/pdf2epub-cn.png)
 
 轉換效果取決於掃描品質、頁面排版和 OCR 模型。大量處理前，請先檢查具有代表性的文件。範例截圖使用簡體中文。
+
+**想知道自己的檔案轉換後會是什麼樣子？[上傳 PDF，線上轉換為 Markdown 或 EPUB →](https://pdfcraft.ai/pdf-craft/)**
 
 ## 你可以用它做什麼
 
@@ -48,21 +58,19 @@ PDF Craft 是面向掃描書籍及學術、技術文件的 Python 函式庫。�
 
 | 方式 | 適用對象 | 需求 |
 | --- | --- | --- |
-| **[線上體驗](https://pdfcraft.ai/pdf-craft/)** | 希望先看效果的使用者 | 瀏覽器；功能與使用要求以線上應用程式為準 |
+| **[線上轉換](https://pdfcraft.ai/pdf-craft/)** | 直接上傳檔案，下載 Markdown 或 EPUB | 瀏覽器，免安裝 Python、免設定 OCR 服務 |
 | **Python + 遠端 OCR** | 不在本機執行 OCR 模型的開發者 | Python、Poppler、相容服務的網址與憑證 |
 | **Python + 本機 OCR** | 擁有 NVIDIA GPU 的開發者 | Python、Poppler、CUDA、足夠的顯示記憶體與模型檔案 |
 
 遠端 OCR 會將頁面傳送至設定的服務，本機不需要 CUDA。本機 OCR 使用本機算力；若另用遠端 LLM 進行翻譯或目錄分析，相關內容仍會傳送至該服務。
 
-**查看線上應用程式介面（簡體中文）**
-
-[![PDF Craft 線上應用程式](../images/website-cn.png)](https://pdfcraft.ai/pdf-craft/)
-
 <a id="quick-start"></a>
 
-## 快速開始
+## Python 快速開始
 
 此範例使用遠端 OCR 將 PDF 轉換為 Markdown。請準備 **Python 3.11–3.13、Poppler，以及可用的 DeepSeek OCR 相容服務設定**。安裝步驟見[安裝指南](../en/INSTALLATION.md)。本頁連結的詳細指南目前為英文。
+
+> 只想轉換檔案，不想設定開發環境或 OCR 服務？[直接使用 PDF Craft Online](https://pdfcraft.ai/pdf-craft/)，在瀏覽器上傳 PDF 即可開始。
 
 ### 1. 安裝
 
@@ -90,7 +98,7 @@ craft = PDFCraft(
 craft.convert_pdf_to_markdown("input.pdf", "output.md")
 ```
 
-`https://example.com/v1` 僅為佔位網址，不能直接呼叫。請使用實際提供該 OCR 模型的相容服務。其他模型見 [OCR 設定指南](../en/OCR_BACKENDS.md)。
+`https://example.com/v1` 僅為佔位網址，不能直接呼叫。請使用實際提供該 OCR 模型的相容服務。其他模型見 [OCR 設定指南](../en/OCR_BACKENDS.md)。 如果還沒有 OCR 服務，可以先透過 [PDF Craft Online](https://pdfcraft.ai/pdf-craft/) 完成檔案轉換。
 
 完成後開啟 `output.md`。含圖片的文件也會產生資源檔案；移動或分享 Markdown 時請一併保留。
 
@@ -103,6 +111,8 @@ craft.convert_pdf_to_epub("input.pdf", "output.epub")
 ```
 
 以 EPUB 閱讀器開啟 `output.epub`。書名、作者與輸出選項見 [PDF 轉換與翻譯](../en/PDF_TRANSLATION.md)；安裝或執行問題見[疑難排解](../en/TROUBLESHOOTING.md)。
+
+若需要 EPUB 的書目資料，可選擇啟用「前頁 OCR 書目資料擷取」，並提供獨立的 metadata LLM。PDF Craft 只接受能以 OCR 頁面內容驗證的欄位；PDF 檔案屬性僅用來補足缺漏，不會覆蓋書頁印刷的資訊。
 
 ## 翻譯與擷取結果重複使用
 
@@ -154,7 +164,7 @@ python -m pip install "pdf-craft[local]"
 
 歡迎透過 [Issues](https://github.com/oomol-lab/pdf-craft/issues)回報問題或提出建議。請附上套件版本、OCR 設定類型、錯誤紀錄與可公開分享的最小重現檔案，並先移除憑證和私人內容。
 
-歡迎透過 [Pull Requests](https://github.com/oomol-lab/pdf-craft/pulls)改善程式碼、文件與翻譯。翻譯版本的能力說明和範例應與英文 README 保持一致。
+歡迎透過 [Pull Requests](https://github.com/oomol-lab/pdf-craft/pulls)改善程式碼、文件與翻譯。各語言版本請以簡體中文版為內容基準，以自然的在地用語傳達線上轉換與翻譯能力等重點，並保持 API 範例正確。
 
 如果 PDF Craft 對你有幫助，歡迎給專案一顆 Star。
 
