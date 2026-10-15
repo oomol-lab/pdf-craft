@@ -20,8 +20,6 @@
 
 将扫描版 PDF 转换为 Markdown 和 EPUB，支持内容翻译与译文写回 PDF。
 
-## 从扫描页面，到可用的文档
-
 PDF Craft 是一个面向扫描书籍和学术、技术文档的 Python 库。它将页面中的文字提取出来，围绕正文、章节、目录、脚注、表格、公式和图片组织转换结果，让书籍可以继续编辑、整理和阅读。
 
 ## 直接在线转换，无需安装
@@ -34,7 +32,6 @@ PDF Craft Online 是本开源项目的官方在线服务。需要处理文件时
 
 [![PDF Craft 在线转换界面，点击上传 PDF](../images/website-cn.png)](https://pdfcraft.ai/pdf-craft/)
 
-在线转换的费用请查看网站[价格说明](https://pdfcraft.ai/pricing)。
 
 ## 转换效果
 
