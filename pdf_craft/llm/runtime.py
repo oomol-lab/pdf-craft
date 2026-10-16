@@ -236,10 +236,11 @@ class LLMContext(AbstractAsyncContextManager["LLMContext"]):
                         if remaining <= 0:
                             await raise_timeout(attempt + 1)
                         try:
-                            response = await asyncio.wait_for(
-                                self.runtime.executor.run(invoke_once),
-                                timeout=remaining,
-                            )
+                            # Keep transport and cleanup on the caller task.
+                            # Python 3.11 wait_for can detach its child when the
+                            # caller is cancelled again during child teardown.
+                            async with asyncio.timeout(remaining):
+                                response = await self.runtime.executor.run(invoke_once)
                         except asyncio.TimeoutError as error:
                             await self._log_async(
                                 "timeout", attempt + 1, key=key, error=error,
@@ -310,9 +311,8 @@ class LLMContext(AbstractAsyncContextManager["LLMContext"]):
                             if remaining <= 0:
                                 await raise_timeout(attempt + 1)
                             try:
-                                await asyncio.wait_for(
-                                    asyncio.sleep(delay), timeout=remaining,
-                                )
+                                async with asyncio.timeout(remaining):
+                                    await asyncio.sleep(delay)
                             except asyncio.TimeoutError:
                                 await raise_timeout(attempt + 1)
                     attempt += 1
