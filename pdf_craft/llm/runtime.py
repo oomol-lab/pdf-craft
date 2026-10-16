@@ -188,6 +188,16 @@ class LLMContext(AbstractAsyncContextManager["LLMContext"]):
         empty_attempts = 0
         if deadline is None and self.runtime.config.timeout is not None:
             deadline = time.monotonic() + self.runtime.config.timeout
+
+        async def raise_timeout(attempt: int) -> None:
+            error = asyncio.TimeoutError()
+            await self._log_async("timeout", attempt, key=key, error=error)
+            raise LLMTransportError(
+                "LLM request exceeded its total timeout",
+                attempts=attempt,
+                cause=error,
+            ) from error
+
         try:
             attempt = 0
             force_ipv4 = False
@@ -208,15 +218,7 @@ class LLMContext(AbstractAsyncContextManager["LLMContext"]):
                     else:
                         remaining = deadline - time.monotonic()
                         if remaining <= 0:
-                            error = asyncio.TimeoutError()
-                            await self._log_async(
-                                "timeout", attempt + 1, key=key, error=error,
-                            )
-                            raise LLMTransportError(
-                                "LLM request exceeded its total timeout",
-                                attempts=attempt + 1,
-                                cause=error,
-                            ) from error
+                            await raise_timeout(attempt + 1)
                         try:
                             response = await asyncio.wait_for(
                                 self.runtime.executor.run(invoke_once),
@@ -284,7 +286,18 @@ class LLMContext(AbstractAsyncContextManager["LLMContext"]):
                         else self.runtime.config.retry_interval_seconds
                     )
                     if delay > 0:
-                        await asyncio.sleep(delay)
+                        if deadline is None:
+                            await asyncio.sleep(delay)
+                        else:
+                            remaining = deadline - time.monotonic()
+                            if remaining <= 0:
+                                await raise_timeout(attempt + 1)
+                            try:
+                                await asyncio.wait_for(
+                                    asyncio.sleep(delay), timeout=remaining,
+                                )
+                            except asyncio.TimeoutError:
+                                await raise_timeout(attempt + 1)
                     attempt += 1
                     force_ipv4 = False
         finally:

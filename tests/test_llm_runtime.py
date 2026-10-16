@@ -103,6 +103,29 @@ class TestLLMRuntime(unittest.IsolatedAsyncioTestCase):
         self.assertIsInstance(raised.exception.__cause__, TimeoutError)
         self.assertLess(calls, 6)
 
+    async def test_retry_interval_is_bounded_by_absolute_deadline(self):
+        with tempfile.TemporaryDirectory() as directory:
+            config = LLM(
+                "key", "https://example.invalid/v1", "model", "o200k_base",
+                timeout=0.03, retry_times=1, retry_interval_seconds=0.2,
+                log_dir_path=Path(directory) / "logs",
+            )
+            runtime = runtime_for(config, ConcurrentExecutor(FixedCapacity(1)))
+            runtime._invoke = AsyncMock(  # type: ignore[method-assign]
+                side_effect=httpx.ReadTimeout("retryable provider failure"),
+            )
+
+            started = asyncio.get_running_loop().time()
+            with self.assertRaises(LLMTransportError) as raised:
+                await asyncio.wait_for(
+                    runtime.request("hello", use_cache=False), timeout=0.12,
+                )
+
+            self.assertLess(asyncio.get_running_loop().time() - started, 0.1)
+            self.assertIsInstance(raised.exception.__cause__, TimeoutError)
+            log_text = "\n".join(path.read_text() for path in (Path(directory) / "logs").glob("*.log"))
+            self.assertIn('"category": "timeout"', log_text)
+
     async def test_cancelling_streaming_request_closes_the_stream(self):
         config = LLM(
             "key", "https://example.invalid/v1", "model", "o200k_base",

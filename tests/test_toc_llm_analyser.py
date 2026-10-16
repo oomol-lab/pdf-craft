@@ -1,3 +1,4 @@
+# pylint: disable=protected-access
 import asyncio
 import time
 import unittest
