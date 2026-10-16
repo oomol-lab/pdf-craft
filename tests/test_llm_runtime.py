@@ -33,7 +33,7 @@ class TestLLMRuntime(unittest.IsolatedAsyncioTestCase):
         with tempfile.TemporaryDirectory() as directory:
             config = LLM(
                 "key", "https://example.invalid/v1", "model", "o200k_base",
-                timeout=0.03, retry_times=0, log_dir_path=Path(directory) / "logs",
+                total_timeout=0.03, retry_times=0, log_dir_path=Path(directory) / "logs",
             )
             runtime = runtime_for(config, ConcurrentExecutor(FixedCapacity(1)))
 
@@ -83,7 +83,7 @@ class TestLLMRuntime(unittest.IsolatedAsyncioTestCase):
     async def test_absolute_deadline_is_shared_by_transport_retries(self):
         config = LLM(
             "key", "https://example.invalid/v1", "model", "o200k_base",
-            timeout=0.04, retry_times=5, retry_interval_seconds=0,
+            total_timeout=0.04, retry_times=5, retry_interval_seconds=0,
         )
         runtime = runtime_for(config, ConcurrentExecutor(FixedCapacity(1)))
         calls = 0
@@ -107,7 +107,7 @@ class TestLLMRuntime(unittest.IsolatedAsyncioTestCase):
         with tempfile.TemporaryDirectory() as directory:
             config = LLM(
                 "key", "https://example.invalid/v1", "model", "o200k_base",
-                timeout=0.03, retry_times=1, retry_interval_seconds=0.2,
+                total_timeout=0.03, retry_times=1, retry_interval_seconds=0.2,
                 log_dir_path=Path(directory) / "logs",
             )
             runtime = runtime_for(config, ConcurrentExecutor(FixedCapacity(1)))

@@ -120,26 +120,42 @@ class LLMRuntime:
         )
         # Scope the client to its event loop.
         stream = None
+        client = openai.AsyncOpenAI(
+            api_key=self.config.key, base_url=self.config.url,
+            timeout=self.config.timeout, max_retries=0, http_client=http_client,
+        )
         try:
-            async with openai.AsyncOpenAI(
-                api_key=self.config.key, base_url=self.config.url,
-                timeout=self.config.timeout, max_retries=0, http_client=http_client,
-            ) as client:
-                stream = await client.chat.completions.create(
-                    model=self.config.model, messages=messages, stream=True,
-                    top_p=top_p, temperature=temperature, max_tokens=max_tokens,
-                )
-                parts: list[str] = []
-                async for chunk in stream:
-                    if chunk.choices and chunk.choices[0].delta.content:
-                        parts.append(chunk.choices[0].delta.content)
-                return "".join(parts)
+            await client.__aenter__()
+            stream = await client.chat.completions.create(
+                model=self.config.model, messages=messages, stream=True,
+                top_p=top_p, temperature=temperature, max_tokens=max_tokens,
+            )
+            parts: list[str] = []
+            async for chunk in stream:
+                if chunk.choices and chunk.choices[0].delta.content:
+                    parts.append(chunk.choices[0].delta.content)
+            return "".join(parts)
         finally:
-            close = getattr(stream, "aclose", None) or getattr(stream, "close", None)
-            if close is not None:
+            # Separate allowances ensure a stalled stream close cannot prevent
+            # closing its owning HTTP client. No detached cleanup task is used.
+            try:
+                close = getattr(stream, "aclose", None) or getattr(stream, "close", None)
+                if close is not None:
+                    await self._close_resource(close)
+            finally:
+                await self._close_resource(lambda: client.__aexit__(None, None, None))
+
+    async def _close_resource(self, close) -> None:
+        try:
+            async with asyncio.timeout(self.config.cleanup_timeout / 2):
                 result = close()
                 if inspect.isawaitable(result):
                     await result
+        except TimeoutError as error:
+            # The transport task has stopped before its capacity is released.
+            # Uncooperative extensions that swallow cancellation need isolation
+            # in the host process; asyncio cannot forcibly kill a coroutine.
+            await self.context()._log_async("cleanup-timeout", 0, key=None, error=error)
 
     async def _invoke_for_request(
         self, messages, max_tokens, temperature, top_p, *, force_ipv4: bool,
@@ -184,10 +200,10 @@ class LLMContext(AbstractAsyncContextManager["LLMContext"]):
                 await self._log_async("cache-hit", 0, key=key)
                 return cached_text
         await self._log_async("cache-miss", 0, key=key)
-        last_error: Exception | None = None
+        last_error: BaseException | None = None
         empty_attempts = 0
-        if deadline is None and self.runtime.config.timeout is not None:
-            deadline = time.monotonic() + self.runtime.config.timeout
+        if deadline is None and self.runtime.config.total_timeout is not None:
+            deadline = time.monotonic() + self.runtime.config.total_timeout
 
         async def raise_timeout(attempt: int) -> None:
             error = asyncio.TimeoutError()
@@ -198,8 +214,8 @@ class LLMContext(AbstractAsyncContextManager["LLMContext"]):
                 cause=error,
             ) from error
 
+        attempt = 0
         try:
-            attempt = 0
             force_ipv4 = False
             while attempt <= self.runtime.config.retry_times:
                 try:
@@ -220,10 +236,11 @@ class LLMContext(AbstractAsyncContextManager["LLMContext"]):
                         if remaining <= 0:
                             await raise_timeout(attempt + 1)
                         try:
-                            response = await asyncio.wait_for(
-                                self.runtime.executor.run(invoke_once),
-                                timeout=remaining,
-                            )
+                            # Keep transport and cleanup on the caller task.
+                            # Python 3.11 wait_for can detach its child when the
+                            # caller is cancelled again during child teardown.
+                            async with asyncio.timeout(remaining):
+                                response = await self.runtime.executor.run(invoke_once)
                         except asyncio.TimeoutError as error:
                             await self._log_async(
                                 "timeout", attempt + 1, key=key, error=error,
@@ -285,6 +302,7 @@ class LLMContext(AbstractAsyncContextManager["LLMContext"]):
                         if rate_limit is not None and rate_limit.retry_after is not None
                         else self.runtime.config.retry_interval_seconds
                     )
+                    await self._log_async("retry", attempt + 1, key=key, error=error)
                     if delay > 0:
                         if deadline is None:
                             await asyncio.sleep(delay)
@@ -293,13 +311,18 @@ class LLMContext(AbstractAsyncContextManager["LLMContext"]):
                             if remaining <= 0:
                                 await raise_timeout(attempt + 1)
                             try:
-                                await asyncio.wait_for(
-                                    asyncio.sleep(delay), timeout=remaining,
-                                )
+                                async with asyncio.timeout(remaining):
+                                    await asyncio.sleep(delay)
                             except asyncio.TimeoutError:
                                 await raise_timeout(attempt + 1)
                     attempt += 1
                     force_ipv4 = False
+        except BaseException as error:
+            await self._log_async(
+                "cancelled" if isinstance(error, asyncio.CancelledError) else "failure",
+                attempt + 1, key=key, error=error,
+            )
+            raise
         finally:
             self._temperature.increase()
             self._top_p.increase()
@@ -319,13 +342,13 @@ class LLMContext(AbstractAsyncContextManager["LLMContext"]):
 
     async def _log_async(
         self, category: str, attempt: int, *, key: str | None,
-        error: Exception | None = None,
+        error: BaseException | None = None,
     ) -> None:
         await IO_DOMAIN.run(self._log, category, attempt, key=key, error=error)
 
     def _log(
         self, category: str, attempt: int, *, key: str | None,
-        error: Exception | None = None,
+        error: BaseException | None = None,
     ) -> None:
         with _LOGGER_LOCK:
             if self.runtime._logger is None:
