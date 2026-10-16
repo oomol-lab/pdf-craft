@@ -603,8 +603,8 @@ class _LLMAnalyser(Generic[_P, _R]):
         # The business validators already extract RESULT and enforce their own
         # schema. The guaranteed layer supplies typed retries and bounded history.
         deadline = (
-            time.monotonic() + self._llm.timeout
-            if self._runtime is not None and self._llm.timeout is not None else None
+            time.monotonic() + self._llm.total_timeout
+            if self._runtime is not None and self._llm.total_timeout is not None else None
         )
         try:
             return await request_guaranteed_json(GuaranteedOptions(

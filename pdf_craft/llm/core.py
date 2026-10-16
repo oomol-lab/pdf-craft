@@ -1,3 +1,4 @@
+import math
 from os import PathLike
 from pathlib import Path
 from threading import Lock
@@ -15,7 +16,14 @@ class LLM:
                  temperature: float | tuple[float, float] | None = None,
                  retry_times: int = 5, retry_interval_seconds: float = 6.0,
                  cache_path: PathLike | str | None = None,
-                 log_dir_path: PathLike | str | None = None) -> None:
+                 log_dir_path: PathLike | str | None = None, *,
+                 total_timeout: float | None = 360.0,
+                 cleanup_timeout: float = 5.0) -> None:
+        for name, value in (("total_timeout", total_timeout), ("cleanup_timeout", cleanup_timeout)):
+            if value is not None and (not math.isfinite(value) or value <= 0):
+                raise ValueError(f"{name} must be a finite positive number")
+        self.total_timeout = total_timeout
+        self.cleanup_timeout = cleanup_timeout
         self.key, self.url, self.model, self.token_encoding = key, url, model, token_encoding
         self.timeout, self.top_p, self.temperature = timeout, top_p, temperature
         self.retry_times, self.retry_interval_seconds = retry_times, retry_interval_seconds

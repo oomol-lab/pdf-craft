@@ -282,8 +282,36 @@ LLM(
     retry_interval_seconds=6.0,
     cache_path=None,
     log_dir_path=None,
+    total_timeout=360.0,
+    cleanup_timeout=5.0,
 )
 ```
+
+`timeout` keeps its HTTP connect/read/write/pool timeout meaning; it does not bound a
+whole streaming response. `total_timeout` bounds one LLM operation across capacity
+waiting, streaming, transport retries and retry backoff. TOC JSON/schema/business
+repair attempts share that same budget. The default is 360 seconds even when
+`timeout=None`; only an explicit `total_timeout=None` disables the total budget.
+These keyword-only options also apply to translation requests. Since PR #506 used
+`timeout` for the combined budget, callers relying on that unreleased behavior
+should now set `total_timeout` explicitly.
+
+On completion, timeout or cancellation, stream close and client exit each receive
+half of `cleanup_timeout` (5 seconds total by default). This is an additional
+cleanup allowance after the operation deadline, not a strict wall-clock bound on
+the entire PDF conversion. Cleanup timeout emits `cleanup-timeout`; cancellation
+propagates and cleanup is awaited without detached background tasks. These bounds
+require an event loop and transports that cooperate with cancellation. Arbitrary
+extensions that block the event loop or swallow cancellation require a host-owned
+process watchdog for hard termination; the library cannot forcibly kill them.
+The host still owns service deadlines and failed-task state transitions.
+
+Without `log_dir_path`, structured request/cache/retry/timeout/failure/cancellation
+and success events propagate to the `pdf_craft.llm` parent logger; install a handler
+there (or on the root logger). With a directory, events go to request log files.
+A TOC LLM failure falls back to statistical analysis; caller cancellation propagates
+instead. EPUB output alone never enables LLM requests: supply `toc_llm` explicitly.
+
 
 `key`, `url`, `model`, and `token_encoding` are required. `temperature` and `top_p` may be numbers or ranges used while retrying. Successful requests can be reused through `cache_path`; `log_dir_path` records request and cache events. OCR credentials do not configure this object.
 

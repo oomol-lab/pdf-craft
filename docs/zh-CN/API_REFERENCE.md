@@ -573,8 +573,30 @@ LLM(
     retry_interval_seconds=6.0,
     cache_path=None,
     log_dir_path=None,
+    total_timeout=360.0,
+    cleanup_timeout=5.0,
 )
 ```
+
+`timeout` 保留 HTTP connect/read/write/pool 超时语义，不能限制整个流式响应。
+`total_timeout` 限制一次 LLM 操作的容量等待、流式请求、传输重试及退避等待；
+TOC 的 JSON/schema/业务修复尝试共用同一预算。默认 360 秒，即使 `timeout=None`
+也有保护；只有显式 `total_timeout=None` 才关闭总预算。这两个新增参数仅接受关键字，
+也适用于翻译请求。PR #506 曾把 `timeout` 用作总预算；依赖该未发布行为的调用方
+应改为显式设置 `total_timeout`。
+
+成功、超时或取消后，stream 关闭与 client 退出各使用 `cleanup_timeout` 的一半
+（默认合计 5 秒）。这是操作 deadline 之后额外的清理预算，不是整个 PDF 转换的
+硬总时限。清理超时记录 `cleanup-timeout`；取消会继续传播，清理不会脱离为后台任务。
+上述约束要求事件循环正常运行且传输实现响应取消；阻塞事件循环或吞掉取消的任意扩展
+需要宿主使用进程 watchdog 强制终止，库不能强杀协程。服务 deadline 和 failed 状态
+转换仍由宿主负责。
+
+没有 `log_dir_path` 时，请求、缓存、重试、超时、失败、取消和成功事件传播到
+`pdf_craft.llm` 父 logger，由调用方为它或 root logger 配置 handler；配置目录后
+事件写入请求日志文件。TOC LLM 失败会回退统计方法，调用方取消则向上传播。
+EPUB 输出类型本身不会开启 LLM；只有显式传入 `toc_llm` 才会请求。
+
 
 `LLM` 只保存配置，实际请求由 pdf-craft 内部运行时发起。OCR endpoint 和文本翻译 LLM
 是两套独立配置，不要把 OCR 配置当作翻译 LLM 使用。

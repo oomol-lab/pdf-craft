@@ -92,7 +92,7 @@ class TestLLMAnalyser(unittest.IsolatedAsyncioTestCase):
     async def test_toc_business_retries_share_one_transport_deadline(self):
         llm = LLM(
             "key", "https://example.invalid/v1", "model", "o200k_base",
-            timeout=0.04, retry_times=0,
+            total_timeout=0.04, retry_times=0,
         )
         analyser = _LLMAnalyser(
             llm=llm,
@@ -104,7 +104,7 @@ class TestLLMAnalyser(unittest.IsolatedAsyncioTestCase):
             nonlocal calls
             calls += 1
             await asyncio.sleep(0.02)
-            return "[]"
+            return '{"0": 99}'
 
         cast(Any, analyser._runtime)._invoke = slow_invalid_response
         started = time.monotonic()
