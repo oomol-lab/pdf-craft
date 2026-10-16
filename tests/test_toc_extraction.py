@@ -2,6 +2,7 @@ import asyncio
 import tempfile
 import unittest
 from pathlib import Path
+from typing import cast
 from unittest.mock import patch
 
 from pdf_craft.extractor.chapter.chapter import (
@@ -11,9 +12,33 @@ from pdf_craft.extractor.chapter.generation import _assemble_flow_items, _extrac
 from pdf_craft.extractor.toc.analysing import analyse_toc
 from pdf_craft.extractor.toc.toc_pages import MatchedTitle, PageRef, TitleReference
 from pdf_craft.extractor.toc.types import TocInfo
+from pdf_craft.llm.core import LLM
 
 
 class TocExtractionTests(unittest.TestCase):
+    def test_toc_llm_failure_falls_back_to_statistical_levels(self):
+        with tempfile.TemporaryDirectory() as directory:
+            pages = Path(directory) / "pages"
+            pages.mkdir()
+            (pages / "page_1.xml").write_text(
+                "<page index='1'><body>"
+                "<layout ref='title' order='0' det='1,1,90,30'>Chapter One</layout>"
+                "</body></page>",
+                encoding="utf-8",
+            )
+
+            class BrokenLLM:
+                async def request(self, input):  # pylint: disable=redefined-builtin,unused-argument
+                    raise RuntimeError("provider unavailable")
+
+            toc = asyncio.run(analyse_toc(
+                pages, Path(directory) / "toc.xml", toc_assumed=False,
+                toc_llm=cast(LLM, BrokenLLM()),
+            ))
+
+            self.assertEqual(len(toc.content), 1)
+            self.assertEqual(toc.content[0].page_index, 1)
+
     def test_synthetic_ocr_page_preserves_anchor_and_formula_flow_boundary(self):
         with tempfile.TemporaryDirectory() as directory:
             pages = Path(directory) / "pages"

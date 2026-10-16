@@ -1,10 +1,11 @@
 # pylint: disable=protected-access
+import asyncio
 import tempfile
 import unittest
 from inspect import signature
 from os import chdir
 from pathlib import Path
-from unittest.mock import AsyncMock, Mock
+from unittest.mock import AsyncMock, Mock, patch
 from xml.etree.ElementTree import Element
 
 import httpx
@@ -27,6 +28,143 @@ def _config(path: Path) -> LLM:
 
 
 class TestLLMRuntime(unittest.IsolatedAsyncioTestCase):
+    async def test_streaming_request_has_an_absolute_deadline(self):
+        """Regression: a stream that keeps yielding must still time out."""
+        with tempfile.TemporaryDirectory() as directory:
+            config = LLM(
+                "key", "https://example.invalid/v1", "model", "o200k_base",
+                timeout=0.03, retry_times=0, log_dir_path=Path(directory) / "logs",
+            )
+            runtime = runtime_for(config, ConcurrentExecutor(FixedCapacity(1)))
+
+            class SlowStream:
+                def __init__(self):
+                    self.closed = False
+
+                def __aiter__(self):
+                    return self
+
+                async def __anext__(self):
+                    await asyncio.sleep(0.01)
+                    return Mock(
+                        choices=[Mock(delta=Mock(content="still alive"))],
+                    )
+
+                async def aclose(self):
+                    self.closed = True
+
+            stream = SlowStream()
+
+            class Completions:
+                async def create(self, **_kwargs):
+                    return stream
+
+            class Client:
+                def __init__(self, **_kwargs):
+                    self.chat = Mock(completions=Completions())
+
+                async def __aenter__(self):
+                    return self
+
+                async def __aexit__(self, *_args):
+                    return False
+
+            with patch("pdf_craft.llm.runtime.openai.AsyncOpenAI", Client):
+                with self.assertRaises(LLMTransportError) as raised:
+                    await asyncio.wait_for(
+                        runtime.request("hello", use_cache=False), timeout=0.2,
+                    )
+
+            self.assertIsInstance(raised.exception.__cause__, TimeoutError)
+            self.assertTrue(stream.closed)
+            log_text = "\n".join(path.read_text() for path in (Path(directory) / "logs").glob("*.log"))
+            self.assertIn('"category": "timeout"', log_text)
+
+    async def test_absolute_deadline_is_shared_by_transport_retries(self):
+        config = LLM(
+            "key", "https://example.invalid/v1", "model", "o200k_base",
+            timeout=0.04, retry_times=5, retry_interval_seconds=0,
+        )
+        runtime = runtime_for(config, ConcurrentExecutor(FixedCapacity(1)))
+        calls = 0
+
+        async def invoke(*_args):
+            nonlocal calls
+            calls += 1
+            await asyncio.sleep(0.03)
+            raise httpx.ReadTimeout("slow provider")
+
+        runtime._invoke = invoke  # type: ignore[method-assign]
+        with self.assertRaises(LLMTransportError) as raised:
+            await asyncio.wait_for(
+                runtime.request("hello", use_cache=False), timeout=0.15,
+            )
+
+        self.assertIsInstance(raised.exception.__cause__, TimeoutError)
+        self.assertLess(calls, 6)
+
+    async def test_cancelling_streaming_request_closes_the_stream(self):
+        config = LLM(
+            "key", "https://example.invalid/v1", "model", "o200k_base",
+            timeout=None, retry_times=0,
+        )
+        runtime = runtime_for(config, ConcurrentExecutor(FixedCapacity(1)))
+        started = asyncio.Event()
+
+        class BlockingStream:
+            def __init__(self):
+                self.closed = False
+
+            def __aiter__(self):
+                return self
+
+            async def __anext__(self):
+                started.set()
+                await asyncio.Event().wait()
+                raise AssertionError("unreachable")
+
+            async def aclose(self):
+                self.closed = True
+
+        stream = BlockingStream()
+
+        class Completions:
+            async def create(self, **_kwargs):
+                return stream
+
+        class Client:
+            def __init__(self, **_kwargs):
+                self.chat = Mock(completions=Completions())
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *_args):
+                return False
+
+        with patch("pdf_craft.llm.runtime.openai.AsyncOpenAI", Client):
+            task = asyncio.create_task(runtime.request("hello", use_cache=False))
+            await asyncio.wait_for(started.wait(), timeout=1)
+            task.cancel()
+            with self.assertRaises(asyncio.CancelledError):
+                await task
+
+        self.assertTrue(stream.closed)
+
+    async def test_llm_events_propagate_without_a_file_log_directory(self):
+        config = LLM(
+            "key", "https://example.invalid/v1", "model", "o200k_base",
+            retry_times=0,
+        )
+        runtime = runtime_for(config, ConcurrentExecutor(FixedCapacity(1)))
+        runtime._invoke = AsyncMock(return_value="ok")  # type: ignore[method-assign]
+
+        with self.assertLogs("pdf_craft.llm", level="INFO") as captured:
+            await runtime.request("hello", use_cache=False)
+
+        self.assertTrue(any('"category": "request"' in line for line in captured.output))
+        self.assertTrue(any('"category": "success"' in line for line in captured.output))
+
     async def test_runtime_requires_explicit_executor(self):
         config = LLM("key", "https://example.invalid/v1", "model", "o200k_base")
         executor = ConcurrentExecutor(FixedCapacity(1))
