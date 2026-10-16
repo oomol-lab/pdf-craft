@@ -5,9 +5,11 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import inspect
 import json
 import logging
 import threading
+import time
 import uuid
 from contextlib import AbstractAsyncContextManager
 from pathlib import Path
@@ -78,11 +80,13 @@ class LLMRuntime:
         temperature: float | None = None, top_p: float | None = None, *,
         cache_seed_content: str | None = None, retry_index: int | None = None,
         retry_max: int | None = None, use_cache: bool = True,
+        deadline: float | None = None,
     ) -> str:
         async with self.context(cache_seed_content) as context:
             return await context.request(
                 input, max_tokens, temperature, top_p,
                 retry_index=retry_index, retry_max=retry_max, use_cache=use_cache,
+                deadline=deadline,
             )
 
     @staticmethod
@@ -115,19 +119,27 @@ class LLMRuntime:
             if force_ipv4 else None
         )
         # Scope the client to its event loop.
-        async with openai.AsyncOpenAI(
-            api_key=self.config.key, base_url=self.config.url,
-            timeout=self.config.timeout, max_retries=0, http_client=http_client,
-        ) as client:
-            stream = await client.chat.completions.create(
-                model=self.config.model, messages=messages, stream=True,
-                top_p=top_p, temperature=temperature, max_tokens=max_tokens,
-            )
-            parts: list[str] = []
-            async for chunk in stream:
-                if chunk.choices and chunk.choices[0].delta.content:
-                    parts.append(chunk.choices[0].delta.content)
-            return "".join(parts)
+        stream = None
+        try:
+            async with openai.AsyncOpenAI(
+                api_key=self.config.key, base_url=self.config.url,
+                timeout=self.config.timeout, max_retries=0, http_client=http_client,
+            ) as client:
+                stream = await client.chat.completions.create(
+                    model=self.config.model, messages=messages, stream=True,
+                    top_p=top_p, temperature=temperature, max_tokens=max_tokens,
+                )
+                parts: list[str] = []
+                async for chunk in stream:
+                    if chunk.choices and chunk.choices[0].delta.content:
+                        parts.append(chunk.choices[0].delta.content)
+                return "".join(parts)
+        finally:
+            close = getattr(stream, "aclose", None) or getattr(stream, "close", None)
+            if close is not None:
+                result = close()
+                if inspect.isawaitable(result):
+                    await result
 
     async def _invoke_for_request(
         self, messages, max_tokens, temperature, top_p, *, force_ipv4: bool,
@@ -156,7 +168,7 @@ class LLMContext(AbstractAsyncContextManager["LLMContext"]):
 
     async def request(
         self, input, max_tokens=None, temperature=None, top_p=None, *,
-        retry_index=None, retry_max=None, use_cache=True,
+        retry_index=None, retry_max=None, use_cache=True, deadline=None,
     ) -> str:
         messages = [Message(MessageRole.USER, input)] if isinstance(input, str) else list(input)
         temperature = self.runtime._scheduled(
@@ -174,6 +186,18 @@ class LLMContext(AbstractAsyncContextManager["LLMContext"]):
         await self._log_async("cache-miss", 0, key=key)
         last_error: Exception | None = None
         empty_attempts = 0
+        if deadline is None and self.runtime.config.timeout is not None:
+            deadline = time.monotonic() + self.runtime.config.timeout
+
+        async def raise_timeout(attempt: int) -> None:
+            error = asyncio.TimeoutError()
+            await self._log_async("timeout", attempt, key=key, error=error)
+            raise LLMTransportError(
+                "LLM request exceeded its total timeout",
+                attempts=attempt,
+                cause=error,
+            ) from error
+
         try:
             attempt = 0
             force_ipv4 = False
@@ -189,7 +213,26 @@ class LLMContext(AbstractAsyncContextManager["LLMContext"]):
                         except Exception as error:
                             raise _provider_error(error) from error
 
-                    response = await self.runtime.executor.run(invoke_once)
+                    if deadline is None:
+                        response = await self.runtime.executor.run(invoke_once)
+                    else:
+                        remaining = deadline - time.monotonic()
+                        if remaining <= 0:
+                            await raise_timeout(attempt + 1)
+                        try:
+                            response = await asyncio.wait_for(
+                                self.runtime.executor.run(invoke_once),
+                                timeout=remaining,
+                            )
+                        except asyncio.TimeoutError as error:
+                            await self._log_async(
+                                "timeout", attempt + 1, key=key, error=error,
+                            )
+                            raise LLMTransportError(
+                                "LLM request exceeded its total timeout",
+                                attempts=attempt + 1,
+                                cause=error,
+                            ) from error
                     if not response.strip():
                         empty_attempts += 1
                         await self._log_async("empty-response", attempt + 1, key=key)
@@ -243,7 +286,18 @@ class LLMContext(AbstractAsyncContextManager["LLMContext"]):
                         else self.runtime.config.retry_interval_seconds
                     )
                     if delay > 0:
-                        await asyncio.sleep(delay)
+                        if deadline is None:
+                            await asyncio.sleep(delay)
+                        else:
+                            remaining = deadline - time.monotonic()
+                            if remaining <= 0:
+                                await raise_timeout(attempt + 1)
+                            try:
+                                await asyncio.wait_for(
+                                    asyncio.sleep(delay), timeout=remaining,
+                                )
+                            except asyncio.TimeoutError:
+                                await raise_timeout(attempt + 1)
                     attempt += 1
                     force_ipv4 = False
         finally:
@@ -395,7 +449,7 @@ def _create_logger(path):
     logger = logging.getLogger(f"pdf_craft.llm.{uuid.uuid4().hex}")
     logger.addHandler(logging.NullHandler())
     logger.setLevel(logging.INFO)
-    logger.propagate = False
+    logger.propagate = path is None
     if path is not None:
         path.mkdir(parents=True, exist_ok=True)
         handler = logging.FileHandler(path / f"request-{uuid.uuid4().hex}.log", encoding="utf-8")

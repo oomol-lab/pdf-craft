@@ -1,5 +1,8 @@
+# pylint: disable=protected-access
+import asyncio
+import time
 import unittest
-from typing import cast
+from typing import Any, cast
 
 from pdf_craft.llm.types import Message, MessageRole
 from pdf_craft.llm.core import LLM
@@ -85,6 +88,35 @@ class TestLLMAnalyser(unittest.IsolatedAsyncioTestCase):
             await analyser.request(payload=None, messages=[Message(MessageRole.USER, "json")])
         self.assertIn("schema validation failed", str(context.exception))
         self.assertEqual(llm.calls, 3)
+
+    async def test_toc_business_retries_share_one_transport_deadline(self):
+        llm = LLM(
+            "key", "https://example.invalid/v1", "model", "o200k_base",
+            timeout=0.04, retry_times=0,
+        )
+        analyser = _LLMAnalyser(
+            llm=llm,
+            validate=lambda _response, _payload: (None, "retry"),
+        )
+        calls = 0
+
+        async def slow_invalid_response(*_args):
+            nonlocal calls
+            calls += 1
+            await asyncio.sleep(0.02)
+            return "[]"
+
+        cast(Any, analyser._runtime)._invoke = slow_invalid_response
+        started = time.monotonic()
+        with self.assertRaises(LLMAnalysisError) as raised:
+            await asyncio.wait_for(
+                analyser.request(payload=1, messages=[Message(MessageRole.USER, "toc")]),
+                timeout=0.12,
+            )
+
+        self.assertLess(time.monotonic() - started, 0.09)
+        self.assertLess(calls, 3)
+        self.assertIn("total timeout", str(raised.exception.__cause__))
 
     async def test_toc_validator_receives_last_result_section(self):
         received = []

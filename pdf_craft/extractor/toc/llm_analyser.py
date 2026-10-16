@@ -2,6 +2,7 @@
 
 import json
 import re
+import time
 from dataclasses import dataclass
 from typing import Any, Callable, Generator, Generic, Iterable, TypeVar, cast
 
@@ -601,12 +602,17 @@ class _LLMAnalyser(Generic[_P, _R]):
 
         # The business validators already extract RESULT and enforce their own
         # schema. The guaranteed layer supplies typed retries and bounded history.
+        deadline = (
+            time.monotonic() + self._llm.timeout
+            if self._runtime is not None and self._llm.timeout is not None else None
+        )
         try:
             return await request_guaranteed_json(GuaranteedOptions(
                 messages=list(messages),
                 request=lambda current, index, maximum: (
                     self._runtime.request(
                         current, retry_index=index, retry_max=maximum, use_cache=False,
+                        deadline=deadline,
                     )
                     if self._runtime is not None
                     else cast(Any, self._llm).request(input=current)
