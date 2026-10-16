@@ -66,7 +66,7 @@ class PageExtractorNode:
             ocr = self._ocr
             from doc_page_extractor.extractor import create_deepseek_ocr_page_extractor
 
-            return _create_local_page_extractor(
+            extractor = _create_local_page_extractor(
                 lambda: create_deepseek_ocr_page_extractor(
                     ocr_model="deepseek-ocr",
                     model_path=ocr.models_cache_path,
@@ -74,6 +74,14 @@ class PageExtractorNode:
                     enable_devices_numbers=ocr.enable_devices_numbers,
                 )
             )
+            if ocr.runtime == "mlx":
+                from functools import partial
+                from deepseek_ocr_mlx.load import load_with_tokenizer  # type: ignore[import-not-found]
+                from doc_page_extractor.injection import preprocess_model
+                backend = extractor._adapter._model  # type: ignore[attr-defined] # pylint: disable=W0212
+                backend.load = partial(load_with_tokenizer, ocr.models_cache_path, model_transform=preprocess_model)
+                backend._select_model = backend.load  # pylint: disable=W0212
+            return extractor
         if isinstance(self._ocr, DeepSeekOCR2LocalConfig):
             ocr = self._ocr
             from doc_page_extractor.extractor import create_deepseek_ocr_page_extractor

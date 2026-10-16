@@ -25,6 +25,7 @@ from epub_generator import (
 )
 
 from ...markdown.paragraph import HTMLTag, flatten
+from ...common.asset import is_solid_white_image
 from ...metering import AbortedCheck, check_aborted
 from ...extractor.chapter import (
     Chapter, DisplayFormula, InlineExpression, Reference, SourceAsset,
@@ -260,6 +261,8 @@ def _convert_asset_to_epub(
 
         image_file = assets_path / f"{asset.asset_hash}.png"
         if not image_file.exists():
+            return None
+        if not (asset.title or asset.content or asset.caption) and is_solid_white_image(image_file):
             return None
 
         return Image(
