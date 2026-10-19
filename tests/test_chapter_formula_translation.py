@@ -75,7 +75,10 @@ class _FormulaAwareTranslator:
         if formulas:
             # The expression content is deliberately changed. The interrupter
             # must recover the source formula rather than accepting this text.
-            formula = formulas[0]
+            # Keep the fake's following prose after the whole formula sequence.
+            # The segmenter now preserves adjacent sibling tokens separately;
+            # inserting prose after the first would intentionally split them.
+            formula = formulas[-1]
             formula.text = "MODEL_CHANGED_FORMULA"
             formula.tail = "译文"
             return
