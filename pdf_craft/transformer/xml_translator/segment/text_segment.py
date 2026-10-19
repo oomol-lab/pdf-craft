@@ -107,9 +107,12 @@ def _search_text_segments(stack: list[Element], element: Element) -> Generator[T
     next_stack = stack + [element]
     next_block_depth = find_block_depth(next_stack)
 
-    if text is not None:
+    # A text-free inline leaf still occupies a position in the reading flow
+    # (for example a line break or a named anchor). Carry an empty segment so
+    # template creation and recombination retain the node without inventing text.
+    if text is not None or (len(element) == 0 and is_inline_element(element)):
         yield TextSegment(
-            text=text,
+            text=text or "",
             parent_stack=next_stack,
             left_common_depth=0,
             right_common_depth=0,

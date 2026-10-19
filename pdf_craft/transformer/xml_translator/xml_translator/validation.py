@@ -388,7 +388,7 @@ def _format_inline_error(encoding: Encoding, error: InlineError | FoundInvalidID
         return f"Unexpected inline element at `{selector}`. Fix: Remove this unexpected element."
 
     elif isinstance(error, InlineWrongTagCountError):
-        tag = error.found_elements[0].tag if error.found_elements else "unknown"
+        tag = error.tag
         selector = _build_inline_selector(encoding, error.stack, block_id, tag=tag)
         expected = error.expected_count
         found = len(error.found_elements)

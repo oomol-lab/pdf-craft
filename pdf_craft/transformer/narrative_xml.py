@@ -146,6 +146,7 @@ class NarrativeXMLTransformer:
         element = encode(chapter)
         if not self.has_translatable_content(chapter):
             return chapter
+        _prepare_chapter_references(element)
         anchors = _NarrativeAnchorProjection(element)
         anchors.replace_assets()
         formula_interrupter = ChapterFormulaInterrupter()
@@ -175,6 +176,7 @@ class NarrativeXMLTransformer:
             window=self._window,
         )
         anchors.restore_assets(translated)
+        _restore_chapter_references(translated)
         _restore_fragment_owned_inline_expressions(
             translated, formula_interrupter.adjacent_inline_predecessors,
         )
@@ -209,6 +211,7 @@ class NarrativeXMLTransformer:
                 prepared.append((chapter, Element("empty"), None))
                 continue
             element = encode(chapter)
+            _prepare_chapter_references(element)
             anchors = _NarrativeAnchorProjection(element)
             anchors.replace_assets()
             prepared.append((chapter, element, anchors))
@@ -253,6 +256,7 @@ class NarrativeXMLTransformer:
             anchors = prepared[index][2]
             assert anchors is not None
             anchors.restore_assets(translated_element)
+            _restore_chapter_references(translated_element)
             _restore_fragment_owned_inline_expressions(
                 translated_element, formula_interrupter.adjacent_inline_predecessors,
             )
@@ -291,6 +295,30 @@ class NarrativeXMLTransformer:
                 ):
                     return True
         return False
+
+
+def _prepare_chapter_references(chapter: Element) -> None:
+    """Declare PCEX reference semantics at the format-neutral XML boundary.
+
+    Definition-level ``references/ref`` nodes remain blocks. Only the empty
+    reference occurrences inside fragments are inline translation tokens;
+    attribute assignment restores their original PCEX IDs after template IDs.
+    """
+    for reference in chapter.findall(".//fragment/ref"):
+        reference.set("display", "inline")
+    # PCEX marks are fields of reference definitions, not HTML highlights.
+    # Treating them as inline makes the definition a replacement peak and
+    # promotes its untranslated (possibly empty) flow to the references list.
+    for mark in chapter.findall("./references/ref/mark"):
+        mark.set("display", "block")
+
+
+def _restore_chapter_references(chapter: Element) -> None:
+    """Remove the translator-only display hint before decoding PCEX."""
+    for reference in chapter.findall(".//fragment/ref"):
+        reference.attrib.pop("display", None)
+    for mark in chapter.findall("./references/ref/mark"):
+        mark.attrib.pop("display", None)
 
 
 def _restore_fragment_owned_inline_expressions(

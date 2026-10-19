@@ -107,14 +107,16 @@ _HTML_INLINE_TAGS = frozenset(
 
 
 def is_inline_element(element: Element) -> bool:
-    tag = element.tag.lower()
-    if tag in _HTML_INLINE_TAGS:
-        return True
     display = element.get(DISPLAY_ATTRIBUTE, None)
     if display is not None:
         display = display.lower()
         if display == "inline":
             return True
+        if display == "block":
+            return False
+    tag = element.tag.lower()
+    if tag in _HTML_INLINE_TAGS:
+        return True
     if tag == "math" and display != "block":
         return True
     return False

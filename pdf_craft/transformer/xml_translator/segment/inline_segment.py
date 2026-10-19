@@ -28,6 +28,7 @@ class InlineExpectedIDsError:
 
 @dataclass
 class InlineWrongTagCountError:
+    tag: str
     expected_count: int
     found_elements: list[Element]
     stack: list[Element]
@@ -39,6 +40,7 @@ InlineError = InlineLostIDError | InlineUnexpectedIDError | InlineExpectedIDsErr
 def search_inline_segments(text_segments: Iterable[TextSegment]) -> Generator["InlineSegment", None, None]:
     stack_data: tuple[list[list[TextSegment | InlineSegment]], Element, int] | None = None
     inline_segment: InlineSegment | None = None
+    previous_parent_stack: list[Element] = []
 
     for text_segment in text_segments:
         if stack_data is not None:
@@ -59,14 +61,22 @@ def search_inline_segments(text_segments: Iterable[TextSegment]) -> Generator["I
 
         stack, stack_block, stack_base_depth = stack_data
 
-        while len(stack) < text_segment.depth + 1:
-            stack.append([])
-
-        while len(stack) > text_segment.depth + 1:
+        # Equal depths can still refer to different sibling inline nodes.
+        # Fold back to their common ancestor before entering the next one;
+        # otherwise adjacent empty nodes are merged into the first sibling.
+        common_depth = 0
+        for previous, current in zip(previous_parent_stack, text_segment.parent_stack):
+            if previous is not current:
+                break
+            common_depth += 1
+        while len(stack) > max(0, common_depth - stack_base_depth + 1):
             _pop_stack(
                 stack=stack,
                 stack_base_depth=stack_base_depth,
             )
+        while len(stack) < text_segment.depth + 1:
+            stack.append([])
+        previous_parent_stack = text_segment.parent_stack
 
         # text_segment.depth 可视为它在 stack 中的 index，必须令 len(stack) == text_segment.depth + 1
         stack[-1].append(text_segment)
@@ -265,10 +275,16 @@ class InlineSegment:
                         stack=[self.parent],
                     )
 
+        # Include wholly missing tags, including zero-width inline nodes.
+        for tag in self._child_tag2count:
+            if not self._child_tag2ids.get(tag):
+                tag2found_elements.setdefault(tag, [])
+
         for tag, found_elements in tag2found_elements.items():
             expected_count = self._child_tag2count.get(tag, 0)
             if len(found_elements) != expected_count:
                 yield InlineWrongTagCountError(
+                    tag=tag,
                     expected_count=expected_count,
                     found_elements=found_elements,
                     stack=[self.parent],
