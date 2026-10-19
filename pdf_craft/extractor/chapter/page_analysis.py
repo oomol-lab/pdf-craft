@@ -24,6 +24,7 @@ from .chapter import (
     TextSource,
 )
 from .mark import Mark, NumberClass, NumberStyle
+from .jointer import normalize_source_projection
 
 
 LayoutOwnership: TypeAlias = Literal["paragraph", "citation", "ignored"]
@@ -124,6 +125,12 @@ class AnalysedCitation:
     mark: _CitationMark | None
     stream_order: int
     origin_page_index: int | None = None
+
+    @property
+    def state(self) -> Literal["definition", "continuation", "unresolved"]:
+        if self.index is not None:
+            return "definition"
+        return "continuation" if self.origin_page_index is not None else "unresolved"
 
 
 @dataclass(frozen=True)
@@ -553,17 +560,17 @@ def restore_streams(pages: Iterable[PageAnalysis]) -> RestoredStreams:
             paragraphs.extend(_restore_layouts([
                 layout for layout in citation_layouts if layout.citation_id == citation_id
             ], {}))
-    paragraphs.sort(key=lambda item: _restored_position(item, page_list))
+    positions = {_source_position_key(layout.source): layout.document_order
+                 for page in page_list for layout in page.layouts}
+    paragraphs.sort(key=lambda item: positions[_source_position_key(
+        item.children[0] if isinstance(item, TextFlowItem) else item)])
     return RestoredStreams(paragraphs=paragraphs, citations=references)
 
 
-def _restored_position(item, pages) -> int:
-    source = item.children[0] if isinstance(item, TextFlowItem) else item
-    for page in pages:
-        for layout in page.layouts:
-            if layout.page_index == source.page_index and layout.bbox == source.bbox:
-                return layout.document_order
-    raise ValueError("Restored source has no reading position")
+def _source_position_key(source) -> tuple:
+    if isinstance(source, (SourceTextFragment, _AnalysedTextSource)):
+        return ("text", source.page_index, source.source_order)
+    return (source.ref, source.page_index, source.bbox)
 
 
 def _analyse_layout(
@@ -620,6 +627,7 @@ def _analyse_layout(
 def _validate_pages(pages: list[PageAnalysis]) -> None:
     page_indexes: set[int] = set()
     document_orders: set[int] = set()
+    source_identities: set[tuple[int, int]] = set()
     segments: dict[tuple[str, int], AnalysedCitation] = {}
     indexed_segments: dict[str, AnalysedCitation] = {}
 
@@ -671,6 +679,11 @@ def _validate_pages(pages: list[PageAnalysis]) -> None:
                     f"Duplicate layout document order: {layout.document_order}"
                 )
             document_orders.add(layout.document_order)
+            if layout.source_order is not None:
+                identity = (layout.page_index, layout.source_order)
+                if identity in source_identities:
+                    raise ValueError(f"Duplicate fragment source identity: {identity}")
+                source_identities.add(identity)
 
     for segment in segments.values():
         if segment.origin_page_index is not None:
@@ -886,7 +899,9 @@ def _restore_layouts(
             return
         if pending_role is None or pending_level is None:
             raise ValueError("Text layout is missing paragraph role or level")
-        result.append(TextFlowItem(pending_role, pending_level, pending))
+        paragraph = TextFlowItem(pending_role, pending_level, pending)
+        normalize_source_projection(paragraph)
+        result.append(paragraph)
         pending = []
         pending_role = None
         pending_level = None

@@ -491,11 +491,12 @@ def _height(det) -> int:
 
 
 # 将单词的连接符 `-` 删去，并将后半节单词移到前面一段拼接
-def _normalize_paragraph_content(paragraph: TextFlowItem):
-    # New analysis must keep exact source text in each source rectangle.
-    # Text projection handles join spacing; never move letters between bboxes.
-    if any(isinstance(child, SourceTextFragment) and child.source is not None
-           for child in paragraph.children):
+def _normalize_paragraph_content(paragraph: TextFlowItem, *, preserve_fragments: bool = False):
+    # Defer normalization until after editable source ownership is compiled.
+    # Legacy joiner callers without source records retain their old behavior.
+    if not preserve_fragments and any(
+        isinstance(child, SourceTextFragment) and child.source is not None for child in paragraph.children
+    ):
         return
     if len(paragraph.children) < 2:
         return
@@ -527,10 +528,22 @@ def _normalize_paragraph_content(paragraph: TextFlowItem):
             del block2.content[0]
 
     # 极端情况下 block2 会因为单词被移走而被清空。此时要将其整个删去。
-    paragraph.children = [
-        child for child in paragraph.children
-        if not isinstance(child, SourceTextFragment) or child.content
-    ]
+    if not preserve_fragments:
+        paragraph.children = [
+            child for child in paragraph.children
+            if not isinstance(child, SourceTextFragment) or child.content
+        ]
+
+
+def normalize_source_projection(paragraph: TextFlowItem) -> None:
+    """Dehyphenate assembled semantic text without erasing source identities.
+
+    Content is already a detached projection here; TextSource keeps the exact
+    OCR text. An empty projected fragment still owns its original PDF region.
+    """
+    if any(isinstance(child, SourceTextFragment) and child.source is not None
+           for child in paragraph.children):
+        _normalize_paragraph_content(paragraph, preserve_fragments=True)
 
 
 def _parse_block_content(text: str | None) -> Content:
