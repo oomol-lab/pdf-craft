@@ -1,0 +1,158 @@
+FFFFFFF                                                                  [100%]
+=================================== FAILURES ===================================
+_ FootnoteReviewContractsTests.test_column_tail_respects_full_width_band_boundary _
+
+self = <tests.test_footnote_review_contracts.FootnoteReviewContractsTests testMethod=test_column_tail_respects_full_width_band_boundary>
+
+    def test_column_tail_respects_full_width_band_boundary(self):
+        sources = reclassify_sources(
+            '<layout ref="text" det="0,100,100,120">① Left last.</layout>',
+            footer='<layout ref="text" det="0,150,240,170">Full width.</layout>')
+>       self.assertEqual([child.content for child in sources], [
+            ['Left A.'], ['Left C.'], ['① Left last.'],
+            ['Right D.'], ['Right F.'], ['Full width.']])
+E       AssertionError: Lists differ: [['Le[19 chars]], ['Right D.'], ['Right F.'], ['① Left last.'[14 chars]h.']] != [['Le[19 chars]], ['① Left last.'], ['Right D.'], ['Right F.'[14 chars]h.']]
+E       
+E       First differing element 2:
+E       ['Right D.']
+E       ['① Left last.']
+E       
+E         [['Left A.'],
+E          ['Left C.'],
+E       +  ['① Left last.'],
+E          ['Right D.'],
+E          ['Right F.'],
+E       -  ['① Left last.'],
+E          ['Full width.']]
+
+tests/test_footnote_review_contracts.py:91: AssertionError
+_ FootnoteReviewContractsTests.test_left_column_tail_stays_before_right_column _
+
+self = <tests.test_footnote_review_contracts.FootnoteReviewContractsTests testMethod=test_left_column_tail_stays_before_right_column>
+
+    def test_left_column_tail_stays_before_right_column(self):
+        sources = reclassify_sources(
+            '<layout ref="text" det="0,100,100,120">① Left last.</layout>')
+>       self.assertEqual([child.content for child in sources],
+                         [['Left A.'], ['Left C.'], ['① Left last.'], ['Right D.'], ['Right F.']])
+E       AssertionError: Lists differ: [['Left A.'], ['Left C.'], ['Right D.'], ['Right F.'], ['① Left last.']] != [['Left A.'], ['Left C.'], ['① Left last.'], ['Right D.'], ['Right F.']]
+E       
+E       First differing element 2:
+E       ['Right D.']
+E       ['① Left last.']
+E       
+E       - [['Left A.'], ['Left C.'], ['Right D.'], ['Right F.'], ['① Left last.']]
+E       ?                                                      ----------------- -
+E       
+E       + [['Left A.'], ['Left C.'], ['① Left last.'], ['Right D.'], ['Right F.']]
+E       ?                           ++++++++++++++++++
+
+tests/test_footnote_review_contracts.py:66: AssertionError
+_ FootnoteReviewContractsTests.test_multiple_column_tail_members_keep_stable_order _
+
+self = <tests.test_footnote_review_contracts.FootnoteReviewContractsTests testMethod=test_multiple_column_tail_members_keep_stable_order>
+
+    def test_multiple_column_tail_members_keep_stable_order(self):
+        # OCR stream order is not a global y order; equal-height sources retain
+        # their stream order, and later insertions can precede an earlier one.
+        sources = reclassify_sources(
+            '<layout ref="text" det="0,140,100,160">① Left last.</layout>'
+            '<layout ref="text" det="140,100,240,120">② Right last.</layout>'
+            '<layout ref="text" det="0,100,100,120">③ Left middle.</layout>'
+            '<layout ref="text" det="0,100,100,120">④ Left tied.</layout>')
+>       self.assertEqual([child.content for child in sources], [
+            ['Left A.'], ['Left C.'], ['③ Left middle.'], ['④ Left tied.'],
+            ['① Left last.'], ['Right D.'], ['Right F.'], ['② Right last.']])
+E       AssertionError: Lists differ: [['Le[19 chars]], ['Right D.'], ['Right F.'], ['③ Left middle[54 chars]t.']] != [['Le[19 chars]], ['③ Left middle.'], ['④ Left tied.'], ['① L[54 chars]t.']]
+E       
+E       First differing element 2:
+E       ['Right D.']
+E       ['③ Left middle.']
+E       
+E         [['Left A.'],
+E          ['Left C.'],
+E       -  ['Right D.'],
+E       -  ['Right F.'],
+E          ['③ Left middle.'],
+E          ['④ Left tied.'],
+E          ['① Left last.'],
+E       +  ['Right D.'],
+E       +  ['Right F.'],
+E          ['② Right last.']]
+
+tests/test_footnote_review_contracts.py:82: AssertionError
+______ FootnoteReviewContractsTests.test_shared_member_cannot_be_ignored _______
+
+self = <tests.test_footnote_review_contracts.FootnoteReviewContractsTests testMethod=test_shared_member_cannot_be_ignored>
+
+    async def test_shared_member_cannot_be_ignored(self):
+>       await self.assert_shared_member_rejected('ignored')
+
+tests/test_footnote_review_contracts.py:96: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/test_footnote_review_contracts.py:111: in assert_shared_member_rejected
+    with self.assertRaises(GuaranteedBusinessError) as caught:
+E   AssertionError: GuaranteedBusinessError not raised
+___ FootnoteReviewContractsTests.test_shared_member_cannot_be_moved_to_body ____
+
+self = <tests.test_footnote_review_contracts.FootnoteReviewContractsTests testMethod=test_shared_member_cannot_be_moved_to_body>
+
+    async def test_shared_member_cannot_be_moved_to_body(self):
+>       await self.assert_shared_member_rejected('paragraph')
+
+tests/test_footnote_review_contracts.py:99: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/test_footnote_review_contracts.py:111: in assert_shared_member_rejected
+    with self.assertRaises(GuaranteedBusinessError) as caught:
+E   AssertionError: GuaranteedBusinessError not raised
+_ FootnoteReviewContractsTests.test_shared_member_cannot_be_regrouped_to_another_definition _
+
+self = <tests.test_footnote_review_contracts.FootnoteReviewContractsTests testMethod=test_shared_member_cannot_be_regrouped_to_another_definition>
+
+    async def test_shared_member_cannot_be_regrouped_to_another_definition(self):
+>       await self.assert_shared_member_rejected('citation')
+
+tests/test_footnote_review_contracts.py:102: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/test_footnote_review_contracts.py:111: in assert_shared_member_rejected
+    with self.assertRaises(GuaranteedBusinessError) as caught:
+E   AssertionError: GuaranteedBusinessError not raised
+_ FootnoteReviewContractsTests.test_shared_member_rejection_feedback_allows_valid_retry _
+
+self = <tests.test_footnote_review_contracts.FootnoteReviewContractsTests testMethod=test_shared_member_rejection_feedback_allows_valid_retry>
+
+    async def test_shared_member_rejection_feedback_allows_valid_retry(self):
+        pages = shared_definition_pages()
+        original = deepcopy(pages)
+        attempts = []
+    
+        async def request(messages, index, _maximum):
+            attempts.append(index)
+            self.assertEqual(pages, original)
+            if index == 0:
+                return json.dumps(move_shared_member(pages[0], 'ignored'))
+            self.assertIn('[CROSS_PAGE_MEMBERSHIP]', messages[-1].message)
+            return json.dumps(response(pages[0]))
+    
+        repaired = await AllPageLlmRepairProcessor(request, page_indexes=[1], max_retries=1)(
+            [], pages, {})
+>       self.assertEqual(attempts, [0, 1])
+E       AssertionError: Lists differ: [0] != [0, 1]
+E       
+E       Second list contains 1 additional elements.
+E       First extra element 1:
+E       1
+E       
+E       - [0]
+E       + [0, 1]
+
+tests/test_footnote_review_contracts.py:136: AssertionError
+=========================== short test summary info ============================
+FAILED tests/test_footnote_review_contracts.py::FootnoteReviewContractsTests::test_column_tail_respects_full_width_band_boundary
+FAILED tests/test_footnote_review_contracts.py::FootnoteReviewContractsTests::test_left_column_tail_stays_before_right_column
+FAILED tests/test_footnote_review_contracts.py::FootnoteReviewContractsTests::test_multiple_column_tail_members_keep_stable_order
+FAILED tests/test_footnote_review_contracts.py::FootnoteReviewContractsTests::test_shared_member_cannot_be_ignored
+FAILED tests/test_footnote_review_contracts.py::FootnoteReviewContractsTests::test_shared_member_cannot_be_moved_to_body
+FAILED tests/test_footnote_review_contracts.py::FootnoteReviewContractsTests::test_shared_member_cannot_be_regrouped_to_another_definition
+FAILED tests/test_footnote_review_contracts.py::FootnoteReviewContractsTests::test_shared_member_rejection_feedback_allows_valid_retry
+7 failed in 0.43s
