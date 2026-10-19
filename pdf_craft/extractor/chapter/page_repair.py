@@ -291,14 +291,7 @@ async def repair_page_with_llm(
         shared_ids = {citation.citation_id for page in context
                       if page.page_index != target_page.page_index
                       for citation in page.citations}
-        proposed = {citation.citation_id: citation for citation in candidate.citations}
-        for original in target_page.citations:
-            if original.citation_id in shared_ids:
-                replacement = proposed.get(original.citation_id)
-                if replacement is None or (
-                    replacement.index, replacement.stream_order
-                ) != (original.index, original.stream_order):
-                    raise ValueError("[CROSS_PAGE_IDENTITY] Preserve shared definition origins and segments")
+        _validate_shared_citations(target_page, candidate, shared_ids)
         if all_pages is not None:
             transaction = [_clone_page(candidate if page.page_index == candidate.page_index else page)
                            for page in all_pages]
@@ -312,6 +305,35 @@ async def repair_page_with_llm(
         messages=messages, request=request, schema=RepairedPage,
         parse=compile_candidate, max_retries=max_retries,
     ))
+
+
+def _validate_shared_citations(
+    source: PageAnalysis, candidate: PageAnalysis, shared_ids: set[str],
+) -> None:
+    """A page-local edit cannot detach existing cross-page source members.
+
+    Keeping a segment record alone does not keep its content: ownership is
+    stored on layouts. Protect both contracts before committing the graph.
+    Additional members and paragraph boundaries remain editable.
+    """
+    proposed = {citation.citation_id: citation for citation in candidate.citations}
+    for original in source.citations:
+        if original.citation_id in shared_ids:
+            replacement = proposed.get(original.citation_id)
+            if replacement is None or (
+                replacement.index, replacement.stream_order
+            ) != (original.index, original.stream_order):
+                raise ValueError("[CROSS_PAGE_IDENTITY] Preserve shared definition origins and segments")
+    proposed_layouts = {_layout_id(layout): layout for layout in candidate.layouts}
+    for original in source.layouts:
+        if original.ownership == "citation" and original.citation_id in shared_ids:
+            replacement = proposed_layouts[_layout_id(original)]
+            if replacement.ownership != "citation" or replacement.citation_id != original.citation_id:
+                raise ValueError(
+                    f"[CROSS_PAGE_MEMBERSHIP] Preserve source member {_layout_id(original)} "
+                    f"of shared definition {original.citation_id}; a single-page edit "
+                    "cannot ignore or reassign it."
+                )
 
 
 

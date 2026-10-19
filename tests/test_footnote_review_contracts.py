@@ -141,3 +141,22 @@ class FootnoteReviewContractsTests(unittest.IsolatedAsyncioTestCase):
         assert isinstance(text, TextFlowItem)
         self.assertEqual([child.content for child in text.children],
                          [['START'], ['LOST'], ['TAIL']])
+
+    async def test_shared_definition_allows_correcting_internal_paragraph_boundary(self):
+        pages = shared_definition_pages()
+        original = deepcopy(pages)
+
+        async def request(_messages, _index, _maximum):
+            proposed = response(pages[0])
+            for layout in proposed['layouts']:
+                layout.pop('continues_to_next')
+            proposed['layouts'][1]['continues_from_previous'] = False
+            return json.dumps(proposed)
+
+        repaired = await AllPageLlmRepairProcessor(request, page_indexes=[1], max_retries=0)(
+            [], pages, {})
+        self.assertEqual(pages, original)
+        note = restore_streams(repaired).citations[0]
+        self.assertEqual([[child.content for child in text.children]
+                          for text in note.flow_items if isinstance(text, TextFlowItem)],
+                         [[['START']], [['LOST'], ['TAIL']]])

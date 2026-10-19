@@ -119,3 +119,37 @@ EPUB 的附加验收首次使用目标语言字符串 `English` 自动选择渲�
 
 没有提交模型缓存、PDF 或凭据。结构、计划及全文测试是确定性验收；32 个 PDF 文本探针和
 第 7 页目检不等于逐字审校全部译文的语言质量。
+
+## Review 第一轮：栏尾阅读顺序与跨页成员完整性
+
+审查提出的两项反例均独立复现。先在 `1b968b1` 实现基线上新增业务回归并运行，
+提交 `fd09ec5` 只包含测试与原始失败日志；当时尚未修改实现。
+命令为 `.venv/bin/python -m pytest -q tests/test_footnote_review_contracts.py`，
+结果 **7 failed**，完整记录在 [footnote-788-review-red.txt](footnote-788-review-red.txt)。
+
+| 问题 / 正确行为断言 | 修复前证据 | 修复 |
+| --- | --- | --- |
+| 左栏末尾来源应在右栏开始前；同时保持原文、bbox、source_order | `test_left_column_tail_stays_before_right_column`：实际 A,C,D,F,note | 同栏无后继时插在该栏最后成员之后，使用独立阅读位置，不重编号来源 |
+| 多个误分类块按栏内位置插入；等高块保留稳定流序 | `test_multiple_column_tail_members_keep_stable_order`：左栏尾部仍整体落在右栏之后 | 每次插入继续在原阅读序列中定位同栏成员，禁止退回整页末尾 |
+| 通宽块不能充当左栏的后继，将左栏尾部挤到右栏后 | `test_column_tail_respects_full_width_band_boundary`：note 出现在 D,F 之后 | 通宽锚点限定阅读带；同栏定位只在带内进行，不把通宽锚点算作栏成员 |
+| 跨页定义既有来源不能改为 ignored、正文或另一个定义 | `test_shared_member_cannot_be_ignored`、`test_shared_member_cannot_be_moved_to_body`、`test_shared_member_cannot_be_regrouped_to_another_definition`：三种非法候选均未被拒绝 | 候选业务编译按稳定 layout 身份校验既有成员仍归属于同一共享定义；与起点/segment 记录保护一起在提交暂存图之前执行 |
+| 非法候选反馈重试；拒绝后原图不变，合法候选保留 START、LOST、TAIL | `test_shared_member_rejection_feedback_allows_valid_retry`：实际仅请求第 0 次，坏候选直接获接纳 | `[CROSS_PAGE_MEMBERSHIP]` 经现有 guaranteed JSON 业务反馈重试；不新增重试机制，不吞本地异常 |
+
+上述 **同一批 7 项断言全部通过**。另外新增正向用例
+`test_shared_definition_allows_correcting_internal_paragraph_boundary`，证明成员保护不会冻结
+定义内部的自然段划分；8 项新测试均通过。既有页内拆分合并、孤立续段归属与跨页起点保护仍通过。
+
+最终检查（2026-10-19）：
+
+- `.venv/bin/python test.py`：813 tests，OK。
+- `.venv/bin/python -m pytest -q`：841 passed；50 条原有 pypdf 弃用 warning。
+- `.venv/bin/python -m pyright --pythonpath .venv/bin/python pdf_craft tests`：0 errors、0 warnings。
+- `.venv/bin/python -m pylint pdf_craft tests`：10.00/10，exit 0。
+- `git diff --check`：通过。
+
+本轮没有重新调用在线模型，亦不把离线重放记作新的在线验收。对此前真实在线验收做了定向影响核验：
+26 页 OCR 的 **151 条来源 reading_order 与已验收快照逐项相同**；将该次在线 LLM 返回的
+2、4、6、12、20、26 页候选重新走 `AllPageLlmRepairProcessor`（max_retries=0），
+新成员校验全部接纳，统一组装保留 **22 条定义**。因此本轮没有改变该 PDF 的来源顺序，
+也没有使此前在线修正候选变为非法。此前 26 页实际翻译与写回验收仍见上一节。
+重放脚本与检查日志保留在忽略目录 `pdf-craft-output/footnote-refactor/review-*`。
