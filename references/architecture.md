@@ -55,7 +55,7 @@ analysis/OCR 缓存。
 
 `translate_extraction()` 保留 source layer 并追加 replacement-only 译文层。Markdown/EPUB 渲染
 通过 `RenderMode.SOURCE`、`REPLACE`、`BILINGUAL` 决定只读原文、选择一份译文或合并原译文；
-后两种模式可显式传 translation ID，省略时稳定选择 index 第一项。PDF 写回也可显式选择译文层，
+`BILINGUAL_TEXT` 在同一来源 fragment 内追加译文。这些译文模式可显式传 translation ID，省略时稳定选择 index 第一项。PDF 写回也可显式选择译文层，
 但仅消费已有正文和 furniture 写回能力，不写回 anchored 图片/表格文字。
 
 除非任务明确要求破坏性 API 变更，否则把以下名称和默认值视为公共 API：

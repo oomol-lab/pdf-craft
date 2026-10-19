@@ -293,7 +293,7 @@ craft.render_epub(
 
 `RenderMode.SOURCE` 只渲染原文，不选择译文。`RenderMode.REPLACE` 用所选译文替换
 已翻译单元，未翻译单元回退原文。
-`RenderMode.BILINGUAL` 输出原文加所选译文。后两种模式可传文件内唯一的
+`RenderMode.BILINGUAL` 按正文段先原文、后译文输出；`RenderMode.BILINGUAL_TEXT` 在同一文本流的各来源 fragment 内追加对应译文。以上译文渲染模式可传文件内唯一的
 `translation_id`；省略时稳定选择第一份翻译结果。没有任何译文、显式 ID
 不存在或 ID 格式非法时会明确失败，不会静默改选其他译文。也可先调用
 `resolve_translation(extraction, translation_id=None)` 得到实际选择的 `TranslationInfo`。
@@ -444,6 +444,16 @@ translations = craft.list_translations(translated_extraction)
 `list_translations()` 返回每个版本的 ID、目标语言和创建时间。目标语言可以由调用方显式传入，
 也可以由 translator 声明；两者都未提供时，调用会在翻译开始前失败。保存的翻译版本只包含纯译文；
 `render_markdown` 和 `render_epub` 通过 `RenderMode` 选择原文、译文替换或双语输出。
+
+PDF 一键转换复用相同的 replacement-only 译文层流程：`SubmitKind.REPLACE` 选择替换渲染，
+`APPEND_TEXT` 选择 `BILINGUAL_TEXT`，`APPEND_BLOCK` 选择 `BILINGUAL`。即使已有其他译文，
+也显式选择本次新生成的层。原文和译文在各自层内保留相同的 fragment 来源身份与几何；
+组合后的双语展示视图只用于渲染，不作为 PCEX 章节保存。分块模式将一个正文段的原文片段
+组合后再输出译文段；标题与目录仍合为一个标题。图片、表格只出现一次，标签和单元格文字
+在原位组合。脚注定义跟随文本／分块样式，多次引用仍链接同一份定义。
+`extraction_path` 仍导出原始提取结果。一键 EPUB 转换保留原有 `lan` / 原文语言 / `zh` 的选择顺序，
+不会把 translator 的 `English` 等自由文本目标名称当作 EPUB 语言代码。
+直接翻译已有 EPUB 的提交模式不受影响。
 
 标准入口直接接收 `XMLTranslator`。narrative 与 metadata 固定执行；`with_anchored` 默认是
 `True`，只控制独立图片/表格文字阶段；`with_furniture` 默认是 `False`，只控制页面 furniture

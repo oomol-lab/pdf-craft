@@ -15,6 +15,7 @@ from pdf_craft import (
     ConcurrentExecutor, FixedCapacity, JEV, LLM, PDFCraft, PDFOptions,
 )
 from pdf_craft.document import PDFCraftExtraction
+from pdf_craft.document.render import materialize_render_view
 from pdf_craft.extractor import PDFExtractor
 from pdf_craft.extractor.chapter.chapter import SourceTextFragment, Chapter, TextFlowItem, encode
 from pdf_craft.extractor.chapter.chapter import SourceAsset, StandaloneAsset, decode
@@ -529,8 +530,10 @@ class TestPDFCraft(unittest.TestCase):
         craft = PDFCraft.from_engine(_Engine())
         observed = {}
 
-        async def inspect_manifest(extraction, _output, **_kwargs):
-            observed["title"] = extraction._book_meta().title
+        async def inspect_manifest(extraction, _output, **kwargs):
+            observed["source_title"] = extraction._book_meta().title
+            with materialize_render_view(extraction, kwargs['mode'], kwargs['translation_id']) as view:
+                observed["title"] = view.metadata['title']
 
         with patch(
             "pdf_craft.craft.EpubRenderer.render",
@@ -542,20 +545,19 @@ class TestPDFCraft(unittest.TestCase):
             )
 
         self.assertEqual(observed["title"], "translated:Detected title")
+        self.assertEqual(observed["source_title"], "Detected title")
 
     def test_epub_conversion_forwards_translation_events(self):
         craft = PDFCraft.from_engine(_Engine())
         callback = Mock()
-        translator = Mock()
         with patch.object(
-            AsyncPDFCraft, "_translate_to_workspace",
-            new_callable=AsyncMock,
-            side_effect=lambda extraction, *_args, **_kwargs: extraction,
+            craft._async_craft, "_translate_layer_to_workspace",
+            wraps=craft._async_craft._translate_layer_to_workspace,
         ) as translate, patch(
             "pdf_craft.craft.EpubRenderer.render", new_callable=AsyncMock,
         ):
             craft.convert_pdf_to_epub(
-                "source.pdf", "book.epub", translator=translator,
+                "source.pdf", "book.epub", translator=cast(Any, _PrefixXMLTranslator()),
                 on_translation_event=callback,
             )
         self.assertIs(translate.call_args.kwargs["on_translation_event"], callback)

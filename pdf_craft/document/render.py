@@ -25,6 +25,7 @@ class RenderMode(str, Enum):
     SOURCE = "source"
     REPLACE = "replace"
     BILINGUAL = "bilingual"
+    BILINGUAL_TEXT = "bilingual_text"
 
 
 @dataclass(frozen=True)
@@ -143,7 +144,7 @@ def materialize_render_view(
         overlay = _read_metadata_overlay(layer / "metadata.json")
         metadata = _effective_metadata(source_metadata, overlay, mode)
         language = _language(metadata) or translation.target_language
-        if mode not in {RenderMode.REPLACE, RenderMode.BILINGUAL}:
+        if mode not in {RenderMode.REPLACE, RenderMode.BILINGUAL, RenderMode.BILINGUAL_TEXT}:
             raise ValueError(f"unsupported render mode: {mode}")
         with TemporaryDirectory(prefix="pdf-craft-render-") as directory:
             chapters = Path(directory) / "chapters"
@@ -209,28 +210,26 @@ def _write_effective_chapters(
     source_path: Path, translated_path: Path, coverage_path: Path, output_path: Path,
     mode: RenderMode,
 ) -> None:
-    translated_identities = _translated_narrative_identities(coverage_path)
+    narrative_coverage = _narrative_coverage(coverage_path)
+    translated_identities = {key for key, state in narrative_coverage.items() if state == "translated"}
+    preserved_identities = {key for key, state in narrative_coverage.items() if state == "preserved"}
     translated_assets = _translated_anchored_identities(coverage_path)
     for source_file in source_path.glob("*.xml"):
         source = ElementTree.parse(source_file).getroot()
         translated = ElementTree.parse(translated_path / source_file.name).getroot()
         _compose_chapter(
-            source, translated, translated_identities, translated_assets, mode,
+            source, translated, translated_identities, translated_assets, mode, preserved_identities,
         )
         save_xml(source, output_path / source_file.name)
 
 
-def _translated_narrative_identities(path: Path) -> set[tuple[str, int, int]]:
+def _narrative_coverage(path: Path) -> dict[tuple[str, int, int], str]:
     root = ElementTree.parse(path).getroot()
-    result: set[tuple[str, int, int]] = set()
-    for entry in root.findall("narrative/paragraph"):
-        if entry.get("state") == "translated":
-            result.add((
-                entry.get("chapter_id", ""),
-                int(entry.get("page_index", "0")),
-                int(entry.get("order", "0")),
-            ))
-    return result
+    return {
+        (entry.get("chapter_id", ""), int(entry.get("page_index", "0")),
+         int(entry.get("order", "0"))): entry.get("state", "preserved")
+        for entry in root.findall("narrative/paragraph")
+    }
 
 
 def _translated_anchored_identities(path: Path) -> set[tuple[str, int, int]]:
@@ -252,6 +251,7 @@ def _compose_chapter(
     translated_identities: set[tuple[str, int, int]],
     translated_assets: set[tuple[str, int, int]],
     mode: RenderMode,
+    preserved_identities: set[tuple[str, int, int]],
 ) -> None:
     chapter_id = source.get("id", "head")
     source_flow = source.find("flow")
@@ -262,14 +262,16 @@ def _compose_chapter(
             identity[0] == "display-formula"
             or (chapter_id, identity[0], identity[1]) in translated_identities
         )
-        if mode == RenderMode.REPLACE:
-            _replace_flow(source_flow, targets, is_translated)
-        else:
-            _merge_flow(source_flow, targets, is_translated)
+        # Asset coverage uses source flow/child indexes. Compose before
+        # bilingual paragraphs or heading fragments change those indexes.
         _compose_anchored_assets(
             source_flow, translated_flow, chapter_id, translated_assets, mode,
         )
-    _compose_references(source, translated, mode)
+        if mode == RenderMode.REPLACE:
+            _replace_flow(source_flow, targets, is_translated)
+        else:
+            _merge_flow(source_flow, targets, is_translated, mode)
+    _compose_references(source, translated, mode, preserved_identities)
 
 
 def _compose_anchored_assets(
@@ -320,12 +322,21 @@ def _compose_asset_element(
                 effective[list(effective).index(destination)] = copy
         elif destination is None:
             effective.append(deepcopy(target))
+        elif name == "content" and destination.find("table") is not None:
+            # A table is one asset. Appending a second <table> would be lost
+            # by renderers consuming its first table, or duplicate its geometry.
+            cells = {"td", "th", "caption"}
+            originals = [node for node in destination.iter() if node.tag in cells]
+            translations = [node for node in target.iter() if node.tag in cells]
+            for original, translated_cell in zip(originals, translations, strict=True):
+                _append_element_content(original, translated_cell)
         else:
             _append_element_content(destination, target)
 
 
 def _compose_references(
     source: ElementTree.Element, translated: ElementTree.Element, mode: RenderMode,
+    preserved_identities: set[tuple[str, int, int]],
 ) -> None:
     source_references = source.find("references")
     translated_references = translated.find("references")
@@ -341,17 +352,19 @@ def _compose_references(
         if source_flow is None or target_flow is None:
             continue
         target_items = _flow_targets(target_flow)
-        # References have no coverage-sidecar entries. Their established ref
-        # and fragment identities locate the target; non-empty target content
-        # is availability, even when its visible text equals the source.
+        # Older layers have no footnote coverage. Keep their established
+        # availability behavior, but honor explicit preserved entries from
+        # layers that do record footnote paragraphs.
         available_targets = {
-            identity for identity, item in target_items.items() if _visible_text(item)
+            identity for identity, item in target_items.items()
+            if _visible_text(item) and
+            (source.get("id", "head"), *identity) not in preserved_identities
         }
         has_target = available_targets.__contains__
         if mode == RenderMode.REPLACE:
             _replace_flow(source_flow, target_items, has_target)
         else:
-            _merge_flow(source_flow, target_items, has_target)
+            _merge_flow(source_flow, target_items, has_target, mode)
 
 
 def _replace_flow(source_flow, targets, should_replace) -> None:
@@ -371,7 +384,7 @@ def _replace_flow(source_flow, targets, should_replace) -> None:
     source_flow[:] = effective
 
 
-def _merge_flow(source_flow, targets, should_append) -> None:
+def _merge_flow(source_flow, targets, should_append, mode: RenderMode) -> None:
     merged: list[ElementTree.Element] = []
     for index, source_item in enumerate(list(source_flow)):
         merged.append(source_item)
@@ -381,6 +394,8 @@ def _merge_flow(source_flow, targets, should_append) -> None:
             continue
         if source_item.tag == "display-formula":
             _merge_display_formula(source_item, target)
+        elif mode == RenderMode.BILINGUAL_TEXT:
+            _append_fragment_content(source_item, target)
         elif source_item.get("role") == "heading":
             _append_heading(source_item, target)
         else:
@@ -390,6 +405,16 @@ def _merge_flow(source_flow, targets, should_append) -> None:
             if _visible_text(target_copy):
                 merged.append(target_copy)
     source_flow[:] = merged
+
+
+def _append_fragment_content(source: ElementTree.Element, translated: ElementTree.Element) -> None:
+    """Append rich translated content within each source fragment in a display view."""
+    targets = {(node.get("page_index"), node.get("source_order")): node
+               for node in translated.findall("fragment")}
+    for fragment in source.findall("fragment"):
+        target = targets.get((fragment.get("page_index"), fragment.get("source_order")))
+        if target is not None and _visible_text(target):
+            _append_element_content(fragment, target)
 
 
 def _flow_targets(flow: ElementTree.Element) -> dict[tuple[Any, ...], ElementTree.Element]:

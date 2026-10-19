@@ -125,6 +125,14 @@ def _iter_text_in_title(title_layout: TextFlowItem):
             yield item
 
 
+class _ReferenceNumbers(dict):
+    """Keep definition numbers and occurrence anchors separate within one XHTML."""
+
+    def __init__(self, numbers):
+        super().__init__(numbers)
+        self.occurrences: dict[int, int] = {}
+
+
 def _convert_chapter_to_epub(
     chapter: Chapter,
     assets_path: Path,
@@ -134,6 +142,7 @@ def _convert_chapter_to_epub(
 ) -> ChapterRecord:
     elements = []
     footnotes = []
+    ref_id_to_number = _ReferenceNumbers(ref_id_to_number)
 
     for layout in chapter.flow_items:
         if isinstance(layout, (DisplayFormula, StandaloneAsset)):
@@ -364,6 +373,21 @@ def _transform_content(
 
         elif ref_id_to_number and isinstance(item, Reference):
             ref_number = ref_id_to_number.get(item.id, 1)
+            if isinstance(ref_id_to_number, _ReferenceNumbers):
+                occurrence = ref_id_to_number.occurrences.get(ref_number, 0) + 1
+                ref_id_to_number.occurrences[ref_number] = occurrence
+                if occurrence > 1:
+                    # epub-generator's Mark identifies the definition and emits
+                    # ref-N. Subsequent occurrences need their own anchor while
+                    # linking to the same footnote; the backlink stays on ref-N.
+                    yield EpubHTMLTag(
+                        name="a", attributes=[
+                            ("id", f"ref-{ref_number}-{occurrence}"),
+                            ("href", f"#fn-{ref_number}"),
+                            ("class", "super"), ("epub:type", "noteref"),
+                        ], content=[f"[{ref_number}]"],
+                    )
+                    continue
             yield Mark(id=ref_number)
 
         elif isinstance(item, HTMLTag):
