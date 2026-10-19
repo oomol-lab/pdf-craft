@@ -54,4 +54,4 @@ poetry run python test.py
 
 ## 发布
 
-发布说明位于 `docs/RELEASE.md`。除非任务明确要求发布或升级依赖，否则普通 worktree 支持改造不应修改包版本、依赖 pin 或发布元数据。
+发版准备流程位于 [release-workflow.md](release-workflow.md)，各版本发布说明位于 `docs/changelog/`。除非任务明确要求发布或升级依赖，否则普通 worktree 支持改造不应修改包版本、依赖 pin 或发布元数据。
