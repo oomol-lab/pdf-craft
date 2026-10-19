@@ -7,7 +7,7 @@ from ...expression import ExpressionKind, ParsedItem, parse_latex_expressions
 from ...language import is_latin_letter
 from ...markdown.paragraph import parse_raw_markdown
 from ...pdf import TITLE_TAGS, PageLayout
-from .chapter import SourceAsset, SourceTextFragment, InlineExpression, TextFlowItem
+from .chapter import SourceAsset, SourceTextFragment, TextSource, InlineExpression, TextFlowItem
 from .content import Content, expand_text_in_content, first, last
 from .mergeable import LINK_FLAGS, check_mergeable
 from .reading_serials import split_reading_serials
@@ -58,8 +58,11 @@ class _PendingParagraph:
 
 
 class Jointer:
-    def __init__(self, layouts: Iterable[tuple[int, list[PageLayout]]]) -> None:
+    def __init__(self, layouts: Iterable[tuple[int, list[PageLayout]]],
+                 sources: dict[tuple[int, int], tuple[int, TextSource]] | None = None) -> None:
         self._layouts = layouts
+        self._sources = sources or {}
+        self._reading_positions: dict[tuple[int, tuple[int, int, int, int]], int] = {}
 
     def execute(self) -> Generator[TextFlowItem | SourceAsset, None, None]:
         last_tail: _LastTail | None = None
@@ -140,6 +143,10 @@ class Jointer:
         self,
     ) -> Generator[tuple[int, list[PageLayout]], None, None]:
         for page_index, raw_layouts in self._layouts:
+            for layout in raw_layouts:
+                record = self._sources.get((page_index, id(layout)))
+                if record is not None:
+                    self._reading_positions[(page_index, layout.det)] = record[1].reading_order
             found_serial = False
             for layouts in split_reading_serials(raw_layouts):
                 found_serial = True
@@ -196,6 +203,7 @@ class Jointer:
                 content=_parse_block_content(layout.content),
                 caption=_parse_block_content(layout.caption),
                 asset_hash=layout.hash,
+                reading_order=self._reading_positions.get((page_index, layout.det)),
             )
 
     def _join_asset_layouts(self, page_index, layouts: list[PageLayout]):
@@ -273,9 +281,10 @@ class Jointer:
                     children=[
                         SourceTextFragment(
                             page_index=page_index,
-                            source_order=layout.order,
+                            source_order=self._sources.get((page_index, id(layout)), (layout.order, None))[0],
                             bbox=layout.det,
                             content=_parse_block_content(layout.text),
+                            source=self._sources.get((page_index, id(layout)), (0, None))[1],
                         )
                     ],
                 )
@@ -482,7 +491,13 @@ def _height(det) -> int:
 
 
 # 将单词的连接符 `-` 删去，并将后半节单词移到前面一段拼接
-def _normalize_paragraph_content(paragraph: TextFlowItem):
+def _normalize_paragraph_content(paragraph: TextFlowItem, *, preserve_fragments: bool = False):
+    # Defer normalization until after editable source ownership is compiled.
+    # Legacy joiner callers without source records retain their old behavior.
+    if not preserve_fragments and any(
+        isinstance(child, SourceTextFragment) and child.source is not None for child in paragraph.children
+    ):
+        return
     if len(paragraph.children) < 2:
         return
 
@@ -513,10 +528,22 @@ def _normalize_paragraph_content(paragraph: TextFlowItem):
             del block2.content[0]
 
     # 极端情况下 block2 会因为单词被移走而被清空。此时要将其整个删去。
-    paragraph.children = [
-        child for child in paragraph.children
-        if not isinstance(child, SourceTextFragment) or child.content
-    ]
+    if not preserve_fragments:
+        paragraph.children = [
+            child for child in paragraph.children
+            if not isinstance(child, SourceTextFragment) or child.content
+        ]
+
+
+def normalize_source_projection(paragraph: TextFlowItem) -> None:
+    """Dehyphenate assembled semantic text without erasing source identities.
+
+    Content is already a detached projection here; TextSource keeps the exact
+    OCR text. An empty projected fragment still owns its original PDF region.
+    """
+    if any(isinstance(child, SourceTextFragment) and child.source is not None
+           for child in paragraph.children):
+        _normalize_paragraph_content(paragraph, preserve_fragments=True)
 
 
 def _parse_block_content(text: str | None) -> Content:

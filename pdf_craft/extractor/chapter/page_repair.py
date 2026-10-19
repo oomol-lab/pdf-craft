@@ -23,6 +23,8 @@ from .page_analysis import (
     layout_reference_spans,
     layout_reference_text,
     replace_layout_references,
+    project_definition_mark,
+    restore_streams,
 )
 from .page_review import (
     JEV_REVIEW_THRESHOLD,
@@ -58,9 +60,9 @@ class RepairedLayout(_StrictModel):
     layout_id: str
     ownership: Literal["paragraph", "citation", "ignored"]
     continues_from_previous: bool
-    continues_to_next: bool
+    continues_to_next: bool | None = None
     paragraph_role: Literal["body", "heading"] | None
-    paragraph_level: int | None
+    paragraph_level: int | None = Field(ge=-1)
     citation_id: str | None
     citation_index: int | None = Field(default=None, ge=1)
 
@@ -84,7 +86,7 @@ PAGE_REPAIR_SYSTEM_PROMPT = """\
 
 不可变事实：目标页 page_index、layout 数量、layout_id、document_order、bbox、source_type 和 text。你不能增删、拆分、合并或重排 layout，也不能改动文字。
 
-可编辑语义：layout 的 paragraph/citation/ignored 归属、前后 continuation、paragraph role/level、citation 分组与页内索引，以及正文 ref 的位置。页码、running header 和装饰物必须标为 ignored；ignored layout 仍保留在页面中，但不会进入任何恢复流。
+可编辑语义：layout 的 paragraph/citation/ignored 归属、前驱 continuation、paragraph role/level、citation 分组与页内索引，以及正文 ref 的位置。页码、running header 和装饰物必须标为 ignored；ignored layout 仍保留在页面中，但不会进入任何恢复流。
 
 相邻页只是历史现场，可能错误。相邻页的 jev_p_pass 是较弱审核器对其现有标注可靠性的估计，不是事实或约束。目标页分数被刻意隐藏，请独立检查；如果原结果正确，可以原样返回。
 
@@ -96,8 +98,8 @@ PAGE_REPAIR_SYSTEM_PROMPT = """\
 - 特别检查页首的跨页尾句：如果某 layout 的 continues_from_previous 已为 true，它只是承接上一页并以句号等终止标点结束的短尾部，而下一 layout 从完整新句开始，则二者之间的既有 false 必须保留。不能因为同缩进、普通行距或主题连续，把上一段的页首尾句并入下一段。
 - 同页已有的 false 边界默认不可打开。除非前一 layout 明显以未完句结束、后一 layout 明显只是该句的直接续文，并且没有段落缩进或垂直留白证据，否则禁止把它改成 true；两个完整句子即使主题连续，也必须保持 false。
 - initial_stream_boundary_from_previous 是根据现有归属预先计算的几何提示：vertical_gap 是上下间距，left_delta 为正表示当前块左侧向内缩，right_inset_delta 为正表示当前块右侧也向内缩。它只是证据，归属有误时可以忽略；但同时出现明显左右缩进和较大留白时，应认真检查当前块是否为独立块引文。
-- 同一流内两个相邻 layout 之间的边界是一个原子决定。修改边界时必须同时设置前者 continues_to_next 和后者 continues_from_previous，且两值相等；不要只改一侧再依赖校验循环提醒。
-- 已有 citation_id、citation 记录与 ref 对应是强证据。citation 开头的 mark 已从 layout.text 拆入 citations[].mark，并在原所在 layout 上以 detached_citation_mark 提示。判断语义时要把它视为 layout.text 原本的前缀；不得因为 text 里看不到 mark 就把该 layout 改成 paragraph。
+- 每条连接仅由后继 layout 的 continues_from_previous 决定；continues_to_next 是本地派生展示信息，返回时省略它。不能依靠修改前驱的展示值来建立连接。
+- layout.text 保留完整来源，包括印刷标记。citation.mark 是标记的语义；本地输出时才移除实际匹配的前缀范围，改回 paragraph 时原文完整恢复。
 - citation 成员关系与 gap 是两个正交维度：多个 layout 可以都属于同一 citation_id，却因为是脚注内的不同自然段而将相邻 gap 设为 false。常见脚注会依次包含以冒号结尾的引导句、缩进引文和后续评论；它们可以是三个自然段，但仍全部属于同一 citation。不要为了拆段而把引导句改成 paragraph。
 - 修好已有具体错误后就停止。页面被送来不意味着每种结构都有错，不得为了显示做过审查而制造额外修改。
 - 校验错误只说明结果存在矛盾，不代表必须修改错误消息中的某一侧。回到文本语义判断哪个 ownership 或 gap 才是根因，不要为了过校验而拼接不相干的文字。
@@ -107,20 +109,22 @@ ref 规则：
 - anchor.before、anchor.mark、anchor.after 表示同一 layout.text 中连续相邻的三段；mark 是 ref 覆盖的实际字符，before/after 只是定位上下文。
 - 复制足以唯一定位的相邻原文，不要返回字符 offset。上下文允许短，但必须让程序无歧义地确定位置。
 - OCR 完全漏掉标记时 mark 可以为空，表示 before 与 after 之间的零宽位置；此时上下文必须足以唯一定位。
-- ref 只属于 paragraph 文本 layout。每个有索引 citation 恰好对应一个 ref，每个 ref 指向本页存在的有索引 citation。
+- ref 只属于 paragraph 文本 layout。每个 citation 可以有零个或多个 ref；没有匹配 ref 的定义也必须保留。每个 ref 指向本页存在的有索引 citation。
 
 ignored 规则：ignored layout 的两个 continuation 必须为 false，paragraph_role、paragraph_level、citation_id、citation_index 必须全部为 null，也不能承载 ref。
 
 citation 规则：
+- 已有 citation_id 不可重命名。新增定义使用 new-页码-index；不得重命名跨页定义或修改其起点。
+- 未确定归属的无索引片段可并入上一页已存在的定义：使用其 citation_id，index/mark 为 null。禁止猜测不存在的前驱。跨页共享定义的起点和既有片段不可删除；页内非共享定义允许通过重分组拆分或合并。
 - 本页新开始的 citation 使用从 1 连续递增的 index，并具有非空 mark。
 - 上一页 citation 的续页片段 index 和 mark 都为 null，且必须排在有索引 citation 之前。
 - citation layout 的 citation_id/index 必须与 citations 中相应项一致；paragraph layout 不得携带 citation_id/index。
 
 返回前逐项自检：
 1. 所有 ignored layout 的 gap 均为 false，所有语义字段均为 null。
-2. 删去 ignored 后，按 document_order 查看相邻 paragraph：前者 continues_to_next 必须等于后者 continues_from_previous。不要把被忽略页码曾经携带的 gap 原样留给下一 layout。
+2. 删去 ignored 后，按 document_order 查看相邻 paragraph：continues_from_previous 必须有真实前驱，不得连接到 ignored 或 asset。
 3. 对每个 citation_id 独立做同样的相邻 gap 检查，不要把不同 citation 串成一条流。
-4. 有索引 citation 与 references 按 citation_index 一一对应，每个 anchor 都只能在指定 layout_id 内定位到一处。
+4. 每个 ref 都指向有索引 citation，每个 anchor 都只能在指定 layout_id 内定位到一处。
 
 返回一个完整目标页 JSON，字段严格遵守给定 output_contract。不要解释，不要使用 Markdown 围栏。每次收到校验错误后，都重新返回完整目标页 JSON。"""
 
@@ -225,7 +229,6 @@ async def _repair_pages(
     original = [_clone_page(page) for page in analyses]
     repaired = [_clone_page(page) for page in analyses]
     positions = {page.page_index: index for index, page in enumerate(original)}
-    repair_order: dict[int, int] = {}
 
     async def repair(page_index: int) -> tuple[int, PageAnalysis]:
         position = positions[page_index]
@@ -240,6 +243,7 @@ async def _repair_pages(
             next_pass_probability=_neighbor_probability(following, reviews),
             request=request,
             max_retries=max_retries,
+            all_pages=repaired,
         )
         return page_index, result
 
@@ -251,11 +255,9 @@ async def _repair_pages(
             task.cancel()
         await asyncio.gather(*tasks, return_exceptions=True)
         raise
-    results = dict(completed)
-    for page_index in page_indexes:
-        repaired[positions[page_index]] = results[page_index]
-        repair_order[page_index] = len(repair_order)
-    _reconcile_cross_page_gaps(repaired, repair_order)
+    del completed  # Accepted candidates are committed to the tentative graph in parse.
+    _compile_page_connections(repaired)
+    restore_streams(repaired)
     return repaired
 
 
@@ -268,6 +270,7 @@ async def repair_page_with_llm(
     next_pass_probability: float | None,
     request: PageRepairRequest,
     max_retries: int = 4,
+    all_pages: list[PageAnalysis] | None = None,
 ) -> PageAnalysis:
     """Repair exactly ``target_page`` using full text-only neighbor context."""
 
@@ -278,15 +281,60 @@ async def repair_page_with_llm(
         previous_pass_probability=previous_pass_probability,
         next_pass_probability=next_pass_probability,
     )
+    def compile_candidate(data, _index, _maximum):
+        context = all_pages or [page for page in (previous_page, target_page, next_page)
+                                if page is not None]
+        available = {citation.citation_id: citation for page in context
+                     if page.page_index < target_page.page_index
+                     for citation in page.citations if citation.index is not None}
+        candidate = _compile_repaired_page(target_page, cast(RepairedPage, data), available)
+        shared_ids = {citation.citation_id for page in context
+                      if page.page_index != target_page.page_index
+                      for citation in page.citations}
+        _validate_shared_citations(target_page, candidate, shared_ids)
+        if all_pages is not None:
+            transaction = [_clone_page(candidate if page.page_index == candidate.page_index else page)
+                           for page in all_pages]
+            _compile_page_connections(transaction)
+            restore_streams(transaction)
+            all_pages[:] = transaction
+            return next(page for page in transaction if page.page_index == candidate.page_index)
+        return candidate
+
     return await request_guaranteed_json(GuaranteedOptions(
-        messages=messages,
-        request=request,
-        schema=RepairedPage,
-        parse=lambda data, _index, _maximum: _compile_repaired_page(
-            target_page, cast(RepairedPage, data)
-        ),
-        max_retries=max_retries,
+        messages=messages, request=request, schema=RepairedPage,
+        parse=compile_candidate, max_retries=max_retries,
     ))
+
+
+def _validate_shared_citations(
+    source: PageAnalysis, candidate: PageAnalysis, shared_ids: set[str],
+) -> None:
+    """A page-local edit cannot detach existing cross-page source members.
+
+    Keeping a segment record alone does not keep its content: ownership is
+    stored on layouts. Protect both contracts before committing the graph.
+    Additional members and paragraph boundaries remain editable.
+    """
+    proposed = {citation.citation_id: citation for citation in candidate.citations}
+    for original in source.citations:
+        if original.citation_id in shared_ids:
+            replacement = proposed.get(original.citation_id)
+            if replacement is None or (
+                replacement.index, replacement.stream_order
+            ) != (original.index, original.stream_order):
+                raise ValueError("[CROSS_PAGE_IDENTITY] Preserve shared definition origins and segments")
+    proposed_layouts = {_layout_id(layout): layout for layout in candidate.layouts}
+    for original in source.layouts:
+        if original.ownership == "citation" and original.citation_id in shared_ids:
+            replacement = proposed_layouts[_layout_id(original)]
+            if replacement.ownership != "citation" or replacement.citation_id != original.citation_id:
+                raise ValueError(
+                    f"[CROSS_PAGE_MEMBERSHIP] Preserve source member {_layout_id(original)} "
+                    f"of shared definition {original.citation_id}; a single-page edit "
+                    "cannot ignore or reassign it."
+                )
+
 
 
 def build_page_repair_messages(
@@ -359,6 +407,7 @@ def _page_packet(page: PageAnalysis) -> dict:
             previous_by_stream[stream_key] = layout
     return {
         "page_index": page.page_index,
+        "citation_states": {item.citation_id: item.state for item in page.citations},
         "layouts": layout_packets,
         "citations": [
             {
@@ -385,7 +434,7 @@ def _page_packet(page: PageAnalysis) -> dict:
 
 def _layout_packet(
     layout: AnalysedLayout,
-    detached_citation_mark: str | None,
+    definition_mark: str | None,
     previous_in_initial_stream: AnalysedLayout | None,
 ) -> dict:
     try:
@@ -396,10 +445,12 @@ def _layout_packet(
         "layout_id": _layout_id(layout),
         "document_order": layout.document_order,
         "source_order": layout.source_order,
+        "ocr_stream": getattr(getattr(layout.source, "origin", None), "stream", None),
+        "ocr_order": getattr(getattr(layout.source, "origin", None), "stream_order", None),
         "source_type": getattr(layout.source, "ref", "text"),
         "bbox": list(layout.bbox),
         "text": text,
-        "detached_citation_mark": detached_citation_mark,
+        "definition_mark": definition_mark,
         "initial_stream_boundary_from_previous": (
             _boundary_geometry(previous_in_initial_stream, layout)
             if previous_in_initial_stream is not None else None
@@ -442,7 +493,10 @@ def _anchor_for_span(text: str, start: int, end: int, context: int = 24) -> dict
     }
 
 
-def _compile_repaired_page(source: PageAnalysis, response: RepairedPage) -> PageAnalysis:
+def _compile_repaired_page(
+    source: PageAnalysis, response: RepairedPage,
+    available_citations: Mapping[str, AnalysedCitation] | None = None,
+) -> PageAnalysis:
     issues: list[str] = []
     if response.page_index != source.page_index:
         issues.append(
@@ -464,11 +518,14 @@ def _compile_repaired_page(source: PageAnalysis, response: RepairedPage) -> Page
     if issues:
         raise ValueError("\n".join(issues))
 
-    citations = _compile_citations(source, response.citations, issues)
+    citations = _compile_citations(source, response.citations, issues, available_citations or {})
     citations_by_id = {citation.citation_id: citation for citation in citations}
     repaired_layouts: dict[str, AnalysedLayout] = {}
     for layout_id, original in source_layouts.items():
         proposed = response_layouts[layout_id]
+        if proposed.ownership != "ignored" and original.source_order is not None:
+            if proposed.paragraph_role is None or proposed.paragraph_level is None:
+                issues.append(f"[PARAGRAPH_METADATA] {layout_id} requires role and level.")
         if proposed.ownership == "ignored":
             if (
                 proposed.continues_from_previous
@@ -503,11 +560,13 @@ def _compile_repaired_page(source: PageAnalysis, response: RepairedPage) -> Page
                     f"({citation.index!r})."
                 )
         repaired_layouts[layout_id] = replace(
-            original,
+            project_definition_mark(original, None),
             annotations=LayoutAnnotations(
                 ownership=proposed.ownership,
                 continues_from_previous=proposed.continues_from_previous,
-                continues_to_next=proposed.continues_to_next,
+                continues_to_next=(proposed.continues_to_next
+                                   if proposed.continues_to_next is not None
+                                   else original.continues_to_next if proposed.ownership != "ignored" else False),
                 paragraph_role=proposed.paragraph_role,
                 paragraph_level=proposed.paragraph_level,
                 citation_id=proposed.citation_id,
@@ -515,12 +574,23 @@ def _compile_repaired_page(source: PageAnalysis, response: RepairedPage) -> Page
                 references=[],
             ),
         )
+    for ownership, citation_id in [("paragraph", None), *[("citation", ident) for ident in citations_by_id]]:
+        sequence = sorted([layout for layout in repaired_layouts.values()
+                           if layout.ownership == ownership and
+                           (ownership == "paragraph" or layout.citation_id == citation_id)],
+                          key=lambda layout: layout.document_order)
+        for left, right in zip(sequence, sequence[1:]):
+            if response_layouts[_layout_id(left)].continues_to_next is None:
+                left.annotations.continues_to_next = right.continues_from_previous
+        if sequence and ownership == "citation":
+            first = sequence[0]
+            repaired_layouts[_layout_id(first)] = project_definition_mark(
+                first, _mark_text(citations_by_id[citation_id].mark))
     _validate_layout_sequences(repaired_layouts, citations_by_id, issues)
     if issues:
         raise ValueError("\n".join(issues))
 
     spans_by_layout: dict[str, list[ReferenceSpan]] = {}
-    reference_indexes: list[int] = []
     indexed_citations = {
         citation.index: citation
         for citation in citations
@@ -567,19 +637,7 @@ def _compile_repaired_page(source: PageAnalysis, response: RepairedPage) -> Page
                 mark_text=text[start:end],
             )
         )
-        reference_indexes.append(reference.citation_index)
 
-    # Do not emit derived bijection errors while any anchor is unresolved.
-    if issues:
-        raise ValueError("\n".join(issues))
-
-    expected_indexes = sorted(indexed_citations)
-    actual_indexes = sorted(reference_indexes)
-    if actual_indexes != expected_indexes:
-        issues.append(
-            "[REF_CITATION_BIJECTION] Indexed citations and refs must correspond "
-            f"one-to-one. expected={expected_indexes}, actual={actual_indexes}."
-        )
     if issues:
         raise ValueError("\n".join(issues))
 
@@ -587,9 +645,9 @@ def _compile_repaired_page(source: PageAnalysis, response: RepairedPage) -> Page
     for original in source.layouts:
         layout_id = _layout_id(original)
         layout = repaired_layouts[layout_id]
-        if layout.ownership == "paragraph":
+        if layout.source_order is not None:
             layout = replace_layout_references(
-                layout, spans_by_layout.get(layout_id, [])
+                layout, spans_by_layout.get(layout_id, []) if layout.ownership == "paragraph" else []
             )
         compiled_layouts.append(layout)
 
@@ -667,6 +725,7 @@ def _compile_citations(
     source: PageAnalysis,
     proposed: list[RepairedCitation],
     issues: list[str],
+    available: Mapping[str, AnalysedCitation],
 ) -> list[AnalysedCitation]:
     existing = {citation.citation_id: citation for citation in source.citations}
     result: list[AnalysedCitation] = []
@@ -705,13 +764,23 @@ def _compile_citations(
                     "indexed citation."
                 )
         old = existing.get(item.citation_id)
+        predecessor = available.get(item.citation_id) if item.index is None else None
+        if old is None and predecessor is not None:
+            old = replace(predecessor, index=None, mark=None)
+        if old is None and item.citation_id != f"new-{source.page_index}-{item.index}":
+            issues.append(
+                f"[CITATION_ID] {prefix}: retain existing identity or use "
+                f"new-{source.page_index}-{item.index} for a new local definition.")
+        if old is not None and (old.index is None) != (item.index is None):
+            issues.append(f"[CITATION_ORIGIN] {prefix}: cannot change a cross-page origin.")
         mark = old.mark if old is not None and _mark_text(old.mark) == item.mark else item.mark
         result.append(AnalysedCitation(
             citation_id=item.citation_id,
             page_index=source.page_index,
             index=item.index,
             mark=mark,
-            stream_order=item.stream_order,
+            stream_order=old.stream_order if old is not None else item.stream_order,
+            origin_page_index=(old.origin_page_index if old is not None else source.page_index),
         ))
     return result
 
@@ -877,51 +946,23 @@ def _clone_page(page: PageAnalysis) -> PageAnalysis:
     )
 
 
-def _reconcile_cross_page_gaps(
-    pages: list[PageAnalysis],
-    repair_order: Mapping[int, int],
-) -> None:
-    citation_ids = sorted({
-        layout.citation_id
-        for page in pages
-        for layout in page.layouts
-        if layout.ownership == "citation" and layout.citation_id is not None
-    })
-    groups: list[tuple[str, str | None]] = [("paragraph", None)]
-    groups.extend(("citation", citation_id) for citation_id in citation_ids)
-    for ownership, citation_id in groups:
-        layouts = sorted(
-            (
-                layout
-                for page in pages
-                for layout in page.layouts
-                if layout.ownership == ownership
-                and (ownership == "paragraph" or layout.citation_id == citation_id)
-            ),
-            key=lambda layout: layout.document_order,
-        )
-        if layouts:
-            layouts[0].annotations.continues_from_previous = False
-            layouts[-1].annotations.continues_to_next = False
-        for left, right in zip(layouts, layouts[1:]):
-            if left.continues_to_next == right.continues_from_previous:
-                continue
-            if left.page_index == right.page_index:
-                raise ValueError(
-                    "LLM repair left an inconsistent same-page gap between "
-                    f"{_layout_id(left)} and {_layout_id(right)}"
-                )
-            left_order = repair_order.get(left.page_index, -1)
-            right_order = repair_order.get(right.page_index, -1)
-            if left_order < 0 and right_order < 0:
-                raise ValueError(
-                    "Traditional page analysis contains an inconsistent gap "
-                    f"between {_layout_id(left)} and {_layout_id(right)}"
-                )
-            value = (
-                right.continues_from_previous
-                if right_order > left_order
-                else left.continues_to_next
-            )
-            left.annotations.continues_to_next = value
-            right.annotations.continues_from_previous = value
+def _compile_page_connections(pages: list[PageAnalysis]) -> None:
+    """Compile successor projections from each layout's single incoming edge.
+
+    This never chooses between conflicting edits or changes an incoming edge.
+    Every candidate and the complete transaction are assembled and validated
+    before publication. The old last-repaired-page-wins reconciliation is gone.
+    """
+    groups: dict[tuple[str, str | None], list[AnalysedLayout]] = {}
+    for page in pages:
+        for layout in page.layouts:
+            if layout.ownership != "ignored":
+                key = (layout.ownership, layout.citation_id)
+                groups.setdefault(key, []).append(layout)
+    for layouts in groups.values():
+        layouts.sort(key=lambda layout: layout.document_order)
+        if layouts and layouts[0].continues_from_previous:
+            raise ValueError("[CONTINUATION_ORIGIN] First layout has no predecessor")
+        for index, layout in enumerate(layouts):
+            layout.annotations.continues_to_next = (
+                layouts[index + 1].continues_from_previous if index + 1 < len(layouts) else False)

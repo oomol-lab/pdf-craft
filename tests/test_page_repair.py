@@ -14,7 +14,7 @@ from pdf_craft.extractor.chapter.page_analysis import analyse_pages, restore_str
 from pdf_craft.extractor.chapter.page_repair import (
     AllPageLlmRepairProcessor,
     JevLlmRepairProcessor,
-    _reconcile_cross_page_gaps,
+    _compile_page_connections,
     build_page_repair_messages,
     repair_page_with_llm,
 )
@@ -182,11 +182,12 @@ class PageRepairTests(unittest.IsolatedAsyncioTestCase):
             page.layouts[0].annotations.continues_from_previous = True
             page.layouts[0].annotations.continues_to_next = True
 
-        _reconcile_cross_page_gaps(pages, {})
+        with self.assertRaisesRegex(ValueError, "CONTINUATION_ORIGIN"):
+            _compile_page_connections(pages)
 
         for page in pages:
-            self.assertFalse(page.layouts[0].continues_from_previous)
-            self.assertFalse(page.layouts[0].continues_to_next)
+            self.assertTrue(page.layouts[0].continues_from_previous)
+            self.assertTrue(page.layouts[0].continues_to_next)
 
     async def test_ignored_layout_remains_in_page_but_not_restored_stream(self):
         page = analyse_pages([1], [TextFlowItem(
@@ -284,7 +285,7 @@ class PageRepairTests(unittest.IsolatedAsyncioTestCase):
             layout for layout in payload["target_page"]["layouts"]
             if layout["ownership"] == "citation"
         )
-        self.assertEqual(citation_layout["detached_citation_mark"], "①")
+        self.assertEqual(citation_layout["definition_mark"], "①")
         paragraph_layouts = [
             layout for layout in payload["target_page"]["layouts"]
             if layout["ownership"] == "paragraph"

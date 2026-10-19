@@ -21,8 +21,10 @@ from .chapter import (
     SourceTextFragment,
     StandaloneAsset,
     TextFlowItem,
+    TextSource,
 )
 from .mark import Mark, NumberClass, NumberStyle
+from .jointer import normalize_source_projection
 
 
 LayoutOwnership: TypeAlias = Literal["paragraph", "citation", "ignored"]
@@ -62,6 +64,9 @@ class _AnalysedTextSource:
     source_order: int
     bbox: tuple[int, int, int, int]
     content: _AnalysedContent
+    reading_order: int | None = None
+    citation_prefix: int = 0
+    origin: TextSource | None = None
 
 
 @dataclass(frozen=True)
@@ -73,6 +78,7 @@ class _AnalysedAssetSource:
     content: _AnalysedContent
     caption: _AnalysedContent
     asset_hash: str | None
+    reading_order: int | None = None
 
 
 _AnalysedSource: TypeAlias = _AnalysedTextSource | _AnalysedAssetSource
@@ -118,6 +124,13 @@ class AnalysedCitation:
     index: int | None
     mark: _CitationMark | None
     stream_order: int
+    origin_page_index: int | None = None
+
+    @property
+    def state(self) -> Literal["definition", "continuation", "unresolved"]:
+        if self.index is not None:
+            return "definition"
+        return "continuation" if self.origin_page_index is not None else "unresolved"
 
 
 @dataclass(frozen=True)
@@ -426,6 +439,16 @@ def analyse_pages(
 
     document_order = 0
     for page in pages.values():
+        # Reading positions were captured before splitting the OCR streams.
+        # Hand-constructed/legacy fragments retain their supplied ordering.
+        initial_positions = {id(layout): index for index, layout in enumerate(page.layouts)}
+        def position(layout: AnalysedLayout, positions=initial_positions) -> int:
+            source = layout.source
+            if source.reading_order is not None:
+                return source.reading_order
+            return positions[id(layout)]
+
+        page.layouts.sort(key=position)
         for index, layout in enumerate(page.layouts):
             page.layouts[index] = replace(
                 layout,
@@ -462,6 +485,7 @@ def _get_citation_segment(
         index=citation_index if is_origin else None,
         mark=citation_mark if is_origin else None,
         stream_order=stream_order,
+        origin_page_index=origin_page_index if citation_index is not None else None,
     )
     _get_page(pages, page_index).citations.append(segment)
     segments[page_index] = segment
@@ -477,7 +501,7 @@ def restore_streams(pages: Iterable[PageAnalysis]) -> RestoredStreams:
         citation for page in page_list for citation in page.citations
         if citation.index is not None
     ]
-    citation_annotations.sort(key=lambda citation: citation.stream_order)
+    citation_annotations.sort(key=lambda citation: (citation.page_index, citation.index or 0))
 
     citation_layouts = [
         layout
@@ -528,7 +552,25 @@ def restore_streams(pages: Iterable[PageAnalysis]) -> RestoredStreams:
     ]
     paragraph_layouts.sort(key=lambda layout: layout.document_order)
     paragraphs = _restore_layouts(paragraph_layouts, reference_map)
+    # Unresolved source is explicit (origin_page_index=None), and is preserved
+    # in narrative rather than silently discarded or guessed onto a definition.
+    indexed_ids = {citation.citation_id for citation in citation_annotations}
+    for citation_id in dict.fromkeys(layout.citation_id for layout in citation_layouts):
+        if citation_id not in indexed_ids:
+            paragraphs.extend(_restore_layouts([
+                layout for layout in citation_layouts if layout.citation_id == citation_id
+            ], {}))
+    positions = {_source_position_key(layout.source): layout.document_order
+                 for page in page_list for layout in page.layouts}
+    paragraphs.sort(key=lambda item: positions[_source_position_key(
+        item.children[0] if isinstance(item, TextFlowItem) else item)])
     return RestoredStreams(paragraphs=paragraphs, citations=references)
+
+
+def _source_position_key(source) -> tuple:
+    if isinstance(source, (SourceTextFragment, _AnalysedTextSource)):
+        return ("text", source.page_index, source.source_order)
+    return (source.ref, source.page_index, source.bbox)
 
 
 def _analyse_layout(
@@ -547,7 +589,13 @@ def _analyse_layout(
             page_index=source.page_index,
             source_order=source.source_order,
             bbox=source.bbox,
-            content=_analyse_content(source.content, references),
+            content=_analyse_content(
+                list(source.source.content)
+                if ownership == "citation" and source.source is not None
+                else source.content, references),
+            reading_order=source.source.reading_order if source.source else None,
+            origin=source.source,
+            citation_prefix=_citation_prefix(source) if ownership == "citation" else 0,
         )
     else:
         analysed_source = _AnalysedAssetSource(
@@ -558,6 +606,7 @@ def _analyse_layout(
             content=_analyse_content(source.content, references, (1,)),
             caption=_analyse_content(source.caption, references, (2,)),
             asset_hash=source.asset_hash,
+            reading_order=source.reading_order,
         )
     return AnalysedLayout(
         source=analysed_source,
@@ -578,6 +627,7 @@ def _analyse_layout(
 def _validate_pages(pages: list[PageAnalysis]) -> None:
     page_indexes: set[int] = set()
     document_orders: set[int] = set()
+    source_identities: set[tuple[int, int]] = set()
     segments: dict[tuple[str, int], AnalysedCitation] = {}
     indexed_segments: dict[str, AnalysedCitation] = {}
 
@@ -629,6 +679,17 @@ def _validate_pages(pages: list[PageAnalysis]) -> None:
                     f"Duplicate layout document order: {layout.document_order}"
                 )
             document_orders.add(layout.document_order)
+            if layout.source_order is not None:
+                identity = (layout.page_index, layout.source_order)
+                if identity in source_identities:
+                    raise ValueError(f"Duplicate fragment source identity: {identity}")
+                source_identities.add(identity)
+
+    for segment in segments.values():
+        if segment.origin_page_index is not None:
+            origin = indexed_segments.get(segment.citation_id)
+            if origin is None or origin.page_index != segment.origin_page_index:
+                raise ValueError(f"Citation continuation has no origin: {segment.citation_id}")
 
     for page in pages:
         for layout in page.layouts:
@@ -838,7 +899,9 @@ def _restore_layouts(
             return
         if pending_role is None or pending_level is None:
             raise ValueError("Text layout is missing paragraph role or level")
-        result.append(TextFlowItem(pending_role, pending_level, pending))
+        paragraph = TextFlowItem(pending_role, pending_level, pending)
+        normalize_source_projection(paragraph)
+        result.append(paragraph)
         pending = []
         pending_role = None
         pending_level = None
@@ -892,8 +955,44 @@ def _restore_fragment(
         page_index=source.page_index,
         source_order=source.source_order,
         bbox=source.bbox,
-        content=_restore_content(source.content, layout.references, references),
+        content=_project_fragment_content(source, layout, references),
+        source=source.origin,
     )
+
+
+def project_definition_mark(layout: AnalysedLayout, mark: str | None) -> AnalysedLayout:
+    """Remove a printed prefix only when projecting a definition, reversibly."""
+    source = layout.source
+    if not isinstance(source, _AnalysedTextSource):
+        return layout
+    prefix = 0
+    if mark and source.content and isinstance(source.content[0], str):
+        first = source.content[0]
+        start = len(first) - len(first.lstrip())
+        if first[start:].startswith(mark):
+            end = start + len(mark)
+            prefix = end + len(first[end:]) - len(first[end:].lstrip())
+    return replace(layout, source=replace(source, citation_prefix=prefix))
+
+
+def _citation_prefix(fragment: SourceTextFragment) -> int:
+    if fragment.source is None:
+        return 0
+    original = fragment.source.content
+    current = fragment.content
+    if original and current and isinstance(original[0], str) and isinstance(current[0], str):
+        if original[0].endswith(current[0]):
+            return len(original[0]) - len(current[0])
+    return 0
+
+
+def _project_fragment_content(source, layout, references) -> list:
+    content = _restore_content(source.content, layout.references, references)
+    if layout.ownership == "citation" and source.citation_prefix and content:
+        content[0] = content[0][source.citation_prefix:]
+        if not content[0]:
+            content.pop(0)
+    return content
 
 
 def _restore_asset(

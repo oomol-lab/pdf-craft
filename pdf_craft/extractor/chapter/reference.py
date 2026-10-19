@@ -111,6 +111,7 @@ class References:
                                 source_order=block.source_order,
                                 bbox=block.bbox,
                                 content=content,
+                                source=block.source,
                             )
                         ],
                     ),

@@ -1,0 +1,167 @@
+FFFFFEFFF
+======================================================================
+ERROR: test_f6_repeated_occurrences_can_round_trip_without_changing_definition (tests.test_footnote_contracts.FootnoteContractTests.test_f6_repeated_occurrences_can_round_trip_without_changing_definition)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/taozeyu/.local/share/uv/python/cpython-3.11.15-macos-aarch64-none/lib/python3.11/unittest/async_case.py", line 90, in _callTestMethod
+    if self._callMaybeAsync(method) is not None:
+       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/taozeyu/.local/share/uv/python/cpython-3.11.15-macos-aarch64-none/lib/python3.11/unittest/async_case.py", line 117, in _callMaybeAsync
+    return self._asyncioTestContext.run(func, *args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/taozeyu/codes/github.com/oomol-lab/pdf-craft/.vge/worktrees/vge-788/tests/test_footnote_contracts.py", line 128, in test_f6_repeated_occurrences_can_round_trip_without_changing_definition
+    repaired = _compile_repaired_page(page, RepairedPage.model_validate(response(page)))
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/taozeyu/codes/github.com/oomol-lab/pdf-craft/.vge/worktrees/vge-788/pdf_craft/extractor/chapter/page_repair.py", line 584, in _compile_repaired_page
+    raise ValueError("\n".join(issues))
+ValueError: [REF_CITATION_BIJECTION] Indexed citations and refs must correspond one-to-one. expected=[1], actual=[1, 1].
+
+======================================================================
+FAIL: test_f1_ocr_streams_have_distinct_persisted_fragment_identities (tests.test_footnote_contracts.FootnoteContractTests.test_f1_ocr_streams_have_distinct_persisted_fragment_identities)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/taozeyu/.local/share/uv/python/cpython-3.11.15-macos-aarch64-none/lib/python3.11/unittest/async_case.py", line 90, in _callTestMethod
+    if self._callMaybeAsync(method) is not None:
+       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/taozeyu/.local/share/uv/python/cpython-3.11.15-macos-aarch64-none/lib/python3.11/unittest/async_case.py", line 117, in _callMaybeAsync
+    return self._asyncioTestContext.run(func, *args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/taozeyu/codes/github.com/oomol-lab/pdf-craft/.vge/worktrees/vge-788/tests/test_footnote_contracts.py", line 53, in test_f1_ocr_streams_have_distinct_persisted_fragment_identities
+    self.assertEqual(len(identities), len(set(identities)))
+AssertionError: 2 != 1
+
+======================================================================
+FAIL: test_f2_cross_page_identity_change_is_rejected_before_acceptance (tests.test_footnote_contracts.FootnoteContractTests.test_f2_cross_page_identity_change_is_rejected_before_acceptance)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/taozeyu/.local/share/uv/python/cpython-3.11.15-macos-aarch64-none/lib/python3.11/unittest/async_case.py", line 90, in _callTestMethod
+    if self._callMaybeAsync(method) is not None:
+       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/taozeyu/.local/share/uv/python/cpython-3.11.15-macos-aarch64-none/lib/python3.11/unittest/async_case.py", line 112, in _callMaybeAsync
+    return self._asyncioRunner.run(
+           ^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/taozeyu/.local/share/uv/python/cpython-3.11.15-macos-aarch64-none/lib/python3.11/asyncio/runners.py", line 118, in run
+    return self._loop.run_until_complete(task)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/taozeyu/.local/share/uv/python/cpython-3.11.15-macos-aarch64-none/lib/python3.11/asyncio/base_events.py", line 654, in run_until_complete
+    return future.result()
+           ^^^^^^^^^^^^^^^
+  File "/Users/taozeyu/codes/github.com/oomol-lab/pdf-craft/.vge/worktrees/vge-788/tests/test_footnote_contracts.py", line 78, in test_f2_cross_page_identity_change_is_rejected_before_acceptance
+    self.assertEqual(attempts, [0, 1])
+AssertionError: Lists differ: [0] != [0, 1]
+
+Second list contains 1 additional elements.
+First extra element 1:
+1
+
+- [0]
++ [0, 1]
+
+======================================================================
+FAIL: test_f3_star_definition_and_occurrence_survive_chapter_encoding (tests.test_footnote_contracts.FootnoteContractTests.test_f3_star_definition_and_occurrence_survive_chapter_encoding)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/taozeyu/.local/share/uv/python/cpython-3.11.15-macos-aarch64-none/lib/python3.11/unittest/async_case.py", line 90, in _callTestMethod
+    if self._callMaybeAsync(method) is not None:
+       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/taozeyu/.local/share/uv/python/cpython-3.11.15-macos-aarch64-none/lib/python3.11/unittest/async_case.py", line 117, in _callMaybeAsync
+    return self._asyncioTestContext.run(func, *args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/taozeyu/codes/github.com/oomol-lab/pdf-craft/.vge/worktrees/vge-788/tests/test_footnote_contracts.py", line 87, in test_f3_star_definition_and_occurrence_survive_chapter_encoding
+    self.assertEqual(len(root.findall('./references/ref')), 1)
+AssertionError: 0 != 1
+
+======================================================================
+FAIL: test_f4_reclassification_restores_detached_printed_mark (tests.test_footnote_contracts.FootnoteContractTests.test_f4_reclassification_restores_detached_printed_mark)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/taozeyu/.local/share/uv/python/cpython-3.11.15-macos-aarch64-none/lib/python3.11/unittest/async_case.py", line 90, in _callTestMethod
+    if self._callMaybeAsync(method) is not None:
+       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/taozeyu/.local/share/uv/python/cpython-3.11.15-macos-aarch64-none/lib/python3.11/unittest/async_case.py", line 117, in _callMaybeAsync
+    return self._asyncioTestContext.run(func, *args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/taozeyu/codes/github.com/oomol-lab/pdf-craft/.vge/worktrees/vge-788/tests/test_footnote_contracts.py", line 102, in test_f4_reclassification_restores_detached_printed_mark
+    self.assertEqual(''.join(texts[-1]), '① Footnote.')
+AssertionError: 'Footnote.' != '① Footnote.'
+- Footnote.
++ ① Footnote.
+? ++
+
+
+======================================================================
+FAIL: test_f5_reclassification_preserves_source_reading_position (tests.test_footnote_contracts.FootnoteContractTests.test_f5_reclassification_preserves_source_reading_position)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/taozeyu/.local/share/uv/python/cpython-3.11.15-macos-aarch64-none/lib/python3.11/unittest/async_case.py", line 90, in _callTestMethod
+    if self._callMaybeAsync(method) is not None:
+       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/taozeyu/.local/share/uv/python/cpython-3.11.15-macos-aarch64-none/lib/python3.11/unittest/async_case.py", line 117, in _callMaybeAsync
+    return self._asyncioTestContext.run(func, *args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/taozeyu/codes/github.com/oomol-lab/pdf-craft/.vge/worktrees/vge-788/tests/test_footnote_contracts.py", line 118, in test_f5_reclassification_preserves_source_reading_position
+    self.assertEqual([f.bbox[1] for t in restore_streams([repaired]).paragraphs
+AssertionError: Lists differ: [0, 70, 35] != [0, 35, 70]
+
+First differing element 1:
+70
+35
+
+- [0, 70, 35]
++ [0, 35, 70]
+
+======================================================================
+FAIL: test_f7_missing_metadata_is_repaired_inside_guaranteed_json (tests.test_footnote_contracts.FootnoteContractTests.test_f7_missing_metadata_is_repaired_inside_guaranteed_json) (field='paragraph_role')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/taozeyu/codes/github.com/oomol-lab/pdf-craft/.vge/worktrees/vge-788/tests/test_footnote_contracts.py", line 153, in test_f7_missing_metadata_is_repaired_inside_guaranteed_json
+    self.assertEqual(attempts, [0, 1])
+AssertionError: Lists differ: [0] != [0, 1]
+
+Second list contains 1 additional elements.
+First extra element 1:
+1
+
+- [0]
++ [0, 1]
+
+======================================================================
+FAIL: test_f7_missing_metadata_is_repaired_inside_guaranteed_json (tests.test_footnote_contracts.FootnoteContractTests.test_f7_missing_metadata_is_repaired_inside_guaranteed_json) (field='paragraph_level')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/taozeyu/codes/github.com/oomol-lab/pdf-craft/.vge/worktrees/vge-788/tests/test_footnote_contracts.py", line 153, in test_f7_missing_metadata_is_repaired_inside_guaranteed_json
+    self.assertEqual(attempts, [0, 1])
+AssertionError: Lists differ: [0] != [0, 1]
+
+Second list contains 1 additional elements.
+First extra element 1:
+1
+
+- [0]
++ [0, 1]
+
+======================================================================
+FAIL: test_f8_pdf_replacements_include_translated_footnote_once (tests.test_footnote_contracts.FootnoteContractTests.test_f8_pdf_replacements_include_translated_footnote_once)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/taozeyu/.local/share/uv/python/cpython-3.11.15-macos-aarch64-none/lib/python3.11/unittest/async_case.py", line 90, in _callTestMethod
+    if self._callMaybeAsync(method) is not None:
+       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/taozeyu/.local/share/uv/python/cpython-3.11.15-macos-aarch64-none/lib/python3.11/unittest/async_case.py", line 117, in _callMaybeAsync
+    return self._asyncioTestContext.run(func, *args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/taozeyu/codes/github.com/oomol-lab/pdf-craft/.vge/worktrees/vge-788/tests/test_footnote_contracts.py", line 168, in test_f8_pdf_replacements_include_translated_footnote_once
+    self.assertEqual([r.text for r in replacements],
+AssertionError: Lists differ: ['Translated body①①'] != ['Translated body①①', 'Translated note']
+
+Second list contains 1 additional elements.
+First extra element 1:
+'Translated note'
+
+- ['Translated body①①']
++ ['Translated body①①', 'Translated note']
+
+----------------------------------------------------------------------
+Ran 8 tests in 0.016s
+
+FAILED (failures=8, errors=1)

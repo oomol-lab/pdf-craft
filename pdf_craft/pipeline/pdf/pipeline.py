@@ -9,7 +9,7 @@ from pdf_craft.common import read_xml
 from pdf_craft.runtime import IO_DOMAIN, worker_context
 from pdf_craft.extractor.chapter.chapter import (
     Chapter, DisplayFormula, SourceAsset, SourceTextFragment, StandaloneAsset,
-    TextFlowItem,
+    TextFlowItem, narrative_texts, search_references_in_chapter,
 )
 from pdf_craft.extractor.chapter.chapter import InlineExpression, Reference
 from pdf_craft.extractor.chapter.reader import create_chapters_reader
@@ -92,13 +92,21 @@ class PDFTranslationPipeline:
         """
         obstacles: list[PDFReplacementRegion] = []
         translated_narrative: list[tuple[TextFlowItem, tuple[PDFReplacementRegion, ...]]] = []
+        seen_text_sources = set()
+        prefixes = {}
         for chapter in chapters:
+            for reference in search_references_in_chapter(chapter):
+                first_text = next((item for item in reference.flow_items if isinstance(item, TextFlowItem)), None)
+                if first_text is not None:
+                    prefixes[id(first_text)] = str(reference.mark) + " "
             obstacles.extend(_chapter_obstacle_regions(
-                chapter, pages, render_dpi, ignore_errors=ignore_errors,
+                chapter, pages, render_dpi, ignore_errors=ignore_errors, include_reference_text=False,
             ))
-            for layout in chapter.flow_items:
+            for layout in narrative_texts(chapter):
                 if not isinstance(layout, TextFlowItem) or layout.role not in {"body", "heading"}:
                     continue
+                source_key = tuple((child.page_index, child.source_order, child.bbox)
+                                   for child in layout.children if isinstance(child, SourceTextFragment))
                 identity = paragraph_identity(chapter, layout)
                 if identity is None:
                     continue
@@ -107,7 +115,9 @@ class PDFTranslationPipeline:
                 if not regions:
                     continue
                 if coverage.narrative.get(identity) == "translated":
-                    translated_narrative.append((layout, regions))
+                    if source_key not in seen_text_sources:
+                        translated_narrative.append((layout, regions))
+                        seen_text_sources.add(source_key)
                 else:
                     obstacles.extend(regions)
 
@@ -140,13 +150,16 @@ class PDFTranslationPipeline:
                     else:
                         obstacles.append(region)
 
-        shared_obstacles = _unique_regions(obstacles)
+        translated_boxes = {(region.page_index, region.bbox)
+                            for _layout, regions in translated_narrative for region in regions}
+        shared_obstacles = _unique_regions([region for region in obstacles
+                                            if (region.page_index, region.bbox) not in translated_boxes])
         replacements: list[PDFReplacement] = []
         for layout, regions in translated_narrative:
             patch_text, inline_formulas = _to_pdf_patch_content(
                 iter_continuous_content(layout)
             )
-            patch_text = patch_text.strip()
+            patch_text = prefixes.get(id(layout), "") + patch_text.strip()
             if not patch_text:
                 continue
             first = regions[0]
@@ -340,6 +353,7 @@ def _chapter_obstacle_regions(
     render_dpi: int,
     *,
     ignore_errors: IgnoreFillErrorsChecker = False,
+    include_reference_text: bool = True,
 ) -> tuple[PDFReplacementRegion, ...]:
     """Collect non-flow geometry that may stop text from extending downward.
 
@@ -404,7 +418,7 @@ def _chapter_obstacle_regions(
             return
         seen_references.add(reference.id)
         for item in reference.flow_items:
-            visit_flow_item(item, text_obstacle=True)
+            visit_flow_item(item, text_obstacle=include_reference_text)
 
     def visit_references(items) -> None:
         for item in flatten(items):
@@ -413,6 +427,8 @@ def _chapter_obstacle_regions(
 
     for item in chapter.flow_items:
         visit_flow_item(item)
+    for reference in search_references_in_chapter(chapter):
+        visit_reference(reference)
 
     return tuple(regions)
 

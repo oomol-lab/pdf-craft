@@ -28,12 +28,29 @@ RefIdMap = dict[tuple[int, int], int]
 FlowAssetRef: TypeAlias = Literal["image", "table", "formula"]
 
 
+@dataclass(frozen=True)
+class TextSource:
+    """OCR source captured before semantic projection and word joining.
+
+    stream_order is local to OCR's classification; source_order belongs to
+    the persisted page namespace. Neither is the reading position.
+    """
+
+    stream: str
+    stream_order: int
+    reading_order: int
+    classification: str
+    text: str
+    content: tuple
+
+
 @dataclass
 class SourceTextFragment:
     page_index: int
     source_order: int
     bbox: tuple[int, int, int, int]
     content: Content
+    source: TextSource | None = field(default=None, compare=False, repr=False)
 
 @dataclass
 class SourceAsset:
@@ -44,6 +61,7 @@ class SourceAsset:
     content: Content = field(default_factory=list)
     caption: Content = field(default_factory=list)
     asset_hash: str | None = None
+    reading_order: int | None = field(default=None, compare=False, repr=False)
 
     def __post_init__(self) -> None:
         if self.ref not in {"image", "table", "formula"}:
@@ -99,6 +117,7 @@ class Chapter:
     id: int | None
     level: int
     flow_items: list[FlowItem]
+    definitions: list["Reference"] = field(default_factory=list)
 
     def __post_init__(self) -> None:
         _validate_flow_items(self.flow_items)
@@ -122,9 +141,20 @@ def references_to_map(references: Iterable[Reference]) -> RefIdMap:
 
 def search_references_in_chapter(chapter: Chapter) -> Generator[Reference, None, None]:
     seen: set[tuple[int, int]] = set()
-    for part in _parts(chapter.flow_items):
+    for part in [*_parts(chapter.flow_items), *chapter.definitions]:
         if isinstance(part, Reference) and part.id not in seen:
             seen.add(part.id); yield part
+
+
+def narrative_texts(chapter: Chapter) -> Generator[TextFlowItem, None, None]:
+    """Visit each narrative paragraph and each definition exactly once."""
+    for item in chapter.flow_items:
+        if isinstance(item, TextFlowItem):
+            yield item
+    for reference in search_references_in_chapter(chapter):
+        for item in reference.flow_items:
+            if isinstance(item, TextFlowItem):
+                yield item
 
 
 def decode(element: Element, *, allow_legacy: bool = True) -> Chapter:
@@ -146,7 +176,7 @@ def decode(element: Element, *, allow_legacy: bool = True) -> Chapter:
                 raise ValueError("PCEX v3 chapter can contain at most one <references>")
         if not allow_legacy and any(asset.get("ref") == "equation" for asset in flow.iter("asset")):
             raise ValueError("PCEX v3 uses asset ref='formula', not legacy 'equation'")
-        return Chapter(ident, level, [_decode_flow(v, refs, allow_legacy=allow_legacy) for v in flow])
+        return Chapter(ident, level, [_decode_flow(v, refs, allow_legacy=allow_legacy) for v in flow], list(refs.values()))
     # v1/v2 in-memory migration; historic sibling assets cannot acquire a
     # fictional nested relation, but formulas become explicit boundaries.
     body = element.find("body")
@@ -157,7 +187,7 @@ def decode(element: Element, *, allow_legacy: bool = True) -> Chapter:
         if child.tag == "paragraph": items.append(_legacy_paragraph(child, refs))
         elif child.tag == "asset": items.append(_asset_flow(_asset(child, refs, allow_legacy=True)))
         else: raise ValueError(f"<body> contains unknown element: <{child.tag}>")
-    return Chapter(ident, level, items)
+    return Chapter(ident, level, items, list(refs.values()))
 
 
 def encode(chapter: Chapter) -> Element:

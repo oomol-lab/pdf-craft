@@ -1,3 +1,4 @@
+import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Generator, Iterable, Mapping
@@ -8,7 +9,7 @@ from ..toc import Toc, TocInfo, iter_toc
 from .analyse_level import analyse_chapter_internal_levels
 from .chapter import (
     Chapter, DisplayFormula, FlowItem, Reference, SourceAsset,
-    SourceTextFragment, StandaloneAsset, TextFlowItem, encode,
+    SourceTextFragment, StandaloneAsset, TextFlowItem, encode, search_references_in_chapter,
 )
 from .content import expand_text_in_content, join_texts_in_content
 from .jointer import Jointer
@@ -18,6 +19,7 @@ from .page_analysis import PageAnalysis, UnindexedCitation, analyse_pages, resto
 from .page_review import load_page_pixel_sizes
 from .punctuation import normalize_punctuation_in_chapter
 from .reference import References, extract_head_mark
+from .source import capture_sources
 
 
 @dataclass(frozen=True)
@@ -60,17 +62,31 @@ def _generate_chapters(
     toc: TocInfo,
     analysed_pages: Iterable[PageAnalysis] | None = None,
 ) -> Generator[Chapter, None, None]:
+    pages = list(analysed_pages) if analysed_pages is not None else _analyse_chapter_pages(pages_path, toc)[1]
+    restored = restore_streams(pages)
+    chapters = list(_partition_chapters(restored.paragraphs, toc))
+    reachable = {reference.id for chapter in chapters
+                 for reference in search_references_in_chapter(chapter)}
+    for reference in restored.citations:
+        if reference.id in reachable:
+            continue
+        candidates = [chapter for chapter in chapters if any(
+            isinstance(item, TextFlowItem) and any(
+                child.page_index <= reference.page_index for child in item.children
+            ) for item in chapter.flow_items)]
+        if not chapters:
+            chapters.append(Chapter(None, -1, []))
+        (candidates[-1] if candidates else chapters[0]).definitions.append(reference)
+    yield from chapters
+
+
+def _partition_chapters(body_layouts, toc: TocInfo) -> Generator[Chapter, None, None]:
     chapter: Chapter | None = None
     ref2toc: dict[tuple[int, int], Toc] = {}
 
     for item in iter_toc(toc.content):
         ref2toc[(item.page_index, item.order)] = item
 
-    body_layouts = (
-        _extract_body_layouts(pages_path, toc)
-        if analysed_pages is None
-        else restore_streams(analysed_pages).paragraphs
-    )
     for layout in _assemble_flow_items(body_layouts):
         matched_toc = False
         if (
@@ -164,11 +180,12 @@ def _resolve_pages(
     """Run the traditional algorithms up to the reversible page boundary."""
 
     page_list = list(pages)
+    sources = capture_sources(page_list)
     body_jointer = Jointer(
-        (page.index, page.body_layouts) for page in page_list
+        ((page.index, page.body_layouts) for page in page_list), sources
     )
     footnotes_jointer = Jointer(
-        (page.index, page.footnotes_layouts) for page in page_list
+        ((page.index, page.footnotes_layouts) for page in page_list), sources
     )
     page_references = list(_extract_page_references(footnotes_jointer))
     references_generator = iter(page_references)
@@ -329,6 +346,15 @@ def _split_reference_origins(
     )
 def _replace_mark_with_reference(references: References, block: SourceTextFragment):
     def expand(text: str):
+        # Asterisks form a marker domain too; match maximal runs so ** is
+        # never consumed as two occurrences of *.
+        for part in re.split(r"(?<!\*)(\*{1,6})(?!\*)", text):
+            if re.fullmatch(r"\*{1,6}", part):
+                yield references.get(part) or part
+            else:
+                yield from expand_numbered(part)
+
+    def expand_numbered(text: str):
         for item in search_marks(text):
             reference: Reference | None = None
             if isinstance(item, Mark):

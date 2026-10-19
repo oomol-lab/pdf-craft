@@ -39,14 +39,14 @@ JEV_QUESTION: dict[str, Any] = {
             ],
             "citation_standard": [
                 "citation index 是页内索引：本页新开始的 citation 从 1 连续递增；mark 可为数字、圈号、字母、星号或其他符号。",
-                "index 为 null 只表示上一页 citation 在本页的后半段：它不应以新的 citation mark 开头，并且语义必须自然承接上一页 citation。",
+                "index 为 null 的片段可为已知跨页定义的续段，也可为没有确定起点的 unresolved 内容；不能擅自猜测归属或丢弃。",
                 "如果本页脚注出现新的 mark，必须是本页 indexed citation，不能作为上一页 citation 的无索引延续。",
                 "一条 citation 可由多个 layouts 组成；owned_layout_count 大于 1 本身完全合法。",
                 "无索引 continuation 必须排在本页 indexed citations 之前；页面也可以完全没有 citation。",
             ],
             "reference_standard": [
                 "正文 raw_text 中的真实引用标记应在 analysed_text 相同语义位置变成 ⟦REF⟧，references 给出其目标。",
-                "每个正文 ref 必须指向存在的本页 citation index；本页 indexed citation 的索引集合必须与正文 ref 覆盖的索引集合一致。重复引用同一 citation 可以合法。",
+                "每个正文 ref 必须指向存在的本页 citation index。一条定义允许重复引用；未匹配定义仍须保留，不能仅因缺少 ref 就将其丢弃。",
                 "标记与 citation 必须在语义上对应；不要把普通序号、列表编号或正文符号误当成 ref。",
                 "不要因为 OCR 标点、空格或个别错字而判错，除非它导致 ownership、gap、mark 或 ref 语义错误。",
             ],
@@ -256,7 +256,8 @@ def _layout_packet(
             if annotations.ownership == "paragraph"
             else page.footnotes_layouts
         )
-        raw_text = (
+        origin = getattr(source, "origin", None)
+        raw_text = origin.text if origin is not None else (
             raw_layouts[source_order].text
             if source_order < len(raw_layouts)
             else _content_text(source.content)

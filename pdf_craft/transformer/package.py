@@ -20,7 +20,7 @@ from pdf_craft.document.package import (
 )
 from pdf_craft.runtime import IO_DOMAIN, invoke_callback
 from pdf_craft.extractor.chapter.chapter import (
-    SourceTextFragment, TextFlowItem, decode, encode,
+    SourceTextFragment, TextFlowItem, decode, encode, narrative_texts,
 )
 from pdf_craft.transformer.protocol import _ChapterTransformer
 from pdf_craft.transformer.events import TranslationEvent, TranslationEventKind, TranslationItemKind
@@ -116,14 +116,14 @@ class ChapterExtractionTransformer:
             await IO_DOMAIN.run(save_xml, encode(transformed), path)
             source_layouts = {
                 identity: layout
-                for layout in chapter.flow_items
+                for layout in narrative_texts(chapter)
                 if isinstance(layout, TextFlowItem)
                 and layout.role in {"body", "heading"}
                 and (identity := paragraph_identity(chapter, layout)) is not None
             }
             targets = {
                 identity: layout
-                for layout in transformed.flow_items
+                for layout in narrative_texts(transformed)
                 if isinstance(layout, TextFlowItem)
                 and (identity := paragraph_identity(transformed, layout)) is not None
             }

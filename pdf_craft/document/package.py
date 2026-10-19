@@ -335,7 +335,7 @@ def _validate_workspace(paths: ExtractionPaths, *, require_toc: bool = False) ->
     # Import lazily because the extractor package imports the public document API.
     from ..extractor.chapter.chapter import (
         SourceAsset, SourceTextFragment, StandaloneAsset, TextFlowItem,
-        decode as decode_chapter,
+        decode as decode_chapter, narrative_texts,
     )
     from ..extractor.toc.types import decode as decode_toc
 
@@ -408,7 +408,7 @@ def _validate_workspace(paths: ExtractionPaths, *, require_toc: bool = False) ->
                 raise ValueError(f"{path.name} contains duplicate reference identity {identity}")
             reference_identities.add(identity)
         chapter_structures[path.name] = _chapter_structure(root)
-        for item in chapter.flow_items:
+        for item in narrative_texts(chapter):
             if not isinstance(item, TextFlowItem) or item.role not in {"body", "heading"}:
                 continue
             first = next((child for child in item.children if isinstance(child, SourceTextFragment)), None)

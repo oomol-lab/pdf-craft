@@ -254,7 +254,7 @@ class PageAnalysisTests(unittest.TestCase):
         self.assertTrue(continuation.continues_from_previous)
         self.assertEqual(restored.citations, [continued, empty])
 
-    def test_unindexed_citation_is_retained_but_legacy_restore_omits_it(self):
+    def test_unindexed_citation_is_preserved_as_unresolved_narrative(self):
         orphaned = TextFlowItem(
             "body",
             -1,
@@ -273,6 +273,8 @@ class PageAnalysisTests(unittest.TestCase):
         self.assertIsNone(pages[0].citations[0].index)
         self.assertIsNone(pages[0].layouts[0].citation_index)
         self.assertEqual(restored.citations, [])
+
+        self.assertEqual(restored.paragraphs, [orphaned])
 
     def test_unindexed_citations_must_precede_page_local_indexes(self):
         mark = transform2mark("①")
@@ -442,6 +444,9 @@ class PageAnalysisTests(unittest.TestCase):
                 )),
             )
 
+            orphan = projected.flow_items.pop(1)
+            assert isinstance(orphan, TextFlowItem)
+            self.assertEqual(orphan.children[0].content, ["orphaned preface."])
             self.assertEqual(tostring(encode(projected)), tostring(encode(legacy)))
             self.assertEqual(
                 [type(item) for item in projected.flow_items],
