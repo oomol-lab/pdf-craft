@@ -1,0 +1,304 @@
+FF.F                                                                     [100%]
+=================================== FAILURES ===================================
+_____________ OneShotSubmissionTests.test_append_block_public_epub _____________
+
+awaitable = <coroutine object AsyncPDFCraft.convert_pdf_to_epub at 0x10c5728c0>
+
+    def run_sync(awaitable: Awaitable[R]) -> R:
+        """Run an async SDK operation from the synchronous facade."""
+        try:
+>           asyncio.get_running_loop()
+E           RuntimeError: no running event loop
+
+pdf_craft/runtime.py:211: RuntimeError
+
+During handling of the above exception, another exception occurred:
+
+self = <tests.test_one_shot_submission.OneShotSubmissionTests testMethod=test_append_block_public_epub>
+
+    def test_append_block_public_epub(self):
+        with tempfile.TemporaryDirectory() as directory:
+>           output = self.convert(Path(directory), 'epub', SubmitKind.APPEND_BLOCK, sync=True)
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/test_one_shot_submission.py:100: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/test_one_shot_submission.py:83: in convert
+    result = call('unused.pdf', output, translator=DeterministicTranslator(), submit=mode)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+pdf_craft/sync/craft.py:211: in convert_pdf_to_epub
+    return run_sync(self._async_craft.convert_pdf_to_epub(
+pdf_craft/runtime.py:215: in run_sync
+    return asyncio.run(wait())
+           ^^^^^^^^^^^^^^^^^^^
+/Users/taozeyu/.pyenv/versions/3.13.14/lib/python3.13/asyncio/runners.py:196: in run
+    return runner.run(main)
+           ^^^^^^^^^^^^^^^^
+/Users/taozeyu/.pyenv/versions/3.13.14/lib/python3.13/asyncio/runners.py:119: in run
+    return self._loop.run_until_complete(task)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/Users/taozeyu/.pyenv/versions/3.13.14/lib/python3.13/asyncio/base_events.py:725: in run_until_complete
+    return future.result()
+           ^^^^^^^^^^^^^^^
+pdf_craft/runtime.py:214: in wait
+    return await awaitable
+           ^^^^^^^^^^^^^^^
+pdf_craft/craft.py:433: in convert_pdf_to_epub
+    document = await self._translate_to_workspace(
+pdf_craft/craft.py:496: in _translate_to_workspace
+    translated = await ChapterExtractionTransformer(
+pdf_craft/transformer/package.py:200: in _transform_to_workspace_async
+    result = await IO_DOMAIN.run(
+pdf_craft/runtime.py:48: in run
+    return await asyncio.shield(future)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/Users/taozeyu/.pyenv/versions/3.13.14/lib/python3.13/concurrent/futures/thread.py:59: in run
+    result = self.fn(*self.args, **self.kwargs)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+pdf_craft/transformer/package.py:249: in _finish_async_workspace
+    return PDFCraftExtraction._from_workspace(output_path)._validate()
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+pdf_craft/document/package.py:187: in _validate
+    _validate_workspace(paths, require_toc=require_toc)
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+paths = ExtractionPaths(root=PosixPath('/var/folders/z1/mv6k1h1n5fd41cypgbwm0s7w0000gn/T/pdf-craft-translated-extraction-w0_5p...th('/var/folders/z1/mv6k1h1n5fd41cypgbwm0s7w0000gn/T/pdf-craft-translated-extraction-w0_5p6h2/narrative/translations'))
+
+    def _validate_workspace(paths: ExtractionPaths, *, require_toc: bool = False) -> None:
+        # Import lazily because the extractor package imports the public document API.
+        from ..extractor.chapter.chapter import (
+            SourceAsset, SourceTextFragment, StandaloneAsset, TextFlowItem,
+            decode as decode_chapter, narrative_texts,
+        )
+        from ..extractor.toc.types import decode as decode_toc
+    
+        manifest = _read_manifest(paths.manifest)
+        _, page_sizes = _read_pages(paths.pages)
+        if not paths.chapters.is_dir():
+            raise ValueError("PDFCraftExtraction is missing chapters directory")
+        if not paths.assets.is_dir():
+            raise ValueError("PDFCraftExtraction is missing assets directory")
+        if require_toc and not paths.toc.is_file():
+            raise ValueError("PDFCraftExtraction is missing toc.xml")
+        toc_ids: set[int] = set()
+        if paths.toc.exists():
+            toc_root = _require_xml_root(paths.toc, "toc")
+            try:
+                toc = decode_toc(toc_root)
+            except ValueError as error:
+                raise ValueError(f"invalid toc schema in {paths.toc.name}: {error}") from error
+            stack = list(toc.content)
+            while stack:
+                item = stack.pop()
+                if item.id in toc_ids:
+                    raise ValueError(f"toc.xml contains duplicate item id {item.id}")
+                toc_ids.add(item.id)
+                stack.extend(item.children)
+        if paths.furnitures.exists():
+            _validate_furnitures(paths.furnitures, page_sizes, toc_ids)
+        if paths.cover.exists() and not paths.cover.is_file():
+            raise ValueError("PDFCraftExtraction cover.png is not a file")
+        _validate_workspace_members(paths)
+    
+        chapter_paths = list(paths.chapters.glob("chapter_*.xml"))
+        narrative_identities: set[tuple[str, str, str]] = set()
+        anchored_identities: set[tuple[str, int, int]] = set()
+        chapter_structures: dict[str, tuple[Any, ...]] = {}
+        seen_chapter_ids: set[str] = set()
+        for path in chapter_paths:
+            if path.name != "chapter_head.xml":
+                suffix = path.stem.removeprefix("chapter_")
+                if not suffix.isdigit():
+                    raise ValueError(f"invalid chapter filename: {path.name}")
+            root = _require_xml_root(path, "chapter")
+            try:
+                chapter = decode_chapter(root, allow_legacy=manifest["format_version"] in {1, 2})
+            except ValueError as error:
+                raise ValueError(f"invalid chapter schema in {path.name}: {error}") from error
+            chapter_identity = str(chapter.id) if chapter.id is not None else "head"
+            expected_identity = (
+                "head" if path.name == "chapter_head.xml"
+                else path.stem.removeprefix("chapter_")
+            )
+            if chapter_identity != expected_identity:
+                raise ValueError(f"{path.name} does not match its chapter id")
+            if chapter_identity in seen_chapter_ids:
+                raise ValueError(f"{path.name} has a duplicate chapter id")
+            seen_chapter_ids.add(chapter_identity)
+            fragment_identities: set[tuple[str, str]] = set()
+            for fragment in root.iter("fragment"):
+                identity = (fragment.get("page_index", ""), fragment.get("source_order", ""))
+                if identity in fragment_identities:
+>                   raise ValueError(f"{path.name} contains duplicate fragment identity {identity}")
+E                   ValueError: chapter_1.xml contains duplicate fragment identity ('1', '0')
+
+pdf_craft/document/package.py:399: ValueError
+___________ OneShotSubmissionTests.test_append_block_public_markdown ___________
+
+self = <tests.test_one_shot_submission.OneShotSubmissionTests testMethod=test_append_block_public_markdown>
+
+    def test_append_block_public_markdown(self):
+        with tempfile.TemporaryDirectory() as directory:
+>           output = self.convert(Path(directory), 'md', SubmitKind.APPEND_BLOCK)
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/test_one_shot_submission.py:93: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/test_one_shot_submission.py:85: in convert
+    asyncio.run(result)
+/Users/taozeyu/.pyenv/versions/3.13.14/lib/python3.13/asyncio/runners.py:196: in run
+    return runner.run(main)
+           ^^^^^^^^^^^^^^^^
+/Users/taozeyu/.pyenv/versions/3.13.14/lib/python3.13/asyncio/runners.py:119: in run
+    return self._loop.run_until_complete(task)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/Users/taozeyu/.pyenv/versions/3.13.14/lib/python3.13/asyncio/base_events.py:725: in run_until_complete
+    return future.result()
+           ^^^^^^^^^^^^^^^
+pdf_craft/craft.py:396: in convert_pdf_to_markdown
+    document = await self._translate_to_workspace(
+pdf_craft/craft.py:496: in _translate_to_workspace
+    translated = await ChapterExtractionTransformer(
+pdf_craft/transformer/package.py:200: in _transform_to_workspace_async
+    result = await IO_DOMAIN.run(
+pdf_craft/runtime.py:48: in run
+    return await asyncio.shield(future)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/Users/taozeyu/.pyenv/versions/3.13.14/lib/python3.13/concurrent/futures/thread.py:59: in run
+    result = self.fn(*self.args, **self.kwargs)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+pdf_craft/transformer/package.py:249: in _finish_async_workspace
+    return PDFCraftExtraction._from_workspace(output_path)._validate()
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+pdf_craft/document/package.py:187: in _validate
+    _validate_workspace(paths, require_toc=require_toc)
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+paths = ExtractionPaths(root=PosixPath('/var/folders/z1/mv6k1h1n5fd41cypgbwm0s7w0000gn/T/pdf-craft-translated-extraction-81dna...th('/var/folders/z1/mv6k1h1n5fd41cypgbwm0s7w0000gn/T/pdf-craft-translated-extraction-81dnatsd/narrative/translations'))
+
+    def _validate_workspace(paths: ExtractionPaths, *, require_toc: bool = False) -> None:
+        # Import lazily because the extractor package imports the public document API.
+        from ..extractor.chapter.chapter import (
+            SourceAsset, SourceTextFragment, StandaloneAsset, TextFlowItem,
+            decode as decode_chapter, narrative_texts,
+        )
+        from ..extractor.toc.types import decode as decode_toc
+    
+        manifest = _read_manifest(paths.manifest)
+        _, page_sizes = _read_pages(paths.pages)
+        if not paths.chapters.is_dir():
+            raise ValueError("PDFCraftExtraction is missing chapters directory")
+        if not paths.assets.is_dir():
+            raise ValueError("PDFCraftExtraction is missing assets directory")
+        if require_toc and not paths.toc.is_file():
+            raise ValueError("PDFCraftExtraction is missing toc.xml")
+        toc_ids: set[int] = set()
+        if paths.toc.exists():
+            toc_root = _require_xml_root(paths.toc, "toc")
+            try:
+                toc = decode_toc(toc_root)
+            except ValueError as error:
+                raise ValueError(f"invalid toc schema in {paths.toc.name}: {error}") from error
+            stack = list(toc.content)
+            while stack:
+                item = stack.pop()
+                if item.id in toc_ids:
+                    raise ValueError(f"toc.xml contains duplicate item id {item.id}")
+                toc_ids.add(item.id)
+                stack.extend(item.children)
+        if paths.furnitures.exists():
+            _validate_furnitures(paths.furnitures, page_sizes, toc_ids)
+        if paths.cover.exists() and not paths.cover.is_file():
+            raise ValueError("PDFCraftExtraction cover.png is not a file")
+        _validate_workspace_members(paths)
+    
+        chapter_paths = list(paths.chapters.glob("chapter_*.xml"))
+        narrative_identities: set[tuple[str, str, str]] = set()
+        anchored_identities: set[tuple[str, int, int]] = set()
+        chapter_structures: dict[str, tuple[Any, ...]] = {}
+        seen_chapter_ids: set[str] = set()
+        for path in chapter_paths:
+            if path.name != "chapter_head.xml":
+                suffix = path.stem.removeprefix("chapter_")
+                if not suffix.isdigit():
+                    raise ValueError(f"invalid chapter filename: {path.name}")
+            root = _require_xml_root(path, "chapter")
+            try:
+                chapter = decode_chapter(root, allow_legacy=manifest["format_version"] in {1, 2})
+            except ValueError as error:
+                raise ValueError(f"invalid chapter schema in {path.name}: {error}") from error
+            chapter_identity = str(chapter.id) if chapter.id is not None else "head"
+            expected_identity = (
+                "head" if path.name == "chapter_head.xml"
+                else path.stem.removeprefix("chapter_")
+            )
+            if chapter_identity != expected_identity:
+                raise ValueError(f"{path.name} does not match its chapter id")
+            if chapter_identity in seen_chapter_ids:
+                raise ValueError(f"{path.name} has a duplicate chapter id")
+            seen_chapter_ids.add(chapter_identity)
+            fragment_identities: set[tuple[str, str]] = set()
+            for fragment in root.iter("fragment"):
+                identity = (fragment.get("page_index", ""), fragment.get("source_order", ""))
+                if identity in fragment_identities:
+>                   raise ValueError(f"{path.name} contains duplicate fragment identity {identity}")
+E                   ValueError: chapter_1.xml contains duplicate fragment identity ('1', '0')
+
+pdf_craft/document/package.py:399: ValueError
+_______ OneShotSubmissionTests.test_three_modes_both_facades_and_formats _______
+
+self = <tests.test_one_shot_submission.OneShotSubmissionTests testMethod=test_three_modes_both_facades_and_formats>
+
+    def test_three_modes_both_facades_and_formats(self):
+        for sync in (False, True):
+            for kind in ('md', 'epub'):
+                for mode in SubmitKind:
+                    with self.subTest(sync=sync, kind=kind, mode=mode), tempfile.TemporaryDirectory() as d:
+                        output = self.convert(Path(d), kind, mode, sync=sync)
+                        if kind == 'epub':
+                            paragraphs = blocks(output)
+                            text = '\n'.join(''.join(doc.itertext()) for doc in epub_documents(output))
+                        else:
+                            text = output.read_text()
+                            paragraphs = text.split('\n\n')
+                        for word in ('Titre', 'Premier', 'Deuxieme', 'Suivant', 'Annotation', 'Legende', 'Same'):
+>                           self.assertIn(word, text)
+E                           AssertionError: 'Legende' not found in '## Titre\n\nPremier[^1]Deuxieme\n\n![](assets/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.png)\n\nCaption\n\nSuivant\n\nSame\n\n---\n\n## References\n\n[^1]:  Annotation'
+
+tests/test_one_shot_submission.py:119: AssertionError
+=============================== warnings summary ===============================
+tests/test_one_shot_submission.py: 28 warnings
+  /Users/taozeyu/codes/github.com/oomol-lab/pdf-craft/.vge/worktrees/vge-793/pdf_craft/document/package.py:403: DeprecationWarning: Testing an element's truth value will always return True in future versions.  Use specific 'len(elem)' or 'elem is not None' test instead.
+    for reference in references or []:
+
+tests/test_one_shot_submission.py: 38 warnings
+  /Users/taozeyu/codes/github.com/oomol-lab/pdf-craft/.vge/worktrees/vge-793/pdf_craft/document/package.py:711: DeprecationWarning: Testing an element's truth value will always return True in future versions.  Use specific 'len(elem)' or 'elem is not None' test instead.
+    tuple(_flow_item_structure(item) for item in flow or []),
+
+tests/test_one_shot_submission.py: 38 warnings
+  /Users/taozeyu/codes/github.com/oomol-lab/pdf-craft/.vge/worktrees/vge-793/pdf_craft/document/package.py:721: DeprecationWarning: Testing an element's truth value will always return True in future versions.  Use specific 'len(elem)' or 'elem is not None' test instead.
+    for reference in references or []
+
+tests/test_one_shot_submission.py: 38 warnings
+  /Users/taozeyu/codes/github.com/oomol-lab/pdf-craft/.vge/worktrees/vge-793/pdf_craft/document/package.py:718: DeprecationWarning: Testing an element's truth value will always return True in future versions.  Use specific 'len(elem)' or 'elem is not None' test instead.
+    for item in (reference.find("flow") or [])
+
+tests/test_one_shot_submission.py: 18 warnings
+  /Users/taozeyu/codes/github.com/oomol-lab/pdf-craft/.vge/worktrees/vge-793/pdf_craft/document/package.py:911: DeprecationWarning: Testing an element's truth value will always return True in future versions.  Use specific 'len(elem)' or 'elem is not None' test instead.
+    for entry in narrative or []:
+
+tests/test_one_shot_submission.py::OneShotSubmissionTests::test_stored_layers_keep_source_identities_and_allow_all_render_styles
+tests/test_one_shot_submission.py::OneShotSubmissionTests::test_three_modes_both_facades_and_formats
+  /Users/taozeyu/codes/github.com/oomol-lab/pdf-craft/.vge/worktrees/vge-793/pdf_craft/transformer/xml_translator/xml_translator/submitter.py:159: DeprecationWarning: Testing an element's truth value will always return True in future versions.  Use specific 'len(elem)' or 'elem is not None' test instead.
+    if node.raw_element:
+
+tests/test_one_shot_submission.py: 20 warnings
+  /Users/taozeyu/codes/github.com/oomol-lab/pdf-craft/.vge/worktrees/vge-793/pdf_craft/document/package.py:876: DeprecationWarning: Testing an element's truth value will always return True in future versions.  Use specific 'len(elem)' or 'elem is not None' test instead.
+    for flow_index, item in enumerate(flow or []):
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ============================
+FAILED tests/test_one_shot_submission.py::OneShotSubmissionTests::test_append_block_public_epub
+FAILED tests/test_one_shot_submission.py::OneShotSubmissionTests::test_append_block_public_markdown
+FAILED tests/test_one_shot_submission.py::OneShotSubmissionTests::test_three_modes_both_facades_and_formats
+3 failed, 1 passed, 182 warnings in 0.92s
