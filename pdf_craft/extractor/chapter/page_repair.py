@@ -569,7 +569,6 @@ def _compile_repaired_page(
         raise ValueError("\n".join(issues))
 
     spans_by_layout: dict[str, list[ReferenceSpan]] = {}
-    reference_indexes: list[int] = []
     indexed_citations = {
         citation.index: citation
         for citation in citations
@@ -616,9 +615,7 @@ def _compile_repaired_page(
                 mark_text=text[start:end],
             )
         )
-        reference_indexes.append(reference.citation_index)
 
-    # Do not emit derived bijection errors while any anchor is unresolved.
     if issues:
         raise ValueError("\n".join(issues))
 

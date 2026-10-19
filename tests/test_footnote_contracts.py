@@ -136,11 +136,13 @@ class FootnoteContractTests(unittest.IsolatedAsyncioTestCase):
         self.assertIs(occurrences[0], occurrences[1])
 
     async def test_f7_missing_metadata_is_repaired_inside_guaranteed_json(self):
-        for field in ('paragraph_role', 'paragraph_level'):
-            with self.subTest(field=field):
-                await self._check_missing_metadata(field)
+        for field, value in (('paragraph_role', None), ('paragraph_level', None),
+                             ('paragraph_role', ''), ('paragraph_role', 'unknown'),
+                             ('paragraph_level', -2), ('paragraph_level', 'bad')):
+            with self.subTest(field=field, value=value):
+                await self._check_missing_metadata(field, value)
 
-    async def _check_missing_metadata(self, field):
+    async def _check_missing_metadata(self, field, value):
         page = analyse_pages([1], [TextFlowItem('body', -1, [fragment(1, 0, 'Text')])], [])[0]
         attempts = []
 
@@ -148,7 +150,7 @@ class FootnoteContractTests(unittest.IsolatedAsyncioTestCase):
             attempts.append(index)
             proposed = response(page)
             if index == 0:
-                proposed['layouts'][0][field] = None
+                proposed['layouts'][0][field] = value
             return json.dumps(proposed)
 
         repaired = await repair_page_with_llm(

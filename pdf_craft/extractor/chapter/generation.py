@@ -348,7 +348,7 @@ def _replace_mark_with_reference(references: References, block: SourceTextFragme
     def expand(text: str):
         # Asterisks form a marker domain too; match maximal runs so ** is
         # never consumed as two occurrences of *.
-        for part in re.split(r"(\*{1,6})(?!\*)", text):
+        for part in re.split(r"(?<!\*)(\*{1,6})(?!\*)", text):
             if re.fullmatch(r"\*{1,6}", part):
                 yield references.get(part) or part
             else:

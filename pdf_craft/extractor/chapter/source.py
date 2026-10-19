@@ -17,6 +17,19 @@ def capture_sources(pages: list[Page]) -> dict[tuple[int, int], tuple[int, TextS
     for page in pages:
         ordered = list(page.body_layouts)
         for note in page.footnotes_layouts:
+            # A block spanning all columns separates reading bands. Preserve
+            # each band's established column order, rather than inserting it
+            # halfway through the left column or sorting the page by y.
+            if ordered:
+                left = min(item.det[0] for item in page.body_layouts or ordered)
+                right = max(item.det[2] for item in page.body_layouts or ordered)
+                tolerance = (right - left) * .1
+                spanning = note.det[0] <= left + tolerance and note.det[2] >= right - tolerance
+                above = [item for item in ordered if item.det[3] <= note.det[1]]
+                below = [item for item in ordered if item.det[1] >= note.det[3]]
+                if spanning and len(above) + len(below) == len(ordered):
+                    ordered = [*above, note, *below]
+                    continue
             width = max(1, note.det[2] - note.det[0])
             candidates = [item for item in ordered if
                           max(0, min(item.det[2], note.det[2]) -

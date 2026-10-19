@@ -29,25 +29,38 @@ anchored 图片/表格文字。
    FlowItem，保留文字 fragment、段内 anchored image/table 与独立段落公式的阅读顺序。
 6. 仅从该 extraction 渲染 Markdown 或 EPUB。
 
-章节生成在第 5 步内部以 TOC 排除后的 OCR `Page` 为起点：传统 join、citation 拆分与同页
-ref 匹配先产出既有的正文/citation 结果，再投影为内存中的 `PageAnalysis`，随后恢复成相同的
-两条逻辑流，最后才进入 FlowItem 组装。`PageAnalysis` 是 analysis-only 的可逆页级边界，不是
-OCR `Page`、PCEX schema 或持久化缓存；未安装后续审查器时，这次投影与恢复必须是行为无效操作。
-投影与恢复之间保留可选的异步 `PageAnalysisProcessor` hook：processor 可以按页读取相邻页语义边界，
-并返回经过审查或修正的 PageAnalysis 列表。配置带 `FootnoteRefinement` 的
-`ExtractionOptions.footnotes` 时，OCR 与传统算法先在
-OCR execution domain 生成 PageAnalysis，随后调用方 event loop 通过官方 TypeSafe SDK 并发执行 JEV
-筛选，再把低置信页连同上一页、目标页、下一页的完整文本 PageAnalysis 交给 LLM，
-且只允许 LLM 返回目标页的完整 JSON 语义层。LLM 返回值通过 `request_guaranteed_json` 检查 schema、
-layout 不可变性、citation/ref 一一对应和 gap 等业务约束；错误会携带具体字段和候选现场进入修复
-循环。ref 使用 `layout_id + citation_index + before/mark/after` 定位，算法在对应 layout 内将其解析
-为内部 path，不要求 LLM 计算字符 offset。`ignored` ownership 保留页码、running header 等原始
-layout，但恢复时不让它进入 paragraph/citation 流。修复后的 PageAnalysis 最后回到 OCR execution
-domain 恢复两条流并组装 FlowItem。正式转换默认不安装 processor，因此不会产生网络请求或行为变化。
-它会保留传统 citation 拆分未采用的页脚前缀，但无修改恢复时仍按旧行为忽略；跨页 citation
-使用稳定内部身份连接各页片段，只有 citation 在本页开始时才具有页内索引，续页片段的索引为
-空。每页无索引 citation 必须排在有索引 citation 之前，有索引部分必须从 1 连续递增。
-所有 layout 共用一套文档顺序，使 ownership 修改后仍能确定地恢复到目标逻辑流。
+章节生成在第 5 步内部先为 TOC 排除后的 OCR Page 建立完整来源记录：保留原文、原分类、
+OCR 流内下标和独立阅读位置。正文沿用原 source_order；新提取的脚注使用正文布局数作为
+偏移，写入同一页的 fragment 身份空间。OCR Page 的 order 不变，旧 PCEX 不重新编号。
+阅读顺序保留正文已有的栏序，将脚注分类中的来源按同栏位置插入，不按全页 y 坐标排序。
+传统 join、citation 拆分和同页 ref 匹配只建立初始结论，再投影为 PageAnalysis。印刷标记的
+完整来源和前缀范围保留到组装：正文投影保留前缀，定义投影才移除前缀。断词修复延后到 ownership
+组装完成后的语义投影；原始文字记录不被改写，投影为空的 fragment 也保留原身份和 bbox。
+
+传统算法和可选 PageAnalysisProcessor 最终共用 restore_streams 业务组装与校验。
+FootnoteOptions(refinement=FootnoteRefinement(...)) 在调用方 event loop 在线执行 JEV 筛选及
+LLM 页级修正；CLI 的 --footnotes 只启用传统算法。LLM JSON 通过 request_guaranteed_json
+编译 ownership、必需元数据、引用位置及定义关系，候选在完整暂存对象图上组装成功才接纳。
+所有选中页成功后才返回整批结果；任何失败均不修改调用方原对象。没有额外异常吞咽或本地重试。
+ref 仍以 layout_id + citation_index + before/mark/after 定位，不要求 LLM 算 offset。
+
+连接的唯一编辑真源为后继的 continues_from_previous；continues_to_next 由此派生，旧字段若
+显式返回，仅作为同页一致性断言。没有按修正先后顺序选择布尔值的 reconciliation。
+已知跨页定义 ID、起点索引与既有跨页片段不可由单页请求删除或重命名。页内非共享定义可以
+通过重分组拆分或合并，新增 ID 为 new-页码-index；未确定归属的续段可明确连接到上一页已知
+定义。无索引段排在本页有索引段前，有索引定义从 1 连续递增。没有起点的已知 continuation
+是非法对象图；unresolved 来源则显式保留为可读正文，不能猜测归属后丢弃。
+
+一条定义可以有零个或多个引用出现；数字、圈号及星号都属于印刷标记域，标记不是定义身份。
+未匹配定义由 Chapter.definitions 保留，经既有 PCEX references 容器编码，无需制造正文 ref。
+Markdown/EPUB 保留这些定义。正文及脚注 TextFlowItem 共用 narrative_texts 遍历，翻译 coverage
+和 PDF 计划消费同一来源映射；有 coverage 的脚注正文实际回填，无 coverage 的区域仍作障碍。
+多次引用或跨章节复用同一来源不重复回填。定义开头的印刷标记在 PDF 输出时恢复。
+格式专有适配留在 PCEX 层，通用 XML translator 无需了解脚注。
+
+PCEX 格式与公共配置 API 不变。现有归档和译文层按原身份读取、校验和导出，不做推测重编号；
+缺失 coverage 继续表示 preserved。旧归档若同一章节已有歧义的重复 fragment 身份，仍明确拒绝，
+不声称能够无损迁移。更详细的修复前后证据见 docs/verification/footnote-788.md。
 
 当未传入 `analysing_path` 时，`EnsureFolder` 会创建临时目录。当传入该路径时，它会成为可持久复用的缓存和调试输出目录。
 
