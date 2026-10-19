@@ -104,7 +104,7 @@ The two `convert_pdf_to_*` methods use a directory-backed extraction inside thei
 
 `translate_extraction()` accepts an `XMLTranslator` directly. Narrative and metadata translation always run through `NarrativeXMLTransformer`; `with_anchored` and `with_furniture` only enable or skip their corresponding standard stages. A caller-supplied opaque `translation_id` identifies the result, or pdf-craft generates a short one. The language may be supplied explicitly or declared by the translator. Duplicate IDs are rejected before translation. The stored version contains replacement text; replacement versus bilingual presentation is selected later when rendering.
 
-`RenderMode.SOURCE` renders the original content and does not select a translation. `RenderMode.REPLACE` renders one translation with source fallback for untranslated units. `RenderMode.BILINGUAL` renders source plus that translation. REPLACE and BILINGUAL accept an explicit file-local `translation_id`; omitting it deterministically selects the first translation. They fail when the PCEX has no translations, and an explicit missing or malformed ID is never replaced by the default. Translated metadata overrides matching source fields while missing fields retain their source values. Bilingual titles, descriptions, headings, TOC titles, and translated image/table fields include both forms.
+`RenderMode.SOURCE` renders the original content and does not select a translation. `RenderMode.REPLACE` renders one translation with source fallback for untranslated units. `RenderMode.BILINGUAL` renders source followed by a translated body paragraph. `RenderMode.BILINGUAL_TEXT` appends translated content within each corresponding source fragment in the same text flow. All translation render modes accept an explicit file-local `translation_id`; omitting it deterministically selects the first translation. They fail when the PCEX has no translations, and an explicit missing or malformed ID is never replaced by the default. Translated metadata overrides matching source fields while missing fields retain their source values. Bilingual titles, descriptions, headings, TOC titles, and translated image/table fields include both forms.
 
 Set `ignore_errors=True` to preserve a page's non-interactive visual base when that page's fill transaction fails, then continue with later pages. The default remains fail-fast. `ignore_errors` may instead be a `Callable[[Exception], bool]` that chooses whether each page-scoped exception may fall back. Local functions and lambdas are supported: they remain in the caller process and are not required to be pickleable when Qt patching runs in isolation. Async calls dispatch the predicate on the caller's event-loop thread. If every page scheduled for fill falls back, `NoUsableFillPagesError` is raised and no output is written. This recovery scope intentionally covers ordinary page-level exceptions, including unexpected fill bugs; it does not recover a source PDF that cannot be opened, enumerated, or compiled into a visual base. Enable it only when an untranslated visual-base page beside successfully translated pages is an acceptable result.
 
@@ -244,6 +244,22 @@ Markdown/EPUB conversion and EPUB translation:
 Stored PCEX translations and PDF patching do not accept a submission mode. A
 stored translation contains replacement text, while Markdown and EPUB rendering
 choose replacement or bilingual presentation with `RenderMode`.
+
+One-shot PDF conversion uses the same replacement-only translation layers as
+`translate_extraction()`. `REPLACE` selects replacement rendering, `APPEND_TEXT`
+selects `BILINGUAL_TEXT`, and `APPEND_BLOCK` selects `BILINGUAL`. The newly created
+translation is selected explicitly even when older layers exist. Source and
+translation fragments retain matching identities and geometry in their separate
+layers; bilingual display views are temporary and are not stored as PCEX chapters.
+Block presentation groups a body paragraph's source fragments before its translated
+paragraph. Headings and TOC titles remain one combined title; images and tables
+appear once, with translated labels and table-cell text composed in place. Footnote
+definitions follow the selected text/block style and repeated reference links point
+to one definition. `extraction_path` continues to export the original extraction.
+One-shot EPUB conversion retains its original `lan` / source-language / `zh`
+selection; a translator's human-readable target such as `English` is not treated
+as an EPUB language code. This changes no submission semantics for translating
+an existing EPUB.
 
 The following classes are exposed for applications that need custom structured transformations:
 
