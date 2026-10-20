@@ -38,9 +38,9 @@ EOF 附录补交；必要等待与积压保存在磁盘。投影为空的 fragme
 ## EPUB 翻译
 
 ```python
-from pdf_craft import EpubTranslation, SubmitKind
+from pdf_craft import EpubFragmentContent, SubmitKind
 
-async def translated(item: EpubTranslation):
+async def translated(item: EpubFragmentContent):
     print(item.epubcfi, item.original, item.translated)
 
 await craft.translate_epub(
@@ -50,7 +50,7 @@ await craft.translate_epub(
 )
 ```
 
-`EpubTranslation` 是不可变值对象，仅有 `epubcfi`、`original`、`translated` 三个字段。
+`EpubFragmentContent` 是不可变值对象，仅有 `epubcfi`、`original`、`translated` 三个字段。
 每次回调对应一个真正采纳的原子翻译片段，不等待整章，也不会重复交付请求窗口中的重叠上下文。
 原译文均为纯文本；译文来自结构填充、恢复后的结果，不含双语写回模式附加的原文。
 纯文本中的空白规范化、公式文本化可能与原始 DOM 的字面文本不同。
@@ -102,7 +102,7 @@ translated = await craft.translate_extraction(extraction, "translated.pcex", tra
 一次回调对应一整个逻辑自然段/标题，跨 bbox、跨页均不拆开。脚注定义含多个自然段时，
 每段分别触发 `on_footnote`。独立图片、表格、段公式不伪造成自然段；段内资源仍在 Markdown 中。
 EPUB 回调的 Markdown 是展示支路，不参与 EPUB 生成，也不包含 CFI。EPUB **输入翻译**的
-`EpubTranslation` 三字段协议保持不变。
+`EpubFragmentContent` 三字段协议保持不变。
 
 `text` 从不预先拼接原译文；双语展示由使用者组合 `original` 与 `text`。最终 Markdown/EPUB
 仍按 `mode` 输出所选替换或双语形式。已有译文用 `mode` / `translation_id` 选择，不能同时传
@@ -197,3 +197,43 @@ extraction = await craft.extract_pdf(
 已交付内容涉及的页，在回调执行前已有页面几何。context 的几何快照在操作结束后仍可读取；
 资源读取仅在提取调用活跃期间有效，结束后应通过完整 PCEX 的 `craft.read_asset` 读取。
 一个 context 不可被并行提取操作共享。上述访问不把未完成提取伪装成可渲染的 PCEX 句柄。
+
+
+## 书籍元信息的一次性通知
+
+`on_metadata` 接收不可变的 `MetadataContent`：`metadata` 是完整的
+`DocumentMetadata`，`original` 为翻译前的完整值（提取时为 `None`）。`DocumentMetadata`
+与 `DocumentAuthor` 可从 `pdf_craft` 导入；未翻译字段仍保留，不需要用户合并 overlay。
+
+```python
+from pdf_craft import ExtractionOptions, MetadataContent
+
+async def metadata(content: MetadataContent):
+    print(content.metadata.title, content.metadata.authors, content.metadata.language)
+    if content.original is not None:
+        print(content.original.title)
+
+# 原文提取通知；未启用 LLM 时也可使用。
+options = ExtractionOptions(on_metadata=metadata)
+extraction = await craft.extract_pdf("book.pdf", "book.pcex", options)
+# 译文通知；也适用于 render_epub、translate_extraction、translate_pdf，
+# 以及传入 translator 的 patch_pdf_with_extraction。
+await craft.render_markdown(extraction, "book.md", translator=translator,
+                            on_metadata=metadata)
+```
+
+PDF 提取未启用 LLM 时，读取原生 PDF metadata 后、开始 OCR 前通知一次，并把相同值写入
+manifest；启用 LLM 时等待提取完成，与原生字段 fallback 合并后再通知一次。LLM 失败允许降级时
+仍通知最终 fallback，两边都没有有效数据时通知空 `DocumentMetadata()`。未提供回调且未开启
+元信息提取时，不增加专为通知的原生元信息读取。
+
+PCEX 翻译与在线翻译渲染在共享元信息阶段通知一次，含目标语言及未翻译字段。EPUB 输入翻译
+同样支持 `on_metadata`：只通知 OPF 书籍元信息，不将目录或每个文档的 head/title 当成书籍通知。
+EPUB 扩展字段仍保留在输出；标准化回调对象不是完整 OPF XML 的副本。
+一键 PDF 转换的 `ExtractionOptions.on_metadata` 对应提取阶段，顶层 `on_metadata` 对应可选翻译阶段。
+
+同步回调直接调用，异步回调会被等待；异常或取消终止操作，不发布半成品。
+通知不代表最终文件已提交。不传回调就不构造公共快照。
+
+`EpubTranslation` 保留为 `EpubFragmentContent` 的兼容别名（同一个类型）；新代码使用新名称。
+这次命名调整不改变片段粒度、CFI、空白或换行处理。

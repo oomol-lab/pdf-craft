@@ -16,6 +16,7 @@ from epub_generator import BookMeta, LaTeXRender, TableRender
 
 from .document import PDFCraftExtraction, RenderMode, TranslationInfo, resolve_translation
 from .document.package import validate_translation_id
+from .document.metadata import MetadataCallback
 from .document.access import ExtractionContext, PageGeometry, page_geometries, asset_path
 from .extractor.chapter.chapter import SourceTextFragment, TextFlowItem
 from .extractor.chapter.reader import create_chapters_reader
@@ -93,6 +94,7 @@ class ExtractionOptions:
     on_body: Callable[[Element], object] | None = None
     on_footnote: Callable[[Element], object] | None = None
     context: ExtractionContext | None = None
+    on_metadata: MetadataCallback | None = None
 
 
 class AsyncPDFCraft:
@@ -211,6 +213,7 @@ class AsyncPDFCraft:
                 **({"context": options.context} if options.context is not None else {}),
                 **({"on_body": options.on_body} if options.on_body is not None else {}),
                 **({"on_footnote": options.on_footnote} if options.on_footnote is not None else {}),
+                **({"on_metadata": options.on_metadata} if options.on_metadata is not None else {}),
             )
 
     async def render_markdown(
@@ -221,14 +224,14 @@ class AsyncPDFCraft:
         aborted: AbortedCheck = lambda: False,
         translator: XMLTranslator | None = None, window: int = 1,
         with_anchored: bool = True,
-        on_body=None, on_footnote=None,
+        on_body=None, on_footnote=None, on_metadata: MetadataCallback | None = None,
     ) -> None:
         document = await _ensure_extraction_async(extraction)
         await MarkdownRenderer().render(
             document, Path(output),
             Path(assets_path) if assets_path is not None else None,
             mode=mode, translation_id=translation_id,
-            aborted=aborted, on_body=on_body, on_footnote=on_footnote,
+            aborted=aborted, on_body=on_body, on_footnote=on_footnote, on_metadata=on_metadata,
             translator=translator, window=window, with_anchored=with_anchored,
         )
 
@@ -241,7 +244,7 @@ class AsyncPDFCraft:
         translation_id: str | None = None,
         target_language: str | None = None,
         on_translation_event: Callable[[TranslationEvent], object] | None = None,
-        on_body=None, on_footnote=None,
+        on_body=None, on_footnote=None, on_metadata: MetadataCallback | None = None,
     ) -> PDFCraftExtraction:
         document = await _ensure_extraction_async(extraction)
         language = (
@@ -267,7 +270,7 @@ class AsyncPDFCraft:
                 with_anchored=with_anchored, with_furniture=with_furniture,
                 translation_id=selected_id, target_language=language,
                 on_translation_event=on_translation_event,
-                on_body=on_body, on_footnote=on_footnote,
+                on_body=on_body, on_footnote=on_footnote, on_metadata=on_metadata,
             )
             return await layered._export_async(target)
 
@@ -295,7 +298,7 @@ class AsyncPDFCraft:
         aborted: AbortedCheck = lambda: False,
         translator: XMLTranslator | None = None, window: int = 1,
         with_anchored: bool = True,
-        on_body=None, on_footnote=None,
+        on_body=None, on_footnote=None, on_metadata: MetadataCallback | None = None,
     ) -> None:
         document = await _ensure_extraction_async(extraction)
         await EpubRenderer().render(
@@ -303,7 +306,7 @@ class AsyncPDFCraft:
             table_render=table_render, latex_render=latex_render,
             inline_latex=inline_latex, mode=mode,
             translation_id=translation_id, aborted=aborted,
-            on_body=on_body, on_footnote=on_footnote,
+            on_body=on_body, on_footnote=on_footnote, on_metadata=on_metadata,
             translator=translator, window=window, with_anchored=with_anchored,
         )
 
@@ -315,11 +318,11 @@ class AsyncPDFCraft:
         with_furniture: bool = False,
         on_translation_event: Callable[[TranslationEvent], object] | None = None,
         ignore_errors: IgnoreFillErrorsChecker = False,
-        on_body=None, on_footnote=None,
+        on_body=None, on_footnote=None, on_metadata: MetadataCallback | None = None,
     ) -> None:
         if isinstance(translator, XMLTranslator):
             await self.patch_pdf_with_extraction(source, extraction, output, translator=translator,
-                window=window, ignore_errors=ignore_errors, on_body=on_body, on_footnote=on_footnote,
+                window=window, ignore_errors=ignore_errors, on_body=on_body, on_footnote=on_footnote, on_metadata=on_metadata,
                 with_furniture=with_furniture, on_translation_event=on_translation_event)
             return
         document = await _ensure_extraction_async(extraction)
@@ -329,11 +332,11 @@ class AsyncPDFCraft:
                 window=window,
                 with_anchored=False,
                 with_furniture=with_furniture,
-                on_translation_event=on_translation_event,
+                on_translation_event=on_translation_event, on_metadata=on_metadata,
             )
             await self.patch_pdf_with_extraction(
                 source, translated, output, ignore_errors=ignore_errors,
-                on_body=on_body, on_footnote=on_footnote,
+                on_body=on_body, on_footnote=on_footnote, on_metadata=on_metadata,
             )
 
     async def patch_pdf_with_extraction(
@@ -344,7 +347,7 @@ class AsyncPDFCraft:
         *, translation_id: str | None = None,
         ignore_errors: IgnoreFillErrorsChecker = False,
         translator: XMLTranslator | None = None, window: int = 1,
-        on_body=None, on_footnote=None, with_furniture=False, on_translation_event=None,
+        on_body=None, on_footnote=None, with_furniture=False, on_translation_event=None, on_metadata=None,
     ) -> None:
         document = await _ensure_extraction_async(extraction)
         if translator is not None and translation_id is not None:
@@ -354,7 +357,7 @@ class AsyncPDFCraft:
             await IO_DOMAIN.run(_validate_extraction_for_pdf, Path(source), document)
         await patch_content(Path(source), document, Path(output), translator=translator,
                             translation_id=translation_id, window=window, ignore_errors=ignore_errors,
-                            on_body=on_body, on_footnote=on_footnote,
+                            on_body=on_body, on_footnote=on_footnote, on_metadata=on_metadata,
                             pdf_handler=self._pdf.pdf_handler if self._pdf else None, with_furniture=with_furniture,
                             on_translation_event=on_translation_event)
 
@@ -381,6 +384,7 @@ class AsyncPDFCraft:
         window: int = 1,
         with_anchored: bool = True,
         on_translation_event: Callable[[TranslationEvent], object] | None = None,
+        on_metadata=None,
     ) -> OCRTokensMetering:
         options = replace(extraction or ExtractionOptions(), includes_furniture=False)
         async with _analysis_workspace_async(analysing_path) as workspace:
@@ -395,7 +399,7 @@ class AsyncPDFCraft:
                         document, Path(directory), translator,
                         window=window,
                         with_anchored=with_anchored,
-                        on_translation_event=on_translation_event,
+                        on_translation_event=on_translation_event, on_metadata=on_metadata,
                     )
                     await self.render_markdown(
                         document, output, assets_path, aborted=options.aborted,
@@ -420,6 +424,7 @@ class AsyncPDFCraft:
         window: int = 1,
         with_anchored: bool = True,
         on_translation_event: Callable[[TranslationEvent], object] | None = None,
+        on_metadata=None,
     ) -> OCRTokensMetering:
         options = replace(extraction or ExtractionOptions(), includes_furniture=False)
         async with _analysis_workspace_async(analysing_path) as workspace:
@@ -434,7 +439,7 @@ class AsyncPDFCraft:
                         document, Path(directory), translator,
                         window=window,
                         with_anchored=with_anchored,
-                        on_translation_event=on_translation_event,
+                        on_translation_event=on_translation_event, on_metadata=on_metadata,
                     )
                     await self.render_epub(
                         document, output, book_meta=book_meta,
@@ -485,6 +490,7 @@ class AsyncPDFCraft:
                 **({"context": options.context} if options.context is not None else {}),
                 **({"on_body": options.on_body} if options.on_body is not None else {}),
                 **({"on_footnote": options.on_footnote} if options.on_footnote is not None else {}),
+                **({"on_metadata": options.on_metadata} if options.on_metadata is not None else {}),
             )
 
     async def _translate_layer_to_workspace(
@@ -493,7 +499,7 @@ class AsyncPDFCraft:
         with_anchored: bool = True, with_furniture: bool = False,
         translation_id: str | None = None, target_language: str | None = None,
         on_translation_event: Callable[[TranslationEvent], object] | None = None,
-        on_body=None, on_footnote=None, aborted=lambda: False,
+        on_body=None, on_footnote=None, on_metadata=None, aborted=lambda: False,
     ) -> PDFCraftExtraction:
         """Shared persisted/one-shot translation: source plus one replacement layer."""
         existing = {item.id for item in await IO_DOMAIN.run(extraction._translations)}
@@ -505,8 +511,9 @@ class AsyncPDFCraft:
         translated, overlay = await self._translate_replacement_to_workspace(
             extraction, workspace, translator, window=window,
             with_anchored=with_anchored, with_furniture=with_furniture,
+            metadata_language=language,
             on_translation_event=on_translation_event,
-            on_body=on_body, on_footnote=on_footnote, aborted=aborted,
+            on_body=on_body, on_footnote=on_footnote, on_metadata=on_metadata, aborted=aborted,
         )
         return await IO_DOMAIN.run(
             append_translation_layer_to_workspace,
@@ -520,14 +527,14 @@ class AsyncPDFCraft:
         translator: XMLTranslator, *, window: int = 1,
         with_anchored: bool = True, with_furniture: bool = False,
         on_translation_event: Callable[[TranslationEvent], object] | None = None,
-        on_body=None, on_footnote=None, aborted=lambda: False,
+        on_body=None, on_footnote=None, on_metadata=None, aborted=lambda: False,
     ) -> PDFCraftExtraction:
         """Materialize replacement-only root content for PDF writeback."""
         translated, overlay = await self._translate_replacement_to_workspace(
             extraction, workspace, translator, window=window,
             with_anchored=with_anchored, with_furniture=with_furniture,
             on_translation_event=on_translation_event,
-            on_body=on_body, on_footnote=on_footnote, aborted=aborted,
+            on_body=on_body, on_footnote=on_footnote, on_metadata=on_metadata, aborted=aborted,
         )
         if overlay:
             async with worker_context(translated._materialize()) as paths:
@@ -543,13 +550,14 @@ class AsyncPDFCraft:
         with_anchored: bool = True,
         with_furniture: bool = False,
         on_translation_event: Callable[[TranslationEvent], object] | None = None,
-        on_body=None, on_footnote=None, aborted=lambda: False,
+        on_body=None, on_footnote=None, on_metadata=None, aborted=lambda: False, metadata_language=None,
     ) -> tuple[PDFCraftExtraction, dict]:
         narrative_transformer = NarrativeXMLTransformer(
             translator, mode=SubmitKind.REPLACE, window=window,
         )
         metadata_overlay = await narrative_transformer.translate_metadata(
-            await IO_DOMAIN.run(extraction._document_metadata)
+            await IO_DOMAIN.run(extraction._document_metadata),
+            on_metadata=on_metadata, target_language=metadata_language,
         )
         if narrative_transformer.supports_stream:
             from .transformer.content import translate_workspace

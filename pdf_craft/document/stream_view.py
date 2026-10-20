@@ -14,7 +14,7 @@ from ..runtime import IO_DOMAIN, worker_context, temporary_directory
 @asynccontextmanager
 async def content_view(extraction, *, mode=RenderMode.SOURCE, translation_id=None,
                        translator=None, window=1, with_anchored=True, with_furniture=False,
-                       on_translation_event=None, aborted=lambda: False):
+                       on_translation_event=None, on_metadata=None, aborted=lambda: False):
     """No translated workspace: the consumer receives the producer directly."""
     if translator is not None and translation_id is not None:
         raise ValueError("translation_id cannot be combined with translator")
@@ -72,7 +72,7 @@ async def content_view(extraction, *, mode=RenderMode.SOURCE, translation_id=Non
             from ..transformer.narrative_xml import NarrativeXMLTransformer
             from ..transformer.content import translate_content
             transformer = NarrativeXMLTransformer(translator, window=window)
-            overlay = await transformer.translate_metadata(metadata)
+            overlay = await transformer.translate_metadata(metadata, on_metadata=on_metadata)
             effective_mode = RenderMode.REPLACE if mode == RenderMode.SOURCE else mode
             view = replace(view, metadata=_effective_metadata(metadata, overlay, effective_mode),
                            language=overlay.get('language', transformer.target_language) or view.language)

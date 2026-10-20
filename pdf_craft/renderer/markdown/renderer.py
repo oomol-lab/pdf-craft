@@ -16,7 +16,7 @@ class MarkdownRenderer:
                      assets_path: Path | None = None, cover_path: Path | None = None,
                      aborted=lambda: False, *, mode: RenderMode = RenderMode.SOURCE,
                      translation_id: str | None = None, on_body=None, on_footnote=None,
-                     translator=None, window=1, with_anchored=True) -> None:
+                     translator=None, window=1, with_anchored=True, on_metadata=None) -> None:
         from ...document.stream_view import content_view
         from ...renderer.paragraph import paragraph_notifications, display_values
         from ...markdown.render.layouts import render_layouts
@@ -26,7 +26,7 @@ class MarkdownRenderer:
         from contextlib import aclosing
         async with content_view(extraction, mode=mode, translation_id=translation_id,
                                 translator=translator, window=window,
-                                with_anchored=with_anchored, aborted=aborted) as (view, pages, numbers, items):
+                                with_anchored=with_anchored, on_metadata=on_metadata, aborted=aborted) as (view, pages, numbers, items):
             cover = cover_path
             if cover is None and await IO_DOMAIN.run(view.cover.exists):
                 cover = view.cover

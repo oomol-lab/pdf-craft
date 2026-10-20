@@ -132,7 +132,7 @@ OCR 配置是封闭公共面：`DeepSeekOCRLocalConfig`、`DeepSeekOCR2LocalConf
 
 EPUB 适配器异步逐项读取任务，在共享 XMLTranslator 的局部映射采纳位置接收结果，按章写入
 临时归档；不收集全书正文任务或完整译文结果。同步 iterable 的既有核心接口继续供 PCEX 翻译使用。
-可选 `on_body` 接收 `EpubTranslation(epubcfi, original, translated)`，只包含去掉窗口上下文后的
+可选 `on_body` 接收 `EpubFragmentContent(epubcfi, original, translated)`，只包含去掉窗口上下文后的
 原子片段；来源 CFI 索引由 EPUB 适配器按需构建，源范围贯穿公式替换。`pipeline/epub/cfi.py`
 只负责文档内定位，OPF/spine 前缀由外层提供。用户说明见 `docs/*/STREAMING.md`。
 
@@ -151,7 +151,7 @@ feed 向隔离 Qt 进程提交替换项。PDF 真实布局通过磁盘回传，�
 公共 `document/paragraph.py` 定义 SourceRegion、ParagraphContent、PDFSourceRegion 与
 PDFParagraphContent。翻译/重排渲染使用独立 ParagraphContent（Markdown text、可选 original、
 来源 regions），PDF 使用每区域带字号/行/公式/擦除的 PDFParagraphContent。提取仍保留原有
-XML 回调；EPUB 输入翻译仍保留 EpubTranslation。未提供通道时不封装该通道的公共产物。
+XML 回调；EPUB 输入翻译仍保留 EpubFragmentContent。未提供通道时不封装该通道的公共产物。
 SourceRegion.page 复用 PageGeometry，source_order_in_page 对应 PCEX source_order；bbox
 仍为 OCR 像素整数，map_bbox 根据实际页面尺寸返回 float。render_dpi 是请求值，不能单独
 作为缩放依据。PDF 公共布局的坐标与字号也换算为来源 OCR 像素，不引入 font_id。
@@ -164,3 +164,10 @@ LLM 有序交付使用磁盘重排缓存；异步任务上下文、来源 DOM �
 稳定 root/node identity 在当前文档交付时恢复映射，队首慢请求不再保留全书原文 DOM。
 同步 iterable/自定义整章契约保留原对象身份。双阶段 vendor OCR 续阶段优先，未确定归属来源
 按阅读顺序发出，延续 #794/#795 回归。
+
+
+元信息通知复用 `document/metadata.py` 的 MetadataContent/DocumentMetadata。
+PDF 原生-only 通知在 OCR 前，LLM 提取通知在字段合并后；异常不能被提取降级逻辑吞掉。
+PCEX 的共享 NarrativeXMLTransformer 元信息阶段负责翻译通知，EPUB 适配器负责 OPF 视图通知；
+书籍通知不包含 TOC 或文档 head/title。只有用户提供 on_metadata 时才构造独立公共快照。
+EpubTranslation 仅作为 EpubFragmentContent 的兼容别名。

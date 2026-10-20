@@ -407,3 +407,10 @@ PDF patch callbacks receive `PDFParagraphContent` with `PDFSourceRegion` values 
 font size, lines, formula atoms and erasure masks in source pixels. There is no font distribution or
 promise of identical browser glyph shaping. PDF extraction XML and EPUB-input CFI callback contracts
 are unchanged. See [streaming callbacks](STREAMING.md) for fields and lifetime semantics.
+
+
+Book metadata: `ExtractionOptions.on_metadata`, PCEX translation/online translation rendering,
+and EPUB input translation accept `on_metadata(MetadataContent)`. The immutable value contains
+complete `DocumentMetadata` and optional source `original`. See [streaming](STREAMING.md)
+for one-shot timing and fallback semantics. EPUB body notifications use `EpubFragmentContent`;
+`EpubTranslation` is a compatibility alias of the same type.

@@ -92,7 +92,7 @@ from .document import PDFCraftExtraction, RenderMode, SourceLocation, Translatio
 from .extractor import PDFExtractor
 from .renderer import EpubRenderer, MarkdownRenderer
 
-from .pipeline.epub.events import EpubTranslation
+from .pipeline.epub.events import EpubFragmentContent, EpubTranslation
 
 from .document.access import ExtractionContext, PageGeometry
 
@@ -100,3 +100,6 @@ from .document.paragraph import (
     SourceRegion, ParagraphContent, PDFSourceRegion, PDFParagraphContent,
     TextLine, FormulaPlacement, EraseArea,
 )
+
+from .document.metadata import MetadataContent
+from .document import DocumentMetadata, DocumentAuthor

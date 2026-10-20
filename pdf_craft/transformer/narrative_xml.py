@@ -112,7 +112,18 @@ class NarrativeXMLTransformer:
         """Build the private anchored-content adapter over this runtime."""
         return AnchoredContentXMLTransformer(cast(Any, self._translator), self._mode)
 
-    async def translate_metadata(self, metadata: dict[str, Any]) -> dict[str, Any]:
+    async def translate_metadata(self, metadata: dict[str, Any], *, on_metadata=None,
+                                 target_language: str | None = None) -> dict[str, Any]:
+        """Finalize metadata once for every consumer of the translation flow."""
+        overlay = await self._translate_metadata_fields(metadata)
+        language = target_language or self.target_language
+        if language:
+            overlay["language"] = language
+        from ..document.metadata import notify_metadata_translation
+        await notify_metadata_translation(metadata, overlay, on_metadata)
+        return overlay
+
+    async def _translate_metadata_fields(self, metadata: dict[str, Any]) -> dict[str, Any]:
         """Translate human-readable bibliographic fields into a layer overlay."""
         element, fields = _metadata_element(metadata)
         if not fields:
