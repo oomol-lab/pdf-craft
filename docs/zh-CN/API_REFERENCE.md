@@ -652,3 +652,6 @@ JEV 或 vendor OCR 若消耗同一供应商配额，应共享同一个执行器�
 - PDF → 翻译 PDF：使用同一源 PDF 生成 extraction，再调用 `translate_pdf`；该入口固定使用
   纯译文替换。
 - EPUB → EPUB：使用 `PDFCraft().translate_epub`，只配置文本 LLM，不需要 OCR。
+
+
+PDF 提取 XML 回调、EPUB 原子翻译片段与来源 CFI 的用法见[增量回调说明](STREAMING.md)。

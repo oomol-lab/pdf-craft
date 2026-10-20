@@ -1,6 +1,9 @@
+import asyncio
 import sys
 import time
 import json
+import pickle
+from collections import deque
 from collections.abc import AsyncGenerator
 from contextlib import AsyncExitStack
 from dataclasses import dataclass
@@ -12,6 +15,7 @@ from typing import Any, Callable, Container, Generator, Never, TypeVar, cast
 from PIL.Image import Image
 
 from ..common import AssetHub, save_xml
+from ..common.stream import DiskStream
 from ..concurrency import AsyncExecutor, NonContinuableError, OperationError
 from ..error import IgnoreOCRErrorsChecker, IgnorePDFErrorsChecker, OCRError, PDFError
 from ..metering import AbortedCheck, check_aborted
@@ -75,6 +79,7 @@ class OCR:
         self._pdf_handler = pdf_handler
         self._config = ocr
         self._pdf_handler_lock = Lock()
+        self._geometry_lock = Lock()
         self._extractor = PageExtractorNode(ocr=ocr)
         self._last_page_pixel_sizes: dict[int, tuple[int, int]] = {}
 
@@ -135,7 +140,9 @@ class OCR:
         temporary_path = await temporary_stack.enter_async_context(
             temporary_directory("pdf-craft-vendor-ocr-"),
         )
-        events: list[OCREvent] = []
+        events: deque[OCREvent] = deque()
+        prepared_stream = DiskStream(temporary_path / "prepared")
+        render_task = None
         asset_hub = AssetHub(asset_path)
         terminal_failures: list[int] = []
         usable_pages = 0
@@ -143,7 +150,6 @@ class OCR:
         try:
             def render_pages(cooperative_aborted: AbortedCheck):
                 nonlocal usable_pages, did_ignore_any
-                prepared = []
                 with PageRefContext(
                     pdf_path=pdf_path,
                     pdf_handler=self._get_pdf_handler(),
@@ -220,7 +226,7 @@ class OCR:
                             OCREventKind.RENDERED, ref.page_index, total_pages,
                             int((time.perf_counter() - started) * 1000),
                         ))
-                        prepared.append(_PreparedVendorPage(
+                        prepared_stream.append(_PreparedVendorPage(
                             page_index=ref.page_index,
                             image_path=image_path,
                             request_path=request_path,
@@ -229,15 +235,20 @@ class OCR:
                             scale_x=scale_x,
                             scale_y=scale_y,
                         ))
-                return prepared
+                prepared_stream.close()
 
-            prepared = await run_cancellable(
-                IO_DOMAIN,
-                render_pages,
-                original_aborted=aborted,
-            )
-            for event in events:
-                yield event
+            async def produce_pages():
+                try:
+                    await run_cancellable(IO_DOMAIN, render_pages, original_aborted=aborted)
+                except BaseException as error:
+                    prepared_stream.close(error)
+                    raise
+
+            render_task = asyncio.create_task(produce_pages())
+
+            async def prepared_pages():
+                async for item in prepared_stream.aread():
+                    yield item
 
             async def finish_page(
                 item: _PreparedVendorPage,
@@ -324,7 +335,7 @@ class OCR:
                     remaining_output_tokens = max_output_tokens
                     from doc_page_extractor.extraction_context import TokenLimitError
 
-                    for item in prepared:
+                    async for item in prepared_pages():
                         if remaining_tokens is not None and remaining_tokens <= 0:
                             raise TokenLimitError()
                         if (
@@ -352,17 +363,25 @@ class OCR:
                             remaining_tokens -= event.input_tokens + event.output_tokens
                         if remaining_output_tokens is not None:
                             remaining_output_tokens -= event.output_tokens
+                        while events:
+                            yield events.popleft()
                         yield event
                 else:
                     async for item, page, error in self._recognize_vendor_pages(
                         runtime,
-                        prepared,
+                        prepared_pages(),
                         asset_hub=asset_hub,
                         includes_footnotes=includes_footnotes,
                         plot_path=plot_path,
                         aborted=aborted,
                     ):
-                        yield await finish_page(item, page, error)
+                        event = await finish_page(item, page, error)
+                        while events:
+                            yield events.popleft()
+                        yield event
+            await render_task
+            while events:
+                yield events.popleft()
             await IO_DOMAIN.run(self._save_page_pixel_sizes, geometry_path)
             if terminal_failures and usable_pages == 0:
                 from ..error import NoUsableOCRPagesError
@@ -370,6 +389,9 @@ class OCR:
             if not did_ignore_any and not terminal_failures:
                 await IO_DOMAIN.run(done_path.touch)
         finally:
+            if render_task is not None:
+                render_task.cancel()
+                await asyncio.gather(render_task, return_exceptions=True)
             await temporary_stack.aclose()
 
     def _prepare_vendor_workspace(
@@ -472,24 +494,34 @@ class OCR:
     async def _recognize_vendor_pages(
         self,
         runtime: VendorOCRRuntime,
-        prepared: list[_PreparedVendorPage],
+        prepared,
         *,
         asset_hub: AssetHub,
         includes_footnotes: bool,
         plot_path: Path | None,
         aborted: AbortedCheck,
     ):
-        by_page = {item.page_index: item for item in prepared}
-        second_stage: dict[
-            int, tuple[_PreparedVendorPage, object, VendorOCRResponse, Path]
-        ] = {}
+        by_page = {}
+        second_stage: dict[int, Path] = {}
 
-        first_requests = (
-            VendorOCRInput(item.page_index, item.request_path, aborted, 1)
-            for item in prepared
-        )
-        async for result in runtime.request_many(first_requests):
-            item = by_page[result.request.page_index]
+        def save_stage(item, first_result, response, second_path):
+            path = item.image_path.parent / f"page_{item.page_index}_stage_1.pickle"
+            with path.open("wb") as file:
+                pickle.dump((item, first_result, response, second_path), file,
+                            protocol=pickle.HIGHEST_PROTOCOL)
+            return path
+
+        def load_stage(path):
+            with path.open("rb") as file:
+                return pickle.load(file)
+
+        async def first_requests():
+            async for item in prepared:
+                by_page[item.page_index] = item
+                yield VendorOCRInput(item.page_index, item.request_path, aborted, 1)
+
+        async for result in runtime.request_many(first_requests()):
+            item = by_page.pop(result.request.page_index)
             if result.error is not None:
                 yield item, None, _vendor_page_error(
                     item.page_index, result.request.stage_index, result.error,
@@ -512,8 +544,8 @@ class OCR:
                         Path(item.image_path.parent),
                         aborted,
                     )
-                    second_stage[item.page_index] = (
-                        item, first_result, result.response, second_path,
+                    second_stage[item.page_index] = await IO_DOMAIN.run(
+                        save_stage, item, first_result, result.response, second_path,
                     )
                 except Exception as error:
                     yield item, None, _vendor_page_error(
@@ -539,14 +571,16 @@ class OCR:
         if not second_stage:
             return
 
-        second_requests = (
-            VendorOCRInput(page_index, values[3], aborted, 2)
-            for page_index, values in second_stage.items()
-        )
-        async for result in runtime.request_many(second_requests):
-            item, first_result, first_response, second_path = second_stage[
-                result.request.page_index
-            ]
+        async def second_requests():
+            for page_index in tuple(second_stage):
+                path = second_stage[page_index]
+                values = await IO_DOMAIN.run(load_stage, path)
+                yield VendorOCRInput(page_index, values[3], aborted, 2)
+
+        async for result in runtime.request_many(second_requests()):
+            path = second_stage.pop(result.request.page_index)
+            item, first_result, first_response, second_path = await IO_DOMAIN.run(load_stage, path)
+            await IO_DOMAIN.run(path.unlink)
             if result.error is not None:
                 yield item, None, _vendor_page_error(
                     item.page_index, result.request.stage_index, result.error,
@@ -837,15 +871,17 @@ class OCR:
         return sizes
 
     def _save_page_pixel_sizes(self, path: Path) -> None:
-        temporary_path = path.with_suffix(".json.tmp")
-        temporary_path.write_text(
-            json.dumps(
-                {str(index): list(size) for index, size in self._last_page_pixel_sizes.items()},
-                ensure_ascii=False,
-            ),
-            encoding="utf-8",
-        )
-        temporary_path.replace(path)
+        # Rendering and OCR completion may publish geometry concurrently.
+        with self._geometry_lock:
+            temporary_path = path.with_suffix(".json.tmp")
+            temporary_path.write_text(
+                json.dumps(
+                    {str(index): list(size) for index, size in self._last_page_pixel_sizes.copy().items()},
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            )
+            temporary_path.replace(path)
 
     def _create_fallback_page(
         self,

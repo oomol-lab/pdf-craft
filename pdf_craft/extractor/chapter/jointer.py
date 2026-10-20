@@ -61,7 +61,7 @@ class Jointer:
     def __init__(self, layouts: Iterable[tuple[int, list[PageLayout]]],
                  sources: dict[tuple[int, int], tuple[int, TextSource]] | None = None) -> None:
         self._layouts = layouts
-        self._sources = sources or {}
+        self._sources = sources if sources is not None else {}
         self._reading_positions: dict[tuple[int, tuple[int, int, int, int]], int] = {}
 
     def execute(self) -> Generator[TextFlowItem | SourceAsset, None, None]:
@@ -143,6 +143,7 @@ class Jointer:
         self,
     ) -> Generator[tuple[int, list[PageLayout]], None, None]:
         for page_index, raw_layouts in self._layouts:
+            self._reading_positions.clear()
             for layout in raw_layouts:
                 record = self._sources.get((page_index, id(layout)))
                 if record is not None:

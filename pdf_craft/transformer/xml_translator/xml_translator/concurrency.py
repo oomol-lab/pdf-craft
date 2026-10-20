@@ -1,7 +1,7 @@
 """Bounded asynchronous concurrency for XML translation."""
 
 import asyncio
-from collections.abc import AsyncIterator, Awaitable, Callable, Iterable
+from collections.abc import AsyncGenerator, Awaitable, Callable, Iterable
 from typing import TypeVar
 
 from pdf_craft.concurrency import NonContinuableError
@@ -14,7 +14,7 @@ async def run_concurrency_async(
     parameters: Iterable[P],
     execute: Callable[[P], Awaitable[R]],
     concurrency: int,
-) -> AsyncIterator[R]:
+) -> AsyncGenerator[R, None]:
     """Execute at most ``concurrency`` awaitables, yielding in input order."""
     assert concurrency >= 1, "the concurrency must be at least 1"
     iterator = iter(parameters)
@@ -88,3 +88,60 @@ async def run_concurrency_async(
         close = getattr(iterator, "close", None)
         if close is not None:
             close()
+
+
+async def run_async_parameters(parameters, execute, concurrency):
+    """Bounded admission for asynchronous filesystem producers."""
+    iterator = aiter(parameters)
+    pending = {}
+    completed = {}
+    incoming = None
+    next_input = 0
+    next_output = 0
+    exhausted = False
+    try:
+        while not exhausted or pending or completed or incoming is not None:
+            if (not exhausted and incoming is None and
+                    len(pending) < concurrency and len(pending) + len(completed) < concurrency + 1):
+                incoming = asyncio.create_task(anext(iterator))
+            if next_output in completed:
+                yield completed.pop(next_output)
+                next_output += 1
+                continue
+            waiting = set(pending)
+            if incoming is not None:
+                waiting.add(incoming)
+            if not waiting:
+                break
+            done, _ = await asyncio.wait(waiting, return_when=asyncio.FIRST_COMPLETED)
+            if incoming is not None and incoming in done:
+                try:
+                    value = incoming.result()
+                except StopAsyncIteration:
+                    exhausted = True
+                else:
+                    task = asyncio.create_task(execute(value))
+                    pending[task] = next_input
+                    next_input += 1
+                incoming = None
+            failures = []
+            for task in done:
+                if task in pending:
+                    index = pending.pop(task)
+                    if task.cancelled():
+                        raise asyncio.CancelledError
+                    error = task.exception()
+                    if error is not None:
+                        failures.append(error)
+                    else:
+                        completed[index] = task.result()
+            if failures:
+                raise next((error for error in failures if isinstance(error, NonContinuableError)), failures[0])
+    finally:
+        tasks = list(pending)
+        if incoming is not None:
+            tasks.append(incoming)
+        for task in tasks:
+            task.cancel()
+        await asyncio.gather(*tasks, return_exceptions=True)
+        await iterator.aclose()

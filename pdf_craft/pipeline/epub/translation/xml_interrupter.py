@@ -100,6 +100,7 @@ class XMLInterrupter:
                 right_common_depth=text_segments[-1].right_common_depth,
                 block_depth=find_block_depth(parent_stack),
                 position=text_segments[0].position,
+                origins=tuple(span for segment in text_segments for span in segment.origins),
             )
             self._placeholder2interrupted[id(placeholder_element)] = interrupted_element
 

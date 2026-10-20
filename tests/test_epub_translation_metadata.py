@@ -10,6 +10,7 @@ from zipfile import ZipFile
 
 from pdf_craft import ConcurrentExecutor, FixedCapacity, LLM
 from pdf_craft.pipeline.epub.translation.translator import translate
+from pdf_craft.runtime import invoke_callback
 from pdf_craft.transformer import SubmitKind
 
 
@@ -17,11 +18,13 @@ class TestEpubTranslationMetadata(unittest.TestCase):
     def test_translation_updates_language_ncx_title_and_xhtml_title(self):
         async def translate_tasks(_translator, *, tasks, **_kwargs):
             results = []
-            for task in tasks:
+            async for task in tasks:
                 for element in task.element.iter():
                     if element.text and element.text.strip():
                         element.text = f"译:{element.text}"
-                results.append((task.element, task.payload))
+                result = (task.element, task.payload)
+                await invoke_callback(_kwargs.get("on_result"), result)
+                results.append(result)
             return results
 
         with tempfile.TemporaryDirectory() as directory:

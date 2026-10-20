@@ -17,6 +17,14 @@ class TextPosition(Enum):
     TAIL = auto()
 
 
+@dataclass(frozen=True)
+class TextOrigin:
+    element: Element
+    position: TextPosition
+    start: int
+    end: int
+
+
 @dataclass
 class TextSegment:
     text: str
@@ -25,6 +33,7 @@ class TextSegment:
     right_common_depth: int
     block_depth: int
     position: TextPosition
+    origins: tuple[TextOrigin, ...] = ()
 
     @property
     def root(self) -> Element:
@@ -51,6 +60,7 @@ class TextSegment:
             right_common_depth=self.right_common_depth,
             block_depth=self.block_depth,
             position=self.position,
+            origins=self.origins,
         )
 
 
@@ -80,8 +90,8 @@ def _incision_of(segment: TextSegment, common_depth: int) -> int:
     return block_diff * 3 + inline_diff  # 数字越大越容易被拆分
 
 
-def search_text_segments(root: Element) -> Generator[TextSegment, None, None]:
-    generator = _search_text_segments([], root)
+def search_text_segments(root: Element, *, track_origins: bool = False) -> Generator[TextSegment, None, None]:
+    generator = _search_text_segments([], root, track_origins)
     text_segment = next(generator, None)
     if text_segment is None:
         return
@@ -102,7 +112,7 @@ def search_text_segments(root: Element) -> Generator[TextSegment, None, None]:
     yield text_segment
 
 
-def _search_text_segments(stack: list[Element], element: Element) -> Generator[TextSegment, None, None]:
+def _search_text_segments(stack: list[Element], element: Element, track_origins: bool) -> Generator[TextSegment, None, None]:
     text = normalize_text_in_element(element.text)
     next_stack = stack + [element]
     next_block_depth = find_block_depth(next_stack)
@@ -118,9 +128,10 @@ def _search_text_segments(stack: list[Element], element: Element) -> Generator[T
             right_common_depth=0,
             block_depth=next_block_depth,
             position=TextPosition.TEXT,
+            origins=(TextOrigin(element, TextPosition.TEXT, 0, len(element.text or "")),) if track_origins else (),
         )
     for child_element in element:
-        yield from _search_text_segments(next_stack, child_element)
+        yield from _search_text_segments(next_stack, child_element, track_origins)
         child_tail = normalize_text_in_element(child_element.tail)
         if child_tail is not None:
             yield TextSegment(
@@ -130,6 +141,7 @@ def _search_text_segments(stack: list[Element], element: Element) -> Generator[T
                 right_common_depth=0,
                 block_depth=next_block_depth,
                 position=TextPosition.TAIL,
+                origins=(TextOrigin(child_element, TextPosition.TAIL, 0, len(child_element.tail or "")),) if track_origins else (),
             )
 
 

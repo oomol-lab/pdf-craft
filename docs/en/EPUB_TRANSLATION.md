@@ -183,3 +183,6 @@ PDFCraft().translate_epub(
 - An unrecoverable error means the destination should not be treated as a complete translation. Inspect the callback report and any `log_dir_path` output, then rerun to a fresh output path.
 
 For endpoint, cache, or empty-response errors, see [Troubleshooting](TROUBLESHOOTING.md).
+
+
+See [incremental callbacks](STREAMING.md) for PDF extraction XML notifications and EPUB atomic translation fragments with source CFIs.

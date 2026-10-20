@@ -8,7 +8,7 @@ import inspect
 import json
 import re
 import time
-from collections.abc import AsyncIterator, Awaitable, Callable, Iterable
+from collections.abc import AsyncIterable, AsyncIterator, Awaitable, Callable, Iterable
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from pathlib import Path
@@ -168,38 +168,51 @@ class VendorOCRRuntime:
             ) from error
 
     async def request_many(
-        self, requests: Iterable[VendorOCRInput],
+        self, requests: Iterable[VendorOCRInput] | AsyncIterable[VendorOCRInput],
     ) -> AsyncIterator[VendorOCRResult]:
-        iterator = iter(requests)
+        async def iterate():
+            if isinstance(requests, AsyncIterable):
+                async for request in requests:
+                    yield request
+            else:
+                for request in requests:
+                    yield request
+
+        iterator = iterate()
         tasks: dict[asyncio.Task[VendorOCRResponse], VendorOCRInput] = {}
         admission: asyncio.Task[bool] | None = None
         admission_owner: asyncio.Task[VendorOCRResponse] | None = None
+        incoming: asyncio.Task[VendorOCRInput] | None = None
         exhausted = False
 
         def start_next() -> None:
-            nonlocal admission, admission_owner, exhausted
-            if exhausted:
-                return
-            try:
-                request = next(iterator)
-            except StopIteration:
-                exhausted = True
-                return
-            started = asyncio.Event()
-            task = asyncio.create_task(self.request(request, _started=started))
-            tasks[task] = request
-            admission_owner = task
-            admission = asyncio.create_task(started.wait())
+            nonlocal incoming
+            if not exhausted:
+                incoming = asyncio.create_task(anext(iterator))
 
         try:
             start_next()
-            while tasks:
+            while tasks or incoming is not None:
                 pending: set[asyncio.Task[Any]] = set(tasks)
+                if incoming is not None:
+                    pending.add(incoming)
                 if admission is not None:
                     pending.add(admission)
                 done, _ = await asyncio.wait(
                     pending, return_when=asyncio.FIRST_COMPLETED,
                 )
+                if incoming is not None and incoming in done:
+                    try:
+                        request = incoming.result()
+                    except StopAsyncIteration:
+                        exhausted = True
+                    else:
+                        started = asyncio.Event()
+                        new_task = asyncio.create_task(self.request(request, _started=started))
+                        tasks[new_task] = request
+                        admission_owner = new_task
+                        admission = asyncio.create_task(started.wait())
+                    incoming = None
                 for task in done:
                     if task not in tasks or not task.cancelled():
                         continue
@@ -246,6 +259,9 @@ class VendorOCRRuntime:
                     except OperationError as error:
                         yield VendorOCRResult(request, error=error)
         finally:
+            if incoming is not None:
+                incoming.cancel()
+                await asyncio.gather(incoming, return_exceptions=True)
             if admission is not None:
                 admission.cancel()
             for task in tasks:
@@ -255,9 +271,7 @@ class VendorOCRRuntime:
                 teardown.append(admission)
             if teardown:
                 await asyncio.gather(*teardown, return_exceptions=True)
-            close = getattr(iterator, "close", None)
-            if close is not None:
-                close()
+            await iterator.aclose()
 
     async def _retry_request_after_error(
         self,
