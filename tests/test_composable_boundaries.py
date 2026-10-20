@@ -549,10 +549,15 @@ class TestComposableBoundaries(unittest.TestCase):
             self.assertEqual(metering, "metering")
             self.assertFalse((root / "analysis" / "extraction" / "ocr").exists())
             self.assertEqual(extraction._page_pixel_sizes(), {1: (100, 100)})
-            with patch("pdf_craft.renderer.markdown.renderer.render_markdown_file") as markdown:
+            async def markdown_output(_chapters, _assets, output, assets, *_args, **_kwargs):
+                output.write_text("rendered")
+                assets.mkdir()
+            with patch("pdf_craft.renderer.markdown.renderer.render_markdown_file", side_effect=markdown_output) as markdown:
                 asyncio.run(MarkdownRenderer().render(extraction, root / "book.md"))
             self.assertEqual(markdown.call_args.args[0].name, "chapters")
-            with patch("pdf_craft.renderer.epub.renderer.render_epub_file") as epub:
+            async def epub_output(*args, **_kwargs):
+                args[3].write_bytes(b"rendered")
+            with patch("pdf_craft.renderer.epub.renderer.render_epub_file", side_effect=epub_output) as epub:
                 asyncio.run(EpubRenderer().render(extraction, root / "book.epub"))
             self.assertEqual(epub.call_args.args[0].name, "chapters")
 
@@ -574,7 +579,9 @@ class TestComposableBoundaries(unittest.TestCase):
                 ),
                 language="en",
             )
-            with patch("pdf_craft.renderer.epub.renderer.render_epub_file") as epub:
+            async def epub_output(*args, **_kwargs):
+                args[3].write_bytes(b"rendered")
+            with patch("pdf_craft.renderer.epub.renderer.render_epub_file", side_effect=epub_output) as epub:
                 asyncio.run(EpubRenderer().render(
                     extraction,
                     root / "book.epub",

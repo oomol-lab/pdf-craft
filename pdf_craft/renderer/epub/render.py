@@ -1,5 +1,6 @@
 from pathlib import Path
 from ...runtime import IO_DOMAIN, TEX_DOMAIN, run_cancellable, worker_iter
+from ...common import read_xml
 from typing import Generator, Literal
 
 from epub_generator import (
@@ -27,10 +28,9 @@ from epub_generator import (
 from ...markdown.paragraph import HTMLTag, flatten
 from ...metering import AbortedCheck, check_aborted
 from ...extractor.chapter import (
-    Chapter, DisplayFormula, InlineExpression, Reference, SourceAsset,
+    Chapter, DisplayFormula, InlineExpression, Reference, SourceAsset, decode,
     StandaloneAsset, TextFlowItem,
     create_chapters_reader,
-    references_to_map,
     search_references_in_chapter,
 )
 from ...extractor.chapter.text_projection import (
@@ -58,20 +58,21 @@ async def render_epub_file(
 ):
     read_chapters = await IO_DOMAIN.run(create_chapters_reader, chapters_path)
     float_markers = FloatMarkerRegistry()
-    references: list[Reference] = []
+    reference_ids: list[tuple[int, int]] = []
     async for chapter in worker_iter(read_chapters()):
-        references.extend(search_references_in_chapter(chapter))
+        reference_ids.extend(reference.id for reference in search_references_in_chapter(chapter))
 
-    references.sort(key=lambda ref: (ref.page_index, ref.order))
-    ref_id_to_number = references_to_map(references)
+    reference_ids.sort()
+    ref_id_to_number = {identity: number for number, identity in enumerate(reference_ids, 1)}
     get_head: ChapterGetter | None = None
     toc_collection = await IO_DOMAIN.run(TocCollection, toc_path)
 
     async for chapter in worker_iter(read_chapters()):
 
-        def get_chapter(ch=chapter):
+        chapter_file = chapters_path / f"chapter_{chapter.id if chapter.id is not None else 'head'}.xml"
+        def get_chapter(path=chapter_file):
             return _convert_chapter_to_epub(
-                chapter=ch,
+                chapter=decode(read_xml(path)),
                 assets_path=assets_path,
                 inline_latex=inline_latex,
                 ref_id_to_number=ref_id_to_number,

@@ -92,6 +92,15 @@ class ChapterExtractionTransformer:
         on_translation_event: Callable[[TranslationEvent], object] | None = None,
         emit_translation_events: bool = False,
     ) -> PDFCraftExtraction:
+        if (isinstance(self.chapter_transformer, NarrativeXMLTransformer)
+                and self.chapter_transformer.supports_stream):
+            from .content import translate_workspace
+            return await translate_workspace(
+                extraction, output_path, self.chapter_transformer,
+                window=self.chapter_transformer.window,
+                on_translation_event=on_translation_event,
+                emit_translation_events=emit_translation_events, preserve_layers=True,
+            )
         is_xml_transformer = isinstance(self.chapter_transformer, NarrativeXMLTransformer)
         chapter_tasks = await IO_DOMAIN.run(
             self._prepare_async_workspace, extraction, output_path,
@@ -357,11 +366,12 @@ class AnchoredContentExtractionTransformer:
 def _copy_extraction_to_workspace(
     extraction: PDFCraftExtraction,
     output_path: Path,
+    *, include_translations: bool = True,
 ) -> None:
     with extraction._materialize() as paths:
         copytree(paths.chapters, output_path / "chapters")
         copytree(paths.assets, output_path / "assets")
-        if paths.translations.exists():
+        if include_translations and paths.translations.exists():
             copytree(paths.translations, output_path / "translations")
         for source in (
             paths.manifest,

@@ -135,3 +135,19 @@ EPUB 适配器异步逐项读取任务，在共享 XMLTranslator 的局部映射
 可选 `on_body` 接收 `EpubTranslation(epubcfi, original, translated)`，只包含去掉窗口上下文后的
 原子片段；来源 CFI 索引由 EPUB 适配器按需构建，源范围贯穿公式替换。`pipeline/epub/cfi.py`
 只负责文档内定位，OPF/spine 前缀由外层提供。用户说明见 `docs/*/STREAMING.md`。
+
+
+## PCEX 内容流与页面查询
+
+`document/content.py` 以现有 FlowItem/Reference 为 payload，封装必要的章节位置，负责读取、
+章节文件消费和独立 XML 通知；固定资源/目录/几何留在文档上下文。标准 PCEX 翻译经
+`transformer/content.py` 复用 NarrativeXMLTransformer 和 XMLTranslator 逐内容项处理，
+由同一个章节消费端保存译文与 coverage，随后追加译文层或生成渲染视图。旧式自定义 task
+translator 仍保留既有整章扩展契约。渲染回调不是目标格式字节，也不是 PDF 排版预览。
+
+`document/access.py` 定义 PageGeometry 与 ExtractionContext。完整 PCEX 用两个 Craft
+门面的 read_pages/read_asset 查询；提取中用调用者提供的 context，不公开半成品句柄。
+交付前页面几何可查询，资源副本读取只在活跃的临时存储生命周期内有效。
+
+LLM 有序交付使用磁盘重排缓存，已完成结果不占据执行准入窗口；双阶段 vendor OCR 的
+续阶段和新页共享请求容量，续阶段优先。未确定归属来源在页归属闭合后按阅读顺序发出。

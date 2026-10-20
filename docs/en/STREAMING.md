@@ -36,7 +36,8 @@ These notifications describe the traditional cross-page analysis before global
 TOC exclusion, heading-level finalization, punctuation normalization, and optional
 footnote refinement. They are not a replay of the finalized chapter files. Unknown
 footnote ownership remains preserved in the final narrative; these unresolved items
-are delivered through `on_body` at EOF, with their original source positions. Empty projected
+are delivered through `on_body` in source reading order after page ownership closes,
+without an out-of-order EOF appendix. Empty projected
 fragments keep their source identities. The complete archive remains the authority
 for final structure, definitions, and resource validation.
 
@@ -82,5 +83,53 @@ all queued callbacks before successful return. Callback XML/value conversion is
 skipped independently for each missing callback; EPUB source tracking and CFI
 indexing are enabled only when `on_body` is supplied.
 
-PCEX translation callbacks are not part of this API. Rendering PCEX to Markdown,
-EPUB, or PDF remains an operation returning a complete output.
+PCEX translation writing has no content callback. Rendering may provide content
+notifications as described below, while final output remains a complete artifact.
+
+
+## PCEX content consumers and public geometry
+
+PCEX reading and optional translation feed a shared private content stream.
+The existing flow items and reference definitions retain source identities and
+geometry. `translate_extraction` consumes the same translated stream to append
+a complete translation layer and coverage; it has no public content callbacks.
+Legacy custom whole-task translators keep their original extension contract.
+
+`render_markdown`, `render_epub`, `patch_pdf_with_extraction`, and `translate_pdf`
+accept optional `on_body` and `on_footnote`. Their independent PCEX XML snapshots
+use the extraction callback schema: a body flow item or a full reference
+definition. Source page/bbox information is unchanged by translation. Each
+channel is ordered; there is no combined ordering between channels. No callbacks
+means no additional user XML packaging. A callback failure or cancellation
+terminates the operation; callbacks do not imply successful final-file creation.
+
+Markdown/EPUB rendering accepts `translator`, `window`, and `with_anchored` for
+translation during reading. PDF patching accepts `translator` and `window`, or
+use `translate_pdf`. Do not combine a translator with a stored `translation_id`.
+New translation defaults to replacement rendering. Bilingual Markdown/EPUB is
+also supported; translation-time callbacks still deliver replacement content,
+while direct stored-layer rendering reports its selected display view. These
+callbacks describe content, not output-format bytes or final PDF glyph layout.
+
+Out-of-order LLM results are spooled to disk without blocking admission behind
+a slow first request. Two-stage vendor OCR can advance individual pages to
+stage two before all first passes finish. Unresolved footnote source is emitted
+in body reading order, not appended after later pages at EOF.
+
+Use `await craft.read_pages(extraction)` to obtain an independent mapping from
+one-based page indexes to immutable `PageGeometry` values (`page_index`, `width`,
+`height`, `render_dpi`, `coordinate_space`). Use `await craft.read_asset(extraction,
+asset_hash)` for resource bytes, without depending on materialization paths.
+The synchronous facade provides equivalent synchronous methods.
+
+During PDF extraction pass a caller-owned `ExtractionContext` through
+`ExtractionOptions(context=context)`. `context.read_pages()` is a synchronous
+in-memory snapshot; geometry for delivered content is available before its
+callback. `await context.read_asset(hash)` copies resources while extraction is
+active. Geometry remains accessible afterwards; asset access expires with the
+extraction call, so use the completed PCEX for subsequent reads. Do not share a
+context between concurrent extractions.
+
+Final EPUB/PDF files are submitted whole. Markdown text and assets are staged;
+publication rolls back existing output on a replacement failure, but a file and
+asset directory cannot be made atomically visible together across paths.

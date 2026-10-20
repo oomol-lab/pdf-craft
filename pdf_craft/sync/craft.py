@@ -46,6 +46,12 @@ class PDFCraft:
     ) -> PDFCraftExtraction:
         return run_sync(self._async_craft.export_extraction(extraction, path))
 
+    def read_pages(self, extraction):
+        return run_sync(self._async_craft.read_pages(extraction))
+
+    def read_asset(self, extraction, asset_hash: str) -> bytes:
+        return run_sync(self._async_craft.read_asset(extraction, asset_hash))
+
     def list_translations(
         self, extraction: PDFCraftExtraction | PathLike | str,
     ) -> tuple[TranslationInfo, ...]:
@@ -81,10 +87,12 @@ class PDFCraft:
         *, mode: RenderMode = RenderMode.SOURCE,
         translation_id: str | None = None,
         aborted: AbortedCheck = lambda: False,
+        **options,
     ) -> None:
         run_sync(self._async_craft.render_markdown(
             extraction, output, assets_path, mode=mode,
             translation_id=translation_id, aborted=aborted,
+            **options,
         ))
 
     def translate_extraction(
@@ -124,12 +132,14 @@ class PDFCraft:
         mode: RenderMode = RenderMode.SOURCE,
         translation_id: str | None = None,
         aborted: AbortedCheck = lambda: False,
+        **options,
     ) -> None:
         run_sync(self._async_craft.render_epub(
             extraction, output, book_meta=book_meta, lan=lan,
             table_render=table_render, latex_render=latex_render,
             inline_latex=inline_latex, mode=mode,
             translation_id=translation_id, aborted=aborted,
+            **options,
         ))
 
     def translate_pdf(
@@ -141,6 +151,7 @@ class PDFCraft:
         with_furniture: bool = False,
         on_translation_event: Callable[[TranslationEvent], None] | None = None,
         ignore_errors: IgnoreFillErrorsChecker = False,
+        **options,
     ) -> None:
         run_sync(self._async_craft.translate_pdf(
             source, extraction, output, translator,
@@ -148,6 +159,7 @@ class PDFCraft:
             with_furniture=with_furniture,
             on_translation_event=on_translation_event,
             ignore_errors=ignore_errors,
+            **options,
         ))
 
     def patch_pdf_with_extraction(
@@ -158,10 +170,12 @@ class PDFCraft:
         *,
         translation_id: str | None = None,
         ignore_errors: IgnoreFillErrorsChecker = False,
+        **options,
     ) -> None:
         run_sync(self._async_craft.patch_pdf_with_extraction(
             source, extraction, output, translation_id=translation_id,
             ignore_errors=ignore_errors,
+            **options,
         ))
 
     def translate_epub(

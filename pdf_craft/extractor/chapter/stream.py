@@ -128,6 +128,17 @@ def resolve_to_disk(
             row = db.execute("SELECT value FROM notes WHERE page=?", (page,)).fetchone()
             return pickle.loads(row[0]) if row else None
 
+        def unresolved_before(position=None):
+            query = "SELECT rowid,value FROM bodies WHERE unresolved=1"
+            parameters = ()
+            if position is not None:
+                query += " AND (page < ? OR (page = ? AND position <= ?))"
+                parameters = (position[0], position[0], position[1])
+            query += " ORDER BY page,position,rowid"
+            for rowid, value in db.execute(query, parameters):
+                db.execute("UPDATE bodies SET unresolved=2 WHERE rowid=?", (rowid,))
+                yield pickle.loads(value)
+
         def paragraphs():
             for item in _joined(read_pages(), False, on_page=advance_notes).execute():
                 if isinstance(item, TextFlowItem):
@@ -143,18 +154,19 @@ def resolve_to_disk(
                                 if references is not None:
                                     _replace_mark_with_reference(references, fragment)
                             join_texts_in_content(fragment.content)
+                # Close ownership on this source page before advancing the
+                # reading stream. Unresolved definitions are real body content,
+                # not an EOF appendix. Their payloads wait on disk.
+                advance_notes(_position(item)[0], require_closed=True)
+                yield from unresolved_before(_position(item))
                 store_body(item)
                 yield item
+            for _ in note_pages:
+                pass
+            yield from unresolved_before()
 
         for item in _assemble_flow_items(paragraphs()):
             if on_body is not None:
-                on_body(_encode_flow(item))
-        for _ in note_pages:
-            pass
-        if on_body is not None:
-            unresolved = (pickle.loads(row[0]) for row in db.execute(
-                "SELECT value FROM bodies WHERE unresolved=1 ORDER BY page,position,rowid"))
-            for item in _assemble_flow_items(unresolved):
                 on_body(_encode_flow(item))
         db.commit()
 

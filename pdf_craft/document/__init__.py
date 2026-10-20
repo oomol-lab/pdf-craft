@@ -12,5 +12,7 @@ from .render import RenderMode, resolve_translation
 
 __all__ = [
     "DocumentAuthor", "DocumentMetadata", "PDFCraftExtraction", "TranslationInfo", "SourceLocation",
-    "RenderMode", "resolve_translation", "source_location",
+    "RenderMode", "resolve_translation", "source_location", "ExtractionContext", "PageGeometry",
 ]
+
+from .access import ExtractionContext, PageGeometry

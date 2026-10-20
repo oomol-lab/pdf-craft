@@ -655,3 +655,13 @@ JEV 或 vendor OCR 若消耗同一供应商配额，应共享同一个执行器�
 
 
 PDF 提取 XML 回调、EPUB 原子翻译片段与来源 CFI 的用法见[增量回调说明](STREAMING.md)。
+
+
+### PCEX 流式渲染与来源查询
+
+`render_markdown` / `render_epub` 支持可选 `translator`、`window`、`with_anchored`、
+`on_body` 和 `on_footnote`。PDF 回填支持可选 `translator`、`window` 及两条内容回调，
+`translate_pdf` 也支持这两条回调。`read_pages(extraction)` 返回按页码索引的不可变
+`PageGeometry` 值；`read_asset(extraction, asset_hash)` 返回资源字节。
+`ExtractionOptions.context` 可传入 `ExtractionContext`，在提取期间查询已知页面和读取资源。
+所有权、顺序、有效期和最终输出语义见[增量回调](STREAMING.md)。

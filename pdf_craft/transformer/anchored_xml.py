@@ -179,16 +179,17 @@ def _asset_structure(element: Element) -> tuple[Any, ...]:
             if key != "translation_slot"
         )),
         # A text/tail slot is part of a formula's position in mixed XML.  Its
-        # wording may change, but moving that wording across a formula must
+        # Formatting-only indentation is not a text slot. The wording may
+        # change, but moving meaningful wording across a formula must
         # not make the formula appear before or after a different phrase.
-        bool(element.text),
+        bool(element.text and element.text.strip()),
         (
             element.text or ""
             if element.tag == "inline_expr" and element.get("kind") != "text"
             else None
         ),
         tuple(
-            (_asset_structure(child), bool(child.tail))
+            (_asset_structure(child), bool(child.tail and child.tail.strip()))
             for child in element
             if child.tag != "translation-context"
         ),

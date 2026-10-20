@@ -22,6 +22,7 @@ async def render_markdown_file(
     output_assets_path: Path,
     cover_path: Path | None,
     aborted: AbortedCheck,
+    *, asset_ref_path: Path | None = None,
 ):
     # ``output_assets_path`` is a destination relative to the Markdown file,
     # unless it is absolute.  Keep the copy destination and emitted Markdown
@@ -30,7 +31,7 @@ async def render_markdown_file(
         assets_destination = output_assets_path
     else:
         assets_destination = output_path.parent / output_assets_path
-    assets_ref_path = Path(relpath(assets_destination, output_path.parent))
+    assets_ref_path = asset_ref_path if asset_ref_path is not None else Path(relpath(assets_destination, output_path.parent))
 
     await IO_DOMAIN.run(output_path.parent.mkdir, parents=True, exist_ok=True)
     await IO_DOMAIN.run(assets_destination.mkdir, parents=True, exist_ok=True)
