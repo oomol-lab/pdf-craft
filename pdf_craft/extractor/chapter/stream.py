@@ -23,6 +23,7 @@ from .generation import (
     _replace_mark_with_reference,
 )
 from .jointer import Jointer, normalize_source_projection
+from .mark import transform2mark
 from .source import capture_sources
 
 
@@ -111,7 +112,7 @@ def resolve_to_disk(
                             # Without a printed mark this page need not wait for
                             # the independent definition stream to catch up.
                             if includes_footnotes and any(
-                                char.isdigit() or char in "*①②③④⑤⑥⑦⑧⑨⑩"
+                                char == "*" or transform2mark(char) is not None
                                 for part in flatten(fragment.content) if isinstance(part, str) for char in part
                             ):
                                 references = get_references(fragment.page_index)

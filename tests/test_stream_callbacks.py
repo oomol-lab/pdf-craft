@@ -26,6 +26,12 @@ from pdf_craft.transformer import SubmitKind
 from pdf_craft.transformer.xml_translator.segment import search_text_segments
 
 
+FOOTNOTE_MARKS = (
+    'Ⅰ', 'ⅰ', '①', '⓵', '➀', '➊', '❶', '㈠', '㊀',
+    '１', '𝟭', '𝟏', '𝟙', '🄂', '*', '**', '***', '****', '*****', '******',
+)
+
+
 def page(index, text='Complete sentence.', note=''):
     return decode(fromstring(
         f'<page index="{index}"><body><layout ref="text" det="0,0,100,20">{text}</layout></body>'
@@ -133,15 +139,55 @@ class StreamCallbacksTests(unittest.IsolatedAsyncioTestCase):
                 await live.cancel()
 
     def test_streamed_finalization_matches_page_analysis_with_notes(self):
-        with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
-            for index in range(1, 4):
-                save_xml(encode_page(page(index, 'Text①. Again①.', '① Footnote.')), root / f'page_{index}.xml')
-            toc = TocInfo([], [])
-            analyses = _analyse_chapter_pages(root, toc)[1]
-            expected = [tostring(encode(chapter)) for chapter in _generate_chapters(root, toc, analyses)]
-            actual = [tostring(encode(chapter)) for chapter in _generate_chapters(root, toc)]
-            self.assertEqual(actual, expected)
+        for mark in FOOTNOTE_MARKS:
+            with self.subTest(mark=mark), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                for index in range(1, 4):
+                    save_xml(encode_page(page(index, f'Text{mark}. Again{mark}.', f'{mark} Footnote.')),
+                             root / f'page_{index}.xml')
+                toc = TocInfo([], [])
+                analyses = _analyse_chapter_pages(root, toc)[1]
+                expected = [tostring(encode(chapter)) for chapter in _generate_chapters(root, toc, analyses)]
+                actual = [tostring(encode(chapter)) for chapter in _generate_chapters(root, toc)]
+                self.assertEqual(actual, expected)
+                chapter = fromstring(actual[0])
+                refs = chapter.findall('./flow/text/fragment/ref')
+                self.assertEqual([ref.get('id') for ref in refs],
+                                 ['1-1', '1-1', '2-1', '2-1', '3-1', '3-1'])
+                self.assertEqual(len(chapter.findall('./references/ref')), 3)
+
+    async def test_streamed_callbacks_link_all_supported_footnote_mark_styles(self):
+        from pdf_craft.extractor.chapter.stream import chapters_from_disk
+        for mark in FOOTNOTE_MARKS:
+            with self.subTest(mark=mark), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                pages = root / 'ocr'
+                pages.mkdir()
+                bodies, notes = [], []
+                live = LiveExtraction(root / 'live', pages, True,
+                                      lambda node, received=bodies: received.append(tostring(node)),
+                                      lambda node, received=notes: received.append(tostring(node)))
+                try:
+                    save_xml(encode_page(page(1, f'Text{mark}. Again{mark}.', f'{mark} Footnote.')),
+                             pages / 'page_1.xml')
+                    await live.event(OCREvent(OCREventKind.START, 1, 1))
+                    await live.event(OCREvent(OCREventKind.COMPLETE, 1, 1))
+                    await live.finish()
+                    self.assertEqual(len(bodies), 1)
+                    body = fromstring(bodies[0])
+                    refs = list(body.iter('ref'))
+                    self.assertEqual([ref.get('id') for ref in refs], ['1-1', '1-1'])
+                    self.assertEqual([fromstring(note).get('id') for note in notes], ['1-1'])
+                    self.assertEqual(fromstring(notes[0]).findtext('mark'), mark)
+                    note_flow = fromstring(notes[0]).find('flow')
+                    assert note_flow is not None
+                    self.assertEqual(''.join(note_flow.itertext()), 'Footnote.')
+                    final = encode(next(chapters_from_disk(live.database, TocInfo([], []))))
+                    final_flow = final.find('flow')
+                    assert final_flow is not None
+                    self.assertEqual(len(list(final_flow.iter('ref'))), 2)
+                finally:
+                    await live.cancel()
 
     async def test_epub_atomic_fragments_have_cfi_and_no_window_duplicates(self):
         produced, received, events = [], [], []
