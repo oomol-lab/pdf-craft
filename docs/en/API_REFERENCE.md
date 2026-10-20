@@ -392,3 +392,8 @@ For complete workflows, start with [PDF conversion and translation](PDF_TRANSLAT
 
 
 See [incremental callbacks](STREAMING.md) for PDF extraction XML notifications and EPUB atomic translation fragments with source CFIs.
+
+
+### PCEX streaming rendering and source access
+
+`render_markdown` / `render_epub` accept optional `translator`, `window`, `with_anchored`, `on_body`, and `on_footnote`. PDF patching accepts optional `translator`, `window`, and both callbacks; `translate_pdf` also accepts both callbacks. `read_pages(extraction)` returns a page-indexed mapping of immutable `PageGeometry`; `read_asset(extraction, asset_hash)` returns bytes. `ExtractionOptions.context` accepts an `ExtractionContext` for geometry/resource access during extraction. See [streaming callbacks](STREAMING.md) for ownership, ordering, lifetime, and output semantics.

@@ -92,20 +92,31 @@ class PDFExtractionEngine:
     async def extract_package_async(self, **kwargs):
         """Own disk queues until producers and callback consumers have unwound."""
         from .extractor.chapter.live import LiveExtraction
+        context = kwargs.pop("context", None)
         on_body = kwargs.pop("on_body", None)
         on_footnote = kwargs.pop("on_footnote", None)
         async with temporary_directory("pdf-craft-live-extraction-") as directory:
+            if context is not None:
+                context._bind(kwargs["analysing_path"] / "extraction" / "assets")
             live = LiveExtraction(directory, kwargs["analysing_path"] / "ocr",
                                   kwargs["includes_footnotes"], on_body, on_footnote)
             callback = kwargs.get("on_ocr_event")
             async def event(value):
+                if context is not None:
+                    context._update(self._ocr.last_page_pixel_sizes, kwargs["dpi"] or 300)
                 await live.event(value)
                 await invoke_callback(callback, value)
             kwargs["on_ocr_event"] = event
             try:
+                if context is not None:
+                    sizes = await IO_DOMAIN.run(OCR._load_page_pixel_sizes, self._ocr,
+                                               kwargs["analysing_path"] / "ocr" / "page_pixel_sizes.json")
+                    context._update(sizes, kwargs["dpi"] or 300)
                 return await self._extract_package_async(**kwargs, live=live)
             finally:
                 await live.cancel()
+                if context is not None:
+                    context._unbind()
 
     async def _extract_package_async(self, **kwargs):
         """Run optional footnote refinement between two OCR-domain phases."""

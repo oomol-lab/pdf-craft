@@ -17,6 +17,7 @@ from epub_generator import BookMeta, LaTeXRender, TableRender
 
 from .document import PDFCraftExtraction, RenderMode, TranslationInfo, resolve_translation
 from .document.package import validate_translation_id
+from .document.access import ExtractionContext, PageGeometry, page_geometries, asset_path
 from .extractor.chapter.chapter import SourceTextFragment, TextFlowItem
 from .extractor.chapter.reader import create_chapters_reader
 from .error import IgnoreFillErrorsChecker, IgnoreOCRErrorsChecker, IgnorePDFErrorsChecker
@@ -94,6 +95,7 @@ class ExtractionOptions:
     on_ocr_event: Callable[[OCREvent], object] = lambda _: None
     on_body: Callable[[Element], object] | None = None
     on_footnote: Callable[[Element], object] | None = None
+    context: ExtractionContext | None = None
 
 
 class AsyncPDFCraft:
@@ -132,6 +134,24 @@ class AsyncPDFCraft:
         """Export a validated PCEX handle through the owning facade."""
         document = await _ensure_extraction_async(extraction)
         return await document._export_async(Path(path))
+
+    async def read_pages(self, extraction: PDFCraftExtraction | PathLike | str) -> dict[int, PageGeometry]:
+        """Read public source page dimensions, DPI and coordinate space once."""
+        document = await _ensure_extraction_async(extraction)
+        def read():
+            from .document.package import _read_pages
+            with document._materialize() as paths:
+                dpi, sizes = _read_pages(paths.pages)
+                return page_geometries(sizes, dpi)
+        return await IO_DOMAIN.run(read)
+
+    async def read_asset(self, extraction: PDFCraftExtraction | PathLike | str, asset_hash: str) -> bytes:
+        """Return a copy of a resource, independent of archive materialization."""
+        document = await _ensure_extraction_async(extraction)
+        def read():
+            with document._materialize() as paths:
+                return asset_path(paths.assets, asset_hash).read_bytes()
+        return await IO_DOMAIN.run(read)
 
     async def list_translations(
         self, extraction: PDFCraftExtraction | PathLike | str,
@@ -191,6 +211,7 @@ class AsyncPDFCraft:
                 ignore_ocr_errors=options.ignore_ocr_errors,
                 aborted=options.aborted,
                 on_ocr_event=options.on_ocr_event,
+                **({"context": options.context} if options.context is not None else {}),
                 **({"on_body": options.on_body} if options.on_body is not None else {}),
                 **({"on_footnote": options.on_footnote} if options.on_footnote is not None else {}),
             )
@@ -201,13 +222,29 @@ class AsyncPDFCraft:
         *, mode: RenderMode = RenderMode.SOURCE,
         translation_id: str | None = None,
         aborted: AbortedCheck = lambda: False,
+        translator: XMLTranslator | None = None, window: int = 1,
+        with_anchored: bool = True,
+        on_body=None, on_footnote=None,
     ) -> None:
         document = await _ensure_extraction_async(extraction)
+        if translator is not None:
+            if translation_id is not None:
+                raise ValueError("translation_id cannot select an existing layer while translating")
+            async with temporary_directory("pdf-craft-render-translation-") as root:
+                document = await self._translate_layer_to_workspace(
+                    document, root, translator, window=window,
+                    with_anchored=with_anchored, on_body=on_body, on_footnote=on_footnote, aborted=aborted,
+                )
+                selected_id = (await IO_DOMAIN.run(document._translations))[-1].id
+                await self.render_markdown(document, output, assets_path,
+                    mode=RenderMode.REPLACE if mode == RenderMode.SOURCE else mode,
+                    translation_id=selected_id, aborted=aborted)
+            return
         await MarkdownRenderer().render(
             document, Path(output),
             Path(assets_path) if assets_path is not None else None,
             mode=mode, translation_id=translation_id,
-            aborted=aborted,
+            aborted=aborted, on_body=on_body, on_footnote=on_footnote,
         )
 
     async def translate_extraction(
@@ -269,13 +306,31 @@ class AsyncPDFCraft:
         mode: RenderMode = RenderMode.SOURCE,
         translation_id: str | None = None,
         aborted: AbortedCheck = lambda: False,
+        translator: XMLTranslator | None = None, window: int = 1,
+        with_anchored: bool = True,
+        on_body=None, on_footnote=None,
     ) -> None:
         document = await _ensure_extraction_async(extraction)
+        if translator is not None:
+            if translation_id is not None:
+                raise ValueError("translation_id cannot select an existing layer while translating")
+            async with temporary_directory("pdf-craft-render-translation-") as root:
+                document = await self._translate_layer_to_workspace(
+                    document, root, translator, window=window,
+                    with_anchored=with_anchored, on_body=on_body, on_footnote=on_footnote, aborted=aborted,
+                )
+                selected_id = (await IO_DOMAIN.run(document._translations))[-1].id
+                await self.render_epub(document, output, book_meta=book_meta, lan=lan,
+                    table_render=table_render, latex_render=latex_render, inline_latex=inline_latex,
+                    mode=RenderMode.REPLACE if mode == RenderMode.SOURCE else mode,
+                    translation_id=selected_id, aborted=aborted)
+            return
         await EpubRenderer().render(
             document, Path(output), book_meta=book_meta, lan=lan,
             table_render=table_render, latex_render=latex_render,
             inline_latex=inline_latex, mode=mode,
             translation_id=translation_id, aborted=aborted,
+            on_body=on_body, on_footnote=on_footnote,
         )
 
     async def translate_pdf(
@@ -286,6 +341,7 @@ class AsyncPDFCraft:
         with_furniture: bool = False,
         on_translation_event: Callable[[TranslationEvent], object] | None = None,
         ignore_errors: IgnoreFillErrorsChecker = False,
+        on_body=None, on_footnote=None,
     ) -> None:
         document = await _ensure_extraction_async(extraction)
         async with temporary_directory("pdf-craft-translated-extraction-") as directory:
@@ -295,6 +351,7 @@ class AsyncPDFCraft:
                 with_anchored=False,
                 with_furniture=with_furniture,
                 on_translation_event=on_translation_event,
+                on_body=on_body, on_footnote=on_footnote,
             )
             await self.patch_pdf_with_extraction(
                 source, translated, output, ignore_errors=ignore_errors,
@@ -307,8 +364,21 @@ class AsyncPDFCraft:
         output: PathLike | str,
         *, translation_id: str | None = None,
         ignore_errors: IgnoreFillErrorsChecker = False,
+        translator: XMLTranslator | None = None, window: int = 1,
+        on_body=None, on_footnote=None,
     ) -> None:
         document = await _ensure_extraction_async(extraction)
+        if translator is not None:
+            if translation_id is not None:
+                raise ValueError("translation_id cannot be combined with translator")
+            await self.translate_pdf(source, document, output, translator,
+                window=window, ignore_errors=ignore_errors, on_body=on_body, on_footnote=on_footnote)
+            return
+        from .document.content import consume_content, read_content
+        from .document.render import materialize_pdf_patch_view
+        if on_body is not None or on_footnote is not None:
+            async with worker_context(materialize_pdf_patch_view(document, translation_id)) as view:
+                await consume_content(read_content(view.chapters), on_body=on_body, on_footnote=on_footnote)
         source_path = Path(source)
         output_path = Path(output)
         configured_handler = self._pdf.pdf_handler if self._pdf else None
@@ -461,6 +531,7 @@ class AsyncPDFCraft:
                 ignore_pdf_errors=options.ignore_pdf_errors,
                 ignore_ocr_errors=options.ignore_ocr_errors,
                 aborted=options.aborted, on_ocr_event=options.on_ocr_event,
+                **({"context": options.context} if options.context is not None else {}),
                 **({"on_body": options.on_body} if options.on_body is not None else {}),
                 **({"on_footnote": options.on_footnote} if options.on_footnote is not None else {}),
             )
@@ -471,6 +542,7 @@ class AsyncPDFCraft:
         with_anchored: bool = True, with_furniture: bool = False,
         translation_id: str | None = None, target_language: str | None = None,
         on_translation_event: Callable[[TranslationEvent], object] | None = None,
+        on_body=None, on_footnote=None, aborted=lambda: False,
     ) -> PDFCraftExtraction:
         """Shared persisted/one-shot translation: source plus one replacement layer."""
         existing = {item.id for item in await IO_DOMAIN.run(extraction._translations)}
@@ -483,6 +555,7 @@ class AsyncPDFCraft:
             extraction, workspace, translator, window=window,
             with_anchored=with_anchored, with_furniture=with_furniture,
             on_translation_event=on_translation_event,
+            on_body=on_body, on_footnote=on_footnote, aborted=aborted,
         )
         return await IO_DOMAIN.run(
             append_translation_layer_to_workspace,
@@ -496,12 +569,14 @@ class AsyncPDFCraft:
         translator: XMLTranslator, *, window: int = 1,
         with_anchored: bool = True, with_furniture: bool = False,
         on_translation_event: Callable[[TranslationEvent], object] | None = None,
+        on_body=None, on_footnote=None, aborted=lambda: False,
     ) -> PDFCraftExtraction:
         """Materialize replacement-only root content for PDF writeback."""
         translated, overlay = await self._translate_replacement_to_workspace(
             extraction, workspace, translator, window=window,
             with_anchored=with_anchored, with_furniture=with_furniture,
             on_translation_event=on_translation_event,
+            on_body=on_body, on_footnote=on_footnote, aborted=aborted,
         )
         if overlay:
             async with worker_context(translated._materialize()) as paths:
@@ -517,6 +592,7 @@ class AsyncPDFCraft:
         with_anchored: bool = True,
         with_furniture: bool = False,
         on_translation_event: Callable[[TranslationEvent], object] | None = None,
+        on_body=None, on_footnote=None, aborted=lambda: False,
     ) -> tuple[PDFCraftExtraction, dict]:
         narrative_transformer = NarrativeXMLTransformer(
             translator, mode=SubmitKind.REPLACE, window=window,
@@ -524,18 +600,31 @@ class AsyncPDFCraft:
         metadata_overlay = await narrative_transformer.translate_metadata(
             await IO_DOMAIN.run(extraction._document_metadata)
         )
-        translated = await ChapterExtractionTransformer(
-            narrative_transformer, mode=SubmitKind.REPLACE,
-        )._transform_to_workspace_async(
-            extraction,
-            workspace / "narrative",
-            on_translation_event=on_translation_event,
-            emit_translation_events=True,
-        )
-        if with_anchored:
-            translated = await AnchoredContentExtractionTransformer(
-                narrative_transformer._anchored_transformer(),
-            )._transform_to_workspace_async(translated, workspace / "anchored")
+        if narrative_transformer.supports_stream:
+            from .transformer.content import translate_workspace
+            translated = await translate_workspace(
+                extraction, workspace / "narrative", narrative_transformer,
+                window=window, with_anchored=with_anchored,
+                on_body=on_body, on_footnote=on_footnote, aborted=aborted,
+                on_translation_event=on_translation_event, emit_translation_events=True,
+            )
+        else:
+            # Preserve custom task-translator extensions whose contract is
+            # whole-element/batch, rather than silently changing that contract.
+            translated = await ChapterExtractionTransformer(
+                narrative_transformer, mode=SubmitKind.REPLACE,
+            )._transform_to_workspace_async(
+                extraction, workspace / "narrative",
+                on_translation_event=on_translation_event, emit_translation_events=True,
+            )
+            if with_anchored:
+                translated = await AnchoredContentExtractionTransformer(
+                    narrative_transformer._anchored_transformer(),
+                )._transform_to_workspace_async(translated, workspace / "anchored")
+            if on_body is not None or on_footnote is not None:
+                from .document.content import consume_content, read_content
+                async with worker_context(translated._materialize()) as paths:
+                    await consume_content(read_content(paths.chapters), on_body=on_body, on_footnote=on_footnote)
         if with_furniture:
             translated = await FurnitureExtractionTransformer(
                 narrative_transformer._furniture_transformer(),

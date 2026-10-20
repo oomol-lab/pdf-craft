@@ -93,3 +93,5 @@ from .extractor import PDFExtractor
 from .renderer import EpubRenderer, MarkdownRenderer
 
 from .pipeline.epub.events import EpubTranslation
+
+from .document.access import ExtractionContext, PageGeometry

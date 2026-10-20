@@ -501,122 +501,112 @@ class OCR:
         plot_path: Path | None,
         aborted: AbortedCheck,
     ):
-        by_page = {}
-        second_stage: dict[int, Path] = {}
+        # Both stages share the runtime's admission/capacity controller. A page
+        # becomes eligible for stage two immediately, independently of later
+        # first-stage pages. The request backlog and first results live on disk.
+        async with temporary_directory("pdf-craft-ocr-stages-") as directory:
+            root = Path(directory)
+            queue = asyncio.PriorityQueue()
+            serial = 0
+            outstanding = 0
+            input_done = False
+            inflight = {}
 
-        def save_stage(item, first_result, response, second_path):
-            path = item.image_path.parent / f"page_{item.page_index}_stage_1.pickle"
-            with path.open("wb") as file:
-                pickle.dump((item, first_result, response, second_path), file,
-                            protocol=pickle.HIGHEST_PROTOCOL)
-            return path
+            async def enqueue(item, stage):
+                nonlocal outstanding, serial
+                outstanding += 1
+                serial += 1
+                path = root / f"request_{serial}.pickle"
+                def save():
+                    with path.open("wb") as file:
+                        pickle.dump((item, stage), file)
+                await IO_DOMAIN.run(save)
+                # Ready continuations take priority over fresh pages.
+                queue.put_nowait((0 if stage == 2 else 1, serial, path))
 
-        def load_stage(path):
-            with path.open("rb") as file:
-                return pickle.load(file)
-
-        async def first_requests():
-            async for item in prepared:
-                by_page[item.page_index] = item
-                yield VendorOCRInput(item.page_index, item.request_path, aborted, 1)
-
-        async for result in runtime.request_many(first_requests()):
-            item = by_page.pop(result.request.page_index)
-            if result.error is not None:
-                yield item, None, _vendor_page_error(
-                    item.page_index, result.request.stage_index, result.error,
-                )
-                continue
-            assert result.response is not None
-            try:
-                first_result = await OCR_DOMAIN.run(
-                    _parse_vendor_response, self._config, item, result.response,
-                )
-            except Exception as error:
-                yield item, None, _vendor_page_error(item.page_index, 1, error)
-                continue
-            if includes_footnotes and _supports_vendor_stages(self._config):
+            async def feed():
+                nonlocal input_done
                 try:
-                    second_path = await OCR_DOMAIN.run(
-                        _prepare_second_stage,
-                        item,
-                        first_result,
-                        Path(item.image_path.parent),
-                        aborted,
-                    )
-                    second_stage[item.page_index] = await IO_DOMAIN.run(
-                        save_stage, item, first_result, result.response, second_path,
-                    )
-                except Exception as error:
-                    yield item, None, _vendor_page_error(
-                        item.page_index, 2, error,
-                    )
-                continue
+                    async for item in prepared:
+                        await enqueue(item, 1)
+                    input_done = True
+                    if outstanding == 0:
+                        queue.put_nowait((2, 0, None))
+                except BaseException:
+                    queue.put_nowait((-1, 0, None))
+                    raise
+
+            async def requests():
+                while True:
+                    _, _, path = await queue.get()
+                    if path is None:
+                        await feeder
+                        return
+                    def load(path=path):
+                        with path.open("rb") as file:
+                            packet = pickle.load(file)
+                        path.unlink()
+                        return packet
+                    item, stage = await IO_DOMAIN.run(load)
+                    inflight[item.page_index, stage] = item
+                    image = item.request_path if stage == 1 else root / f"page_{item.page_index}_stage_2.png"
+                    yield VendorOCRInput(item.page_index, image, aborted, stage)
+
+            def save_first(index, result, response):
+                with (root / f"{index}.pickle").open("wb") as file:
+                    pickle.dump((result, response), file, protocol=pickle.HIGHEST_PROTOCOL)
+
+            def load_first(index):
+                path = root / f"{index}.pickle"
+                with path.open("rb") as file:
+                    value = pickle.load(file)
+                path.unlink()
+                return value
+
+            feeder = asyncio.create_task(feed())
             try:
-                page = await OCR_DOMAIN.run(
-                    self._finish_vendor_results,
-                    item,
-                    [(item.image_path, first_result)],
-                    asset_hub,
-                    includes_footnotes,
-                    plot_path,
-                    result.response.input_tokens,
-                    result.response.output_tokens,
-                    aborted,
-                )
-                yield item, page, None
-            except Exception as error:
-                yield item, None, _vendor_page_error(item.page_index, 1, error)
-
-        if not second_stage:
-            return
-
-        async def second_requests():
-            for page_index in tuple(second_stage):
-                path = second_stage[page_index]
-                values = await IO_DOMAIN.run(load_stage, path)
-                yield VendorOCRInput(page_index, values[3], aborted, 2)
-
-        async for result in runtime.request_many(second_requests()):
-            path = second_stage.pop(result.request.page_index)
-            item, first_result, first_response, second_path = await IO_DOMAIN.run(load_stage, path)
-            await IO_DOMAIN.run(path.unlink)
-            if result.error is not None:
-                yield item, None, _vendor_page_error(
-                    item.page_index, result.request.stage_index, result.error,
-                )
-                continue
-            assert result.response is not None
-            try:
-                second_result = await OCR_DOMAIN.run(
-                    _parse_vendor_response,
-                    self._config,
-                    _PreparedVendorPage(
-                        item.page_index,
-                        item.image_path,
-                        second_path,
-                        item.started,
-                        item.total_pages,
-                    ),
-                    result.response,
-                )
-                page = await OCR_DOMAIN.run(
-                    self._finish_vendor_results,
-                    item,
-                    [
-                        (item.image_path, first_result),
-                        (second_path, second_result),
-                    ],
-                    asset_hub,
-                    includes_footnotes,
-                    plot_path,
-                    first_response.input_tokens + result.response.input_tokens,
-                    first_response.output_tokens + result.response.output_tokens,
-                    aborted,
-                )
-                yield item, page, None
-            except Exception as error:
-                yield item, None, _vendor_page_error(item.page_index, 2, error)
+                async for result in runtime.request_many(requests()):
+                    index, stage = result.request.page_index, result.request.stage_index
+                    item = inflight.pop((index, stage))
+                    failure_stage = stage
+                    try:
+                        if result.error is not None:
+                            yield item, None, _vendor_page_error(index, stage, result.error)
+                            continue
+                        assert result.response is not None
+                        parsed = await OCR_DOMAIN.run(_parse_vendor_response, self._config, item, result.response)
+                        if stage == 1 and includes_footnotes and _supports_vendor_stages(self._config):
+                            failure_stage = 2
+                            await OCR_DOMAIN.run(_prepare_second_stage, item, parsed, root, aborted)
+                            await IO_DOMAIN.run(save_first, index, parsed, result.response)
+                            await enqueue(item, 2)
+                            continue
+                        results = [(item.image_path, parsed)]
+                        tokens_in = result.response.input_tokens
+                        tokens_out = result.response.output_tokens
+                        if stage == 2:
+                            first, response = await IO_DOMAIN.run(load_first, index)
+                            results = [(item.image_path, first), (result.request.image_path, parsed)]
+                            tokens_in += response.input_tokens
+                            tokens_out += response.output_tokens
+                        page = await OCR_DOMAIN.run(
+                            self._finish_vendor_results, item, results, asset_hub,
+                            includes_footnotes, plot_path, tokens_in, tokens_out, aborted,
+                        )
+                        yield item, page, None
+                    except NonContinuableError:
+                        raise
+                    except Exception as error:
+                        # Preparing the second pass is a stage-two operation.
+                        yield item, None, _vendor_page_error(index, failure_stage, error)
+                    finally:
+                        outstanding -= 1
+                        if input_done and outstanding == 0:
+                            queue.put_nowait((2, 0, None))
+                await feeder
+            finally:
+                feeder.cancel()
+                await asyncio.gather(feeder, return_exceptions=True)
 
     def _finish_vendor_results(
         self,

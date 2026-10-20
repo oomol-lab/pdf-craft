@@ -61,11 +61,10 @@ class PDFTranslationPipeline:
                 extraction, translation_id,
             )) as view:
                 document_metadata = pdf_document_metadata(view.metadata)
-                chapters = await IO_DOMAIN.run(lambda: tuple(create_chapters_reader(view.chapters)()))
                 coverage = await IO_DOMAIN.run(read_coverage, view.coverage)
 
                 replacements = await IO_DOMAIN.run(lambda: tuple(self._iter_covered_replacements(
-                    chapters, view.furnitures, coverage, pages, render_dpi,
+                    create_chapters_reader(view.chapters)(), view.furnitures, coverage, pages, render_dpi,
                     ignore_errors=worker_checker,
                 )))
                 await self.patcher.patch(
@@ -75,7 +74,7 @@ class PDFTranslationPipeline:
 
     def _iter_covered_replacements(
         self,
-        chapters: tuple[Chapter, ...],
+        chapters: Iterable[Chapter],
         furnitures_path: Path,
         coverage,
         pages,

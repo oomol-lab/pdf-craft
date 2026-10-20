@@ -76,6 +76,17 @@ class NarrativeXMLTransformer:
         self._window = window
 
     @property
+    def supports_stream(self) -> bool:
+        """Whether the supplied translator supports incremental task admission."""
+        from .xml_translator.xml_translator import XMLTranslator
+        return isinstance(self._translator, XMLTranslator)
+
+    @property
+    def window(self) -> int:
+        """Maximum number of independent content units in flight."""
+        return self._window
+
+    @property
     def mode(self) -> SubmitKind:
         return self._mode
 

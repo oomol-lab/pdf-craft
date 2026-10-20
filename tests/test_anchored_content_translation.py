@@ -155,7 +155,9 @@ class _XMLTaskTranslator:
             )
         )
         for element in task.element.iter():
-            if element.tag != "translation-context" and element.text:
+            # Indentation is not submitted as translatable text by the real
+            # segment adapter; the stand-in must not invent text in that slot.
+            if element.tag != "translation-context" and element.text and element.text.strip():
                 element.text = f"T:{element.text}"
         return task.element, task.payload
 

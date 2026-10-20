@@ -661,7 +661,7 @@ class TestAsyncAPI(unittest.IsolatedAsyncioTestCase):
         release_head.set()
         self.assertEqual(await pending, [0, 1, 2])
 
-    async def test_translation_window_bounds_run_ahead_behind_a_slow_head(self):
+    async def test_translation_window_spools_run_ahead_behind_a_slow_head(self):
         release_head = asyncio.Event()
         third_started = asyncio.Event()
         started: list[int] = []
@@ -669,7 +669,7 @@ class TestAsyncAPI(unittest.IsolatedAsyncioTestCase):
 
         def parameters():
             nonlocal pulled
-            for value in range(1_000):
+            for value in range(50):
                 pulled += 1
                 yield value
 
@@ -677,23 +677,21 @@ class TestAsyncAPI(unittest.IsolatedAsyncioTestCase):
             started.append(value)
             if value == 0:
                 await release_head.wait()
-            elif value == 2:
+            elif value == 49:
                 third_started.set()
             return value
 
         stream = run_concurrency_async(parameters(), execute, concurrency=2)
         first = asyncio.ensure_future(anext(stream))
         await asyncio.wait_for(third_started.wait(), timeout=1)
-        await asyncio.sleep(0.05)
-        self.assertEqual(started, [0, 1, 2])
-        self.assertEqual(pulled, 3)
-        await asyncio.sleep(0.05)
-        self.assertEqual(pulled, 3)
+        self.assertEqual(started, list(range(50)))
+        self.assertEqual(pulled, 50)
+        self.assertFalse(first.done())
 
         release_head.set()
         self.assertEqual(await first, 0)
         remaining = [value async for value in stream]
-        self.assertEqual(remaining, list(range(1, 1_000)))
+        self.assertEqual(remaining, list(range(1, 50)))
 
     async def test_translation_window_preserves_terminal_error_over_sibling_cancel(self):
         for fatal_index in (0, 3):

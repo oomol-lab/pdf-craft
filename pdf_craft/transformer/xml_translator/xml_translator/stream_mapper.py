@@ -75,6 +75,7 @@ class XMLStreamMapper:
                         current_element = origin_element
 
                     if id(current_element) != id(origin_element):
+                        assert current_element is not None
                         yield current_element, mapping_buffer
                         current_element = origin_element
                         mapping_buffer = []
