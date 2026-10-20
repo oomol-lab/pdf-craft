@@ -44,9 +44,9 @@ for final structure, definitions, and resource validation.
 ## EPUB translation
 
 ```python
-from pdf_craft import EpubTranslation, SubmitKind
+from pdf_craft import EpubFragmentContent, SubmitKind
 
-async def translated(item: EpubTranslation):
+async def translated(item: EpubFragmentContent):
     print(item.epubcfi, item.original, item.translated)
 
 await craft.translate_epub(
@@ -56,7 +56,7 @@ await craft.translate_epub(
 )
 ```
 
-`EpubTranslation` is an immutable value with exactly three fields: `epubcfi`,
+`EpubFragmentContent` is an immutable value with exactly three fields: `epubcfi`,
 `original`, and `translated`. Each event describes one accepted atomic translation
 fragment, not an entire chapter or an LLM request window. Context-only window
 segments are not delivered. `translated` is the accepted, structurally restored
@@ -112,7 +112,7 @@ Footnotes emit one event per paragraph. Standalone assets/formulas do not preten
 `text` is the selected text or translation as Markdown; `original` is separate Markdown (None for source-only).
 Bilingual presentation is never premerged in the event. Final files still honor the requested RenderMode.
 EPUB's Markdown callback is a display branch, never EPUB's generation input. It has no CFI; EPUB **input**
-translation retains its existing EpubTranslation contract. PDF extraction XML callbacks remain unchanged.
+translation retains its existing EpubFragmentContent contract. PDF extraction XML callbacks remain unchanged.
 
 SourceRegion contains immutable PageGeometry, source_order_in_page (the PCEX source_order identity,
 not an array index), and the original integer OCR-pixel bbox. Its map_bbox(target_size) returns floats using
@@ -156,3 +156,44 @@ context between concurrent extractions.
 Final EPUB/PDF files are submitted whole. Markdown text and assets are staged;
 publication rolls back existing output on a replacement failure, but a file and
 asset directory cannot be made atomically visible together across paths.
+
+
+## One book metadata notification
+
+Optional `on_metadata` receives an immutable `MetadataContent`. Its `metadata` is a complete
+`DocumentMetadata`, including fields not translated. Its `original` is the complete source
+metadata for translation, or `None` for extraction. `DocumentMetadata` and `DocumentAuthor`
+are exported from `pdf_craft`; callers never need to merge translation overlays.
+
+```python
+from pdf_craft import ExtractionOptions, MetadataContent
+
+async def metadata(content: MetadataContent):
+    print(content.metadata.title, content.metadata.authors, content.metadata.language)
+
+extraction = await craft.extract_pdf(
+    "book.pdf", "book.pcex", ExtractionOptions(on_metadata=metadata),
+)
+await craft.render_markdown(extraction, "book.md", translator=translator,
+                            on_metadata=metadata)
+```
+
+Without LLM metadata extraction, PDF extraction notifies once after reading native PDF metadata,
+before OCR, and writes that same value into the manifest. With LLM extraction enabled, it waits
+for the final field-wise merge with native fallback, without an intermediate notification.
+Allowed LLM failures use the fallback; an empty result still notifies with `DocumentMetadata()`.
+Without a callback or LLM metadata extraction, native metadata is not read just for notification.
+
+PCEX translation and online Markdown/EPUB/PDF translation rendering notify once from the shared
+metadata stage. EPUB input translation also supports `on_metadata` for OPF book metadata, not
+navigation or individual document head titles. Unmapped EPUB extensions remain in the output;
+the callback is a standardized book view rather than an OPF copy.
+For one-shot PDF conversion, `ExtractionOptions.on_metadata` observes extraction, while the
+separate top-level `on_metadata` observes the optional translation phase.
+
+Async callbacks are awaited. Callback exceptions and cancellation abort the operation without
+publishing a partial output. Notification does not mean the final artifact has committed.
+No public snapshot is built when the callback is absent.
+
+`EpubTranslation` remains a compatibility alias of `EpubFragmentContent`, not a separate type.
+The rename does not change fragment granularity, CFI, whitespace or newline handling.

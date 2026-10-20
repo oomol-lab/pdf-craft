@@ -20,14 +20,14 @@ class EpubRenderer:
                      mode: RenderMode = RenderMode.SOURCE,
                      translation_id: str | None = None,
                      aborted=lambda: False, on_body=None, on_footnote=None,
-                     translator=None, window=1, with_anchored=True) -> None:
+                     translator=None, window=1, with_anchored=True, on_metadata=None) -> None:
         """Orchestrate the view and native EPUB generation asynchronously."""
         from ...document.stream_view import content_view
         from ..paragraph import paragraph_notifications
         from .content import render_content
         async with content_view(extraction, mode=mode, translation_id=translation_id,
                                 translator=translator, window=window,
-                                with_anchored=with_anchored, aborted=aborted) as (view, pages, numbers, items):
+                                with_anchored=with_anchored, on_metadata=on_metadata, aborted=aborted) as (view, pages, numbers, items):
             language = lan or view.language or "zh"
             effective_meta = _merge_book_meta(view.book_meta(), book_meta)
             if language not in {"zh", "en"}:

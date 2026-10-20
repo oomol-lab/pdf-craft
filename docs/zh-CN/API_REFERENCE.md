@@ -676,3 +676,9 @@ PDF 回填的回调改用 `PDFParagraphContent`，regions 元素是 `PDFSourceRe
 附有实际 Qt 排版确定的字号、行、公式及擦除信息，全部布局值以来源像素为单位。
 它不提供字体分发，不承诺浏览器与 Qt 的逐字形一致性。提取的 XML 回调和 EPUB 输入翻译
 的 CFI 回调保持原协议。详细字段、所有权和预览能力见[增量回调](STREAMING.md)。
+
+
+书籍元信息通知：`ExtractionOptions.on_metadata`、PCEX 翻译及在线翻译渲染和 EPUB 输入翻译的
+`on_metadata` 接收 `MetadataContent(metadata: DocumentMetadata, original: DocumentMetadata | None)`。
+这是一次性、可等待的完整书籍视图通知，时机和 fallback 规则见 [增量回调](STREAMING.md)。
+EPUB 正文通知类型现名为 `EpubFragmentContent`，旧名 `EpubTranslation` 为同类型兼容别名。

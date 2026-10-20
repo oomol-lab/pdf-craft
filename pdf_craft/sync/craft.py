@@ -104,7 +104,7 @@ class PDFCraft:
         translation_id: str | None = None,
         target_language: str | None = None,
         on_translation_event: Callable[[TranslationEvent], None] | None = None,
-        on_body=None, on_footnote=None,
+        on_body=None, on_footnote=None, on_metadata=None,
     ) -> PDFCraftExtraction:
         return run_sync(self._async_craft.translate_extraction(
             extraction, output_path, translator, window=window,
@@ -112,7 +112,7 @@ class PDFCraft:
             with_furniture=with_furniture,
             translation_id=translation_id, target_language=target_language,
             on_translation_event=on_translation_event,
-            on_body=on_body, on_footnote=on_footnote,
+            on_body=on_body, on_footnote=on_footnote, on_metadata=on_metadata,
         ))
 
     def translate_anchored_contents(
@@ -199,6 +199,7 @@ class PDFCraft:
         window: int = 1,
         with_anchored: bool = True,
         on_translation_event: Callable[[TranslationEvent], None] | None = None,
+        on_metadata=None,
     ) -> OCRTokensMetering:
         return run_sync(self._async_craft.convert_pdf_to_markdown(
             source, output, analysing_path=analysing_path,
@@ -206,7 +207,7 @@ class PDFCraft:
             assets_path=assets_path, translator=translator, submit=submit,
             window=window,
             with_anchored=with_anchored,
-            on_translation_event=on_translation_event,
+            on_translation_event=on_translation_event, on_metadata=on_metadata,
         ))
 
     def convert_pdf_to_epub(
@@ -223,6 +224,7 @@ class PDFCraft:
         window: int = 1,
         with_anchored: bool = True,
         on_translation_event: Callable[[TranslationEvent], None] | None = None,
+        on_metadata=None,
     ) -> OCRTokensMetering:
         return run_sync(self._async_craft.convert_pdf_to_epub(
             source, output, analysing_path=analysing_path,
@@ -232,5 +234,5 @@ class PDFCraft:
             translator=translator, submit=submit,
             window=window,
             with_anchored=with_anchored,
-            on_translation_event=on_translation_event,
+            on_translation_event=on_translation_event, on_metadata=on_metadata,
         ))

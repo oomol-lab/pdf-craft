@@ -28,6 +28,7 @@ from .runtime import (
     IO_DOMAIN, OCR_DOMAIN, callback_bridge, invoke_callback, run_cancellable,
     run_subprocess, temporary_directory,
 )
+from .document.metadata import MetadataContent
 from .extractor.metadata import extract_book_metadata_from_ocr, merge_ocr_and_pdf_metadata
 from .extractor.chapter import (
     generate_chapter_files,
@@ -92,6 +93,16 @@ class PDFExtractionEngine:
     async def extract_package_async(self, **kwargs):
         """Own disk queues until producers and callback consumers have unwound."""
         from .extractor.chapter.live import LiveExtraction
+        on_metadata = kwargs.pop("on_metadata", None)
+        if kwargs.get("extract_book_metadata", False) and kwargs.get("metadata_llm") is None:
+            raise ValueError("extract_book_metadata=True requires metadata_llm")
+        if on_metadata is not None and not kwargs.get("extract_book_metadata", False):
+            metadata = merge_ocr_and_pdf_metadata(
+                None, await self._read_pdf_metadata_async(kwargs["pdf_path"]),
+            )
+            await invoke_callback(on_metadata, MetadataContent(metadata))
+            kwargs["document_metadata"] = metadata
+            on_metadata = None  # Already delivered the final native-only view.
         context = kwargs.pop("context", None)
         on_body = kwargs.pop("on_body", None)
         on_footnote = kwargs.pop("on_footnote", None)
@@ -112,7 +123,7 @@ class PDFExtractionEngine:
                     sizes = await IO_DOMAIN.run(OCR._load_page_pixel_sizes, self._ocr,
                                                kwargs["analysing_path"] / "ocr" / "page_pixel_sizes.json")
                     context._update(sizes, kwargs["dpi"] or 300)
-                return await self._extract_package_async(**kwargs, live=live)
+                return await self._extract_package_async(**kwargs, live=live, on_metadata=on_metadata)
             finally:
                 await live.cancel()
                 if context is not None:
@@ -122,6 +133,7 @@ class PDFExtractionEngine:
         """Run optional footnote refinement between two OCR-domain phases."""
 
         live = kwargs.pop("live", None)
+        on_metadata = kwargs.pop("on_metadata", None)
         footnote_refinement = kwargs.pop("footnote_refinement", None)
         event_callback = kwargs.get("on_ocr_event")
         original_aborted = kwargs.get("aborted")
@@ -170,7 +182,7 @@ class PDFExtractionEngine:
             )
             if live is not None:
                 await live.finish()
-            draft = await self._resolve_llm_stages(draft, kwargs)
+            draft = await self._resolve_llm_stages(draft, kwargs, on_metadata)
             return await run_cancellable(
                 OCR_DOMAIN,
                 lambda aborted: self._finish_extraction(
@@ -191,7 +203,7 @@ class PDFExtractionEngine:
         )
         if live is not None:
             await live.finish()
-        draft = await self._resolve_llm_stages(draft, kwargs)
+        draft = await self._resolve_llm_stages(draft, kwargs, on_metadata)
         chapter_analysis = await run_cancellable(
             OCR_DOMAIN,
             lambda _aborted: prepare_chapter_analysis(draft.pages_path, draft.toc),
@@ -285,6 +297,7 @@ class PDFExtractionEngine:
         native_pdf_text_prepared: bool = False,
         skip_ocr: bool = False,
         ocr_metering: OCRTokensMetering | None = None,
+        document_metadata: DocumentMetadata | None = None,
     ):
         if extract_book_metadata and metadata_llm is None:
             raise ValueError("extract_book_metadata=True requires metadata_llm")
@@ -341,7 +354,7 @@ class PDFExtractionEngine:
             toc_path=toc_path,
             toc=TocInfo(content=[], page_indexes=[]),
             cover_path=cover_path,
-            document_metadata=None,
+            document_metadata=document_metadata,
             metering=metering,
             dpi=dpi,
             includes_furniture=includes_furniture,
@@ -349,13 +362,15 @@ class PDFExtractionEngine:
             native_pdf_text_prepared=native_pdf_text_prepared,
         )
 
-    async def _resolve_llm_stages(self, draft: _ExtractionDraft, kwargs: dict) -> _ExtractionDraft:
-        metadata = await self._extract_book_metadata_async(
+    async def _resolve_llm_stages(self, draft: _ExtractionDraft, kwargs: dict, on_metadata=None) -> _ExtractionDraft:
+        metadata = draft.document_metadata or await self._extract_book_metadata_async(
             pdf_path=draft.pdf_path,
             pages_path=draft.pages_path,
             enabled=kwargs["extract_book_metadata"],
             metadata_llm=kwargs["metadata_llm"],
         )
+        if on_metadata is not None:
+            await invoke_callback(on_metadata, MetadataContent(metadata or DocumentMetadata()))
         toc = await analyse_toc(
             pages_path=draft.pages_path,
             toc_path=draft.toc_path,
@@ -374,18 +389,21 @@ class PDFExtractionEngine:
     ) -> DocumentMetadata | None:
         if not enabled:
             return None
+        pdf_metadata = await self._read_pdf_metadata_async(pdf_path)
         ocr_metadata = None
         try:
             assert metadata_llm is not None
             ocr_metadata = await extract_book_metadata_from_ocr(pages_path, metadata_llm)
         except Exception as error:
             print(f"Warning: Failed to extract book metadata from OCR: {error}")
-        pdf_metadata = None
+        return merge_ocr_and_pdf_metadata(ocr_metadata, pdf_metadata)
+
+    async def _read_pdf_metadata_async(self, pdf_path):
         try:
-            pdf_metadata = await IO_DOMAIN.run(self._ocr.metadata, pdf_path)
+            return await IO_DOMAIN.run(self._ocr.metadata, pdf_path)
         except PDFError:
             print("Warning: Failed to read PDF file metadata for book metadata fallback.")
-        return merge_ocr_and_pdf_metadata(ocr_metadata, pdf_metadata)
+            return None
 
     def _finish_extraction(
         self,

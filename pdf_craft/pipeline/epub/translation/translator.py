@@ -21,7 +21,7 @@ from pdf_craft.concurrency import AsyncExecutor
 from pdf_craft.runtime import ARCHIVE_DOMAIN, temporary_directory
 from pdf_craft.common.stream import DiskDelivery
 from ..cfi import ContentCFILocator
-from ..events import EpubTranslation
+from ..events import EpubFragmentContent
 from ..adapter.spines import spine_cfi_paths
 from pdf_craft.transformer.events import TranslationEvent, TranslationItemKind
 from pdf_craft.transformer.xml_translator.segment import search_text_segments
@@ -35,6 +35,8 @@ from pdf_craft.transformer.xml_translator.xml_translator import FillFailedEvent,
 from .epub_transcode import decode_metadata, decode_toc_list, encode_metadata, encode_toc_list
 from .punctuation import unwrap_french_quotes
 from .xml_interrupter import XMLInterrupter
+from pdf_craft.document.metadata import MetadataCallback
+from pdf_craft.runtime import invoke_callback
 
 
 class _ElementType(Enum):
@@ -73,7 +75,8 @@ async def translate(
     translation_executor: AsyncExecutor | None = None,
     fill_executor: AsyncExecutor | None = None,
     window: int = 1,
-    on_body: Callable[[EpubTranslation], object] | None = None,
+    on_body: Callable[[EpubFragmentContent], object] | None = None,
+    on_metadata: MetadataCallback | None = None,
 ) -> None:
     """Translate an EPUB with native async LLM concurrency and pooled ZIP I/O."""
     if window < 1:
@@ -183,20 +186,42 @@ async def translate(
                 target_language=target_language,
             )
 
-    delivery: DiskDelivery[EpubTranslation] | None = None
+    delivery: DiskDelivery[EpubFragmentContent] | None = None
     failure: BaseException | None = None
     try:
         tasks = await ARCHIVE_DOMAIN.run(prepare)
+        from ..adapter.metadata import translated_metadata_content
+        metadata_notified = False
+        has_metadata_task = False
+
+        async def notify_metadata(fields):
+            nonlocal metadata_notified
+            if on_metadata is not None:
+                assert book_metadata_context is not None
+                content = await ARCHIVE_DOMAIN.run(
+                    translated_metadata_content, book_metadata_context, fields, target_language,
+                )
+                await invoke_callback(on_metadata, content)
+            metadata_notified = True
+
         interrupter = XMLInterrupter()
         header_results = []
         translated_titles = {}
 
         async def task_stream():
+            nonlocal has_metadata_task
             try:
                 while True:
                     task = await ARCHIVE_DOMAIN.run(next, tasks, None)
                     if task is None:
+                        if not has_metadata_task and not metadata_notified:
+                            await notify_metadata([])
                         return
+                    if task.payload.element_type == _ElementType.METADATA:
+                        has_metadata_task = True
+                    if task.payload.element_type == _ElementType.CHAPTER and not has_metadata_task and not metadata_notified:
+                        # No translatable OPF fields: still deliver the complete book view.
+                        await notify_metadata([])
                     if on_body is not None:
                         task.payload.source_root_id = id(task.element)
                     yield task
@@ -238,6 +263,8 @@ async def translate(
 
         async def on_result(result):
             element, context = result
+            if context.element_type == _ElementType.METADATA:
+                await notify_metadata(decode_metadata(unwrap_french_quotes(element)))
             if context.element_type in (_ElementType.TOC, _ElementType.METADATA):
                 header_results.append(result)
             else:
@@ -250,7 +277,7 @@ async def translate(
                 return
             location = context.locator.capture(list(origin))
             assert delivery is not None
-            await delivery.append(EpubTranslation(
+            await delivery.append(EpubFragmentContent(
                 epubcfi=location.cfi(context.cfi_package),
                 original="".join(segment.text for segment in origin),
                 translated="".join(segment.text for segment in translated),

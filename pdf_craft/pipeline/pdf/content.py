@@ -82,14 +82,14 @@ def prepare_index(chapters, furniture, coverage, pages, dpi, directory, translat
 
 async def patch_content(source, extraction, target, *, translator=None, translation_id=None,
                         window=1, ignore_errors: IgnoreFillErrorsChecker=False, on_body=None, on_footnote=None,
-                        pdf_handler=None, with_furniture=False, on_translation_event=None):
+                        pdf_handler=None, with_furniture=False, on_translation_event=None, on_metadata=None):
     """Translation and native composition overlap through a disk-only process feed."""
     from .error_policy import _process_ignore_errors_checker
     async with _process_ignore_errors_checker(ignore_errors) as checker:
         mode = RenderMode.REPLACE if translation_id is not None else RenderMode.SOURCE
         async with content_view(extraction, mode=mode, translation_id=translation_id,
                                 translator=translator, window=window, with_anchored=False, with_furniture=with_furniture,
-                                on_translation_event=on_translation_event) as (view, pages, numbers, items):
+                                on_translation_event=on_translation_event, on_metadata=on_metadata) as (view, pages, numbers, items):
             async with worker_context(materialize_pdf_patch_view(extraction, translation_id)) as patch_view:
                 coverage = await IO_DOMAIN.run(read_coverage, patch_view.coverage)
                 if view.furniture_coverage is not None:
