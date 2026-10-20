@@ -246,3 +246,6 @@ PDFCraft().translate_epub(
 - EPUB 翻译只处理文本和相关 XML 结构，不会重新 OCR，也不会把 PDF 写回 PDF。
 - 目标文件生成过程中发生不可恢复错误时，应检查 `on_fill_failed` 报告和日志目录，并使用
   新的输出路径重新运行；不要把未完成的输出当作完整译本。
+
+
+PDF 提取 XML 回调、EPUB 原子翻译片段与来源 CFI 的用法见[增量回调说明](STREAMING.md)。

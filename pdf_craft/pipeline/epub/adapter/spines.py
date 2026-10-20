@@ -41,3 +41,23 @@ def search_spine_paths(zip: Zip) -> Generator[tuple[Path, str], None, None]:
                 href, media_type = manifest_items[idref]
                 if media_type in ("application/xhtml+xml", "text/html"):
                     yield opf_dir / href, media_type
+
+
+def spine_cfi_paths(zip: Zip) -> dict[Path, str]:
+    """Package-component paths use actual OPF child positions, not file order."""
+    opf_path = find_opf_path(zip)
+    with zip.read(opf_path) as file:
+        root = ET.fromstring(file.read())
+    strip_namespace(root)
+    manifest = root.find("manifest")
+    spine = root.find("spine")
+    if manifest is None or spine is None:
+        return {}
+    hrefs = {item.get("id"): item.get("href") for item in manifest}
+    step = (list(root).index(spine) + 1) * 2
+    result = {}
+    for index, item in enumerate(spine):
+        href = hrefs.get(item.get("idref"))
+        if href:
+            result[opf_path.parent / href] = f"/{step}/{(index + 1) * 2}"
+    return result

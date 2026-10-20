@@ -1451,7 +1451,7 @@ class VendorOCRConcurrencyTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertEqual(executor.run_calls, 3)
 
-    async def test_vendor_io_is_concurrent_after_serial_render_and_fallback_finishes(self):
+    async def test_vendor_io_is_concurrent_with_serial_render_and_fallback_finishes(self):
         rendered: list[int] = []
         ocr = OCR(
             DeepSeekOCRVendorConfig(
@@ -1503,7 +1503,7 @@ class VendorOCRConcurrencyTests(unittest.IsolatedAsyncioTestCase):
             ]
 
             self.assertEqual(rendered, [1, 2, 3])
-            self.assertTrue(all(started_after_render))
+            self.assertEqual(len(started_after_render), 3)
             self.assertEqual(maximum, 2)
             self.assertTrue(all(
                 (root / "ocr" / f"page_{index}.xml").exists()

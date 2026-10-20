@@ -28,7 +28,9 @@ anchored 图片/表格文字。
 2. 通过 `OCR.recognize()` 识别页面布局。
 3. 在 `analysing_path/ocr/` 写入 OCR 页 XML 和恢复缓存，在
    `analysing_path/extraction/assets/` 写入资源。
-4. 分析 TOC 数据。
+4. OCR 的终态页事件经磁盘流恢复输入页序，传统跨页解析与 OCR 并行推进；闭合正文、脚注和
+   未定归属来源存入磁盘数据库。可选 `on_body` / `on_footnote` 交付独立 PCEX XML 快照，
+   回调背压由磁盘队列与 OCR 生产隔离。EOF 排空后再分析 TOC 数据。
 5. 在 `analysing_path/extraction/` 生成章节、TOC、页面几何和 manifest；章节使用 PCEX v3
    FlowItem，保留文字 fragment、段内 anchored image/table 与独立段落公式的阅读顺序。
 6. 仅从该 extraction 渲染 Markdown 或 EPUB。
@@ -42,7 +44,10 @@ OCR 流内下标和独立阅读位置。正文沿用原 source_order；新提取
 完整来源和前缀范围保留到组装：正文投影保留前缀，定义投影才移除前缀。断词修复延后到 ownership
 组装完成后的语义投影；原始文字记录不被改写，投影为空的 fragment 也保留原身份和 bbox。
 
-传统算法和可选 PageAnalysisProcessor 最终共用 restore_streams 业务组装与校验。
+默认传统算法由 `extractor/chapter/stream.py` 增量连接、来源投影和磁盘组装；无目录页排除时复用
+在线生成的内容数据库，有目录页排除时从 OCR 缓存按排除规则重放。章节定稿逐章处理。
+需要可编辑页级 ownership 的 PageAnalysisProcessor 仍使用 `restore_streams` 的整批事务语义；
+在线回调发生在可选 refinement 之前，不声明是修正后归档的重放。
 FootnoteOptions(refinement=FootnoteRefinement(...)) 在调用方 event loop 在线执行 JEV 筛选及
 LLM 页级修正；CLI 的 --footnotes 只启用传统算法。LLM JSON 通过 request_guaranteed_json
 编译 ownership、必需元数据、引用位置及定义关系，候选在完整暂存对象图上组装成功才接纳。
@@ -122,3 +127,11 @@ OCR 配置是封闭公共面：`DeepSeekOCRLocalConfig`、`DeepSeekOCR2LocalConf
 `ignore_pdf_errors` 和 `ignore_ocr_errors` 可以是布尔值或 callable。当页面级错误被忽略时，流水线会写入 fallback 页数据并继续处理。
 
 已存在的 `page_*.xml` 会被跳过。`done` 标记会让 OCR 识别整体跳过。修改恢复行为时要谨慎，因为它同时影响本地手动运行和 VGE worktree 重跑。
+
+## EPUB 原子翻译回调
+
+EPUB 适配器异步逐项读取任务，在共享 XMLTranslator 的局部映射采纳位置接收结果，按章写入
+临时归档；不收集全书正文任务或完整译文结果。同步 iterable 的既有核心接口继续供 PCEX 翻译使用。
+可选 `on_body` 接收 `EpubTranslation(epubcfi, original, translated)`，只包含去掉窗口上下文后的
+原子片段；来源 CFI 索引由 EPUB 适配器按需构建，源范围贯穿公式替换。`pipeline/epub/cfi.py`
+只负责文档内定位，OPF/spine 前缀由外层提供。用户说明见 `docs/*/STREAMING.md`。

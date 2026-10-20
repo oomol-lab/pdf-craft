@@ -1,7 +1,8 @@
 # pylint: disable=protected-access,unused-argument
-from collections.abc import Callable, Iterable
+from collections.abc import AsyncIterable, Callable, Iterable
+from contextlib import aclosing
 from dataclasses import dataclass
-from typing import Generic, TypeVar
+from typing import Generic, TypeVar, cast
 from xml.etree.ElementTree import Element
 
 from pdf_craft.concurrency import AsyncExecutor
@@ -140,7 +141,7 @@ class XMLTranslator:
 
     async def translate_elements(
         self,
-        tasks: Iterable[TranslationTask[T]],
+        tasks: Iterable[TranslationTask[T]] | AsyncIterable[TranslationTask[T]],
         interrupt_source_text_segments: Callable[[Iterable[TextSegment]], Iterable[TextSegment]] | None = None,
         interrupt_translated_text_segments: Callable[[Iterable[TextSegment]], Iterable[TextSegment]] | None = None,
         interrupt_block_element: Callable[[Element], Element] | None = None,
@@ -154,6 +155,9 @@ class XMLTranslator:
         emit_scope_events: bool = True,
         emit_item_events: bool = True,
         window: int = 1,
+        on_mapping: Callable[[tuple[InlineSegment, list[TextSegment]]], object] | None = None,
+        on_result: Callable[[tuple[Element, T]], object] | None = None,
+        collect_results: bool = True,
     ) -> list[tuple[Element, T]]:
         if window < 1:
             raise ValueError("window must be at least 1")
@@ -164,20 +168,22 @@ class XMLTranslator:
             interrupt_block_element=interrupt_block_element,
             on_fill_failed=on_fill_failed,
         )
-        task_list = list(tasks)
+        async_tasks = tasks if isinstance(tasks, AsyncIterable) else None
+        task_list = [] if async_tasks is not None else list(cast(Iterable[TranslationTask[T]], tasks))
         total = total_characters
-        if total is None:
+        if total is None and async_tasks is None:
             total = sum(task.character_count or 0 for task in task_list)
         if on_translation_event is not None and emit_scope_events:
             await invoke_callback(on_translation_event, TranslationEvent(
                 kind=TranslationEventKind.START,
-                chapter_count=sum(
+                chapter_count=(sum(
                     task.item_kind == TranslationItemKind.CHAPTER for task in task_list
-                ),
-                has_toc=any(task.item_kind == TranslationItemKind.TOC for task in task_list),
-                has_metadata=any(
+                ) if async_tasks is None else None),
+                has_toc=(any(task.item_kind == TranslationItemKind.TOC for task in task_list)
+                         if async_tasks is None else None),
+                has_metadata=(any(
                     task.item_kind == TranslationItemKind.METADATA for task in task_list
-                ),
+                ) if async_tasks is None else None),
                 total_characters=total,
                 completed_characters=completed_characters,
             ))
@@ -198,10 +204,31 @@ class XMLTranslator:
                 element2task[id(task.element)] = task
                 yield task.element
 
+        async def generate_async_elements():
+            assert async_tasks is not None
+            try:
+                async for task in async_tasks:
+                    if on_translation_event is not None and emit_item_events and task.item_kind is not None:
+                        await invoke_callback(on_translation_event, TranslationEvent(
+                            kind=TranslationEventKind.ITEM_START,
+                            item_kind=task.item_kind, item_id=task.item_id,
+                            item_completed_characters=0,
+                            item_total_characters=task.character_count or 0,
+                            total_characters=total,
+                        ))
+                    element2task[id(task.element)] = task
+                    yield task.element
+            finally:
+                close = getattr(async_tasks, "aclose", None)
+                if close is not None:
+                    await close()
+
         results: list[tuple[Element, T]] = []
         stream_mapper = await self._stream_mapper_async()
-        async for element, mappings in stream_mapper.map_stream_async(
-            elements=generate_elements(), callbacks=callbacks, window=window,
+        mapping_stream = stream_mapper.map_stream_async(
+            elements=generate_async_elements() if async_tasks is not None else generate_elements(),
+            callbacks=callbacks, window=window,
+            on_mapping=on_mapping,
             map=lambda inline_segments: self._translate_inline_segments_async(
                 inline_segments=inline_segments,
                 callbacks=callbacks,
@@ -209,27 +236,19 @@ class XMLTranslator:
                 source_text_renderer=source_text_renderer,
                 canonical_text_validator=canonical_text_validator,
             ),
-        ):
-            task = element2task.get(id(element))
-            if task is None:
-                continue
-            translated_element = submit(
-                element=element, action=task.action, mappings=mappings,
-            )
-            if on_translation_event is not None and task.item_kind is not None:
-                completed_characters += task.character_count or 0
-                await invoke_callback(on_translation_event, TranslationEvent(
-                    kind=TranslationEventKind.PROGRESS,
-                    item_kind=task.item_kind,
-                    item_id=task.item_id,
-                    item_completed_characters=task.character_count or 0,
-                    item_total_characters=task.character_count or 0,
-                    completed_characters=completed_characters,
-                    total_characters=total,
-                ))
-                if emit_item_events:
+        )
+        async with aclosing(mapping_stream):
+            async for element, mappings in mapping_stream:
+                task = element2task.pop(id(element), None)
+                if task is None:
+                    continue
+                translated_element = submit(
+                    element=element, action=task.action, mappings=mappings,
+                )
+                if on_translation_event is not None and task.item_kind is not None:
+                    completed_characters += task.character_count or 0
                     await invoke_callback(on_translation_event, TranslationEvent(
-                        kind=TranslationEventKind.ITEM_COMPLETE,
+                        kind=TranslationEventKind.PROGRESS,
                         item_kind=task.item_kind,
                         item_id=task.item_id,
                         item_completed_characters=task.character_count or 0,
@@ -237,13 +256,26 @@ class XMLTranslator:
                         completed_characters=completed_characters,
                         total_characters=total,
                     ))
-            results.append((translated_element, task.payload))
+                    if emit_item_events:
+                        await invoke_callback(on_translation_event, TranslationEvent(
+                            kind=TranslationEventKind.ITEM_COMPLETE,
+                            item_kind=task.item_kind,
+                            item_id=task.item_id,
+                            item_completed_characters=task.character_count or 0,
+                            item_total_characters=task.character_count or 0,
+                            completed_characters=completed_characters,
+                            total_characters=total,
+                        ))
+                result = (translated_element, task.payload)
+                await invoke_callback(on_result, result)
+                if collect_results:
+                    results.append(result)
 
         if on_translation_event is not None and emit_scope_events:
             await invoke_callback(on_translation_event, TranslationEvent(
                 kind=TranslationEventKind.COMPLETE,
                 completed_characters=completed_characters,
-                total_characters=total,
+                total_characters=total if total is not None else completed_characters,
             ))
         return results
 

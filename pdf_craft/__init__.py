@@ -91,3 +91,5 @@ from .pdf import (
 from .document import PDFCraftExtraction, RenderMode, SourceLocation, TranslationInfo
 from .extractor import PDFExtractor
 from .renderer import EpubRenderer, MarkdownRenderer
+
+from .pipeline.epub.events import EpubTranslation

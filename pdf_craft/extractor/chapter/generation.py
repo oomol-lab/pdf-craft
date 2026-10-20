@@ -34,16 +34,19 @@ def generate_chapter_files(
     chapters_path: Path,
     toc: TocInfo,
     analysed_pages: Iterable[PageAnalysis] | None = None,
+    resolved_database: Path | None = None,
 ):
     chapters_path.mkdir(parents=True, exist_ok=True)
     for chapter_file in chapters_path.glob("chapter_*.xml"):
         chapter_file.unlink()
 
-    for chapter in _generate_chapters(
+    from .stream import chapters_from_disk
+    chapters = chapters_from_disk(resolved_database, toc) if resolved_database is not None else _generate_chapters(
         pages_path=pages_path,
         toc=toc,
         analysed_pages=analysed_pages,
-    ):
+    )
+    for chapter in chapters:
         tail: str
         if chapter.id is None:
             tail = "head"
@@ -62,7 +65,19 @@ def _generate_chapters(
     toc: TocInfo,
     analysed_pages: Iterable[PageAnalysis] | None = None,
 ) -> Generator[Chapter, None, None]:
-    pages = list(analysed_pages) if analysed_pages is not None else _analyse_chapter_pages(pages_path, toc)[1]
+    if analysed_pages is None:
+        from tempfile import TemporaryDirectory
+        from .stream import chapters_from_disk, resolve_to_disk
+        excluded = set(toc.page_indexes)
+        def read_pages():
+            return (page for page in XMLReader("page", pages_path, decode).read()
+                    if page.index not in excluded)
+        with TemporaryDirectory(prefix="pdf-craft-chapter-stream-") as directory:
+            database = Path(directory) / "content.sqlite"
+            resolve_to_disk(read_pages, database)
+            yield from chapters_from_disk(database, toc)
+        return
+    pages = list(analysed_pages)
     restored = restore_streams(pages)
     chapters = list(_partition_chapters(restored.paragraphs, toc))
     reachable = {reference.id for chapter in chapters

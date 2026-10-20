@@ -10,6 +10,7 @@ from contextlib import asynccontextmanager
 from dataclasses import dataclass, replace
 from os import PathLike
 from pathlib import Path
+from xml.etree.ElementTree import Element
 from typing import AsyncIterator, Literal, cast
 
 from epub_generator import BookMeta, LaTeXRender, TableRender
@@ -91,6 +92,8 @@ class ExtractionOptions:
     ignore_ocr_errors: IgnoreOCRErrorsChecker = False
     aborted: AbortedCheck = lambda: False
     on_ocr_event: Callable[[OCREvent], object] = lambda _: None
+    on_body: Callable[[Element], object] | None = None
+    on_footnote: Callable[[Element], object] | None = None
 
 
 class AsyncPDFCraft:
@@ -188,6 +191,8 @@ class AsyncPDFCraft:
                 ignore_ocr_errors=options.ignore_ocr_errors,
                 aborted=options.aborted,
                 on_ocr_event=options.on_ocr_event,
+                **({"on_body": options.on_body} if options.on_body is not None else {}),
+                **({"on_footnote": options.on_footnote} if options.on_footnote is not None else {}),
             )
 
     async def render_markdown(
@@ -456,6 +461,8 @@ class AsyncPDFCraft:
                 ignore_pdf_errors=options.ignore_pdf_errors,
                 ignore_ocr_errors=options.ignore_ocr_errors,
                 aborted=options.aborted, on_ocr_event=options.on_ocr_event,
+                **({"on_body": options.on_body} if options.on_body is not None else {}),
+                **({"on_footnote": options.on_footnote} if options.on_footnote is not None else {}),
             )
 
     async def _translate_layer_to_workspace(

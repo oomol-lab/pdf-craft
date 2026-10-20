@@ -18,7 +18,11 @@ from pdf_craft.pipeline.epub.adapter import (
 )
 from pdf_craft.llm import LLM
 from pdf_craft.concurrency import AsyncExecutor
-from pdf_craft.runtime import ARCHIVE_DOMAIN
+from pdf_craft.runtime import ARCHIVE_DOMAIN, temporary_directory
+from pdf_craft.common.stream import DiskDelivery
+from ..cfi import ContentCFILocator
+from ..events import EpubTranslation
+from ..adapter.spines import spine_cfi_paths
 from pdf_craft.transformer.events import TranslationEvent, TranslationItemKind
 from pdf_craft.transformer.xml_translator.segment import search_text_segments
 from pdf_craft.transformer.xml_translator.xml import (
@@ -46,6 +50,10 @@ class _ElementContext:
     toc_context: TocContext | None = None
     metadata_context: MetadataContext | None = None
     chapter_title_data: tuple[Path, XMLLikeNode, Element] | None = None
+    locator: ContentCFILocator | None = None
+    cfi_package: str | None = None
+    title_only: bool = False
+    source_root_id: int = 0
 
 
 async def translate(
@@ -65,6 +73,7 @@ async def translate(
     translation_executor: AsyncExecutor | None = None,
     fill_executor: AsyncExecutor | None = None,
     window: int = 1,
+    on_body: Callable[[EpubTranslation], object] | None = None,
 ) -> None:
     """Translate an EPUB with native async LLM concurrency and pooled ZIP I/O."""
     if window < 1:
@@ -104,14 +113,15 @@ async def translate(
             toc_list, toc_context = read_toc(archive)
             metadata_fields, metadata_context = read_metadata(archive)
             book_metadata_context = metadata_context
-            return list(_generate_tasks_from_book(
+            return _generate_tasks_from_book(
                 zip=archive,
                 toc_list=toc_list,
                 toc_context=toc_context,
                 metadata_fields=metadata_fields,
                 metadata_context=metadata_context,
                 submit=submit,
-            ))
+                capture_cfi=on_body is not None,
+            )
         except BaseException as error:
             archive.__exit__(type(error), error, error.__traceback__)
             archive = None
@@ -173,20 +183,86 @@ async def translate(
                 target_language=target_language,
             )
 
+    delivery: DiskDelivery[EpubTranslation] | None = None
     failure: BaseException | None = None
     try:
         tasks = await ARCHIVE_DOMAIN.run(prepare)
         interrupter = XMLInterrupter()
-        results = await translator.translate_elements(
-            window=window,
-            interrupt_source_text_segments=interrupter.interrupt_source_text_segments,
-            interrupt_translated_text_segments=interrupter.interrupt_translated_text_segments,
-            interrupt_block_element=interrupter.interrupt_block_element,
-            on_fill_failed=on_fill_failed,
-            on_translation_event=on_translation_event,
-            tasks=tasks,
-        )
-        await ARCHIVE_DOMAIN.run(write_results, results)
+        contexts = {}
+        header_results = []
+
+        async def task_stream():
+            try:
+                while True:
+                    task = await ARCHIVE_DOMAIN.run(next, tasks, None)
+                    if task is None:
+                        return
+                    if on_body is not None:
+                        task.payload.source_root_id = id(task.element)
+                        contexts[id(task.element)] = task.payload
+                    yield task
+            finally:
+                await ARCHIVE_DOMAIN.run(tasks.close)
+
+        def commit_content(element, context):
+            assert archive is not None
+            chapter = context.chapter_data
+            if context.chapter_title_data is not None:
+                path, xml, title = context.chapter_title_data
+                translated_title = find_first(element, "title")
+                if translated_title is not None:
+                    title.text = translated_title.text
+                    title[:] = [clone_element(child) for child in translated_title]
+                chapter = (path, xml) if context.title_only else None
+            if chapter is not None:
+                path, xml = chapter
+                deduplicate_ids_in_element(xml.element)
+                with archive.replace(path) as file:
+                    xml.save(file)
+
+        async def on_result(result):
+            element, context = result
+            contexts.pop(context.source_root_id, None)
+            if context.element_type in (_ElementType.TOC, _ElementType.METADATA):
+                header_results.append(result)
+            else:
+                await ARCHIVE_DOMAIN.run(commit_content, element, context)
+
+        async def on_mapping(mapping):
+            origin, translated = mapping
+            context = contexts[id(origin.head.root)]
+            if context.locator is None or context.cfi_package is None:
+                return
+            location = context.locator.capture(list(origin))
+            assert delivery is not None
+            await delivery.append(EpubTranslation(
+                epubcfi=location.cfi(context.cfi_package),
+                original="".join(segment.text for segment in origin),
+                translated="".join(segment.text for segment in translated),
+            ))
+
+        async with temporary_directory("pdf-craft-epub-callbacks-") as directory:
+            if on_body is not None:
+                delivery = DiskDelivery(directory, on_body)
+            try:
+                await translator.translate_elements(
+                    window=window,
+                    interrupt_source_text_segments=interrupter.interrupt_source_text_segments,
+                    interrupt_translated_text_segments=interrupter.interrupt_translated_text_segments,
+                    interrupt_block_element=interrupter.interrupt_block_element,
+                    on_fill_failed=on_fill_failed,
+                    on_translation_event=on_translation_event,
+                    tasks=task_stream(),
+                    on_result=on_result,
+                    collect_results=False,
+                    on_mapping=on_mapping if on_body is not None else None,
+                )
+                if delivery is not None:
+                    await delivery.finish()
+            finally:
+                if delivery is not None:
+                    await delivery.cancel()
+        await ARCHIVE_DOMAIN.run(write_results, header_results)
     except BaseException as error:
         failure = error
         raise
@@ -205,6 +281,7 @@ def _generate_tasks_from_book(
     metadata_fields: list,
     metadata_context: MetadataContext,
     submit: SubmitKind,
+    capture_cfi: bool = False,
 ) -> Generator[TranslationTask[_ElementContext], None, None]:
     head_submit = submit
     if head_submit == SubmitKind.APPEND_BLOCK:
@@ -232,12 +309,16 @@ def _generate_tasks_from_book(
             character_count=sum(len(segment.text) for segment in search_text_segments(element)),
         )
 
+    packages = spine_cfi_paths(zip) if capture_cfi else {}
     for chapter_path, media_type in search_spine_paths(zip):
         with zip.read(chapter_path) as chapter_file:
             xml = XMLLikeNode(
                 file=chapter_file,
                 is_html_like=(media_type == "text/html"),
             )
+        if capture_cfi and media_type != "application/xhtml+xml":
+            raise ValueError("Precise EPUB CFI callbacks require XHTML content documents")
+        locator = ContentCFILocator(xml.element) if capture_cfi else None
         body_element = find_first(xml.element, "body")
         title_element = find_first(xml.element, "title")
         if title_element is not None and any(
@@ -252,6 +333,9 @@ def _generate_tasks_from_book(
                 payload=_ElementContext(
                     element_type=_ElementType.CHAPTER,
                     chapter_title_data=(chapter_path, xml, title_element),
+                    title_only=body_element is None or not any(
+                        segment.text.strip() for segment in search_text_segments(body_element)
+                    ),
                 ),
                 item_kind=TranslationItemKind.METADATA,
                 item_id=f"{chapter_path}#title",
@@ -268,6 +352,8 @@ def _generate_tasks_from_book(
                 payload=_ElementContext(
                     element_type=_ElementType.CHAPTER,
                     chapter_data=(chapter_path, xml),
+                    locator=locator,
+                    cfi_package=packages.get(chapter_path),
                 ),
                 item_kind=TranslationItemKind.CHAPTER,
                 item_id=str(chapter_path),

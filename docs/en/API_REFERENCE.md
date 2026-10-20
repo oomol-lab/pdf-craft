@@ -389,3 +389,6 @@ The patcher merges two independent overlays over a Ghostscript-compiled, fontles
 - `PDFError`, `OCRError`, `NoUsableFillPagesError`, and `InterruptedError` are exported error types for application-level handling.
 
 For complete workflows, start with [PDF conversion and translation](PDF_TRANSLATION.md) or [EPUB translation](EPUB_TRANSLATION.md), rather than composing internal modules.
+
+
+See [incremental callbacks](STREAMING.md) for PDF extraction XML notifications and EPUB atomic translation fragments with source CFIs.

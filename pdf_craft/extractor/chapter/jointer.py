@@ -57,17 +57,43 @@ class _PendingParagraph:
     paragraph: TextFlowItem
 
 
+@dataclass(frozen=True)
+class JoinedPageProgress:
+    """Processed pages may still own a tail after ``closed_through``.
+
+    No later joined item can originate on or before the closed watermark.
+    """
+
+    closed_through: int
+    processed_through: int
+
+
 class Jointer:
     def __init__(self, layouts: Iterable[tuple[int, list[PageLayout]]],
                  sources: dict[tuple[int, int], tuple[int, TextSource]] | None = None) -> None:
         self._layouts = layouts
-        self._sources = sources or {}
+        self._sources = sources if sources is not None else {}
         self._reading_positions: dict[tuple[int, tuple[int, int, int, int]], int] = {}
 
     def execute(self) -> Generator[TextFlowItem | SourceAsset, None, None]:
-        last_tail: _LastTail | None = None
+        for item in self.execute_with_progress():
+            if not isinstance(item, JoinedPageProgress):
+                yield item
 
-        for page_index, raw_layouts in self._iter_layout_serials():
+    def execute_with_progress(self) -> Generator[TextFlowItem | SourceAsset | JoinedPageProgress, None, None]:
+        last_tail: _LastTail | None = None
+        last_page_index: int | None = None
+        closed_through = -1
+
+        for page_index, raw_layouts in self._iter_layout_serials(with_progress=True):
+            last_page_index = page_index
+            if raw_layouts is None:
+                safe_page = page_index
+                if last_tail is not None:
+                    safe_page = last_tail.page_para.children[0].page_index - 1
+                closed_through = max(closed_through, safe_page)
+                yield JoinedPageProgress(closed_through, page_index)
+                continue
             if not raw_layouts:
                 if last_tail:
                     _normalize_paragraph_content(last_tail.page_para)
@@ -138,11 +164,14 @@ class Jointer:
             _normalize_paragraph_content(last_tail.page_para)
             yield last_tail.page_para
             yield from last_tail.override
+        if last_page_index is not None and last_page_index > closed_through:
+            yield JoinedPageProgress(last_page_index, last_page_index)
 
     def _iter_layout_serials(
-        self,
-    ) -> Generator[tuple[int, list[PageLayout]], None, None]:
+        self, *, with_progress: bool = False,
+    ) -> Generator[tuple[int, list[PageLayout] | None], None, None]:
         for page_index, raw_layouts in self._layouts:
+            self._reading_positions.clear()
             for layout in raw_layouts:
                 record = self._sources.get((page_index, id(layout)))
                 if record is not None:
@@ -153,6 +182,8 @@ class Jointer:
                 yield page_index, layouts
             if not found_serial:
                 yield page_index, []
+            if with_progress:
+                yield page_index, None
 
     def _split_layouts(self, layouts: list[TextFlowItem | SourceAsset]):
         head: list[SourceAsset] = []

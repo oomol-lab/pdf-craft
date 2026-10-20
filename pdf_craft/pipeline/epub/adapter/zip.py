@@ -1,4 +1,6 @@
+import os
 import zipfile
+from tempfile import NamedTemporaryFile
 from pathlib import Path
 from typing import IO
 
@@ -9,14 +11,21 @@ class Zip:
     def __init__(self, source_path: Path, target_path: Path) -> None:
         source_zip: zipfile.ZipFile | None = None
         target_zip: zipfile.ZipFile | None = None
+        self._target_path = target_path
+        self._temporary_path: Path | None = None
         try:
             source_zip = zipfile.ZipFile(source_path, "r")
-            target_zip = zipfile.ZipFile(target_path, "w", zipfile.ZIP_DEFLATED)
+            with NamedTemporaryFile(prefix=f".{target_path.name}.", suffix=".tmp",
+                                    dir=target_path.parent, delete=False) as temporary:
+                self._temporary_path = Path(temporary.name)
+            target_zip = zipfile.ZipFile(self._temporary_path, "w", zipfile.ZIP_DEFLATED)
         except Exception:
             if source_zip:
                 source_zip.close()
             if target_zip:
                 target_zip.close()
+            if self._temporary_path is not None:
+                self._temporary_path.unlink(missing_ok=True)
             raise
         self._source_zip: zipfile.ZipFile = source_zip
         self._target_zip: zipfile.ZipFile = target_zip
@@ -27,17 +36,20 @@ class Zip:
 
     def __exit__(self, _exc_type, _exc_val, _exc_tb):
         try:
+            try:
+                if _exc_type is None:
+                    for file_path in self._source_zip.namelist():
+                        if not file_path.endswith("/") and Path(file_path) not in self._processed_files:
+                            self.migrate(Path(file_path))
+            finally:
+                self._target_zip.close()
+                self._source_zip.close()
             if _exc_type is None:
-                all_files = self._source_zip.namelist()
-                for file_path in all_files:
-                    if file_path.endswith("/"):
-                        continue
-                    if Path(file_path) not in self._processed_files:
-                        self.migrate(Path(file_path))
+                assert self._temporary_path is not None
+                os.replace(self._temporary_path, self._target_path)
         finally:
-            self._target_zip.close()
-            self._source_zip.close()
-
+            if self._temporary_path is not None:
+                self._temporary_path.unlink(missing_ok=True)
         return False
 
     def list_files(self, prefix_path: Path | None = None) -> list[Path]:

@@ -26,7 +26,7 @@ from .pdf import (
 from .pdf.furniture import write_furnitures
 from .runtime import (
     IO_DOMAIN, OCR_DOMAIN, callback_bridge, invoke_callback, run_cancellable,
-    run_subprocess,
+    run_subprocess, temporary_directory,
 )
 from .extractor.metadata import extract_book_metadata_from_ocr, merge_ocr_and_pdf_metadata
 from .extractor.chapter import (
@@ -90,8 +90,27 @@ class PDFExtractionEngine:
         await OCR_DOMAIN.run(self._ocr.load_models)
 
     async def extract_package_async(self, **kwargs):
+        """Own disk queues until producers and callback consumers have unwound."""
+        from .extractor.chapter.live import LiveExtraction
+        on_body = kwargs.pop("on_body", None)
+        on_footnote = kwargs.pop("on_footnote", None)
+        async with temporary_directory("pdf-craft-live-extraction-") as directory:
+            live = LiveExtraction(directory, kwargs["analysing_path"] / "ocr",
+                                  kwargs["includes_footnotes"], on_body, on_footnote)
+            callback = kwargs.get("on_ocr_event")
+            async def event(value):
+                await live.event(value)
+                await invoke_callback(callback, value)
+            kwargs["on_ocr_event"] = event
+            try:
+                return await self._extract_package_async(**kwargs, live=live)
+            finally:
+                await live.cancel()
+
+    async def _extract_package_async(self, **kwargs):
         """Run optional footnote refinement between two OCR-domain phases."""
 
+        live = kwargs.pop("live", None)
         footnote_refinement = kwargs.pop("footnote_refinement", None)
         event_callback = kwargs.get("on_ocr_event")
         original_aborted = kwargs.get("aborted")
@@ -138,11 +157,14 @@ class PDFExtractionEngine:
                 ),
                 original_aborted=original_aborted,
             )
+            if live is not None:
+                await live.finish()
             draft = await self._resolve_llm_stages(draft, kwargs)
             return await run_cancellable(
                 OCR_DOMAIN,
                 lambda aborted: self._finish_extraction(
                     draft, aborted=aborted,
+                    resolved_database=(live.database if live is not None and not draft.toc.page_indexes else None),
                 ),
                 original_aborted=original_aborted,
             )
@@ -156,6 +178,8 @@ class PDFExtractionEngine:
             ),
             original_aborted=original_aborted,
         )
+        if live is not None:
+            await live.finish()
         draft = await self._resolve_llm_stages(draft, kwargs)
         chapter_analysis = await run_cancellable(
             OCR_DOMAIN,
@@ -358,12 +382,14 @@ class PDFExtractionEngine:
         *,
         aborted: AbortedCheck,
         analysed_pages=None,
+        resolved_database=None,
     ):
         generate_chapter_files(
             pages_path=draft.pages_path,
             chapters_path=draft.chapters_path,
             toc=draft.toc,
             analysed_pages=analysed_pages,
+            resolved_database=resolved_database,
         )
         if draft.includes_furniture:
             write_furnitures(
