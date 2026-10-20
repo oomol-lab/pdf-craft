@@ -1,8 +1,24 @@
 """Process-safe, disk-only replacement and preview transport."""
 import pickle
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, fields
 from pathlib import Path
+
+from ...document.paragraph import ParagraphContent, SourceRegion
+from .models import PDFReplacement
+
+
+@dataclass(frozen=True)
+class _PreviewReplacement(PDFReplacement):
+    """Private process transport; preview state is not a replacement input."""
+    preview: ParagraphContent[SourceRegion] | None = None
+    preview_is_footnote: bool = False
+    preview_index: int = -1
+
+    @classmethod
+    def attach(cls, replacement: PDFReplacement, preview, is_footnote: bool, index: int):
+        return cls(**{field.name: getattr(replacement, field.name) for field in fields(PDFReplacement)},
+                   preview=preview, preview_is_footnote=is_footnote, preview_index=index)
 
 
 def write_record(path: Path, value):

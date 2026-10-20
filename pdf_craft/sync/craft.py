@@ -8,6 +8,13 @@ from epub_generator import BookMeta, LaTeXRender, TableRender
 
 from ..craft import AsyncPDFCraft, ExtractionOptions, PDFOptions
 from ..document import PDFCraftExtraction, RenderMode, TranslationInfo
+from ..document.access import PageGeometry
+from ..document.metadata import MetadataCallback
+from ..document.paragraph import ParagraphContent, SourceRegion, PDFParagraphContent
+from ..pipeline.epub.events import EpubFragmentContent
+from ..transformer.xml_translator.xml_translator import FillFailedEvent
+from ..concurrency import AsyncExecutor
+from ..llm import LLM
 from ..error import IgnoreFillErrorsChecker
 from ..metering import AbortedCheck, OCRTokensMetering
 from ..ocr_config import OCRConfig
@@ -46,11 +53,15 @@ class PDFCraft:
     ) -> PDFCraftExtraction:
         return run_sync(self._async_craft.export_extraction(extraction, path))
 
-    def read_pages(self, extraction):
-        return run_sync(self._async_craft.read_pages(extraction))
+    def read_pages(self, extraction: PDFCraftExtraction | PathLike | str) -> dict[int, PageGeometry]:
+        return run_sync(self._async_craft.read_pages(
+            extraction,
+        ))
 
-    def read_asset(self, extraction, asset_hash: str) -> bytes:
-        return run_sync(self._async_craft.read_asset(extraction, asset_hash))
+    def read_asset(self, extraction: PDFCraftExtraction | PathLike | str, asset_hash: str) -> bytes:
+        return run_sync(self._async_craft.read_asset(
+            extraction, asset_hash,
+        ))
 
     def list_translations(
         self, extraction: PDFCraftExtraction | PathLike | str,
@@ -87,12 +98,23 @@ class PDFCraft:
         *, mode: RenderMode = RenderMode.SOURCE,
         translation_id: str | None = None,
         aborted: AbortedCheck = lambda: False,
-        **options,
+        translator: XMLTranslator | None = None, window: int = 1,
+        with_anchored: bool = True,
+        on_body: Callable[[ParagraphContent[SourceRegion]], object] | None = None,
+        on_footnote: Callable[[ParagraphContent[SourceRegion]], object] | None = None,
+        on_metadata: MetadataCallback | None = None,
     ) -> None:
-        run_sync(self._async_craft.render_markdown(
-            extraction, output, assets_path, mode=mode,
-            translation_id=translation_id, aborted=aborted,
-            **options,
+        return run_sync(self._async_craft.render_markdown(
+            extraction, output, assets_path,
+            mode=mode,
+            translation_id=translation_id,
+            aborted=aborted,
+            translator=translator,
+            window=window,
+            with_anchored=with_anchored,
+            on_body=on_body,
+            on_footnote=on_footnote,
+            on_metadata=on_metadata,
         ))
 
     def translate_extraction(
@@ -103,16 +125,22 @@ class PDFCraft:
         with_furniture: bool = False,
         translation_id: str | None = None,
         target_language: str | None = None,
-        on_translation_event: Callable[[TranslationEvent], None] | None = None,
-        on_body=None, on_footnote=None, on_metadata=None,
+        on_translation_event: Callable[[TranslationEvent], object] | None = None,
+        on_body: Callable[[ParagraphContent[SourceRegion]], object] | None = None,
+        on_footnote: Callable[[ParagraphContent[SourceRegion]], object] | None = None,
+        on_metadata: MetadataCallback | None = None,
     ) -> PDFCraftExtraction:
         return run_sync(self._async_craft.translate_extraction(
-            extraction, output_path, translator, window=window,
+            extraction, output_path, translator,
+            window=window,
             with_anchored=with_anchored,
             with_furniture=with_furniture,
-            translation_id=translation_id, target_language=target_language,
+            translation_id=translation_id,
+            target_language=target_language,
             on_translation_event=on_translation_event,
-            on_body=on_body, on_footnote=on_footnote, on_metadata=on_metadata,
+            on_body=on_body,
+            on_footnote=on_footnote,
+            on_metadata=on_metadata,
         ))
 
     def translate_anchored_contents(
@@ -134,34 +162,51 @@ class PDFCraft:
         mode: RenderMode = RenderMode.SOURCE,
         translation_id: str | None = None,
         aborted: AbortedCheck = lambda: False,
-        **options,
+        translator: XMLTranslator | None = None, window: int = 1,
+        with_anchored: bool = True,
+        on_body: Callable[[ParagraphContent[SourceRegion]], object] | None = None,
+        on_footnote: Callable[[ParagraphContent[SourceRegion]], object] | None = None,
+        on_metadata: MetadataCallback | None = None,
     ) -> None:
-        run_sync(self._async_craft.render_epub(
-            extraction, output, book_meta=book_meta, lan=lan,
-            table_render=table_render, latex_render=latex_render,
-            inline_latex=inline_latex, mode=mode,
-            translation_id=translation_id, aborted=aborted,
-            **options,
+        return run_sync(self._async_craft.render_epub(
+            extraction, output,
+            book_meta=book_meta,
+            lan=lan,
+            table_render=table_render,
+            latex_render=latex_render,
+            inline_latex=inline_latex,
+            mode=mode,
+            translation_id=translation_id,
+            aborted=aborted,
+            translator=translator,
+            window=window,
+            with_anchored=with_anchored,
+            on_body=on_body,
+            on_footnote=on_footnote,
+            on_metadata=on_metadata,
         ))
 
     def translate_pdf(
         self, source: PathLike | str, extraction: PDFCraftExtraction | PathLike | str,
         output: PathLike | str,
         translator: XMLTranslator,
-        *,
-        window: int = 1,
+        *, window: int = 1,
         with_furniture: bool = False,
-        on_translation_event: Callable[[TranslationEvent], None] | None = None,
+        on_translation_event: Callable[[TranslationEvent], object] | None = None,
         ignore_errors: IgnoreFillErrorsChecker = False,
-        **options,
+        on_body: Callable[[PDFParagraphContent], object] | None = None,
+        on_footnote: Callable[[PDFParagraphContent], object] | None = None,
+        on_metadata: MetadataCallback | None = None,
     ) -> None:
-        run_sync(self._async_craft.translate_pdf(
+        return run_sync(self._async_craft.translate_pdf(
             source, extraction, output, translator,
             window=window,
             with_furniture=with_furniture,
             on_translation_event=on_translation_event,
             ignore_errors=ignore_errors,
-            **options,
+            on_body=on_body,
+            on_footnote=on_footnote,
+            on_metadata=on_metadata,
         ))
 
     def patch_pdf_with_extraction(
@@ -169,23 +214,62 @@ class PDFCraft:
         source: PathLike | str,
         extraction: PDFCraftExtraction | PathLike | str,
         output: PathLike | str,
-        *,
-        translation_id: str | None = None,
+        *, translation_id: str | None = None,
         ignore_errors: IgnoreFillErrorsChecker = False,
-        **options,
+        translator: XMLTranslator | None = None, window: int = 1,
+        on_body: Callable[[PDFParagraphContent], object] | None = None,
+        on_footnote: Callable[[PDFParagraphContent], object] | None = None,
+        with_furniture: bool = False,
+        on_translation_event: Callable[[TranslationEvent], object] | None = None,
+        on_metadata: MetadataCallback | None = None,
     ) -> None:
-        run_sync(self._async_craft.patch_pdf_with_extraction(
-            source, extraction, output, translation_id=translation_id,
+        return run_sync(self._async_craft.patch_pdf_with_extraction(
+            source, extraction, output,
+            translation_id=translation_id,
             ignore_errors=ignore_errors,
-            **options,
+            translator=translator,
+            window=window,
+            on_body=on_body,
+            on_footnote=on_footnote,
+            with_furniture=with_furniture,
+            on_translation_event=on_translation_event,
+            on_metadata=on_metadata,
         ))
 
     def translate_epub(
         self, source: PathLike | str, output: PathLike | str, *,
-        target_language: str, submit: SubmitKind, **options,
+        target_language: str, submit: SubmitKind,
+        user_prompt: str | None = None,
+        max_retries: int = 5, max_group_tokens: int = 2600,
+        llm: LLM | None = None,
+        translation_llm: LLM | None = None, fill_llm: LLM | None = None,
+        on_translation_event: Callable[[TranslationEvent], object] | None = None,
+        on_fill_failed: Callable[[FillFailedEvent], object] | None = None,
+        executor: AsyncExecutor | None = None,
+        translation_executor: AsyncExecutor | None = None,
+        fill_executor: AsyncExecutor | None = None,
+        window: int = 1,
+        on_body: Callable[[EpubFragmentContent], object] | None = None,
+        on_metadata: MetadataCallback | None = None,
     ) -> None:
-        run_sync(self._async_craft.translate_epub(
-            source, output, target_language=target_language, submit=submit, **options,
+        return run_sync(self._async_craft.translate_epub(
+            source, output,
+            target_language=target_language,
+            submit=submit,
+            user_prompt=user_prompt,
+            max_retries=max_retries,
+            max_group_tokens=max_group_tokens,
+            llm=llm,
+            translation_llm=translation_llm,
+            fill_llm=fill_llm,
+            on_translation_event=on_translation_event,
+            on_fill_failed=on_fill_failed,
+            executor=executor,
+            translation_executor=translation_executor,
+            fill_executor=fill_executor,
+            window=window,
+            on_body=on_body,
+            on_metadata=on_metadata,
         ))
 
     def convert_pdf_to_markdown(
@@ -198,16 +282,21 @@ class PDFCraft:
         submit: SubmitKind = SubmitKind.REPLACE,
         window: int = 1,
         with_anchored: bool = True,
-        on_translation_event: Callable[[TranslationEvent], None] | None = None,
-        on_metadata=None,
+        on_translation_event: Callable[[TranslationEvent], object] | None = None,
+        on_metadata: MetadataCallback | None = None,
     ) -> OCRTokensMetering:
         return run_sync(self._async_craft.convert_pdf_to_markdown(
-            source, output, analysing_path=analysing_path,
-            extraction_path=extraction_path, extraction=extraction,
-            assets_path=assets_path, translator=translator, submit=submit,
+            source, output,
+            analysing_path=analysing_path,
+            extraction_path=extraction_path,
+            extraction=extraction,
+            assets_path=assets_path,
+            translator=translator,
+            submit=submit,
             window=window,
             with_anchored=with_anchored,
-            on_translation_event=on_translation_event, on_metadata=on_metadata,
+            on_translation_event=on_translation_event,
+            on_metadata=on_metadata,
         ))
 
     def convert_pdf_to_epub(
@@ -223,16 +312,23 @@ class PDFCraft:
         submit: SubmitKind = SubmitKind.REPLACE,
         window: int = 1,
         with_anchored: bool = True,
-        on_translation_event: Callable[[TranslationEvent], None] | None = None,
-        on_metadata=None,
+        on_translation_event: Callable[[TranslationEvent], object] | None = None,
+        on_metadata: MetadataCallback | None = None,
     ) -> OCRTokensMetering:
         return run_sync(self._async_craft.convert_pdf_to_epub(
-            source, output, analysing_path=analysing_path,
-            extraction_path=extraction_path, extraction=extraction,
-            book_meta=book_meta, lan=lan, table_render=table_render,
-            latex_render=latex_render, inline_latex=inline_latex,
-            translator=translator, submit=submit,
+            source, output,
+            analysing_path=analysing_path,
+            extraction_path=extraction_path,
+            extraction=extraction,
+            book_meta=book_meta,
+            lan=lan,
+            table_render=table_render,
+            latex_render=latex_render,
+            inline_latex=inline_latex,
+            translator=translator,
+            submit=submit,
             window=window,
             with_anchored=with_anchored,
-            on_translation_event=on_translation_event, on_metadata=on_metadata,
+            on_translation_event=on_translation_event,
+            on_metadata=on_metadata,
         ))

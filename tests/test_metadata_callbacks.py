@@ -309,12 +309,50 @@ class MetadataCallbackTests(unittest.IsolatedAsyncioTestCase):
             target.write_bytes(b'existing output')
             options: dict[str, Any] = dict(target_language='zh', submit=SubmitKind.REPLACE,
                            llm=translator()._translation_llm, executor=ConcurrentExecutor(FixedCapacity(2)))
-            with self.assertRaisesRegex(ValueError, 'metadata consumer failed'):
-                await AsyncPDFCraft().translate_epub(root / 'source.epub', target, on_metadata=fail, **options)
-            self.assertEqual(target.read_bytes(), b'existing output')
+            for mode in (SubmitKind.REPLACE, SubmitKind.APPEND_TEXT, SubmitKind.APPEND_BLOCK):
+                with self.subTest(mode=mode), self.assertRaisesRegex(ValueError, 'metadata consumer failed'):
+                    await AsyncPDFCraft().translate_epub(root / 'source.epub', target,
+                        on_metadata=fail, **{**options, 'submit': mode})
+                self.assertEqual(target.read_bytes(), b'existing output')
             with patch('pdf_craft.pipeline.epub.adapter.metadata.translated_metadata_content',
                        side_effect=AssertionError('unused snapshot')):
                 await AsyncPDFCraft().translate_epub(root / 'source.epub', target, **options)
+
+    async def test_epub_metadata_callback_is_separate_from_bilingual_writeback(self):
+        async def preserve_publisher(instance, inline_segments, **kwargs):
+            mappings = await translated(instance, inline_segments, **kwargs)
+            return [None if any(part.text == 'Publisher' for part in segment) else mapping
+                    for segment, mapping in zip(inline_segments, mappings, strict=True)]
+
+        for mode in (SubmitKind.REPLACE, SubmitKind.APPEND_TEXT, SubmitKind.APPEND_BLOCK):
+            with self.subTest(mode=mode), tempfile.TemporaryDirectory() as directory, patch.object(
+                    XMLTranslator, '_translate_inline_segments_async', new=preserve_publisher):
+                root = Path(directory)
+                source, target = root / 'source.epub', root / 'out.epub'
+                epub_book(source)
+                received = []
+                await AsyncPDFCraft().translate_epub(source, target, target_language='zh',
+                    submit=mode, llm=translator()._translation_llm,
+                    executor=ConcurrentExecutor(FixedCapacity(2)), on_metadata=received.append)
+
+                self.assertEqual(len(received), 1)
+                content = received[0]
+                self.assertEqual(content.original.title, 'Title')
+                self.assertEqual(content.metadata.title, '译:Title')
+                self.assertEqual(tuple(author.name for author in content.metadata.authors),
+                                 ('译:Author A', '译:Author B'))
+                self.assertEqual(content.metadata.subjects, ('译:Subject A', '译:Subject B'))
+                self.assertEqual(content.metadata.isbn, content.original.isbn)
+                self.assertEqual(content.metadata.publisher, 'Publisher')
+                self.assertEqual(content.metadata.language, 'zh')
+                with ZipFile(target) as archive:
+                    opf = fromstring(archive.read('EPUB/book.opf'))
+                expected = '译:Title' if mode == SubmitKind.REPLACE else 'Title 译:Title'
+                self.assertEqual(opf.findtext('.//{*}title'), expected)
+                self.assertEqual(opf.findtext('.//{*}publisher'), 'Publisher')
+                expected_authors = ['译:Author A', '译:Author B'] if mode == SubmitKind.REPLACE else [
+                    'Author A 译:Author A', 'Author B 译:Author B']
+                self.assertEqual([node.text for node in opf.findall('.//{*}creator')], expected_authors)
 
 
 class MetadataValueTests(unittest.TestCase):

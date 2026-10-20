@@ -1,10 +1,16 @@
 # pylint: disable=protected-access
 
+from collections.abc import Callable
+from os.path import relpath
 from pathlib import Path
 from typing import cast
-from ...extractor.chapter.chapter import Reference
-from os.path import relpath
+
 from ...document import PDFCraftExtraction, RenderMode
+from ...document.metadata import MetadataCallback
+from ...document.paragraph import ParagraphContent, SourceRegion
+from ...extractor.chapter.chapter import Reference
+from ...metering import AbortedCheck
+from ...transformer import XMLTranslator
 from ...runtime import IO_DOMAIN, worker_context, temporary_directory, run_atomic_cancellable
 from ..output import publish
 
@@ -12,11 +18,18 @@ from ..output import publish
 class MarkdownRenderer:
     """Render a PDFCraftExtraction to Markdown through one async implementation."""
 
-    async def render(self, extraction: PDFCraftExtraction, output_path: Path,
-                     assets_path: Path | None = None, cover_path: Path | None = None,
-                     aborted=lambda: False, *, mode: RenderMode = RenderMode.SOURCE,
-                     translation_id: str | None = None, on_body=None, on_footnote=None,
-                     translator=None, window=1, with_anchored=True, on_metadata=None) -> None:
+    async def render(
+        self, extraction: PDFCraftExtraction, output_path: Path,
+        assets_path: Path | None = None, cover_path: Path | None = None,
+        aborted: AbortedCheck = lambda: False, *,
+        mode: RenderMode = RenderMode.SOURCE,
+        translation_id: str | None = None,
+        on_body: Callable[[ParagraphContent[SourceRegion]], object] | None = None,
+        on_footnote: Callable[[ParagraphContent[SourceRegion]], object] | None = None,
+        translator: XMLTranslator | None = None,
+        window: int = 1, with_anchored: bool = True,
+        on_metadata: MetadataCallback | None = None,
+    ) -> None:
         from ...document.stream_view import content_view
         from ...renderer.paragraph import paragraph_notifications, display_values
         from ...markdown.render.layouts import render_layouts

@@ -155,17 +155,53 @@ class XMLTranslator:
         emit_scope_events: bool = True,
         emit_item_events: bool = True,
         window: int = 1,
+    ) -> list[tuple[Element, T]]:
+        """Translate tasks using the public XML extension contract."""
+        return await self._translate_elements(
+            tasks=tasks,
+            interrupt_source_text_segments=interrupt_source_text_segments,
+            interrupt_translated_text_segments=interrupt_translated_text_segments,
+            interrupt_block_element=interrupt_block_element,
+            immutable_elements_for_inline_segments=immutable_elements_for_inline_segments,
+            source_text_renderer=source_text_renderer,
+            canonical_text_validator=canonical_text_validator,
+            on_fill_failed=on_fill_failed,
+            on_translation_event=on_translation_event,
+            completed_characters=completed_characters,
+            total_characters=total_characters,
+            emit_scope_events=emit_scope_events,
+            emit_item_events=emit_item_events,
+            window=window,
+        )
+
+    async def _translate_elements(
+        self,
+        tasks: Iterable[TranslationTask[T]] | AsyncIterable[TranslationTask[T]],
+        interrupt_source_text_segments: Callable[[Iterable[TextSegment]], Iterable[TextSegment]] | None = None,
+        interrupt_translated_text_segments: Callable[[Iterable[TextSegment]], Iterable[TextSegment]] | None = None,
+        interrupt_block_element: Callable[[Element], Element] | None = None,
+        immutable_elements_for_inline_segments: Callable[[list[InlineSegment]], list[ImmutableBlockElement]] | None = None,
+        source_text_renderer: SourceTextRenderer | None = None,
+        canonical_text_validator: CanonicalTextValidator | None = None,
+        on_fill_failed: Callable[[FillFailedEvent], object] | None = None,
+        on_translation_event: Callable[[TranslationEvent], object] | None = None,
+        completed_characters: int = 0,
+        total_characters: int | None = None,
+        emit_scope_events: bool = True,
+        emit_item_events: bool = True,
+        window: int = 1,
         on_mapping: Callable[[tuple[InlineSegment, list[TextSegment]]], object] | None = None,
         on_result: Callable[[tuple[Element, T]], object] | None = None,
         collect_results: bool = True,
         on_task_mapping=None,
+        on_before_submit: Callable[[tuple[Element, list[InlineSegmentMapping], T]], object] | None = None,
         _task_store=None,
     ) -> list[tuple[Element, T]]:
         if isinstance(tasks, AsyncIterable) and _task_store is None:
             from pdf_craft.runtime import temporary_directory
             from .source_store import TaskStore
             async with temporary_directory('pdf-craft-task-context-') as directory:
-                return await self.translate_elements(
+                return await self._translate_elements(
                     tasks, interrupt_source_text_segments=interrupt_source_text_segments,
                     interrupt_translated_text_segments=interrupt_translated_text_segments,
                     interrupt_block_element=interrupt_block_element,
@@ -176,6 +212,7 @@ class XMLTranslator:
                     emit_scope_events=emit_scope_events, emit_item_events=emit_item_events,
                     window=window, on_mapping=on_mapping, on_result=on_result,
                     collect_results=collect_results, on_task_mapping=on_task_mapping,
+                    on_before_submit=on_before_submit,
                     _task_store=TaskStore(directory),
                 )
         if window < 1:
@@ -276,6 +313,8 @@ class XMLTranslator:
                         if _task_store is not None else element2task.pop(id(element), None))
                 if task is None:
                     continue
+                if on_before_submit is not None:
+                    await invoke_callback(on_before_submit, (element, mappings, task.payload))
                 translated_element = submit(
                     element=element, action=task.action, mappings=mappings,
                 )
