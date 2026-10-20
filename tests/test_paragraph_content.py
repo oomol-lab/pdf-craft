@@ -55,6 +55,39 @@ class SourceTests(unittest.TestCase):
 
 
 class ParagraphTests(unittest.IsolatedAsyncioTestCase):
+    def test_markdown_output_name_cannot_alias_body_or_footnote_spool(self):
+        import subprocess
+        import sys
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = make_extraction(root / 'source')
+            body = 'Body-start ' + 'Body ' * 20000 + 'Body-end.'
+            note = Reference(1, 1, '*', [text(1, 'Footnote.')])
+            save_xml(encode(Chapter(None, -1, [text(0, body)], [note])),
+                     root / 'source/chapters/chapter_head.xml')
+            source._export(root / 'source.pcex')
+            # A self-copy regression can block a worker forever: isolate it,
+            # bound runtime and cap file growth on platforms with resource.
+            script = '''
+import asyncio
+import sys
+try:
+    import resource
+except ImportError:
+    pass
+else:
+    resource.setrlimit(resource.RLIMIT_FSIZE, (4 * 1024 * 1024, 4 * 1024 * 1024))
+from pdf_craft import AsyncPDFCraft
+asyncio.run(AsyncPDFCraft().render_markdown(sys.argv[1], sys.argv[2]))
+'''
+            for filename in ('notes.md', 'body.md', 'footnotes.md'):
+                with self.subTest(filename=filename):
+                    output = root / filename
+                    subprocess.run([sys.executable, '-c', script, str(root / 'source.pcex'), str(output)],
+                                   check=True, capture_output=True, text=True, timeout=10)
+                    rendered = output.read_text(encoding='utf-8')
+                    self.assertEqual(rendered, body + '\n\n---\n\n## References\n\n[^1]:  Footnote.')
+
     async def test_epub_repeated_footnote_anchors_across_and_within_paragraphs(self):
         from zipfile import ZipFile
         from xml.etree.ElementTree import fromstring

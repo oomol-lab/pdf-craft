@@ -35,10 +35,11 @@ class MarkdownRenderer:
                 destination = output_path.parent / destination
             async with temporary_directory("pdf-craft-markdown-") as directory:
                 staged = Path(directory)
+                body_path, notes_path = staged / "body.md", staged / "footnotes.md"
                 assets = staged / "assets"
                 await IO_DOMAIN.run(assets.mkdir)
                 async with paragraph_notifications(pages, view.assets, numbers, on_body, on_footnote) as notify:
-                    async with worker_context(_open_output(staged / output_path.name)) as body, worker_context(_open_output(staged / "notes.md")) as notes:
+                    async with worker_context(_open_output(body_path)) as body, worker_context(_open_output(notes_path)) as notes:
                         have_body, have_notes = False, False
                         seen_notes = set()
                         async with aclosing(notify.iterate(items)) as incoming:
@@ -67,7 +68,7 @@ class MarkdownRenderer:
                             await IO_DOMAIN.run(notes.flush)
                             def append_notes():
                                 body.write('\n\n---\n\n## References')
-                                with (staged / 'notes.md').open(encoding='utf-8') as source:
+                                with notes_path.open(encoding='utf-8') as source:
                                     while chunk := source.read(65536):
                                         body.write(chunk)
                             await IO_DOMAIN.run(append_notes)
@@ -77,5 +78,5 @@ class MarkdownRenderer:
                 def commit(bridge):
                     resources = [(path, destination / path.relative_to(assets))
                                  for path in assets.rglob("*") if path.is_file()]
-                    publish([*resources, (staged / output_path.name, output_path)], bridge.commit)
+                    publish([*resources, (body_path, output_path)], bridge.commit)
                 await run_atomic_cancellable(IO_DOMAIN, commit)
