@@ -85,7 +85,6 @@ class StreamFollowupTests(unittest.IsolatedAsyncioTestCase):
     async def test_public_geometry_resource_access_and_read_callbacks(self):
         from pdf_craft import AsyncPDFCraft
         from tests.test_pcex_translation_layers import _source
-        from xml.etree.ElementTree import tostring
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             document = _source(root / 'source')
@@ -99,14 +98,14 @@ class StreamFollowupTests(unittest.IsolatedAsyncioTestCase):
                 await craft.read_asset(document, '../invalid')
             snapshots, notes = [], []
             def body(element):
-                snapshots.append(tostring(element))
-                element.clear()
+                snapshots.append((element.text, list(element.regions)))
+                element.regions.clear()
             await craft.render_markdown(document, root / 'book.md', on_body=body, on_footnote=notes.append)
             self.assertEqual(len(snapshots), 1)
-            self.assertEqual(notes[0].tag, 'ref')
-            self.assertEqual(notes[0].get('id'), '1-1')
+            self.assertIn('reference', notes[0].text)
+            self.assertTrue(notes[0].regions)
             self.assertIn('source', (root / 'book.md').read_text())
-            self.assertIn('bbox="1,1,50,10"', snapshots[0].decode())
+            self.assertEqual(snapshots[0][1][0].bbox, (1, 1, 50, 10))
             pages.clear()
             self.assertIn(1, await craft.read_pages(document))
 
@@ -178,7 +177,7 @@ class StreamFollowupTests(unittest.IsolatedAsyncioTestCase):
             received = []
             async def callback(element):
                 self.assertFalse((root / 'book.md').exists())
-                received.append(''.join(element.itertext()))
+                received.append(element.text)
                 first_received.set()
             with patch.object(XMLTranslator, '_translate_inline_segments_async', new=mappings):
                 pending = asyncio.create_task(AsyncPDFCraft().render_markdown(
@@ -226,7 +225,6 @@ class StreamFollowupTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual((assets / 'existing').read_text(), 'existing resource')
 
     async def test_epub_and_pdf_consumers_share_pcex_callbacks(self):
-        from unittest.mock import patch
         from pdf_craft import AsyncPDFCraft
         from pdf_craft.common import save_xml
         from pdf_craft.extractor.chapter.chapter import Chapter, TextFlowItem, SourceTextFragment, Reference, encode
@@ -243,18 +241,19 @@ class StreamFollowupTests(unittest.IsolatedAsyncioTestCase):
             await AsyncPDFCraft().render_epub(source, root / 'book.epub',
                                               on_body=bodies.append, on_footnote=notes.append)
             self.assertTrue((root / 'book.epub').is_file())
-            self.assertEqual([node.tag for node in bodies], ['text'])
-            self.assertEqual([node.get('id') for node in notes], ['1-1'])
-            from xml.etree.ElementTree import tostring
-            expected = [tostring(node) for node in bodies + notes]
+            self.assertEqual([node.text for node in bodies], ['Body.[^1]'])
+            self.assertEqual([node.text for node in notes], ['Note.'])
+            expected = [(node.text, [(region.page.page_index, region.bbox) for region in node.regions]) for node in bodies + notes]
             bodies.clear()
             notes.clear()
-            async def patch_pdf(*_args):
-                (root / 'book.pdf').write_bytes(b'pdf')
-            with patch('pdf_craft.craft._patch_pdf', new=patch_pdf):
-                await AsyncPDFCraft().patch_pdf_with_extraction(root / 'source.pdf', source,
-                    root / 'book.pdf', on_body=bodies.append, on_footnote=notes.append)
-            self.assertEqual([tostring(node) for node in bodies + notes], expected)
+            import pypdf
+            writer = pypdf.PdfWriter()
+            writer.add_blank_page(100, 100)
+            with (root / 'source.pdf').open('wb') as file:
+                writer.write(file)
+            await AsyncPDFCraft().patch_pdf_with_extraction(root / 'source.pdf', source,
+                root / 'book.pdf', on_body=bodies.append, on_footnote=notes.append)
+            self.assertEqual([(node.text, [(region.page.page_index, region.bbox) for region in node.regions]) for node in bodies + notes], expected)
 
     async def test_no_render_callbacks_skip_public_xml_packaging(self):
         from unittest.mock import patch
@@ -326,7 +325,9 @@ class StreamFollowupTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual((root / 'source/chapters/chapter_head.xml').read_bytes(), source_bytes)
 
     async def test_callback_failure_interrupts_a_waiting_content_producer(self):
-        from pdf_craft.document.content import ContentItem, consume_content
+        from pdf_craft.document.content import ContentItem
+        from pdf_craft.renderer.paragraph import paragraph_notifications
+        from pdf_craft import PageGeometry
         from pdf_craft.extractor.chapter.chapter import TextFlowItem, SourceTextFragment
         closed = asyncio.Event()
         async def source():
@@ -338,8 +339,13 @@ class StreamFollowupTests(unittest.IsolatedAsyncioTestCase):
                 closed.set()
         async def fail(_element):
             raise ValueError('consumer failed')
+        async def consume():
+            with tempfile.TemporaryDirectory() as directory:
+                async with paragraph_notifications({1: PageGeometry(1, 100, 100, 300)}, Path(directory), {}, on_body=fail) as notify:
+                    async for item in notify.iterate(source()):
+                        await notify.append(item)
         with self.assertRaisesRegex(ValueError, 'consumer failed'):
-            await asyncio.wait_for(consume_content(source(), on_body=fail), 1)
+            await asyncio.wait_for(consume(), 1)
         self.assertTrue(closed.is_set())
 
     async def test_markdown_assets_can_share_output_directory(self):

@@ -5,10 +5,7 @@ from typing import Literal, cast
 from epub_generator import BookMeta, LaTeXRender, TableRender
 
 from ...document import PDFCraftExtraction, RenderMode
-from ...document.render import materialize_render_view
-from ...document.content import consume_content, read_content
-from .render import render_epub_file
-from ...runtime import IO_DOMAIN, worker_context, temporary_directory, run_atomic_cancellable
+from ...runtime import IO_DOMAIN, temporary_directory, run_atomic_cancellable
 from ..output import publish
 
 
@@ -22,24 +19,26 @@ class EpubRenderer:
                      latex_render=LaTeXRender.MATHML, inline_latex: bool = True,
                      mode: RenderMode = RenderMode.SOURCE,
                      translation_id: str | None = None,
-                     aborted=lambda: False, on_body=None, on_footnote=None) -> None:
+                     aborted=lambda: False, on_body=None, on_footnote=None,
+                     translator=None, window=1, with_anchored=True) -> None:
         """Orchestrate the view and native EPUB generation asynchronously."""
-        async with worker_context(materialize_render_view(
-            extraction, mode, translation_id, require_toc=True,
-        )) as view:
-            await consume_content(read_content(view.chapters), on_body=on_body, on_footnote=on_footnote, aborted=aborted)
+        from ...document.stream_view import content_view
+        from ..paragraph import paragraph_notifications
+        from .content import render_content
+        async with content_view(extraction, mode=mode, translation_id=translation_id,
+                                translator=translator, window=window,
+                                with_anchored=with_anchored, aborted=aborted) as (view, pages, numbers, items):
             language = lan or view.language or "zh"
             effective_meta = _merge_book_meta(view.book_meta(), book_meta)
             if language not in {"zh", "en"}:
                 raise ValueError(f"unsupported EPUB language: {language}")
-            cover = view.cover if await IO_DOMAIN.run(view.cover.exists) else None
             async with temporary_directory("pdf-craft-epub-") as directory:
                 staged = Path(directory) / output_path.name
-                await render_epub_file(
-                    view.chapters, view.toc, view.assets, staged, cover,
-                    effective_meta, cast(Literal["zh", "en"], language),
-                    table_render, latex_render, inline_latex, aborted,
-                )
+                async with paragraph_notifications(pages, view.assets, numbers, on_body, on_footnote) as notify:
+                    await render_content(items, view, numbers, notify, Path(directory), staged,
+                        mode=mode, book_meta=effective_meta, language=cast(Literal["zh", "en"], language),
+                        table_render=table_render, latex_render=latex_render, inline_latex=inline_latex,
+                        aborted=aborted)
                 from ...metering import check_aborted
                 check_aborted(aborted)
                 await run_atomic_cancellable(IO_DOMAIN, lambda bridge: publish([(staged, output_path)], bridge.commit))

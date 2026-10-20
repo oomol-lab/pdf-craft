@@ -95,3 +95,8 @@ from .renderer import EpubRenderer, MarkdownRenderer
 from .pipeline.epub.events import EpubTranslation
 
 from .document.access import ExtractionContext, PageGeometry
+
+from .document.paragraph import (
+    SourceRegion, ParagraphContent, PDFSourceRegion, PDFParagraphContent,
+    TextLine, FormulaPlacement, EraseArea,
+)

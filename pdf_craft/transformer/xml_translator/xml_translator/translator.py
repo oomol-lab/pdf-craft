@@ -10,7 +10,7 @@ from pdf_craft.concurrency import AsyncExecutor
 from pdf_craft.llm import LLM, Message, MessageRole, runtime_for
 from pdf_craft.language import is_han_char, is_latin_letter
 from pdf_craft.llm.loop import ProtocolRetry, ProtocolSuccess, RepairLoopOptions, run_repair_loop
-from pdf_craft.runtime import invoke_callback
+from pdf_craft.runtime import invoke_callback, IO_DOMAIN
 from pdf_craft.transformer.xml_translator.segment import (
     BlockSegment, ImmutableBlockElement, InlineSegment, TextSegment,
 )
@@ -158,7 +158,26 @@ class XMLTranslator:
         on_mapping: Callable[[tuple[InlineSegment, list[TextSegment]]], object] | None = None,
         on_result: Callable[[tuple[Element, T]], object] | None = None,
         collect_results: bool = True,
+        on_task_mapping=None,
+        _task_store=None,
     ) -> list[tuple[Element, T]]:
+        if isinstance(tasks, AsyncIterable) and _task_store is None:
+            from pdf_craft.runtime import temporary_directory
+            from .source_store import TaskStore
+            async with temporary_directory('pdf-craft-task-context-') as directory:
+                return await self.translate_elements(
+                    tasks, interrupt_source_text_segments=interrupt_source_text_segments,
+                    interrupt_translated_text_segments=interrupt_translated_text_segments,
+                    interrupt_block_element=interrupt_block_element,
+                    immutable_elements_for_inline_segments=immutable_elements_for_inline_segments,
+                    source_text_renderer=source_text_renderer, canonical_text_validator=canonical_text_validator,
+                    on_fill_failed=on_fill_failed, on_translation_event=on_translation_event,
+                    completed_characters=completed_characters, total_characters=total_characters,
+                    emit_scope_events=emit_scope_events, emit_item_events=emit_item_events,
+                    window=window, on_mapping=on_mapping, on_result=on_result,
+                    collect_results=collect_results, on_task_mapping=on_task_mapping,
+                    _task_store=TaskStore(directory),
+                )
         if window < 1:
             raise ValueError("window must be at least 1")
         element2task: dict[int, TranslationTask[T]] = {}
@@ -216,7 +235,11 @@ class XMLTranslator:
                             item_total_characters=task.character_count or 0,
                             total_characters=total,
                         ))
-                    element2task[id(task.element)] = task
+                    from .source_store import tag_source
+                    assert _task_store is not None
+                    identity = _task_store.allocate()
+                    tag_source(task.element, identity)
+                    await IO_DOMAIN.run(_task_store.save, identity, task)
                     yield task.element
             finally:
                 close = getattr(async_tasks, "aclose", None)
@@ -225,10 +248,19 @@ class XMLTranslator:
 
         results: list[tuple[Element, T]] = []
         stream_mapper = await self._stream_mapper_async()
+        async def mapping_callback(mapping):
+            from .source_store import source_identity
+            origin, _ = mapping
+            task = (await IO_DOMAIN.run(_task_store.load, source_identity(origin.head.root))
+                    if _task_store is not None else element2task[id(origin.head.root)])
+            if on_task_mapping is not None:
+                await on_task_mapping(task, mapping)
+            await invoke_callback(on_mapping, mapping)
+
         mapping_stream = stream_mapper.map_stream_async(
             elements=generate_async_elements() if async_tasks is not None else generate_elements(),
             callbacks=callbacks, window=window,
-            on_mapping=on_mapping,
+            on_mapping=mapping_callback if on_mapping is not None or on_task_mapping is not None else None,
             map=lambda inline_segments: self._translate_inline_segments_async(
                 inline_segments=inline_segments,
                 callbacks=callbacks,
@@ -239,7 +271,9 @@ class XMLTranslator:
         )
         async with aclosing(mapping_stream):
             async for element, mappings in mapping_stream:
-                task = element2task.pop(id(element), None)
+                from .source_store import source_identity, strip_source
+                task = (await IO_DOMAIN.run(_task_store.pop, source_identity(element))
+                        if _task_store is not None else element2task.pop(id(element), None))
                 if task is None:
                     continue
                 translated_element = submit(
@@ -266,6 +300,7 @@ class XMLTranslator:
                             completed_characters=completed_characters,
                             total_characters=total,
                         ))
+                strip_source(translated_element)
                 result = (translated_element, task.payload)
                 await invoke_callback(on_result, result)
                 if collect_results:

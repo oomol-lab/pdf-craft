@@ -898,6 +898,11 @@ class TestAsyncAPI(unittest.IsolatedAsyncioTestCase):
             extraction = make_extraction(
                 root / "extraction", page_pixel_sizes={1: (100, 100)}, render_dpi=72,
             )
+            from pdf_craft.transformer.translation_coverage import NarrativeCoverage, write_narrative_coverage
+            save_xml(encode(Chapter(None, -1, [TextFlowItem('body', -1, [
+                SourceTextFragment(1, 0, (5, 5, 90, 30), ['Replacement.'])])])),
+                root / 'extraction/chapters/chapter_head.xml')
+            write_narrative_coverage(root / 'extraction/translation.xml', [NarrativeCoverage('head', 1, 0, 'translated')])
             async_document = _AsyncDocument()
             async_handler = _AsyncHandler(async_document)
             craft = AsyncPDFCraft(PDFOptions(pdf_handler=async_handler))

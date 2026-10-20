@@ -4,9 +4,9 @@ from copy import deepcopy
 from dataclasses import replace
 
 from ..common import read_xml, save_xml
-from ..document.content import consume_content, read_content
+from ..document.content import read_content
 from ..extractor.chapter.chapter import (
-    Chapter, Reference, narrative_texts, search_references_in_chapter,
+    Chapter, Reference, TextFlowItem, narrative_texts, search_references_in_chapter,
 )
 from ..runtime import IO_DOMAIN, invoke_callback
 from .anchored_translation import _asset_slots, _translate_slots_async
@@ -30,7 +30,7 @@ def _unit(item):
 
 
 async def translate_content(items, transformer, window, coverage, anchored_coverage,
-                            *, with_anchored=False, aborted=lambda: False, on_completed=None):
+                            *, with_anchored=False, aborted=lambda: False, on_completed=None, pretranslated=None):
     """One format adapter; every LLM operation remains in XMLTranslator."""
     from ..metering import check_aborted
 
@@ -41,7 +41,17 @@ async def translate_content(items, transformer, window, coverage, anchored_cover
                 await on_completed(item)
             return item, (), ()
         source = _unit(item)
-        target = await transformer.transform(source, emit_scope_events=False, emit_item_events=False)
+        path = (pretranslated.get((item.filename, item.index))
+                if pretranslated is not None and isinstance(item.value, TextFlowItem)
+                and item.value.role == 'heading' else None)
+        if path is None:
+            target = await transformer.transform(source, emit_scope_events=False, emit_item_events=False)
+        else:
+            import pickle
+            def load():
+                with path.open('rb') as file:
+                    return pickle.load(file)
+            target = Chapter(item.chapter_id, item.level, [await IO_DOMAIN.run(load)])
         states = []
         source_texts = list(narrative_texts(source))
         target_texts = list(narrative_texts(target))
@@ -54,7 +64,7 @@ async def translate_content(items, transformer, window, coverage, anchored_cover
         if with_anchored:
             slots = list(_asset_slots(target))
             for slot in slots:
-                slot.payload = replace(slot.payload, flow_index=item.index)
+                slot.payload = replace(slot.payload, flow_index=item.index, context=item.asset_context)
             translations = await _translate_slots_async(slots, transformer._anchored_transformer())
             for slot, translation in zip(slots, translations, strict=True):
                 state = "preserved"
@@ -66,10 +76,11 @@ async def translate_content(items, transformer, window, coverage, anchored_cover
                 asset_states.append(AnchoredContentCoverage(*slot.payload.identity, state))
         value = target.definitions[0] if isinstance(item.value, Reference) else target.flow_items[0]
         if isinstance(value, Reference):
+            assert isinstance(item.value, Reference)
             value.mark = item.value.mark
         if on_completed is not None:
             await on_completed(item)
-        return replace(item, value=value), states, asset_states
+        return replace(item, value=value, original=item.value), states, asset_states
 
     results = run_async_parameters(items, translate, window)
     try:
@@ -151,10 +162,27 @@ async def translate_workspace(extraction, output, transformer, *, window=1,
                     ))
     # Source entries are decoded once, then completed content is persisted by
     # the same consumer used for non-translated rendering.
-    await consume_content(translate_content(
-        read_content(output / "chapters"), transformer, window, coverage, assets,
-        with_anchored=with_anchored, on_completed=on_completed, aborted=aborted,
-    ), output / "chapters", on_body=on_body, on_footnote=on_footnote, aborted=aborted)
+    from ..document.content import ChapterWriter
+    from ..document.package import _read_pages
+    from ..document.access import page_geometries
+    from ..renderer.paragraph import paragraph_notifications
+    from ..document.content import chapter_paths, file_content
+    def fixed():
+        dpi, sizes = _read_pages(output / 'pages.xml')
+        identities = sorted({item.value.id for path in chapter_paths(output / 'chapters')
+                             for item in file_content(path) if isinstance(item.value, Reference)})
+        return page_geometries(sizes, dpi), {identity: number for number, identity in enumerate(identities, 1)}
+    pages, numbers = await IO_DOMAIN.run(fixed)
+    writer = ChapterWriter(output / 'chapters')
+    items = translate_content(read_content(output / 'chapters'), transformer, window, coverage, assets,
+                              with_anchored=with_anchored, on_completed=on_completed, aborted=aborted)
+    from contextlib import aclosing
+    async with paragraph_notifications(pages, output / 'assets', numbers, on_body, on_footnote) as notify:
+        async with aclosing(notify.iterate(items)) as incoming:
+            async for item in incoming:
+                await IO_DOMAIN.run(writer.append, item)
+                await notify.append(item)
+        await IO_DOMAIN.run(writer.finish)
     await IO_DOMAIN.run(write_narrative_coverage, output / "translation.xml", coverage)
     if assets:
         await IO_DOMAIN.run(write_anchored_coverage, output / "translation.xml", assets)

@@ -104,6 +104,7 @@ class PDFCraft:
         translation_id: str | None = None,
         target_language: str | None = None,
         on_translation_event: Callable[[TranslationEvent], None] | None = None,
+        on_body=None, on_footnote=None,
     ) -> PDFCraftExtraction:
         return run_sync(self._async_craft.translate_extraction(
             extraction, output_path, translator, window=window,
@@ -111,6 +112,7 @@ class PDFCraft:
             with_furniture=with_furniture,
             translation_id=translation_id, target_language=target_language,
             on_translation_event=on_translation_event,
+            on_body=on_body, on_footnote=on_footnote,
         ))
 
     def translate_anchored_contents(

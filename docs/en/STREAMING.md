@@ -83,38 +83,61 @@ all queued callbacks before successful return. Callback XML/value conversion is
 skipped independently for each missing callback; EPUB source tracking and CFI
 indexing are enabled only when `on_body` is supplied.
 
-PCEX translation writing has no content callback. Rendering may provide content
-notifications as described below, while final output remains a complete artifact.
+PCEX translation and rendering offer paragraph notifications below; final output remains a complete artifact.
 
 
-## PCEX content consumers and public geometry
+## PCEX paragraph consumers
 
-PCEX reading and optional translation feed a shared private content stream.
-The existing flow items and reference definitions retain source identities and
-geometry. `translate_extraction` consumes the same translated stream to append
-a complete translation layer and coverage; it has no public content callbacks.
-Legacy custom whole-task translators keep their original extension contract.
+PCEX reading and optional translation feed one private content stream. Markdown writes staged fragments
+as items arrive; EPUB converts/spools EPUB records; PDF feeds the existing Qt planner through a disk queue.
+No complete translated PCEX or chapter workspace is required before rendering. PCEX translation connects
+the same producer to its chapter/layer writer. Legacy custom whole-task translators keep their extension contract.
 
-`render_markdown`, `render_epub`, `patch_pdf_with_extraction`, and `translate_pdf`
-accept optional `on_body` and `on_footnote`. Their independent PCEX XML snapshots
-use the extraction callback schema: a body flow item or a full reference
-definition. Source page/bbox information is unchanged by translation. Each
-channel is ordered; there is no combined ordering between channels. No callbacks
-means no additional user XML packaging. A callback failure or cancellation
-terminates the operation; callbacks do not imply successful final-file creation.
+`render_markdown`, `render_epub`, and `translate_extraction` accept optional `on_body` and `on_footnote`
+receiving **ParagraphContent**, replacing their earlier XML callback shape:
 
-Markdown/EPUB rendering accepts `translator`, `window`, and `with_anchored` for
-translation during reading. PDF patching accepts `translator` and `window`, or
-use `translate_pdf`. Do not combine a translator with a stored `translation_id`.
-New translation defaults to replacement rendering. Bilingual Markdown/EPUB is
-also supported; translation-time callbacks still deliver replacement content,
-while direct stored-layer rendering reports its selected display view. These
-callbacks describe content, not output-format bytes or final PDF glyph layout.
+```python
+async def paragraph(content):
+    print(content.text, content.original)  # Markdown; original is optional
+    for region in content.regions:
+        print(region.page.page_index, region.source_order_in_page, region.bbox)
+        print(region.map_bbox(target_size=(800, 1100)))
 
-Out-of-order LLM results are spooled to disk without blocking admission behind
-a slow first request. Two-stage vendor OCR can advance individual pages to
-stage two before all first passes finish. Unresolved footnote source is emitted
-in body reading order, not appended after later pages at EOF.
+await craft.render_epub(extraction, "book.epub", translator=translator, window=4,
+                        on_body=paragraph, on_footnote=paragraph)
+```
+
+Each event covers one whole logical paragraph/heading, including all its source boxes across pages.
+Footnotes emit one event per paragraph. Standalone assets/formulas do not pretend to be paragraphs.
+`text` is the selected text or translation as Markdown; `original` is separate Markdown (None for source-only).
+Bilingual presentation is never premerged in the event. Final files still honor the requested RenderMode.
+EPUB's Markdown callback is a display branch, never EPUB's generation input. It has no CFI; EPUB **input**
+translation retains its existing EpubTranslation contract. PDF extraction XML callbacks remain unchanged.
+
+SourceRegion contains immutable PageGeometry, source_order_in_page (the PCEX source_order identity,
+not an array index), and the original integer OCR-pixel bbox. Its map_bbox(target_size) returns floats using
+actual image width/height ratios. render_dpi is the requested DPI; page-image limits can reduce effective DPI.
+Mapping assumes the same crop/orientation and does not infer rotation, cropping, or padding.
+
+### PDF layout previews
+
+PDF patching callbacks receive PDFParagraphContent, extending ParagraphContent with a list of
+PDFSourceRegion values. Each region extends SourceRegion with final font_size, lines (text, x, baseline),
+formulas and erasures. A paragraph remains one event even across pages; final page typography may delay it.
+All layout coordinates and font sizes are floating-point **source OCR pixels**, while original bbox stays integer.
+Unused/preserved regions have empty lines and font_size=None. Failed paragraphs are not reported as accepted layouts.
+Lines come from the actual Qt layout, not another wrapping algorithm. Formula vector atoms carry latex, PDF bytes,
+x/baseline/descent, and scale_x/scale_y into source pixels. Text beside a formula is split into runs
+with separate x coordinates, preserving the reserved gap without exposing internal formula proxies.
+Erase masks contain actual sampled RGB colors and pixel rectangles. Painting translated text onto an unerased source
+would leave the original visible. There is no font_id or font distribution; client-selected fonts provide an approximate
+preview, not a promise of identical glyph shaping. Events are neither full-page PDFs nor completed files.
+
+All four operations await asynchronous callbacks. Each channel is ordered independently. Callback backlog and
+out-of-order completed document contexts live on disk; a slow first request does not pin every source DOM or idle
+available request capacity. Missing callbacks skip Markdown preview conversion, public event construction, and PDF
+layout export. Exceptions/cancellation terminate work and preserve existing final outputs. Markdown resources and
+text use staged replacement with rollback (multiple paths cannot become atomically visible together).
 
 Use `await craft.read_pages(extraction)` to obtain an independent mapping from
 one-based page indexes to immutable `PageGeometry` values (`page_index`, `width`,

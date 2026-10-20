@@ -53,8 +53,8 @@ class ContentCFILocator:
                 self._parents[id(child)] = (id(parent), step)
                 self._texts[id(child), TextPosition.TAIL] = (id(parent), step + 1, child.tail or "")
 
-    def point(self, element: Element, position: TextPosition, offset: int) -> ContentPoint:
-        parent, text_step, text = self._texts[id(element), position]
+    def point(self, element: Element, position: TextPosition, offset: int, *, node_identity: int = 0) -> ContentPoint:
+        parent, text_step, text = self._texts[node_identity or id(element), position]
         if not 0 <= offset <= len(text):
             raise ValueError("source offset is outside the original text")
         steps = [text_step]
@@ -72,6 +72,6 @@ class ContentCFILocator:
             raise ValueError("translation fragment has no original source")
         first, last = spans[0], spans[-1]
         return ContentRange(
-            self.point(first.element, first.position, first.start),
-            self.point(last.element, last.position, last.end),
+            self.point(first.element, first.position, first.start, node_identity=first.node_identity),
+            self.point(last.element, last.position, last.end, node_identity=last.node_identity),
         )

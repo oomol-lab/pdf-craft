@@ -72,12 +72,12 @@ async def run_concurrency_async(
         await results.aclose()
 
 
-async def run_async_parameters(parameters, execute, concurrency):
+async def run_async_parameters(parameters, execute, concurrency, *, preserve_sources=True):
     """Slow ordered output never prevents admission to an idle execution slot.
 
-    Only source-node identity references remain in memory alongside the DOM
-    already owned by the adapter. Completed translated content is pickled to
-    disk, and is loaded once its input-order position can be delivered.
+    Completed content is pickled and loaded at its input-order position.
+    Legacy callers can retain original node identities; detached async XML
+    adapters disable that retention and recover source contexts from disk.
     """
     if concurrency < 1:
         raise ValueError("concurrency must be at least 1")
@@ -103,7 +103,7 @@ async def run_async_parameters(parameters, execute, concurrency):
                                 exhausted = True
                                 break
                             task = asyncio.create_task(execute(parameter))
-                            pending[task] = (next_input, _source_elements(parameter))
+                            pending[task] = (next_input, _source_elements(parameter) if preserve_sources else {})
                             next_input += 1
                     elif not exhausted and incoming is None and len(pending) < concurrency:
                         incoming = asyncio.ensure_future(anext(iterator))
@@ -124,7 +124,7 @@ async def run_async_parameters(parameters, execute, concurrency):
                         except StopAsyncIteration:
                             exhausted = True
                         else:
-                            sources = _source_elements(parameter)
+                            sources = _source_elements(parameter) if preserve_sources else {}
                             task = asyncio.create_task(execute(parameter))
                             pending[task] = (next_input, sources)
                             next_input += 1

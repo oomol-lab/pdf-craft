@@ -188,8 +188,8 @@ async def translate(
     try:
         tasks = await ARCHIVE_DOMAIN.run(prepare)
         interrupter = XMLInterrupter()
-        contexts = {}
         header_results = []
+        translated_titles = {}
 
         async def task_stream():
             try:
@@ -199,7 +199,6 @@ async def translate(
                         return
                     if on_body is not None:
                         task.payload.source_root_id = id(task.element)
-                        contexts[id(task.element)] = task.payload
                     yield task
             finally:
                 await ARCHIVE_DOMAIN.run(tasks.close)
@@ -213,24 +212,40 @@ async def translate(
                 if translated_title is not None:
                     title.text = translated_title.text
                     title[:] = [clone_element(child) for child in translated_title]
+                    translated_titles[path] = clone_element(title)
                 chapter = (path, xml) if context.title_only else None
             if chapter is not None:
                 path, xml = chapter
+                if context.chapter_data is not None:
+                    old_body = find_first(xml.element, 'body')
+                    if old_body is not None and old_body is not element:
+                        for parent in xml.element.iter():
+                            if old_body in list(parent):
+                                position = list(parent).index(old_body)
+                                parent.remove(old_body)
+                                parent.insert(position, element)
+                                break
+                if path in translated_titles:
+                    title = find_first(xml.element, 'title')
+                    if title is not None:
+                        translated_title = translated_titles[path]
+                        title.text = translated_title.text
+                        title[:] = [clone_element(child) for child in translated_title]
+                    translated_titles.pop(path, None)
                 deduplicate_ids_in_element(xml.element)
                 with archive.replace(path) as file:
                     xml.save(file)
 
         async def on_result(result):
             element, context = result
-            contexts.pop(context.source_root_id, None)
             if context.element_type in (_ElementType.TOC, _ElementType.METADATA):
                 header_results.append(result)
             else:
                 await ARCHIVE_DOMAIN.run(commit_content, element, context)
 
-        async def on_mapping(mapping):
+        async def on_mapping(task, mapping):
             origin, translated = mapping
-            context = contexts[id(origin.head.root)]
+            context = task.payload
             if context.locator is None or context.cfi_package is None:
                 return
             location = context.locator.capture(list(origin))
@@ -255,7 +270,7 @@ async def translate(
                     tasks=task_stream(),
                     on_result=on_result,
                     collect_results=False,
-                    on_mapping=on_mapping if on_body is not None else None,
+                    on_task_mapping=on_mapping if on_body is not None else None,
                 )
                 if delivery is not None:
                     await delivery.finish()

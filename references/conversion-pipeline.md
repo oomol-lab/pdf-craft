@@ -139,15 +139,28 @@ EPUB 适配器异步逐项读取任务，在共享 XMLTranslator 的局部映射
 
 ## PCEX 内容流与页面查询
 
-`document/content.py` 以现有 FlowItem/Reference 为 payload，封装必要的章节位置，负责读取、
-章节文件消费和独立 XML 通知；固定资源/目录/几何留在文档上下文。标准 PCEX 翻译经
-`transformer/content.py` 复用 NarrativeXMLTransformer 和 XMLTranslator 逐内容项处理，
-由同一个章节消费端保存译文与 coverage，随后追加译文层或生成渲染视图。旧式自定义 task
-translator 仍保留既有整章扩展契约。渲染回调不是目标格式字节，也不是 PDF 排版预览。
+`document/content.py` 逐 XML 内容项解码现有 FlowItem/Reference，body 中引用只携带身份，完整
+定义走独立条目。`document/stream_view.py` 提供固定资源/目录/页面几何与原文/所选层/在线译文流；
+标准 XMLTranslator 不先生成全书译文 workspace。`transformer/content.py` 复用同一引擎，保留
+资源前后文，PCEX writer 是该流的一个消费者。自定义整章 translator 保留显式兼容路径。
 
-`document/access.py` 定义 PageGeometry 与 ExtractionContext。完整 PCEX 用两个 Craft
-门面的 read_pages/read_asset 查询；提取中用调用者提供的 context，不公开半成品句柄。
-交付前页面几何可查询，资源副本读取只在活跃的临时存储生命周期内有效。
+Markdown 逐项写暂存内容，EPUB 逐项转换并 spooling EPUB records，PDF 以来源顺序的磁盘
+feed 向隔离 Qt 进程提交替换项。PDF 真实布局通过磁盘回传，跨页段落在所有区域排版定稿后
+一次通知；窗口只按现有页级约束收尾，不拿内容回调冒充排版通知。
 
-LLM 有序交付使用磁盘重排缓存，已完成结果不占据执行准入窗口；双阶段 vendor OCR 的
-续阶段和新页共享请求容量，续阶段优先。未确定归属来源在页归属闭合后按阅读顺序发出。
+公共 `document/paragraph.py` 定义 SourceRegion、ParagraphContent、PDFSourceRegion 与
+PDFParagraphContent。翻译/重排渲染使用独立 ParagraphContent（Markdown text、可选 original、
+来源 regions），PDF 使用每区域带字号/行/公式/擦除的 PDFParagraphContent。提取仍保留原有
+XML 回调；EPUB 输入翻译仍保留 EpubTranslation。未提供通道时不封装该通道的公共产物。
+SourceRegion.page 复用 PageGeometry，source_order_in_page 对应 PCEX source_order；bbox
+仍为 OCR 像素整数，map_bbox 根据实际页面尺寸返回 float。render_dpi 是请求值，不能单独
+作为缩放依据。PDF 公共布局的坐标与字号也换算为来源 OCR 像素，不引入 font_id。
+
+`document/access.py` 的 read_pages/read_asset 与 ExtractionContext 继续作为公共几何/资源
+访问入口。内容对象包含页面几何，因此回调消费者不必再做页面联表。资源只通过受支持的
+字节读取入口获取，不依赖临时目录。
+
+LLM 有序交付使用磁盘重排缓存；异步任务上下文、来源 DOM 与完成结果都可落盘，通过
+稳定 root/node identity 在当前文档交付时恢复映射，队首慢请求不再保留全书原文 DOM。
+同步 iterable/自定义整章契约保留原对象身份。双阶段 vendor OCR 续阶段优先，未确定归属来源
+按阅读顺序发出，延续 #794/#795 回归。

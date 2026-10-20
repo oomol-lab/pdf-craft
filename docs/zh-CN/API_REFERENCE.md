@@ -665,3 +665,14 @@ PDF 提取 XML 回调、EPUB 原子翻译片段与来源 CFI 的用法见[增量
 `PageGeometry` 值；`read_asset(extraction, asset_hash)` 返回资源字节。
 `ExtractionOptions.context` 可传入 `ExtractionContext`，在提取期间查询已知页面和读取资源。
 所有权、顺序、有效期和最终输出语义见[增量回调](STREAMING.md)。
+
+
+PCEX 翻译、Markdown/EPUB 渲染的 `on_body` / `on_footnote` 使用公共
+`ParagraphContent(text, original, regions)`：text 与可选 original 是分离的 Markdown，
+一次对应完整自然段。`translate_extraction` 同样支持这两个可选回调。
+`SourceRegion(page, source_order_in_page, bbox)` 复用 PageGeometry，
+`map_bbox(target_size)` 按实际页面宽高映射为浮点坐标；DPI 不是唯一缩放依据。
+PDF 回填的回调改用 `PDFParagraphContent`，regions 元素是 `PDFSourceRegion`，
+附有实际 Qt 排版确定的字号、行、公式及擦除信息，全部布局值以来源像素为单位。
+它不提供字体分发，不承诺浏览器与 Qt 的逐字形一致性。提取的 XML 回调和 EPUB 输入翻译
+的 CFI 回调保持原协议。详细字段、所有权和预览能力见[增量回调](STREAMING.md)。

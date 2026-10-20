@@ -4,23 +4,17 @@ The envelope carries only chapter placement; payloads are the existing PCEX
 objects. Resource paths and document metadata belong to the enclosing view.
 """
 # pylint: disable=protected-access
-import asyncio
-from collections.abc import AsyncIterable, AsyncIterator, Callable
+from collections.abc import AsyncGenerator
 from dataclasses import dataclass
+from contextlib import aclosing
 from pathlib import Path
 from xml.etree.ElementTree import Element
 
 from ..common import indent, save_xml
-from ..common.stream import DiskDelivery
 from ..extractor.chapter.chapter import (
-    Chapter, FlowItem, Reference, _encode_flow, _encode_reference,
-    search_references_in_chapter,
+    Chapter, FlowItem, Reference, TextFlowItem, SourceAsset, _encode_flow, _encode_reference,
 )
-from ..extractor.chapter.reader import create_chapters_reader
-from ..runtime import IO_DOMAIN, temporary_directory, worker_iter
-
-ContentCallback = Callable[[Element], object]
-
+from ..runtime import IO_DOMAIN, worker_iter
 
 @dataclass
 class ContentItem:
@@ -30,21 +24,126 @@ class ContentItem:
     level: int
     index: int
     value: FlowItem | Reference | None  # None preserves an empty chapter.
+    original: FlowItem | Reference | None = None
+    asset_context: str = ""
+    narrative_states: dict[tuple[str, int, int], str] | None = None
+    asset_children: frozenset[int] | None = None
 
 
 def chapter_filename(chapter: Chapter) -> str:
     return f"chapter_{chapter.id if chapter.id is not None else 'head'}.xml"
 
 
-async def read_content(chapters: Path) -> AsyncIterator[ContentItem]:
-    reader = await IO_DOMAIN.run(create_chapters_reader, chapters)
-    async for chapter in worker_iter(reader()):
-        filename = chapter_filename(chapter)
-        yield ContentItem(filename, chapter.id, chapter.level, -1, None)
-        for index, item in enumerate(chapter.flow_items):
-            yield ContentItem(filename, chapter.id, chapter.level, index, item)
-        for index, reference in enumerate(search_references_in_chapter(chapter)):
-            yield ContentItem(filename, chapter.id, chapter.level, index, reference)
+def chapter_paths(chapters: Path):
+    """Canonical chapter order, without decoding the chapter bodies."""
+    import re
+    head = chapters / 'chapter_head.xml'
+    if head.exists():
+        yield head
+    numbered = []
+    for path in chapters.glob('chapter_*.xml'):
+        match = re.fullmatch(r'chapter_(\d+)\.xml', path.name)
+        if match:
+            numbered.append((int(match[1]), path))
+    yield from (path for _, path in sorted(numbered))
+
+
+def file_content(path: Path):
+    """Decode one direct flow item/definition, releasing XML after each item.
+
+    Body reference occurrences only need identity; complete definitions are an
+    independent stream channel. They are not copied into every body paragraph.
+    """
+    from xml.etree.ElementTree import iterparse
+    from .package import _v3_chapter_xml
+    from ..extractor.chapter.chapter import decode
+    from io import BytesIO
+    # Legacy chapters have a different source namespace. Keep the established
+    # migration codec, then use the same item parser for the migrated XML.
+    with path.open('rb') as probe:
+        first_tags = []
+        for event, element in iterparse(probe, events=('start',)):
+            del event
+            first_tags.append(element.tag)
+            if len(first_tags) == 2:
+                break
+    document = BytesIO(_v3_chapter_xml(path)) if first_tags[-1:] == ['body'] else path.open('rb')
+    with document:
+        stack = []
+        chapter_id, level, body_index, note_index = None, -1, 0, 0
+        for event, element in iterparse(document, events=('start', 'end')):
+            if event == 'start':
+                stack.append(element)
+                if len(stack) == 1:
+                    identifier = element.get('id')
+                    chapter_id = int(identifier) if identifier is not None else None
+                    level = int(element.get('level', '-1'))
+                    yield ContentItem(path.name, chapter_id, level, -1, None)
+                continue
+            if len(stack) == 3 and stack[-2].tag in ('flow', 'references'):
+                is_reference = stack[-2].tag == 'references'
+                root = Element('chapter', stack[0].attrib)
+                flow = Element('flow')
+                root.append(flow)
+                references = Element('references')
+                if is_reference:
+                    references.append(element)
+                else:
+                    flow.append(element)
+                    for occurrence in element.iter('ref'):
+                        definition = Element('ref', {'id': occurrence.get('id', '')})
+                        mark = Element('mark')
+                        mark.text = '?'
+                        definition.extend((mark, Element('flow')))
+                        references.append(definition)
+                if len(references):
+                    root.append(references)
+                chapter = decode(root)
+                value = chapter.definitions[0] if is_reference else chapter.flow_items[0]
+                yield ContentItem(path.name, chapter_id, level, note_index if is_reference else body_index, value)
+                if is_reference:
+                    note_index += 1
+                else:
+                    body_index += 1
+                stack[-2].remove(element)
+                element.clear()
+            stack.pop()
+
+
+def asset_contexts(path: Path):
+    """Only clipped semantic context is indexed; source content remains on disk."""
+    from ..transformer.anchored_translation import _flow_text, _clip
+    from ..extractor.chapter.chapter import StandaloneAsset
+    contexts = {}
+    heading, previous = '', ''
+    pending = []
+    for item in file_content(path):
+        value = item.value
+        if isinstance(value, TextFlowItem):
+            following = _flow_text(value)
+            for index, before in pending:
+                contexts[index] = _clip('\n'.join(part for part in (before, following) if part))
+            pending.clear()
+            if any(isinstance(child, SourceAsset) for child in value.children):
+                contexts[item.index] = _clip('\n'.join(part for part in (heading, following) if part))
+            if value.role == 'heading':
+                heading = following
+            previous = following
+        elif isinstance(value, StandaloneAsset):
+            pending.append((item.index, previous))
+    for index, before in pending:
+        contexts[index] = _clip(before)
+    return contexts
+
+
+async def read_content(chapters: Path) -> AsyncGenerator[ContentItem, None]:
+    paths = await IO_DOMAIN.run(lambda: list(chapter_paths(chapters)))
+    for path in paths:
+        contexts = await IO_DOMAIN.run(asset_contexts, path)
+        async with aclosing(worker_iter(file_content(path))) as incoming:
+            async for item in incoming:
+                item.asset_context = contexts.get(item.index, '') if not isinstance(item.value, Reference) else ''
+                yield item
 
 
 class ChapterWriter:
@@ -82,66 +181,3 @@ class ChapterWriter:
             self.path.mkdir(parents=True, exist_ok=True)
             save_xml(indent(self.root), self.path / self.filename)
             self.root = None
-
-
-async def consume_content(
-    items: AsyncIterable[ContentItem], chapters: Path | None = None,
-    *, on_body: ContentCallback | None = None,
-    on_footnote: ContentCallback | None = None,
-    aborted=lambda: False,
-) -> None:
-    """Persist and optionally deliver detached XML, without callback backpressure
-    holding up a translation producer's execution capacity.
-    """
-    writer = ChapterWriter(chapters) if chapters is not None else None
-    async with temporary_directory("pdf-craft-content-delivery-") as directory:
-        body = DiskDelivery(Path(directory) / "body", on_body) if on_body is not None else None
-        notes = DiskDelivery(Path(directory) / "notes", on_footnote) if on_footnote is not None else None
-        deliveries = [delivery for delivery in (body, notes) if delivery is not None]
-        iterator = aiter(items)
-        async def guarded():
-            if not deliveries:
-                async for item in iterator:
-                    yield item
-                return
-            while True:
-                incoming = asyncio.ensure_future(anext(iterator))
-                try:
-                    done, _ = await asyncio.wait(
-                        [incoming, *(delivery._task for delivery in deliveries)],
-                        return_when=asyncio.FIRST_COMPLETED,
-                    )
-                    for delivery in deliveries:
-                        if delivery._task in done:
-                            delivery._task.result()
-                    try:
-                        item = incoming.result()
-                    except StopAsyncIteration:
-                        return
-                finally:
-                    if not incoming.done():
-                        incoming.cancel()
-                    await asyncio.gather(incoming, return_exceptions=True)
-                yield item
-
-        try:
-            async for item in guarded():
-                from ..metering import check_aborted
-                check_aborted(aborted)
-                if writer is not None:
-                    await IO_DOMAIN.run(writer.append, item)
-                if isinstance(item.value, Reference):
-                    if notes is not None:
-                        await notes.append(await IO_DOMAIN.run(_encode_reference, item.value))
-                elif item.value is not None and body is not None:
-                    await body.append(await IO_DOMAIN.run(_encode_flow, item.value))
-            if writer is not None:
-                await IO_DOMAIN.run(writer.finish)
-            for delivery in deliveries:
-                await delivery.finish()
-        finally:
-            close = getattr(iterator, "aclose", None)
-            if close is not None:
-                await close()
-            for delivery in deliveries:
-                await delivery.cancel()

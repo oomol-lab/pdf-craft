@@ -397,3 +397,13 @@ See [incremental callbacks](STREAMING.md) for PDF extraction XML notifications a
 ### PCEX streaming rendering and source access
 
 `render_markdown` / `render_epub` accept optional `translator`, `window`, `with_anchored`, `on_body`, and `on_footnote`. PDF patching accepts optional `translator`, `window`, and both callbacks; `translate_pdf` also accepts both callbacks. `read_pages(extraction)` returns a page-indexed mapping of immutable `PageGeometry`; `read_asset(extraction, asset_hash)` returns bytes. `ExtractionOptions.context` accepts an `ExtractionContext` for geometry/resource access during extraction. See [streaming callbacks](STREAMING.md) for ownership, ordering, lifetime, and output semantics.
+
+
+PCEX translation and Markdown/EPUB rendering expose optional `on_body` / `on_footnote`
+callbacks receiving `ParagraphContent(text, original, regions)`, one complete paragraph with
+separate Markdown translation/source. `SourceRegion` contains PageGeometry, source_order_in_page,
+and integer source bbox; `map_bbox(target_size)` returns float coordinates using actual dimensions.
+PDF patch callbacks receive `PDFParagraphContent` with `PDFSourceRegion` values containing final Qt
+font size, lines, formula atoms and erasure masks in source pixels. There is no font distribution or
+promise of identical browser glyph shaping. PDF extraction XML and EPUB-input CFI callback contracts
+are unchanged. See [streaming callbacks](STREAMING.md) for fields and lifetime semantics.
