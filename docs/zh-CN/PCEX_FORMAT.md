@@ -151,7 +151,8 @@ extraction = craft.open_extraction("output/book.pcex")
 路径不是普通文件时抛出 `FileNotFoundError`；后缀不是 `.pcex` 时抛出 `ValueError`。目录即使包含完整成员也不能作为公开输入。
 
 门面会在返回前完成校验，所得 `PDFCraftExtraction` 是不公开 I/O 或元数据方法的 opaque handle，
-后续应把它传回 Craft 门面。EPUB 渲染还会要求 `toc.xml` 存在，Markdown 渲染只要求基本格式有效。
+后续应把它传回 Craft 门面。EPUB 与 Markdown 渲染均可接受不含 `toc.xml` 的有效提取文件；
+EPUB 可根据章节标题生成导航。
 
 ### 跨机器继续后端
 
@@ -170,7 +171,7 @@ from pdf_craft import PDFCraft
 craft = PDFCraft()
 extraction = craft.open_extraction("book.pcex")
 craft.render_markdown(extraction, "book.md")
-craft.render_epub(extraction, "book.epub")  # 要求包内有 toc.xml
+craft.render_epub(extraction, "book.epub")  # toc.xml 可选
 ```
 
 这些后端只读取 extraction 内部成员，不会查找原机器的 analysis 目录或 `ocr/` 缓存。
@@ -353,7 +354,8 @@ left,top,right,bottom
 </toc>
 ```
 
-`toc.xml` 整体可选，但 EPUB 渲染要求它存在；空目录写作 `<toc page_indexes="" />`。
+`toc.xml` 对格式与 EPUB 渲染均可选；缺省时 EPUB 可根据章节标题生成导航。显式空目录写作
+`<toc page_indexes="" />`。
 
 根元素必须为 `<toc>`。必需属性 `page_indexes` 是以英文逗号连接的原 PDF 页码，表示识别为印刷目录、因而没有进入章节正文的页面。没有目录页时值为空字符串。
 

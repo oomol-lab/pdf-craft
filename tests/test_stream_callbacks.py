@@ -233,6 +233,69 @@ class StreamCallbacksTests(unittest.IsolatedAsyncioTestCase):
             with ZipFile(target) as archive:
                 self.assertIn('译:', archive.read('EPUB/a.xhtml').decode())
 
+    async def test_complete_cfi_resolves_spine_order_and_nested_source_files(self):
+        from tests.test_epub_cfi import endpoints
+        from posixpath import normpath
+
+        async def mappings(_translator, inline_segments, **_kwargs):
+            # Source file identity must survive concurrent mapping and
+            # restoration of tasks and source DOMs from disk.
+            if any('First' in item.text for segment in inline_segments for item in segment):
+                await asyncio.sleep(.02)
+            return [(segment.parent, list(search_text_segments(segment.create_element())))
+                    for segment in inline_segments]
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source, target = root / 'source.epub', root / 'target.epub'
+            opf_path = 'OPS/package/book.opf'
+            with ZipFile(source, 'w') as archive:
+                archive.writestr('mimetype', 'application/epub+zip')
+                archive.writestr('META-INF/container.xml',
+                                 f'<container><rootfiles><rootfile full-path="{opf_path}"/></rootfiles></container>')
+                archive.writestr(opf_path,
+                    '<package><metadata/><manifest>'
+                    '<item id="second" href="../Text/second.xhtml" media-type="application/xhtml+xml"/>'
+                    '<item id="image" href="cover.png" media-type="image/png"/>'
+                    '<item id="ncx" href="toc.ncx" media-type="application/x-dtbncx+xml"/>'
+                    '<item id="first" href="../Text/first.xhtml" media-type="application/xhtml+xml"/>'
+                    '</manifest><guide/><spine><itemref idref="image"/>'
+                    '<itemref idref="first"/><itemref idref="second"/></spine></package>')
+                archive.writestr('OPS/package/toc.ncx', '<ncx><navMap/></ncx>')
+                archive.writestr('OPS/package/cover.png', b'unused-image')
+                for name, text in (('first', 'First 😀 paragraph.'), ('second', 'Second paragraph.')):
+                    archive.writestr(f'OPS/Text/{name}.xhtml',
+                        f'<html xmlns="http://www.w3.org/1999/xhtml"><head/><body><p>{text}</p></body></html>')
+            received = []
+            with patch('pdf_craft.transformer.xml_translator.xml_translator.translator.XMLTranslator._translate_inline_segments_async', new=mappings):
+                await translate(source, target, 'zh', SubmitKind.REPLACE,
+                                llm=LLM('unused', 'https://example.invalid', 'unused', 'o200k_base'),
+                                executor=ConcurrentExecutor(FixedCapacity(2)), max_group_tokens=30,
+                                on_body=received.append)
+            self.assertEqual([item.original for item in received], ['First 😀 paragraph.', 'Second paragraph.'])
+            with ZipFile(source) as archive:
+                package = fromstring(archive.read(opf_path))
+                for index, item in enumerate(received):
+                    # Resolve the package component independently of the producer.
+                    prefix = item.epubcfi[len('epubcfi('):].split('!')[0]
+                    self.assertEqual(prefix, f'/8/{4 + index * 2}')
+                    node = package
+                    for step in prefix.strip('/').split('/'):
+                        node = list(node)[int(step) // 2 - 1]
+                    manifest = package.find('manifest')
+                    assert manifest is not None
+                    href = next(entry.attrib['href'] for entry in manifest
+                                if entry.get('id') == node.get('idref'))
+                    path = normpath(str(Path(opf_path).parent / href))
+                    original_root = fromstring(archive.read(path))
+                    start, end = endpoints(original_root, item.epubcfi)
+                    self.assertEqual(start[1], '')
+                    self.assertEqual(end[1], item.original)
+            with ZipFile(target) as archive:
+                self.assertFalse(any('/../' in name for name in archive.namelist()))
+                self.assertIn('First 😀 paragraph.', archive.read('OPS/Text/first.xhtml').decode())
+                self.assertIn('Second paragraph.', archive.read('OPS/Text/second.xhtml').decode())
+
     async def test_epub_no_callback_skips_cfi_and_failure_preserves_target(self):
         async def mappings(_translator, inline_segments, **_kwargs):
             return [(segment.parent, list(search_text_segments(segment.create_element()))) for segment in inline_segments]

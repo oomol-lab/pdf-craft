@@ -119,7 +119,7 @@ PDFCraft().translate_epub(
 - `max_group_tokens` defaults to `2600`. Larger groups make fewer, larger requests and increase the cost of retrying a failed request.
 - `executor` is the shared capacity channel for real LLM requests. Reuse one executor when translation and XML repair use the same provider quota.
 - `translation_executor` and `fill_executor` may replace the common executor when the two models use separate provider quotas.
-- `window` defaults to `1`. While the next ordered group is still running, at most `window` later groups may run ahead; the executor controls the actual provider concurrency.
+- `window` defaults to `1` and bounds in-flight translation groups. A completed group frees its slot even if an earlier result is still pending; completed results wait on disk for ordered delivery. The executor independently limits actual provider requests.
 - `window` is the only XML look-ahead control. Provider capacity is supplied explicitly through an executor.
 - `max_retries` controls XML structure-repair attempts and defaults to `5`. It is distinct from `LLM.retry_times`, which controls text-request retries.
 
@@ -185,4 +185,20 @@ PDFCraft().translate_epub(
 For endpoint, cache, or empty-response errors, see [Troubleshooting](TROUBLESHOOTING.md).
 
 
-See [incremental callbacks](STREAMING.md) for PDF extraction XML notifications and EPUB atomic translation fragments with source CFIs.
+## Receive translated content before the EPUB is ready
+
+Pass `on_body` to receive `EpubFragmentContent(epubcfi, original, translated)` for
+accepted atomic fragments, which can be smaller than a paragraph. Text is plain
+and excludes overlapping LLM context. The range CFI addresses the input EPUB,
+not the translated output, and requires XHTML spine documents. Chapter paths
+relative to a nested OPF, including `../`, are supported.
+
+`on_metadata` receives one complete `MetadataContent` for OPF book metadata.
+In bilingual modes it still separates translated metadata from the original;
+this does not change the append mode used in the final EPUB. Body callbacks do
+not report navigation, document-head titles, or book metadata.
+
+Both callbacks accept synchronous or asynchronous functions. They are optional;
+async functions are awaited, and exceptions abort the operation. The output EPUB
+is published as a complete file after success. See [incremental callbacks](STREAMING.md)
+for examples, CFI details, ordering and source lifetime.

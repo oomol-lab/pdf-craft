@@ -32,7 +32,7 @@ class TestEpubTranslationMetadata(unittest.TestCase):
             llm = LLM("unused", "https://example.invalid/v1", "unused", "o200k_base")
             executor = ConcurrentExecutor(FixedCapacity(2))
             with patch(
-                "pdf_craft.pipeline.epub.translation.translator.XMLTranslator.translate_elements",
+                "pdf_craft.pipeline.epub.translation.translator.XMLTranslator._translate_elements",
                 new=translate_tasks,
             ):
                 asyncio.run(translate(

@@ -4,6 +4,21 @@
 同步和异步回调均可使用；异步回调会被等待。回调抛错或取消任务会终止操作，最终 PCEX／EPUB
 只在校验、封装成功后提交。
 
+## 2.5.0 回调产物一览
+
+| 操作 | 内容回调 | 产物 |
+| --- | --- | --- |
+| PDF → PCEX 提取 | `ExtractionOptions.on_body` / `on_footnote` | 独立 PCEX XML `Element` 快照 |
+| PCEX 翻译、Markdown 或 EPUB 渲染 | `on_body` / `on_footnote` | `ParagraphContent[SourceRegion]`，一整个自然段 |
+| PCEX → PDF 回填或翻译 | `on_body` / `on_footnote` | `PDFParagraphContent`，附最终排版的完整自然段 |
+| 已有 EPUB 翻译 | `on_body` | `EpubFragmentContent`，一个原子翻译片段 |
+| 书籍元信息提取或翻译 | `on_metadata` | `MetadataContent`，一次完整书籍视图 |
+
+内容、几何与元信息值类型可从 `pdf_craft` 导入；XML 快照使用标准库
+`xml.etree.ElementTree.Element`。内容回调与 `on_ocr_event`、`on_translation_event`
+等进度事件分开。流式翻译的全书总量在未知时可为 `None`，不要依赖初始百分比。
+本版完整更新见 [2.5.0 更新日志](../changelog/v2.5.0.md)。
+
 ## PDF 提取
 
 ```python
@@ -80,7 +95,7 @@ PCEX 读取与可选翻译共用内部内容流。Markdown 消费端直接写暂
 
 ### Markdown、EPUB 渲染及 PCEX 翻译的回调
 
-三者的可选 `on_body` / `on_footnote` 现在接收 `ParagraphContent`，不再交付 PCEX XML：
+三者的可选 `on_body` / `on_footnote` 接收 `ParagraphContent`：
 
 ```python
 from pdf_craft import ParagraphContent, SourceRegion
@@ -230,7 +245,10 @@ manifest；启用 LLM 时等待提取完成，与原生字段 fallback 合并后
 PCEX 翻译与在线翻译渲染在共享元信息阶段通知一次，含目标语言及未翻译字段。EPUB 输入翻译
 同样支持 `on_metadata`：只通知 OPF 书籍元信息，不将目录或每个文档的 head/title 当成书籍通知。
 EPUB 扩展字段仍保留在输出；标准化回调对象不是完整 OPF XML 的副本。
+即使 EPUB 使用双语追加模式，回调的 `metadata` 也只合并译文字段与未翻译字段，
+原文单独放在 `original`；最终 EPUB 的元信息仍按所选模式写回。
 一键 PDF 转换的 `ExtractionOptions.on_metadata` 对应提取阶段，顶层 `on_metadata` 对应可选翻译阶段。
+指定 `extraction_path` 时，原文 PCEX 在提取完成后独立提交；后续翻译或渲染失败不会撤回它。
 
 同步回调直接调用，异步回调会被等待；异常或取消终止操作，不发布半成品。
 通知不代表最终文件已提交。不传回调就不构造公共快照。

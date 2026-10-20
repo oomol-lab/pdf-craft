@@ -17,6 +17,9 @@ from epub_generator import BookMeta, LaTeXRender, TableRender
 from .document import PDFCraftExtraction, RenderMode, TranslationInfo, resolve_translation
 from .document.package import validate_translation_id
 from .document.metadata import MetadataCallback
+from .document.paragraph import ParagraphContent, SourceRegion, PDFParagraphContent
+from .pipeline.epub.events import EpubFragmentContent
+from .transformer.xml_translator.xml_translator import FillFailedEvent
 from .document.access import ExtractionContext, PageGeometry, page_geometries, asset_path
 from .extractor.chapter.chapter import SourceTextFragment, TextFlowItem
 from .extractor.chapter.reader import create_chapters_reader
@@ -224,7 +227,9 @@ class AsyncPDFCraft:
         aborted: AbortedCheck = lambda: False,
         translator: XMLTranslator | None = None, window: int = 1,
         with_anchored: bool = True,
-        on_body=None, on_footnote=None, on_metadata: MetadataCallback | None = None,
+        on_body: Callable[[ParagraphContent[SourceRegion]], object] | None = None,
+        on_footnote: Callable[[ParagraphContent[SourceRegion]], object] | None = None,
+        on_metadata: MetadataCallback | None = None,
     ) -> None:
         document = await _ensure_extraction_async(extraction)
         await MarkdownRenderer().render(
@@ -244,7 +249,9 @@ class AsyncPDFCraft:
         translation_id: str | None = None,
         target_language: str | None = None,
         on_translation_event: Callable[[TranslationEvent], object] | None = None,
-        on_body=None, on_footnote=None, on_metadata: MetadataCallback | None = None,
+        on_body: Callable[[ParagraphContent[SourceRegion]], object] | None = None,
+        on_footnote: Callable[[ParagraphContent[SourceRegion]], object] | None = None,
+        on_metadata: MetadataCallback | None = None,
     ) -> PDFCraftExtraction:
         document = await _ensure_extraction_async(extraction)
         language = (
@@ -298,7 +305,9 @@ class AsyncPDFCraft:
         aborted: AbortedCheck = lambda: False,
         translator: XMLTranslator | None = None, window: int = 1,
         with_anchored: bool = True,
-        on_body=None, on_footnote=None, on_metadata: MetadataCallback | None = None,
+        on_body: Callable[[ParagraphContent[SourceRegion]], object] | None = None,
+        on_footnote: Callable[[ParagraphContent[SourceRegion]], object] | None = None,
+        on_metadata: MetadataCallback | None = None,
     ) -> None:
         document = await _ensure_extraction_async(extraction)
         await EpubRenderer().render(
@@ -318,7 +327,9 @@ class AsyncPDFCraft:
         with_furniture: bool = False,
         on_translation_event: Callable[[TranslationEvent], object] | None = None,
         ignore_errors: IgnoreFillErrorsChecker = False,
-        on_body=None, on_footnote=None, on_metadata: MetadataCallback | None = None,
+        on_body: Callable[[PDFParagraphContent], object] | None = None,
+        on_footnote: Callable[[PDFParagraphContent], object] | None = None,
+        on_metadata: MetadataCallback | None = None,
     ) -> None:
         if isinstance(translator, XMLTranslator):
             await self.patch_pdf_with_extraction(source, extraction, output, translator=translator,
@@ -347,7 +358,11 @@ class AsyncPDFCraft:
         *, translation_id: str | None = None,
         ignore_errors: IgnoreFillErrorsChecker = False,
         translator: XMLTranslator | None = None, window: int = 1,
-        on_body=None, on_footnote=None, with_furniture=False, on_translation_event=None, on_metadata=None,
+        on_body: Callable[[PDFParagraphContent], object] | None = None,
+        on_footnote: Callable[[PDFParagraphContent], object] | None = None,
+        with_furniture: bool = False,
+        on_translation_event: Callable[[TranslationEvent], object] | None = None,
+        on_metadata: MetadataCallback | None = None,
     ) -> None:
         document = await _ensure_extraction_async(extraction)
         if translator is not None and translation_id is not None:
@@ -363,14 +378,38 @@ class AsyncPDFCraft:
 
     async def translate_epub(
         self, source: PathLike | str, output: PathLike | str, *,
-        target_language: str, submit: SubmitKind, **options,
+        target_language: str, submit: SubmitKind,
+        user_prompt: str | None = None,
+        max_retries: int = 5, max_group_tokens: int = 2600,
+        llm: LLM | None = None,
+        translation_llm: LLM | None = None, fill_llm: LLM | None = None,
+        on_translation_event: Callable[[TranslationEvent], object] | None = None,
+        on_fill_failed: Callable[[FillFailedEvent], object] | None = None,
+        executor: AsyncExecutor | None = None,
+        translation_executor: AsyncExecutor | None = None,
+        fill_executor: AsyncExecutor | None = None,
+        window: int = 1,
+        on_body: Callable[[EpubFragmentContent], object] | None = None,
+        on_metadata: MetadataCallback | None = None,
     ) -> None:
         await run_epub_translation(
-            source,
-            output,
+            source, output,
             target_language=target_language,
             submit=submit,
-            **options,
+            user_prompt=user_prompt,
+            max_retries=max_retries,
+            max_group_tokens=max_group_tokens,
+            llm=llm,
+            translation_llm=translation_llm,
+            fill_llm=fill_llm,
+            on_translation_event=on_translation_event,
+            on_fill_failed=on_fill_failed,
+            executor=executor,
+            translation_executor=translation_executor,
+            fill_executor=fill_executor,
+            window=window,
+            on_body=on_body,
+            on_metadata=on_metadata,
         )
 
     async def convert_pdf_to_markdown(
@@ -384,7 +423,7 @@ class AsyncPDFCraft:
         window: int = 1,
         with_anchored: bool = True,
         on_translation_event: Callable[[TranslationEvent], object] | None = None,
-        on_metadata=None,
+        on_metadata: MetadataCallback | None = None,
     ) -> OCRTokensMetering:
         options = replace(extraction or ExtractionOptions(), includes_furniture=False)
         async with _analysis_workspace_async(analysing_path) as workspace:
@@ -424,7 +463,7 @@ class AsyncPDFCraft:
         window: int = 1,
         with_anchored: bool = True,
         on_translation_event: Callable[[TranslationEvent], object] | None = None,
-        on_metadata=None,
+        on_metadata: MetadataCallback | None = None,
     ) -> OCRTokensMetering:
         options = replace(extraction or ExtractionOptions(), includes_furniture=False)
         async with _analysis_workspace_async(analysing_path) as workspace:
@@ -499,7 +538,9 @@ class AsyncPDFCraft:
         with_anchored: bool = True, with_furniture: bool = False,
         translation_id: str | None = None, target_language: str | None = None,
         on_translation_event: Callable[[TranslationEvent], object] | None = None,
-        on_body=None, on_footnote=None, on_metadata=None, aborted=lambda: False,
+        on_body: Callable[[ParagraphContent[SourceRegion]], object] | None = None,
+        on_footnote: Callable[[ParagraphContent[SourceRegion]], object] | None = None,
+        on_metadata: MetadataCallback | None = None, aborted=lambda: False,
     ) -> PDFCraftExtraction:
         """Shared persisted/one-shot translation: source plus one replacement layer."""
         existing = {item.id for item in await IO_DOMAIN.run(extraction._translations)}
@@ -527,7 +568,9 @@ class AsyncPDFCraft:
         translator: XMLTranslator, *, window: int = 1,
         with_anchored: bool = True, with_furniture: bool = False,
         on_translation_event: Callable[[TranslationEvent], object] | None = None,
-        on_body=None, on_footnote=None, on_metadata=None, aborted=lambda: False,
+        on_body: Callable[[ParagraphContent[SourceRegion]], object] | None = None,
+        on_footnote: Callable[[ParagraphContent[SourceRegion]], object] | None = None,
+        on_metadata: MetadataCallback | None = None, aborted=lambda: False,
     ) -> PDFCraftExtraction:
         """Materialize replacement-only root content for PDF writeback."""
         translated, overlay = await self._translate_replacement_to_workspace(
@@ -550,7 +593,9 @@ class AsyncPDFCraft:
         with_anchored: bool = True,
         with_furniture: bool = False,
         on_translation_event: Callable[[TranslationEvent], object] | None = None,
-        on_body=None, on_footnote=None, on_metadata=None, aborted=lambda: False, metadata_language=None,
+        on_body: Callable[[ParagraphContent[SourceRegion]], object] | None = None,
+        on_footnote: Callable[[ParagraphContent[SourceRegion]], object] | None = None,
+        on_metadata: MetadataCallback | None = None, aborted=lambda: False, metadata_language=None,
     ) -> tuple[PDFCraftExtraction, dict]:
         narrative_transformer = NarrativeXMLTransformer(
             translator, mode=SubmitKind.REPLACE, window=window,

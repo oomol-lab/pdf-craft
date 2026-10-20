@@ -1,7 +1,6 @@
 """PDF replacement data shared by erasing, filling and composition."""
 
 from dataclasses import dataclass
-from ...document.paragraph import ParagraphContent, SourceRegion
 
 
 @dataclass(frozen=True)
@@ -54,9 +53,6 @@ class PDFReplacement:
     # continuous PDF layout flow. Text regions are collected globally by the
     # window planner, so callers only attach non-replacement obstacles.
     obstacle_regions: tuple[PDFReplacementRegion, ...] = ()
-    preview: ParagraphContent[SourceRegion] | None = None
-    preview_is_footnote: bool = False
-    preview_index: int = -1
 
     def source_regions(self) -> tuple[PDFReplacementRegion, ...]:
         """Return explicit paragraph regions or the legacy single region."""

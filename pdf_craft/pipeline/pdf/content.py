@@ -15,7 +15,7 @@ from ...transformer.translation_coverage import read_coverage, paragraph_identit
 from ...renderer.paragraph import paragraph_notifications, display_values
 from ...renderer.output import publish
 from ...document.paragraph import PDFParagraphContent, PDFSourceRegion
-from .feed import ReplacementFeed, write_record, read_record
+from .feed import _PreviewReplacement, ReplacementFeed, write_record, read_record
 from .pipeline import PDFTranslationPipeline, _to_pdf_patch_content, _replacement_source_order
 from .patcher import PDFPatcher
 from .metadata import pdf_document_metadata
@@ -162,8 +162,9 @@ async def patch_content(source, extraction, target, *, translator=None, translat
                                             await IO_DOMAIN.run(write_record, previews / str(slot), empty)
                                             continue
                                         value = replace(prototype, text=patch_text.strip(), inline_formulas=formulas,
-                                                        obstacle_regions=obstacles, preview=preview,
-                                                        preview_is_footnote=notes, preview_index=slot)
+                                                        obstacle_regions=obstacles)
+                                        if preview is not None:
+                                            value = _PreviewReplacement.attach(value, preview, notes, slot)
                                         await IO_DOMAIN.run(write_record, feed_root / str(slot), value if value.text else None)
                                         if preview is None:
                                             await IO_DOMAIN.run(write_record, previews / str(slot), None)

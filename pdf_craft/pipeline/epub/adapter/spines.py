@@ -1,5 +1,6 @@
 from collections.abc import Generator
 from pathlib import Path
+from posixpath import normpath
 from xml.etree import ElementTree as ET
 
 from .common import find_opf_path, strip_namespace
@@ -40,7 +41,7 @@ def search_spine_paths(zip: Zip) -> Generator[tuple[Path, str], None, None]:
             if idref in manifest_items:
                 href, media_type = manifest_items[idref]
                 if media_type in ("application/xhtml+xml", "text/html"):
-                    yield opf_dir / href, media_type
+                    yield Path(normpath((opf_dir / href).as_posix())), media_type
 
 
 def spine_cfi_paths(zip: Zip) -> dict[Path, str]:
@@ -59,5 +60,5 @@ def spine_cfi_paths(zip: Zip) -> dict[Path, str]:
     for index, item in enumerate(spine):
         href = hrefs.get(item.get("idref"))
         if href:
-            result[opf_path.parent / href] = f"/{step}/{(index + 1) * 2}"
+            result[Path(normpath((opf_path.parent / href).as_posix()))] = f"/{step}/{(index + 1) * 2}"
     return result

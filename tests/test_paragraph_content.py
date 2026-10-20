@@ -271,7 +271,7 @@ asyncio.run(AsyncPDFCraft().render_markdown(sys.argv[1], sys.argv[2]))
         async def result(value):
             results.append(value[1])
         with patch.object(XMLTranslator,'_translate_inline_segments_async',new=mappings):
-            task=asyncio.create_task(translator().translate_elements(tasks(),window=2,on_result=result,collect_results=False))
+            task=asyncio.create_task(translator()._translate_elements(tasks(),window=2,on_result=result,collect_results=False))
             try:
                 await asyncio.wait_for(last.wait(),3)
                 gc.collect()
@@ -389,6 +389,108 @@ asyncio.run(AsyncPDFCraft().render_markdown(sys.argv[1], sys.argv[2]))
         self.assertTrue(all('\ufffc' not in line.text and '\u00a0' not in line.text for line in lines))
         self.assertIn('Before',''.join(line.text for line in lines))
         self.assertTrue(all(line.baseline > placement.line_tops[0] for line in lines))
+
+    async def test_pdf_callback_preserves_geometry_under_different_ocr_pixel_scales(self):
+        import pypdf
+        from pdf_craft.transformer.translation_coverage import write_narrative_coverage, NarrativeCoverage
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            pdf = root / 'source.pdf'
+            writer = pypdf.PdfWriter()
+            for _ in range(2):
+                writer.add_blank_page(300, 400)
+            with pdf.open('wb') as file:
+                writer.write(file)
+            results, texts = [], []
+            # Both workspaces describe the same physical rectangles, including
+            # different X/Y scale factors and different geometry on each page.
+            for name, scales in (('unit', ((1, 1), (1, 1))), ('scaled', ((2, 3), (4, 2)))):
+                with self.subTest(geometry=name):
+                    source = make_extraction(root / name, page_pixel_sizes={
+                        page: (300 * sx, 400 * sy) for page, (sx, sy) in enumerate(scales, 1)},
+                        render_dpi=600)
+                    paragraph = TextFlowItem('body', -1, [
+                        SourceTextFragment(page, page - 1, (20*sx, 30*sy, 280*sx, 100*sy),
+                                           ['Scaled paragraph ' * 60 if page == 1 else 'continued.'])
+                        for page, (sx, sy) in enumerate(scales, 1)])
+                    save_xml(encode(Chapter(None, -1, [paragraph])), root / name / 'chapters/chapter_head.xml')
+                    write_narrative_coverage(root / name / 'translation.xml', [NarrativeCoverage('head', 1, 0, 'translated')])
+                    received = []
+                    output = root / f'{name}.pdf'
+                    await AsyncPDFCraft().patch_pdf_with_extraction(pdf, source, output, on_body=received.append)
+                    self.assertEqual(len(received), 1)
+                    self.assertEqual(len(received[0].regions), 2)
+                    results.append(received[0])
+                    texts.append([page.extract_text() for page in pypdf.PdfReader(output).pages])
+            self.assertEqual(texts[0], texts[1])
+            for unit, scaled, (sx, sy) in zip(results[0].regions, results[1].regions, ((2, 3), (4, 2)), strict=True):
+                self.assertTrue(unit.lines)
+                self.assertTrue(unit.erasures)
+                self.assertAlmostEqual(scaled.font_size / sy, unit.font_size)
+                self.assertEqual([line.text for line in unit.lines], [line.text for line in scaled.lines])
+                for left, right in zip(unit.lines, scaled.lines, strict=True):
+                    self.assertAlmostEqual(right.x / sx, left.x)
+                    self.assertAlmostEqual(right.baseline / sy, left.baseline)
+                for left, right in zip(unit.erasures, scaled.erasures, strict=True):
+                    self.assertEqual(right.color, left.color)
+                    # Erasure padding is two source pixels, not PDF points.
+                    for area, region in ((left, unit), (right, scaled)):
+                        for actual, coordinate, padding in zip(area.bbox, region.bbox, (-2, -2, 2, 2), strict=True):
+                            self.assertAlmostEqual(actual, coordinate + padding)
+
+    def test_pdf_formula_and_erasure_export_use_final_placement_and_pixel_scales(self):
+        from types import SimpleNamespace
+        from pdf_craft.pipeline.pdf.text_layout import QTextParagraphFiller, PatchTextOptions
+        from pdf_craft.pipeline.pdf.models import PDFReplacement, PDFReplacementRegion, PDFInlineFormula
+        from pdf_craft.pipeline.pdf.inline_formula import FormulaFragment
+        from pdf_craft.pipeline.pdf.preview import WindowPreview, lines_for_placement
+        from pdf_craft.pipeline.pdf.feed import _PreviewReplacement
+        from pdf_craft.pipeline.pdf.geometry import PageRectangle
+
+        class FormulaRenderer:
+            available = True
+            def render(self, _latex, _size):
+                return FormulaFragment(b'vector', 10., 10., 2.)
+
+        filler = QTextParagraphFiller(PatchTextOptions(max_font_size=10, min_font_size=10))
+        filler._formula_renderer = cast(Any, FormulaRenderer())
+        source = SourceRegion(PageGeometry(1, 600, 1200, 600), 7, (20, 30, 580, 150))
+        region = PDFReplacementRegion(1, source.bbox, (600, 1200), reading_order=7)
+        replacement = PDFReplacement(1, source.bbox, 'Before \ufffc after.', (600, 1200),
+                                     regions=(region,), inline_formulas=(PDFInlineFormula('x^2'),))
+        fitted = filler.fit(replacement, {1: (300., 400.)})
+        self.assertEqual(len(fitted.placements), 1)
+        placement = fitted.placements[0]
+        self.assertEqual(len(placement.formula_draws), 1)
+        value = _PreviewReplacement.attach(replacement, ParagraphContent('Before $x^2$ after.', None, [source]), False, 4)
+        window = SimpleNamespace(_summaries=[SimpleNamespace(replacement=value)])
+        contribution = SimpleNamespace(paragraph_index=0, regions=[region], placements=fitted.placements)
+        rectangle = PageRectangle(10., 11., 20., 5.)
+        with tempfile.TemporaryDirectory() as directory:
+            preview = WindowPreview(Path(directory), window, filler, {1: (300., 400.)})
+            try:
+                preview.page(1, [contribution], [SimpleNamespace(rectangle=rectangle, color=(1, 2, 3))])
+                index, channel, content = next(preview.contents(set()))
+                self.assertEqual((index, channel), (4, False))
+                exported = content.regions[0]
+                self.assertEqual(exported.font_size, placement.font_size * 3)
+                self.assertEqual(exported.erasures[0].bbox, (20., 33., 60., 48.))
+                self.assertEqual(exported.erasures[0].color, (1, 2, 3))
+                for actual, expected in zip(exported.lines, lines_for_placement(filler, placement), strict=True):
+                    self.assertEqual(actual.text, expected.text)
+                    self.assertEqual(actual.x, expected.x * 2)
+                    self.assertEqual(actual.baseline, expected.baseline * 3)
+                formula, draw = exported.formulas[0], placement.formula_draws[0]
+                self.assertEqual((formula.latex, formula.pdf), ('x^2', b'vector'))
+                self.assertEqual(formula.x, draw.x * 2)
+                self.assertEqual(formula.baseline, draw.baseline * 3)
+                self.assertEqual(formula.descent, draw.descent * 3)
+                self.assertEqual((formula.scale_x, formula.scale_y), (2 / draw.scale, 3 / draw.scale))
+                # An ignored failed page must not announce a rendered paragraph.
+                self.assertEqual(list(preview.contents({1})), [])
+            finally:
+                preview.close()
 
     async def test_stored_bilingual_layer_callback_keeps_original_separate(self):
         from pdf_craft import RenderMode

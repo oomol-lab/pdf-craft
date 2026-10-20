@@ -239,3 +239,30 @@ Useful controls include `page_indexes` (one-based page numbers), `dpi`, `ocr_siz
 Set `extract_book_metadata=True` with a separate `metadata_llm` to infer bibliographic metadata from front-page OCR. It is stored in PCEX and, when that PCEX is patched, written to the output PDF's document metadata; see [the API reference](API_REFERENCE.md#extractionoptions) for its bounded evidence and fallback policy. `ignore_pdf_errors` and `ignore_ocr_errors` can allow a long document to continue past selected failures, but a completed run still needs output review: skipped pages are not successfully recognized pages.
 
 For errors involving Poppler, cache paths, local CUDA, or vendor credentials, see [Troubleshooting](TROUBLESHOOTING.md).
+
+
+## Preview extraction, translation and PDF layout
+
+In 2.5.0, `ExtractionOptions(on_body=..., on_footnote=...)` delivers independent
+PCEX XML snapshots during extraction. `ExtractionOptions.on_metadata` observes
+one finalized metadata view; when LLM extraction is enabled, it waits for the
+merge with native PDF fallback.
+
+For existing PCEX files, `render_markdown`, `render_epub`, and `translate_extraction`
+deliver `ParagraphContent[SourceRegion]` through optional `on_body` / `on_footnote`.
+Paragraphs remain whole across pages, with separate Markdown text and optional
+original. Rendering can translate online with `translator=translator`; no complete
+translated PCEX is required first. A `translator` cannot be combined with a stored
+`translation_id`.
+
+`patch_pdf_with_extraction` and `translate_pdf` deliver `PDFParagraphContent` after
+final layout, including source regions, font sizes, text runs, formula placements
+and erasure masks. Layout coordinates use source OCR pixels. These are paragraph
+previews, not page PDFs or final artifacts.
+
+Use `read_pages()` / `read_asset()` for public geometry and resource access.
+Metadata translation has a separate optional `on_metadata`; in one-shot conversion
+this top-level callback observes translation, while `ExtractionOptions.on_metadata`
+observes extraction. Synchronous and asynchronous callbacks are supported, and
+async callbacks are awaited. See the [callback guide](STREAMING.md) for examples,
+coordinate mapping, timing and output semantics.

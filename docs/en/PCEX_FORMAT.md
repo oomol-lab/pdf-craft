@@ -163,8 +163,8 @@ If the path is not a regular file, pdf-craft raises `FileNotFoundError`. If its 
 
 Opening validates the archive before returning an opaque `PDFCraftExtraction`
 handle. The handle has no public I/O or metadata methods; pass it back to a
-Craft façade. EPUB rendering additionally requires `toc.xml`, whereas Markdown
-rendering only requires the base format to be valid.
+Craft façade. Both EPUB and Markdown rendering accept a valid extraction without
+`toc.xml`; EPUB can build navigation from chapter headings.
 
 ### Resuming on another machine
 
@@ -183,7 +183,7 @@ from pdf_craft import PDFCraft
 craft = PDFCraft()
 extraction = craft.open_extraction("book.pcex")
 craft.render_markdown(extraction, "book.md")
-craft.render_epub(extraction, "book.epub")  # requires toc.xml in the archive
+craft.render_epub(extraction, "book.epub")  # toc.xml is optional
 ```
 
 These backends read only extraction members. They do not look for the original machine's analysis directory or `ocr/` cache.
@@ -365,7 +365,9 @@ All four values are decimal integers. The origin is the top-left corner of the O
 </toc>
 ```
 
-`toc.xml` is optional for the format as a whole, but EPUB rendering requires it. An empty TOC is written as `<toc page_indexes="" />`.
+`toc.xml` is optional for both the format and EPUB rendering. When absent, EPUB
+can build navigation from chapter headings. An explicitly empty TOC is written as
+`<toc page_indexes="" />`.
 
 The root element must be `<toc>`. Its required `page_indexes` attribute is a comma-separated list of source-PDF page indexes that were recognized as printed table-of-contents pages and consequently excluded from chapter content. The value is an empty string when there are no such pages.
 

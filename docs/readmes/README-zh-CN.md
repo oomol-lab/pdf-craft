@@ -133,6 +133,8 @@ craft.convert_pdf_to_markdown(
 )
 ```
 
+**处理过程中提前预览。** PDF 提取、EPUB 翻译、PCEX 翻译与渲染支持可选回调。完整文件生成前，即可获取带来源坐标的自然段、EPUB 原子译文片段、PDF 最终排版数据和一次性书籍元信息。用法见[增量回调指南](../zh-CN/STREAMING.md)。
+
 具体步骤见 [PDF 转换与翻译](../zh-CN/PDF_TRANSLATION.md)、[EPUB 翻译](../zh-CN/EPUB_TRANSLATION.md)和 [`.pcex` 格式参考](../zh-CN/PCEX_FORMAT.md)。
 
 ## OCR 与运行要求
@@ -159,9 +161,11 @@ python -m pip install "pdf-craft[local]"
 | 选择 OCR 模型、配置远程服务或模型缓存 | [OCR 配置指南](../zh-CN/OCR_BACKENDS.md) |
 | 转换 PDF、生成 EPUB、翻译并写回 PDF | [PDF 转换与翻译](../zh-CN/PDF_TRANSLATION.md) |
 | 翻译已有 EPUB，设置双语输出 | [EPUB 翻译指南](../zh-CN/EPUB_TRANSLATION.md) |
+| 提前展示内容，获取来源页与坐标 | [增量回调指南](../zh-CN/STREAMING.md) |
 | 查询参数、类型和调用方式 | [API 参考](../zh-CN/API_REFERENCE.md) |
 | 存储或交换提取结果 | [`.pcex` 格式参考](../zh-CN/PCEX_FORMAT.md) |
 | 解决安装、识别与输出问题 | [故障排查](../zh-CN/TROUBLESHOOTING.md) |
+| 查看 2.5.0 版本更新 | [更新日志](../changelog/v2.5.0.md) |
 
 ## 反馈与贡献
 

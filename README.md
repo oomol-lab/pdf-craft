@@ -151,6 +151,8 @@ craft.convert_pdf_to_markdown(
 )
 ```
 
+**Preview content as it is processed.** PDF extraction, EPUB translation, and PCEX translation/rendering support optional callbacks. Receive source-mapped paragraphs, translated EPUB fragments, final PDF layout data, and finalized book metadata before the complete output file is ready. See [incremental callbacks](docs/en/STREAMING.md).
+
 See [PDF conversion and translation](docs/en/PDF_TRANSLATION.md), [EPUB translation](docs/en/EPUB_TRANSLATION.md), and the [`.pcex` format reference](docs/en/PCEX_FORMAT.md).
 
 ## OCR and runtime requirements
@@ -177,9 +179,11 @@ Local execution also requires a matching CUDA-enabled PyTorch build, sufficient 
 | Select OCR models, remote services, or model caches | [OCR backends](docs/en/OCR_BACKENDS.md) |
 | Convert PDFs, create EPUBs, or write translations into PDFs | [PDF conversion and translation](docs/en/PDF_TRANSLATION.md) |
 | Translate existing EPUBs and configure bilingual output | [EPUB translation](docs/en/EPUB_TRANSLATION.md) |
+| Display incremental content and source locations | [Callback guide](docs/en/STREAMING.md) |
 | Look up parameters, types, and methods | [API reference](docs/en/API_REFERENCE.md) |
 | Store or exchange extraction results | [`.pcex` format](docs/en/PCEX_FORMAT.md) |
 | Resolve installation and conversion issues | [Troubleshooting](docs/en/TROUBLESHOOTING.md) |
+| Read the 2.5.0 release notes | [Changelog](docs/changelog/v2.5.0.md) |
 
 ## Feedback and contributions
 

@@ -7,6 +7,7 @@ from ...document.paragraph import PDFParagraphContent, PDFSourceRegion, TextLine
 from .text_layout import (_qt_modules, _ensure_qt_application, _LAYOUT_SCALE,
                           _HEADLINE_OVERFLOW_LINE_WIDTH, _python_index_for_utf16, _utf16_index_for_python)
 from .geometry import region_in_page_points
+from .feed import _PreviewReplacement
 
 
 def lines_for_placement(filler, placement):
@@ -59,7 +60,8 @@ class WindowPreview:
         masks = iter(erasures)
         for contribution in contributions:
             summary = self.window._summaries[contribution.paragraph_index]
-            content = summary.replacement.preview
+            content = (summary.replacement.preview
+                       if isinstance(summary.replacement, _PreviewReplacement) else None)
             for region in contribution.regions:
                 mask = next(masks, None)
                 if content is None:
@@ -93,7 +95,8 @@ class WindowPreview:
 
     def contents(self, failed_pages):
         for index, summary in enumerate(self.window._summaries):
-            content = summary.replacement.preview
+            content = (summary.replacement.preview
+                       if isinstance(summary.replacement, _PreviewReplacement) else None)
             if content is None or any(region.page.page_index in failed_pages for region in content.regions):
                 continue
             regions = []
@@ -102,6 +105,7 @@ class WindowPreview:
                                       (index, source.page.page_index, source.source_order_in_page)).fetchone()
                 regions.append(pickle.loads(row[0]) if row else
                                PDFSourceRegion(source.page, source.source_order_in_page, source.bbox, None, []))
+            assert isinstance(summary.replacement, _PreviewReplacement)
             yield summary.replacement.preview_index, summary.replacement.preview_is_footnote, PDFParagraphContent(content.text, content.original, regions)
 
     def close(self):

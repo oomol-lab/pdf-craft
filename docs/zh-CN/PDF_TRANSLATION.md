@@ -369,6 +369,9 @@ narrative 与 metadata 固定翻译；`with_anchored` 和 `with_furniture` 只�
 | `ignore_pdf_errors` / `ignore_ocr_errors` | `False` | 按布尔值或 callable 决定是否跳过页面级错误 |
 | `aborted` | 始终返回 `False` 的回调 | 外部中断检查回调 |
 | `on_ocr_event` | 无操作回调 | 接收 OCR 页面事件的回调 |
+| `on_body` / `on_footnote` | `None` | 提取过程中接收独立 PCEX XML 快照 |
+| `on_metadata` | `None` | 一次性接收定稿后的 `MetadataContent` |
+| `context` | `None` | 调用方持有的 `ExtractionContext`，用于页面几何和活跃期间的资源访问 |
 
 直接 PDF → PCEX 时，`includes_furniture=True` 是默认行为：它只保留可从 native PDF 文本识别的
 页眉、页脚和页码等 furniture，不会请求翻译；扫描页没有这类 native 文本时可以自然不产生 furniture。
@@ -398,6 +401,24 @@ PDF 时写入输出 PDF 的 metadata。其前页 OCR 证据、最多读取页数
 - `ExtractionOptions.aborted` 会在提取和渲染阶段被检查；返回 `True` 时当前操作中断。
 - PDF 写回和内容变换中的异常通常应由调用方捕获；但 `translate_pdf` 与
   `patch_pdf_with_extraction` 的 `ignore_errors=True` 会恢复可明确归属到某一页的写回异常。
+
+## 提前展示内容与 PDF 排版
+
+2.5.0 提供可选 `on_body` / `on_footnote`：PDF 提取时在 `ExtractionOptions` 中传入，
+接收独立 PCEX XML 快照；PCEX 翻译及 Markdown/EPUB 渲染直接传入，接收
+`ParagraphContent[SourceRegion]`。一个回调对应完整自然段，保留全部跨页来源区域，
+Markdown 原译文分开。`render_markdown` / `render_epub` 可传 `translator` 边翻译边渲染，
+不必先生成完整译本；不能同时指定已有译文的 `translation_id`。
+
+PDF 回填及 `translate_pdf` 接收相同两条回调，但产物为最终排版后的 `PDFParagraphContent`，
+包含来源区域、字号、行、公式和擦除框，坐标以来源 OCR 像素为单位。它是段落预览数据，
+不是一页 PDF 或已提交的最终文件。
+
+`ExtractionOptions.on_metadata` 观察提取元信息；启用 LLM 元信息提取时，等待与原生 PDF
+fallback 合并后再通知。翻译入口的 `on_metadata` 独立观察翻译元信息；一键转换时，两者仍
+分别对应提取和翻译。使用 `read_pages()` / `read_asset()` 读取公开的几何与资源。
+回调支持同步及异步函数，异步回调会被等待。示例、坐标映射、时机及文件提交语义见
+[增量回调指南](STREAMING.md)。
 
 ## 相关限制
 

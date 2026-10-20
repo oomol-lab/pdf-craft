@@ -1,10 +1,16 @@
 # pylint: disable=protected-access
 
+from collections.abc import Callable
 from pathlib import Path
 from typing import Literal, cast
+
 from epub_generator import BookMeta, LaTeXRender, TableRender
 
 from ...document import PDFCraftExtraction, RenderMode
+from ...document.metadata import MetadataCallback
+from ...document.paragraph import ParagraphContent, SourceRegion
+from ...metering import AbortedCheck
+from ...transformer import XMLTranslator
 from ...runtime import IO_DOMAIN, temporary_directory, run_atomic_cancellable
 from ..output import publish
 
@@ -12,15 +18,22 @@ from ..output import publish
 class EpubRenderer:
     """Render a PDFCraftExtraction to EPUB."""
 
-    async def render(self, extraction: PDFCraftExtraction, output_path: Path, *,
-                     book_meta: BookMeta | None = None,
-                     lan: Literal["zh", "en"] | None = None,
-                     table_render=TableRender.HTML,
-                     latex_render=LaTeXRender.MATHML, inline_latex: bool = True,
-                     mode: RenderMode = RenderMode.SOURCE,
-                     translation_id: str | None = None,
-                     aborted=lambda: False, on_body=None, on_footnote=None,
-                     translator=None, window=1, with_anchored=True, on_metadata=None) -> None:
+    async def render(
+        self, extraction: PDFCraftExtraction, output_path: Path, *,
+        book_meta: BookMeta | None = None,
+        lan: Literal["zh", "en"] | None = None,
+        table_render: TableRender = TableRender.HTML,
+        latex_render: LaTeXRender = LaTeXRender.MATHML,
+        inline_latex: bool = True,
+        mode: RenderMode = RenderMode.SOURCE,
+        translation_id: str | None = None,
+        aborted: AbortedCheck = lambda: False,
+        on_body: Callable[[ParagraphContent[SourceRegion]], object] | None = None,
+        on_footnote: Callable[[ParagraphContent[SourceRegion]], object] | None = None,
+        translator: XMLTranslator | None = None,
+        window: int = 1, with_anchored: bool = True,
+        on_metadata: MetadataCallback | None = None,
+    ) -> None:
         """Orchestrate the view and native EPUB generation asynchronously."""
         from ...document.stream_view import content_view
         from ..paragraph import paragraph_notifications

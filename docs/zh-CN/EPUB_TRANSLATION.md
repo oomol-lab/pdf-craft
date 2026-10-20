@@ -159,9 +159,9 @@ PDFCraft().translate_epub(
 ### 并发翻译
 
 `executor` 控制真实 LLM 请求共享的供应商容量。翻译和 XML 修复若使用同一供应商配额，
-应复用同一个执行器。`window` 默认值为 1；队首 group 尚未完成时，最多允许后续 `window` 个
-group 提前执行，真实并发仍由
-执行器控制。XML 预取只使用 `window`，供应商容量必须通过执行器显式提供。
+应复用同一个执行器。`window` 默认值为 1，限制在途翻译 group 的数量。某个 group 完成后即释放
+执行名额，即使更早的结果仍未返回；已完成结果在磁盘等待有序交付。执行器独立限制真实供应商
+请求容量。XML 预取只使用 `window`，供应商容量必须通过执行器显式提供。
 两个模型使用不同配额时，可分别传 `translation_executor` 与 `fill_executor`：
 
 ~~~python
@@ -248,4 +248,16 @@ PDFCraft().translate_epub(
   新的输出路径重新运行；不要把未完成的输出当作完整译本。
 
 
-PDF 提取 XML 回调、EPUB 原子翻译片段与来源 CFI 的用法见[增量回调说明](STREAMING.md)。
+## 在完整 EPUB 生成前获取译文
+
+`on_body` 接收 `EpubFragmentContent(epubcfi, original, translated)`。它对应已采纳的原子翻译
+片段，可能比一个自然段更小；原译文均为纯文本，不包含 LLM 窗口重叠的上下文。
+范围 CFI 定位原始输入 EPUB，不指向译文文件，并要求 spine 文档为 XHTML。支持从嵌套 OPF
+通过 `../` 等相对路径定位章节。
+
+`on_metadata` 一次性交付 OPF 书籍元信息的完整 `MetadataContent`。双语模式中，回调依然将
+译文视图与原文分开，最终 EPUB 保留所选追加方式。正文回调不包含导航、文档 head/title 或
+书籍元信息。
+
+两条回调均可选，支持同步或异步函数；异步回调会被等待，异常会终止操作。输出 EPUB 只在
+成功后以完整文件提交。示例、CFI 定位、顺序及来源有效期见[增量回调指南](STREAMING.md)。

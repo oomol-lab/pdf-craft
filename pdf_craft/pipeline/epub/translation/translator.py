@@ -1,3 +1,4 @@
+# pylint: disable=protected-access
 from collections.abc import Callable, Generator
 from dataclasses import dataclass
 from enum import Enum, auto
@@ -35,6 +36,7 @@ from pdf_craft.transformer.xml_translator.xml_translator import FillFailedEvent,
 from .epub_transcode import decode_metadata, decode_toc_list, encode_metadata, encode_toc_list
 from .punctuation import unwrap_french_quotes
 from .xml_interrupter import XMLInterrupter
+from pdf_craft.transformer.xml_translator.xml_translator.submitter import submit as submit_xml
 from pdf_craft.document.metadata import MetadataCallback
 from pdf_craft.runtime import invoke_callback
 
@@ -263,12 +265,27 @@ async def translate(
 
         async def on_result(result):
             element, context = result
-            if context.element_type == _ElementType.METADATA:
+            if context.element_type == _ElementType.METADATA and on_metadata is None:
                 await notify_metadata(decode_metadata(unwrap_french_quotes(element)))
             if context.element_type in (_ElementType.TOC, _ElementType.METADATA):
                 header_results.append(result)
             else:
                 await ARCHIVE_DOMAIN.run(commit_content, element, context)
+
+        async def on_before_submit(value):
+            element, mappings, context = value
+            if context.element_type != _ElementType.METADATA:
+                return
+
+            def replacement_fields():
+                from copy import deepcopy
+                # Copy together so mapping references still address the copied
+                # source tree. Presentation writeback keeps the original maps.
+                source, replacements = deepcopy((element, mappings))
+                replacement = submit_xml(source, SubmitKind.REPLACE, replacements)
+                return decode_metadata(unwrap_french_quotes(replacement))
+
+            await notify_metadata(await ARCHIVE_DOMAIN.run(replacement_fields))
 
         async def on_mapping(task, mapping):
             origin, translated = mapping
@@ -287,7 +304,7 @@ async def translate(
             if on_body is not None:
                 delivery = DiskDelivery(directory, on_body)
             try:
-                await translator.translate_elements(
+                await translator._translate_elements(
                     window=window,
                     interrupt_source_text_segments=interrupter.interrupt_source_text_segments,
                     interrupt_translated_text_segments=interrupter.interrupt_translated_text_segments,
@@ -298,6 +315,7 @@ async def translate(
                     on_result=on_result,
                     collect_results=False,
                     on_task_mapping=on_mapping if on_body is not None else None,
+                    on_before_submit=on_before_submit if on_metadata is not None else None,
                 )
                 if delivery is not None:
                     await delivery.finish()
