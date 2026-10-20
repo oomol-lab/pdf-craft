@@ -5,6 +5,22 @@ a successful callback does not mean the entire operation has succeeded. Cancella
 or callback exceptions abort the operation. The final PCEX/EPUB is published only
 after successful validation/packaging.
 
+## Callback payloads in 2.5.0
+
+| Operation | Content callbacks | Payload |
+| --- | --- | --- |
+| PDF → PCEX extraction | `ExtractionOptions.on_body` / `on_footnote` | Independent PCEX XML `Element` snapshots |
+| PCEX translation, Markdown or EPUB rendering | `on_body` / `on_footnote` | `ParagraphContent[SourceRegion]`, one whole paragraph |
+| PCEX → PDF patching or translation | `on_body` / `on_footnote` | `PDFParagraphContent`, one whole paragraph with final layout |
+| Existing EPUB translation | `on_body` | `EpubFragmentContent`, one atomic translation fragment |
+| Book metadata extraction or translation | `on_metadata` | `MetadataContent`, one finalized book view |
+
+The content, geometry and metadata value classes are importable from `pdf_craft`;
+XML snapshots use `xml.etree.ElementTree.Element`. Content callbacks are separate
+from progress events such as `on_ocr_event` and `on_translation_event`. In streaming
+translation, whole-book totals can be `None` until known; do not require an initial
+percentage. See the [2.5.0 release notes](../changelog/v2.5.0.md).
+
 ## PDF extraction
 
 ```python
@@ -94,10 +110,12 @@ No complete translated PCEX or chapter workspace is required before rendering. P
 the same producer to its chapter/layer writer. Legacy custom whole-task translators keep their extension contract.
 
 `render_markdown`, `render_epub`, and `translate_extraction` accept optional `on_body` and `on_footnote`
-receiving **ParagraphContent**, replacing their earlier XML callback shape:
+receiving **ParagraphContent**:
 
 ```python
-async def paragraph(content):
+from pdf_craft import ParagraphContent, SourceRegion
+
+async def paragraph(content: ParagraphContent[SourceRegion]):
     print(content.text, content.original)  # Markdown; original is optional
     for region in content.regions:
         print(region.page.page_index, region.source_order_in_page, region.bbox)
@@ -115,7 +133,8 @@ EPUB's Markdown callback is a display branch, never EPUB's generation input. It 
 translation retains its existing EpubFragmentContent contract. PDF extraction XML callbacks remain unchanged.
 
 SourceRegion contains immutable PageGeometry, source_order_in_page (the PCEX source_order identity,
-not an array index), and the original integer OCR-pixel bbox. Its map_bbox(target_size) returns floats using
+not an array index), and the original integer OCR-pixel bbox `(left, top, right, bottom)`.
+The origin is top-left, with x increasing rightward and y downward. Its map_bbox(target_size) returns floats using
 actual image width/height ratios. render_dpi is the requested DPI; page-image limits can reduce effective DPI.
 Mapping assumes the same crop/orientation and does not infer rotation, cropping, or padding.
 
@@ -188,8 +207,12 @@ PCEX translation and online Markdown/EPUB/PDF translation rendering notify once 
 metadata stage. EPUB input translation also supports `on_metadata` for OPF book metadata, not
 navigation or individual document head titles. Unmapped EPUB extensions remain in the output;
 the callback is a standardized book view rather than an OPF copy.
+Even in EPUB append modes, callback `metadata` combines translated fields with unchanged
+fields, while `original` stays separate. The EPUB file still uses the selected writeback mode.
 For one-shot PDF conversion, `ExtractionOptions.on_metadata` observes extraction, while the
 separate top-level `on_metadata` observes the optional translation phase.
+When `extraction_path` is supplied, the source PCEX is published after extraction;
+a later translation or rendering failure does not roll back that completed extraction.
 
 Async callbacks are awaited. Callback exceptions and cancellation abort the operation without
 publishing a partial output. Notification does not mean the final artifact has committed.

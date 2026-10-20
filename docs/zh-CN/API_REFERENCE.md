@@ -59,6 +59,10 @@ writer 收尾、删除临时归档并保持目标不存在；若发布边界先�
 
 - `AsyncPDFCraft`、`PDFCraft`、`PDFOptions`、`ExtractionOptions`
 - `PDFCraftExtraction`、`PDFExtractor`、`RenderMode`
+- `ExtractionContext`、`PageGeometry`、`SourceRegion`、`ParagraphContent`
+- `PDFSourceRegion`、`PDFParagraphContent`、`TextLine`、`FormulaPlacement`、`EraseArea`
+- `EpubFragmentContent`（兼容别名 `EpubTranslation`）
+- `MetadataContent`、`DocumentMetadata`、`DocumentAuthor`
 - 六种 OCR 配置对象和 `OCRConfig`
 - `predownload_models`
 - `LLM`
@@ -167,6 +171,10 @@ ExtractionOptions(
     ignore_ocr_errors=False,
     aborted=lambda: False,
     on_ocr_event=lambda event: None,
+    on_body=None,
+    on_footnote=None,
+    on_metadata=None,
+    context=None,
 )
 ```
 
@@ -249,7 +257,8 @@ handler 和中断处理的提取流程。
 
 一键转换方法默认创建系统临时分析目录，并在成功或异常后清理。`analysing_path` 可保留 OCR、
 图表等诊断信息；`extraction_path` 可额外导出稳定的 `.pcex`。完整转换在内部直接使用
-`analysing_path/extraction/`，不会为衔接前后端执行无意义的压缩与解压：
+`analysing_path/extraction/`，不会为衔接前后端执行无意义的压缩与解压。指定 `extraction_path`
+时，原文 PCEX 在提取成功后独立提交；后续翻译或渲染失败不会撤回它：
 
 ```python
 craft.convert_pdf_to_markdown(
@@ -287,9 +296,9 @@ craft.render_epub(
 )
 ```
 
-渲染不会重新 OCR，也不会读取 PDF。Markdown 要求 extraction 校验通过；EPUB 额外要求
-`toc.xml`。Markdown 可选复制图片资源；EPUB 从 `manifest.json` 读取默认元数据和语言，调用时
-显式提供的 `book_meta` / `lan` 优先。
+渲染不会重新 OCR，也不会读取 PDF。Markdown 与 EPUB 都要求 extraction 校验通过；
+`toc.xml` 可选，EPUB 可根据章节标题生成导航。Markdown 可选复制图片资源；EPUB 从
+`manifest.json` 读取默认元数据和语言，调用时显式提供的 `book_meta` / `lan` 优先。
 
 `RenderMode.SOURCE` 只渲染原文，不选择译文。`RenderMode.REPLACE` 用所选译文替换
 已翻译单元，未翻译单元回退原文。
@@ -323,7 +332,8 @@ craft.translate_pdf(
 )
 ```
 
-`translate_pdf` 会生成翻译后的临时 extraction，再执行 PDF 写回。写回只会替换 extraction
+`translate_pdf` 将 PCEX 内容交给公共翻译流，再由 PDF 消费端增量排版和写回，无需先生成完整
+临时译本。自定义整章 translator 保留兼容路径。写回只会替换 extraction
 中记录了来源坐标的原始 PDF 文本，不是通用 PDF 排版器；输入 PDF 必须来自同一源文件，并且
 `pages.xml` 要包含完整页面几何。PDF 翻译固定使用纯译文替换，不接受提交模式。
 
@@ -487,7 +497,8 @@ PDFCraft().translate_epub(
 
 `REPLACE` 只输出译文，`APPEND_TEXT` 在原文后追加内联译文，`APPEND_BLOCK` 追加独立译文
 块，适合双语阅读。`translate_epub` 还支持 `user_prompt`、`max_retries`、`max_group_tokens`、
-`executor`、`window`、`translation_llm`、`fill_llm`、`on_translation_event` 和 `on_fill_failed`；完整行为
+`executor`、`window`、`translation_llm`、`fill_llm`、`on_translation_event`、`on_fill_failed`、
+`on_body` 和 `on_metadata`；完整行为
 和回调字段请参阅 EPUB 翻译专题文档。
 
 EPUB-only 程序直接构造不带 PDF 配置的 `PDFCraft()` 或 `AsyncPDFCraft()` 即可；该能力不再
@@ -654,31 +665,45 @@ JEV 或 vendor OCR 若消耗同一供应商配额，应共享同一个执行器�
 - EPUB → EPUB：使用 `PDFCraft().translate_epub`，只配置文本 LLM，不需要 OCR。
 
 
-PDF 提取 XML 回调、EPUB 原子翻译片段与来源 CFI 的用法见[增量回调说明](STREAMING.md)。
+## 增量内容与元信息回调（2.5.0）
 
+同步与异步门面显式声明相同的回调和翻译参数，并提供类型标注。回调可使用同步或异步函数，
+异步回调会被等待。
 
-### PCEX 流式渲染与来源查询
+| 入口 | 可选回调 | 产物 |
+| --- | --- | --- |
+| `ExtractionOptions` | `on_body`、`on_footnote` | 独立 PCEX XML `Element` 快照 |
+| `render_markdown`、`render_epub`、`translate_extraction` | `on_body`、`on_footnote` | `ParagraphContent[SourceRegion]` |
+| `patch_pdf_with_extraction`、`translate_pdf` | `on_body`、`on_footnote` | `PDFParagraphContent` |
+| `translate_epub` | `on_body` | `EpubFragmentContent` |
+| 提取与翻译 | `on_metadata` | `MetadataContent` |
 
-`render_markdown` / `render_epub` 支持可选 `translator`、`window`、`with_anchored`、
-`on_body` 和 `on_footnote`。PDF 回填支持可选 `translator`、`window` 及两条内容回调，
-`translate_pdf` 也支持这两条回调。`read_pages(extraction)` 返回按页码索引的不可变
-`PageGeometry` 值；`read_asset(extraction, asset_hash)` 返回资源字节。
-`ExtractionOptions.context` 可传入 `ExtractionContext`，在提取期间查询已知页面和读取资源。
-所有权、顺序、有效期和最终输出语义见[增量回调](STREAMING.md)。
+`ParagraphContent(text, original, regions)` 对应完整自然段，text 与可选 original 是分离的
+Markdown。`SourceRegion(page, source_order_in_page, bbox)` 将 `PageGeometry`、原始
+fragment 身份和整数 OCR bbox 放在一起，`map_bbox(target_size)` 按实际宽高返回浮点坐标。
+`PDFSourceRegion` 额外包含最终字号、行、公式及擦除信息，全部布局值以来源像素为单位；
+不提供字体分发，不承诺浏览器与 Qt 的逐字形一致性。
+`EpubFragmentContent(epubcfi, original, translated)` 对应原 EPUB 的原子翻译片段，
+原译文均为纯文本；`EpubTranslation` 是同类型别名。
 
+`MetadataContent(metadata, original=None)` 包含完整 `DocumentMetadata`，作者使用
+`DocumentAuthor`。一键转换中，`ExtractionOptions.on_metadata` 观察提取，顶层
+`on_metadata` 观察可选翻译。内容与元信息回调独立于进度事件；输入尚未结束时，
+全书翻译总量可以是 `None`。
 
-PCEX 翻译、Markdown/EPUB 渲染的 `on_body` / `on_footnote` 使用公共
-`ParagraphContent(text, original, regions)`：text 与可选 original 是分离的 Markdown，
-一次对应完整自然段。`translate_extraction` 同样支持这两个可选回调。
-`SourceRegion(page, source_order_in_page, bbox)` 复用 PageGeometry，
-`map_bbox(target_size)` 按实际页面宽高映射为浮点坐标；DPI 不是唯一缩放依据。
-PDF 回填的回调改用 `PDFParagraphContent`，regions 元素是 `PDFSourceRegion`，
-附有实际 Qt 排版确定的字号、行、公式及擦除信息，全部布局值以来源像素为单位。
-它不提供字体分发，不承诺浏览器与 Qt 的逐字形一致性。提取的 XML 回调和 EPUB 输入翻译
-的 CFI 回调保持原协议。详细字段、所有权和预览能力见[增量回调](STREAMING.md)。
+`render_markdown` / `render_epub` 可传 `translator`、`window`、`with_anchored` 在线翻译。
+`patch_pdf_with_extraction` 可传 `translator`、`window`、`with_furniture` 和
+`on_translation_event`；`translation_id` 选择已有译文，不能与 `translator` 同时使用。
 
+| 资源读取方法 | 返回值 |
+| --- | --- |
+| `read_pages(extraction)` | `dict[int, PageGeometry]`，按从 1 开始的页码索引 |
+| `read_asset(extraction, asset_hash)` | 独立资源 `bytes` |
 
-书籍元信息通知：`ExtractionOptions.on_metadata`、PCEX 翻译及在线翻译渲染和 EPUB 输入翻译的
-`on_metadata` 接收 `MetadataContent(metadata: DocumentMetadata, original: DocumentMetadata | None)`。
-这是一次性、可等待的完整书籍视图通知，时机和 fallback 规则见 [增量回调](STREAMING.md)。
-EPUB 正文通知类型现名为 `EpubFragmentContent`，旧名 `EpubTranslation` 为同类型兼容别名。
+`ExtractionOptions.context` 接收 `ExtractionContext`，供提取期间查询：
+`context.read_pages()` 同步返回几何快照，`await context.read_asset(hash)` 在提取活跃期间
+读取资源。同一 context 不得在并发提取之间共享。
+
+内容、几何与元信息值类型可从 `pdf_craft` 导入；XML 快照使用标准库
+`xml.etree.ElementTree.Element`。内部翻译映射、提交、磁盘存储钩子和 PDF 预览调度字段
+不属于公共扩展点。详细字段、顺序、有效期及文件提交语义见[增量回调指南](STREAMING.md)。

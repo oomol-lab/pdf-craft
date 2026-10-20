@@ -77,30 +77,35 @@ craft = PDFCraft(pdf=PDFOptions(ocr=your_ocr_config))
 
 ### PDF extraction and rendering
 
+Both facades expose explicitly named parameters. Signatures below abbreviate
+some options with `...`.
+
 | Method | Signature and purpose |
 | --- | --- |
 | `open_extraction` | `open_extraction(path) -> PDFCraftExtraction` opens and validates a `.pcex` as an opaque handle. |
 | `export_extraction` | `export_extraction(extraction, path) -> PDFCraftExtraction` writes a handle to a new `.pcex`. |
+| `read_pages` | `read_pages(extraction) -> dict[int, PageGeometry]` reads source page geometry. |
+| `read_asset` | `read_asset(extraction, asset_hash) -> bytes` reads an extraction resource. |
 | `extract_pdf` | `extract_pdf(source, extraction_path, options=None, *, analysing_path=None) -> PDFCraftExtraction` extracts a PDF into a persistent `.pcex` archive. |
 | `extract_pdf_with_metering` | `extract_pdf_with_metering(source, extraction_path, options=None, *, analysing_path=None) -> tuple[PDFCraftExtraction, OCRTokensMetering]` is the same extraction with OCR token accounting. |
-| `render_markdown` | `render_markdown(extraction, output, assets_path=None, *, mode=RenderMode.SOURCE, translation_id=None, aborted=...)` writes Markdown and optional assets from a `PDFCraftExtraction` or `.pcex` path. |
-| `render_epub` | `render_epub(extraction, output, *, book_meta=None, lan=None, table_render=..., latex_render=..., inline_latex=True, mode=RenderMode.SOURCE, translation_id=None, aborted=...)` writes an EPUB. Metadata and language default to the selected content version. |
-| `convert_pdf_to_markdown` | `convert_pdf_to_markdown(source, output, *, ..., translator=None, submit=SubmitKind.REPLACE, window=1, with_anchored=True, on_translation_event=None) -> OCRTokensMetering` is the one-shot PDF-to-Markdown workflow. |
-| `convert_pdf_to_epub` | `convert_pdf_to_epub(source, output, *, ..., translator=None, submit=SubmitKind.REPLACE, window=1, with_anchored=True, on_translation_event=None) -> OCRTokensMetering` is the one-shot PDF-to-EPUB workflow. |
+| `render_markdown` | `render_markdown(extraction, output, assets_path=None, *, mode=RenderMode.SOURCE, translation_id=None, aborted=..., translator=None, window=1, with_anchored=True, on_body=None, on_footnote=None, on_metadata=None)` writes Markdown and optional assets from a `PDFCraftExtraction` or `.pcex` path. |
+| `render_epub` | `render_epub(extraction, output, *, book_meta=None, lan=None, table_render=..., latex_render=..., inline_latex=True, mode=RenderMode.SOURCE, translation_id=None, aborted=..., translator=None, window=1, with_anchored=True, on_body=None, on_footnote=None, on_metadata=None)` writes an EPUB. Metadata and language default to the selected content version. |
+| `convert_pdf_to_markdown` | `convert_pdf_to_markdown(source, output, *, ..., translator=None, submit=SubmitKind.REPLACE, window=1, with_anchored=True, on_translation_event=None, on_metadata=None) -> OCRTokensMetering` is the one-shot PDF-to-Markdown workflow. |
+| `convert_pdf_to_epub` | `convert_pdf_to_epub(source, output, *, ..., translator=None, submit=SubmitKind.REPLACE, window=1, with_anchored=True, on_translation_event=None, on_metadata=None) -> OCRTokensMetering` is the one-shot PDF-to-EPUB workflow. |
 
-The two `convert_pdf_to_*` methods use a directory-backed extraction inside their analysis workspace, avoiding a ZIP round trip. Give `analysing_path` to retain diagnostics and `extraction_path` to additionally export a `.pcex`. `render_epub` accepts `epub_generator.BookMeta`, `TableRender`, and `LaTeXRender` values for output customization.
+The two `convert_pdf_to_*` methods use a directory-backed extraction inside their analysis workspace, avoiding a ZIP round trip. Give `analysing_path` to retain diagnostics and `extraction_path` to additionally export a `.pcex`. This source PCEX is published after extraction; later translation or rendering failures do not roll it back. `render_epub` accepts `epub_generator.BookMeta`, `TableRender`, and `LaTeXRender` values for output customization.
 
 ### Extraction translation and PDF patching
 
 | Method | Signature and purpose |
 | --- | --- |
-| `translate_extraction` | `translate_extraction(extraction, output_path, translator, *, window=1, with_anchored=True, with_furniture=False, translation_id=None, target_language=None, on_translation_event=None) -> PDFCraftExtraction` adds one independently identified translation while retaining the source. |
+| `translate_extraction` | `translate_extraction(extraction, output_path, translator, *, window=1, with_anchored=True, with_furniture=False, translation_id=None, target_language=None, on_translation_event=None, on_body=None, on_footnote=None, on_metadata=None) -> PDFCraftExtraction` adds one independently identified translation while retaining the source. |
 | `list_translations` | `list_translations(extraction) -> tuple[TranslationInfo, ...]` returns each translation's file-local ID, target language, and creation time. |
 | `resolve_translation` | `resolve_translation(extraction, translation_id=None) -> TranslationInfo` resolves an explicit translation ID or the stable default. |
 | `translate_anchored_contents` | `translate_anchored_contents(extraction, output_path, transformer) -> PDFCraftExtraction` is the lower-level image/table text transformation entry. |
-| `translate_pdf` | `translate_pdf(source, extraction, output, translator, *, window=1, with_furniture=False, on_translation_event=None, ignore_errors=False)` translates PDF-writable narrative and optional furniture, then patches the result onto the source PDF. |
-| `patch_pdf_with_extraction` | `patch_pdf_with_extraction(source, extraction, output, *, translation_id=None, ignore_errors=False)` patches the root content or an explicitly selected stored translation without OCR or LLM calls. |
-| `translate_epub` | `translate_epub(source, output, *, target_language, submit, **options)` translates an existing EPUB. See [EPUB translation](EPUB_TRANSLATION.md) for its options. |
+| `translate_pdf` | `translate_pdf(source, extraction, output, translator, *, window=1, with_furniture=False, on_translation_event=None, ignore_errors=False, on_body=None, on_footnote=None, on_metadata=None)` translates PDF-writable narrative and optional furniture, then patches the result onto the source PDF. |
+| `patch_pdf_with_extraction` | `patch_pdf_with_extraction(source, extraction, output, *, translation_id=None, ignore_errors=False, translator=None, window=1, on_body=None, on_footnote=None, with_furniture=False, on_translation_event=None, on_metadata=None)` patches existing content or an online translation without repeating OCR. LLM calls run only when `translator` is provided. |
+| `translate_epub` | `translate_epub(source, output, *, target_language, submit, ..., window=1, on_body=None, on_metadata=None)` translates an existing EPUB. See [EPUB translation](EPUB_TRANSLATION.md) for its options. |
 
 `translate_extraction()` accepts an `XMLTranslator` directly. Narrative and metadata translation always run through `NarrativeXMLTransformer`; `with_anchored` and `with_furniture` only enable or skip their corresponding standard stages. A caller-supplied opaque `translation_id` identifies the result, or pdf-craft generates a short one. The language may be supplied explicitly or declared by the translator. Duplicate IDs are rejected before translation. The stored version contains replacement text; replacement versus bilingual presentation is selected later when rendering.
 
@@ -174,6 +179,9 @@ extraction; they do not fall back to an analysis/OCR directory.
 | `ignore_ocr_errors` | `False` | `True` or a predicate that decides whether an OCR error may be skipped. |
 | `aborted` | a callback returning `False` | A callback checked during processing to request cancellation. |
 | `on_ocr_event` | no-op callback | Receives per-page `OCREvent` updates. |
+| `on_body` / `on_footnote` | `None` | Receive independent PCEX XML snapshots during extraction. |
+| `on_metadata` | `None` | Receives one finalized `MetadataContent`, including an empty view when appropriate. |
+| `context` | `None` | Caller-owned `ExtractionContext` for page geometry and active resource reads. |
 
 Footnote extraction has an optional refinement tier with explicit credentials:
 
@@ -278,7 +286,8 @@ Translation workflows also accept `on_translation_event`, a callback receiving
 metadata, or chapter items. Character counts are source-text character counts and
 are not token counts or percentages. Item events include the current item's
 completed and total source characters, while scope events include the aggregate
-counts. The same event callback is available for
+counts. Whole-book totals and chapter counts can be `None` while streaming input is
+still arriving. The same event callback is available for
 EPUB translation, extraction translation, PDF translation, and PDF conversion.
 
 ## `LLM`
@@ -391,26 +400,51 @@ The patcher merges two independent overlays over a Ghostscript-compiled, fontles
 For complete workflows, start with [PDF conversion and translation](PDF_TRANSLATION.md) or [EPUB translation](EPUB_TRANSLATION.md), rather than composing internal modules.
 
 
-See [incremental callbacks](STREAMING.md) for PDF extraction XML notifications and EPUB atomic translation fragments with source CFIs.
+## Incremental content and metadata (2.5.0)
 
+Both facades explicitly declare the same typed callback and translation options.
+Callbacks may be synchronous or asynchronous; asynchronous callbacks are awaited.
 
-### PCEX streaming rendering and source access
+| Entry point | Optional callbacks | Payload |
+| --- | --- | --- |
+| `ExtractionOptions` | `on_body`, `on_footnote` | Independent PCEX XML `Element` snapshots |
+| `render_markdown`, `render_epub`, `translate_extraction` | `on_body`, `on_footnote` | `ParagraphContent[SourceRegion]` |
+| `patch_pdf_with_extraction`, `translate_pdf` | `on_body`, `on_footnote` | `PDFParagraphContent` |
+| `translate_epub` | `on_body` | `EpubFragmentContent` |
+| Extraction and translation | `on_metadata` | `MetadataContent` |
 
-`render_markdown` / `render_epub` accept optional `translator`, `window`, `with_anchored`, `on_body`, and `on_footnote`. PDF patching accepts optional `translator`, `window`, and both callbacks; `translate_pdf` also accepts both callbacks. `read_pages(extraction)` returns a page-indexed mapping of immutable `PageGeometry`; `read_asset(extraction, asset_hash)` returns bytes. `ExtractionOptions.context` accepts an `ExtractionContext` for geometry/resource access during extraction. See [streaming callbacks](STREAMING.md) for ownership, ordering, lifetime, and output semantics.
+`ParagraphContent(text, original, regions)` contains one whole paragraph; `text`
+and optional `original` are separate Markdown. `SourceRegion(page,
+source_order_in_page, bbox)` combines `PageGeometry` with the original fragment
+identity and integer OCR bbox. `map_bbox(target_size)` returns floats based on
+actual dimensions. `PDFSourceRegion` adds final font size, lines, formula atoms
+and erasure masks in source pixels. It does not expose fonts or promise identical
+browser glyph shaping. `EpubFragmentContent(epubcfi, original, translated)` carries
+plain text for an atomic source-EPUB fragment; `EpubTranslation` is an alias.
 
+`MetadataContent(metadata, original=None)` contains complete `DocumentMetadata`
+values, with `DocumentAuthor` values for authors. One-shot conversion separates
+`ExtractionOptions.on_metadata` (extraction) from the top-level `on_metadata`
+(optional translation). Content and metadata callbacks are separate from progress
+events; whole-book translation totals can be `None` while input is still arriving.
 
-PCEX translation and Markdown/EPUB rendering expose optional `on_body` / `on_footnote`
-callbacks receiving `ParagraphContent(text, original, regions)`, one complete paragraph with
-separate Markdown translation/source. `SourceRegion` contains PageGeometry, source_order_in_page,
-and integer source bbox; `map_bbox(target_size)` returns float coordinates using actual dimensions.
-PDF patch callbacks receive `PDFParagraphContent` with `PDFSourceRegion` values containing final Qt
-font size, lines, formula atoms and erasure masks in source pixels. There is no font distribution or
-promise of identical browser glyph shaping. PDF extraction XML and EPUB-input CFI callback contracts
-are unchanged. See [streaming callbacks](STREAMING.md) for fields and lifetime semantics.
+`render_markdown` and `render_epub` accept `translator`, `window`, and
+`with_anchored` for online translation. `patch_pdf_with_extraction` accepts
+`translator`, `window`, `with_furniture`, and `on_translation_event`;
+`translation_id` selects stored content and cannot be combined with `translator`.
 
+| Resource method | Return value |
+| --- | --- |
+| `read_pages(extraction)` | `dict[int, PageGeometry]`, indexed by one-based page number |
+| `read_asset(extraction, asset_hash)` | Independent resource `bytes` |
 
-Book metadata: `ExtractionOptions.on_metadata`, PCEX translation/online translation rendering,
-and EPUB input translation accept `on_metadata(MetadataContent)`. The immutable value contains
-complete `DocumentMetadata` and optional source `original`. See [streaming](STREAMING.md)
-for one-shot timing and fallback semantics. EPUB body notifications use `EpubFragmentContent`;
-`EpubTranslation` is a compatibility alias of the same type.
+`ExtractionOptions.context` accepts an `ExtractionContext` during extraction:
+`context.read_pages()` returns a synchronous geometry snapshot, while
+`await context.read_asset(hash)` reads bytes during the active extraction.
+The context must not be shared between concurrent extractions.
+
+The content, geometry and metadata value classes are exported from `pdf_craft`;
+XML snapshots use the standard-library `xml.etree.ElementTree.Element`. Internal translation mapping,
+submission and disk-storage hooks, and PDF preview transport fields are not public
+extension points. See [incremental callbacks](STREAMING.md) for complete field,
+ordering, lifetime and publication semantics.
