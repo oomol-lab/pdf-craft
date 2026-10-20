@@ -55,6 +55,49 @@ class SourceTests(unittest.TestCase):
 
 
 class ParagraphTests(unittest.IsolatedAsyncioTestCase):
+    async def test_epub_repeated_footnote_anchors_across_and_within_paragraphs(self):
+        from zipfile import ZipFile
+        from xml.etree.ElementTree import fromstring
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = make_extraction(root / 'source', with_toc=True)
+            note = Reference(1, 1, '*', [text(2, 'Footnote content.')])
+            first, second = text(0, 'First paragraph.'), text(1, 'Second paragraph.')
+            cast(SourceTextFragment, first.children[0]).content.extend([note, ' and another reference ', note])
+            cast(SourceTextFragment, second.children[0]).content.append(note)
+            save_xml(encode(Chapter(None, -1, [first, second], [note])),
+                     root / 'source/chapters/chapter_head.xml')
+            heading, following = text(3, 'Next chapter'), text(4, 'Following paragraph.')
+            heading.role, heading.level = 'heading', 0
+            cast(SourceTextFragment, following.children[0]).content.append(note)
+            save_xml(encode(Chapter(7, 0, [heading, following], [note])),
+                     root / 'source/chapters/chapter_7.xml')
+            output = root / 'book.epub'
+            await AsyncPDFCraft().render_epub(source, output)
+            with ZipFile(output) as archive:
+                document = fromstring(archive.read('OEBPS/Text/head.xhtml'))
+                chapter_documents = [fromstring(archive.read(name)) for name in archive.namelist()
+                                     if name.startswith('OEBPS/Text/') and name.endswith('.xhtml')
+                                     and name != 'OEBPS/Text/head.xhtml']
+            ids = [node.get('id') for node in document.iter() if node.get('id')]
+            self.assertEqual(len(ids), len(set(ids)))
+            references = [node for node in document.iter() if node.get('href') == '#fn-1']
+            self.assertEqual([node.get('id') for node in references], ['ref-1', 'ref-1-2', 'ref-1-3'])
+            self.assertEqual(ids.count('fn-1'), 1)
+            definition = next(node for node in document.iter() if node.get('id') == 'fn-1')
+            self.assertIn('Footnote content.', ''.join(definition.itertext()))
+            backlinks = [link for node in definition.iter()
+                         if (link := node.get('href')) is not None and link.startswith('#')]
+            self.assertIn('#ref-1', backlinks)
+            self.assertTrue(all(link[1:] in ids for link in backlinks))
+            following_document = next(value for value in chapter_documents
+                                      if 'Following paragraph.' in ''.join(value.itertext()))
+            following_references = [node for node in following_document.iter() if node.get('href') == '#fn-1']
+            self.assertEqual([node.get('id') for node in following_references], ['ref-1'])
+            following_ids = [node.get('id') for node in following_document.iter() if node.get('id')]
+            self.assertEqual(len(following_ids), len(set(following_ids)))
+            self.assertIn('fn-1', following_ids)
+
     async def test_furniture_heading_cache_does_not_replace_note_with_same_index(self):
         from pdf_craft.document.stream_view import content_view
         with tempfile.TemporaryDirectory() as directory:

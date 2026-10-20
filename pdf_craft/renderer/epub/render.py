@@ -143,7 +143,8 @@ def _convert_chapter_to_epub(
 ) -> ChapterRecord:
     elements = []
     footnotes = []
-    ref_id_to_number = _ReferenceNumbers(ref_id_to_number)
+    if not isinstance(ref_id_to_number, _ReferenceNumbers):
+        ref_id_to_number = _ReferenceNumbers(ref_id_to_number)
 
     for layout in chapter.flow_items:
         if isinstance(layout, (DisplayFormula, StandaloneAsset)):

@@ -9,7 +9,7 @@ from ...extractor.chapter.chapter import Chapter, Reference, TextFlowItem, FlowI
 from ...metering import check_aborted
 from ...runtime import IO_DOMAIN, TEX_DOMAIN, run_cancellable
 from ..paragraph import display_values
-from .render import _convert_chapter_to_epub, _iter_text_in_title
+from .render import _convert_chapter_to_epub, _iter_text_in_title, _ReferenceNumbers
 from .toc_collection import TocCollection
 from .anchored import FloatMarkerRegistry, apply_float_markers
 
@@ -34,8 +34,16 @@ async def render_content(items, view, numbers, notify, directory, output, *, mod
     toc = await IO_DOMAIN.run(TocCollection, view.toc if view.toc.exists() else None)
     markers = FloatMarkerRegistry()
     chapters = {}
+    references = _ReferenceNumbers(numbers)
+    reference_filename = None
 
     def append(item):
+        nonlocal reference_filename
+        # Ordered content is chapter-contiguous. Only the active XHTML owns
+        # occurrence counts; definition numbers remain document-wide.
+        if item.filename != reference_filename:
+            references.occurrences.clear()
+            reference_filename = item.filename
         info = chapters.setdefault(item.filename, [item.chapter_id, directory / (item.filename + '.pickle'), '', 0])
         values = display_values(item, mode)
         if not values:
@@ -47,7 +55,7 @@ async def render_content(items, view, numbers, notify, directory, output, *, mod
             info[3] += 1
             if info[3] == 1 and isinstance(item.value, TextFlowItem) and item.value.role == 'heading':
                 info[2] = ''.join(_iter_text_in_title(cast(TextFlowItem, values[0]))).strip() or 'Untitled'
-        record = _convert_chapter_to_epub(chapter, view.assets, inline_latex, numbers, markers)
+        record = _convert_chapter_to_epub(chapter, view.assets, inline_latex, references, markers)
         with info[1].open('ab') as file:
             pickle.dump(record, file, protocol=pickle.HIGHEST_PROTOCOL)
 
