@@ -375,3 +375,66 @@ class StreamFollowupTests(unittest.IsolatedAsyncioTestCase):
             for name in ('asset.png', 'book.md'):
                 self.assertEqual((root / name).read_text(), 'old ' + name)
             self.assertFalse(list(root.glob('.pdf-craft-*')))
+
+    async def test_standard_translation_stream_preserves_explicit_toc_transform(self):
+        for outcome in ('success', 'failure', 'missing'):
+            with self.subTest(outcome=outcome):
+                await self._check_standard_stream_toc_transform(outcome)
+
+    async def _check_standard_stream_toc_transform(self, outcome):
+        from unittest.mock import patch
+        from pdf_craft import ConcurrentExecutor, FixedCapacity, LLM, XMLTranslator
+        from pdf_craft.common import save_xml
+        from pdf_craft.extractor.chapter.chapter import Chapter, SourceTextFragment, TextFlowItem
+        from pdf_craft.extractor.chapter import encode
+        from pdf_craft.transformer.package import ChapterExtractionTransformer
+        from pdf_craft.transformer.narrative_xml import NarrativeXMLTransformer
+        from pdf_craft.transformer.events import TranslationEventKind
+        from pdf_craft.transformer.xml_translator.segment import search_text_segments
+        from tests.extraction_helpers import make_extraction
+
+        async def mappings(_translator, inline_segments, **_kwargs):
+            return [(segment.parent, list(search_text_segments(
+                segment.assign_attributes(segment.create_element())))) for segment in inline_segments]
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = make_extraction(root / 'source', with_toc=outcome != 'missing')
+            save_xml(encode(Chapter(None, -1, [TextFlowItem('body', -1, [
+                SourceTextFragment(1, 0, (0, 0, 90, 30), ['Body.']),
+            ])])), root / 'source/chapters/chapter_head.xml')
+            calls, events = [], []
+            failure = ValueError('TOC transformation failed')
+
+            async def translate_toc(element):
+                calls.append(element)
+                if outcome == 'failure':
+                    raise failure
+                element.set('translated', 'yes')
+                return element
+
+            llm = LLM('unused', 'https://example.invalid', 'unused', 'o200k_base')
+            translator = XMLTranslator(llm, llm, 'zh', None, False, 2, 5, 500,
+                                      executor=ConcurrentExecutor(FixedCapacity(2)))
+            transformer = ChapterExtractionTransformer(
+                NarrativeXMLTransformer(translator), toc_transformer=translate_toc)
+            output = root / 'target.pcex'
+            with patch.object(XMLTranslator, '_translate_inline_segments_async', new=mappings):
+                if outcome == 'failure':
+                    output.write_bytes(b'existing output')
+                    with self.assertRaises(ValueError) as caught:
+                        await transformer.transform(source, output, on_translation_event=events.append,
+                                                    emit_translation_events=True)
+                    self.assertIs(caught.exception, failure)
+                    self.assertEqual(output.read_bytes(), b'existing output')
+                    self.assertNotIn(TranslationEventKind.COMPLETE, [event.kind for event in events])
+                else:
+                    result = await transformer.transform(source, output)
+                    with result._materialize() as paths:
+                        if outcome == 'success':
+                            self.assertIn('translated="yes"', paths.toc.read_text())
+                        else:
+                            self.assertFalse(paths.toc.exists())
+            self.assertEqual(len(calls), 0 if outcome == 'missing' else 1)
+            if outcome != 'missing':
+                self.assertNotIn('translated="yes"', (root / 'source/toc.xml').read_text())

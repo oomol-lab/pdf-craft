@@ -3,6 +3,7 @@
 from copy import deepcopy
 from dataclasses import replace
 
+from ..common import read_xml, save_xml
 from ..document.content import consume_content, read_content
 from ..extractor.chapter.chapter import (
     Chapter, Reference, narrative_texts, search_references_in_chapter,
@@ -83,7 +84,7 @@ async def translate_content(items, transformer, window, coverage, anchored_cover
 async def translate_workspace(extraction, output, transformer, *, window=1,
                               with_anchored=False, on_body=None, on_footnote=None,
                               on_translation_event=None, emit_translation_events=False,
-                              aborted=lambda: False, preserve_layers=False):
+                              aborted=lambda: False, preserve_layers=False, toc_transformer=None):
     """The translation-layer writer and renderers share this stream adapter."""
     from .package import _copy_extraction_to_workspace
     from ..document import PDFCraftExtraction
@@ -95,7 +96,6 @@ async def translate_workspace(extraction, output, transformer, *, window=1,
         if not preserve_layers:
             # This is a replacement-only internal view, not a new source for
             # previously stored layers. Append uses the untouched input later.
-            from ..common import save_xml
             from xml.etree.ElementTree import Element
             save_xml(Element("translation"), output / "translation.xml")
     await IO_DOMAIN.run(prepare)
@@ -158,6 +158,11 @@ async def translate_workspace(extraction, output, transformer, *, window=1,
     await IO_DOMAIN.run(write_narrative_coverage, output / "translation.xml", coverage)
     if assets:
         await IO_DOMAIN.run(write_anchored_coverage, output / "translation.xml", assets)
+    toc_path = output / "toc.xml"
+    if toc_transformer is not None and await IO_DOMAIN.run(toc_path.exists):
+        toc = await IO_DOMAIN.run(read_xml, toc_path)
+        transformed_toc = await toc_transformer(toc)
+        await IO_DOMAIN.run(save_xml, transformed_toc, toc_path)
     if emit_translation_events and on_translation_event is not None:
         await invoke_callback(on_translation_event, TranslationEvent(
             kind=TranslationEventKind.COMPLETE, total_characters=total,

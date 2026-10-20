@@ -100,6 +100,7 @@ class ChapterExtractionTransformer:
                 window=self.chapter_transformer.window,
                 on_translation_event=on_translation_event,
                 emit_translation_events=emit_translation_events, preserve_layers=True,
+                toc_transformer=self.toc_transformer,
             )
         is_xml_transformer = isinstance(self.chapter_transformer, NarrativeXMLTransformer)
         chapter_tasks = await IO_DOMAIN.run(
