@@ -89,4 +89,3 @@ class CFITests(unittest.TestCase):
         root = fromstring('<p>A</p>')
         with self.assertRaises(ValueError):
             ContentCFILocator(root).point(root, TextPosition.TEXT, 2)
-

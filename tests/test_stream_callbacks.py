@@ -383,3 +383,87 @@ class StreamCallbacksTests(unittest.IsolatedAsyncioTestCase):
                 self.assertEqual([''.join(fromstring(node).itertext()) for node in received], ['Body.', 'Unresolved note.'])
             finally:
                 await live.cancel()
+
+    async def test_sparse_footnotes_publish_closed_content_before_eof(self):
+        await self._assert_sparse_footnotes_stream_before_eof('① Closed footnote.', None, True)
+
+    async def test_unreferenced_footnote_publishes_before_eof(self):
+        await self._assert_sparse_footnotes_stream_before_eof('① Unreferenced footnote.', None, True,
+                                                            body_mark=False)
+
+    async def test_unmatched_printed_mark_does_not_wait_for_eof(self):
+        await self._assert_sparse_footnotes_stream_before_eof(None, None, False)
+
+    async def test_cross_page_footnote_waits_for_continuation_then_publishes(self):
+        await self._assert_sparse_footnotes_stream_before_eof('① This continues', 'on the next page.', True)
+
+    async def _assert_sparse_footnotes_stream_before_eof(self, first_note, continuation, expects_note, *, body_mark=True):
+        from pdf_craft.extractor.chapter.stream import chapters_from_disk
+        bodies, notes = [], []
+        body_ready, note_ready = asyncio.Event(), asyncio.Event()
+
+        async def body_callback(node):
+            bodies.append(tostring(node))
+            if len(bodies) >= 2:
+                body_ready.set()
+
+        async def note_callback(node):
+            notes.append(tostring(node))
+            note_ready.set()
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            pages = root / 'ocr'
+            pages.mkdir()
+            live = LiveExtraction(root / 'live', pages, True, body_callback, note_callback)
+            try:
+                for index in range(1, 7):
+                    note = first_note if index == 1 else continuation if index == 2 else None
+                    body = 'Body①.' if body_mark else 'Body.'
+                    source = page(index, body if index == 1 else 'Closed sentence.', note or '')
+                    if note is None:
+                        source.footnotes_layouts = []
+                    save_xml(encode_page(source), pages / f'page_{index}.xml')
+                    await live.event(OCREvent(OCREventKind.START, index, 6))
+                    await live.event(OCREvent(OCREventKind.COMPLETE, index, 6))
+                    if continuation is not None and index <= 2:
+                        # A definition spanning these two pages cannot be
+                        # delivered as complete before its continuation closes.
+                        self.assertFalse(note_ready.is_set())
+                await asyncio.wait_for(body_ready.wait(), timeout=2)
+                if expects_note:
+                    await asyncio.wait_for(note_ready.wait(), timeout=2)
+                self.assertFalse(live.task.done())
+                self.assertEqual(len(notes), int(expects_note))
+                refs = list(fromstring(bodies[0]).iter('ref'))
+                self.assertEqual(len(refs), int(expects_note and body_mark))
+                if not expects_note and body_mark:
+                    self.assertIn('①', ''.join(fromstring(bodies[0]).itertext()))
+                elif continuation is not None:
+                    definition = fromstring(notes[0])
+                    self.assertEqual([fragment.get('page_index') for fragment in definition.iter('fragment')], ['1', '2'])
+                    self.assertIn('on the next page.', ''.join(definition.itertext()))
+                await live.finish()
+                self.assertEqual(len(bodies), 6)
+                toc = TocInfo([], [])
+                analyses = _analyse_chapter_pages(pages, toc)[1]
+                expected = [tostring(encode(chapter)) for chapter in _generate_chapters(pages, toc, analyses)]
+                actual = [tostring(encode(chapter)) for chapter in chapters_from_disk(live.database, toc)]
+                self.assertEqual(actual, expected)
+            finally:
+                await live.cancel()
+
+    def test_footnote_progress_keeps_cross_page_tail_open(self):
+        from pdf_craft.extractor.chapter.jointer import JoinedPageProgress
+        from pdf_craft.extractor.chapter.stream import _joined
+        sources = [page(1, note='① This continues'), page(2, note='on the next page.'), page(3)]
+        sources[2].footnotes_layouts = []
+        events = _joined(sources, True).execute_with_progress()
+        self.assertEqual(next(events), JoinedPageProgress(closed_through=0, processed_through=1))
+        self.assertEqual(next(events), JoinedPageProgress(closed_through=0, processed_through=2))
+        from pdf_craft.extractor.chapter.chapter import TextFlowItem
+        paragraph = next(events)
+        assert isinstance(paragraph, TextFlowItem)
+        self.assertEqual([fragment.page_index for fragment in paragraph.children], [1, 2])
+        self.assertEqual(next(events), JoinedPageProgress(closed_through=3, processed_through=3))
+        self.assertEqual(list(events), [])

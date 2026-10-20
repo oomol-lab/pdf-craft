@@ -19,24 +19,39 @@ from .chapter import (
 )
 from .content import join_texts_in_content
 from .generation import (
-    _assemble_flow_items, _extract_page_references, _partition_chapters,
+    _assemble_flow_items, _partition_chapters, _split_reference_origins,
     _replace_mark_with_reference,
 )
-from .jointer import Jointer, normalize_source_projection
+from .jointer import JoinedPageProgress, Jointer, normalize_source_projection
 from .mark import transform2mark
+from .reference import References
 from .source import capture_sources
 
 
-def _joined(pages: Iterable[Page], footnotes: bool):
+def _joined(pages: Iterable[Page], footnotes: bool, on_page=None):
     sources = {}
 
     def layouts():
         for page in pages:
+            if on_page is not None:
+                on_page(page.index)
             sources.clear()
             sources.update(capture_sources([page]))
             yield page.index, page.footnotes_layouts if footnotes else page.body_layouts
 
     return Jointer(layouts(), sources)
+
+
+def _references_with_progress(jointer: Jointer):
+    buffers = {}
+    for item in jointer.execute_with_progress():
+        if isinstance(item, JoinedPageProgress):
+            for page in sorted(page for page in buffers if page <= item.closed_through):
+                yield References(page_index=page, items=buffers.pop(page))
+            yield item
+        else:
+            for page, layout in _split_reference_origins(item):
+                buffers.setdefault(page, []).append(layout)
 
 
 def _position(item):
@@ -74,7 +89,10 @@ def resolve_to_disk(
                        (page, position, pickle.dumps(item), int(unresolved)))
 
         def notes():
-            for references in _extract_page_references(_joined(read_pages(), True)):
+            for references in _references_with_progress(_joined(read_pages(), True)):
+                if isinstance(references, JoinedPageProgress):
+                    yield references
+                    continue
                 for item in references.unindexed_items:
                     store_body(item, unresolved=True)
                 for reference in references.values:
@@ -87,25 +105,31 @@ def resolve_to_disk(
                         on_footnote(_encode_reference(reference))
                 db.execute("INSERT INTO notes VALUES (?, ?)",
                            (references.page_index, pickle.dumps(references)))
-                yield references.page_index
 
         note_pages = iter(notes()) if includes_footnotes else iter(())
         last_note_page = -1
+        processed_note_page = -1
         notes_done = not includes_footnotes
 
-        def get_references(page):
-            nonlocal last_note_page, notes_done
-            while not notes_done and last_note_page < page:
-                next_page = next(note_pages, None)
-                if next_page is None:
+        def advance_notes(page, *, require_closed=False):
+            nonlocal last_note_page, processed_note_page, notes_done
+            while not notes_done and (
+                processed_note_page < page or (require_closed and last_note_page < page)
+            ):
+                progress = next(note_pages, None)
+                if progress is None:
                     notes_done = True
                 else:
-                    last_note_page = next_page
+                    last_note_page = progress.closed_through
+                    processed_note_page = progress.processed_through
+
+        def get_references(page):
+            advance_notes(page, require_closed=True)
             row = db.execute("SELECT value FROM notes WHERE page=?", (page,)).fetchone()
             return pickle.loads(row[0]) if row else None
 
         def paragraphs():
-            for item in _joined(read_pages(), False).execute():
+            for item in _joined(read_pages(), False, on_page=advance_notes).execute():
                 if isinstance(item, TextFlowItem):
                     for fragment in item.children:
                         if isinstance(fragment, SourceTextFragment):
