@@ -14,7 +14,7 @@ import pickle
 import signal
 import subprocess
 import sys
-from collections.abc import AsyncIterator, Awaitable, Callable, Iterable
+from collections.abc import AsyncGenerator, AsyncIterator, Awaitable, Callable, Iterable
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import AbstractContextManager, asynccontextmanager
 from functools import partial
@@ -189,7 +189,7 @@ async def worker_context(context: AbstractContextManager[R]) -> AsyncIterator[R]
         await IO_DOMAIN.run(context.__exit__, None, None, None)
 
 
-async def worker_iter(values: Iterable[R]) -> AsyncIterator[R]:
+async def worker_iter(values: Iterable[R]) -> AsyncGenerator[R, None]:
     """Advance a lazy filesystem iterator without retaining a whole document."""
     iterator = await IO_DOMAIN.run(iter, values)
     sentinel = object()

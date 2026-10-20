@@ -3,7 +3,6 @@
 # Internal workspace methods are intentionally shared only inside pdf-craft.
 # pylint: disable=protected-access
 
-import asyncio
 import secrets
 from collections.abc import Callable, Container
 from contextlib import asynccontextmanager
@@ -34,9 +33,7 @@ from .pdf import (
     OCREvent,
     PDFHandler,
 )
-from .pipeline.pdf.error_policy import _process_ignore_errors_checker
 from .pipeline.epub import translate_epub as run_epub_translation
-from .pipeline.pdf import PDFTranslationPipeline
 from .renderer import EpubRenderer, MarkdownRenderer
 from .transformer import (
     AnchoredContentExtractionTransformer,
@@ -227,24 +224,12 @@ class AsyncPDFCraft:
         on_body=None, on_footnote=None,
     ) -> None:
         document = await _ensure_extraction_async(extraction)
-        if translator is not None:
-            if translation_id is not None:
-                raise ValueError("translation_id cannot select an existing layer while translating")
-            async with temporary_directory("pdf-craft-render-translation-") as root:
-                document = await self._translate_layer_to_workspace(
-                    document, root, translator, window=window,
-                    with_anchored=with_anchored, on_body=on_body, on_footnote=on_footnote, aborted=aborted,
-                )
-                selected_id = (await IO_DOMAIN.run(document._translations))[-1].id
-                await self.render_markdown(document, output, assets_path,
-                    mode=RenderMode.REPLACE if mode == RenderMode.SOURCE else mode,
-                    translation_id=selected_id, aborted=aborted)
-            return
         await MarkdownRenderer().render(
             document, Path(output),
             Path(assets_path) if assets_path is not None else None,
             mode=mode, translation_id=translation_id,
             aborted=aborted, on_body=on_body, on_footnote=on_footnote,
+            translator=translator, window=window, with_anchored=with_anchored,
         )
 
     async def translate_extraction(
@@ -256,6 +241,7 @@ class AsyncPDFCraft:
         translation_id: str | None = None,
         target_language: str | None = None,
         on_translation_event: Callable[[TranslationEvent], object] | None = None,
+        on_body=None, on_footnote=None,
     ) -> PDFCraftExtraction:
         document = await _ensure_extraction_async(extraction)
         language = (
@@ -281,6 +267,7 @@ class AsyncPDFCraft:
                 with_anchored=with_anchored, with_furniture=with_furniture,
                 translation_id=selected_id, target_language=language,
                 on_translation_event=on_translation_event,
+                on_body=on_body, on_footnote=on_footnote,
             )
             return await layered._export_async(target)
 
@@ -311,26 +298,13 @@ class AsyncPDFCraft:
         on_body=None, on_footnote=None,
     ) -> None:
         document = await _ensure_extraction_async(extraction)
-        if translator is not None:
-            if translation_id is not None:
-                raise ValueError("translation_id cannot select an existing layer while translating")
-            async with temporary_directory("pdf-craft-render-translation-") as root:
-                document = await self._translate_layer_to_workspace(
-                    document, root, translator, window=window,
-                    with_anchored=with_anchored, on_body=on_body, on_footnote=on_footnote, aborted=aborted,
-                )
-                selected_id = (await IO_DOMAIN.run(document._translations))[-1].id
-                await self.render_epub(document, output, book_meta=book_meta, lan=lan,
-                    table_render=table_render, latex_render=latex_render, inline_latex=inline_latex,
-                    mode=RenderMode.REPLACE if mode == RenderMode.SOURCE else mode,
-                    translation_id=selected_id, aborted=aborted)
-            return
         await EpubRenderer().render(
             document, Path(output), book_meta=book_meta, lan=lan,
             table_render=table_render, latex_render=latex_render,
             inline_latex=inline_latex, mode=mode,
             translation_id=translation_id, aborted=aborted,
             on_body=on_body, on_footnote=on_footnote,
+            translator=translator, window=window, with_anchored=with_anchored,
         )
 
     async def translate_pdf(
@@ -343,6 +317,11 @@ class AsyncPDFCraft:
         ignore_errors: IgnoreFillErrorsChecker = False,
         on_body=None, on_footnote=None,
     ) -> None:
+        if isinstance(translator, XMLTranslator):
+            await self.patch_pdf_with_extraction(source, extraction, output, translator=translator,
+                window=window, ignore_errors=ignore_errors, on_body=on_body, on_footnote=on_footnote,
+                with_furniture=with_furniture, on_translation_event=on_translation_event)
+            return
         document = await _ensure_extraction_async(extraction)
         async with temporary_directory("pdf-craft-translated-extraction-") as directory:
             translated = await self._translate_to_workspace(
@@ -351,10 +330,10 @@ class AsyncPDFCraft:
                 with_anchored=False,
                 with_furniture=with_furniture,
                 on_translation_event=on_translation_event,
-                on_body=on_body, on_footnote=on_footnote,
             )
             await self.patch_pdf_with_extraction(
                 source, translated, output, ignore_errors=ignore_errors,
+                on_body=on_body, on_footnote=on_footnote,
             )
 
     async def patch_pdf_with_extraction(
@@ -365,47 +344,19 @@ class AsyncPDFCraft:
         *, translation_id: str | None = None,
         ignore_errors: IgnoreFillErrorsChecker = False,
         translator: XMLTranslator | None = None, window: int = 1,
-        on_body=None, on_footnote=None,
+        on_body=None, on_footnote=None, with_furniture=False, on_translation_event=None,
     ) -> None:
         document = await _ensure_extraction_async(extraction)
-        if translator is not None:
-            if translation_id is not None:
-                raise ValueError("translation_id cannot be combined with translator")
-            await self.translate_pdf(source, document, output, translator,
-                window=window, ignore_errors=ignore_errors, on_body=on_body, on_footnote=on_footnote)
-            return
-        from .document.content import consume_content, read_content
-        from .document.render import materialize_pdf_patch_view
-        if on_body is not None or on_footnote is not None:
-            async with worker_context(materialize_pdf_patch_view(document, translation_id)) as view:
-                await consume_content(read_content(view.chapters), on_body=on_body, on_footnote=on_footnote)
-        source_path = Path(source)
-        output_path = Path(output)
-        configured_handler = self._pdf.pdf_handler if self._pdf else None
-        async with _process_ignore_errors_checker(ignore_errors) as worker_checker:
-            if configured_handler is None:
-                await _patch_pdf(
-                    source_path, document, output_path, None, worker_checker,
-                    translation_id,
-                )
-                return
-
-            # Caller-owned handlers and callbacks can contain loops, locks, or
-            # other non-pickleable state. Keep them in the caller process and
-            # pass only materialized pages / an RPC checker into the Qt worker.
-            page_indexes, dpi = await asyncio.gather(
-                IO_DOMAIN.run(document._page_pixel_sizes),
-                IO_DOMAIN.run(document._render_dpi),
-            )
-            page_indexes = tuple(sorted(page_indexes.keys()))
-            async with temporary_directory("pdf-craft-pdf-pages-") as directory:
-                materialized_handler = await _materialize_pdf_handler(
-                    configured_handler, source_path, page_indexes, dpi, directory,
-                )
-                await _patch_pdf(
-                    source_path, document, output_path,
-                    materialized_handler, worker_checker, translation_id,
-                )
+        if translator is not None and translation_id is not None:
+            raise ValueError("translation_id cannot be combined with translator")
+        from .pipeline.pdf.content import patch_content
+        if not _ignore_errors_requested(ignore_errors):
+            await IO_DOMAIN.run(_validate_extraction_for_pdf, Path(source), document)
+        await patch_content(Path(source), document, Path(output), translator=translator,
+                            translation_id=translation_id, window=window, ignore_errors=ignore_errors,
+                            on_body=on_body, on_footnote=on_footnote,
+                            pdf_handler=self._pdf.pdf_handler if self._pdf else None, with_furniture=with_furniture,
+                            on_translation_event=on_translation_event)
 
     async def translate_epub(
         self, source: PathLike | str, output: PathLike | str, *,
@@ -622,9 +573,8 @@ class AsyncPDFCraft:
                     narrative_transformer._anchored_transformer(),
                 )._transform_to_workspace_async(translated, workspace / "anchored")
             if on_body is not None or on_footnote is not None:
-                from .document.content import consume_content, read_content
-                async with worker_context(translated._materialize()) as paths:
-                    await consume_content(read_content(paths.chapters), on_body=on_body, on_footnote=on_footnote)
+                from .renderer.paragraph import notify_extraction
+                await notify_extraction(extraction, translated, on_body, on_footnote)
         if with_furniture:
             translated = await FurnitureExtractionTransformer(
                 narrative_transformer._furniture_transformer(),
@@ -675,24 +625,6 @@ async def _analysis_workspace_async(
         return
     async with temporary_directory("pdf-craft-analysis-") as directory:
         yield directory
-
-
-async def _patch_pdf(
-    source: Path,
-    extraction: PDFCraftExtraction,
-    output: Path,
-    pdf_handler: PDFHandler | None,
-    ignore_errors: IgnoreFillErrorsChecker,
-    translation_id: str | None = None,
-) -> None:
-    await IO_DOMAIN.run(extraction._validate)
-    if not _ignore_errors_requested(ignore_errors):
-        await IO_DOMAIN.run(_validate_extraction_for_pdf, source, extraction)
-    await PDFTranslationPipeline(_native_pdf_handler=pdf_handler).patch(
-        source, output, extraction, translation_id=translation_id,
-        ignore_errors=ignore_errors,
-    )
-
 
 
 def _validate_extraction_for_pdf(source: Path, extraction: PDFCraftExtraction) -> None:

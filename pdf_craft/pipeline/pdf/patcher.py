@@ -23,6 +23,7 @@ from ...runtime import IO_DOMAIN, QT_DOMAIN, temporary_directory
 from .error_policy import _process_ignore_errors_checker
 from .eraser import EraseOptions, EraseRectangle, RectangularEraser
 from .models import PDFReplacement, PDFReplacementRegion
+from .feed import ReplacementFeed
 from .text_layout import (
     FontResolution, PatchTextOptions, QTextParagraphFiller, WindowedParagraphPlanner, _contains_cjk,
 )
@@ -83,6 +84,9 @@ class PDFPatcher:
         self._pdf_handler = _native_pdf_handler or DefaultPDFHandler()
         self._visual_base_compiler = visual_base_compiler or GhostscriptVisualBaseCompiler()
         self.dpi = dpi
+        self._stream_pages: dict[int, int] = {}
+        self._preview_path: Path | None = None
+        self._replacement_feed: ReplacementFeed | None = None
         self._failed_page_indexes: tuple[int, ...] = ()
         self._font_resolutions: tuple[FontResolution, ...] = ()
 
@@ -107,10 +111,14 @@ class PDFPatcher:
     ) -> None:
         """Prepare and compile asynchronously, then isolate native Qt composition."""
         async with _process_ignore_errors_checker(ignore_errors) as worker_checker:
-            replacements = await IO_DOMAIN.run(tuple, replacements)
+            if isinstance(replacements, ReplacementFeed):
+                has_replacements = await IO_DOMAIN.run(lambda: next(iter(replacements), None) is not None)
+            else:
+                replacements = await IO_DOMAIN.run(tuple, replacements)
+                has_replacements = bool(replacements)
             async with temporary_directory("pdf-craft-patch-") as root:
                 visual_base = None
-                if replacements:
+                if has_replacements:
                     annotation_free = root / "annotation-free.pdf"
                     visual_base = root / "visual-base.pdf"
                     await IO_DOMAIN.run(_write_visual_source, source_path, annotation_free)
@@ -118,14 +126,16 @@ class PDFPatcher:
                 native = copy(self)
                 # Caller-owned async handlers/compilers never cross the process boundary.
                 native._async_pdf_handler = None
+                if isinstance(replacements, ReplacementFeed):
+                    native._replacement_feed = replacements
                 del native._visual_base_compiler
-                if replacements and self._async_pdf_handler is not None:
+                if has_replacements and self._async_pdf_handler is not None:
                     native._pdf_handler = await _materialize_pdf_handler(
                         self._async_pdf_handler, source_path,
-                        {region.page_index for replacement in replacements
-                         for region in replacement.source_regions()},
-                        {region.page_index: region.dpi for replacement in replacements
-                         for region in replacement.source_regions()}, root,
+                        set(self._stream_pages) if isinstance(replacements, ReplacementFeed) else
+                        {region.page_index for replacement in replacements for region in replacement.source_regions()},
+                        self._stream_pages if isinstance(replacements, ReplacementFeed) else
+                        {region.page_index: region.dpi for replacement in replacements for region in replacement.source_regions()}, root,
                     )
                 resolutions, failed_pages = await QT_DOMAIN.run(
                     _compose_pdf, native, source_path, target_path, replacements,
@@ -177,7 +187,8 @@ class PDFPatcher:
             writer.add_metadata(document_metadata)
             self._write_output(writer, target_path)
             return
-        replacements = _prepend(first_replacement, replacements)
+        feed = getattr(self, '_replacement_feed', None)
+        replacements = feed if feed is not None else _prepend(first_replacement, replacements)
         source_reader = pypdf.PdfReader(str(source_path))
         page_sizes = {
             index: (float(page.mediabox.width), float(page.mediabox.height))
@@ -219,23 +230,40 @@ class PDFPatcher:
                     target_page_indexes.add(page_index)
                     record_page_failure(page_index, error)
 
-            with replacements_path.open("wb") as stream:
-                for replacement in replacements:
+            streaming = isinstance(replacements, ReplacementFeed)
+            def validated(values):
+                for replacement in values:
                     try:
                         pages = _replacement_pages_in_source(replacement, len(source_reader.pages))
                         target_page_indexes.update(pages)
                         self.validate(replacement, pages_count=len(source_reader.pages))
-                        style = self.options.style_for(
-                            replacement.layout_ref, replacement.layout_level,
-                        )
-                        if not style.font_name or not style.font_name.strip():
-                            has_automatic_font = True
-                            contains_cjk = contains_cjk or _contains_cjk(replacement.text)
-                        pickle.dump(replacement, stream, protocol=pickle.HIGHEST_PROTOCOL)
+                        yield replacement
                     except Exception as error:
                         if not _check_ignore_error(ignore_errors, error):
                             raise
                         record_replacement_failure(replacement, error)
+            if streaming:
+                # A font with CJK coverage also covers Latin text; no text prepass.
+                has_automatic_font = True
+                contains_cjk = True
+            else:
+                with replacements_path.open("wb") as stream:
+                    for replacement in replacements:
+                        try:
+                            pages = _replacement_pages_in_source(replacement, len(source_reader.pages))
+                            target_page_indexes.update(pages)
+                            self.validate(replacement, pages_count=len(source_reader.pages))
+                            style = self.options.style_for(
+                                replacement.layout_ref, replacement.layout_level,
+                            )
+                            if not style.font_name or not style.font_name.strip():
+                                has_automatic_font = True
+                                contains_cjk = contains_cjk or _contains_cjk(replacement.text)
+                            pickle.dump(replacement, stream, protocol=pickle.HIGHEST_PROTOCOL)
+                        except Exception as error:
+                            if not _check_ignore_error(ignore_errors, error):
+                                raise
+                            record_replacement_failure(replacement, error)
             if has_automatic_font:
                 prepare_automatic_font = getattr(self._filler, "prepare_automatic_font", None)
                 if prepare_automatic_font is not None:
@@ -262,7 +290,7 @@ class PDFPatcher:
                     record_replacement_failure(replacement, error)
 
             planner = WindowedParagraphPlanner(self._filler, page_sizes, self.options)
-            for window in planner.plan(spooled_replacements(), on_window_error=on_window_error):
+            for window in planner.plan(validated(replacements) if streaming else spooled_replacements(), on_window_error=on_window_error):
                 for index in range(next_page_index, window.first_page_index):
                     writer.add_page(source_reader.pages[index - 1])
                 self._compose_window(
@@ -337,6 +365,10 @@ class PDFPatcher:
     ) -> None:
         """Compose one window while loading one serialized page plan at a time."""
         document = None
+        preview = None
+        if getattr(self, '_preview_path', None) is not None:
+            from .preview import WindowPreview
+            preview = WindowPreview(root, window, self._filler, page_sizes)
         try:
             for index in range(window.first_page_index, window.last_page_index + 1):
                 if index not in target_page_indexes:
@@ -385,12 +417,21 @@ class PDFPatcher:
                                 )
                     writer.add_page(page)
                     patched_page_indexes.add(index)
+                    if preview is not None:
+                        preview.page(index, contributions, page_erasures)
                 except Exception as error:
                     if not _check_ignore_error(ignore_errors, error):
                         raise
                     record_page_failure(index, error)
                     writer.add_page(source_reader.pages[index - 1])
+            if preview is not None:
+                from .feed import write_record
+                assert self._preview_path is not None
+                for number, channel, content in preview.contents(failed_page_indexes):
+                    write_record(self._preview_path / str(number), (channel, content))
         finally:
+            if preview is not None:
+                preview.close()
             if document is not None:
                 document.close()
             window.close()

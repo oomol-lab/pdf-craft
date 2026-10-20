@@ -308,27 +308,27 @@ class TestPDFCraft(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             extraction = _source_extraction(Path(directory) / "source")
             with patch(
-                "pdf_craft.craft._patch_pdf", new_callable=AsyncMock,
-            ) as run:
+                "pdf_craft.pipeline.pdf.content.patch_content", new_callable=AsyncMock,
+            ) as run, patch("pdf_craft.craft._validate_extraction_for_pdf"):
                 PDFCraft().patch_pdf_with_extraction(
                     "source.pdf", extraction, "target.pdf",
                     translation_id="selected-main",
                 )
             run.assert_awaited_once()
-            self.assertFalse(run.call_args.args[-2])
-            self.assertEqual(run.call_args.args[-1], "selected-main")
+            self.assertFalse(run.call_args.kwargs["ignore_errors"])
+            self.assertEqual(run.call_args.kwargs["translation_id"], "selected-main")
 
     def test_patch_pdf_with_extraction_defers_page_validation_when_ignoring_errors(self):
         with tempfile.TemporaryDirectory() as directory:
             extraction = _source_extraction(Path(directory) / "source")
             with patch(
-                "pdf_craft.craft._patch_pdf", new_callable=AsyncMock,
-            ) as run:
+                "pdf_craft.pipeline.pdf.content.patch_content", new_callable=AsyncMock,
+            ) as run, patch("pdf_craft.craft._validate_extraction_for_pdf"):
                 PDFCraft().patch_pdf_with_extraction(
                     "source.pdf", extraction, "target.pdf", ignore_errors=True,
                 )
             run.assert_awaited_once()
-            self.assertTrue(run.call_args.args[-2])
+            self.assertTrue(run.call_args.kwargs["ignore_errors"])
 
     def test_extraction_transform_creates_independent_archive(self):
         with tempfile.TemporaryDirectory() as directory:

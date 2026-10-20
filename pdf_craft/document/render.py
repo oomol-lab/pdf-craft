@@ -39,6 +39,8 @@ class RenderView:
     metadata: dict[str, Any]
     language: str | None
     translation: TranslationInfo | None
+    furnitures: Path | None = None
+    furniture_coverage: Path | None = None
 
     def book_meta(self):
         """Convert the effective PCEX metadata to epub-generator metadata."""

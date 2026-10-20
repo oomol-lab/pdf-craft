@@ -23,6 +23,7 @@ class TextOrigin:
     position: TextPosition
     start: int
     end: int
+    node_identity: int = 0
 
 
 @dataclass
@@ -128,7 +129,7 @@ def _search_text_segments(stack: list[Element], element: Element, track_origins:
             right_common_depth=0,
             block_depth=next_block_depth,
             position=TextPosition.TEXT,
-            origins=(TextOrigin(element, TextPosition.TEXT, 0, len(element.text or "")),) if track_origins else (),
+            origins=(TextOrigin(element, TextPosition.TEXT, 0, len(element.text or ""), id(element)),) if track_origins else (),
         )
     for child_element in element:
         yield from _search_text_segments(next_stack, child_element, track_origins)
@@ -141,7 +142,7 @@ def _search_text_segments(stack: list[Element], element: Element, track_origins:
                 right_common_depth=0,
                 block_depth=next_block_depth,
                 position=TextPosition.TAIL,
-                origins=(TextOrigin(child_element, TextPosition.TAIL, 0, len(child_element.tail or "")),) if track_origins else (),
+                origins=(TextOrigin(child_element, TextPosition.TAIL, 0, len(child_element.tail or ""), id(child_element)),) if track_origins else (),
             )
 
 

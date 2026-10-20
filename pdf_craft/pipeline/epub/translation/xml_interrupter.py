@@ -18,7 +18,7 @@ class XMLInterrupter:
     def __init__(self) -> None:
         self._next_id: int = 1
         self._last_interrupted_id: str | None = None
-        self._placeholder2interrupted: dict[int, Element] = {}
+        self._placeholder2interrupted: dict[str, Element] = {}
         self._raw_text_segments: dict[str, list[TextSegment]] = {}
 
     def interrupt_source_text_segments(
@@ -39,7 +39,7 @@ class XMLInterrupter:
             yield from self._expand_translated_text_segment(text_segment)
 
     def interrupt_block_element(self, element: Element) -> Element:
-        interrupted_element = self._placeholder2interrupted.pop(id(element), None)
+        interrupted_element = self._placeholder2interrupted.pop(element.get(_ID_KEY, ""), None)
         if interrupted_element is None:
             element.attrib.pop(_ID_KEY, None)
             return element
@@ -102,7 +102,7 @@ class XMLInterrupter:
                 position=text_segments[0].position,
                 origins=tuple(span for segment in text_segments for span in segment.origins),
             )
-            self._placeholder2interrupted[id(placeholder_element)] = interrupted_element
+            self._placeholder2interrupted[interrupted_id] = interrupted_element
 
             # TODO: 比较难搞，先关了再说
             # parent_element: Element | None = None

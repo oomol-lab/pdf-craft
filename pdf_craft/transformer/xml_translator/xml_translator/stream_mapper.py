@@ -10,6 +10,7 @@ from pdf_craft.transformer.xml_translator.segment import InlineSegment, TextSegm
 from pdf_craft.runtime import invoke_callback
 from .callbacks import Callbacks
 from .concurrency import run_async_parameters, run_concurrency_async
+from .source_store import source_identity, rebind, NODE_KEY, ROOT_KEY
 from .score import ScoreSegment, expand_to_score_segments, truncate_score_segment
 
 _PAGE_INCISION = 0
@@ -61,7 +62,7 @@ class XMLStreamMapper:
                     close = getattr(elements, "aclose", None)
                     if close is not None:
                         await close()
-            results = run_async_parameters(groups(), execute, window)
+            results = run_async_parameters(groups(), execute, window, preserve_sources=False)
         else:
             results = run_concurrency_async(
                 self._split_into_serial_groups(elements, callbacks, on_mapping is not None),
@@ -74,14 +75,22 @@ class XMLStreamMapper:
                     if current_element is None:
                         current_element = origin_element
 
-                    if id(current_element) != id(origin_element):
+                    if source_identity(current_element) != source_identity(origin_element):
                         assert current_element is not None
                         yield current_element, mapping_buffer
                         current_element = origin_element
                         mapping_buffer = []
 
                     if target:
+                        assert current_element is not None
                         block_element, text_segments = target
+                        if isinstance(elements, AsyncIterable):
+                            block_element = rebind(current_element, origin, block_element)
+                        if isinstance(elements, AsyncIterable):
+                            by_key = {node.get(NODE_KEY): node for node in current_element.iter() if node.get(NODE_KEY) is not None}
+                            for segment in text_segments:
+                                segment.parent_stack = [by_key.get(parent.get(NODE_KEY), parent) for parent in segment.parent_stack]
+                        assert block_element is not None
                         block_element = callbacks.interrupt_block_element(block_element)
                         text_segments = list(callbacks.interrupt_translated_text_segments(text_segments))
                         if text_segments:
@@ -171,6 +180,10 @@ class XMLStreamMapper:
             else:
                 end_incision = _PAGE_INCISION
 
+            for segment in inline_segment:
+                for parent in segment.parent_stack:
+                    if element.get(ROOT_KEY) is not None and parent.get(NODE_KEY) is None:
+                        parent.set(NODE_KEY, 'new-' + str(id(parent)))
             yield self._transform_to_resource(
                 inline_segment=inline_segment,
                 start_incision=start_incision,
@@ -179,6 +192,10 @@ class XMLStreamMapper:
             inline_segment = next_inline_segment
             start_incision = end_incision
 
+        for segment in inline_segment:
+            for parent in segment.parent_stack:
+                if element.get(ROOT_KEY) is not None and parent.get(NODE_KEY) is None:
+                    parent.set(NODE_KEY, 'new-' + str(id(parent)))
         yield self._transform_to_resource(
             inline_segment=inline_segment,
             start_incision=start_incision,
