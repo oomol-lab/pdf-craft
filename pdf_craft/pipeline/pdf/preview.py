@@ -49,6 +49,19 @@ def lines_for_placement(filler, placement):
     return result
 
 
+def font_size_for_placement(filler, placement):
+    """Match QTextLayout's logical pixels, not its nominal point size."""
+    QtCore, QtGui = _qt_modules()
+    _ensure_qt_application(QtGui)
+    layout = filler._create_layout(
+        QtCore, QtGui, "", placement.style, placement.font_size, _LAYOUT_SCALE,
+    )
+    font = layout.font()
+    # Baselines already contain this implicit point-to-pixel conversion. Export
+    # the size in the same units before mapping both into source OCR pixels.
+    return font.pointSizeF() * QtGui.QFontMetricsF(font).fontDpi() / 72 / _LAYOUT_SCALE
+
+
 class WindowPreview:
     def __init__(self, root, window, filler, page_sizes):
         self.window, self.filler, self.sizes = window, filler, page_sizes
@@ -80,7 +93,7 @@ class WindowPreview:
                 if placement is not None:
                     lines = [TextLine(line.text, line.x * sx, line.baseline * sy)
                              for line in lines_for_placement(self.filler, placement)]
-                    size = placement.font_size * sy
+                    size = font_size_for_placement(self.filler, placement) * sy
                     formulas = [FormulaPlacement(draw.latex, draw.x * sx, draw.baseline * sy, draw.descent * sy,
                                                   draw.pdf, sx / draw.scale, sy / draw.scale)
                                 for draw in placement.formula_draws]
