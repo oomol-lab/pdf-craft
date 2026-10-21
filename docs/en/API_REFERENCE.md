@@ -400,7 +400,7 @@ The patcher merges two independent overlays over a Ghostscript-compiled, fontles
 For complete workflows, start with [PDF conversion and translation](PDF_TRANSLATION.md) or [EPUB translation](EPUB_TRANSLATION.md), rather than composing internal modules.
 
 
-## Incremental content and metadata (2.5.0)
+## Incremental content and metadata
 
 Both facades explicitly declare the same typed callback and translation options.
 Callbacks may be synchronous or asynchronous; asynchronous callbacks are awaited.
@@ -421,7 +421,7 @@ actual dimensions. `PDFSourceRegion` adds final font size, lines, formula atoms
 and erasure masks in source pixels. It does not expose fonts or promise identical
 browser glyph shaping. `EpubFragmentContent(epubcfi, original, translated)` carries
 plain text for an atomic source-EPUB fragment; `EpubTranslation` is an alias.
-Its fields remain in constructor order: `epubcfi: str | None`, `original: str`,
+Since 2.5.1, its fields are in constructor order: `epubcfi: str | None`, `original: str`,
 `translated: str`. Check `epubcfi is not None` before using a location.
 `text/html` or missing reliable location information yields `None` while retaining
 text delivery; mixed XHTML/HTML books keep reliable CFIs for other fragments.

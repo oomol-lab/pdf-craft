@@ -665,7 +665,7 @@ JEV 或 vendor OCR 若消耗同一供应商配额，应共享同一个执行器�
 - EPUB → EPUB：使用 `PDFCraft().translate_epub`，只配置文本 LLM，不需要 OCR。
 
 
-## 增量内容与元信息回调（2.5.0）
+## 增量内容与元信息回调
 
 同步与异步门面显式声明相同的回调和翻译参数，并提供类型标注。回调可使用同步或异步函数，
 异步回调会被等待。
@@ -684,7 +684,7 @@ fragment 身份和整数 OCR bbox 放在一起，`map_bbox(target_size)` 按实�
 `PDFSourceRegion` 额外包含最终字号、行、公式及擦除信息，全部布局值以来源像素为单位；
 不提供字体分发，不承诺浏览器与 Qt 的逐字形一致性。
 `EpubFragmentContent(epubcfi, original, translated)` 对应原 EPUB 的原子翻译片段，
-原译文均为纯文本；`EpubTranslation` 是同类型别名。字段和构造顺序保持为
+原译文均为纯文本；`EpubTranslation` 是同类型别名。从 2.5.1 起，字段和构造顺序为
 `epubcfi: str | None`、`original: str`、`translated: str`。使用定位前判断 `epubcfi is not None`；
 `text/html` 或明确缺少可靠定位信息时使用 `None`，原译文仍正常交付。混合格式 EPUB 的其他
 片段保留可靠 CFI。解析、翻译、意外映射错误和回调异常仍传播；同步与异步门面契约一致。
