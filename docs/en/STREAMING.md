@@ -5,7 +5,7 @@ a successful callback does not mean the entire operation has succeeded. Cancella
 or callback exceptions abort the operation. The final PCEX/EPUB is published only
 after successful validation/packaging.
 
-## Callback payloads in 2.5.0
+## Callback payloads
 
 | Operation | Content callbacks | Payload |
 | --- | --- | --- |
@@ -19,7 +19,8 @@ The content, geometry and metadata value classes are importable from `pdf_craft`
 XML snapshots use `xml.etree.ElementTree.Element`. Content callbacks are separate
 from progress events such as `on_ocr_event` and `on_translation_event`. In streaming
 translation, whole-book totals can be `None` until known; do not require an initial
-percentage. See the [2.5.0 release notes](../changelog/v2.5.0.md).
+percentage. See the [2.5.0 release notes](../changelog/v2.5.0.md) for the original
+callback APIs and [2.5.1](../changelog/v2.5.1.md) for optional EPUB locations.
 
 ## PDF extraction
 
@@ -95,6 +96,12 @@ A CFI does not promise a stable position in the translated output, whose DOM may
 have changed. Only known location unavailability is downgraded: parsing,
 translation, unexpected source-mapping/offset errors, and callback exceptions
 still fail the operation.
+
+| Situation | Location and outcome |
+| --- | --- |
+| XHTML with reliable source information | CFI string; text callbacks continue normally |
+| Parseable `text/html` or known source-location unavailability | `epubcfi=None`; text callbacks continue normally |
+| Actual parsing/translation failure, unexpected mapping/offset error or callback exception | Error propagates and the operation fails |
 
 ## Scheduling and cost
 

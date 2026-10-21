@@ -165,7 +165,7 @@ python -m pip install "pdf-craft[local]"
 | 查询参数、类型和调用方式 | [API 参考](../zh-CN/API_REFERENCE.md) |
 | 存储或交换提取结果 | [`.pcex` 格式参考](../zh-CN/PCEX_FORMAT.md) |
 | 解决安装、识别与输出问题 | [故障排查](../zh-CN/TROUBLESHOOTING.md) |
-| 查看 2.5.0 版本更新 | [更新日志](../changelog/v2.5.0.md) |
+| 查看 2.5.1 版本更新 | [更新日志](../changelog/v2.5.1.md) |
 
 ## 反馈与贡献
 
