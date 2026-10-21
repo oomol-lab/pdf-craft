@@ -290,12 +290,17 @@ async def translate(
         async def on_mapping(task, mapping):
             origin, translated = mapping
             context = task.payload
-            if context.locator is None or context.cfi_package is None:
+            # Only body tasks produce fragment notifications. Title, TOC and
+            # metadata tasks also reach this hook, independently of CFI support.
+            if context.element_type != _ElementType.CHAPTER or context.chapter_data is None:
                 return
-            location = context.locator.capture(list(origin))
+            cfi = None
+            if context.locator is not None and context.cfi_package is not None:
+                location = context.locator.capture(list(origin))
+                cfi = location.cfi(context.cfi_package)
             assert delivery is not None
             await delivery.append(EpubFragmentContent(
-                epubcfi=location.cfi(context.cfi_package),
+                epubcfi=cfi,
                 original="".join(segment.text for segment in origin),
                 translated="".join(segment.text for segment in translated),
             ))
@@ -376,9 +381,10 @@ def _generate_tasks_from_book(
                 file=chapter_file,
                 is_html_like=(media_type == "text/html"),
             )
-        if capture_cfi and media_type != "application/xhtml+xml":
-            raise ValueError("Precise EPUB CFI callbacks require XHTML content documents")
-        locator = ContentCFILocator(xml.element) if capture_cfi else None
+        # HTML parser repair can change node positions in a reader. Translate
+        # and notify normally, but never manufacture a CFI for that document.
+        locator = (ContentCFILocator(xml.element)
+                   if capture_cfi and media_type == "application/xhtml+xml" else None)
         body_element = find_first(xml.element, "body")
         title_element = find_first(xml.element, "title")
         if title_element is not None and any(

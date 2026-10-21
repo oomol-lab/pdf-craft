@@ -56,7 +56,9 @@ EOF 附录补交；必要等待与积压保存在磁盘。投影为空的 fragme
 from pdf_craft import EpubFragmentContent, SubmitKind
 
 async def translated(item: EpubFragmentContent):
-    print(item.epubcfi, item.original, item.translated)
+    print(item.original, item.translated)
+    if item.epubcfi is not None:
+        print(item.epubcfi)
 
 await craft.translate_epub(
     "source.epub", "translated.epub",
@@ -72,9 +74,12 @@ await craft.translate_epub(
 
 CFI 范围定位的是**输入 EPUB**，按原始 DOM 的 text/tail 位置与 UTF-16 偏移生成，支持跨行内标签。
 XML 改写不会改变已经捕获的来源位置。回调覆盖 spine 正文中的内容，包括其中的标题和注释；
-不包含目录、OPF 元数据或文档 head 标题。精确回调要求 spine 文档是 `application/xhtml+xml`；
-`text/html` 仍可在不传回调时翻译，但请求精确回调时会明确拒绝，避免提供依赖阅读器修复行为的
-错误位置。CFI 不保证继续定位输出 EPUB，因为译文写回可能改变 DOM。
+不包含目录、OPF 元数据或文档 head 标题。从 2.5.1 起，`epubcfi` 的类型为 `str | None`：
+`application/xhtml+xml` 保留精确定位；`text/html` 仍正常交付原译文，只将 `epubcfi` 设为 `None`。
+明确缺少可靠来源定位信息时同样使用 `None`，不猜测位置。混合格式 EPUB 按片段判断，
+不会关闭其他文档的可靠 CFI。调用方使用定位前应判断是否为 `None`。
+CFI 不保证继续定位输出 EPUB，因为译文写回可能改变 DOM。仅降级明确的定位能力缺失；
+解析、翻译、来源映射/偏移损坏等意外错误及用户回调异常，仍按原规则终止操作。
 
 ## 调度与成本
 

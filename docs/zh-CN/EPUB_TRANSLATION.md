@@ -252,8 +252,11 @@ PDFCraft().translate_epub(
 
 `on_body` 接收 `EpubFragmentContent(epubcfi, original, translated)`。它对应已采纳的原子翻译
 片段，可能比一个自然段更小；原译文均为纯文本，不包含 LLM 窗口重叠的上下文。
-范围 CFI 定位原始输入 EPUB，不指向译文文件，并要求 spine 文档为 XHTML。支持从嵌套 OPF
-通过 `../` 等相对路径定位章节。
+可选范围 CFI 定位原始输入 EPUB，不指向译文文件。`epubcfi` 类型为 `str | None`：XHTML
+保留精确定位，`text/html` 或明确缺少可靠来源信息时使用 `None`，原译文仍正常交付。
+混合格式书籍的其他片段保留可靠 CFI，调用方使用定位前应判断是否为 `None`。
+仅降级明确的定位能力缺失；解析、翻译、意外映射错误及用户回调异常仍传播。
+支持从嵌套 OPF 通过 `../` 等相对路径定位章节。
 
 `on_metadata` 一次性交付 OPF 书籍元信息的完整 `MetadataContent`。双语模式中，回调依然将
 译文视图与原文分开，最终 EPUB 保留所选追加方式。正文回调不包含导航、文档 head/title 或

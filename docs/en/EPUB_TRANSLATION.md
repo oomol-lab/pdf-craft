@@ -189,9 +189,14 @@ For endpoint, cache, or empty-response errors, see [Troubleshooting](TROUBLESHOO
 
 Pass `on_body` to receive `EpubFragmentContent(epubcfi, original, translated)` for
 accepted atomic fragments, which can be smaller than a paragraph. Text is plain
-and excludes overlapping LLM context. The range CFI addresses the input EPUB,
-not the translated output, and requires XHTML spine documents. Chapter paths
-relative to a nested OPF, including `../`, are supported.
+and excludes overlapping LLM context. The optional range CFI addresses the input
+EPUB, not the translated output. `epubcfi` is `str | None`: XHTML retains precise
+locations, while `text/html` or missing reliable location information yields `None`
+without suppressing original/translated text. In mixed-format books, other
+fragments keep their reliable CFIs. Check for `None` before using a location.
+Only known location unavailability is downgraded; parsing, translation, unexpected
+mapping errors and callback exceptions still propagate. Chapter paths relative
+to a nested OPF, including `../`, are supported.
 
 `on_metadata` receives one complete `MetadataContent` for OPF book metadata.
 In bilingual modes it still separates translated metadata from the original;

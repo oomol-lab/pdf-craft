@@ -63,7 +63,9 @@ for final structure, definitions, and resource validation.
 from pdf_craft import EpubFragmentContent, SubmitKind
 
 async def translated(item: EpubFragmentContent):
-    print(item.epubcfi, item.original, item.translated)
+    print(item.original, item.translated)
+    if item.epubcfi is not None:
+        print(item.epubcfi)
 
 await craft.translate_epub(
     "source.epub", "translated.epub",
@@ -83,11 +85,16 @@ text. No HTML/XML or internal template IDs are exposed.
 The range CFI addresses the **input EPUB**. UTF-16 offsets and original text/tail
 positions are captured before XML rewriting. A range may span inline elements.
 The callback covers spine body content, including its headings/notes; it does not
-emit TOC, OPF metadata, or document-head titles. Precise CFI callbacks require XHTML
-spine documents (`application/xhtml+xml`); `text/html` inputs remain supported
-without this callback, but callback requests reject them rather than inventing
-reader-dependent locations. A CFI does not promise a stable position in the
-translated output, whose DOM may have changed.
+emit TOC, OPF metadata, or document-head titles. Since 2.5.1, `epubcfi` is `str | None`:
+XHTML spine documents (`application/xhtml+xml`) retain precise locations, while
+`text/html` documents still deliver original/translated text with `epubcfi=None`.
+Missing reliable source-location information also produces `None`; no guessed CFI
+is emitted. In a mixed EPUB, this applies per fragment and does not disable the
+reliable locations from other documents. Check for `None` before using a location.
+A CFI does not promise a stable position in the translated output, whose DOM may
+have changed. Only known location unavailability is downgraded: parsing,
+translation, unexpected source-mapping/offset errors, and callback exceptions
+still fail the operation.
 
 ## Scheduling and cost
 
