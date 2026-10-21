@@ -221,11 +221,12 @@ class StreamCallbacksTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(len({item.epubcfi for item in received}), 8)
             self.assertGreater(len(produced), len(received))
             self.assertTrue(all(item.translated == '译:' + item.original for item in received))
-            self.assertTrue(all(item.epubcfi.startswith('epubcfi(/6/2!') for item in received))
+            self.assertTrue(all(item.epubcfi is not None and item.epubcfi.startswith('epubcfi(/6/2!') for item in received))
             from tests.test_epub_cfi import endpoints
             with ZipFile(source) as archive:
                 original_root = fromstring(archive.read('EPUB/a.xhtml'))
             for item in received:
+                assert item.epubcfi is not None
                 start, end = endpoints(original_root, item.epubcfi)
                 self.assertEqual(start[1], '')
                 self.assertEqual(end[1], item.original)
@@ -277,6 +278,7 @@ class StreamCallbacksTests(unittest.IsolatedAsyncioTestCase):
                 package = fromstring(archive.read(opf_path))
                 for index, item in enumerate(received):
                     # Resolve the package component independently of the producer.
+                    assert item.epubcfi is not None
                     prefix = item.epubcfi[len('epubcfi('):].split('!')[0]
                     self.assertEqual(prefix, f'/8/{4 + index * 2}')
                     node = package

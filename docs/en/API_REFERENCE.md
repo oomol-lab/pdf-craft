@@ -421,6 +421,12 @@ actual dimensions. `PDFSourceRegion` adds final font size, lines, formula atoms
 and erasure masks in source pixels. It does not expose fonts or promise identical
 browser glyph shaping. `EpubFragmentContent(epubcfi, original, translated)` carries
 plain text for an atomic source-EPUB fragment; `EpubTranslation` is an alias.
+Its fields remain in constructor order: `epubcfi: str | None`, `original: str`,
+`translated: str`. Check `epubcfi is not None` before using a location.
+`text/html` or missing reliable location information yields `None` while retaining
+text delivery; mixed XHTML/HTML books keep reliable CFIs for other fragments.
+Parsing, translation, unexpected mapping errors and callback exceptions still propagate.
+This contract is the same for both facades.
 
 `MetadataContent(metadata, original=None)` contains complete `DocumentMetadata`
 values, with `DocumentAuthor` values for authors. One-shot conversion separates

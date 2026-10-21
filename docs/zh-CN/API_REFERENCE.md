@@ -684,7 +684,10 @@ fragment 身份和整数 OCR bbox 放在一起，`map_bbox(target_size)` 按实�
 `PDFSourceRegion` 额外包含最终字号、行、公式及擦除信息，全部布局值以来源像素为单位；
 不提供字体分发，不承诺浏览器与 Qt 的逐字形一致性。
 `EpubFragmentContent(epubcfi, original, translated)` 对应原 EPUB 的原子翻译片段，
-原译文均为纯文本；`EpubTranslation` 是同类型别名。
+原译文均为纯文本；`EpubTranslation` 是同类型别名。字段和构造顺序保持为
+`epubcfi: str | None`、`original: str`、`translated: str`。使用定位前判断 `epubcfi is not None`；
+`text/html` 或明确缺少可靠定位信息时使用 `None`，原译文仍正常交付。混合格式 EPUB 的其他
+片段保留可靠 CFI。解析、翻译、意外映射错误和回调异常仍传播；同步与异步门面契约一致。
 
 `MetadataContent(metadata, original=None)` 包含完整 `DocumentMetadata`，作者使用
 `DocumentAuthor`。一键转换中，`ExtractionOptions.on_metadata` 观察提取，顶层

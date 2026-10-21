@@ -5,9 +5,9 @@ from dataclasses import dataclass
 
 @dataclass(frozen=True)
 class EpubFragmentContent:
-    """One accepted atomic fragment, located in the original input EPUB."""
+    """One accepted atomic fragment; epubcfi is None without reliable source location."""
 
-    epubcfi: str
+    epubcfi: str | None
     original: str
     translated: str
 
