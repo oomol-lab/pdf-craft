@@ -4,11 +4,15 @@ from __future__ import annotations
 
 from contextlib import contextmanager
 from contextvars import ContextVar
-from typing import Iterator
+from typing import TYPE_CHECKING, Iterator
+from collections.abc import Sequence
 
 from ._policy import current, source_locations
 from .policies import FailureLocation
 from .document.paragraph import SourceRegion
+
+if TYPE_CHECKING:
+    from .transformer.furniture import FurnitureSection
 
 _pages: ContextVar[dict] = ContextVar("pdf_craft_source_pages", default={})
 
@@ -177,9 +181,22 @@ def ocr_locations(path, limit=None) -> tuple[FailureLocation, ...]:
     )
 
 
+def furniture_section_locations(sections: Sequence[FurnitureSection]) -> tuple[FailureLocation, ...]:
+    """Page-local furniture has geometry, but no invented paragraph order."""
+    return tuple(
+        FailureLocation(
+            "regions", source=current().source, member_path="furnitures.xml",
+            unit_id=f"section:{section.page_index}:{','.join(map(str, section.det))}",
+            channel="furniture", page_indexes=(section.page_index,),
+            original=section.content, page=_pages.get().get(section.page_index), bbox=section.det,
+        )
+        for section in sections
+    )
+
+
 def task_locations(task) -> tuple[FailureLocation, ...]:
     """Adapt non-narrative public identities without exposing private payloads."""
-    from .transformer.furniture import FurniturePosition
+    from .transformer.furniture import FurniturePosition, FurnitureSection
     from .transformer.anchored_content import AnchoredContent
 
     payload = task.payload
@@ -188,6 +205,8 @@ def task_locations(task) -> tuple[FailureLocation, ...]:
         return source_locations()
     if task.source_locations:
         return task.source_locations
+    if isinstance(payload, tuple) and payload and isinstance(payload[0], FurnitureSection):
+        return furniture_section_locations(payload)
     if isinstance(payload, FurniturePosition):
         return (
             FailureLocation(
