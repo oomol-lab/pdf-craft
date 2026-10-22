@@ -46,12 +46,13 @@ async def translate_furnitures_in_workspace_async(
     furnitures_path: Path,
     translation_path: Path,
     transformer: FurnitureTransformer,
+    pages_path: Path | None = None,
 ) -> None:
     """Native-async furniture translation with filesystem work off-loop."""
     from ..document.package import _read_pages
     from ..document.access import page_geometries
 
-    pages_path = chapters_path.parent / "pages.xml"
+    pages_path = pages_path if pages_path is not None else chapters_path.parent / "pages.xml"
     pages = {}
     if await IO_DOMAIN.run(pages_path.exists):
         dpi, sizes = await IO_DOMAIN.run(_read_pages, pages_path)
