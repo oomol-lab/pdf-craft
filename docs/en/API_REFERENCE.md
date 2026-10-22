@@ -73,6 +73,13 @@ Model preloading uses the async `await predownload_models(...)` function; synchr
 craft = PDFCraft(pdf=PDFOptions(ocr=your_ocr_config))
 ```
 
+Both façades also accept `retry_policy: RetryPolicy | None = None` and
+`error_policy: ErrorPolicy | None | bool | ErrorCallback = None`. Extraction,
+translation, rendering and patching methods accept per-call overrides; omitted
+error policies inherit the instance default, while explicit `None` or `False`
+restores strict failure. These are execution arguments, not `ExtractionOptions`
+fields. See [policies and the 2.6.0 migration guide](ERROR_HANDLING.md).
+
 ### PDF extraction and rendering
 
 Both facades expose explicitly named parameters. Signatures below abbreviate
@@ -109,7 +116,17 @@ The two `convert_pdf_to_*` methods use a directory-backed extraction inside thei
 
 `RenderMode.SOURCE` renders the original content and does not select a translation. `RenderMode.REPLACE` renders one translation with source fallback for untranslated units. `RenderMode.BILINGUAL` renders source followed by a translated body paragraph. `RenderMode.BILINGUAL_TEXT` appends translated content within each corresponding source fragment in the same text flow. All translation render modes accept an explicit file-local `translation_id`; omitting it deterministically selects the first translation. They fail when the PCEX has no translations, and an explicit missing or malformed ID is never replaced by the default. Translated metadata overrides matching source fields while missing fields retain their source values. Bilingual titles, descriptions, headings, TOC titles, and translated image/table fields include both forms.
 
-Set `error_policy=True` to preserve the original PDF page when that page's fill transaction fails, then continue with later pages. The default remains fail-fast. `error_policy` may instead be a `Callable[[FailureContext], bool]` that chooses whether each page-scoped exception may fall back. Local functions and lambdas are supported: they remain in the caller process and are not required to be pickleable when Qt patching runs in isolation. Async calls dispatch the predicate on the caller's event-loop thread. If every page scheduled for fill falls back, `NoUsableFillPagesError` is raised and no output is written. This recovery scope intentionally covers ordinary page-level exceptions, including unexpected fill bugs; it does not recover a source PDF that cannot be opened, enumerated, or compiled into a visual base. Enable it only when an untranslated visual-base page beside successfully translated pages is an acceptable result.
+Set `error_policy=ErrorPolicy(ignore_pdf_fill_errors=True)` to preserve original
+PDF pages when writeback fails and continue with later pages. A predicate in that
+field receives `FailureContext`, including structured errors and affected
+locations. Synchronous and asynchronous predicates remain in the caller process,
+so local functions and lambdas need not be pickleable; asynchronous decisions are
+awaited on the caller's event loop. A top-level `error_policy=True` or callback
+also controls other recoverable categories, including translation. The default
+is strict failure. If every primary fill target falls back,
+`NoUsableFillPagesError` prevents successful publication. Unusable input/output,
+fatal service errors and callback errors cannot be ignored. See
+[error handling](ERROR_HANDLING.md).
 
 ## `PDFCraftExtraction` and `.pcex`
 
@@ -173,8 +190,6 @@ extraction; they do not fall back to an analysis/OCR directory.
 | `toc_assumed` | `False` | Treat the document as already having usable TOC information. |
 | `toc_llm` | `None` | LLM used when TOC analysis is needed. |
 | `footnotes` | `None` | `None` disables footnotes; `FootnoteOptions()` uses the traditional algorithm; adding `FootnoteRefinement` enables JEV and LLM refinement. |
-| `ErrorPolicy.ignore_pdf_render_errors` | `False` | `True` or a predicate that decides whether a PDF error may be skipped. |
-| `ErrorPolicy.ignore_ocr_errors` | `False` | `True` or a predicate that decides whether an OCR error may be skipped. |
 | `aborted` | a callback returning `False` | A callback checked during processing to request cancellation. |
 | `on_ocr_event` | no-op callback | Receives per-page `OCREvent` updates. |
 | `on_body` / `on_footnote` | `None` | Receive independent PCEX XML snapshots during extraction. |

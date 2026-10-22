@@ -45,13 +45,15 @@ pdf-craft 需要 Poppler 将 PDF 页面渲染为图像，也会在翻译 PDF 写
 先用其他 PDF 阅读器打开输入文件，确认文件没有损坏，并确认当前用户有读取权限。密码保护、
 损坏的交叉引用表、异常页面尺寸或极端复杂的 PDF 结构，都可能在页面渲染阶段失败。
 
-pdf-craft 的提取选项支持 `ErrorPolicy.ignore_pdf_render_errors`。设为 `True` 可以让单页错误不立即终止整个
-流程；如果只想忽略特定错误，可以传入接收 `PDFError` 并返回布尔值的判断函数。忽略错误会
+从 `pdf_craft` 导入 `ErrorPolicy`，通过门面或单次操作的
+`error_policy=ErrorPolicy(ignore_pdf_render_errors=True)` 可以让可恢复的单页渲染错误不立即终止整个
+流程；如果只想忽略特定错误，该字段可传入接收 `FailureContext` 并返回布尔值的判断函数。忽略错误会
 留下缺失或 fallback 页面，适合抢救长文档，不代表原始页面已经被正确识别。
 
-OCR 也有对应的 `ErrorPolicy.ignore_ocr_errors` 选项，既可以设为 `True`，也可以传入接收 `OCRError`
-的判断函数。它只控制遇到识别错误时是否继续处理后续页面；被跳过的页面仍可能没有可用文字，
-因此应在输出中检查这些页面，而不是把“流程完成”当成“每页都识别成功”。
+OCR 也有对应的 `ErrorPolicy.ignore_ocr_errors` 字段，既可以设为 `True`，也可以传入接收
+`FailureContext` 的判断函数，从中读取来源页及结构化错误摘要。它控制遇到可恢复识别错误时是否继续处理后续页面；被跳过的页面仍可能没有可用文字，
+因此应在输出中检查这些页面，而不是把“流程完成”当成“每页都识别成功”。所有请求页都因错误
+退化为图片或占位时，任务仍会失败，不能由错误策略放行。详见[错误处理](ERROR_HANDLING.md)。
 
 ## local OCR 问题
 

@@ -7,6 +7,12 @@ README；本文只说明稳定的公共导入和它们如何组合。示例默�
 from pdf_craft import AsyncPDFCraft, PDFCraft, PDFOptions
 ```
 
+两个门面都接受 `retry_policy: RetryPolicy | None = None` 和
+`error_policy: ErrorPolicy | None | bool | ErrorCallback = None`。提取、翻译、渲染和回填方法
+可以按次覆盖；不传错误策略时继承实例配置，显式 `None` 或 `False` 恢复严格失败。
+它们是执行参数，不属于 `ExtractionOptions` 的字段。
+详见[策略配置与 2.6.0 迁移指南](ERROR_HANDLING.md)。
+
 ## 异步与同步门面
 
 `AsyncPDFCraft` 是服务端、Notebook 和其他 asyncio 程序的首选入口。它为
@@ -304,7 +310,7 @@ craft.convert_pdf_to_markdown(
 extraction = craft.extract_pdf("input.pdf", "work/book.pcex")
 craft.translate_pdf(
     "input.pdf", extraction, "translated.pdf", translator,
-    error_policy=True,  # 某一页写回失败时保留该页视觉底图，并继续后续页
+    error_policy=True,  # 允许可恢复错误降级；写回失败时保留原 PDF 页
 )
 ```
 
@@ -324,14 +330,15 @@ craft.patch_pdf_with_extraction(
 
 `translate_pdf` 与 `patch_pdf_with_extraction` 默认在写回错误时立即失败。传入
 `error_policy=True` 后，能够归属到某一页的擦除、文字层、公式或 PDF 合成异常（包括未知代码
-异常）会记录完整 traceback，并让该页退回为不可交互的视觉底图；其余页仍继续写回。若所有需要
+异常）会记录完整 traceback，并让该页保留原始 PDF 内容；其余页仍继续写回。若所有需要
 写回的页面都退回，会抛出 `NoUsableFillPagesError`，不会产生伪成功文件。不能打开、枚举或编译
 为视觉底图的源 PDF 没有可回退页，仍会直接失败。
 
-`error_policy` 还可以传入 `Callable[[FailureContext], bool]`，在每个可归属页面的异常发生时决定是否
-允许该页回退。局部函数和 lambda 均受支持：Qt 回填在隔离进程运行时，predicate 仍留在调用方进程，
-无需可 pickle；异步调用会在调用方事件循环线程执行 predicate。默认 `False` 保持 fail-fast；只有业务可以接受“未翻译视觉底图页与已翻译页面并存”时，
-才应启用此恢复策略。
+`error_policy` 还可以传入同步或异步判断函数，接收最终失败的 `FailureContext` 后返回 bool。
+顶层 callback 会决定所有可降级类别；若只决定 PDF 写回失败，使用
+`ErrorPolicy(ignore_pdf_fill_errors=callback)`。局部函数和 lambda 均受支持：Qt 回填在隔离进程
+运行时，predicate 仍留在调用方进程，无需可 pickle；异步判断会在调用方事件循环线程被等待。
+只有业务可以接受“原始 PDF 页与已翻译页面并存”的结果时才应启用恢复；默认严格失败。
 
 ## PDFCraftExtraction 与 `.pcex`
 

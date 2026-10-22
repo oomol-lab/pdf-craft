@@ -140,7 +140,7 @@ craft.translate_pdf(
     translator,
     # Also translate running heads, footers, and folios present in the PCEX.
     with_furniture=True,
-    # Keep an unmodified visual-base page if one page's fill fails.
+    # Allow recoverable failures; failed writeback keeps the original PDF page.
     error_policy=True,
 )
 ```
@@ -176,7 +176,14 @@ is not patched into PDF because PCEX does not retain field-level PDF geometry.
 
 By default a PDF fill error stops the operation. Pass `error_policy=True` to either PDF entry point when a service should keep processing later pages: a failing page is emitted as its original PDF page, with the original source text, while successful pages retain selectable translated text. If every page scheduled for fill fails, `NoUsableFillPagesError` is raised instead of producing an all-fallback PDF. This option deliberately catches any ordinary exception within a page fill transaction and records its traceback; it cannot recover a source document for which no visual pages can be produced.
 
-`error_policy` may also be a `Callable[[FailureContext], bool]`; the callable receives each page-scoped exception and decides whether that page may fall back. Leave it as `False` unless a partial result is useful to your application: a recovered document can contain an untranslated visual-base page next to translated pages.
+`error_policy` may also be a synchronous or asynchronous callback receiving
+`FailureContext` and returning bool. It receives a final failure's structured
+error and source/affected locations, rather than a bare exception. A top-level
+callback decides all recoverable categories; use
+`ErrorPolicy(ignore_pdf_fill_errors=callback)` to decide only PDF writeback
+failures. Leave recovery disabled unless a partial result is useful: failed pages
+retain the original PDF content beside successfully patched pages. See
+[error handling and migration](ERROR_HANDLING.md).
 
 ### What PDF patching can and cannot preserve
 

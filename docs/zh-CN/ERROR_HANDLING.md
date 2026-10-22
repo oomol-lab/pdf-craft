@@ -64,3 +64,48 @@ PCEX 以 coverage 的 preserved/缺失表示未翻译，并非原文充当译文
 缓存命中、合法同文、原生图片或真正没有处理目标不是失败。
 取消、callback 自身异常、不可继续的服务错误、fallback 失败以及根本无法读写产物的错误
 仍然抛出。`ErrorCallbackError` 通过 cause 保留 callback 的异常。
+
+## 从 2.5.x 升级
+
+**2.6.0 调整了公开参数与默认错误行为，升级前需要修改旧调用。** 重试策略决定尝试次数；
+错误策略决定最终失败后是否降级，两者不能互相替代。
+
+| 已移除的参数或回调 | 替代方式 |
+| --- | --- |
+| `XMLTranslator(..., max_retries=N)`、`translate_epub(..., max_retries=N)` | 使用 `retry_policy=RetryPolicy(fill=max(0, N - 1))` 保持旧的总尝试次数。新默认值是额外重试 3 次，共 4 次尝试。 |
+| `FootnoteRefinement(..., max_retries=N)` | 在 Craft 实例或提取调用中传入 `retry_policy=RetryPolicy(analysis=N)`。 |
+| `JEV(..., retry_times=N)` | 使用 `RetryPolicy(analysis=N)`，与其他分析步骤共享配置。 |
+| `ExtractionOptions(ignore_pdf_errors=...)` | 在执行的 `error_policy` 中使用 `ErrorPolicy(ignore_pdf_render_errors=...)`。 |
+| `ExtractionOptions(ignore_ocr_errors=...)` | 在执行的 `error_policy` 中使用 `ErrorPolicy(ignore_ocr_errors=...)`。 |
+| PDF 翻译／回填的 `ignore_errors=...` | 改为 `error_policy=ErrorPolicy(ignore_pdf_fill_errors=...)`。 |
+| `XMLTranslator(..., ignore_translated_error=...)` | 显式配置 `ErrorPolicy.ignore_translation_errors` 和／或 `ignore_fill_errors`；旧参数并未保证 XML 填充失败时严格抛错。 |
+| `on_fill_failed`、`FillFailedEvent` | 在 `error_policy` 或 `ErrorPolicy.ignore_fill_errors` 中传判断回调。它只接收最终失败的 `FailureContext`，必须返回 bool。 |
+
+目录／标题推断与元信息提取不再默认静默 fallback。允许它们采用统计或原生 metadata
+结果时，显式设置 `ignore_analysis_errors=True`，或通过 callback 逐次判断。同一类别也控制
+JEV 评估和脚注精修失败后保留算法结果；JEV 服务失败不会被伪造成质量低分。
+
+旧判断函数接收异常对象。新函数接收 `FailureContext`，其中的 `error` 是可序列化摘要，
+不是原异常。应读取 `failure.category`、`failure.error.type`、`failure.error.code` 和来源位置，
+不能继续对 payload 使用 `isinstance(failure, OCRError)`：
+
+```python
+from pdf_craft import ErrorPolicy, PDFCraft, RetryPolicy
+
+async def allow_selected_pages(failure):
+    pages = {page for target in failure.targets for page in target.page_indexes}
+    return bool(pages) and 1 not in pages
+
+craft = PDFCraft(
+    retry_policy=RetryPolicy(analysis=3, fill=3),
+    error_policy=ErrorPolicy(
+        ignore_analysis_errors=True,
+        ignore_ocr_errors=allow_selected_pages,
+    ),
+)
+```
+
+返回 `False` 抛异常；返回 `True` 才执行拟定的 fallback。判断函数自身异常或未返回 bool
+也会使任务失败。顶层 `error_policy=True` 只放行可恢复类别，不能忽略取消、不可继续的服务
+错误或任务全部降级。`on_body`、`on_footnote` 等内容回调的既有 payload 保持不变。
+本次仍使用 PCEX v4，不需要迁移归档格式。
