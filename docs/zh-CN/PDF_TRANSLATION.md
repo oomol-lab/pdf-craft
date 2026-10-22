@@ -159,7 +159,7 @@ craft.translate_pdf(
     "translated.pdf",
     translator,
     with_furniture=True,  # 同时翻译 PCEX 中已有的页眉、页脚和页码
-    error_policy=True,  # 某页写回失败时保留该页视觉底图
+    error_policy=True,  # 允许可恢复错误降级；写回失败时保留原 PDF 页
 )
 ```
 
@@ -179,9 +179,10 @@ traceback 会写入日志。若所有需要写回的页面都退回，则抛出 
 看似成功、实际未写入译文的 PDF。无法打开、枚举或建立视觉底图的源 PDF 没有页级恢复载体，仍会
 直接失败。
 
-`error_policy` 也可以是 `Callable[[FailureContext], bool]`：每次出现可归属某一页的异常时，该 callable
-接收 FailureContext 并决定这页是否允许回退。除非业务能接受“某些页面保留未翻译视觉底图、其他页面已有译文”的
-混合结果，否则应保持默认的 `False`。
+`error_policy` 也可以是同步或异步判断函数，接收最终失败的 `FailureContext`，读取结构化错误、
+来源与影响范围后返回 bool。顶层 callback 决定所有可降级类别；若只决定 PDF 写回失败，使用
+`ErrorPolicy(ignore_pdf_fill_errors=callback)`。除非业务能接受“某些页面保留原始 PDF 内容、
+其他页面已有译文”的混合结果，否则应保持默认严格失败。详见[错误处理与迁移指南](ERROR_HANDLING.md)。
 
 ### PDF 输出的限制
 
@@ -189,7 +190,7 @@ traceback 会写入日志。若所有需要写回的页面都退回，则抛出 
 - 默认写回会检查结果是否带有页面几何元数据、章节和几何中涉及的页码是否落在源 PDF 页数
   范围内，以及每个章节页面是否具有对应的几何记录。它不验证结果目录是否确实由该源 PDF
   提取而来，因此调用方应自行确保二者匹配；开启 `error_policy=True` 后，能归属到某页的
-  几何错误会让该页回退为视觉底图。
+  几何错误可以按策略让该页保留原始 PDF 内容。
 - 写回前，Ghostscript 会将每个源页的非 Annotation 内容编译为无字体的纯视觉底图。源矢量
   文字仍以线条显示，但不再可选中、搜索或提取；隐藏 OCR 文字也会被移除。源页完整的
   `/Annots` 数组会在译文之上重新挂载，因此链接、高亮、批注、表单控件及其他 PDF Annotation
@@ -366,12 +367,14 @@ narrative 与 metadata 固定翻译；`with_anchored` 和 `with_furniture` 只�
 | `generate_plot` | `False` | 生成图表相关资源 |
 | `toc_assumed` | `False` | 是否假定 PDF 中存在目录页 |
 | `toc_llm` | `None` | 使用文本 LLM 辅助分析复杂目录层级 |
-| `ErrorPolicy.ignore_pdf_render_errors` / `ErrorPolicy.ignore_ocr_errors` | `False` | 按布尔值或 callable 决定是否跳过页面级错误 |
 | `aborted` | 始终返回 `False` 的回调 | 外部中断检查回调 |
 | `on_ocr_event` | 无操作回调 | 接收 OCR 页面事件的回调 |
 | `on_body` / `on_footnote` | `None` | 提取过程中接收独立 PCEX XML 快照 |
 | `on_metadata` | `None` | 一次性接收定稿后的 `MetadataContent` |
 | `context` | `None` | 调用方持有的 `ExtractionContext`，用于页面几何和活跃期间的资源访问 |
+
+页面渲染和 OCR 的降级通过门面或单次操作的 `error_policy` 配置，不属于
+`ExtractionOptions`。详见[错误处理与迁移指南](ERROR_HANDLING.md)。
 
 直接 PDF → PCEX 时，`includes_furniture=True` 是默认行为：它只保留可从 native PDF 文本识别的
 页眉、页脚和页码等 furniture，不会请求翻译；扫描页没有这类 native 文本时可以自然不产生 furniture。

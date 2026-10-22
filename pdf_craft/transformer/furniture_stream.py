@@ -53,5 +53,6 @@ async def prepare_furniture(paths, transformer, root):
             await IO_DOMAIN.run(copy2, paths.furnitures, furniture)
             await translate_furnitures_in_workspace_async(
                 chapters_path=chapters, toc_path=toc, furnitures_path=furniture,
+                pages_path=paths.pages,
                 translation_path=root / 'coverage.xml', transformer=transformer._furniture_transformer())
         return cache, furniture, root / 'coverage.xml'

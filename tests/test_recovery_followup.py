@@ -95,6 +95,44 @@ def furniture_source(root: Path, *, template=False):
 
 
 class FurnitureRecoveryTests(unittest.IsolatedAsyncioTestCase):
+    async def test_streaming_pdf_preserves_known_furniture_geometry(self):
+        from reportlab.pdfgen import canvas
+
+        for template in (False, True):
+            with self.subTest(template=template), tempfile.TemporaryDirectory() as folder:
+                root = Path(folder)
+                source = furniture_source(root / "source", template=template)
+                pdf = root / "source.pdf"
+                drawing = canvas.Canvas(str(pdf), pagesize=(300, 450))
+                for number in range(8):
+                    drawing.drawString(10, 400, str(number + 1))
+                    drawing.showPage()
+                drawing.save()
+                value = translator()
+                value._translate_text_async = AsyncMock(side_effect=RuntimeError("provider failure"))
+                seen = []
+
+                async def decide(failure):
+                    seen.append(failure)
+                    return True
+
+                output = root / "output.pdf"
+                await AsyncPDFCraft(error_policy=decide).translate_pdf(
+                    pdf, source, output, value, with_furniture=True,
+                )
+                self.assertTrue(output.exists())
+                self.assertEqual(len(seen), 1)
+                locations = seen[0].affected if template else seen[0].targets
+                self.assertEqual(len(locations), 2)
+                for location in locations:
+                    page_index = location.page_indexes[0]
+                    self.assertEqual(location.page, PageGeometry(page_index, 600, 900, 144))
+                    self.assertIsNotNone(location.bbox)
+                self.assertEqual(
+                    [location.page_indexes for location in locations],
+                    [(7,), (8,)] if template else [(7,), (7,)],
+                )
+
     async def test_page_batch_retains_geometry_through_core_and_outer_recovery(self):
         for in_core in (True, False):
             for asynchronous in (True, False):

@@ -26,7 +26,7 @@ Run `pdfinfo -v` in the same environment that runs Python. If it is unavailable,
 
 If a PDF fails to open or only selected pages fail, verify that it opens in an ordinary PDF reader and that the current user can read it. Password protection, corrupt cross-reference data, unusual page dimensions, and malformed PDFs can all fail during rendering.
 
-`ExtractionOptions(ignore_pdf_errors=True)` can let a long job continue past individual PDF errors. A predicate can make that decision selectively. It is a recovery tool, not proof that skipped pages were processed correctly; inspect the resulting document.
+`PDFCraft(error_policy=ErrorPolicy(ignore_pdf_render_errors=True))` can let a long job continue past individual page-render errors. Import `ErrorPolicy` from `pdf_craft`. A predicate in that field receives `FailureContext` and returns whether to recover; it does not receive a bare `PDFError`. Recovery is not proof that the page was processed correctly; inspect the output. All requested pages falling back still fails the task. See [error handling](ERROR_HANDLING.md).
 
 ## Local OCR
 
@@ -65,7 +65,7 @@ For out-of-memory errors or very slow runs, first process a small sample with `E
 
 Use `on_ocr_event` to record the page index, event kind, timing, and tokens. `START`, `RENDERED`, `COMPLETE`, `FAILED`, `SKIP`, and `IGNORE` distinguish a page that was not selected, reused from cache, failed to render, or failed in OCR.
 
-`ignore_ocr_errors=True` (or a predicate) permits later pages to continue after an OCR failure. Check the corresponding output pages afterward. If an `aborted` callback requests cancellation, the underlying extraction aborts; a token budget is a separate interruption condition. Capture the actual exception and the recent OCR events when diagnosing either case.
+`ErrorPolicy(ignore_ocr_errors=True)` (or a predicate in that field) permits later pages to continue after a recoverable OCR failure. Pass it as `error_policy` to the façade or operation. Predicates receive `FailureContext`, including source-page locations and a structured error summary. Check the corresponding output pages afterward. If an `aborted` callback requests cancellation, the underlying extraction aborts; a token budget is a separate interruption condition. Capture the actual exception and the recent OCR events when diagnosing either case.
 
 ## Vendor OCR
 
