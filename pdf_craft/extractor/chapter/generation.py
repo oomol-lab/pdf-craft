@@ -79,7 +79,7 @@ def _generate_chapters(
         return
     pages = list(analysed_pages)
     restored = restore_streams(pages)
-    chapters = list(_partition_chapters(restored.paragraphs, toc))
+    chapters = list(_partition_chapters(restored.paragraphs, toc, assembled=True))
     reachable = {reference.id for chapter in chapters
                  for reference in search_references_in_chapter(chapter)}
     for reference in restored.citations:
@@ -95,14 +95,21 @@ def _generate_chapters(
     yield from chapters
 
 
-def _partition_chapters(body_layouts, toc: TocInfo) -> Generator[Chapter, None, None]:
+def _partition_chapters(body_layouts, toc: TocInfo, *, assembled: bool = False) -> Generator[Chapter, None, None]:
     chapter: Chapter | None = None
     ref2toc: dict[tuple[int, int], Toc] = {}
 
     for item in iter_toc(toc.content):
         ref2toc[(item.page_index, item.order)] = item
 
-    for layout in _assemble_flow_items(body_layouts):
+    if assembled:
+        # PageAnalysis already chose the paragraph boundaries. Do not infer
+        # them again after an explicit refinement split at an asset.
+        layouts = ((DisplayFormula(item) if item.ref == "formula" else StandaloneAsset(item))
+                   if isinstance(item, SourceAsset) else item for item in body_layouts)
+    else:
+        layouts = _assemble_flow_items(body_layouts)
+    for layout in layouts:
         matched_toc = False
         if (
             isinstance(layout, TextFlowItem)
@@ -330,11 +337,9 @@ def _split_reference_origins(
     children: list[SourceTextFragment | SourceAsset] = []
     origin_page_index: int | None = None
     for child in layout.children:
-        if not isinstance(child, SourceTextFragment):
-            raise ValueError(
-                "footnote TextFlowItem cannot contain anchored assets before "
-                "flow assembly"
-            )
+        if isinstance(child, SourceAsset):
+            children.append(child)
+            continue
         mark, _ = extract_head_mark(child.content)
         if (
             mark is not None

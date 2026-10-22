@@ -62,7 +62,7 @@ PCEX 以 coverage 的 preserved/缺失表示未翻译，并非原文充当译文
 `NoUsableFillPagesError` 特例表示主要目标全部因错误降级，不能由 True 放行。
 书名/metadata 成功不能掩盖正文全部未翻译；可选分析全部降级也不影响已正常完成的提取。
 缓存命中、合法同文、原生图片或真正没有处理目标不是失败。
-取消、callback 自身异常、不可继续的服务错误、fallback 失败以及根本无法读写产物的错误
+取消、callback 自身异常、不可继续的服务错误、最终保底失败以及根本无法读写产物的错误
 仍然抛出。`ErrorCallbackError` 通过 cause 保留 callback 的异常。
 
 ## 从 2.5.x 升级
@@ -109,3 +109,16 @@ craft = PDFCraft(
 也会使任务失败。顶层 `error_policy=True` 只放行可恢复类别，不能忽略取消、不可继续的服务
 错误或任务全部降级。`on_body`、`on_footnote` 等内容回调的既有 payload 保持不变。
 本次仍使用 PCEX v4，不需要迁移归档格式。
+
+### PDF 提取的最后保底
+
+段落分析或脚注恢复出现结构矛盾时，提取先尝试可信传统结果；仍不可用时，
+以 `analysis` 类别、`chapter_recovery` 阶段、`page_image` 方案询问策略。
+`targets` 是可定位的错误页，`affected` 包含跨页段落、脚注和引用牵涉的页面；
+无法可靠定位时会保守扩大范围。允许 `algorithm_result` 不代表已经允许 `page_image`。
+页面图片从原 PDF 重新渲染，不经过损坏的结构。如果渲染也失败，会另以
+`pdf_render` 类别请求 `page_placeholder`。拒绝任一方案时异常继续传播。
+
+这条保底同样适用于未开启 LLM 精修的提取。原 OCR 缓存和已经交付的预览不改写、
+不重复通知。部分页面保留图片后其余内容可正常交付；全部主要页因错误降级时仍会失败。
+取消、用户回调错误、不可继续的服务故障及最终文件写入失败不会被这条保底吞掉。

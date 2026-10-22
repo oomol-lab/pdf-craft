@@ -334,7 +334,11 @@ def analyse_pages(
             raise ValueError(f"Duplicate PageAnalysis page index: {page_index}")
         pages[page_index] = PageAnalysis(page_index=page_index)
 
-    for item in paragraphs:
+    # Establish author paragraphs before projecting them back into page order.
+    from .generation import _assemble_flow_items
+    for item in _assemble_flow_items(paragraphs):
+        if isinstance(item, (StandaloneAsset, DisplayFormula)):
+            item = item.asset
         if isinstance(item, SourceAsset):
             layout = _analyse_layout(
                 source=item,
@@ -345,16 +349,19 @@ def analyse_pages(
             _get_page(pages, layout.page_index).layouts.append(layout)
             continue
 
-        for index, fragment in enumerate(item.children):
-            if not isinstance(fragment, SourceTextFragment):
-                raise ValueError(
-                    "PageAnalysis must be created before FlowItem asset assembly"
-                )
+        texts = [child for child in item.children if isinstance(child, SourceTextFragment)]
+        for fragment in item.children:
+            if isinstance(fragment, SourceAsset):
+                layout = _analyse_layout(source=fragment, ownership="paragraph",
+                                         continues_from_previous=False, continues_to_next=False)
+                _get_page(pages, layout.page_index).layouts.append(layout)
+                continue
+            index = texts.index(fragment)
             layout = _analyse_layout(
                 source=fragment,
                 ownership="paragraph",
                 continues_from_previous=index > 0,
-                continues_to_next=index < len(item.children) - 1,
+                continues_to_next=index < len(texts) - 1,
                 paragraph_role=item.role,
                 paragraph_level=item.level,
             )
@@ -381,13 +388,21 @@ def analyse_pages(
             citation_mark=citation_mark,
             stream_order=citation_order,
         )
-        for flow_item in citation.flow_items:
+        flat_items = (item.asset if isinstance(item, (StandaloneAsset, DisplayFormula)) else item
+                      for item in citation.flow_items)
+        for flow_item in _assemble_flow_items(flat_items):
             if isinstance(flow_item, TextFlowItem):
-                for index, fragment in enumerate(flow_item.children):
-                    if not isinstance(fragment, SourceTextFragment):
-                        raise ValueError(
-                            "Citation analysis cannot contain assembled anchored assets"
-                        )
+                texts = [child for child in flow_item.children if isinstance(child, SourceTextFragment)]
+                for fragment in flow_item.children:
+                    if isinstance(fragment, SourceAsset):
+                        segment = _get_citation_segment(
+                            pages, segments, citation_id, citation.page_index, fragment.page_index,
+                            citation_index, citation_mark, citation_order)
+                        _get_page(pages, fragment.page_index).layouts.append(_analyse_layout(
+                            source=fragment, ownership="citation", continues_from_previous=False,
+                            continues_to_next=False, citation_id=citation_id, citation_index=segment.index))
+                        continue
+                    index = texts.index(fragment)
                     segment = _get_citation_segment(
                         pages=pages,
                         segments=segments,
@@ -403,7 +418,7 @@ def analyse_pages(
                             source=fragment,
                             ownership="citation",
                             continues_from_previous=index > 0,
-                            continues_to_next=index < len(flow_item.children) - 1,
+                            continues_to_next=index < len(texts) - 1,
                             paragraph_role=flow_item.role,
                             paragraph_level=flow_item.level,
                             citation_id=citation_id,
@@ -884,6 +899,18 @@ def _collect_reference_locations(
             _collect_reference_locations(part.children, references, path)
 
 
+class PageStructureError(ValueError):
+    """Invalid source relationships with a conservative page recovery target."""
+
+    def __init__(self, message: str, page_index: int, *, bbox: tuple[int, int, int, int] | None = None) -> None:
+        super().__init__(message)
+        self.page_index = page_index
+        self.bbox = bbox
+
+    def __reduce__(self):
+        return type(self), (str(self), self.page_index), {"bbox": self.bbox}
+
+
 def _restore_layouts(
     layouts: list[AnalysedLayout],
     references: dict[tuple[int, int], Reference],
@@ -898,7 +925,7 @@ def _restore_layouts(
         if not pending:
             return
         if pending_role is None or pending_level is None:
-            raise ValueError("Text layout is missing paragraph role or level")
+            raise PageStructureError("Text layout is missing paragraph role or level", pending[0].page_index)
         paragraph = TextFlowItem(pending_role, pending_level, pending)
         normalize_source_projection(paragraph)
         result.append(paragraph)
@@ -906,42 +933,67 @@ def _restore_layouts(
         pending_role = None
         pending_level = None
 
+    assets: list[SourceAsset] = []
     previous: AnalysedLayout | None = None
     for layout in layouts:
         source = layout.source
         if isinstance(source, _AnalysedAssetSource):
             if layout.continues_from_previous or layout.continues_to_next:
-                raise ValueError("Asset layouts cannot carry continuation gaps")
-            if previous is not None and previous.continues_to_next:
-                raise ValueError("Text layout cannot continue into an asset")
-            flush_pending()
-            result.append(_restore_asset(layout, references))
-            previous = layout
+                raise PageStructureError("Asset layouts cannot carry continuation gaps", layout.page_index, bbox=layout.bbox)
+            asset = _restore_asset(layout, references)
+            if asset.ref == "formula":
+                if previous is not None and previous.continues_to_next:
+                    raise PageStructureError("Text layout cannot continue across a display formula", layout.page_index)
+                flush_pending()
+                result.extend(assets)
+                assets = []
+                result.append(asset)
+                previous = None
+            else:
+                assets.append(asset)
             continue
 
         should_continue = layout.continues_from_previous
         if previous is None:
             if should_continue:
-                raise ValueError("First layout cannot continue from a predecessor")
+                raise PageStructureError("First layout cannot continue from a predecessor", layout.page_index)
         elif previous.continues_to_next != should_continue:
-            raise ValueError("Adjacent layout continuation annotations disagree")
+            raise PageStructureError("Adjacent layout continuation annotations disagree", layout.page_index)
 
         if not should_continue:
             flush_pending()
+            result.extend(assets)
             pending_role = layout.paragraph_role
             pending_level = layout.paragraph_level
         elif (
             layout.paragraph_role != pending_role
             or layout.paragraph_level != pending_level
         ):
-            raise ValueError("Continued text layouts disagree on paragraph metadata")
+            raise PageStructureError("Continued text layouts disagree on paragraph metadata", layout.page_index)
+        if should_continue:
+            pending.extend(assets)
+        assets = []
         pending.append(_restore_fragment(layout, references))
         previous = layout
 
     if previous is not None and previous.continues_to_next:
-        raise ValueError("Last layout cannot continue to a successor")
+        raise PageStructureError("Last layout cannot continue to a successor", previous.page_index)
     flush_pending()
+    result.extend(assets)
     return result
+
+
+def continuation_sequences(layouts: Iterable[AnalysedLayout]) -> Iterable[list[AnalysedLayout]]:
+    """Text predecessors skip image/table anchors; display formulas stop them."""
+    sequence: list[AnalysedLayout] = []
+    for layout in layouts:
+        if isinstance(layout.source, _AnalysedAssetSource):
+            if layout.source.ref == "formula":
+                yield sequence
+                sequence = []
+        else:
+            sequence.append(layout)
+    yield sequence
 
 
 def _restore_fragment(

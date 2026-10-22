@@ -39,7 +39,7 @@ class NoUsableOCRPagesError(AllFallbackError):
         super().__init__(
             "extract_pdf",
             len(failed_page_indexes),
-            message="OCR produced no usable pages; all requested pages failed after "
+            message="PDF extraction produced no usable pages; all requested pages fell back after "
             f"errors were ignored: {pages}",
         )
 

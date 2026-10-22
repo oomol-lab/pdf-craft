@@ -91,3 +91,19 @@ does not return a bool, the task fails. A top-level `error_policy=True` allows a
 recoverable categories, not cancellation, fatal service errors or total fallback.
 Content callbacks such as `on_body` and `on_footnote` keep their existing payloads.
 PCEX remains format v4; there is no archive-format migration in this release.
+
+### Last-resort PDF extraction recovery
+
+If chapter analysis or footnote reconstruction has inconsistent structure, extraction
+first uses a validated traditional result. If unavailable, the `analysis` policy is
+asked about stage `chapter_recovery`, fallback `page_image`. `targets` identify known
+failed pages; `affected` includes dependent paragraphs, definitions and references.
+Unknown failures conservatively affect the batch. Accepting `algorithm_result` does
+not authorize `page_image`. Pages are rendered directly from the source PDF, bypassing
+the broken graph. Rendering failures separately ask `pdf_render` for `page_placeholder`.
+Rejecting either decision propagates the error.
+
+This also protects extraction without LLM refinement. OCR caches and previously
+delivered previews are not rewritten or replayed. Partial degradation may complete;
+all primary pages degrading after errors still fails. Cancellation, user callback
+errors, terminal service errors and final storage/publication errors propagate.

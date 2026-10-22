@@ -40,7 +40,10 @@ OCR 流内下标和独立阅读位置。正文沿用原 source_order；新提取
 偏移，写入同一页的 fragment 身份空间。OCR Page 的 order 不变，旧 PCEX 不重新编号。
 阅读顺序保留正文已有的栏序，将脚注分类中的来源按同栏位置插入，不按全页 y 坐标排序。
 通宽锚点限定阅读带；栏尾来源插在所属栏最后成员之后，不能退回整页或整带末尾。
-传统 join、citation 拆分和同页 ref 匹配只建立初始结论，再投影为 PageAnalysis。印刷标记的
+传统 join、citation 拆分和同页 ref 匹配只建立初始结论，再投影为 PageAnalysis。
+跨页合并必须把页尾/续页页首 image/table 保留在两侧文字之间，不可挪到整段之后。
+PageAnalysis 的 continuation 表示文字前驱，跳过同一归属流中的图片/表格；资产自身 gap
+保持 false，DisplayFormula 才是硬边界。投影与恢复必须保留段内锚点，精修与校验遵守同一规则。印刷标记的
 完整来源和前缀范围保留到组装：正文投影保留前缀，定义投影才移除前缀。断词修复延后到 ownership
 组装完成后的语义投影；原始文字记录不被改写，投影为空的 fragment 也保留原身份和 bbox。
 

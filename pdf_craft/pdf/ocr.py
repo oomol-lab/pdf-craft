@@ -890,6 +890,35 @@ class OCR:
             )
             temporary_path.replace(path)
 
+    def page_geometry(self, page_index: int, dpi: int):
+        from ..document.access import page_geometries
+        return page_geometries(self.last_page_pixel_sizes, dpi).get(page_index)
+
+    def recover_page_image(self, pdf_path: Path, asset_path: Path, page_index: int, dpi: int) -> Page:
+        """Re-render from the PDF, never from untrusted OCR/analysis structures."""
+        try:
+            document = self._get_pdf_handler().open(pdf_path)
+            try:
+                image = document.render_page(page_index, dpi)
+            finally:
+                document.close()
+        except Exception as error:
+            raise PDFError("Could not render extraction recovery page", page_index) from error
+        try:
+            # Keep source geometry consistent with cached OCR and furniture.
+            # Re-rendering may choose a different raster size (OCR size limits
+            # and vendor normalization are independent of requested DPI).
+            target_size = self.last_page_pixel_sizes.get(page_index)
+            if target_size is not None and image.size != target_size:
+                resized = image.resize(target_size)
+                image.close()
+                image = resized
+            with self._geometry_lock:
+                self._last_page_pixel_sizes[page_index] = image.size
+            return self._create_fallback_page(AssetHub(asset_path), page_index, image)
+        finally:
+            image.close()
+
     def _create_fallback_page(
         self,
         asset_hub: AssetHub,

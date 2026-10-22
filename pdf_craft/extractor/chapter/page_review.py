@@ -32,7 +32,7 @@ JEV_QUESTION: dict[str, Any] = {
                 "页码、running header、章节栏头、装饰性短数字等 page furniture 不属于 paragraph 或 citation；若它们进入任一语义流，本页判错。",
             ],
             "continuation_standard": [
-                "continues_from_previous / continues_to_next 表示两个相邻 layout 在语义上属于同一个自然段或同一条 citation，而不只是视觉上相邻。",
+                "continues_from_previous / continues_to_next 表示同一流中相邻文字 layout 在语义上属于同一个自然段或同一条 citation，而不只是视觉上相邻。图片/表格可作为段内锚点，判断文字连接时跳过它们，资产自身 gap 为 false；独立段落公式才是硬边界。",
                 "验证连接处的语法和语义：前段未完且后段自然续接才可连接；完整句、标题、页码、独立条目或话题重启不得连接。",
                 "跨页开始或结束于半句话本身是合法的，只要 gap 与相邻页对应流的语义边界一致。",
                 "paragraph 与 citation 是两条独立流；验证 paragraph gap 时对照 paragraph_boundary，验证 citation gap 时对照 citation_boundary。",
@@ -315,11 +315,11 @@ def _boundary_context(
         return None
     paragraphs = [
         layout for layout in packet["layouts"]
-        if layout["ownership"] == "paragraph"
+        if layout["ownership"] == "paragraph" and layout.get("source_type") not in {"image", "table"}
     ]
     citations = [
         layout for layout in packet["layouts"]
-        if layout["ownership"] == "citation"
+        if layout["ownership"] == "citation" and layout.get("source_type") not in {"image", "table"}
     ]
     boundary = slice(-2, None) if side == "previous" else slice(None, 2)
     return {
