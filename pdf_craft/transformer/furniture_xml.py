@@ -12,6 +12,9 @@ from xml.etree.ElementTree import Element, SubElement
 
 from .furniture import FurniturePosition, FurnitureSection
 from .xml_translator.xml_translator import SubmitKind, TranslationTask
+from .._failure_sources import furniture_section_locations, task_locations
+from .._policy import recover
+from ..policies import FailureCategory
 
 
 class AsyncXMLTaskTranslator(Protocol):
@@ -52,6 +55,10 @@ class FurnitureXMLTransformer:
         )
         if task.outcomes and not all(task.outcomes.values()):
             return None
+        if position.content.strip() and not (translated.text or "").strip():
+            await recover(ValueError("translated furniture text is empty"),
+                          FailureCategory.FILL, 'furniture', 'omit_translation', targets=task_locations(task))
+            return None
         return translated.text
 
     @policy_operation
@@ -78,11 +85,20 @@ class FurnitureXMLTransformer:
         if task.outcomes and not all(task.outcomes.values()):
             return (None,) * len(sections)
         children = translated.findall("section")
-        if len(children) != len(sections):
+        if len(children) != len(sections) or any(
+            child.get("id") != str(index) for index, child in enumerate(children)
+        ):
+            await recover(ValueError("translated furniture sections do not preserve source identities"),
+                          FailureCategory.FILL, 'furniture_sections', 'omit_translation',
+                          targets=task_locations(task))
             return (None,) * len(sections)
         values: list[str | None] = []
-        for index, child in enumerate(children):
-            if child.get("id") != str(index):
-                return (None,) * len(sections)
-            values.append(child.text)
+        for child, section in zip(children, sections, strict=True):
+            if section.content.strip() and not (child.text or "").strip():
+                await recover(ValueError("translated furniture section text is empty"),
+                              FailureCategory.FILL, 'furniture_sections', 'omit_translation',
+                              targets=furniture_section_locations((section,)))
+                values.append(None)
+            else:
+                values.append(child.text)
         return values

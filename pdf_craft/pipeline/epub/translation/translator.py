@@ -283,10 +283,9 @@ async def translate(
         async def on_before_submit(value):
             element, mappings, context = value
             if context.element_type == _ElementType.CHAPTER and context.chapter_data is not None:
-                from ....transformer.xml_translator.xml_translator.source_store import owner_outcomes
-                outcomes = owner_outcomes(element, mappings)
-                completion.succeeded += sum(outcomes.values())
-                completion.degraded += sum(not value for value in outcomes.values())
+                outcomes = list(_primary_outcomes(element))
+                completion.succeeded += sum(outcomes)
+                completion.degraded += sum(not accepted for accepted in outcomes)
             if context.element_type != _ElementType.METADATA:
                 return
             context.missing_metadata_tags = tuple(node.get('tag', '') for node in element.iter('field')
@@ -465,6 +464,15 @@ def _generate_tasks_from_book(
                 item_id=str(chapter_path),
                 character_count=sum(len(segment.text) for segment in search_text_segments(body_element)),
             )
+
+
+def _primary_outcomes(element: Element, auxiliary: bool = False) -> Generator[bool, None, None]:
+    """Headings, including nested inline owners, cannot stand in for body work."""
+    auxiliary = auxiliary or element.tag in {"h1", "h2", "h3", "h4", "h5", "h6"} or "heading" in element.get("role", "").split()
+    if not auxiliary and element.get("__pdf_craft_unit") is not None:
+        yield element.get("__pdf_craft_missing") != "1"
+    for child in element:
+        yield from _primary_outcomes(child, auxiliary)
 
 
 def _get_version() -> str:
