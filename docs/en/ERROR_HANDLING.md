@@ -107,3 +107,16 @@ This also protects extraction without LLM refinement. OCR caches and previously
 delivered previews are not rewritten or replayed. Partial degradation may complete;
 all primary pages degrading after errors still fails. Cancellation, user callback
 errors, terminal service errors and final storage/publication errors propagate.
+
+
+### PDF source geometry protection
+
+Before erasing text, PCEX PDF rendering checks for text boxes that substantially
+cover unrelated source content, including figures and untranslated text. It asks
+`pdf_fill` about stage `source_geometry`, fallback `original_pdf_page`. Targets
+identify conflicting source bboxes; affected pages include complete cross-page
+paragraphs. Accepting retains those actual source PDF pages while other pages
+continue. No translated layout preview is emitted for skipped replacements;
+existing missing-translation previews can still carry original text with empty
+lines. If all primary targets degrade, the task still fails. Rejecting or raising
+from the decision callback aborts before output publication.

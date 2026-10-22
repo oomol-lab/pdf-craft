@@ -34,6 +34,8 @@ def prepare_index(chapters, furniture, coverage, pages, dpi, directory, translat
     from .pipeline import _regions_for_fragments, _chapter_obstacle_regions
     from .models import PDFReplacement
     entries, obstacles, translated_boxes = {}, [], set()
+    eligible = set()
+    from .source_safety import unsafe_source_geometry, source_identity
     for path in chapter_paths(chapters):
         for item in file_content(path):
             reference = item.value if isinstance(item.value, Reference) else None
@@ -64,6 +66,7 @@ def prepare_index(chapters, furniture, coverage, pages, dpi, directory, translat
                     replacement = PDFReplacement(first.page_index, first.bbox, value.strip(),
                         first.page_pixel_size, first.dpi, reading_order=first.reading_order,
                         regions=regions, layout_ref=text.role, layout_level=text.level, inline_formulas=formulas)
+                    eligible.add(source_identity(key))
                     if not translating:
                         translated_boxes.update((region.page_index, region.bbox) for region in regions)
                 else:
@@ -88,7 +91,8 @@ def prepare_index(chapters, furniture, coverage, pages, dpi, directory, translat
     for region in obstacles:
         obstacles_by_page.setdefault(region.page_index, []).append(region)
     ordered = sorted(entries, key=lambda key: entries[key][1])
-    return {key: (index, entries[key][0], entries[key][1]) for index, key in enumerate(ordered)}, obstacles_by_page, furniture_items
+    rejected, unsafe = unsafe_source_geometry(chapters, furniture_items, eligible, pages, dpi, directory / 'source-safety.sqlite')
+    return {key: (index, entries[key][0], entries[key][1]) for index, key in enumerate(ordered)}, obstacles_by_page, furniture_items, rejected, unsafe
 
 
 def _with_page_obstacles(replacement, obstacles):
@@ -122,9 +126,19 @@ async def patch_content(source, extraction, target, *, translator=None, translat
                     await IO_DOMAIN.run(previews.mkdir)
                     sizes = {index: (page.width, page.height) for index, page in pages.items()}
                     dpi = next(iter(pages.values())).render_dpi if pages else 300
-                    index, obstacles, furniture = await IO_DOMAIN.run(
+                    index, obstacles, furniture, rejected, unsafe = await IO_DOMAIN.run(
                         prepare_index, view.chapters, view.furnitures or patch_view.furnitures, coverage,
                         sizes, dpi, root, translator is not None)
+                    if rejected:
+                        from ..._policy import recover
+                        from ...policies import FailureCategory, FailureLocation
+                        from ...document.paragraph import SourceRegion
+                        await recover(ValueError('Text source bbox substantially covers unrelated source content'),
+                                      FailureCategory.PDF_FILL, 'source_geometry', 'original_pdf_page',
+                                      targets=tuple(FailureLocation('regions', source=str(source),
+                                          page_indexes=(r.page_index,), regions=(SourceRegion(pages[r.page_index], r.reading_order, r.bbox),))
+                                          for r in rejected),
+                                      affected=tuple(FailureLocation('page', source=str(source), page_indexes=(page,)) for page in sorted(unsafe)))
                     # Furniture and narrative are sorted together by original geometry.
                     all_entries = [(key, data[1], data[2]) for key, data in index.items()]
                     for number, value in enumerate(furniture):
@@ -142,6 +156,7 @@ async def patch_content(source, extraction, target, *, translator=None, translat
                     del all_entries
                     count = len(slots) + len(furniture)
                     patcher = PDFPatcher(pdf_handler=pdf_handler)
+                    patcher._preserved_source_pages = unsafe
                     patcher._stream_pages = {n: page.render_dpi for n, page in pages.items()}
                     if on_body is not None or on_footnote is not None:
                         patcher._preview_path = previews

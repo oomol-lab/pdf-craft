@@ -87,14 +87,12 @@ Implementation run on 2026-10-22:
   no missing, duplicated or wholly blank pages; Figure 4 and the table remain.
   PCEX `chapter_11.xml` contains fragment(page=5,order=7), asset(page=6,image),
   fragment(page=6,order=1) in one text node.
-- Local quality observations: two fill failures (13 attempts each, pages 1/3)
-  preserve source English; a page-3 paragraph is unusually small; page 1 has
-  minor residual author-block marks. Page 4's Figure 2 area is blank: the raw
-  vendor OCR marks folio `4` with a full-page bbox `(0,0,2474,3497)`, and that
-  source participates in a numeric paragraph with page 5's folio. Its PDF
-  replacement erases the illustration region. These observations are recorded,
-  not hidden by page-count checks. The requested gate tolerates local model/OCR
-  quality variation and does not require every region to be translated.
+- Local quality observations included fill failures preserving source English,
+  small text and residual author marks. The original run also lost Figure 2 on
+  page 4. Subsequent Review correctly classified this as SDK content destruction,
+  not acceptable model variability: an OCR folio had a full-page bbox and its
+  replacement erased both the figure and untranslated body. See the follow-up
+  safety fix below. The earlier run alone did not satisfy the visual gate.
 
 The implementation run is evidence, not a substitute for Review's independent
 fresh real-resource run and visual inspection. Generated PDFs, caches, logs,
@@ -144,3 +142,63 @@ available. No new model calls were made for this scope-only correction.
 Follow-up checks: full pytest **991 passed** (64 warnings); focused scope and
 anchor/recovery tests **25 passed**; pyright **0 errors / 0 warnings**; pylint
 **10.00/10**; `git diff --check` clean.
+
+
+## Review follow-up: contradictory PDF source geometry
+
+The vendor's page-4 folio bbox `(0,0,2474,3497)` contains unrelated figures and
+body text. PCEX still contains those objects; a later successful numeric
+translation must not erase them, especially when body translation/fill failed.
+
+Before PDF composition, a disk SQLite index checks every chapter source,
+including anchored assets, footnotes and untranslated paragraphs. An eligible
+text writer is rejected when its bbox covers over 80% of another source object's
+area and has over four times that object's area. These are conservative conflict
+detection thresholds, not guesses about a folio's textual meaning. This preflight
+is separate from Qt's continuous layout and does not turn anchors into obstacles
+or split author paragraphs. Source-only boxes which will not be erased do not
+trigger this writer check.
+
+The proposed recovery is `pdf_fill/source_geometry/original_pdf_page`. Targets
+carry the contradictory bbox in its real PageGeometry; affected locations give
+all pages that will be retained. A separate policy decision is required before
+composition; strict policies, cancellation and user decision exceptions propagate.
+The page set closes transitively over complete paragraph sources, including
+asset-only intermediate pages and footnote paragraphs. Every replacement on those
+pages is skipped; the final writer copies actual original PDF pages, not a blank
+visual base or a partially erased candidate. Skipped replacements do not publish
+fabricated line/erasure previews. Existing missing-translation callbacks can still
+report original text with empty placement data. Other pages continue to stream.
+All primary targets preserved due to this error still fail at EOF, even if every
+local recovery was accepted.
+
+`tests/test_pdf_source_safety.py` covers protected anchored image/table and
+untranslated text, furniture, ordinary anchors/overlaps, source-only giant boxes,
+transitive cross-page/asset/footnote closure, strict and raising/cancelled decisions,
+all-primary failure, live translation, repeated cached rendering, final source
+page content/image preservation and accurate remaining previews.
+
+Fresh real-resource follow-up (2026-10-22):
+
+- Command: the smoke entry above with output
+  `pdf-craft-output/deepseek-source-safety-coder` (new OCR/JEV/LLM resources,
+  no historical cache). Full PDF → PCEX → zh-CN → PDF exited **0**.
+- `review-evidence.json`, `summary.json`, `failures.json`, `translated.pdf` and
+  `previews/comparison-{1..6}.png` remain in that ignored output directory.
+  Log: `/private/tmp/vge820-source-safety-coder.log`.
+- Opened and inspected all six comparison images. Page 4 retains Figure 2,
+  section 2.1 and section 2.2; no false top “45”. Pages 4–6 are actual original
+  pages (pixel-identical at 100 DPI), conservatively retained because the
+  erroneous folio paragraph spans 4–5 and another author paragraph spans 5–6.
+  Figure 3, Figure 4 and the table remain. Other pages contain translations.
+- The PCEX cross-page paragraph is still exactly fragment(5,7) → asset(6,image)
+  → fragment(6,1). Source identity and author-paragraph granularity remain intact.
+- Error evidence includes `pdf_fill/source_geometry/original_pdf_page`, target
+  page 4, affected pages 4/5/6. Two local XML fill failures (13 attempts, pages
+  1/3) preserve source English. Minor author-block marks/small text remain;
+  no missing, duplicated, wholly blank or mismatched pages were observed.
+- Checks: full pytest **999 passed** (64 warnings); eight new source safety
+  regressions pass; pyright **0 errors / 0 warnings**; pylint **10.00/10**, exit 0;
+  `git diff --check` clean. Review must still independently rerun the fresh
+  resource/visual gate; retained source pages are recorded as recovery, not
+  claimed as successful translations.

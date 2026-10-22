@@ -62,3 +62,14 @@ PCEX 的段内 image/table anchor 在不同输出端有不同含义。Markdown/E
 - 普通布局的 width、行数与 forbidden line 不能因二阶段平均而被破坏。
 - headline 最小字号无法正常容纳时仍必须输出自然宽单行，不能退化为窄 bbox 内的多行 forced write。
 - 修改此区域时至少覆盖：普通跨 bbox 段落、孤立单行统计回退、headline 下限、以及一个真实 PDF 回填页面的视觉检查。
+
+
+## 不可信来源几何的回填前保护
+
+PCEX 消费端在 Qt 排版前建立磁盘来源索引，检查待擦除文本框是否大面积覆盖无关
+文本或资产。索引包含翻译缺失的原文及段内资产；它与排版 obstacle 独立，不改变段内
+image/table 透明连接语义。确认冲突时请求 `pdf_fill/source_geometry`、
+`original_pdf_page` 降级，目标给出原 bbox，affected 给出跨页自然段闭包。
+接受后跳过影响页的全部替换，复制实际原 PDF 页，不能先擦除再保留损坏结果。
+未回填内容不得产生虚假的排版预览；已有原文缺失译文通知仍使用空 lines。
+全部主要回填目标因此降级仍须在结束时报错。
