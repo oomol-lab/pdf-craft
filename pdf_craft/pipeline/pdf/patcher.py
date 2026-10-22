@@ -217,6 +217,12 @@ class PDFPatcher:
             has_automatic_font = False
             contains_cjk = False
             target_page_indexes: set[int] = set()
+            primary_targets: set[tuple[int, ...]] = set()
+
+            def record_targets(replacement, pages):
+                target_page_indexes.update(pages)
+                if replacement.layout_ref not in {'heading', 'furniture', 'header', 'footer', 'title', 'sub_title'}:
+                    primary_targets.add(tuple(pages))
             failed_page_indexes: set[int] = set()
             patched_page_indexes: set[int] = set()
 
@@ -240,7 +246,7 @@ class PDFPatcher:
                 for replacement in values:
                     try:
                         pages = _replacement_pages_in_source(replacement, len(source_reader.pages))
-                        target_page_indexes.update(pages)
+                        record_targets(replacement, pages)
                         self.validate(replacement, pages_count=len(source_reader.pages))
                         yield replacement
                     except Exception as error:
@@ -256,7 +262,7 @@ class PDFPatcher:
                     for replacement in replacements:
                         try:
                             pages = _replacement_pages_in_source(replacement, len(source_reader.pages))
-                            target_page_indexes.update(pages)
+                            record_targets(replacement, pages)
                             self.validate(replacement, pages_count=len(source_reader.pages))
                             style = self.options.style_for(
                                 replacement.layout_ref, replacement.layout_level,
@@ -307,8 +313,18 @@ class PDFPatcher:
             for index in range(next_page_index, len(reader.pages) + 1):
                 writer.add_page(source_reader.pages[index - 1])
             self._failed_page_indexes = tuple(sorted(failed_page_indexes))
-            if target_page_indexes and target_page_indexes.issubset(failed_page_indexes):
-                raise NoUsableFillPagesError(tuple(sorted(target_page_indexes)))
+            # A paragraph is accepted only if all of its pages survived. Small
+            # auxiliary successes must never conceal total primary failure.
+            primary_failed = bool(primary_targets) and not any(
+                pages and all(page in patched_page_indexes and page not in failed_page_indexes for page in pages)
+                for pages in primary_targets
+            )
+            if primary_failed or (target_page_indexes and target_page_indexes.issubset(failed_page_indexes)):
+                failed_targets = (
+                    {page for pages in primary_targets for page in pages if page in failed_page_indexes}
+                    if primary_failed else target_page_indexes
+                )
+                raise NoUsableFillPagesError(tuple(sorted(failed_targets)))
             source_catalog: Any = source_reader.trailer["/Root"]
             reattach_annotations(
                 writer,

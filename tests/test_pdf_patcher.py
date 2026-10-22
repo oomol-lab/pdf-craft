@@ -145,6 +145,55 @@ class TestPDFPatcher(unittest.TestCase):
             self.assertEqual(patcher.failed_page_indexes, (1,))
             self.assertIn("RuntimeError: deliberate page bug", "\n".join(logged.output))
 
+    def test_auxiliary_success_cannot_mask_all_primary_fill_failure(self):
+        from dataclasses import replace
+        from pdf_craft.pipeline.pdf.feed import ReplacementFeed, write_record
+
+        for auxiliary in ("furniture", "heading"):
+            for streaming in (False, True):
+                with self.subTest(auxiliary=auxiliary, streaming=streaming), tempfile.TemporaryDirectory() as directory:
+                    root = Path(directory)
+                    source, target = root / "source.pdf", root / "target.pdf"
+                    self._two_page_source(source)
+                    handler = Mock()
+                    handler.open.return_value = self._page_document()
+                    patcher = self.patcher(font_size=8, _native_pdf_handler=handler)
+                    first, second = self._two_page_replacements()
+                    replacements = [first, replace(second, layout_ref=auxiliary)]
+                    values: Any = replacements
+                    if streaming:
+                        feed = root / "feed"
+                        feed.mkdir()
+                        for index, replacement in enumerate(replacements):
+                            write_record(feed / str(index), replacement)
+                        values = ReplacementFeed(feed, 2)
+                    write_erasure = patcher._write_erasure_overlay
+
+                    def fail_primary(canvas_module, output_path, *args, _write=write_erasure):
+                        if output_path.name == "erase-1.pdf":
+                            raise RuntimeError("primary failed")
+                        return _write(canvas_module, output_path, *args)
+
+                    with patch.object(patcher, "_write_erasure_overlay", side_effect=fail_primary), \
+                            self.assertRaises(NoUsableFillPagesError) as raised:
+                        asyncio.run(patcher.patch(source, target, values, error_policy=True))
+                    self.assertEqual(raised.exception.failed_page_indexes, (1,))
+                    self.assertFalse(target.exists())
+
+    def test_auxiliary_only_task_has_no_primary_targets(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source, target = root / "source.pdf", root / "target.pdf"
+            self._two_page_source(source)
+            handler = Mock()
+            handler.open.return_value = self._page_document()
+            patcher = self.patcher(font_size=8, _native_pdf_handler=handler)
+            asyncio.run(patcher.patch(source, target, [PDFReplacement(
+                1, (10, 10, 190, 70), "Translated header", (200, 100), layout_ref="furniture",
+            )], error_policy=True))
+            self.assertTrue(target.exists())
+            self.assertEqual(patcher.failed_page_indexes, ())
+
     def test_fill_page_errors_remain_fail_fast_without_ignore_errors(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)

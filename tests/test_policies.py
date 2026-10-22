@@ -204,6 +204,87 @@ def paragraph(page, order, content):
 
 
 class TranslationRecoveryTests(unittest.IsolatedAsyncioTestCase):
+    async def test_metadata_failure_never_publishes_source_as_translation(self):
+        value = translator()
+        value._translate_text_async = AsyncMock(side_effect=RuntimeError("provider failed"))
+        source = {"title": "Original title", "description": "Original description",
+                  "subjects": ["First subject", "Second subject"]}
+        notifications = []
+        result = await NarrativeXMLTransformer(value).translate_metadata(
+            source, error_policy=True, on_metadata=notifications.append,
+        )
+        self.assertEqual(result, {"language": "zh"})
+        self.assertEqual(source["title"], "Original title")
+        self.assertEqual(notifications[0].metadata.title, "Original title")
+        self.assertEqual(notifications[0].original.title, "Original title")
+
+    async def test_metadata_partial_failure_retains_only_accepted_overlay_fields(self):
+        from tests.test_epub_optional_cfi import mappings
+
+        async def partial(runtime, inline_segments, **kwargs):
+            result = []
+            for segment in inline_segments:
+                if "Fail" in "".join(part.text for part in segment):
+                    result.append(None)
+                else:
+                    result.extend(await mappings(runtime, [segment], **kwargs))
+            return result
+
+        with patch.object(XMLTranslator, "_translate_inline_segments_async", new=partial):
+            result = await NarrativeXMLTransformer(translator()).translate_metadata(
+                {"title": "Good title", "description": "Fail description",
+                 "subjects": ["Good subject", "Fail subject"]}, error_policy=True,
+            )
+        self.assertIn("title", result)
+        self.assertNotIn("description", result)
+        self.assertNotIn("subjects", result)
+
+    async def test_batch_translation_matches_single_source_and_missing_outcomes(self):
+        geometries = {index: PageGeometry(index, 100, 200, 144) for index in (1, 2)}
+        source = Chapter(7, 0, [TextFlowItem("body", 0, [
+            SourceTextFragment(1, 2, (1, 2, 80, 20), ["Before "]),
+            SourceTextFragment(2, 3, (1, 3, 80, 30), ["after."]),
+        ])])
+        for batch in (False, True):
+            with self.subTest(batch=batch):
+                value = translator()
+                value._translate_text_async = AsyncMock(side_effect=RuntimeError("provider failed"))
+                seen = []
+                adapter = NarrativeXMLTransformer(value)
+                with page_sources(geometries):
+                    if batch:
+                        results = await adapter.transform_many(
+                            [(Chapter(None, -1, []), "empty"), (source, "seven")],
+                            error_policy=lambda f: seen.append(f) or True,
+                        )
+                        result = results[1]
+                        self.assertEqual(results[0].flow_items, [])
+                    else:
+                        result = await adapter.transform(source, error_policy=lambda f: seen.append(f) or True)
+                self.assertTrue(getattr(result.flow_items[0], "_translation_missing"))
+                self.assertEqual(seen[0].targets[0].page_indexes, (1, 2))
+                self.assertEqual(len(seen[0].targets[0].regions), 2)
+                self.assertIn("7", seen[0].targets[0].member_path)
+
+    async def test_batch_partial_failure_is_bound_to_the_correct_chapter(self):
+        from tests.test_epub_optional_cfi import mappings
+
+        async def partial(runtime, inline_segments, **kwargs):
+            result = []
+            for segment in inline_segments:
+                if "Fail" in "".join(part.text for part in segment):
+                    result.append(None)
+                else:
+                    result.extend(await mappings(runtime, [segment], **kwargs))
+            return result
+
+        chapters = [(Chapter(1, 0, [paragraph(1, 0, "Fail body")]), "one"),
+                    (Chapter(2, 0, [paragraph(2, 0, "Good body")]), "two")]
+        with patch.object(XMLTranslator, "_translate_inline_segments_async", new=partial):
+            result = await NarrativeXMLTransformer(translator()).transform_many(chapters, error_policy=True)
+        self.assertTrue(getattr(result[0].flow_items[0], "_translation_missing"))
+        self.assertFalse(getattr(result[1].flow_items[0], "_translation_missing"))
+
     async def test_cross_page_failure_has_all_regions_and_no_fake_translation(self):
         value = translator()
         value._translate_text_async = AsyncMock(

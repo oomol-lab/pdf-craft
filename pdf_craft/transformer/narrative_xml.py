@@ -3,7 +3,7 @@
 from pdf_craft.policies import RetryPolicy, ErrorPolicyInput, FailureLocation
 from pdf_craft._policy import OMITTED, policy_operation
 import asyncio
-from pdf_craft._failure_sources import chapter_locations
+from pdf_craft._failure_sources import chapter_locations, tag_locations
 
 from collections.abc import Callable, Iterable
 from typing import Any, Protocol, cast
@@ -137,6 +137,16 @@ class NarrativeXMLTransformer:
         element, fields = _metadata_element(metadata)
         if not fields:
             return {}
+        from .xml_translator.xml_translator.source_store import NODE_KEY
+        field_keys = []
+        for child, (_, key, index) in zip(element, fields):
+            identity = f'metadata:{key}:{index}'
+            child.set(NODE_KEY, identity)
+            field_keys.append(identity)
+            tag_locations(child, (FailureLocation(
+                'field', unit_id=identity, field_path=f'{key}[{index}]' if index is not None else key,
+                original=child.text,
+            ),))
         task = TranslationTask(
             element=element,
             action=SubmitKind.REPLACE,
@@ -157,13 +167,22 @@ class NarrativeXMLTransformer:
         ):
             raise ValueError("translated metadata does not preserve field structure")
         overlay: dict[str, Any] = {}
-        for child, (_, key, index) in zip(children, fields):
+        missing_collections = set()
+        for child, (_, key, index), identity in zip(children, fields, field_keys):
+            if task.outcomes.get(identity) is False:
+                if index is not None:
+                    missing_collections.add(key)
+                continue
             value = child.text or ""
             if index is None:
                 overlay[key] = value
             else:
                 values = overlay.setdefault(key, [])
                 values.append(value)
+        # A list overlay replaces the source list: commit it only when every
+        # requested member is trustworthy, preserving the original otherwise.
+        for key in missing_collections:
+            overlay.pop(key, None)
         return overlay
 
     @policy_operation
@@ -263,6 +282,7 @@ class NarrativeXMLTransformer:
                 element=element,
                 action=self._mode,
                 payload=index,
+                source_locations=chapter_locations(chapter),
                 item_kind=TranslationItemKind.CHAPTER,
                 item_id=item_id,
                 character_count=sum(
@@ -295,6 +315,7 @@ class NarrativeXMLTransformer:
             canonical_text_validator=_validate_chapter_fill_canonical_text,
         )
         results = [chapter for chapter, _, _ in prepared]
+        tasks_by_index = {task.payload: task for task in tasks}
         for translated_element, index in translated:
             anchors = prepared[index][2]
             assert anchors is not None
@@ -304,6 +325,8 @@ class NarrativeXMLTransformer:
                 translated_element, formula_interrupter.adjacent_inline_predecessors,
             )
             results[index] = decode(translated_element)
+            from .translation_coverage import apply_outcomes
+            apply_outcomes(results[index], tasks_by_index[index].outcomes)
         return results
 
     def source_character_count(self, chapter: Chapter) -> int:
