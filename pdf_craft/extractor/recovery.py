@@ -20,7 +20,7 @@ from ..runtime import IO_DOMAIN, worker_iter
 from ..common.stream import DiskStream
 from .chapter.chapter import Chapter, StandaloneAsset, SourceAsset, TextFlowItem, SourceTextFragment, encode
 from .chapter.generation import _generate_chapters
-from .chapter.page_analysis import PageAnalysis, continuation_sequences
+from .chapter.page_analysis import PageAnalysis
 
 
 def recoverable_structure(error: Exception) -> bool:
@@ -65,10 +65,22 @@ def affected_pages(targets: set[int], analyses: Iterable[PageAnalysis]) -> set[i
                 groups.setdefault((layout.ownership, layout.citation_id), []).append(layout)
     links = list(citation_pages.values())
     for layouts in groups.values():
-        for sequence in continuation_sequences(sorted(layouts, key=lambda item: item.document_order)):
-            for left, right in zip(sequence, sequence[1:]):
-                if right.continues_from_previous:
-                    links.append({left.page_index, right.page_index})
+        previous = None
+        anchors: set[int] = set()
+        for layout in sorted(layouts, key=lambda item: item.document_order):
+            if layout.source_order is None:
+                if getattr(layout.source, 'ref', None) == 'formula':
+                    previous = None
+                    anchors.clear()
+                elif previous is not None:
+                    anchors.add(layout.page_index)
+                continue
+            if previous is not None and layout.continues_from_previous:
+                # Continuation is between text nodes, but recovery owns every
+                # source child in between, including asset-only middle pages.
+                links.append({previous.page_index, layout.page_index} | anchors)
+            previous = layout
+            anchors = set()
     for page in pages:
         for layout in page.layouts:
             for reference in layout.references:
@@ -95,7 +107,11 @@ def source_dependencies(path: Path, indexes: list[int], targets: set[int]) -> se
     from .chapter.jointer import _parse_block_content
     from .chapter.mergeable import check_mergeable
     links = []
-    previous = None
+    previous_text_page = None
+    previous_page_index: int | None = None
+    previous_had_footnotes = False
+    anchors: set[int] = set()
+    caption_tags = tuple(f'{ref}_caption' for ref in ASSET_TAGS)
     for index in indexes:
         try:
             page = decode(read_xml(path / f'page_{index}.xml'))
@@ -103,20 +119,34 @@ def source_dependencies(path: Path, indexes: list[int], targets: set[int]) -> se
             if not recoverable_structure(error):
                 raise
             return set(indexes)  # Cannot establish safe cross-page boundaries.
-        if previous is not None:
-            left = previous.body_layouts
-            right = page.body_layouts
-            left_texts = [i for i, layout in enumerate(left) if layout.ref not in (*ASSET_TAGS, *TITLE_TAGS)]
-            right_texts = [i for i, layout in enumerate(right) if layout.ref not in (*ASSET_TAGS, *TITLE_TAGS)]
-            if left_texts and right_texts:
-                before, after = left_texts[-1], right_texts[0]
+        right = page.body_layouts
+        right_texts = [i for i, layout in enumerate(right)
+                       if layout.ref not in (*ASSET_TAGS, *TITLE_TAGS, *caption_tags)]
+        if right_texts:
+            if previous_text_page is not None:
+                left = previous_text_page.body_layouts
+                before = max(i for i, layout in enumerate(left)
+                             if layout.ref not in (*ASSET_TAGS, *TITLE_TAGS, *caption_tags))
+                after = right_texts[0]
                 boundaries = [*left[before + 1:], *right[:after]]
                 if not any(layout.ref in ('equation', 'formula', *TITLE_TAGS) for layout in boundaries):
                     if check_mergeable(_parse_block_content(left[before].text), _parse_block_content(right[after].text)):
-                        links.append({previous.index, page.index})
-            if previous.footnotes_layouts and page.footnotes_layouts:
-                links.append({previous.index, page.index})
-        previous = page
+                        links.append({previous_text_page.index, page.index} | anchors)
+            previous_text_page = page
+            anchors = set()
+        elif right and all(layout.ref in ('image', 'table', *caption_tags) for layout in right):
+            # Retain the last text page through any number of transparent
+            # asset pages. The next text decides whether all belong together.
+            if previous_text_page is not None:
+                anchors.add(page.index)
+        else:
+            # Empty pages, headings and display formulas close the text run.
+            previous_text_page = None
+            anchors.clear()
+        if previous_page_index is not None and previous_had_footnotes and page.footnotes_layouts:
+            links.append({previous_page_index, page.index})
+        previous_page_index = page.index
+        previous_had_footnotes = bool(page.footnotes_layouts)
     affected = set(targets)
     for _ in indexes:
         expanded = affected.union(*(link for link in links if link & affected))

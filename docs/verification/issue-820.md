@@ -111,3 +111,36 @@ On the implementation worktree:
 - `.venv/bin/python -m pylint pdf_craft tests pdf_craft_tool/smoke/deepseek_refined.py`:
   **10.00/10, exit 0**; existing informational Qt extension introspection notices.
 - `git diff --check`: clean.
+
+## Review follow-up: asset-only intermediate pages
+
+Review identified a recovery-scope omission in `fd7a74d`: a logical paragraph
+`fragment(page1) → image(page2) → fragment(page3)` was reconstructed correctly,
+but its graph links only included pages 1 and 3. The raw-page probe discarded
+the text predecessor at page 2, so neither path closed over the complete unit.
+
+The graph probe now collects transparent asset pages between continued text
+nodes and includes them in the same dependency edge. The raw-page probe keeps
+the last text page and all intervening image/table-only pages until the next
+text determines the continuation. Empty pages, headings and display formulas
+still stop the run. Caption-only asset pages do not erase the text predecessor.
+
+`tests/test_asset_page_recovery_scope.py` adds five regression methods with
+image, table and multiple consecutive asset-page scenarios. Each text endpoint
+and intermediate asset page is exercised as the failure target. Both graph and
+raw scopes must include the entire paragraph; actual `recover_chapters` output
+and the public extraction API without refinement must replace all those pages
+with images while retaining the following independent paragraph. A display
+formula negative case ensures unrelated pages are not included.
+
+The deterministic baseline/fixed probe is stored locally at
+`pdf-craft-output/issue820-scope-followup/probe.json`: ten target/scenario pairs
+reproduce the pre-fix omission and yield the full component after the fix.
+This follow-up changes recovery scope only; it does not change the successful
+conversion path. Review's independent real-resource six-page run and visual
+evidence from `pdf-craft-output/deepseek-refined-review-20261022/` remain
+available. No new model calls were made for this scope-only correction.
+
+Follow-up checks: full pytest **991 passed** (64 warnings); focused scope and
+anchor/recovery tests **25 passed**; pyright **0 errors / 0 warnings**; pylint
+**10.00/10**; `git diff --check` clean.
