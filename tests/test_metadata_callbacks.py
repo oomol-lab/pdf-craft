@@ -146,7 +146,7 @@ class MetadataCallbackTests(unittest.IsolatedAsyncioTestCase):
                 await AsyncPDFCraft.from_engine(engine(FakeOCR(events, native_metadata()))).extract_pdf(
                     root / 'a.pdf', root / 'a.pcex', ExtractionOptions(
                         includes_furniture=False, extract_book_metadata=True,
-                        metadata_llm=translator()._translation_llm, on_metadata=callback))
+                        metadata_llm=translator()._translation_llm, on_metadata=callback), error_policy=True)
                 self.assertEqual(len(received), 1)
                 self.assertEqual(events[-1], 'metadata')
                 self.assertLess(events.index('native'), events.index('llm'))
@@ -161,7 +161,7 @@ class MetadataCallbackTests(unittest.IsolatedAsyncioTestCase):
                 received = []
                 await AsyncPDFCraft.from_engine(engine(FakeOCR([], native))).extract_pdf(
                     root / 'a.pdf', root / 'a.pcex', ExtractionOptions(
-                        includes_furniture=False, on_metadata=received.append))
+                        includes_furniture=False, on_metadata=received.append), error_policy=True)
                 self.assertEqual(received, [MetadataContent(DocumentMetadata())])
 
     async def test_no_callback_keeps_native_only_metadata_optional(self):
@@ -235,7 +235,7 @@ class MetadataCallbackTests(unittest.IsolatedAsyncioTestCase):
                 before = (root / 'source/manifest.json').read_bytes()
                 received = []
                 options: dict[str, Any] = dict(translator=translator(), on_metadata=received.append)
-                craft = AsyncPDFCraft()
+                craft = AsyncPDFCraft(error_policy=True, )
                 if kind == 'pcex':
                     output = await craft.translate_extraction(source, root / 'out.pcex', target_language='fr', with_anchored=False, **options)
                     with output._materialize() as paths:

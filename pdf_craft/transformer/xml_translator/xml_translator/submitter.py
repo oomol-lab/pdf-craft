@@ -15,6 +15,10 @@ class SubmitKind(Enum):
 
 
 def submit(element: Element, action: SubmitKind, mappings: list[InlineSegmentMapping]) -> Element:
+    from .source_store import strip_source
+    strip_source(element)
+    for block, _ in mappings:
+        strip_source(block)
     submitter = _Submitter(
         element=element,
         action=action,

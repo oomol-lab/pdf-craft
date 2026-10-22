@@ -149,12 +149,7 @@ PDFCraft().translate_epub(
 
 ### 重试与分组大小
 
-- `max_retries` 只控制 XML 结构修复循环允许的最大总尝试次数，默认值为 5；因此默认最多
-  包含 4 次重试。它不限制文本翻译请求，后者由 LLM 的 `retry_times` 控制。
-- `max_group_tokens` 控制一次提交给翻译器的文本分组大小，默认值为 2600。增大它可以
-  减少请求次数，但会增加单次请求的上下文和失败重试成本。
-- LLM 配置中的 `retry_times` 控制文本翻译请求遇到网络错误或空响应时的额外重试次数；默认
-  值 5 表示首次请求加最多 5 次重试（最多 6 次尝试）。它和 `max_retries` 处于不同层次。
+失败决策与重试配置见 [错误处理](ERROR_HANDLING.md)。
 
 ### 并发翻译
 
@@ -203,7 +198,7 @@ llm = LLM(
 chapter item 的开始、完成和源文本字符统计。字符统计不是 token，也不是固定比例。相同回调
 也适用于 package 和 PDF 翻译流程。
 
-`on_fill_failed` 接收 `FillFailedEvent`。它描述 XML 结构修复过程中发生的错误：
+失败决策与重试配置见 [错误处理](ERROR_HANDLING.md)。
 
 - `error_message`：错误消息。
 - `retried_count`：当前已尝试的次数。
@@ -211,41 +206,19 @@ chapter item 的开始、完成和源文本字符统计。字符统计不是 tok
   一个 `False` 事件；最后一次耗尽上限的事件为 `True`，此时错误可能影响最终 EPUB，应记录
   并检查输出。
 
-~~~python
-from pdf_craft import FillFailedEvent, TranslationEventKind
+失败决策与重试配置见 [错误处理](ERROR_HANDLING.md)。
 
 def on_translation_event(event) -> None:
     if event.kind == TranslationEventKind.PROGRESS:
         print(event.completed_characters, event.total_characters)
 
-def on_fill_failed(event: FillFailedEvent) -> None:
-    if event.over_maximum_retries:
-        print(f"未恢复的结构修复错误：{event.error_message}")
+失败决策与重试配置见 [错误处理](ERROR_HANDLING.md)。
 
-PDFCraft().translate_epub(
-    "source.epub", "translated.epub",
-    target_language="zh",
-    submit=SubmitKind.APPEND_BLOCK,
-    llm=llm,
-    executor=executor,
-    on_translation_event=on_translation_event,
-    on_fill_failed=on_fill_failed,
-)
-~~~
+失败决策与重试配置见 [错误处理](ERROR_HANDLING.md)。
 
 ## 输入、输出与限制
 
-- 输入必须是可读取的 EPUB 文件，输出路径应与输入路径不同。
-- pdf-craft 会迁移 EPUB 压缩包中的 `mimetype`，并按书籍 spine 处理章节。
-- 目录和部分书籍元数据会参与翻译。`language`、`identifier`、`date`、`meta`、`contributor`
-  字段属于技术或标识信息，会被明确跳过，不会发送给 LLM；其他包含文本的元数据字段才会
-  进入翻译流程。如果 TOC 文件存在但没有条目，目录阶段会没有任务并由其他内容继续；如果
-  EPUB 根本没有可识别的 TOC 文件，当前实现会直接报错，而不是跳过该阶段。
-- `APPEND_BLOCK` 适用于章节正文的双语排版；目录和元数据仍使用内联追加，以保持 EPUB
-  结构。
-- EPUB 翻译只处理文本和相关 XML 结构，不会重新 OCR，也不会把 PDF 写回 PDF。
-- 目标文件生成过程中发生不可恢复错误时，应检查 `on_fill_failed` 报告和日志目录，并使用
-  新的输出路径重新运行；不要把未完成的输出当作完整译本。
+失败决策与重试配置见 [错误处理](ERROR_HANDLING.md)。
 
 
 ## 在完整 EPUB 生成前获取译文
@@ -264,3 +237,6 @@ PDFCraft().translate_epub(
 
 两条回调均可选，支持同步或异步函数；异步回调会被等待，异常会终止操作。输出 EPUB 只在
 成功后以完整文件提交。示例、CFI 定位、顺序及来源有效期见[增量回调指南](STREAMING.md)。
+
+
+统一策略、默认严格失败和全局全部降级的规则见 [错误处理](ERROR_HANDLING.md)。

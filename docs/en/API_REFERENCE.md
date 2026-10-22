@@ -49,9 +49,7 @@ awaits and materializes source pages on the caller loop before entering
 the synchronous OCR or Qt boundary. Only the resulting paths and metadata
 cross into those execution domains.
 
-The async XML/EPUB translation APIs likewise accept a synchronous or async
-`on_fill_failed` callback. Each repair notification runs on the caller's event
-loop, and an async callback is awaited before the next repair step proceeds.
+See [retry and recovery policies](ERROR_HANDLING.md) for failure decisions and retry budgets.
 
 `PDFCraft` provides a synchronous facade over the async implementation for
 scripts. It must not be called
@@ -103,15 +101,15 @@ The two `convert_pdf_to_*` methods use a directory-backed extraction inside thei
 | `list_translations` | `list_translations(extraction) -> tuple[TranslationInfo, ...]` returns each translation's file-local ID, target language, and creation time. |
 | `resolve_translation` | `resolve_translation(extraction, translation_id=None) -> TranslationInfo` resolves an explicit translation ID or the stable default. |
 | `translate_anchored_contents` | `translate_anchored_contents(extraction, output_path, transformer) -> PDFCraftExtraction` is the lower-level image/table text transformation entry. |
-| `translate_pdf` | `translate_pdf(source, extraction, output, translator, *, window=1, with_furniture=False, on_translation_event=None, ignore_errors=False, on_body=None, on_footnote=None, on_metadata=None)` translates PDF-writable narrative and optional furniture, then patches the result onto the source PDF. |
-| `patch_pdf_with_extraction` | `patch_pdf_with_extraction(source, extraction, output, *, translation_id=None, ignore_errors=False, translator=None, window=1, on_body=None, on_footnote=None, with_furniture=False, on_translation_event=None, on_metadata=None)` patches existing content or an online translation without repeating OCR. LLM calls run only when `translator` is provided. |
+| `translate_pdf` | `translate_pdf(source, extraction, output, translator, *, window=1, with_furniture=False, on_translation_event=None, error_policy=None, on_body=None, on_footnote=None, on_metadata=None)` translates PDF-writable narrative and optional furniture, then patches the result onto the source PDF. |
+| `patch_pdf_with_extraction` | `patch_pdf_with_extraction(source, extraction, output, *, translation_id=None, error_policy=None, translator=None, window=1, on_body=None, on_footnote=None, with_furniture=False, on_translation_event=None, on_metadata=None)` patches existing content or an online translation without repeating OCR. LLM calls run only when `translator` is provided. |
 | `translate_epub` | `translate_epub(source, output, *, target_language, submit, ..., window=1, on_body=None, on_metadata=None)` translates an existing EPUB. See [EPUB translation](EPUB_TRANSLATION.md) for its options. |
 
 `translate_extraction()` accepts an `XMLTranslator` directly. Narrative and metadata translation always run through `NarrativeXMLTransformer`; `with_anchored` and `with_furniture` only enable or skip their corresponding standard stages. A caller-supplied opaque `translation_id` identifies the result, or pdf-craft generates a short one. The language may be supplied explicitly or declared by the translator. Duplicate IDs are rejected before translation. The stored version contains replacement text; replacement versus bilingual presentation is selected later when rendering.
 
 `RenderMode.SOURCE` renders the original content and does not select a translation. `RenderMode.REPLACE` renders one translation with source fallback for untranslated units. `RenderMode.BILINGUAL` renders source followed by a translated body paragraph. `RenderMode.BILINGUAL_TEXT` appends translated content within each corresponding source fragment in the same text flow. All translation render modes accept an explicit file-local `translation_id`; omitting it deterministically selects the first translation. They fail when the PCEX has no translations, and an explicit missing or malformed ID is never replaced by the default. Translated metadata overrides matching source fields while missing fields retain their source values. Bilingual titles, descriptions, headings, TOC titles, and translated image/table fields include both forms.
 
-Set `ignore_errors=True` to preserve a page's non-interactive visual base when that page's fill transaction fails, then continue with later pages. The default remains fail-fast. `ignore_errors` may instead be a `Callable[[Exception], bool]` that chooses whether each page-scoped exception may fall back. Local functions and lambdas are supported: they remain in the caller process and are not required to be pickleable when Qt patching runs in isolation. Async calls dispatch the predicate on the caller's event-loop thread. If every page scheduled for fill falls back, `NoUsableFillPagesError` is raised and no output is written. This recovery scope intentionally covers ordinary page-level exceptions, including unexpected fill bugs; it does not recover a source PDF that cannot be opened, enumerated, or compiled into a visual base. Enable it only when an untranslated visual-base page beside successfully translated pages is an acceptable result.
+Set `error_policy=True` to preserve the original PDF page when that page's fill transaction fails, then continue with later pages. The default remains fail-fast. `error_policy` may instead be a `Callable[[FailureContext], bool]` that chooses whether each page-scoped exception may fall back. Local functions and lambdas are supported: they remain in the caller process and are not required to be pickleable when Qt patching runs in isolation. Async calls dispatch the predicate on the caller's event-loop thread. If every page scheduled for fill falls back, `NoUsableFillPagesError` is raised and no output is written. This recovery scope intentionally covers ordinary page-level exceptions, including unexpected fill bugs; it does not recover a source PDF that cannot be opened, enumerated, or compiled into a visual base. Enable it only when an untranslated visual-base page beside successfully translated pages is an acceptable result.
 
 ## `PDFCraftExtraction` and `.pcex`
 
@@ -175,8 +173,8 @@ extraction; they do not fall back to an analysis/OCR directory.
 | `toc_assumed` | `False` | Treat the document as already having usable TOC information. |
 | `toc_llm` | `None` | LLM used when TOC analysis is needed. |
 | `footnotes` | `None` | `None` disables footnotes; `FootnoteOptions()` uses the traditional algorithm; adding `FootnoteRefinement` enables JEV and LLM refinement. |
-| `ignore_pdf_errors` | `False` | `True` or a predicate that decides whether a PDF error may be skipped. |
-| `ignore_ocr_errors` | `False` | `True` or a predicate that decides whether an OCR error may be skipped. |
+| `ErrorPolicy.ignore_pdf_render_errors` | `False` | `True` or a predicate that decides whether a PDF error may be skipped. |
+| `ErrorPolicy.ignore_ocr_errors` | `False` | `True` or a predicate that decides whether an OCR error may be skipped. |
 | `aborted` | a callback returning `False` | A callback checked during processing to request cancellation. |
 | `on_ocr_event` | no-op callback | Receives per-page `OCREvent` updates. |
 | `on_body` / `on_footnote` | `None` | Receive independent PCEX XML snapshots during extraction. |
@@ -221,9 +219,9 @@ read the first three raw OCR pages and request further front pages in batches, u
 Only values with OCR evidence are accepted. PDF file metadata is used only to fill fields that OCR
 did not provide; it never replaces an OCR value. The resulting PCEX metadata is consumed by EPUB
 rendering and by PDF patching, which writes it to the output PDF's document-information dictionary.
-If the metadata dialogue cannot be validated after
-its bounded repair loop, extraction continues with that same PDF-file fallback rather than failing
-the document conversion.
+If the metadata dialogue cannot be validated after its bounded repair loop, the default is to raise.
+Recovery must be allowed by ErrorPolicy (for example ignore_analysis_errors=True); it then uses
+the PDF-file metadata fallback and continues.
 
 ### OCR configurations
 
@@ -271,14 +269,7 @@ an existing EPUB.
 
 The following classes are exposed for applications that need custom structured transformations:
 
-| Type | Role |
-| --- | --- |
-| `NarrativeXMLTransformer` | Adapts XML-oriented work to chapter transformation. |
-| `AnchoredContentXMLTransformer` | Adapts XML-oriented work to independent image/table text translation, validating each immutable asset slot before applying fields. |
-| `AnchoredContentTransformer` | Protocol for contextual batches of extracted image/table text; every non-preserved result carries its source `identity`. |
-| `ExtractionTransformer` | Async public protocol for `await transform(extraction, output_path) -> PDFCraftExtraction`. |
-| `XMLTranslator` | XML-aware translation engine for integrations that need direct structured translation. |
-| `FillFailedEvent` | Information passed to EPUB XML-repair failure callbacks. |
+See [retry and recovery policies](ERROR_HANDLING.md) for failure decisions and retry budgets.
 
 Translation workflows also accept `on_translation_event`, a callback receiving
 `TranslationEvent` values. `TranslationEventKind` reports `START`, `ITEM_START`,
@@ -454,3 +445,6 @@ XML snapshots use the standard-library `xml.etree.ElementTree.Element`. Internal
 submission and disk-storage hooks, and PDF preview transport fields are not public
 extension points. See [incremental callbacks](STREAMING.md) for complete field,
 ordering, lifetime and publication semantics.
+
+
+See [error handling](ERROR_HANDLING.md) for strict defaults, source locations and task-wide all-fallback protection.

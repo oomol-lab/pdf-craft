@@ -1,3 +1,5 @@
+
+from pdf_craft import ErrorPolicy
 # pylint: disable=protected-access
 
 import asyncio
@@ -481,8 +483,8 @@ class TestComposableBoundaries(unittest.TestCase):
                     max_page_image_file_size=None,
                     includes_cover=False,
                     includes_footnotes=False,
-                    ignore_pdf_errors=False,
-                    ignore_ocr_errors=True,
+                    error_policy=ErrorPolicy(ignore_pdf_render_errors=False, ignore_ocr_errors=True),
+
                     generate_plot=False,
                     toc_llm=None,
                     toc_assumed=False,
@@ -651,9 +653,11 @@ class TestComposableBoundaries(unittest.TestCase):
             with patch(
                 "pdf_craft.pdf.ocr.PageExtractorNode.image2page", side_effect=error
             ):
-                events = list(first.recognize(
-                    root / "input.pdf", root / "assets", root / "ocr", ignore_ocr_errors=True
-                ))
+                events = []
+                with self.assertRaises(NoUsableOCRPagesError):
+                    for event in first.recognize(root / 'input.pdf', root / 'assets', root / 'ocr',
+                                                 error_policy=ErrorPolicy(ignore_ocr_errors=True)):
+                        events.append(event)
             self.assertEqual(events[-1].kind, OCREventKind.FAILED)
             self.assertTrue((root / "ocr" / "page_1.failed").exists())
             self.assertFalse((root / "ocr" / "done").exists())
@@ -662,7 +666,7 @@ class TestComposableBoundaries(unittest.TestCase):
             resumed = OCR(DeepSeekOCRLocalConfig(local_only=True), cast(PDFHandler, handler))
             with patch("pdf_craft.pdf.ocr.PageExtractorNode.image2page", return_value=page):
                 events = list(resumed.recognize(
-                    root / "input.pdf", root / "assets", root / "ocr", ignore_ocr_errors=True
+                    root / "input.pdf", root / "assets", root / "ocr", error_policy=ErrorPolicy(ignore_ocr_errors=True)
                 ))
             self.assertEqual(events[-1].kind, OCREventKind.COMPLETE)
             self.assertFalse((root / "ocr" / "page_1.failed").exists())

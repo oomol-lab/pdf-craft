@@ -10,7 +10,7 @@ from pdf_craft.transformer.xml_translator.segment import InlineSegment, TextSegm
 from pdf_craft.runtime import invoke_callback
 from .callbacks import Callbacks
 from .concurrency import run_async_parameters, run_concurrency_async
-from .source_store import source_identity, rebind, NODE_KEY, ROOT_KEY
+from .source_store import source_identity, rebind, NODE_KEY, ROOT_KEY, unit_owner, unit_key
 from .score import ScoreSegment, expand_to_score_segments, truncate_score_segment
 
 _PAGE_INCISION = 0
@@ -41,11 +41,26 @@ class XMLStreamMapper:
     ) -> AsyncGenerator[tuple[Element, list[InlineSegmentMapping]], None]:
         current_element: Element | None = None
         mapping_buffer: list[InlineSegmentMapping] = []
+        notifications = []
+
+        async def accepted(root, mappings):
+            rejected = {id(child) for node in root.iter() if node.get('__pdf_craft_missing') == '1'
+                        for child in node.iter()}
+            result = [(block, texts) for block, texts in mappings if id(block) not in rejected]
+            if on_mapping is not None:
+                for origin, texts, block in notifications:
+                    if id(block) not in rejected:
+                        await invoke_callback(on_mapping, (origin, texts))
+            notifications.clear()
+            return result
+
 
         async def execute(group: Group[_ResourcePayload]):
             head, body, tail = self._truncate_and_transform_group(group)
             head = [segment.clone() for segment in head]
             tail = [segment.clone() for segment in tail]
+            for segment in head + tail:
+                setattr(segment, "_translation_context", True)
             target_body = (await map(head + body + tail))[len(head) : len(head) + len(body)]
             return zip(body, target_body, strict=False)
 
@@ -77,10 +92,17 @@ class XMLStreamMapper:
 
                     if source_identity(current_element) != source_identity(origin_element):
                         assert current_element is not None
-                        yield current_element, mapping_buffer
+                        yield current_element, await accepted(current_element, mapping_buffer)
                         current_element = origin_element
                         mapping_buffer = []
 
+                    owner = unit_owner(origin)
+                    if isinstance(elements, AsyncIterable):
+                        owner = rebind(current_element, origin, owner)
+                    assert owner is not None
+                    owner.set('__pdf_craft_unit', unit_key(owner))
+                    if target is None:
+                        owner.set('__pdf_craft_missing', '1')
                     if target:
                         assert current_element is not None
                         block_element, text_segments = target
@@ -95,11 +117,11 @@ class XMLStreamMapper:
                         text_segments = list(callbacks.interrupt_translated_text_segments(text_segments))
                         if text_segments:
                             if on_mapping is not None:
-                                await invoke_callback(on_mapping, (origin, text_segments))
+                                notifications.append((origin, text_segments, block_element))
                             mapping_buffer.append((block_element, text_segments))
 
         if current_element is not None:
-            yield current_element, mapping_buffer
+            yield current_element, await accepted(current_element, mapping_buffer)
 
     def _split_into_serial_groups(self, elements: Iterable[Element], callbacks: Callbacks, track_origins: bool = False):
         def generate():

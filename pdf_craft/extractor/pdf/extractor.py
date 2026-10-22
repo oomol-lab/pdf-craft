@@ -1,3 +1,7 @@
+# pylint: disable=unused-argument
+
+from pdf_craft.policies import RetryPolicy, ErrorPolicyInput
+from pdf_craft._policy import OMITTED, policy_operation
 # pylint: disable=protected-access
 
 from collections.abc import AsyncIterator
@@ -22,28 +26,28 @@ class PDFExtractor:
         extraction._validate()
         return extraction, metering
 
+    @policy_operation
     async def extract(
         self,
         pdf_path: Path,
         extraction_path: Path,
         *,
         analysing_path: Path | None = None,
-        **kwargs: Any,
-    ) -> PDFCraftExtraction:
+        retry_policy: RetryPolicy | None = None, error_policy: ErrorPolicyInput = OMITTED, **kwargs: Any,) -> PDFCraftExtraction:
         """Extract without blocking the caller's event loop."""
         extraction, _ = await self.extract_with_metering(
             pdf_path, extraction_path, analysing_path=analysing_path, **kwargs
         )
         return extraction
 
+    @policy_operation
     async def extract_with_metering(
         self,
         pdf_path: Path,
         extraction_path: Path,
         *,
         analysing_path: Path | None = None,
-        **kwargs: Any,
-    ):
+        retry_policy: RetryPolicy | None = None, error_policy: ErrorPolicyInput = OMITTED, **kwargs: Any,):
         if extraction_path.suffix.lower() != EXTRACTION_SUFFIX:
             raise ValueError(f"PDFCraftExtraction path must end with {EXTRACTION_SUFFIX}")
         if await IO_DOMAIN.run(extraction_path.exists):
@@ -69,7 +73,6 @@ class PDFExtractor:
                 "ocr_size": "gundam", "dpi": None,
                 "max_page_image_file_size": None, "includes_cover": False,
                 "includes_footnotes": False, "includes_furniture": True,
-                "ignore_pdf_errors": False, "ignore_ocr_errors": False,
                 "generate_plot": False, "toc_llm": None,
                 "toc_assumed": False, "extract_book_metadata": False,
                 "metadata_llm": None, "aborted": original_aborted or (lambda: False),

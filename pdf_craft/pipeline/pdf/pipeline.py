@@ -1,10 +1,14 @@
+# pylint: disable=unused-argument
+
+from pdf_craft.policies import RetryPolicy, ErrorPolicyInput
+from pdf_craft._policy import OMITTED, policy_operation
 # pylint: disable=protected-access
 
 from collections.abc import Iterable, Iterator
 from pathlib import Path
 from typing import cast
 
-from .error_policy import _process_ignore_errors_checker
+from .error_policy import _process_error_policy_checker
 from pdf_craft.common import read_xml
 from pdf_craft.runtime import IO_DOMAIN, worker_context
 from pdf_craft.extractor.chapter.chapter import (
@@ -21,7 +25,6 @@ from pdf_craft.markdown.paragraph import HTMLTag, flatten
 from pdf_craft.document import PDFCraftExtraction
 from pdf_craft.document.render import materialize_pdf_patch_view
 from pdf_craft.pdf.handler import AsyncPDFHandler, PDFHandler
-from pdf_craft.error import IgnoreFillErrorsChecker
 from pdf_craft.pipeline.pdf.models import PDFInlineFormula, PDFReplacement, PDFReplacementRegion
 from pdf_craft.pipeline.pdf.metadata import pdf_document_metadata
 from pdf_craft.pipeline.pdf.patcher import PDFPatcher
@@ -37,6 +40,7 @@ class PDFTranslationPipeline:
     def __init__(self, pdf_handler: AsyncPDFHandler | None = None, patcher: PDFPatcher | None = None, dpi: int = 300, *, _native_pdf_handler: PDFHandler | None = None) -> None:
         self.patcher = patcher or PDFPatcher(pdf_handler=pdf_handler, dpi=dpi, _native_pdf_handler=_native_pdf_handler)
 
+    @policy_operation
     async def patch(
         self,
         pdf_path: Path,
@@ -44,7 +48,7 @@ class PDFTranslationPipeline:
         extraction: PDFCraftExtraction | Path,
         *,
         translation_id: str | None = None,
-        ignore_errors: IgnoreFillErrorsChecker = False,
+        retry_policy: RetryPolicy | None = None, error_policy: ErrorPolicyInput = OMITTED,
     ) -> None:
         """Write text already present in ``extraction`` back to ``pdf_path``.
 
@@ -52,7 +56,7 @@ class PDFTranslationPipeline:
         already the source of the replacement text, so no OCR or LLM
         transformer is involved.
         """
-        async with _process_ignore_errors_checker(ignore_errors) as worker_checker:
+        async with _process_error_policy_checker(error_policy) as worker_checker:
             extraction = await IO_DOMAIN.run(_ensure_extraction, extraction)
             await IO_DOMAIN.run(extraction._validate)
             pages = await IO_DOMAIN.run(extraction._page_pixel_sizes)
@@ -65,10 +69,10 @@ class PDFTranslationPipeline:
 
                 replacements = await IO_DOMAIN.run(lambda: tuple(self._iter_covered_replacements(
                     create_chapters_reader(view.chapters)(), view.furnitures, coverage, pages, render_dpi,
-                    ignore_errors=worker_checker,
+                    error_policy=worker_checker,
                 )))
                 await self.patcher.patch(
-                    pdf_path, target_path, replacements, ignore_errors=worker_checker,
+                    pdf_path, target_path, replacements, error_policy=worker_checker,
                     document_metadata=document_metadata,
                 )
 
@@ -79,8 +83,7 @@ class PDFTranslationPipeline:
         coverage,
         pages,
         render_dpi: int,
-        *,
-        ignore_errors: IgnoreFillErrorsChecker = False,
+        *, error_policy: ErrorPolicyInput = OMITTED,
     ) -> Iterator[PDFReplacement]:
         """Create a patch plan solely from explicit translation coverage.
 
@@ -99,7 +102,7 @@ class PDFTranslationPipeline:
                 if first_text is not None:
                     prefixes[id(first_text)] = str(reference.mark) + " "
             obstacles.extend(_chapter_obstacle_regions(
-                chapter, pages, render_dpi, ignore_errors=ignore_errors, include_reference_text=False,
+                chapter, pages, render_dpi, error_policy=error_policy, include_reference_text=False,
             ))
             for layout in narrative_texts(chapter):
                 if not isinstance(layout, TextFlowItem) or layout.role not in {"body", "heading"}:
@@ -110,7 +113,7 @@ class PDFTranslationPipeline:
                 if identity is None:
                     continue
                 fragments = list(iter_continuous_fragments(layout))
-                regions = _regions_for_fragments(fragments, pages, render_dpi, ignore_errors)
+                regions = _regions_for_fragments(fragments, pages, render_dpi, error_policy)
                 if not regions:
                     continue
                 if coverage.narrative.get(identity) == "translated":
@@ -141,7 +144,7 @@ class PDFTranslationPipeline:
                     else:
                         state = coverage.sections.get((page_index, det))
                         content = section.text or ""
-                    region = _region_for_box(page_index, _parse_det(det), pages, render_dpi, 0, ignore_errors)
+                    region = _region_for_box(page_index, _parse_det(det), pages, render_dpi, 0, error_policy)
                     if region is None:
                         continue
                     if state == "translated" and content is not None and content.strip():
@@ -184,11 +187,11 @@ class PDFTranslationPipeline:
         yield from sorted(replacements, key=_replacement_source_order)
 
 
-def _regions_for_fragments(fragments: Iterable[SourceTextFragment], pages, render_dpi: int, ignore_errors) -> tuple[PDFReplacementRegion, ...]:
+def _regions_for_fragments(fragments: Iterable[SourceTextFragment], pages, render_dpi: int, error_policy) -> tuple[PDFReplacementRegion, ...]:
     regions: list[PDFReplacementRegion] = []
     for fragment in fragments:
         region = _region_for_box(
-            fragment.page_index, fragment.bbox, pages, render_dpi, fragment.source_order, ignore_errors,
+            fragment.page_index, fragment.bbox, pages, render_dpi, fragment.source_order, error_policy,
         )
         if region is not None:
             regions.append(region)
@@ -201,11 +204,11 @@ def _region_for_box(
     pages,
     render_dpi: int,
     reading_order: int,
-    ignore_errors,
+    error_policy,
 ) -> PDFReplacementRegion | None:
     if page_index not in pages:
         error = ValueError(f"PDFCraftExtraction pages.xml is missing page {page_index}")
-        if not _check_ignore_error(ignore_errors, error):
+        if not _check_ignore_error(error_policy, error, page_index=page_index):
             raise error
         return None
     return PDFReplacementRegion(page_index, det, pages[page_index], render_dpi, reading_order)
@@ -314,9 +317,9 @@ def _alphabetic_folio(value: int) -> str:
     return "".join(reversed(result))
 
 
-def _check_ignore_error(checker: IgnoreFillErrorsChecker, error: Exception) -> bool:
-    """Match PDF patcher's bool-or-callable page-fill error policy."""
-    return checker(error) if callable(checker) else checker
+def _check_ignore_error(checker, error, *, page_index=None):
+    from .patcher import _check_ignore_error as decide
+    return decide(checker, error, page_indexes=(page_index,) if page_index is not None else ())
 
 
 def _to_pdf_patch_content(items) -> tuple[str, tuple[PDFInlineFormula, ...]]:
@@ -351,7 +354,7 @@ def _chapter_obstacle_regions(
     pages,
     render_dpi: int,
     *,
-    ignore_errors: IgnoreFillErrorsChecker = False,
+    error_policy: ErrorPolicyInput = OMITTED,
     include_reference_text: bool = True,
 ) -> tuple[PDFReplacementRegion, ...]:
     """Collect non-flow geometry that may stop text from extending downward.
@@ -372,7 +375,7 @@ def _chapter_obstacle_regions(
     def add_region(page_index: int, det: tuple[int, int, int, int]) -> None:
         if page_index not in pages:
             error = ValueError(f"PDFCraftExtraction pages.xml is missing page {page_index}")
-            if not _check_ignore_error(ignore_errors, error):
+            if not _check_ignore_error(error_policy, error, page_index=page_index):
                 raise error
             return
         key = (page_index, det)

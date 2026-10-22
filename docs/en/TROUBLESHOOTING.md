@@ -81,7 +81,7 @@ Existing-EPUB translation needs `llm`, or both `translation_llm` and `fill_llm`.
 
 `LLM` expects an OpenAI-compatible Chat Completions endpoint. Check that `url` is the provider's base URL, `model` is available to the key, and `token_encoding` matches the model. Empty model replies are retried and eventually raise an empty-response error; correcting an invalid model name or endpoint is more useful than simply increasing retries.
 
-For EPUB XML-repair problems, register `on_fill_failed` and pay particular attention to an event with `over_maximum_retries=True`. Lowering concurrency, shortening a custom prompt, or choosing a model that reliably returns structured content is often more effective than unlimited retries. See [EPUB translation](EPUB_TRANSLATION.md) for the callback API.
+See [retry and recovery policies](ERROR_HANDLING.md) for failure decisions and retry budgets.
 
 When `LLM(cache_path=...)` is used, successful requests can be reused after an interruption. Use separate cache directories for unrelated books or jobs, particularly while they may be writing concurrently. A rerun still creates a new EPUB output; it does not resume by appending to an incomplete destination file.
 
@@ -122,3 +122,6 @@ Provide enough context to reproduce the failure without exposing secrets:
 - relevant `analysing_path`, `extraction_path`, model-cache path, or LLM-cache path choices.
 
 Do not attach API keys, complete private documents, model caches, or unredacted logs to a public issue.
+
+
+See [error handling](ERROR_HANDLING.md) for strict defaults, source locations and task-wide all-fallback protection.

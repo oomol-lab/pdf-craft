@@ -133,10 +133,17 @@ class JevReviewProcessor:
         else:
             # Compatibility for custom evaluators. Official JEV runtimes use
             # the lazy executor-backed batch evaluator above.
-            evaluated = [
-                (page_index, await self._evaluator(page_index, request))
-                for page_index, request in requests
-            ]
+            evaluated = []
+            for page_index, request in requests:
+                try:
+                    probability = await self._evaluator(page_index, request)
+                except Exception as error:
+                    from ..._policy import recover
+                    from ...policies import FailureCategory, FailureLocation
+                    await recover(error, FailureCategory.ANALYSIS, 'jev_review', 'algorithm_result',
+                                  targets=(FailureLocation('page', page_indexes=(page_index,)),))
+                    continue
+                evaluated.append((page_index, probability))
         self.results = []
         for page_index, pass_probability in evaluated:
             if not 0 <= pass_probability <= 1:

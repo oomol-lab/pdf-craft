@@ -27,6 +27,7 @@ class OperationError(Exception):
     ) -> None:
         super().__init__(message)
         self.operation_id = operation_id
+        self.attempts: int | None = None
         if cause is not None:
             self.__cause__ = cause
 

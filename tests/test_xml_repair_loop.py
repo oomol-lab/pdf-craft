@@ -1,16 +1,21 @@
-# pylint: disable=invalid-overridden-method,protected-access,unused-argument
-import asyncio
-import threading
+# pylint: disable=protected-access,unused-argument
+"""Business repair budgets are independent of transport retries."""
+
 import unittest
 from types import SimpleNamespace
 from typing import Any, cast
 from xml.etree.ElementTree import Element
 
+from pdf_craft import RetryPolicy
+from pdf_craft._policy import OMITTED, policy_operation
 from pdf_craft.transformer.xml_translator.xml_translator.callbacks import Callbacks
-from pdf_craft.transformer.xml_translator.xml_translator.translator import XMLTranslator
+from pdf_craft.transformer.xml_translator.xml_translator.translator import (
+    XMLTranslator,
+    XMLFillError,
+)
 
 
-class _AsyncContext:
+class _Context:
     def __init__(self, responses):
         self.responses = iter(responses)
         self.calls = 0
@@ -21,114 +26,76 @@ class _AsyncContext:
     async def __aexit__(self, *args):
         return None
 
-    async def request(self, messages, **kwargs):
+    async def request(self, *_args, **_kwargs):
         self.calls += 1
         return next(self.responses)
-
-
-class _AsyncRuntime:
-    def __init__(self, responses):
-        self.context_value = _AsyncContext(responses)
-
-    def context(self, **kwargs):
-        return self.context_value
 
 
 class _Hill:
     def __init__(self, errors):
         self.errors = iter(errors)
+        self.submissions = 0
 
     def request_element(self):
         return Element("xml")
 
-    def submit(self, element):
+    def validate(self, _element):
         return next(self.errors)
 
+    def submit(self, _element):
+        self.submissions += 1
+        return None
 
-def _async_translator(responses, retries=2):
+
+def _translator(responses):
     translator = object.__new__(XMLTranslator)
-    translator._fill_runtime = cast(Any, _AsyncRuntime(responses))
+    context = _Context(responses)
 
-    async def template_async(_name):
+    async def template(_name):
         return SimpleNamespace(render=lambda: "fill")
 
-    cast(Any, translator._fill_runtime).template = template_async
+    translator._fill_runtime = cast(
+        Any, SimpleNamespace(context=lambda **_: context, template=template)
+    )
     translator._cache_seed_content = None
-    translator._max_retries = retries
-    return translator
+    return translator, context
 
 
-def _callbacks(events):
-    return Callbacks(lambda x: x, lambda x: x, lambda x: x, events.append)
+@policy_operation
+async def _run(translator, hill, *, retry_policy=None, error_policy=OMITTED):
+    await translator._request_and_submit_async(
+        hill, "source", "translation", Callbacks(lambda x: x, lambda x: x, lambda x: x)
+    )
 
 
-class TestXMLRepairLoop(unittest.IsolatedAsyncioTestCase):
+class XMLRepairTests(unittest.IsolatedAsyncioTestCase):
+    async def test_only_complete_valid_candidates_are_submitted(self):
+        translator, context = _translator(["<xml>bad</xml>", "<xml>good</xml>"])
+        hill = _Hill(["structure wrong", None])
+        await _run(translator, hill, retry_policy=RetryPolicy(fill=1))
+        self.assertEqual(context.calls, 2)
+        self.assertEqual(hill.submissions, 1)
+
+    async def test_zero_retries_means_one_attempt_and_exhaustion_raises(self):
+        translator, context = _translator(["<xml>bad</xml>"])
+        hill = _Hill(["final structural diagnostic"])
+        with self.assertRaisesRegex(
+            XMLFillError, "final structural diagnostic"
+        ) as caught:
+            await _run(translator, hill, retry_policy=RetryPolicy(fill=0))
+        self.assertEqual(caught.exception.attempts, 1)
+        self.assertEqual(context.calls, 1)
+        self.assertEqual(hill.submissions, 0)
+
+    async def test_empty_and_malformed_responses_have_bounded_attempts(self):
+        translator, context = _translator(["", "not xml", "<xml/>"])
+        with self.assertRaises(XMLFillError):
+            await _run(translator, _Hill([]), retry_policy=RetryPolicy(fill=1))
+        self.assertEqual(context.calls, 2)
+
     def test_extracts_no_and_multiple_blocks(self):
         translator = object.__new__(XMLTranslator)
         self.assertIn("No complete", translator._extract_xml_element("plain text"))
-        self.assertIn("Found 2", translator._extract_xml_element("<xml>a</xml><xml>b</xml>"))
-
-    async def test_retries_hill_climbing_improvement_then_succeeds(self):
-        translator = _async_translator(["<xml>bad</xml>", "<xml>good</xml>"])
-        events = []
-        hill = _Hill(["structural error", None])
-        await translator._request_and_submit_async(cast(Any, hill), "source", "translated", _callbacks(events))
-        self.assertEqual(cast(Any, translator._fill_runtime).context_value.calls, 2)
-        self.assertEqual([event.error_message for event in events], ["structural error"])
-        self.assertFalse(events[0].over_maximum_retries)
-
-    async def test_exhausted_event_keeps_final_xml_diagnostic_and_callback_errors_propagate(self):
-        translator = _async_translator(["<xml>a</xml>", "<xml>b</xml>"], retries=2)
-        events = []
-        await translator._request_and_submit_async(cast(Any, _Hill(["first error", "final structural error"])), "s", "t", _callbacks(events))
-        self.assertEqual(events[-1].error_message, "final structural error")
-        self.assertTrue(events[-1].over_maximum_retries)
-
-        def fail(event):
-            raise RuntimeError("callback")
-
-        with self.assertRaisesRegex(RuntimeError, "callback"):
-            await _async_translator(["<xml>x</xml>"])._request_and_submit_async(
-                cast(Any, _Hill(["error"])), "s", "t",
-                Callbacks(lambda x: x, lambda x: x, lambda x: x, fail),
-            )
-
-
-class TestAsyncXMLRepairLoop(unittest.IsolatedAsyncioTestCase):
-    async def test_async_fill_callback_is_awaited_for_empty_and_exhausted(self):
-        events = []
-        callback_threads = []
-
-        async def callback(event):
-            await asyncio.sleep(0)
-            events.append(event)
-            callback_threads.append(threading.get_ident())
-
-        await _async_translator([""], retries=1)._request_and_submit_async(
-            cast(Any, _Hill([])), "source", "translated",
-            Callbacks(lambda x: x, lambda x: x, lambda x: x, callback),
+        self.assertIn(
+            "Found 2", translator._extract_xml_element("<xml>a</xml><xml>b</xml>")
         )
-
-        self.assertEqual(len(events), 2)
-        self.assertFalse(events[0].over_maximum_retries)
-        self.assertTrue(events[1].over_maximum_retries)
-        self.assertEqual(callback_threads, [threading.get_ident()] * 2)
-
-    async def test_sync_fill_callback_runs_on_async_caller_loop(self):
-        callback_threads = []
-
-        def callback(_event):
-            callback_threads.append(threading.get_ident())
-
-        await _async_translator(
-            ["<xml>bad</xml>", "<xml>good</xml>"], retries=2,
-        )._request_and_submit_async(
-            cast(Any, _Hill(["structural error", None])), "source", "translated",
-            Callbacks(lambda x: x, lambda x: x, lambda x: x, callback),
-        )
-
-        self.assertEqual(callback_threads, [threading.get_ident()])
-
-
-if __name__ == "__main__":
-    unittest.main()

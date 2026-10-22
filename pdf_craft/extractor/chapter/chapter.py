@@ -73,6 +73,7 @@ class TextFlowItem:
     role: str
     level: int
     children: list[SourceTextFragment | SourceAsset]
+    _translation_missing: bool = field(default=False, repr=False, compare=False)
 
     def __post_init__(self) -> None:
         if self.role not in {"body", "heading"}:

@@ -94,6 +94,14 @@ class ParagraphNotifier:
         from dataclasses import replace
         if (self.notes is None if isinstance(item.value, Reference) else self.body is None):
             return
+        states = item.narrative_states
+        def source_for(paragraph, original):
+            if states is not None:
+                from ..transformer.translation_coverage import paragraph_identity
+                identity = paragraph_identity(Chapter(item.chapter_id, item.level, []), paragraph)
+                if identity is not None and states.get(identity) != 'translated':
+                    return None
+            return original
         values = display_values(item, RenderMode.REPLACE)
         if values:
             item = replace(item, value=values[0])
@@ -104,9 +112,9 @@ class ParagraphNotifier:
             for index, paragraph in enumerate(item.value.flow_items):
                 if isinstance(paragraph, TextFlowItem):
                     original = originals[index] if index < len(originals) else None
-                    await self.notes.append(await IO_DOMAIN.run(self.content, paragraph, original, item.level))
+                    await self.notes.append(await IO_DOMAIN.run(self.content, paragraph, source_for(paragraph, original), item.level))
         elif isinstance(item.value, TextFlowItem) and self.body is not None:
-            await self.body.append(await IO_DOMAIN.run(self.content, item.value, item.original, item.level))
+            await self.body.append(await IO_DOMAIN.run(self.content, item.value, source_for(item.value, item.original), item.level))
 
 
 @asynccontextmanager

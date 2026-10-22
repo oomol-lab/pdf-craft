@@ -3,7 +3,8 @@
 import asyncio
 from dataclasses import replace
 from pathlib import Path
-from ...error import IgnoreFillErrorsChecker
+from ...policies import ErrorPolicyInput
+from ..._policy import OMITTED
 from ...extractor.chapter.text_projection import iter_continuous_content
 
 from ...common.stream import DiskDelivery
@@ -42,7 +43,7 @@ def prepare_index(chapters, furniture, coverage, pages, dpi, directory, translat
                     continue
                 chapter = Chapter(item.chapter_id, item.level, [text])
                 obstacles.extend(_chapter_obstacle_regions(chapter, pages, dpi,
-                                                           ignore_errors=False, include_reference_text=False))
+                                                           error_policy=False, include_reference_text=False))
                 if not isinstance(text, TextFlowItem):
                     continue
                 key = source_key(text)
@@ -81,11 +82,11 @@ def prepare_index(chapters, furniture, coverage, pages, dpi, directory, translat
 
 
 async def patch_content(source, extraction, target, *, translator=None, translation_id=None,
-                        window=1, ignore_errors: IgnoreFillErrorsChecker=False, on_body=None, on_footnote=None,
+                        window=1, error_policy: ErrorPolicyInput=OMITTED, on_body=None, on_footnote=None,
                         pdf_handler=None, with_furniture=False, on_translation_event=None, on_metadata=None):
     """Translation and native composition overlap through a disk-only process feed."""
-    from .error_policy import _process_ignore_errors_checker
-    async with _process_ignore_errors_checker(ignore_errors) as checker:
+    from .error_policy import _process_error_policy_checker
+    async with _process_error_policy_checker(error_policy) as checker:
         mode = RenderMode.REPLACE if translation_id is not None else RenderMode.SOURCE
         async with content_view(extraction, mode=mode, translation_id=translation_id,
                                 translator=translator, window=window, with_anchored=False, with_furniture=with_furniture,
@@ -216,7 +217,7 @@ async def patch_content(source, extraction, target, *, translator=None, translat
                         production = asyncio.create_task(produce())
                         staged = root / 'output.pdf'
                         patching = asyncio.create_task(patcher.patch(source, staged, feed,
-                            ignore_errors=checker, document_metadata=pdf_document_metadata(view.metadata)))
+                            error_policy=checker, document_metadata=pdf_document_metadata(view.metadata)))
                         delivery = asyncio.create_task(deliver(patching)) if on_body is not None or on_footnote is not None else None
                         tasks = [production, patching] + ([delivery] if delivery is not None else [])
                         try:

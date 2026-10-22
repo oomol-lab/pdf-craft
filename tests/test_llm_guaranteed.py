@@ -1,3 +1,5 @@
+
+from pdf_craft import RetryPolicy
 import unittest
 from typing import cast
 
@@ -24,7 +26,7 @@ class TestGuaranteedJson(unittest.IsolatedAsyncioTestCase):
             request=request,
             schema=_Payload,
             parse=lambda data, index, maximum: cast(_Payload, data).root["value"],
-            max_retries=2,
+            retry_policy=RetryPolicy(analysis=2),
         ))
         self.assertEqual(result, 3)
         self.assertEqual(len(calls), 2)
@@ -38,7 +40,7 @@ class TestGuaranteedJson(unittest.IsolatedAsyncioTestCase):
             await request_guaranteed_json(GuaranteedOptions(
                 messages=[], request=request,
                 schema=_Payload, parse=lambda data, index, maximum: data,
-                max_retries=1,
+                retry_policy=RetryPolicy(analysis=1),
             ))
 
 

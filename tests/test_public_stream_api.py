@@ -1,4 +1,6 @@
 """Public SDK contracts, including optional arguments on the synchronous facade."""
+
+from pdf_craft import RetryPolicy
 # pylint: disable=protected-access
 import inspect
 from functools import partial
@@ -55,18 +57,18 @@ class PublicStreamAPITests(unittest.TestCase):
                   translation_id='chosen', target_language='zh',
                   on_body=on_body, on_footnote=on_note, on_metadata=on_metadata)),
             ('translate_pdf', ('input.pdf', 'source', 'output', marker),
-             dict(window=3, with_furniture=True, ignore_errors=True,
+             dict(window=3, with_furniture=True, error_policy=True,
                   on_body=on_body, on_footnote=on_note, on_metadata=on_metadata)),
             ('patch_pdf_with_extraction', ('input.pdf', 'source', 'output'),
              dict(translator=marker, window=3, with_furniture=True,
-                  ignore_errors=True, on_body=on_body,
+                  error_policy=True, on_body=on_body,
                   on_footnote=on_note, on_metadata=on_metadata)),
             ('translate_epub', ('input.epub', 'output.epub'),
              dict(target_language='zh', submit=SubmitKind.APPEND_BLOCK,
-                  user_prompt='Translate', max_retries=2, max_group_tokens=200,
+                  user_prompt='Translate', retry_policy=RetryPolicy(analysis=2), max_group_tokens=200,
                   llm=marker, translation_llm=marker, fill_llm=marker,
                   executor=marker, translation_executor=marker, fill_executor=marker,
-                  on_fill_failed=marker, on_translation_event=marker,
+                  on_translation_event=marker,
                   window=3, on_body=on_body, on_metadata=on_metadata)),
         )
         for name, positional, keywords in cases:

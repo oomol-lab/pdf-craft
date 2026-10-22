@@ -98,7 +98,7 @@ async def content_view(extraction, *, mode=RenderMode.SOURCE, translation_id=Non
                     pretranslated, furniture, furniture_coverage = await prepare_furniture(paths, transformer, furniture_root)
                     view = replace(view, furnitures=furniture, furniture_coverage=furniture_coverage)
                 items = translate_content(items, transformer, window, [], [],
-                                          with_anchored=with_anchored, aborted=aborted, pretranslated=pretranslated)
+                                          with_anchored=with_anchored, aborted=aborted, pretranslated=pretranslated, pages=pages)
                 if on_translation_event is not None:
                     from ..transformer.content_progress import report_content
                     items = report_content(items, paths.chapters, transformer, on_translation_event)

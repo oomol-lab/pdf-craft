@@ -1,3 +1,7 @@
+# pylint: disable=unused-argument
+
+from pdf_craft.policies import RetryPolicy, ErrorPolicyInput
+from pdf_craft._policy import OMITTED, policy_operation
 # pylint: disable=protected-access
 
 from collections.abc import Callable
@@ -18,6 +22,7 @@ from ..output import publish
 class MarkdownRenderer:
     """Render a PDFCraftExtraction to Markdown through one async implementation."""
 
+    @policy_operation
     async def render(
         self, extraction: PDFCraftExtraction, output_path: Path,
         assets_path: Path | None = None, cover_path: Path | None = None,
@@ -29,6 +34,7 @@ class MarkdownRenderer:
         translator: XMLTranslator | None = None,
         window: int = 1, with_anchored: bool = True,
         on_metadata: MetadataCallback | None = None,
+        retry_policy: RetryPolicy | None = None, error_policy: ErrorPolicyInput = OMITTED,
     ) -> None:
         from ...document.stream_view import content_view
         from ...renderer.paragraph import paragraph_notifications, display_values

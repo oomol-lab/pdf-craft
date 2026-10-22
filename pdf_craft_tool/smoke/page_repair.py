@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from pdf_craft import RetryPolicy, ErrorPolicy
+
 import asyncio
 import json
 from pathlib import Path
@@ -92,7 +94,7 @@ async def _run_page_repair_smoke(
         evaluator,
         request,
         threshold=float(config.get("threshold", JEV_REVIEW_THRESHOLD)),
-        max_retries=int(config.get("max_retries", 4)),
+        retry_policy=RetryPolicy(**config.get("retry_policy", {})),
     )
     analysis = prepare_chapter_analysis(ocr_path, TocInfo([], []))
     with report.stage("repair"):

@@ -1,4 +1,6 @@
 """Review counterexamples exercised through source projection and LLM repair."""
+
+from pdf_craft import RetryPolicy
 # pylint: disable=protected-access
 from copy import deepcopy
 import json
@@ -109,7 +111,7 @@ class FootnoteReviewContractsTests(unittest.IsolatedAsyncioTestCase):
             return json.dumps(move_shared_member(pages[0], ownership))
 
         with self.assertRaises(GuaranteedBusinessError) as caught:
-            await AllPageLlmRepairProcessor(request, page_indexes=[1], max_retries=0)(
+            await AllPageLlmRepairProcessor(request, page_indexes=[1], retry_policy=RetryPolicy(analysis=0))(
                 [], pages, {})
         self.assertIn('[CROSS_PAGE_MEMBERSHIP]', str(caught.exception.__cause__))
         self.assertEqual(pages, original)
@@ -131,7 +133,7 @@ class FootnoteReviewContractsTests(unittest.IsolatedAsyncioTestCase):
             self.assertIn('[CROSS_PAGE_MEMBERSHIP]', messages[-1].message)
             return json.dumps(response(pages[0]))
 
-        repaired = await AllPageLlmRepairProcessor(request, page_indexes=[1], max_retries=1)(
+        repaired = await AllPageLlmRepairProcessor(request, page_indexes=[1], retry_policy=RetryPolicy(analysis=1))(
             [], pages, {})
         self.assertEqual(attempts, [0, 1])
         self.assertEqual(pages, original)
@@ -153,7 +155,7 @@ class FootnoteReviewContractsTests(unittest.IsolatedAsyncioTestCase):
             proposed['layouts'][1]['continues_from_previous'] = False
             return json.dumps(proposed)
 
-        repaired = await AllPageLlmRepairProcessor(request, page_indexes=[1], max_retries=0)(
+        repaired = await AllPageLlmRepairProcessor(request, page_indexes=[1], retry_policy=RetryPolicy(analysis=0))(
             [], pages, {})
         self.assertEqual(pages, original)
         note = restore_streams(repaired).citations[0]

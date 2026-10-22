@@ -6,14 +6,14 @@ from dataclasses import replace
 from ..common import read_xml, save_xml
 from ..document.content import read_content
 from ..extractor.chapter.chapter import (
-    Chapter, Reference, TextFlowItem, narrative_texts, search_references_in_chapter,
+    Chapter, Reference, narrative_texts, search_references_in_chapter,
 )
 from ..runtime import IO_DOMAIN, invoke_callback
 from .anchored_translation import _asset_slots, _translate_slots_async
 from .events import TranslationEvent, TranslationEventKind
 from .translation_coverage import (
     AnchoredContentCoverage, NarrativeCoverage, paragraph_identity,
-    write_anchored_coverage, write_narrative_coverage,
+    write_anchored_coverage, write_narrative_coverage, accepted_translation,
 )
 from .xml_translator.xml_translator.concurrency import run_async_parameters
 
@@ -30,7 +30,7 @@ def _unit(item):
 
 
 async def translate_content(items, transformer, window, coverage, anchored_coverage,
-                            *, with_anchored=False, aborted=lambda: False, on_completed=None, pretranslated=None):
+                            *, with_anchored=False, aborted=lambda: False, on_completed=None, pretranslated=None, pages=None):
     """One format adapter; every LLM operation remains in XMLTranslator."""
     from ..metering import check_aborted
 
@@ -45,7 +45,9 @@ async def translate_content(items, transformer, window, coverage, anchored_cover
                 if pretranslated is not None and isinstance(item.value, TextFlowItem)
                 and item.value.role == 'heading' else None)
         if path is None:
-            target = await transformer.transform(source, emit_scope_events=False, emit_item_events=False)
+            from .._failure_sources import page_sources
+            with page_sources(pages or {}):
+                target = await transformer.transform(source, emit_scope_events=False, emit_item_events=False)
         else:
             import pickle
             def load():
@@ -59,13 +61,15 @@ async def translate_content(items, transformer, window, coverage, anchored_cover
             identity = paragraph_identity(source, original)
             if identity is not None:
                 from .package import _has_visible_content
-                states.append(NarrativeCoverage(*identity, "translated" if _has_visible_content(translated) else "preserved"))
+                states.append(NarrativeCoverage(*identity, "translated" if _has_visible_content(translated) and accepted_translation(translated) else "preserved"))
         asset_states = []
         if with_anchored:
             slots = list(_asset_slots(target))
             for slot in slots:
                 slot.payload = replace(slot.payload, flow_index=item.index, context=item.asset_context)
-            translations = await _translate_slots_async(slots, transformer._anchored_transformer())
+            from .._failure_sources import page_sources
+            with page_sources(pages or {}):
+                translations = await _translate_slots_async(slots, transformer._anchored_transformer())
             for slot, translation in zip(slots, translations, strict=True):
                 state = "preserved"
                 if translation is not None:
@@ -82,12 +86,23 @@ async def translate_content(items, transformer, window, coverage, anchored_cover
             await on_completed(item)
         return replace(item, value=value, original=item.value), states, asset_states
 
+    from .._policy import Completion
+    completion = Completion()
     results = run_async_parameters(items, translate, window)
     try:
         async for item, states, asset_states in results:
             coverage.extend(states)
             anchored_coverage.extend(asset_states)
-            yield item
+            # Main narrative work is independent of metadata and asset success.
+            from ..extractor.chapter.chapter import TextFlowItem
+            primary = isinstance(item.original, Reference) or (isinstance(item.original, TextFlowItem) and item.original.role != 'heading')
+            if primary:
+                completion.succeeded += sum(state.state == 'translated' for state in states)
+                completion.degraded += sum(state.state == 'preserved' for state in states)
+            yield replace(item, narrative_states={
+                (state.chapter_id, state.page_index, state.order): state.state for state in states
+            }, asset_children=frozenset(state.child_index for state in asset_states if state.state == 'translated'))
+        completion.check('translation')
     finally:
         await results.aclose()
 
@@ -175,7 +190,7 @@ async def translate_workspace(extraction, output, transformer, *, window=1,
     pages, numbers = await IO_DOMAIN.run(fixed)
     writer = ChapterWriter(output / 'chapters')
     items = translate_content(read_content(output / 'chapters'), transformer, window, coverage, assets,
-                              with_anchored=with_anchored, on_completed=on_completed, aborted=aborted)
+                              with_anchored=with_anchored, on_completed=on_completed, aborted=aborted, pages=pages)
     from contextlib import aclosing
     async with paragraph_notifications(pages, output / 'assets', numbers, on_body, on_footnote) as notify:
         async with aclosing(notify.iterate(items)) as incoming:

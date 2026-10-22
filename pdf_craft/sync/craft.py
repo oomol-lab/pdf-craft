@@ -1,4 +1,6 @@
 """Synchronous wrapper around :class:`AsyncPDFCraft`."""
+from ..policies import RetryPolicy, ErrorPolicyInput
+from .._policy import OMITTED
 
 from collections.abc import Callable
 from os import PathLike
@@ -12,10 +14,9 @@ from ..document.access import PageGeometry
 from ..document.metadata import MetadataCallback
 from ..document.paragraph import ParagraphContent, SourceRegion, PDFParagraphContent
 from ..pipeline.epub.events import EpubFragmentContent
-from ..transformer.xml_translator.xml_translator import FillFailedEvent
+
 from ..concurrency import AsyncExecutor
 from ..llm import LLM
-from ..error import IgnoreFillErrorsChecker
 from ..metering import AbortedCheck, OCRTokensMetering
 from ..ocr_config import OCRConfig
 from ..runtime import run_sync
@@ -30,8 +31,9 @@ from ..transformer import (
 class PDFCraft:
     """Synchronous facade over the async-first SDK."""
 
-    def __init__(self, pdf: PDFOptions | None = None, *, _engine=None) -> None:
-        self._async_craft = AsyncPDFCraft(pdf=pdf, _engine=_engine)
+    def __init__(self, pdf: PDFOptions | None = None, *, retry_policy: RetryPolicy | None = None,
+                 error_policy: ErrorPolicyInput = None, _engine=None) -> None:
+        self._async_craft = AsyncPDFCraft(pdf=pdf, retry_policy=retry_policy, error_policy=error_policy, _engine=_engine)
 
     @classmethod
     def from_engine(cls, engine) -> "PDFCraft":
@@ -78,18 +80,22 @@ class PDFCraft:
         self, source: PathLike | str, extraction_path: PathLike | str,
         options: ExtractionOptions | None = None,
         *, analysing_path: PathLike | str | None = None,
+        retry_policy: RetryPolicy | None = None, error_policy: ErrorPolicyInput = OMITTED,
     ) -> PDFCraftExtraction:
         return run_sync(self._async_craft.extract_pdf(
             source, extraction_path, options, analysing_path=analysing_path,
+            retry_policy=retry_policy, error_policy=error_policy,
         ))
 
     def extract_pdf_with_metering(
         self, source: PathLike | str, extraction_path: PathLike | str,
         options: ExtractionOptions | None = None,
         *, analysing_path: PathLike | str | None = None,
+        retry_policy: RetryPolicy | None = None, error_policy: ErrorPolicyInput = OMITTED,
     ) -> tuple[PDFCraftExtraction, OCRTokensMetering]:
         return run_sync(self._async_craft.extract_pdf_with_metering(
             source, extraction_path, options, analysing_path=analysing_path,
+            retry_policy=retry_policy, error_policy=error_policy,
         ))
 
     def render_markdown(
@@ -103,6 +109,7 @@ class PDFCraft:
         on_body: Callable[[ParagraphContent[SourceRegion]], object] | None = None,
         on_footnote: Callable[[ParagraphContent[SourceRegion]], object] | None = None,
         on_metadata: MetadataCallback | None = None,
+        retry_policy: RetryPolicy | None = None, error_policy: ErrorPolicyInput = OMITTED,
     ) -> None:
         return run_sync(self._async_craft.render_markdown(
             extraction, output, assets_path,
@@ -115,6 +122,7 @@ class PDFCraft:
             on_body=on_body,
             on_footnote=on_footnote,
             on_metadata=on_metadata,
+            retry_policy=retry_policy, error_policy=error_policy,
         ))
 
     def translate_extraction(
@@ -129,6 +137,7 @@ class PDFCraft:
         on_body: Callable[[ParagraphContent[SourceRegion]], object] | None = None,
         on_footnote: Callable[[ParagraphContent[SourceRegion]], object] | None = None,
         on_metadata: MetadataCallback | None = None,
+        retry_policy: RetryPolicy | None = None, error_policy: ErrorPolicyInput = OMITTED,
     ) -> PDFCraftExtraction:
         return run_sync(self._async_craft.translate_extraction(
             extraction, output_path, translator,
@@ -141,16 +150,19 @@ class PDFCraft:
             on_body=on_body,
             on_footnote=on_footnote,
             on_metadata=on_metadata,
+            retry_policy=retry_policy, error_policy=error_policy,
         ))
 
     def translate_anchored_contents(
         self,
         extraction: PDFCraftExtraction | PathLike | str,
         output_path: PathLike | str,
-        transformer: AnchoredContentTransformer,
+        transformer: AnchoredContentTransformer, *,
+        retry_policy: RetryPolicy | None = None, error_policy: ErrorPolicyInput = OMITTED,
     ) -> PDFCraftExtraction:
         return run_sync(self._async_craft.translate_anchored_contents(
             extraction, output_path, transformer,
+            retry_policy=retry_policy, error_policy=error_policy,
         ))
 
     def render_epub(
@@ -167,6 +179,7 @@ class PDFCraft:
         on_body: Callable[[ParagraphContent[SourceRegion]], object] | None = None,
         on_footnote: Callable[[ParagraphContent[SourceRegion]], object] | None = None,
         on_metadata: MetadataCallback | None = None,
+        retry_policy: RetryPolicy | None = None, error_policy: ErrorPolicyInput = OMITTED,
     ) -> None:
         return run_sync(self._async_craft.render_epub(
             extraction, output,
@@ -184,6 +197,7 @@ class PDFCraft:
             on_body=on_body,
             on_footnote=on_footnote,
             on_metadata=on_metadata,
+            retry_policy=retry_policy, error_policy=error_policy,
         ))
 
     def translate_pdf(
@@ -193,20 +207,20 @@ class PDFCraft:
         *, window: int = 1,
         with_furniture: bool = False,
         on_translation_event: Callable[[TranslationEvent], object] | None = None,
-        ignore_errors: IgnoreFillErrorsChecker = False,
         on_body: Callable[[PDFParagraphContent], object] | None = None,
         on_footnote: Callable[[PDFParagraphContent], object] | None = None,
         on_metadata: MetadataCallback | None = None,
+        retry_policy: RetryPolicy | None = None, error_policy: ErrorPolicyInput = OMITTED,
     ) -> None:
         return run_sync(self._async_craft.translate_pdf(
             source, extraction, output, translator,
             window=window,
             with_furniture=with_furniture,
             on_translation_event=on_translation_event,
-            ignore_errors=ignore_errors,
             on_body=on_body,
             on_footnote=on_footnote,
             on_metadata=on_metadata,
+            retry_policy=retry_policy, error_policy=error_policy,
         ))
 
     def patch_pdf_with_extraction(
@@ -215,18 +229,17 @@ class PDFCraft:
         extraction: PDFCraftExtraction | PathLike | str,
         output: PathLike | str,
         *, translation_id: str | None = None,
-        ignore_errors: IgnoreFillErrorsChecker = False,
         translator: XMLTranslator | None = None, window: int = 1,
         on_body: Callable[[PDFParagraphContent], object] | None = None,
         on_footnote: Callable[[PDFParagraphContent], object] | None = None,
         with_furniture: bool = False,
         on_translation_event: Callable[[TranslationEvent], object] | None = None,
         on_metadata: MetadataCallback | None = None,
+        retry_policy: RetryPolicy | None = None, error_policy: ErrorPolicyInput = OMITTED,
     ) -> None:
         return run_sync(self._async_craft.patch_pdf_with_extraction(
             source, extraction, output,
             translation_id=translation_id,
-            ignore_errors=ignore_errors,
             translator=translator,
             window=window,
             on_body=on_body,
@@ -234,42 +247,42 @@ class PDFCraft:
             with_furniture=with_furniture,
             on_translation_event=on_translation_event,
             on_metadata=on_metadata,
+            retry_policy=retry_policy, error_policy=error_policy,
         ))
 
     def translate_epub(
         self, source: PathLike | str, output: PathLike | str, *,
         target_language: str, submit: SubmitKind,
         user_prompt: str | None = None,
-        max_retries: int = 5, max_group_tokens: int = 2600,
+        max_group_tokens: int = 2600,
         llm: LLM | None = None,
         translation_llm: LLM | None = None, fill_llm: LLM | None = None,
         on_translation_event: Callable[[TranslationEvent], object] | None = None,
-        on_fill_failed: Callable[[FillFailedEvent], object] | None = None,
         executor: AsyncExecutor | None = None,
         translation_executor: AsyncExecutor | None = None,
         fill_executor: AsyncExecutor | None = None,
         window: int = 1,
         on_body: Callable[[EpubFragmentContent], object] | None = None,
         on_metadata: MetadataCallback | None = None,
+        retry_policy: RetryPolicy | None = None, error_policy: ErrorPolicyInput = OMITTED,
     ) -> None:
         return run_sync(self._async_craft.translate_epub(
             source, output,
             target_language=target_language,
             submit=submit,
             user_prompt=user_prompt,
-            max_retries=max_retries,
             max_group_tokens=max_group_tokens,
             llm=llm,
             translation_llm=translation_llm,
             fill_llm=fill_llm,
             on_translation_event=on_translation_event,
-            on_fill_failed=on_fill_failed,
             executor=executor,
             translation_executor=translation_executor,
             fill_executor=fill_executor,
             window=window,
             on_body=on_body,
             on_metadata=on_metadata,
+            retry_policy=retry_policy, error_policy=error_policy,
         ))
 
     def convert_pdf_to_markdown(
@@ -284,6 +297,7 @@ class PDFCraft:
         with_anchored: bool = True,
         on_translation_event: Callable[[TranslationEvent], object] | None = None,
         on_metadata: MetadataCallback | None = None,
+        retry_policy: RetryPolicy | None = None, error_policy: ErrorPolicyInput = OMITTED,
     ) -> OCRTokensMetering:
         return run_sync(self._async_craft.convert_pdf_to_markdown(
             source, output,
@@ -297,6 +311,7 @@ class PDFCraft:
             with_anchored=with_anchored,
             on_translation_event=on_translation_event,
             on_metadata=on_metadata,
+            retry_policy=retry_policy, error_policy=error_policy,
         ))
 
     def convert_pdf_to_epub(
@@ -314,6 +329,7 @@ class PDFCraft:
         with_anchored: bool = True,
         on_translation_event: Callable[[TranslationEvent], object] | None = None,
         on_metadata: MetadataCallback | None = None,
+        retry_policy: RetryPolicy | None = None, error_policy: ErrorPolicyInput = OMITTED,
     ) -> OCRTokensMetering:
         return run_sync(self._async_craft.convert_pdf_to_epub(
             source, output,
@@ -331,4 +347,5 @@ class PDFCraft:
             with_anchored=with_anchored,
             on_translation_event=on_translation_event,
             on_metadata=on_metadata,
+            retry_policy=retry_policy, error_policy=error_policy,
         ))

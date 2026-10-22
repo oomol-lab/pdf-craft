@@ -1,4 +1,6 @@
 """Regression tests for scheduling and shared PCEX stream contracts."""
+
+from pdf_craft import RetryPolicy
 # pylint: disable=protected-access
 import asyncio
 import tempfile
@@ -165,8 +167,8 @@ class StreamFollowupTests(unittest.IsolatedAsyncioTestCase):
                 results.append((segment.parent, list(search_text_segments(segment.assign_attributes(target)))))
             return results
         llm = LLM('unused', 'https://example.invalid', 'unused', 'o200k_base')
-        translator = XMLTranslator(llm, llm, 'zh', None, False, 2, 5, 500,
-                                  executor=ConcurrentExecutor(FixedCapacity(2)))
+        translator = XMLTranslator(llm, llm, 'zh', None,   5, 500,
+                                  executor=ConcurrentExecutor(FixedCapacity(2)), retry_policy=RetryPolicy(fill=max(0, (2) - 1)))
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             source_root = root / 'source'
@@ -293,8 +295,8 @@ class StreamFollowupTests(unittest.IsolatedAsyncioTestCase):
                 result.append((segment.parent, list(search_text_segments(element))))
             return result
         llm = LLM('unused', 'https://example.invalid', 'unused', 'o200k_base')
-        translator = XMLTranslator(llm, llm, 'zh', None, False, 2, 5, 500,
-                                  executor=ConcurrentExecutor(FixedCapacity(2)))
+        translator = XMLTranslator(llm, llm, 'zh', None,   5, 500,
+                                  executor=ConcurrentExecutor(FixedCapacity(2)), retry_policy=RetryPolicy(fill=max(0, (2) - 1)))
         with tempfile.TemporaryDirectory() as directory, patch.object(
                 XMLTranslator, '_translate_inline_segments_async', new=mappings):
             root = Path(directory)
@@ -420,8 +422,8 @@ class StreamFollowupTests(unittest.IsolatedAsyncioTestCase):
                 return element
 
             llm = LLM('unused', 'https://example.invalid', 'unused', 'o200k_base')
-            translator = XMLTranslator(llm, llm, 'zh', None, False, 2, 5, 500,
-                                      executor=ConcurrentExecutor(FixedCapacity(2)))
+            translator = XMLTranslator(llm, llm, 'zh', None,   5, 500,
+                                      executor=ConcurrentExecutor(FixedCapacity(2)), retry_policy=RetryPolicy(fill=max(0, (2) - 1)))
             transformer = ChapterExtractionTransformer(
                 NarrativeXMLTransformer(translator), toc_transformer=translate_toc)
             output = root / 'target.pcex'

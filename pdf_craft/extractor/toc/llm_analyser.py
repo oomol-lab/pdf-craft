@@ -19,7 +19,6 @@ from ...pdf import TITLE_TAGS, Page
 from .toc_levels import Ref2Level
 from .toc_pages import PageRef
 
-_MAX_RETRIES = 3
 _P = TypeVar("_P")
 _R = TypeVar("_R")
 
@@ -619,7 +618,6 @@ class _LLMAnalyser(Generic[_P, _R]):
                 ),
                 schema=_ResponseSchema,
                 parse=parse,
-                max_retries=_MAX_RETRIES - 1,
                 extractor=_extract_result_json,
             ))
         except Exception as error:

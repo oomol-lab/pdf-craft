@@ -38,8 +38,7 @@ writer 收尾、删除临时归档并保持目标不存在；若发布边界先�
 `page_size()`、`render_page()` 和 `close()`。SDK 在进入同步 OCR 或 Qt 边界前，
 先在调用方事件循环中等待并临时物化源页面，只有页面路径和元数据会进入这些执行域。
 
-异步 XML/EPUB 翻译的 `on_fill_failed` 同样可以是普通函数或 `async def`；每次修复失败
-通知都在调用方事件循环中执行，异步 callback 会在进入下一次修复步骤前被完整等待。
+失败决策与重试配置见 [错误处理](ERROR_HANDLING.md)。
 
 `PDFCraft` 是异步实现之上的同步门面，适合普通脚本；但不能从已经运行事件循环的线程中
 调用，否则会明确抛出 `RuntimeError`，而不会嵌套启动事件循环。此时应改用
@@ -57,27 +56,7 @@ writer 收尾、删除临时归档并保持目标不存在；若发布边界先�
 `pdf_craft` 包顶层导出常用类型。最主要的入口是 `PDFCraft`，它把 PDF 提取、渲染、
 翻译和 PDF 写回组合成一组方法。下面这些对象可直接从 `pdf_craft` 导入：
 
-- `AsyncPDFCraft`、`PDFCraft`、`PDFOptions`、`ExtractionOptions`
-- `PDFCraftExtraction`、`PDFExtractor`、`RenderMode`
-- `ExtractionContext`、`PageGeometry`、`SourceRegion`、`ParagraphContent`
-- `PDFSourceRegion`、`PDFParagraphContent`、`TextLine`、`FormulaPlacement`、`EraseArea`
-- `EpubFragmentContent`（兼容别名 `EpubTranslation`）
-- `MetadataContent`、`DocumentMetadata`、`DocumentAuthor`
-- 六种 OCR 配置对象和 `OCRConfig`
-- `predownload_models`
-- `LLM`
-- `ExtractionTransformer`、`NarrativeXMLTransformer`、
-  `AnchoredContentExtractionTransformer`、`AnchoredContentTransformer`、
-  `AnchoredContentXMLTransformer`、`XMLTranslator`、`SubmitKind`
-- `BookMeta`、`TableRender`、`LaTeXRender`
-- `OCRTokensMetering`、`OCREvent`、`OCREventKind`、`TranslationEvent`、
-  `TranslationEventKind`、`TranslationItemKind`、`FillFailedEvent`
-- `AsyncPDFHandler`、`AsyncPDFDocument`、`PDFDocumentMetadata`
-- `PDFPatcher`、`PDFReplacement`、`PDFReplacementRegion`、`PDFInlineFormula`、
-  `PatchTextOptions`、`PatchTextStyle`、`FontResolution`、`QTextParagraphFiller`、`EraseOptions`、
-  `PDFTranslationPipeline`
-- `PDFError`、`OCRError`、`NoUsableFillPagesError`、`IgnorePDFErrorsChecker`、
-  `IgnoreOCRErrorsChecker`、`IgnoreFillErrorsChecker`
+失败决策与重试配置见 [错误处理](ERROR_HANDLING.md)。
 
 `AnchoredContentTransformer` 是仅异步的公共扩展协议，也可直接从包顶层导入。本文不把以下内容当作
 公共扩展点：内部 engine、`pdf_craft_tool` CLI、`pdf_craft` 的私有模块路径，以及
@@ -167,8 +146,6 @@ ExtractionOptions(
     generate_plot=False,
     toc_assumed=False,
     toc_llm=None,
-    ignore_pdf_errors=False,
-    ignore_ocr_errors=False,
     aborted=lambda: False,
     on_ocr_event=lambda event: None,
     on_body=None,
@@ -220,12 +197,11 @@ JEV 与 LLM 使用不同供应商配额时，可分别传 `jev_executor` 与 `ll
 不会隐式复用 `toc_llm`。它会先向 LLM 提供前三个原始 OCR 页；模型可继续请求前部页面，但总数最多为
 12 页。每个元信息字段必须给出 OCR 证据并通过 JSON repair Loop 的结构与业务校验。OCR 值优先，
 PDF 文件自身的 metadata 只补充 OCR 未得到的字段，绝不覆盖 OCR 结果；得到的 PCEX metadata 会同时供
-EPUB 渲染与 PDF 回填使用，后者会将其写入输出 PDF 的 document metadata。元信息请求最终失败也不会
-中断整本 PDF 的转换。
+EPUB 渲染与 PDF 回填使用，后者会将其写入输出 PDF 的 document metadata。元信息请求最终失败默认抛异常；只有 ErrorPolicy 允许分析降级时才使用 PDF metadata fallback 并继续。
 
 `aborted` 返回 `True` 时请求中止当前任务。`on_ocr_event` 会收到每次 OCR 事件，可用于
-进度、token 或日志记录。`ignore_pdf_errors` 和 `ignore_ocr_errors` 接受布尔值，也接受
-根据错误对象返回布尔值的 callable；它们只影响页面级错误是否继续处理。
+进度、token 或日志记录。`ErrorPolicy.ignore_pdf_render_errors` 和 `ErrorPolicy.ignore_ocr_errors` 接受布尔值，也接受
+根据 FailureContext 返回布尔值的 callable；它们只影响页面级错误是否继续处理。
 
 ## PDF 工作流
 
@@ -328,7 +304,7 @@ craft.convert_pdf_to_markdown(
 extraction = craft.extract_pdf("input.pdf", "work/book.pcex")
 craft.translate_pdf(
     "input.pdf", extraction, "translated.pdf", translator,
-    ignore_errors=True,  # 某一页写回失败时保留该页视觉底图，并继续后续页
+    error_policy=True,  # 某一页写回失败时保留该页视觉底图，并继续后续页
 )
 ```
 
@@ -347,12 +323,12 @@ craft.patch_pdf_with_extraction(
 ```
 
 `translate_pdf` 与 `patch_pdf_with_extraction` 默认在写回错误时立即失败。传入
-`ignore_errors=True` 后，能够归属到某一页的擦除、文字层、公式或 PDF 合成异常（包括未知代码
+`error_policy=True` 后，能够归属到某一页的擦除、文字层、公式或 PDF 合成异常（包括未知代码
 异常）会记录完整 traceback，并让该页退回为不可交互的视觉底图；其余页仍继续写回。若所有需要
 写回的页面都退回，会抛出 `NoUsableFillPagesError`，不会产生伪成功文件。不能打开、枚举或编译
 为视觉底图的源 PDF 没有可回退页，仍会直接失败。
 
-`ignore_errors` 还可以传入 `Callable[[Exception], bool]`，在每个可归属页面的异常发生时决定是否
+`error_policy` 还可以传入 `Callable[[FailureContext], bool]`，在每个可归属页面的异常发生时决定是否
 允许该页回退。局部函数和 lambda 均受支持：Qt 回填在隔离进程运行时，predicate 仍留在调用方进程，
 无需可 pickle；异步调用会在调用方事件循环线程执行 predicate。默认 `False` 保持 fail-fast；只有业务可以接受“未翻译视觉底图页与已翻译页面并存”时，
 才应启用此恢复策略。
@@ -411,13 +387,14 @@ llm = LLM(
     token_encoding="o200k_base",
 )
 executor = ConcurrentExecutor(FixedCapacity(4))
+from pdf_craft import RetryPolicy
+
 xml_translator = XMLTranslator(
     translation_llm=llm,
     fill_llm=llm,
     target_language="zh",
     user_prompt=None,
-    ignore_translated_error=False,
-    max_retries=5,
+    retry_policy=RetryPolicy(fill=3),
     max_fill_displaying_errors=10,
     max_group_score=2600,
     executor=executor,
@@ -495,11 +472,7 @@ PDFCraft().translate_epub(
 )
 ```
 
-`REPLACE` 只输出译文，`APPEND_TEXT` 在原文后追加内联译文，`APPEND_BLOCK` 追加独立译文
-块，适合双语阅读。`translate_epub` 还支持 `user_prompt`、`max_retries`、`max_group_tokens`、
-`executor`、`window`、`translation_llm`、`fill_llm`、`on_translation_event`、`on_fill_failed`、
-`on_body` 和 `on_metadata`；完整行为
-和回调字段请参阅 EPUB 翻译专题文档。
+失败决策与重试配置见 [错误处理](ERROR_HANDLING.md)。
 
 EPUB-only 程序直接构造不带 PDF 配置的 `PDFCraft()` 或 `AsyncPDFCraft()` 即可；该能力不再
 作为顶层独立函数导出。
@@ -615,7 +588,7 @@ TOC 的 JSON/schema/业务修复尝试共用同一预算。默认 360 秒，即�
 
 没有 `log_dir_path` 时，请求、缓存、重试、超时、失败、取消和成功事件传播到
 `pdf_craft.llm` 父 logger，由调用方为它或 root logger 配置 handler；配置目录后
-事件写入请求日志文件。TOC LLM 失败会回退统计方法，调用方取消则向上传播。
+事件写入请求日志文件。TOC LLM 失败默认抛异常，允许分析降级时才回退统计方法；调用方取消始终向上传播。
 EPUB 输出类型本身不会开启 LLM；只有显式传入 `toc_llm` 才会请求。
 
 
@@ -644,10 +617,7 @@ JEV 或 vendor OCR 若消耗同一供应商配额，应共享同一个执行器�
 方法以及一键转换方法返回。`OCREvent` 和 `OCREventKind` 用于 `on_ocr_event` 回调，适合
 记录页面级 OCR 状态。
 
-`PDFError`、`OCRError`、`NoUsableFillPagesError` 可用于日志和错误判断。`ignore_pdf_errors`、
-`ignore_ocr_errors` 以及 PDF 写回的 `ignore_errors` 可传 `True`、`False` 或 callable。
-`FillFailedEvent` 用于 EPUB XML 结构修复失败回调，包含
-`error_message`、`retried_count` 和 `over_maximum_retries`。
+失败决策与重试配置见 [错误处理](ERROR_HANDLING.md)。
 
 `ExtractionOptions.aborted` 返回 `True`，以及 `max_ocr_tokens` /
 `max_ocr_output_tokens` 达到上限时，当前 PDF facade 会透出 OCR backend 的中断异常；它尚未把
@@ -710,3 +680,6 @@ fragment 身份和整数 OCR bbox 放在一起，`map_bbox(target_size)` 按实�
 内容、几何与元信息值类型可从 `pdf_craft` 导入；XML 快照使用标准库
 `xml.etree.ElementTree.Element`。内部翻译映射、提交、磁盘存储钩子和 PDF 预览调度字段
 不属于公共扩展点。详细字段、顺序、有效期及文件提交语义见[增量回调指南](STREAMING.md)。
+
+
+统一策略、默认严格失败和全局全部降级的规则见 [错误处理](ERROR_HANDLING.md)。

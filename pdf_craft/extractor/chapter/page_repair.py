@@ -1,6 +1,10 @@
+# pylint: disable=unused-argument
 """LLM repair of one reversible page with deterministic integrity checks."""
 
 from __future__ import annotations
+
+from ...policies import RetryPolicy, ErrorPolicyInput
+from ..._policy import OMITTED, policy_operation
 
 import asyncio
 import json
@@ -138,19 +142,21 @@ class JevLlmRepairProcessor:
         request: PageRepairRequest,
         *,
         threshold: float = JEV_REVIEW_THRESHOLD,
-        max_retries: int = 4,
         batch_evaluator: PageBatchEvaluator | None = None,
+        retry_policy: RetryPolicy | None = None, error_policy: ErrorPolicyInput = None,
     ) -> None:
+        self._retry_policy = retry_policy or RetryPolicy()
+        self._error_policy = error_policy
         self._reviewer = JevReviewProcessor(
             evaluator, threshold, batch_evaluator=batch_evaluator,
         )
         self._request = request
-        self._max_retries = max_retries
 
     @property
     def results(self) -> list[PageReviewResult]:
         return self._reviewer.results
 
+    @policy_operation
     async def __call__(
         self,
         source_pages: list[Page],
@@ -168,7 +174,6 @@ class JevLlmRepairProcessor:
             ],
             reviews=reviews,
             request=self._request,
-            max_retries=self._max_retries,
         )
 
 
@@ -180,15 +185,17 @@ class AllPageLlmRepairProcessor:
         request: PageRepairRequest,
         *,
         page_indexes: Iterable[int] | None = None,
-        max_retries: int = 4,
+        retry_policy: RetryPolicy | None = None, error_policy: ErrorPolicyInput = None,
     ) -> None:
+        self._retry_policy = retry_policy or RetryPolicy()
+        self._error_policy = error_policy
         self._request = request
         self._configured_page_indexes = (
             None if page_indexes is None else tuple(page_indexes)
         )
-        self._max_retries = max_retries
         self.page_indexes: list[int] = []
 
+    @policy_operation
     async def __call__(
         self,
         source_pages: list[Page],
@@ -214,7 +221,6 @@ class AllPageLlmRepairProcessor:
             page_indexes=self.page_indexes,
             reviews={},
             request=self._request,
-            max_retries=self._max_retries,
         )
 
 
@@ -224,7 +230,6 @@ async def _repair_pages(
     page_indexes: list[int],
     reviews: Mapping[int, PageReviewResult],
     request: PageRepairRequest,
-    max_retries: int,
 ) -> list[PageAnalysis]:
     original = [_clone_page(page) for page in analyses]
     repaired = [_clone_page(page) for page in analyses]
@@ -235,16 +240,24 @@ async def _repair_pages(
         target = original[position]
         previous = original[position - 1] if position > 0 else None
         following = original[position + 1] if position + 1 < len(original) else None
-        result = await repair_page_with_llm(
-            previous_page=previous,
-            target_page=target,
-            next_page=following,
-            previous_pass_probability=_neighbor_probability(previous, reviews),
-            next_pass_probability=_neighbor_probability(following, reviews),
-            request=request,
-            max_retries=max_retries,
-            all_pages=repaired,
-        )
+        from ..._policy import recover
+        from ...policies import FailureCategory
+        try:
+            result = await repair_page_with_llm(
+                previous_page=previous,
+                target_page=target,
+                next_page=following,
+                previous_pass_probability=_neighbor_probability(previous, reviews),
+                next_pass_probability=_neighbor_probability(following, reviews),
+                request=request,
+                all_pages=repaired,
+            )
+        except Exception as error:
+            from ..._failure_sources import analysis_location
+            await recover(error, FailureCategory.ANALYSIS, 'footnote_repair', 'algorithm_result',
+                          targets=(analysis_location(target),),
+                          context_locations=tuple(analysis_location(page) for page in (previous, following) if page is not None))
+            result = target
         return page_index, result
 
     tasks = [asyncio.create_task(repair(page_index)) for page_index in page_indexes]
@@ -256,11 +269,22 @@ async def _repair_pages(
         await asyncio.gather(*tasks, return_exceptions=True)
         raise
     del completed  # Accepted candidates are committed to the tentative graph in parse.
-    _compile_page_connections(repaired)
-    restore_streams(repaired)
+    try:
+        _compile_page_connections(repaired)
+        restore_streams(repaired)
+    except Exception as error:
+        from ..._policy import recover
+        from ...policies import FailureCategory
+        from ..._failure_sources import analysis_location
+        await recover(error, FailureCategory.ANALYSIS, 'footnote_commit', 'algorithm_result',
+                      targets=tuple(analysis_location(page) for page in repaired))
+        _compile_page_connections(original)
+        restore_streams(original)
+        return original
     return repaired
 
 
+@policy_operation
 async def repair_page_with_llm(
     *,
     previous_page: PageAnalysis | None,
@@ -269,8 +293,8 @@ async def repair_page_with_llm(
     previous_pass_probability: float | None,
     next_pass_probability: float | None,
     request: PageRepairRequest,
-    max_retries: int = 4,
     all_pages: list[PageAnalysis] | None = None,
+    retry_policy: RetryPolicy | None = None, error_policy: ErrorPolicyInput = OMITTED,
 ) -> PageAnalysis:
     """Repair exactly ``target_page`` using full text-only neighbor context."""
 
@@ -303,7 +327,7 @@ async def repair_page_with_llm(
 
     return await request_guaranteed_json(GuaranteedOptions(
         messages=messages, request=request, schema=RepairedPage,
-        parse=compile_candidate, max_retries=max_retries,
+        parse=compile_candidate,
     ))
 
 

@@ -32,7 +32,7 @@ class TocExtractionTests(unittest.TestCase):
                     raise RuntimeError("provider unavailable")
 
             toc = asyncio.run(analyse_toc(
-                pages, Path(directory) / "toc.xml", toc_assumed=False,
+                pages, Path(directory) / "toc.xml", error_policy=True, toc_assumed=False,
                 toc_llm=cast(LLM, BrokenLLM()),
             ))
 
@@ -90,7 +90,7 @@ class TocExtractionTests(unittest.TestCase):
 
             with patch("pdf_craft.extractor.toc.analysing.find_toc_pages") as find:
                 no_printed_toc = asyncio.run(analyse_toc(
-                    pages, root / "no-toc.xml", toc_assumed=False
+                    pages, root / "no-toc.xml", error_policy=True, toc_assumed=False
                 ))
                 find.assert_not_called()
 
@@ -99,7 +99,7 @@ class TocExtractionTests(unittest.TestCase):
                 return_value=[ref],
             ):
                 printed_toc = asyncio.run(analyse_toc(
-                    pages, root / "printed-toc.xml", toc_assumed=True
+                    pages, root / "printed-toc.xml", error_policy=True, toc_assumed=True
                 ))
 
             self.assertEqual(no_printed_toc.page_indexes, [])

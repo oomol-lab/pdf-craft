@@ -239,7 +239,7 @@ class TestSubprocessLifecycle(unittest.IsolatedAsyncioTestCase):
                 task = asyncio.create_task(
                     craft.patch_pdf_with_extraction(
                         source, extraction, root / "target.pdf",
-                        ignore_errors=lambda _error: True,
+                        error_policy=lambda _error: True,
                     )
                 )
                 pids = await _wait_for_pids(pid_path)

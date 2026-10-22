@@ -11,41 +11,44 @@ from multiprocessing.connection import Client, Listener
 from threading import Lock, Thread
 from typing import Any, AsyncIterator, cast
 
-from ...error import IgnoreFillErrorsChecker
+from ...policies import ErrorPolicyInput, FailureContext, ErrorCallbackError
+from ..._policy import OMITTED, current, decide_context
+from dataclasses import replace
 from ...runtime import worker_context
 
 
 @dataclass(frozen=True)
-class _RemoteIgnoreErrorsChecker:
+class _RemoteErrorPolicyChecker:
     """Pickle-safe proxy for a caller-owned fill recovery predicate."""
 
     address: Any
     authkey: bytes
 
-    def __call__(self, error: Exception) -> bool:
+    def __call__(self, error: FailureContext) -> bool:
         connection = Client(self.address, authkey=self.authkey)
         try:
-            connection.send(_pickle_safe_exception(error))
+            connection.send(error)
             status, value = connection.recv()
         finally:
             connection.close()
         if status == "error":
             if isinstance(value, BaseException):
                 raise value
-            raise RuntimeError(f"ignore_errors callback failed: {value}")
+            raise RuntimeError(f"error_policy callback failed: {value}")
         return bool(value)
 
 
-class _IgnoreErrorsCheckerServer:
+class _ErrorPolicyCheckerServer:
     """Serve a local predicate to an isolated process without pickling it."""
 
     def __init__(
         self,
         loop: asyncio.AbstractEventLoop,
-        checker: Callable[[Exception], bool],
+        checker: Callable[[FailureContext], bool],
     ) -> None:
         self._state_lock = Lock()
         self._closing = False
+        self.callback_error = None
         self._pending = None
         self._loop = loop
         self._checker = checker
@@ -58,8 +61,8 @@ class _IgnoreErrorsCheckerServer:
         )
         self._thread.start()
 
-    def proxy(self) -> _RemoteIgnoreErrorsChecker:
-        return _RemoteIgnoreErrorsChecker(self._listener.address, self._authkey)
+    def proxy(self) -> _RemoteErrorPolicyChecker:
+        return _RemoteErrorPolicyChecker(self._listener.address, self._authkey)
 
     def _serve(self) -> None:
         while True:
@@ -71,10 +74,10 @@ class _IgnoreErrorsCheckerServer:
                 error = connection.recv()
                 if error is None:
                     return
-                if not isinstance(error, Exception):
-                    error = RuntimeError(str(error))
+                if not isinstance(error, FailureContext):
+                    raise TypeError("worker must send FailureContext")
                 future = asyncio.run_coroutine_threadsafe(
-                    _invoke_ignore_errors_checker(self._checker, error),
+                    _invoke_error_policy_checker(self._checker, error),
                     self._loop,
                 )
                 with self._state_lock:
@@ -84,6 +87,8 @@ class _IgnoreErrorsCheckerServer:
                 try:
                     response = ("ok", future.result())
                 except BaseException as callback_error:  # pylint: disable=broad-exception-caught
+                    if isinstance(callback_error, ErrorCallbackError):
+                        self.callback_error = callback_error
                     response = ("error", _pickle_safe_exception(callback_error))
                 finally:
                     with self._state_lock:
@@ -110,12 +115,12 @@ class _IgnoreErrorsCheckerServer:
         self._thread.join(timeout=5)
         self._listener.close()
         if self._thread.is_alive():
-            raise RuntimeError("ignore_errors callback server did not stop")
+            raise RuntimeError("error_policy callback server did not stop")
 
 
-async def _invoke_ignore_errors_checker(
-    checker: Callable[[Exception], bool],
-    error: Exception,
+async def _invoke_error_policy_checker(
+    checker: Callable[[FailureContext], bool],
+    error: FailureContext,
 ) -> bool:
     result = checker(error)
     if inspect.isawaitable(result):
@@ -132,20 +137,36 @@ def _pickle_safe_exception(error: BaseException) -> BaseException:
 
 
 @asynccontextmanager
-async def _process_ignore_errors_checker(
-    checker: IgnoreFillErrorsChecker,
-) -> AsyncIterator[IgnoreFillErrorsChecker]:
-    if not callable(checker) or isinstance(checker, _RemoteIgnoreErrorsChecker):
+async def _process_error_policy_checker(
+    checker: ErrorPolicyInput,
+) -> AsyncIterator[ErrorPolicyInput]:
+    if isinstance(checker, _RemoteErrorPolicyChecker):
         yield checker
         return
-    async with worker_context(_checker_server(asyncio.get_running_loop(), checker)) as proxy:
+    execution = current()
+    selected = execution.errors if checker is OMITTED else checker
+    if selected is None or isinstance(selected, bool):
+        yield bool(selected)
+        return
+
+    async def decide(context):
+        context = replace(context, task_id=execution.task_id, operation=execution.operation,
+                          targets=tuple(replace(location, source=location.source or execution.source)
+                                        for location in context.targets),
+                          affected=tuple(replace(location, source=location.source or execution.source)
+                                         for location in context.affected))
+        return await decide_context(context, selected)
+
+    async with worker_context(_checker_server(asyncio.get_running_loop(), decide)) as proxy:
         yield proxy
 
 
 @contextmanager
 def _checker_server(loop, checker):
-    server = _IgnoreErrorsCheckerServer(loop, checker)
+    server = _ErrorPolicyCheckerServer(loop, checker)
     try:
         yield server.proxy()
     finally:
         server.close()
+        if server.callback_error is not None:
+            raise server.callback_error

@@ -1,3 +1,4 @@
+from pdf_craft import RetryPolicy
 # pylint: disable=cell-var-from-loop
 import asyncio
 import inspect
@@ -15,8 +16,8 @@ from pdf_craft.extractor.chapter.page_review import JEV_QUESTION_NAME
 
 class JEVTests(unittest.IsolatedAsyncioTestCase):
     def test_configuration_rejects_invalid_limits(self):
-        with self.assertRaisesRegex(ValueError, "retry_times"):
-            JEV("key", retry_times=-1)
+        with self.assertRaisesRegex(ValueError, "analysis"):
+            RetryPolicy(analysis=-1)
 
     def test_configuration_has_no_independent_concurrency_channel(self):
         self.assertNotIn("concurrency", inspect.signature(JEV).parameters)
@@ -41,7 +42,7 @@ class JEVTests(unittest.IsolatedAsyncioTestCase):
         with patch("pdf_craft.jev.AsyncTypeSafeClient", return_value=client) as create:
             async with JEVRuntime(JEV(
                 "secret", model="jev-fixed", url="https://jev.invalid",
-                timeout=12, retry_times=3,
+                timeout=12,
             ), ConcurrentExecutor(FixedCapacity(2))) as runtime:
                 probability = await runtime.evaluate(7, request)
 
@@ -73,7 +74,7 @@ class JEVTests(unittest.IsolatedAsyncioTestCase):
 
         with patch("pdf_craft.jev.AsyncTypeSafeClient", return_value=client):
             async with JEVRuntime(
-                JEV("secret", retry_times=1),
+                JEV("secret"),
                 ConcurrentExecutor(FixedCapacity(1)),
             ) as runtime:
                 self.assertEqual(await runtime.evaluate(3, request), 0.81)
@@ -98,7 +99,7 @@ class JEVTests(unittest.IsolatedAsyncioTestCase):
             "pdf_craft.jev.asyncio.sleep", new_callable=AsyncMock,
         ) as sleep:
             async with JEVRuntime(
-                JEV("secret", retry_times=1),
+                JEV("secret"),
                 ConcurrentExecutor(FixedCapacity(1)),
             ) as runtime:
                 self.assertEqual(await runtime.evaluate(4, request), 0.72)
@@ -138,7 +139,7 @@ class JEVTests(unittest.IsolatedAsyncioTestCase):
         ]
         with patch("pdf_craft.jev.AsyncTypeSafeClient", return_value=client):
             async with JEVRuntime(
-                JEV("secret", retry_times=1),
+                JEV("secret"),
                 ConcurrentExecutor(FixedCapacity(2)),
             ) as runtime:
                 results = await asyncio.wait_for(
@@ -184,7 +185,7 @@ class JEVTests(unittest.IsolatedAsyncioTestCase):
             JEVRuntime, "_retry_after_error", new=retry,
         ):
             async with JEVRuntime(
-                JEV("secret", retry_times=1),
+                JEV("secret"),
                 ConcurrentExecutor(FixedCapacity(2)),
             ) as runtime:
                 pending = asyncio.create_task(runtime.evaluate_many(requests()))
@@ -229,7 +230,7 @@ class JEVTests(unittest.IsolatedAsyncioTestCase):
             client.system_one = system_one
             with patch("pdf_craft.jev.AsyncTypeSafeClient", return_value=client):
                 async with JEVRuntime(
-                    JEV("secret", retry_times=1),
+                    JEV("secret"),
                     ConcurrentExecutor(FixedCapacity(2)),
                 ) as runtime:
                     with self.assertRaisesRegex(

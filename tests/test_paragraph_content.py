@@ -1,5 +1,7 @@
 """Public source values and actual incremental consumers (no hosted calls)."""
 
+from pdf_craft import RetryPolicy
+
 # Each subtest awaits its tasks before the next iteration.
 # pylint: disable=cell-var-from-loop,protected-access
 import asyncio
@@ -28,8 +30,8 @@ def text(index, value, page=1):
 
 def translator():
     llm = LLM('unused', 'https://example.invalid', 'unused', 'o200k_base')
-    return XMLTranslator(llm,llm,'zh',None,False,2,5,500,
-                         executor=ConcurrentExecutor(FixedCapacity(2)))
+    return XMLTranslator(llm,llm,'zh',None,5,500,
+                         executor=ConcurrentExecutor(FixedCapacity(2)), retry_policy=RetryPolicy(fill=max(0, (2) - 1)))
 
 
 async def translated(_translator, inline_segments, **_kwargs):

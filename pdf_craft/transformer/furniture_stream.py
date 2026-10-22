@@ -23,29 +23,35 @@ def _headings(chapters):
 
 
 async def prepare_furniture(paths, transformer, root):
-    chapters = root / 'chapters'
-    await IO_DOMAIN.run(chapters.mkdir)
-    cache = {}
-    async for chapter, indexed in worker_iter(_headings(paths.chapters)):
-        translated = await transformer.transform(Chapter(chapter.id, chapter.level,
-                                                         [deepcopy(item) for _, item in indexed]),
-                                                 emit_scope_events=False, emit_item_events=False)
-        filename = chapter_filename(chapter)
-        await IO_DOMAIN.run(save_xml, encode(translated), chapters / filename)
-        for (index, _), item in zip(indexed, translated.flow_items, strict=True):
-            path = root / (filename + f'.{index}.pickle')
-            def save(path=path, item=item):
-                with path.open('wb') as file:
-                    pickle.dump(item, file, protocol=pickle.HIGHEST_PROTOCOL)
-            await IO_DOMAIN.run(save)
-            cache[filename, index] = path
-    furniture = root / 'furnitures.xml'
-    toc = root / 'toc.xml'
-    if await IO_DOMAIN.run(paths.toc.exists):
-        await IO_DOMAIN.run(copy2, paths.toc, toc)
-    if await IO_DOMAIN.run(paths.furnitures.exists):
-        await IO_DOMAIN.run(copy2, paths.furnitures, furniture)
-        await translate_furnitures_in_workspace_async(
-            chapters_path=chapters, toc_path=toc, furnitures_path=furniture,
-            translation_path=root / 'coverage.xml', transformer=transformer._furniture_transformer())
-    return cache, furniture, root / 'coverage.xml'
+    from ..document.package import _read_pages
+    from ..document.access import page_geometries
+    from .._failure_sources import page_sources
+    dpi, sizes = await IO_DOMAIN.run(_read_pages, paths.pages)
+    with page_sources(page_geometries(sizes, dpi)):
+        chapters = root / 'chapters'
+        await IO_DOMAIN.run(chapters.mkdir)
+        cache = {}
+        async for chapter, indexed in worker_iter(_headings(paths.chapters)):
+            translated = await transformer.transform(Chapter(chapter.id, chapter.level,
+                                                             [deepcopy(item) for _, item in indexed]),
+                                                     emit_scope_events=False, emit_item_events=False)
+            filename = chapter_filename(chapter)
+            await IO_DOMAIN.run(save_xml, encode(Chapter(translated.id, translated.level,
+                [item for item in translated.flow_items if not getattr(item, '_translation_missing', False)])), chapters / filename)
+            for (index, _), item in zip(indexed, translated.flow_items, strict=True):
+                path = root / (filename + f'.{index}.pickle')
+                def save(path=path, item=item):
+                    with path.open('wb') as file:
+                        pickle.dump(item, file, protocol=pickle.HIGHEST_PROTOCOL)
+                await IO_DOMAIN.run(save)
+                cache[filename, index] = path
+        furniture = root / 'furnitures.xml'
+        toc = root / 'toc.xml'
+        if await IO_DOMAIN.run(paths.toc.exists):
+            await IO_DOMAIN.run(copy2, paths.toc, toc)
+        if await IO_DOMAIN.run(paths.furnitures.exists):
+            await IO_DOMAIN.run(copy2, paths.furnitures, furniture)
+            await translate_furnitures_in_workspace_async(
+                chapters_path=chapters, toc_path=toc, furnitures_path=furniture,
+                translation_path=root / 'coverage.xml', transformer=transformer._furniture_transformer())
+        return cache, furniture, root / 'coverage.xml'

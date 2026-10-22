@@ -1,3 +1,5 @@
+
+from pdf_craft import ErrorPolicy
 # pylint: disable=protected-access
 
 import json
@@ -84,6 +86,7 @@ class TestBookMetadata(unittest.IsolatedAsyncioTestCase):
             llm = LLM("key", "https://example.invalid/v1", "model", "o200k_base", retry_times=0)
             with patch.object(LLMRuntime, "_invoke_async", transport):
                 metadata = await engine._extract_book_metadata_async(
+                error_policy=True,
                     pdf_path=root / "paper.pdf", pages_path=pages_path, enabled=True,
                     metadata_llm=llm,
                 )
@@ -126,8 +129,8 @@ class TestBookMetadata(unittest.IsolatedAsyncioTestCase):
                 max_page_image_file_size=None,
                 includes_cover=False,
                 includes_footnotes=False,
-                ignore_pdf_errors=False,
-                ignore_ocr_errors=False,
+                error_policy=ErrorPolicy(ignore_pdf_render_errors=False, ignore_ocr_errors=False),
+
                 generate_plot=False,
                 toc_llm=None,
                 toc_assumed=False,
@@ -251,7 +254,7 @@ class TestBookMetadata(unittest.IsolatedAsyncioTestCase):
 
             metadata = await engine._extract_book_metadata_async(  # pylint: disable=protected-access
                 pdf_path=Path("book.pdf"), pages_path=pages_path, enabled=True,
-                metadata_llm=llm,  # type: ignore[arg-type]
+                metadata_llm=llm, error_policy=True,  # type: ignore[arg-type]
             )
 
             assert metadata is not None

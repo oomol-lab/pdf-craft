@@ -1,4 +1,8 @@
+# pylint: disable=unused-argument
 """Transformers operating on render-ready PDFCraftExtraction objects."""
+
+from pdf_craft.policies import RetryPolicy, ErrorPolicyInput
+from pdf_craft._policy import OMITTED, policy_operation
 
 # Internal workspace methods keep one-shot conversions directory-backed.
 # pylint: disable=protected-access
@@ -60,6 +64,7 @@ class ChapterExtractionTransformer:
         self.mode = mode
         self.toc_transformer = toc_transformer
 
+    @policy_operation
     async def transform(
         self,
         extraction: PDFCraftExtraction,
@@ -67,6 +72,7 @@ class ChapterExtractionTransformer:
         *,
         on_translation_event: Callable[[TranslationEvent], object] | None = None,
         emit_translation_events: bool = False,
+        retry_policy: RetryPolicy | None = None, error_policy: ErrorPolicyInput = OMITTED,
     ) -> PDFCraftExtraction:
         if output_path.suffix.lower() != EXTRACTION_SUFFIX:
             raise ValueError(f"PDFCraftExtraction path must end with {EXTRACTION_SUFFIX}")
@@ -267,10 +273,12 @@ class FurnitureExtractionTransformer:
     ) -> None:
         self.furniture_transformer = furniture_transformer
 
+    @policy_operation
     async def transform(
         self,
         extraction: PDFCraftExtraction,
-        output_path: Path,
+        output_path: Path, *,
+        retry_policy: RetryPolicy | None = None, error_policy: ErrorPolicyInput = OMITTED,
     ) -> PDFCraftExtraction:
         if output_path.suffix.lower() != EXTRACTION_SUFFIX:
             raise ValueError(f"PDFCraftExtraction path must end with {EXTRACTION_SUFFIX}")
@@ -321,10 +329,12 @@ class AnchoredContentExtractionTransformer:
     ) -> None:
         self.anchored_transformer = anchored_transformer
 
+    @policy_operation
     async def transform(
         self,
         extraction: PDFCraftExtraction,
-        output_path: Path,
+        output_path: Path, *,
+        retry_policy: RetryPolicy | None = None, error_policy: ErrorPolicyInput = OMITTED,
     ) -> PDFCraftExtraction:
         if output_path.suffix.lower() != EXTRACTION_SUFFIX:
             raise ValueError(f"PDFCraftExtraction path must end with {EXTRACTION_SUFFIX}")

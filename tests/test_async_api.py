@@ -1,3 +1,4 @@
+from pdf_craft import FailureContext
 # pylint: disable=protected-access
 import asyncio
 from collections.abc import Awaitable, Callable
@@ -908,7 +909,7 @@ class TestAsyncAPI(unittest.IsolatedAsyncioTestCase):
             craft = AsyncPDFCraft(PDFOptions(pdf_handler=async_handler))
 
             await craft.patch_pdf_with_extraction(
-                source, extraction, root / "patched.pdf", ignore_errors=True,
+                source, extraction, root / "patched.pdf", error_policy=True,
             )
             with patch.object(
                 craft, "_translate_to_workspace",
@@ -916,7 +917,7 @@ class TestAsyncAPI(unittest.IsolatedAsyncioTestCase):
             ) as translate:
                 await craft.translate_pdf(
                     source, extraction, root / "translated.pdf",
-                    cast(Any, _AsyncXMLTranslator()), ignore_errors=True,
+                    cast(Any, _AsyncXMLTranslator()), error_policy=True,
                 )
 
             translate.assert_awaited_once()
@@ -957,13 +958,13 @@ class TestAsyncAPI(unittest.IsolatedAsyncioTestCase):
                     checker = lambda _error: True  # noqa: E731
                     if mode == "async":
                         await AsyncPDFCraft().patch_pdf_with_extraction(
-                            source, extraction, target, ignore_errors=checker,
+                            source, extraction, target, error_policy=checker,
                         )
                     else:
                         await asyncio.to_thread(
                             PDFCraft().patch_pdf_with_extraction,
                             source, extraction, target,
-                            ignore_errors=checker,
+                            error_policy=checker,
                         )
                     self.assertTrue(target.is_file())
             self.assertFalse(any(
@@ -1004,19 +1005,19 @@ class TestAsyncAPI(unittest.IsolatedAsyncioTestCase):
                 encoding="utf-8",
             )
             extraction._validate()
-            observed: list[tuple[Exception, int]] = []
+            observed: list[tuple[FailureContext, int]] = []
 
-            def checker(error: Exception) -> bool:
+            def checker(error: FailureContext) -> bool:
                 observed.append((error, threading.get_ident()))
                 return True
 
             with self.assertRaisesRegex(ValueError, "page_index 2"):
                 await AsyncPDFCraft().patch_pdf_with_extraction(
-                    source, extraction, root / "target.pdf", ignore_errors=checker,
+                    source, extraction, root / "target.pdf", error_policy=checker,
                 )
 
             self.assertEqual(len(observed), 1)
-            self.assertIsInstance(observed[0][0], ValueError)
+            self.assertEqual(observed[0][0].error.type, "builtins.ValueError")
             self.assertEqual(observed[0][1], loop_thread)
             self.assertFalse(any(
                 thread.name == "pdf-craft-ignore-errors" and thread.is_alive()

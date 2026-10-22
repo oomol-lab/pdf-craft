@@ -1,4 +1,6 @@
 """Whole-path contracts for complete sources, assembly and PDF translation."""
+
+from pdf_craft import RetryPolicy
 # pylint: disable=protected-access
 from copy import deepcopy
 import json
@@ -172,7 +174,7 @@ class FootnoteAssemblyTests(unittest.IsolatedAsyncioTestCase):
                                   continues_from_previous=False, continues_to_next=False)
             return json.dumps(proposed)
 
-        result = await AllPageLlmRepairProcessor(request, page_indexes=[1], max_retries=1)([], pages, {})
+        result = await AllPageLlmRepairProcessor(request, page_indexes=[1], retry_policy=RetryPolicy(analysis=1))([], pages, {})
         self.assertEqual(attempts, [0, 1])
         note_text = restore_streams(result).citations[0].flow_items[0]
         assert isinstance(note_text, TextFlowItem)
@@ -197,7 +199,7 @@ class FootnoteAssemblyTests(unittest.IsolatedAsyncioTestCase):
         # ignored predecessor is not a valid continuation. Candidate is rejected.
         from pdf_craft.llm.guaranteed import GuaranteedBusinessError
         with self.assertRaises(GuaranteedBusinessError):
-            await AllPageLlmRepairProcessor(request, page_indexes=[1], max_retries=0)([], pages, {})
+            await AllPageLlmRepairProcessor(request, page_indexes=[1], retry_policy=RetryPolicy(analysis=0))([], pages, {})
 
     async def test_ignored_layout_does_not_inherit_a_derived_outgoing_edge(self):
         page = analyse_pages([1], [TextFlowItem('body', -1, [
@@ -212,7 +214,7 @@ class FootnoteAssemblyTests(unittest.IsolatedAsyncioTestCase):
             proposed['layouts'][1]['continues_from_previous'] = False
             return json.dumps(proposed)
 
-        repaired = await AllPageLlmRepairProcessor(request, max_retries=0)([], [page], {})
+        repaired = await AllPageLlmRepairProcessor(request, retry_policy=RetryPolicy(analysis=0))([], [page], {})
         self.assertFalse(repaired[0].layouts[0].continues_to_next)
         paragraphs = restore_streams(repaired).paragraphs
         self.assertEqual(len(paragraphs), 1)
@@ -273,7 +275,7 @@ class FootnoteAssemblyTests(unittest.IsolatedAsyncioTestCase):
             proposed['layouts'][0].pop('continues_to_next')
             return json.dumps(proposed)
 
-        repaired = await AllPageLlmRepairProcessor(request, page_indexes=[2], max_retries=0)([], pages, {})
+        repaired = await AllPageLlmRepairProcessor(request, page_indexes=[2], retry_policy=RetryPolicy(analysis=0))([], pages, {})
         restored = restore_streams(repaired)
         self.assertEqual(restored.paragraphs, [])
         self.assertEqual(len(restored.citations), 1)

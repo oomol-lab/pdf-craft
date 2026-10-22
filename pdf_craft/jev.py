@@ -1,3 +1,4 @@
+# pylint: disable=unused-argument
 """Official asynchronous JEV service configuration and transport."""
 
 from __future__ import annotations
@@ -15,6 +16,9 @@ from typesafe_sdk import (
     TypeSafePermissionDeniedError, TypeSafeRateLimitError,
 )
 
+from ._policy import current as execution_policy, policy_operation
+from .policies import RetryScope, RetryPolicy as BusinessRetryPolicy, FailureLocation
+
 from .concurrency import (
     AsyncExecutor, NonContinuableError, OperationError, RateLimitedError,
     task_group_fatal_error,
@@ -28,21 +32,19 @@ class JEV:
     model: str = "jev-latest"
     url: str = "https://api.typesafe.ai"
     timeout: float | None = 60.0
-    retry_times: int = 2
 
     def __post_init__(self) -> None:
         if not self.key.strip():
             raise ValueError("JEV API key cannot be empty")
         if not self.model.strip():
             raise ValueError("JEV model cannot be empty")
-        if self.retry_times < 0:
-            raise ValueError("JEV retry_times cannot be negative")
 
 
 class JEVRuntime:
     """One event-loop-bound official JEV client reused for a review run."""
 
-    def __init__(self, config: JEV, executor: AsyncExecutor) -> None:
+    def __init__(self, config: JEV, executor: AsyncExecutor, *, retry_policy: BusinessRetryPolicy | None = None) -> None:
+        self._retry_policy = retry_policy or BusinessRetryPolicy()
         self.config = config
         self.executor = executor
         self._client: AsyncTypeSafeClient | None = None
@@ -65,6 +67,7 @@ class JEVRuntime:
         if client is not None:
             await client.__aexit__(exc_type, exc_value, traceback)
 
+    @policy_operation
     async def evaluate(
         self,
         page_index: int,
@@ -74,6 +77,7 @@ class JEVRuntime:
     ) -> float:
         return await self._evaluate_with_retry(page_index, request, _started)
 
+    @policy_operation
     async def evaluate_many(
         self, requests: Iterable[tuple[int, dict[str, Any]]],
     ) -> list[tuple[int, float]]:
@@ -81,7 +85,7 @@ class JEVRuntime:
             raise RuntimeError("JEVRuntime must be entered before evaluation")
         iterator = iter(enumerate(requests))
         completed: list[tuple[int, int, float]] = []
-        tasks: dict[asyncio.Task[float], tuple[int, int]] = {}
+        tasks: dict[asyncio.Task[float], tuple[int, int, tuple[FailureLocation, ...]]] = {}
         admission: asyncio.Task[bool] | None = None
         admission_owner: asyncio.Task[float] | None = None
         exhausted = False
@@ -99,7 +103,11 @@ class JEVRuntime:
             task = asyncio.create_task(self.evaluate(
                 page_index, request, _started=started,
             ))
-            tasks[task] = (order, page_index)
+            state = request.get('state', {})
+            context_pages = tuple(FailureLocation('page', page_indexes=(part['page_index'],))
+                for key in ('previous_page', 'next_page') if isinstance((part := state.get(key)), dict)
+                and 'page_index' in part)
+            tasks[task] = (order, page_index, context_pages)
             admission_owner = task
             admission = asyncio.create_task(started.wait())
 
@@ -150,8 +158,19 @@ class JEVRuntime:
                 for task in done:
                     if task not in tasks:
                         continue
-                    order, page_index = tasks.pop(task)
-                    completed.append((order, page_index, task.result()))
+                    order, page_index, context_pages = tasks.pop(task)
+                    try:
+                        probability = task.result()
+                        if not 0 <= probability <= 1:
+                            raise ValueError('JEV pass probability must be between 0 and 1')
+                    except Exception as error:
+                        from ._policy import recover
+                        from .policies import FailureCategory
+                        await recover(error, FailureCategory.ANALYSIS, 'jev_review', 'algorithm_result',
+                                      targets=(FailureLocation('page', page_indexes=(page_index,)),),
+                                      backend='jev', model=self.config.model, context_locations=context_pages)
+                        continue
+                    completed.append((order, page_index, probability))
         finally:
             if admission is not None:
                 admission.cancel()
@@ -198,7 +217,8 @@ class JEVRuntime:
         except NonContinuableError:
             raise
         except OperationError as error:
-            if not _is_retryable(error) or self.config.retry_times == 0:
+            error.attempts = 1
+            if not _is_retryable(error) or (execution_policy().retry.attempts(RetryScope.ANALYSIS) - 1) == 0:
                 raise
             return await self._retry_after_error(
                 request, error, attempts_used=1,
@@ -212,7 +232,7 @@ class JEVRuntime:
         attempts_used: int,
     ) -> float:
         current = error
-        while attempts_used <= self.config.retry_times:
+        while attempts_used <= (execution_policy().retry.attempts(RetryScope.ANALYSIS) - 1):
             delay = (
                 current.retry_after
                 if isinstance(current, RateLimitedError)
@@ -232,6 +252,7 @@ class JEVRuntime:
                 attempts_used += 1
                 if not _is_retryable(current):
                     raise
+        current.attempts = attempts_used
         raise current
 
 
@@ -240,10 +261,10 @@ JEVRequest = Callable[[int, dict[str, Any]], Awaitable[float]]
 
 @asynccontextmanager
 async def create_jev_request(
-    config: JEV, executor: AsyncExecutor,
+    config: JEV, executor: AsyncExecutor, *, retry_policy: BusinessRetryPolicy | None = None,
 ) -> AsyncIterator[JEVRequest]:
     """Bind JEV configuration and capacity into a retrying request function."""
-    async with JEVRuntime(config, executor) as runtime:
+    async with JEVRuntime(config, executor, retry_policy=retry_policy) as runtime:
         yield runtime.evaluate
 
 

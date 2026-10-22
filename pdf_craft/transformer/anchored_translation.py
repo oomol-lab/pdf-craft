@@ -1,6 +1,10 @@
+# pylint: disable=unused-argument
 """Workspace transformation for image/table text fields."""
 
 from __future__ import annotations
+
+from ..policies import RetryPolicy, ErrorPolicyInput
+from .._policy import OMITTED, policy_operation
 
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
@@ -49,13 +53,24 @@ async def translate_anchored_contents_in_workspace_async(
     paths = await IO_DOMAIN.run(
         lambda: sorted(chapters_path.glob("chapter_*.xml"))
     )
+    from .._policy import Completion
+    completion = Completion()
+    from .._failure_sources import page_sources
+    from ..document.package import _read_pages
+    from ..document.access import page_geometries
+    pages_path = chapters_path.parent / 'pages.xml'
+    pages = {}
+    if await IO_DOMAIN.run(pages_path.exists):
+        dpi, sizes = await IO_DOMAIN.run(_read_pages, pages_path)
+        pages = page_geometries(sizes, dpi)
     coverage: list[AnchoredContentCoverage] = []
     for path in paths:
         chapter = await IO_DOMAIN.run(lambda path=path: decode(read_xml(path)))
         slots = list(_asset_slots(chapter))
         if not slots:
             continue
-        translated = await _translate_slots_async(slots, transformer)
+        with page_sources(pages):
+            translated = await _translate_slots_async(slots, transformer)
         for slot, target in zip(slots, translated, strict=True):
             state = "preserved"
             if target is not None:
@@ -63,8 +78,12 @@ async def translate_anchored_contents_in_workspace_async(
                 slot.asset.content = target.content
                 slot.asset.caption = target.caption
                 state = "translated"
+            if _asset_has_text(slot.asset):
+                completion.succeeded += target is not None
+                completion.degraded += target is None
             coverage.append(AnchoredContentCoverage(*slot.payload.identity, state))
         await IO_DOMAIN.run(save_xml, encode(chapter), path)
+    completion.check('asset translation')
     if coverage:
         await IO_DOMAIN.run(write_anchored_coverage, translation_path, coverage)
 
@@ -87,26 +106,26 @@ async def _translate_slots_async(
     return results
 
 
+@policy_operation
 async def _transform_batch_async(
     payloads: Sequence[AnchoredContent],
-    transformer: AnchoredContentTransformer,
+    transformer: AnchoredContentTransformer, *,
+    retry_policy: RetryPolicy | None = None, error_policy: ErrorPolicyInput = OMITTED,
 ) -> Sequence[AnchoredContentTranslation | None]:
+    from .._policy import recover
+    from ..policies import FailureCategory, FailureLocation
+    targets = tuple(FailureLocation('regions', member_path=f'chapters/chapter_{item.chapter_id}.xml',
+                    unit_id=str(item.identity), channel='asset', page_indexes=(item.asset.page_index,))
+                    for item in payloads)
     try:
         translated = await _transform_assets_async(transformer, payloads)
         matched = _match_translations(payloads, translated)
-        if matched is not None:
-            return matched
-    except Exception:
-        pass
-    result: list[AnchoredContentTranslation | None] = []
-    for payload in payloads:
-        try:
-            translated = await _transform_assets_async(transformer, (payload,))
-            matched = _match_translations((payload,), translated)
-            result.append(matched[0] if matched is not None else None)
-        except Exception:
-            result.append(None)
-    return result
+        if matched is None:
+            raise ValueError('asset translation does not preserve source identities')
+        return matched
+    except Exception as error:
+        await recover(error, FailureCategory.FILL, 'asset_structure', 'omit_translation', targets=targets)
+        return [None for _ in payloads]
 
 
 async def _transform_assets_async(
@@ -130,21 +149,22 @@ def _match_translations(
         return None
     if len(payloads) == 1 and translations[0] is None:
         return [None]
-    if any(item is None for item in translations):
-        return None
+    if all(item is None for item in translations):
+        return [None for _ in payloads]
 
     expected = [payload.identity for payload in payloads]
     if len(set(expected)) != len(expected):
         return None
     by_identity: dict[tuple[str, int, int], AnchoredContentTranslation] = {}
     for translation in translations:
-        assert translation is not None
+        if translation is None:
+            continue
         if translation.identity in by_identity or translation.identity not in expected:
             return None
         by_identity[translation.identity] = translation
-    if set(by_identity) != set(expected):
+    if len(by_identity) + sum(item is None for item in translations) != len(expected):
         return None
-    return [by_identity[identity] for identity in expected]
+    return [by_identity.get(identity) for identity in expected]
 
 
 def _asset_slots(chapter) -> Iterable[_AssetSlot]:

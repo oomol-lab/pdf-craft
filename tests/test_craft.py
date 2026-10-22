@@ -60,11 +60,10 @@ class PublicConfigurationCompatibilityTests(unittest.TestCase):
         )
         executor = ConcurrentExecutor(FixedCapacity(3))
         refinement = FootnoteRefinement(
-            jev, llm, 0.4, 2, 1234, executor=executor,
+            jev, llm, 0.4, 1234, executor=executor,
         )
 
         self.assertEqual(refinement.risk_threshold, 0.4)
-        self.assertEqual(refinement.max_retries, 2)
         self.assertEqual(refinement.max_output_tokens, 1234)
         self.assertIs(refinement.resolved_jev_executor(), executor)
         self.assertIs(refinement.resolved_llm_executor(), executor)
@@ -315,7 +314,7 @@ class TestPDFCraft(unittest.TestCase):
                     translation_id="selected-main",
                 )
             run.assert_awaited_once()
-            self.assertFalse(run.call_args.kwargs["ignore_errors"])
+            self.assertIs(run.call_args.kwargs["error_policy"], __import__("pdf_craft._policy", fromlist=["OMITTED"]).OMITTED)
             self.assertEqual(run.call_args.kwargs["translation_id"], "selected-main")
 
     def test_patch_pdf_with_extraction_defers_page_validation_when_ignoring_errors(self):
@@ -325,10 +324,10 @@ class TestPDFCraft(unittest.TestCase):
                 "pdf_craft.pipeline.pdf.content.patch_content", new_callable=AsyncMock,
             ) as run, patch("pdf_craft.craft._validate_extraction_for_pdf"):
                 PDFCraft().patch_pdf_with_extraction(
-                    "source.pdf", extraction, "target.pdf", ignore_errors=True,
+                    "source.pdf", extraction, "target.pdf", error_policy=True,
                 )
             run.assert_awaited_once()
-            self.assertTrue(run.call_args.kwargs["ignore_errors"])
+            self.assertTrue(run.call_args.kwargs["error_policy"])
 
     def test_extraction_transform_creates_independent_archive(self):
         with tempfile.TemporaryDirectory() as directory:

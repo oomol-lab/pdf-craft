@@ -10,6 +10,9 @@ from typing import Generic, TypeVar, cast
 from json_repair import repair_json
 from pydantic import BaseModel, ValidationError
 
+from .._policy import current
+from ..policies import RetryScope, RetryPolicy
+
 from .types import Message, MessageRole
 from .loop import ProtocolFailure, ProtocolRetry, ProtocolSuccess, RepairLoopOptions, run_repair_loop
 
@@ -49,7 +52,8 @@ class GuaranteedOptions(Generic[TData, TResult]):
     request: Callable[[list[Message], int, int], Awaitable[str]]
     schema: type[BaseModel]
     parse: Callable[[TData, int, int], TResult]
-    max_retries: int = 12
+    scope: RetryScope = RetryScope.ANALYSIS
+    retry_policy: RetryPolicy | None = None
     extractor: Callable[[str], str] | None = None
 
 
@@ -64,7 +68,7 @@ class _JsonProtocol(Generic[TData, TResult]):
             extractor = options.extractor or _extract_json
             data = json.loads(repair_json(extractor(response)))
         except (ValueError, json.JSONDecodeError) as error:
-            if _looks_like_refusal(response) and attempt >= min(1, options.max_retries):
+            if _looks_like_refusal(response) and attempt >= min(1, (options.retry_policy or current().retry).attempts(options.scope) - 1):
                 return ProtocolFailure(GuaranteedProtocolError("LLM returned natural language instead of JSON", attempts=attempt + 1, response=response, cause=error), state)
             self.last_error = GuaranteedExhaustedError("JSON syntax remained invalid after retries", attempts=attempt + 1, response=response, cause=error)
             return ProtocolRetry("Return complete valid JSON only; do not explain or use markdown fences.", state)
@@ -97,7 +101,7 @@ async def request_guaranteed_json(options: GuaranteedOptions[TData, TResult]) ->
         request=request,
         protocol=_JsonProtocol(options),
         state=None,
-        max_attempts=options.max_retries + 1,
+        max_attempts=(options.retry_policy or current().retry).attempts(options.scope),
     ))
 
 

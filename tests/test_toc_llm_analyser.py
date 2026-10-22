@@ -79,7 +79,7 @@ class TestLLMAnalyser(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(llm.calls, 2)
 
     async def test_non_object_response_exhausts_as_typed_schema_failure(self):
-        llm = _SequenceLLM(["[1, 2]"] * 3)
+        llm = _SequenceLLM(["[1, 2]"] * 4)
         analyser = _LLMAnalyser(
             llm=cast(LLM, llm),
             validate=lambda response, payload: ([0, 1], None),
@@ -87,7 +87,7 @@ class TestLLMAnalyser(unittest.IsolatedAsyncioTestCase):
         with self.assertRaises(LLMAnalysisError) as context:
             await analyser.request(payload=None, messages=[Message(MessageRole.USER, "json")])
         self.assertIn("schema validation failed", str(context.exception))
-        self.assertEqual(llm.calls, 3)
+        self.assertEqual(llm.calls, 4)
 
     async def test_toc_business_retries_share_one_transport_deadline(self):
         llm = LLM(

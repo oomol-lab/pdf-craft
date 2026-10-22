@@ -1,6 +1,10 @@
+# pylint: disable=unused-argument
 """XMLTranslator adapter for the independent AnchoredContent stage."""
 
 from __future__ import annotations
+
+from pdf_craft.policies import RetryPolicy, ErrorPolicyInput
+from pdf_craft._policy import OMITTED, policy_operation
 
 from collections.abc import Sequence
 from typing import Any, Protocol
@@ -20,7 +24,7 @@ from .anchored_content import (
 class AsyncXMLTaskTranslator(Protocol):
     async def translate_element(
         self,
-        task: TranslationTask[object],
+        task: TranslationTask,
         **kwargs,
     ) -> tuple[Element, object]: ...
 
@@ -36,9 +40,11 @@ class AnchoredContentXMLTransformer:
         self._translator = translator
         self._mode = mode
 
+    @policy_operation
     async def transform_assets(
         self,
-        assets: Sequence[AnchoredContent],
+        assets: Sequence[AnchoredContent], *,
+        retry_policy: RetryPolicy | None = None, error_policy: ErrorPolicyInput = OMITTED,
     ) -> Sequence[AnchoredContentTranslation | None]:
         if not assets:
             return ()
@@ -62,8 +68,7 @@ class AnchoredContentXMLTransformer:
         }
 
         formula_interrupter = ChapterFormulaInterrupter()
-        translated, _ = await self._translator.translate_element(
-            TranslationTask(
+        task = TranslationTask(
                 element=element,
                 action=self._mode,
                 payload=tuple(assets),
@@ -79,15 +84,25 @@ class AnchoredContentXMLTransformer:
                     )
                     for item in assets
                 ),
-            ),
+            )
+        translated, _ = await self._translator.translate_element(
+            task,
             interrupt_source_text_segments=formula_interrupter.interrupt_source_text_segments,
             interrupt_translated_text_segments=formula_interrupter.interrupt_translated_text_segments,
             interrupt_block_element=formula_interrupter.interrupt_block_element,
         )
+        if task.outcomes and not all(task.outcomes.values()):
+            return (None,) * len(assets)
         translated_assets = _decode_assets_by_slot(
             translated, expected_slots, source_structures,
         )
         if translated_assets is None:
+            from .._policy import recover
+            from ..policies import FailureCategory
+            from .._failure_sources import task_locations
+            await recover(ValueError('asset translation does not preserve its source structure'),
+                          FailureCategory.FILL, 'asset_structure', 'omit_translation',
+                          targets=task_locations(task))
             return (None,) * len(assets)
         source_references = {
             reference.id: reference
