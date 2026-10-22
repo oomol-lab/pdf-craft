@@ -88,6 +88,7 @@ class PDFPatcher:
         self._pdf_handler = _native_pdf_handler or DefaultPDFHandler()
         self._visual_base_compiler = visual_base_compiler or GhostscriptVisualBaseCompiler()
         self.dpi = dpi
+        self._preserved_source_pages: set[int] = set()
         self._stream_pages: dict[int, int] = {}
         self._preview_path: Path | None = None
         self._replacement_feed: ReplacementFeed | None = None
@@ -223,7 +224,7 @@ class PDFPatcher:
                 target_page_indexes.update(pages)
                 if replacement.layout_ref not in {'heading', 'furniture', 'header', 'footer', 'title', 'sub_title'}:
                     primary_targets.add(tuple(pages))
-            failed_page_indexes: set[int] = set()
+            failed_page_indexes: set[int] = set(self._preserved_source_pages)
             patched_page_indexes: set[int] = set()
 
             def record_page_failure(page_index: int, error: Exception) -> None:
@@ -247,6 +248,11 @@ class PDFPatcher:
                     try:
                         pages = _replacement_pages_in_source(replacement, len(source_reader.pages))
                         record_targets(replacement, pages)
+                        if self._preserved_source_pages.intersection(pages):
+                            if self._preview_path is not None and getattr(replacement, 'preview_index', -1) >= 0:
+                                from .feed import write_record
+                                write_record(self._preview_path / str(replacement.preview_index), None)
+                            continue
                         self.validate(replacement, pages_count=len(source_reader.pages))
                         yield replacement
                     except Exception as error:
@@ -263,6 +269,8 @@ class PDFPatcher:
                         try:
                             pages = _replacement_pages_in_source(replacement, len(source_reader.pages))
                             record_targets(replacement, pages)
+                            if self._preserved_source_pages.intersection(pages):
+                                continue
                             self.validate(replacement, pages_count=len(source_reader.pages))
                             style = self.options.style_for(
                                 replacement.layout_ref, replacement.layout_level,

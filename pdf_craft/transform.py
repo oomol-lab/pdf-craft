@@ -174,43 +174,53 @@ class PDFExtractionEngine:
             kwargs["on_ocr_event"] = callback_bridge(
                 asyncio.get_running_loop(), event_callback,
             )
-        if footnote_refinement is None:
-            draft = await run_cancellable(
-                OCR_DOMAIN,
-                lambda aborted: self._prepare_extraction(
-                    **{**kwargs, "aborted": aborted}
-                ),
-                original_aborted=original_aborted,
-            )
-            if live is not None:
-                await live.finish()
-            draft = await self._resolve_llm_stages(draft, kwargs, on_metadata)
-            return await run_cancellable(
-                OCR_DOMAIN,
-                lambda aborted: self._finish_extraction(
-                    draft, aborted=aborted,
-                    resolved_database=(live.database if live is not None and not draft.toc.page_indexes else None),
-                ),
-                original_aborted=original_aborted,
-            )
-        if not isinstance(footnote_refinement, FootnoteRefinement):
+        if footnote_refinement is not None and not isinstance(footnote_refinement, FootnoteRefinement):
             raise TypeError("footnote_refinement must be FootnoteRefinement")
-
         draft = await run_cancellable(
             OCR_DOMAIN,
-            lambda aborted: self._prepare_extraction(
-                **{**kwargs, "aborted": aborted}
-            ),
+            lambda aborted: self._prepare_extraction(**{**kwargs, "aborted": aborted}),
             original_aborted=original_aborted,
         )
         if live is not None:
             await live.finish()
         draft = await self._resolve_llm_stages(draft, kwargs, on_metadata)
-        chapter_analysis = await run_cancellable(
-            OCR_DOMAIN,
-            lambda _aborted: prepare_chapter_analysis(draft.pages_path, draft.toc),
-            original_aborted=original_aborted,
-        )
+        chapter_analysis = None
+        try:
+            if live is not None and live.analysis_error is not None:
+                raise live.analysis_error
+            repaired_pages = None
+            if footnote_refinement is not None:
+                chapter_analysis = await run_cancellable(
+                    OCR_DOMAIN,
+                    lambda _aborted: prepare_chapter_analysis(draft.pages_path, draft.toc),
+                    original_aborted=original_aborted,
+                )
+                repaired_pages = await self._refine_pages(chapter_analysis, footnote_refinement, draft)
+            return await run_cancellable(
+                OCR_DOMAIN,
+                lambda aborted: self._finish_extraction(
+                    draft, aborted=aborted, analysed_pages=repaired_pages,
+                    resolved_database=(live.database if live is not None and repaired_pages is None
+                                       and not draft.toc.page_indexes else None)),
+                original_aborted=original_aborted,
+            )
+        except Exception as error:
+            from .extractor.recovery import recover_chapters, recoverable_structure
+            if not recoverable_structure(error):
+                raise
+            async with temporary_directory("pdf-craft-page-recovery-") as directory:
+                chapters = await recover_chapters(
+                    draft, self._ocr, error, directory,
+                    analyses=chapter_analysis.pages if chapter_analysis is not None else (),
+                    aborted=original_aborted or (lambda: False),
+                )
+                return await run_cancellable(
+                    OCR_DOMAIN,
+                    lambda aborted: self._finish_extraction(draft, aborted=aborted, prepared_chapters=chapters),
+                    original_aborted=original_aborted,
+                )
+
+    async def _refine_pages(self, chapter_analysis, footnote_refinement, draft):
         runtime = runtime_for(
             footnote_refinement.llm,
             footnote_refinement.resolved_llm_executor(),
@@ -244,15 +254,7 @@ class PDFExtractionEngine:
                     chapter_analysis.page_pixel_sizes,
                 )
 
-        return await run_cancellable(
-            OCR_DOMAIN,
-            lambda aborted: self._finish_extraction(
-                draft,
-                aborted=aborted,
-                analysed_pages=repaired_pages,
-            ),
-            original_aborted=original_aborted,
-        )
+        return repaired_pages
 
     async def prepare_extract(
         self,
@@ -423,14 +425,23 @@ class PDFExtractionEngine:
         aborted: AbortedCheck,
         analysed_pages=None,
         resolved_database=None,
+        prepared_chapters=None,
     ):
-        generate_chapter_files(
-            pages_path=draft.pages_path,
-            chapters_path=draft.chapters_path,
-            toc=draft.toc,
-            analysed_pages=analysed_pages,
-            resolved_database=resolved_database,
-        )
+        if prepared_chapters is None:
+            generate_chapter_files(
+                pages_path=draft.pages_path,
+                chapters_path=draft.chapters_path,
+                toc=draft.toc,
+                analysed_pages=analysed_pages,
+                resolved_database=resolved_database,
+            )
+        else:
+            import shutil
+            draft.chapters_path.mkdir(parents=True, exist_ok=True)
+            for path in draft.chapters_path.glob('chapter_*.xml'):
+                path.unlink()
+            for path in prepared_chapters.glob('chapter_*.xml'):
+                shutil.copyfile(path, draft.chapters_path / path.name)
         if draft.includes_furniture:
             write_furnitures(
                 draft.pdf_path,

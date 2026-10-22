@@ -92,8 +92,9 @@ class References:
             ),
         )
         for block in to_split_layout.children:
-            if not isinstance(block, SourceTextFragment):
-                raise ValueError("footnote TextFlowItem cannot contain anchored assets before flow assembly")
+            if isinstance(block, SourceAsset):
+                mark_layout[1].children.append(block)
+                continue
             mark, content = extract_head_mark(block.content)
             if mark is None:
                 mark_layout[1].children.append(block)

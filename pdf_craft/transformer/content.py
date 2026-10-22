@@ -6,7 +6,7 @@ from dataclasses import replace
 from ..common import read_xml, save_xml
 from ..document.content import read_content
 from ..extractor.chapter.chapter import (
-    Chapter, Reference, narrative_texts, search_references_in_chapter,
+    Chapter, Reference, TextFlowItem, narrative_texts, search_references_in_chapter,
 )
 from ..runtime import IO_DOMAIN, invoke_callback
 from .anchored_translation import _asset_slots, _translate_slots_async
@@ -94,7 +94,6 @@ async def translate_content(items, transformer, window, coverage, anchored_cover
             coverage.extend(states)
             anchored_coverage.extend(asset_states)
             # Main narrative work is independent of metadata and asset success.
-            from ..extractor.chapter.chapter import TextFlowItem
             primary = isinstance(item.original, Reference) or (isinstance(item.original, TextFlowItem) and item.original.role != 'heading')
             if primary:
                 completion.succeeded += sum(state.state == 'translated' for state in states)

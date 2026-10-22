@@ -23,13 +23,21 @@ class LiveExtraction:
         self.ready: set[int] = set()
         self.ignored: set[int] = set()
         self.position = 0
+        self.analysis_error: Exception | None = None
         self.deliveries = []
         loop = asyncio.get_running_loop()
 
         def callback(kind, handler):
             if handler is None:
                 return None
-            delivery = DiskDelivery(path / kind, handler)
+            async def notify(value):
+                from ...runtime import invoke_callback
+                try:
+                    await invoke_callback(handler, value)
+                except Exception as error:
+                    setattr(error, '_pdf_craft_callback', True)
+                    raise
+            delivery = DiskDelivery(path / kind, notify)
             self.deliveries.append(delivery)
             return callback_bridge(loop, delivery.append)
 
@@ -42,7 +50,12 @@ class LiveExtraction:
 
     async def event(self, event):
         if self.task.done():
-            await self.task
+            try:
+                await self.task
+            except Exception as error:
+                self._record_error(error)
+        if self.analysis_error is not None:
+            return
         if event.kind == OCREventKind.START:
             self.order.append(event.page_index)
         elif event.kind == OCREventKind.IGNORE:
@@ -54,8 +67,13 @@ class LiveExtraction:
             if index in self.ignored:
                 self.ignored.remove(index)
             elif index in self.ready:
-                page = await IO_DOMAIN.run(decode, await IO_DOMAIN.run(
-                    read_xml, self.pages_path / f"page_{index}.xml"))
+                try:
+                    page = await IO_DOMAIN.run(decode, await IO_DOMAIN.run(
+                        read_xml, self.pages_path / f"page_{index}.xml"))
+                except Exception as error:
+                    setattr(error, 'page_index', index)
+                    self._record_error(error)
+                    return
                 await IO_DOMAIN.run(self.pages.append, page)
                 self.ready.remove(index)
             else:
@@ -67,12 +85,24 @@ class LiveExtraction:
             # A complete OCR cache emits no page events, but is replayable.
             reader = await IO_DOMAIN.run(XMLReader, "page", self.pages_path, decode)
             from ...runtime import worker_iter
-            async for page in worker_iter(reader.read()):
-                await IO_DOMAIN.run(self.pages.append, page)
+            try:
+                async for page in worker_iter(reader.read()):
+                    await IO_DOMAIN.run(self.pages.append, page)
+            except Exception as error:
+                self._record_error(error)
         self.pages.close()
-        await self.task
+        try:
+            await self.task
+        except Exception as error:
+            self._record_error(error)
         for delivery in self.deliveries:
             await delivery.finish()
+
+    def _record_error(self, error):
+        from ..recovery import recoverable_structure
+        if not recoverable_structure(error):
+            raise error
+        self.analysis_error = error
 
     async def cancel(self):
         self.pages.close(RuntimeError("extraction stream aborted"))

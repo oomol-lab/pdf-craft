@@ -29,6 +29,7 @@ from .page_analysis import (
     replace_layout_references,
     project_definition_mark,
     restore_streams,
+    continuation_sequences,
 )
 from .page_review import (
     JEV_REVIEW_THRESHOLD,
@@ -92,6 +93,8 @@ PAGE_REPAIR_SYSTEM_PROMPT = """\
 
 可编辑语义：layout 的 paragraph/citation/ignored 归属、前驱 continuation、paragraph role/level、citation 分组与页内索引，以及正文 ref 的位置。页码、running header 和装饰物必须标为 ignored；ignored layout 仍保留在页面中，但不会进入任何恢复流。
 
+图片/表格可以嵌在同一个自然段内部，它们的位置不可移动，自身的两个 continuation 必须为 false。判断文字 continuation 时跳过这些锚点，连接同一归属流中的前一文字 layout；只有独立段落公式阻断这种连接。
+
 相邻页只是历史现场，可能错误。相邻页的 jev_p_pass 是较弱审核器对其现有标注可靠性的估计，不是事实或约束。目标页分数被刻意隐藏，请独立检查；如果原结果正确，可以原样返回。
 
 修改纪律：
@@ -126,7 +129,7 @@ citation 规则：
 
 返回前逐项自检：
 1. 所有 ignored layout 的 gap 均为 false，所有语义字段均为 null。
-2. 删去 ignored 后，按 document_order 查看相邻 paragraph：continues_from_previous 必须有真实前驱，不得连接到 ignored 或 asset。
+2. 删去 ignored 后，按 document_order 查看相邻 paragraph：continues_from_previous 必须有真实前驱，不得连接到 ignored 或独立段落公式。图片/表格是透明锚点，两侧文字可以属于同一自然段；它们自身的 continuation 必须为 false，文字的前驱应跳过这些锚点。
 3. 对每个 citation_id 独立做同样的相邻 gap 检查，不要把不同 citation 串成一条流。
 4. 每个 ref 都指向有索引 citation，每个 anchor 都只能在指定 layout_id 内定位到一处。
 
@@ -278,7 +281,7 @@ async def _repair_pages(
         from ..._failure_sources import analysis_location
         await recover(error, FailureCategory.ANALYSIS, 'footnote_commit', 'algorithm_result',
                       targets=tuple(analysis_location(page) for page in repaired))
-        _compile_page_connections(original)
+        # A fallback must preserve the original graph, not compile it again.
         restore_streams(original)
         return original
     return repaired
@@ -416,7 +419,7 @@ def _page_packet(page: PageAnalysis) -> dict:
     layout_packets = []
     for layout in page.layouts:
         stream_key = _initial_stream_key(layout)
-        previous = previous_by_stream.get(stream_key) if stream_key else None
+        previous = previous_by_stream.get(stream_key) if stream_key and layout.source_order is not None else None
         layout_packets.append(_layout_packet(
             layout,
             citation_marks[layout.citation_id]
@@ -428,7 +431,10 @@ def _page_packet(page: PageAnalysis) -> dict:
             previous,
         ))
         if stream_key is not None:
-            previous_by_stream[stream_key] = layout
+            if layout.source_order is not None:
+                previous_by_stream[stream_key] = layout
+            elif getattr(layout.source, "ref", None) == "formula":
+                previous_by_stream.pop(stream_key, None)
     return {
         "page_index": page.page_index,
         "citation_states": {item.citation_id: item.state for item in page.citations},
@@ -603,9 +609,10 @@ def _compile_repaired_page(
                            if layout.ownership == ownership and
                            (ownership == "paragraph" or layout.citation_id == citation_id)],
                           key=lambda layout: layout.document_order)
-        for left, right in zip(sequence, sequence[1:]):
-            if response_layouts[_layout_id(left)].continues_to_next is None:
-                left.annotations.continues_to_next = right.continues_from_previous
+        for text_sequence in continuation_sequences(sequence):
+            for left, right in zip(text_sequence, text_sequence[1:]):
+                if response_layouts[_layout_id(left)].continues_to_next is None:
+                    left.annotations.continues_to_next = right.continues_from_previous
         if sequence and ownership == "citation":
             first = sequence[0]
             repaired_layouts[_layout_id(first)] = project_definition_mark(
@@ -703,6 +710,8 @@ def _validate_layout_sequences(
         )
         previous: tuple[str, AnalysedLayout] | None = None
         for layout_id, layout in sequence:
+            if layout.citation_id is not None:
+                owned_citation_ids.add(layout.citation_id)
             if layout.source_order is None and (
                 layout.continues_from_previous or layout.continues_to_next
             ):
@@ -710,6 +719,14 @@ def _validate_layout_sequences(
                     f"[GAP_ASSET] layouts[{layout_id}] is an asset and cannot "
                     "carry continuation flags."
                 )
+            if layout.source_order is None:
+                if getattr(layout.source, "ref", None) == "formula":
+                    if previous is not None:
+                        _, preceding = previous
+                        if preceding.continues_to_next:
+                            issues.append("[GAP_FORMULA] Text cannot continue across a display formula.")
+                    previous = None
+                continue
             if previous is not None:
                 previous_id, previous_layout = previous
                 if (
@@ -735,8 +752,6 @@ def _validate_layout_sequences(
                         f"{previous_id} and {layout_id} must use the same "
                         "paragraph_role and paragraph_level."
                     )
-            if layout.citation_id is not None:
-                owned_citation_ids.add(layout.citation_id)
             previous = (layout_id, layout)
     for citation_id in sorted(set(citations) - owned_citation_ids):
         issues.append(
@@ -985,8 +1000,12 @@ def _compile_page_connections(pages: list[PageAnalysis]) -> None:
                 groups.setdefault(key, []).append(layout)
     for layouts in groups.values():
         layouts.sort(key=lambda layout: layout.document_order)
-        if layouts and layouts[0].continues_from_previous:
-            raise ValueError("[CONTINUATION_ORIGIN] First layout has no predecessor")
-        for index, layout in enumerate(layouts):
-            layout.annotations.continues_to_next = (
-                layouts[index + 1].continues_from_previous if index + 1 < len(layouts) else False)
+        for layout in layouts:
+            if layout.source_order is None and (layout.continues_from_previous or layout.continues_to_next):
+                raise ValueError("Asset layouts cannot carry continuation gaps")
+        for sequence in continuation_sequences(layouts):
+            if sequence and sequence[0].continues_from_previous:
+                raise ValueError("[CONTINUATION_ORIGIN] First text has no predecessor")
+            for index, layout in enumerate(sequence):
+                layout.annotations.continues_to_next = (
+                    sequence[index + 1].continues_from_previous if index + 1 < len(sequence) else False)

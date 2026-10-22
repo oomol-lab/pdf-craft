@@ -118,11 +118,10 @@ class Jointer:
                 continue
 
             first_layout = cast(TextFlowItem, body[0])
-            # A trailing asset belongs between the preceding page's text and
-            # this page's first text.  Never merge across it: formulas are a
-            # hard flow boundary, and images/tables must remain available to
-            # the later conservative FlowItem anchor assembler.
-            if last_tail and last_tail.override:
+            # Assets retain their position between source text fragments.
+            # Only display formulas block an author paragraph; images/tables
+            # become children when the text on both sides is continuous.
+            if last_tail and any(asset.ref == "formula" for asset in [*last_tail.override, *head]):
                 _normalize_paragraph_content(last_tail.page_para)
                 yield last_tail.page_para
                 yield from last_tail.override
@@ -132,7 +131,11 @@ class Jointer:
             ):
                 # ``blocks`` is a compatibility projection.  Extend the real
                 # ordered v3 children so cross-page source fragments survive.
+                last_tail.page_para.children.extend(last_tail.override)
+                last_tail.page_para.children.extend(head)
                 last_tail.page_para.children.extend(first_layout.children)
+                last_tail.override = []
+                head = []
                 del body[0]
 
             if not body:
@@ -532,9 +535,8 @@ def _normalize_paragraph_content(paragraph: TextFlowItem, *, preserve_fragments:
     if len(paragraph.children) < 2:
         return
 
-    for i in range(1, len(paragraph.children)):
-        block1 = paragraph.children[i - 1]
-        block2 = paragraph.children[i]
+    fragments = [child for child in paragraph.children if isinstance(child, SourceTextFragment)]
+    for block1, block2 in zip(fragments, fragments[1:]):
 
         text1 = last(block1.content)
         text2 = first(block2.content)
