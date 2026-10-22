@@ -441,7 +441,7 @@ asyncio.run(AsyncPDFCraft().render_markdown(sys.argv[1], sys.argv[2]))
 
     def test_pdf_formula_and_erasure_export_use_final_placement_and_pixel_scales(self):
         from types import SimpleNamespace
-        from pdf_craft.pipeline.pdf.text_layout import QTextParagraphFiller, PatchTextOptions
+        from pdf_craft.pipeline.pdf.text_layout import QTextParagraphFiller, PatchTextOptions, _qt_modules
         from pdf_craft.pipeline.pdf.models import PDFReplacement, PDFReplacementRegion, PDFInlineFormula
         from pdf_craft.pipeline.pdf.inline_formula import FormulaFragment
         from pdf_craft.pipeline.pdf.preview import WindowPreview, lines_for_placement
@@ -474,7 +474,9 @@ asyncio.run(AsyncPDFCraft().render_markdown(sys.argv[1], sys.argv[2]))
                 index, channel, content = next(preview.contents(set()))
                 self.assertEqual((index, channel), (4, False))
                 exported = content.regions[0]
-                self.assertEqual(exported.font_size, placement.font_size * 3)
+                _, qt_gui = _qt_modules()
+                dpi = qt_gui.QFontMetricsF(qt_gui.QFont()).fontDpi()
+                self.assertAlmostEqual(exported.font_size, placement.font_size * dpi / 72 * 3)
                 self.assertEqual(exported.erasures[0].bbox, (20., 33., 60., 48.))
                 self.assertEqual(exported.erasures[0].color, (1, 2, 3))
                 for actual, expected in zip(exported.lines, lines_for_placement(filler, placement), strict=True):
