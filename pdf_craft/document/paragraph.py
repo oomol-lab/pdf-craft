@@ -63,6 +63,7 @@ class EraseArea:
 @dataclass(frozen=True)
 class PDFSourceRegion(SourceRegion):
     """Final layout for this source; an unused region has no size and no lines."""
+    # Effective em size in source OCR pixels, including Qt's logical DPI.
     font_size: float | None
     lines: list[TextLine]
     formulas: list[FormulaPlacement] = field(default_factory=list)
