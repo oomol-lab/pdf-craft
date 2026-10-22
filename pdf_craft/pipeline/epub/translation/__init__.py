@@ -1,2 +1,2 @@
 from . import language
-from .translator import FillFailedEvent, translate
+from .translator import translate

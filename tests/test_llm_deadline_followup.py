@@ -181,7 +181,7 @@ class DeadlineFollowupTests(unittest.IsolatedAsyncioTestCase):
                         stopped.set()
 
                 with patch.object(LLMRuntime, '_invoke_async', invoke):
-                    task = asyncio.create_task(analyse_toc(pages, root / 'toc.xml', True, config))
+                    task = asyncio.create_task(analyse_toc(pages, root / 'toc.xml', True, config, error_policy=True))
                     if kind == 'cancel':
                         await entered.wait()
                         task.cancel()
@@ -214,8 +214,7 @@ class DeadlineFollowupTests(unittest.IsolatedAsyncioTestCase):
                         make_extraction(extraction, with_toc=True)
                         toc_path = extraction / 'toc.xml'
                         toc_path.unlink()
-                        toc = await analyse_toc(pages, toc_path,
-                                                kwargs['toc_assumed'], kwargs['toc_llm'])
+                        toc = await analyse_toc(pages, toc_path, kwargs['toc_assumed'], kwargs['toc_llm'], error_policy=True)
                         save_xml(encode_toc(toc), toc_path)
                         generate_chapter_files(pages, extraction / 'chapters', toc)
                         return None, None, None, None, OCRTokensMetering(0, 0)

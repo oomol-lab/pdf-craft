@@ -8,6 +8,7 @@ object created by pypdf, Pillow, doc-page-extractor, Qt, and epub-generator.
 from __future__ import annotations
 
 import asyncio
+from contextvars import copy_context
 import inspect
 import os
 import pickle
@@ -42,7 +43,7 @@ class ExecutionDomain:
     async def run(self, function: Callable[P, R], /, *args: P.args, **kwargs: P.kwargs) -> R:
         loop = asyncio.get_running_loop()
         future = loop.run_in_executor(
-            self._executor, partial(function, *args, **kwargs),
+            self._executor, partial(copy_context().run, partial(function, *args, **kwargs)),
         )
         try:
             return await asyncio.shield(future)

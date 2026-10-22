@@ -1,6 +1,5 @@
-from typing import Callable
-
 from .concurrency import NonContinuableError
+from .policies import AllFallbackError
 from .metering import InterruptedKind, OCRTokensMetering
 
 
@@ -31,37 +30,42 @@ class OCRBillingError(OCRFatalError):
         self.page_index = page_index
 
 
-class NoUsableOCRPagesError(Exception):
-    """Raised when every requested OCR page failed after errors were ignored."""
+class NoUsableOCRPagesError(AllFallbackError):
+    """Raised when every requested OCR page used error recovery."""
 
     def __init__(self, failed_page_indexes: tuple[int, ...]) -> None:
         self.failed_page_indexes = failed_page_indexes
         pages = ", ".join(str(index) for index in failed_page_indexes)
         super().__init__(
-            "OCR produced no usable pages; all requested pages failed after "
-            f"errors were ignored: {pages}"
+            "extract_pdf",
+            len(failed_page_indexes),
+            message="OCR produced no usable pages; all requested pages failed after "
+            f"errors were ignored: {pages}",
         )
+
+    def __reduce__(self):
+        return type(self), (self.failed_page_indexes,)
 
 
 def is_inline_error(error: Exception) -> bool:
     return isinstance(error, (PDFError, OCRError))
 
 
-IgnorePDFErrorsChecker = bool | Callable[[PDFError], bool]
-IgnoreOCRErrorsChecker = bool | Callable[[OCRError], bool]
-IgnoreFillErrorsChecker = bool | Callable[[Exception], bool]
-
-
-class NoUsableFillPagesError(Exception):
-    """Raised when every page scheduled for PDF fill fell back to its base."""
+class NoUsableFillPagesError(AllFallbackError):
+    """Raised when all pages scheduled for fill used error recovery."""
 
     def __init__(self, failed_page_indexes: tuple[int, ...]) -> None:
         self.failed_page_indexes = failed_page_indexes
         pages = ", ".join(str(index) for index in failed_page_indexes)
         super().__init__(
-            "PDF fill produced no usable pages; all pages scheduled for fill "
-            f"failed after errors were ignored: {pages}"
+            "patch_pdf",
+            len(failed_page_indexes),
+            message="PDF fill produced no usable pages; all pages scheduled for fill "
+            f"failed after errors were ignored: {pages}",
         )
+
+    def __reduce__(self):
+        return type(self), (self.failed_page_indexes,)
 
 
 # 不可直接用 doc-page-extractor 的 Error，该库的一切都是懒加载，若暴露，则无法懒加载

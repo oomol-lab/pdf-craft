@@ -159,7 +159,7 @@ craft.translate_pdf(
     "translated.pdf",
     translator,
     with_furniture=True,  # 同时翻译 PCEX 中已有的页眉、页脚和页码
-    ignore_errors=True,  # 某页写回失败时保留该页视觉底图
+    error_policy=True,  # 某页写回失败时保留该页视觉底图
 )
 ```
 
@@ -173,14 +173,14 @@ PDF 写回使用章节中的页面来源和边界框信息，因此不需要重�
 不提取、不翻译 furniture，因为这两种输出不渲染固定页面 furniture。
 
 默认情况下，PDF 写回的异常会立即终止操作。线上服务可以为 `translate_pdf` 或
-`patch_pdf_with_extraction` 传入 `ignore_errors=True`：某页的擦除、译文文字层、行内公式或 PDF
-合成发生任意普通异常时，该页会保留 Ghostscript 生成的不可交互视觉底图，其他页继续写回；完整
+`patch_pdf_with_extraction` 传入 `error_policy=True`：某页的擦除、译文文字层、行内公式或 PDF
+合成发生任意普通异常时，该页会保留原始 PDF 页面，其他页继续写回；完整
 traceback 会写入日志。若所有需要写回的页面都退回，则抛出 `NoUsableFillPagesError`，而不是生成
 看似成功、实际未写入译文的 PDF。无法打开、枚举或建立视觉底图的源 PDF 没有页级恢复载体，仍会
 直接失败。
 
-`ignore_errors` 也可以是 `Callable[[Exception], bool]`：每次出现可归属某一页的异常时，该 callable
-接收异常并决定这页是否允许回退。除非业务能接受“某些页面保留未翻译视觉底图、其他页面已有译文”的
+`error_policy` 也可以是 `Callable[[FailureContext], bool]`：每次出现可归属某一页的异常时，该 callable
+接收 FailureContext 并决定这页是否允许回退。除非业务能接受“某些页面保留未翻译视觉底图、其他页面已有译文”的
 混合结果，否则应保持默认的 `False`。
 
 ### PDF 输出的限制
@@ -188,7 +188,7 @@ traceback 会写入日志。若所有需要写回的页面都退回，则抛出 
 - PDF 翻译固定写入纯译文，不接受 `SubmitKind`。
 - 默认写回会检查结果是否带有页面几何元数据、章节和几何中涉及的页码是否落在源 PDF 页数
   范围内，以及每个章节页面是否具有对应的几何记录。它不验证结果目录是否确实由该源 PDF
-  提取而来，因此调用方应自行确保二者匹配；开启 `ignore_errors=True` 后，能归属到某页的
+  提取而来，因此调用方应自行确保二者匹配；开启 `error_policy=True` 后，能归属到某页的
   几何错误会让该页回退为视觉底图。
 - 写回前，Ghostscript 会将每个源页的非 Annotation 内容编译为无字体的纯视觉底图。源矢量
   文字仍以线条显示，但不再可选中、搜索或提取；隐藏 OCR 文字也会被移除。源页完整的
@@ -366,7 +366,7 @@ narrative 与 metadata 固定翻译；`with_anchored` 和 `with_furniture` 只�
 | `generate_plot` | `False` | 生成图表相关资源 |
 | `toc_assumed` | `False` | 是否假定 PDF 中存在目录页 |
 | `toc_llm` | `None` | 使用文本 LLM 辅助分析复杂目录层级 |
-| `ignore_pdf_errors` / `ignore_ocr_errors` | `False` | 按布尔值或 callable 决定是否跳过页面级错误 |
+| `ErrorPolicy.ignore_pdf_render_errors` / `ErrorPolicy.ignore_ocr_errors` | `False` | 按布尔值或 callable 决定是否跳过页面级错误 |
 | `aborted` | 始终返回 `False` 的回调 | 外部中断检查回调 |
 | `on_ocr_event` | 无操作回调 | 接收 OCR 页面事件的回调 |
 | `on_body` / `on_footnote` | `None` | 提取过程中接收独立 PCEX XML 快照 |
@@ -400,7 +400,7 @@ PDF 时写入输出 PDF 的 metadata。其前页 OCR 证据、最多读取页数
 - `ExtractionOptions.on_ocr_event` 在 OCR 页面事件发生时回调，适合显示页面级进度。
 - `ExtractionOptions.aborted` 会在提取和渲染阶段被检查；返回 `True` 时当前操作中断。
 - PDF 写回和内容变换中的异常通常应由调用方捕获；但 `translate_pdf` 与
-  `patch_pdf_with_extraction` 的 `ignore_errors=True` 会恢复可明确归属到某一页的写回异常。
+  `patch_pdf_with_extraction` 的 `error_policy=True` 会恢复可明确归属到某一页的写回异常。
 
 ## 提前展示内容与 PDF 排版
 
@@ -424,3 +424,6 @@ fallback 合并后再通知。翻译入口的 `on_metadata` 独立观察翻译�
 
 本文只描述库的 PDF 工作流。OCR backend 的具体配置、模型缓存和 CUDA 条件请参考 OCR
 backend 配置指南；已有 EPUB 的翻译和其 LLM 参数请参考 EPUB 翻译指南。
+
+
+统一策略、默认严格失败和全局全部降级的规则见 [错误处理](ERROR_HANDLING.md)。

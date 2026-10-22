@@ -224,3 +224,17 @@ def _save(root: Element, path: Path) -> None:
     if root.tag != "translation":
         raise ValueError("translation.xml root must be <translation>")
     save_xml(indent(root), path)
+
+
+def apply_outcomes(chapter, outcomes):
+    """Keep absence explicit in execution; serialize it using existing coverage."""
+    from ..extractor.chapter.chapter import narrative_texts
+    for item in narrative_texts(chapter):
+        identity = paragraph_identity(chapter, item)
+        if identity is not None:
+            key = f'{identity[1]}:{identity[2]}'
+            setattr(item, '_translation_missing', outcomes.get(key) is False)
+
+
+def accepted_translation(item):
+    return not getattr(item, '_translation_missing', False)

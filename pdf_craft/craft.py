@@ -1,4 +1,8 @@
+# pylint: disable=unused-argument
 """Public facade that composes pdf-craft's independent components."""
+
+from pdf_craft.policies import RetryPolicy, ErrorPolicyInput
+from pdf_craft._policy import OMITTED, policy_operation
 
 # Internal workspace methods are intentionally shared only inside pdf-craft.
 # pylint: disable=protected-access
@@ -10,7 +14,7 @@ from dataclasses import dataclass, replace
 from os import PathLike
 from pathlib import Path
 from xml.etree.ElementTree import Element
-from typing import AsyncIterator, Literal, cast
+from typing import Any, AsyncIterator, Literal, cast
 
 from epub_generator import BookMeta, LaTeXRender, TableRender
 
@@ -19,11 +23,9 @@ from .document.package import validate_translation_id
 from .document.metadata import MetadataCallback
 from .document.paragraph import ParagraphContent, SourceRegion, PDFParagraphContent
 from .pipeline.epub.events import EpubFragmentContent
-from .transformer.xml_translator.xml_translator import FillFailedEvent
 from .document.access import ExtractionContext, PageGeometry, page_geometries, asset_path
 from .extractor.chapter.chapter import SourceTextFragment, TextFlowItem
 from .extractor.chapter.reader import create_chapters_reader
-from .error import IgnoreFillErrorsChecker, IgnoreOCRErrorsChecker, IgnorePDFErrorsChecker
 from .extractor import PDFExtractor
 from .footnote import FootnoteOptions
 from .llm import LLM
@@ -90,8 +92,6 @@ class ExtractionOptions:
     toc_assumed: bool = False
     toc_llm: LLM | None = None
     footnotes: FootnoteOptions | None = None
-    ignore_pdf_errors: IgnorePDFErrorsChecker = False
-    ignore_ocr_errors: IgnoreOCRErrorsChecker = False
     aborted: AbortedCheck = lambda: False
     on_ocr_event: Callable[[OCREvent], object] = lambda _: None
     on_body: Callable[[Element], object] | None = None
@@ -108,7 +108,10 @@ class AsyncPDFCraft:
     owns business orchestration and executable extensions.
     """
 
-    def __init__(self, pdf: PDFOptions | None = None, *, _engine=None) -> None:
+    def __init__(self, pdf: PDFOptions | None = None, *, retry_policy: RetryPolicy | None = None,
+                 error_policy: ErrorPolicyInput = None, _engine=None) -> None:
+        self._retry_policy = retry_policy or RetryPolicy()
+        self._error_policy = error_policy
         self._pdf = pdf
         self._engine = _engine
 
@@ -170,20 +173,24 @@ class AsyncPDFCraft:
         document = await _ensure_extraction_async(extraction)
         return await IO_DOMAIN.run(resolve_translation, document, translation_id)
 
+    @policy_operation
     async def extract_pdf(
         self, source: PathLike | str, extraction_path: PathLike | str,
         options: ExtractionOptions | None = None,
         *, analysing_path: PathLike | str | None = None,
+        retry_policy: RetryPolicy | None = None, error_policy: ErrorPolicyInput = OMITTED,
     ) -> PDFCraftExtraction:
         extraction, _ = await self.extract_pdf_with_metering(
             source, extraction_path, options, analysing_path=analysing_path,
         )
         return extraction
 
+    @policy_operation
     async def extract_pdf_with_metering(
         self, source: PathLike | str, extraction_path: PathLike | str,
         options: ExtractionOptions | None = None,
         *, analysing_path: PathLike | str | None = None,
+        retry_policy: RetryPolicy | None = None, error_policy: ErrorPolicyInput = OMITTED,
     ) -> tuple[PDFCraftExtraction, OCRTokensMetering]:
         options = options or ExtractionOptions()
         footnotes = options.footnotes
@@ -209,16 +216,15 @@ class AsyncPDFCraft:
                 footnote_refinement=(
                     footnotes.refinement if footnotes is not None else None
                 ),
-                ignore_pdf_errors=options.ignore_pdf_errors,
-                ignore_ocr_errors=options.ignore_ocr_errors,
                 aborted=options.aborted,
                 on_ocr_event=options.on_ocr_event,
                 **({"context": options.context} if options.context is not None else {}),
                 **({"on_body": options.on_body} if options.on_body is not None else {}),
                 **({"on_footnote": options.on_footnote} if options.on_footnote is not None else {}),
-                **({"on_metadata": options.on_metadata} if options.on_metadata is not None else {}),
+                **(cast(dict[str, Any], {"on_metadata": options.on_metadata}) if options.on_metadata is not None else {}),
             )
 
+    @policy_operation
     async def render_markdown(
         self, extraction: PDFCraftExtraction | PathLike | str, output: PathLike | str,
         assets_path: PathLike | str | None = None,
@@ -230,6 +236,7 @@ class AsyncPDFCraft:
         on_body: Callable[[ParagraphContent[SourceRegion]], object] | None = None,
         on_footnote: Callable[[ParagraphContent[SourceRegion]], object] | None = None,
         on_metadata: MetadataCallback | None = None,
+        retry_policy: RetryPolicy | None = None, error_policy: ErrorPolicyInput = OMITTED,
     ) -> None:
         document = await _ensure_extraction_async(extraction)
         await MarkdownRenderer().render(
@@ -240,6 +247,7 @@ class AsyncPDFCraft:
             translator=translator, window=window, with_anchored=with_anchored,
         )
 
+    @policy_operation
     async def translate_extraction(
         self, extraction: PDFCraftExtraction | PathLike | str, output_path: PathLike | str,
         translator: XMLTranslator,
@@ -252,6 +260,7 @@ class AsyncPDFCraft:
         on_body: Callable[[ParagraphContent[SourceRegion]], object] | None = None,
         on_footnote: Callable[[ParagraphContent[SourceRegion]], object] | None = None,
         on_metadata: MetadataCallback | None = None,
+        retry_policy: RetryPolicy | None = None, error_policy: ErrorPolicyInput = OMITTED,
     ) -> PDFCraftExtraction:
         document = await _ensure_extraction_async(extraction)
         language = (
@@ -281,11 +290,13 @@ class AsyncPDFCraft:
             )
             return await layered._export_async(target)
 
+    @policy_operation
     async def translate_anchored_contents(
         self,
         extraction: PDFCraftExtraction | PathLike | str,
         output_path: PathLike | str,
-        transformer: AnchoredContentTransformer,
+        transformer: AnchoredContentTransformer, *,
+        retry_policy: RetryPolicy | None = None, error_policy: ErrorPolicyInput = OMITTED,
     ) -> PDFCraftExtraction:
         document = await _ensure_extraction_async(extraction)
         return await AnchoredContentExtractionTransformer(
@@ -294,6 +305,7 @@ class AsyncPDFCraft:
             document, Path(output_path),
         )
 
+    @policy_operation
     async def render_epub(
         self, extraction: PDFCraftExtraction | PathLike | str, output: PathLike | str, *,
         book_meta: BookMeta | None = None, lan: Literal["zh", "en"] | None = None,
@@ -308,6 +320,7 @@ class AsyncPDFCraft:
         on_body: Callable[[ParagraphContent[SourceRegion]], object] | None = None,
         on_footnote: Callable[[ParagraphContent[SourceRegion]], object] | None = None,
         on_metadata: MetadataCallback | None = None,
+        retry_policy: RetryPolicy | None = None, error_policy: ErrorPolicyInput = OMITTED,
     ) -> None:
         document = await _ensure_extraction_async(extraction)
         await EpubRenderer().render(
@@ -319,6 +332,7 @@ class AsyncPDFCraft:
             translator=translator, window=window, with_anchored=with_anchored,
         )
 
+    @policy_operation
     async def translate_pdf(
         self, source: PathLike | str, extraction: PDFCraftExtraction | PathLike | str,
         output: PathLike | str,
@@ -326,14 +340,14 @@ class AsyncPDFCraft:
         *, window: int = 1,
         with_furniture: bool = False,
         on_translation_event: Callable[[TranslationEvent], object] | None = None,
-        ignore_errors: IgnoreFillErrorsChecker = False,
         on_body: Callable[[PDFParagraphContent], object] | None = None,
         on_footnote: Callable[[PDFParagraphContent], object] | None = None,
         on_metadata: MetadataCallback | None = None,
+        retry_policy: RetryPolicy | None = None, error_policy: ErrorPolicyInput = OMITTED,
     ) -> None:
         if isinstance(translator, XMLTranslator):
             await self.patch_pdf_with_extraction(source, extraction, output, translator=translator,
-                window=window, ignore_errors=ignore_errors, on_body=on_body, on_footnote=on_footnote, on_metadata=on_metadata,
+                window=window, error_policy=error_policy, on_body=on_body, on_footnote=on_footnote, on_metadata=on_metadata,
                 with_furniture=with_furniture, on_translation_event=on_translation_event)
             return
         document = await _ensure_extraction_async(extraction)
@@ -346,64 +360,64 @@ class AsyncPDFCraft:
                 on_translation_event=on_translation_event, on_metadata=on_metadata,
             )
             await self.patch_pdf_with_extraction(
-                source, translated, output, ignore_errors=ignore_errors,
+                source, translated, output, error_policy=error_policy,
                 on_body=on_body, on_footnote=on_footnote, on_metadata=on_metadata,
             )
 
+    @policy_operation
     async def patch_pdf_with_extraction(
         self,
         source: PathLike | str,
         extraction: PDFCraftExtraction | PathLike | str,
         output: PathLike | str,
         *, translation_id: str | None = None,
-        ignore_errors: IgnoreFillErrorsChecker = False,
         translator: XMLTranslator | None = None, window: int = 1,
         on_body: Callable[[PDFParagraphContent], object] | None = None,
         on_footnote: Callable[[PDFParagraphContent], object] | None = None,
         with_furniture: bool = False,
         on_translation_event: Callable[[TranslationEvent], object] | None = None,
         on_metadata: MetadataCallback | None = None,
+        retry_policy: RetryPolicy | None = None, error_policy: ErrorPolicyInput = OMITTED,
     ) -> None:
         document = await _ensure_extraction_async(extraction)
         if translator is not None and translation_id is not None:
             raise ValueError("translation_id cannot be combined with translator")
         from .pipeline.pdf.content import patch_content
-        if not _ignore_errors_requested(ignore_errors):
+        if not _error_policy_requested(error_policy):
             await IO_DOMAIN.run(_validate_extraction_for_pdf, Path(source), document)
         await patch_content(Path(source), document, Path(output), translator=translator,
-                            translation_id=translation_id, window=window, ignore_errors=ignore_errors,
+                            translation_id=translation_id, window=window, error_policy=error_policy,
                             on_body=on_body, on_footnote=on_footnote, on_metadata=on_metadata,
                             pdf_handler=self._pdf.pdf_handler if self._pdf else None, with_furniture=with_furniture,
                             on_translation_event=on_translation_event)
 
+    @policy_operation
     async def translate_epub(
         self, source: PathLike | str, output: PathLike | str, *,
         target_language: str, submit: SubmitKind,
         user_prompt: str | None = None,
-        max_retries: int = 5, max_group_tokens: int = 2600,
+        max_group_tokens: int = 2600,
         llm: LLM | None = None,
         translation_llm: LLM | None = None, fill_llm: LLM | None = None,
         on_translation_event: Callable[[TranslationEvent], object] | None = None,
-        on_fill_failed: Callable[[FillFailedEvent], object] | None = None,
         executor: AsyncExecutor | None = None,
         translation_executor: AsyncExecutor | None = None,
         fill_executor: AsyncExecutor | None = None,
         window: int = 1,
         on_body: Callable[[EpubFragmentContent], object] | None = None,
         on_metadata: MetadataCallback | None = None,
+        retry_policy: RetryPolicy | None = None, error_policy: ErrorPolicyInput = OMITTED,
     ) -> None:
         await run_epub_translation(
             source, output,
             target_language=target_language,
             submit=submit,
             user_prompt=user_prompt,
-            max_retries=max_retries,
             max_group_tokens=max_group_tokens,
             llm=llm,
             translation_llm=translation_llm,
             fill_llm=fill_llm,
             on_translation_event=on_translation_event,
-            on_fill_failed=on_fill_failed,
             executor=executor,
             translation_executor=translation_executor,
             fill_executor=fill_executor,
@@ -412,6 +426,7 @@ class AsyncPDFCraft:
             on_metadata=on_metadata,
         )
 
+    @policy_operation
     async def convert_pdf_to_markdown(
         self, source: PathLike | str, output: PathLike | str, *,
         analysing_path: PathLike | str | None = None,
@@ -424,6 +439,7 @@ class AsyncPDFCraft:
         with_anchored: bool = True,
         on_translation_event: Callable[[TranslationEvent], object] | None = None,
         on_metadata: MetadataCallback | None = None,
+        retry_policy: RetryPolicy | None = None, error_policy: ErrorPolicyInput = OMITTED,
     ) -> OCRTokensMetering:
         options = replace(extraction or ExtractionOptions(), includes_furniture=False)
         async with _analysis_workspace_async(analysing_path) as workspace:
@@ -449,6 +465,7 @@ class AsyncPDFCraft:
                 await self.render_markdown(document, output, assets_path, aborted=options.aborted)
         return metering
 
+    @policy_operation
     async def convert_pdf_to_epub(
         self, source: PathLike | str, output: PathLike | str, *,
         analysing_path: PathLike | str | None = None,
@@ -464,6 +481,7 @@ class AsyncPDFCraft:
         with_anchored: bool = True,
         on_translation_event: Callable[[TranslationEvent], object] | None = None,
         on_metadata: MetadataCallback | None = None,
+        retry_policy: RetryPolicy | None = None, error_policy: ErrorPolicyInput = OMITTED,
     ) -> OCRTokensMetering:
         options = replace(extraction or ExtractionOptions(), includes_furniture=False)
         async with _analysis_workspace_async(analysing_path) as workspace:
@@ -523,13 +541,11 @@ class AsyncPDFCraft:
                 footnote_refinement=(
                     footnotes.refinement if footnotes is not None else None
                 ),
-                ignore_pdf_errors=options.ignore_pdf_errors,
-                ignore_ocr_errors=options.ignore_ocr_errors,
                 aborted=options.aborted, on_ocr_event=options.on_ocr_event,
                 **({"context": options.context} if options.context is not None else {}),
                 **({"on_body": options.on_body} if options.on_body is not None else {}),
                 **({"on_footnote": options.on_footnote} if options.on_footnote is not None else {}),
-                **({"on_metadata": options.on_metadata} if options.on_metadata is not None else {}),
+                **(cast(dict[str, Any], {"on_metadata": options.on_metadata}) if options.on_metadata is not None else {}),
             )
 
     async def _translate_layer_to_workspace(
@@ -713,8 +729,13 @@ def _validate_extraction_for_pdf(source: Path, extraction: PDFCraftExtraction) -
         )
 
 
-def _ignore_errors_requested(checker: IgnoreFillErrorsChecker) -> bool:
+def _error_policy_requested(checker: ErrorPolicyInput) -> bool:
     """Defer page-addressable validation when a fill recovery policy exists."""
+    from ._policy import current
+    from .policies import ErrorPolicy, FailureCategory
+    checker = current().errors if checker is OMITTED else checker
+    if isinstance(checker, ErrorPolicy):
+        checker = checker.decision(FailureCategory.PDF_FILL)
     return checker is True or callable(checker)
 
 

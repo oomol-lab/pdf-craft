@@ -19,8 +19,10 @@
         "fill_llm_profile": "fill",
         "target_language": "Simplified Chinese",
         "submit": "REPLACE",
-        "max_retries": 5,
-        "max_group_tokens": 2600
+        "max_group_tokens": 2600,
+        "retry_policy": {
+          "fill": 5
+        }
       }
     },
     {
@@ -35,8 +37,10 @@
         "fill_llm_profile": "fill",
         "target_language": "Simplified Chinese",
         "submit": "REPLACE",
-        "max_retries": 5,
-        "max_group_tokens": 2600
+        "max_group_tokens": 2600,
+        "retry_policy": {
+          "fill": 5
+        }
       }
     },
     {
@@ -47,8 +51,10 @@
         "fill_llm_profile": "fill",
         "target_language": "Simplified Chinese",
         "submit": "REPLACE",
-        "max_retries": 5,
-        "max_group_tokens": 2600
+        "max_group_tokens": 2600,
+        "retry_policy": {
+          "fill": 5
+        }
       }
     },
     {
@@ -63,8 +69,10 @@
         "fill_llm_profile": "fill",
         "target_language": "Simplified Chinese",
         "submit": "REPLACE",
-        "max_retries": 5,
-        "max_group_tokens": 2600
+        "max_group_tokens": 2600,
+        "retry_policy": {
+          "fill": 5
+        }
       }
     },
     {
@@ -79,8 +87,10 @@
         "fill_llm_profile": "fill",
         "target_language": "Simplified Chinese",
         "submit": "REPLACE",
-        "max_retries": 5,
-        "max_group_tokens": 2600
+        "max_group_tokens": 2600,
+        "retry_policy": {
+          "fill": 5
+        }
       }
     },
     {
@@ -91,8 +101,10 @@
         "fill_llm_profile": "fill",
         "target_language": "Simplified Chinese",
         "submit": "REPLACE",
-        "max_retries": 5,
-        "max_group_tokens": 2600
+        "max_group_tokens": 2600,
+        "retry_policy": {
+          "fill": 5
+        }
       }
     },
     {
@@ -107,8 +119,10 @@
         "fill_llm_profile": "fill",
         "target_language": "Simplified Chinese",
         "submit": "REPLACE",
-        "max_retries": 5,
-        "max_group_tokens": 2600
+        "max_group_tokens": 2600,
+        "retry_policy": {
+          "fill": 5
+        }
       }
     },
     {
@@ -123,8 +137,10 @@
         "fill_llm_profile": "fill",
         "target_language": "Simplified Chinese",
         "submit": "REPLACE",
-        "max_retries": 5,
-        "max_group_tokens": 2600
+        "max_group_tokens": 2600,
+        "retry_policy": {
+          "fill": 5
+        }
       }
     },
     {
@@ -135,8 +151,10 @@
         "fill_llm_profile": "fill",
         "target_language": "Simplified Chinese",
         "submit": "REPLACE",
-        "max_retries": 5,
-        "max_group_tokens": 2600
+        "max_group_tokens": 2600,
+        "retry_policy": {
+          "fill": 5
+        }
       }
     },
     {
@@ -151,8 +169,10 @@
         "fill_llm_profile": "fill",
         "target_language": "Simplified Chinese",
         "submit": "REPLACE",
-        "max_retries": 5,
-        "max_group_tokens": 2600
+        "max_group_tokens": 2600,
+        "retry_policy": {
+          "fill": 5
+        }
       }
     },
     {
@@ -167,8 +187,10 @@
         "fill_llm_profile": "fill",
         "target_language": "Simplified Chinese",
         "submit": "REPLACE",
-        "max_retries": 5,
-        "max_group_tokens": 2600
+        "max_group_tokens": 2600,
+        "retry_policy": {
+          "fill": 5
+        }
       }
     },
     {
@@ -179,8 +201,10 @@
         "fill_llm_profile": "fill",
         "target_language": "Simplified Chinese",
         "submit": "REPLACE",
-        "max_retries": 5,
-        "max_group_tokens": 2600
+        "max_group_tokens": 2600,
+        "retry_policy": {
+          "fill": 5
+        }
       }
     },
     {
@@ -195,8 +219,10 @@
         "fill_llm_profile": "fill",
         "target_language": "Simplified Chinese",
         "submit": "REPLACE",
-        "max_retries": 5,
-        "max_group_tokens": 2600
+        "max_group_tokens": 2600,
+        "retry_policy": {
+          "fill": 5
+        }
       }
     },
     {
@@ -211,8 +237,10 @@
         "fill_llm_profile": "fill",
         "target_language": "Simplified Chinese",
         "submit": "REPLACE",
-        "max_retries": 5,
-        "max_group_tokens": 2600
+        "max_group_tokens": 2600,
+        "retry_policy": {
+          "fill": 5
+        }
       }
     },
     {
@@ -223,8 +251,10 @@
         "fill_llm_profile": "fill",
         "target_language": "Simplified Chinese",
         "submit": "REPLACE",
-        "max_retries": 5,
-        "max_group_tokens": 2600
+        "max_group_tokens": 2600,
+        "retry_policy": {
+          "fill": 5
+        }
       }
     },
     {
@@ -239,8 +269,10 @@
         "fill_llm_profile": "fill",
         "target_language": "Simplified Chinese",
         "submit": "REPLACE",
-        "max_retries": 5,
-        "max_group_tokens": 2600
+        "max_group_tokens": 2600,
+        "retry_policy": {
+          "fill": 5
+        }
       }
     },
     {
@@ -255,8 +287,10 @@
         "fill_llm_profile": "fill",
         "target_language": "Simplified Chinese",
         "submit": "REPLACE",
-        "max_retries": 5,
-        "max_group_tokens": 2600
+        "max_group_tokens": 2600,
+        "retry_policy": {
+          "fill": 5
+        }
       }
     },
     {
@@ -267,8 +301,10 @@
         "fill_llm_profile": "fill",
         "target_language": "Simplified Chinese",
         "submit": "REPLACE",
-        "max_retries": 5,
-        "max_group_tokens": 2600
+        "max_group_tokens": 2600,
+        "retry_policy": {
+          "fill": 5
+        }
       }
     }
   ]

@@ -51,7 +51,7 @@ OCR 流内下标和独立阅读位置。正文沿用原 source_order；新提取
 FootnoteOptions(refinement=FootnoteRefinement(...)) 在调用方 event loop 在线执行 JEV 筛选及
 LLM 页级修正；CLI 的 --footnotes 只启用传统算法。LLM JSON 通过 request_guaranteed_json
 编译 ownership、必需元数据、引用位置及定义关系，候选在完整暂存对象图上组装成功才接纳。
-所有选中页成功后才返回整批结果；任何失败均不修改调用方原对象。没有额外异常吞咽或本地重试。
+候选在暂存对象图通过校验后才提交；允许降级的页保留算法结果，必要时撤销整批精修，任何失败均不修改调用方原对象。不得额外嵌套请求重试。
 ref 仍以 layout_id + citation_index + before/mark/after 定位，不要求 LLM 算 offset。
 
 连接的唯一编辑真源为后继的 continues_from_previous；continues_to_next 由此派生，旧字段若
@@ -69,7 +69,7 @@ Markdown/EPUB 保留这些定义。正文及脚注 TextFlowItem 共用 narrative
 多次引用或跨章节复用同一来源不重复回填。定义开头的印刷标记在 PDF 输出时恢复。
 格式专有适配留在 PCEX 层，通用 XML translator 无需了解脚注。
 
-PCEX 格式与公共配置 API 不变。现有归档和译文层按原身份读取、校验和导出，不做推测重编号；
+PCEX 格式保持兼容。现有归档和译文层按原身份读取、校验和导出，不做推测重编号；
 缺失 coverage 继续表示 preserved。旧归档若同一章节已有歧义的重复 fragment 身份，仍明确拒绝，
 不声称能够无损迁移。更详细的修复前后证据见 docs/verification/footnote-788.md。
 
@@ -124,7 +124,7 @@ OCR 配置是封闭公共面：`DeepSeekOCRLocalConfig`、`DeepSeekOCR2LocalConf
 
 ## 错误与恢复语义
 
-`ignore_pdf_errors` 和 `ignore_ocr_errors` 可以是布尔值或 callable。当页面级错误被忽略时，流水线会写入 fallback 页数据并继续处理。
+失败决策、可信译文缺失与任务级成功的原则见 [失败与有效成果](failure-and-completion.md)。页面级降级会保留图片或明确占位，全部主要工作降级仍须报错。
 
 已存在的 `page_*.xml` 会被跳过。`done` 标记会让 OCR 识别整体跳过。修改恢复行为时要谨慎，因为它同时影响本地手动运行和 VGE worktree 重跑。
 

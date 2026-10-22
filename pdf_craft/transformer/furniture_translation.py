@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import re
 from pathlib import Path
+from typing import cast
 from xml.etree.ElementTree import Element
 
 from pdf_craft.common import read_xml, save_xml
@@ -62,9 +63,23 @@ async def translate_furnitures_in_workspace_async(
         kind = pattern.get("kind", "")
         for position in pattern.findall("position"):
             position_id = position.get("id", "")
-            translated = await _translate_position_async(
-                position, pattern_id, position_id, kind, titles, transformer,
-            )
+            from .._policy import locations
+            from ..policies import FailureLocation
+            occurrence_pages = tuple(dict.fromkeys(int(page.get('index', '0')) for page in root.findall('pages/page')
+                if any(association.get('pattern_id') == pattern_id and association.get('position_id') == position_id
+                       for association in page.findall('section/association'))))
+            target = FailureLocation('template', member_path='furnitures.xml',
+                                     unit_id=f'{pattern_id}:{position_id}', page_indexes=occurrence_pages,
+                                     original=position.text)
+            impact = tuple(FailureLocation('regions', member_path='furnitures.xml', page_indexes=(int(page.get('index', '0')),),
+                bbox=cast(tuple[int, int, int, int], tuple(map(int, section.get('det', '').split(',')))))
+                for page in root.findall('pages/page') for section in page.findall('section')
+                if section.get('det') and any(association.get('pattern_id') == pattern_id
+                    and association.get('position_id') == position_id for association in section.findall('association')))
+            with locations((target,), affected=impact):
+                translated = await _translate_position_async(
+                    position, pattern_id, position_id, kind, titles, transformer,
+                )
             position_coverage.append((pattern_id, position_id, translated))
 
     for page in root.findall("pages/page"):
@@ -116,7 +131,12 @@ async def _translate_position_async(
                 int(pattern_id), int(position_id), kind,
                 prefix + _FOLIO_MARKER + suffix,
             ))
-        except Exception:
+        except Exception as error:
+            from .._policy import recover
+            from ..policies import FailureCategory, FailureLocation
+            await recover(error, FailureCategory.FILL, 'furniture', 'omit_translation',
+                          targets=(FailureLocation('template', member_path='furnitures.xml',
+                                    unit_id=f'{pattern_id}:{position_id}'),))
             return "preserved"
         if (
             not isinstance(result, str)
@@ -141,7 +161,12 @@ async def _translate_position_async(
         result = await transformer.transform_position(FurniturePosition(
             int(pattern_id), int(position_id), kind, position.text or "",
         ))
-    except Exception:
+    except Exception as error:
+        from .._policy import recover
+        from ..policies import FailureCategory, FailureLocation
+        await recover(error, FailureCategory.FILL, 'furniture', 'omit_translation',
+                      targets=(FailureLocation('template', member_path='furnitures.xml',
+                                unit_id=f'{pattern_id}:{position_id}', original=position.text),))
         return "preserved"
     if not _usable_target(result):
         return "preserved"
@@ -160,7 +185,12 @@ async def _translate_page_sections_async(
         translated = await transformer.transform_sections(
             int(page_index), [section for _, section in entries],
         )
-    except Exception:
+    except Exception as error:
+        from .._policy import recover
+        from ..policies import FailureCategory, FailureLocation
+        await recover(error, FailureCategory.FILL, 'furniture_sections', 'omit_translation',
+                      targets=(FailureLocation('page', member_path='furnitures.xml',
+                                page_indexes=(int(page_index),)),))
         translated = ()
     if len(translated) != len(entries):
         translated = (None,) * len(entries)

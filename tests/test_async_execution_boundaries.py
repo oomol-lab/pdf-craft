@@ -177,10 +177,10 @@ class TestAsyncExecutionBoundaries(unittest.IsolatedAsyncioTestCase):
                 await patcher.patch(
                     source, Path(directory) / "target.pdf",
                     [PDFReplacement(1, (-10, 10, 180, 50), "invalid", (200, 100), 72)],
-                    ignore_errors=ignore,
+                    error_policy=ignore,
                 )
             self.assertEqual(len(errors), 1)
-            self.assertIsInstance(errors[0], ValueError)
+            self.assertEqual(errors[0].error.type, "builtins.ValueError")
 
     async def test_cancel_native_patch_also_cancels_pending_async_recovery_callback(self):
         started = asyncio.Event()
@@ -206,7 +206,7 @@ class TestAsyncExecutionBoundaries(unittest.IsolatedAsyncioTestCase):
             task = asyncio.create_task(patcher.patch(
                 source, Path(directory) / "target.pdf",
                 [PDFReplacement(1, (-10, 10, 180, 50), "invalid", (200, 100), 72)],
-                ignore_errors=cast(Any, ignore),
+                error_policy=cast(Any, ignore),
             ))
             try:
                 await asyncio.wait_for(started.wait(), timeout=5)

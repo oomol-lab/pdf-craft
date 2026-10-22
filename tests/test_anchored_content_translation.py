@@ -4,6 +4,8 @@
 
 from __future__ import annotations
 
+from pdf_craft import RetryPolicy
+
 import asyncio
 from copy import deepcopy
 import tempfile
@@ -68,7 +70,7 @@ class _TemplateTranslator:
             interrupt_source_text_segments=kwargs["interrupt_source_text_segments"],
             interrupt_translated_text_segments=kwargs["interrupt_translated_text_segments"],
             interrupt_block_element=kwargs["interrupt_block_element"],
-            on_fill_failed=None,
+
         )
         mapper = XMLStreamMapper(get_encoding("cl100k_base"), max_group_score=10_000)
 
@@ -295,9 +297,9 @@ class _CapturePatcher:
 def _repairing_translator(fill_responses: Sequence[str]) -> tuple[XMLTranslator, _ResponseRuntime]:
     config = LLM("test", "https://example.invalid/v1", "test", "cl100k_base")
     translator = XMLTranslator(
-        config, config, "English", None, False, 2, 10_000, 10_000,
+        config, config, "English", None,   10_000, 10_000,
         executor=ConcurrentExecutor(FixedCapacity(1)),
-    )
+     retry_policy=RetryPolicy(fill=max(0, (2) - 1)))
     async def translate_text(text: str) -> str:
         return text
 
@@ -550,7 +552,7 @@ class AnchoredContentTranslationTests(unittest.TestCase):
         retry_messages = runtime.context_value.messages[1][0]
         self.assertIn("canonical translation", retry_messages[-1].message)
 
-    def test_fill_repairs_formula_position_to_match_canonical_translation(self):
+    def test_invalid_formula_fill_is_explicitly_missing_when_recovery_allowed(self):
         chapter = Chapter(None, -1, [TextFlowItem("body", 0, [
             SourceTextFragment(1, 1, (1, 1, 90, 15), [
                 "Character ",
@@ -569,9 +571,10 @@ class AnchoredContentTranslationTests(unittest.TestCase):
         translator, runtime = _repairing_translator((incorrect, corrected))
         translator._translate_text_async = AsyncMock(return_value=r"Character \(\chi\) vanishes.")  # type: ignore[method-assign]
 
-        translated = asyncio.run(NarrativeXMLTransformer(cast(Any, translator)).transform(chapter))
+        translated = asyncio.run(NarrativeXMLTransformer(cast(Any, translator)).transform(chapter, error_policy=True))
 
         self.assertEqual(runtime.context_value.calls, 2)
+        self.assertTrue(getattr(translated.flow_items[0], "_translation_missing"))
         text = translated.flow_items[0]
         assert isinstance(text, TextFlowItem)
         content = text.children[0].content
@@ -770,7 +773,7 @@ class AnchoredContentTranslationTests(unittest.TestCase):
         ).transform_assets((
             AnchoredContent("head", 0, 0, first, "first context"),
             AnchoredContent("head", 1, -1, second, "second context"),
-        )))
+        ), error_policy=True))
 
         self.assertEqual(result, (None, None))
 
@@ -800,7 +803,7 @@ class AnchoredContentTranslationTests(unittest.TestCase):
             with self.subTest(action=action):
                 result = asyncio.run(AnchoredContentXMLTransformer(
                     _BrokenTableFormulaXMLTaskTranslator(action)
-                ).transform_assets((payload,)))
+                ).transform_assets((payload,), error_policy=True))
 
                 self.assertEqual(result, (None,))
 
@@ -827,7 +830,7 @@ class AnchoredContentTranslationTests(unittest.TestCase):
             with self.subTest(action=action):
                 result = asyncio.run(AnchoredContentXMLTransformer(
                     _RepositionedTableFormulaXMLTaskTranslator(action)
-                ).transform_assets((payload,)))
+                ).transform_assets((payload,), error_policy=True))
 
                 self.assertEqual(result, (None,))
 
@@ -858,11 +861,11 @@ class AnchoredContentTranslationTests(unittest.TestCase):
 
         result = asyncio.run(AnchoredContentXMLTransformer(
             _RepositionedTableFormulaXMLTaskTranslator("swap")
-        ).transform_assets((payload,)))
+        ).transform_assets((payload,), error_policy=True))
 
         self.assertEqual(result, (None,))
 
-    def test_xml_adapter_retries_invalid_batch_as_individual_assets(self):
+    def test_xml_adapter_preserves_failed_batch_without_hidden_singleton_retries(self):
         table_tag = tag_definition("table")
         row_tag = tag_definition("tr")
         cell_tag = tag_definition("td")
@@ -887,19 +890,19 @@ class AnchoredContentTranslationTests(unittest.TestCase):
             _RepositionedTableFormulaXMLTaskTranslator("move_to_end")
         )
 
-        result = asyncio.run(_transform_batch_async(payloads, transformer))
+        result = asyncio.run(_transform_batch_async(payloads, transformer, error_policy=True))
 
         self.assertIsNone(result[0])
-        assert result[1] is not None
-        self.assertEqual(result[1].title, ["T:Image title"])
+        self.assertIsNone(result[1])
 
     def test_generic_transformer_preserves_assets_when_result_identity_is_wrong(self):
         first = AnchoredContent("head", 0, 0, SourceAsset(1, "image", (1, 1, 10, 10)), "")
         second = AnchoredContent("head", 1, -1, SourceAsset(1, "table", (1, 11, 10, 20)), "")
         transformer = _WrongIdentityAssetTransformer()
 
-        self.assertEqual(asyncio.run(_transform_batch_async((first, second), transformer)), [None, None])
-        self.assertEqual([len(call) for call in transformer.calls], [2, 1, 1])
+        with self.assertRaisesRegex(ValueError, 'source identities'):
+            asyncio.run(_transform_batch_async((first, second), transformer))
+        self.assertEqual([len(call) for call in transformer.calls], [2])
 
     def test_asset_without_extracted_text_is_preserved_without_a_translation_call(self):
         with tempfile.TemporaryDirectory() as directory:

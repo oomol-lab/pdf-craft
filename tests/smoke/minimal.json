@@ -1,6 +1,8 @@
 {
   "defaults": {
-    "page_indexes": [1],
+    "page_indexes": [
+      1
+    ],
     "ocr_size": "tiny",
     "translation": {
       "package_marker": "[smoke-translated]",

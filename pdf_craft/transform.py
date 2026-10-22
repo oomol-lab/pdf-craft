@@ -1,4 +1,8 @@
+# pylint: disable=unused-argument
 # pylint: disable=protected-access
+
+from .policies import ErrorPolicyInput
+from ._policy import decision_bridge, OMITTED, policy_operation
 
 import asyncio
 from collections.abc import Callable, Container
@@ -8,8 +12,6 @@ from os import PathLike
 from pathlib import Path
 
 from .error import (
-    IgnoreOCRErrorsChecker,
-    IgnorePDFErrorsChecker,
     NoUsableOCRPagesError,
     PDFError,
 )
@@ -135,6 +137,7 @@ class PDFExtractionEngine:
         live = kwargs.pop("live", None)
         on_metadata = kwargs.pop("on_metadata", None)
         footnote_refinement = kwargs.pop("footnote_refinement", None)
+        kwargs["error_policy"] = decision_bridge(asyncio.get_running_loop(), OMITTED)
         event_callback = kwargs.get("on_ocr_event")
         original_aborted = kwargs.get("aborted")
         if self._ocr.is_vendor and self._ocr_executor is not None:
@@ -149,8 +152,7 @@ class PDFExtractionEngine:
                 dpi=kwargs["dpi"],
                 max_page_image_file_size=kwargs["max_page_image_file_size"],
                 includes_footnotes=kwargs["includes_footnotes"],
-                ignore_pdf_errors=kwargs["ignore_pdf_errors"],
-                ignore_ocr_errors=kwargs["ignore_ocr_errors"],
+                error_policy=OMITTED,
                 plot_path=(kwargs["analysing_path"] / "plots")
                 if kwargs["generate_plot"] else None,
                 cover_path=(kwargs["analysing_path"] / "extraction" / "cover.png")
@@ -231,14 +233,16 @@ class PDFExtractionEngine:
                 jev.evaluate,
                 request,
                 threshold=footnote_refinement.risk_threshold,
-                max_retries=footnote_refinement.max_retries,
                 batch_evaluator=jev.evaluate_many,
             )
-            repaired_pages = await processor(
-                chapter_analysis.source_pages,
-                chapter_analysis.pages,
-                chapter_analysis.page_pixel_sizes,
-            )
+            from ._failure_sources import page_sources
+            from .document.access import page_geometries
+            with page_sources(page_geometries(chapter_analysis.page_pixel_sizes, draft.dpi or 300)):
+                repaired_pages = await processor(
+                    chapter_analysis.source_pages,
+                    chapter_analysis.pages,
+                    chapter_analysis.page_pixel_sizes,
+                )
 
         return await run_cancellable(
             OCR_DOMAIN,
@@ -280,8 +284,7 @@ class PDFExtractionEngine:
         max_page_image_file_size: int | None,
         includes_cover: bool,
         includes_footnotes: bool,
-        ignore_pdf_errors: IgnorePDFErrorsChecker,
-        ignore_ocr_errors: IgnoreOCRErrorsChecker,
+        error_policy: ErrorPolicyInput,
         generate_plot: bool,
         toc_llm: LLM | None,  # pylint: disable=unused-argument
         toc_assumed: bool,  # pylint: disable=unused-argument
@@ -321,8 +324,7 @@ class PDFExtractionEngine:
             dpi=dpi,
             max_page_image_file_size=max_page_image_file_size,
             includes_footnotes=includes_footnotes,
-            ignore_pdf_errors=ignore_pdf_errors,
-            ignore_ocr_errors=ignore_ocr_errors,
+            error_policy=error_policy,
             plot_path=plot_path,
             cover_path=cover_path,
             aborted=aborted,
@@ -379,6 +381,7 @@ class PDFExtractionEngine:
         )
         return replace(draft, document_metadata=metadata, toc=toc)
 
+    @policy_operation
     async def _extract_book_metadata_async(
         self,
         *,
@@ -386,6 +389,7 @@ class PDFExtractionEngine:
         pages_path: Path,
         enabled: bool,
         metadata_llm: LLM | None,
+        error_policy: ErrorPolicyInput = OMITTED,
     ) -> DocumentMetadata | None:
         if not enabled:
             return None
@@ -395,14 +399,21 @@ class PDFExtractionEngine:
             assert metadata_llm is not None
             ocr_metadata = await extract_book_metadata_from_ocr(pages_path, metadata_llm)
         except Exception as error:
-            print(f"Warning: Failed to extract book metadata from OCR: {error}")
+            from ._policy import recover
+            from .policies import FailureCategory
+            from ._failure_sources import ocr_locations
+            targets = await IO_DOMAIN.run(ocr_locations, pages_path, 12)
+            await recover(error, FailureCategory.ANALYSIS, 'book_metadata', 'pdf_metadata', targets=getattr(error, 'failure_targets', targets))
         return merge_ocr_and_pdf_metadata(ocr_metadata, pdf_metadata)
 
     async def _read_pdf_metadata_async(self, pdf_path):
         try:
             return await IO_DOMAIN.run(self._ocr.metadata, pdf_path)
-        except PDFError:
-            print("Warning: Failed to read PDF file metadata for book metadata fallback.")
+        except PDFError as error:
+            from ._policy import recover
+            from .policies import FailureCategory, FailureLocation
+            await recover(error, FailureCategory.ANALYSIS, 'pdf_metadata', 'empty_metadata',
+                          targets=(FailureLocation('field', source=str(pdf_path), field_path='metadata'),))
             return None
 
     def _finish_extraction(

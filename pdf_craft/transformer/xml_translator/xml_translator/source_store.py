@@ -35,6 +35,9 @@ def rebind(root, origin, block):
 
 def strip_source(root):
     for node in root.iter():
+        for key in list(node.attrib):
+            if key.startswith("__pdf_craft_"):
+                node.attrib.pop(key, None)
         node.attrib.pop(ROOT_KEY, None)
         node.attrib.pop(NODE_KEY, None)
 
@@ -67,3 +70,21 @@ class TaskStore:
         (self.root / str(identity)).unlink()
         self.cache = self.identity = None
         return task
+
+
+def unit_owner(origin):
+    """A PCEX paragraph is atomic; EPUB retains its existing fragment owner."""
+    return next((node for node in origin.head.parent_stack if node.tag == 'text'), origin.parent)
+
+
+def unit_key(owner):
+    fragment = owner.find('fragment') if owner.tag == 'text' else None
+    if fragment is not None:
+        return f'{fragment.get("page_index")}:{fragment.get("source_order")}'
+    return owner.get(NODE_KEY) or str(id(owner))
+
+
+def owner_outcomes(root, mappings):
+    del mappings
+    return {str(node.get('__pdf_craft_unit')): node.get('__pdf_craft_missing') != '1'
+            for node in root.iter() if node.get('__pdf_craft_unit') is not None}

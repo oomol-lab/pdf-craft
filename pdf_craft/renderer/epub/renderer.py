@@ -1,3 +1,7 @@
+# pylint: disable=unused-argument
+
+from pdf_craft.policies import RetryPolicy, ErrorPolicyInput
+from pdf_craft._policy import OMITTED, policy_operation
 # pylint: disable=protected-access
 
 from collections.abc import Callable
@@ -18,6 +22,7 @@ from ..output import publish
 class EpubRenderer:
     """Render a PDFCraftExtraction to EPUB."""
 
+    @policy_operation
     async def render(
         self, extraction: PDFCraftExtraction, output_path: Path, *,
         book_meta: BookMeta | None = None,
@@ -33,6 +38,7 @@ class EpubRenderer:
         translator: XMLTranslator | None = None,
         window: int = 1, with_anchored: bool = True,
         on_metadata: MetadataCallback | None = None,
+        retry_policy: RetryPolicy | None = None, error_policy: ErrorPolicyInput = OMITTED,
     ) -> None:
         """Orchestrate the view and native EPUB generation asynchronously."""
         from ...document.stream_view import content_view

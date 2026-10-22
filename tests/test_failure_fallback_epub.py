@@ -1,5 +1,7 @@
 """End-to-end coverage for recoverable and fatal PDF/OCR page failures."""
 
+from pdf_craft import ErrorPolicy
+
 from datetime import datetime, timezone
 from io import BytesIO
 from pathlib import Path
@@ -114,7 +116,7 @@ class TestFailureFallbackEPUB(unittest.TestCase):
             root = Path(directory)
             target = root / "book.epub"
             with self.assertRaises(NoUsableOCRPagesError) as raised:
-                self._convert(craft, target, root / "analysis", ignore_pdf_errors=True)
+                self._convert(craft, target, root / "analysis", error_policy=ErrorPolicy(ignore_pdf_render_errors=True))
             self.assertEqual(raised.exception.failed_page_indexes, (1, 2))
             self.assertFalse(target.exists())
 
@@ -126,7 +128,7 @@ class TestFailureFallbackEPUB(unittest.TestCase):
         with TemporaryDirectory() as directory:
             root = Path(directory)
             target = root / "book.epub"
-            events = self._convert(craft, target, root / "analysis", ignore_pdf_errors=True)
+            events = self._convert(craft, target, root / "analysis", error_policy=ErrorPolicy(ignore_pdf_render_errors=True))
             self.assertTrue(target.is_file())
             self.assertEqual(self._failed_pages(events), [1])
             self.assertIn("Page 1 extraction failed due to PDF rendering error", self._epub_text(target))
@@ -140,7 +142,7 @@ class TestFailureFallbackEPUB(unittest.TestCase):
             root = Path(directory)
             target = root / "book.epub"
             with self.assertRaises(NoUsableOCRPagesError) as raised:
-                self._convert(craft, target, root / "analysis", ignore_ocr_errors=True)
+                self._convert(craft, target, root / "analysis", error_policy=ErrorPolicy(ignore_ocr_errors=True))
             self.assertEqual(raised.exception.failed_page_indexes, (1, 2))
             self.assertFalse(target.exists())
 
@@ -153,7 +155,7 @@ class TestFailureFallbackEPUB(unittest.TestCase):
         with TemporaryDirectory() as directory:
             root = Path(directory)
             target = root / "book.epub"
-            events = self._convert(craft, target, root / "analysis", ignore_ocr_errors=True)
+            events = self._convert(craft, target, root / "analysis", error_policy=ErrorPolicy(ignore_ocr_errors=True))
             self.assertTrue(target.is_file())
             self.assertEqual(self._failed_pages(events), [1])
 
@@ -175,7 +177,7 @@ class TestFailureFallbackEPUB(unittest.TestCase):
         with TemporaryDirectory() as directory:
             root = Path(directory)
             target = root / "book.epub"
-            events = self._convert(craft, target, root / "analysis", ignore_ocr_errors=True)
+            events = self._convert(craft, target, root / "analysis", error_policy=ErrorPolicy(ignore_ocr_errors=True))
             self.assertTrue(target.is_file())
             self.assertEqual(self._failed_pages(events), [])
             self.assertEqual(self._chapter_assets(root / "analysis" / "extraction"), [])
@@ -190,7 +192,7 @@ class TestFailureFallbackEPUB(unittest.TestCase):
             root = Path(directory)
             target = root / "book.epub"
             with self.assertRaises(OCRBillingError):
-                self._convert(craft, target, root / "analysis", ignore_ocr_errors=True)
+                self._convert(craft, target, root / "analysis", error_policy=ErrorPolicy(ignore_ocr_errors=True))
             self.assertFalse(target.exists())
             self.assertFalse((root / "analysis" / "ocr" / "page_1.xml").exists())
 
@@ -224,14 +226,13 @@ class TestFailureFallbackEPUB(unittest.TestCase):
     @staticmethod
     def _convert(
         craft: PDFCraft, target: Path, analysis: Path, *,
-        ignore_pdf_errors: bool = False, ignore_ocr_errors: bool = False,
+        error_policy=None,
     ):
         events = []
         craft.convert_pdf_to_epub(
-            "scripted.pdf", target, analysing_path=analysis,
+            "scripted.pdf", target, analysing_path=analysis, error_policy=error_policy,
             extraction=ExtractionOptions(
-                ignore_pdf_errors=ignore_pdf_errors,
-                ignore_ocr_errors=ignore_ocr_errors,
+
                 on_ocr_event=events.append,
             ),
         )

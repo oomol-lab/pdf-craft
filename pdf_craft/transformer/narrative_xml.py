@@ -1,4 +1,10 @@
+# pylint: disable=unused-argument
+
+from pdf_craft.policies import RetryPolicy, ErrorPolicyInput, FailureLocation
+from pdf_craft._policy import OMITTED, policy_operation
 import asyncio
+from pdf_craft._failure_sources import chapter_locations, tag_locations
+
 from collections.abc import Callable, Iterable
 from typing import Any, Protocol, cast
 from xml.etree.ElementTree import Element
@@ -112,8 +118,11 @@ class NarrativeXMLTransformer:
         """Build the private anchored-content adapter over this runtime."""
         return AnchoredContentXMLTransformer(cast(Any, self._translator), self._mode)
 
+    @policy_operation
     async def translate_metadata(self, metadata: dict[str, Any], *, on_metadata=None,
-                                 target_language: str | None = None) -> dict[str, Any]:
+                                 target_language: str | None = None,
+        retry_policy: RetryPolicy | None = None, error_policy: ErrorPolicyInput = OMITTED,
+    ) -> dict[str, Any]:
         """Finalize metadata once for every consumer of the translation flow."""
         overlay = await self._translate_metadata_fields(metadata)
         language = target_language or self.target_language
@@ -128,10 +137,23 @@ class NarrativeXMLTransformer:
         element, fields = _metadata_element(metadata)
         if not fields:
             return {}
+        from .xml_translator.xml_translator.source_store import NODE_KEY
+        field_keys = []
+        for child, (_, key, index) in zip(element, fields):
+            identity = f'metadata:{key}:{index}'
+            child.set(NODE_KEY, identity)
+            field_keys.append(identity)
+            tag_locations(child, (FailureLocation(
+                'field', unit_id=identity, field_path=f'{key}[{index}]' if index is not None else key,
+                original=child.text,
+            ),))
         task = TranslationTask(
             element=element,
             action=SubmitKind.REPLACE,
             payload=Chapter(None, -1, []),
+            source_locations=tuple(FailureLocation(
+                'field', unit_id=f'metadata:{key}:{index}', field_path=f'{key}[{index}]' if index is not None else key)
+                for _, key, index in fields),
             item_kind=TranslationItemKind.METADATA,
             item_id="metadata",
             character_count=sum(len(child.text or "") for child in element),
@@ -145,15 +167,25 @@ class NarrativeXMLTransformer:
         ):
             raise ValueError("translated metadata does not preserve field structure")
         overlay: dict[str, Any] = {}
-        for child, (_, key, index) in zip(children, fields):
+        missing_collections = set()
+        for child, (_, key, index), identity in zip(children, fields, field_keys):
+            if task.outcomes.get(identity) is False:
+                if index is not None:
+                    missing_collections.add(key)
+                continue
             value = child.text or ""
             if index is None:
                 overlay[key] = value
             else:
                 values = overlay.setdefault(key, [])
                 values.append(value)
+        # A list overlay replaces the source list: commit it only when every
+        # requested member is trustworthy, preserving the original otherwise.
+        for key in missing_collections:
+            overlay.pop(key, None)
         return overlay
 
+    @policy_operation
     async def transform(
         self,
         chapter: Chapter,
@@ -164,6 +196,7 @@ class NarrativeXMLTransformer:
         total_characters: int | None = None,
         emit_scope_events: bool = True,
         emit_item_events: bool = True,
+        retry_policy: RetryPolicy | None = None, error_policy: ErrorPolicyInput = OMITTED,
     ) -> Chapter:
         element = encode(chapter)
         if not self.has_translatable_content(chapter):
@@ -173,17 +206,19 @@ class NarrativeXMLTransformer:
         anchors.replace_assets()
         formula_interrupter = ChapterFormulaInterrupter()
         async_translator = cast(AsyncXMLTaskTranslator, self._translator)
-        translated, _ = await async_translator.translate_element(
-            TranslationTask(
+        task = TranslationTask(
                 element=element,
                 action=self._mode,
                 payload=chapter,
+                source_locations=chapter_locations(chapter),
                 item_kind=TranslationItemKind.CHAPTER,
                 item_id=item_id if item_id is not None else chapter.id,
                 character_count=sum(
                     len(segment.text) for segment in search_text_segments(element)
                 ),
-            ),
+        )
+        translated, _ = await async_translator.translate_element(
+            task,
             on_translation_event=on_translation_event,
             completed_characters=completed_characters,
             total_characters=total_characters,
@@ -202,11 +237,16 @@ class NarrativeXMLTransformer:
         _restore_fragment_owned_inline_expressions(
             translated, formula_interrupter.adjacent_inline_predecessors,
         )
-        return decode(translated)
+        result = decode(translated)
+        from .translation_coverage import apply_outcomes
+        apply_outcomes(result, task.outcomes)
+        return result
 
+    @policy_operation
     async def transform_many(
         self,
-        chapters: Iterable[tuple[Chapter, str | int]],
+        chapters: Iterable[tuple[Chapter, str | int]], *,
+        retry_policy: RetryPolicy | None = None, error_policy: ErrorPolicyInput = OMITTED,
     ) -> list[Chapter]:
         """Translate all chapter groups through one book-wide XML window."""
         if not hasattr(self._translator, "translate_elements"):
@@ -242,6 +282,7 @@ class NarrativeXMLTransformer:
                 element=element,
                 action=self._mode,
                 payload=index,
+                source_locations=chapter_locations(chapter),
                 item_kind=TranslationItemKind.CHAPTER,
                 item_id=item_id,
                 character_count=sum(
@@ -274,6 +315,7 @@ class NarrativeXMLTransformer:
             canonical_text_validator=_validate_chapter_fill_canonical_text,
         )
         results = [chapter for chapter, _, _ in prepared]
+        tasks_by_index = {task.payload: task for task in tasks}
         for translated_element, index in translated:
             anchors = prepared[index][2]
             assert anchors is not None
@@ -283,6 +325,8 @@ class NarrativeXMLTransformer:
                 translated_element, formula_interrupter.adjacent_inline_predecessors,
             )
             results[index] = decode(translated_element)
+            from .translation_coverage import apply_outcomes
+            apply_outcomes(results[index], tasks_by_index[index].outcomes)
         return results
 
     def source_character_count(self, chapter: Chapter) -> int:

@@ -1,6 +1,10 @@
+# pylint: disable=unused-argument
 """Adapt XMLTranslator to the template/page-oriented furniture contract."""
 
 from __future__ import annotations
+
+from pdf_craft.policies import RetryPolicy, ErrorPolicyInput
+from pdf_craft._policy import OMITTED, policy_operation
 
 from collections.abc import Sequence
 from typing import Protocol
@@ -13,7 +17,7 @@ from .xml_translator.xml_translator import SubmitKind, TranslationTask
 class AsyncXMLTaskTranslator(Protocol):
     async def translate_element(
         self,
-        task: TranslationTask[object],
+        task: TranslationTask,
         **kwargs,
     ) -> tuple[Element, object]: ...
 
@@ -29,40 +33,50 @@ class FurnitureXMLTransformer:
         self._translator = translator
         self._mode = mode
 
+    @policy_operation
     async def transform_position(
-        self, position: FurniturePosition,
+        self, position: FurniturePosition, *,
+        retry_policy: RetryPolicy | None = None, error_policy: ErrorPolicyInput = OMITTED,
     ) -> str | None:
         element = Element("furniture-position")
         element.text = position.content
-        translated, _ = await self._translator.translate_element(
-            TranslationTask(
+        task = TranslationTask(
                 element=element,
                 action=self._mode,
                 payload=position,
                 item_id=f"pattern-{position.pattern_id}-position-{position.position_id}",
                 character_count=len(position.content),
             )
+        translated, _ = await self._translator.translate_element(
+            task
         )
+        if task.outcomes and not all(task.outcomes.values()):
+            return None
         return translated.text
 
+    @policy_operation
     async def transform_sections(
         self,
         page_index: int,
-        sections: Sequence[FurnitureSection],
+        sections: Sequence[FurnitureSection], *,
+        retry_policy: RetryPolicy | None = None, error_policy: ErrorPolicyInput = OMITTED,
     ) -> Sequence[str | None]:
         element = Element("furniture-page", {"index": str(page_index)})
         for index, section in enumerate(sections):
             child = SubElement(element, "section", {"id": str(index)})
             child.text = section.content
-        translated, _ = await self._translator.translate_element(
-            TranslationTask(
+        task = TranslationTask(
                 element=element,
                 action=self._mode,
                 payload=tuple(sections),
                 item_id=f"furniture-page-{page_index}",
                 character_count=sum(len(section.content) for section in sections),
             )
+        translated, _ = await self._translator.translate_element(
+            task
         )
+        if task.outcomes and not all(task.outcomes.values()):
+            return (None,) * len(sections)
         children = translated.findall("section")
         if len(children) != len(sections):
             return (None,) * len(sections)

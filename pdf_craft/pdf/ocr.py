@@ -1,3 +1,6 @@
+from ..policies import ErrorPolicyInput, FailureCategory, FailureLocation
+from .._policy import OMITTED, decide_sync, decide_context, failure, decision_bridge
+
 import asyncio
 import sys
 import time
@@ -10,14 +13,14 @@ from dataclasses import dataclass
 from enum import Enum, auto
 from pathlib import Path
 from threading import Lock
-from typing import Any, Callable, Container, Generator, Never, TypeVar, cast
+from typing import Any, Container, Generator, Never, TypeVar, cast
 
 from PIL.Image import Image
 
 from ..common import AssetHub, save_xml
 from ..common.stream import DiskStream
 from ..concurrency import AsyncExecutor, NonContinuableError, OperationError
-from ..error import IgnoreOCRErrorsChecker, IgnorePDFErrorsChecker, OCRError, PDFError
+from ..error import OCRError, PDFError
 from ..metering import AbortedCheck, check_aborted
 from ..ocr_config import (
     DeepSeekOCR2VendorConfig, DeepSeekOCRVendorConfig, OCRConfig,
@@ -116,8 +119,7 @@ class OCR:
         dpi: int | None = None,
         max_page_image_file_size: int | None = None,
         includes_footnotes: bool = False,
-        ignore_pdf_errors: IgnorePDFErrorsChecker = False,
-        ignore_ocr_errors: IgnoreOCRErrorsChecker = False,
+        error_policy: ErrorPolicyInput = OMITTED,
         plot_path: Path | None = None,
         cover_path: Path | None = None,
         aborted: AbortedCheck = lambda: False,
@@ -126,6 +128,8 @@ class OCR:
         max_output_tokens: int | None = None,
     ) -> AsyncGenerator[OCREvent, None]:
         """Keep PDF rendering serial while vendor page calls share async capacity."""
+        selected_policy = error_policy
+        error_policy = decision_bridge(asyncio.get_running_loop(), error_policy)
         del ocr_size
         if not self.is_vendor:
             raise RuntimeError("recognize_vendor is only available for vendor OCR")
@@ -183,7 +187,8 @@ class OCR:
                                 max_image_file_size=max_page_image_file_size,
                             )
                         except PDFError as error:
-                            if not _check_ignore_error(ignore_pdf_errors, error):
+                            if not decide_sync(error_policy, error, FailureCategory.PDF_RENDER, 'page_render', 'page_placeholder',
+                                    targets=(FailureLocation('page', source=str(pdf_path), page_indexes=(ref.page_index,)),)) :
                                 raise
                             page = self._create_fallback_page(
                                 asset_hub, ref.page_index, None,
@@ -275,7 +280,9 @@ class OCR:
                             page_index, 1,
                         )
                         recognized_error.__cause__ = operation_error
-                    if not _check_ignore_error(ignore_ocr_errors, recognized_error):
+                    if not await decide_context(failure(recognized_error, FailureCategory.OCR, 'ocr', 'page_image',
+                        targets=(FailureLocation('page', source=str(pdf_path), page_indexes=(page_index,)),),
+                        backend=type(self._config).__name__, stage_index=getattr(recognized_error, 'step_index', None)), selected_policy):
                         raise recognized_error
 
                     def fallback():
@@ -654,8 +661,7 @@ class OCR:
         dpi: int | None = None,
         max_page_image_file_size: int | None = None,
         includes_footnotes: bool = False,
-        ignore_pdf_errors: IgnorePDFErrorsChecker = False,
-        ignore_ocr_errors: IgnoreOCRErrorsChecker = False,
+        error_policy: ErrorPolicyInput = OMITTED,
         plot_path: Path | None = None,
         cover_path: Path | None = None,
         aborted: AbortedCheck = lambda: False,
@@ -673,6 +679,8 @@ class OCR:
         done_path = ocr_path / "done"
         did_ignore_any: bool = False
         did_fail_any: bool = False
+        usable_pages = 0
+        failed_pages = []
         if done_path.exists() and not any(ocr_path.glob("page_*.failed")):
             return
 
@@ -710,6 +718,7 @@ class OCR:
                 failure_path = ocr_path / f"page_{ref.page_index}.failed"
 
                 if file_path.exists() and not failure_path.exists():
+                    usable_pages += 1
                     elapsed_ms = int((time.perf_counter() - start_time) * 1000)
                     yield OCREvent(
                         kind=OCREventKind.SKIP,
@@ -760,12 +769,15 @@ class OCR:
                             aborted=aborted,
                         )
                     except PDFError as error:
-                        if not _check_ignore_error(ignore_pdf_errors, error):
+                        if not decide_sync(error_policy, error, FailureCategory.PDF_RENDER, 'page_render', 'page_placeholder',
+                                    targets=(FailureLocation('page', source=str(pdf_path), page_indexes=(ref.page_index,)),)) :
                             raise
                         recognized_error = error
 
                     except OCRError as error:
-                        if not _check_ignore_error(ignore_ocr_errors, error):
+                        if not decide_sync(error_policy, error, FailureCategory.OCR, 'ocr', 'page_image',
+                                    targets=(FailureLocation('page', source=str(pdf_path), page_indexes=(ref.page_index,)),),
+                                    backend=type(self._config).__name__, stage_index=getattr(error, 'step_index', None)):
                             raise
                         recognized_error = error
 
@@ -783,11 +795,13 @@ class OCR:
                             self._last_page_pixel_sizes[ref.page_index] = (100, 100)
 
                     if recognized_error is not None:
+                        failed_pages.append(ref.page_index)
                         did_fail_any = True
                         failure_path.write_text(
                             type(recognized_error).__name__, encoding="utf-8"
                         )
                     else:
+                        usable_pages += 1
                         failure_path.unlink(missing_ok=True)
 
                     save_xml(encode(page), file_path)
@@ -815,6 +829,9 @@ class OCR:
                     if remain_output_tokens is not None:
                         remain_output_tokens -= page.output_tokens
 
+        if failed_pages and not usable_pages:
+            from ..error import NoUsableOCRPagesError
+            raise NoUsableOCRPagesError(tuple(failed_pages))
         if not did_ignore_any and not did_fail_any:
             done_path.touch()
 
@@ -1063,9 +1080,3 @@ def _find_cause(
         visited.add(id(current))
         current = current.__cause__ or current.__context__
     return None
-
-def _check_ignore_error(check: bool | Callable[[_T], bool], error: _T) -> bool:
-    if isinstance(check, bool):
-        return check
-    else:
-        return check(error)

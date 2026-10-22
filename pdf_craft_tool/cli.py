@@ -1,5 +1,7 @@
 """Repository-local CLI for repeatable pdf-craft conversions and smoke runs."""
 
+from pdf_craft import RetryPolicy, ErrorPolicy
+
 import argparse
 import asyncio
 import json
@@ -224,7 +226,7 @@ def _parser() -> argparse.ArgumentParser:
     repair_pages.add_argument(
         "--threshold", type=float, default=JEV_REVIEW_THRESHOLD
     )
-    repair_pages.add_argument("--max-retries", type=int, default=4)
+    repair_pages.add_argument("--analysis-retries", type=int, default=3)
     repair_pages.add_argument("--concurrency", type=int, default=4)
     repair_pages.set_defaults(handler=_repair_jev_llm)
     return parser
@@ -261,7 +263,7 @@ def _add_extraction_options(parser: argparse.ArgumentParser) -> None:
 def _add_translation_options(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--submit", choices=("replace", "append-block"), default="replace")
     parser.add_argument("--prompt")
-    parser.add_argument("--max-retries", type=int, default=3)
+    parser.add_argument("--fill-retries", type=int, default=3)
     parser.add_argument("--max-group-tokens", type=int, default=2600)
     parser.add_argument("--concurrency", type=int, default=1)
     parser.add_argument("--translation-llm", default="translation", metavar="PROFILE")
@@ -288,7 +290,7 @@ def _add_smoke_options(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--patch-prefix", help="deterministic prefix used by the PDF patch smoke route")
     parser.add_argument("--target-language", default="zh")
     parser.add_argument("--prompt")
-    parser.add_argument("--max-retries", type=int, default=3)
+    parser.add_argument("--fill-retries", type=int, default=3)
     parser.add_argument("--max-group-tokens", type=int, default=2600)
     parser.add_argument("--concurrency", type=int, default=1)
     parser.add_argument("--translation-llm-profile", metavar="PROFILE")
@@ -396,7 +398,7 @@ def _translate_epub(args: argparse.Namespace) -> None:
     PDFCraft().translate_epub(
         args.source, output, target_language=args.target_language,
         submit=SubmitKind[args.submit.replace("-", "_").upper()],
-        user_prompt=args.prompt, max_retries=args.max_retries,
+        user_prompt=args.prompt, retry_policy=RetryPolicy(fill=args.fill_retries),
         max_group_tokens=args.max_group_tokens, window=args.concurrency,
         executor=ConcurrentExecutor(FixedCapacity(args.concurrency)),
         translation_llm=translation_llm, fill_llm=fill_llm,
@@ -443,7 +445,7 @@ def _run_smoke(args: argparse.Namespace) -> int:
             "fill_llm_profile": fill_profile,
             "target_language": args.target_language,
             "user_prompt": args.prompt,
-            "max_retries": args.max_retries,
+            "retry_policy": {"fill": args.fill_retries},
             "max_group_tokens": args.max_group_tokens,
             "concurrency": args.concurrency,
             "submit": args.submit.replace("-", "_").upper(),
@@ -462,7 +464,7 @@ def _run_smoke(args: argparse.Namespace) -> int:
             "jev_run": args.jev_run,
             "expected": str(args.page_repair_expected),
             "llm_profile": args.llm_profile,
-            "max_retries": args.max_retries,
+            "retry_policy": {"analysis": args.fill_retries},
             "concurrency": args.concurrency,
         }
         if not args.dry_run:
@@ -616,7 +618,7 @@ async def _repair_jev_llm_async(args: argparse.Namespace) -> None:
         all_page_processor = AllPageLlmRepairProcessor(
             request,
             page_indexes=llm_page_indexes,
-            max_retries=args.max_retries,
+            retry_policy=RetryPolicy(analysis=args.analysis_retries),
         )
         processor = all_page_processor
         jev_processor = None
@@ -653,7 +655,7 @@ async def _repair_jev_llm_async(args: argparse.Namespace) -> None:
             evaluator,
             request,
             threshold=args.threshold,
-            max_retries=args.max_retries,
+            retry_policy=RetryPolicy(analysis=args.analysis_retries),
             batch_evaluator=(
                 _recording_jev_batch_evaluator(
                     jev_runtime.evaluate_many,
@@ -888,7 +890,7 @@ def _xml_translator(args: argparse.Namespace, work_dir: Path) -> XMLTranslator:
         cache_path=work_dir / "fill-cache", log_dir_path=work_dir / "fill-logs")
     return XMLTranslator(
         translation_llm=translation_llm, fill_llm=fill_llm, target_language=args.target_language,
-        user_prompt=args.prompt, ignore_translated_error=False, max_retries=args.max_retries,
+        user_prompt=args.prompt,  retry_policy=RetryPolicy(fill=args.fill_retries),
         max_fill_displaying_errors=3, max_group_score=args.max_group_tokens,
         executor=ConcurrentExecutor(FixedCapacity(args.concurrency)),
         cache_seed_content=f"pdf-craft-tool:{args.target_language}",

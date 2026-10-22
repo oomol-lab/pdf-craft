@@ -141,7 +141,7 @@ craft.translate_pdf(
     # Also translate running heads, footers, and folios present in the PCEX.
     with_furniture=True,
     # Keep an unmodified visual-base page if one page's fill fails.
-    ignore_errors=True,
+    error_policy=True,
 )
 ```
 
@@ -174,9 +174,9 @@ ID selects that stored translation's narrative, metadata, and optional
 furniture. Anchored image/table text remains available to Markdown and EPUB but
 is not patched into PDF because PCEX does not retain field-level PDF geometry.
 
-By default a PDF fill error stops the operation. Pass `ignore_errors=True` to either PDF entry point when a service should keep processing later pages: a failing page is emitted as its Ghostscript visual base, with no selectable source text, while successful pages retain selectable translated text. If every page scheduled for fill fails, `NoUsableFillPagesError` is raised instead of producing an all-fallback PDF. This option deliberately catches any ordinary exception within a page fill transaction and records its traceback; it cannot recover a source document for which no visual pages can be produced.
+By default a PDF fill error stops the operation. Pass `error_policy=True` to either PDF entry point when a service should keep processing later pages: a failing page is emitted as its original PDF page, with the original source text, while successful pages retain selectable translated text. If every page scheduled for fill fails, `NoUsableFillPagesError` is raised instead of producing an all-fallback PDF. This option deliberately catches any ordinary exception within a page fill transaction and records its traceback; it cannot recover a source document for which no visual pages can be produced.
 
-`ignore_errors` may also be a `Callable[[Exception], bool]`; the callable receives each page-scoped exception and decides whether that page may fall back. Leave it as `False` unless a partial result is useful to your application: a recovered document can contain an untranslated visual-base page next to translated pages.
+`error_policy` may also be a `Callable[[FailureContext], bool]`; the callable receives each page-scoped exception and decides whether that page may fall back. Leave it as `False` unless a partial result is useful to your application: a recovered document can contain an untranslated visual-base page next to translated pages.
 
 ### What PDF patching can and cannot preserve
 
@@ -236,7 +236,7 @@ Useful controls include `page_indexes` (one-based page numbers), `dpi`, `ocr_siz
 
 `includes_furniture=True` is the default for a direct PDF-to-PCEX extraction: it retains any native-PDF running heads, footers, and folios as `furnitures.xml`, but does not translate them. Scan-only pages can simply have no native furniture to retain. The `convert_pdf_to_markdown()` and `convert_pdf_to_epub()` convenience workflows deliberately override this option to `False`, even if it is set on the supplied `ExtractionOptions`, because neither result renders fixed page furniture.
 
-Set `extract_book_metadata=True` with a separate `metadata_llm` to infer bibliographic metadata from front-page OCR. It is stored in PCEX and, when that PCEX is patched, written to the output PDF's document metadata; see [the API reference](API_REFERENCE.md#extractionoptions) for its bounded evidence and fallback policy. `ignore_pdf_errors` and `ignore_ocr_errors` can allow a long document to continue past selected failures, but a completed run still needs output review: skipped pages are not successfully recognized pages.
+Set `extract_book_metadata=True` with a separate `metadata_llm` to infer bibliographic metadata from front-page OCR. It is stored in PCEX and, when that PCEX is patched, written to the output PDF's document metadata; see [the API reference](API_REFERENCE.md#extractionoptions) for its bounded evidence and fallback policy. `ErrorPolicy.ignore_pdf_render_errors` and `ErrorPolicy.ignore_ocr_errors` can allow a long document to continue past selected failures, but a completed run still needs output review: skipped pages are not successfully recognized pages.
 
 For errors involving Poppler, cache paths, local CUDA, or vendor credentials, see [Troubleshooting](TROUBLESHOOTING.md).
 
@@ -266,3 +266,6 @@ this top-level callback observes translation, while `ExtractionOptions.on_metada
 observes extraction. Synchronous and asynchronous callbacks are supported, and
 async callbacks are awaited. See the [callback guide](STREAMING.md) for examples,
 coordinate mapping, timing and output semantics.
+
+
+See [error handling](ERROR_HANDLING.md) for strict defaults, source locations and task-wide all-fallback protection.

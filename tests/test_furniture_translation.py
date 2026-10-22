@@ -61,7 +61,7 @@ class FurnitureTranslationTests(unittest.IsolatedAsyncioTestCase):
             translator = _FurnitureTranslator()
 
             translated = await FurnitureExtractionTransformer(translator).transform(
-                source, root / "furniture-translated.pcex"
+                source, root / "furniture-translated.pcex", error_policy=True
             )
 
             self.assertEqual(

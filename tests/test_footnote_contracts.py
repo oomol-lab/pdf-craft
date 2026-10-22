@@ -1,4 +1,6 @@
 """Business regressions recorded before the footnote contract migration."""
+
+from pdf_craft import RetryPolicy
 # pylint: disable=protected-access
 import json
 import unittest
@@ -74,7 +76,7 @@ class FootnoteContractTests(unittest.IsolatedAsyncioTestCase):
         pages[0] = await repair_page_with_llm(
             previous_page=None, target_page=pages[0], next_page=pages[1],
             previous_pass_probability=None, next_pass_probability=None,
-            request=request, max_retries=1,
+            request=request, retry_policy=RetryPolicy(analysis=1),
         )
         self.assertEqual(attempts, [0, 1])
         _compile_page_connections(pages)
@@ -156,7 +158,7 @@ class FootnoteContractTests(unittest.IsolatedAsyncioTestCase):
         repaired = await repair_page_with_llm(
             previous_page=None, target_page=page, next_page=None,
             previous_pass_probability=None, next_pass_probability=None,
-            request=request, max_retries=1,
+            request=request, retry_policy=RetryPolicy(analysis=1),
         )
         self.assertEqual(attempts, [0, 1])
         paragraph = restore_streams([repaired]).paragraphs[0]

@@ -196,15 +196,20 @@ async def _request_turn(
         _validate_metadata_evidence(data.metadata, page_text)
         return data
 
-    return await request_guaranteed_json(GuaranteedOptions(
-        messages=messages,
-        request=lambda current, index, maximum: _request_llm(
-            metadata_llm, runtime, current, index, maximum,
-        ),
-        schema=_TurnResponse,
-        parse=parse,
-        max_retries=3,
-    ))
+    try:
+        return await request_guaranteed_json(GuaranteedOptions(
+            messages=messages,
+            request=lambda current, index, maximum: _request_llm(
+                metadata_llm, runtime, current, index, maximum,
+            ),
+            schema=_TurnResponse,
+            parse=parse,
+        ))
+    except Exception as error:
+        from ..policies import FailureLocation
+        setattr(error, 'failure_targets', tuple(FailureLocation('page', page_indexes=(page.index,)) for page in loaded_pages))
+        raise
+
 
 
 async def _request_llm(metadata_llm: LLM, runtime: Any, messages, index: int, maximum: int) -> str:

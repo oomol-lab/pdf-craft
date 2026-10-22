@@ -1,3 +1,6 @@
+from pdf_craft import FailureContext
+
+from pdf_craft import ErrorPolicy
 # pylint: disable=cell-var-from-loop,protected-access
 import asyncio
 import tempfile
@@ -889,7 +892,7 @@ class VendorOCRConcurrencyTests(unittest.IsolatedAsyncioTestCase):
                     transport=httpx.MockTransport(handler),
                 )
                 executor = ConcurrentExecutor(FixedCapacity(2))
-                ignored: list[OCRError] = []
+                ignored: list[FailureContext] = []
                 ocr = OCR(
                     UnlimitedOCRVendorConfig(
                         ak="ak", sk="sk", retry_times=0,
@@ -907,9 +910,7 @@ class VendorOCRConcurrencyTests(unittest.IsolatedAsyncioTestCase):
                             pdf_path=root / "source.pdf",
                             asset_path=root / "assets",
                             ocr_path=root / "ocr",
-                            ignore_ocr_errors=(
-                                lambda error: ignored.append(error) or True
-                            ),
+                            error_policy=ErrorPolicy(ignore_ocr_errors=lambda error: ignored.append(error) or True),
                         ):
                             pass
 
@@ -943,7 +944,7 @@ class VendorOCRConcurrencyTests(unittest.IsolatedAsyncioTestCase):
 
         client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
         executor = ConcurrentExecutor(FixedCapacity(2))
-        ignored: list[OCRError] = []
+        ignored: list[FailureContext] = []
         ocr = OCR(
             UnlimitedOCRVendorConfig(
                 ak="ak", sk="sk", retry_times=0, poll_interval_seconds=0,
@@ -961,7 +962,7 @@ class VendorOCRConcurrencyTests(unittest.IsolatedAsyncioTestCase):
                     pdf_path=root / "source.pdf",
                     asset_path=root / "assets",
                     ocr_path=root / "ocr",
-                    ignore_ocr_errors=lambda error: ignored.append(error) or True,
+                    error_policy=ErrorPolicy(ignore_ocr_errors=lambda error: ignored.append(error) or True),
                 ):
                     pass
 
@@ -1100,7 +1101,7 @@ class VendorOCRConcurrencyTests(unittest.IsolatedAsyncioTestCase):
 
         client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
         executor = ConcurrentExecutor(FixedCapacity(2))
-        ignored: list[OCRError] = []
+        ignored: list[FailureContext] = []
         rendered: list[int] = []
         ocr = OCR(
             UnlimitedOCRVendorConfig(
@@ -1120,7 +1121,7 @@ class VendorOCRConcurrencyTests(unittest.IsolatedAsyncioTestCase):
                     pdf_path=root / "source.pdf",
                     asset_path=root / "assets",
                     ocr_path=root / "ocr",
-                    ignore_ocr_errors=lambda error: ignored.append(error) or True,
+                    error_policy=ErrorPolicy(ignore_ocr_errors=lambda error: ignored.append(error) or True),
                 ):
                     pass
 
@@ -1165,7 +1166,7 @@ class VendorOCRConcurrencyTests(unittest.IsolatedAsyncioTestCase):
             return httpx.Response(200, request=request, json={})
 
         client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
-        ignored: list[OCRError] = []
+        ignored: list[FailureContext] = []
         rendered: list[int] = []
         ocr = OCR(
             UnlimitedOCRVendorConfig(
@@ -1186,11 +1187,11 @@ class VendorOCRConcurrencyTests(unittest.IsolatedAsyncioTestCase):
                     pdf_path=root / "source.pdf",
                     asset_path=root / "assets",
                     ocr_path=root / "ocr",
-                    ignore_ocr_errors=lambda error: ignored.append(error) or True,
+                    error_policy=ErrorPolicy(ignore_ocr_errors=lambda error: ignored.append(error) or True),
                 )
             ]
 
-            self.assertEqual([error.page_index for error in ignored], [2])
+            self.assertEqual([error.targets[0].page_indexes[0] for error in ignored], [2])
             self.assertTrue((root / "ocr/page_2.failed").exists())
             self.assertTrue(all(
                 (root / "ocr" / f"page_{page_index}.xml").exists()
@@ -1200,19 +1201,14 @@ class VendorOCRConcurrencyTests(unittest.IsolatedAsyncioTestCase):
                 event for event in events
                 if event.page_index == 2 and event.kind == OCREventKind.FAILED
             )
-            self.assertIs(page_two.error, ignored[0])
+            self.assertEqual(str(page_two.error), ignored[0].error.message)
 
-        operation_error = ignored[0].__cause__
-        self.assertIsInstance(operation_error, OperationError)
-        assert isinstance(operation_error, OperationError)
-        envelope = operation_error.__cause__
-        self.assertIsInstance(envelope, VendorOCRRequestError)
-        assert isinstance(envelope, VendorOCRRequestError)
-        raw = envelope.__cause__
-        self.assertIsInstance(raw, httpx.HTTPStatusError)
-        assert isinstance(raw, httpx.HTTPStatusError)
-        self.assertEqual(raw.response.status_code, 200)
-        self.assertEqual(raw.response.json()["result"], ["malformed"])
+        causes = ignored[0].error.causes
+        self.assertTrue(any('OperationError' in cause for cause in causes))
+        self.assertTrue(any('VendorOCRRequestError' in cause for cause in causes))
+        self.assertTrue(any('HTTPStatusError' in cause for cause in causes))
+        self.assertTrue(any('malformed' in cause for cause in causes))
+        self.assertEqual(ignored[0].error.code, '200')
 
     async def test_cancellation_stops_serial_render_and_cleans_temporary_files(self):
         render_started = threading.Event()
@@ -1260,8 +1256,8 @@ class VendorOCRConcurrencyTests(unittest.IsolatedAsyncioTestCase):
                 dpi=None,
                 max_page_image_file_size=None,
                 includes_footnotes=False,
-                ignore_pdf_errors=False,
-                ignore_ocr_errors=False,
+                error_policy=ErrorPolicy(ignore_pdf_render_errors=False, ignore_ocr_errors=False),
+
                 generate_plot=False,
                 includes_cover=False,
                 aborted=lambda: False,
@@ -1498,7 +1494,7 @@ class VendorOCRConcurrencyTests(unittest.IsolatedAsyncioTestCase):
                     pdf_path=root / "source.pdf",
                     asset_path=root / "assets",
                     ocr_path=root / "ocr",
-                    ignore_ocr_errors=True,
+                    error_policy=ErrorPolicy(ignore_ocr_errors=True),
                 )
             ]
 
@@ -1581,7 +1577,7 @@ class VendorOCRConcurrencyTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_image_url_resolution_failure_uses_page_fallback(self):
         rendered: list[int] = []
-        ignored: list[OCRError] = []
+        ignored: list[FailureContext] = []
         ocr = OCR(
             DeepSeekOCRVendorConfig(
                 base_url="https://example.invalid/v1",
@@ -1614,11 +1610,11 @@ class VendorOCRConcurrencyTests(unittest.IsolatedAsyncioTestCase):
                     pdf_path=root / "source.pdf",
                     asset_path=root / "assets",
                     ocr_path=root / "ocr",
-                    ignore_ocr_errors=lambda error: ignored.append(error) or True,
+                    error_policy=ErrorPolicy(ignore_ocr_errors=lambda error: ignored.append(error) or True),
                 )
             ]
 
-        self.assertEqual([error.page_index for error in ignored], [2])
+        self.assertEqual([error.targets[0].page_indexes[0] for error in ignored], [2])
         self.assertEqual(
             [event.page_index for event in events
              if event.kind == OCREventKind.COMPLETE],
@@ -1641,7 +1637,7 @@ class VendorOCRConcurrencyTests(unittest.IsolatedAsyncioTestCase):
             ),
             cast(Any, _Handler(rendered)),
         )
-        ignored: list[OCRError] = []
+        ignored: list[FailureContext] = []
         original = RuntimeError("second-stage transport")
 
         async def request(_runtime, vendor_request, started=None):
@@ -1651,7 +1647,7 @@ class VendorOCRConcurrencyTests(unittest.IsolatedAsyncioTestCase):
                 raise OperationError("stage two failed", cause=original)
             return VendorOCRResponse({}, raw_text="", input_tokens=1, output_tokens=1)
 
-        def ignore(error: OCRError) -> bool:
+        def ignore(error: FailureContext) -> bool:
             ignored.append(error)
             return True
 
@@ -1667,13 +1663,13 @@ class VendorOCRConcurrencyTests(unittest.IsolatedAsyncioTestCase):
                     asset_path=root / "assets",
                     ocr_path=root / "ocr",
                     includes_footnotes=True,
-                    ignore_ocr_errors=ignore,
+                    error_policy=ErrorPolicy(ignore_ocr_errors=ignore),
                 )
             ]
 
         self.assertEqual(len(ignored), 1)
-        self.assertTrue(all(error.step_index == 2 for error in ignored))
-        self.assertTrue(all(error.__cause__ is not None for error in ignored))
+        self.assertTrue(all(error.stage_index == 2 for error in ignored))
+        self.assertTrue(all(bool(error.error.causes) for error in ignored))
         self.assertEqual(
             len([event for event in events if event.kind == OCREventKind.FAILED]),
             1,
@@ -1692,7 +1688,7 @@ class VendorOCRConcurrencyTests(unittest.IsolatedAsyncioTestCase):
                     ),
                     cast(Any, _Handler(rendered)),
                 )
-                ignored: list[OCRError] = []
+                ignored: list[FailureContext] = []
 
                 async def request(_runtime, _vendor_request, started=None):
                     if started is not None:
@@ -1706,7 +1702,7 @@ class VendorOCRConcurrencyTests(unittest.IsolatedAsyncioTestCase):
                         raise RuntimeError("cannot save redacted image")
                     return original_prepare(item, *args, **kwargs)
 
-                def ignore(error: OCRError) -> bool:
+                def ignore(error: FailureContext) -> bool:
                     ignored.append(error)
                     return True
 
@@ -1724,13 +1720,13 @@ class VendorOCRConcurrencyTests(unittest.IsolatedAsyncioTestCase):
                             asset_path=root / "assets",
                             ocr_path=root / "ocr",
                             includes_footnotes=True,
-                            ignore_ocr_errors=ignore,
+                            error_policy=ErrorPolicy(ignore_ocr_errors=ignore),
                             max_tokens=max_tokens,
                         )
                     ]
 
                 self.assertEqual(len(ignored), 1)
-                self.assertEqual(ignored[0].step_index, 2, max_tokens)
+                self.assertEqual(ignored[0].stage_index, 2, max_tokens)
                 self.assertEqual(
                     [event.page_index for event in events
                      if event.kind == OCREventKind.FAILED],
@@ -1748,7 +1744,7 @@ class VendorOCRConcurrencyTests(unittest.IsolatedAsyncioTestCase):
                     ),
                     cast(Any, _Handler(rendered)),
                 )
-                ignored: list[OCRError] = []
+                ignored: list[FailureContext] = []
 
                 async def request(_runtime, _vendor_request, started=None):
                     if started is not None:
@@ -1773,17 +1769,15 @@ class VendorOCRConcurrencyTests(unittest.IsolatedAsyncioTestCase):
                             asset_path=root / "assets",
                             ocr_path=root / "ocr",
                             includes_footnotes=True,
-                            ignore_ocr_errors=(
-                                lambda error: ignored.append(error) or True
-                            ),
+                            error_policy=ErrorPolicy(ignore_ocr_errors=lambda error: ignored.append(error) or True),
                             max_tokens=max_tokens,
                         ):
                             pass
 
                 self.assertEqual(len(ignored), 3)
                 self.assertTrue(
-                    all(error.step_index == 2 for error in ignored),
-                    (max_tokens, [error.step_index for error in ignored]),
+                    all(error.stage_index == 2 for error in ignored),
+                    (max_tokens, [error.stage_index for error in ignored]),
                 )
 
     async def test_total_token_budget_is_cumulative_across_vendor_pages(self):
@@ -1934,7 +1928,7 @@ class VendorOCRConcurrencyTests(unittest.IsolatedAsyncioTestCase):
                     pdf_path=root / "source.pdf",
                     asset_path=root / "assets",
                     ocr_path=root / "ocr",
-                    ignore_pdf_errors=lambda error: error.page_index == 1,
+                    error_policy=ErrorPolicy(ignore_pdf_render_errors=lambda error: error.targets[0].page_indexes[0] == 1),
                 ):
                     pass
 
@@ -1953,7 +1947,7 @@ class VendorOCRConcurrencyTests(unittest.IsolatedAsyncioTestCase):
             with self.subTest(
                 error_type=error_type.__name__,
                 max_tokens=max_tokens,
-                ignore_errors=ignore_errors,
+                error_policy=ignore_errors,
             ):
                 rendered: list[int] = []
                 ocr = OCR(
@@ -1980,7 +1974,7 @@ class VendorOCRConcurrencyTests(unittest.IsolatedAsyncioTestCase):
                             pdf_path=root / "source.pdf",
                             asset_path=root / "assets",
                             ocr_path=root / "ocr",
-                            ignore_ocr_errors=ignore_errors,
+                            error_policy=ErrorPolicy(ignore_ocr_errors=ignore_errors),
                             max_tokens=max_tokens,
                         ):
                             pass
@@ -1989,7 +1983,7 @@ class VendorOCRConcurrencyTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_resolver_abort_bypasses_ocr_ignore_and_fallback(self):
         rendered: list[int] = []
-        ignored: list[OCRError] = []
+        ignored: list[FailureContext] = []
         ocr = OCR(
             DeepSeekOCRVendorConfig(
                 base_url="https://example.invalid/v1",
@@ -2011,7 +2005,7 @@ class VendorOCRConcurrencyTests(unittest.IsolatedAsyncioTestCase):
                     pdf_path=root / "source.pdf",
                     asset_path=root / "assets",
                     ocr_path=root / "ocr",
-                    ignore_ocr_errors=lambda error: ignored.append(error) or True,
+                    error_policy=ErrorPolicy(ignore_ocr_errors=lambda error: ignored.append(error) or True),
                 ):
                     pass
 

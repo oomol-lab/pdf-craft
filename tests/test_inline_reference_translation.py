@@ -62,7 +62,7 @@ class _IdentityTranslator:
             interrupt_source_text_segments=kwargs['interrupt_source_text_segments'],
             interrupt_translated_text_segments=kwargs['interrupt_translated_text_segments'],
             interrupt_block_element=kwargs['interrupt_block_element'],
-            on_fill_failed=None,
+
         )
         mapper = XMLStreamMapper(get_encoding('cl100k_base'), max_group_score=10_000)
 

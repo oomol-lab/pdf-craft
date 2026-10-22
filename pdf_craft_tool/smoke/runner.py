@@ -1,3 +1,5 @@
+
+from pdf_craft import RetryPolicy, ErrorPolicy
 import json
 import platform
 import shutil
@@ -210,7 +212,7 @@ def _execute(run: SmokeRun, asset: SmokeAsset, run_path: Path,
             submit = SubmitKind[run.translation.get("submit", "REPLACE").upper()]
             PDFCraft().translate_epub(asset.path, output, target_language=run.translation.get("target_language", "zh"),
                                       submit=submit, user_prompt=run.translation.get("user_prompt"),
-                                      max_retries=run.translation.get("max_retries", 5),
+                                      retry_policy=RetryPolicy(**run.translation.get("retry_policy", {})),
                                       max_group_tokens=run.translation.get("max_group_tokens", 2600),
                                       window=run.translation.get("concurrency", 1),
                                       executor=ConcurrentExecutor(FixedCapacity(int(run.translation.get("concurrency", 1)))),
@@ -451,8 +453,8 @@ def _xml_translation_transformer(run: SmokeRun, run_path: Path) -> XMLTranslator
         fill_llm=fill_llm,
         target_language=translation.get("target_language", "zh"),
         user_prompt=translation.get("user_prompt"),
-        ignore_translated_error=False,
-        max_retries=translation.get("max_retries", 5),
+
+        retry_policy=RetryPolicy(**translation.get("retry_policy", {})),
         max_fill_displaying_errors=translation.get("max_fill_displaying_errors", 3),
         max_group_score=translation.get("max_group_tokens", 2600),
         executor=ConcurrentExecutor(FixedCapacity(int(translation.get("concurrency", 1)))),

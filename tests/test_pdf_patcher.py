@@ -1,3 +1,4 @@
+from pdf_craft import FailureContext
 from contextlib import asynccontextmanager
 import asyncio
 # pylint: disable=no-member,protected-access,c-extension-no-member
@@ -44,7 +45,7 @@ class TestPDFPatcher(unittest.TestCase):
         @asynccontextmanager
         async def local_policy(checker):
             yield checker
-        policy = patch("pdf_craft.pipeline.pdf.patcher._process_ignore_errors_checker", local_policy)
+        policy = patch("pdf_craft.pipeline.pdf.patcher._process_error_policy_checker", local_policy)
         policy.start()
         self.addCleanup(policy.stop)
         async def compose(function, *args, **kwargs):
@@ -134,7 +135,7 @@ class TestPDFPatcher(unittest.TestCase):
 
             with patch.object(patcher, "_write_erasure_overlay", side_effect=fail_first_page), \
                     self.assertLogs("pdf_craft.pipeline.pdf.patcher", "ERROR") as logged:
-                asyncio.run(patcher.patch(source, target, self._two_page_replacements(), ignore_errors=True))
+                asyncio.run(patcher.patch(source, target, self._two_page_replacements(), error_policy=True))
 
             reader = pypdf.PdfReader(str(target))
             self.assertEqual(len(reader.pages), 2)
@@ -143,6 +144,55 @@ class TestPDFPatcher(unittest.TestCase):
             self.assertIn("Second translated", " ".join((reader.pages[1].extract_text() or "").split()))
             self.assertEqual(patcher.failed_page_indexes, (1,))
             self.assertIn("RuntimeError: deliberate page bug", "\n".join(logged.output))
+
+    def test_auxiliary_success_cannot_mask_all_primary_fill_failure(self):
+        from dataclasses import replace
+        from pdf_craft.pipeline.pdf.feed import ReplacementFeed, write_record
+
+        for auxiliary in ("furniture", "heading"):
+            for streaming in (False, True):
+                with self.subTest(auxiliary=auxiliary, streaming=streaming), tempfile.TemporaryDirectory() as directory:
+                    root = Path(directory)
+                    source, target = root / "source.pdf", root / "target.pdf"
+                    self._two_page_source(source)
+                    handler = Mock()
+                    handler.open.return_value = self._page_document()
+                    patcher = self.patcher(font_size=8, _native_pdf_handler=handler)
+                    first, second = self._two_page_replacements()
+                    replacements = [first, replace(second, layout_ref=auxiliary)]
+                    values: Any = replacements
+                    if streaming:
+                        feed = root / "feed"
+                        feed.mkdir()
+                        for index, replacement in enumerate(replacements):
+                            write_record(feed / str(index), replacement)
+                        values = ReplacementFeed(feed, 2)
+                    write_erasure = patcher._write_erasure_overlay
+
+                    def fail_primary(canvas_module, output_path, *args, _write=write_erasure):
+                        if output_path.name == "erase-1.pdf":
+                            raise RuntimeError("primary failed")
+                        return _write(canvas_module, output_path, *args)
+
+                    with patch.object(patcher, "_write_erasure_overlay", side_effect=fail_primary), \
+                            self.assertRaises(NoUsableFillPagesError) as raised:
+                        asyncio.run(patcher.patch(source, target, values, error_policy=True))
+                    self.assertEqual(raised.exception.failed_page_indexes, (1,))
+                    self.assertFalse(target.exists())
+
+    def test_auxiliary_only_task_has_no_primary_targets(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source, target = root / "source.pdf", root / "target.pdf"
+            self._two_page_source(source)
+            handler = Mock()
+            handler.open.return_value = self._page_document()
+            patcher = self.patcher(font_size=8, _native_pdf_handler=handler)
+            asyncio.run(patcher.patch(source, target, [PDFReplacement(
+                1, (10, 10, 190, 70), "Translated header", (200, 100), layout_ref="furniture",
+            )], error_policy=True))
+            self.assertTrue(target.exists())
+            self.assertEqual(patcher.failed_page_indexes, ())
 
     def test_fill_page_errors_remain_fail_fast_without_ignore_errors(self):
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -176,7 +226,7 @@ class TestPDFPatcher(unittest.TestCase):
             with patch.object(
                 patcher, "_write_erasure_overlay", side_effect=RuntimeError("deliberate page bug"),
             ), self.assertRaises(NoUsableFillPagesError) as raised:
-                asyncio.run(patcher.patch(source, target, self._two_page_replacements(), ignore_errors=True))
+                asyncio.run(patcher.patch(source, target, self._two_page_replacements(), error_policy=True))
 
             self.assertEqual(raised.exception.failed_page_indexes, (1, 2))
             self.assertFalse(target.exists())
@@ -196,7 +246,7 @@ class TestPDFPatcher(unittest.TestCase):
                 PDFReplacement(2, (10, 10, 190, 70), "Second translated", (200, 100)),
             ]
 
-            asyncio.run(patcher.patch(source, target, replacements, ignore_errors=True))
+            asyncio.run(patcher.patch(source, target, replacements, error_policy=True))
 
             reader = pypdf.PdfReader(str(target))
             self.assertNotIn("Invalid", reader.pages[0].extract_text() or "")
@@ -220,20 +270,20 @@ class TestPDFPatcher(unittest.TestCase):
                     raise RuntimeError("deliberate layout bug")
                 return fit(replacement, page_sizes)
 
-            observed: list[Exception] = []
+            observed: list[FailureContext] = []
             with patch.object(patcher._filler, "fit", side_effect=fail_first_page):  # pylint: disable=protected-access
                 asyncio.run(patcher.patch(
                     source,
                     target,
                     self._two_page_replacements(),
-                    ignore_errors=lambda error: observed.append(error) is None,
+                    error_policy=lambda error: observed.append(error) is None,
                 ))
 
             reader = pypdf.PdfReader(str(target))
             self.assertNotIn("First translated", reader.pages[0].extract_text() or "")
             self.assertIn("Second translated", " ".join((reader.pages[1].extract_text() or "").split()))
             self.assertEqual(patcher.failed_page_indexes, (1,))
-            self.assertEqual([str(error) for error in observed], ["deliberate layout bug"])
+            self.assertEqual([error.error.message for error in observed], ["deliberate layout bug"])
 
     def test_pages_without_fill_work_do_not_count_toward_usable_fill_pages(self):
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -253,7 +303,7 @@ class TestPDFPatcher(unittest.TestCase):
                     source,
                     target,
                     [PDFReplacement(1, (10, 10, 190, 70), "First translated", (200, 100))],
-                    ignore_errors=True,
+                    error_policy=True,
                 ))
 
             self.assertEqual(raised.exception.failed_page_indexes, (1,))

@@ -2,15 +2,31 @@
   "defaults": {
     "asset": "pdf/citation.pdf",
     "route": "package",
-    "page_indexes": [1],
+    "page_indexes": [
+      1
+    ],
     "ocr_size": "tiny"
   },
   "runs": [
-    {"backend": "deepseek-ocr-local"},
-    {"backend": "deepseek-ocr2-local", "ocr_size": "base"},
-    {"backend": "unlimited-ocr-local", "ocr_size": "base"},
-    {"backend": "deepseek-ocr-vendor"},
-    {"backend": "deepseek-ocr2-vendor"},
-    {"backend": "unlimited-ocr-vendor"}
+    {
+      "backend": "deepseek-ocr-local"
+    },
+    {
+      "backend": "deepseek-ocr2-local",
+      "ocr_size": "base"
+    },
+    {
+      "backend": "unlimited-ocr-local",
+      "ocr_size": "base"
+    },
+    {
+      "backend": "deepseek-ocr-vendor"
+    },
+    {
+      "backend": "deepseek-ocr2-vendor"
+    },
+    {
+      "backend": "unlimited-ocr-vendor"
+    }
   ]
 }

@@ -1,3 +1,5 @@
+
+from pdf_craft import RetryPolicy
 # pylint: disable=protected-access
 import asyncio
 import tempfile
@@ -202,9 +204,9 @@ class TestLLMRuntime(unittest.IsolatedAsyncioTestCase):
         config = LLM("key", "https://example.invalid/v1", "model", "o200k_base")
         executor = ConcurrentExecutor(FixedCapacity(2))
         translator = XMLTranslator(
-            config, config, "en", None, False, 1, 3, 10_000, "legacy-seed",
+            config, config, "en", None,   3, 10_000, "legacy-seed",
             executor=executor,
-        )
+         retry_policy=RetryPolicy(fill=max(0, (1) - 1)))
         self.assertEqual(translator._cache_seed_content, "legacy-seed")
         self.assertIs(translator._translation_runtime.executor, executor)
         self.assertIs(translator._fill_runtime.executor, executor)
@@ -241,12 +243,10 @@ class TestLLMRuntime(unittest.IsolatedAsyncioTestCase):
     def test_epub_translate_exposes_window_without_concurrency_alias(self):
         parameters = list(signature(translate_epub).parameters)
         self.assertNotIn("concurrency", parameters)
-        self.assertEqual(parameters[:12], [
-            "source_path", "target_path", "target_language", "submit",
-            "user_prompt", "max_retries", "max_group_tokens",
-            "llm", "translation_llm", "fill_llm",
-            "on_translation_event", "on_fill_failed",
-        ])
+        self.assertNotIn('max_retries', parameters)
+        self.assertNotIn('on_fill_failed', parameters)
+        self.assertIn('retry_policy', parameters)
+        self.assertIn('error_policy', parameters)
 
     async def test_relative_output_paths_are_bound_at_construction(self):
         original = Path.cwd()
@@ -363,9 +363,9 @@ class TestLLMRuntime(unittest.IsolatedAsyncioTestCase):
     async def test_chinese_target_preserves_chinese_dominant_text_without_llm(self):
         config = LLM("key", "https://example.invalid/v1", "model", "o200k_base")
         translator = XMLTranslator(
-            config, config, "zh", None, False, 1, 3, 10_000,
+            config, config, "zh", None,   3, 10_000,
             executor=ConcurrentExecutor(FixedCapacity(1)),
-        )
+         retry_policy=RetryPolicy(fill=max(0, (1) - 1)))
         runtime = Mock()
         translator._translation_runtime = runtime  # type: ignore[assignment]
         source = "这是已经写成中文的正文，其中保留 API 和 Lacan 等专名。"

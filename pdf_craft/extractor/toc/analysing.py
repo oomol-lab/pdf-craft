@@ -1,3 +1,6 @@
+# pylint: disable=unused-argument
+from pdf_craft.policies import RetryPolicy, ErrorPolicyInput
+from pdf_craft._policy import OMITTED, policy_operation
 import logging
 import re
 from pathlib import Path
@@ -23,11 +26,13 @@ logger = logging.getLogger(__name__)
 _TITLE_HEAD_REGX = re.compile(r"^\s*#{1,6}\s*")
 
 
+@policy_operation
 async def analyse_toc(
     pages_path: Path,
     toc_path: Path,
     toc_assumed: bool,
-    toc_llm: LLM | None = None,
+    toc_llm: LLM | None = None, *,
+    retry_policy: RetryPolicy | None = None, error_policy: ErrorPolicyInput = OMITTED,
 ) -> TocInfo:
     if await IO_DOMAIN.run(toc_path.exists):
         return decode_toc(await IO_DOMAIN.run(read_xml, toc_path))
@@ -84,9 +89,11 @@ async def _do_analyse_toc(
                     )),
                 )
             except LLMAnalysisError as error:
-                print(
-                    f"LLM analysis toc failed, falling back to statistical method: {error}"
-                )
+                from ..._policy import recover
+                from ...policies import FailureCategory
+                from ..._failure_sources import ocr_locations
+                targets = await IO_DOMAIN.run(ocr_locations, pages_path)
+                await recover(error, FailureCategory.ANALYSIS, 'toc_analysis', 'statistical_analysis', targets=targets)
 
         if ref2level is None:
             ref2level = await IO_DOMAIN.run(analyse_toc_levels,
@@ -102,9 +109,11 @@ async def _do_analyse_toc(
             try:
                 ref2level = await analyse_title_levels_by_llm(toc_llm, pages)
             except LLMAnalysisError as error:
-                print(
-                    f"LLM analysis title failed, falling back to statistical method: {error}"
-                )
+                from ..._policy import recover
+                from ...policies import FailureCategory
+                from ..._failure_sources import ocr_locations
+                targets = await IO_DOMAIN.run(ocr_locations, pages_path)
+                await recover(error, FailureCategory.ANALYSIS, 'title_analysis', 'statistical_analysis', targets=targets)
 
         if ref2level is None:
             ref2level = await IO_DOMAIN.run(analyse_title_levels, pages)

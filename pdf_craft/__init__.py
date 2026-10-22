@@ -1,9 +1,6 @@
 from epub_generator import BookMeta, LaTeXRender, TableRender
 
 from .error import (
-    IgnoreFillErrorsChecker,
-    IgnoreOCRErrorsChecker,
-    IgnorePDFErrorsChecker,
     InterruptedError,
     NoUsableOCRPagesError,
     NoUsableFillPagesError,
@@ -49,7 +46,6 @@ from .transformer import (
     AnchoredContentXMLTransformer,
     NarrativeXMLTransformer,
     ExtractionTransformer,
-    FillFailedEvent,
     SubmitKind,
     XMLTranslator,
     TranslationEvent,
@@ -103,3 +99,9 @@ from .document.paragraph import (
 
 from .document.metadata import MetadataContent
 from .document import DocumentMetadata, DocumentAuthor
+
+from .policies import (
+    RetryPolicy, RetryScope, ErrorPolicy, ErrorPolicyInput, ErrorCallback,
+    FailureCategory, FailureContext, FailureLocation, FailureError,
+    AllFallbackError, ErrorCallbackError,
+)

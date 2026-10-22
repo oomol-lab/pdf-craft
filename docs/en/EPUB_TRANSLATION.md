@@ -115,13 +115,7 @@ PDFCraft().translate_epub(
 )
 ```
 
-- `user_prompt` adds project-specific requirements such as terminology or tone. It supplements rather than replaces pdf-craft's structural instructions.
-- `max_group_tokens` defaults to `2600`. Larger groups make fewer, larger requests and increase the cost of retrying a failed request.
-- `executor` is the shared capacity channel for real LLM requests. Reuse one executor when translation and XML repair use the same provider quota.
-- `translation_executor` and `fill_executor` may replace the common executor when the two models use separate provider quotas.
-- `window` defaults to `1` and bounds in-flight translation groups. A completed group frees its slot even if an earlier result is still pending; completed results wait on disk for ordered delivery. The executor independently limits actual provider requests.
-- `window` is the only XML look-ahead control. Provider capacity is supplied explicitly through an executor.
-- `max_retries` controls XML structure-repair attempts and defaults to `5`. It is distinct from `LLM.retry_times`, which controls text-request retries.
+See [retry and recovery policies](ERROR_HANDLING.md) for failure decisions and retry budgets.
 
 ### Use separate translation and repair models
 
@@ -153,25 +147,13 @@ scope and its TOC, metadata, and chapter items progress. Character counts are ba
 source text and are not token-based percentages. The same callback is supported by
 package and PDF translation workflows.
 
-`on_fill_failed` receives `FillFailedEvent` when an XML repair attempt fails. The final event with `over_maximum_retries=True` signals that no repair attempts remain and the output may need inspection.
+See [retry and recovery policies](ERROR_HANDLING.md) for failure decisions and retry budgets.
 
 ```python
-from pdf_craft import FillFailedEvent, TranslationEventKind
-
-def on_translation_event(event):
-    if event.kind == TranslationEventKind.PROGRESS:
-        print(event.completed_characters, event.total_characters)
-
-def report_fill_failure(event: FillFailedEvent) -> None:
-    if event.over_maximum_retries:
-        print(f"Unrecovered EPUB structure error: {event.error_message}")
-
-PDFCraft().translate_epub(
-    "source.epub", "translated.epub",
-    target_language="zh", submit=SubmitKind.APPEND_BLOCK,
-    llm=llm, executor=executor, on_translation_event=on_translation_event,
-    on_fill_failed=report_fill_failure,
-)
+# Decide final recoverable failures with error_policy; see ERROR_HANDLING.md.
+def allow_failure(failure):
+    print(failure.stage, failure.targets, failure.affected)
+    return True
 ```
 
 ## Input and output expectations
@@ -207,3 +189,6 @@ Both callbacks accept synchronous or asynchronous functions. They are optional;
 async functions are awaited, and exceptions abort the operation. The output EPUB
 is published as a complete file after success. See [incremental callbacks](STREAMING.md)
 for examples, CFI details, ordering and source lifetime.
+
+
+See [error handling](ERROR_HANDLING.md) for strict defaults, source locations and task-wide all-fallback protection.

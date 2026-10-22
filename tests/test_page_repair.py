@@ -1,3 +1,5 @@
+
+from pdf_craft import RetryPolicy
 import json
 import asyncio
 import unittest
@@ -158,7 +160,7 @@ class PageRepairTests(unittest.IsolatedAsyncioTestCase):
                 raise
             return json.dumps(_response_from_message(messages[1]))
 
-        processor = AllPageLlmRepairProcessor(request, max_retries=0)
+        processor = AllPageLlmRepairProcessor(request, retry_policy=RetryPolicy(analysis=0))
         with self.assertRaises(NonContinuableError):
             await processor(source_pages, analyses, {})
         self.assertTrue(sibling_cancelled.is_set())
@@ -333,7 +335,7 @@ class PageRepairTests(unittest.IsolatedAsyncioTestCase):
             previous_pass_probability=None,
             next_pass_probability=None,
             request=request,
-            max_retries=2,
+            retry_policy=RetryPolicy(analysis=2),
         )
 
         feedback = calls[1][-1].message

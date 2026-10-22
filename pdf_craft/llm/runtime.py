@@ -215,12 +215,15 @@ class LLMContext(AbstractAsyncContextManager["LLMContext"]):
             ) from error
 
         attempt = 0
+        transport_attempts = 0
         try:
             force_ipv4 = False
             while attempt <= self.runtime.config.retry_times:
                 try:
                     await self._log_async("request", attempt + 1, key=key)
                     async def invoke_once() -> str:
+                        nonlocal transport_attempts
+                        transport_attempts += 1
                         try:
                             return await self.runtime._invoke_for_request(
                                 messages, max_tokens, temperature, top_p,
@@ -247,7 +250,7 @@ class LLMContext(AbstractAsyncContextManager["LLMContext"]):
                             )
                             raise LLMTransportError(
                                 "LLM request exceeded its total timeout",
-                                attempts=attempt + 1,
+                                attempts=transport_attempts,
                                 cause=error,
                             ) from error
                     if not response.strip():
@@ -293,7 +296,7 @@ class LLMContext(AbstractAsyncContextManager["LLMContext"]):
                         )
                         raise LLMTransportError(
                             "LLM transport request failed",
-                            attempts=attempt + 1,
+                            attempts=transport_attempts,
                             cause=final_cause,
                         ) from final_cause
                     rate_limit = error if isinstance(error, RateLimitedError) else None

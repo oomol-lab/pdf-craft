@@ -1,6 +1,10 @@
 {
   "defaults": {
-    "page_indexes": [1, 2, 3],
+    "page_indexes": [
+      1,
+      2,
+      3
+    ],
     "ocr_size": "tiny",
     "ocr_concurrency": 3
   },
@@ -19,9 +23,11 @@
         "fill_llm_profile": "fill",
         "target_language": "zh",
         "submit": "REPLACE",
-        "max_retries": 3,
         "max_group_tokens": 2600,
-        "concurrency": 3
+        "concurrency": 3,
+        "retry_policy": {
+          "fill": 3
+        }
       }
     },
     {
@@ -32,9 +38,11 @@
         "fill_llm_profile": "fill",
         "target_language": "zh",
         "submit": "REPLACE",
-        "max_retries": 3,
         "max_group_tokens": 2600,
-        "concurrency": 3
+        "concurrency": 3,
+        "retry_policy": {
+          "fill": 3
+        }
       }
     },
     {
@@ -45,9 +53,11 @@
         "fill_llm_profile": "fill",
         "target_language": "zh",
         "submit": "REPLACE",
-        "max_retries": 3,
         "max_group_tokens": 2600,
-        "concurrency": 3
+        "concurrency": 3,
+        "retry_policy": {
+          "fill": 3
+        }
       }
     }
   ]

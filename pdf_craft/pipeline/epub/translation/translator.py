@@ -1,3 +1,7 @@
+# pylint: disable=unused-argument
+
+from pdf_craft.policies import RetryPolicy, ErrorPolicyInput
+from pdf_craft._policy import OMITTED, policy_operation, has_error_callback
 # pylint: disable=protected-access
 from collections.abc import Callable, Generator
 from dataclasses import dataclass
@@ -32,7 +36,7 @@ from pdf_craft.transformer.xml_translator.xml import (
     deduplicate_ids_in_element,
     find_first,
 )
-from pdf_craft.transformer.xml_translator.xml_translator import FillFailedEvent, SubmitKind, TranslationTask, XMLTranslator
+from pdf_craft.transformer.xml_translator.xml_translator import SubmitKind, TranslationTask, XMLTranslator
 from .epub_transcode import decode_metadata, decode_toc_list, encode_metadata, encode_toc_list
 from .punctuation import unwrap_french_quotes
 from .xml_interrupter import XMLInterrupter
@@ -58,28 +62,29 @@ class _ElementContext:
     cfi_package: str | None = None
     title_only: bool = False
     source_root_id: int = 0
+    missing_metadata_tags: tuple[str, ...] = ()
 
 
+@policy_operation
 async def translate(
     source_path: PathLike | str,
     target_path: PathLike | str,
     target_language: str,
     submit: SubmitKind,
     user_prompt: str | None = None,
-    max_retries: int = 5,
     max_group_tokens: int = 2600,
     llm: LLM | None = None,
     translation_llm: LLM | None = None,
     fill_llm: LLM | None = None,
     on_translation_event: Callable[[TranslationEvent], object] | None = None,
-    on_fill_failed: Callable[[FillFailedEvent], object] | None = None,
     executor: AsyncExecutor | None = None,
     translation_executor: AsyncExecutor | None = None,
     fill_executor: AsyncExecutor | None = None,
     window: int = 1,
     on_body: Callable[[EpubFragmentContent], object] | None = None,
-    on_metadata: MetadataCallback | None = None,
-) -> None:
+    on_metadata: MetadataCallback | None = None, *,
+        retry_policy: RetryPolicy | None = None, error_policy: ErrorPolicyInput = OMITTED,
+    ) -> None:
     """Translate an EPUB with native async LLM concurrency and pooled ZIP I/O."""
     if window < 1:
         raise ValueError("window must be at least 1")
@@ -94,8 +99,6 @@ async def translate(
         fill_llm=fill_llm,
         target_language=target_language,
         user_prompt=user_prompt,
-        ignore_translated_error=False,
-        max_retries=max_retries,
         max_fill_displaying_errors=10,
         max_group_score=max_group_tokens,
         executor=executor,
@@ -125,7 +128,7 @@ async def translate(
                 metadata_fields=metadata_fields,
                 metadata_context=metadata_context,
                 submit=submit,
-                capture_cfi=on_body is not None,
+                capture_cfi=on_body is not None or has_error_callback(),
             )
         except BaseException as error:
             archive.__exit__(type(error), error, error.__traceback__)
@@ -147,6 +150,8 @@ async def translate(
             decode_metadata(translated_metadata_element)
             if translated_metadata_element is not None else []
         )
+        missing_tags = {tag for _, context in results for tag in context.missing_metadata_tags}
+        translated_metadata = [field for field in translated_metadata if field.tag_name not in missing_tags]
         document_title = next(
             (
                 field.text for field in translated_metadata
@@ -263,6 +268,9 @@ async def translate(
                 with archive.replace(path) as file:
                     xml.save(file)
 
+        from ...._policy import Completion
+        completion = Completion()
+
         async def on_result(result):
             element, context = result
             if context.element_type == _ElementType.METADATA and on_metadata is None:
@@ -274,7 +282,16 @@ async def translate(
 
         async def on_before_submit(value):
             element, mappings, context = value
+            if context.element_type == _ElementType.CHAPTER and context.chapter_data is not None:
+                from ....transformer.xml_translator.xml_translator.source_store import owner_outcomes
+                outcomes = owner_outcomes(element, mappings)
+                completion.succeeded += sum(outcomes.values())
+                completion.degraded += sum(not value for value in outcomes.values())
             if context.element_type != _ElementType.METADATA:
+                return
+            context.missing_metadata_tags = tuple(node.get('tag', '') for node in element.iter('field')
+                                                 if node.get('__pdf_craft_missing') == '1')
+            if on_metadata is None:
                 return
 
             def replacement_fields():
@@ -283,7 +300,8 @@ async def translate(
                 # source tree. Presentation writeback keeps the original maps.
                 source, replacements = deepcopy((element, mappings))
                 replacement = submit_xml(source, SubmitKind.REPLACE, replacements)
-                return decode_metadata(unwrap_french_quotes(replacement))
+                return [field for field in decode_metadata(unwrap_french_quotes(replacement))
+                        if field.tag_name not in context.missing_metadata_tags]
 
             await notify_metadata(await ARCHIVE_DOMAIN.run(replacement_fields))
 
@@ -296,8 +314,7 @@ async def translate(
                 return
             cfi = None
             if context.locator is not None and context.cfi_package is not None:
-                location = context.locator.capture(list(origin))
-                cfi = location.cfi(context.cfi_package)
+                cfi = _source_cfi(context.locator, list(origin), context.cfi_package)
             assert delivery is not None
             await delivery.append(EpubFragmentContent(
                 epubcfi=cfi,
@@ -314,19 +331,19 @@ async def translate(
                     interrupt_source_text_segments=interrupter.interrupt_source_text_segments,
                     interrupt_translated_text_segments=interrupter.interrupt_translated_text_segments,
                     interrupt_block_element=interrupter.interrupt_block_element,
-                    on_fill_failed=on_fill_failed,
                     on_translation_event=on_translation_event,
                     tasks=task_stream(),
                     on_result=on_result,
                     collect_results=False,
                     on_task_mapping=on_mapping if on_body is not None else None,
-                    on_before_submit=on_before_submit if on_metadata is not None else None,
+                    on_before_submit=on_before_submit,
                 )
                 if delivery is not None:
                     await delivery.finish()
             finally:
                 if delivery is not None:
                     await delivery.cancel()
+        completion.check('EPUB translation')
         await ARCHIVE_DOMAIN.run(write_results, header_results)
     except BaseException as error:
         failure = error
@@ -348,6 +365,8 @@ def _generate_tasks_from_book(
     submit: SubmitKind,
     capture_cfi: bool = False,
 ) -> Generator[TranslationTask[_ElementContext], None, None]:
+    from ....policies import FailureLocation
+    from ...._policy import current
     head_submit = submit
     if head_submit == SubmitKind.APPEND_BLOCK:
         head_submit = SubmitKind.APPEND_TEXT
@@ -359,6 +378,9 @@ def _generate_tasks_from_book(
             action=head_submit,
             payload=_ElementContext(element_type=_ElementType.TOC, toc_context=toc_context),
             item_kind=TranslationItemKind.TOC,
+            source_locations=tuple(FailureLocation('field', source=current().source,
+                member_path=str(toc_context.toc_path), unit_id=str(index), field_path='navigation.title',
+                original=item.title) for index, item in enumerate(toc_list)),
             item_id="toc",
             character_count=sum(len(segment.text) for segment in search_text_segments(element)),
         )
@@ -370,6 +392,9 @@ def _generate_tasks_from_book(
             action=head_submit,
             payload=_ElementContext(element_type=_ElementType.METADATA, metadata_context=metadata_context),
             item_kind=TranslationItemKind.METADATA,
+            source_locations=tuple(FailureLocation('field', source=current().source,
+                member_path=str(metadata_context.opf_path), unit_id=str(index), field_path=field.tag_name,
+                original=field.text) for index, field in enumerate(metadata_fields)),
             item_id="metadata",
             character_count=sum(len(segment.text) for segment in search_text_segments(element)),
         )
@@ -381,6 +406,8 @@ def _generate_tasks_from_book(
                 file=chapter_file,
                 is_html_like=(media_type == "text/html"),
             )
+        from ....transformer.xml_translator.xml_translator.source_store import strip_source
+        strip_source(xml.element)
         # HTML parser repair can change node positions in a reader. Translate
         # and notify normally, but never manufacture a CFI for that document.
         locator = (ContentCFILocator(xml.element)
@@ -404,6 +431,9 @@ def _generate_tasks_from_book(
                     ),
                 ),
                 item_kind=TranslationItemKind.METADATA,
+                source_locations=(FailureLocation('field', source=current().source,
+                    member_path=str(chapter_path), unit_id='head/title', field_path='head/title',
+                    original=title_element.text, media_type=media_type),),
                 item_id=f"{chapter_path}#title",
                 character_count=sum(
                     len(segment.text) for segment in search_text_segments(title_wrapper)
@@ -412,6 +442,16 @@ def _generate_tasks_from_book(
         if body_element is not None and any(
             segment.text.strip() for segment in search_text_segments(body_element)
         ):
+            from ...._failure_sources import tag_locations
+            from ....transformer.xml_translator.segment import search_inline_segments
+            for index, fragment in enumerate(search_inline_segments(search_text_segments(body_element, track_origins=True))):
+                cfi = _source_cfi(locator, list(fragment), packages.get(chapter_path))
+                location = FailureLocation('fragment', source=current().source,
+                    member_path=str(chapter_path), unit_id=f'{chapter_path}:fragment:{index}',
+                    channel='body', epubcfi=cfi, media_type=media_type,
+                    original=''.join(part.text for part in fragment))
+                from ...._failure_sources import element_locations
+                tag_locations(fragment.parent, (*element_locations(fragment.parent), location))
             yield TranslationTask(
                 element=body_element,
                 action=submit,
@@ -432,3 +472,11 @@ def _get_version() -> str:
         return get_package_version("epub-translator")
     except Exception:
         return "development"
+
+
+def _source_cfi(locator, segments, package):
+    if locator is None or package is None:
+        return None
+    # Unsupported media types have no locator. Unexpected locator errors are
+    # implementation/parse errors, not permission to invent a missing CFI.
+    return locator.capture(segments).cfi(package)

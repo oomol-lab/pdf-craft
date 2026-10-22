@@ -3,7 +3,8 @@
 import asyncio
 from dataclasses import replace
 from pathlib import Path
-from ...error import IgnoreFillErrorsChecker
+from ...policies import ErrorPolicyInput
+from ..._policy import OMITTED
 from ...extractor.chapter.text_projection import iter_continuous_content
 
 from ...common.stream import DiskDelivery
@@ -42,7 +43,7 @@ def prepare_index(chapters, furniture, coverage, pages, dpi, directory, translat
                     continue
                 chapter = Chapter(item.chapter_id, item.level, [text])
                 obstacles.extend(_chapter_obstacle_regions(chapter, pages, dpi,
-                                                           ignore_errors=False, include_reference_text=False))
+                                                           error_policy=False, include_reference_text=False))
                 if not isinstance(text, TextFlowItem):
                     continue
                 key = source_key(text)
@@ -63,8 +64,15 @@ def prepare_index(chapters, furniture, coverage, pages, dpi, directory, translat
                     replacement = PDFReplacement(first.page_index, first.bbox, value.strip(),
                         first.page_pixel_size, first.dpi, reading_order=first.reading_order,
                         regions=regions, layout_ref=text.role, layout_level=text.level, inline_formulas=formulas)
-                    translated_boxes.update((region.page_index, region.bbox) for region in regions)
+                    if not translating:
+                        translated_boxes.update((region.page_index, region.bbox) for region in regions)
                 else:
+                    obstacles.extend(regions)
+                if translating:
+                    # Coverage arrives later. Every source rectangle must already
+                    # protect untouched text, including future failed paragraphs.
+                    # The planner also treats accepted source rectangles as
+                    # obstacles, so this does not change their layout semantics.
                     obstacles.extend(regions)
                 prototype = directory / ('prototype-' + str(len(entries)))
                 write_record(prototype, replacement)
@@ -76,16 +84,28 @@ def prepare_index(chapters, furniture, coverage, pages, dpi, directory, translat
         translated_boxes.update((region.page_index, region.bbox) for region in replacement.source_regions())
     obstacles = tuple({(r.page_index, r.bbox): r for r in obstacles
                        if (r.page_index, r.bbox) not in translated_boxes}.values())
+    obstacles_by_page = {}
+    for region in obstacles:
+        obstacles_by_page.setdefault(region.page_index, []).append(region)
     ordered = sorted(entries, key=lambda key: entries[key][1])
-    return {key: (index, entries[key][0], entries[key][1]) for index, key in enumerate(ordered)}, obstacles, furniture_items
+    return {key: (index, entries[key][0], entries[key][1]) for index, key in enumerate(ordered)}, obstacles_by_page, furniture_items
+
+
+def _with_page_obstacles(replacement, obstacles):
+    # A live window needs only geometry on its source pages, not a copy of
+    # every paragraph's rectangles throughout the book on every feed record.
+    page_indexes = dict.fromkeys(region.page_index for region in replacement.source_regions())
+    return replace(replacement, obstacle_regions=tuple(
+        region for page in page_indexes for region in obstacles.get(page, ())
+    ))
 
 
 async def patch_content(source, extraction, target, *, translator=None, translation_id=None,
-                        window=1, ignore_errors: IgnoreFillErrorsChecker=False, on_body=None, on_footnote=None,
+                        window=1, error_policy: ErrorPolicyInput=OMITTED, on_body=None, on_footnote=None,
                         pdf_handler=None, with_furniture=False, on_translation_event=None, on_metadata=None):
     """Translation and native composition overlap through a disk-only process feed."""
-    from .error_policy import _process_ignore_errors_checker
-    async with _process_ignore_errors_checker(ignore_errors) as checker:
+    from .error_policy import _process_error_policy_checker
+    async with _process_error_policy_checker(error_policy) as checker:
         mode = RenderMode.REPLACE if translation_id is not None else RenderMode.SOURCE
         async with content_view(extraction, mode=mode, translation_id=translation_id,
                                 translator=translator, window=window, with_anchored=False, with_furniture=with_furniture,
@@ -108,6 +128,7 @@ async def patch_content(source, extraction, target, *, translator=None, translat
                     # Furniture and narrative are sorted together by original geometry.
                     all_entries = [(key, data[1], data[2]) for key, data in index.items()]
                     for number, value in enumerate(furniture):
+                        value = _with_page_obstacles(value, obstacles)
                         path = root / ('furniture-' + str(number))
                         await IO_DOMAIN.run(write_record, path, value)
                         all_entries.append((None, path, _replacement_source_order(value)))
@@ -146,13 +167,21 @@ async def patch_content(source, extraction, target, *, translator=None, translat
                                         written.add(key)
                                         slot, path = slots[key]
                                         prototype = await IO_DOMAIN.run(read_record, path)
+                                        identity = (str(item.chapter_id) if item.chapter_id is not None else 'head',
+                                                    key[0][0], key[0][1])
+                                        missing = (item.narrative_states is not None and
+                                                   item.narrative_states.get(identity) != 'translated')
+                                        if missing:
+                                            # Presentation may show the original, but it is
+                                            # not a trusted translation or a fill target.
+                                            prototype = None
                                         patch_text, formulas = _to_pdf_patch_content(iter_continuous_content(text))
                                         if isinstance(item.value, Reference) and number == 0:
                                             patch_text = str(item.value.mark) + ' ' + patch_text
                                         handler = on_footnote if notes else on_body
                                         preview = None
                                         if handler is not None:
-                                            original = originals[number] if number < len(originals) else None
+                                            original = originals[number] if not missing and number < len(originals) else None
                                             preview = await IO_DOMAIN.run(notify.content, text, original, item.level)
                                         if prototype is None:
                                             await IO_DOMAIN.run(write_record, feed_root / str(slot), None)
@@ -161,8 +190,8 @@ async def patch_content(source, extraction, target, *, translator=None, translat
                                                     r.page, r.source_order_in_page, r.bbox, None, []) for r in preview.regions]))
                                             await IO_DOMAIN.run(write_record, previews / str(slot), empty)
                                             continue
-                                        value = replace(prototype, text=patch_text.strip(), inline_formulas=formulas,
-                                                        obstacle_regions=obstacles)
+                                        value = _with_page_obstacles(replace(
+                                            prototype, text=patch_text.strip(), inline_formulas=formulas), obstacles)
                                         if preview is not None:
                                             value = _PreviewReplacement.attach(value, preview, notes, slot)
                                         await IO_DOMAIN.run(write_record, feed_root / str(slot), value if value.text else None)
@@ -216,7 +245,7 @@ async def patch_content(source, extraction, target, *, translator=None, translat
                         production = asyncio.create_task(produce())
                         staged = root / 'output.pdf'
                         patching = asyncio.create_task(patcher.patch(source, staged, feed,
-                            ignore_errors=checker, document_metadata=pdf_document_metadata(view.metadata)))
+                            error_policy=checker, document_metadata=pdf_document_metadata(view.metadata)))
                         delivery = asyncio.create_task(deliver(patching)) if on_body is not None or on_footnote is not None else None
                         tasks = [production, patching] + ([delivery] if delivery is not None else [])
                         try:

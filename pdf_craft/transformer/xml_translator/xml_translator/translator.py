@@ -1,7 +1,11 @@
+# pylint: disable=unused-argument
+
+from pdf_craft.policies import RetryPolicy, ErrorPolicyInput
+from pdf_craft._policy import OMITTED, policy_operation
 # pylint: disable=protected-access,unused-argument
 from collections.abc import AsyncIterable, Callable, Iterable
 from contextlib import aclosing
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Generic, TypeVar, cast
 from xml.etree.ElementTree import Element
 
@@ -16,7 +20,10 @@ from pdf_craft.transformer.xml_translator.segment import (
 )
 from pdf_craft.transformer.events import TranslationEvent, TranslationEventKind, TranslationItemKind
 from pdf_craft.transformer.xml_translator.xml import decode_friendly, encode_friendly
-from .callbacks import Callbacks, FillFailedEvent, warp_callbacks
+from .callbacks import Callbacks, warp_callbacks
+from pdf_craft._policy import current, recover
+from pdf_craft.policies import FailureCategory, RetryScope
+from pdf_craft._failure_sources import tag_locations, segment_locations, task_locations
 from .hill_climbing import HillClimbing
 from .stream_mapper import InlineSegmentMapping, XMLStreamMapper
 from .submitter import SubmitKind, submit
@@ -69,6 +76,8 @@ class TranslationTask(Generic[T]):
     item_kind: TranslationItemKind | None = None
     item_id: str | int | None = None
     character_count: int | None = None
+    source_locations: tuple = ()
+    outcomes: dict[str, bool] = field(default_factory=dict)
 
 
 class XMLTranslator:
@@ -78,15 +87,16 @@ class XMLTranslator:
         fill_llm: LLM,
         target_language: str,
         user_prompt: str | None,
-        ignore_translated_error: bool,
-        max_retries: int,
         max_fill_displaying_errors: int,
         max_group_score: int,
         cache_seed_content: str | None = None,
         executor: AsyncExecutor | None = None,
         translation_executor: AsyncExecutor | None = None,
         fill_executor: AsyncExecutor | None = None,
+        retry_policy: RetryPolicy | None = None, error_policy: ErrorPolicyInput = None,
     ) -> None:
+        self._retry_policy = retry_policy or RetryPolicy()
+        self._error_policy = error_policy
         translation_executor = translation_executor or executor
         fill_executor = fill_executor or executor
         if translation_executor is None:
@@ -105,8 +115,6 @@ class XMLTranslator:
         )
         self._target_language: str = target_language
         self._user_prompt: str | None = user_prompt
-        self._ignore_translated_error: bool = ignore_translated_error
-        self._max_retries: int = max_retries
         self._max_fill_displaying_errors: int = max_fill_displaying_errors
         self._cache_seed_content: str | None = cache_seed_content
         self._max_group_score = max_group_score
@@ -124,12 +132,12 @@ class XMLTranslator:
             )
         return self._stream_mapper
 
+    @policy_operation
     async def translate_element(
         self,
         task: TranslationTask[T],
         window: int = 1,
-        **kwargs,
-    ) -> tuple[Element, T]:
+        retry_policy: RetryPolicy | None = None, error_policy: ErrorPolicyInput = OMITTED, **kwargs,) -> tuple[Element, T]:
         translated = await self.translate_elements(
             tasks=(task,),
             window=window,
@@ -139,6 +147,7 @@ class XMLTranslator:
             return translated[0]
         raise RuntimeError("Translation failed unexpectedly")
 
+    @policy_operation
     async def translate_elements(
         self,
         tasks: Iterable[TranslationTask[T]] | AsyncIterable[TranslationTask[T]],
@@ -148,13 +157,13 @@ class XMLTranslator:
         immutable_elements_for_inline_segments: Callable[[list[InlineSegment]], list[ImmutableBlockElement]] | None = None,
         source_text_renderer: SourceTextRenderer | None = None,
         canonical_text_validator: CanonicalTextValidator | None = None,
-        on_fill_failed: Callable[[FillFailedEvent], object] | None = None,
         on_translation_event: Callable[[TranslationEvent], object] | None = None,
         completed_characters: int = 0,
         total_characters: int | None = None,
         emit_scope_events: bool = True,
         emit_item_events: bool = True,
-        window: int = 1,
+        window: int = 1, *,
+        retry_policy: RetryPolicy | None = None, error_policy: ErrorPolicyInput = OMITTED,
     ) -> list[tuple[Element, T]]:
         """Translate tasks using the public XML extension contract."""
         return await self._translate_elements(
@@ -165,7 +174,6 @@ class XMLTranslator:
             immutable_elements_for_inline_segments=immutable_elements_for_inline_segments,
             source_text_renderer=source_text_renderer,
             canonical_text_validator=canonical_text_validator,
-            on_fill_failed=on_fill_failed,
             on_translation_event=on_translation_event,
             completed_characters=completed_characters,
             total_characters=total_characters,
@@ -183,7 +191,6 @@ class XMLTranslator:
         immutable_elements_for_inline_segments: Callable[[list[InlineSegment]], list[ImmutableBlockElement]] | None = None,
         source_text_renderer: SourceTextRenderer | None = None,
         canonical_text_validator: CanonicalTextValidator | None = None,
-        on_fill_failed: Callable[[FillFailedEvent], object] | None = None,
         on_translation_event: Callable[[TranslationEvent], object] | None = None,
         completed_characters: int = 0,
         total_characters: int | None = None,
@@ -207,7 +214,7 @@ class XMLTranslator:
                     interrupt_block_element=interrupt_block_element,
                     immutable_elements_for_inline_segments=immutable_elements_for_inline_segments,
                     source_text_renderer=source_text_renderer, canonical_text_validator=canonical_text_validator,
-                    on_fill_failed=on_fill_failed, on_translation_event=on_translation_event,
+                    on_translation_event=on_translation_event,
                     completed_characters=completed_characters, total_characters=total_characters,
                     emit_scope_events=emit_scope_events, emit_item_events=emit_item_events,
                     window=window, on_mapping=on_mapping, on_result=on_result,
@@ -222,7 +229,6 @@ class XMLTranslator:
             interrupt_source_text_segments=interrupt_source_text_segments,
             interrupt_translated_text_segments=interrupt_translated_text_segments,
             interrupt_block_element=interrupt_block_element,
-            on_fill_failed=on_fill_failed,
         )
         async_tasks = tasks if isinstance(tasks, AsyncIterable) else None
         task_list = [] if async_tasks is not None else list(cast(Iterable[TranslationTask[T]], tasks))
@@ -257,6 +263,7 @@ class XMLTranslator:
 
         def generate_elements():
             for task in task_list:
+                tag_locations(task.element, task_locations(task))
                 element2task[id(task.element)] = task
                 yield task.element
 
@@ -275,6 +282,7 @@ class XMLTranslator:
                     from .source_store import tag_source
                     assert _task_store is not None
                     identity = _task_store.allocate()
+                    tag_locations(task.element, task_locations(task))
                     tag_source(task.element, identity)
                     await IO_DOMAIN.run(_task_store.save, identity, task)
                     yield task.element
@@ -313,8 +321,11 @@ class XMLTranslator:
                         if _task_store is not None else element2task.pop(id(element), None))
                 if task is None:
                     continue
+                from .source_store import owner_outcomes
+                task.outcomes.update(owner_outcomes(element, mappings))
                 if on_before_submit is not None:
                     await invoke_callback(on_before_submit, (element, mappings, task.payload))
+                strip_source(element)
                 translated_element = submit(
                     element=element, action=task.action, mappings=mappings,
                 )
@@ -389,6 +400,11 @@ class XMLTranslator:
         source_text_renderer: SourceTextRenderer | None,
         canonical_text_validator: CanonicalTextValidator | None,
     ) -> list[InlineSegmentMapping | None]:
+        primary = [segment for segment in inline_segments if not getattr(segment, '_translation_context', False)]
+        if not primary:
+            return [None] * len(inline_segments)
+        context_targets = segment_locations([segment for segment in inline_segments
+                                             if getattr(segment, '_translation_context', False)])
         hill_climbing = HillClimbing(
             encoding=await self._fill_runtime.encoding(),
             max_fill_displaying_errors=self._max_fill_displaying_errors,
@@ -403,18 +419,27 @@ class XMLTranslator:
             if source_text_renderer is not None
             else "".join(self._render_source_text_parts(inline_segments))
         )
-        translated_text = await self._translate_text_async(source_text)
-        await self._request_and_submit_async(
-            hill_climbing=hill_climbing,
-            source_text=source_text,
-            translated_text=translated_text,
-            callbacks=callbacks,
-            canonical_text_validator=(
-                lambda element: canonical_text_validator(
-                    inline_segments, translated_text, element,
-                ) if canonical_text_validator is not None else None
-            ),
-        )
+        targets = segment_locations(primary)
+        try:
+            translated_text = await self._translate_text_async(source_text)
+        except Exception as error:
+            await recover(error, FailureCategory.TRANSLATION, 'text_translation',
+                          'omit_translation', targets=targets, context_locations=context_targets,
+                          backend='llm', model=getattr(self._translation_llm, 'model', None))
+            return [None] * len(inline_segments)
+        try:
+            await self._request_and_submit_async(
+                hill_climbing=hill_climbing, source_text=source_text,
+                translated_text=translated_text, callbacks=callbacks,
+                canonical_text_validator=(
+                    lambda element: canonical_text_validator(inline_segments, translated_text, element)
+                    if canonical_text_validator is not None else None
+                ),
+            )
+        except Exception as error:
+            await recover(error, FailureCategory.FILL, 'xml_fill', 'omit_translation',
+                          targets=targets, context_locations=context_targets, backend='llm', model=getattr(self._fill_llm, 'model', None))
+            return [None] * len(inline_segments)
         mappings: list[InlineSegmentMapping | None] = []
         for mapping in hill_climbing.gen_mappings():
             if mapping and not mapping[1]:
@@ -486,7 +511,9 @@ class XMLTranslator:
                     if isinstance(validated, str):
                         error = validated
                     elif canonical_text_validator is None:
-                        error = hill_climbing.submit(validated)
+                        error = hill_climbing.validate(validated)
+                        if error is None:
+                            error = hill_climbing.submit(validated)
                     else:
                         error = hill_climbing.validate(validated)
                         if error is None:
@@ -497,29 +524,17 @@ class XMLTranslator:
                         last_error = None
                         return ProtocolSuccess(None, state)
                     last_error = error
-                    await invoke_callback(
-                        callbacks.on_fill_failed,
-                        FillFailedEvent(error, attempt + 1, False),
-                    )
                     return ProtocolRetry(error, state, include_response=True, reset_history=True)
 
                 async def empty(self, state, attempt: int, max_attempts: int):
                     nonlocal last_error
                     error = "LLM returned an empty XML response. Please return one complete <xml> block."
                     last_error = error
-                    await invoke_callback(
-                        callbacks.on_fill_failed,
-                        FillFailedEvent(error, attempt + 1, False),
-                    )
                     return ProtocolRetry(error, state)
 
                 async def exhausted(self, state, attempts: int, response: str | None):
                     error = last_error or "XML fill exhausted retries; no usable response was produced."
-                    await invoke_callback(
-                        callbacks.on_fill_failed,
-                        FillFailedEvent(error, attempts, True),
-                    )
-                    return None
+                    raise XMLFillError(error, attempts=attempts)
 
             await run_repair_loop(RepairLoopOptions(
                 messages=fixed_messages,
@@ -528,7 +543,7 @@ class XMLTranslator:
                 ),
                 protocol=_XMLProtocol(),
                 state=None,
-                max_attempts=max(1, self._max_retries),
+                max_attempts=current().retry.attempts(RetryScope.FILL),
             ))
 
     def _extract_xml_element(self, text: str) -> Element | str:
@@ -549,3 +564,10 @@ class XMLTranslator:
                 "Please return only one XML block without any examples or explanations."
             )
         return first_xml_element
+
+
+class XMLFillError(Exception):
+    """No complete, validated structure after the business repair budget."""
+    def __init__(self, message: str, *, attempts: int):
+        super().__init__(message)
+        self.attempts = attempts

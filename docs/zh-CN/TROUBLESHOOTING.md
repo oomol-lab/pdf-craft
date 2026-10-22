@@ -45,11 +45,11 @@ pdf-craft 需要 Poppler 将 PDF 页面渲染为图像，也会在翻译 PDF 写
 先用其他 PDF 阅读器打开输入文件，确认文件没有损坏，并确认当前用户有读取权限。密码保护、
 损坏的交叉引用表、异常页面尺寸或极端复杂的 PDF 结构，都可能在页面渲染阶段失败。
 
-pdf-craft 的提取选项支持 `ignore_pdf_errors`。设为 `True` 可以让单页错误不立即终止整个
+pdf-craft 的提取选项支持 `ErrorPolicy.ignore_pdf_render_errors`。设为 `True` 可以让单页错误不立即终止整个
 流程；如果只想忽略特定错误，可以传入接收 `PDFError` 并返回布尔值的判断函数。忽略错误会
 留下缺失或 fallback 页面，适合抢救长文档，不代表原始页面已经被正确识别。
 
-OCR 也有对应的 `ignore_ocr_errors` 选项，既可以设为 `True`，也可以传入接收 `OCRError`
+OCR 也有对应的 `ErrorPolicy.ignore_ocr_errors` 选项，既可以设为 `True`，也可以传入接收 `OCRError`
 的判断函数。它只控制遇到识别错误时是否继续处理后续页面；被跳过的页面仍可能没有可用文字，
 因此应在输出中检查这些页面，而不是把“流程完成”当成“每页都识别成功”。
 
@@ -195,10 +195,7 @@ base URL，模型名是否可用，token encoding 是否与模型匹配。确认
 
 ### 翻译结果为空或 XML 修复失败
 
-EPUB 翻译要求 LLM 返回完整、可解析的结构化结果。使用 `on_fill_failed` 接收
-`FillFailedEvent`，并重点关注 `over_maximum_retries=True` 的事件；这表示该结构修复已经超过
-最大重试次数，可能影响最终 EPUB。降低并发、缩短自定义提示词或更换结构化输出更稳定的模型，
-通常比盲目增加重试更有效。
+失败决策与重试配置见 [错误处理](ERROR_HANDLING.md)。
 
 ### 缓存命中旧结果或无法恢复
 
@@ -250,3 +247,6 @@ PDF 翻译写回需要原始 PDF 和与它匹配的提取结果。写回阶段�
 - 是否使用显式 `analysing_path`、`extraction_path`、`models_cache_path` 或 LLM `cache_path`。
 
 不要把真实密钥、完整 PDF、模型缓存或生成日志直接提交到代码仓库。
+
+
+统一策略、默认严格失败和全局全部降级的规则见 [错误处理](ERROR_HANDLING.md)。

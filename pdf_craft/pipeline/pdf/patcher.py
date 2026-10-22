@@ -1,4 +1,8 @@
+# pylint: disable=unused-argument
 """Compose non-interactive visual bases with independent overlays."""
+
+from pdf_craft.policies import RetryPolicy, ErrorPolicyInput
+from pdf_craft._policy import OMITTED, policy_operation
 # Native worker adapters share patcher state within this module.
 # pylint: disable=protected-access
 
@@ -16,11 +20,11 @@ from pdf_craft.pdf.handler import (
     AsyncPDFHandler, DefaultPDFHandler, PDFHandler, _materialize_pdf_handler,
 )
 from pdf_craft.formula import latex_to_plain_text
-from pdf_craft.error import IgnoreFillErrorsChecker, NoUsableFillPagesError
+from pdf_craft.error import NoUsableFillPagesError
 
 from ...runtime import IO_DOMAIN, QT_DOMAIN, temporary_directory
 
-from .error_policy import _process_ignore_errors_checker
+from .error_policy import _process_error_policy_checker
 from .eraser import EraseOptions, EraseRectangle, RectangularEraser
 from .models import PDFReplacement, PDFReplacementRegion
 from .feed import ReplacementFeed
@@ -100,17 +104,18 @@ class PDFPatcher:
         """Pages retained as visual bases during the most recent patch run."""
         return self._failed_page_indexes
 
+    @policy_operation
     async def patch(
         self,
         source_path: Path,
         target_path: Path,
         replacements: Iterable[PDFReplacement],
         *,
-        ignore_errors: IgnoreFillErrorsChecker = False,
         document_metadata: Mapping[str, str] | None = None,
+        retry_policy: RetryPolicy | None = None, error_policy: ErrorPolicyInput = OMITTED,
     ) -> None:
         """Prepare and compile asynchronously, then isolate native Qt composition."""
-        async with _process_ignore_errors_checker(ignore_errors) as worker_checker:
+        async with _process_error_policy_checker(error_policy) as worker_checker:
             if isinstance(replacements, ReplacementFeed):
                 has_replacements = await IO_DOMAIN.run(lambda: next(iter(replacements), None) is not None)
             else:
@@ -150,7 +155,7 @@ class PDFPatcher:
         target_path: Path,
         replacements: Iterable[PDFReplacement],
         *,
-        ignore_errors: IgnoreFillErrorsChecker = False,
+        error_policy: ErrorPolicyInput = OMITTED,
         document_metadata: Mapping[str, str] | None = None,
         visual_base_path: Path | None = None,
     ) -> None:
@@ -212,6 +217,12 @@ class PDFPatcher:
             has_automatic_font = False
             contains_cjk = False
             target_page_indexes: set[int] = set()
+            primary_targets: set[tuple[int, ...]] = set()
+
+            def record_targets(replacement, pages):
+                target_page_indexes.update(pages)
+                if replacement.layout_ref not in {'heading', 'furniture', 'header', 'footer', 'title', 'sub_title'}:
+                    primary_targets.add(tuple(pages))
             failed_page_indexes: set[int] = set()
             patched_page_indexes: set[int] = set()
 
@@ -235,11 +246,11 @@ class PDFPatcher:
                 for replacement in values:
                     try:
                         pages = _replacement_pages_in_source(replacement, len(source_reader.pages))
-                        target_page_indexes.update(pages)
+                        record_targets(replacement, pages)
                         self.validate(replacement, pages_count=len(source_reader.pages))
                         yield replacement
                     except Exception as error:
-                        if not _check_ignore_error(ignore_errors, error):
+                        if not _check_ignore_error(error_policy, error, replacement=replacement, stage="replacement_validation"):
                             raise
                         record_replacement_failure(replacement, error)
             if streaming:
@@ -251,7 +262,7 @@ class PDFPatcher:
                     for replacement in replacements:
                         try:
                             pages = _replacement_pages_in_source(replacement, len(source_reader.pages))
-                            target_page_indexes.update(pages)
+                            record_targets(replacement, pages)
                             self.validate(replacement, pages_count=len(source_reader.pages))
                             style = self.options.style_for(
                                 replacement.layout_ref, replacement.layout_level,
@@ -261,7 +272,7 @@ class PDFPatcher:
                                 contains_cjk = contains_cjk or _contains_cjk(replacement.text)
                             pickle.dump(replacement, stream, protocol=pickle.HIGHEST_PROTOCOL)
                         except Exception as error:
-                            if not _check_ignore_error(ignore_errors, error):
+                            if not _check_ignore_error(error_policy, error, replacement=replacement, stage="replacement_validation"):
                                 raise
                             record_replacement_failure(replacement, error)
             if has_automatic_font:
@@ -270,7 +281,7 @@ class PDFPatcher:
                     try:
                         prepare_automatic_font(contains_cjk)
                     except Exception as error:
-                        if not _check_ignore_error(ignore_errors, error):
+                        if not _check_ignore_error(error_policy, error, page_indexes=target_page_indexes, stage="font_prepare"):
                             raise
                         for page_index in target_page_indexes:
                             record_page_failure(page_index, error)
@@ -284,7 +295,7 @@ class PDFPatcher:
                             return
 
             def on_window_error(window_replacements: tuple[PDFReplacement, ...], error: Exception) -> None:
-                if not _check_ignore_error(ignore_errors, error):
+                if not _check_ignore_error(error_policy, error, replacements=window_replacements, stage="paragraph_layout"):
                     raise error
                 for replacement in window_replacements:
                     record_replacement_failure(replacement, error)
@@ -295,15 +306,25 @@ class PDFPatcher:
                     writer.add_page(source_reader.pages[index - 1])
                 self._compose_window(
                     pypdf, canvas, source_path, source_reader, reader, writer, root,
-                    page_sizes, window, target_page_indexes, ignore_errors, failed_page_indexes,
+                    page_sizes, window, target_page_indexes, error_policy, failed_page_indexes,
                     patched_page_indexes, record_page_failure,
                 )
                 next_page_index = window.last_page_index + 1
             for index in range(next_page_index, len(reader.pages) + 1):
                 writer.add_page(source_reader.pages[index - 1])
             self._failed_page_indexes = tuple(sorted(failed_page_indexes))
-            if target_page_indexes and target_page_indexes.issubset(failed_page_indexes):
-                raise NoUsableFillPagesError(tuple(sorted(target_page_indexes)))
+            # A paragraph is accepted only if all of its pages survived. Small
+            # auxiliary successes must never conceal total primary failure.
+            primary_failed = bool(primary_targets) and not any(
+                pages and all(page in patched_page_indexes and page not in failed_page_indexes for page in pages)
+                for pages in primary_targets
+            )
+            if primary_failed or (target_page_indexes and target_page_indexes.issubset(failed_page_indexes)):
+                failed_targets = (
+                    {page for pages in primary_targets for page in pages if page in failed_page_indexes}
+                    if primary_failed else target_page_indexes
+                )
+                raise NoUsableFillPagesError(tuple(sorted(failed_targets)))
             source_catalog: Any = source_reader.trailer["/Root"]
             reattach_annotations(
                 writer,
@@ -358,7 +379,7 @@ class PDFPatcher:
     def _compose_window(
         self, pypdf, canvas, source_path: Path, source_reader, reader, writer, root: Path,
         page_sizes: dict[int, tuple[float, float]], window, target_page_indexes: set[int],
-        ignore_errors: IgnoreFillErrorsChecker,
+        error_policy: ErrorPolicyInput,
         failed_page_indexes: set[int],
         patched_page_indexes: set[int],
         record_page_failure,
@@ -420,7 +441,8 @@ class PDFPatcher:
                     if preview is not None:
                         preview.page(index, contributions, page_erasures)
                 except Exception as error:
-                    if not _check_ignore_error(ignore_errors, error):
+                    if not _check_ignore_error(error_policy, error, page_indexes=(index,), replacements=tuple(summary.replacement for summary in window._summaries
+                        if any(region.page_index == index for region in summary.replacement.source_regions())), stage="page_compose"):
                         raise
                     record_page_failure(index, error)
                     writer.add_page(source_reader.pages[index - 1])
@@ -606,9 +628,29 @@ def _pdf_utf16_hex_string(text: str) -> bytes:
     return b"<FEFF" + text.encode("utf-16-be").hex().upper().encode("ascii") + b">"
 
 
-def _check_ignore_error(checker: IgnoreFillErrorsChecker, error: Exception) -> bool:
-    """Apply the fill policy without narrowing recoverable page exceptions."""
-    return checker(error) if callable(checker) else checker
+def _check_ignore_error(checker: ErrorPolicyInput, error: Exception, *, replacement=None, replacements=(), page_indexes=(), stage='pdf_fill') -> bool:
+    from ..._policy import decide_sync
+    from ...policies import FailureCategory, FailureLocation
+    from ...document.access import PageGeometry
+    from ...document.paragraph import SourceRegion
+    values = (replacement,) if replacement is not None else replacements
+    targets = []
+    for value in values:
+        regions = tuple(SourceRegion(PageGeometry(region.page_index, region.page_pixel_size[0],
+                                     region.page_pixel_size[1], region.dpi), region.reading_order, region.bbox)
+                        for region in value.source_regions())
+        pages = tuple(dict.fromkeys(region.page.page_index for region in regions))
+        first = regions[0] if regions else None
+        targets.append(FailureLocation('regions', page_indexes=pages, regions=regions,
+            unit_id=f'paragraph:{first.page.page_index}:{first.source_order_in_page}' if first else None,
+            original=value.text))
+    if not page_indexes:
+        page_indexes = tuple(dict.fromkeys(index for target in targets for index in target.page_indexes))
+    if not targets:
+        targets.append(FailureLocation('page', page_indexes=tuple(page_indexes)))
+    affected = tuple(FailureLocation('page', page_indexes=(index,)) for index in page_indexes)
+    return decide_sync(checker, error, FailureCategory.PDF_FILL, stage, 'original_pdf_page',
+                       targets=tuple(targets), affected=affected)
 
 
 def _replacement_pages_in_source(replacement: PDFReplacement, pages_count: int) -> tuple[int, ...]:
@@ -640,10 +682,10 @@ def _write_visual_source(source: Path, output: Path) -> None:
     write_annotation_free_copy(pypdf.PdfReader(str(source)), output)
 
 
-def _compose_pdf(patcher, source, target, replacements, ignore_errors, metadata, visual_base):
+def _compose_pdf(patcher, source, target, replacements, error_policy, metadata, visual_base):
     """Native pypdf/Qt adapter; no requests or async orchestration run here."""
     patcher._compose(  # pylint: disable=protected-access
-        source, target, replacements, ignore_errors=ignore_errors,
+        source, target, replacements, error_policy=error_policy,
         document_metadata=metadata, visual_base_path=visual_base,
     )
     return getattr(patcher._filler, "font_resolutions", ()), patcher.failed_page_indexes
