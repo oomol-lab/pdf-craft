@@ -39,7 +39,39 @@ Every decision receives a detached `FailureContext`: task ID, operation, categor
 
 Recoveries: analysis uses statistical/native/algorithmic results; translation or XML fill leaves **no accepted translation**; OCR uses page images; failed PDF rendering uses a placeholder when no image exists; PDF fill preserves original pages. PCEX coverage explicitly records preserved content; it is not a translation. Replacement mode displays the source where a translation is missing, and bilingual modes show that source once. EPUB leaves failed source fragments untouched.
 
-A file is not proof of success. `AllFallbackError` (including the existing `NoUsableOCRPagesError` and `NoUsableFillPagesError` specializations) rejects tasks whose primary targets all failed and recovered. Successful metadata cannot mask a wholly untranslated body. Cached results and valid unchanged translations count as successes; genuinely absent targets are not failures. Optional analysis can all recover while the primary extraction succeeds. Cancellation, callback exceptions, unrecoverable service errors, failed recovery and unavailable input/output cannot be ignored. `ErrorCallbackError` preserves the callback exception as its cause.
+A file is not proof of success. `AllFallbackError` (including the existing `NoUsableOCRPagesError` and `NoUsableFillPagesError` specializations) rejects tasks whose primary targets all failed and recovered. Successful metadata cannot mask a wholly untranslated body. Cached results and valid unchanged translations count as successes; genuinely absent targets are not failures. Optional analysis can all recover while the primary extraction succeeds. Cancellation, callback exceptions, unrecoverable service errors, failure of the final recovery and unavailable input/output cannot be ignored. `ErrorCallbackError` preserves the callback exception as its cause.
+
+## Last-resort PDF extraction recovery
+
+Available since 2.6.1.
+
+If chapter analysis or footnote reconstruction has inconsistent structure, extraction
+first uses a validated traditional result. If unavailable, the `analysis` policy is
+asked about stage `chapter_recovery`, fallback `page_image`. `targets` identify known
+failed pages; `affected` includes dependent paragraphs, definitions and references.
+Unknown failures conservatively affect the batch. Accepting `algorithm_result` does
+not authorize `page_image`. Pages are rendered directly from the source PDF, bypassing
+the broken graph. Rendering failures separately ask `pdf_render` for `page_placeholder`.
+Rejecting either decision propagates the error.
+
+This also protects extraction without LLM refinement. OCR caches and previously
+delivered previews are not rewritten or replayed. Partial degradation may complete;
+all primary pages degrading after errors still fails. Cancellation, user callback
+errors, terminal service errors and final storage/publication errors propagate.
+
+## PDF source geometry protection
+
+Available since 2.6.1.
+
+Before erasing text, PCEX PDF rendering checks for text boxes that substantially
+cover unrelated source content, including figures and untranslated text. It asks
+`pdf_fill` about stage `source_geometry`, fallback `original_pdf_page`. Targets
+identify conflicting source bboxes; affected pages include complete cross-page
+paragraphs. Accepting retains those actual source PDF pages while other pages
+continue. No translated layout preview is emitted for skipped replacements;
+existing missing-translation previews can still carry original text with empty
+lines. If all primary targets degrade, the task still fails. Rejecting or raising
+from the decision callback aborts before output publication.
 
 ## Upgrading from 2.5.x
 
@@ -91,32 +123,3 @@ does not return a bool, the task fails. A top-level `error_policy=True` allows a
 recoverable categories, not cancellation, fatal service errors or total fallback.
 Content callbacks such as `on_body` and `on_footnote` keep their existing payloads.
 PCEX remains format v4; there is no archive-format migration in this release.
-
-### Last-resort PDF extraction recovery
-
-If chapter analysis or footnote reconstruction has inconsistent structure, extraction
-first uses a validated traditional result. If unavailable, the `analysis` policy is
-asked about stage `chapter_recovery`, fallback `page_image`. `targets` identify known
-failed pages; `affected` includes dependent paragraphs, definitions and references.
-Unknown failures conservatively affect the batch. Accepting `algorithm_result` does
-not authorize `page_image`. Pages are rendered directly from the source PDF, bypassing
-the broken graph. Rendering failures separately ask `pdf_render` for `page_placeholder`.
-Rejecting either decision propagates the error.
-
-This also protects extraction without LLM refinement. OCR caches and previously
-delivered previews are not rewritten or replayed. Partial degradation may complete;
-all primary pages degrading after errors still fails. Cancellation, user callback
-errors, terminal service errors and final storage/publication errors propagate.
-
-
-### PDF source geometry protection
-
-Before erasing text, PCEX PDF rendering checks for text boxes that substantially
-cover unrelated source content, including figures and untranslated text. It asks
-`pdf_fill` about stage `source_geometry`, fallback `original_pdf_page`. Targets
-identify conflicting source bboxes; affected pages include complete cross-page
-paragraphs. Accepting retains those actual source PDF pages while other pages
-continue. No translated layout preview is emitted for skipped replacements;
-existing missing-translation previews can still carry original text with empty
-lines. If all primary targets degrade, the task still fails. Rejecting or raising
-from the decision callback aborts before output publication.
