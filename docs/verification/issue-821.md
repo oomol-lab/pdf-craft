@@ -99,3 +99,32 @@ serialized. Generated logs/cache/output stay ignored by Git.
 
 Review must independently run the command and inspect its transcripts; the
 implementation's successful requests are evidence, not Review's own gate.
+
+
+### Final-source real-model acceptance
+
+The committed implementation **0c27bff** completed an independent new output run
+`pdf-craft-output/issue821-implement-final-01/` with exit **0**. The final
+`acceptance.json` records **passed=true, streak=3**, temperature **0.7**, top_p
+**1.0**, model **oomol-chat**, and unchanged source/fixture/tool fingerprint
+`c20e21a757d13068db3be7d254e4db54d92e282699abaeb4d4fb3ff35db63fb3`.
+
+| Round | Abstract fill requests | Contribution fill requests | DeepEncoder fill requests |
+| --- | ---: | ---: | ---: |
+| 1 | 2 | 3 | 2 |
+| 2 | 2 | 2 | 2 |
+| 3 | 4 | 2 | 2 |
+
+All nine cases made a fresh first-stage translation request and were accepted
+without recovery. There were **9 translation requests and 21 fill requests**;
+this is not a claim that every model response passed on its first attempt.
+Every saved output passed formula/geometry/asset preservation and strict chapter
+codec round-trip checks after restoration. An additional scan of all nine output
+XML files confirmed no temporary expression/anchor or internal restoration
+markers. The final-source fingerprint was checked again after the run.
+
+Transcripts: `round-N/CASE/request-*.json` (complete messages and raw responses),
+`validation-1.jsonl` (protocol outcome and repair feedback), `result.json`, and
+`accepted.xml` beneath that output directory. No credentials are stored in these
+records. This completion evidence does not replace Review's independent real
+three-round test.
