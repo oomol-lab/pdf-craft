@@ -174,3 +174,18 @@ PDF 原生-only 通知在 OCR 前，LLM 提取通知在字段合并后；异常�
 PCEX 的共享 NarrativeXMLTransformer 元信息阶段负责翻译通知，EPUB 适配器负责 OPF 视图通知；
 书籍通知不包含 TOC 或文档 head/title。只有用户提供 on_metadata 时才构造独立公共快照。
 EpubTranslation 仅作为 EpubFragmentContent 的兼容别名。
+
+
+## PCEX 公式填充与恢复顺序
+
+第一阶段自然段译文是 fill Loop 的全文基准，允许把源 LaTeX 自然表达为 `97%`、
+“16倍”等文字。Loop 内的临时 `expression` 与普通 inline 标签遵守同样的结构/属性/ID
+校验，里面的文字参与严格全文比较，但不与原公式内容作额外比较。完整候选通过结构及
+全文校验、退出 Loop 后，ChapterFormulaInterrupter 才按身份恢复源公式；这是确定的程序
+后处理，不再次比较源 LaTeX 与扁平化译文，也不发起新的 fill 请求。最终 PCEX 仍使用
+原有 inline_expr 表达，不发布临时 expression/anchor 或恢复标记。图片/表格 anchor 保持
+零宽结构语义，不能因公式文字可填充而放宽 anchor 或独立公式边界。
+
+付费公式回归入口是 `python -m pdf_craft_tool.smoke.fill_formula_loop --output NEW-DIRECTORY`。
+它对三个固定真实源段落重新翻译和填充，以 temperature=0.7、top_p=1.0 连续三轮全过
+为门禁，不复用模型响应，不将 fallback 当成功；详细运行要求见 docs/verification/issue-821.md。
