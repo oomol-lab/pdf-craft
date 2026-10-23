@@ -581,7 +581,7 @@ class AnchoredContentTranslationTests(unittest.TestCase):
         self.assertEqual(_text(content), "Character  vanishes.")
         self.assertIsInstance(content[1], InlineExpression)
 
-    def test_fill_keeps_formula_identity_when_translation_reorders_two_formulas(self):
+    def test_fill_restores_source_formula_ids_only_after_accepting_canonical_text(self):
         chapter = Chapter(None, -1, [TextFlowItem("body", 0, [
             SourceTextFragment(1, 1, (1, 1, 90, 15), [
                 "A character ",
@@ -591,29 +591,22 @@ class AnchoredContentTranslationTests(unittest.TestCase):
                 ".",
             ]),
         ])])
-        incorrect = (
-            '<xml><fragment id="1">模 <expression id="2">\\(q\\)'
-            '</expression> 的特征 <expression id="3">\\(\\chi\\)'
+        filled = (
+            '<xml><fragment id="1">模 <expression id="3">q'
+            '</expression> 的特征 <expression id="2">χ'
             '</expression>。</fragment></xml>'
         )
-        corrected = (
-            '<xml><fragment id="1">模 <expression id="3">\\(q\\)'
-            '</expression> 的特征 <expression id="2">\\(\\chi\\)'
-            '</expression>。</fragment></xml>'
-        )
-        translator, runtime = _repairing_translator((incorrect, corrected))
-        translator._translate_text_async = AsyncMock(return_value=r"模 \(q\) 的特征 \(\chi\)。")  # type: ignore[method-assign]
+        translator, runtime = _repairing_translator((filled,))
+        translator._translate_text_async = AsyncMock(return_value="模 q 的特征 χ。")  # type: ignore[method-assign]
 
         translated = asyncio.run(NarrativeXMLTransformer(cast(Any, translator)).transform(chapter))
 
-        self.assertEqual(runtime.context_value.calls, 2)
+        self.assertEqual(runtime.context_value.calls, 1)
         text = translated.flow_items[0]
         assert isinstance(text, TextFlowItem)
         content = text.children[0].content
         formulas = [item for item in content if isinstance(item, InlineExpression)]
         self.assertEqual([formula.content for formula in formulas], ["q", r"\chi"])
-        retry_messages = runtime.context_value.messages[1][0]
-        self.assertIn("source formula", retry_messages[-1].message)
         self.assertNotIn(
             "__PDF_CRAFT_CHAPTER_FORMULA_ID",
             tostring(encode(translated), encoding="unicode"),

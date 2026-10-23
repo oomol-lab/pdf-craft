@@ -17,7 +17,7 @@ from pdf_craft.extractor.chapter.chapter import (
 from pdf_craft.markdown.paragraph import flatten
 from pdf_craft.transformer.xml_translator.segment import search_text_segments
 from pdf_craft.transformer.xml_translator.segment import ImmutableBlockElement, InlineSegment
-from pdf_craft.transformer.xml_translator.xml import clone_element, plain_text
+from pdf_craft.transformer.xml_translator.xml import clone_element
 from pdf_craft.transformer.xml_translator.xml.const import ID_KEY
 from pdf_craft.transformer.xml_translator.utils import normalize_whitespace
 from pdf_craft.transformer.events import TranslationEvent, TranslationItemKind
@@ -486,6 +486,12 @@ def _validate_chapter_fill_canonical_text(
     segment layer canonicalizes runs of whitespace to one space; comparison
     uses that same representation while still catching a space independently
     introduced on both sides of a fragment boundary.
+
+    Temporary ``expression`` nodes are ordinary inline text slots here. The
+    first translation may flatten LaTeX into prose, so their model-produced
+    text participates in the same canonical comparison as a span. Original
+    formulas are restored by ChapterFormulaInterrupter only after the repair
+    loop has accepted this complete response.
     """
     owners = _ordered_source_unit_owners(inline_segments)
     if len(owners) != 1:
@@ -499,22 +505,6 @@ def _validate_chapter_fill_canonical_text(
         for child in response
         if child.get(ID_KEY, "").isdigit()
     }
-    expected_formulas = {
-        formula_id: normalize_whitespace(plain_text(formula)).strip()
-        for segment in inline_segments
-        for formula in segment.create_element().iter("expression")
-        if (formula_id := formula.get(ID_KEY)) is not None
-    }
-    for formula in response.iter("expression"):
-        formula_id = formula.get(ID_KEY)
-        if formula_id in expected_formulas and normalize_whitespace(
-            plain_text(formula)
-        ).strip() != expected_formulas[formula_id]:
-            return (
-                f"Formula token #{formula_id} no longer contains its source formula. "
-                "Move the complete <expression> element, including its id, instead "
-                "of moving formula text between expression slots."
-            )
     actual_by_owner: dict[int, list[str]] = {id(owner): [] for owner in owners}
     owner_by_segment = {
         segment.id: _source_unit_owner(segment)

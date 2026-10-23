@@ -492,6 +492,12 @@ class XMLTranslator:
                 "fragment slots must exactly reproduce the corresponding canonical "
                 "translation above. <anchor .../> nodes are zero-width structural "
                 "tokens: do not add a space or any character on either side of one."
+                " Inline <expression> nodes are ordinary text slots like <span>: "
+                "fill them with the corresponding canonical translated text, even "
+                "when it uses plain symbols or prose instead of source LaTeX. "
+                "The caller restores original formulas after this fill loop; do "
+                "not copy source formula spelling when it differs from the "
+                "canonical translation. Preserve the required tags and IDs."
             )
         fill_template = await self._fill_runtime.template("fill")
         fixed_messages = [

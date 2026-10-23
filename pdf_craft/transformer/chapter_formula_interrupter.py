@@ -122,7 +122,12 @@ class ChapterFormulaInterrupter:
     def interrupt_translated_text_segments(
         self, text_segments: Iterable[TextSegment],
     ) -> Generator[TextSegment, None, None]:
-        """Discard translated formula text and restore original inline segments."""
+        """Restore source formulas after fill and canonical validation succeed.
+
+        The model may use plain symbols or prose in an ``expression`` slot.
+        Those characters are validated inside the repair loop; this later
+        projection restores source content by ID without another fill request.
+        """
         for text_segment in text_segments:
             if any(
                 _FORMULA_CONTEXT_KEY in element.attrib
