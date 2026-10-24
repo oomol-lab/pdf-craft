@@ -10,6 +10,7 @@ from dataclasses import dataclass
 from functools import wraps
 import inspect
 import math
+import os
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from typing import Any, TypeVar, cast
@@ -29,6 +30,22 @@ class PreflightResult:
 # Each top-level PDF operation owns this mapping; no successes survive a call.
 _results: ContextVar[dict[tuple, PreflightResult] | None] = ContextVar("pdf_preflight", default=None)
 F = TypeVar("F", bound=Callable[..., Any])
+_poppler_path: ContextVar[Path | None] = ContextVar("pdf_poppler_path", default=None)
+
+
+def current_poppler_path() -> Path | None:
+    """Tool configuration shared by nested checks and default readers."""
+    return _poppler_path.get()
+
+
+def poppler_path_for(provider: object) -> Path | None:
+    """Resolve configured adapters without extending custom handler contracts."""
+    from .handler import DefaultPDFHandler
+    if isinstance(provider, DefaultPDFHandler):
+        return provider.poppler_path
+    # Do not probe arbitrary attributes on caller-owned proxies or handlers.
+    resolve = getattr(type(provider), "_preflight_poppler_path", None)
+    return resolve(provider) if resolve is not None else None
 
 
 def _key(source: Path) -> tuple:
@@ -92,7 +109,8 @@ def _check_geometry(expected: PageGeometry, actual: PageGeometry) -> None:
         raise ValueError(f"PDF backends disagree on page geometry: {expected!r} vs {actual!r}")
 
 
-def check_pdf(source: Path, aborted: Callable[[], bool] = lambda: False) -> PreflightResult:
+def check_pdf(source: Path, aborted: Callable[[], bool] = lambda: False, *,
+              poppler_path: Path | None = None) -> PreflightResult:
     """Blocking worker boundary; callers normally use pdf_operation."""
     import asyncio
     from importlib import import_module
@@ -103,14 +121,18 @@ def check_pdf(source: Path, aborted: Callable[[], bool] = lambda: False) -> Pref
             raise asyncio.CancelledError()
 
     checkpoint()
-    key = _failure(source, "pypdf", "open", None, lambda: _key(source))
+    source_key = _failure(source, "pypdf", "open", None, lambda: _key(source))
+    tools = poppler_path if poppler_path is not None else current_poppler_path()
+    tools = tools.resolve() if tools is not None else None
+    # A success using one installation cannot validate a different tool path.
+    key = (*source_key, tools, tuple(os.get_exec_path()) if tools is None else None)
     cache = _results.get()
     if cache is not None and key in cache:
         return cache[key]
     # Use the backend's strict reader. Never run a separate repair pass or
     # substitute a normalized PDF for the original input.
     reader = _failure(source, "pypdf", "open", None, lambda: pypdf.PdfReader(source, strict=True))
-    poppler = PopplerDocument(source, aborted=aborted)
+    poppler = PopplerDocument(source, tools, aborted=aborted)
     try:
         count = _failure(source, "pypdf", "page_read", None, lambda: len(reader.pages))
         if count <= 0:
@@ -156,7 +178,7 @@ def check_pdf(source: Path, aborted: Callable[[], bool] = lambda: False) -> Pref
             finally:
                 trial.close()
         checkpoint()
-        if _failure(source, "pypdf", "open", None, lambda: _key(source)) != key:
+        if _failure(source, "pypdf", "open", None, lambda: _key(source)) != source_key:
             raise PDFPreflightError(str(source), "consistency", "source_changed", None,
                                     "Source PDF changed during preflight")
         result = PreflightResult(pages, labels)
@@ -178,13 +200,17 @@ def pdf_operation(function: F) -> F:
         values = {**bound, **bound.get("kwargs", {})}
         source = next(values[key] for key in ("source", "source_path", "pdf_path") if key in values)
         source = Path(source)
+        tools = poppler_path_for(values.get("self"))
         token = _results.set({}) if _results.get() is None else None
+        tool_token = _poppler_path.set(tools) if tools is not None else None
         try:
             await run_cancellable(IO_DOMAIN, lambda aborted: check_pdf(source, aborted),
                                   original_aborted=values.get("aborted") or getattr(
                                       values.get("options") or values.get("extraction"), "aborted", None))
             return await function(*args, **kwargs)
         finally:
+            if tool_token is not None:
+                _poppler_path.reset(tool_token)
             if token is not None:
                 _results.reset(token)
     return cast(F, invoke)

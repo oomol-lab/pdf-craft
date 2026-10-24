@@ -105,6 +105,10 @@ pdfinfo -v
 
 如果出现 `command not found` 或 Windows 找不到命令，请先修复 PATH，再运行 pdf-craft。
 
+直接使用非 PATH 中的工具目录时，可以调用
+`pdf_pages_count(path, pdf_handler=DefaultPDFHandler(poppler_path=directory))`
+（`DefaultPDFHandler` 从 `pdf_craft.pdf` 导入）。预检与读取共用该目录；无效目录仍报错。
+
 升级已有部署时，也应更新 PDF 后端。PDF Craft 要求 pypdf 6.21.2 或更新的 6.x
 版本。Poppler 是独立安装的系统工具，升级 Python 包不会自动升级它。
 

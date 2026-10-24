@@ -1,5 +1,5 @@
 
-from pdf_craft import RetryPolicy, ErrorPolicy
+from pdf_craft import RetryPolicy
 import json
 import platform
 import shutil
@@ -304,7 +304,7 @@ def _run_pdf(
             if transformer is not None:
                 package = _translate_package(craft, package, run_path, transformer, run)
             craft.render_epub(
-                package, epub, lan=_package_epub_language(run, transformer),
+                package, epub, label_language="en",
                 mode=mode, translation_id=translation_id,
             )
         with report.stage("check"):
@@ -408,19 +408,6 @@ def _package_render_selection(
     mode = RenderMode(str(configured).lower())
     translation_id = translation.get("translation_id")
     return mode, translation_id if isinstance(translation_id, str) else None
-
-
-def _package_epub_language(
-    run: SmokeRun, transformer,
-) -> Literal["zh", "en"] | None:
-    if transformer is None:
-        return None
-    language = str((run.translation or {}).get("target_language", "en")).lower()
-    if language in {"zh", "chinese", "simplified chinese"}:
-        return "zh"
-    if language in {"en", "english"}:
-        return "en"
-    return None
 
 
 def _translate_package(

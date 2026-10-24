@@ -9,7 +9,7 @@ from ...extractor.chapter.chapter import Chapter, Reference, TextFlowItem, FlowI
 from ...metering import check_aborted
 from ...runtime import IO_DOMAIN, TEX_DOMAIN, run_cancellable
 from ..paragraph import display_values
-from .render import _convert_chapter_to_epub, _iter_text_in_title, _ReferenceNumbers
+from .render import _convert_chapter_to_epub, _iter_text_in_title, _ReferenceNumbers, _label_language
 from .toc_collection import TocCollection
 from .anchored import FloatMarkerRegistry, apply_float_markers
 
@@ -30,7 +30,7 @@ def load_records(path):
 
 
 async def render_content(items, view, numbers, notify, directory, output, *, mode,
-                         book_meta, language, table_render, latex_render, inline_latex, aborted):
+                         book_meta, label_language, table_render, latex_render, inline_latex, aborted):
     toc = await IO_DOMAIN.run(TocCollection, view.toc if view.toc.exists() else None)
     markers = FloatMarkerRegistry()
     chapters = {}
@@ -77,7 +77,7 @@ async def render_content(items, view, numbers, notify, directory, output, *, mod
     cover = view.cover if await IO_DOMAIN.run(view.cover.exists) else None
     data = EpubData(meta=book_meta, get_head=head, chapters=toc.normalize().target, cover_image_path=cover)
     await run_cancellable(TEX_DOMAIN, lambda cancelled: generate_epub(
-        epub_data=data, epub_file_path=output, lan=language, table_render=table_render,
+        epub_data=data, epub_file_path=output, lan=_label_language(label_language), table_render=table_render,
         latex_render=latex_render, assert_not_aborted=lambda: check_aborted(lambda: cancelled() or aborted()),
     ), original_aborted=aborted)
     await IO_DOMAIN.run(apply_float_markers, output, markers.sides)

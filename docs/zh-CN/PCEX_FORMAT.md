@@ -287,7 +287,7 @@ pdf-craft 自身总会写出 `created_at`，使用带 UTC 时区偏移的当前�
 
 自动元信息抽取不会把 PDF 的 `/ModDate` 视为出版日期，也不会写入 `modified`。`modified` 只保留给调用方显式传入、面向 EPUB 的 `BookMeta`。
 
-`language` 当前不限制为特定语言代码，但 EPUB 渲染器只支持 `zh` 和 `en`。渲染 EPUB 时，调用参数 `lan` 优先，其次是此字段，最后默认为 `zh`。调用时显式传入的 `book_meta` 会逐字段覆盖 manifest 转换出的 EPUB 核心元信息：非空调用方值优先，`None`、空字符串和空的贡献者列表保留 manifest 值。`BookMeta` 不能表达“主动清空”一个已提取字段。
+`language` 不限制为特定语言代码。EPUB 固定文案独立由 `label_language="en"` 选择：精确 `zh` / `en` 使用对应文案，其余值统一回退英文。此字段不再推断固定文案，缺少本地化文案也不会拒绝正文或改写内容语言。调用时显式传入的 `book_meta` 会逐字段覆盖 manifest 转换出的 EPUB 核心元信息：非空调用方值优先，`None`、空字符串和空的贡献者列表保留 manifest 值。`BookMeta` 不能表达“主动清空”一个已提取字段。
 
 书籍元信息抽取是显式开启的功能。它借助独立 LLM 读取前部原始 OCR 页，只保留有页内证据的字段；PDF 文件 metadata 仅可补缺，不能覆盖 OCR。关闭时，除非另有调用方提供，文档元信息保持为空。翻译 extraction 时不会自动改写 manifest 或语言。
 

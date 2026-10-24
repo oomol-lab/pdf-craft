@@ -1,7 +1,7 @@
 # pylint: disable=unused-argument
 # pylint: disable=protected-access
 
-from pdf_craft.pdf.preflight import pdf_operation
+from pdf_craft.pdf.preflight import pdf_operation, poppler_path_for
 from .policies import ErrorPolicyInput
 from ._policy import decision_bridge, OMITTED, policy_operation
 
@@ -78,6 +78,7 @@ class PDFExtractionEngine:
         ocr_executor: AsyncExecutor | None = None,
         ocr_image_url_resolver: OCRImageURLResolver | None = None,
     ) -> None:
+        self._poppler_path = poppler_path_for(pdf_handler)
         self._ocr = OCR(
             ocr=ensure_ocr_config(ocr, models_cache_path, local_only),
             pdf_handler=pdf_handler,
@@ -86,6 +87,10 @@ class PDFExtractionEngine:
             raise ValueError("Vendor OCR requires an explicit OCR executor")
         self._ocr_executor = ocr_executor
         self._ocr_image_url_resolver = ocr_image_url_resolver
+
+    def _preflight_poppler_path(self) -> Path | None:
+        """Share the native adapter's tool configuration with the input gate."""
+        return getattr(self, "_poppler_path", None)
 
     async def predownload(self, revision: str | None = None) -> None:
         await OCR_DOMAIN.run(self._ocr.predownload, revision)
@@ -268,9 +273,12 @@ class PDFExtractionEngine:
         """Fetch direct subprocess inputs before entering the OCR worker."""
         if not includes_furniture:
             return {}
+        from .pdf.poppler import PopplerDocument
+        from .pdf.preflight import current_poppler_path
+        command = PopplerDocument(pdf_path, current_poppler_path()).command("pdftotext")
         try:
             stdout, _ = await run_subprocess(
-                "pdftotext", "-bbox-layout", str(pdf_path), "-",
+                command, "-bbox-layout", str(pdf_path), "-",
             )
         except (FileNotFoundError, RuntimeError):
             stdout = None

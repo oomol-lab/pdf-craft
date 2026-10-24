@@ -1,6 +1,6 @@
 # pylint: disable=unused-argument
 
-from pdf_craft.pdf.preflight import pdf_operation
+from pdf_craft.pdf.preflight import pdf_operation, poppler_path_for
 from pdf_craft.policies import RetryPolicy, ErrorPolicyInput
 from pdf_craft._policy import OMITTED, policy_operation
 # pylint: disable=protected-access
@@ -20,6 +20,10 @@ class PDFExtractor:
 
     def __init__(self, transform: Any) -> None:
         self._transform = transform
+
+    def _preflight_poppler_path(self) -> Path | None:
+        """Share the native adapter's tool configuration with the input gate."""
+        return poppler_path_for(self._transform)
 
     @staticmethod
     def _load_workspace(analysing_path: Path, metering):

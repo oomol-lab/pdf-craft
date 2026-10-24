@@ -6,6 +6,11 @@
 都执行强制双后端预检；`source`、`backend`、`stage`、`page_index`、`reason`
 标明失败位置。它不可忽略，不进入 ErrorPolicy。详见[预检行为和示例](ERROR_HANDLING.md#强制-pdf-输入预检)。
 
+预检与默认读取器共用显式的 Poppler 工具目录：
+`pdf_pages_count(source, pdf_handler=DefaultPDFHandler(poppler_path=...))`
+不要求该目录同时出现在 PATH。嵌套操作复用本次配置，其他工具目录不能复用它的校验结果；
+没有显式配置的自定义 handler 仍要求 PATH 中存在 Poppler，不需要新增扩展属性。
+
 
 本文面向需要把 pdf-craft 集成到自己程序中的用户。入门流程请先阅读仓库根目录的
 README；本文只说明稳定的公共导入和它们如何组合。示例默认使用：
@@ -260,7 +265,7 @@ craft.convert_pdf_to_epub(
 ```
 
 两个方法都返回 `OCRTokensMetering`。`convert_pdf_to_markdown` 另接受 `assets_path`，
-用于把渲染出的图片资源写到指定目录；EPUB 的 `lan`、`table_render`、`latex_render` 和
+用于把渲染出的图片资源写到指定目录；EPUB 的 `label_language`、`table_render`、`latex_render` 和
 `inline_latex` 控制 EPUB 输出格式。
 两个方法都可以通过 `translator` 和 `on_translation_event` 在转换时完成一次翻译。
 
@@ -287,7 +292,14 @@ craft.render_epub(
 
 渲染不会重新 OCR，也不会读取 PDF。Markdown 与 EPUB 都要求 extraction 校验通过；
 `toc.xml` 可选，EPUB 可根据章节标题生成导航。Markdown 可选复制图片资源；EPUB 从
-`manifest.json` 读取默认元数据和语言，调用时显式提供的 `book_meta` / `lan` 优先。
+`manifest.json` 读取默认元数据，显式提供的非空 `book_meta` 字段优先。
+`label_language="en"` 只选择目录、封面、前言和未命名标题等固定文案；精确 `zh` / `en`
+选择对应文案，其他字符串统一回退英文。不根据原文或 translator 的目标语言推断，
+不限制或修改正文、翻译目标、PCEX 语言元数据或回调内容。
+2.6.2 起，`render_epub()`、`convert_pdf_to_epub()` 和 `EpubRenderer.render()` 的旧 `lan`
+关键字改为 `label_language`，旧关键字不再接受；默认文案也改为英文。
+固定依赖的 EPUB 生成器仍将部分 OPF/XHTML 语言标记写死为 `zh`；这是独立的既有问题，
+本次文案选择没有修复它，也不能把 `label_language` 当作内容语言标记设置。
 
 `RenderMode.SOURCE` 只渲染原文，不选择译文。`RenderMode.REPLACE` 用所选译文替换
 已翻译单元，未翻译单元回退原文。
@@ -452,8 +464,8 @@ PDF 一键转换复用相同的 replacement-only 译文层流程：`SubmitKind.R
 组合后的双语展示视图只用于渲染，不作为 PCEX 章节保存。分块模式将一个正文段的原文片段
 组合后再输出译文段；标题与目录仍合为一个标题。图片、表格只出现一次，标签和单元格文字
 在原位组合。脚注定义跟随文本／分块样式，多次引用仍链接同一份定义。
-`extraction_path` 仍导出原始提取结果。一键 EPUB 转换保留原有 `lan` / 原文语言 / `zh` 的选择顺序，
-不会把 translator 的 `English` 等自由文本目标名称当作 EPUB 语言代码。
+`extraction_path` 仍导出原始提取结果。一键 EPUB 转换与独立渲染使用同一套
+`label_language` 固定文案选择和英文回退，不再从原文／译文语言推断文案。
 直接翻译已有 EPUB 的提交模式不受影响。
 
 标准入口直接接收 `XMLTranslator`。narrative 与 metadata 固定执行；`with_anchored` 默认是

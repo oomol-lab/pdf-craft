@@ -167,7 +167,7 @@ python -m pip install "pdf-craft[local]"
 
 Local execution also requires a matching CUDA-enabled PyTorch build, sufficient VRAM, and model files. Models download from Hugging Face by default; you can also download them in advance and load them locally. Presets and requirements vary by model; see [OCR configuration](docs/en/OCR_BACKENDS.md).
 
-**Language support depends on the processing stage.** README languages describe documentation availability. Text recognition depends on the OCR model, and translation depends on the translator and text LLM. The EPUB `lan` parameter currently offers `zh` / `en`; see the [API reference](docs/en/API_REFERENCE.md).
+**Language support depends on the processing stage.** README languages describe documentation availability. Text recognition depends on the OCR model, and translation depends on the translator and text LLM. The EPUB `label_language` parameter selects fixed navigation/default-title labels (`zh` / `en`, with English as the default and fallback); it does not restrict content or translation languages; see the [API reference](docs/en/API_REFERENCE.md).
 
 <a id="documentation"></a>
 
@@ -184,7 +184,7 @@ Local execution also requires a matching CUDA-enabled PyTorch build, sufficient 
 | Store or exchange extraction results | [`.pcex` format](docs/en/PCEX_FORMAT.md) |
 | Resolve installation and conversion issues | [Troubleshooting](docs/en/TROUBLESHOOTING.md) |
 | Upgrade to 2.6.0: retry and recovery policies | [Migration guide](docs/en/ERROR_HANDLING.md#upgrading-from-25x) |
-| Read the 2.6.1 release notes | [Changelog](docs/changelog/v2.6.1.md) |
+| Read the 2.6.2 release notes | [Changelog](docs/changelog/v2.6.2.md) |
 
 ## Feedback and contributions
 

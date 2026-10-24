@@ -43,6 +43,15 @@ from .latex_to_text import latex_to_plain_text
 from .toc_collection import TocCollection
 
 
+def _label_language(value: str) -> Literal["zh", "en"]:
+    """Select fixed labels, not the content language.
+
+    epub-generator's small label catalog is not a supported-content whitelist.
+    Never reject a document because its language lacks localized labels.
+    """
+    return "zh" if value == "zh" else "en"
+
+
 async def render_epub_file(
     chapters_path: Path,
     toc_path: Path | None,
@@ -50,7 +59,7 @@ async def render_epub_file(
     epub_path: Path,
     cover_path: Path | None,
     book_meta: BookMeta | None,
-    lan: Literal["zh", "en"],
+    label_language: str,
     table_render: TableRender,
     latex_render: LaTeXRender,
     inline_latex: bool,
@@ -110,7 +119,7 @@ async def render_epub_file(
         lambda cancelled: generate_epub(
             epub_data=epub_data,
             epub_file_path=epub_path,
-            lan=lan,
+            lan=_label_language(label_language),
             table_render=table_render,
             latex_render=latex_render,
             assert_not_aborted=lambda: check_aborted(lambda: cancelled() or aborted()),

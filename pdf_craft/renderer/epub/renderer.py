@@ -6,7 +6,6 @@ from pdf_craft._policy import OMITTED, policy_operation
 
 from collections.abc import Callable
 from pathlib import Path
-from typing import Literal, cast
 
 from epub_generator import BookMeta, LaTeXRender, TableRender
 
@@ -26,7 +25,7 @@ class EpubRenderer:
     async def render(
         self, extraction: PDFCraftExtraction, output_path: Path, *,
         book_meta: BookMeta | None = None,
-        lan: Literal["zh", "en"] | None = None,
+        label_language: str = "en",
         table_render: TableRender = TableRender.HTML,
         latex_render: LaTeXRender = LaTeXRender.MATHML,
         inline_latex: bool = True,
@@ -40,22 +39,23 @@ class EpubRenderer:
         on_metadata: MetadataCallback | None = None,
         retry_policy: RetryPolicy | None = None, error_policy: ErrorPolicyInput = OMITTED,
     ) -> None:
-        """Orchestrate the view and native EPUB generation asynchronously."""
+        """Render content with localized fixed labels, never restrict its language.
+
+        ``label_language`` selects navigation/default-title labels only; exact
+        ``zh`` and ``en`` are available, other values fall back to English.
+        """
         from ...document.stream_view import content_view
         from ..paragraph import paragraph_notifications
         from .content import render_content
         async with content_view(extraction, mode=mode, translation_id=translation_id,
                                 translator=translator, window=window,
                                 with_anchored=with_anchored, on_metadata=on_metadata, aborted=aborted) as (view, pages, numbers, items):
-            language = lan or view.language or "zh"
             effective_meta = _merge_book_meta(view.book_meta(), book_meta)
-            if language not in {"zh", "en"}:
-                raise ValueError(f"unsupported EPUB language: {language}")
             async with temporary_directory("pdf-craft-epub-") as directory:
                 staged = Path(directory) / output_path.name
                 async with paragraph_notifications(pages, view.assets, numbers, on_body, on_footnote) as notify:
                     await render_content(items, view, numbers, notify, Path(directory), staged,
-                        mode=mode, book_meta=effective_meta, language=cast(Literal["zh", "en"], language),
+                        mode=mode, book_meta=effective_meta, label_language=label_language,
                         table_render=table_render, latex_render=latex_render, inline_latex=inline_latex,
                         aborted=aborted)
                 from ...metering import check_aborted

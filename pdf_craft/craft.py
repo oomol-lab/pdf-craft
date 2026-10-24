@@ -1,7 +1,7 @@
 # pylint: disable=unused-argument
 """Public facade that composes pdf-craft's independent components."""
 
-from pdf_craft.pdf.preflight import pdf_operation
+from pdf_craft.pdf.preflight import pdf_operation, poppler_path_for
 from pdf_craft.policies import RetryPolicy, ErrorPolicyInput
 from pdf_craft._policy import OMITTED, policy_operation
 
@@ -15,7 +15,7 @@ from dataclasses import dataclass, replace
 from os import PathLike
 from pathlib import Path
 from xml.etree.ElementTree import Element
-from typing import Any, AsyncIterator, Literal, cast
+from typing import Any, AsyncIterator, cast
 
 from epub_generator import BookMeta, LaTeXRender, TableRender
 
@@ -115,6 +115,10 @@ class AsyncPDFCraft:
         self._error_policy = error_policy
         self._pdf = pdf
         self._engine = _engine
+
+    def _preflight_poppler_path(self) -> Path | None:
+        """Share the native adapter's tool configuration with the input gate."""
+        return poppler_path_for(self._engine)
 
     @classmethod
     def from_engine(cls, engine) -> "AsyncPDFCraft":
@@ -311,7 +315,7 @@ class AsyncPDFCraft:
     @policy_operation
     async def render_epub(
         self, extraction: PDFCraftExtraction | PathLike | str, output: PathLike | str, *,
-        book_meta: BookMeta | None = None, lan: Literal["zh", "en"] | None = None,
+        book_meta: BookMeta | None = None, label_language: str = "en",
         table_render: TableRender = TableRender.HTML,
         latex_render: LaTeXRender = LaTeXRender.MATHML,
         inline_latex: bool = True,
@@ -325,9 +329,14 @@ class AsyncPDFCraft:
         on_metadata: MetadataCallback | None = None,
         retry_policy: RetryPolicy | None = None, error_policy: ErrorPolicyInput = OMITTED,
     ) -> None:
+        """Generate EPUB; label_language controls fixed labels only.
+
+        Exact zh/en select built-in labels; all other values use English.
+        This option neither selects nor limits the document/translation language.
+        """
         document = await _ensure_extraction_async(extraction)
         await EpubRenderer().render(
-            document, Path(output), book_meta=book_meta, lan=lan,
+            document, Path(output), book_meta=book_meta, label_language=label_language,
             table_render=table_render, latex_render=latex_render,
             inline_latex=inline_latex, mode=mode,
             translation_id=translation_id, aborted=aborted,
@@ -478,7 +487,7 @@ class AsyncPDFCraft:
         analysing_path: PathLike | str | None = None,
         extraction_path: PathLike | str | None = None,
         extraction: ExtractionOptions | None = None,
-        book_meta: BookMeta | None = None, lan: Literal["zh", "en"] | None = None,
+        book_meta: BookMeta | None = None, label_language: str = "en",
         table_render: TableRender = TableRender.HTML,
         latex_render: LaTeXRender = LaTeXRender.MATHML,
         inline_latex: bool = True,
@@ -490,6 +499,11 @@ class AsyncPDFCraft:
         on_metadata: MetadataCallback | None = None,
         retry_policy: RetryPolicy | None = None, error_policy: ErrorPolicyInput = OMITTED,
     ) -> OCRTokensMetering:
+        """Generate EPUB; label_language controls fixed labels only.
+
+        Exact zh/en select built-in labels; all other values use English.
+        This option neither selects nor limits the document/translation language.
+        """
         options = replace(extraction or ExtractionOptions(), includes_furniture=False)
         async with _analysis_workspace_async(analysing_path) as workspace:
             document, metering = await self._extract_to_workspace(source, workspace, options)
@@ -507,10 +521,7 @@ class AsyncPDFCraft:
                     )
                     await self.render_epub(
                         document, output, book_meta=book_meta,
-                        # Preserve one-shot language inference: translator target
-                        # names (e.g. "English") need not be EPUB language codes.
-                        lan=lan or cast(Literal["zh", "en"],
-                                        await IO_DOMAIN.run(document._language) or "zh"),
+                        label_language=label_language,
                         table_render=table_render, latex_render=latex_render,
                         inline_latex=inline_latex, aborted=options.aborted,
                         mode=_submission_render_mode(submit),
@@ -518,7 +529,7 @@ class AsyncPDFCraft:
                     )
             else:
                 await self.render_epub(
-                    document, output, book_meta=book_meta, lan=lan,
+                    document, output, book_meta=book_meta, label_language=label_language,
                     table_render=table_render, latex_render=latex_render,
                     inline_latex=inline_latex, aborted=options.aborted,
                 )

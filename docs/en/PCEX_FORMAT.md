@@ -298,7 +298,7 @@ All fields are required. A single-value field with no value uses `null`; a contr
 
 Automatic metadata extraction never uses a PDF `/ModDate` as a publication date or as `modified`. `modified` is reserved for an explicit EPUB-oriented `BookMeta` supplied by a caller.
 
-The format does not currently restrict `language` to a fixed set of language codes, but the EPUB renderer supports only `zh` and `en`. During EPUB rendering, an explicit `lan` argument takes precedence, followed by this field, with `zh` as the final default. An explicit `book_meta` overlays the EPUB-ready fields derived from the manifest one by one: non-empty caller values win, while `None`, empty strings, and empty contributor lists retain the manifest value. `BookMeta` cannot express clearing an extracted field.
+The format does not restrict `language` to a fixed set of language codes. EPUB fixed labels are selected independently by `label_language="en"`: exact `zh` or `en` use that catalog, while all other values fall back to English. This field does not select labels, and missing localized labels never reject content or rewrite its language. An explicit `book_meta` overlays the EPUB-ready fields derived from the manifest one by one: non-empty caller values win, while `None`, empty strings, and empty contributor lists retain the manifest value. `BookMeta` cannot express clearing an extracted field.
 
 Book metadata extraction is opt-in. It reads raw front-page OCR with a dedicated LLM, retaining only values with page evidence; native PDF metadata can fill a missing field but cannot replace OCR. When disabled, document metadata remains empty unless supplied through a separate caller path. Translating an extraction does not automatically update the manifest or language.
 

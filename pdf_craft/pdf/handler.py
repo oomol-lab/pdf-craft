@@ -59,10 +59,16 @@ class DefaultPDFHandler:
         if poppler_path is not None:
             self._poppler_path = Path(poppler_path)
 
+    @property
+    def poppler_path(self) -> Path | None:
+        """Explicit Poppler executable directory, shared with input preflight."""
+        return self._poppler_path
+
     def open(self, pdf_path: Path) -> PDFDocument:
+        from .preflight import current_poppler_path
         return DefaultPDFDocument(
             pdf_path=pdf_path,
-            poppler_path=self._poppler_path,
+            poppler_path=self._poppler_path or current_poppler_path(),
         )
 
 

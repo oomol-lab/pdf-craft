@@ -4,7 +4,6 @@ from .._policy import OMITTED
 
 from collections.abc import Callable
 from os import PathLike
-from typing import Literal
 
 from epub_generator import BookMeta, LaTeXRender, TableRender
 
@@ -167,7 +166,7 @@ class PDFCraft:
 
     def render_epub(
         self, extraction: PDFCraftExtraction | PathLike | str, output: PathLike | str, *,
-        book_meta: BookMeta | None = None, lan: Literal["zh", "en"] | None = None,
+        book_meta: BookMeta | None = None, label_language: str = "en",
         table_render: TableRender = TableRender.HTML,
         latex_render: LaTeXRender = LaTeXRender.MATHML,
         inline_latex: bool = True,
@@ -181,10 +180,15 @@ class PDFCraft:
         on_metadata: MetadataCallback | None = None,
         retry_policy: RetryPolicy | None = None, error_policy: ErrorPolicyInput = OMITTED,
     ) -> None:
+        """Generate EPUB; label_language controls fixed labels only.
+
+        Exact zh/en select built-in labels; all other values use English.
+        This option neither selects nor limits the document/translation language.
+        """
         return run_sync(self._async_craft.render_epub(
             extraction, output,
             book_meta=book_meta,
-            lan=lan,
+            label_language=label_language,
             table_render=table_render,
             latex_render=latex_render,
             inline_latex=inline_latex,
@@ -319,7 +323,7 @@ class PDFCraft:
         analysing_path: PathLike | str | None = None,
         extraction_path: PathLike | str | None = None,
         extraction: ExtractionOptions | None = None,
-        book_meta: BookMeta | None = None, lan: Literal["zh", "en"] | None = None,
+        book_meta: BookMeta | None = None, label_language: str = "en",
         table_render: TableRender = TableRender.HTML,
         latex_render: LaTeXRender = LaTeXRender.MATHML,
         inline_latex: bool = True,
@@ -331,13 +335,18 @@ class PDFCraft:
         on_metadata: MetadataCallback | None = None,
         retry_policy: RetryPolicy | None = None, error_policy: ErrorPolicyInput = OMITTED,
     ) -> OCRTokensMetering:
+        """Generate EPUB; label_language controls fixed labels only.
+
+        Exact zh/en select built-in labels; all other values use English.
+        This option neither selects nor limits the document/translation language.
+        """
         return run_sync(self._async_craft.convert_pdf_to_epub(
             source, output,
             analysing_path=analysing_path,
             extraction_path=extraction_path,
             extraction=extraction,
             book_meta=book_meta,
-            lan=lan,
+            label_language=label_language,
             table_render=table_render,
             latex_render=latex_render,
             inline_latex=inline_latex,
