@@ -298,6 +298,26 @@ craft.render_epub(
 不限制或修改正文、翻译目标、PCEX 语言元数据或回调内容。
 2.6.2 起，`render_epub()`、`convert_pdf_to_epub()` 和 `EpubRenderer.render()` 的旧 `lan`
 关键字改为 `label_language`，旧关键字不再接受；默认文案也改为英文。
+
+已有调用只需在以下三个入口替换关键字（`EpubRenderer` 调用放在异步函数中）：
+
+```python
+# 2.6.2 之前
+craft.render_epub(extraction, output, lan="zh")
+craft.convert_pdf_to_epub(source, output, lan="zh")
+await EpubRenderer().render(extraction, output, lan="zh")
+
+# 从 2.6.2 开始
+craft.render_epub(extraction, output, label_language="zh")
+craft.convert_pdf_to_epub(source, output, label_language="zh")
+await EpubRenderer().render(extraction, output, label_language="zh")
+```
+
+`PDFCraft` 和 `AsyncPDFCraft` 都使用新关键字，异步门面的调用需加 `await`。
+原来没有传 `lan` 的调用不需要迁移关键字，但固定文案现在默认英文；需要保留中文文案时，
+显式传入 `label_language="zh"`。翻译配置中的 `target_language="ko"` 等参数不变，
+不能用 `label_language` 替换 `target_language`。
+
 固定依赖的 EPUB 生成器仍将部分 OPF/XHTML 语言标记写死为 `zh`；这是独立的既有问题，
 本次文案选择没有修复它，也不能把 `label_language` 当作内容语言标记设置。
 

@@ -301,6 +301,27 @@ accepted. Defaults previously used the source language or Chinese; labels now
 use English unless explicitly selected. Existing-EPUB translation submission
 semantics are unchanged.
 
+For existing calls, replace the keyword at these three entry points (the
+`EpubRenderer` call runs inside an async function):
+
+```python
+# Before 2.6.2
+craft.render_epub(extraction, output, lan="zh")
+craft.convert_pdf_to_epub(source, output, lan="zh")
+await EpubRenderer().render(extraction, output, lan="zh")
+
+# From 2.6.2
+craft.render_epub(extraction, output, label_language="zh")
+craft.convert_pdf_to_epub(source, output, label_language="zh")
+await EpubRenderer().render(extraction, output, label_language="zh")
+```
+
+Both `PDFCraft` and `AsyncPDFCraft` use the new keyword; await calls on the async
+facade. If you did not pass `lan`, no keyword migration is needed, but the fixed
+labels now default to English. Pass `label_language="zh"` to retain Chinese
+labels. Translation settings such as `target_language="ko"` remain unchanged;
+`label_language` does not replace `target_language`.
+
 The pinned EPUB generator still hard-codes some output OPF/XHTML language markers
 as `zh`; this separate limitation is not fixed by label selection. Do not use
 `label_language` as a content-language metadata setting.
