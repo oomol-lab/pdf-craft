@@ -105,6 +105,10 @@ pdfinfo -v
 
 如果出现 `command not found` 或 Windows 找不到命令，请先修复 PATH，再运行 pdf-craft。
 
+直接使用非 PATH 中的工具目录时，可以调用
+`pdf_pages_count(path, pdf_handler=DefaultPDFHandler(poppler_path=directory))`
+（`DefaultPDFHandler` 从 `pdf_craft.pdf` 导入）。预检与读取共用该目录；无效目录仍报错。
+
 ## 为 PDF 写回安装 Ghostscript
 
 PDF 写回需要 Ghostscript 命令行程序：

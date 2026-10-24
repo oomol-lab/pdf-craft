@@ -622,13 +622,6 @@ class TestComposableBoundaries(unittest.TestCase):
             extraction = make_extraction(root, page_pixel_sizes={1: (30, 30)})
             self.assertEqual(extraction._page_pixel_sizes(), {1: (30, 30)})
 
-    def test_epub_renderer_rejects_unsupported_language(self):
-        with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
-            extraction = make_extraction(root, with_toc=True)
-            with self.assertRaises(ValueError):
-                asyncio.run(EpubRenderer().render(extraction, root / "book.epub", lan="fr"))  # type: ignore[arg-type]
-
     def test_ocr_geometry_cache_survives_interrupted_resume_without_rerendering(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

@@ -142,7 +142,7 @@ python -m pip install "pdf-craft[local]"
 
 本機執行還需要相容的 CUDA 版 PyTorch、足夠的顯示記憶體與模型檔案。模型預設從 Hugging Face 下載，也可預先下載後從本機載入。各模型的預設組態與需求見 [OCR 設定指南](../en/OCR_BACKENDS.md)。
 
-**語言支援依處理階段而定。** README 語言表示文件可用語言；辨識取決於 OCR 模型，翻譯取決於翻譯器與文字 LLM。EPUB 的 `lan` 參數目前提供 `zh` / `en`，詳見 [API 參考](../en/API_REFERENCE.md)。
+**語言支援依處理階段而定。** README 語言表示文件可用語言；辨識取決於 OCR 模型，翻譯取決於翻譯器與文字 LLM。EPUB 的 `label_language` 僅選擇固定文案，支援 `zh` / `en`，預設及其他值均用英文；不限制正文或翻譯語言，詳見 [API 參考](../en/API_REFERENCE.md)。
 
 <a id="documentation"></a>
 

@@ -12,8 +12,12 @@ def pdf_pages_count(
     pdf_path: PathLike | str,
     pdf_handler: PDFHandler | None = None,
 ) -> int:
-    from .preflight import check_pdf
-    check_pdf(Path(pdf_path))
+    from .preflight import check_pdf, poppler_path_for
+    tools = poppler_path_for(pdf_handler)
+    if tools is None:
+        check_pdf(Path(pdf_path))
+    else:
+        check_pdf(Path(pdf_path), poppler_path=tools)
     if pdf_handler is None:
         pdf_handler = DefaultPDFHandler()
     document: PDFDocument | None = None

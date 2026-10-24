@@ -144,7 +144,7 @@ python -m pip install "pdf-craft[local]"
 
 Für die lokale Ausführung brauchst du außerdem eine passende PyTorch-Version mit CUDA, ausreichend VRAM und Modelldateien. Modelle werden standardmäßig von Hugging Face heruntergeladen. Du kannst sie vorab herunterladen und lokal laden. Voreinstellungen und Anforderungen unterscheiden sich je nach Modell; siehe [OCR-Konfiguration](../en/OCR_BACKENDS.md).
 
-**Die Sprachunterstützung hängt vom Verarbeitungsschritt ab.** Die README-Sprachen geben die verfügbaren Dokumentationssprachen an. Texterkennung hängt vom OCR-Modell ab, Übersetzung vom Übersetzer und Text-LLM. Der EPUB-Parameter `lan` bietet derzeit `zh` / `en`; siehe [API-Referenz](../en/API_REFERENCE.md).
+**Die Sprachunterstützung hängt vom Verarbeitungsschritt ab.** Die README-Sprachen geben die verfügbaren Dokumentationssprachen an. Texterkennung hängt vom OCR-Modell ab, Übersetzung vom Übersetzer und Text-LLM. Der EPUB-Parameter `label_language` wählt nur feste Beschriftungen (`zh` / `en`); Englisch ist Standard und Fallback. Inhalts- und Übersetzungssprachen werden nicht eingeschränkt. Siehe [API-Referenz](../en/API_REFERENCE.md).
 
 <a id="documentation"></a>
 

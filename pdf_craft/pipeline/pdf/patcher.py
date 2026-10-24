@@ -1,7 +1,7 @@
 # pylint: disable=unused-argument
 """Compose non-interactive visual bases with independent overlays."""
 
-from pdf_craft.pdf.preflight import pdf_operation
+from pdf_craft.pdf.preflight import pdf_operation, poppler_path_for, current_poppler_path
 from pdf_craft.policies import RetryPolicy, ErrorPolicyInput
 from pdf_craft._policy import OMITTED, policy_operation
 # Native worker adapters share patcher state within this module.
@@ -96,6 +96,10 @@ class PDFPatcher:
         self._failed_page_indexes: tuple[int, ...] = ()
         self._font_resolutions: tuple[FontResolution, ...] = ()
 
+    def _preflight_poppler_path(self) -> Path | None:
+        """Share the native adapter's tool configuration with the input gate."""
+        return poppler_path_for(self._pdf_handler)
+
     @property
     def font_resolutions(self) -> tuple[FontResolution, ...]:
         """Qt font choices made during the most recent :meth:`patch` run."""
@@ -132,6 +136,12 @@ class PDFPatcher:
                     await IO_DOMAIN.run(_write_visual_source, source_path, annotation_free)
                     await self._visual_base_compiler.compile(annotation_free, visual_base)
                 native = copy(self)
+                # ContextVars do not cross the isolated Qt process boundary.
+                # Freeze the inherited tool installation into its native reader.
+                if isinstance(native._pdf_handler, DefaultPDFHandler):
+                    native._pdf_handler = DefaultPDFHandler(
+                        native._pdf_handler.poppler_path or current_poppler_path(),
+                    )
                 # Caller-owned async handlers/compilers never cross the process boundary.
                 native._async_pdf_handler = None
                 if isinstance(replacements, ReplacementFeed):

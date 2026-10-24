@@ -5,7 +5,12 @@
 `PDFPreflightError` is exported from `pdf_craft`. All source-PDF tasks perform mandatory
 dual-backend preflight, including with custom handlers. Its `source`, `backend`,
 `stage`, `page_index` and `reason` identify the failure. It is task-fatal and bypasses
-ErrorPolicy. See [preflight behavior and example](ERROR_HANDLING.md#mandatory-pdf-preflight).
+ErrorPolicy. `pdf_pages_count(source, pdf_handler=DefaultPDFHandler(poppler_path=...))`
+uses that explicit executable directory for both preflight and reading. Nested
+operations share the configured installation; validation results are not reused
+across different tool directories. Unconfigured custom handlers still require
+Poppler on PATH and need no extra configuration attributes.
+See [preflight behavior and example](ERROR_HANDLING.md#mandatory-pdf-preflight).
 
 
 This reference covers the supported library surface imported from `pdf_craft`. Most applications only need `PDFCraft`, one OCR configuration, and—when translating—an `LLM`. The lower-level rendering, transformation, and PDF patching classes are available for applications that need explicit control.
@@ -102,7 +107,7 @@ some options with `...`.
 | `extract_pdf` | `extract_pdf(source, extraction_path, options=None, *, analysing_path=None) -> PDFCraftExtraction` extracts a PDF into a persistent `.pcex` archive. |
 | `extract_pdf_with_metering` | `extract_pdf_with_metering(source, extraction_path, options=None, *, analysing_path=None) -> tuple[PDFCraftExtraction, OCRTokensMetering]` is the same extraction with OCR token accounting. |
 | `render_markdown` | `render_markdown(extraction, output, assets_path=None, *, mode=RenderMode.SOURCE, translation_id=None, aborted=..., translator=None, window=1, with_anchored=True, on_body=None, on_footnote=None, on_metadata=None)` writes Markdown and optional assets from a `PDFCraftExtraction` or `.pcex` path. |
-| `render_epub` | `render_epub(extraction, output, *, book_meta=None, lan=None, table_render=..., latex_render=..., inline_latex=True, mode=RenderMode.SOURCE, translation_id=None, aborted=..., translator=None, window=1, with_anchored=True, on_body=None, on_footnote=None, on_metadata=None)` writes an EPUB. Metadata and language default to the selected content version. |
+| `render_epub` | `render_epub(extraction, output, *, book_meta=None, label_language="en", table_render=..., latex_render=..., inline_latex=True, mode=RenderMode.SOURCE, translation_id=None, aborted=..., translator=None, window=1, with_anchored=True, on_body=None, on_footnote=None, on_metadata=None)` writes an EPUB. Metadata defaults to the selected content version; label_language only selects fixed labels. |
 | `convert_pdf_to_markdown` | `convert_pdf_to_markdown(source, output, *, ..., translator=None, submit=SubmitKind.REPLACE, window=1, with_anchored=True, on_translation_event=None, on_metadata=None) -> OCRTokensMetering` is the one-shot PDF-to-Markdown workflow. |
 | `convert_pdf_to_epub` | `convert_pdf_to_epub(source, output, *, ..., translator=None, submit=SubmitKind.REPLACE, window=1, with_anchored=True, on_translation_event=None, on_metadata=None) -> OCRTokensMetering` is the one-shot PDF-to-EPUB workflow. |
 
@@ -285,10 +290,20 @@ paragraph. Headings and TOC titles remain one combined title; images and tables
 appear once, with translated labels and table-cell text composed in place. Footnote
 definitions follow the selected text/block style and repeated reference links point
 to one definition. `extraction_path` continues to export the original extraction.
-One-shot EPUB conversion retains its original `lan` / source-language / `zh`
-selection; a translator's human-readable target such as `English` is not treated
-as an EPUB language code. This changes no submission semantics for translating
-an existing EPUB.
+EPUB generation uses `label_language="en"` for fixed labels such as Cover, Table
+of Contents, Preface and Unnamed. Exact `zh` and `en` select the available label
+catalogs; every other string falls back to English. Labels are never inferred
+from the source or translator target, and this option neither limits nor changes
+body text, translation targets, PCEX language metadata, or callback payloads.
+In 2.6.2, rename the old keyword `lan` to `label_language` in `render_epub()`,
+`convert_pdf_to_epub()` and `EpubRenderer.render()`; the old keyword is no longer
+accepted. Defaults previously used the source language or Chinese; labels now
+use English unless explicitly selected. Existing-EPUB translation submission
+semantics are unchanged.
+
+The pinned EPUB generator still hard-codes some output OPF/XHTML language markers
+as `zh`; this separate limitation is not fixed by label selection. Do not use
+`label_language` as a content-language metadata setting.
 
 The following classes are exposed for applications that need custom structured transformations:
 

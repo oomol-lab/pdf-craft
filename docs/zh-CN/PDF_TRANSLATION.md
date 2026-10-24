@@ -134,7 +134,7 @@ craft.convert_pdf_to_epub(
   可由前页 OCR 证据验证的结果，native PDF metadata 只能补 OCR 缺失字段。`translate_pdf()` 与
   `patch_pdf_with_extraction()` 也会把同一份已归一化 metadata 写入输出 PDF。渲染时显式传入的
   `book_meta` 按字段覆盖 manifest；`None`、空字符串和空的贡献者列表表示“不覆盖”，而非清空。
-- `lan`：EPUB 内容语言标记，支持 `"zh"` 和 `"en"`。
+- `label_language`：只选择目录、封面、前言和未命名标题等固定文案。精确的 `"zh"` / `"en"` 选择对应文案，其他字符串统一回退英文；默认 `"en"`。不限制或修改正文／翻译语言。2.6.2 起替代原来的 `lan` 关键字。
 - `table_render`：表格渲染方式，使用 `TableRender.HTML`、`TableRender.CLIPPING` 等
   `epub_generator` 提供的枚举值。
 - `latex_render`：公式渲染方式，使用 `LaTeXRender.MATHML`、`LaTeXRender.SVG` 或

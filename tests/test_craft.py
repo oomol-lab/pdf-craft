@@ -520,7 +520,7 @@ class TestPDFCraft(unittest.TestCase):
             observed["title"] = extraction._book_meta().title
             observed["language"] = extraction._language()
             observed["book_meta"] = kwargs["book_meta"]
-            observed["lan"] = kwargs["lan"]
+            observed["label_language"] = kwargs["label_language"]
 
         with patch(
             "pdf_craft.craft.EpubRenderer.render",
@@ -530,7 +530,7 @@ class TestPDFCraft(unittest.TestCase):
         self.assertEqual(observed["title"], "Detected title")
         self.assertEqual(observed["language"], "en")
         self.assertIsNone(observed["book_meta"])
-        self.assertIsNone(observed["lan"])
+        self.assertEqual(observed["label_language"], "en")
 
     def test_one_shot_translation_translates_metadata_with_narrative(self):
         craft = PDFCraft.from_engine(_Engine())

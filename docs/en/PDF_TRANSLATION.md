@@ -66,7 +66,7 @@ craft.convert_pdf_to_epub(
     "book.pdf",
     "book.epub",
     book_meta=BookMeta(title="A Book", authors=["Author"]),
-    lan="en",
+    label_language="en",
 )
 ```
 
@@ -83,7 +83,7 @@ The remaining EPUB options are useful when the default rendering is not appropri
 
 | Option | Purpose |
 | --- | --- |
-| `lan` | Content language: `"zh"` or `"en"`. |
+| `label_language` | Fixed navigation/default-title labels only: exact `"zh"` or `"en"`; all other values fall back to English. Default: `"en"`. Does not select or restrict translation language. Replaces the former `lan` keyword. |
 | `table_render` | An `epub_generator.TableRender` mode such as `HTML` or `CLIPPING`. |
 | `latex_render` | An `epub_generator.LaTeXRender` mode such as `MATHML`, `SVG`, or `CLIPPING`. |
 | `inline_latex` | Keep inline LaTeX expressions; defaults to `True`. |

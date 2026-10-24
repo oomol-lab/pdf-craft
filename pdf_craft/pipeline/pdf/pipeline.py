@@ -1,6 +1,6 @@
 # pylint: disable=unused-argument
 
-from pdf_craft.pdf.preflight import pdf_operation
+from pdf_craft.pdf.preflight import pdf_operation, poppler_path_for
 from pdf_craft.policies import RetryPolicy, ErrorPolicyInput
 from pdf_craft._policy import OMITTED, policy_operation
 # pylint: disable=protected-access
@@ -40,6 +40,10 @@ class PDFTranslationPipeline:
 
     def __init__(self, pdf_handler: AsyncPDFHandler | None = None, patcher: PDFPatcher | None = None, dpi: int = 300, *, _native_pdf_handler: PDFHandler | None = None) -> None:
         self.patcher = patcher or PDFPatcher(pdf_handler=pdf_handler, dpi=dpi, _native_pdf_handler=_native_pdf_handler)
+
+    def _preflight_poppler_path(self) -> Path | None:
+        """Share the native adapter's tool configuration with the input gate."""
+        return poppler_path_for(self.patcher)
 
     @policy_operation
     @pdf_operation

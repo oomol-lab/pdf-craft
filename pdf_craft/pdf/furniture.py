@@ -312,8 +312,11 @@ def _native_pages(
                 raise RuntimeError("pdftotext output is unavailable")
             stdout = native_pdf_text
         else:
+            from .poppler import PopplerDocument
+            from .preflight import current_poppler_path
             stdout, _ = run_subprocess_sync(
-                "pdftotext", "-bbox-layout", str(pdf_path), "-",
+                PopplerDocument(pdf_path, current_poppler_path()).command("pdftotext"),
+                "-bbox-layout", str(pdf_path), "-",
                 aborted=aborted,
             )
         root = ET.fromstring(stdout.decode("utf-8"))

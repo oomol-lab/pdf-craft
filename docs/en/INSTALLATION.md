@@ -68,6 +68,11 @@ On Windows, install a Poppler binary distribution and add its `bin` directory to
 
 Check the installation with `pdfinfo -v`.
 
+For direct native reads with a non-PATH installation, use
+`pdf_pages_count(path, pdf_handler=DefaultPDFHandler(poppler_path=directory))`
+(`DefaultPDFHandler` is imported from `pdf_craft.pdf`). The same directory is
+used for mandatory preflight and reading; invalid directories still fail.
+
 ## Install Ghostscript for PDF patching
 
 PDF patching requires the Ghostscript command-line executable:

@@ -190,3 +190,10 @@ EpubTranslation 仅作为 EpubFragmentContent 的兼容别名。
 付费公式回归入口是 `python -m pdf_craft_tool.smoke.fill_formula_loop --output NEW-DIRECTORY`。
 它对三个固定真实源段落重新翻译和填充，以 temperature=0.7、top_p=1.0 连续三轮全过
 为门禁，不复用模型响应，不将 fallback 当成功；详细运行要求见 docs/verification/issue-821.md。
+
+## EPUB 固定文案
+
+`label_language` 仅选择目录、封面、前言和未命名标题等固定文案，默认英文。
+精确 `zh` / `en` 使用已有文案，其他字符串统一回退英文；在调用 epub-generator 时才
+映射到依赖内部的 `lan`。文案目录不是正文支持语言白名单，不能用原文或译文语言
+推断并拒绝渲染，也不能因文案回退改写翻译目标、PCEX 元数据或回调内容。
