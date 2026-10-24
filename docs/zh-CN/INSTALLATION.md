@@ -109,6 +109,21 @@ pdfinfo -v
 `pdf_pages_count(path, pdf_handler=DefaultPDFHandler(poppler_path=directory))`
 （`DefaultPDFHandler` 从 `pdf_craft.pdf` 导入）。预检与读取共用该目录；无效目录仍报错。
 
+升级已有部署时，也应更新 PDF 后端。PDF Craft 要求 pypdf 6.21.2 或更新的 6.x
+版本。Poppler 是独立安装的系统工具，升级 Python 包不会自动升级它。
+
+```bash
+python -m pip install --upgrade pdf-craft
+# macOS
+brew update
+brew upgrade poppler
+# Debian / Ubuntu：升级到发行版仓库提供的版本
+sudo apt-get update
+sudo apt-get install --only-upgrade poppler-utils libpoppler-glib8
+```
+
+后端升级不会关闭强制 PDF 预检，也不保证此前被拒绝的文件变得可处理。
+
 ## 为 PDF 写回安装 Ghostscript
 
 PDF 写回需要 Ghostscript 命令行程序：

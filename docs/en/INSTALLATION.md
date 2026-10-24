@@ -73,6 +73,23 @@ For direct native reads with a non-PATH installation, use
 (`DefaultPDFHandler` is imported from `pdf_craft.pdf`). The same directory is
 used for mandatory preflight and reading; invalid directories still fail.
 
+Keep the PDF backends current when upgrading an existing deployment. PDF Craft
+requires pypdf 6.21.2 or later within the 6.x series. Poppler is installed
+separately: updating the Python package does not update the system tools.
+
+```bash
+python -m pip install --upgrade pdf-craft
+# macOS
+brew update
+brew upgrade poppler
+# Debian / Ubuntu: update to the versions available in your distribution
+sudo apt-get update
+sudo apt-get install --only-upgrade poppler-utils libpoppler-glib8
+```
+
+Backend upgrades do not disable mandatory PDF preflight or guarantee that a
+previously rejected document becomes compatible.
+
 ## Install Ghostscript for PDF patching
 
 PDF patching requires the Ghostscript command-line executable:

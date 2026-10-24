@@ -176,4 +176,6 @@ class PopplerConfigurationTests(unittest.TestCase):
             import pypdf
             with pypdf.PdfReader(target) as reader:
                 page = cast(Any, reader.pages[0])
-                self.assertIn('Translated text', page.extract_text())  # pylint: disable=no-member
+                # PDF text extraction can insert line breaks between words.
+                text = page.extract_text()  # pylint: disable=no-member
+                self.assertIn('Translated text', ' '.join(text.split()))

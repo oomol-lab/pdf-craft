@@ -143,7 +143,7 @@ class SourceSafetyIntegrationTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(page_stream(output.pages[0]), page_stream(original.pages[0]))
             self.assertEqual(len(output.pages[0].images), 1)
             self.assertIn('Original body', output.pages[0].extract_text())
-            self.assertIn('Successful translation', output.pages[1].extract_text())
+            self.assertIn('Successful translation', ' '.join(output.pages[1].extract_text().split()))
             self.assertEqual(len(previews), 2)
             self.assertEqual([r.page.page_index for p in previews for r in p.regions if r.lines], [2])
             self.assertFalse(any(p.text == '45' for p in previews))

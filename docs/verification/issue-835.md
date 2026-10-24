@@ -81,3 +81,13 @@ updated. No tag, release, PR binding or publication is performed during Implemen
 - `poetry check --lock`: passed. `poetry build`: sdist and wheel succeeded;
   built wheel metadata reports **2.6.2**.
 - `git diff --check`: passed. No hosted model calls or source PDF rewrites.
+
+## Submit integration with updated main
+
+Main merged PR #530 while this PR was running CI. Both installation notes are
+retained, and the release notes include the pypdf 6.21.2 requirement. Revalidated
+with pypdf 6.21.2: all 1003 tests passed (58.324s), Pyright reported zero errors,
+Pylint rated 10.00/10, and lock validation plus sdist/wheel builds passed.
+The real Qt composition test normalizes extracted whitespace because the updated
+parser may return a line break between words; it still verifies both translated
+words are searchable in their original order.
