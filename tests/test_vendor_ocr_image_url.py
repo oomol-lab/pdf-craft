@@ -351,5 +351,34 @@ class VendorOCRImageURLTests(unittest.IsolatedAsyncioTestCase):
             await pending
 
 
+
+class VendorOCRRequestHeaderTests(unittest.IsolatedAsyncioTestCase):
+    async def test_deepseek_request_carries_extra_headers(self):
+        requests: list[httpx.Request] = []
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            requests.append(request)
+            return _deepseek_response(request)
+
+        config = DeepSeekOCRVendorConfig(
+            "https://example.invalid/v1", "key", "model",
+            headers={"X-OO-Trace-ID": "trace-1", "User-Agent": "host/1.0"},
+        )
+        runtime = VendorOCRRuntime(config, ConcurrentExecutor(FixedCapacity(1)))
+        runtime._client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+        with tempfile.TemporaryDirectory() as directory:
+            image_path = Path(directory) / "page.png"
+            image_path.write_bytes(b"rendered image")
+            try:
+                await runtime.request(VendorOCRInput(1, image_path, lambda: False))
+            finally:
+                await runtime._client.aclose()
+
+        headers = requests[0].headers
+        self.assertEqual(headers["X-OO-Trace-ID"], "trace-1")
+        self.assertEqual(headers["Authorization"], "Bearer key")
+        self.assertEqual(headers["User-Agent"], "pdf-craft-vendor-ocr/1.0")
+        self.assertEqual(headers.get_list("User-Agent"), ["pdf-craft-vendor-ocr/1.0"])
+
 if __name__ == "__main__":
     unittest.main()

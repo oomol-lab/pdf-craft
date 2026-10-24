@@ -585,8 +585,12 @@ LLM(
     log_dir_path=None,
     total_timeout=360.0,
     cleanup_timeout=5.0,
+    headers=None,
 )
 ```
+
+`headers` 仅接受关键字，是附加到每次请求的 HTTP 头，例如把供应商调用关联到宿主请求的网关 trace id。
+`Authorization`、`Content-Type` 由客户端管理，传入会报错。
 
 `timeout` 保留 HTTP connect/read/write/pool 超时语义，不能限制整个流式响应。
 `total_timeout` 限制一次 LLM 操作的容量等待、流式请求、传输重试及退避等待；

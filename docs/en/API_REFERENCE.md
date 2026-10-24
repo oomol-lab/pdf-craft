@@ -300,8 +300,13 @@ LLM(
     log_dir_path=None,
     total_timeout=360.0,
     cleanup_timeout=5.0,
+    headers=None,
 )
 ```
+
+`headers` is a keyword-only mapping of extra HTTP headers sent with every request,
+for example a gateway trace id that ties provider calls to the host's own request.
+`Authorization` and `Content-Type` stay managed by the client and are rejected.
 
 `timeout` keeps its HTTP connect/read/write/pool timeout meaning; it does not bound a
 whole streaming response. `total_timeout` bounds one LLM operation across capacity

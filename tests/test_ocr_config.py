@@ -65,6 +65,37 @@ class TestOCRConfig(unittest.TestCase):
         self.assertNotIn("secret-ak", repr(unlimited))
         self.assertNotIn("secret-sk", repr(unlimited))
 
+    def test_deepseek_vendor_configs_copy_extra_request_headers(self):
+        for config_cls in (DeepSeekOCRVendorConfig, DeepSeekOCR2VendorConfig):
+            with self.subTest(config_cls=config_cls.__name__):
+                headers = {"X-OO-Trace-ID": "trace-1"}
+                config = config_cls(
+                    base_url="https://example.com",
+                    api_key="key",
+                    model="model",
+                    headers=headers,
+                )
+                headers["X-OO-Trace-ID"] = "changed"
+
+                self.assertEqual(dict(config.headers), {"X-OO-Trace-ID": "trace-1"})
+                with self.assertRaises(TypeError):
+                    config.headers["X-Other"] = "value"  # type: ignore[index]
+                self.assertEqual(
+                    dict(config_cls("https://example.com", "key", "model").headers), {},
+                )
+                hash(config)
+
+    def test_deepseek_vendor_configs_reject_reserved_request_headers(self):
+        for name in ("Authorization", "content-type"):
+            with self.subTest(name=name):
+                with self.assertRaisesRegex(ValueError, "managed by pdf-craft"):
+                    DeepSeekOCRVendorConfig(
+                        base_url="https://example.com",
+                        api_key="key",
+                        model="model",
+                        headers={name: "value"},
+                    )
+
     def test_ocr_config_cannot_mix_with_models_cache_options(self):
         config = DeepSeekOCRVendorConfig(
             base_url="https://example.com",

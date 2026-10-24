@@ -52,7 +52,7 @@ craft = PDFCraft(pdf=PDFOptions(
 ))
 ```
 
-`UnlimitedOCRVendorConfig` takes Baidu `ak` and `sk`; its `base_url` defaults to `https://aip.baidubce.com`. It also accepts `poll_interval_seconds`, `timeout_seconds`, `retry_times`, and `retry_interval_seconds`. The DeepSeek vendor configurations expose the same retry controls.
+`UnlimitedOCRVendorConfig` takes Baidu `ak` and `sk`; its `base_url` defaults to `https://aip.baidubce.com`. It also accepts `poll_interval_seconds`, `timeout_seconds`, `retry_times`, and `retry_interval_seconds`. The DeepSeek vendor configurations expose the same retry controls, plus `headers`: extra HTTP headers sent with every OCR request (for example a gateway trace id). `Authorization` and `Content-Type` stay managed by pdf-craft and cannot be overridden.
 
 ```python
 from pdf_craft import UnlimitedOCRVendorConfig

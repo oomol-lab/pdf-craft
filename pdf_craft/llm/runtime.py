@@ -123,6 +123,7 @@ class LLMRuntime:
         client = openai.AsyncOpenAI(
             api_key=self.config.key, base_url=self.config.url,
             timeout=self.config.timeout, max_retries=0, http_client=http_client,
+            default_headers=dict(self.config.headers) or None,
         )
         try:
             await client.__aenter__()
