@@ -1,8 +1,10 @@
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from os import PathLike
 from pathlib import Path
 from typing import Iterable, Literal, TypeAlias
 
+from .request_headers import request_headers
 from .to_path import to_path
 
 
@@ -92,9 +94,11 @@ class DeepSeekOCRVendorConfig:
     timeout_seconds: int = 180
     retry_times: int = 2
     retry_interval_seconds: float = 1.0
+    headers: Mapping[str, str] = field(default_factory=dict, repr=False, hash=False)
 
     def __post_init__(self) -> None:
         _validate_vendor_retry(self.retry_times, self.retry_interval_seconds)
+        object.__setattr__(self, "headers", request_headers(self.headers))
 
 
 @dataclass(frozen=True)
@@ -108,9 +112,11 @@ class DeepSeekOCR2VendorConfig:
     timeout_seconds: int = 180
     retry_times: int = 2
     retry_interval_seconds: float = 1.0
+    headers: Mapping[str, str] = field(default_factory=dict, repr=False, hash=False)
 
     def __post_init__(self) -> None:
         _validate_vendor_retry(self.retry_times, self.retry_interval_seconds)
+        object.__setattr__(self, "headers", request_headers(self.headers))
 
 
 @dataclass(frozen=True)

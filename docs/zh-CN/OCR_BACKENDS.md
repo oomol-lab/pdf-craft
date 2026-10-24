@@ -154,6 +154,7 @@ Vendor OCR 不要求本地 CUDA，但会把页面发送到远程服务。请根�
 | `top_p` | `float` 或 `None` | `None` | 传给服务的 nucleus sampling 参数 |
 | `max_tokens` | `int` | `8000` | 单次请求的最大输出 token 数 |
 | `timeout_seconds` | `int` | `180` | 单次请求超时时间 |
+| `headers` | `Mapping[str, str]` | `{}` | 附加到每次 OCR 请求的 HTTP 头，例如网关 trace id；不能覆盖 `Authorization`、`Content-Type` |
 
 ```python
 from pdf_craft import DeepSeekOCRVendorConfig, PDFCraft, PDFOptions
