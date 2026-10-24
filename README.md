@@ -169,6 +169,16 @@ Local execution also requires a matching CUDA-enabled PyTorch build, sufficient 
 
 **Language support depends on the processing stage.** README languages describe documentation availability. Text recognition depends on the OCR model, and translation depends on the translator and text LLM. The EPUB `lan` parameter currently offers `zh` / `en`; see the [API reference](docs/en/API_REFERENCE.md).
 
+### Apple Silicon OCR
+
+Use the existing conversion CLI with the external MLX model:
+
+```sh
+PDF_CRAFT_DEEPSEEK_OCR_LOCAL_RUNTIME=mlx PYTHONPATH=../deepseekocr-mlx .venv/bin/python -m pdf_craft_tool pdf convert book.pdf --format epub --ocr-mode deepseek-ocr-local
+```
+
+See [MLX setup and usage](docs/en/MLX_CLI.md) for local dependencies and model files.
+
 <a id="documentation"></a>
 
 ## Documentation
