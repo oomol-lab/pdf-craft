@@ -26,7 +26,9 @@ except PDFPreflightError as error:
 字段为 `source`（输入路径字符串）、`backend`（`pypdf`、`poppler`、`consistency`）、
 `stage`、`page_index`（从 1 开始，未知为 `None`）和 `reason`。阶段值为 `open`、
 `page_read`、`page_labels`、`render`、`page_count`、`geometry`、`write`、`reopen`、
-`source_changed`。有原始异常时保留异常链，区分文件不可访问、工具不可用与后端解析/
+`source_changed`。Poppler 报告 `Syntax Error` 等错误时，即使进程退出码为 0 且生成了图片，也会拒绝。
+普通 `Syntax Warning` 会保留为日志，不单凭警告拒绝文件。
+有原始异常时保留异常链，区分文件不可访问、工具不可用与后端解析/
 渲染失败，不笼统宣称文件违反 PDF 标准。
 
 **该异常不可忽略。** 即使 `error_policy=True` 或 callback 返回 True 也必须终止，

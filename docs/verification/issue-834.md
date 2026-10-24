@@ -24,7 +24,7 @@ that generated workspace is deliberately not committed.
 ## Regression coverage
 
 `tests/test_pdf_preflight.py` uses actual pypdf and Poppler with generated small
-PDFs and the original upload. Sixteen test methods cover:
+PDFs and the original upload. Nineteen test methods cover:
 
 - Original hash, backend divergence, and fail-fast public/advanced entry points.
 - Poppler-only metadata/count/size/rendering and explicit publication labels,
@@ -50,9 +50,9 @@ out-of-range replacement instead of accidentally supplying a zero-page document.
 
 ## Checks
 
-- `.venv/bin/python test.py`: **990 tests passed**.
+- `.venv/bin/python test.py`: **993 tests passed**.
 - Focused existing translation/patching plus initial preflight regressions:
-  **81 passed**; final preflight-only suite: **16 passed**.
+  **81 passed**; final preflight-only suite: **19 passed**.
 - Pyright on `pdf_craft tests`: **0 errors**.
 - Pylint on `pdf_craft tests`: **10.00/10**, with existing Qt introspection notices.
 - `poetry build`: sdist and wheel built successfully.
@@ -64,3 +64,32 @@ already-required pypdf traversal. Linux CI installs `libpoppler-glib8`; installa
 and error documentation explain this native prerequisite. Preflight is backend
 compatibility evidence, not a complete standards certificate or a promise that
 future high-DPI rendering and generated overlay composition cannot fail.
+
+## Review follow-up: successful exit with incomplete raster
+
+The reviewer reproduced a gap in the initial gate: Poppler may exit zero and
+produce a readable image while reporting a real rendering error on stderr.
+The CLI adapter now preserves diagnostics, rejects Poppler error categories
+(including positional forms such as `Syntax Error (123): ...`) and logs ordinary
+warnings without treating all stderr output as failure. The existing preflight
+wrapper supplies `backend`, `stage`, `page_index`, reason and the chained cause.
+
+The regression constructs a real two-page PDF. Its second page refers to an
+undefined XObject through the content stream `q /MissingXObject Do Q`. An actual
+`pdftoppm` invocation returns a PPM and reports
+`Syntax Error: XObject 'MissingXObject' is unknown` despite a zero exit status.
+Preflight now fails at `poppler/render`, page 2, before the decorated business
+function, extraction engine, content/metadata/OCR notifications or error-policy
+callback can run. Both `error_policy=True` and a permissive callback remain fatal.
+The source stays byte-for-byte unchanged and no output is published.
+
+A separate real PDF with an unmatched `EMC` operator renders successfully while
+Poppler emits `Syntax Warning: Mismatched EMC operator`; preflight permits it and
+preserves the warning in logs. Category/offset unit cases cover all native error
+categories and generic utility errors without confusing them with warnings.
+
+After this fix, the standard runner passes 993 tests, the preflight suite passes
+19 tests, Pyright reports zero errors, Pylint rates 10.00/10 and both distribution
+artifacts build. The original upload also completed another 251/251-page 36 DPI
+render using the diagnostic-checking adapter (5.712 seconds). No hosted OCR/LLM
+calls were made.

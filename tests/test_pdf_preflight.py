@@ -13,7 +13,7 @@ from unittest.mock import AsyncMock, Mock, PropertyMock, patch
 from typing import Any, cast
 
 import pypdf
-from pypdf.generic import NameObject, NumberObject, RectangleObject
+from pypdf.generic import DecodedStreamObject, NameObject, NumberObject, RectangleObject
 
 from pdf_craft import AsyncPDFCraft, PDFCraft, PDFPreflightError, PDFOptions, ExtractionOptions
 from pdf_craft.concurrency import NonContinuableError
@@ -63,6 +63,92 @@ class PDFPreflightTests(unittest.TestCase):
                     image.close()
         finally:
             document.close()
+
+    def test_native_render_error_with_exit_zero_stops_all_business_work(self):
+        from pdf_craft.runtime import run_subprocess_sync
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            source = root / 'unknown-xobject.pdf'
+            writer = pypdf.PdfWriter()
+            writer.add_blank_page(200, 300)
+            page = writer.add_blank_page(200, 300)
+            content = DecodedStreamObject()
+            content.set_data(b'q /MissingXObject Do Q')
+            page[NameObject('/Contents')] = writer._add_object(content)
+            writer.write(source)
+            writer.close()
+            original = source.read_bytes()
+            # This is a real subprocess, not broken_render injection: Poppler
+            # returns success and a readable PPM even though the image is wrong.
+            output, stderr = run_subprocess_sync(
+                'pdftoppm', '-f', '2', '-l', '2', '-singlefile', '-r', '36', str(source),
+            )
+            self.assertTrue(output.startswith(b'P6'))
+            self.assertIn(b"Syntax Error: XObject 'MissingXObject' is unknown", stderr)
+            with self.assertRaises(PDFPreflightError) as caught:
+                check_pdf(source)
+            error = caught.exception
+            self.assertEqual((error.backend, error.stage, error.page_index), ('poppler', 'render', 2))
+            self.assertIn("MissingXObject", error.reason)
+            self.assertIn('Syntax Error', str(error.__cause__))
+            business = Mock()
+            @pdf_operation
+            async def operation(source):
+                business(source)
+            with self.assertRaises(PDFPreflightError):
+                asyncio.run(operation(source))
+            business.assert_not_called()
+            engine = Mock()
+            engine.extract_package_async = AsyncMock()
+            notify = Mock()
+            decide = Mock(return_value=True)
+            options = ExtractionOptions(on_body=notify, on_footnote=notify,
+                                        on_metadata=notify, on_ocr_event=notify)
+            for policy in (True, decide):
+                with self.subTest(policy=policy), self.assertRaises(PDFPreflightError) as caught:
+                    asyncio.run(AsyncPDFCraft.from_engine(engine).extract_pdf(
+                        source, root / 'book.pcex', options, error_policy=policy,
+                    ))
+                self.assertEqual((caught.exception.backend, caught.exception.stage, caught.exception.page_index),
+                                 ('poppler', 'render', 2))
+            engine.extract_package_async.assert_not_called()
+            notify.assert_not_called()
+            decide.assert_not_called()
+            self.assertFalse((root / 'book.pcex').exists())
+            self.assertEqual(source.read_bytes(), original)
+
+    def test_native_syntax_warning_does_not_reject_renderable_pdf(self):
+        with tempfile.TemporaryDirectory() as folder:
+            source = Path(folder) / 'warning.pdf'
+            writer = pypdf.PdfWriter()
+            page = writer.add_blank_page(200, 300)
+            content = DecodedStreamObject()
+            # A stray marked-content end is ignored with a Syntax Warning;
+            # the visible rectangle still renders normally.
+            content.set_data(b'EMC q 0 0 10 10 re f Q')
+            page[NameObject('/Contents')] = writer._add_object(content)
+            writer.write(source)
+            writer.close()
+            with self.assertLogs('pdf_craft.pdf.poppler', level='WARNING') as logs:
+                result = check_pdf(source)
+            self.assertEqual(len(result.pages), 1)
+            self.assertTrue(any('Syntax Warning' in line and 'EMC' in line for line in logs.output))
+
+    def test_poppler_error_categories_are_fatal_but_warnings_remain_visible(self):
+        document = PopplerDocument(Path('unused.pdf'))
+        for category in ('Syntax Error', 'Config Error', 'Command Line Error', 'I/O Error',
+                         'Permission Error', 'Unimplemented Feature', 'Internal Error', 'Error'):
+            for position in ('', ' (123)'):
+                diagnostic = f'{category}{position}: failure\n'.encode()
+                with self.subTest(category=category, position=position), patch(
+                    'pdf_craft.pdf.poppler.run_subprocess_sync', return_value=(b'output', diagnostic),
+                ), self.assertRaisesRegex(RuntimeError, 'failure'):
+                    document._run('pdftoppm')
+        diagnostic = b'Syntax Warning (123): unusual but readable content\n'
+        with patch('pdf_craft.pdf.poppler.run_subprocess_sync', return_value=(b'output', diagnostic)), \
+                self.assertLogs('pdf_craft.pdf.poppler', level='WARNING') as logs:
+            self.assertEqual(document._run('pdftoppm'), b'output')
+        self.assertIn(diagnostic.decode().strip(), logs.output[0])
 
     def test_valid_geometry_metadata_labels_and_default_handler_use_poppler(self):
         with tempfile.TemporaryDirectory() as folder:

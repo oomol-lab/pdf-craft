@@ -30,6 +30,9 @@ Its fields are `source` (input path as a string), `backend` (`pypdf`, `poppler`,
 `consistency`), `stage`, `page_index` (1-based or `None`), and `reason`. Stages are
 `open`, `page_read`, `page_labels`, `render`, `page_count`, `geometry`, `write`,
 `reopen`, and `source_changed`. The original exception is chained when available.
+Poppler error diagnostics (including `Syntax Error`) also fail preflight when the
+process exits with code 0 and produces an image. Ordinary `Syntax Warning`
+diagnostics remain visible in logs and do not by themselves reject the file.
 An inaccessible file, unavailable backend, and backend parse/render failure retain
 their own diagnostic cause; none is automatically declared a PDF standards violation.
 

@@ -5,6 +5,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from io import BytesIO
+import logging
 from pathlib import Path
 import re
 
@@ -12,6 +13,17 @@ from PIL import Image
 
 from ..runtime import run_subprocess_sync
 from .types import PDFDocumentMetadata
+
+
+_LOGGER = logging.getLogger(__name__)
+# Poppler's ErrorCategory distinguishes workarounds that probably preserve
+# output (Syntax Warning) from errors that can leave incomplete page content.
+# Its tools can emit these error categories and still return exit status zero.
+_ERROR_DIAGNOSTIC = re.compile(
+    r"^\s*(?:Syntax Error|Config Error|Command Line Error|I/O Error|Permission Error|"
+    r"Unimplemented Feature|Internal Error|Error)(?:\s+\([^\r\n)]*\))?:",
+    re.MULTILINE,
+)
 
 
 @dataclass(frozen=True)
@@ -44,9 +56,14 @@ class PopplerDocument:
         return str(self.poppler_path / name) if self.poppler_path else name
 
     def _run(self, *arguments: str) -> bytes:
-        output, _ = run_subprocess_sync(
+        output, stderr = run_subprocess_sync(
             *arguments, aborted=self.aborted,
         )
+        diagnostic = stderr.decode("utf-8", errors="replace").strip()
+        if _ERROR_DIAGNOSTIC.search(diagnostic):
+            raise RuntimeError(f"Poppler {Path(arguments[0]).name} reported an error: {diagnostic}")
+        if diagnostic:
+            _LOGGER.warning("Poppler %s: %s", Path(arguments[0]).name, diagnostic)
         return output
 
     @property
