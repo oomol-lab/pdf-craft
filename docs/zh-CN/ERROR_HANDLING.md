@@ -1,5 +1,40 @@
 # 重试、降级与任务成功
 
+## 强制 PDF 输入预检
+
+所有接收源 PDF 的任务都在 OCR、翻译、正文/脚注/元信息回调和最终输出前执行预检。
+同步/异步门面、PDFExtractor、PDFTranslationPipeline、PDFPatcher 采用相同规则。
+即使提供自定义异步 PDF handler，也必须安装 pypdf 和 Poppler；预检通过后实际业务
+渲染仍使用调用方的 handler。
+
+预检使用 pypdf 遍历全部页面、读取资源和解码内容流（strict 读取，不额外执行修复），使用 Poppler
+逐页低 DPI 渲染，核对两者页数和页面几何，再将文档试写至临时文件并重新打开验证。
+原文件不修复、不改写，也不使用试写文件替换输入。图片逐页释放，启动开销随页数增长；
+一次组合任务内部共享检查结果，不跨调用永久缓存。
+
+失败抛出公开、任务级的 `PDFPreflightError`：
+
+```python
+from pdf_craft import PDFCraft, PDFPreflightError
+
+try:
+    PDFCraft().patch_pdf_with_extraction("source.pdf", "book.pcex", "output.pdf")
+except PDFPreflightError as error:
+    print(error.source, error.backend, error.stage, error.page_index, error.reason)
+```
+
+字段为 `source`（输入路径字符串）、`backend`（`pypdf`、`poppler`、`consistency`）、
+`stage`、`page_index`（从 1 开始，未知为 `None`）和 `reason`。阶段值为 `open`、
+`page_read`、`page_labels`、`render`、`page_count`、`geometry`、`write`、`reopen`、
+`source_changed`。有原始异常时保留异常链，区分文件不可访问、工具不可用与后端解析/
+渲染失败，不笼统宣称文件违反 PDF 标准。
+
+**该异常不可忽略。** 即使 `error_policy=True` 或 callback 返回 True 也必须终止，
+不会调用策略决策 callback，不走 RetryPolicy、页级 fallback 或自动修复。取消仍按取消传播。
+预检是当前后端的兼容性检查，不是完整标准合规认证；通过后仍可能在高 DPI 渲染、翻译
+或实际图层合成时失败。
+
+
 `PDFCraft` 和 `AsyncPDFCraft` 使用相同策略。策略属于一次执行；不会为了覆盖配置而修改共享 Translator。
 
 ```python

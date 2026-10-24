@@ -616,6 +616,7 @@ class TestPDFPatcher(unittest.TestCase):
             root = Path(temp_dir)
             source = root / "source.pdf"
             doc = canvas.Canvas(str(source), pagesize=(200, 200))
+            doc.showPage()
             doc.save()
 
             with self.assertRaises(ValueError):

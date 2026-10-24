@@ -1,5 +1,14 @@
 # Troubleshooting
 
+## PDFPreflightError
+
+This error occurs before OCR/LLM work when pypdf or Poppler cannot process the
+source, or their page geometry/count disagrees. Inspect `backend`, `stage`,
+`page_index`, `reason` and the chained exception. A missing executable/shared
+library is an installation problem; a parser error identifies backend incompatibility.
+The SDK does not repair the input. ErrorPolicy cannot ignore this exception.
+See [mandatory preflight](ERROR_HANDLING.md#mandatory-pdf-preflight).
+
 When a real conversion fails, first identify the layer: PDF reading and rendering, OCR, text LLM translation, output rendering, or PDF/EPUB patching. OCR configuration and text-LLM configuration are separate; a working OCR service does not prove that translation credentials are valid.
 
 ## Quick diagnosis
@@ -20,7 +29,7 @@ When a real conversion fails, first identify the layer: PDF reading and renderin
 
 ### `Poppler not found in PATH`
 
-pdf-craft uses Poppler to render PDF pages as images before OCR and to sample local background colors while patching translated PDFs. It is required for both local and vendor OCR, and for patching unless the caller supplies a different `AsyncPDFHandler`, so changing OCR backends does not solve the error.
+pdf-craft uses Poppler to render PDF pages as images before OCR and to sample local background colors while patching translated PDFs. It is required for both local and vendor OCR, and for mandatory preflight even when the caller supplies a different `AsyncPDFHandler`, so changing OCR backends does not solve the error.
 
 Run `pdfinfo -v` in the same environment that runs Python. If it is unavailable, install Poppler, add its executable directory to `PATH`, and restart the shell or process. The [installation guide](INSTALLATION.md) includes platform-specific commands.
 

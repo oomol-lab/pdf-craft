@@ -1,3 +1,4 @@
+from tests.pdf_preflight_helpers import mock_fictional_pdf_preflight
 from pdf_craft import FailureContext
 # pylint: disable=protected-access
 import asyncio
@@ -197,6 +198,9 @@ class _AsyncHandler:
 
 
 class TestAsyncAPI(unittest.IsolatedAsyncioTestCase):
+    def setUp(self):
+        mock_fictional_pdf_preflight(self)
+
     async def test_extraction_io_is_owned_by_async_facade(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

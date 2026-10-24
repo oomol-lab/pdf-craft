@@ -1,6 +1,7 @@
 # pylint: disable=unused-argument
 """Public facade that composes pdf-craft's independent components."""
 
+from pdf_craft.pdf.preflight import pdf_operation
 from pdf_craft.policies import RetryPolicy, ErrorPolicyInput
 from pdf_craft._policy import OMITTED, policy_operation
 
@@ -174,6 +175,7 @@ class AsyncPDFCraft:
         return await IO_DOMAIN.run(resolve_translation, document, translation_id)
 
     @policy_operation
+    @pdf_operation
     async def extract_pdf(
         self, source: PathLike | str, extraction_path: PathLike | str,
         options: ExtractionOptions | None = None,
@@ -186,6 +188,7 @@ class AsyncPDFCraft:
         return extraction
 
     @policy_operation
+    @pdf_operation
     async def extract_pdf_with_metering(
         self, source: PathLike | str, extraction_path: PathLike | str,
         options: ExtractionOptions | None = None,
@@ -333,6 +336,7 @@ class AsyncPDFCraft:
         )
 
     @policy_operation
+    @pdf_operation
     async def translate_pdf(
         self, source: PathLike | str, extraction: PDFCraftExtraction | PathLike | str,
         output: PathLike | str,
@@ -365,6 +369,7 @@ class AsyncPDFCraft:
             )
 
     @policy_operation
+    @pdf_operation
     async def patch_pdf_with_extraction(
         self,
         source: PathLike | str,
@@ -427,6 +432,7 @@ class AsyncPDFCraft:
         )
 
     @policy_operation
+    @pdf_operation
     async def convert_pdf_to_markdown(
         self, source: PathLike | str, output: PathLike | str, *,
         analysing_path: PathLike | str | None = None,
@@ -466,6 +472,7 @@ class AsyncPDFCraft:
         return metering
 
     @policy_operation
+    @pdf_operation
     async def convert_pdf_to_epub(
         self, source: PathLike | str, output: PathLike | str, *,
         analysing_path: PathLike | str | None = None,
@@ -698,14 +705,11 @@ async def _analysis_workspace_async(
 
 def _validate_extraction_for_pdf(source: Path, extraction: PDFCraftExtraction) -> None:
     """Fail before patching when extraction geometry cannot match the PDF."""
-    try:
-        import pypdf
-    except ImportError as error:
-        raise RuntimeError("PDF patching requires the optional 'pypdf' dependency") from error
     page_sizes = extraction._page_pixel_sizes()
     if not page_sizes:
         raise ValueError("PDFCraftExtraction is missing page geometry required for PDF patching")
-    page_count = len(pypdf.PdfReader(str(source)).pages)
+    from .pdf.preflight import check_pdf
+    page_count = len(check_pdf(source).pages)
     with extraction._materialize() as paths:
         chapter_pages = {
             fragment.page_index

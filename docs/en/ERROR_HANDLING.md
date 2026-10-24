@@ -1,5 +1,45 @@
 # Retry, recovery and completion
 
+## Mandatory PDF preflight
+
+Every task accepting a source PDF runs compatibility checks before OCR, translation,
+content/metadata callbacks, or final output. Both pypdf and Poppler are required,
+even with a custom async PDF handler. The same checks apply to the sync/async
+facades, PDFExtractor, PDFTranslationPipeline and PDFPatcher.
+
+Preflight reads every page's structure, resources and decoded content with pypdf
+(strict reader mode, without a separate repair pass), renders every page at low DPI with Poppler, compares
+page counts and page geometry, and writes/reopens a temporary pypdf document.
+The original is never repaired, rewritten, or replaced by that trial document.
+Images are released page by page. This adds startup work proportional to the PDF;
+nested steps share the result only within the current task. Subsequent calls check
+again. A custom handler still supplies the actual business renders after preflight.
+
+A failure raises the public, task-fatal `PDFPreflightError`:
+
+```python
+from pdf_craft import PDFCraft, PDFPreflightError
+
+try:
+    PDFCraft().patch_pdf_with_extraction("source.pdf", "book.pcex", "output.pdf")
+except PDFPreflightError as error:
+    print(error.source, error.backend, error.stage, error.page_index, error.reason)
+```
+
+Its fields are `source` (input path as a string), `backend` (`pypdf`, `poppler`,
+`consistency`), `stage`, `page_index` (1-based or `None`), and `reason`. Stages are
+`open`, `page_read`, `page_labels`, `render`, `page_count`, `geometry`, `write`,
+`reopen`, and `source_changed`. The original exception is chained when available.
+An inaccessible file, unavailable backend, and backend parse/render failure retain
+their own diagnostic cause; none is automatically declared a PDF standards violation.
+
+**This exception cannot be ignored.** `error_policy=True` and error callbacks cannot
+permit continuation; the policy decision callback is not invoked. No retry policy,
+page fallback, or automatic source repair is applied. Cancellation remains cancellation.
+Passing preflight is compatibility evidence, not a complete PDF conformance certificate
+or a guarantee that later high-DPI rendering, translation, or overlay composition succeeds.
+
+
 `PDFCraft` and `AsyncPDFCraft` accept the same execution policies. Calls may override the instance defaults without mutating a shared translator.
 
 ```python

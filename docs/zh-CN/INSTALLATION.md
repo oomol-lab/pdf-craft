@@ -68,7 +68,13 @@ python -m pip install "pdf-craft[local]"
 
 ## 安装 Poppler
 
-Poppler 是 pdf2image 用来读取和渲染 PDF 页面的系统工具。安装后，`pdfinfo` 应该能在
+所有 PDF 输入任务都需要 `pdfinfo` 和 `pdftoppm` 完成强制预检，提供自定义 handler
+也不例外。读取文件明确声明的出版页码标签还需要 Poppler GLib 动态库
+（Debian/Ubuntu 的 `libpoppler-glib8`；Homebrew Poppler 自带）。Windows 还需安装
+相应 GLib 依赖，并确保 Python 能找到 DLL。详见[PDF 预检](ERROR_HANDLING.md#强制-pdf-输入预检)。
+
+
+Poppler 提供 PDF 的只读信息、原生文本和页面渲染；出版页码标签使用其 GLib 公开 API。安装后，`pdfinfo` 应该能在
 终端中直接执行。
 
 ### macOS
@@ -83,7 +89,7 @@ brew install poppler
 
 ```bash
 sudo apt-get update
-sudo apt-get install poppler-utils
+sudo apt-get install poppler-utils libpoppler-glib8
 ```
 
 ### Windows

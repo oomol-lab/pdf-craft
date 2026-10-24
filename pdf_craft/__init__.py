@@ -8,6 +8,7 @@ from .error import (
     OCRFatalError,
     OCRError,
     PDFError,
+    PDFPreflightError,
 )
 from .functions import predownload_models
 from .concurrency import (
