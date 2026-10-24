@@ -89,3 +89,11 @@ analysis/OCR 缓存。
 pdf-craft 对外只暴露自己的 OCR 配置对象，不暴露 `doc-page-extractor` 的 `PageExtractor`、`OCRAdapter` 或 factory 注入口。需要新增 OCR 后端时，优先在 `doc-page-extractor` 增加官方构造入口，再在 pdf-craft 映射成封闭配置对象。
 
 本包通过 `doc-page-extractor[local]` 获得上游本地 OCR 运行时栈，但不要把 `torch` 或 `torchvision` 作为 pdf-craft 的直接运行时依赖；用户仍可能需要按自己的环境覆盖安装 CPU 或 CUDA wheel。
+
+## PDF 后端边界
+
+只读页数、几何、元信息、文字和渲染统一由 Poppler 负责；出版标签通过 GLib 公开 API
+读取，是否明确存在标签树由预检的结构遍历确认。pypdf 仅用于独立输入预检及 PDF
+对象编辑/写入。源 PDF 任务使用 `pdf_operation` 预检作用域（实现位于
+`pdf/preflight.py`），子阶段共享本次结果，不跨调用缓存。PDFPreflightError 为任务级
+不可继续异常，ErrorPolicy 不参与决策；不能把它改成页级 fallback。

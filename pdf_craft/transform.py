@@ -1,6 +1,7 @@
 # pylint: disable=unused-argument
 # pylint: disable=protected-access
 
+from pdf_craft.pdf.preflight import pdf_operation
 from .policies import ErrorPolicyInput
 from ._policy import decision_bridge, OMITTED, policy_operation
 
@@ -92,6 +93,7 @@ class PDFExtractionEngine:
     async def load_models(self) -> None:
         await OCR_DOMAIN.run(self._ocr.load_models)
 
+    @pdf_operation
     async def extract_package_async(self, **kwargs):
         """Own disk queues until producers and callback consumers have unwound."""
         from .extractor.chapter.live import LiveExtraction

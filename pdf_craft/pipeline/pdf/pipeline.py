@@ -1,5 +1,6 @@
 # pylint: disable=unused-argument
 
+from pdf_craft.pdf.preflight import pdf_operation
 from pdf_craft.policies import RetryPolicy, ErrorPolicyInput
 from pdf_craft._policy import OMITTED, policy_operation
 # pylint: disable=protected-access
@@ -41,6 +42,7 @@ class PDFTranslationPipeline:
         self.patcher = patcher or PDFPatcher(pdf_handler=pdf_handler, dpi=dpi, _native_pdf_handler=_native_pdf_handler)
 
     @policy_operation
+    @pdf_operation
     async def patch(
         self,
         pdf_path: Path,

@@ -14,11 +14,8 @@ from dataclasses import dataclass, field
 import json
 from pathlib import Path
 import re
-from typing import cast
 from xml.etree import ElementTree as ET
 
-from pypdf import PdfReader
-from pypdf.errors import PdfReadError
 from ..runtime import run_subprocess_sync
 
 from ..common import indent, save_xml
@@ -287,24 +284,9 @@ def _headline_text(text: str) -> str:
 
 
 def _explicit_page_labels(pdf_path: Path) -> dict[int, str]:
-    """Return publisher-supplied PDF page labels, never pypdf's fallback.
-
-    ``PdfReader.page_labels`` supplies decimal physical page numbers when the
-    PDF catalog has no ``/PageLabels`` entry.  That fallback is useful to PDF
-    viewers but is not publication metadata, so folio detection must ignore it.
-    """
-    try:
-        reader = PdfReader(str(pdf_path))
-        root = cast(Mapping[str, object], reader.trailer["/Root"])
-        if root.get("/PageLabels") is None:
-            return {}
-        return {
-            page_index: label.strip()
-            for page_index, label in enumerate(reader.page_labels, 1)
-            if label.strip()
-        }
-    except (FileNotFoundError, OSError, KeyError, PdfReadError):
-        return {}
+    """Read explicit publication labels from the shared preflight result."""
+    from .preflight import check_pdf
+    return check_pdf(pdf_path).labels
 
 
 def _native_pages(

@@ -1,5 +1,12 @@
 # pdf-craft API 参考
 
+## PDF 输入兼容性
+
+`PDFPreflightError` 从 `pdf_craft` 顶层导出。所有源 PDF 任务（包括自定义 handler）
+都执行强制双后端预检；`source`、`backend`、`stage`、`page_index`、`reason`
+标明失败位置。它不可忽略，不进入 ErrorPolicy。详见[预检行为和示例](ERROR_HANDLING.md#强制-pdf-输入预检)。
+
+
 本文面向需要把 pdf-craft 集成到自己程序中的用户。入门流程请先阅读仓库根目录的
 README；本文只说明稳定的公共导入和它们如何组合。示例默认使用：
 

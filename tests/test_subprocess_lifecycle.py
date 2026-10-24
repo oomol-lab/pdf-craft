@@ -2,6 +2,7 @@
 
 # pylint: disable=protected-access
 
+from tests.pdf_preflight_helpers import mock_fictional_pdf_preflight
 import asyncio
 import csv
 from datetime import datetime, timezone
@@ -130,6 +131,9 @@ class _AsyncPatchHandler:
 
 
 class TestSubprocessLifecycle(unittest.IsolatedAsyncioTestCase):
+    def setUp(self):
+        mock_fictional_pdf_preflight(self)
+
     async def test_direct_commands_reap_children_after_success_and_failure(self):
         runners = (
             run_subprocess,

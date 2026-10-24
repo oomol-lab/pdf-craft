@@ -1,5 +1,6 @@
 """The real Figure 4 failure shape, through projection, repair and recovery."""
 # pylint: disable=protected-access,unused-argument
+from tests.pdf_preflight_helpers import mock_fictional_pdf_preflight
 from copy import deepcopy
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -40,6 +41,9 @@ def project(pages):
 
 
 class AnchoredPageTests(IsolatedAsyncioTestCase):
+    def setUp(self):
+        mock_fictional_pdf_preflight(self)
+
     async def test_real_shape_survives_identity_refinement_and_codec(self):
         pages = source_pages()
         analysed = project(pages)
@@ -162,6 +166,9 @@ class RecoveryOCR:
 
 
 class ExtractionRecoveryTests(IsolatedAsyncioTestCase):
+    def setUp(self):
+        mock_fictional_pdf_preflight(self)
+
     async def extract(self, root, *, error_policy: ErrorPolicyInput=True, failure=None, callback=None, stage="finish"):
         engine = PDFExtractionEngine.__new__(PDFExtractionEngine)
         engine.__dict__["_ocr"] = RecoveryOCR()

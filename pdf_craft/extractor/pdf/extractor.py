@@ -1,5 +1,6 @@
 # pylint: disable=unused-argument
 
+from pdf_craft.pdf.preflight import pdf_operation
 from pdf_craft.policies import RetryPolicy, ErrorPolicyInput
 from pdf_craft._policy import OMITTED, policy_operation
 # pylint: disable=protected-access
@@ -27,6 +28,7 @@ class PDFExtractor:
         return extraction, metering
 
     @policy_operation
+    @pdf_operation
     async def extract(
         self,
         pdf_path: Path,
@@ -41,6 +43,7 @@ class PDFExtractor:
         return extraction
 
     @policy_operation
+    @pdf_operation
     async def extract_with_metering(
         self,
         pdf_path: Path,
@@ -59,6 +62,7 @@ class PDFExtractor:
             exported = await extraction._export_async(extraction_path)
         return exported, metering
 
+    @pdf_operation
     async def _extract_to_workspace_async(
         self,
         pdf_path: Path,

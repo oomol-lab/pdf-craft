@@ -1,6 +1,7 @@
 # pylint: disable=unused-argument
 """Compose non-interactive visual bases with independent overlays."""
 
+from pdf_craft.pdf.preflight import pdf_operation
 from pdf_craft.policies import RetryPolicy, ErrorPolicyInput
 from pdf_craft._policy import OMITTED, policy_operation
 # Native worker adapters share patcher state within this module.
@@ -106,6 +107,7 @@ class PDFPatcher:
         return self._failed_page_indexes
 
     @policy_operation
+    @pdf_operation
     async def patch(
         self,
         source_path: Path,

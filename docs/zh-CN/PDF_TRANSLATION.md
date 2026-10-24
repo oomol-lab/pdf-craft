@@ -221,7 +221,7 @@ craft.patch_pdf_with_extraction(
 不是公开输入。省略 `translation_id` 时写回当前 PCEX 根内容；显式指定时选择对应翻译版本的
 正文、metadata 和可选 furniture。anchored 图片/表格文字没有字段级 PDF 坐标，本轮不会写回
 PDF。这个入口不会调用 OCR 或 LLM。PDF 写回使用 `pypdf`、`reportlab`、PySide6/Qt、
-本机 Ghostscript，以及 Poppler（或调用方提供的 `AsyncPDFHandler`）进行局部背景取色；在依赖被移除或
+本机 Ghostscript，以及 Poppler（强制输入预检需要它；局部背景取色可使用调用方提供的 `AsyncPDFHandler`）进行局部背景取色；在依赖被移除或
 非标准安装的环境中，底层导入失败会抛出 `RuntimeError`。
 
 ### 调整写回排版
@@ -304,7 +304,7 @@ device 生成的译文文本 overlay。因此扫描页仍会自然保留扫描�
 
 擦除会先以 padding 扩大每个来源 bbox，然后只渲染原始页来计算该矩形内按频次加权的 RGB 中位背景色，
 再以这个颜色完整覆盖扩展矩形。渲染页不会作为输出页。当前擦除不恢复纸张纹理、表格线、公式或插图。
-写回需要本机具备 PySide6/Qt、Ghostscript、Poppler（或调用方提供的 `AsyncPDFHandler`）和可用字体；省略或
+写回需要本机具备 PySide6/Qt、Ghostscript、Poppler（强制输入预检需要它；局部背景取色可使用调用方提供的 `AsyncPDFHandler`）和可用字体；省略或
 留空 `font_name` 时，会从 Qt 字体库自动选取一个本机真实字体并在整次写回中固定。显式指定的字体只是
 优先选择，Qt 找不到指定字体或字形时会使用系统 fallback，不会因此中断写回。
 

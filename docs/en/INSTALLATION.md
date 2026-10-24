@@ -49,12 +49,19 @@ python -m pip install pdf-craft
 
 ## Install Poppler
 
+All PDF-input tasks require `pdfinfo` and `pdftoppm` for mandatory preflight, even
+when actual rendering uses a custom handler. Reading explicit publication page
+labels also requires the Poppler GLib shared library (`libpoppler-glib8` on Debian/Ubuntu;
+included in Homebrew Poppler). On Windows install its GLib dependencies alongside
+Poppler and make the DLLs discoverable to Python. See [PDF preflight](ERROR_HANDLING.md#mandatory-pdf-preflight).
+
+
 ```bash
 # macOS
 brew install poppler
 
 # Debian / Ubuntu
-sudo apt-get update && sudo apt-get install poppler-utils
+sudo apt-get update && sudo apt-get install poppler-utils libpoppler-glib8
 ```
 
 On Windows, install a Poppler binary distribution and add its `bin` directory to `PATH`. The built-in Poppler adapter is selected automatically; `PDFOptions.pdf_handler` is reserved for async custom handlers.
