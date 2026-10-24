@@ -128,6 +128,46 @@ class TestLLMRuntime(unittest.IsolatedAsyncioTestCase):
             log_text = "\n".join(path.read_text() for path in (Path(directory) / "logs").glob("*.log"))
             self.assertIn('"category": "timeout"', log_text)
 
+    async def test_extra_headers_reach_the_openai_client(self):
+        config = LLM(
+            "key", "https://example.invalid/v1", "model", "o200k_base",
+            retry_times=0, headers={"X-OO-Trace-ID": "trace-1"},
+        )
+        runtime = runtime_for(config, ConcurrentExecutor(FixedCapacity(1)))
+        client_kwargs: list[dict] = []
+
+        class Stream:
+            def __aiter__(self):
+                return self
+
+            async def __anext__(self):
+                raise StopAsyncIteration
+
+        class Completions:
+            async def create(self, **_kwargs):
+                return Stream()
+
+        class Client:
+            def __init__(self, **kwargs):
+                client_kwargs.append(kwargs)
+                self.chat = Mock(completions=Completions())
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *_args):
+                return False
+
+        with patch("pdf_craft.llm.runtime.openai.AsyncOpenAI", Client):
+            await runtime._invoke_stream([], None, None, None, force_ipv4=False)
+
+        self.assertEqual(client_kwargs[0]["default_headers"], {"X-OO-Trace-ID": "trace-1"})
+
+    def test_llm_rejects_reserved_request_headers(self):
+        with self.assertRaisesRegex(ValueError, "managed by pdf-craft"):
+            LLM("key", "https://example.invalid/v1", "model", "o200k_base",
+                headers={"authorization": "Bearer other"})
+
     async def test_cancelling_streaming_request_closes_the_stream(self):
         config = LLM(
             "key", "https://example.invalid/v1", "model", "o200k_base",

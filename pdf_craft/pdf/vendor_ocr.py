@@ -354,14 +354,16 @@ class VendorOCRRuntime:
         async def send() -> dict[str, Any]:
             if started is not None:
                 started.set()
+            headers = httpx.Headers(config.headers)
+            headers.update({
+                "Authorization": f"Bearer {config.api_key}",
+                "Content-Type": "application/json",
+                "Accept": "application/json",
+                "User-Agent": "pdf-craft-vendor-ocr/1.0",
+            })
             response = await self._require_client().post(
                 _chat_completions_url(config.base_url),
-                headers={
-                    "Authorization": f"Bearer {config.api_key}",
-                    "Content-Type": "application/json",
-                    "Accept": "application/json",
-                    "User-Agent": "pdf-craft-vendor-ocr/1.0",
-                },
+                headers=headers,
                 json=payload,
             )
             data = _checked_response(response, request.page_index, "DeepSeek OCR")

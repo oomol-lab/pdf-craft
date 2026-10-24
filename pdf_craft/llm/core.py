@@ -1,10 +1,13 @@
 import math
+from collections.abc import Mapping
 from os import PathLike
 from pathlib import Path
 from threading import Lock
 
 from jinja2 import Template
 from tiktoken import Encoding
+
+from ..request_headers import request_headers
 
 
 class LLM:
@@ -18,7 +21,8 @@ class LLM:
                  cache_path: PathLike | str | None = None,
                  log_dir_path: PathLike | str | None = None, *,
                  total_timeout: float | None = 360.0,
-                 cleanup_timeout: float = 5.0) -> None:
+                 cleanup_timeout: float = 5.0,
+                 headers: Mapping[str, str] | None = None) -> None:
         for name, value in (("total_timeout", total_timeout), ("cleanup_timeout", cleanup_timeout)):
             if value is not None and (not math.isfinite(value) or value <= 0):
                 raise ValueError(f"{name} must be a finite positive number")
@@ -29,6 +33,7 @@ class LLM:
         self.retry_times, self.retry_interval_seconds = retry_times, retry_interval_seconds
         self.cache_path = _directory(cache_path)
         self.log_dir_path = _directory(log_dir_path)
+        self.headers = request_headers(headers)
         self._encoding: Encoding | None = None
         self._templates: dict[str, Template] = {}
         self._resource_lock = Lock()
