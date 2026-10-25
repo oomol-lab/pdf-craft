@@ -289,3 +289,7 @@ PDFCraft(pdf=PDFOptions(
 
 
 统一策略、默认严格失败和全局全部降级的规则见 [错误处理](ERROR_HANDLING.md)。
+
+暂时限流现在由 executor 的 `RateLimitScope` 统一处理，不消耗 vendor 的 `retry_times`，
+也不使用 `retry_interval_seconds`。后两者仍控制非限流恢复。参见
+[共享限流范围](API_REFERENCE.md#共享限流范围)。

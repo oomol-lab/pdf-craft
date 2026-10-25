@@ -23,6 +23,7 @@ from tiktoken import Encoding, get_encoding
 from openai.types.chat import ChatCompletionMessageParam
 
 from ..runtime import IO_DOMAIN
+from ..rate_limit import RateLimitTimeoutError, rate_limit_request, retry_after_seconds
 from ..concurrency import (
     AsyncExecutor, NonContinuableError, OperationError, RateLimitedError, fatal_error_boundary,
 )
@@ -184,6 +185,7 @@ class LLMContext(AbstractAsyncContextManager["LLMContext"]):
         await IO_DOMAIN.run(_commit_pending, self._pending, exc_type)
 
     @fatal_error_boundary
+    @rate_limit_request
     async def request(
         self, input, max_tokens=None, temperature=None, top_p=None, *,
         retry_index=None, retry_max=None, use_cache=True, deadline=None,
@@ -234,7 +236,10 @@ class LLMContext(AbstractAsyncContextManager["LLMContext"]):
                         except OperationError:
                             raise
                         except Exception as error:
-                            raise _provider_error(error) from error
+                            normalized = _provider_error(error)
+                            if normalized is error:
+                                raise
+                            raise normalized from error
 
                     if deadline is None:
                         response = await self.runtime.executor.run(invoke_once)
@@ -271,7 +276,7 @@ class LLMContext(AbstractAsyncContextManager["LLMContext"]):
                         self._pending.add(temporary)
                     await self._log_async("success", attempt + 1, key=key)
                     return response
-                except NonContinuableError:
+                except (NonContinuableError, RateLimitTimeoutError):
                     raise
                 except OperationError as error:
                     last_error = error
@@ -285,9 +290,7 @@ class LLMContext(AbstractAsyncContextManager["LLMContext"]):
                         # the executor before reacquiring capacity for IPv4.
                         force_ipv4 = True
                         continue
-                    retryable = isinstance(error, RateLimitedError) or (
-                        isinstance(cause, Exception) and is_retry_error(cause)
-                    )
+                    retryable = isinstance(cause, Exception) and is_retry_error(cause)
                     await self._log_async(
                         "transport-error" if retryable else "non-retryable-error",
                         attempt + 1, key=key, error=error,
@@ -303,12 +306,7 @@ class LLMContext(AbstractAsyncContextManager["LLMContext"]):
                             attempts=transport_attempts,
                             cause=final_cause,
                         ) from final_cause
-                    rate_limit = error if isinstance(error, RateLimitedError) else None
-                    delay = (
-                        rate_limit.retry_after
-                        if rate_limit is not None and rate_limit.retry_after is not None
-                        else self.runtime.config.retry_interval_seconds
-                    )
+                    delay = self.runtime.config.retry_interval_seconds
                     await self._log_async("retry", attempt + 1, key=key, error=error)
                     if delay > 0:
                         if deadline is None:
@@ -398,7 +396,10 @@ def _provider_error(error: Exception) -> OperationError:
     if isinstance(error, OperationError):
         return error
     status = getattr(error, "status_code", None)
-    if status == 429 or isinstance(error, openai.RateLimitError):
+    rate_code = getattr(error, "code", None)
+    rate_type = getattr(error, "type", None)
+    if (status == 429 or isinstance(error, openai.RateLimitError)
+            or rate_code == "rate_limit_exceeded" or rate_type == "rate_limit_error"):
         if _is_quota_error(error):
             return NonContinuableError(
                 "The LLM provider quota is exhausted.", cause=error,
@@ -407,10 +408,7 @@ def _provider_error(error: Exception) -> OperationError:
         raw_retry_after = (
             response.headers.get("retry-after") if response is not None else None
         )
-        try:
-            retry_after = float(raw_retry_after) if raw_retry_after is not None else None
-        except (TypeError, ValueError):
-            retry_after = None
+        retry_after = retry_after_seconds(raw_retry_after)
         return RateLimitedError(retry_after=retry_after, cause=error)
     if status in (401, 402, 403) or isinstance(
         error, (openai.AuthenticationError, openai.PermissionDeniedError),

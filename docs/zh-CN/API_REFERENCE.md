@@ -641,8 +641,8 @@ EPUB 输出类型本身不会开启 LLM；只有显式传入 `toc_llm` 才会请
 
 ## 共享异步容量
 
-`ConcurrentExecutor(FixedCapacity(n))` 提供一条绑定到事件循环的远程调用容量通道。LLM、
-JEV 或 vendor OCR 若消耗同一供应商配额，应共享同一个执行器。`run()` 与 `map()` 共享容量；
+`ConcurrentExecutor(FixedCapacity(n))` 提供一条绑定到事件循环的远程调用容量通道。需要共享并发容量的 LLM、
+JEV 或 vendor OCR 可共享执行器；只共享限流配额时使用同一个 `RateLimitScope`。`run()` 与 `map()` 共享容量；
 `map()` 惰性读取 `Callable[[int], Awaitable[tuple[int, T]]]`，按完成顺序返回
 `OperationResult`，调用方通过 `operation_id` 关联原始输入。自定义执行器的 `map()` 返回
 带 `aclose()` 的 `AsyncResultIterator`，使调用方可在释放网络 client 或临时资源前取消并收敛
@@ -651,9 +651,51 @@ JEV 或 vendor OCR 若消耗同一供应商配额，应共享同一个执行器�
 `CapacityProvider` 与 `CapacityLease` 是自适应策略的公开协议。自定义 provider 可在
 `acquire()` 中异步等待，在 `release()` 收到的 `ExecutionReport` 中观察结果，并在容量恢复时
 唤醒自己的等待者；它还必须实现 `close(error)`，让 `NonContinuableError` 唤醒所有阻塞请求。
-`RateLimitedError` 与普通 `OperationError` 在 `map()` 中作为单项结果返回；
-`NonContinuableError` 会关闭共享执行器并取消未完成工作。供应商 retry 循环位于执行器外，
-因此每次真实重试都会重新申请容量。
+普通 `OperationError` 在 `map()` 中作为单项结果返回；
+`NonContinuableError` 会关闭共享执行器并取消未完成工作。非限流 retry 循环位于执行器外，限流恢复由执行器承接；
+每次真实请求都重新申请容量。
+
+### 共享限流范围
+
+`RateLimitScope(cooldown_seconds=1.0, max_wait_seconds=600.0)` 协调同一账号、API key 或模型
+配额的暂时限流。所有参数可省略；不传 `rate_limit_scope` 时，每个 `ConcurrentExecutor`
+自动拥有独立 Scope。共享 Scope 不会共享并发容量、致命终止状态或取消范围。
+
+```python
+from pdf_craft import ConcurrentExecutor, FixedCapacity, RateLimitScope
+
+limits = RateLimitScope()
+ocr_executor = ConcurrentExecutor(FixedCapacity(4), rate_limit_scope=limits)
+translation_executor = ConcurrentExecutor(FixedCapacity(8), rate_limit_scope=limits)
+```
+
+正常时直接放行，容量仍由各 executor 决定。适配层把暂时限流归一化为 `RateLimitedError`；
+Scope 不解释 HTTP 状态，也不把普通 429 一律视为余额耗尽。限流后整个 Scope 冷却，结束后
+只允许一个试探请求。成功后从最多一个在途请求开始，至少间隔一秒错峰准入；每级连续成功
+达到该级在途上限后，按 1、2、4、8…增加上限，达到正常容量后取消限速。已在途的旧请求
+不会被限流取消，其成功也不会解除新一轮冷却。试探取消或普通失败释放资格，不算恢复成功。
+
+- `cooldown_seconds` 是无服务端指示时的基础冷却，连续限流指数增长，本地最多 60 秒。
+  数值及 HTTP-date `Retry-After` 由适配层转换。冷却至少为基础值（最多 60 秒），服务端要求
+  更久时不能截短；随机错峰只向后延迟。重复限流只能延长已有冷却。
+- `max_wait_seconds` 是**每个逻辑请求**累计等待限流准入的预算，包含试探/恢复排队，
+  不包括普通容量排队和请求执行；共享实例不是共享耗尽预算。LLM 网络重试及 Unlimited
+  同一页的各 HTTP 阶段保留这份预算。已有请求总超时仍优先生效。
+- 等待冷却不占请求容量，实际调用前重新检查冷却和恢复间隔。容量延迟授予后也不能集中
+  启动请求；仍需等待的请求先释放容量。重试重新排队，不持续插队。
+  自定义 `CapacityProvider` 无需新增方法；已知 `concurrency` 用作恢复目标，否则使用观察到的
+  正常并发高水位（至少 1），共享范围按各 executor 目标之和恢复。
+- `run()` 内部恢复暂时限流；`map()` 同样恢复，超过预算返回带 `operation_id` 的单项失败。
+  `RateLimitTimeoutError` 是公开 `OperationError` 子类，原因链保留最近的限流及供应商原始错误。
+  它不关闭整个请求池。余额/配额耗尽等 `NonContinuableError` 仍按首个致命原因终止。
+
+迁移：`LLM.retry_times`、OCR vendor 的 `retry_times` 和 JEV 的 `RetryPolicy.analysis` 不再消耗
+在暂时限流上；即使设为 0，仍可由 Scope 恢复限流。旧 `retry_interval_seconds` 保留，用于
+非限流网络错误、空响应相关既有行为及供应商特定恢复，不再控制限流冷却。JEV 非限流网络
+重试仍使用 0.5 秒间隔。要调整限流等待，应配置 Scope，而非增大这些重试次数。
+自定义 `AsyncExecutor` 实现仍自行负责限流恢复；需要内置行为时使用 `ConcurrentExecutor`
+搭配自定义 `CapacityProvider`。没有增加第二套同步实现。
+
 
 同一次 SDK 操作中，首次观察并记录的 `NonContinuableError` 是唯一终止原因；各阶段使用
 不同执行器时也遵守此规则。SDK 会取消兄弟工作并等待清理，然后抛出原始异常，完整保留其

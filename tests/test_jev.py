@@ -1,4 +1,5 @@
-from pdf_craft import RetryPolicy
+from pdf_craft import RetryPolicy, RateLimitScope
+from typesafe_sdk import TypeSafeAPIConnectionError
 # pylint: disable=cell-var-from-loop
 import asyncio
 import inspect
@@ -81,7 +82,7 @@ class JEVTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(client.system_one.await_count, 2)
 
-    async def test_rate_limit_without_retry_after_uses_default_delay(self):
+    async def test_rate_limit_without_retry_after_uses_scope_delay(self):
         client = MagicMock()
         client.__aenter__ = AsyncMock(return_value=client)
         client.__aexit__ = AsyncMock(return_value=None)
@@ -95,15 +96,13 @@ class JEVTests(unittest.IsolatedAsyncioTestCase):
             "state": {"target_page": {"page_index": 4}},
             "questions": {JEV_QUESTION_NAME: {"type": "noul"}},
         }
-        with patch("pdf_craft.jev.AsyncTypeSafeClient", return_value=client), patch(
-            "pdf_craft.jev.asyncio.sleep", new_callable=AsyncMock,
-        ) as sleep:
+        with patch("pdf_craft.jev.AsyncTypeSafeClient", return_value=client):
             async with JEVRuntime(
                 JEV("secret"),
-                ConcurrentExecutor(FixedCapacity(1)),
+                ConcurrentExecutor(FixedCapacity(1), rate_limit_scope=RateLimitScope(cooldown_seconds=.001)),
             ) as runtime:
                 self.assertEqual(await runtime.evaluate(4, request), 0.72)
-        sleep.assert_awaited_once_with(0.5)
+        self.assertEqual(client.system_one.await_count, 2)
 
     async def test_batch_retry_is_not_blocked_by_slow_initial_sibling(self):
         client = MagicMock()
@@ -119,7 +118,7 @@ class JEVTests(unittest.IsolatedAsyncioTestCase):
             if page_index == 1:
                 page_one_calls += 1
                 if page_one_calls == 1:
-                    raise RateLimitedError(retry_after=0)
+                    raise OperationError(cause=TypeSafeAPIConnectionError("connection lost"), message="network")
                 retried.set()
                 return SimpleNamespace(nouls={
                     JEV_QUESTION_NAME: SimpleNamespace(noul=0.1),
@@ -154,7 +153,7 @@ class JEVTests(unittest.IsolatedAsyncioTestCase):
         client.__aenter__ = AsyncMock(return_value=client)
         client.__aexit__ = AsyncMock(return_value=None)
         client.system_one = AsyncMock(
-            side_effect=RateLimitedError(retry_after=0),
+            side_effect=OperationError(cause=TypeSafeAPIConnectionError("connection lost"), message="network"),
         )
         consumed = 0
         retries_started = 0
@@ -218,7 +217,7 @@ class JEVTests(unittest.IsolatedAsyncioTestCase):
                 page_index = state["target_page"]["page_index"]
                 calls[page_index] += 1
                 if calls[page_index] == 1:
-                    raise RateLimitedError(retry_after=0)
+                    raise OperationError(cause=TypeSafeAPIConnectionError("connection lost"), message="network")
                 if sum(count > 1 for count in calls.values()) == 2:
                     retries_started.set()
                 await retries_started.wait()

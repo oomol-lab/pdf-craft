@@ -230,7 +230,7 @@ class VendorOCRConcurrencyTests(unittest.IsolatedAsyncioTestCase):
             if vendor_request.page_index == 1:
                 first_calls += 1
                 if first_calls == 1:
-                    raise RateLimitedError(retry_after=0)
+                    raise OperationError("network", cause=httpx.ReadTimeout("connection lost"))
                 retried.set()
             else:
                 await asyncio.wait_for(retried.wait(), 1)
@@ -383,7 +383,7 @@ class VendorOCRConcurrencyTests(unittest.IsolatedAsyncioTestCase):
         async def request(_runtime, _request, started=None):
             if started is not None:
                 started.set()
-            raise RateLimitedError(retry_after=0)
+            raise OperationError("network", cause=httpx.ReadTimeout("connection lost"))
 
         async def retry(
             _runtime, _request, _error, *, attempts_used,
@@ -443,7 +443,7 @@ class VendorOCRConcurrencyTests(unittest.IsolatedAsyncioTestCase):
                     page_index = vendor_request.page_index
                     calls[page_index] += 1
                     if calls[page_index] == 1:
-                        raise RateLimitedError(retry_after=0)
+                        raise OperationError("network", cause=httpx.ReadTimeout("connection lost"))
                     if sum(count > 1 for count in calls.values()) == 2:
                         retries_started.set()
                     await retries_started.wait()

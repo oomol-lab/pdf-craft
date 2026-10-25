@@ -19,6 +19,7 @@ from typesafe_sdk import (
 from ._policy import current as execution_policy, policy_operation
 from .policies import RetryScope, RetryPolicy as BusinessRetryPolicy, FailureLocation
 
+from .rate_limit import rate_limit_request
 from .concurrency import (
     AsyncExecutor, NonContinuableError, OperationError, RateLimitedError,
     task_group_error, settle_tasks,
@@ -68,6 +69,7 @@ class JEVRuntime:
             await client.__aexit__(exc_type, exc_value, traceback)
 
     @policy_operation
+    @rate_limit_request
     async def evaluate(
         self,
         page_index: int,
@@ -183,7 +185,10 @@ class JEVRuntime:
         except OperationError:
             raise
         except Exception as error:
-            raise _provider_error(error) from error
+            normalized = _provider_error(error)
+            if normalized is error:
+                raise
+            raise normalized from error
         return float(response.nouls["page_passes_strict_standard"].noul)
 
     async def _evaluate_with_retry(
@@ -219,12 +224,7 @@ class JEVRuntime:
     ) -> float:
         current = error
         while attempts_used <= (execution_policy().retry.attempts(RetryScope.ANALYSIS) - 1):
-            delay = (
-                current.retry_after
-                if isinstance(current, RateLimitedError)
-                and current.retry_after is not None
-                else 0.5
-            )
+            delay = 0.5  # Non-rate transport retry; limiting belongs to the executor.
             if delay > 0:
                 await asyncio.sleep(delay)
             try:
@@ -272,8 +272,6 @@ def _provider_error(error: Exception) -> OperationError:
 
 
 def _is_retryable(error: OperationError) -> bool:
-    if isinstance(error, RateLimitedError):
-        return True
     cause = error.__cause__
     if isinstance(cause, (TypeSafeAPIConnectionError, TypeSafeAPITimeoutError)):
         return True

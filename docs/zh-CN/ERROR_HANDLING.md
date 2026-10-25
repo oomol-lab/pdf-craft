@@ -173,3 +173,7 @@ craft = PDFCraft(
 也会使任务失败。顶层 `error_policy=True` 只放行可恢复类别，不能忽略取消、不可继续的服务
 错误或任务全部降级。`on_body`、`on_footnote` 等内容回调的既有 payload 保持不变。
 本次仍使用 PCEX v4，不需要迁移归档格式。
+
+暂时限流不消耗上述重试次数，由 executor 的 `RateLimitScope` 统一冷却与恢复。
+超过每请求累计等待预算时抛出 `RateLimitTimeoutError`，原因链保留原限流错误；最终按对应业务
+ErrorPolicy 决定是否降级。详见 [共享限流范围](API_REFERENCE.md#共享限流范围)。

@@ -192,3 +192,6 @@ for examples, CFI details, ordering and source lifetime.
 
 
 See [error handling](ERROR_HANDLING.md) for strict defaults, source locations and task-wide all-fallback protection.
+
+Temporary LLM limits are recovered by the executor's `RateLimitScope` without consuming
+`LLM.retry_times`. See [shared rate-limit scopes](API_REFERENCE.md#shared-rate-limit-scopes).

@@ -166,3 +166,8 @@ does not return a bool, the task fails. A top-level `error_policy=True` allows a
 recoverable categories, not cancellation, fatal service errors or total fallback.
 Content callbacks such as `on_body` and `on_footnote` keep their existing payloads.
 PCEX remains format v4; there is no archive-format migration in this release.
+
+Temporary rate limits do not consume the retry counts above. Executor-owned `RateLimitScope`
+coordinates cooling and recovery. Its per-request waiting budget raises `RateLimitTimeoutError`
+with the provider cause chain; the corresponding business ErrorPolicy then decides recovery.
+See [shared rate-limit scopes](API_REFERENCE.md#shared-rate-limit-scopes).
