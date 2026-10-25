@@ -7,7 +7,7 @@ from pdf_craft import (
     FixedCapacity,
     NonContinuableError,
     OperationError,
-    RateLimitedError,
+    RateLimitedError, RateLimitScope, RateLimitTimeoutError,
 )
 
 
@@ -224,19 +224,24 @@ class AsyncExecutorTests(unittest.IsolatedAsyncioTestCase):
         await getattr(stream, "aclose")()
 
     async def test_map_returns_recoverable_failures_with_operation_id(self):
-        executor = ConcurrentExecutor(FixedCapacity(2))
+        executor = ConcurrentExecutor(FixedCapacity(2),
+                                      rate_limit_scope=RateLimitScope(max_wait_seconds=0.01))
 
-        async def limited(operation_id: int):
+        failed_started = asyncio.Event()
+
+        async def limited(_operation_id: int):
+            await failed_started.wait()
             raise RateLimitedError(retry_after=0.5)
 
-        async def failed(operation_id: int):
+        async def failed(_operation_id: int):
+            failed_started.set()
             raise ValueError("bad")
 
         results = [item async for item in executor.map([limited, failed])]
         by_id = {item.operation_id: item for item in results}
         limited_error = by_id[0].error
         failed_error = by_id[1].error
-        self.assertIsInstance(limited_error, RateLimitedError)
+        self.assertIsInstance(limited_error, RateLimitTimeoutError)
         assert limited_error is not None
         self.assertEqual(limited_error.operation_id, 0)
         self.assertIsInstance(failed_error, OperationError)

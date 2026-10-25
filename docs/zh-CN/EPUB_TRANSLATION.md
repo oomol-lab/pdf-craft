@@ -240,3 +240,6 @@ def on_translation_event(event) -> None:
 
 
 统一策略、默认严格失败和全局全部降级的规则见 [错误处理](ERROR_HANDLING.md)。
+
+LLM 暂时限流由 executor 的 `RateLimitScope` 恢复，不消耗 `LLM.retry_times`。
+共享配额、冷却及等待上限见 [共享限流范围](API_REFERENCE.md#共享限流范围)。

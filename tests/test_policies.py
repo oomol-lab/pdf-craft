@@ -490,7 +490,8 @@ class PartialPublicationTests(unittest.IsolatedAsyncioTestCase):
 
 class AnalysisRecoveryTests(unittest.IsolatedAsyncioTestCase):
     async def test_jev_uses_analysis_budget_then_reports_only_failed_target(self):
-        from pdf_craft import JEV, RateLimitedError
+        from pdf_craft import JEV, OperationError
+        from typesafe_sdk import TypeSafeAPIConnectionError
         from pdf_craft.jev import JEVRuntime
 
         calls, seen = [], []
@@ -500,7 +501,7 @@ class AnalysisRecoveryTests(unittest.IsolatedAsyncioTestCase):
             page = request["state"]["target_page"]["page_index"]
             calls.append(page)
             if page == 1:
-                raise RateLimitedError(retry_after=0)
+                raise OperationError("connection", cause=TypeSafeAPIConnectionError("lost"))
             return 0.95
 
         runtime._evaluate_once = evaluate

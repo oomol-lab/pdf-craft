@@ -123,3 +123,7 @@ failed task whose `task_error` says the quota is insufficient. The resulting
 
 
 See [error handling](ERROR_HANDLING.md) for strict defaults, source locations and task-wide all-fallback protection.
+
+Temporary limits now use the executor's `RateLimitScope`, independently of vendor
+`retry_times` and `retry_interval_seconds`, which retain their non-rate recovery roles.
+See [shared rate-limit scopes](API_REFERENCE.md#shared-rate-limit-scopes).

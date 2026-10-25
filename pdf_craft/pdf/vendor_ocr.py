@@ -19,6 +19,7 @@ import httpx
 from doc_page_extractor.extraction_context import ExtractionAbortedError
 from doc_page_extractor.errors import VendorOCRRequestError
 
+from ..rate_limit import rate_limit_request, retry_after_seconds
 from ..concurrency import (
     AsyncExecutor,
     NonContinuableError,
@@ -129,6 +130,7 @@ class VendorOCRRuntime:
             await client.aclose()
 
     @fatal_error_boundary
+    @rate_limit_request
     async def request(
         self,
         request: VendorOCRInput,
@@ -270,12 +272,7 @@ class VendorOCRRuntime:
     ) -> VendorOCRResponse:
         current = error
         while attempts_used <= self.config.retry_times:
-            delay = (
-                current.retry_after
-                if isinstance(current, RateLimitedError)
-                and current.retry_after is not None
-                else self.config.retry_interval_seconds
-            )
+            delay = self.config.retry_interval_seconds
             if delay > 0:
                 await asyncio.sleep(delay)
             try:
@@ -499,13 +496,7 @@ class VendorOCRRuntime:
                 if not _is_retryable(error) or retry_attempt >= config.retry_times:
                     raise
                 retry_attempt += 1
-                rate_limit = error if isinstance(error, RateLimitedError) else None
-                delay = (
-                    rate_limit.retry_after
-                    if rate_limit is not None
-                    and rate_limit.retry_after is not None
-                    else config.retry_interval_seconds
-                )
+                delay = self.config.retry_interval_seconds
                 if delay > 0:
                     await asyncio.sleep(delay)
                 continue
@@ -684,13 +675,7 @@ class VendorOCRRuntime:
             except OperationError as error:
                 if not _is_retryable(error) or attempt >= self.config.retry_times:
                     raise
-                rate_limit = error if isinstance(error, RateLimitedError) else None
-                delay = (
-                    rate_limit.retry_after
-                    if rate_limit is not None
-                    and rate_limit.retry_after is not None
-                    else self.config.retry_interval_seconds
-                )
+                delay = self.config.retry_interval_seconds
                 if delay > 0:
                     await asyncio.sleep(delay)
                 attempt += 1
@@ -902,18 +887,10 @@ def _response_message(response: httpx.Response) -> str:
 
 
 def _retry_after(response: httpx.Response) -> float | None:
-    value = response.headers.get("Retry-After")
-    if value is None:
-        return None
-    try:
-        return max(0.0, float(value))
-    except ValueError:
-        return None
+    return retry_after_seconds(response.headers.get("Retry-After"))
 
 
 def _is_retryable(error: OperationError) -> bool:
-    if isinstance(error, RateLimitedError):
-        return True
     cause = _root_cause(error)
     if isinstance(cause, httpx.TransportError):
         return True

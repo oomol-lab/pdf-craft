@@ -1,4 +1,5 @@
 """Shared asynchronous capacity control for remote operations."""
+# pylint: disable=protected-access
 
 from __future__ import annotations
 
@@ -13,50 +14,12 @@ from enum import Enum
 from functools import wraps
 from typing import Any, Generic, Protocol, TypeVar, cast
 
+from ._operation import NonContinuableError, OperationError, RateLimitedError
+from .rate_limit import RateLimitScope, RateLimitTimeoutError, _Admission, _WaitBudget, _request_budget
+
 
 T = TypeVar("T")
 F = TypeVar("F", bound=Callable[..., Any])
-
-
-class OperationError(Exception):
-    """A recoverable failure of one remote operation."""
-
-    def __init__(
-        self,
-        message: str,
-        *,
-        operation_id: int | None = None,
-        cause: BaseException | None = None,
-    ) -> None:
-        super().__init__(message)
-        self.operation_id = operation_id
-        self.attempts: int | None = None
-        if cause is not None:
-            self.__cause__ = cause
-
-    def for_operation(self, operation_id: int) -> "OperationError":
-        if self.operation_id is None:
-            self.operation_id = operation_id
-        return self
-
-
-class RateLimitedError(OperationError):
-    """The provider temporarily refused an operation because of rate limits."""
-
-    def __init__(
-        self,
-        message: str = "The provider rate limit was exceeded.",
-        *,
-        operation_id: int | None = None,
-        retry_after: float | None = None,
-        cause: BaseException | None = None,
-    ) -> None:
-        super().__init__(message, operation_id=operation_id, cause=cause)
-        self.retry_after = retry_after
-
-
-class NonContinuableError(OperationError):
-    """A provider failure that permanently closes one executor channel."""
 
 
 class _FatalErrorState:
@@ -186,6 +149,10 @@ async def _release_without_abandoning(
     report: ExecutionReport,
 ) -> asyncio.CancelledError | None:
     """Finish an asynchronous release despite repeated caller cancellation."""
+    if isinstance(lease, _ScopedLease):
+        # Publish limiting synchronously, before another already-created worker
+        # can start while the shielded capacity release is being scheduled.
+        lease.report(report)
     release_task = asyncio.create_task(lease.release(report))
     interrupted: asyncio.CancelledError | None = None
     while True:
@@ -365,33 +332,104 @@ class _Completed(Generic[T]):
     settled: asyncio.Future[None] | None = None
 
 
+class _ScopedLease:
+    """Release scope admission even when a custom capacity release fails."""
+
+    def __init__(self, executor: "ConcurrentExecutor", capacity: CapacityLease, admission: "_Admission"):
+        self.executor, self.capacity, self.admission = executor, capacity, admission
+        self.started = False
+        self.released = False
+        self.reported = False
+
+    def start(self) -> None:
+        self.started = True
+        self.executor._rate_limit_scope._started(self.executor, self.admission)
+
+    def report(self, report: ExecutionReport) -> None:
+        if self.reported:
+            return
+        self.reported = True
+        self.executor._rate_limit_scope._finish(
+            self.admission, self.executor,
+            report.error if report.outcome != ExecutionOutcome.SUCCESS else None,
+            started=self.started,
+        )
+
+    async def release(self, report: ExecutionReport) -> None:
+        if self.released:
+            return
+        self.released = True
+        self.report(report)
+        await self.capacity.release(report)
+
+
 class ConcurrentExecutor:
     """Execute cold async operations through one shared capacity provider."""
 
-    def __init__(self, capacity: CapacityProvider) -> None:
+    def __init__(self, capacity: CapacityProvider, *, rate_limit_scope: "RateLimitScope | None" = None) -> None:
+        self._rate_limit_scope = rate_limit_scope if rate_limit_scope is not None else RateLimitScope()
+        self._rate_limit_scope._register(self, capacity)
         self._capacity = capacity
         self._loop: asyncio.AbstractEventLoop | None = None
         self._terminal_error: NonContinuableError | None = None
         self._active: set[asyncio.Task[object]] = set()
+        self._waiting: set[asyncio.Task[Any]] = set()
 
     def _bind_loop(self) -> None:
         loop = asyncio.get_running_loop()
         if self._loop is None:
             self._loop = loop
         elif self._loop is not loop:
-            if self._loop.is_closed() and not self._active:
+            if self._loop.is_closed() and not self._active and not self._waiting:
                 self._loop = loop
             else:
                 raise RuntimeError("ConcurrentExecutor cannot be shared across event loops")
 
+    async def _acquire(self, budget: "_WaitBudget") -> _ScopedLease:
+        task = asyncio.current_task()
+        if task is not None:
+            self._waiting.add(task)
+        try:
+            return await self._acquire_scoped(budget)
+        finally:
+            if task is not None:
+                self._waiting.discard(task)
+
+    async def _acquire_scoped(self, budget: "_WaitBudget") -> _ScopedLease:
+        scope = self._rate_limit_scope
+        while True:
+            if self._terminal_error is not None:
+                raise self._terminal_error
+            admission = await scope._acquire(budget)
+            try:
+                capacity = await self._capacity.acquire()
+            except BaseException as error:
+                scope._finish(admission, self, error, started=False)
+                raise
+            lease = _ScopedLease(self, capacity, admission)
+            if scope._valid(admission) and self._terminal_error is None:
+                return lease
+            # Cooling may have started while waiting for capacity. Never hold a
+            # request slot while waiting for the new scope generation.
+            interrupted = await _release_without_abandoning(
+                lease, ExecutionReport(0, ExecutionOutcome.CANCELLED),
+            )
+            if interrupted is not None:
+                raise interrupted
+
     @fatal_error_boundary
     async def run(self, operation: Callable[[], Awaitable[T]]) -> T:
         self._bind_loop()
-        if self._terminal_error is not None:
-            raise self._terminal_error
-        lease = await self._capacity.acquire()
+        budget = _request_budget.get() or _WaitBudget()
         try:
-            return await self._execute(operation, lease)
+            while True:
+                lease = await self._acquire(budget)
+                try:
+                    return await self._execute(operation, lease)
+                except RateLimitedError:
+                    # The failed attempt released both permits and reported
+                    # cooling before this logical request rejoins the queue.
+                    continue
         finally:
             if self._terminal_error is not None:
                 _record_fatal(self._terminal_error)
@@ -399,8 +437,9 @@ class ConcurrentExecutor:
     async def _execute(
         self,
         operation: Callable[[], Awaitable[T]],
-        lease: CapacityLease,
+        lease: _ScopedLease,
     ) -> T:
+        lease.start()
         started = time.monotonic()
         task = asyncio.current_task()
         if task is not None:
@@ -463,7 +502,7 @@ class ConcurrentExecutor:
             if first:
                 await self._capacity.close(self._terminal_error)
         finally:
-            for task in tuple(self._active):
+            for task in tuple(self._active | self._waiting):
                 if task is not current:
                     # Cancellation carries the group's already chosen cause,
                     # including when a later operation also fails fatally.
@@ -474,6 +513,7 @@ class ConcurrentExecutor:
         self, operations: Iterable[AsyncOperation[T]],
     ) -> AsyncIterator[OperationResult[T]]:
         self._bind_loop()
+        self._rate_limit_scope._bind()
         iterator = iter(operations)
         # A completed operation keeps its lease until the consumer accepts the
         # result.  Together with this single-slot handoff, that bounds both
@@ -489,8 +529,10 @@ class ConcurrentExecutor:
         async def execute_one(
             operation_id: int,
             operation: AsyncOperation[T],
-            lease: CapacityLease,
+            lease: _ScopedLease,
+            budget: "_WaitBudget",
         ) -> None:
+            current_lease: _ScopedLease | None = lease
             started = time.monotonic()
             task = asyncio.current_task()
             if task is not None:
@@ -502,7 +544,31 @@ class ConcurrentExecutor:
             delivery_enqueued = False
             try:
                 try:
-                    returned_id, value = await operation(operation_id)
+                    while True:
+                        assert current_lease is not None
+                        if not self._rate_limit_scope._valid(current_lease.admission):
+                            stale, current_lease = current_lease, None
+                            interrupted = await _release_without_abandoning(
+                                stale, ExecutionReport(0, ExecutionOutcome.CANCELLED),
+                            )
+                            if interrupted is not None:
+                                raise interrupted
+                            current_lease = await self._acquire(budget)
+                        if self._terminal_error is not None:
+                            raise self._terminal_error
+                        current_lease.start()
+                        started = time.monotonic()
+                        try:
+                            returned_id, value = await operation(operation_id)
+                            break
+                        except RateLimitedError as error:
+                            failed_lease, current_lease = current_lease, None
+                            interrupted = await _release_without_abandoning(
+                                failed_lease, ExecutionReport(time.monotonic() - started, ExecutionOutcome.FAILED, error),
+                            )
+                            if interrupted is not None:
+                                raise interrupted from error
+                            current_lease = await self._acquire(budget)
                     if returned_id != operation_id:
                         raise ValueError(
                             f"operation returned id {returned_id}, expected {operation_id}"
@@ -571,7 +637,8 @@ class ConcurrentExecutor:
             finally:
                 release_error: BaseException | None = None
                 try:
-                    interrupted = await _release_without_abandoning(lease, report)
+                    interrupted = (await _release_without_abandoning(current_lease, report)
+                                   if current_lease is not None else None)
                 except BaseException as error:
                     release_failures.append(error)
                     release_error = error
@@ -627,28 +694,45 @@ class ConcurrentExecutor:
             operation_id = 0
             try:
                 while True:
-                    lease = await self._capacity.acquire()
+                    # Capacity bounds lazy input consumption. EOF does not need
+                    # scope admission and must not wait for provider cooling.
+                    capacity = await self._capacity.acquire()
                     try:
                         operation = next(iterator)
-                    except StopIteration as error:
-                        interrupted = await _release_without_abandoning(
-                            lease, ExecutionReport(0, ExecutionOutcome.SUCCESS),
-                        )
-                        if interrupted is not None:
-                            raise interrupted from error
-                        break
                     except BaseException as error:
                         interrupted = await _release_without_abandoning(
-                            lease, ExecutionReport(0, ExecutionOutcome.FAILED),
+                            capacity, ExecutionReport(0, ExecutionOutcome.SUCCESS
+                                                      if isinstance(error, StopIteration)
+                                                      else ExecutionOutcome.FAILED),
                         )
                         if interrupted is not None:
                             raise interrupted from error
+                        if isinstance(error, StopIteration):
+                            break
                         raise
-                    task = asyncio.create_task(
-                        execute_one(operation_id, operation, lease)
-                    )
-                    running.add(task)
-                    task.add_done_callback(worker_done)
+                    budget = _WaitBudget()
+                    scope = self._rate_limit_scope
+                    try:
+                        admission = scope._try_normal()
+                        if admission is not None:
+                            lease = _ScopedLease(self, capacity, admission)
+                        else:
+                            interrupted = await _release_without_abandoning(
+                                capacity, ExecutionReport(0, ExecutionOutcome.CANCELLED),
+                            )
+                            if interrupted is not None:
+                                raise interrupted
+                            lease = await self._acquire(budget)
+                    except RateLimitTimeoutError as error:
+                        await completed.put(_Completed(result=OperationResult(
+                            operation_id, error=error.for_operation(operation_id),
+                        )))
+                    else:
+                        task = asyncio.create_task(
+                            execute_one(operation_id, operation, lease, budget)
+                        )
+                        running.add(task)
+                        task.add_done_callback(worker_done)
                     operation_id += 1
             finally:
                 if not teardown_requested:

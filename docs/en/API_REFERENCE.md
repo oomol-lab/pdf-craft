@@ -393,8 +393,8 @@ instead. EPUB output alone never enables LLM requests: supply `toc_llm` explicit
 ## Shared asynchronous capacity
 
 `ConcurrentExecutor(FixedCapacity(n))` provides one event-loop-bound capacity channel for
-remote operations. Pass the same executor to components whose LLM, JEV, or vendor OCR requests
-consume the same provider quota. `run()` and `map()` share that capacity. `map()` consumes a cold
+remote operations. Pass the same executor to components that share concurrency capacity, or share a
+`RateLimitScope` across separate executors to coordinate a provider quota. `run()` and `map()` share that capacity. `map()` consumes a cold
 iterable of `Callable[[int], Awaitable[tuple[int, T]]]` lazily and yields `OperationResult` values
 in completion order; callers use `operation_id` to associate results with their inputs. A custom
 executor's `map()` returns `AsyncResultIterator`, including `aclose()`, so a caller can cancel and
@@ -403,10 +403,58 @@ settle pending operations before releasing the transport or temporary resources.
 `CapacityProvider` and `CapacityLease` are public protocols for adaptive policies. A custom
 provider may wait in `acquire()`, learn from the `ExecutionReport` passed to `release()`, and wake
 its own waiters when capacity becomes available. It must also implement `close(error)` so a
-`NonContinuableError` wakes blocked acquisitions. `RateLimitedError` and ordinary
-`OperationError` are returned per operation by `map()`; a `NonContinuableError` closes the shared
-executor and cancels its outstanding work. Provider retry loops remain outside the executor, so
-every real retry reacquires capacity.
+`NonContinuableError` wakes blocked acquisitions. Ordinary
+`OperationError` values are returned per operation by `map()`; a `NonContinuableError` closes the shared
+executor and cancels its outstanding work. Non-rate provider retry loops remain outside the executor; rate-limit recovery is handled inside it.
+Every real attempt reacquires capacity.
+
+### Shared rate-limit scopes
+
+`RateLimitScope(cooldown_seconds=1.0, max_wait_seconds=600.0)` coordinates temporary limits
+for an account, API key, or model quota. Both arguments are optional. An executor with no explicit
+`rate_limit_scope` creates its own isolated scope. Sharing a scope does not share executor
+capacity, terminal errors, or cancellation boundaries.
+
+```python
+from pdf_craft import ConcurrentExecutor, FixedCapacity, RateLimitScope
+
+limits = RateLimitScope()
+ocr_executor = ConcurrentExecutor(FixedCapacity(4), rate_limit_scope=limits)
+translation_executor = ConcurrentExecutor(FixedCapacity(8), rate_limit_scope=limits)
+```
+
+Normal requests pass without a rate cap. Provider adapters normalize temporary refusal into
+`RateLimitedError`; the scope does not interpret HTTP codes. After a limit, all participating
+executors cool down. Only one probe is admitted across the entire scope. On success, recovery
+starts at one in-flight request, with starts spaced at least one second apart. Each level needs
+consecutive successes equal to its in-flight limit before increasing 1, 2, 4, 8… toward normal
+capacity. Requests already in flight are not cancelled, and old successes cannot thaw a newer
+cooldown. A cancelled or failed probe releases its slot without counting as recovery success.
+
+- `cooldown_seconds` supplies the fallback delay, doubled on repeated limits with a local
+  60-second cap. Adapters normalize numeric and HTTP-date `Retry-After`. The base delay
+  (capped at 60 seconds) is a minimum; longer provider instructions are never truncated.
+  Jitter only delays admission; concurrent reports never shorten an existing cooldown.
+- `max_wait_seconds` is a **per-logical-request** cumulative limit on cooldown/probe/recovery
+  waiting. Ordinary capacity queues and execution time do not count. LLM transport retries
+  and Unlimited OCR HTTP stages for the same page retain that budget. Existing overall request
+  deadlines still apply. Requests sharing a scope do not consume each other's budgets.
+- Cooling does not hold capacity. Admission is checked again before starting, and retries
+  rejoin the queue fairly. A custom `CapacityProvider` needs no additional methods. Recovery
+  uses its `concurrency` when available, otherwise observed normal concurrency (at least one);
+  a shared scope uses the sum of participating executor targets.
+- `run()` recovers temporary limits internally; `map()` does too, reporting an exhausted budget
+  as a per-operation failure with `operation_id`. Public `RateLimitTimeoutError` subclasses
+  `OperationError` and retains the limit/provider cause chain. It does not close the pool.
+  Billing/quota exhaustion remains a fatal `NonContinuableError` under the first-cause rules.
+
+Migration: temporary limits no longer consume `LLM.retry_times`, OCR vendor `retry_times`, or
+JEV's `RetryPolicy.analysis`; recovery works even when those are zero. Existing
+`retry_interval_seconds` parameters remain for non-rate transport errors and provider-specific
+recovery. They no longer set rate-limit cooldowns. JEV retains its 0.5-second non-rate transport
+retry delay. Configure the scope instead of raising transport retry budgets to handle limits.
+Custom `AsyncExecutor` implementations remain responsible for their own rate-limit behavior;
+use `ConcurrentExecutor` with a custom `CapacityProvider` to retain the built-in recovery.
 
 Within one SDK operation, the first observed and recorded `NonContinuableError` is the terminal
 cause, including when stages use separate executors. The SDK cancels sibling work and waits for
