@@ -433,3 +433,5 @@ backend 配置指南；已有 EPUB 的翻译和其 LLM 参数请参考 EPUB 翻�
 
 
 统一策略、默认严格失败和全局全部降级的规则见 [错误处理](ERROR_HANDLING.md)。
+
+翻译进度使用原文 words 累计值，见[统一计数和事件约定](TRANSLATION_PROGRESS.md)。

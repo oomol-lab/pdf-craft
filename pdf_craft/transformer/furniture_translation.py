@@ -130,6 +130,11 @@ async def _translate_furnitures_async(
         )
 
     await IO_DOMAIN.run(finish)
+    from .progress import active_progress
+    from .events import TranslationItemKind
+    progress = active_progress()
+    if progress is not None:
+        await progress.finish_item((TranslationItemKind.FURNITURE, 'furniture'))
 
 
 async def _translate_position_async(

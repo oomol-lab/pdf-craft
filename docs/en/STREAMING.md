@@ -234,3 +234,5 @@ No public snapshot is built when the callback is absent.
 
 `EpubTranslation` remains a compatibility alias of `EpubFragmentContent`, not a separate type.
 The rename does not change fragment granularity, CFI, whitespace or newline handling.
+
+Translation progress uses cumulative source words; see [the event and counting contract](TRANSLATION_PROGRESS.md).

@@ -78,11 +78,11 @@ class TestTranslationEvents(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(events[0].chapter_count, 2)
             self.assertFalse(events[0].has_toc)
             self.assertFalse(events[0].has_metadata)
-            self.assertEqual(events[0].total_characters, len("headchapter"))
+            self.assertEqual(events[0].total_words, 2)
             item_starts = [event for event in events if event.kind == TranslationEventKind.ITEM_START]
             self.assertEqual(
-                [(event.item_id, event.item_total_characters) for event in item_starts],
-                [(7, len("chapter")), ("head", len("head"))],
+                [(event.item_id, event.item_total_words) for event in item_starts],
+                [(7, 1), ("head", 1)],
             )
             item_events = [
                 event for event in events
@@ -110,13 +110,13 @@ class TestTranslationEvents(unittest.IsolatedAsyncioTestCase):
                          and event.item_id == item_id),
                 )
             self.assertEqual(events[-1].kind, TranslationEventKind.COMPLETE)
-            self.assertEqual(events[-1].completed_characters, len("headchapter"))
+            self.assertEqual(events[-1].completed_words, 2)
 
             progress = [event for event in events if event.kind == TranslationEventKind.PROGRESS]
             self.assertEqual(
-                [(event.item_id, event.item_completed_characters, event.item_total_characters)
+                [(event.item_id, event.item_completed_words, event.item_total_words)
                  for event in progress],
-                [(7, len("chapter"), len("chapter")), ("head", len("head"), len("head"))],
+                [(7, 1, 1), ("head", 1, 1)],
             )
 
 
@@ -188,8 +188,8 @@ class TestCrossChapterTranslation(unittest.IsolatedAsyncioTestCase):
                 and event.item_id == 2
             )
             self.assertEqual(
-                fast_progress.completed_characters,
-                len(texts[1]) + len(texts[2]),
+                fast_progress.completed_words,
+                4,
             )
             result = await pending
             self.assertTrue(result._validate())

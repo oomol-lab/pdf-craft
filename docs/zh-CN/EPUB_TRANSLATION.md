@@ -194,9 +194,9 @@ llm = LLM(
 
 ## 进度与失败回调
 
-`on_translation_event` 接收底层 `TranslationEvent` 事件，报告翻译范围以及 TOC、metadata、
-chapter item 的开始、完成和源文本字符统计。字符统计不是 token，也不是固定比例。相同回调
-也适用于 package 和 PDF 翻译流程。
+`on_translation_event` 使用原文 **words**，首次模型调用前预统计全书总量，每轮翻译最终
+处理后报告 PROGRESS。统一计数和事件字段见[翻译进度](TRANSLATION_PROGRESS.md)，与
+PCEX/PDF 翻译共用。
 
 失败决策与重试配置见 [错误处理](ERROR_HANDLING.md)。
 
@@ -210,7 +210,7 @@ chapter item 的开始、完成和源文本字符统计。字符统计不是 tok
 
 def on_translation_event(event) -> None:
     if event.kind == TranslationEventKind.PROGRESS:
-        print(event.completed_characters, event.total_characters)
+        print(event.completed_words, event.total_words)
 
 失败决策与重试配置见 [错误处理](ERROR_HANDLING.md)。
 

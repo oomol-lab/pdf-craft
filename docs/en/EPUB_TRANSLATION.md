@@ -142,10 +142,10 @@ Supply `llm`, or supply both specialized configurations. A translation-only conf
 
 ## Observe progress and structural failures
 
-`on_translation_event` receives low-level `TranslationEvent` values as the translation
-scope and its TOC, metadata, and chapter items progress. Character counts are based on
-source text and are not token-based percentages. The same callback is supported by
-package and PDF translation workflows.
+`on_translation_event` reports source **words**, with the whole-book total
+pre-scanned before the first model call and PROGRESS after each finalized
+translation round. See [translation progress](TRANSLATION_PROGRESS.md) for the
+counting rule and event fields shared with PCEX/PDF translation.
 
 See [retry and recovery policies](ERROR_HANDLING.md) for failure decisions and retry budgets.
 

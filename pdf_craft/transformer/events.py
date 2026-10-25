@@ -20,14 +20,15 @@ class TranslationItemKind(Enum):
     TOC = auto()
     METADATA = auto()
     CHAPTER = auto()
+    FURNITURE = auto()
 
 
 @dataclass
 class TranslationEvent:
     """A low-level translation fact, parallel to :class:`OCREvent`.
 
-    Character counts refer to source text characters, not the length of the
-    translated output.  Item identifiers are opaque to the event protocol.
+    Word counts refer to finalized source work, including fallback/skip,
+    not translated output length.  Item identifiers are opaque to the event protocol.
     """
 
     kind: TranslationEventKind
@@ -36,7 +37,7 @@ class TranslationEvent:
     has_metadata: bool | None = None
     item_kind: TranslationItemKind | None = None
     item_id: str | int | None = None
-    item_completed_characters: int | None = None
-    item_total_characters: int | None = None
-    completed_characters: int | None = None
-    total_characters: int | None = None
+    item_completed_words: int | None = None
+    item_total_words: int | None = None
+    completed_words: int | None = None
+    total_words: int | None = None

@@ -101,6 +101,7 @@ class XMLInterrupter:
                 block_depth=find_block_depth(parent_stack),
                 position=text_segments[0].position,
                 origins=tuple(span for segment in text_segments for span in segment.origins),
+                progress_blocks=tuple(dict.fromkeys(block for segment in text_segments for block in segment.progress_blocks)),
             )
             self._placeholder2interrupted[interrupted_id] = interrupted_element
 

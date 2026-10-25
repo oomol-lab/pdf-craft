@@ -35,6 +35,7 @@ class TextSegment:
     block_depth: int
     position: TextPosition
     origins: tuple[TextOrigin, ...] = ()
+    progress_blocks: tuple[int, ...] = ()
 
     @property
     def root(self) -> Element:
@@ -62,6 +63,7 @@ class TextSegment:
             block_depth=self.block_depth,
             position=self.position,
             origins=self.origins,
+            progress_blocks=self.progress_blocks,
         )
 
 

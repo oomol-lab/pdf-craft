@@ -61,6 +61,7 @@ class ChapterFormulaInterrupter:
         self._pending_block_formulas: list[_Formula] = []
         self._block_formula_parent_stacks: dict[str, list[Element]] = {}
         self._block_formula_positions: dict[str, TextPosition] = {}
+        self._block_formula_progress: dict[str, list[int]] = {}
         self._block_formula_context_counts: dict[str, int] = {}
         self._adjacent_inline_predecessors: dict[str, str] = {}
 
@@ -94,6 +95,7 @@ class ChapterFormulaInterrupter:
                     formula.token_id, text_segment.parent_stack[:formula_index],
                 )
                 self._block_formula_positions.setdefault(formula.token_id, text_segment.position)
+                self._block_formula_progress.setdefault(formula.token_id, []).extend(text_segment.progress_blocks)
 
             if self._last_formula_id is not None and formula_id != self._last_formula_id:
                 yield from self._finish_formula(self._last_formula_id)
@@ -289,6 +291,7 @@ class ChapterFormulaInterrupter:
             right_common_depth=right_common_depth,
             block_depth=_block_depth(parent_stack),
             position=first.position,
+            progress_blocks=tuple(dict.fromkeys(block for segment in text_segments for block in segment.progress_blocks)),
         )
 
     def _context_token(
@@ -331,6 +334,7 @@ class ChapterFormulaInterrupter:
             right_common_depth=0,
             block_depth=_block_depth([*parent_stack, placeholder]),
             position=position,
+            progress_blocks=tuple(dict.fromkeys(self._block_formula_progress.pop(formula.token_id, ()))),
         )
 
     def _standalone_block_token(self, formula: _Formula) -> TextSegment | None:
@@ -364,6 +368,7 @@ class ChapterFormulaInterrupter:
             right_common_depth=0,
             block_depth=_block_depth([*parent_stack, placeholder]),
             position=position,
+            progress_blocks=tuple(dict.fromkeys(self._block_formula_progress.pop(formula.token_id, ()))),
         )
 
 

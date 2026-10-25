@@ -267,3 +267,5 @@ EPUB 扩展字段仍保留在输出；标准化回调对象不是完整 OPF XML 
 
 `EpubTranslation` 保留为 `EpubFragmentContent` 的兼容别名（同一个类型）；新代码使用新名称。
 这次命名调整不改变片段粒度、CFI、空白或换行处理。
+
+翻译进度使用原文 words 累计值，见[统一计数和事件约定](TRANSLATION_PROGRESS.md)。

@@ -2,6 +2,7 @@
 """XMLTranslator adapter for the independent AnchoredContent stage."""
 
 from __future__ import annotations
+
 from collections.abc import Mapping
 
 from pdf_craft.policies import RetryPolicy, ErrorPolicyInput
@@ -16,6 +17,9 @@ from pdf_craft.markdown.paragraph import HTMLTag, flatten
 from pdf_craft.transformer.chapter_formula_interrupter import ChapterFormulaInterrupter
 from pdf_craft.transformer.xml_translator.xml_translator import SubmitKind, TranslationTask
 
+from .word_count import count_xml_words
+from .progress import translation_item
+from .events import TranslationItemKind
 from .anchored_content import (
     AnchoredContent,
     AnchoredContentTranslation,
@@ -30,6 +34,16 @@ class AsyncXMLTaskTranslator(Protocol):
     ) -> tuple[Element, object]: ...
 
 
+def _chapter_item_id(_self, assets, **_kwargs):
+    if not assets:
+        return 'head'
+    value = assets[0].chapter_id
+    try:
+        return int(value)
+    except ValueError:
+        return value
+
+
 class AnchoredContentXMLTransformer:
     """Translate image/table fields while supplying non-persisted local context."""
 
@@ -42,6 +56,7 @@ class AnchoredContentXMLTransformer:
         self._mode = mode
 
     @policy_operation
+    @translation_item(TranslationItemKind.CHAPTER, _chapter_item_id)
     async def transform_assets(
         self,
         assets: Sequence[AnchoredContent], *,
@@ -75,17 +90,7 @@ class AnchoredContentXMLTransformer:
                 action=self._mode,
                 payload=tuple(assets),
                 item_id=_batch_id(assets),
-                character_count=sum(
-                    len(item.context)
-                    + sum(
-                        len(part)
-                        for field in (
-                            item.asset.title, item.asset.content, item.asset.caption,
-                        )
-                        for part in field if isinstance(part, str)
-                    )
-                    for item in assets
-                ),
+                word_count=count_xml_words(element),
             )
         translated, _ = await self._translator.translate_element(
             task,

@@ -383,15 +383,12 @@ The following classes are exposed for applications that need custom structured t
 
 See [retry and recovery policies](ERROR_HANDLING.md) for failure decisions and retry budgets.
 
-Translation workflows also accept `on_translation_event`, a callback receiving
-`TranslationEvent` values. `TranslationEventKind` reports `START`, `ITEM_START`,
-`ITEM_COMPLETE`, `PROGRESS`, and `COMPLETE`; `TranslationItemKind` identifies TOC,
-metadata, or chapter items. Character counts are source-text character counts and
-are not token counts or percentages. Item events include the current item's
-completed and total source characters, while scope events include the aggregate
-counts. Whole-book totals and chapter counts can be `None` while streaming input is
-still arriving. The same event callback is available for
-EPUB translation, extraction translation, PDF translation, and PDF conversion.
+Translation workflows accept `on_translation_event` for START, item lifecycle,
+per-round PROGRESS and COMPLETE notifications. Counts use cumulative source
+**words**, with complete totals pre-scanned for PCEX/PDF/EPUB. See
+[translation progress](TRANSLATION_PROGRESS.md) for the shared streaming counting
+rule, the 20-character long-word cap, fallback semantics, and breaking field
+renames. Content callbacks remain independent.
 
 ## `LLM`
 
