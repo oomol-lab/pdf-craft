@@ -2,6 +2,7 @@
 """Adapt XMLTranslator to the template/page-oriented furniture contract."""
 
 from __future__ import annotations
+from collections.abc import Mapping
 
 from pdf_craft.policies import RetryPolicy, ErrorPolicyInput
 from pdf_craft._policy import OMITTED, policy_operation
@@ -40,6 +41,7 @@ class FurnitureXMLTransformer:
     async def transform_position(
         self, position: FurniturePosition, *,
         retry_policy: RetryPolicy | None = None, error_policy: ErrorPolicyInput = OMITTED,
+        request_headers: Mapping[str, str] | None = None,
     ) -> str | None:
         element = Element("furniture-position")
         element.text = position.content
@@ -67,6 +69,7 @@ class FurnitureXMLTransformer:
         page_index: int,
         sections: Sequence[FurnitureSection], *,
         retry_policy: RetryPolicy | None = None, error_policy: ErrorPolicyInput = OMITTED,
+        request_headers: Mapping[str, str] | None = None,
     ) -> Sequence[str | None]:
         element = Element("furniture-page", {"index": str(page_index)})
         for index, section in enumerate(sections):

@@ -2,12 +2,13 @@
 """Official asynchronous JEV service configuration and transport."""
 
 from __future__ import annotations
+from collections.abc import Mapping
 
 import asyncio
-from collections.abc import AsyncIterator, Awaitable, Callable, Iterable
+from collections.abc import AsyncIterator, Awaitable, Iterable
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
-from typing import Any, Self
+from typing import Any, Self, Protocol
 
 import httpx2
 from typesafe_sdk import (
@@ -16,6 +17,7 @@ from typesafe_sdk import (
     TypeSafePermissionDeniedError, TypeSafeRateLimitError,
 )
 
+from ._request_headers import extra_header_arguments
 from ._policy import current as execution_policy, policy_operation
 from .policies import RetryScope, RetryPolicy as BusinessRetryPolicy, FailureLocation
 
@@ -76,12 +78,14 @@ class JEVRuntime:
         request: dict[str, Any],
         *,
         _started: asyncio.Event | None = None,
+        request_headers: Mapping[str, str] | None = None,
     ) -> float:
         return await self._evaluate_with_retry(page_index, request, _started)
 
     @policy_operation
     async def evaluate_many(
         self, requests: Iterable[tuple[int, dict[str, Any]]],
+        *, request_headers: Mapping[str, str] | None = None,
     ) -> list[tuple[int, float]]:
         if self._client is None:
             raise RuntimeError("JEVRuntime must be entered before evaluation")
@@ -181,6 +185,7 @@ class JEVRuntime:
             response = await self._client.system_one(
                 state=request["state"],
                 questions=request["questions"],
+                **extra_header_arguments(),
             )
         except OperationError:
             raise
@@ -242,7 +247,11 @@ class JEVRuntime:
         raise current
 
 
-JEVRequest = Callable[[int, dict[str, Any]], Awaitable[float]]
+class JEVRequest(Protocol):
+    def __call__(
+        self, page_index: int, request: dict[str, Any], *,
+        request_headers: Mapping[str, str] | None = None,
+    ) -> Awaitable[float]: ...
 
 
 @asynccontextmanager

@@ -1,6 +1,7 @@
 # pylint: disable=unused-argument
 """Transformers operating on render-ready PDFCraftExtraction objects."""
 
+from collections.abc import Mapping
 from pdf_craft.policies import RetryPolicy, ErrorPolicyInput
 from pdf_craft._policy import OMITTED, policy_operation
 
@@ -73,6 +74,7 @@ class ChapterExtractionTransformer:
         on_translation_event: Callable[[TranslationEvent], object] | None = None,
         emit_translation_events: bool = False,
         retry_policy: RetryPolicy | None = None, error_policy: ErrorPolicyInput = OMITTED,
+        request_headers: Mapping[str, str] | None = None,
     ) -> PDFCraftExtraction:
         if output_path.suffix.lower() != EXTRACTION_SUFFIX:
             raise ValueError(f"PDFCraftExtraction path must end with {EXTRACTION_SUFFIX}")
@@ -279,6 +281,7 @@ class FurnitureExtractionTransformer:
         extraction: PDFCraftExtraction,
         output_path: Path, *,
         retry_policy: RetryPolicy | None = None, error_policy: ErrorPolicyInput = OMITTED,
+        request_headers: Mapping[str, str] | None = None,
     ) -> PDFCraftExtraction:
         if output_path.suffix.lower() != EXTRACTION_SUFFIX:
             raise ValueError(f"PDFCraftExtraction path must end with {EXTRACTION_SUFFIX}")
@@ -335,6 +338,7 @@ class AnchoredContentExtractionTransformer:
         extraction: PDFCraftExtraction,
         output_path: Path, *,
         retry_policy: RetryPolicy | None = None, error_policy: ErrorPolicyInput = OMITTED,
+        request_headers: Mapping[str, str] | None = None,
     ) -> PDFCraftExtraction:
         if output_path.suffix.lower() != EXTRACTION_SUFFIX:
             raise ValueError(f"PDFCraftExtraction path must end with {EXTRACTION_SUFFIX}")

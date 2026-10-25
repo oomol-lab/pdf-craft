@@ -767,8 +767,9 @@ class VendorOCRConcurrencyTests(unittest.IsolatedAsyncioTestCase):
                     page_index, Path(f"page-{page_index}.png"), lambda: False,
                 )
 
-        async def request(_runtime, _request, _started=None):
+        async def request(_runtime, _request, _started=None, *, request_headers=None):
             nonlocal started
+            self.assertEqual(request_headers, {})
             started += 1
             if _started is not None:
                 _started.set()

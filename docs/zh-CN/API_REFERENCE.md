@@ -26,6 +26,43 @@ from pdf_craft import AsyncPDFCraft, PDFCraft, PDFOptions
 为兼容 2.6.2，`pdf_craft` 和 `pdf_craft.error` 仍导出 `PDFPreflightError`，
 构造参数与字段保持不变。转换及断言不再抛出它；断言直接传播原后端异常。
 
+## 操作级请求 Header
+
+会调用模型服务的操作支持 keyword-only 参数
+`request_headers: Mapping[str, str] | None = None`。异步与同步 Craft 门面、
+提取／渲染／翻译／回填组件、`XMLTranslator.translate_element(s)`、LLM runtime/context
+的 `request`、vendor OCR 的 `request`／`request_many`、JEV 的
+`evaluate`／`evaluate_many` 均可使用。
+
+```python
+await craft.extract_pdf(
+    "input.pdf", "book.pcex", options,
+    request_headers={"X-Correlation-ID": correlation_id},
+)
+await craft.translate_extraction(
+    "book.pcex", "translated.pcex", translator,
+    request_headers={"X-Correlation-ID": correlation_id},
+)
+```
+
+操作开始时复制并校验映射。省略或传 `None` 继承外层操作；顶层没有外层时表示不附加
+Header。显式映射**替换**继承值，不做合并；`{}` 清空本次操作及其后续嵌套调用的附加
+Header。成功、异常或取消后均恢复外层作用域。
+
+嵌套模型调用、翻译／填充恢复、重试和后台任务继承同一作用域。LLM、vendor OCR 和 JEV
+在发送请求时取值，不修改共享配置、translator、runtime 或 HTTP client；并发操作可以
+安全使用不同 Header。这是执行参数，不是 `LLM`、OCR 配置或 `ExtractionOptions` 的字段。
+
+透传范围仅为配置的模型服务：LLM completion、DeepSeek OCR/OCR2、Unlimited OCR 的
+获取 token／提交／轮询，以及 JEV 请求。OCR 图片 URL resolver／上传和解析结果资源下载
+不自动携带这些 Header；自定义 resolver／client 自行发起的网络请求仍由调用者负责。
+
+名称和值必须是符合 HTTP Header 语法的字符串（值为 ASCII，不含 CR/LF），名称不区分
+大小写且不得重复。`Authorization`、`Content-Type`、`Host`、`Content-Length` 和
+`Transfer-Encoding` 由 HTTP client 管理，禁止通过该参数覆盖。非法参数在业务操作前
+抛异常。Header 的业务含义由调用者决定，库不生成业务标识，也不绑定任何特定网关。
+
+
 ## 异步与同步门面
 
 `AsyncPDFCraft` 是服务端、Notebook 和其他 asyncio 程序的首选入口。它为

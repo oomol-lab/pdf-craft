@@ -2,6 +2,7 @@
 """XMLTranslator adapter for the independent AnchoredContent stage."""
 
 from __future__ import annotations
+from collections.abc import Mapping
 
 from pdf_craft.policies import RetryPolicy, ErrorPolicyInput
 from pdf_craft._policy import OMITTED, policy_operation
@@ -45,6 +46,7 @@ class AnchoredContentXMLTransformer:
         self,
         assets: Sequence[AnchoredContent], *,
         retry_policy: RetryPolicy | None = None, error_policy: ErrorPolicyInput = OMITTED,
+        request_headers: Mapping[str, str] | None = None,
     ) -> Sequence[AnchoredContentTranslation | None]:
         if not assets:
             return ()

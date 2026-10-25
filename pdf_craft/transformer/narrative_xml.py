@@ -1,5 +1,6 @@
 # pylint: disable=unused-argument
 
+from collections.abc import Mapping
 from pdf_craft.concurrency import settle_tasks
 from pdf_craft.policies import RetryPolicy, ErrorPolicyInput, FailureLocation
 from pdf_craft._policy import OMITTED, policy_operation
@@ -120,9 +121,11 @@ class NarrativeXMLTransformer:
         return AnchoredContentXMLTransformer(cast(Any, self._translator), self._mode)
 
     @policy_operation
-    async def translate_metadata(self, metadata: dict[str, Any], *, on_metadata=None,
-                                 target_language: str | None = None,
+    async def translate_metadata(
+        self, metadata: dict[str, Any], *, on_metadata=None,
+        target_language: str | None = None,
         retry_policy: RetryPolicy | None = None, error_policy: ErrorPolicyInput = OMITTED,
+        request_headers: Mapping[str, str] | None = None,
     ) -> dict[str, Any]:
         """Finalize metadata once for every consumer of the translation flow."""
         overlay = await self._translate_metadata_fields(metadata)
@@ -198,6 +201,7 @@ class NarrativeXMLTransformer:
         emit_scope_events: bool = True,
         emit_item_events: bool = True,
         retry_policy: RetryPolicy | None = None, error_policy: ErrorPolicyInput = OMITTED,
+        request_headers: Mapping[str, str] | None = None,
     ) -> Chapter:
         element = encode(chapter)
         if not self.has_translatable_content(chapter):
@@ -248,6 +252,7 @@ class NarrativeXMLTransformer:
         self,
         chapters: Iterable[tuple[Chapter, str | int]], *,
         retry_policy: RetryPolicy | None = None, error_policy: ErrorPolicyInput = OMITTED,
+        request_headers: Mapping[str, str] | None = None,
     ) -> list[Chapter]:
         """Translate all chapter groups through one book-wide XML window."""
         if not hasattr(self._translator, "translate_elements"):

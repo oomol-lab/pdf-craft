@@ -396,7 +396,8 @@ class StreamCallbacksTests(unittest.IsolatedAsyncioTestCase):
         class Handler:
             def open(self, _path):
                 return Document([])
-        async def request(_runtime, _request, _started=None):
+        async def request(_runtime, _request, _started=None, *, request_headers=None):
+            self.assertEqual(request_headers, {})
             started.set()
             if _started is not None:
                 _started.set()

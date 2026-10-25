@@ -166,6 +166,7 @@ class JevLlmRepairProcessor:
         source_pages: list[Page],
         analyses: list[PageAnalysis],
         page_pixel_sizes: Mapping[int, tuple[int, int]],
+        *, request_headers: Mapping[str, str] | None = None,
     ) -> list[PageAnalysis]:
         await self._reviewer(source_pages, analyses, page_pixel_sizes)
         reviews = {result.page_index: result for result in self.results}
@@ -205,6 +206,7 @@ class AllPageLlmRepairProcessor:
         source_pages: list[Page],
         analyses: list[PageAnalysis],
         page_pixel_sizes: Mapping[int, tuple[int, int]],
+        *, request_headers: Mapping[str, str] | None = None,
     ) -> list[PageAnalysis]:
         del source_pages, page_pixel_sizes
         available = {page.page_index for page in analyses}
@@ -301,6 +303,7 @@ async def repair_page_with_llm(
     request: PageRepairRequest,
     all_pages: list[PageAnalysis] | None = None,
     retry_policy: RetryPolicy | None = None, error_policy: ErrorPolicyInput = OMITTED,
+    request_headers: Mapping[str, str] | None = None,
 ) -> PageAnalysis:
     """Repair exactly ``target_page`` using full text-only neighbor context."""
 
