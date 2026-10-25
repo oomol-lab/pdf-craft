@@ -23,8 +23,8 @@ from pdf_craft import AsyncPDFCraft, PDFCraft, PDFOptions
 它们是执行参数，不属于 `ExtractionOptions` 的字段。
 详见[策略配置与 2.6.0 迁移指南](ERROR_HANDLING.md)。
 
-为兼容 2.6.2，`pdf_craft` 和 `pdf_craft.error` 仍导出 `PDFPreflightError`，
-构造参数与字段保持不变。转换及断言不再抛出它；断言直接传播原后端异常。
+2.6.3 起，`pdf_craft` 和 `pdf_craft.error` 均已移除 `PDFPreflightError`。
+请删除旧的导入和捕获分支；可选输入断言直接传播原后端或解析器异常。
 
 ## 操作级请求 Header
 

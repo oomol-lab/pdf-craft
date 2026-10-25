@@ -8,7 +8,6 @@ from .error import (
     OCRFatalError,
     OCRError,
     PDFError,
-    PDFPreflightError,
 )
 from .assertions import (
     assert_pdf_readable, assert_pdf_renderable, assert_pdf_editable, assert_epub_readable,

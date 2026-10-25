@@ -18,9 +18,9 @@ This reference covers the supported library surface imported from `pdf_craft`. M
 from pdf_craft import AsyncPDFCraft, PDFCraft, PDFOptions
 ```
 
-`PDFPreflightError` remains exported from `pdf_craft` and `pdf_craft.error` for
-compatibility with 2.6.2, including its constructor and fields. Conversion and
-assertions no longer raise it; assertions propagate original backend errors.
+Since 2.6.3, `PDFPreflightError` has been removed from both `pdf_craft` and
+`pdf_craft.error`. Remove old imports and catch clauses for this exception.
+Optional input assertions propagate original backend/parser exceptions.
 
 ## Operation request headers
 
