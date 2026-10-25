@@ -93,7 +93,9 @@ pdf-craft 对外只暴露自己的 OCR 配置对象，不暴露 `doc-page-extrac
 ## PDF 后端边界
 
 只读页数、几何、元信息、文字和渲染统一由 Poppler 负责；出版标签通过 GLib 公开 API
-读取，是否明确存在标签树由预检的结构遍历确认。pypdf 仅用于独立输入预检及 PDF
-对象编辑/写入。源 PDF 任务使用 `pdf_operation` 预检作用域（实现位于
-`pdf/preflight.py`），子阶段共享本次结果，不跨调用缓存。PDFPreflightError 为任务级
-不可继续异常，ErrorPolicy 不参与决策；不能把它改成页级 fallback。
+读取，标签树是否显式存在仅通过 pypdf 读取 catalog 判断，不扫描页面。该可选元数据读取
+沿用原有不可用时返回空标签的行为。pypdf 另用于 PDF 对象编辑/写入及独立编辑断言。
+`pdf/backend.py` 只传递嵌套操作的 Poppler 工具目录，不验证输入。转换流程没有自动完整性
+门禁；`assertions.py` 提供四个用户主动调用、成功 None/失败原异常的阻塞断言。
+EPUB 输入解析在 `pipeline/epub/adapter/`，断言与翻译共享章节读取器；epub-generator
+仅负责输出生成。

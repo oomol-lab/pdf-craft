@@ -11,10 +11,10 @@ from pathlib import Path
 
 def read_page_labels(source: Path, count: int,
                      aborted: Callable[[], bool] = lambda: False) -> dict[int, str]:
-    """Read labels only after preflight has confirmed an explicit /PageLabels tree.
+    """Read labels after the caller has confirmed an explicit /PageLabels tree.
 
     Poppler otherwise synthesizes decimal physical numbers. The presence bit
-    is supplied by preflight's already-required PDF object traversal.
+    is supplied by the caller's catalog lookup.
     """
     def load(name: str):
         aliases = {"poppler-glib": "libpoppler-glib-8", "glib-2.0": "libglib-2.0-0",

@@ -1,6 +1,5 @@
 """One-shot translations must compose display views, not duplicate PCEX sources."""
 # pylint: disable=protected-access
-from tests.pdf_preflight_helpers import mock_fictional_pdf_preflight
 
 import asyncio
 from copy import deepcopy
@@ -107,9 +106,6 @@ def blocks(path):
 
 
 class OneShotSubmissionTests(unittest.TestCase):
-    def setUp(self):
-        mock_fictional_pdf_preflight(self)
-
     def convert(self, root, kind, mode, *, sync=False, existing=False, with_anchored=True):
         extraction = source_fixture(root/'source')
         if existing:

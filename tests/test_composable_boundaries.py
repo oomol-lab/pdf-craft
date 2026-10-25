@@ -1,5 +1,4 @@
 
-from tests.pdf_preflight_helpers import mock_fictional_pdf_preflight
 from pdf_craft import ErrorPolicy
 # pylint: disable=protected-access
 
@@ -118,9 +117,6 @@ class _DeterministicXMLTranslator:
 
 
 class TestComposableBoundaries(unittest.TestCase):
-    def setUp(self):
-        mock_fictional_pdf_preflight(self)
-
     def test_pdf_patch_consumes_translation_created_by_public_facade(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

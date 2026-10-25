@@ -1,4 +1,3 @@
-from tests.pdf_preflight_helpers import mock_fictional_pdf_preflight
 import tempfile
 import unittest
 from pathlib import Path
@@ -23,9 +22,6 @@ from pdf_craft.extractor.toc.types import Toc, TocInfo
 
 
 class FurnitureTests(unittest.TestCase):
-    def setUp(self):
-        mock_fictional_pdf_preflight(self)
-
     def test_explicit_pdf_page_labels_are_read_without_pypdf_fallback(self):
         from pypdf import PdfWriter
         from pypdf.constants import PageLabelStyle

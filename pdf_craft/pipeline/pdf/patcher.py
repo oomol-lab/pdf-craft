@@ -1,7 +1,7 @@
 # pylint: disable=unused-argument
 """Compose non-interactive visual bases with independent overlays."""
 
-from pdf_craft.pdf.preflight import pdf_operation, poppler_path_for, current_poppler_path
+from pdf_craft.pdf.backend import pdf_backend_scope, poppler_path_for, current_poppler_path
 from pdf_craft.policies import RetryPolicy, ErrorPolicyInput
 from pdf_craft._policy import OMITTED, policy_operation
 # Native worker adapters share patcher state within this module.
@@ -96,8 +96,8 @@ class PDFPatcher:
         self._failed_page_indexes: tuple[int, ...] = ()
         self._font_resolutions: tuple[FontResolution, ...] = ()
 
-    def _preflight_poppler_path(self) -> Path | None:
-        """Share the native adapter's tool configuration with the input gate."""
+    def _backend_poppler_path(self) -> Path | None:
+        """Share the native adapter's tool configuration with nested readers."""
         return poppler_path_for(self._pdf_handler)
 
     @property
@@ -111,7 +111,7 @@ class PDFPatcher:
         return self._failed_page_indexes
 
     @policy_operation
-    @pdf_operation
+    @pdf_backend_scope
     async def patch(
         self,
         source_path: Path,

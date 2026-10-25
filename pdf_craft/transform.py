@@ -1,7 +1,7 @@
 # pylint: disable=unused-argument
 # pylint: disable=protected-access
 
-from pdf_craft.pdf.preflight import pdf_operation, poppler_path_for
+from pdf_craft.pdf.backend import pdf_backend_scope, poppler_path_for
 from .policies import ErrorPolicyInput
 from ._policy import decision_bridge, OMITTED, policy_operation
 
@@ -88,8 +88,8 @@ class PDFExtractionEngine:
         self._ocr_executor = ocr_executor
         self._ocr_image_url_resolver = ocr_image_url_resolver
 
-    def _preflight_poppler_path(self) -> Path | None:
-        """Share the native adapter's tool configuration with the input gate."""
+    def _backend_poppler_path(self) -> Path | None:
+        """Share the native adapter's tool configuration with nested readers."""
         return getattr(self, "_poppler_path", None)
 
     async def predownload(self, revision: str | None = None) -> None:
@@ -98,7 +98,7 @@ class PDFExtractionEngine:
     async def load_models(self) -> None:
         await OCR_DOMAIN.run(self._ocr.load_models)
 
-    @pdf_operation
+    @pdf_backend_scope
     @fatal_error_boundary
     async def extract_package_async(self, **kwargs):
         """Own disk queues until producers and callback consumers have unwound."""
@@ -275,7 +275,7 @@ class PDFExtractionEngine:
         if not includes_furniture:
             return {}
         from .pdf.poppler import PopplerDocument
-        from .pdf.preflight import current_poppler_path
+        from .pdf.backend import current_poppler_path
         command = PopplerDocument(pdf_path, current_poppler_path()).command("pdftotext")
         try:
             stdout, _ = await run_subprocess(

@@ -2,10 +2,10 @@ from pathlib import Path
 from xml.etree import ElementTree as ET
 from xml.etree.ElementTree import Element
 
-from .zip import Zip
+from .zip import ReadOnlyZip
 
 
-def find_opf_path(zip: Zip) -> Path:
+def find_opf_path(zip: ReadOnlyZip) -> Path:
     container_path = Path("META-INF", "container.xml")
 
     with zip.read(container_path) as f:

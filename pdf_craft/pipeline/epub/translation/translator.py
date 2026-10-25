@@ -17,7 +17,6 @@ from pdf_craft.pipeline.epub.adapter import (
     Zip,
     read_metadata,
     read_toc,
-    search_spine_paths,
     write_metadata,
     write_toc,
 )
@@ -28,6 +27,7 @@ from pdf_craft.common.stream import DiskDelivery
 from ..cfi import ContentCFILocator
 from ..events import EpubFragmentContent
 from ..adapter.spines import spine_cfi_paths
+from ..adapter.chapters import read_chapters
 from pdf_craft.transformer.events import TranslationEvent, TranslationItemKind
 from pdf_craft.transformer.xml_translator.segment import search_text_segments
 from pdf_craft.transformer.xml_translator.xml import (
@@ -399,12 +399,7 @@ def _generate_tasks_from_book(
         )
 
     packages = spine_cfi_paths(zip) if capture_cfi else {}
-    for chapter_path, media_type in search_spine_paths(zip):
-        with zip.read(chapter_path) as chapter_file:
-            xml = XMLLikeNode(
-                file=chapter_file,
-                is_html_like=(media_type == "text/html"),
-            )
+    for chapter_path, media_type, xml in read_chapters(zip):
         from ....transformer.xml_translator.xml_translator.source_store import strip_source
         strip_source(xml.element)
         # HTML parser repair can change node positions in a reader. Translate

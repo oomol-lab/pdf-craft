@@ -5,7 +5,7 @@ from xml.etree.ElementTree import Element
 
 from pdf_craft.transformer.xml_translator.xml import XMLLikeNode, plain_text
 from .common import find_opf_path, strip_namespace
-from .zip import Zip
+from .zip import Zip, ReadOnlyZip
 
 
 @dataclass
@@ -48,7 +48,7 @@ class TocContext:
     xml_node: XMLLikeNode
 
 
-def read_toc(zip: Zip) -> tuple[list[Toc], TocContext]:
+def read_toc(zip: ReadOnlyZip) -> tuple[list[Toc], TocContext]:
     version = _detect_epub_version(zip)
     toc_path = _find_toc_path(zip, version)
 
@@ -91,7 +91,7 @@ def _update_ncx_document_title(root: Element, title: str) -> None:
         text.text = title
 
 
-def _detect_epub_version(zip: Zip) -> int:
+def _detect_epub_version(zip: ReadOnlyZip) -> int:
     opf_path = find_opf_path(zip)
     with zip.read(opf_path) as f:
         content = f.read()
@@ -104,7 +104,7 @@ def _detect_epub_version(zip: Zip) -> int:
             return 2
 
 
-def _find_toc_path(zip: Zip, version: int) -> Path | None:
+def _find_toc_path(zip: ReadOnlyZip, version: int) -> Path | None:
     opf_path = find_opf_path(zip)
     opf_dir = opf_path.parent
 
