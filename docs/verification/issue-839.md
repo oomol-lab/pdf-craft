@@ -1,6 +1,7 @@
 # Issue 839: optional input assertions
 
-The automatic dual-backend PDF gate and `PDFPreflightError` are removed. PDF
+The automatic dual-backend PDF gate is removed. `PDFPreflightError` is retained
+for compatibility in 2.6.3, but is no longer raised by conversion or assertions. PDF
 operations retain their normal error and ErrorPolicy behavior. The remaining
 `pdf/backend.py` scope shares only executable configuration, with no input I/O.
 
