@@ -7,13 +7,17 @@ OCR caches and already delivered previews are never rewritten/replayed.
 from __future__ import annotations
 
 from collections.abc import Iterable
+from dataclasses import dataclass
 from pathlib import Path
 import shutil
 from xml.etree.ElementTree import ParseError
 
 from ..common import read_xml, save_xml, AssetHub
+from .toc import TocInfo
+from .chapter.toc_identity import chapter_ids, retained_toc
 from ..concurrency import NonContinuableError
 from ..error import InterruptedError, NoUsableOCRPagesError, PDFError
+from ..document.validation import ChapterTocMismatch
 from ..policies import AllFallbackError, ErrorCallbackError, FailureCategory, FailureLocation
 from .._policy import recover
 from ..runtime import IO_DOMAIN, worker_iter
@@ -25,6 +29,8 @@ from .chapter.page_analysis import PageAnalysis
 
 def recoverable_structure(error: Exception) -> bool:
     """Do not convert user decisions, storage faults, or interruption into images."""
+    if isinstance(error, ChapterTocMismatch):
+        return False  # Directory errors have a bounded structural recovery path.
     cause: BaseException | None = error
     seen: set[int] = set()
     while cause is not None and id(cause) not in seen:
@@ -156,6 +162,12 @@ def source_dependencies(path: Path, indexes: list[int], targets: set[int]) -> se
     return affected
 
 
+@dataclass(frozen=True)
+class RecoveredChapters:
+    chapters: Path
+    toc: "TocInfo"
+
+
 async def recover_chapters(draft, ocr, error: Exception, directory: Path, *, analyses=(), aborted):
     """Prepare replacement chapters; disk/publication errors are outside this boundary.
 
@@ -273,4 +285,6 @@ async def recover_chapters(draft, ocr, error: Exception, directory: Path, *, ana
     ocr_failed = {index for index in content_indexes if (draft.pages_path / f'page_{index}.failed').exists()}
     if content_indexes and not (content_indexes - degraded - ocr_failed):
         raise NoUsableOCRPagesError(tuple(sorted(degraded | ocr_failed)))
-    return prepared
+    toc = await IO_DOMAIN.run(retained_toc, draft.toc, await IO_DOMAIN.run(chapter_ids, prepared),
+                              removed_pages=degraded)
+    return RecoveredChapters(prepared, toc)

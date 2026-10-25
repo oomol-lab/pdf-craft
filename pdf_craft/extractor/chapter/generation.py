@@ -1,5 +1,5 @@
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Generator, Iterable, Mapping
 
@@ -109,7 +109,7 @@ def _partition_chapters(body_layouts, toc: TocInfo, *, assembled: bool = False) 
                    if isinstance(item, SourceAsset) else item for item in body_layouts)
     else:
         layouts = _assemble_flow_items(body_layouts)
-    for layout in layouts:
+    for layout in _split_toc_headings(layouts, ref2toc):
         matched_toc = False
         if (
             isinstance(layout, TextFlowItem)
@@ -145,6 +145,30 @@ def _partition_chapters(body_layouts, toc: TocInfo, *, assembled: bool = False) 
 
     if chapter:
         yield chapter
+
+
+def _split_toc_headings(layouts, ref2toc):
+    """Independent TOC anchors are chapter boundaries, even after refinement.
+
+    Keep multi-fragment titles intact unless another distinct anchor starts.
+    Children (including inline assets and references) move exactly once.
+    """
+    for layout in layouts:
+        if not isinstance(layout, TextFlowItem) or layout.role != "heading":
+            yield layout
+            continue
+        children = []
+        current_id = None
+        for child in layout.children:
+            anchor = (ref2toc.get((child.page_index, child.source_order))
+                      if isinstance(child, SourceTextFragment) else None)
+            if anchor is not None:
+                if current_id is not None and current_id != anchor.id:
+                    yield replace(layout, children=children)
+                    children = []
+                current_id = anchor.id
+            children.append(child)
+        yield replace(layout, children=children)
 
 
 def _extract_body_layouts(

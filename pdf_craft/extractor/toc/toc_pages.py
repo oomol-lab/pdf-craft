@@ -37,15 +37,15 @@ class TitleReference:
 # 使用统计学方式寻找文档中目录页所在页数范围。
 # 目录页中的文本，会大规模与后续书页中的章节标题匹配，本函数使用此特征来锁定目录页。
 def find_toc_pages(
-    iter_titles: Callable[[], Iterable[list[tuple[int, str]]]],
-    iter_page_bodies: Callable[[], Iterable[str]],
+    iter_titles: Callable[[], Iterable[tuple[int, list[tuple[int, str]]]]],
+    iter_page_bodies: Callable[[], Iterable[tuple[int, str]]],
 ) -> list[PageRef]:
     matcher: _SubstringMatcher[tuple[int, int]] = (
         _SubstringMatcher()
     )  # (page_index, order)
     page_refs: list[PageRef] = []
 
-    for page_index, titles_items in enumerate(iter_titles(), start=1):
+    for page_index, titles_items in iter_titles():
         for order, title in titles_items:
             title = normalize_text(title)
             if _valid_title(title):
@@ -57,7 +57,7 @@ def find_toc_pages(
     if matcher.substrings_count == 0:
         return []
 
-    for page_index, body in enumerate(iter_page_bodies(), start=1):
+    for page_index, body in iter_page_bodies():
         matched_titles: list[MatchedTitle] = []
         matched_substrings = matcher.match(normalize_text(body))
 
@@ -86,6 +86,7 @@ def find_toc_pages(
             )
         )
 
+    page_positions = {ref.page_index: position for position, ref in enumerate(page_refs, 1)}
     page_refs.sort(key=lambda x: x.score, reverse=True)
     max_diff = 0.0
     cut_position = 0
@@ -116,6 +117,7 @@ def find_toc_pages(
     return _human_like_toc_filter(
         toc_page_refs=toc_page_refs,
         total_pages=len(page_refs),
+        page_positions=page_positions,
         max_content_score=max_content_score,
     )
 
@@ -132,11 +134,12 @@ def _human_like_toc_filter(
     toc_page_refs: list[PageRef],
     total_pages: int,
     max_content_score: float,
+    page_positions: dict[int, int],
 ) -> list[PageRef]:
     max_toc_pages = max(_MIN_TOC_LIMIT, int(total_pages * _MAX_TOC_RATIO))
     max_toc_page_index = round(total_pages * _TOC_HEAD_RATIO)
     toc_page_refs = [
-        ref for ref in toc_page_refs if ref.page_index <= max_toc_page_index
+        ref for ref in toc_page_refs if page_positions[ref.page_index] <= max_toc_page_index
     ]
     if len(toc_page_refs) > max_toc_pages:
         toc_page_refs = toc_page_refs[:max_toc_pages]
@@ -145,13 +148,13 @@ def _human_like_toc_filter(
         return toc_page_refs
 
     serial_refs: list[PageRef] = [toc_page_refs[0]]
-    last_page_index = serial_refs[0].page_index
+    last_page_index = page_positions[serial_refs[0].page_index]
 
     for i in range(1, len(toc_page_refs)):
         ref = toc_page_refs[i]
-        if ref.page_index == last_page_index + 1:
+        if page_positions[ref.page_index] == last_page_index + 1:
             serial_refs.append(ref)
-            last_page_index = ref.page_index
+            last_page_index = page_positions[ref.page_index]
         else:
             break
 
