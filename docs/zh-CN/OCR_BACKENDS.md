@@ -293,3 +293,6 @@ PDFCraft(pdf=PDFOptions(
 暂时限流现在由 executor 的 `RateLimitScope` 统一处理，不消耗 vendor 的 `retry_times`，
 也不使用 `retry_interval_seconds`。后两者仍控制非限流恢复。参见
 [共享限流范围](API_REFERENCE.md#共享限流范围)。
+
+模型服务请求还支持操作级 `request_headers`；作用域和资源下载边界见
+[API 参考](API_REFERENCE.md#操作级请求-header)。

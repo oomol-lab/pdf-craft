@@ -120,6 +120,7 @@ class PDFPatcher:
         *,
         document_metadata: Mapping[str, str] | None = None,
         retry_policy: RetryPolicy | None = None, error_policy: ErrorPolicyInput = OMITTED,
+        request_headers: Mapping[str, str] | None = None,
     ) -> None:
         """Prepare and compile asynchronously, then isolate native Qt composition."""
         async with _process_error_policy_checker(error_policy) as worker_checker:

@@ -127,3 +127,6 @@ See [error handling](ERROR_HANDLING.md) for strict defaults, source locations an
 Temporary limits now use the executor's `RateLimitScope`, independently of vendor
 `retry_times` and `retry_interval_seconds`, which retain their non-rate recovery roles.
 See [shared rate-limit scopes](API_REFERENCE.md#shared-rate-limit-scopes).
+
+Model service calls also support operation-level `request_headers`; see
+[scope and resource-download boundaries](API_REFERENCE.md#operation-request-headers).

@@ -1,6 +1,7 @@
 # pylint: disable=unused-argument
 """Public facade that composes pdf-craft's independent components."""
 
+from collections.abc import Mapping
 from pdf_craft.pdf.backend import pdf_backend_scope, poppler_path_for
 from pdf_craft.policies import RetryPolicy, ErrorPolicyInput
 from pdf_craft._policy import OMITTED, policy_operation
@@ -185,6 +186,7 @@ class AsyncPDFCraft:
         options: ExtractionOptions | None = None,
         *, analysing_path: PathLike | str | None = None,
         retry_policy: RetryPolicy | None = None, error_policy: ErrorPolicyInput = OMITTED,
+        request_headers: Mapping[str, str] | None = None,
     ) -> PDFCraftExtraction:
         extraction, _ = await self.extract_pdf_with_metering(
             source, extraction_path, options, analysing_path=analysing_path,
@@ -198,6 +200,7 @@ class AsyncPDFCraft:
         options: ExtractionOptions | None = None,
         *, analysing_path: PathLike | str | None = None,
         retry_policy: RetryPolicy | None = None, error_policy: ErrorPolicyInput = OMITTED,
+        request_headers: Mapping[str, str] | None = None,
     ) -> tuple[PDFCraftExtraction, OCRTokensMetering]:
         options = options or ExtractionOptions()
         footnotes = options.footnotes
@@ -244,6 +247,7 @@ class AsyncPDFCraft:
         on_footnote: Callable[[ParagraphContent[SourceRegion]], object] | None = None,
         on_metadata: MetadataCallback | None = None,
         retry_policy: RetryPolicy | None = None, error_policy: ErrorPolicyInput = OMITTED,
+        request_headers: Mapping[str, str] | None = None,
     ) -> None:
         document = await _ensure_extraction_async(extraction)
         await MarkdownRenderer().render(
@@ -268,6 +272,7 @@ class AsyncPDFCraft:
         on_footnote: Callable[[ParagraphContent[SourceRegion]], object] | None = None,
         on_metadata: MetadataCallback | None = None,
         retry_policy: RetryPolicy | None = None, error_policy: ErrorPolicyInput = OMITTED,
+        request_headers: Mapping[str, str] | None = None,
     ) -> PDFCraftExtraction:
         document = await _ensure_extraction_async(extraction)
         language = (
@@ -304,6 +309,7 @@ class AsyncPDFCraft:
         output_path: PathLike | str,
         transformer: AnchoredContentTransformer, *,
         retry_policy: RetryPolicy | None = None, error_policy: ErrorPolicyInput = OMITTED,
+        request_headers: Mapping[str, str] | None = None,
     ) -> PDFCraftExtraction:
         document = await _ensure_extraction_async(extraction)
         return await AnchoredContentExtractionTransformer(
@@ -328,6 +334,7 @@ class AsyncPDFCraft:
         on_footnote: Callable[[ParagraphContent[SourceRegion]], object] | None = None,
         on_metadata: MetadataCallback | None = None,
         retry_policy: RetryPolicy | None = None, error_policy: ErrorPolicyInput = OMITTED,
+        request_headers: Mapping[str, str] | None = None,
     ) -> None:
         """Generate EPUB; label_language controls fixed labels only.
 
@@ -357,6 +364,7 @@ class AsyncPDFCraft:
         on_footnote: Callable[[PDFParagraphContent], object] | None = None,
         on_metadata: MetadataCallback | None = None,
         retry_policy: RetryPolicy | None = None, error_policy: ErrorPolicyInput = OMITTED,
+        request_headers: Mapping[str, str] | None = None,
     ) -> None:
         if isinstance(translator, XMLTranslator):
             await self.patch_pdf_with_extraction(source, extraction, output, translator=translator,
@@ -392,6 +400,7 @@ class AsyncPDFCraft:
         on_translation_event: Callable[[TranslationEvent], object] | None = None,
         on_metadata: MetadataCallback | None = None,
         retry_policy: RetryPolicy | None = None, error_policy: ErrorPolicyInput = OMITTED,
+        request_headers: Mapping[str, str] | None = None,
     ) -> None:
         document = await _ensure_extraction_async(extraction)
         if translator is not None and translation_id is not None:
@@ -421,6 +430,7 @@ class AsyncPDFCraft:
         on_body: Callable[[EpubFragmentContent], object] | None = None,
         on_metadata: MetadataCallback | None = None,
         retry_policy: RetryPolicy | None = None, error_policy: ErrorPolicyInput = OMITTED,
+        request_headers: Mapping[str, str] | None = None,
     ) -> None:
         await run_epub_translation(
             source, output,
@@ -455,6 +465,7 @@ class AsyncPDFCraft:
         on_translation_event: Callable[[TranslationEvent], object] | None = None,
         on_metadata: MetadataCallback | None = None,
         retry_policy: RetryPolicy | None = None, error_policy: ErrorPolicyInput = OMITTED,
+        request_headers: Mapping[str, str] | None = None,
     ) -> OCRTokensMetering:
         options = replace(extraction or ExtractionOptions(), includes_furniture=False)
         async with _analysis_workspace_async(analysing_path) as workspace:
@@ -498,6 +509,7 @@ class AsyncPDFCraft:
         on_translation_event: Callable[[TranslationEvent], object] | None = None,
         on_metadata: MetadataCallback | None = None,
         retry_policy: RetryPolicy | None = None, error_policy: ErrorPolicyInput = OMITTED,
+        request_headers: Mapping[str, str] | None = None,
     ) -> OCRTokensMetering:
         """Generate EPUB; label_language controls fixed labels only.
 

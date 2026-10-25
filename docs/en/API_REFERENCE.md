@@ -22,6 +22,51 @@ from pdf_craft import AsyncPDFCraft, PDFCraft, PDFOptions
 compatibility with 2.6.2, including its constructor and fields. Conversion and
 assertions no longer raise it; assertions propagate original backend errors.
 
+## Operation request headers
+
+Model-calling operations accept the keyword-only
+`request_headers: Mapping[str, str] | None = None`. This includes the async and
+synchronous Craft façades, extraction/rendering/translation/patching components,
+`XMLTranslator.translate_element(s)`, LLM runtime/context `request`, vendor OCR
+`request`/`request_many`, and JEV `evaluate`/`evaluate_many`.
+
+```python
+await craft.extract_pdf(
+    "input.pdf", "book.pcex", options,
+    request_headers={"X-Correlation-ID": correlation_id},
+)
+await craft.translate_extraction(
+    "book.pcex", "translated.pcex", translator,
+    request_headers={"X-Correlation-ID": correlation_id},
+)
+```
+
+The mapping is copied and validated when the operation begins. `None` (including
+omission) inherits the surrounding operation's headers; at the top level it
+means no extra headers. An explicit mapping **replaces**, rather than merges
+with, inherited headers; `{}` clears them for that operation and its descendants.
+The previous scope is restored after success, failure or cancellation.
+
+Nested model calls, translation/fill recovery, retries and background tasks
+inherit the scope. LLM, vendor OCR and JEV read it when sending each request;
+shared configuration, translator, runtime and HTTP client instances are not
+mutated. Concurrent operations can safely use different headers. These are
+execution parameters, not fields of `LLM`, OCR configuration or `ExtractionOptions`.
+
+Headers are forwarded only to configured model services: LLM completion calls,
+DeepSeek OCR/OCR2 calls, Unlimited OCR token/submission/polling calls, and JEV
+calls. They are **not** attached to OCR image URL resolution/uploads or downloaded
+parse-result resources. Custom resolvers/clients remain caller-owned; the SDK
+does not add headers to their independent network requests.
+
+Names and values must be strings with valid HTTP header syntax (ASCII values,
+no CR/LF); duplicate names are rejected case-insensitively. `Authorization`,
+`Content-Type`, `Host`, `Content-Length` and `Transfer-Encoding` are owned by the
+HTTP client and cannot be overridden through `request_headers`. Invalid mappings
+raise before operation work starts. Applications own header meanings and values;
+the library supplies no business identifier or endpoint-specific behavior.
+
+
 ## Async and synchronous façades
 
 `AsyncPDFCraft` is the primary integration surface for servers, notebooks, and

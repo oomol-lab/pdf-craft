@@ -1,3 +1,4 @@
+# pylint: disable=unused-argument
 # pylint: disable=protected-access
 """Native asynchronous LLM transport."""
 
@@ -13,7 +14,7 @@ import time
 import uuid
 from contextlib import AbstractAsyncContextManager
 from pathlib import Path
-from collections.abc import Awaitable, Callable
+from collections.abc import Mapping, Awaitable, Callable
 from typing import Self, cast
 
 import httpx
@@ -22,6 +23,8 @@ from jinja2 import Template
 from tiktoken import Encoding, get_encoding
 from openai.types.chat import ChatCompletionMessageParam
 
+from .._policy import policy_operation
+from .._request_headers import extra_header_arguments
 from ..runtime import IO_DOMAIN
 from ..rate_limit import RateLimitTimeoutError, rate_limit_request, retry_after_seconds
 from ..concurrency import (
@@ -76,6 +79,7 @@ class LLMRuntime:
     def context(self, cache_seed_content: str | None = None) -> "LLMContext":
         return LLMContext(self, cache_seed_content)
 
+    @policy_operation
     @fatal_error_boundary
     async def request(
         self, input: str | list[Message], max_tokens: int | None = None,
@@ -83,6 +87,7 @@ class LLMRuntime:
         cache_seed_content: str | None = None, retry_index: int | None = None,
         retry_max: int | None = None, use_cache: bool = True,
         deadline: float | None = None,
+        request_headers: Mapping[str, str] | None = None,
     ) -> str:
         async with self.context(cache_seed_content) as context:
             return await context.request(
@@ -131,6 +136,7 @@ class LLMRuntime:
             stream = await client.chat.completions.create(
                 model=self.config.model, messages=messages, stream=True,
                 top_p=top_p, temperature=temperature, max_tokens=max_tokens,
+                **extra_header_arguments(),
             )
             parts: list[str] = []
             async for chunk in stream:
@@ -184,11 +190,13 @@ class LLMContext(AbstractAsyncContextManager["LLMContext"]):
     async def __aexit__(self, exc_type, exc_val, exc_tb) -> None:
         await IO_DOMAIN.run(_commit_pending, self._pending, exc_type)
 
+    @policy_operation
     @fatal_error_boundary
     @rate_limit_request
     async def request(
         self, input, max_tokens=None, temperature=None, top_p=None, *,
         retry_index=None, retry_max=None, use_cache=True, deadline=None,
+        request_headers: Mapping[str, str] | None = None,
     ) -> str:
         messages = [Message(MessageRole.USER, input)] if isinstance(input, str) else list(input)
         temperature = self.runtime._scheduled(

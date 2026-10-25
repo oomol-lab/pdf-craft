@@ -1,4 +1,5 @@
 # pylint: disable=unused-argument
+from collections.abc import Mapping
 from pdf_craft.policies import RetryPolicy, ErrorPolicyInput
 from pdf_craft._policy import OMITTED, policy_operation
 import logging
@@ -33,6 +34,7 @@ async def analyse_toc(
     toc_assumed: bool,
     toc_llm: LLM | None = None, *,
     retry_policy: RetryPolicy | None = None, error_policy: ErrorPolicyInput = OMITTED,
+    request_headers: Mapping[str, str] | None = None,
 ) -> TocInfo:
     if await IO_DOMAIN.run(toc_path.exists):
         return decode_toc(await IO_DOMAIN.run(read_xml, toc_path))

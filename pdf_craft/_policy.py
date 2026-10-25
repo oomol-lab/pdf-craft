@@ -11,6 +11,7 @@ from functools import wraps
 from typing import Any, TypeVar, cast
 from uuid import uuid4
 
+from ._request_headers import snapshot
 from .concurrency import NonContinuableError, fatal_error_boundary
 from .policies import (
     AllFallbackError,
@@ -41,6 +42,7 @@ class ExecutionPolicy:
     task_id: str
     operation: str
     source: str | None = None
+    request_headers: tuple[tuple[str, str], ...] = ()
 
 
 _execution: ContextVar[ExecutionPolicy | None] = ContextVar(
@@ -71,6 +73,10 @@ def policy_operation(function: F) -> F:
         parent = _execution.get()
         retry = bound.get("retry_policy")
         errors = bound.get("error_policy", OMITTED)
+        headers = bound.get("request_headers")
+        headers = snapshot(headers) if headers is not None else (
+            parent.request_headers if parent is not None else ()
+        )
         if parent is None:
             retry = (
                 retry
@@ -109,12 +115,14 @@ def policy_operation(function: F) -> F:
                 uuid4().hex,
                 function.__name__,
                 str(source) if source is not None else None,
+                headers,
             )
         else:
             policy = replace(
                 parent,
                 retry=retry or parent.retry,
                 errors=parent.errors if errors is OMITTED else errors,
+                request_headers=headers,
             )
         if not isinstance(policy.retry, RetryPolicy):
             raise TypeError("retry_policy must be RetryPolicy or None")

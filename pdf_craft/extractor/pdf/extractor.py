@@ -1,5 +1,6 @@
 # pylint: disable=unused-argument
 
+from collections.abc import Mapping
 from pdf_craft.pdf.backend import pdf_backend_scope, poppler_path_for
 from pdf_craft.policies import RetryPolicy, ErrorPolicyInput
 from pdf_craft._policy import OMITTED, policy_operation
@@ -39,7 +40,10 @@ class PDFExtractor:
         extraction_path: Path,
         *,
         analysing_path: Path | None = None,
-        retry_policy: RetryPolicy | None = None, error_policy: ErrorPolicyInput = OMITTED, **kwargs: Any,) -> PDFCraftExtraction:
+        retry_policy: RetryPolicy | None = None, error_policy: ErrorPolicyInput = OMITTED,
+        request_headers: Mapping[str, str] | None = None,
+        **kwargs: Any,
+    ) -> PDFCraftExtraction:
         """Extract without blocking the caller's event loop."""
         extraction, _ = await self.extract_with_metering(
             pdf_path, extraction_path, analysing_path=analysing_path, **kwargs
@@ -54,7 +58,10 @@ class PDFExtractor:
         extraction_path: Path,
         *,
         analysing_path: Path | None = None,
-        retry_policy: RetryPolicy | None = None, error_policy: ErrorPolicyInput = OMITTED, **kwargs: Any,):
+        retry_policy: RetryPolicy | None = None, error_policy: ErrorPolicyInput = OMITTED,
+        request_headers: Mapping[str, str] | None = None,
+        **kwargs: Any,
+    ):
         if extraction_path.suffix.lower() != EXTRACTION_SUFFIX:
             raise ValueError(f"PDFCraftExtraction path must end with {EXTRACTION_SUFFIX}")
         if await IO_DOMAIN.run(extraction_path.exists):

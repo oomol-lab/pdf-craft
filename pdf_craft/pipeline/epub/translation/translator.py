@@ -1,5 +1,6 @@
 # pylint: disable=unused-argument
 
+from collections.abc import Mapping
 from pdf_craft.policies import RetryPolicy, ErrorPolicyInput
 from pdf_craft._policy import OMITTED, policy_operation, has_error_callback
 # pylint: disable=protected-access
@@ -84,6 +85,7 @@ async def translate(
     on_body: Callable[[EpubFragmentContent], object] | None = None,
     on_metadata: MetadataCallback | None = None, *,
         retry_policy: RetryPolicy | None = None, error_policy: ErrorPolicyInput = OMITTED,
+        request_headers: Mapping[str, str] | None = None,
     ) -> None:
     """Translate an EPUB with native async LLM concurrency and pooled ZIP I/O."""
     if window < 1:

@@ -1,3 +1,4 @@
+# pylint: disable=unused-argument
 """Async vendor OCR transports whose capacity covers network operations only."""
 
 from __future__ import annotations
@@ -8,11 +9,11 @@ import inspect
 import json
 import re
 import time
-from collections.abc import AsyncIterable, AsyncIterator, Awaitable, Callable, Iterable
+from collections.abc import Mapping, AsyncIterable, AsyncIterator, Awaitable, Callable, Iterable
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Literal, Never, Self
+from typing import Protocol, Any, Literal, Never, Self
 from urllib.parse import urlsplit
 
 import httpx
@@ -20,6 +21,8 @@ from doc_page_extractor.extraction_context import ExtractionAbortedError
 from doc_page_extractor.errors import VendorOCRRequestError
 
 from ..rate_limit import rate_limit_request, retry_after_seconds
+from .._policy import policy_operation
+from .._request_headers import current_headers
 from ..concurrency import (
     AsyncExecutor,
     NonContinuableError,
@@ -129,6 +132,7 @@ class VendorOCRRuntime:
         if client is not None:
             await client.aclose()
 
+    @policy_operation
     @fatal_error_boundary
     @rate_limit_request
     async def request(
@@ -136,6 +140,7 @@ class VendorOCRRuntime:
         request: VendorOCRInput,
         *,
         _started: asyncio.Event | None = None,
+        request_headers: Mapping[str, str] | None = None,
     ) -> VendorOCRResponse:
         resolved = await self._resolve_image_url(request)
         if isinstance(self.config, UnlimitedOCRVendorConfig):
@@ -173,7 +178,11 @@ class VendorOCRRuntime:
     @fatal_error_boundary
     async def request_many(
         self, requests: Iterable[VendorOCRInput] | AsyncIterable[VendorOCRInput],
+        *, request_headers: Mapping[str, str] | None = None,
     ) -> AsyncIterator[VendorOCRResult]:
+        from .._request_headers import snapshot
+        headers = dict(snapshot(request_headers)) if request_headers is not None else current_headers()
+
         async def iterate():
             if isinstance(requests, AsyncIterable):
                 async for request in requests:
@@ -212,7 +221,7 @@ class VendorOCRRuntime:
                         exhausted = True
                     else:
                         started = asyncio.Event()
-                        new_task = asyncio.create_task(self.request(request, _started=started))
+                        new_task = asyncio.create_task(self.request(request, _started=started, request_headers=headers))
                         tasks[new_task] = request
                         admission_owner = new_task
                         admission = asyncio.create_task(started.wait())
@@ -346,6 +355,7 @@ class VendorOCRRuntime:
                     "Content-Type": "application/json",
                     "Accept": "application/json",
                     "User-Agent": "pdf-craft-vendor-ocr/1.0",
+                    **current_headers(),
                 },
                 json=payload,
             )
@@ -564,6 +574,7 @@ class VendorOCRRuntime:
                     headers={
                         "Accept": "application/json",
                         "User-Agent": "pdf-craft-vendor-ocr/1.0",
+                        **current_headers(),
                     },
                     data={
                         "grant_type": "client_credentials",
@@ -609,6 +620,7 @@ class VendorOCRRuntime:
                 "Content-Type": "application/x-www-form-urlencoded",
                 "Accept": "application/json",
                 "User-Agent": "pdf-craft-vendor-ocr/1.0",
+                **current_headers(),
             },
             data=data,
         )
@@ -703,7 +715,10 @@ class VendorOCRRuntime:
         return self._client
 
 
-VendorOCRRequest = Callable[[VendorOCRInput], Awaitable[VendorOCRResponse]]
+class VendorOCRRequest(Protocol):
+    def __call__(
+        self, request: VendorOCRInput, *, request_headers: Mapping[str, str] | None = None,
+    ) -> Awaitable[VendorOCRResponse]: ...
 
 
 @asynccontextmanager

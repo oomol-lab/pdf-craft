@@ -1,5 +1,6 @@
 # pylint: disable=unused-argument
 
+from collections.abc import Mapping
 from pdf_craft.policies import RetryPolicy, ErrorPolicyInput
 from pdf_craft._policy import OMITTED, policy_operation
 # pylint: disable=protected-access,unused-argument
@@ -137,7 +138,10 @@ class XMLTranslator:
         self,
         task: TranslationTask[T],
         window: int = 1,
-        retry_policy: RetryPolicy | None = None, error_policy: ErrorPolicyInput = OMITTED, **kwargs,) -> tuple[Element, T]:
+        retry_policy: RetryPolicy | None = None, error_policy: ErrorPolicyInput = OMITTED, *,
+        request_headers: Mapping[str, str] | None = None,
+        **kwargs,
+    ) -> tuple[Element, T]:
         translated = await self.translate_elements(
             tasks=(task,),
             window=window,
@@ -164,6 +168,7 @@ class XMLTranslator:
         emit_item_events: bool = True,
         window: int = 1, *,
         retry_policy: RetryPolicy | None = None, error_policy: ErrorPolicyInput = OMITTED,
+        request_headers: Mapping[str, str] | None = None,
     ) -> list[tuple[Element, T]]:
         """Translate tasks using the public XML extension contract."""
         return await self._translate_elements(

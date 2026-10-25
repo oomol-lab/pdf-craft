@@ -1,5 +1,6 @@
 # pylint: disable=unused-argument
 
+from collections.abc import Mapping
 from pdf_craft.policies import RetryPolicy, ErrorPolicyInput
 from pdf_craft._policy import OMITTED, policy_operation
 # pylint: disable=protected-access
@@ -38,6 +39,7 @@ class EpubRenderer:
         window: int = 1, with_anchored: bool = True,
         on_metadata: MetadataCallback | None = None,
         retry_policy: RetryPolicy | None = None, error_policy: ErrorPolicyInput = OMITTED,
+        request_headers: Mapping[str, str] | None = None,
     ) -> None:
         """Render content with localized fixed labels, never restrict its language.
 
