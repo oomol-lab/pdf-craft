@@ -439,9 +439,10 @@ cooldown. A cancelled or failed probe releases its slot without counting as reco
   waiting. Ordinary capacity queues and execution time do not count. LLM transport retries
   and Unlimited OCR HTTP stages for the same page retain that budget. Existing overall request
   deadlines still apply. Requests sharing a scope do not consume each other's budgets.
-- Cooling does not hold capacity. Admission is checked again before starting, and retries
-  rejoin the queue fairly. A custom `CapacityProvider` needs no additional methods. Recovery
-  uses its `concurrency` when available, otherwise observed normal concurrency (at least one);
+- Cooling does not hold capacity. Admission and recovery spacing are checked again immediately
+  before actual invocation. Delayed capacity grants cannot release a burst: a request that must
+  wait again releases capacity first. Retries rejoin the queue fairly. A custom `CapacityProvider`
+  needs no additional methods. Recovery uses its `concurrency` when available, otherwise observed normal concurrency (at least one);
   a shared scope uses the sum of participating executor targets.
 - `run()` recovers temporary limits internally; `map()` does too, reporting an exhausted budget
   as a per-operation failure with `operation_id`. Public `RateLimitTimeoutError` subclasses

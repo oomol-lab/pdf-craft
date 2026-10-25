@@ -175,8 +175,6 @@ class RateLimitScope:
                         budget.waited += loop.time() - started
             admission = _Admission(self._generation, self._round, self._state == "probe")
             self._active += 1
-            if self._state == "recovery":
-                self._next = now + 1.0 + random.uniform(0, 0.1)
             return admission
         finally:
             self._queue.remove(ticket)
@@ -185,7 +183,23 @@ class RateLimitScope:
     def _valid(self, admission: _Admission) -> bool:
         return admission.generation == self._generation
 
+    def _can_start(self, admission: _Admission) -> bool:
+        """Recheck after capacity waits, immediately before provider invocation.
+
+        Admission only reserves a recovery slot. Only an actual start consumes
+        the spacing interval; delayed reservations cannot become a burst.
+        """
+        if not self._valid(admission):
+            return False
+        if self._state == "normal":
+            return True
+        if self._state == "recovery":
+            return self._bind().time() >= self._next
+        return self._state == "probe" and admission.probe and self._probe is None
+
     def _started(self, owner: object, admission: _Admission) -> None:
+        if self._state == "recovery":
+            self._next = self._bind().time() + 1.0 + random.uniform(0, 0.1)
         if admission.probe:
             self._probe = admission
         self._running[owner] = self._running.get(owner, 0) + 1
@@ -224,7 +238,7 @@ class RateLimitScope:
                 else:
                     # Cancellation/non-rate error cannot strand the probe slot.
                     self._state = "cooldown"
-            elif self._state == "recovery" and admission.round == self._round:
+            elif started and self._state == "recovery" and admission.round == self._round:
                 self._successes = self._successes + 1 if success else 0
                 if self._successes >= self._limit:
                     target = sum(bound or self._observed.get(key, 1) for key, bound in self._capacities.items())

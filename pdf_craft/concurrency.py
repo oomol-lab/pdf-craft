@@ -407,10 +407,10 @@ class ConcurrentExecutor:
                 scope._finish(admission, self, error, started=False)
                 raise
             lease = _ScopedLease(self, capacity, admission)
-            if scope._valid(admission) and self._terminal_error is None:
+            if scope._can_start(admission) and self._terminal_error is None:
                 return lease
-            # Cooling may have started while waiting for capacity. Never hold a
-            # request slot while waiting for the new scope generation.
+            # Cooling or another recovery start may have invalidated admission
+            # during the capacity wait. Release capacity before waiting again.
             interrupted = await _release_without_abandoning(
                 lease, ExecutionReport(0, ExecutionOutcome.CANCELLED),
             )
@@ -546,7 +546,7 @@ class ConcurrentExecutor:
                 try:
                     while True:
                         assert current_lease is not None
-                        if not self._rate_limit_scope._valid(current_lease.admission):
+                        if not self._rate_limit_scope._can_start(current_lease.admission):
                             stale, current_lease = current_lease, None
                             interrupted = await _release_without_abandoning(
                                 stale, ExecutionReport(0, ExecutionOutcome.CANCELLED),

@@ -509,3 +509,146 @@ class RateLimitTests(unittest.IsolatedAsyncioTestCase):
             results = await clock.finish(consume())
             self.assertEqual(results[0].value, 'ok')
             self.assertTrue(all(report.elapsed_seconds < 1 for report in reports))
+
+    async def _recovery_with_occupied_capacity(self, clock, scope, capacity):
+        a = ConcurrentExecutor(capacity, rate_limit_scope=scope)
+        b = ConcurrentExecutor(FixedCapacity(1), rate_limit_scope=scope)
+        occupied = 0
+        both_started, release_old = asyncio.Event(), asyncio.Event()
+        async def old():
+            nonlocal occupied
+            occupied += 1
+            if occupied == 2:
+                both_started.set()
+            await release_old.wait()
+        old_tasks = [asyncio.create_task(a.run(old)) for _ in range(2)]
+        await both_started.wait()
+        first = True
+        async def limit_then_succeed():
+            nonlocal first
+            if first:
+                first = False
+                raise RateLimitedError(retry_after=1)
+            return 'ok'
+        self.assertEqual(await clock.finish(b.run(limit_then_succeed)), 'ok')
+        async def succeed():
+            return 'ok'
+        self.assertEqual(await clock.finish(b.run(succeed)), 'ok')
+        self.assertEqual(scope._state, 'recovery')
+        self.assertEqual(scope._limit, 2)
+        return a, release_old, old_tasks
+
+    async def test_run_actual_starts_remain_paced_after_capacity_unblocks_together(self):
+        with VirtualTime() as clock:
+            capacity = FixedCapacity(2)
+            scope = RateLimitScope()
+            a, release_old, old_tasks = await self._recovery_with_occupied_capacity(
+                clock, scope, capacity,
+            )
+            starts = []
+            async def work():
+                starts.append(clock.loop.time())
+            await clock.advance(1.1)
+            first = asyncio.create_task(a.run(work))
+            await clock.advance(1.1)
+            second = asyncio.create_task(a.run(work))
+            await clock.advance(1.1)
+            self.assertEqual(starts, [])
+            release_old.set()
+            await asyncio.gather(*old_tasks)
+            await clock.advance()
+            self.assertEqual(len(starts), 1, 'capacity release must not drain delayed admissions')
+            self.assertEqual(capacity._available, 2, 'spacing waits must release capacity')
+            self.assertEqual(scope._successes, 1, 'deferring an unstarted reservation is not a failed attempt')
+            await clock.finish(asyncio.gather(first, second))
+            self.assertGreaterEqual(starts[1] - starts[0], 1)
+
+    async def test_map_actual_starts_remain_paced_after_delayed_capacity_grants(self):
+        class DelayedCapacity(FixedCapacity):
+            """Model a provider whose availability changes during recovery."""
+            def __init__(self):
+                super().__init__(2)
+                self.armed = False
+                self.ready = asyncio.Event()
+                self.calls = {}
+                self.blocked = 0
+            async def acquire(self):
+                if self.armed:
+                    task = asyncio.current_task()
+                    self.calls[task] = self.calls.get(task, 0) + 1
+                    # A map stream first takes/releases a lazy-input lease.
+                    # Delay subsequent availability independently of the scope.
+                    if self.calls[task] > 1 and not self.ready.is_set():
+                        self.blocked += 1
+                        await self.ready.wait()
+                return await super().acquire()
+        with VirtualTime() as clock:
+            capacity = DelayedCapacity()
+            a, release_old, old_tasks = await self._recovery_with_occupied_capacity(
+                clock, RateLimitScope(), capacity,
+            )
+            release_old.set()
+            await asyncio.gather(*old_tasks)
+            capacity.armed = True
+            starts = []
+            async def work(index):
+                starts.append(clock.loop.time())
+                return index, 'ok'
+            async def consume():
+                return [item async for item in a.map([work])]
+            await clock.advance(1.1)
+            first = asyncio.create_task(consume())
+            await clock.advance(1.1)
+            second = asyncio.create_task(consume())
+            await clock.advance(1.1)
+            self.assertEqual(capacity.blocked, 2)
+            self.assertEqual(starts, [])
+            capacity.ready.set()
+            await clock.advance()
+            self.assertEqual(len(starts), 1, 'separate map streams must pace actual starts')
+            self.assertEqual(capacity._available, 2)
+            results = await clock.finish(asyncio.gather(first, second))
+            self.assertEqual([items[0].value for items in results], ['ok', 'ok'])
+            self.assertGreaterEqual(starts[1] - starts[0], 1)
+
+    async def test_post_capacity_spacing_wait_honors_budget_and_cancellation(self):
+        for cancel in (False, True):
+            with self.subTest(cancel=cancel):
+                await self._post_capacity_spacing_wait(cancel)
+
+    async def _post_capacity_spacing_wait(self, cancel):
+        with VirtualTime() as clock:
+            capacity = FixedCapacity(2)
+            scope = RateLimitScope(max_wait_seconds=1.5)
+            a, release_old, old_tasks = await self._recovery_with_occupied_capacity(clock, scope, capacity)
+            starts = []
+            async def work():
+                starts.append(clock.loop.time())
+            # Both requests first spend about one second waiting for the
+            # recovery interval, then wait on occupied capacity (unbudgeted).
+            first = asyncio.create_task(a.run(work))
+            second = asyncio.create_task(a.run(work))
+            await clock.advance()
+            await clock.advance(1.1)
+            self.assertEqual(starts, [])
+            release_old.set()
+            await asyncio.gather(*old_tasks)
+            await clock.advance()
+            self.assertEqual(len(starts), 1)
+            await first
+            if cancel:
+                second.cancel()
+                with self.assertRaises(asyncio.CancelledError):
+                    await second
+            else:
+                with self.assertRaises(RateLimitTimeoutError):
+                    await clock.finish(second)
+            self.assertEqual(len(starts), 1)
+            self.assertEqual(capacity._available, 2)
+            self.assertEqual(scope._active, 0)
+            self.assertFalse(scope._queue)
+            # Neither timeout nor cancellation may strand admission or
+            # erase the one actual recovery success.
+            self.assertEqual(scope._successes, 1)
+            await clock.finish(a.run(work))
+            self.assertEqual(len(starts), 2)
