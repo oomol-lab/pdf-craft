@@ -18,9 +18,9 @@ This reference covers the supported library surface imported from `pdf_craft`. M
 from pdf_craft import AsyncPDFCraft, PDFCraft, PDFOptions
 ```
 
-`PDFPreflightError` remains exported from `pdf_craft` and `pdf_craft.error` for
-compatibility with 2.6.2, including its constructor and fields. Conversion and
-assertions no longer raise it; assertions propagate original backend errors.
+Since 2.6.3, `PDFPreflightError` has been removed from both `pdf_craft` and
+`pdf_craft.error`. Remove old imports and catch clauses for this exception.
+Optional input assertions propagate original backend/parser exceptions.
 
 ## Operation request headers
 
@@ -52,6 +52,11 @@ inherit the scope. LLM, vendor OCR and JEV read it when sending each request;
 shared configuration, translator, runtime and HTTP client instances are not
 mutated. Concurrent operations can safely use different headers. These are
 execution parameters, not fields of `LLM`, OCR configuration or `ExtractionOptions`.
+
+If migrating from an experimental build that accepted instance-level `headers`,
+remove that argument from model configuration constructors and pass the mapping as
+`request_headers` on each operation instead. Shared model configurations can stay
+unchanged while each operation supplies its own headers.
 
 Headers are forwarded only to configured model services: LLM completion calls,
 DeepSeek OCR/OCR2 calls, Unlimited OCR token/submission/polling calls, and JEV

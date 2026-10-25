@@ -42,9 +42,8 @@ ErrorPolicy 对受支持页面错误的处理保持不变。应用如果希望�
 | `assert_pdf_editable(pdf_path)` | pypdf 能读取、克隆、试写并重新打开，具备基本 PDF 编辑能力。 |
 | `assert_epub_readable(epub_path)` | 复用 EPUB 翻译的输入解析器，读取 ZIP、container/OPF、目录、元数据，并完整遍历解析 spine 正文。 |
 
-2.6.3 起不再自动执行原有输入门禁。为兼容旧代码，仍可从 `pdf_craft` 和
-`pdf_craft.error` 导入 `PDFPreflightError`，其构造参数和字段保持不变。转换与可选断言
-不再抛出该异常；需要提前检查的应用应主动调用所需断言，并处理原后端或解析器异常。
+2.6.3 起，原有自动输入门禁及 `PDFPreflightError` 均已移除。请删除旧的导入和捕获
+分支；需要提前检查的应用应主动调用所需断言，并处理原后端或解析器异常。
 
 按应用需要选择调用，无需全部执行。成功返回 `None`，失败直接抛出原后端或解析器
 异常并保留 traceback，不返回 bool，不提供专用错误分类。断言不修改或修复输入，

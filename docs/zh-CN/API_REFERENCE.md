@@ -23,8 +23,8 @@ from pdf_craft import AsyncPDFCraft, PDFCraft, PDFOptions
 它们是执行参数，不属于 `ExtractionOptions` 的字段。
 详见[策略配置与 2.6.0 迁移指南](ERROR_HANDLING.md)。
 
-为兼容 2.6.2，`pdf_craft` 和 `pdf_craft.error` 仍导出 `PDFPreflightError`，
-构造参数与字段保持不变。转换及断言不再抛出它；断言直接传播原后端异常。
+2.6.3 起，`pdf_craft` 和 `pdf_craft.error` 均已移除 `PDFPreflightError`。
+请删除旧的导入和捕获分支；可选输入断言直接传播原后端或解析器异常。
 
 ## 操作级请求 Header
 
@@ -52,6 +52,10 @@ Header。成功、异常或取消后均恢复外层作用域。
 嵌套模型调用、翻译／填充恢复、重试和后台任务继承同一作用域。LLM、vendor OCR 和 JEV
 在发送请求时取值，不修改共享配置、translator、runtime 或 HTTP client；并发操作可以
 安全使用不同 Header。这是执行参数，不是 `LLM`、OCR 配置或 `ExtractionOptions` 的字段。
+
+如果此前使用支持实例级 `headers` 的实验版本，迁移时从模型配置构造函数中移除该参数，
+改为在每次操作上通过 `request_headers` 传入映射。共享模型配置无需修改，各操作分别
+提供自己的 Header。
 
 透传范围仅为配置的模型服务：LLM completion、DeepSeek OCR/OCR2、Unlimited OCR 的
 获取 token／提交／轮询，以及 JEV 请求。OCR 图片 URL resolver／上传和解析结果资源下载
