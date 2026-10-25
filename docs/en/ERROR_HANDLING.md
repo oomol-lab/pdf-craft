@@ -14,8 +14,11 @@ can explicitly call these blocking functions, exported from `pdf_craft`:
 | `assert_pdf_editable(pdf_path)` | Read, clone, trial-write and reopen with pypdf for basic PDF editing. |
 | `assert_epub_readable(epub_path)` | Read the ZIP, container/OPF, navigation, metadata and every spine document through the same parsers as EPUB translation. |
 
-The previous automatic gate and its `PDFPreflightError` have been removed;
-replace code relying on that error with explicit assertions and normal exception handling.
+Since 2.6.3, the automatic gate is no longer run. `PDFPreflightError` remains
+importable from `pdf_craft` and `pdf_craft.error`, with its existing constructor
+and fields, for compatibility. Conversion and optional assertions no longer raise
+it; applications that need upfront checks should call explicit assertions and
+handle the original backend/parser exceptions.
 
 Choose only the assertions your application needs. Success returns `None`;
 failure raises the original backend/parser exception with its traceback. There
