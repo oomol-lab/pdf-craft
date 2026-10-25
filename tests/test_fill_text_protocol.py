@@ -2,22 +2,27 @@
 """Real codec and fill-loop regressions for GitHub #526 and #527 (no network)."""
 import unittest
 from unittest.mock import AsyncMock
-from xml.etree.ElementTree import Element, SubElement
+from xml.etree.ElementTree import Element, SubElement, fromstring
 
-from pdf_craft.extractor.chapter.chapter import Chapter, TextFlowItem, SourceTextFragment, encode
+from pdf_craft.extractor.chapter.chapter import Chapter, TextFlowItem, SourceTextFragment, Content, BlockMember, encode
 from pdf_craft.markdown.paragraph import HTMLTag, tag_definition
 from pdf_craft.transformer.narrative_xml import NarrativeXMLTransformer
 from pdf_craft.transformer.xml_translator.xml import encode_friendly, decode_friendly
-from pdf_craft.transformer.xml_translator.xml_translator.translator import XMLFillError
+from pdf_craft.transformer.xml_translator.xml_translator.translator import XMLFillError, TranslationTask
+from pdf_craft.transformer.xml_translator.xml_translator.submitter import SubmitKind
 from tests.test_anchored_content_translation import _repairing_translator
 
 
 def source_chapter(styled=False):
-    content = [HTMLTag(tag_definition('span'), [('class', f'style-{i}')], [letter])
-               for i, letter in enumerate('Yes')] if styled else ['Use a tag.']
-    return Chapter(None, -1, [TextFlowItem('body', -1, [
-        SourceTextFragment(1, 0, (0, 0, 100, 20), content),
-    ])])
+    content: Content = ['Use a tag.']
+    if styled:
+        definition = tag_definition('span')
+        assert definition is not None
+        content = [HTMLTag[BlockMember](definition, [('class', f'style-{i}')], [letter])
+                   for i, letter in enumerate('Yes')]
+    fragment = SourceTextFragment(1, 0, (0, 0, 100, 20), content)
+    paragraph = TextFlowItem('body', -1, [fragment])
+    return Chapter(None, -1, [paragraph])
 
 
 class FriendlyTextProtocolTests(unittest.TestCase):
@@ -41,6 +46,7 @@ class FriendlyTextProtocolTests(unittest.TestCase):
         for encoded, plain in (
             ('&lt;span&gt;', '<span>'), ('&#60;xml&#62;', '<xml>'),
             ('&#x3C;span&#x3E;', '<span>'), ('A &amp; B', 'A & B'),
+            ('&#128;', chr(128)), ('&#x1F600;', chr(0x1F600)),
             ('&quot;&apos;', '\"\''), ('&amp;lt;span&amp;gt;', '&lt;span&gt;'),
         ):
             with self.subTest(encoded=encoded):
@@ -48,6 +54,12 @@ class FriendlyTextProtocolTests(unittest.TestCase):
                 self.assertEqual(result.text, plain)
                 self.assertEqual(result[0].tail, plain)
                 self.assertEqual(len(result), 1)
+
+    def test_invalid_and_unknown_references_remain_literal(self):
+        for text in ('&unknown;', '&lt', '&#0;', '&#xD800;', '&#1114112;', '&#xZZ;'):
+            with self.subTest(text=text):
+                result = next(decode_friendly(f'<xml>{text}</xml>', tags='xml'))
+                self.assertEqual(result.text, text)
 
     def test_raw_comparisons_ampersands_and_tolerant_tag_closing(self):
         result = next(decode_friendly('<xml>A & B; x < y<span>tail</xml>', tags='xml'))
@@ -91,3 +103,37 @@ class FillTextProtocolTests(unittest.IsolatedAsyncioTestCase):
         translator._translate_text_async = AsyncMock(return_value='是')
         with self.assertRaises(XMLFillError):
             await NarrativeXMLTransformer(translator).transform(source_chapter(styled=True))
+
+
+    async def test_generic_xhtml_fill_preserves_escaped_text(self):
+        translator, runtime = _repairing_translator([
+            '<xml><p id="1">使用 &lt;span&gt; 和 &amp;lt;xml&amp;gt;。</p></xml>',
+        ])
+        text = '使用 <span> 和 &lt;xml&gt;。'
+        translator._translate_text_async = AsyncMock(return_value=text)
+        result, _ = await translator.translate_element(TranslationTask(
+            fromstring('<body><p>Use a tag.</p></body>'), SubmitKind.REPLACE, None,
+        ))
+        self.assertEqual(''.join(result.itertext()), text)
+        self.assertEqual(len(result[0]), 0, 'literal tags must not become XHTML children')
+        self.assertEqual(runtime.context_value.calls, 1)
+
+    async def test_noncanonical_fill_prompt_has_no_pcex_canonical_instructions(self):
+        translator, runtime = _repairing_translator(['<xml><p id="1">是</p></xml>'])
+        translator._translate_text_async = AsyncMock(return_value='是')
+        result, _ = await translator.translate_element(TranslationTask(
+            fromstring('<body><p>Yes</p></body>'), SubmitKind.REPLACE, None,
+        ))
+        self.assertEqual(''.join(result.itertext()), '是')
+        messages = runtime.context_value.messages[0][0]
+        self.assertNotIn('Canonical visible-text constraint:', messages[1].message)
+        self.assertIn('empty inline', messages[0].message.lower())
+
+    async def test_cdata_does_not_bypass_structural_or_full_text_validation(self):
+        bad = '<xml><fragment id="1"><![CDATA[使用 <span> 标签。]]></fragment></xml>'
+        good = '<xml><fragment id="1">使用 &lt;span&gt; 标签。</fragment></xml>'
+        translator, runtime = _repairing_translator([bad, good])
+        translator._translate_text_async = AsyncMock(return_value='使用 <span> 标签。')
+        result = await NarrativeXMLTransformer(translator).transform(source_chapter())
+        self.assertEqual(''.join(part.strip() for part in encode(result).itertext()), '使用 <span> 标签。')
+        self.assertEqual(runtime.context_value.calls, 2)

@@ -3,8 +3,7 @@ from html import escape as escape_html
 from io import StringIO
 from xml.etree.ElementTree import Element
 
-from .parser import parse_tags
-from .tag import Tag, TagKind
+from .tag import TagKind
 from .transform import element_to_tag
 
 
@@ -23,12 +22,9 @@ def encode_friendly(element: Element, indent: int = 2) -> str:
 
 
 def _escape_text(text: str) -> str:
-    buffer = StringIO()
-    for cell in parse_tags(text):
-        if isinstance(cell, Tag):
-            cell = escape_html(str(cell))
-        buffer.write(cell)
-    return buffer.getvalue()
+    # Escape every ampersand, including literal entity spellings, so a single
+    # decoding pass can distinguish "<span>" from the prose "&lt;span&gt;".
+    return escape_html(text, quote=False)
 
 
 _TINY_TEXT_LEN = 35
