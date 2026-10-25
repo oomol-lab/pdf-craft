@@ -1,6 +1,5 @@
 """Regression tests for scheduling and shared PCEX stream contracts."""
 
-from tests.pdf_preflight_helpers import mock_fictional_pdf_preflight
 from pdf_craft import RetryPolicy
 # pylint: disable=protected-access
 import asyncio
@@ -14,9 +13,6 @@ from tests.test_stream_callbacks import page
 
 
 class StreamFollowupTests(unittest.IsolatedAsyncioTestCase):
-    def setUp(self):
-        mock_fictional_pdf_preflight(self)
-
     async def test_slow_first_result_does_not_idle_capacity(self):
         release = asyncio.Event()
         later_finished = asyncio.Event()

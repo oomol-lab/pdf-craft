@@ -1,46 +1,46 @@
 # Retry, recovery and completion
 
-## Mandatory PDF preflight
+## Optional input assertions
 
-Every task accepting a source PDF runs compatibility checks before OCR, translation,
-content/metadata callbacks, or final output. Both pypdf and Poppler are required,
-even with a custom async PDF handler. The same checks apply to the sync/async
-facades, PDFExtractor, PDFTranslationPipeline and PDFPatcher.
+Conversion does not run an automatic input gate. Invalid inputs fail when the
+actual operation encounters the problem; existing ErrorPolicy behavior still
+applies to supported page failures. Applications that want to test inputs first
+can explicitly call these blocking functions, exported from `pdf_craft`:
 
-Preflight reads every page's structure, resources and decoded content with pypdf
-(strict reader mode, without a separate repair pass), renders every page at low DPI with Poppler, compares
-page counts and page geometry, and writes/reopens a temporary pypdf document.
-The original is never repaired, rewritten, or replaced by that trial document.
-Images are released page by page. This adds startup work proportional to the PDF;
-nested steps share the result only within the current task. Subsequent calls check
-again. A custom handler still supplies the actual business renders after preflight.
+| Function | Operation tested |
+| --- | --- |
+| `assert_pdf_readable(pdf_path)` | Open with Poppler and obtain a positive page count. |
+| `assert_pdf_renderable(pdf_path)` | Rasterize every page with Poppler at 72 DPI. |
+| `assert_pdf_editable(pdf_path)` | Read, clone, trial-write and reopen with pypdf for basic PDF editing. |
+| `assert_epub_readable(epub_path)` | Read the ZIP, container/OPF, navigation, metadata and every spine document through the same parsers as EPUB translation. |
 
-A failure raises the public, task-fatal `PDFPreflightError`:
+The previous automatic gate and its `PDFPreflightError` have been removed;
+replace code relying on that error with explicit assertions and normal exception handling.
+
+Choose only the assertions your application needs. Success returns `None`;
+failure raises the original backend/parser exception with its traceback. There
+is no boolean result or dedicated error taxonomy. Assertions never modify the
+input or repair it; temporary trial files are cleaned up on success and failure.
+The two Poppler assertions accept an optional keyword `poppler_path=directory`.
 
 ```python
-from pdf_craft import PDFCraft, PDFPreflightError
+from pdf_craft import assert_epub_readable
 
 try:
-    PDFCraft().patch_pdf_with_extraction("source.pdf", "book.pcex", "output.pdf")
-except PDFPreflightError as error:
-    print(error.source, error.backend, error.stage, error.page_index, error.reason)
+    assert_epub_readable("input.epub")
+except Exception as error:
+    print(f"Input assertion failed: {error}")
+else:
+    print("Input can be parsed")
 ```
 
-Its fields are `source` (input path as a string), `backend` (`pypdf`, `poppler`,
-`consistency`), `stage`, `page_index` (1-based or `None`), and `reason`. Stages are
-`open`, `page_read`, `page_labels`, `render`, `page_count`, `geometry`, `write`,
-`reopen`, and `source_changed`. The original exception is chained when available.
-Poppler error diagnostics (including `Syntax Error`) also fail preflight when the
-process exits with code 0 and produces an image. Ordinary `Syntax Warning`
-diagnostics remain visible in logs and do not by themselves reject the file.
-An inaccessible file, unavailable backend, and backend parse/render failure retain
-their own diagnostic cause; none is automatically declared a PDF standards violation.
-
-**This exception cannot be ignored.** `error_policy=True` and error callbacks cannot
-permit continuation; the policy decision callback is not invoked. No retry policy,
-page fallback, or automatic source repair is applied. Cancellation remains cancellation.
-Passing preflight is compatibility evidence, not a complete PDF conformance certificate
-or a guarantee that later high-DPI rendering, translation, or overlay composition succeeds.
+Passing an assertion only confirms the operation listed above. Readability does
+not promise complete PDF-to-PCEX extraction; low-resolution rendering does not
+guarantee high-resolution rendering or OCR; basic editing does not guarantee
+all PDF backfill operations. EPUB readability is compatibility with our input
+parsers, not full EPUB standards validation or a promise of successful translation.
+No assertion starts OCR, downloads models, or calls an LLM. Conversion and page
+count helpers do not call these assertions automatically.
 
 
 `PDFCraft` and `AsyncPDFCraft` accept the same execution policies. Calls may override the instance defaults without mutating a shared translator.

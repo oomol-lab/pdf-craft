@@ -1,17 +1,16 @@
 # Public API reference
 
-## PDF input compatibility
+## Optional input assertions
 
-`PDFPreflightError` is exported from `pdf_craft`. All source-PDF tasks perform mandatory
-dual-backend preflight, including with custom handlers. Its `source`, `backend`,
-`stage`, `page_index` and `reason` identify the failure. It is task-fatal and bypasses
-ErrorPolicy. `pdf_pages_count(source, pdf_handler=DefaultPDFHandler(poppler_path=...))`
-uses that explicit executable directory for both preflight and reading. Nested
-operations share the configured installation; validation results are not reused
-across different tool directories. Unconfigured custom handlers still require
-Poppler on PATH and need no extra configuration attributes.
-See [preflight behavior and example](ERROR_HANDLING.md#mandatory-pdf-preflight).
+`assert_pdf_readable`, `assert_pdf_renderable`, `assert_pdf_editable` and
+`assert_epub_readable` are blocking functions exported from `pdf_craft`. They
+return `None` on success and raise original exceptions on failure. They are
+never called automatically by conversion or `pdf_pages_count`.
+See [operations, limits and usage](ERROR_HANDLING.md#optional-input-assertions).
 
+`pdf_pages_count(source, pdf_handler=DefaultPDFHandler(poppler_path=...))` reads
+only the count through that handler. Nested default readers share the configured
+Poppler installation; custom handlers need no extra configuration attributes.
 
 This reference covers the supported library surface imported from `pdf_craft`. Most applications only need `PDFCraft`, one OCR configuration, and—when translating—an `LLM`. The lower-level rendering, transformation, and PDF patching classes are available for applications that need explicit control.
 
@@ -489,7 +488,7 @@ pipeline = PDFTranslationPipeline(patcher=patcher)
 
 `render_inline_formulas=True` is the default. Chapter XML preserves inline formulas so they remain in the translation context without replacing their source formula. When Matplotlib and local TeX are available, the patcher writes them as vector PDF content; otherwise (or if an individual formula fails) it falls back to readable plain text without failing the document. Set the option to `False` to select that plain-text behavior explicitly. Vector fragments carry a plain-text PDF `/ActualText` semantic replacement, but pdf-craft does not construct a complete tagged PDF and does not guarantee reader-specific copy order relative to surrounding text. Qt keeps its native language behavior for ordinary text; only a vector formula and its immediately following visible spacing form an unbreakable atom.
 
-The patcher merges two independent overlays over a Ghostscript-compiled, fontless visual base of each source page's non-Annotation content: a local-background RGB rectangle erasure layer and a Qt-generated PDF text layer. `EraseOptions(padding=2)` expands each source box in its OCR-pixel coordinates before sampling and painting it. The supplied `PDFHandler` (or the default Poppler handler) renders original pages only for color sampling; it is never used as an output page image. The visual base preserves the appearance without leaving ordinary source or hidden OCR text selectable, searchable, or extractable. The source `/Annots` array is reattached above translation, so links, highlights, notes, forms, and other PDF Annotations remain independently interactive. The erasure is visual only and deliberately does not restore texture, rules, formulae, or artwork. Qt/PySide6, Ghostscript, Poppler for mandatory input preflight, and the required fonts must be available on the machine producing the PDF.
+The patcher merges two independent overlays over a Ghostscript-compiled, fontless visual base of each source page's non-Annotation content: a local-background RGB rectangle erasure layer and a Qt-generated PDF text layer. `EraseOptions(padding=2)` expands each source box in its OCR-pixel coordinates before sampling and painting it. The supplied `PDFHandler` (or the default Poppler handler) renders original pages only for color sampling; it is never used as an output page image. The visual base preserves the appearance without leaving ordinary source or hidden OCR text selectable, searchable, or extractable. The source `/Annots` array is reattached above translation, so links, highlights, notes, forms, and other PDF Annotations remain independently interactive. The erasure is visual only and deliberately does not restore texture, rules, formulae, or artwork. Qt/PySide6, Ghostscript, Poppler for default background sampling, and the required fonts must be available on the machine producing the PDF.
 
 `PDFTranslationPipeline.patch()` and `PDFPatcher.patch()` are async methods. Custom `pdf_handler` providers implement `AsyncPDFHandler`; custom visual compilers implement `async def compile(source_path, target_path)`.
 

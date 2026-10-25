@@ -6,7 +6,6 @@ from __future__ import annotations
 
 from pdf_craft import RetryPolicy
 
-from tests.pdf_preflight_helpers import mock_fictional_pdf_preflight
 
 import asyncio
 from copy import deepcopy
@@ -343,9 +342,6 @@ def _pdf_patch_text(chapter: Chapter) -> str:
 
 
 class AnchoredContentTranslationTests(unittest.TestCase):
-    def setUp(self):
-        mock_fictional_pdf_preflight(self)
-
     def test_narrative_source_text_keeps_fragments_in_one_text_flow_continuous(self):
         chapter = Chapter(None, -1, [
             TextFlowItem("body", 0, [

@@ -1,5 +1,8 @@
 # Issue 835: EPUB label language and configured PDF preflight
 
+> Historical record: issue 839 removes the automatic PDF gate described here.
+> Current behavior is documented in [optional input assertions](../en/ERROR_HANDLING.md#optional-input-assertions).
+
 The implementation starts from main commit `77c56d0` (PR #529). It leaves the
 pinned `epub-generator==0.1.7` dependency unchanged.
 

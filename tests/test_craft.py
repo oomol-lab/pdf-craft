@@ -1,6 +1,5 @@
 # pylint: disable=protected-access
 
-from tests.pdf_preflight_helpers import mock_fictional_pdf_preflight
 import asyncio
 import tempfile
 import unittest
@@ -45,9 +44,6 @@ class _Engine:
 
 
 class PublicConfigurationCompatibilityTests(unittest.TestCase):
-    def setUp(self):
-        mock_fictional_pdf_preflight(self)
-
     def test_pdf_options_preserves_original_positional_field_order(self):
         handler = Mock()
         options = PDFOptions(None, handler, "models", True)
@@ -119,9 +115,6 @@ class _AssetPrefixXMLTranslator(_PrefixXMLTranslator):
 
 
 class TestPDFCraft(unittest.TestCase):
-    def setUp(self):
-        mock_fictional_pdf_preflight(self)
-
     def test_translate_extraction_is_the_public_translation_entry(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

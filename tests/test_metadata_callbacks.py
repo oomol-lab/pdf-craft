@@ -1,7 +1,6 @@
 """Book-level notifications at finalized extraction and translation boundaries."""
 # Each loop iteration finishes its async work before the next one.
 # pylint: disable=protected-access,cell-var-from-loop
-from tests.pdf_preflight_helpers import mock_fictional_pdf_preflight
 import asyncio
 from dataclasses import FrozenInstanceError
 from datetime import datetime, timezone
@@ -102,9 +101,6 @@ def epub_book(path, *, empty=False):
 
 
 class MetadataCallbackTests(unittest.IsolatedAsyncioTestCase):
-    def setUp(self):
-        mock_fictional_pdf_preflight(self)
-
     async def test_native_notification_precedes_ocr_is_awaited_and_matches_manifest(self):
         events, received = [], []
         started, release = asyncio.Event(), asyncio.Event()
@@ -360,9 +356,6 @@ class MetadataCallbackTests(unittest.IsolatedAsyncioTestCase):
 
 
 class MetadataValueTests(unittest.TestCase):
-    def setUp(self):
-        mock_fictional_pdf_preflight(self)
-
     def test_fragment_name_is_a_compatible_alias_and_metadata_is_frozen(self):
         self.assertIs(EpubTranslation, EpubFragmentContent)
         self.assertEqual(EpubFragmentContent('cfi', 'a', 'b').translated, 'b')

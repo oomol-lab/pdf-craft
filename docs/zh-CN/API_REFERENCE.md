@@ -1,16 +1,14 @@
 # pdf-craft API 参考
 
-## PDF 输入兼容性
+## 可选输入断言
 
-`PDFPreflightError` 从 `pdf_craft` 顶层导出。所有源 PDF 任务（包括自定义 handler）
-都执行强制双后端预检；`source`、`backend`、`stage`、`page_index`、`reason`
-标明失败位置。它不可忽略，不进入 ErrorPolicy。详见[预检行为和示例](ERROR_HANDLING.md#强制-pdf-输入预检)。
+`assert_pdf_readable`、`assert_pdf_renderable`、`assert_pdf_editable` 和
+`assert_epub_readable` 从 `pdf_craft` 顶层导出，是成功返回 `None`、失败抛原异常的
+阻塞函数。转换与 `pdf_pages_count` 不会自动调用。详见[能力边界和用法](ERROR_HANDLING.md#可选输入断言)。
 
-预检与默认读取器共用显式的 Poppler 工具目录：
 `pdf_pages_count(source, pdf_handler=DefaultPDFHandler(poppler_path=...))`
-不要求该目录同时出现在 PATH。嵌套操作复用本次配置，其他工具目录不能复用它的校验结果；
-没有显式配置的自定义 handler 仍要求 PATH 中存在 Poppler，不需要新增扩展属性。
-
+只通过指定 handler 读取页数。嵌套默认读取器共用显式 Poppler 目录，自定义 handler
+无需新增配置属性。
 
 本文面向需要把 pdf-craft 集成到自己程序中的用户。入门流程请先阅读仓库根目录的
 README；本文只说明稳定的公共导入和它们如何组合。示例默认使用：

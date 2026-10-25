@@ -1,6 +1,6 @@
 # pylint: disable=unused-argument
 
-from pdf_craft.pdf.preflight import pdf_operation, poppler_path_for
+from pdf_craft.pdf.backend import pdf_backend_scope, poppler_path_for
 from pdf_craft.policies import RetryPolicy, ErrorPolicyInput
 from pdf_craft._policy import OMITTED, policy_operation
 # pylint: disable=protected-access
@@ -21,8 +21,8 @@ class PDFExtractor:
     def __init__(self, transform: Any) -> None:
         self._transform = transform
 
-    def _preflight_poppler_path(self) -> Path | None:
-        """Share the native adapter's tool configuration with the input gate."""
+    def _backend_poppler_path(self) -> Path | None:
+        """Share the native adapter's tool configuration with nested readers."""
         return poppler_path_for(self._transform)
 
     @staticmethod
@@ -32,7 +32,7 @@ class PDFExtractor:
         return extraction, metering
 
     @policy_operation
-    @pdf_operation
+    @pdf_backend_scope
     async def extract(
         self,
         pdf_path: Path,
@@ -47,7 +47,7 @@ class PDFExtractor:
         return extraction
 
     @policy_operation
-    @pdf_operation
+    @pdf_backend_scope
     async def extract_with_metering(
         self,
         pdf_path: Path,
@@ -66,7 +66,7 @@ class PDFExtractor:
             exported = await extraction._export_async(extraction_path)
         return exported, metering
 
-    @pdf_operation
+    @pdf_backend_scope
     async def _extract_to_workspace_async(
         self,
         pdf_path: Path,

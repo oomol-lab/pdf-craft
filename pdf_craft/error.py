@@ -9,29 +9,6 @@ class PDFError(Exception):
         self.page_index: int | None = page_index
 
 
-class PDFPreflightError(NonContinuableError):
-    """A mandatory PDF backend compatibility check failed; never recoverable."""
-
-    def __init__(self, source: str, backend: str, stage: str,
-                 page_index: int | None, reason: str) -> None:
-        self.source = source
-        self.backend = backend
-        self.stage = stage
-        self.page_index = page_index
-        self.reason = reason
-        location = f" on page {page_index}" if page_index is not None else ""
-        super().__init__(f"PDF preflight failed ({backend}/{stage}){location}: {reason}")
-
-    def __reduce__(self):
-        return type(self), (self.source, self.backend, self.stage, self.page_index, self.reason), {
-            **self.__dict__, "__cause__": self.__cause__,
-        }
-
-    def __setstate__(self, state):
-        self.__cause__ = state.pop("__cause__", None)
-        self.__dict__.update(state)
-
-
 class OCRError(Exception):
     def __init__(self, message: str, page_index: int, step_index: int) -> None:
         super().__init__(message)

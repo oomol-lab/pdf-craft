@@ -1,7 +1,7 @@
 # pylint: disable=unused-argument
 """Public facade that composes pdf-craft's independent components."""
 
-from pdf_craft.pdf.preflight import pdf_operation, poppler_path_for
+from pdf_craft.pdf.backend import pdf_backend_scope, poppler_path_for
 from pdf_craft.policies import RetryPolicy, ErrorPolicyInput
 from pdf_craft._policy import OMITTED, policy_operation
 
@@ -116,8 +116,8 @@ class AsyncPDFCraft:
         self._pdf = pdf
         self._engine = _engine
 
-    def _preflight_poppler_path(self) -> Path | None:
-        """Share the native adapter's tool configuration with the input gate."""
+    def _backend_poppler_path(self) -> Path | None:
+        """Share the native adapter's tool configuration with nested readers."""
         return poppler_path_for(self._engine)
 
     @classmethod
@@ -179,7 +179,7 @@ class AsyncPDFCraft:
         return await IO_DOMAIN.run(resolve_translation, document, translation_id)
 
     @policy_operation
-    @pdf_operation
+    @pdf_backend_scope
     async def extract_pdf(
         self, source: PathLike | str, extraction_path: PathLike | str,
         options: ExtractionOptions | None = None,
@@ -192,7 +192,7 @@ class AsyncPDFCraft:
         return extraction
 
     @policy_operation
-    @pdf_operation
+    @pdf_backend_scope
     async def extract_pdf_with_metering(
         self, source: PathLike | str, extraction_path: PathLike | str,
         options: ExtractionOptions | None = None,
@@ -345,7 +345,7 @@ class AsyncPDFCraft:
         )
 
     @policy_operation
-    @pdf_operation
+    @pdf_backend_scope
     async def translate_pdf(
         self, source: PathLike | str, extraction: PDFCraftExtraction | PathLike | str,
         output: PathLike | str,
@@ -378,7 +378,7 @@ class AsyncPDFCraft:
             )
 
     @policy_operation
-    @pdf_operation
+    @pdf_backend_scope
     async def patch_pdf_with_extraction(
         self,
         source: PathLike | str,
@@ -441,7 +441,7 @@ class AsyncPDFCraft:
         )
 
     @policy_operation
-    @pdf_operation
+    @pdf_backend_scope
     async def convert_pdf_to_markdown(
         self, source: PathLike | str, output: PathLike | str, *,
         analysing_path: PathLike | str | None = None,
@@ -481,7 +481,7 @@ class AsyncPDFCraft:
         return metering
 
     @policy_operation
-    @pdf_operation
+    @pdf_backend_scope
     async def convert_pdf_to_epub(
         self, source: PathLike | str, output: PathLike | str, *,
         analysing_path: PathLike | str | None = None,
@@ -719,8 +719,13 @@ def _validate_extraction_for_pdf(source: Path, extraction: PDFCraftExtraction) -
     page_sizes = extraction._page_pixel_sizes()
     if not page_sizes:
         raise ValueError("PDFCraftExtraction is missing page geometry required for PDF patching")
-    from .pdf.preflight import check_pdf
-    page_count = len(check_pdf(source).pages)
+    from .pdf.poppler import PopplerDocument
+    from .pdf.backend import current_poppler_path
+    document = PopplerDocument(source, current_poppler_path())
+    try:
+        page_count = document.pages_count
+    finally:
+        document.close()
     with extraction._materialize() as paths:
         chapter_pages = {
             fragment.page_index

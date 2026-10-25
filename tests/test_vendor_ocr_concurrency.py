@@ -1,4 +1,3 @@
-from tests.pdf_preflight_helpers import mock_fictional_pdf_preflight
 from pdf_craft import FailureContext
 
 from pdf_craft import ErrorPolicy
@@ -115,9 +114,6 @@ class _SequentialExecutor:
 
 
 class VendorOCRConcurrencyTests(unittest.IsolatedAsyncioTestCase):
-    def setUp(self):
-        mock_fictional_pdf_preflight(self)
-
     async def test_vendor_workspace_resume_state_is_prepared_off_loop(self):
         rendered: list[int] = []
         ocr = OCR(

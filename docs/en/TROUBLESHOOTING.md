@@ -1,13 +1,12 @@
 # Troubleshooting
 
-## PDFPreflightError
+## Input compatibility
 
-This error occurs before OCR/LLM work when pypdf or Poppler cannot process the
-source, or their page geometry/count disagrees. Inspect `backend`, `stage`,
-`page_index`, `reason` and the chained exception. A missing executable/shared
-library is an installation problem; a parser error identifies backend incompatibility.
-The SDK does not repair the input. ErrorPolicy cannot ignore this exception.
-See [mandatory preflight](ERROR_HANDLING.md#mandatory-pdf-preflight).
+Use the [optional input assertions](ERROR_HANDLING.md#optional-input-assertions)
+when you want to diagnose reading, rendering or editing before conversion.
+Inspect the original exception and traceback: missing executables or libraries
+indicate installation problems, while parse/render errors indicate that the
+backend could not perform that operation. The SDK does not repair the input.
 
 When a real conversion fails, first identify the layer: PDF reading and rendering, OCR, text LLM translation, output rendering, or PDF/EPUB patching. OCR configuration and text-LLM configuration are separate; a working OCR service does not prove that translation credentials are valid.
 
@@ -29,7 +28,7 @@ When a real conversion fails, first identify the layer: PDF reading and renderin
 
 ### `Poppler not found in PATH`
 
-pdf-craft uses Poppler to render PDF pages as images before OCR and to sample local background colors while patching translated PDFs. It is required for both local and vendor OCR, and for mandatory preflight even when the caller supplies a different `AsyncPDFHandler`, so changing OCR backends does not solve the error.
+pdf-craft uses Poppler to render PDF pages as images before OCR and to sample local background colors while patching translated PDFs. The default PDF handler uses it with both local and vendor OCR, so changing OCR backends does not solve a missing Poppler installation. A custom `AsyncPDFHandler` supplies its own rendering.
 
 Run `pdfinfo -v` in the same environment that runs Python. If it is unavailable, install Poppler, add its executable directory to `PATH`, and restart the shell or process. The [installation guide](INSTALLATION.md) includes platform-specific commands.
 
