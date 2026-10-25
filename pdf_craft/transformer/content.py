@@ -3,6 +3,7 @@
 from copy import deepcopy
 from dataclasses import replace
 
+from ..concurrency import fatal_error_boundary
 from ..common import read_xml, save_xml
 from ..document.content import read_content
 from ..extractor.chapter.chapter import (
@@ -29,6 +30,7 @@ def _unit(item):
     return chapter
 
 
+@fatal_error_boundary
 async def translate_content(items, transformer, window, coverage, anchored_coverage,
                             *, with_anchored=False, aborted=lambda: False, on_completed=None, pretranslated=None, pages=None):
     """One format adapter; every LLM operation remains in XMLTranslator."""

@@ -7,6 +7,7 @@ from pathlib import Path
 from threading import Condition
 from typing import Generic, TypeVar
 
+from ..concurrency import fatal_error_boundary, settle_tasks
 from ..runtime import IO_DOMAIN, invoke_callback
 
 T = TypeVar("T")
@@ -95,6 +96,7 @@ class DiskDelivery(Generic[T]):
             await self._task
         await IO_DOMAIN.run(self._stream.append, value)
 
+    @fatal_error_boundary
     async def _deliver(self) -> None:
         async for value in self._stream.aread():
             await invoke_callback(self._callback, value)
@@ -105,4 +107,4 @@ class DiskDelivery(Generic[T]):
 
     async def cancel(self) -> None:
         self._task.cancel()
-        await asyncio.gather(self._task, return_exceptions=True)
+        await settle_tasks([self._task])

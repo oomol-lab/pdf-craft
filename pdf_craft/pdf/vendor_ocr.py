@@ -24,7 +24,7 @@ from ..concurrency import (
     NonContinuableError,
     OperationError,
     RateLimitedError,
-    task_group_fatal_error,
+    task_group_error, fatal_error_boundary, settle_tasks,
 )
 from ..error import OCRBillingError, OCRFatalError
 from ..metering import AbortedCheck, check_aborted
@@ -128,6 +128,7 @@ class VendorOCRRuntime:
         if client is not None:
             await client.aclose()
 
+    @fatal_error_boundary
     async def request(
         self,
         request: VendorOCRInput,
@@ -167,6 +168,7 @@ class VendorOCRRuntime:
                 cause=error,
             ) from error
 
+    @fatal_error_boundary
     async def request_many(
         self, requests: Iterable[VendorOCRInput] | AsyncIterable[VendorOCRInput],
     ) -> AsyncIterator[VendorOCRResult]:
@@ -213,23 +215,7 @@ class VendorOCRRuntime:
                         admission_owner = new_task
                         admission = asyncio.create_task(started.wait())
                     incoming = None
-                for task in done:
-                    if task not in tasks or not task.cancelled():
-                        continue
-                    try:
-                        task.result()
-                    except asyncio.CancelledError as error:
-                        fatal = next((
-                            argument for argument in error.args
-                            if isinstance(argument, NonContinuableError)
-                        ), None)
-                        if fatal is not None:
-                            raise fatal from error
-                        raise
-                fatal = task_group_fatal_error(
-                    task for task in done
-                    if task in tasks and not task.cancelled()
-                )
+                fatal = task_group_error(task for task in done if task in tasks)
                 if fatal is not None:
                     raise fatal
 
@@ -243,7 +229,7 @@ class VendorOCRRuntime:
                 if admitted or owner_finished_before_admission:
                     if admission is not None:
                         admission.cancel()
-                        await asyncio.gather(admission, return_exceptions=True)
+                        await settle_tasks([admission])
                     admission = None
                     admission_owner = None
                     start_next()
@@ -261,7 +247,6 @@ class VendorOCRRuntime:
         finally:
             if incoming is not None:
                 incoming.cancel()
-                await asyncio.gather(incoming, return_exceptions=True)
             if admission is not None:
                 admission.cancel()
             for task in tasks:
@@ -269,9 +254,12 @@ class VendorOCRRuntime:
             teardown: list[asyncio.Task[Any]] = list(tasks)
             if admission is not None:
                 teardown.append(admission)
-            if teardown:
-                await asyncio.gather(*teardown, return_exceptions=True)
-            await iterator.aclose()
+            if incoming is not None:
+                teardown.append(incoming)
+            try:
+                await settle_tasks(teardown)
+            finally:
+                await iterator.aclose()
 
     async def _retry_request_after_error(
         self,

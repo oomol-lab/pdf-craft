@@ -3,6 +3,7 @@
 import asyncio
 from dataclasses import replace
 from pathlib import Path
+from ...concurrency import fatal_error_boundary, settle_tasks
 from ...policies import ErrorPolicyInput
 from ..._policy import OMITTED
 from ...extractor.chapter.text_projection import iter_continuous_content
@@ -104,6 +105,7 @@ def _with_page_obstacles(replacement, obstacles):
     ))
 
 
+@fatal_error_boundary
 async def patch_content(source, extraction, target, *, translator=None, translation_id=None,
                         window=1, error_policy: ErrorPolicyInput=OMITTED, on_body=None, on_footnote=None,
                         pdf_handler=None, with_furniture=False, on_translation_event=None, on_metadata=None):
@@ -269,4 +271,4 @@ async def patch_content(source, extraction, target, *, translator=None, translat
                         finally:
                             for task in tasks:
                                 task.cancel()
-                            await asyncio.gather(*tasks, return_exceptions=True)
+                            await settle_tasks(tasks)

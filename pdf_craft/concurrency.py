@@ -7,12 +7,15 @@ import inspect
 import time
 from collections import deque
 from collections.abc import AsyncIterator, Awaitable, Callable, Iterable
+from contextvars import ContextVar
 from dataclasses import dataclass, replace
 from enum import Enum
+from functools import wraps
 from typing import Any, Generic, Protocol, TypeVar, cast
 
 
 T = TypeVar("T")
+F = TypeVar("F", bound=Callable[..., Any])
 
 
 class OperationError(Exception):
@@ -54,6 +57,105 @@ class RateLimitedError(OperationError):
 
 class NonContinuableError(OperationError):
     """A provider failure that permanently closes one executor channel."""
+
+
+class _FatalErrorState:
+    """First observed fatal error for a task group, inherited by child tasks.
+
+    Request pools keep their own terminal state; this state additionally spans
+    pools within one business operation. It never converts an ordinary external
+    cancellation into a provider failure without an observed terminal cause.
+    """
+
+    def __init__(self) -> None:
+        self.parent = _fatal_state.get()
+        self.error: NonContinuableError | None = None
+        self.links: tuple[BaseException | None, BaseException | None, bool] | None = None
+
+    def record(self, error: NonContinuableError) -> None:
+        if self.error is None:
+            self.error = error
+            self.links = (error.__cause__, error.__context__, error.__suppress_context__)
+        if self.parent is not None:
+            self.parent.record(error)
+
+    def raise_fatal(self) -> None:
+        assert self.error is not None and self.links is not None
+        # A raise performed during generator finalization or another exception's
+        # cleanup would otherwise attach that secondary exception as context.
+        try:
+            raise self.error
+        finally:
+            self.error.__cause__, self.error.__context__, self.error.__suppress_context__ = self.links
+
+    async def run(self, operation: Awaitable[T]) -> T:
+        token = _fatal_state.set(self)
+        caught: BaseException | None = None
+        result: Any = None
+        try:
+            result = await operation
+        except BaseException as error:
+            caught = error
+            fatal = _fatal_from_error(error)
+            if fatal is not None:
+                self.record(fatal)
+        finally:
+            _fatal_state.reset(token)
+        # Raise outside the except block. Cancellation is a consequence, never
+        # a new cause/context of the original provider error.
+        if self.error is not None:
+            self.raise_fatal()
+        if caught is not None:
+            raise caught
+        return cast(T, result)
+
+
+_fatal_state: ContextVar[_FatalErrorState | None] = ContextVar(
+    "pdf_craft_fatal_state", default=None,
+)
+
+
+def _fatal_from_error(error: BaseException) -> NonContinuableError | None:
+    if isinstance(error, NonContinuableError):
+        return error
+    if isinstance(error, asyncio.CancelledError):
+        return next((arg for arg in error.args if isinstance(arg, NonContinuableError)), None)
+    return None
+
+
+def _record_fatal(error: NonContinuableError) -> None:
+    state = _fatal_state.get()
+    if state is not None:
+        state.record(error)
+
+
+def fatal_error_boundary(function: F) -> F:
+    """Keep a group's first fatal cause through sibling cancellation/cleanup.
+
+    For streams the context is active only while advancing/closing the iterator,
+    so it cannot leak into unrelated work performed by the stream's consumer.
+    Child task contexts still share the group's mutable state.
+    """
+    if inspect.isasyncgenfunction(function):
+        @wraps(function)
+        async def stream(*args, **kwargs):
+            state = _FatalErrorState()
+            iterator = function(*args, **kwargs)
+            try:
+                while True:
+                    try:
+                        value = await state.run(anext(iterator))
+                    except StopAsyncIteration:
+                        return
+                    yield value
+            finally:
+                await state.run(iterator.aclose())
+        return cast(F, stream)
+
+    @wraps(function)
+    async def invoke(*args, **kwargs):
+        return await _FatalErrorState().run(function(*args, **kwargs))
+    return cast(F, invoke)
 
 
 class ExecutionOutcome(Enum):
@@ -117,6 +219,18 @@ async def _settle_tasks_without_abandoning(
                 settling.result()
                 return error
             interrupted = error
+
+
+async def settle_tasks(tasks: Iterable[asyncio.Task[Any]]) -> None:
+    """Finish owned task cleanup without forwarding repeated cancellation.
+
+    Once a fatal cause is recorded, further cancellations must not interrupt
+    cleanup or replace it. Without one, keep ordinary caller cancellation.
+    """
+    interrupted = await _settle_tasks_without_abandoning(list(tasks))
+    state = _fatal_state.get()
+    if interrupted is not None and (state is None or state.error is None):
+        raise interrupted
 
 
 class _FixedLease:
@@ -270,12 +384,17 @@ class ConcurrentExecutor:
             else:
                 raise RuntimeError("ConcurrentExecutor cannot be shared across event loops")
 
+    @fatal_error_boundary
     async def run(self, operation: Callable[[], Awaitable[T]]) -> T:
         self._bind_loop()
         if self._terminal_error is not None:
             raise self._terminal_error
         lease = await self._capacity.acquire()
-        return await self._execute(operation, lease)
+        try:
+            return await self._execute(operation, lease)
+        finally:
+            if self._terminal_error is not None:
+                _record_fatal(self._terminal_error)
 
     async def _execute(
         self,
@@ -335,16 +454,22 @@ class ConcurrentExecutor:
         *,
         current: asyncio.Task[object] | None,
     ) -> None:
-        if self._terminal_error is None:
+        first = self._terminal_error is None
+        if first:
             self._terminal_error = error
-            await self._capacity.close(error)
-        for task in tuple(self._active):
-            if task is not current:
-                # Preserve the terminal cause on sibling cancellation.  A
-                # caller collecting several tasks may observe the cancelled
-                # sibling before the task that raised the fatal error itself.
-                task.cancel(error)
+        assert self._terminal_error is not None
+        _record_fatal(self._terminal_error)
+        try:
+            if first:
+                await self._capacity.close(self._terminal_error)
+        finally:
+            for task in tuple(self._active):
+                if task is not current:
+                    # Cancellation carries the group's already chosen cause,
+                    # including when a later operation also fails fatally.
+                    task.cancel(self._terminal_error)
 
+    @fatal_error_boundary
     async def _map(
         self, operations: Iterable[AsyncOperation[T]],
     ) -> AsyncIterator[OperationResult[T]]:
@@ -403,7 +528,7 @@ class ConcurrentExecutor:
                         time.monotonic() - started, ExecutionOutcome.FAILED, error,
                     )
                     await self._terminate(error, current=task)
-                    completion = _Completed(fatal=error)
+                    completion = _Completed(fatal=self._terminal_error)
                 except OperationError as error:
                     report = ExecutionReport(
                         time.monotonic() - started, ExecutionOutcome.FAILED, error,
@@ -569,23 +694,30 @@ class ConcurrentExecutor:
         return cast(AsyncResultIterator[T], self._map(operations))
 
 
-def task_group_fatal_error(
+def task_group_error(
     tasks: Iterable[asyncio.Task[Any]],
-) -> NonContinuableError | None:
-    """Find a fatal error, including one attached to sibling cancellation."""
+) -> BaseException | None:
+    """Prefer the recorded terminal cause; otherwise preserve real cancellation.
+
+    Read a cancelled task only once: repeated result()/exception() calls can
+    discard its cancellation message. Task completion order is not used to
+    replace a fatal cause already recorded by the execution group.
+    """
+    state = _fatal_state.get()
+    if state is not None and state.error is not None:
+        return state.error
+    cancelled: asyncio.CancelledError | None = None
     for task in tasks:
         if not task.done():
             continue
         try:
             error = task.exception()
-        except asyncio.CancelledError as cancelled:
-            error = next(
-                (
-                    argument for argument in cancelled.args
-                    if isinstance(argument, NonContinuableError)
-                ),
-                None,
-            )
-        if isinstance(error, NonContinuableError):
-            return error
-    return None
+        except asyncio.CancelledError as error:
+            cancelled = cancelled or error
+            fatal = _fatal_from_error(error)
+        else:
+            fatal = _fatal_from_error(error) if error is not None else None
+        if fatal is not None:
+            _record_fatal(fatal)
+            return fatal
+    return cancelled
