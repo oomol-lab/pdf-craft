@@ -587,3 +587,80 @@ class FatalErrorPropagationTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(unhandled, [])
         finally:
             loop.set_exception_handler(previous_handler)
+
+    async def test_translation_window_close_failure_wakes_consumer_with_fatal(self):
+        from contextlib import asynccontextmanager
+        from pdf_craft.transformer.xml_translator.xml_translator import concurrency as window
+        for asynchronous in (False, True):
+            for status in (402, 429):
+                for fail_settle in (False, True):
+                    with self.subTest(asynchronous=asynchronous, status=status, fail_settle=fail_settle):
+                        original = fatal_error(status)
+                        recorded, closed, settled = (asyncio.Event() for _ in range(3))
+                        real_settle, real_directory = window.settle_tasks, window.temporary_directory
+                        directories = []
+
+                        class Capacity(FixedCapacity):
+                            async def release(self, report):
+                                if report.error is original:
+                                    recorded.set()  # _terminate has already recorded the cause.
+                                await super().release(report)
+
+                        pool = ConcurrentExecutor(Capacity(1))
+
+                        def sync_input():
+                            try:
+                                yield 1
+                            finally:
+                                self.assertTrue(recorded.is_set())
+                                closed.set()
+                                raise RuntimeError('input close failed')
+
+                        async def async_input():
+                            try:
+                                yield 1
+                            finally:
+                                self.assertTrue(recorded.is_set())
+                                closed.set()
+                                raise RuntimeError('input aclose failed')
+
+                        async def settle(tasks):
+                            await real_settle(tasks)
+                            settled.set()
+                            if fail_settle:
+                                raise RuntimeError('task settling failed')
+
+                        @asynccontextmanager
+                        async def directory(prefix):
+                            async with real_directory(prefix) as path:
+                                directories.append(Path(path))
+                                yield path
+
+                        async def execute(_value):
+                            async def request():
+                                raise original
+                            return await pool.run(request)
+
+                        async def consume():
+                            source = async_input() if asynchronous else sync_input()
+                            return [item async for item in window.run_async_parameters(source, execute, 1)]
+
+                        with patch.object(window, 'settle_tasks', side_effect=settle), \
+                                patch.object(window, 'temporary_directory', side_effect=directory):
+                            consumer = asyncio.create_task(consume())
+                            try:
+                                await asyncio.wait_for(closed.wait(), 2)
+                                done, _ = await asyncio.wait([consumer], timeout=2)
+                                self.assertIn(consumer, done, 'consumer required external cancellation after input close failed')
+                                with self.assertRaises(NonContinuableError) as raised:
+                                    await consumer
+                                self.assertIs(raised.exception, original)
+                                self.assertEqual(exception_graph(original), [status])
+                                self.assertTrue(settled.is_set())
+                                self.assertFalse(pool._active)
+                                self.assertTrue(directories)
+                                self.assertTrue(all(not path.exists() for path in directories))
+                            finally:
+                                if not consumer.done():
+                                    consumer.cancel()
+                                    await asyncio.gather(consumer, return_exceptions=True)

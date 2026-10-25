@@ -139,21 +139,28 @@ async def run_async_parameters(parameters, execute, concurrency, *, preserve_sou
                         ready[index] = references
                         changed.set()
             finally:
-                tasks = list(pending)
-                if incoming is not None:
-                    tasks.append(incoming)
-                for task in tasks:
-                    task.cancel()
-                await settle_tasks(tasks)
-                if asynchronous:
-                    close = getattr(iterator, "aclose", None)
-                    if close is not None:
-                        await close()
-                else:
-                    close = getattr(iterator, "close", None)
-                    if close is not None:
-                        close()
-                changed.set()
+                try:
+                    tasks = list(pending)
+                    if incoming is not None:
+                        tasks.append(incoming)
+                    for task in tasks:
+                        task.cancel()
+                    try:
+                        await settle_tasks(tasks)
+                    finally:
+                        if asynchronous:
+                            close = getattr(iterator, "aclose", None)
+                            if close is not None:
+                                await close()
+                        else:
+                            close = getattr(iterator, "close", None)
+                            if close is not None:
+                                close()
+                finally:
+                    # The consumer may still be blocked on changed.wait().
+                    # Cleanup failures must wake it too, so it can observe the
+                    # producer's exit and propagate the recorded terminal cause.
+                    changed.set()
 
         producer = asyncio.create_task(produce())
         index = 0
