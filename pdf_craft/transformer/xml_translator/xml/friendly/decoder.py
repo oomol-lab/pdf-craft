@@ -1,10 +1,37 @@
 from collections.abc import Generator, Iterable
 from xml.etree.ElementTree import Element
+import re
 
 from pdf_craft.transformer.xml_translator.xml import clone_element
 from .parser import parse_tags
 from .tag import Tag, TagKind
 from .transform import tag_to_element
+
+
+_ENTITIES = {"lt": "<", "gt": ">", "amp": "&", "quot": '"', "apos": "'"}
+_ENTITY = re.compile(r"&(?P<name>lt|gt|amp|quot|apos|#[0-9]+|#x[0-9a-fA-F]+);")
+
+
+def _unescape_text(text: str) -> str:
+    """Decode XML entities once, after identifying structural tags.
+
+    Unknown or invalid references stay literal. Unlike HTML unescaping, XML
+    numeric references do not remap code points using legacy character sets.
+    """
+    def replace(match: re.Match[str]) -> str:
+        name = match.group("name")
+        if name in _ENTITIES:
+            return _ENTITIES[name]
+        try:
+            code = int(name[2:], 16) if name.startswith("#x") else int(name[1:])
+        except ValueError:
+            return match.group(0)
+        if (code in (9, 10, 13) or 0x20 <= code <= 0xD7FF
+                or 0xE000 <= code <= 0xFFFD or 0x10000 <= code <= 0x10FFFF):
+            return chr(code)
+        return match.group(0)
+
+    return _ENTITY.sub(replace, text)
 
 
 # why implement XML decoding?
@@ -45,11 +72,15 @@ def _collect_elements(chars: Iterable[str]) -> Generator[Element, None, None]:
                     opening_stack.append(element)
                     last_closed_element = None
 
-        elif last_closed_element is not None:
-            _append_to_tail(last_closed_element, cell)
-
-        elif opening_stack:
-            opening_stack[-1].text = cell
+        else:
+            # Do not decode the input stream before parsing: escaped tag-shaped
+            # prose must never become a structural element. Appended text is
+            # decoded independently, never by revisiting an existing tail.
+            text = _unescape_text(cell)
+            if last_closed_element is not None:
+                _append_to_tail(last_closed_element, text)
+            elif opening_stack:
+                opening_stack[-1].text = text
 
 
 def _append_to_tail(element: Element, text: str) -> None:

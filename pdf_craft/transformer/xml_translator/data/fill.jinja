@@ -104,7 +104,7 @@ FILLING ALGORITHM:
       - Wrap with same tag+id
       - If translation merged multiple spans: You MUST still output all original spans separately
         Example: Template has id="1" and id="2", translation merged both
-        → Output BOTH spans, use source text fallback for missing one
+        → Output BOTH spans; leave an empty inline formatting slot when no translated text belongs there.
 
    B. For elements WITHOUT id:
       - Match by STRUCTURAL POSITION only (template order)
@@ -140,20 +140,26 @@ SPECIAL CASES:
 
    Solution: You MUST output BOTH spans even if translation merged them
    - Try to split translation if possible
-   - If truly inseparable: Keep translation for one span, use source text for the other
-   - Example: <span id="A">复合词</span>与<span id="B">Word2</span>
+   - If truly inseparable: Put the translated term in one span and leave the other empty.
+   - Example: <span id="A">复合词</span><span id="B"/>
 
 4. Missing semantic match:
    - Exhaust all possibilities first (synonyms, paraphrases, context)
-   - Last resort: Use source text as fallback
-   - Mixed language is acceptable to preserve structure
+   - Empty inline formatting slots are allowed when the translation has no separate text for them.
+   - Preserve every required tag and ID, using <span id="2"/> or <span id="2"></span>.
+   - Fill only from the supplied translation; never add source-language padding,
+     invented placeholders, or duplicate text to occupy a slot.
 
 WRONG fallback approaches:
-❌ Empty: <span id="2"></span>
 ❌ Placeholder: <span id="2">内容</span>
 ❌ Duplicate: <span id="2">中文名称</span> (when id="1" has this)
 
 ---
+
+TEXT REPRESENTATION:
+- In text content, write literal <, > and & as &lt;, &gt; and &amp;.
+- If the prose itself contains the literal spelling &lt;, write &amp;lt;.
+- These text escapes are not structural tags. Do not use CDATA sections.
 
 OUTPUT FORMAT:
 ```xml

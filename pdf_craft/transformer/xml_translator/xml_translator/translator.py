@@ -432,7 +432,7 @@ class XMLTranslator:
                 hill_climbing=hill_climbing, source_text=source_text,
                 translated_text=translated_text, callbacks=callbacks,
                 canonical_text_validator=(
-                    lambda element: canonical_text_validator(inline_segments, translated_text, element)
+                    (lambda element: canonical_text_validator(inline_segments, translated_text, element))
                     if canonical_text_validator is not None else None
                 ),
             )

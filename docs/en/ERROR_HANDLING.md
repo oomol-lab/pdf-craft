@@ -1,5 +1,20 @@
 # Retry, recovery and completion
 
+## XML fill text and formatting
+
+EPUB and PCEX share the friendly XML fill protocol. Text content uses XML escaping:
+`<`, `>` and `&` are written as `&lt;`, `&gt;` and `&amp;`. Escaped text is decoded
+once, after structural tags are identified; literal prose such as `&lt;span&gt;`
+must therefore be sent as `&amp;lt;span&amp;gt;`. XML named and numeric references
+are supported; unknown/invalid references remain literal. This is a tolerant fill
+protocol, not a general XML parser; CDATA is not a supported text escape.
+
+Required formatting tags and IDs remain present even when a shorter translation
+leaves some inline slots empty. Fill must not pad them with source text, invented
+placeholders or duplicate translation. PCEX canonical full-text validation and
+structural checks remain strict; formula restoration still happens after the
+accepted fill loop. Generic XHTML fill does not receive PCEX-only canonical rules.
+
 ## Optional input assertions
 
 Conversion does not run an automatic input gate. Invalid inputs fail when the
