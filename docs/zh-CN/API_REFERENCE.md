@@ -53,6 +53,10 @@ Header。成功、异常或取消后均恢复外层作用域。
 在发送请求时取值，不修改共享配置、translator、runtime 或 HTTP client；并发操作可以
 安全使用不同 Header。这是执行参数，不是 `LLM`、OCR 配置或 `ExtractionOptions` 的字段。
 
+如果此前使用支持实例级 `headers` 的实验版本，迁移时从模型配置构造函数中移除该参数，
+改为在每次操作上通过 `request_headers` 传入映射。共享模型配置无需修改，各操作分别
+提供自己的 Header。
+
 透传范围仅为配置的模型服务：LLM completion、DeepSeek OCR/OCR2、Unlimited OCR 的
 获取 token／提交／轮询，以及 JEV 请求。OCR 图片 URL resolver／上传和解析结果资源下载
 不自动携带这些 Header；自定义 resolver／client 自行发起的网络请求仍由调用者负责。

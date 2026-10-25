@@ -53,6 +53,11 @@ shared configuration, translator, runtime and HTTP client instances are not
 mutated. Concurrent operations can safely use different headers. These are
 execution parameters, not fields of `LLM`, OCR configuration or `ExtractionOptions`.
 
+If migrating from an experimental build that accepted instance-level `headers`,
+remove that argument from model configuration constructors and pass the mapping as
+`request_headers` on each operation instead. Shared model configurations can stay
+unchanged while each operation supplies its own headers.
+
 Headers are forwarded only to configured model services: LLM completion calls,
 DeepSeek OCR/OCR2 calls, Unlimited OCR token/submission/polling calls, and JEV
 calls. They are **not** attached to OCR image URL resolution/uploads or downloaded
