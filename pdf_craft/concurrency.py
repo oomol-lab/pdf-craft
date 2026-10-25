@@ -483,6 +483,7 @@ class ConcurrentExecutor:
         producer: asyncio.Task[None] | None = None
         teardown_requested = False
         release_failures: list[BaseException] = []
+        worker_failures: list[BaseException] = []
         outstanding_settlements: set[asyncio.Future[None]] = set()
 
         async def execute_one(
@@ -527,7 +528,13 @@ class ConcurrentExecutor:
                     report = ExecutionReport(
                         time.monotonic() - started, ExecutionOutcome.FAILED, error,
                     )
-                    await self._terminate(error, current=task)
+                    try:
+                        await self._terminate(error, current=task)
+                    except BaseException:
+                        # The terminal cause was recorded before close(). Even
+                        # a broken capacity provider must not prevent delivery
+                        # or leave the consumer waiting for a permit forever.
+                        pass
                     completion = _Completed(fatal=self._terminal_error)
                 except OperationError as error:
                     report = ExecutionReport(
@@ -597,6 +604,25 @@ class ConcurrentExecutor:
                         else _Completed(cancelled=terminal_interruption)
                     )
 
+        def worker_done(task: asyncio.Task[None]) -> None:
+            if task not in running:
+                return
+            running.remove(task)
+            try:
+                error = task.exception()
+            except asyncio.CancelledError as cancelled:
+                error = None if teardown_requested else cancelled
+            if error is not None:
+                # Retrieve every worker exception, even if it escaped before
+                # publishing a completion. Wake a consumer blocked on get(); a
+                # full queue already provides a wakeup and the next iteration
+                # checks worker_failures before waiting again.
+                worker_failures.append(error)
+                if not teardown_requested and completed.empty():
+                    completed.put_nowait(_Completed(
+                        fatal=self._terminal_error, unexpected=error,
+                    ))
+
         async def produce() -> None:
             operation_id = 0
             try:
@@ -622,7 +648,7 @@ class ConcurrentExecutor:
                         execute_one(operation_id, operation, lease)
                     )
                     running.add(task)
-                    task.add_done_callback(running.discard)
+                    task.add_done_callback(worker_done)
                     operation_id += 1
             finally:
                 if not teardown_requested:
@@ -632,9 +658,13 @@ class ConcurrentExecutor:
         producer_done = False
         try:
             while True:
-                running.difference_update(
-                    task for task in tuple(running) if task.done()
-                )
+                # A settled worker may have returned before its scheduled done
+                # callback runs. Observe it now, using the same idempotent path.
+                for task in tuple(running):
+                    if task.done():
+                        worker_done(task)
+                if worker_failures:
+                    raise worker_failures[0]
                 if producer_done and not running and completed.empty():
                     break
                 item = await completed.get()
@@ -685,6 +715,8 @@ class ConcurrentExecutor:
                     outstanding_settlements.discard(settlement)
             if release_failures:
                 raise release_failures[0]
+            if worker_failures:
+                raise worker_failures[0]
             if teardown_interrupted is not None:
                 raise teardown_interrupted
 

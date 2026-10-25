@@ -481,3 +481,109 @@ class FatalErrorPropagationTests(unittest.IsolatedAsyncioTestCase):
         self.assertIs(raised.exception, original)
         self.assertTrue(cleaned.is_set())
         self.assertEqual(exception_graph(original), [402])
+
+    async def test_map_close_failure_always_delivers_fatal_and_settles_producer(self):
+        import gc
+        for fail_release in (False, True):
+            with self.subTest(fail_release=fail_release):
+                async with asyncio.timeout(5):
+                    original = fatal_error()
+                    producer_waiting, producer_settled, released = (asyncio.Event() for _ in range(3))
+                    loop = asyncio.get_running_loop()
+                    previous_handler = loop.get_exception_handler()
+                    unhandled = []
+                    loop.set_exception_handler(lambda _loop, context: unhandled.append(context))
+
+                    class BrokenCapacity(FixedCapacity):
+                        def __init__(self):
+                            super().__init__(1)
+                            self.acquisitions = 0
+
+                        async def acquire(self):
+                            self.acquisitions += 1
+                            waiting = self.acquisitions > 1
+                            if waiting:
+                                producer_waiting.set()
+                            try:
+                                return await super().acquire()
+                            finally:
+                                if waiting:
+                                    producer_settled.set()
+
+                        async def close(self, error):
+                            del error
+                            raise RuntimeError('capacity close failed')
+
+                        async def release(self, report):
+                            released.set()
+                            if fail_release:
+                                raise RuntimeError('lease release failed')
+                            await super().release(report)
+
+                    executor = ConcurrentExecutor(BrokenCapacity())
+
+                    async def request(index):
+                        del index
+                        await producer_waiting.wait()
+                        raise original
+
+                    async def consume():
+                        return [item async for item in executor.map([request])]
+
+                    consumer = asyncio.create_task(consume())
+                    try:
+                        # No external cancellation is needed to deliver the
+                        # fatal error, even if the provider never returns its
+                        # permit and leaves acquire() blocked.
+                        done, _ = await asyncio.wait([consumer], timeout=2)
+                        self.assertIn(consumer, done, 'map waited for external cancellation')
+                        with self.assertRaises(NonContinuableError) as raised:
+                            await consumer
+                        self.assertIs(raised.exception, original)
+                        self.assertEqual(exception_graph(original), [402])
+                        self.assertTrue(producer_settled.is_set())
+                        self.assertTrue(released.is_set())
+                        self.assertFalse(executor._active)
+                        consumer = None
+                        done.clear()
+                        del executor, original, raised
+                        gc.collect()
+                        barrier = asyncio.Event()
+                        loop.call_soon(barrier.set)
+                        await barrier.wait()
+                        self.assertEqual(unhandled, [])
+                    finally:
+                        if consumer is not None and not consumer.done():
+                            consumer.cancel()
+                            await asyncio.gather(consumer, return_exceptions=True)
+                        loop.set_exception_handler(previous_handler)
+
+    async def test_map_observes_worker_error_outside_completion_delivery(self):
+        from pdf_craft.concurrency import OperationError
+        loop = asyncio.get_running_loop()
+        previous_handler = loop.get_exception_handler()
+        unhandled = []
+        loop.set_exception_handler(lambda _loop, context: unhandled.append(context))
+
+        class BrokenOperationError(OperationError):
+            def for_operation(self, operation_id):
+                del operation_id
+                raise RuntimeError('worker bookkeeping failed')
+
+        async def request(index):
+            del index
+            raise BrokenOperationError('operation failed')
+
+        executor = ConcurrentExecutor(FixedCapacity(1))
+        try:
+            async with asyncio.timeout(5):
+                with self.assertRaisesRegex(RuntimeError, 'worker bookkeeping failed'):
+                    async for _ in executor.map([request]):
+                        self.fail('worker failure must not produce success')
+            self.assertFalse(executor._active)
+            barrier = asyncio.Event()
+            loop.call_soon(barrier.set)
+            await barrier.wait()
+            self.assertEqual(unhandled, [])
+        finally:
+            loop.set_exception_handler(previous_handler)
