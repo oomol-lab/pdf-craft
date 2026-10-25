@@ -38,6 +38,7 @@ class XMLStreamMapper:
         map: AsyncInlineSegmentGroupMap,
         window: int,
         on_mapping: Callable[[tuple[InlineSegment, list[TextSegment]]], object] | None = None,
+        track_progress: bool = False,
     ) -> AsyncGenerator[tuple[Element, list[InlineSegmentMapping]], None]:
         current_element: Element | None = None
         mapping_buffer: list[InlineSegmentMapping] = []
@@ -69,7 +70,7 @@ class XMLStreamMapper:
                 try:
                     async for element in elements:
                         yield_groups = self._split_into_serial_groups(
-                            (element,), callbacks, on_mapping is not None,
+                            (element,), callbacks, on_mapping is not None, track_progress,
                         )
                         for group in yield_groups:
                             yield group
@@ -80,7 +81,7 @@ class XMLStreamMapper:
             results = run_async_parameters(groups(), execute, window, preserve_sources=False)
         else:
             results = run_concurrency_async(
-                self._split_into_serial_groups(elements, callbacks, on_mapping is not None),
+                self._split_into_serial_groups(elements, callbacks, on_mapping is not None, track_progress),
                 execute, window,
             )
         async with aclosing(results):
@@ -123,13 +124,13 @@ class XMLStreamMapper:
         if current_element is not None:
             yield current_element, await accepted(current_element, mapping_buffer)
 
-    def _split_into_serial_groups(self, elements: Iterable[Element], callbacks: Callbacks, track_origins: bool = False):
+    def _split_into_serial_groups(self, elements: Iterable[Element], callbacks: Callbacks, track_origins: bool = False, track_progress: bool = False):
         def generate():
             for element in elements:
                 yield from split(
                     max_segment_count=self._max_group_score,
                     border_incision=_PAGE_INCISION,
-                    resources=self._expand_to_resources(element, callbacks, track_origins),
+                    resources=self._expand_to_resources(element, callbacks, track_origins, track_progress),
                 )
 
         generator = generate()
@@ -180,11 +181,37 @@ class XMLStreamMapper:
             [r.payload[0] for r in tail],
         )
 
-    def _expand_to_resources(self, element: Element, callbacks: Callbacks, track_origins: bool = False):
+    def _expand_to_resources(self, element: Element, callbacks: Callbacks, track_origins: bool = False, track_progress: bool = False):
         def expand(element: Element):
-            text_segments = search_text_segments(element, track_origins=track_origins)
-            text_segments = callbacks.interrupt_source_text_segments(text_segments)
-            yield from search_inline_segments(text_segments)
+            # Weights belong to original blocks, before formula/context transport
+            # projection. Never count temporary tokens or prompt context.
+            from ...word_count import xml_block_word_counts
+            original_blocks = {}
+            if track_progress:
+                for block, words in xml_block_word_counts(element):
+                    original_blocks[id(block)] = original_blocks.get(id(block), 0) + words
+            def source_segments():
+                for text in search_text_segments(element, track_origins=track_origins):
+                    if track_progress:
+                        text.progress_blocks = (id(text.block_parent),)
+                    yield text
+            text_segments = callbacks.interrupt_source_text_segments(source_segments())
+            for inline in search_inline_segments(text_segments):
+                weight = 0
+                for text in inline:
+                    if text.progress_blocks:
+                        for identity in text.progress_blocks:
+                            weight += original_blocks.pop(identity, 0)
+                        continue
+                    if any(parent.tag in ('formula_context', 'translation-context') for parent in text.parent_stack):
+                        continue
+                    for parent in reversed(text.parent_stack):
+                        identity = id(parent)
+                        if identity in original_blocks:
+                            weight += original_blocks.pop(identity)
+                            break
+                inline._progress_words = weight  # pylint: disable=protected-access
+                yield inline
 
         inline_segment_generator = expand(element)
         start_incision = _PAGE_INCISION

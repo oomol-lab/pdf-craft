@@ -2,6 +2,7 @@
 """Adapt XMLTranslator to the template/page-oriented furniture contract."""
 
 from __future__ import annotations
+
 from collections.abc import Mapping
 
 from pdf_craft.policies import RetryPolicy, ErrorPolicyInput
@@ -11,6 +12,9 @@ from collections.abc import Sequence
 from typing import Protocol
 from xml.etree.ElementTree import Element, SubElement
 
+from .word_count import count_xml_words
+from .progress import translation_item
+from .events import TranslationItemKind
 from .furniture import FurniturePosition, FurnitureSection
 from .xml_translator.xml_translator import SubmitKind, TranslationTask
 from .._failure_sources import furniture_section_locations, task_locations
@@ -38,6 +42,7 @@ class FurnitureXMLTransformer:
         self._mode = mode
 
     @policy_operation
+    @translation_item(TranslationItemKind.FURNITURE, lambda *args, **kwargs: 'furniture')
     async def transform_position(
         self, position: FurniturePosition, *,
         retry_policy: RetryPolicy | None = None, error_policy: ErrorPolicyInput = OMITTED,
@@ -50,7 +55,7 @@ class FurnitureXMLTransformer:
                 action=self._mode,
                 payload=position,
                 item_id=f"pattern-{position.pattern_id}-position-{position.position_id}",
-                character_count=len(position.content),
+                word_count=count_xml_words(element),
             )
         translated, _ = await self._translator.translate_element(
             task
@@ -64,6 +69,7 @@ class FurnitureXMLTransformer:
         return translated.text
 
     @policy_operation
+    @translation_item(TranslationItemKind.FURNITURE, lambda *args, **kwargs: 'furniture')
     async def transform_sections(
         self,
         page_index: int,
@@ -80,7 +86,7 @@ class FurnitureXMLTransformer:
                 action=self._mode,
                 payload=tuple(sections),
                 item_id=f"furniture-page-{page_index}",
-                character_count=sum(len(section.content) for section in sections),
+                word_count=count_xml_words(element),
             )
         translated, _ = await self._translator.translate_element(
             task

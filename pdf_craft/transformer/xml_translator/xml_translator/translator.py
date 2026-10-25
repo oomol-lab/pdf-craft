@@ -28,6 +28,8 @@ from pdf_craft._failure_sources import tag_locations, segment_locations, task_lo
 from .hill_climbing import HillClimbing
 from .stream_mapper import InlineSegmentMapping, XMLStreamMapper
 from .submitter import SubmitKind, submit
+from ...word_count import count_xml_words
+from ...progress import TranslationProgress, active_progress, selected_item
 
 T = TypeVar("T")
 SourceTextRenderer = Callable[[list[InlineSegment]], str]
@@ -76,7 +78,7 @@ class TranslationTask(Generic[T]):
     payload: T
     item_kind: TranslationItemKind | None = None
     item_id: str | int | None = None
-    character_count: int | None = None
+    word_count: int | None = None
     source_locations: tuple = ()
     outcomes: dict[str, bool] = field(default_factory=dict)
 
@@ -162,8 +164,8 @@ class XMLTranslator:
         source_text_renderer: SourceTextRenderer | None = None,
         canonical_text_validator: CanonicalTextValidator | None = None,
         on_translation_event: Callable[[TranslationEvent], object] | None = None,
-        completed_characters: int = 0,
-        total_characters: int | None = None,
+        completed_words: int = 0,
+        total_words: int | None = None,
         emit_scope_events: bool = True,
         emit_item_events: bool = True,
         window: int = 1, *,
@@ -180,8 +182,8 @@ class XMLTranslator:
             source_text_renderer=source_text_renderer,
             canonical_text_validator=canonical_text_validator,
             on_translation_event=on_translation_event,
-            completed_characters=completed_characters,
-            total_characters=total_characters,
+            completed_words=completed_words,
+            total_words=total_words,
             emit_scope_events=emit_scope_events,
             emit_item_events=emit_item_events,
             window=window,
@@ -197,8 +199,8 @@ class XMLTranslator:
         source_text_renderer: SourceTextRenderer | None = None,
         canonical_text_validator: CanonicalTextValidator | None = None,
         on_translation_event: Callable[[TranslationEvent], object] | None = None,
-        completed_characters: int = 0,
-        total_characters: int | None = None,
+        completed_words: int = 0,
+        total_words: int | None = None,
         emit_scope_events: bool = True,
         emit_item_events: bool = True,
         window: int = 1,
@@ -220,7 +222,7 @@ class XMLTranslator:
                     immutable_elements_for_inline_segments=immutable_elements_for_inline_segments,
                     source_text_renderer=source_text_renderer, canonical_text_validator=canonical_text_validator,
                     on_translation_event=on_translation_event,
-                    completed_characters=completed_characters, total_characters=total_characters,
+                    completed_words=completed_words, total_words=total_words,
                     emit_scope_events=emit_scope_events, emit_item_events=emit_item_events,
                     window=window, on_mapping=on_mapping, on_result=on_result,
                     collect_results=collect_results, on_task_mapping=on_task_mapping,
@@ -237,34 +239,22 @@ class XMLTranslator:
         )
         async_tasks = tasks if isinstance(tasks, AsyncIterable) else None
         task_list = [] if async_tasks is not None else list(cast(Iterable[TranslationTask[T]], tasks))
-        total = total_characters
-        if total is None and async_tasks is None:
-            total = sum(task.character_count or 0 for task in task_list)
-        if on_translation_event is not None and emit_scope_events:
-            await invoke_callback(on_translation_event, TranslationEvent(
-                kind=TranslationEventKind.START,
-                chapter_count=(sum(
-                    task.item_kind == TranslationItemKind.CHAPTER for task in task_list
-                ) if async_tasks is None else None),
-                has_toc=(any(task.item_kind == TranslationItemKind.TOC for task in task_list)
-                         if async_tasks is None else None),
-                has_metadata=(any(
-                    task.item_kind == TranslationItemKind.METADATA for task in task_list
-                ) if async_tasks is None else None),
-                total_characters=total,
-                completed_characters=completed_characters,
-            ))
-        if on_translation_event is not None and emit_item_events:
-            for task in task_list:
-                if task.item_kind is not None:
-                    await invoke_callback(on_translation_event, TranslationEvent(
-                        kind=TranslationEventKind.ITEM_START,
-                        item_kind=task.item_kind,
-                        item_id=task.item_id,
-                        item_completed_characters=0,
-                        item_total_characters=task.character_count or 0,
-                        total_characters=total,
-                    ))
+        progress = active_progress()
+        scope_item = selected_item() if progress is not None else None
+        owns_progress = progress is None and on_translation_event is not None
+        if owns_progress:
+            totals = {(task.item_kind, task.item_id): task.word_count
+                      if task.word_count is not None else count_xml_words(task.element)
+                      for task in task_list if task.item_kind is not None}
+            progress = TranslationProgress(on_translation_event, totals, completed=completed_words, item_events=emit_item_events)
+            if total_words is not None or async_tasks is not None:
+                progress.total = total_words
+            if emit_scope_events:
+                await progress.emit(TranslationEventKind.START)
+
+        async def start_task(task):
+            if progress is not None:
+                await progress.start_item(scope_item or (task.item_kind, task.item_id))
 
         def generate_elements():
             for task in task_list:
@@ -276,14 +266,16 @@ class XMLTranslator:
             assert async_tasks is not None
             try:
                 async for task in async_tasks:
-                    if on_translation_event is not None and emit_item_events and task.item_kind is not None:
-                        await invoke_callback(on_translation_event, TranslationEvent(
-                            kind=TranslationEventKind.ITEM_START,
-                            item_kind=task.item_kind, item_id=task.item_id,
-                            item_completed_characters=0,
-                            item_total_characters=task.character_count or 0,
-                            total_characters=total,
-                        ))
+                    if owns_progress and progress is not None and task.item_kind is not None:
+                        key = (task.item_kind, task.item_id)
+                        words = task.word_count if task.word_count is not None else count_xml_words(task.element)
+                        if key not in progress.totals:
+                            progress.chapter_count += task.item_kind == TranslationItemKind.CHAPTER
+                        progress.has_toc |= task.item_kind == TranslationItemKind.TOC
+                        progress.has_metadata |= task.item_kind == TranslationItemKind.METADATA
+                        progress.totals[key] = words
+                        progress.done[key] = 0
+                    await start_task(task)
                     from .source_store import tag_source
                     assert _task_store is not None
                     identity = _task_store.allocate()
@@ -297,6 +289,8 @@ class XMLTranslator:
                     await close()
 
         results: list[tuple[Element, T]] = []
+        for task in task_list:
+            await start_task(task)
         stream_mapper = await self._stream_mapper_async()
         async def mapping_callback(mapping):
             from .source_store import source_identity
@@ -307,9 +301,24 @@ class XMLTranslator:
                 await on_task_mapping(task, mapping)
             await invoke_callback(on_mapping, mapping)
 
+        async def round_completed(segments):
+            if progress is None:
+                return
+            from .source_store import source_identity
+            by_item = {}
+            for segment in segments:
+                if getattr(segment, '_translation_context', False):
+                    continue
+                task = (await IO_DOMAIN.run(_task_store.load, source_identity(segment.head.root))
+                        if _task_store is not None else element2task[id(segment.head.root)])
+                key = scope_item or (task.item_kind, task.item_id)
+                by_item[key] = by_item.get(key, 0) + segment._progress_words
+            for key, words in by_item.items():
+                await progress.advance(key, words)
+
         mapping_stream = stream_mapper.map_stream_async(
             elements=generate_async_elements() if async_tasks is not None else generate_elements(),
-            callbacks=callbacks, window=window,
+            callbacks=callbacks, window=window, track_progress=progress is not None,
             on_mapping=mapping_callback if on_mapping is not None or on_task_mapping is not None else None,
             map=lambda inline_segments: self._translate_inline_segments_async(
                 inline_segments=inline_segments,
@@ -317,6 +326,7 @@ class XMLTranslator:
                 immutable_elements_for_inline_segments=immutable_elements_for_inline_segments,
                 source_text_renderer=source_text_renderer,
                 canonical_text_validator=canonical_text_validator,
+                on_round=round_completed,
             ),
         )
         async with aclosing(mapping_stream):
@@ -334,39 +344,16 @@ class XMLTranslator:
                 translated_element = submit(
                     element=element, action=task.action, mappings=mappings,
                 )
-                if on_translation_event is not None and task.item_kind is not None:
-                    completed_characters += task.character_count or 0
-                    await invoke_callback(on_translation_event, TranslationEvent(
-                        kind=TranslationEventKind.PROGRESS,
-                        item_kind=task.item_kind,
-                        item_id=task.item_id,
-                        item_completed_characters=task.character_count or 0,
-                        item_total_characters=task.character_count or 0,
-                        completed_characters=completed_characters,
-                        total_characters=total,
-                    ))
-                    if emit_item_events:
-                        await invoke_callback(on_translation_event, TranslationEvent(
-                            kind=TranslationEventKind.ITEM_COMPLETE,
-                            item_kind=task.item_kind,
-                            item_id=task.item_id,
-                            item_completed_characters=task.character_count or 0,
-                            item_total_characters=task.character_count or 0,
-                            completed_characters=completed_characters,
-                            total_characters=total,
-                        ))
+                if progress is not None and task.item_kind is not None and (owns_progress or scope_item is None):
+                    await progress.finish_item((task.item_kind, task.item_id))
                 strip_source(translated_element)
                 result = (translated_element, task.payload)
                 await invoke_callback(on_result, result)
                 if collect_results:
                     results.append(result)
 
-        if on_translation_event is not None and emit_scope_events:
-            await invoke_callback(on_translation_event, TranslationEvent(
-                kind=TranslationEventKind.COMPLETE,
-                completed_characters=completed_characters,
-                total_characters=total if total is not None else completed_characters,
-            ))
+        if owns_progress and progress is not None and emit_scope_events:
+            await progress.finish()
         return results
 
     async def _translate_inline_segments_async(
@@ -378,6 +365,7 @@ class XMLTranslator:
         ] | None,
         source_text_renderer: SourceTextRenderer | None,
         canonical_text_validator: CanonicalTextValidator | None,
+        on_round=None,
     ) -> list[InlineSegmentMapping | None]:
         segment_groups = (
             _groups_by_source_unit_owner(inline_segments)
@@ -395,6 +383,8 @@ class XMLTranslator:
                 source_text_renderer=source_text_renderer,
                 canonical_text_validator=canonical_text_validator,
             ))
+            if on_round is not None:
+                await on_round(group)
         return mappings
 
     async def _translate_inline_segment_group_async(

@@ -9,9 +9,8 @@ from ..document.content import read_content
 from ..extractor.chapter.chapter import (
     Chapter, Reference, TextFlowItem, narrative_texts, search_references_in_chapter,
 )
-from ..runtime import IO_DOMAIN, invoke_callback
+from ..runtime import IO_DOMAIN
 from .anchored_translation import _asset_slots, _translate_slots_async
-from .events import TranslationEvent, TranslationEventKind
 from .translation_coverage import (
     AnchoredContentCoverage, NarrativeCoverage, paragraph_identity,
     write_anchored_coverage, write_narrative_coverage, accepted_translation,
@@ -108,9 +107,8 @@ async def translate_content(items, transformer, window, coverage, anchored_cover
         await results.aclose()
 
 
-async def translate_workspace(extraction, output, transformer, *, window=1,
+async def _translate_workspace(extraction, output, transformer, *, window=1,
                               with_anchored=False, on_body=None, on_footnote=None,
-                              on_translation_event=None, emit_translation_events=False,
                               aborted=lambda: False, preserve_layers=False, toc_transformer=None):
     """The translation-layer writer and renderers share this stream adapter."""
     from .package import _copy_extraction_to_workspace
@@ -127,55 +125,6 @@ async def translate_workspace(extraction, output, transformer, *, window=1,
             save_xml(Element("translation"), output / "translation.xml")
     await IO_DOMAIN.run(prepare)
     coverage, assets = [], []
-    counts, characters, identifiers = {}, {}, {}
-    completed = 0
-    total = 0
-    report = emit_translation_events and on_translation_event is not None
-    if report:
-        from ..extractor.chapter.reader import create_chapters_reader
-        from ..runtime import worker_iter
-        reader = await IO_DOMAIN.run(create_chapters_reader, output / "chapters")
-        async for chapter in worker_iter(reader()):
-            from ..document.content import chapter_filename
-            filename = chapter_filename(chapter)
-            if not transformer.has_translatable_content(chapter):
-                continue
-            counts[filename] = 1 + len(chapter.flow_items) + sum(1 for _ in search_references_in_chapter(chapter))
-            characters[filename] = transformer.source_character_count(chapter)
-            identifiers[filename] = chapter.id if chapter.id is not None else "head"
-        total = sum(characters.values())
-        await invoke_callback(on_translation_event, TranslationEvent(
-            kind=TranslationEventKind.START, chapter_count=len(counts),
-            has_toc=False, has_metadata=False, total_characters=total, completed_characters=0,
-        ))
-        from .events import TranslationItemKind
-        for filename, item_id in identifiers.items():
-            await invoke_callback(on_translation_event, TranslationEvent(
-                kind=TranslationEventKind.ITEM_START, item_kind=TranslationItemKind.CHAPTER,
-                item_id=item_id, item_completed_characters=0,
-                item_total_characters=characters[filename], total_characters=total,
-                completed_characters=0,
-            ))
-    import asyncio
-    report_lock = asyncio.Lock()
-
-    async def on_completed(item):
-        nonlocal completed
-        if not report or item.filename not in counts:
-            return
-        async with report_lock:
-            counts[item.filename] -= 1
-            if counts[item.filename] == 0:
-                completed += characters[item.filename]
-                from .events import TranslationItemKind
-                for kind in (TranslationEventKind.PROGRESS, TranslationEventKind.ITEM_COMPLETE):
-                    await invoke_callback(on_translation_event, TranslationEvent(
-                        kind=kind, item_kind=TranslationItemKind.CHAPTER,
-                        item_id=identifiers[item.filename],
-                        item_completed_characters=characters[item.filename],
-                        item_total_characters=characters[item.filename],
-                        total_characters=total, completed_characters=completed,
-                    ))
     # Source entries are decoded once, then completed content is persisted by
     # the same consumer used for non-translated rendering.
     from ..document.content import ChapterWriter
@@ -191,8 +140,10 @@ async def translate_workspace(extraction, output, transformer, *, window=1,
     pages, numbers = await IO_DOMAIN.run(fixed)
     writer = ChapterWriter(output / 'chapters')
     items = translate_content(read_content(output / 'chapters'), transformer, window, coverage, assets,
-                              with_anchored=with_anchored, on_completed=on_completed, aborted=aborted, pages=pages)
+                              with_anchored=with_anchored, aborted=aborted, pages=pages)
     from contextlib import aclosing
+    from .progress import finish_chapters
+    items = finish_chapters(items)
     async with paragraph_notifications(pages, output / 'assets', numbers, on_body, on_footnote) as notify:
         async with aclosing(notify.iterate(items)) as incoming:
             async for item in incoming:
@@ -207,9 +158,15 @@ async def translate_workspace(extraction, output, transformer, *, window=1,
         toc = await IO_DOMAIN.run(read_xml, toc_path)
         transformed_toc = await toc_transformer(toc)
         await IO_DOMAIN.run(save_xml, transformed_toc, toc_path)
-    if emit_translation_events and on_translation_event is not None:
-        await invoke_callback(on_translation_event, TranslationEvent(
-            kind=TranslationEventKind.COMPLETE, total_characters=total,
-            completed_characters=completed,
-        ))
     return await IO_DOMAIN.run(PDFCraftExtraction._from_workspace(output)._validate)
+
+
+async def translate_workspace(extraction, output, transformer, **kwargs):
+    """Report the standalone chapter transformation using operation accounting."""
+    from .pcex_progress import pcex_progress
+    callback = kwargs.get('on_translation_event') if kwargs.get('emit_translation_events') else None
+    kwargs.pop('on_translation_event', None)
+    kwargs.pop('emit_translation_events', None)
+    async with pcex_progress(extraction, transformer, callback,
+                             with_anchored=kwargs.get('with_anchored', False)):
+        return await _translate_workspace(extraction, output, transformer, **kwargs)

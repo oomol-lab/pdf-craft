@@ -27,6 +27,7 @@ from pdf_craft.runtime import IO_DOMAIN, invoke_callback
 from pdf_craft.extractor.chapter.chapter import (
     SourceTextFragment, TextFlowItem, decode, encode, narrative_texts,
 )
+from .word_count import count_xml_words
 from pdf_craft.transformer.protocol import _ChapterTransformer
 from pdf_craft.transformer.events import TranslationEvent, TranslationEventKind, TranslationItemKind
 from pdf_craft.transformer.xml_translator.segment import search_text_segments
@@ -110,27 +111,31 @@ class ChapterExtractionTransformer:
                 emit_translation_events=emit_translation_events, preserve_layers=True,
                 toc_transformer=self.toc_transformer,
             )
+        from .progress import active_progress
+        progress = active_progress()
+        if progress is not None:
+            on_translation_event = None
         is_xml_transformer = isinstance(self.chapter_transformer, NarrativeXMLTransformer)
         chapter_tasks = await IO_DOMAIN.run(
             self._prepare_async_workspace, extraction, output_path,
         )
-        total_characters = sum(item[3] for item in chapter_tasks)
+        total_words = sum(item[3] for item in chapter_tasks)
         if emit_translation_events and on_translation_event is not None:
             await invoke_callback(on_translation_event, TranslationEvent(
                 kind=TranslationEventKind.START,
                 chapter_count=len(chapter_tasks),
                 has_toc=False,
                 has_metadata=False,
-                total_characters=total_characters,
-                completed_characters=0,
+                total_words=total_words,
+                completed_words=0,
             ))
 
-        completed_characters = 0
+        completed_words = 0
         narrative_coverage: list[NarrativeCoverage] = []
 
         async def commit_chapter(task_index, transformed):
-            nonlocal completed_characters
-            path, chapter, item_id, character_count = chapter_tasks[task_index]
+            nonlocal completed_words
+            path, chapter, item_id, word_count = chapter_tasks[task_index]
             await IO_DOMAIN.run(save_xml, encode(transformed), path)
             source_layouts = {
                 identity: layout
@@ -154,7 +159,9 @@ class ChapterExtractionTransformer:
                     else "preserved"
                 )
                 chapter_coverage.append(NarrativeCoverage(*identity, state))
-            completed_characters += character_count
+            completed_words += word_count
+            if progress is not None:
+                await progress.finish_item((TranslationItemKind.CHAPTER, item_id))
             if emit_translation_events and on_translation_event is not None:
                 for event_kind in (
                     TranslationEventKind.PROGRESS,
@@ -164,22 +171,25 @@ class ChapterExtractionTransformer:
                         kind=event_kind,
                         item_kind=TranslationItemKind.CHAPTER,
                         item_id=item_id,
-                        item_completed_characters=character_count,
-                        item_total_characters=character_count,
-                        completed_characters=completed_characters,
-                        total_characters=total_characters,
+                        item_completed_words=word_count,
+                        item_total_words=word_count,
+                        completed_words=completed_words,
+                        total_words=total_words,
                     ))
             return chapter_coverage
 
         if is_xml_transformer:
+            if progress is not None:
+                for _, _, item_id, _ in chapter_tasks:
+                    await progress.start_item((TranslationItemKind.CHAPTER, item_id))
             if emit_translation_events and on_translation_event is not None:
-                for _, _, item_id, character_count in chapter_tasks:
+                for _, _, item_id, word_count in chapter_tasks:
                     await invoke_callback(on_translation_event, TranslationEvent(
                         kind=TranslationEventKind.ITEM_START,
                         item_kind=TranslationItemKind.CHAPTER,
                         item_id=item_id,
-                        item_completed_characters=0,
-                        item_total_characters=character_count,
+                        item_completed_words=0,
+                        item_total_words=word_count,
                     ))
 
             transformed_chapters = await cast(
@@ -193,14 +203,14 @@ class ChapterExtractionTransformer:
                     await commit_chapter(task_index, transformed)
                 )
         else:
-            for task_index, (_, chapter, item_id, character_count) in enumerate(chapter_tasks):
+            for task_index, (_, chapter, item_id, word_count) in enumerate(chapter_tasks):
                 if emit_translation_events and on_translation_event is not None:
                     await invoke_callback(on_translation_event, TranslationEvent(
                         kind=TranslationEventKind.ITEM_START,
                         item_kind=TranslationItemKind.CHAPTER,
                         item_id=item_id,
-                        item_completed_characters=0,
-                        item_total_characters=character_count,
+                        item_completed_words=0,
+                        item_total_words=word_count,
                     ))
                 transformed = await cast(
                     _ChapterTransformer, self.chapter_transformer,
@@ -223,8 +233,8 @@ class ChapterExtractionTransformer:
         if emit_translation_events and on_translation_event is not None:
             await invoke_callback(on_translation_event, TranslationEvent(
                 kind=TranslationEventKind.COMPLETE,
-                completed_characters=completed_characters,
-                total_characters=total_characters,
+                completed_words=completed_words,
+                total_words=total_words,
             ))
         return result
 
@@ -242,11 +252,11 @@ class ChapterExtractionTransformer:
         for path in sorted((output_path / "chapters").glob("chapter*.xml")):
             chapter = decode(read_xml(path))
             if isinstance(self.chapter_transformer, NarrativeXMLTransformer):
-                character_count = self.chapter_transformer.source_character_count(chapter)
+                word_count = self.chapter_transformer.source_word_count(chapter)
                 has_content = self.chapter_transformer.has_translatable_content(chapter)
             else:
                 segments = list(search_text_segments(encode(chapter)))
-                character_count = sum(len(segment.text) for segment in segments)
+                word_count = count_xml_words(encode(chapter))
                 has_content = any(segment.text.strip() for segment in segments)
             if has_content:
                 item_id: str | int = chapter.id if chapter.id is not None else "head"
@@ -254,7 +264,7 @@ class ChapterExtractionTransformer:
                     path,
                     chapter,
                     item_id,
-                    character_count,
+                    word_count,
                 ))
         return tasks
 

@@ -110,3 +110,5 @@ from .policies import (
 )
 
 from .rate_limit import RateLimitScope, RateLimitTimeoutError
+
+from .common.words import MAX_WORD_LENGTH, WordCounter, count_text_words

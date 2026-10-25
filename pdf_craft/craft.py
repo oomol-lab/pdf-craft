@@ -51,6 +51,7 @@ from .transformer import (
     XMLTranslator,
 )
 from .transformer.narrative_xml import NarrativeXMLTransformer
+from .transformer.pcex_progress import report_pcex_translation
 from .transformer.package import (
     ChapterExtractionTransformer,
     FurnitureExtractionTransformer,
@@ -632,6 +633,7 @@ class AsyncPDFCraft:
                 )
         return translated
 
+    @report_pcex_translation
     async def _translate_replacement_to_workspace(
         self, extraction: PDFCraftExtraction, workspace: Path,
         translator: XMLTranslator, *,

@@ -122,15 +122,10 @@ writer 收尾、删除临时归档并保持目标不存在；若发布边界先�
 公共扩展点：内部 engine、`pdf_craft_tool` CLI、`pdf_craft` 的私有模块路径，以及
 `doc-page-extractor` 的内部 extractor/factory。
 
-所有翻译入口都可以接收 `on_translation_event`。事件类型与 `OCREvent` 风格一致，
-包含 `START`、`ITEM_START`、`ITEM_COMPLETE`、`PROGRESS` 和 `COMPLETE`；item 类型为
-TOC、metadata 或 chapter。字符统计是可翻译源文本的 Unicode 字符数，不是 token 数，
-也不是预先计算的百分比。chapter 可以来自 EPUB，也可以来自 PDF OCR 生成的
-`PDFCraftExtraction`。
-
-`ITEM_START`、`PROGRESS` 和 `ITEM_COMPLETE` 事件会提供当前 item 的已完成字符数和总字符数；
-范围事件会提供整个翻译范围的累计字符数。调用方可以据此自行计算 item 或整体百分比，库不
-提供固定比例。
+翻译入口通过 `on_translation_event` 报告 START、条目生命周期、每轮 PROGRESS 和 COMPLETE。
+进度统一使用原文 **words** 累计量，PCEX/PDF/EPUB 会预统计完整总量。计数器的流式规则、
+20 字符长词上限、fallback 语义和不兼容字段改名见[翻译进度](TRANSLATION_PROGRESS.md)。
+内容回调仍独立交付成果。
 
 ## PDFCraft
 

@@ -12,9 +12,9 @@ from ..runtime import IO_DOMAIN, worker_context, temporary_directory
 
 
 @asynccontextmanager
-async def content_view(extraction, *, mode=RenderMode.SOURCE, translation_id=None,
+async def _content_view(extraction, *, mode=RenderMode.SOURCE, translation_id=None,
                        translator=None, window=1, with_anchored=True, with_furniture=False,
-                       on_translation_event=None, on_metadata=None, aborted=lambda: False):
+                       on_metadata=None, aborted=lambda: False):
     """No translated workspace: the consumer receives the producer directly."""
     if translator is not None and translation_id is not None:
         raise ValueError("translation_id cannot be combined with translator")
@@ -99,8 +99,28 @@ async def content_view(extraction, *, mode=RenderMode.SOURCE, translation_id=Non
                     view = replace(view, furnitures=furniture, furniture_coverage=furniture_coverage)
                 items = translate_content(items, transformer, window, [], [],
                                           with_anchored=with_anchored, aborted=aborted, pretranslated=pretranslated, pages=pages)
-                if on_translation_event is not None:
-                    from ..transformer.content_progress import report_content
-                    items = report_content(items, paths.chapters, transformer, on_translation_event)
+        from ..transformer.progress import finish_chapters
+        if translator is not None:
+            items = finish_chapters(items)
         async with aclosing(items):
             yield view, pages, numbers, items
+
+
+@asynccontextmanager
+async def content_view(extraction, **kwargs):
+    """Keep a single progress scope around preprocessing and lazy consumption."""
+    from ..transformer.pcex_progress import pcex_progress
+    from ..transformer.narrative_xml import NarrativeXMLTransformer
+    callback = kwargs.pop('on_translation_event', None)
+    translator = kwargs.get('translator')
+    if translator is None:
+        async with _content_view(extraction, **kwargs) as view:
+            yield view
+    else:
+        metadata = await IO_DOMAIN.run(extraction._document_metadata)
+        async with pcex_progress(extraction, NarrativeXMLTransformer(translator),
+                                 callback, metadata=metadata,
+                                 with_anchored=kwargs.get('with_anchored', True),
+                                 with_furniture=kwargs.get('with_furniture', False)):
+            async with _content_view(extraction, **kwargs) as view:
+                yield view

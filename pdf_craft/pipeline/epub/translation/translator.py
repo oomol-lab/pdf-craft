@@ -43,6 +43,9 @@ from .punctuation import unwrap_french_quotes
 from .xml_interrupter import XMLInterrupter
 from pdf_craft.transformer.xml_translator.xml_translator.submitter import submit as submit_xml
 from pdf_craft.document.metadata import MetadataCallback
+from pdf_craft.transformer.word_count import count_xml_words
+from pdf_craft.transformer.progress import TranslationProgress, progress_context
+from pdf_craft.transformer.events import TranslationEventKind
 from pdf_craft.runtime import invoke_callback
 
 
@@ -123,15 +126,22 @@ async def translate(
             toc_list, toc_context = read_toc(archive)
             metadata_fields, metadata_context = read_metadata(archive)
             book_metadata_context = metadata_context
-            return _generate_tasks_from_book(
-                zip=archive,
-                toc_list=toc_list,
-                toc_context=toc_context,
-                metadata_fields=metadata_fields,
-                metadata_context=metadata_context,
-                submit=submit,
-                capture_cfi=on_body is not None or has_error_callback(),
-            )
+            def generate():
+                assert archive is not None
+                return _generate_tasks_from_book(
+                    zip=archive,
+                    toc_list=toc_list,
+                    toc_context=toc_context,
+                    metadata_fields=metadata_fields,
+                    metadata_context=metadata_context,
+                    submit=submit,
+                    capture_cfi=on_body is not None or has_error_callback(),
+                )
+            totals = {}
+            if on_translation_event is not None:
+                for task in generate():
+                    totals[task.item_kind, task.item_id] = task.word_count
+            return generate(), totals
         except BaseException as error:
             archive.__exit__(type(error), error, error.__traceback__)
             archive = None
@@ -197,8 +207,12 @@ async def translate(
 
     delivery: DiskDelivery[EpubFragmentContent] | None = None
     failure: BaseException | None = None
+    progress = None
     try:
-        tasks = await ARCHIVE_DOMAIN.run(prepare)
+        tasks, totals = await ARCHIVE_DOMAIN.run(prepare)
+        progress = TranslationProgress(on_translation_event, totals) if on_translation_event is not None else None
+        if progress is not None:
+            await progress.emit(TranslationEventKind.START)
         from ..adapter.metadata import translated_metadata_content
         metadata_notified = False
         has_metadata_task = False
@@ -327,18 +341,19 @@ async def translate(
             if on_body is not None:
                 delivery = DiskDelivery(directory, on_body)
             try:
-                await translator._translate_elements(
-                    window=window,
-                    interrupt_source_text_segments=interrupter.interrupt_source_text_segments,
-                    interrupt_translated_text_segments=interrupter.interrupt_translated_text_segments,
-                    interrupt_block_element=interrupter.interrupt_block_element,
-                    on_translation_event=on_translation_event,
-                    tasks=task_stream(),
-                    on_result=on_result,
-                    collect_results=False,
-                    on_task_mapping=on_mapping if on_body is not None else None,
-                    on_before_submit=on_before_submit,
-                )
+                with progress_context(progress):
+                    await translator._translate_elements(
+                        window=window,
+                        interrupt_source_text_segments=interrupter.interrupt_source_text_segments,
+                        interrupt_translated_text_segments=interrupter.interrupt_translated_text_segments,
+                        interrupt_block_element=interrupter.interrupt_block_element,
+                        on_translation_event=on_translation_event,
+                        tasks=task_stream(),
+                        on_result=on_result,
+                        collect_results=False,
+                        on_task_mapping=on_mapping if on_body is not None else None,
+                        on_before_submit=on_before_submit,
+                    )
                 if delivery is not None:
                     await delivery.finish()
             finally:
@@ -357,6 +372,10 @@ async def translate(
                 failure,
                 failure.__traceback__ if failure is not None else None,
             )
+    if progress is not None:
+        await progress.finish()
+
+
 def _generate_tasks_from_book(
     zip: Zip,
     toc_list: list,
@@ -383,7 +402,7 @@ def _generate_tasks_from_book(
                 member_path=str(toc_context.toc_path), unit_id=str(index), field_path='navigation.title',
                 original=item.title) for index, item in enumerate(toc_list)),
             item_id="toc",
-            character_count=sum(len(segment.text) for segment in search_text_segments(element)),
+            word_count=count_xml_words(element),
         )
 
     if metadata_fields:
@@ -397,7 +416,7 @@ def _generate_tasks_from_book(
                 member_path=str(metadata_context.opf_path), unit_id=str(index), field_path=field.tag_name,
                 original=field.text) for index, field in enumerate(metadata_fields)),
             item_id="metadata",
-            character_count=sum(len(segment.text) for segment in search_text_segments(element)),
+            word_count=count_xml_words(element),
         )
 
     packages = spine_cfi_paths(zip) if capture_cfi else {}
@@ -431,9 +450,7 @@ def _generate_tasks_from_book(
                     member_path=str(chapter_path), unit_id='head/title', field_path='head/title',
                     original=title_element.text, media_type=media_type),),
                 item_id=f"{chapter_path}#title",
-                character_count=sum(
-                    len(segment.text) for segment in search_text_segments(title_wrapper)
-                ),
+                word_count=count_xml_words(title_wrapper),
             )
         if body_element is not None and any(
             segment.text.strip() for segment in search_text_segments(body_element)
@@ -459,7 +476,7 @@ def _generate_tasks_from_book(
                 ),
                 item_kind=TranslationItemKind.CHAPTER,
                 item_id=str(chapter_path),
-                character_count=sum(len(segment.text) for segment in search_text_segments(body_element)),
+                word_count=count_xml_words(body_element),
             )
 
 

@@ -23,6 +23,8 @@ from pdf_craft.transformer.xml_translator.xml import clone_element
 from pdf_craft.transformer.xml_translator.xml.const import ID_KEY
 from pdf_craft.transformer.xml_translator.utils import normalize_whitespace
 from pdf_craft.transformer.events import TranslationEvent, TranslationItemKind
+from .word_count import count_xml_words
+from .progress import translation_item
 from .chapter_formula_interrupter import (
     _RESTORED_FORMULA_ID_KEY, ChapterFormulaInterrupter,
 )
@@ -121,6 +123,7 @@ class NarrativeXMLTransformer:
         return AnchoredContentXMLTransformer(cast(Any, self._translator), self._mode)
 
     @policy_operation
+    @translation_item(TranslationItemKind.METADATA, lambda *args, **kwargs: 'metadata', complete=True)
     async def translate_metadata(
         self, metadata: dict[str, Any], *, on_metadata=None,
         target_language: str | None = None,
@@ -160,7 +163,7 @@ class NarrativeXMLTransformer:
                 for _, key, index in fields),
             item_kind=TranslationItemKind.METADATA,
             item_id="metadata",
-            character_count=sum(len(child.text or "") for child in element),
+            word_count=count_xml_words(element),
         )
         translated, _ = await self._translator.translate_element(
             task, emit_scope_events=False, emit_item_events=False,
@@ -190,14 +193,15 @@ class NarrativeXMLTransformer:
         return overlay
 
     @policy_operation
+    @translation_item(TranslationItemKind.CHAPTER, lambda self, chapter, **kwargs: chapter.id if chapter.id is not None else 'head')
     async def transform(
         self,
         chapter: Chapter,
         *,
         on_translation_event: Callable[[TranslationEvent], object] | None = None,
         item_id: str | int | None = None,
-        completed_characters: int = 0,
-        total_characters: int | None = None,
+        completed_words: int = 0,
+        total_words: int | None = None,
         emit_scope_events: bool = True,
         emit_item_events: bool = True,
         retry_policy: RetryPolicy | None = None, error_policy: ErrorPolicyInput = OMITTED,
@@ -218,15 +222,13 @@ class NarrativeXMLTransformer:
                 source_locations=chapter_locations(chapter),
                 item_kind=TranslationItemKind.CHAPTER,
                 item_id=item_id if item_id is not None else chapter.id,
-                character_count=sum(
-                    len(segment.text) for segment in search_text_segments(element)
-                ),
+                word_count=count_xml_words(element),
         )
         translated, _ = await async_translator.translate_element(
             task,
             on_translation_event=on_translation_event,
-            completed_characters=completed_characters,
-            total_characters=total_characters,
+            completed_words=completed_words,
+            total_words=total_words,
             emit_scope_events=emit_scope_events,
             emit_item_events=emit_item_events,
             interrupt_source_text_segments=formula_interrupter.interrupt_source_text_segments,
@@ -291,9 +293,7 @@ class NarrativeXMLTransformer:
                 source_locations=chapter_locations(chapter),
                 item_kind=TranslationItemKind.CHAPTER,
                 item_id=item_id,
-                character_count=sum(
-                    len(segment.text) for segment in search_text_segments(element)
-                ),
+                word_count=count_xml_words(element),
             ))
 
         if not tasks:
@@ -335,12 +335,13 @@ class NarrativeXMLTransformer:
             apply_outcomes(results[index], tasks_by_index[index].outcomes)
         return results
 
-    def source_character_count(self, chapter: Chapter) -> int:
+    def source_word_count(self, chapter: Chapter) -> int:
         """Count the NarrativeFlow payload, excluding anchored asset text."""
         element = encode(chapter)
+        _prepare_chapter_references(element)
         anchors = _NarrativeAnchorProjection(element)
         anchors.replace_assets()
-        return sum(len(segment.text) for segment in search_text_segments(element))
+        return count_xml_words(element)
 
     @staticmethod
     def has_translatable_content(chapter: Chapter) -> bool:

@@ -280,3 +280,5 @@ coordinate mapping, timing and output semantics.
 
 
 See [error handling](ERROR_HANDLING.md) for strict defaults, source locations and task-wide all-fallback protection.
+
+Translation progress uses cumulative source words; see [the event and counting contract](TRANSLATION_PROGRESS.md).
