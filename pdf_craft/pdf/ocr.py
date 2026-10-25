@@ -19,7 +19,9 @@ from PIL.Image import Image
 
 from ..common import AssetHub, save_xml
 from ..common.stream import DiskStream
-from ..concurrency import AsyncExecutor, NonContinuableError, OperationError
+from ..concurrency import (
+    AsyncExecutor, NonContinuableError, OperationError, fatal_error_boundary, settle_tasks,
+)
 from ..error import OCRError, PDFError
 from ..metering import AbortedCheck, check_aborted
 from ..ocr_config import (
@@ -107,6 +109,7 @@ class OCR:
         finally:
             document.close()
 
+    @fatal_error_boundary
     async def recognize_vendor(
         self,
         executor: AsyncExecutor,
@@ -398,7 +401,7 @@ class OCR:
         finally:
             if render_task is not None:
                 render_task.cancel()
-                await asyncio.gather(render_task, return_exceptions=True)
+                await settle_tasks([render_task])
             await temporary_stack.aclose()
 
     def _prepare_vendor_workspace(
@@ -498,6 +501,7 @@ class OCR:
         except Exception as error:
             _raise_vendor_page_error(item.page_index, 1, error)
 
+    @fatal_error_boundary
     async def _recognize_vendor_pages(
         self,
         runtime: VendorOCRRuntime,
@@ -613,7 +617,7 @@ class OCR:
                 await feeder
             finally:
                 feeder.cancel()
-                await asyncio.gather(feeder, return_exceptions=True)
+                await settle_tasks([feeder])
 
     def _finish_vendor_results(
         self,

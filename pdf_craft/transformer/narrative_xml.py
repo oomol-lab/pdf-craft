@@ -1,5 +1,6 @@
 # pylint: disable=unused-argument
 
+from pdf_craft.concurrency import settle_tasks
 from pdf_craft.policies import RetryPolicy, ErrorPolicyInput, FailureLocation
 from pdf_craft._policy import OMITTED, policy_operation
 import asyncio
@@ -259,7 +260,7 @@ class NarrativeXMLTransformer:
             except BaseException:
                 for task in pending:
                     task.cancel()
-                await asyncio.gather(*pending, return_exceptions=True)
+                await settle_tasks(pending)
                 raise
 
         prepared: list[

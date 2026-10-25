@@ -4,6 +4,7 @@ from contextlib import asynccontextmanager
 from copy import deepcopy
 from pathlib import Path
 
+from ..concurrency import settle_tasks
 from ..common.stream import DiskDelivery
 from ..document.paragraph import ParagraphContent, SourceRegion
 from ..document.render import RenderMode, _compose_chapter
@@ -83,7 +84,7 @@ class ParagraphNotifier:
                 finally:
                     if not incoming.done():
                         incoming.cancel()
-                    await asyncio.gather(incoming, return_exceptions=True)
+                    await settle_tasks([incoming])
                 yield item
         finally:
             close = getattr(iterator, 'aclose', None)

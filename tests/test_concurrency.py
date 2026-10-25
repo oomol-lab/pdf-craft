@@ -28,7 +28,8 @@ class AsyncExecutorTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(result.value, expected)
         await asyncio.sleep(0)
 
-        frame = getattr(stream, "ag_frame")
+        wrapped = getattr(getattr(stream, "ag_frame"), "f_locals")["iterator"]
+        frame = getattr(wrapped, "ag_frame")
         self.assertIsNotNone(frame)
         outstanding = getattr(frame, "f_locals")["outstanding_settlements"]
         self.assertLessEqual(len(outstanding), concurrency)

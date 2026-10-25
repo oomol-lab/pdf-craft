@@ -21,7 +21,7 @@ from .policies import RetryScope, RetryPolicy as BusinessRetryPolicy, FailureLoc
 
 from .concurrency import (
     AsyncExecutor, NonContinuableError, OperationError, RateLimitedError,
-    task_group_fatal_error,
+    task_group_error, settle_tasks,
 )
 
 @dataclass(frozen=True)
@@ -120,23 +120,7 @@ class JEVRuntime:
                 done, _ = await asyncio.wait(
                     pending, return_when=asyncio.FIRST_COMPLETED,
                 )
-                for task in done:
-                    if task not in tasks or not task.cancelled():
-                        continue
-                    try:
-                        task.result()
-                    except asyncio.CancelledError as error:
-                        fatal = next((
-                            argument for argument in error.args
-                            if isinstance(argument, NonContinuableError)
-                        ), None)
-                        if fatal is not None:
-                            raise fatal from error
-                        raise
-                fatal = task_group_fatal_error(
-                    task for task in done
-                    if task in tasks and not task.cancelled()
-                )
+                fatal = task_group_error(task for task in done if task in tasks)
                 if fatal is not None:
                     raise fatal
 
@@ -150,7 +134,7 @@ class JEVRuntime:
                 if admitted or owner_finished_before_admission:
                     if admission is not None:
                         admission.cancel()
-                        await asyncio.gather(admission, return_exceptions=True)
+                        await settle_tasks([admission])
                     admission = None
                     admission_owner = None
                     start_next()
@@ -180,7 +164,7 @@ class JEVRuntime:
             if admission is not None:
                 teardown.append(admission)
             if teardown:
-                await asyncio.gather(*teardown, return_exceptions=True)
+                await settle_tasks(teardown)
             close = getattr(iterator, "close", None)
             if close is not None:
                 close()
@@ -196,6 +180,8 @@ class JEVRuntime:
                 state=request["state"],
                 questions=request["questions"],
             )
+        except OperationError:
+            raise
         except Exception as error:
             raise _provider_error(error) from error
         return float(response.nouls["page_passes_strict_standard"].noul)

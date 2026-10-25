@@ -17,7 +17,7 @@ from .error import (
     PDFError,
 )
 from .footnote import FootnoteRefinement
-from .concurrency import AsyncExecutor
+from .concurrency import AsyncExecutor, fatal_error_boundary
 from .jev import JEVRuntime
 from .llm import LLM, runtime_for
 from .metering import AbortedCheck, OCRTokensMetering
@@ -99,6 +99,7 @@ class PDFExtractionEngine:
         await OCR_DOMAIN.run(self._ocr.load_models)
 
     @pdf_operation
+    @fatal_error_boundary
     async def extract_package_async(self, **kwargs):
         """Own disk queues until producers and callback consumers have unwound."""
         from .extractor.chapter.live import LiveExtraction

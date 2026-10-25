@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Any, TypeVar
 from xml.etree.ElementTree import Element
 
-from pdf_craft.concurrency import NonContinuableError
+from pdf_craft.concurrency import NonContinuableError, fatal_error_boundary, settle_tasks
 from pdf_craft.runtime import IO_DOMAIN, temporary_directory
 
 P = TypeVar("P")
@@ -72,6 +72,7 @@ async def run_concurrency_async(
         await results.aclose()
 
 
+@fatal_error_boundary
 async def run_async_parameters(parameters, execute, concurrency, *, preserve_sources=True):
     """Slow ordered output never prevents admission to an idle execution slot.
 
@@ -81,6 +82,7 @@ async def run_async_parameters(parameters, execute, concurrency, *, preserve_sou
     """
     if concurrency < 1:
         raise ValueError("concurrency must be at least 1")
+    execute = fatal_error_boundary(execute)
     asynchronous = isinstance(parameters, AsyncIterable)
     iterator: Any = aiter(parameters) if asynchronous else iter(parameters)
     ready = {}
@@ -137,21 +139,28 @@ async def run_async_parameters(parameters, execute, concurrency, *, preserve_sou
                         ready[index] = references
                         changed.set()
             finally:
-                tasks = list(pending)
-                if incoming is not None:
-                    tasks.append(incoming)
-                for task in tasks:
-                    task.cancel()
-                await asyncio.gather(*tasks, return_exceptions=True)
-                if asynchronous:
-                    close = getattr(iterator, "aclose", None)
-                    if close is not None:
-                        await close()
-                else:
-                    close = getattr(iterator, "close", None)
-                    if close is not None:
-                        close()
-                changed.set()
+                try:
+                    tasks = list(pending)
+                    if incoming is not None:
+                        tasks.append(incoming)
+                    for task in tasks:
+                        task.cancel()
+                    try:
+                        await settle_tasks(tasks)
+                    finally:
+                        if asynchronous:
+                            close = getattr(iterator, "aclose", None)
+                            if close is not None:
+                                await close()
+                        else:
+                            close = getattr(iterator, "close", None)
+                            if close is not None:
+                                close()
+                finally:
+                    # The consumer may still be blocked on changed.wait().
+                    # Cleanup failures must wake it too, so it can observe the
+                    # producer's exit and propagate the recorded terminal cause.
+                    changed.set()
 
         producer = asyncio.create_task(produce())
         index = 0
@@ -170,4 +179,4 @@ async def run_async_parameters(parameters, execute, concurrency, *, preserve_sou
                     await changed.wait()
         finally:
             producer.cancel()
-            await asyncio.gather(producer, return_exceptions=True)
+            await settle_tasks([producer])

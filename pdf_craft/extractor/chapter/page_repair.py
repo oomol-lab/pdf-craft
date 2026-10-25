@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+from ...concurrency import fatal_error_boundary, settle_tasks
 from ...policies import RetryPolicy, ErrorPolicyInput
 from ..._policy import OMITTED, policy_operation
 
@@ -227,6 +228,7 @@ class AllPageLlmRepairProcessor:
         )
 
 
+@fatal_error_boundary
 async def _repair_pages(
     *,
     analyses: list[PageAnalysis],
@@ -238,6 +240,7 @@ async def _repair_pages(
     repaired = [_clone_page(page) for page in analyses]
     positions = {page.page_index: index for index, page in enumerate(original)}
 
+    @fatal_error_boundary
     async def repair(page_index: int) -> tuple[int, PageAnalysis]:
         position = positions[page_index]
         target = original[position]
@@ -269,7 +272,7 @@ async def _repair_pages(
     except BaseException:
         for task in tasks:
             task.cancel()
-        await asyncio.gather(*tasks, return_exceptions=True)
+        await settle_tasks(tasks)
         raise
     del completed  # Accepted candidates are committed to the tentative graph in parse.
     try:

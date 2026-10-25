@@ -11,7 +11,7 @@ from functools import wraps
 from typing import Any, TypeVar, cast
 from uuid import uuid4
 
-from .concurrency import NonContinuableError
+from .concurrency import NonContinuableError, fatal_error_boundary
 from .policies import (
     AllFallbackError,
     ErrorCallbackError,
@@ -130,7 +130,7 @@ def policy_operation(function: F) -> F:
         finally:
             _execution.reset(token)
 
-    return cast(F, invoke)
+    return cast(F, fatal_error_boundary(invoke))
 
 
 @contextmanager

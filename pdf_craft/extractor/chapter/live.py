@@ -3,6 +3,7 @@
 import asyncio
 from pathlib import Path
 
+from ...concurrency import settle_tasks
 from ...common import XMLReader, read_xml
 from ...common.stream import DiskDelivery, DiskStream
 from ...pdf import Page, decode
@@ -106,6 +107,6 @@ class LiveExtraction:
 
     async def cancel(self):
         self.pages.close(RuntimeError("extraction stream aborted"))
-        await asyncio.gather(self.task, return_exceptions=True)
+        await settle_tasks([self.task])
         for delivery in self.deliveries:
             await delivery.cancel()

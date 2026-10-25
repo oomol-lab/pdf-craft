@@ -24,7 +24,7 @@ from openai.types.chat import ChatCompletionMessageParam
 
 from ..runtime import IO_DOMAIN
 from ..concurrency import (
-    AsyncExecutor, NonContinuableError, OperationError, RateLimitedError,
+    AsyncExecutor, NonContinuableError, OperationError, RateLimitedError, fatal_error_boundary,
 )
 from .core import LLM
 from .error import is_retry_error
@@ -75,6 +75,7 @@ class LLMRuntime:
     def context(self, cache_seed_content: str | None = None) -> "LLMContext":
         return LLMContext(self, cache_seed_content)
 
+    @fatal_error_boundary
     async def request(
         self, input: str | list[Message], max_tokens: int | None = None,
         temperature: float | None = None, top_p: float | None = None, *,
@@ -182,6 +183,7 @@ class LLMContext(AbstractAsyncContextManager["LLMContext"]):
     async def __aexit__(self, exc_type, exc_val, exc_tb) -> None:
         await IO_DOMAIN.run(_commit_pending, self._pending, exc_type)
 
+    @fatal_error_boundary
     async def request(
         self, input, max_tokens=None, temperature=None, top_p=None, *,
         retry_index=None, retry_max=None, use_cache=True, deadline=None,
@@ -229,6 +231,8 @@ class LLMContext(AbstractAsyncContextManager["LLMContext"]):
                                 messages, max_tokens, temperature, top_p,
                                 force_ipv4=force_ipv4,
                             )
+                        except OperationError:
+                            raise
                         except Exception as error:
                             raise _provider_error(error) from error
 

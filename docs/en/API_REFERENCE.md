@@ -408,6 +408,14 @@ its own waiters when capacity becomes available. It must also implement `close(e
 executor and cancels its outstanding work. Provider retry loops remain outside the executor, so
 every real retry reacquires capacity.
 
+Within one SDK operation, the first observed and recorded `NonContinuableError` is the terminal
+cause, including when stages use separate executors. The SDK cancels sibling work and waits for
+cleanup before propagating that original exception with its cause chain intact. Later failures,
+derived cancellations, and cleanup errors do not replace it. This order is the order observed
+by the SDK, not a guarantee of which provider failed first in wall-clock time. Without a recorded
+fatal cause, caller cancellation or task self-cancellation still propagates as `CancelledError`.
+Independent operations do not share terminal state unless they share an executor.
+
 ## PDF patching primitives
 
 For patch layout beyond the convenience methods, use these public types:
