@@ -9,7 +9,7 @@ import pickle
 from collections import deque
 from collections.abc import AsyncGenerator
 from contextlib import AsyncExitStack
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from enum import Enum, auto
 from pathlib import Path
 from threading import Lock
@@ -73,6 +73,7 @@ class _PreparedVendorPage:
     total_pages: int
     scale_x: float = 1.0
     scale_y: float = 1.0
+    erased_rectangles: tuple[tuple[int, int, int, int], ...] = ()
 
 
 class OCR:
@@ -448,7 +449,7 @@ class OCR:
             output_tokens = first_response.output_tokens
             if includes_footnotes and _supports_vendor_stages(self._config):
                 try:
-                    second_path = await OCR_DOMAIN.run(
+                    second_item = await OCR_DOMAIN.run(
                         _prepare_second_stage,
                         item,
                         first_result,
@@ -456,25 +457,19 @@ class OCR:
                         aborted,
                     )
                     second_response = await runtime.request(VendorOCRInput(
-                        item.page_index, second_path, aborted, 2,
+                        item.page_index, second_item.request_path, aborted, 2,
                     ))
                     second_result = await OCR_DOMAIN.run(
                         _parse_vendor_response,
                         self._config,
-                        _PreparedVendorPage(
-                            item.page_index,
-                            item.image_path,
-                            second_path,
-                            item.started,
-                            item.total_pages,
-                        ),
+                        second_item,
                         second_response,
                     )
                 except NonContinuableError:
                     raise
                 except Exception as error:
                     _raise_vendor_page_error(item.page_index, 2, error)
-                results.append((second_path, second_result))
+                results.append((second_item.request_path, second_result))
                 input_tokens += second_response.input_tokens
                 output_tokens += second_response.output_tokens
             finish_stage = len(results)
@@ -588,9 +583,11 @@ class OCR:
                         parsed = await OCR_DOMAIN.run(_parse_vendor_response, self._config, item, result.response)
                         if stage == 1 and includes_footnotes and _supports_vendor_stages(self._config):
                             failure_stage = 2
-                            await OCR_DOMAIN.run(_prepare_second_stage, item, parsed, root, aborted)
+                            second_item = await OCR_DOMAIN.run(
+                                _prepare_second_stage, item, parsed, root, aborted,
+                            )
                             await IO_DOMAIN.run(save_first, index, parsed, result.response)
-                            await enqueue(item, 2)
+                            await enqueue(second_item, 2)
                             continue
                         results = [(item.image_path, parsed)]
                         tokens_in = result.response.input_tokens
@@ -1014,6 +1011,9 @@ def _parse_vendor_response(
         source = "unlimited-ocr-vendor"
     else:
         raise TypeError(f"Unsupported vendor OCR config: {type(config).__name__}")
+    if item.erased_rectangles:
+        from doc_page_extractor.redacter import clip_layouts_to_unmasked_area
+        layouts = clip_layouts_to_unmasked_area(layouts, item.erased_rectangles)
     return OCRPageResult(
         layouts=layouts,
         source=source,
@@ -1028,27 +1028,31 @@ def _prepare_second_stage(
     first_result,
     directory: Path,
     aborted: AbortedCheck,
-) -> Path:
+) -> _PreparedVendorPage:
     from PIL import Image as PILImage
     from doc_page_extractor.redacter import background_color, redact
 
     check_aborted(aborted)
-    with PILImage.open(item.image_path) as opened:
+    with PILImage.open(item.request_path) as opened:
         image = opened.copy()
     try:
+        rectangles = tuple(_redact_rectangles(image.size, (
+            layout.det for layout in first_result.layouts
+        )))
         redacted = redact(
             image=image,
             fill_color=background_color(image),
-            rectangles=_redact_rectangles(image.size, (
-                layout.det for layout in first_result.layouts
-            )),
+            rectangles=rectangles,
         )
         path = directory / f"page_{item.page_index}_stage_2.png"
         redacted.save(path, format="PNG")
         if redacted is not image:
             redacted.close()
         check_aborted(aborted)
-        return path
+        return replace(
+            item, request_path=path,
+            erased_rectangles=item.erased_rectangles + rectangles,
+        )
     finally:
         image.close()
 

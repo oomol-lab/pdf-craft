@@ -2014,5 +2014,47 @@ class VendorOCRConcurrencyTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(list((root / "ocr").glob("page_*.failed")), [])
 
 
+    async def test_page_sized_footer_box_is_clipped_in_both_vendor_paths(self):
+        for max_tokens in (None, 100):
+            with self.subTest(max_tokens=max_tokens):
+                ocr = OCR(
+                    DeepSeekOCRVendorConfig(
+                        base_url="https://example.invalid/v1", api_key="key", model="model",
+                    ),
+                    cast(Any, _Handler([])),
+                )
+                observed = []
+                original_finish = ocr._finish_vendor_results
+
+                def finish(item, results, *args):
+                    observed.append(results[1][1])
+                    return original_finish(item, results, *args)
+
+                async def request(_runtime, vendor_request, started=None):
+                    if started is not None:
+                        started.set()
+                    box = "[[250, 650, 750, 850]]" if vendor_request.stage_index == 1 else "[[0, 0, 1000, 1000]]"
+                    return VendorOCRResponse(
+                        {}, raw_text=f"<|ref|>text<|/ref|><|det|>{box}<|/det|>4",
+                        input_tokens=1, output_tokens=1,
+                    )
+
+                with tempfile.TemporaryDirectory() as directory, patch.object(
+                    VendorOCRRuntime, "_request_deepseek", new=request,
+                ), patch.object(ocr, "_finish_vendor_results", new=finish):
+                    root = Path(directory)
+                    events = [event async for event in ocr.recognize_vendor(
+                        ConcurrentExecutor(FixedCapacity(3)), pdf_path=root / "source.pdf",
+                        asset_path=root / "assets", ocr_path=root / "ocr",
+                        includes_footnotes=True, max_tokens=max_tokens,
+                    )]
+                self.assertEqual(len(observed), 3)
+                self.assertEqual(sum(event.kind == OCREventKind.COMPLETE for event in events), 3)
+                for result in observed:
+                    self.assertEqual(result.layouts[0].det, (0, 12, 3, 16))
+                    self.assertEqual(result.layouts[0].text, "4")
+                    self.assertEqual(result.structured.blocks[0].det, (0, 12, 3, 16))
+
+
 if __name__ == "__main__":
     unittest.main()
