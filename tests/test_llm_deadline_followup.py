@@ -1,7 +1,6 @@
 """Regressions for the gaps left by PR 506; initial regressions written before the follow-up fix."""
 # Subtests await every operation before advancing their loop variables.
 # pylint: disable=protected-access,cell-var-from-loop
-from tests.pdf_preflight_helpers import mock_fictional_pdf_preflight
 import asyncio
 import tempfile
 import time
@@ -25,9 +24,6 @@ from pdf_craft.extractor.toc.llm_analyser import _LLMAnalyser, LLMAnalysisError
 
 
 class DeadlineFollowupTests(unittest.IsolatedAsyncioTestCase):
-    def setUp(self):
-        mock_fictional_pdf_preflight(self)
-
     def test_default_budget_and_separate_http_timeout(self):
         config = LLM('key', 'https://example.invalid/v1', 'model', 'o200k_base')
         self.assertEqual(config.total_timeout, 360)

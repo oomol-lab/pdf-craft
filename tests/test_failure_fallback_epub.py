@@ -1,6 +1,5 @@
 """End-to-end coverage for recoverable and fatal PDF/OCR page failures."""
 
-from tests.pdf_preflight_helpers import mock_fictional_pdf_preflight
 from pdf_craft import ErrorPolicy
 
 from datetime import datetime, timezone
@@ -108,9 +107,6 @@ class _PaymentRequiredExtractor:
 
 
 class TestFailureFallbackEPUB(unittest.TestCase):
-    def setUp(self):
-        mock_fictional_pdf_preflight(self)
-
     def test_pdf_render_failure_on_every_page_stops_without_an_epub(self):
         craft = self._craft(
             {1: RuntimeError("broken page one"), 2: RuntimeError("broken page two")},

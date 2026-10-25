@@ -1,7 +1,6 @@
 """Real stream boundaries with deterministic producers and no hosted requests."""
 # pylint: disable=protected-access
 
-from tests.pdf_preflight_helpers import mock_fictional_pdf_preflight
 import asyncio
 import tempfile
 import unittest
@@ -55,9 +54,6 @@ def epub(path):
 
 
 class StreamCallbacksTests(unittest.IsolatedAsyncioTestCase):
-    def setUp(self):
-        mock_fictional_pdf_preflight(self)
-
     async def test_disk_backlog_does_not_wait_for_slow_callback(self):
         entered, release = asyncio.Event(), asyncio.Event()
         received = []

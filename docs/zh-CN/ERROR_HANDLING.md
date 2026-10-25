@@ -1,40 +1,41 @@
 # 重试、降级与任务成功
 
-## 强制 PDF 输入预检
+## 可选输入断言
 
-所有接收源 PDF 的任务都在 OCR、翻译、正文/脚注/元信息回调和最终输出前执行预检。
-同步/异步门面、PDFExtractor、PDFTranslationPipeline、PDFPatcher 采用相同规则。
-即使提供自定义异步 PDF handler，也必须安装 pypdf 和 Poppler；预检通过后实际业务
-渲染仍使用调用方的 handler。
+转换不再自动执行输入门禁。输入有问题时，在实际操作遇到问题的位置报错；已有
+ErrorPolicy 对受支持页面错误的处理保持不变。应用如果希望提前检查，可以主动调用
+从 `pdf_craft` 顶层导出的阻塞函数：
 
-预检使用 pypdf 遍历全部页面、读取资源和解码内容流（strict 读取，不额外执行修复），使用 Poppler
-逐页低 DPI 渲染，核对两者页数和页面几何，再将文档试写至临时文件并重新打开验证。
-原文件不修复、不改写，也不使用试写文件替换输入。图片逐页释放，启动开销随页数增长；
-一次组合任务内部共享检查结果，不跨调用永久缓存。
+| 函数 | 验证的操作 |
+| --- | --- |
+| `assert_pdf_readable(pdf_path)` | Poppler 能打开文件并获取有效的正数页数。 |
+| `assert_pdf_renderable(pdf_path)` | Poppler 能以 72 DPI 逐页完成整份 PDF 的光栅化。 |
+| `assert_pdf_editable(pdf_path)` | pypdf 能读取、克隆、试写并重新打开，具备基本 PDF 编辑能力。 |
+| `assert_epub_readable(epub_path)` | 复用 EPUB 翻译的输入解析器，读取 ZIP、container/OPF、目录、元数据，并完整遍历解析 spine 正文。 |
 
-失败抛出公开、任务级的 `PDFPreflightError`：
+原有自动门禁及其 `PDFPreflightError` 已移除；原先依赖该异常的代码应改为主动调用
+所需断言，并按普通异常处理失败。
+
+按应用需要选择调用，无需全部执行。成功返回 `None`，失败直接抛出原后端或解析器
+异常并保留 traceback，不返回 bool，不提供专用错误分类。断言不修改或修复输入，
+成功和失败都会清理临时试写文件。两个 Poppler 断言可用关键字参数
+`poppler_path=directory` 指定工具目录。
 
 ```python
-from pdf_craft import PDFCraft, PDFPreflightError
+from pdf_craft import assert_epub_readable
 
 try:
-    PDFCraft().patch_pdf_with_extraction("source.pdf", "book.pcex", "output.pdf")
-except PDFPreflightError as error:
-    print(error.source, error.backend, error.stage, error.page_index, error.reason)
+    assert_epub_readable("input.epub")
+except Exception as error:
+    print(f"输入检查未通过：{error}")
+else:
+    print("输入可以完整解析")
 ```
 
-字段为 `source`（输入路径字符串）、`backend`（`pypdf`、`poppler`、`consistency`）、
-`stage`、`page_index`（从 1 开始，未知为 `None`）和 `reason`。阶段值为 `open`、
-`page_read`、`page_labels`、`render`、`page_count`、`geometry`、`write`、`reopen`、
-`source_changed`。Poppler 报告 `Syntax Error` 等错误时，即使进程退出码为 0 且生成了图片，也会拒绝。
-普通 `Syntax Warning` 会保留为日志，不单凭警告拒绝文件。
-有原始异常时保留异常链，区分文件不可访问、工具不可用与后端解析/
-渲染失败，不笼统宣称文件违反 PDF 标准。
-
-**该异常不可忽略。** 即使 `error_policy=True` 或 callback 返回 True 也必须终止，
-不会调用策略决策 callback，不走 RetryPolicy、页级 fallback 或自动修复。取消仍按取消传播。
-预检是当前后端的兼容性检查，不是完整标准合规认证；通过后仍可能在高 DPI 渲染、翻译
-或实际图层合成时失败。
+通过仅表示表中对应操作走通：基本可读不保证完整 PDF → PCEX，低分辨率渲染不保证
+高分辨率渲染或 OCR，基本编辑不保证所有 PDF 回填操作。EPUB 断言检查的是当前输入
+解析链路的兼容性，不是完整 EPUB 标准合规校验，也不保证后续翻译成功。断言不运行
+OCR、下载模型或调用 LLM。转换入口与页数查询不会自动调用这些断言。
 
 
 `PDFCraft` 和 `AsyncPDFCraft` 使用相同策略。策略属于一次执行；不会为了覆盖配置而修改共享 Translator。

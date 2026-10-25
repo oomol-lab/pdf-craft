@@ -1,7 +1,6 @@
 """Recovery is atomic across transparent image/table-only intermediate pages."""
 # Each subtest awaits its producers before advancing the scenario loop.
 # pylint: disable=protected-access,unused-argument,cell-var-from-loop
-from tests.pdf_preflight_helpers import mock_fictional_pdf_preflight
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from types import SimpleNamespace
@@ -43,9 +42,6 @@ def write_pages(path, pages):
 
 
 class AssetPageScopeTests(IsolatedAsyncioTestCase):
-    def setUp(self):
-        mock_fictional_pdf_preflight(self)
-
     def test_analysed_scope_includes_every_child_page_for_each_failure_target(self):
         for kinds in SCENARIOS:
             pages = bridge_pages(kinds)

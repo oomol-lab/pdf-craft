@@ -24,8 +24,8 @@ anchored 图片/表格文字。
 `AsyncPDFCraft.convert_pdf_to_markdown()` 和 `AsyncPDFCraft.convert_pdf_to_epub()` 会先提取到内部 workspace，
 再渲染目标输出。提取流程是：
 
-1. 完成 pypdf/Poppler 强制输入预检后，通过 `PDFHandler` 渲染 PDF 页面。
-   预检覆盖所有源页，先于 OCR/LLM 和元信息/内容通知，失败抛不可忽略的 PDFPreflightError。
+1. 通过 `PDFHandler` 按业务需要读取并渲染 PDF 页面，不执行自动整份输入门禁。
+   用户可在转换前主动调用独立 `assert_*` 断言，实际操作失败沿用现有错误传播与 ErrorPolicy。
 2. 通过 `OCR.recognize()` 识别页面布局。
 3. 在 `analysing_path/ocr/` 写入 OCR 页 XML 和恢复缓存，在
    `analysing_path/extraction/assets/` 写入资源。

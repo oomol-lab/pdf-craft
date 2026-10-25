@@ -1,6 +1,5 @@
 # pylint: disable=protected-access
 
-from tests.pdf_preflight_helpers import mock_fictional_pdf_preflight
 import asyncio
 import json
 import tempfile
@@ -47,9 +46,6 @@ class _CaptureTransform:
 
 
 class TestSmokeMatrix(unittest.TestCase):
-    def setUp(self):
-        mock_fictional_pdf_preflight(self)
-
     def test_discovers_pdf_and_migrated_epub_assets(self):
         assets = discover_assets(Path("tests/assets"))
         self.assertIn("pdf/double_column.pdf", {asset.name for asset in assets})

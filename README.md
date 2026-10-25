@@ -135,6 +135,15 @@ Open `output.epub` in an EPUB reader. For title, author, and rendering options, 
 
 For EPUB bibliographic metadata, opt in to front-page OCR metadata extraction and provide a separate metadata LLM. PDF Craft accepts only values it can verify against OCR evidence. PDF file properties fill missing fields; they never override information printed in the book.
 
+## Optional input assertions
+
+Conversion does not automatically validate the whole input. If needed, call
+`assert_pdf_readable`, `assert_pdf_renderable`, `assert_pdf_editable`, or
+`assert_epub_readable` from `pdf_craft` before conversion. Choose the operation
+you need: success returns `None`, failure raises the original exception, and the
+input is never repaired or modified. Passing does not guarantee later OCR or
+translation succeeds. See [usage and capability limits](docs/en/ERROR_HANDLING.md#optional-input-assertions).
+
 ## Translation and reusable extraction
 
 **Translate books.** Supply an `XMLTranslator` when converting PDF to Markdown or EPUB, or translate an existing EPUB directly. Translation uses a separate text LLM; OCR and translation have independent configurations. EPUB translation can replace the original text or append the translation for bilingual reading.

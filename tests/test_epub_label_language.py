@@ -21,7 +21,7 @@ from pdf_craft.extractor.chapter.chapter import (
 from pdf_craft.renderer import EpubRenderer
 from pdf_craft.transformer.xml_translator.segment import search_text_segments
 from tests.extraction_helpers import make_extraction
-from tests.test_pdf_preflight import write_pdf
+from tests.pdf_assertion_helpers import write_pdf
 
 
 BODY = '한국어 본문입니다.'

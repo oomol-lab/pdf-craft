@@ -117,6 +117,13 @@ craft.convert_pdf_to_epub("input.pdf", "output.epub")
 如果需要 EPUB 的书目信息，可显式开启“前页 OCR 元信息抽取”并提供独立的 metadata LLM。PDF Craft
 只接受能在 OCR 页中验证的字段；PDF 文件自身的属性仅用于补充缺失字段，绝不会覆盖书页印刷信息。
 
+## 可选输入断言
+
+转换不会自动执行整份输入门禁。需要提前检查时，可从 `pdf_craft` 导入
+`assert_pdf_readable`、`assert_pdf_renderable`、`assert_pdf_editable` 或
+`assert_epub_readable`，按需要选择调用。成功返回 `None`，失败抛原异常；不修改或
+修复输入。通过不保证后续 OCR 或翻译成功。详见[能力边界和用法](../zh-CN/ERROR_HANDLING.md#可选输入断言)。
+
 ## 翻译与提取结果复用
 
 **翻译书籍。** 可以在 PDF 转换为 Markdown 或 EPUB 时传入 `XMLTranslator`，也可以直接翻译已有 EPUB。翻译需要独立的文本 LLM 调用；OCR 服务负责页面识别，两者使用各自的配置。已有 EPUB 的翻译支持仅保留译文，或追加译文以便双语阅读。

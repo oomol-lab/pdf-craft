@@ -284,9 +284,26 @@ def _headline_text(text: str) -> str:
 
 
 def _explicit_page_labels(pdf_path: Path) -> dict[int, str]:
-    """Read explicit publication labels from the shared preflight result."""
-    from .preflight import check_pdf
-    return check_pdf(pdf_path).labels
+    """Read optional publication labels without validating pages or rendering."""
+    from pypdf import PdfReader
+    from pypdf.errors import PdfReadError
+    from .backend import current_poppler_path
+    from .page_labels import read_page_labels
+    from .poppler import PopplerDocument
+
+    # GLib synthesizes physical numbers for PDFs with no label tree. Only
+    # inspect the catalog for presence; label values still come from Poppler.
+    try:
+        with PdfReader(pdf_path) as reader:
+            if reader.root_object.get("/PageLabels") is None:
+                return {}
+    except (OSError, KeyError, PdfReadError):
+        return {}
+    document = PopplerDocument(pdf_path, current_poppler_path())
+    try:
+        return read_page_labels(pdf_path, document.pages_count)
+    finally:
+        document.close()
 
 
 def _native_pages(
@@ -313,7 +330,7 @@ def _native_pages(
             stdout = native_pdf_text
         else:
             from .poppler import PopplerDocument
-            from .preflight import current_poppler_path
+            from .backend import current_poppler_path
             stdout, _ = run_subprocess_sync(
                 PopplerDocument(pdf_path, current_poppler_path()).command("pdftotext"),
                 "-bbox-layout", str(pdf_path), "-",

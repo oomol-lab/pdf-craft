@@ -1,5 +1,8 @@
 # Issue 834: PDF backend preflight
 
+> Historical record: issue 839 removes the automatic PDF gate described here.
+> Current behavior is documented in [optional input assertions](../en/ERROR_HANDLING.md#optional-input-assertions).
+
 ## Original input
 
 The unchanged upload is committed as `tests/assets/pdf/xref-offset-997ad598.pdf`.

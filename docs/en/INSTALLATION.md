@@ -49,11 +49,12 @@ python -m pip install pdf-craft
 
 ## Install Poppler
 
-All PDF-input tasks require `pdfinfo` and `pdftoppm` for mandatory preflight, even
-when actual rendering uses a custom handler. Reading explicit publication page
-labels also requires the Poppler GLib shared library (`libpoppler-glib8` on Debian/Ubuntu;
-included in Homebrew Poppler). On Windows install its GLib dependencies alongside
-Poppler and make the DLLs discoverable to Python. See [PDF preflight](ERROR_HANDLING.md#mandatory-pdf-preflight).
+The default PDF reader uses `pdfinfo` and `pdftoppm` with local and vendor OCR.
+Publication page labels use Poppler's GLib API; install `libpoppler-glib8` (or the
+distribution's ABI-equivalent package) on Linux. macOS Homebrew Poppler supplies
+it; Windows deployments must make the corresponding DLLs discoverable to Python.
+Custom handlers provide their own business reads/renders; no automatic full-input
+validation runs. See [optional input assertions](ERROR_HANDLING.md#optional-input-assertions).
 
 
 ```bash
@@ -71,7 +72,7 @@ Check the installation with `pdfinfo -v`.
 For direct native reads with a non-PATH installation, use
 `pdf_pages_count(path, pdf_handler=DefaultPDFHandler(poppler_path=directory))`
 (`DefaultPDFHandler` is imported from `pdf_craft.pdf`). The same directory is
-used for mandatory preflight and reading; invalid directories still fail.
+used for reading; invalid directories still fail.
 
 Keep the PDF backends current when upgrading an existing deployment. PDF Craft
 requires pypdf 6.21.2 or later within the 6.x series. Poppler is installed
@@ -87,8 +88,7 @@ sudo apt-get update
 sudo apt-get install --only-upgrade poppler-utils libpoppler-glib8
 ```
 
-Backend upgrades do not disable mandatory PDF preflight or guarantee that a
-previously rejected document becomes compatible.
+Backend upgrades do not guarantee that a previously unsupported document becomes compatible.
 
 ## Install Ghostscript for PDF patching
 

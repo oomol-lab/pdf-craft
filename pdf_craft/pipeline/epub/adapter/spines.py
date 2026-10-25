@@ -4,11 +4,11 @@ from posixpath import normpath
 from xml.etree import ElementTree as ET
 
 from .common import find_opf_path, strip_namespace
-from .zip import Zip
+from .zip import ReadOnlyZip
 
 
 # yield file_path, media_type
-def search_spine_paths(zip: Zip) -> Generator[tuple[Path, str], None, None]:
+def search_spine_paths(zip: ReadOnlyZip) -> Generator[tuple[Path, str], None, None]:
     opf_path = find_opf_path(zip)
     opf_dir = opf_path.parent
 
@@ -44,7 +44,7 @@ def search_spine_paths(zip: Zip) -> Generator[tuple[Path, str], None, None]:
                     yield Path(normpath((opf_dir / href).as_posix())), media_type
 
 
-def spine_cfi_paths(zip: Zip) -> dict[Path, str]:
+def spine_cfi_paths(zip: ReadOnlyZip) -> dict[Path, str]:
     """Package-component paths use actual OPF child positions, not file order."""
     opf_path = find_opf_path(zip)
     with zip.read(opf_path) as file:

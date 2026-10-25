@@ -1,6 +1,5 @@
 """Public source values and actual incremental consumers (no hosted calls)."""
 
-from tests.pdf_preflight_helpers import mock_fictional_pdf_preflight
 from pdf_craft import RetryPolicy
 
 # Each subtest awaits its tasks before the next iteration.
@@ -49,9 +48,6 @@ async def translated(_translator, inline_segments, **_kwargs):
 
 
 class SourceTests(unittest.TestCase):
-    def setUp(self):
-        mock_fictional_pdf_preflight(self)
-
     def test_map_uses_actual_dimensions_not_requested_dpi(self):
         region=SourceRegion(PageGeometry(3,1000,2000,300),8,(100,200,400,800))
         self.assertEqual(region.map_bbox((333,600)),(33.300000000000004,60.,133.20000000000002,240.))
@@ -61,9 +57,6 @@ class SourceTests(unittest.TestCase):
 
 
 class ParagraphTests(unittest.IsolatedAsyncioTestCase):
-    def setUp(self):
-        mock_fictional_pdf_preflight(self)
-
     def test_markdown_output_name_cannot_alias_body_or_footnote_spool(self):
         import subprocess
         import sys

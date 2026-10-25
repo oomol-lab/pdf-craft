@@ -1,11 +1,10 @@
 # 故障排查指南
 
-## PDFPreflightError
+## 输入兼容性
 
-它发生在 OCR/LLM 之前，表示 pypdf 或 Poppler 无法处理输入，或两者页数/几何不一致。
-查看 `backend`、`stage`、`page_index`、`reason` 和原始异常链；找不到命令/动态库属于
-安装问题，解析失败表示当前后端不兼容。SDK 不会自动修复输入，也不能用 ErrorPolicy
-忽略该异常。详见[强制预检](ERROR_HANDLING.md#强制-pdf-输入预检)。
+需要在转换前定位读取、渲染或编辑问题时，可使用[可选输入断言](ERROR_HANDLING.md#可选输入断言)。
+查看原始异常及 traceback：命令或动态库缺失属于安装问题，解析或渲染失败表示当前
+后端无法完成对应操作。SDK 不会自动修复输入。
 
 本文面向已经安装 pdf-craft、准备处理实际文件的用户。排查时建议先确认问题发生在
 哪一层：PDF 读取、OCR 识别、文本 LLM、渲染输出，还是 PDF/EPUB 翻译。

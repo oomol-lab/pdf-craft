@@ -3,7 +3,7 @@ from pathlib import Path
 
 from pdf_craft.transformer.xml_translator.xml import XMLLikeNode
 from .common import find_opf_path
-from .zip import Zip
+from .zip import Zip, ReadOnlyZip
 
 
 @dataclass
@@ -29,7 +29,7 @@ SKIP_FIELDS = frozenset(
 )
 
 
-def read_metadata(zip: Zip) -> tuple[list[MetadataField], MetadataContext]:
+def read_metadata(zip: ReadOnlyZip) -> tuple[list[MetadataField], MetadataContext]:
     opf_path = find_opf_path(zip)
 
     with zip.read(opf_path) as f:

@@ -7,14 +7,41 @@ from typing import IO
 _BUFFER_SIZE = 8192  # 8KB
 
 
-class Zip:
+class ReadOnlyZip:
+    """The input side of an EPUB archive; never creates an output file."""
+
+    def __init__(self, source_path: Path) -> None:
+        self._source_zip = zipfile.ZipFile(source_path, "r")
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, _exc_type, _exc_val, _exc_tb):
+        self._source_zip.close()
+        return False
+
+    def list_files(self, prefix_path: Path | None = None) -> list[Path]:
+        all_files = self._source_zip.namelist()
+        if prefix_path is None:
+            return [Path(f) for f in all_files]
+        prefix = prefix_path.as_posix()
+        if not prefix.endswith("/"):
+            prefix += "/"
+        return [Path(f) for f in all_files if f.startswith(prefix)]
+
+    def read(self, path: Path) -> IO[bytes]:
+        return self._source_zip.open(path.as_posix(), "r")
+
+
+class Zip(ReadOnlyZip):
     def __init__(self, source_path: Path, target_path: Path) -> None:
         source_zip: zipfile.ZipFile | None = None
         target_zip: zipfile.ZipFile | None = None
         self._target_path = target_path
         self._temporary_path: Path | None = None
         try:
-            source_zip = zipfile.ZipFile(source_path, "r")
+            super().__init__(source_path)
+            source_zip = self._source_zip
             with NamedTemporaryFile(prefix=f".{target_path.name}.", suffix=".tmp",
                                     dir=target_path.parent, delete=False) as temporary:
                 self._temporary_path = Path(temporary.name)
@@ -52,15 +79,6 @@ class Zip:
                 self._temporary_path.unlink(missing_ok=True)
         return False
 
-    def list_files(self, prefix_path: Path | None = None) -> list[Path]:
-        all_files = self._source_zip.namelist()
-        if prefix_path is None:
-            return [Path(f) for f in all_files]
-        prefix = prefix_path.as_posix()
-        if not prefix.endswith("/"):
-            prefix += "/"
-        return [Path(f) for f in all_files if f.startswith(prefix)]
-
     def migrate(self, path: Path):
         path_str = path.as_posix()
         source_info = self._source_zip.getinfo(path_str)
@@ -72,9 +90,6 @@ class Zip:
             compress_type=source_info.compress_type,
         )
         self._processed_files.add(path)
-
-    def read(self, path: Path) -> IO[bytes]:
-        return self._source_zip.open(path.as_posix(), "r")
 
     def replace(self, path: Path) -> IO[bytes]:
         self._processed_files.add(path)

@@ -68,10 +68,11 @@ python -m pip install "pdf-craft[local]"
 
 ## 安装 Poppler
 
-所有 PDF 输入任务都需要 `pdfinfo` 和 `pdftoppm` 完成强制预检，提供自定义 handler
-也不例外。读取文件明确声明的出版页码标签还需要 Poppler GLib 动态库
-（Debian/Ubuntu 的 `libpoppler-glib8`；Homebrew Poppler 自带）。Windows 还需安装
-相应 GLib 依赖，并确保 Python 能找到 DLL。详见[PDF 预检](ERROR_HANDLING.md#强制-pdf-输入预检)。
+默认 PDF 读取器使用 `pdfinfo` 和 `pdftoppm`，适用于本地和供应商 OCR。出版页码标签
+还需要 Poppler 的 GLib 库：Linux 安装 `libpoppler-glib8` 或对应 ABI 包；macOS 的
+Homebrew Poppler 已包含它，Windows 需确保 Python 能找到相应 DLL。
+自定义 handler 提供实际读取与渲染，不会额外执行整份输入门禁。
+详见[可选输入断言](ERROR_HANDLING.md#可选输入断言)。
 
 
 Poppler 提供 PDF 的只读信息、原生文本和页面渲染；出版页码标签使用其 GLib 公开 API。安装后，`pdfinfo` 应该能在
@@ -107,7 +108,7 @@ pdfinfo -v
 
 直接使用非 PATH 中的工具目录时，可以调用
 `pdf_pages_count(path, pdf_handler=DefaultPDFHandler(poppler_path=directory))`
-（`DefaultPDFHandler` 从 `pdf_craft.pdf` 导入）。预检与读取共用该目录；无效目录仍报错。
+（`DefaultPDFHandler` 从 `pdf_craft.pdf` 导入）。读取使用该目录；无效目录仍报错。
 
 升级已有部署时，也应更新 PDF 后端。PDF Craft 要求 pypdf 6.21.2 或更新的 6.x
 版本。Poppler 是独立安装的系统工具，升级 Python 包不会自动升级它。
@@ -122,7 +123,7 @@ sudo apt-get update
 sudo apt-get install --only-upgrade poppler-utils libpoppler-glib8
 ```
 
-后端升级不会关闭强制 PDF 预检，也不保证此前被拒绝的文件变得可处理。
+后端升级不保证此前不兼容的文件变得可处理。
 
 ## 为 PDF 写回安装 Ghostscript
 
