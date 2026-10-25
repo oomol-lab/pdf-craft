@@ -348,6 +348,7 @@ def _validate_workspace(paths: ExtractionPaths, *, require_toc: bool = False) ->
     if require_toc and not paths.toc.is_file():
         raise ValueError("PDFCraftExtraction is missing toc.xml")
     toc_ids: set[int] = set()
+    toc_pages: dict[int, int] = {}
     if paths.toc.exists():
         toc_root = _require_xml_root(paths.toc, "toc")
         try:
@@ -360,6 +361,7 @@ def _validate_workspace(paths: ExtractionPaths, *, require_toc: bool = False) ->
             if item.id in toc_ids:
                 raise ValueError(f"toc.xml contains duplicate item id {item.id}")
             toc_ids.add(item.id)
+            toc_pages[item.id] = item.page_index
             stack.extend(item.children)
     if paths.furnitures.exists():
         _validate_furnitures(paths.furnitures, page_sizes, toc_ids)
@@ -372,6 +374,7 @@ def _validate_workspace(paths: ExtractionPaths, *, require_toc: bool = False) ->
     anchored_identities: set[tuple[str, int, int]] = set()
     chapter_structures: dict[str, tuple[Any, ...]] = {}
     seen_chapter_ids: set[str] = set()
+    chapter_pages: dict[str, set[int]] = {}
     for path in chapter_paths:
         if path.name != "chapter_head.xml":
             suffix = path.stem.removeprefix("chapter_")
@@ -445,6 +448,7 @@ def _validate_workspace(paths: ExtractionPaths, *, require_toc: bool = False) ->
                 index = int(page_index)
             except ValueError as error:
                 raise ValueError(f"invalid page_index in {path.name}: {page_index}") from error
+            chapter_pages.setdefault(chapter_identity, set()).add(index)
             if index not in page_sizes:
                 raise ValueError(f"{path.name} references page {index} missing from pages.xml")
             if det is not None:
@@ -457,7 +461,12 @@ def _validate_workspace(paths: ExtractionPaths, *, require_toc: bool = False) ->
                     raise ValueError(f"{path.name} references missing asset: {asset_hash}.png")
     source_chapter_ids = {int(value) for value in seen_chapter_ids if value != "head"}
     if paths.toc.exists() and source_chapter_ids != toc_ids:
-        raise ValueError("chapter IDs do not match toc.xml item IDs")
+        from .validation import ChapterTocMismatch
+        missing = toc_ids - source_chapter_ids
+        unexpected = source_chapter_ids - toc_ids
+        pages = {toc_pages[identity] for identity in missing}
+        pages.update(page for identity in unexpected for page in chapter_pages.get(str(identity), ()))
+        raise ChapterTocMismatch(tuple(sorted(missing)), tuple(sorted(unexpected)), tuple(sorted(pages)))
     if paths.translation.exists():
         _validate_translation(
             paths.translation, paths.furnitures, narrative_identities, anchored_identities,

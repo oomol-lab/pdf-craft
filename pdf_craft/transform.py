@@ -204,29 +204,79 @@ class PDFExtractionEngine:
                     original_aborted=original_aborted,
                 )
                 repaired_pages = await self._refine_pages(chapter_analysis, footnote_refinement, draft)
-            return await run_cancellable(
-                OCR_DOMAIN,
-                lambda aborted: self._finish_extraction(
-                    draft, aborted=aborted, analysed_pages=repaired_pages,
-                    resolved_database=(live.database if live is not None and repaired_pages is None
-                                       and not draft.toc.page_indexes else None)),
-                original_aborted=original_aborted,
+            return await self._finish_with_toc_recovery(
+                draft, analysed_pages=repaired_pages,
+                resolved_database=(live.database if live is not None and repaired_pages is None
+                                   and not draft.toc.page_indexes else None),
+                aborted=original_aborted,
             )
         except Exception as error:
             from .extractor.recovery import recover_chapters, recoverable_structure
             if not recoverable_structure(error):
                 raise
             async with temporary_directory("pdf-craft-page-recovery-") as directory:
-                chapters = await recover_chapters(
+                recovered = await recover_chapters(
                     draft, self._ocr, error, directory,
                     analyses=chapter_analysis.pages if chapter_analysis is not None else (),
                     aborted=original_aborted or (lambda: False),
                 )
+                draft = replace(draft, toc=recovered.toc)
+                from .common import save_xml
+                from .extractor.toc import encode as encode_toc
+                await IO_DOMAIN.run(save_xml, encode_toc(draft.toc), draft.toc_path)
                 return await run_cancellable(
                     OCR_DOMAIN,
-                    lambda aborted: self._finish_extraction(draft, aborted=aborted, prepared_chapters=chapters),
+                    lambda aborted: self._finish_extraction(draft, aborted=aborted, prepared_chapters=recovered.chapters),
                     original_aborted=original_aborted,
                 )
+
+    async def _finish_with_toc_recovery(self, draft, *, analysed_pages, resolved_database, aborted):
+        """Directory consistency is repaired before discarding usable pages."""
+        from .common import save_xml
+        from .document.validation import ChapterTocMismatch
+        from .extractor.chapter.toc_identity import chapter_ids, retained_toc
+        from .extractor.toc import encode as encode_toc
+        from ._policy import recover
+        from .policies import FailureCategory, FailureLocation
+
+        async def finish(**options):
+            return await run_cancellable(
+                OCR_DOMAIN,
+                lambda check: self._finish_extraction(draft, aborted=check, **options),
+                original_aborted=aborted,
+            )
+
+        def targets(error):
+            return tuple(FailureLocation('page', source=str(draft.pdf_path), page_indexes=(page,),
+                                         page=self._ocr.page_geometry(page, draft.dpi or 300))
+                         for page in error.page_indexes)
+
+        try:
+            return await finish(analysed_pages=analysed_pages, resolved_database=resolved_database)
+        except ChapterTocMismatch as error:
+            mismatch = error
+        if analysed_pages is not None:
+            # A structurally legal page edit can invalidate a global TOC anchor.
+            # Withdraw the enhancement once, rather than declaring OCR unusable.
+            affected = tuple(FailureLocation('page', source=str(draft.pdf_path),
+                                              page_indexes=(page.page_index,),
+                                              page=self._ocr.page_geometry(page.page_index, draft.dpi or 300))
+                             for page in analysed_pages)
+            await recover(mismatch, FailureCategory.ANALYSIS, 'chapter_toc', 'algorithm_result',
+                          targets=targets(mismatch), affected=affected)
+            try:
+                return await finish()
+            except ChapterTocMismatch as error:
+                mismatch = error
+        await recover(mismatch, FailureCategory.ANALYSIS, 'chapter_toc', 'chapter_toc',
+                      targets=targets(mismatch))
+        # Already generated content is retained exactly. Only unavailable TOC
+        # anchors are removed, with caller approval; unexpected IDs still fail.
+        identities = await IO_DOMAIN.run(chapter_ids, draft.chapters_path)
+        toc = await IO_DOMAIN.run(retained_toc, draft.toc, identities)
+        draft = replace(draft, toc=toc)
+        await IO_DOMAIN.run(save_xml, encode_toc(toc), draft.toc_path)
+        return await finish(prepared_chapters=draft.chapters_path)
 
     async def _refine_pages(self, chapter_analysis, footnote_refinement, draft):
         runtime = runtime_for(
@@ -446,7 +496,7 @@ class PDFExtractionEngine:
                 analysed_pages=analysed_pages,
                 resolved_database=resolved_database,
             )
-        else:
+        elif prepared_chapters != draft.chapters_path:
             import shutil
             draft.chapters_path.mkdir(parents=True, exist_ok=True)
             for path in draft.chapters_path.glob('chapter_*.xml'):

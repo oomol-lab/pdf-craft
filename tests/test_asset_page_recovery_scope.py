@@ -86,7 +86,7 @@ class AssetPageScopeTests(IsolatedAsyncioTestCase):
                                 draft, RecoveryOCR(), PageStructureError('invalid paragraph', target), root / 'recovered',
                                 analyses=project(pages) if use_graph else (), aborted=lambda: False)
                         output = await run(error_policy=lambda event: events.append(event) or True)
-                        chapter = decode_chapter(parse(output / 'chapter_head.xml').getroot())
+                        chapter = decode_chapter(parse(output.chapters / 'chapter_head.xml').getroot())
                         self.assert_whole_recovery(chapter.flow_items, len(pages))
                         self.assertEqual([event.fallback for event in events], ['page_image'])
                         self.assertEqual(events[0].targets[0].page_indexes, (target,))

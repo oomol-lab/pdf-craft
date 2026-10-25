@@ -6,6 +6,11 @@
 
 ## 组合流程
 
+目录检测分别保留真实 Page.index 与检测窗口内位置：前者用于来源/文件名，后者仅用于
+目录位置比例及选中序列连续性。不能以 enumerate 替代页身份。排除的印刷目录页不生成
+正文章节锚点。最终 heading 段内每个独立 TOC 锚点都形成章节边界，不丢弃后续 ID；
+没有新增锚点的标题 fragment 和段内资产仍保留在原段。
+
 Extractor 生成 PDFCraftExtraction 后，Renderer 可直接生成 Markdown 或 EPUB。可选 Transformer
 可以在渲染前修改结构化文本；`pipeline/epub` 也可把既有 EPUB 的 XHTML、目录和元数据交给
 同一个 XML Transformer。PDF Translation Pipeline 只处理已记录来源 bbox 内的文本。

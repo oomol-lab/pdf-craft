@@ -58,15 +58,15 @@ async def _do_analyse_toc(
     if toc_assumed:
         toc_pages = await IO_DOMAIN.run(find_toc_pages,
             iter_titles=lambda: (
-                list(
+                (page.index, list(
                     (layout.order, _TITLE_HEAD_REGX.sub("", layout.text))
                     for layout in page.body_layouts
                     if layout.ref in TITLE_TAGS
-                )
+                ))
                 for page in pages.read()
             ),
             iter_page_bodies=lambda: (
-                "".join(layout.text for layout in page.body_layouts)
+                (page.index, "".join(layout.text for layout in page.body_layouts))
                 for page in pages.read()
             ),
         )
@@ -118,6 +118,10 @@ async def _do_analyse_toc(
         if ref2level is None:
             ref2level = await IO_DOMAIN.run(analyse_title_levels, pages)
 
+    # A printed directory page is excluded from chapter content. It cannot
+    # also provide a chapter anchor, even if another directory page matched it.
+    excluded = set(toc_page_indexes)
+    ref2level = {key: level for key, level in ref2level.items() if key[0] not in excluded}
     return TocInfo(
         content=_structure_toc_by_levels(ref2level),
         page_indexes=toc_page_indexes,
