@@ -36,6 +36,9 @@ from doc_page_extractor.errors import VendorOCRRequestError
 
 
 class _Document:
+    def metadata(self, *_args):
+        return None
+
     pages_count = 3
 
     def __init__(self, rendered: list[int]) -> None:

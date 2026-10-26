@@ -119,6 +119,9 @@ class StreamFollowupTests(unittest.IsolatedAsyncioTestCase):
         from pdf_craft.common import save_xml
         context = ExtractionContext()
         class FakeOCR:
+            def metadata(self, *_args):
+                return None
+
             is_vendor = False
             last_page_pixel_sizes = {1: (100, 100), 2: (100, 100)}
             def recognize(self, **kwargs):

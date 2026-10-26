@@ -58,6 +58,9 @@ class _CapturePatcher:
 
 
 class _AllPagesFailOCR:
+    def metadata(self, *_args):
+        return None
+
     is_vendor = False
     last_page_pixel_sizes: dict[int, tuple[int, int]] = {}
 

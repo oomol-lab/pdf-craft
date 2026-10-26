@@ -5,6 +5,8 @@ from __future__ import annotations
 from ..runtime import IO_DOMAIN
 
 import re
+import asyncio
+import heapq
 import unicodedata
 from collections.abc import Iterable
 from dataclasses import dataclass
@@ -99,55 +101,106 @@ class _TurnResponse(BaseModel):
         return self
 
 
-async def extract_book_metadata_from_ocr(pages_path: Path, metadata_llm: LLM) -> DocumentMetadata:
-    """Read up to twelve front OCR pages through a bounded, repairable dialogue."""
-    pages = await IO_DOMAIN.run(_read_front_pages, pages_path)
-    if not pages:
-        return DocumentMetadata()
+class FrontPages:
+    """A bounded view of committed OCR files, including cache-only inputs.
 
-    loaded = pages[:_INITIAL_PAGE_COUNT]
-    cursor = len(loaded)
+    Candidate order matches the historical sorted file reader. Existing files
+    outside the selection remain evidence, including committed fallback XML with a
+    failure marker: these pages will not be retried in this operation. Selected
+    failed caches wait for their replacement. Only the first twelve identities
+    and readiness bits are held.
+    """
+
+    def __init__(self, path, candidates, ready):
+        self.path = path
+        self.candidates = candidates
+        self.ready = set(ready)
+        self.ended = False
+        self.changed = asyncio.Event()
+
+    @classmethod
+    def open(cls, path, page_count, selected):
+        cached = set(heapq.nsmallest(_MAX_PAGE_COUNT,
+            (int(match[1]) for file in path.glob('page_*.xml')
+             if (match := _PAGE_FILE_PATTERN.fullmatch(file.name)))))
+        expected = []
+        for index in range(1, page_count + 1):
+            if selected is None or index in selected:
+                expected.append(index)
+                if len(expected) == _MAX_PAGE_COUNT:
+                    break
+        candidates = sorted(cached.union(expected))[:_MAX_PAGE_COUNT]
+        ready = [index for index in candidates if index in cached
+                 and ((selected is not None and index not in selected)
+                      or not (path / f'page_{index}.failed').exists())]
+        return cls(path, candidates, ready)
+
+    def event(self, event):
+        from ..pdf.ocr import OCREventKind
+        if event.kind in (OCREventKind.COMPLETE, OCREventKind.SKIP, OCREventKind.FAILED):
+            if event.page_index in self.candidates:
+                self.ready.add(event.page_index)
+                self.changed.set()
+
+    def finish(self):
+        self.ended = True
+        self.changed.set()
+
+    async def wait_ready(self, count):
+        """Wait for commit identities without parsing outside recovery policy."""
+        count = min(count, _MAX_PAGE_COUNT)
+        while True:
+            self.changed.clear()
+            if self.ended or all(index in self.ready for index in self.candidates[:count]):
+                return
+            await self.changed.wait()
+
+    async def load(self, count):
+        count = min(count, _MAX_PAGE_COUNT)
+        await self.wait_ready(count)
+        if self.ended:
+            pages = await IO_DOMAIN.run(_read_front_pages, self.path)
+            return pages[:count], len(pages)
+        pages = await IO_DOMAIN.run(_read_pages,
+            [(index, self.path / f'page_{index}.xml') for index in self.candidates[:count]])
+        return pages, len(self.candidates)
+
+
+async def extract_book_metadata_from_ocr(
+    pages_path: Path, metadata_llm: LLM, *, front_pages: FrontPages | None = None,
+) -> DocumentMetadata:
+    """Read committed front pages, waiting only for requested evidence."""
+    async def load(count):
+        if front_pages is not None:
+            return await front_pages.load(count)
+        pages = await IO_DOMAIN.run(_read_front_pages, pages_path)
+        return pages[:count], len(pages)
+
+    loaded, available = await load(_INITIAL_PAGE_COUNT)
+    if not loaded:
+        return DocumentMetadata()
     messages = [
         Message(MessageRole.SYSTEM, _SYSTEM_PROMPT),
-        Message(MessageRole.USER, _render_pages_message(loaded, remaining=len(pages) - cursor)),
+        Message(MessageRole.USER, _render_pages_message(loaded, remaining=available - len(loaded))),
     ]
     runtime = runtime_for(
-        metadata_llm,
-        ConcurrentExecutor(FixedCapacity(1)),
+        metadata_llm, ConcurrentExecutor(FixedCapacity(1)),
         protocol_version="book-metadata-json-v1",
-    ) \
-        if isinstance(metadata_llm, LLM) else None
-
+    ) if isinstance(metadata_llm, LLM) else None
     while True:
-        turn = await _request_turn(
-            metadata_llm,
-            runtime,
-            messages,
-            loaded,
-            available_page_count=len(pages),
-        )
-        messages.append(Message(
-            MessageRole.ASSISTANT,
-            turn.model_dump_json(exclude_none=True, ensure_ascii=False),
-        ))
+        turn = await _request_turn(metadata_llm, runtime, messages, loaded,
+                                   available_page_count=available)
+        messages.append(Message(MessageRole.ASSISTANT,
+                                turn.model_dump_json(exclude_none=True, ensure_ascii=False)))
         if turn.action == "complete":
             assert turn.metadata is not None
             return _to_document_metadata(turn.metadata)
-
         assert turn.page_count is not None
-        remaining = len(pages) - cursor
-        assert remaining > 0  # _request_turn rejects read_more after the last physical OCR page.
-        requested = min(turn.page_count, remaining)
-        next_pages = pages[cursor:cursor + requested]
-        loaded.extend(next_pages)
-        cursor += len(next_pages)
-        messages.append(Message(
-            MessageRole.USER,
-            _render_pages_message(
-                next_pages,
-                remaining=min(_MAX_PAGE_COUNT - len(loaded), len(pages) - cursor),
-            ),
-        ))
+        pages, available = await load(len(loaded) + turn.page_count)
+        next_pages = pages[len(loaded):]
+        loaded = pages
+        messages.append(Message(MessageRole.USER, _render_pages_message(
+            next_pages, remaining=available - len(loaded))))
 
 
 def merge_ocr_and_pdf_metadata(
@@ -293,8 +346,12 @@ def _read_front_pages(pages_path: Path) -> list[_OCRPage]:
         match = _PAGE_FILE_PATTERN.fullmatch(path.name)
         if match is not None:
             numbered_paths.append((int(match.group(1)), path))
+    return _read_pages(sorted(numbered_paths)[:_MAX_PAGE_COUNT])
+
+
+def _read_pages(numbered_paths):
     pages: list[_OCRPage] = []
-    for index, path in sorted(numbered_paths)[:_MAX_PAGE_COUNT]:
+    for index, path in numbered_paths:
         element = ElementTree.parse(path).getroot()
         text = "\n".join(
             layout.text.strip() for layout in element.findall(".//layout")

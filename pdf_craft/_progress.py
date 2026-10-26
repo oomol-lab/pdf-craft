@@ -1,6 +1,7 @@
 """Bounded operation accounting shared by both public event adapters."""
 import asyncio
 from collections import Counter
+from contextlib import closing
 from types import MappingProxyType
 
 from .progress import ProgressEvent, ProgressEventKind, OperationKind, UnitKind, UnitOutcome
@@ -109,22 +110,25 @@ class DiskUnits:
     def __init__(self, path, owner):
         import sqlite3
         self.path, self.owner = path, owner
-        with sqlite3.connect(path) as db:
-            db.execute('CREATE TABLE units (key TEXT PRIMARY KEY, state BLOB NOT NULL)')
+        with closing(sqlite3.connect(path)) as db:
+            with db:
+                db.execute('CREATE TABLE units (key TEXT PRIMARY KEY, state BLOB NOT NULL)')
 
     def save(self, key, unit):
         import pickle
         import sqlite3
         state = (unit.id, unit.kind, unit.total_words, unit.max_stage, unit.page_index,
                  unit.words, unit.stage, unit.outcome, unit.closed)
-        with sqlite3.connect(self.path) as db:
-            db.execute('INSERT OR REPLACE INTO units VALUES (?, ?)', (str(key), pickle.dumps(state)))
+        with closing(sqlite3.connect(self.path)) as db:
+            with db:
+                db.execute('INSERT OR REPLACE INTO units VALUES (?, ?)', (str(key), pickle.dumps(state)))
 
     def load(self, key):
         import pickle
         import sqlite3
-        with sqlite3.connect(self.path) as db:
-            row = db.execute('SELECT state FROM units WHERE key=?', (str(key),)).fetchone()
+        with closing(sqlite3.connect(self.path)) as db:
+            with db:
+                row = db.execute('SELECT state FROM units WHERE key=?', (str(key),)).fetchone()
         if row is None:
             return None
         identifier, kind, words, maximum, page, done, stage, outcome, closed = pickle.loads(row[0])
@@ -134,5 +138,6 @@ class DiskUnits:
 
     def delete(self, key):
         import sqlite3
-        with sqlite3.connect(self.path) as db:
-            db.execute('DELETE FROM units WHERE key=?', (str(key),))
+        with closing(sqlite3.connect(self.path)) as db:
+            with db:
+                db.execute('DELETE FROM units WHERE key=?', (str(key),))

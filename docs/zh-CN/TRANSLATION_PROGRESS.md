@@ -19,16 +19,16 @@
 | --- | --- | --- |
 | extraction | PAGE | 所选源页各一个，直到最终采用结果确定。 |
 | extraction | TOC | 一次目录分析，包含统计分析或缓存复用。 |
-| extraction | METADATA | `extract_book_metadata=True` 时一次书籍元信息提取。 |
+| extraction | METADATA | 一次书籍元信息提取：原生 PDF 字段，或 OCR 证据加原生 fallback。 |
 | translation | CONTENT | PCEX 中含 narrative words 的 flow/脚注条目；EPUB 的正文任务。 |
 | translation | ASSET | 独立的图片或表格，包含该资产的 title/content/caption 字段。 |
 | translation | FURNITURE | 独立 pattern position，或同一页的普通 sections。 |
 | translation | METADATA | 书籍元信息聚合为 0 或 1 个单元。 |
 | translation | NAVIGATION | EPUB 导航及文档标题聚合为 0 或 1 个单元。 |
 
-PCEX 提前翻译的标题仍是同一 CONTENT 单元，正文消费缓存或 furniture 复用时不重复计数。
+PCEX 标题是普通 CONTENT 单元；定稿立即释放对应 furniture 依赖，复用不重复计 unit、words 或 LLM 请求。
 PCEX 目录从标题派生，不单独翻译计数。EPUB XHTML 的 head/title 始终属于 NAVIGATION，
-即使没有目录或 OPF 元信息；只有 OPF 书籍字段归入 METADATA。只交付 PDF 原生元信息不创建 metadata 提取单元。
+即使没有目录或 OPF 元信息；只有 OPF 书籍字段归入 METADATA。原生 PDF 元信息也在 OCR 前创建并完成 METADATA 单元；空结果或允许的 fallback 同样结清。
 排除页不在 PAGE 总数中；所选页命中缓存仍要完成一个 PAGE。
 不透明的自定义整章 Transformer 以整章为 CONTENT，只能在适配器可观察边界报告进度。
 不透明的整书批处理无法透露内部启动时机，在逐项采纳返回章节时才创建并完成其单元，不提前分配全书 ID。
@@ -52,7 +52,7 @@ JEV 和精修是条件步骤，缓存页可直接进入 2，无精修页可直�
 optional 或阶段清单。同一个 stage 可以多次更新 words，一轮没有新增 words 也允许通知。
 标准 XML 翻译每轮最终采纳或最终 fallback 后更新，不把每次失败重试都计入。
 
-OCR 完成不等于页最终提取完成。按序跨页解析与 OCR 重叠；当前 metadata、TOC 在 OCR 后执行，
+OCR 完成不等于页最终提取完成。按序跨页解析与 OCR 重叠；OCR metadata 在前 3 个输入页正式落盘后启动，不足 3 页时使用实际输入；补读只等待所需页，最多 12 页，完整/部分缓存沿用同一规则。TOC 仍在 OCR 后执行，
 页精修依赖目录和跨页分析。JEV/LLM 候选可能在全局校验中撤回，因此 PAGE 要等最终恢复、校验及
 产物发布后才报告完成，避免撤回完成事件。进度系统不改变实际调度和恢复依赖。
 
@@ -128,3 +128,28 @@ counter.boundary()
 可重复遍历的同步 iterable 可以直接统计，不额外收集任务列表。高层 PCEX/PDF/EPUB 自动进行标量预扫描。
 
 移除旧高级接口的 `completed_words` 偏移及 `emit_scope_events` / `emit_item_events` 开关；启用回调即使用一致的作用域生命周期。
+
+
+## PCEX 调度与交付
+
+metadata、正文、脚注、独立图片/表格文字与 furniture 共用一个 PCEX `window`，限制活跃业务任务。
+每个任务内部 XML group 的窗口为 1；所有请求仍使用原 translator 的共享 executor 和限流，
+不会因增加流复制容量或让内外窗口相乘。`window=1` 时活跃工作自然串行。
+
+扫描把原文任务、等待标题的依赖与乱序结果写入临时 SQLite；只在实际执行时创建 unit/整数 ID。
+就绪任务按通道轮转入场；pending 不占窗口，也不挡住后面的 ready。标题只翻译一次，定稿后
+立即释放对应家具；fallback/无可信译文也会释放并保留原文，输入结束后未知标题同样结清。
+复用没有额外 LLM 请求、unit 或 words，保留的原文不能冒充可信译文。
+
+资产继续携带原文上下文：段内资产使用最近标题和所在段落，独立资产使用前后最近正文，
+最多 480 字符。只等必要原文 lookahead，不等正文译文；上下文不计 words、不写回产物。
+脚注定义仍走 narrative 翻译，本次没有新增脚注内资产翻译能力。
+
+进度按实际执行交错；`on_body`、`on_footnote` 各自在通道内按原文顺序，通过独立磁盘交付，
+不受另一通道或按序章节写入的慢队首约束。慢回调/乱序结果不占执行槽，回调异常仍终止并收敛并行任务。
+渲染器可以先等待最终 metadata/furniture，再消费已落盘的正文。整体完成仍要求完整消费及成功发布；
+提前关闭流会取消并收敛剩余任务，不等待整本书完成，也不伪造整体完成。EPUB 输入保留原统一任务流及 `EpubFragmentContent` 阅读顺序。
+翻译 stage 0 有意涵盖翻译与 XML 填充/校验多轮调用，不逐次区分两类请求，也不代表全书串行阶段。
+
+未选中页的既有缓存 XML（包括带失败标记的 fallback XML）仍作为原有证据立即就绪，
+因为本次操作不会重试该页；选中页的失败缓存则等待正式替换结果，不改变前部页的原有选取顺序。

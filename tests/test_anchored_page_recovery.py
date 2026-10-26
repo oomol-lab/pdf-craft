@@ -134,6 +134,9 @@ class AnchoredPageTests(IsolatedAsyncioTestCase):
 
 
 class RecoveryOCR:
+    def metadata(self, *_args):
+        return None
+
     is_vendor = False
     last_page_pixel_sizes = {1: (200, 200), 2: (200, 200), 3: (200, 200)}
 
@@ -301,7 +304,7 @@ class ExtractionRecoveryTests(IsolatedAsyncioTestCase):
             with self.assertRaises(NoUsableOCRPagesError):
                 await recover_once(root / 'recovered-again', error_policy=True)
 
-    async def test_first_translation_item_can_use_a_furniture_pretranslation_map(self):
+    async def test_first_translation_item_needs_no_furniture_pretranslation_barrier(self):
         from pdf_craft.document.content import ContentItem
         from pdf_craft.transformer.content import translate_content
         class Transformer:
@@ -310,7 +313,7 @@ class ExtractionRecoveryTests(IsolatedAsyncioTestCase):
         async def items():
             yield ContentItem('chapter_head.xml', None, -1, 0,
                               TextFlowItem('body', -1, [SourceTextFragment(1, 0, (1, 1, 100, 20), ['Body.'])]))
-        results = [item async for item in translate_content(items(), Transformer(), 2, [], [], pretranslated={})]
+        results = [item async for item in translate_content(items(), Transformer(), 2, [], [])]
         self.assertEqual(len(results), 1)
 
     async def test_prepare_analysis_failure_uses_the_same_public_page_recovery(self):

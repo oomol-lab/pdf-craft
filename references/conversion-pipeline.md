@@ -106,8 +106,8 @@ analysis 与稳定 extraction 明确分离：
   translation layer 索引。
 
 Narrative 翻译中的段内 asset 只以无文本临时 anchor 保持位置；独立 asset 不伪造 anchor。图片/
-表格 title/content/caption 属于独立翻译阶段；标准高层翻译入口固定先运行 NarrativeFlow，随后由
-`with_anchored` 决定是否运行该阶段，并以 anchored coverage 约束 v4 translation layer 中允许变化的 slot。
+表格 title/content/caption 属于独立翻译阶段；标准高层翻译入口将 NarrativeFlow 与
+`with_anchored` 控制的资产任务放入同一 ready 调度池，按来源身份合并结果，并以 anchored coverage 约束 v4 translation layer 中允许变化的 slot。
 
 公共分段流程把 `extraction/` 打包为 `.pcex`；恢复后端只接受 `.pcex` 或已加载的
 `PDFCraftExtraction`。一键转换直接使用 workspace，只有显式 `extraction_path` 时才额外导出
@@ -202,3 +202,16 @@ EpubTranslation 仅作为 EpubFragmentContent 的兼容别名。
 精确 `zh` / `en` 使用已有文案，其他字符串统一回退英文；在调用 epub-generator 时才
 映射到依赖内部的 `lan`。文案目录不是正文支持语言白名单，不能用原文或译文语言
 推断并拒绝渲染，也不能因文案回退改写翻译目标、PCEX 元数据或回调内容。
+
+
+## 依赖就绪调度
+
+`extractor/metadata.py FrontPages` 只记录前 12 个候选身份与落盘就绪位；原生 metadata 在 OCR 前完成，
+LLM 首轮等前 3 页（不足时 EOF），后续 read_more 只等指定输入。正式 OCR 终态/缓存驱动 readiness，
+最终封装等待 metadata；TOC/JEV/页精修依赖不变。
+
+`transformer/pcex_schedule.py` 共用一个活跃业务 window 和原 translator executor，内部 group window=1，
+避免容量相乘。`ready_queue.py` 将未执行/标题依赖/乱序结果落盘；`furniture_plan.py` 根据具体标题终态释放复用。
+正文、脚注、资产、家具、metadata 分别入场，按稳定身份汇合；正文/脚注各自的磁盘通知与全局顺序文件写入独立。
+`document/content.py contextual_content` 用磁盘 spool 等必要原文 lookahead，保持 480 字符资产上下文。
+EPUB 输入的调度架构不变。用户契约见 `docs/*/TRANSLATION_PROGRESS.md` 与 `STREAMING.md`。

@@ -136,13 +136,56 @@ def asset_contexts(path: Path):
     return contexts
 
 
+def contextual_content(path):
+    """Release source items as soon as their original-text lookahead is known.
+
+    Runs on the IO domain. An arbitrary run of standalone assets/formulas is
+    spooled, rather than accumulating a chapter-wide context dictionary.
+    """
+    import pickle
+    from tempfile import TemporaryDirectory
+    from ..extractor.chapter.chapter import StandaloneAsset
+    from ..transformer.anchored_translation import _flow_text, _clip
+    heading, previous = '', ''
+    with TemporaryDirectory(prefix='pdf-craft-asset-context-') as directory:
+        spool = Path(directory) / 'pending'
+        count = 0
+        def drain(following):
+            nonlocal count
+            if count:
+                with spool.open('rb') as file:
+                    for _ in range(count):
+                        pending = pickle.load(file)
+                        if isinstance(pending.value, StandaloneAsset):
+                            pending.asset_context = _clip('\n'.join(part for part in (previous, following) if part))
+                        yield pending
+                spool.unlink()
+                count = 0
+        for item in file_content(path):
+            value = item.value
+            if isinstance(value, TextFlowItem):
+                following = _clip(_flow_text(value))
+                yield from drain(following)
+                if any(isinstance(child, SourceAsset) for child in value.children):
+                    item.asset_context = _clip('\n'.join(part for part in (heading, following) if part))
+                if value.role == 'heading':
+                    heading = following
+                previous = following
+                yield item
+            elif isinstance(value, StandaloneAsset) or count:
+                with spool.open('ab') as file:
+                    pickle.dump(item, file, protocol=pickle.HIGHEST_PROTOCOL)
+                count += 1
+            else:
+                yield item
+        yield from drain('')
+
+
 async def read_content(chapters: Path) -> AsyncGenerator[ContentItem, None]:
     paths = await IO_DOMAIN.run(lambda: list(chapter_paths(chapters)))
     for path in paths:
-        contexts = await IO_DOMAIN.run(asset_contexts, path)
-        async with aclosing(worker_iter(file_content(path))) as incoming:
+        async with aclosing(worker_iter(contextual_content(path))) as incoming:
             async for item in incoming:
-                item.asset_context = contexts.get(item.index, '') if not isinstance(item.value, Reference) else ''
                 yield item
 
 

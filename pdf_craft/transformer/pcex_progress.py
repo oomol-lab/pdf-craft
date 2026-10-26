@@ -65,7 +65,7 @@ async def pcex_progress(extraction, transformer, callback, *, metadata=None,
     await progress.start(counts, total)
     with progress_context(progress):
         yield
-        if owns and all(progress.finished[kind] == count for kind, count in progress.counts.items()):
+        if owns and not progress.pending_streams and all(progress.finished[kind] == count for kind, count in progress.counts.items()):
             await progress.finish()
 
 

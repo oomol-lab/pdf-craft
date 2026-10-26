@@ -9,7 +9,7 @@ from pathlib import Path
 import tempfile
 import unittest
 from typing import Any
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, Mock, patch
 from xml.etree.ElementTree import fromstring
 from zipfile import ZipFile
 
@@ -43,6 +43,9 @@ class FakeOCR:
     def __init__(self, events, native=None):
         self.events = events
         self.native = native
+
+    def _get_pdf_handler(self):
+        return Mock(open=Mock(return_value=Mock(pages_count=2)))
 
     def metadata(self, _path):
         self.events.append('native')
@@ -130,7 +133,7 @@ class MetadataCallbackTests(unittest.IsolatedAsyncioTestCase):
     async def test_llm_waits_merges_fallback_and_notifies_once(self):
         for fail in (False, True):
             events, received = [], []
-            async def extract(*_args):
+            async def extract(*_args, **_kwargs):
                 self.assertIn('ocr', events)
                 self.assertEqual(received, [])
                 events.append('llm')
@@ -164,14 +167,14 @@ class MetadataCallbackTests(unittest.IsolatedAsyncioTestCase):
                         includes_furniture=False, on_metadata=received.append), error_policy=True)
                 self.assertEqual(received, [MetadataContent(DocumentMetadata())])
 
-    async def test_no_callback_keeps_native_only_metadata_optional(self):
+    async def test_no_callback_reads_native_metadata_without_constructing_snapshot(self):
         events = []
         with tempfile.TemporaryDirectory() as directory, patch(
                 'pdf_craft.transform.MetadataContent', side_effect=AssertionError('unused snapshot')):
             root = Path(directory)
             await AsyncPDFCraft.from_engine(engine(FakeOCR(events, native_metadata()))).extract_pdf(
                 root / 'a.pdf', root / 'a.pcex', ExtractionOptions(includes_furniture=False))
-        self.assertNotIn('native', events)
+        self.assertEqual(events[0], 'native')
 
     async def test_callback_failure_is_not_swallowed_by_llm_fallback(self):
         for use_llm in (False, True):

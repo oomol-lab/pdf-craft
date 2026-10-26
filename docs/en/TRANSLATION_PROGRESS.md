@@ -25,19 +25,19 @@ out-of-order EPUB state can live on temporary disk across existing batch barrier
 | --- | --- | --- |
 | Extraction | PAGE | One selected source page, through final accepted extraction. |
 | Extraction | TOC | One directory analysis, including statistical analysis/cache reuse. |
-| Extraction | METADATA | One book-metadata extraction when `extract_book_metadata=True`. |
+| Extraction | METADATA | One book-metadata extraction: native PDF fields, or OCR evidence with native fallback. |
 | Translation | CONTENT | PCEX flow/footnote entry with narrative words; EPUB body task. |
 | Translation | ASSET | One independent image/table asset, including its title/content/caption fields. |
 | Translation | FURNITURE | One independent pattern position, or ordinary sections on one page. |
 | Translation | METADATA | Zero or one aggregate of book metadata. |
 | Translation | NAVIGATION | Zero or one aggregate of EPUB navigation and document-title fields. |
 
-PCEX headings translated ahead of the body are the same CONTENT units: consuming
-cached headings or reusing them in furniture does not create more units or words.
+PCEX headings are ordinary CONTENT units. Their final results release dependent
+furniture immediately; reuse creates no additional units, words or LLM calls.
 PCEX TOC is derived from headings and is not a separate translation. EPUB XHTML
 `head/title` fields belong to NAVIGATION, even without a TOC or OPF metadata.
-Only OPF book fields belong to the METADATA aggregate. Native-only
-PDF metadata delivery does not create a metadata extraction unit. Excluded pages
+Only OPF book fields belong to the METADATA aggregate. Native-only PDF extraction
+starts and completes its METADATA unit before OCR, including an empty/fallback result. Excluded pages
 are absent from PAGE counts. Cache reuse of a selected page still completes a PAGE.
 For opaque custom whole-chapter transformers, a CONTENT unit is a whole chapter;
 only their observable adapter boundaries can report progress. Opaque whole-book batch
@@ -64,12 +64,20 @@ Stages belong to units and concurrent units may be at different stages.
 JEV/refinement are conditional. Reused pages can jump directly to stage 2; pages
 without refinement jump to 5. No objects or optional-stage plans describe these
 steps. A stage may report multiple word updates, and zero-word updates are valid.
+Stage 0 deliberately includes both translation and XML-fill/validation calls; it
+does not distinguish each request or imply a single serial book-wide phase.
 Standard XML translation reports after each accepted or final-fallback round,
 not after every failed HTTP attempt. One logical unit can require multiple rounds.
 
 A page's OCR result is not its final extraction result. Ordered cross-page parsing
-overlaps OCR. Current metadata and TOC analysis follow OCR; page refinement follows
-TOC and a cross-page analysis barrier. JEV/LLM candidates may be rolled back during
+overlaps OCR. OCR-based metadata starts when the first three available front-page
+records are committed (or the shorter selected input ends); `read_more` waits only
+for its requested evidence, up to twelve pages. Complete and partial caches use the
+same readiness rule. Existing unselected cached XML remains evidence, including
+fallback XML with a failure marker; it is ready immediately because this operation
+will not retry it. Selected failed caches wait for their terminal replacement.
+TOC still follows OCR; page refinement follows TOC and a
+cross-page analysis barrier. JEV/LLM candidates may be rolled back during
 global validation. PAGE completion waits until final recovery/validation and successful
 publication, so it never needs retraction. Events do not change these dependencies.
 
@@ -158,3 +166,35 @@ are rejected before model work. A reusable synchronous iterable can be counted d
 High-level PCEX/PDF/EPUB paths perform their own scalar pre-scan.
 
 The old advanced `completed_words` offset and `emit_scope_events` / `emit_item_events` switches are removed; scoped lifecycle reporting is consistent whenever a callback is supplied.
+
+
+## PCEX scheduling and delivery
+
+Metadata, body, footnotes, independent image/table text and furniture share a single
+PCEX `window` of active business jobs. Inside each admitted job the XML group window
+is one; every request still uses the original shared translator executor and its
+rate limits. Increasing streams never creates another executor or multiplies nested
+windows. `window=1` necessarily serializes active work.
+
+The scanner spools source jobs, pending title dependencies and completed results to
+temporary SQLite storage. Units/IDs are created only on execution, not by the scan.
+Ready work is admitted fairly across channels; a pending furniture/title reuse never
+holds a window slot. A heading is translated once; its accepted result (including
+fallback or absence) releases only its dependants. Unknown titles settle at input
+completion instead of hanging. Reused original text is not a trusted translation.
+
+Asset jobs preserve original context: nearest heading plus containing paragraph for
+embedded assets, nearest surrounding body text for standalone assets, clipped to
+480 characters. Only necessary source lookahead is awaited, never translated prose.
+Context is not counted as words or persisted. Footnote definitions continue through
+the narrative channel; this does not add asset translation inside footnotes.
+
+Progress may interleave in execution order. Body and footnote content callbacks each
+retain their own source order and use separate disk delivery, independently of the
+ordered chapter writer/renderer. Slow callbacks and out-of-order results do not hold
+execution slots; callback failures still cancel and settle sibling work. Renderers
+may wait for finalized book metadata/furniture before consuming the spooled content.
+Operation completion requires successful complete consumption/publication; closing a
+partially consumed stream cancels and settles remaining jobs immediately instead of
+waiting for the book to finish, and cannot fabricate completion. EPUB input retains its existing
+unified task stream and ordered `EpubFragmentContent` delivery.

@@ -14,7 +14,7 @@ from ..runtime import IO_DOMAIN, worker_context, temporary_directory
 @asynccontextmanager
 async def _content_view(extraction, *, mode=RenderMode.SOURCE, translation_id=None,
                        translator=None, window=1, with_anchored=True, with_furniture=False,
-                       on_metadata=None, aborted=lambda: False):
+                       on_metadata=None, on_body=None, on_footnote=None, aborted=lambda: False):
     """No translated workspace: the consumer receives the producer directly."""
     if translator is not None and translation_id is not None:
         raise ValueError("translation_id cannot be combined with translator")
@@ -70,13 +70,11 @@ async def _content_view(extraction, *, mode=RenderMode.SOURCE, translation_id=No
         items = selected_items()
         if translator is not None:
             from ..transformer.narrative_xml import NarrativeXMLTransformer
-            from ..transformer.content import translate_content
             transformer = NarrativeXMLTransformer(translator, window=window)
-            overlay = await transformer.translate_metadata(metadata, on_metadata=on_metadata)
-            effective_mode = RenderMode.REPLACE if mode == RenderMode.SOURCE else mode
-            view = replace(view, metadata=_effective_metadata(metadata, overlay, effective_mode),
-                           language=overlay.get('language', transformer.target_language) or view.language)
             if not transformer.supports_stream:
+                overlay = await transformer.translate_metadata(metadata, on_metadata=on_metadata)
+                view = replace(view, metadata=_effective_metadata(metadata, overlay, RenderMode.REPLACE if mode == RenderMode.SOURCE else mode),
+                               language=overlay.get("language", transformer.target_language) or view.language)
                 # Explicit whole-element extension contract; standard XMLTranslator
                 # uses the streaming branch below.
                 from ..transformer.package import ChapterExtractionTransformer, AnchoredContentExtractionTransformer
@@ -92,13 +90,25 @@ async def _content_view(extraction, *, mode=RenderMode.SOURCE, translation_id=No
                 translated = True
                 items = selected_items()
             else:
-                pretranslated = None
-                if with_furniture:
-                    from ..transformer.furniture_stream import prepare_furniture
-                    pretranslated, furniture, furniture_coverage = await prepare_furniture(paths, transformer, furniture_root)
-                    view = replace(view, furnitures=furniture, furniture_coverage=furniture_coverage)
-                items = translate_content(items, transformer, window, [], [],
-                                          with_anchored=with_anchored, aborted=aborted, pretranslated=pretranslated, pages=pages)
+                from ..transformer.pcex_schedule import pcex_schedule
+                async def translate_metadata():
+                    return await transformer.translate_metadata(metadata, on_metadata=on_metadata)
+                from ..renderer.paragraph import paragraph_notifications
+                async with paragraph_notifications(pages, paths.assets, numbers, on_body, on_footnote) as notify:
+                    async with pcex_schedule(items, transformer, window, paths=paths, root=furniture_root,
+                                             with_furniture=with_furniture, with_anchored=with_anchored,
+                                             aborted=aborted, pages=pages, metadata=translate_metadata, notifier=notify) as schedule:
+                        overlay = await schedule.header()
+                        view = replace(view, metadata=_effective_metadata(metadata, overlay, RenderMode.REPLACE if mode == RenderMode.SOURCE else mode),
+                                       language=overlay.get('language', transformer.target_language) or view.language)
+                        if with_furniture:
+                            assert schedule.furniture is not None
+                            view = replace(view, furnitures=schedule.furniture.path,
+                                           furniture_coverage=schedule.furniture.coverage)
+                        items = schedule.results([], [])
+                        async with aclosing(items):
+                            yield view, pages, numbers, items
+                return
         async with aclosing(items):
             yield view, pages, numbers, items
 
