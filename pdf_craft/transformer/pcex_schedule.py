@@ -268,7 +268,12 @@ async def pcex_schedule(items, transformer, window, *, paths=None, root=None, wi
         schedule.runner = runner
         try:
             yield schedule
-            await runner
+            # A normal context exit may still mean the consumer stopped early.
+            # Do not finish an unread book (or wait for blocked model requests).
+            if not schedule.consumed:
+                runner.cancel()
+            else:
+                await runner
         finally:
             runner.cancel()
             try:

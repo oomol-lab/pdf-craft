@@ -49,3 +49,6 @@
   original asset context, and deliver body/footnote callbacks independently in order.
 - Keep pending dependencies and reorder results on disk, close progress SQLite
   connections explicitly, and avoid operation completion for partially consumed streams.
+
+- Avoid waiting for impossible replacement events on unselected failed OCR caches;
+  cancel and settle remaining PCEX jobs when a content stream is closed early.

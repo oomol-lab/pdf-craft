@@ -73,7 +73,10 @@ A page's OCR result is not its final extraction result. Ordered cross-page parsi
 overlaps OCR. OCR-based metadata starts when the first three available front-page
 records are committed (or the shorter selected input ends); `read_more` waits only
 for its requested evidence, up to twelve pages. Complete and partial caches use the
-same readiness rule. TOC still follows OCR; page refinement follows TOC and a
+same readiness rule. Existing unselected cached XML remains evidence, including
+fallback XML with a failure marker; it is ready immediately because this operation
+will not retry it. Selected failed caches wait for their terminal replacement.
+TOC still follows OCR; page refinement follows TOC and a
 cross-page analysis barrier. JEV/LLM candidates may be rolled back during
 global validation. PAGE completion waits until final recovery/validation and successful
 publication, so it never needs retraction. Events do not change these dependencies.
@@ -192,5 +195,6 @@ ordered chapter writer/renderer. Slow callbacks and out-of-order results do not 
 execution slots; callback failures still cancel and settle sibling work. Renderers
 may wait for finalized book metadata/furniture before consuming the spooled content.
 Operation completion requires successful complete consumption/publication; closing a
-partially consumed stream cannot fabricate completion. EPUB input retains its existing
+partially consumed stream cancels and settles remaining jobs immediately instead of
+waiting for the book to finish, and cannot fabricate completion. EPUB input retains its existing
 unified task stream and ordered `EpubFragmentContent` delivery.

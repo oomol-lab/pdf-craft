@@ -99,6 +99,39 @@ class FrontInputTests(IsolatedAsyncioTestCase):
                 self.assertEqual([value.index for value in values], cached[:3])
                 self.assertEqual(available, min(12, len(cached)))
 
+    async def test_unselected_failed_cache_is_ready_before_later_selected_pages(self):
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            save_xml(encode_page(page(2)), root / 'page_2.xml')
+            (root / 'page_2.failed').touch()
+            front = FrontPages.open(root, 20, {4, 8, 12, 16, 20})
+            requested, release = asyncio.Event(), asyncio.Event()
+            messages = []
+            class Model:
+                async def request(self, *, input):
+                    messages.append(input[-1].message)
+                    requested.set()
+                    await release.wait()
+                    return '{"action":"complete","metadata":{}}'
+            task = asyncio.create_task(extract_book_metadata_from_ocr(root, cast(Any, Model()), front_pages=front))
+            try:
+                for index in (4, 8):
+                    save_xml(encode_page(page(index)), root / f'page_{index}.xml')
+                    front.event(OCREvent(OCREventKind.COMPLETE, index, 20))
+                # No EOF or terminal events for pages 12/16/20. The unselected
+                # failed page will receive IGNORE only, never a replacement.
+                await wait(requested)
+                self.assertFalse(front.ended)
+                self.assertFalse(task.done())
+                for index in (2, 4, 8):
+                    self.assertIn(f'index="{index}"', messages[0])
+                self.assertNotIn('index="12"', messages[0])
+            finally:
+                release.set()
+                if not requested.is_set():
+                    task.cancel()
+                await asyncio.gather(task, return_exceptions=True)
+
     async def test_partial_failed_cache_waits_for_terminal_replacement(self):
         with TemporaryDirectory() as directory:
             root = Path(directory)
@@ -430,6 +463,45 @@ class PCEXDependencyTests(IsolatedAsyncioTestCase):
 
 
 class TerminationTests(IsolatedAsyncioTestCase):
+    async def test_early_content_view_exit_cancels_blocked_siblings_without_release(self):
+        from pdf_craft.document.stream_view import content_view
+        for close_stream in (False, True):
+            with self.subTest(close_stream=close_stream), TemporaryDirectory() as directory:
+                root = Path(directory)
+                source = source_fixture(root / 'source')
+                blocked, cancelled, release = asyncio.Event(), asyncio.Event(), asyncio.Event()
+                events = []
+                async def request(_self, text):
+                    if 'First' in text:
+                        blocked.set()
+                        try:
+                            await release.wait()
+                        finally:
+                            cancelled.set()
+                    return text
+                async def consume():
+                    async with content_view(source, translator=translator(), window=2,
+                                            with_anchored=False, on_translation_event=events.append) as (_, _, _, items):
+                        await wait(blocked)
+                        await anext(items)
+                        if close_stream:
+                            await items.aclose()
+                        # Both normal context exit and explicit stream closure
+                        # must stop unfinished work, without releasing the LLM.
+                with patch.object(XMLTranslator, '_translate_text_async', request), patch.object(
+                        XMLTranslator, '_request_and_submit_async', identity_fill):
+                    task = asyncio.create_task(consume())
+                    try:
+                        await asyncio.wait_for(asyncio.shield(task), 4)
+                        self.assertTrue(cancelled.is_set())
+                        self.assertFalse(release.is_set())
+                        self.assertFalse(any(event.kind == Kind.COMPLETED and event.unit_id is None for event in events))
+                    finally:
+                        task.cancel()
+                        release.set()
+                        await asyncio.gather(task, return_exceptions=True)
+
+
     async def test_failure_cancel_and_callback_error_settle_all_active_jobs(self):
         from pdf_craft.concurrency import NonContinuableError
         for mode in ('fatal', 'cancel', 'callback'):

@@ -105,8 +105,10 @@ class FrontPages:
     """A bounded view of committed OCR files, including cache-only inputs.
 
     Candidate order matches the historical sorted file reader. Existing files
-    outside the selection remain evidence; selected failed caches wait for their
-    replacement. Only the first twelve identities and readiness bits are held.
+    outside the selection remain evidence, including committed fallback XML with a
+    failure marker: these pages will not be retried in this operation. Selected
+    failed caches wait for their replacement. Only the first twelve identities
+    and readiness bits are held.
     """
 
     def __init__(self, path, candidates, ready):
@@ -129,7 +131,8 @@ class FrontPages:
                     break
         candidates = sorted(cached.union(expected))[:_MAX_PAGE_COUNT]
         ready = [index for index in candidates if index in cached
-                 and not (path / f'page_{index}.failed').exists()]
+                 and ((selected is not None and index not in selected)
+                      or not (path / f'page_{index}.failed').exists())]
         return cls(path, candidates, ready)
 
     def event(self, event):
