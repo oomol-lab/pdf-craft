@@ -142,20 +142,19 @@ class TestCrossChapterTranslation(unittest.IsolatedAsyncioTestCase):
                 on_translation_event=record,
                 emit_translation_events=True,
             ))
-            await asyncio.wait_for(translator.slow_started.wait(), timeout=1)
-            self.assertFalse(fast_reported.is_set())
-            translator.release_slow.set()
-            await asyncio.wait_for(fast_reported.wait(), timeout=1)
-            fast_progress = next(
-                event for event in events
-                if event.kind == ProgressEventKind.PROGRESS
-                and event.unit_id == 1 and event.stage == 2
-            )
-            self.assertEqual(
-                fast_progress.completed_words,
-                2,
-            )
-            result = await pending
+            try:
+                await asyncio.wait_for(translator.slow_started.wait(), timeout=1)
+                await asyncio.wait_for(fast_reported.wait(), timeout=1)
+                self.assertFalse(pending.done())
+                fast_progress = next(
+                    event for event in events
+                    if event.kind == ProgressEventKind.PROGRESS
+                    and event.unit_id == 1 and event.stage == 2
+                )
+                self.assertEqual(fast_progress.completed_words, 2)
+            finally:
+                translator.release_slow.set()
+                result = await pending
             self.assertTrue(result._validate())
             self.assertFalse(callback_active)
 

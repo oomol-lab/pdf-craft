@@ -13,7 +13,8 @@ from pydantic import BaseModel
 
 from pdf_craft import (
     AsyncPDFCraft, ConcurrentExecutor, DeepSeekOCRVendorConfig, FixedCapacity, JEV, LLM,
-    RequestUsage, RetryPolicy, SubmitKind, Usage, UsageCollector, epub_words_count, pcex_words_count,
+    NarrativeXMLTransformer, RequestUsage, RetryPolicy, SubmitKind, Usage, UsageCollector,
+    epub_words_count, pcex_words_count,
 )
 from pdf_craft.jev import JEVRuntime
 from pdf_craft.llm import runtime_for
@@ -35,6 +36,53 @@ def runtime(config):
 
 
 class UsageTests(IsolatedAsyncioTestCase):
+    async def test_metadata_collection_usage_follows_final_adoption(self):
+        for with_title in (False, True):
+            for reject_subject in (False, True):
+                with self.subTest(with_title=with_title, reject_subject=reject_subject):
+                    translation, fill_llm = model(), model()
+                    usage = UsageCollector()
+                    xml = XMLTranslator(translation, fill_llm, 'fr', None, 10, 1,
+                                        executor=ConcurrentExecutor(FixedCapacity(2)))
+                    async def invoke_translation(*_args):
+                        observe_tokens({'input_tokens': 10, 'output_tokens': 2,
+                                        'cached_input_tokens': 4})
+                        return 'translated'
+                    async def invoke_fill(*_args):
+                        observe_tokens({'input_tokens': 20, 'output_tokens': 3,
+                                        'cached_input_tokens': 8})
+                        return 'filled'
+                    setattr(xml._translation_runtime, '_invoke', invoke_translation)
+                    setattr(xml._fill_runtime, '_invoke', invoke_fill)
+                    async def translate(transformer, text, *, reject=reject_subject):
+                        await transformer._translation_runtime.request(text, use_cache=False)
+                        if reject and 'bad' in text:
+                            raise ValueError('subject translation rejected')
+                        return text
+                    async def fill(transformer, hill_climbing, **kwargs):
+                        await transformer._fill_runtime.request('fill', use_cache=False)
+                        await identity_fill(transformer, hill_climbing, **kwargs)
+                    metadata: dict[str, Any] = {'subjects': ['good', 'bad']}
+                    if with_title:
+                        metadata['title'] = 'Title'
+                    with patch.object(XMLTranslator, '_translate_text_async', translate), patch.object(
+                            XMLTranslator, '_request_and_submit_async', fill):
+                        overlay = await NarrativeXMLTransformer(xml).translate_metadata(
+                            metadata, usage=usage, error_policy=lambda _failure: True)
+                    if reject_subject:
+                        self.assertNotIn('subjects', overlay)
+                    else:
+                        self.assertEqual(overlay['subjects'], ['good', 'bad'])
+                    if with_title:
+                        self.assertEqual(overlay['title'], 'Title')
+                    accepted = int(with_title) + (0 if reject_subject else 2)
+                    self.assertEqual(usage.report()[translation], Usage(
+                        RequestUsage(accepted, accepted * 10, accepted * 4, accepted * 2),
+                        RequestUsage(2, 20, 8, 4) if reject_subject else RequestUsage()))
+                    self.assertEqual(usage.report()[fill_llm], Usage(
+                        RequestUsage(accepted, accepted * 20, accepted * 8, accepted * 3),
+                        RequestUsage(1, 20, 8, 3) if reject_subject else RequestUsage()))
+
     async def test_transport_retries_and_business_validation_settle_separately(self):
         llm, usage = model(), UsageCollector()
         client = runtime(llm)

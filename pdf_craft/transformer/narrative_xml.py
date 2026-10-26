@@ -147,6 +147,26 @@ class NarrativeXMLTransformer:
         element, fields = _metadata_element(metadata)
         if not fields:
             return {}
+        # Collections are adopted atomically. Keep their model calls separate
+        # from scalar fields so withdrawing one cannot retain its usage or
+        # discard consumption belonging to an independently accepted field.
+        overlay: dict[str, Any] = {}
+        groups = dict.fromkeys(key if index is not None else None for _, key, index in fields)
+        for group_key in groups:
+            group = Element("metadata")
+            group_fields = []
+            for child, field in zip(element, fields):
+                _, key, index = field
+                if (key if index is not None else None) == group_key:
+                    group.append(child)
+                    group_fields.append(field)
+            overlay.update(await self._translate_metadata_group(group, group_fields))
+        return overlay
+
+    @adopted_result(bool)
+    async def _translate_metadata_group(
+        self, element: Element, fields: list[tuple[str, str, int | None]],
+    ) -> dict[str, Any]:
         from .xml_translator.xml_translator.source_store import NODE_KEY
         field_keys = []
         for child, (_, key, index) in zip(element, fields):
