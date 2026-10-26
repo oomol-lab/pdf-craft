@@ -1,6 +1,7 @@
 # pylint: disable=unused-argument
 """Compose non-interactive visual bases with independent overlays."""
 
+from pdf_craft.usage import UsageCollector
 from pdf_craft.pdf.backend import pdf_backend_scope, poppler_path_for, current_poppler_path
 from pdf_craft.policies import RetryPolicy, ErrorPolicyInput
 from pdf_craft._policy import OMITTED, policy_operation
@@ -121,6 +122,7 @@ class PDFPatcher:
         document_metadata: Mapping[str, str] | None = None,
         retry_policy: RetryPolicy | None = None, error_policy: ErrorPolicyInput = OMITTED,
         request_headers: Mapping[str, str] | None = None,
+        usage: UsageCollector | None = None,
     ) -> None:
         """Prepare and compile asynchronously, then isolate native Qt composition."""
         async with _process_error_policy_checker(error_policy) as worker_checker:

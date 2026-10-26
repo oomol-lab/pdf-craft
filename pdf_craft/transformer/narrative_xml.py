@@ -1,5 +1,6 @@
 # pylint: disable=unused-argument
 
+from pdf_craft.usage import UsageCollector, adopted_result
 from collections.abc import Mapping
 from pdf_craft.concurrency import settle_tasks
 from pdf_craft.policies import RetryPolicy, ErrorPolicyInput, FailureLocation
@@ -129,6 +130,7 @@ class NarrativeXMLTransformer:
         target_language: str | None = None,
         retry_policy: RetryPolicy | None = None, error_policy: ErrorPolicyInput = OMITTED,
         request_headers: Mapping[str, str] | None = None,
+        usage: UsageCollector | None = None,
     ) -> dict[str, Any]:
         """Finalize metadata once for every consumer of the translation flow."""
         overlay = await self._translate_metadata_fields(metadata)
@@ -139,6 +141,7 @@ class NarrativeXMLTransformer:
         await notify_metadata_translation(metadata, overlay, on_metadata)
         return overlay
 
+    @adopted_result()
     async def _translate_metadata_fields(self, metadata: dict[str, Any]) -> dict[str, Any]:
         """Translate human-readable bibliographic fields into a layer overlay."""
         element, fields = _metadata_element(metadata)
@@ -194,6 +197,7 @@ class NarrativeXMLTransformer:
 
     @policy_operation
     @translation_unit(UnitKind.CONTENT, lambda self, chapter, **kwargs: self.source_word_count(chapter))
+    @adopted_result()
     async def transform(
         self,
         chapter: Chapter,
@@ -203,6 +207,7 @@ class NarrativeXMLTransformer:
         total_words: int | None = None,
         retry_policy: RetryPolicy | None = None, error_policy: ErrorPolicyInput = OMITTED,
         request_headers: Mapping[str, str] | None = None,
+        usage: UsageCollector | None = None,
     ) -> Chapter:
         element = encode(chapter)
         if not self.has_translatable_content(chapter):
@@ -249,6 +254,7 @@ class NarrativeXMLTransformer:
         chapters: Iterable[tuple[Chapter, str | int]], *,
         retry_policy: RetryPolicy | None = None, error_policy: ErrorPolicyInput = OMITTED,
         request_headers: Mapping[str, str] | None = None,
+        usage: UsageCollector | None = None,
     ) -> list[Chapter]:
         """Translate all chapter groups through one book-wide XML window."""
         if not hasattr(self._translator, "translate_elements"):
@@ -336,7 +342,8 @@ class NarrativeXMLTransformer:
                         not accepted for accepted in tasks_by_index[index].outcomes.values()) else UnitOutcome.PROCESSED)
         return results
 
-    def source_word_count(self, chapter: Chapter) -> int:
+    @staticmethod
+    def source_word_count(chapter: Chapter) -> int:
         """Count the NarrativeFlow payload, excluding anchored asset text."""
         element = encode(chapter)
         _prepare_chapter_references(element)

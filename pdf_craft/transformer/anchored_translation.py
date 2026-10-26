@@ -5,6 +5,7 @@ from __future__ import annotations
 
 from ..policies import RetryPolicy, ErrorPolicyInput
 from .._policy import OMITTED, policy_operation
+from ..usage import adopted_result
 
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
@@ -111,6 +112,7 @@ async def _translate_slots_async(
 
 
 @policy_operation
+@adopted_result(lambda values: any(value is not None for value in values))
 async def _transform_batch_async(
     payloads: Sequence[AnchoredContent],
     transformer: AnchoredContentTransformer, *,

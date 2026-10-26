@@ -1,5 +1,6 @@
 # pylint: disable=unused-argument
 
+from pdf_craft.usage import UsageCollector, adopted_result
 from collections.abc import Mapping
 from pdf_craft.policies import RetryPolicy, ErrorPolicyInput
 from pdf_craft._policy import OMITTED, policy_operation
@@ -146,6 +147,7 @@ class XMLTranslator:
         window: int = 1,
         retry_policy: RetryPolicy | None = None, error_policy: ErrorPolicyInput = OMITTED, *,
         request_headers: Mapping[str, str] | None = None,
+        usage: UsageCollector | None = None,
         **kwargs,
     ) -> tuple[Element, T]:
         translated = await self.translate_elements(
@@ -173,6 +175,7 @@ class XMLTranslator:
         unit_counts: Mapping[UnitKind, int] | None = None,
         retry_policy: RetryPolicy | None = None, error_policy: ErrorPolicyInput = OMITTED,
         request_headers: Mapping[str, str] | None = None,
+        usage: UsageCollector | None = None,
     ) -> list[tuple[Element, T]]:
         """Translate tasks using the public XML extension contract."""
         return await self._translate_elements(
@@ -458,6 +461,7 @@ class XMLTranslator:
                 await on_round(group)
         return mappings
 
+    @adopted_result(lambda mappings: any(mapping is not None for mapping in mappings))
     async def _translate_inline_segment_group_async(
         self,
         inline_segments: list[InlineSegment],

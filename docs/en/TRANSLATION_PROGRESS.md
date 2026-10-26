@@ -204,3 +204,6 @@ Operation completion requires successful complete consumption/publication; closi
 partially consumed stream cancels and settles remaining jobs immediately instead of
 waiting for the book to finish, and cannot fabricate completion. EPUB input retains its existing
 unified task stream and ordered `EpubFragmentContent` delivery.
+
+
+To obtain the same source-word total before starting translation, or inspect actual remote consumption independently of progress, see [Usage and sizing](USAGE.md).

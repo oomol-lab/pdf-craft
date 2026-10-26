@@ -251,20 +251,22 @@ class PDFExtractionEngine:
         try:
             if live is not None and live.analysis_error is not None:
                 raise live.analysis_error
-            repaired_pages = None
-            if footnote_refinement is not None:
-                chapter_analysis = await run_cancellable(
-                    OCR_DOMAIN,
-                    lambda _aborted: prepare_chapter_analysis(draft.pages_path, draft.toc),
-                    original_aborted=original_aborted,
+            from .usage import UsageScope
+            with UsageScope(provider=footnote_refinement.llm if footnote_refinement is not None else None) as refinement_usage:
+                repaired_pages = None
+                if footnote_refinement is not None:
+                    chapter_analysis = await run_cancellable(
+                        OCR_DOMAIN,
+                        lambda _aborted: prepare_chapter_analysis(draft.pages_path, draft.toc),
+                        original_aborted=original_aborted,
+                    )
+                    repaired_pages = await self._refine_pages(chapter_analysis, footnote_refinement, draft)
+                return await self._finish_with_toc_recovery(
+                    draft, analysed_pages=repaired_pages,
+                    resolved_database=(live.database if live is not None and repaired_pages is None
+                                       and not draft.toc.page_indexes else None),
+                    aborted=original_aborted, refinement_usage=refinement_usage,
                 )
-                repaired_pages = await self._refine_pages(chapter_analysis, footnote_refinement, draft)
-            return await self._finish_with_toc_recovery(
-                draft, analysed_pages=repaired_pages,
-                resolved_database=(live.database if live is not None and repaired_pages is None
-                                   and not draft.toc.page_indexes else None),
-                aborted=original_aborted,
-            )
         except Exception as error:
             from .extractor.recovery import recover_chapters, recoverable_structure
             if not recoverable_structure(error):
@@ -285,7 +287,7 @@ class PDFExtractionEngine:
                     original_aborted=original_aborted,
                 )
 
-    async def _finish_with_toc_recovery(self, draft, *, analysed_pages, resolved_database, aborted):
+    async def _finish_with_toc_recovery(self, draft, *, analysed_pages, resolved_database, aborted, refinement_usage=None):
         """Directory consistency is repaired before discarding usable pages."""
         from .common import save_xml
         from .document.validation import ChapterTocMismatch
@@ -307,7 +309,10 @@ class PDFExtractionEngine:
                          for page in error.page_indexes)
 
         try:
-            return await finish(analysed_pages=analysed_pages, resolved_database=resolved_database)
+            result = await finish(analysed_pages=analysed_pages, resolved_database=resolved_database)
+            if refinement_usage is not None:
+                refinement_usage.accept()
+            return result
         except ChapterTocMismatch as error:
             mismatch = error
         if analysed_pages is not None:

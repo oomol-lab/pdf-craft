@@ -1,4 +1,5 @@
 """Synchronous wrapper around :class:`AsyncPDFCraft`."""
+from pdf_craft.usage import UsageCollector
 from ..policies import RetryPolicy, ErrorPolicyInput
 from .._policy import OMITTED
 
@@ -54,6 +55,15 @@ class PDFCraft:
     ) -> PDFCraftExtraction:
         return run_sync(self._async_craft.export_extraction(extraction, path))
 
+    def pcex_words_count(self, source: PDFCraftExtraction | PathLike | str, *,
+                         with_anchored: bool = True, with_furniture: bool = False) -> int:
+        return run_sync(self._async_craft.pcex_words_count(source, with_anchored=with_anchored,
+                                                         with_furniture=with_furniture))
+
+    def epub_words_count(self, source: PathLike | str, *,
+                         submit: SubmitKind = SubmitKind.REPLACE) -> int:
+        return run_sync(self._async_craft.epub_words_count(source, submit=submit))
+
     def read_pages(self, extraction: PDFCraftExtraction | PathLike | str) -> dict[int, PageGeometry]:
         return run_sync(self._async_craft.read_pages(
             extraction,
@@ -81,11 +91,12 @@ class PDFCraft:
         *, analysing_path: PathLike | str | None = None,
         retry_policy: RetryPolicy | None = None, error_policy: ErrorPolicyInput = OMITTED,
         request_headers: Mapping[str, str] | None = None,
+        usage: UsageCollector | None = None,
     ) -> PDFCraftExtraction:
         return run_sync(self._async_craft.extract_pdf(
             source, extraction_path, options, analysing_path=analysing_path,
             retry_policy=retry_policy, error_policy=error_policy,
-            request_headers=request_headers,
+            request_headers=request_headers, usage=usage,
         ))
 
     def extract_pdf_with_metering(
@@ -94,11 +105,12 @@ class PDFCraft:
         *, analysing_path: PathLike | str | None = None,
         retry_policy: RetryPolicy | None = None, error_policy: ErrorPolicyInput = OMITTED,
         request_headers: Mapping[str, str] | None = None,
+        usage: UsageCollector | None = None,
     ) -> tuple[PDFCraftExtraction, OCRTokensMetering]:
         return run_sync(self._async_craft.extract_pdf_with_metering(
             source, extraction_path, options, analysing_path=analysing_path,
             retry_policy=retry_policy, error_policy=error_policy,
-            request_headers=request_headers,
+            request_headers=request_headers, usage=usage,
         ))
 
     def render_markdown(
@@ -114,6 +126,7 @@ class PDFCraft:
         on_metadata: MetadataCallback | None = None,
         retry_policy: RetryPolicy | None = None, error_policy: ErrorPolicyInput = OMITTED,
         request_headers: Mapping[str, str] | None = None,
+        usage: UsageCollector | None = None,
     ) -> None:
         return run_sync(self._async_craft.render_markdown(
             extraction, output, assets_path,
@@ -127,7 +140,7 @@ class PDFCraft:
             on_footnote=on_footnote,
             on_metadata=on_metadata,
             retry_policy=retry_policy, error_policy=error_policy,
-            request_headers=request_headers,
+            request_headers=request_headers, usage=usage,
         ))
 
     def translate_extraction(
@@ -144,6 +157,7 @@ class PDFCraft:
         on_metadata: MetadataCallback | None = None,
         retry_policy: RetryPolicy | None = None, error_policy: ErrorPolicyInput = OMITTED,
         request_headers: Mapping[str, str] | None = None,
+        usage: UsageCollector | None = None,
     ) -> PDFCraftExtraction:
         return run_sync(self._async_craft.translate_extraction(
             extraction, output_path, translator,
@@ -157,7 +171,7 @@ class PDFCraft:
             on_footnote=on_footnote,
             on_metadata=on_metadata,
             retry_policy=retry_policy, error_policy=error_policy,
-            request_headers=request_headers,
+            request_headers=request_headers, usage=usage,
         ))
 
     def translate_anchored_contents(
@@ -167,11 +181,12 @@ class PDFCraft:
         transformer: AnchoredContentTransformer, *,
         retry_policy: RetryPolicy | None = None, error_policy: ErrorPolicyInput = OMITTED,
         request_headers: Mapping[str, str] | None = None,
+        usage: UsageCollector | None = None,
     ) -> PDFCraftExtraction:
         return run_sync(self._async_craft.translate_anchored_contents(
             extraction, output_path, transformer,
             retry_policy=retry_policy, error_policy=error_policy,
-            request_headers=request_headers,
+            request_headers=request_headers, usage=usage,
         ))
 
     def render_epub(
@@ -190,6 +205,7 @@ class PDFCraft:
         on_metadata: MetadataCallback | None = None,
         retry_policy: RetryPolicy | None = None, error_policy: ErrorPolicyInput = OMITTED,
         request_headers: Mapping[str, str] | None = None,
+        usage: UsageCollector | None = None,
     ) -> None:
         """Generate EPUB; label_language controls fixed labels only.
 
@@ -213,7 +229,7 @@ class PDFCraft:
             on_footnote=on_footnote,
             on_metadata=on_metadata,
             retry_policy=retry_policy, error_policy=error_policy,
-            request_headers=request_headers,
+            request_headers=request_headers, usage=usage,
         ))
 
     def translate_pdf(
@@ -228,6 +244,7 @@ class PDFCraft:
         on_metadata: MetadataCallback | None = None,
         retry_policy: RetryPolicy | None = None, error_policy: ErrorPolicyInput = OMITTED,
         request_headers: Mapping[str, str] | None = None,
+        usage: UsageCollector | None = None,
     ) -> None:
         return run_sync(self._async_craft.translate_pdf(
             source, extraction, output, translator,
@@ -238,7 +255,7 @@ class PDFCraft:
             on_footnote=on_footnote,
             on_metadata=on_metadata,
             retry_policy=retry_policy, error_policy=error_policy,
-            request_headers=request_headers,
+            request_headers=request_headers, usage=usage,
         ))
 
     def patch_pdf_with_extraction(
@@ -255,6 +272,7 @@ class PDFCraft:
         on_metadata: MetadataCallback | None = None,
         retry_policy: RetryPolicy | None = None, error_policy: ErrorPolicyInput = OMITTED,
         request_headers: Mapping[str, str] | None = None,
+        usage: UsageCollector | None = None,
     ) -> None:
         return run_sync(self._async_craft.patch_pdf_with_extraction(
             source, extraction, output,
@@ -267,7 +285,7 @@ class PDFCraft:
             on_translation_event=on_translation_event,
             on_metadata=on_metadata,
             retry_policy=retry_policy, error_policy=error_policy,
-            request_headers=request_headers,
+            request_headers=request_headers, usage=usage,
         ))
 
     def translate_epub(
@@ -286,6 +304,7 @@ class PDFCraft:
         on_metadata: MetadataCallback | None = None,
         retry_policy: RetryPolicy | None = None, error_policy: ErrorPolicyInput = OMITTED,
         request_headers: Mapping[str, str] | None = None,
+        usage: UsageCollector | None = None,
     ) -> None:
         return run_sync(self._async_craft.translate_epub(
             source, output,
@@ -304,7 +323,7 @@ class PDFCraft:
             on_body=on_body,
             on_metadata=on_metadata,
             retry_policy=retry_policy, error_policy=error_policy,
-            request_headers=request_headers,
+            request_headers=request_headers, usage=usage,
         ))
 
     def convert_pdf_to_markdown(
@@ -321,6 +340,7 @@ class PDFCraft:
         on_metadata: MetadataCallback | None = None,
         retry_policy: RetryPolicy | None = None, error_policy: ErrorPolicyInput = OMITTED,
         request_headers: Mapping[str, str] | None = None,
+        usage: UsageCollector | None = None,
     ) -> OCRTokensMetering:
         return run_sync(self._async_craft.convert_pdf_to_markdown(
             source, output,
@@ -335,7 +355,7 @@ class PDFCraft:
             on_translation_event=on_translation_event,
             on_metadata=on_metadata,
             retry_policy=retry_policy, error_policy=error_policy,
-            request_headers=request_headers,
+            request_headers=request_headers, usage=usage,
         ))
 
     def convert_pdf_to_epub(
@@ -355,6 +375,7 @@ class PDFCraft:
         on_metadata: MetadataCallback | None = None,
         retry_policy: RetryPolicy | None = None, error_policy: ErrorPolicyInput = OMITTED,
         request_headers: Mapping[str, str] | None = None,
+        usage: UsageCollector | None = None,
     ) -> OCRTokensMetering:
         """Generate EPUB; label_language controls fixed labels only.
 
@@ -378,5 +399,5 @@ class PDFCraft:
             on_translation_event=on_translation_event,
             on_metadata=on_metadata,
             retry_policy=retry_policy, error_policy=error_policy,
-            request_headers=request_headers,
+            request_headers=request_headers, usage=usage,
         ))

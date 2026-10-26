@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+from pdf_craft.usage import UsageCollector, UsageScope
 from ...concurrency import fatal_error_boundary, settle_tasks
 from ...policies import RetryPolicy, ErrorPolicyInput
 from ..._policy import OMITTED, policy_operation
@@ -167,6 +168,7 @@ class JevLlmRepairProcessor:
         analyses: list[PageAnalysis],
         page_pixel_sizes: Mapping[int, tuple[int, int]],
         *, request_headers: Mapping[str, str] | None = None,
+        usage: UsageCollector | None = None,
     ) -> list[PageAnalysis]:
         await self._reviewer(source_pages, analyses, page_pixel_sizes)
         reviews = {result.page_index: result for result in self.results}
@@ -207,6 +209,7 @@ class AllPageLlmRepairProcessor:
         analyses: list[PageAnalysis],
         page_pixel_sizes: Mapping[int, tuple[int, int]],
         *, request_headers: Mapping[str, str] | None = None,
+        usage: UsageCollector | None = None,
     ) -> list[PageAnalysis]:
         del source_pages, page_pixel_sizes
         available = {page.page_index for page in analyses}
@@ -238,60 +241,62 @@ async def _repair_pages(
     reviews: Mapping[int, PageReviewResult],
     request: PageRepairRequest,
 ) -> list[PageAnalysis]:
-    original = [_clone_page(page) for page in analyses]
-    repaired = [_clone_page(page) for page in analyses]
-    positions = {page.page_index: index for index, page in enumerate(original)}
+    with UsageScope() as candidate_usage:
+        original = [_clone_page(page) for page in analyses]
+        repaired = [_clone_page(page) for page in analyses]
+        positions = {page.page_index: index for index, page in enumerate(original)}
 
-    @fatal_error_boundary
-    async def repair(page_index: int) -> tuple[int, PageAnalysis]:
-        from ..progress import page_stage
-        await page_stage(page_index, 4)
-        position = positions[page_index]
-        target = original[position]
-        previous = original[position - 1] if position > 0 else None
-        following = original[position + 1] if position + 1 < len(original) else None
-        from ..._policy import recover
-        from ...policies import FailureCategory
+        @fatal_error_boundary
+        async def repair(page_index: int) -> tuple[int, PageAnalysis]:
+            from ..progress import page_stage
+            await page_stage(page_index, 4)
+            position = positions[page_index]
+            target = original[position]
+            previous = original[position - 1] if position > 0 else None
+            following = original[position + 1] if position + 1 < len(original) else None
+            from ..._policy import recover
+            from ...policies import FailureCategory
+            try:
+                result = await repair_page_with_llm(
+                    previous_page=previous,
+                    target_page=target,
+                    next_page=following,
+                    previous_pass_probability=_neighbor_probability(previous, reviews),
+                    next_pass_probability=_neighbor_probability(following, reviews),
+                    request=request,
+                    all_pages=repaired,
+                )
+            except Exception as error:
+                from ..._failure_sources import analysis_location
+                await recover(error, FailureCategory.ANALYSIS, 'footnote_repair', 'algorithm_result',
+                              targets=(analysis_location(target),),
+                              context_locations=tuple(analysis_location(page) for page in (previous, following) if page is not None))
+                result = target
+            return page_index, result
+
+        tasks = [asyncio.create_task(repair(page_index)) for page_index in page_indexes]
         try:
-            result = await repair_page_with_llm(
-                previous_page=previous,
-                target_page=target,
-                next_page=following,
-                previous_pass_probability=_neighbor_probability(previous, reviews),
-                next_pass_probability=_neighbor_probability(following, reviews),
-                request=request,
-                all_pages=repaired,
-            )
+            completed = await asyncio.gather(*tasks)
+        except BaseException:
+            for task in tasks:
+                task.cancel()
+            await settle_tasks(tasks)
+            raise
+        del completed  # Accepted candidates are committed to the tentative graph in parse.
+        try:
+            _compile_page_connections(repaired)
+            restore_streams(repaired)
         except Exception as error:
+            from ..._policy import recover
+            from ...policies import FailureCategory
             from ..._failure_sources import analysis_location
-            await recover(error, FailureCategory.ANALYSIS, 'footnote_repair', 'algorithm_result',
-                          targets=(analysis_location(target),),
-                          context_locations=tuple(analysis_location(page) for page in (previous, following) if page is not None))
-            result = target
-        return page_index, result
-
-    tasks = [asyncio.create_task(repair(page_index)) for page_index in page_indexes]
-    try:
-        completed = await asyncio.gather(*tasks)
-    except BaseException:
-        for task in tasks:
-            task.cancel()
-        await settle_tasks(tasks)
-        raise
-    del completed  # Accepted candidates are committed to the tentative graph in parse.
-    try:
-        _compile_page_connections(repaired)
-        restore_streams(repaired)
-    except Exception as error:
-        from ..._policy import recover
-        from ...policies import FailureCategory
-        from ..._failure_sources import analysis_location
-        await recover(error, FailureCategory.ANALYSIS, 'footnote_commit', 'algorithm_result',
-                      targets=tuple(analysis_location(page) for page in repaired))
-        # A fallback must preserve the original graph, not compile it again.
-        restore_streams(original)
-        return original
-    return repaired
+            await recover(error, FailureCategory.ANALYSIS, 'footnote_commit', 'algorithm_result',
+                          targets=tuple(analysis_location(page) for page in repaired))
+            # A fallback must preserve the original graph, not compile it again.
+            restore_streams(original)
+            return original
+        candidate_usage.accept()
+        return repaired
 
 
 @policy_operation
@@ -306,6 +311,7 @@ async def repair_page_with_llm(
     all_pages: list[PageAnalysis] | None = None,
     retry_policy: RetryPolicy | None = None, error_policy: ErrorPolicyInput = OMITTED,
     request_headers: Mapping[str, str] | None = None,
+    usage: UsageCollector | None = None,
 ) -> PageAnalysis:
     """Repair exactly ``target_page`` using full text-only neighbor context."""
 

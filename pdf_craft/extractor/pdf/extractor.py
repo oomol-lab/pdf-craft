@@ -1,3 +1,4 @@
+from pdf_craft.usage import UsageCollector
 from ..progress import extraction_operation, active_extraction
 # pylint: disable=unused-argument
 
@@ -43,6 +44,7 @@ class PDFExtractor:
         analysing_path: Path | None = None,
         retry_policy: RetryPolicy | None = None, error_policy: ErrorPolicyInput = OMITTED,
         request_headers: Mapping[str, str] | None = None,
+        usage: UsageCollector | None = None,
         **kwargs: Any,
     ) -> PDFCraftExtraction:
         """Extract without blocking the caller's event loop."""
@@ -62,6 +64,7 @@ class PDFExtractor:
         analysing_path: Path | None = None,
         retry_policy: RetryPolicy | None = None, error_policy: ErrorPolicyInput = OMITTED,
         request_headers: Mapping[str, str] | None = None,
+        usage: UsageCollector | None = None,
         **kwargs: Any,
     ):
         if extraction_path.suffix.lower() != EXTRACTION_SUFFIX:

@@ -109,3 +109,6 @@ from .rate_limit import RateLimitScope, RateLimitTimeoutError
 from .common.words import MAX_WORD_LENGTH, WordCounter, count_text_words
 
 from .progress import ProgressEvent, ProgressEventKind, OperationKind, UnitKind, UnitOutcome
+
+from .usage import RequestUsage, Usage, UsageCollector, UsageReport
+from .size import pcex_words_count, epub_words_count

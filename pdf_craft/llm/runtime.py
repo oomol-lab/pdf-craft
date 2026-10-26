@@ -4,6 +4,7 @@
 
 from __future__ import annotations
 
+from pdf_craft.usage import UsageCollector
 import asyncio
 import hashlib
 import inspect
@@ -24,6 +25,7 @@ from tiktoken import Encoding, get_encoding
 from openai.types.chat import ChatCompletionMessageParam
 
 from .._policy import policy_operation
+from ..usage import request_attempt, observe_tokens, usage_enabled as _usage_enabled
 from .._request_headers import extra_header_arguments
 from ..runtime import IO_DOMAIN
 from ..rate_limit import RateLimitTimeoutError, rate_limit_request, retry_after_seconds
@@ -88,6 +90,7 @@ class LLMRuntime:
         retry_max: int | None = None, use_cache: bool = True,
         deadline: float | None = None,
         request_headers: Mapping[str, str] | None = None,
+        usage: UsageCollector | None = None,
     ) -> str:
         async with self.context(cache_seed_content) as context:
             return await context.request(
@@ -136,10 +139,12 @@ class LLMRuntime:
             stream = await client.chat.completions.create(
                 model=self.config.model, messages=messages, stream=True,
                 top_p=top_p, temperature=temperature, max_tokens=max_tokens,
+                stream_options={"include_usage": True} if _usage_enabled() else openai.omit,
                 **extra_header_arguments(),
             )
             parts: list[str] = []
             async for chunk in stream:
+                observe_tokens(getattr(chunk, "usage", None))
                 if chunk.choices and chunk.choices[0].delta.content:
                     parts.append(chunk.choices[0].delta.content)
             return "".join(parts)
@@ -197,6 +202,7 @@ class LLMContext(AbstractAsyncContextManager["LLMContext"]):
         self, input, max_tokens=None, temperature=None, top_p=None, *,
         retry_index=None, retry_max=None, use_cache=True, deadline=None,
         request_headers: Mapping[str, str] | None = None,
+        usage: UsageCollector | None = None,
     ) -> str:
         messages = [Message(MessageRole.USER, input)] if isinstance(input, str) else list(input)
         temperature = self.runtime._scheduled(
@@ -237,10 +243,14 @@ class LLMContext(AbstractAsyncContextManager["LLMContext"]):
                         nonlocal transport_attempts
                         transport_attempts += 1
                         try:
-                            return await self.runtime._invoke_for_request(
-                                messages, max_tokens, temperature, top_p,
-                                force_ipv4=force_ipv4,
-                            )
+                            with request_attempt(self.runtime.config) as attempt_usage:
+                                text = await self.runtime._invoke_for_request(
+                                    messages, max_tokens, temperature, top_p,
+                                    force_ipv4=force_ipv4,
+                                )
+                                if text.strip() and attempt_usage is not None:
+                                    attempt_usage.accept()
+                                return text
                         except OperationError:
                             raise
                         except Exception as error:

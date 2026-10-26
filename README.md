@@ -184,6 +184,7 @@ Local execution also requires a matching CUDA-enabled PyTorch build, sufficient 
 
 | Task | Guide |
 | --- | --- |
+| Preview task size and inspect remote resource consumption | [Usage and sizing](docs/en/USAGE.md) |
 | Install system dependencies and configure a local GPU | [Installation](docs/en/INSTALLATION.md) |
 | Select OCR models, remote services, or model caches | [OCR backends](docs/en/OCR_BACKENDS.md) |
 | Convert PDFs, create EPUBs, or write translations into PDFs | [PDF conversion and translation](docs/en/PDF_TRANSLATION.md) |

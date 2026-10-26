@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+from pdf_craft.usage import UsageCollector, adopted_result
 from collections.abc import Mapping
 
 from pdf_craft.policies import RetryPolicy, ErrorPolicyInput
@@ -46,11 +47,13 @@ class AnchoredContentXMLTransformer:
         self._mode = mode
 
     @policy_operation
+    @adopted_result(lambda values: any(value is not None for value in values))
     async def transform_assets(
         self,
         assets: Sequence[AnchoredContent], *,
         retry_policy: RetryPolicy | None = None, error_policy: ErrorPolicyInput = OMITTED,
         request_headers: Mapping[str, str] | None = None,
+        usage: UsageCollector | None = None,
     ) -> Sequence[AnchoredContentTranslation | None]:
         if not assets:
             return ()
