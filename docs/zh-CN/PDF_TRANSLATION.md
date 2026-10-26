@@ -371,7 +371,7 @@ narrative 与 metadata 固定翻译；`with_anchored` 和 `with_furniture` 只�
 | `toc_assumed` | `False` | 是否假定 PDF 中存在目录页 |
 | `toc_llm` | `None` | 使用文本 LLM 辅助分析复杂目录层级 |
 | `aborted` | 始终返回 `False` 的回调 | 外部中断检查回调 |
-| `on_ocr_event` | 无操作回调 | 接收 OCR 页面事件的回调 |
+| `on_extraction_event` | 无操作回调 | 接收 OCR 页面事件的回调 |
 | `on_body` / `on_footnote` | `None` | 提取过程中接收独立 PCEX XML 快照 |
 | `on_metadata` | `None` | 一次性接收定稿后的 `MetadataContent` |
 | `context` | `None` | 调用方持有的 `ExtractionContext`，用于页面几何和活跃期间的资源访问 |
@@ -403,7 +403,7 @@ PDF 时写入输出 PDF 的 metadata。其前页 OCR 证据、最多读取页数
 
 - `extract_pdf_with_metering` 与两个 `convert_pdf_to_*` 入口都会返回 `OCRTokensMetering`，
   可用于记录 OCR token 使用量。
-- `ExtractionOptions.on_ocr_event` 在 OCR 页面事件发生时回调，适合显示页面级进度。
+- `ExtractionOptions.on_extraction_event` 在 OCR 页面事件发生时回调，适合显示页面级进度。
 - `ExtractionOptions.aborted` 会在提取和渲染阶段被检查；返回 `True` 时当前操作中断。
 - PDF 写回和内容变换中的异常通常应由调用方捕获；但 `translate_pdf` 与
   `patch_pdf_with_extraction` 的 `error_policy=True` 会恢复可明确归属到某一页的写回异常。

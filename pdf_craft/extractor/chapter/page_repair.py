@@ -244,6 +244,8 @@ async def _repair_pages(
 
     @fatal_error_boundary
     async def repair(page_index: int) -> tuple[int, PageAnalysis]:
+        from ..progress import page_stage
+        await page_stage(page_index, 4)
         position = positions[page_index]
         target = original[position]
         previous = original[position - 1] if position > 0 else None

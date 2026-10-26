@@ -363,10 +363,10 @@ asyncio.run(AsyncPDFCraft().render_markdown(sys.argv[1], sys.argv[2]))
                             await task
                 if not fail:
                     self.assertEqual(len(pypdf.PdfReader(output).pages),3)
-                    from pdf_craft.transformer.events import TranslationEventKind
-                    self.assertEqual(events[-1].kind, TranslationEventKind.COMPLETE)
-                    self.assertGreater(events[-1].total_words, 0)
-                    self.assertEqual(events[-1].completed_words, events[-1].total_words)
+                    from pdf_craft.progress import ProgressEventKind
+                    self.assertEqual(events[-1].kind, ProgressEventKind.COMPLETED)
+                    self.assertGreater(events[0].total_words, 0)
+                    self.assertEqual(events[-1].completed_words, events[0].total_words)
 
     def test_formula_preview_uses_final_qt_lines_and_keeps_vector_atoms_separate(self):
         from pdf_craft.pipeline.pdf.text_layout import QTextParagraphFiller, PatchTextOptions

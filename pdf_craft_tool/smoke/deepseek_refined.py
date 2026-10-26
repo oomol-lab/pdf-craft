@@ -65,7 +65,7 @@ async def run(source: Path, output: Path, profile: str):
         ExtractionOptions(includes_cover=True, includes_furniture=True,
                           extract_book_metadata=False, toc_assumed=True, toc_llm=llm,
                           footnotes=FootnoteOptions(FootnoteRefinement(jev=jev, llm=llm, executor=executor)),
-                          on_body=body, on_footnote=note, on_ocr_event=progress),
+                          on_body=body, on_footnote=note, on_extraction_event=progress),
         analysing_path=output / 'analysis', retry_policy=retry, error_policy=error_policy,
     )
     print('EXTRACTION_COMPLETE', flush=True)

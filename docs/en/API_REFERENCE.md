@@ -257,7 +257,7 @@ extraction; they do not fall back to an analysis/OCR directory.
 | `toc_llm` | `None` | LLM used when TOC analysis is needed. |
 | `footnotes` | `None` | `None` disables footnotes; `FootnoteOptions()` uses the traditional algorithm; adding `FootnoteRefinement` enables JEV and LLM refinement. |
 | `aborted` | a callback returning `False` | A callback checked during processing to request cancellation. |
-| `on_ocr_event` | no-op callback | Receives per-page `OCREvent` updates. |
+| `on_extraction_event` | `None` | Receives unified `ProgressEvent` extraction updates; see [progress](TRANSLATION_PROGRESS.md). |
 | `on_body` / `on_footnote` | `None` | Receive independent PCEX XML snapshots during extraction. |
 | `on_metadata` | `None` | Receives one finalized `MetadataContent`, including an empty view when appropriate. |
 | `context` | `None` | Caller-owned `ExtractionContext` for page geometry and active resource reads. |
@@ -383,8 +383,9 @@ The following classes are exposed for applications that need custom structured t
 
 See [retry and recovery policies](ERROR_HANDLING.md) for failure decisions and retry budgets.
 
-Translation workflows accept `on_translation_event` for START, item lifecycle,
-per-round PROGRESS and COMPLETE notifications. Counts use cumulative source
+Extraction and translation use scoped `STARTED`, `PROGRESS`, and `COMPLETED`
+notifications, with upfront per-kind `unit_counts` and lazy integer unit IDs.
+Translation uses `on_translation_event`; extraction uses `ExtractionOptions.on_extraction_event`. Counts use cumulative source
 **words**, with complete totals pre-scanned for PCEX/PDF/EPUB. See
 [translation progress](TRANSLATION_PROGRESS.md) for the shared streaming counting
 rule, the 20-character long-word cap, fallback semantics, and breaking field
@@ -550,7 +551,7 @@ The patcher merges two independent overlays over a Ghostscript-compiled, fontles
 - `PDFCraftExtraction` is an opaque handle for a validated extracted or transformed document. Use `PDFCraft.open_extraction("book.pcex")` or `await AsyncPDFCraft.open_extraction(...)` to load it. Ordinary directories are intentionally not public inputs.
 - `PDFExtractor`, `MarkdownRenderer`, and `EpubRenderer` are async-only component APIs behind the façade; their `extract` and `render` methods must be awaited.
 - `OCRTokensMetering` exposes `input_tokens` and `output_tokens`.
-- `OCREvent` and `OCREventKind` support per-page progress and diagnostics.
+- `ProgressEvent`, `ProgressEventKind`, `OperationKind`, `UnitKind`, and `UnitOutcome` define the [unified progress protocol](TRANSLATION_PROGRESS.md).
 - `await predownload_models(...)` prepares local OCR models before an offline `local_only=True` run.
 - `PDFError`, `OCRError`, `NoUsableFillPagesError`, and `InterruptedError` are exported error types for application-level handling.
 

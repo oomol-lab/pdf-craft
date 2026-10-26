@@ -1,5 +1,7 @@
 from collections.abc import AsyncIterable, AsyncGenerator, Awaitable, Callable, Iterable, Iterator
 from contextlib import aclosing
+from dataclasses import dataclass
+from itertools import chain
 from typing import TypeVar
 from xml.etree.ElementTree import Element
 
@@ -26,6 +28,12 @@ AsyncInlineSegmentGroupMap = Callable[
 ]
 
 
+@dataclass
+class _EmptyElement:
+    """A consumed root with no resources, not a model translation group."""
+    root: Element
+
+
 class XMLStreamMapper:
     def __init__(self, encoding: Encoding, max_group_score: int) -> None:
         self._encoding: Encoding = encoding
@@ -39,6 +47,7 @@ class XMLStreamMapper:
         window: int,
         on_mapping: Callable[[tuple[InlineSegment, list[TextSegment]]], object] | None = None,
         track_progress: bool = False,
+        on_empty: Callable[[Element], object] | None = None,
     ) -> AsyncGenerator[tuple[Element, list[InlineSegmentMapping]], None]:
         current_element: Element | None = None
         mapping_buffer: list[InlineSegmentMapping] = []
@@ -56,7 +65,10 @@ class XMLStreamMapper:
             return result
 
 
-        async def execute(group: Group[_ResourcePayload]):
+        async def execute(group: Group[_ResourcePayload] | _EmptyElement):
+            if isinstance(group, _EmptyElement):
+                await invoke_callback(on_empty, group.root)
+                return ()
             head, body, tail = self._truncate_and_transform_group(group)
             head = [segment.clone() for segment in head]
             tail = [segment.clone() for segment in tail]
@@ -70,7 +82,7 @@ class XMLStreamMapper:
                 try:
                     async for element in elements:
                         yield_groups = self._split_into_serial_groups(
-                            (element,), callbacks, on_mapping is not None, track_progress,
+                            (element,), callbacks, on_mapping is not None, track_progress, on_empty is not None,
                         )
                         for group in yield_groups:
                             yield group
@@ -81,7 +93,7 @@ class XMLStreamMapper:
             results = run_async_parameters(groups(), execute, window, preserve_sources=False)
         else:
             results = run_concurrency_async(
-                self._split_into_serial_groups(elements, callbacks, on_mapping is not None, track_progress),
+                self._split_into_serial_groups(elements, callbacks, on_mapping is not None, track_progress, on_empty is not None),
                 execute, window,
             )
         async with aclosing(results):
@@ -124,31 +136,37 @@ class XMLStreamMapper:
         if current_element is not None:
             yield current_element, await accepted(current_element, mapping_buffer)
 
-    def _split_into_serial_groups(self, elements: Iterable[Element], callbacks: Callbacks, track_origins: bool = False, track_progress: bool = False):
+    def _split_into_serial_groups(self, elements: Iterable[Element], callbacks: Callbacks,
+                                  track_origins: bool = False, track_progress: bool = False,
+                                  include_empty: bool = False):
         def generate():
             for element in elements:
+                resources = self._expand_to_resources(element, callbacks, track_origins, track_progress)
+                first = next(resources, None)
+                if first is None:
+                    if include_empty:
+                        yield _EmptyElement(element)
+                    continue
                 yield from split(
                     max_segment_count=self._max_group_score,
                     border_incision=_PAGE_INCISION,
-                    resources=self._expand_to_resources(element, callbacks, track_origins, track_progress),
+                    resources=chain((first,), resources),
                 )
 
-        generator = generate()
-        group = next(generator, None)
-        if group is None:
-            return
-
-        # head + body * N (without tail)
-        sum_count = group.head_remain_count + sum(x.count for x in self._expand_resource_segments(group.body))
-
-        while True:
-            next_group = next(generator, None)
-            if next_group is None:
-                break
-
+        group = None
+        sum_count = 0
+        for next_group in generate():
+            if isinstance(next_group, _EmptyElement):
+                # Empty roots need settlement but do not interrupt batching of
+                # the neighboring nonempty roots or introduce model requests.
+                yield next_group
+                continue
             next_sum_body_count = sum(x.count for x in self._expand_resource_segments(next_group.body))
+            if group is None:
+                group = next_group
+                sum_count = group.head_remain_count + next_sum_body_count
+                continue
             next_sum_count = sum_count + next_sum_body_count
-
             if next_sum_count + next_group.tail_remain_count > self._max_group_score:
                 yield group
                 group = next_group
@@ -158,8 +176,8 @@ class XMLStreamMapper:
                 group.tail = next_group.tail
                 group.tail_remain_count = next_group.tail_remain_count
                 sum_count = next_sum_count
-
-        yield group
+        if group is not None:
+            yield group
 
     def _truncate_and_transform_group(
         self, group: Group[_ResourcePayload]

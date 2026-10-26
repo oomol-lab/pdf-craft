@@ -1,74 +1,76 @@
-"""Pre-scan PCEX source with the adapters used by actual translation."""
+"""Scalar-only PCEX pre-scan sharing the execution adapters' source units."""
 # pylint: disable=protected-access
+from collections import Counter
 from contextlib import asynccontextmanager
 from functools import wraps
 
 from ..common import read_xml
 from ..document.content import chapter_paths, file_content
-from ..extractor.chapter.chapter import Chapter, StandaloneAsset, encode
+from ..extractor.chapter.chapter import decode
 from ..runtime import IO_DOMAIN, worker_context
-from .anchored_translation import _asset_slots
+from ..progress import UnitKind
+from .anchored_translation import _asset_slots, _asset_has_text, asset_word_count
 from .content import _unit
-from .events import TranslationEventKind, TranslationItemKind
 from .narrative_xml import _metadata_element
 from .progress import TranslationProgress, active_progress, progress_context
 from .word_count import count_xml_words
 
 
-def furniture_words(root):
-    """Count independently processed templates/sections, excluding title reuse."""
-    from ..common.words import count_text_words
-    total = 0
-    for position in root.findall('patterns/pattern/position'):
-        if position.get('folio_style') is not None:
-            total += count_text_words(position.get('folio_prefix', ''))
-            total += count_text_words(position.get('folio_suffix', ''))
-        elif position.get('toc_id') is None:
-            total += count_text_words(position.text or '')
-    for section in root.findall('pages/page/section'):
-        if not len(section) and section.get('toc_id') is None:
-            total += count_text_words(section.text or '')
-    return total
-
-
 def scan(paths, transformer, *, metadata, with_anchored, with_furniture):
-    totals = {}
+    counts, total = Counter(), 0
+
+    def add(kind, words, *, include_empty=False):
+        nonlocal total
+        if words or include_empty:
+            counts[kind] += 1
+            total += words
+
     for path in chapter_paths(paths.chapters):
-        for item in file_content(path):
-            if item.value is None:
-                continue
-            source = _unit(item)
-            key = (TranslationItemKind.CHAPTER, item.chapter_id if item.chapter_id is not None else 'head')
-            words = transformer.source_word_count(source)
+        sources = (_unit(item) for item in file_content(path) if item.value is not None) if transformer.supports_stream else (decode(read_xml(path)),)
+        for source in sources:
+            add(UnitKind.CONTENT, transformer.source_word_count(source))
             if with_anchored:
                 for slot in _asset_slots(source):
-                    words += count_xml_words(encode(Chapter(None, -1, [StandaloneAsset(slot.asset)])))
-            totals[key] = totals.get(key, 0) + words
+                    if _asset_has_text(slot.asset):
+                        add(UnitKind.ASSET, asset_word_count(slot.asset), include_empty=True)
     if metadata is not None:
-        totals[TranslationItemKind.METADATA, 'metadata'] = count_xml_words(_metadata_element(metadata)[0])
+        add(UnitKind.METADATA, count_xml_words(_metadata_element(metadata)[0]))
     if with_furniture and paths.furnitures.exists():
-        totals[TranslationItemKind.FURNITURE, 'furniture'] = furniture_words(read_xml(paths.furnitures))
-    return {key: words for key, words in totals.items() if words}
+        from ..common.words import count_text_words
+        root = read_xml(paths.furnitures)
+        for position in root.findall('patterns/pattern/position'):
+            if position.get('folio_style') is not None:
+                words = count_text_words(position.get('folio_prefix', '')) + count_text_words(position.get('folio_suffix', ''))
+                add(UnitKind.FURNITURE, words)
+            elif position.get('toc_id') is None:
+                add(UnitKind.FURNITURE, count_text_words(position.text or ''))
+        for page in root.findall('pages/page'):
+            add(UnitKind.FURNITURE, sum(count_text_words(section.text or '') for section in page.findall('section')
+                                      if not len(section) and section.get('toc_id') is None))
+    return counts, total
 
 
 @asynccontextmanager
 async def pcex_progress(extraction, transformer, callback, *, metadata=None,
                         with_anchored=False, with_furniture=False):
-    if callback is None or active_progress() is not None:
+    progress = active_progress()
+    if (callback is None and progress is None) or (progress is not None and progress.started):
         yield
         return
+    owns = progress is None
+    progress = progress or TranslationProgress(callback)
     async with worker_context(extraction._materialize()) as paths:
-        totals = await IO_DOMAIN.run(scan, paths, transformer, metadata=metadata,
-                                    with_anchored=with_anchored, with_furniture=with_furniture)
-    progress = TranslationProgress(callback, totals)
-    await progress.emit(TranslationEventKind.START)
+        counts, total = await IO_DOMAIN.run(scan, paths, transformer, metadata=metadata,
+                                           with_anchored=with_anchored, with_furniture=with_furniture)
+    await progress.start(counts, total)
     with progress_context(progress):
         yield
-        await progress.finish()
+        if owns and all(progress.finished[kind] == count for kind, count in progress.counts.items()):
+            await progress.finish()
 
 
 def report_pcex_translation(function):
-    """Wrap the persisted replacement path before its metadata LLM call."""
+    """Begin statistics before metadata; outer operations own publication."""
     @wraps(function)
     async def wrapped(self, extraction, workspace, translator, **kwargs):
         from .narrative_xml import NarrativeXMLTransformer

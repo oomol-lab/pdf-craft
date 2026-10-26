@@ -138,20 +138,12 @@ preset：
 `generate_plot=True` 会额外生成分析图并写入 analysis 的 `plots` 目录；这些诊断信息不进入 `.pcex`。输出体积突然
 变大或目录中出现额外资源时，这是预期行为。若磁盘空间不足，先关闭该选项。
 
-### 用 OCR 事件定位具体页面
+### 用进度事件定位具体页面
 
-需要判断任务卡在哪一页时，可通过 `on_ocr_event` 注册回调，记录每个 `OCREvent` 的
-`page_index`、`total_pages`、`kind`、耗时以及 `input_tokens`/`output_tokens`。常见事件包括：
-
-- `START`：开始处理一个页面；
-- `RENDERED`：页面已渲染成图像，尚未完成 OCR；
-- `COMPLETE`：页面识别完成；
-- `FAILED`：页面识别失败，`error` 字段包含异常；
-- `SKIP`：页面已有缓存结果而跳过 OCR；`IGNORE`：页面不在 `page_indexes` 范围内而不执行识别。
-
-把这些事件与失败页面的 PDF 页码、异常消息一起记录，能快速区分“没有选中该页”“渲染失败”
-和“OCR 服务失败”。`COMPLETE` 事件中的 token 字段也可用来核对计量是否异常；事件回调只
-用于观测，不会自动修复失败页面。
+使用 `ExtractionOptions.on_extraction_event`，记录 `unit_id`、`unit_kind`、`page_index`、
+`stage` 和最终 `outcome`。OCR 页完成不等于提取完成；页最终结果会在全局校验、恢复后确定。
+失败详情使用 ErrorPolicy，token 总量使用 metered 返回值。
+完整字段和整数 stage 说明见[统一进度协议](TRANSLATION_PROGRESS.md)。
 
 ### 处理过程中被中断
 

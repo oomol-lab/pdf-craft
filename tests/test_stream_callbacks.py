@@ -212,11 +212,11 @@ class StreamCallbacksTests(unittest.IsolatedAsyncioTestCase):
                                 llm=LLM('unused', 'https://example.invalid', 'unused', 'o200k_base'),
                                 executor=ConcurrentExecutor(FixedCapacity(2)), max_group_tokens=500, window=2,
                                 on_body=received.append, on_translation_event=events.append)
-            from pdf_craft import TranslationEventKind
+            from pdf_craft import ProgressEventKind
             self.assertEqual(events[0].total_words, 16)
-            self.assertEqual(events[-1].kind, TranslationEventKind.COMPLETE)
+            self.assertEqual(events[-1].kind, ProgressEventKind.COMPLETED)
             self.assertEqual(events[-1].completed_words, 16)
-            self.assertTrue(any(event.kind == TranslationEventKind.ITEM_START for event in events))
+            self.assertTrue(any(event.kind == ProgressEventKind.STARTED and event.unit_id is not None for event in events))
             self.assertEqual([item.original for item in received], [f'Sentence {i}.' for i in range(8)])
             self.assertEqual(len({item.epubcfi for item in received}), 8)
             self.assertGreater(len(produced), len(received))

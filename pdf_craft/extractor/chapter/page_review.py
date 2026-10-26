@@ -125,6 +125,9 @@ class JevReviewProcessor:
         analyses: list[PageAnalysis],
         page_pixel_sizes: Mapping[int, tuple[int, int]],
     ) -> list[PageAnalysis]:
+        from ..progress import page_stage
+        for page in analyses:
+            await page_stage(page.page_index, 3)
         requests = build_jev_review_requests(
             source_pages, analyses, page_pixel_sizes
         )

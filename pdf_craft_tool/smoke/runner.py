@@ -20,7 +20,7 @@ from pdf_craft import (
     LLM,
     OCRConfig,
     OCRMode,
-    OCREvent,
+    ProgressEvent,
     PDFCraft,
     PDFOptions,
     RenderMode,
@@ -96,16 +96,13 @@ class _ExecutionReport:
         self.stages.append({"stage": name, "started_at": now, "finished_at": now,
                             "elapsed_seconds": 0.0, "status": "skipped", "reason": reason})
 
-    def on_ocr_event(self, event: OCREvent) -> None:
-        payload: dict[str, Any] = {
-            "kind": event.kind.name.lower(), "page_index": event.page_index,
-            "total_pages": event.total_pages, "cost_time_ms": event.cost_time_ms,
-            "input_tokens": event.input_tokens, "output_tokens": event.output_tokens,
-        }
-        if event.error is not None:
-            payload["error_type"] = type(event.error).__name__
-            payload["error"] = self.redact_text(str(event.error))
-        self.ocr_events.append(payload)
+    def on_extraction_event(self, event: ProgressEvent) -> None:
+        self.ocr_events.append({
+            'kind': event.kind.name.lower(), 'unit_id': event.unit_id,
+            'unit_kind': event.unit_kind.name if event.unit_kind else None,
+            'page_index': event.page_index, 'stage': event.stage,
+            'outcome': event.outcome.name if event.outcome else None,
+        })
 
     def redact_text(self, text: str) -> str:
         for value in self.secret_values:
@@ -256,7 +253,7 @@ def _run_pdf(
                         FootnoteOptions() if run.includes_footnotes else None
                     ),
                 generate_plot=run.generate_plot, toc_assumed=run.toc_assumed,
-                on_ocr_event=report.on_ocr_event,
+                on_extraction_event=report.on_extraction_event,
                 ),
                 analysing_path=run_path / "analysis",
             )

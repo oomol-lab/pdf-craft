@@ -397,7 +397,7 @@ class StreamFollowupTests(unittest.IsolatedAsyncioTestCase):
         from pdf_craft.extractor.chapter import encode
         from pdf_craft.transformer.package import ChapterExtractionTransformer
         from pdf_craft.transformer.narrative_xml import NarrativeXMLTransformer
-        from pdf_craft.transformer.events import TranslationEventKind
+        from pdf_craft.progress import ProgressEventKind
         from pdf_craft.transformer.xml_translator.segment import search_text_segments
         from tests.extraction_helpers import make_extraction
 
@@ -435,7 +435,7 @@ class StreamFollowupTests(unittest.IsolatedAsyncioTestCase):
                                                     emit_translation_events=True)
                     self.assertIs(caught.exception, failure)
                     self.assertEqual(output.read_bytes(), b'existing output')
-                    self.assertNotIn(TranslationEventKind.COMPLETE, [event.kind for event in events])
+                    self.assertFalse(any(event.kind == ProgressEventKind.COMPLETED and event.unit_id is None for event in events))
                 else:
                     result = await transformer.transform(source, output)
                     with result._materialize() as paths:

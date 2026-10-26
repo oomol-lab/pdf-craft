@@ -233,8 +233,12 @@ async def decide_context(
             raise ErrorCallbackError("error policy callback failed") from error
         if not isinstance(result, bool):
             raise ErrorCallbackError("error policy callback must return bool")
-        return result
-    return bool(decision)
+    else:
+        result = bool(decision)
+    if result:
+        from .extractor.progress import observe_recovery
+        await observe_recovery(context)
+    return result
 
 
 async def recover(

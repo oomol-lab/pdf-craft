@@ -233,14 +233,14 @@ class TestFailureFallbackEPUB(unittest.TestCase):
             "scripted.pdf", target, analysing_path=analysis, error_policy=error_policy,
             extraction=ExtractionOptions(
 
-                on_ocr_event=events.append,
+                on_extraction_event=events.append,
             ),
         )
         return events
 
     @staticmethod
     def _failed_pages(events) -> list[int]:
-        return [event.page_index for event in events if event.kind.name == "FAILED"]
+        return [event.page_index for event in events if event.kind.name == "COMPLETED" and event.unit_id is not None and event.outcome.name == "FALLBACK" and event.page_index is not None]
 
     @staticmethod
     def _chapter_assets(extraction_path: Path) -> list[SourceAsset]:

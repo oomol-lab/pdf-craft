@@ -10,6 +10,6 @@ from .package import (
     AnchoredContentExtractionTransformer,
     ExtractionTransformer,
 )
-from .events import TranslationEvent, TranslationEventKind, TranslationItemKind
+from ..progress import ProgressEvent, ProgressEventKind, UnitKind
 
-__all__ = ["AnchoredContent", "AnchoredContentExtractionTransformer", "AnchoredContentTransformer", "AnchoredContentTranslation", "AnchoredContentXMLTransformer", "NarrativeXMLTransformer", "ExtractionTransformer", "SubmitKind", "TranslationTask", "XMLTranslator", "TranslationEvent", "TranslationEventKind", "TranslationItemKind"]
+__all__ = ["AnchoredContent", "AnchoredContentExtractionTransformer", "AnchoredContentTransformer", "AnchoredContentTranslation", "AnchoredContentXMLTransformer", "NarrativeXMLTransformer", "ExtractionTransformer", "SubmitKind", "TranslationTask", "XMLTranslator", "ProgressEvent", "ProgressEventKind", "UnitKind"]

@@ -22,9 +22,9 @@ from pdf_craft.transformer.xml_translator.segment import ImmutableBlockElement, 
 from pdf_craft.transformer.xml_translator.xml import clone_element
 from pdf_craft.transformer.xml_translator.xml.const import ID_KEY
 from pdf_craft.transformer.xml_translator.utils import normalize_whitespace
-from pdf_craft.transformer.events import TranslationEvent, TranslationItemKind
+from pdf_craft.progress import ProgressEvent, UnitKind
 from .word_count import count_xml_words
-from .progress import translation_item
+from .progress import translation_unit, active_progress
 from .chapter_formula_interrupter import (
     _RESTORED_FORMULA_ID_KEY, ChapterFormulaInterrupter,
 )
@@ -123,7 +123,7 @@ class NarrativeXMLTransformer:
         return AnchoredContentXMLTransformer(cast(Any, self._translator), self._mode)
 
     @policy_operation
-    @translation_item(TranslationItemKind.METADATA, lambda *args, **kwargs: 'metadata', complete=True)
+    @translation_unit(UnitKind.METADATA, lambda self, metadata, **kwargs: count_xml_words(_metadata_element(metadata)[0]))
     async def translate_metadata(
         self, metadata: dict[str, Any], *, on_metadata=None,
         target_language: str | None = None,
@@ -161,12 +161,12 @@ class NarrativeXMLTransformer:
             source_locations=tuple(FailureLocation(
                 'field', unit_id=f'metadata:{key}:{index}', field_path=f'{key}[{index}]' if index is not None else key)
                 for _, key, index in fields),
-            item_kind=TranslationItemKind.METADATA,
+            item_kind=UnitKind.METADATA,
             item_id="metadata",
             word_count=count_xml_words(element),
         )
         translated, _ = await self._translator.translate_element(
-            task, emit_scope_events=False, emit_item_events=False,
+            task,
         )
         children = list(translated)
         if len(children) != len(fields) or any(
@@ -193,17 +193,14 @@ class NarrativeXMLTransformer:
         return overlay
 
     @policy_operation
-    @translation_item(TranslationItemKind.CHAPTER, lambda self, chapter, **kwargs: chapter.id if chapter.id is not None else 'head')
+    @translation_unit(UnitKind.CONTENT, lambda self, chapter, **kwargs: self.source_word_count(chapter))
     async def transform(
         self,
         chapter: Chapter,
         *,
-        on_translation_event: Callable[[TranslationEvent], object] | None = None,
+        on_translation_event: Callable[[ProgressEvent], object] | None = None,
         item_id: str | int | None = None,
-        completed_words: int = 0,
         total_words: int | None = None,
-        emit_scope_events: bool = True,
-        emit_item_events: bool = True,
         retry_policy: RetryPolicy | None = None, error_policy: ErrorPolicyInput = OMITTED,
         request_headers: Mapping[str, str] | None = None,
     ) -> Chapter:
@@ -220,17 +217,14 @@ class NarrativeXMLTransformer:
                 action=self._mode,
                 payload=chapter,
                 source_locations=chapter_locations(chapter),
-                item_kind=TranslationItemKind.CHAPTER,
+                item_kind=UnitKind.CONTENT,
                 item_id=item_id if item_id is not None else chapter.id,
                 word_count=count_xml_words(element),
         )
         translated, _ = await async_translator.translate_element(
             task,
             on_translation_event=on_translation_event,
-            completed_words=completed_words,
             total_words=total_words,
-            emit_scope_events=emit_scope_events,
-            emit_item_events=emit_item_events,
             interrupt_source_text_segments=formula_interrupter.interrupt_source_text_segments,
             interrupt_translated_text_segments=formula_interrupter.interrupt_translated_text_segments,
             interrupt_block_element=formula_interrupter.interrupt_block_element,
@@ -291,7 +285,7 @@ class NarrativeXMLTransformer:
                 action=self._mode,
                 payload=index,
                 source_locations=chapter_locations(chapter),
-                item_kind=TranslationItemKind.CHAPTER,
+                item_kind=UnitKind.CONTENT,
                 item_id=item_id,
                 word_count=count_xml_words(element),
             ))
@@ -311,8 +305,6 @@ class NarrativeXMLTransformer:
         translated = await async_translator.translate_elements(
             tasks,
             window=self._window,
-            emit_scope_events=False,
-            emit_item_events=False,
             interrupt_source_text_segments=formula_interrupter.interrupt_source_text_segments,
             interrupt_translated_text_segments=formula_interrupter.interrupt_translated_text_segments,
             interrupt_block_element=formula_interrupter.interrupt_block_element,
@@ -333,6 +325,15 @@ class NarrativeXMLTransformer:
             results[index] = decode(translated_element)
             from .translation_coverage import apply_outcomes
             apply_outcomes(results[index], tasks_by_index[index].outcomes)
+            progress = active_progress()
+            if not self.supports_stream and progress is not None and progress.started:
+                words = self.source_word_count(prepared[index][0])
+                if words:
+                    unit = await progress.unit(UnitKind.CONTENT, words=words)
+                    await unit.progress(1)
+                    from ..progress import UnitOutcome
+                    await unit.finish(UnitOutcome.FALLBACK if any(
+                        not accepted for accepted in tasks_by_index[index].outcomes.values()) else UnitOutcome.PROCESSED)
         return results
 
     def source_word_count(self, chapter: Chapter) -> int:

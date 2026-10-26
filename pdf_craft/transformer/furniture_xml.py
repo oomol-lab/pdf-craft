@@ -13,8 +13,6 @@ from typing import Protocol
 from xml.etree.ElementTree import Element, SubElement
 
 from .word_count import count_xml_words
-from .progress import translation_item
-from .events import TranslationItemKind
 from .furniture import FurniturePosition, FurnitureSection
 from .xml_translator.xml_translator import SubmitKind, TranslationTask
 from .._failure_sources import furniture_section_locations, task_locations
@@ -42,7 +40,6 @@ class FurnitureXMLTransformer:
         self._mode = mode
 
     @policy_operation
-    @translation_item(TranslationItemKind.FURNITURE, lambda *args, **kwargs: 'furniture')
     async def transform_position(
         self, position: FurniturePosition, *,
         retry_policy: RetryPolicy | None = None, error_policy: ErrorPolicyInput = OMITTED,
@@ -69,7 +66,6 @@ class FurnitureXMLTransformer:
         return translated.text
 
     @policy_operation
-    @translation_item(TranslationItemKind.FURNITURE, lambda *args, **kwargs: 'furniture')
     async def transform_sections(
         self,
         page_index: int,

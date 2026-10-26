@@ -153,6 +153,7 @@ class PDFExtractionEngine:
             event_stream = self._ocr.recognize_vendor(
                 self._ocr_executor,
                 image_url_resolver=self._ocr_image_url_resolver,
+                on_preparation_event=event_callback,
                 pdf_path=kwargs["pdf_path"],
                 asset_path=kwargs["analysing_path"] / "extraction" / "assets",
                 ocr_path=kwargs["analysing_path"] / "ocr",
@@ -191,6 +192,10 @@ class PDFExtractionEngine:
         )
         if live is not None:
             await live.finish()
+        from .extractor.progress import active_extraction
+        progress = active_extraction()
+        if progress is not None:
+            await progress.cached_pages()
         draft = await self._resolve_llm_stages(draft, kwargs, on_metadata)
         chapter_analysis = None
         try:
@@ -428,20 +433,22 @@ class PDFExtractionEngine:
         )
 
     async def _resolve_llm_stages(self, draft: _ExtractionDraft, kwargs: dict, on_metadata=None) -> _ExtractionDraft:
-        metadata = draft.document_metadata or await self._extract_book_metadata_async(
-            pdf_path=draft.pdf_path,
-            pages_path=draft.pages_path,
-            enabled=kwargs["extract_book_metadata"],
-            metadata_llm=kwargs["metadata_llm"],
-        )
+        from .extractor.progress import analysis_unit
+        from .progress import UnitKind
+        if kwargs['extract_book_metadata']:
+            async with analysis_unit(UnitKind.METADATA):
+                metadata = draft.document_metadata or await self._extract_book_metadata_async(
+                    pdf_path=draft.pdf_path, pages_path=draft.pages_path,
+                    enabled=True, metadata_llm=kwargs['metadata_llm'])
+        else:
+            metadata = draft.document_metadata
         if on_metadata is not None:
             await invoke_callback(on_metadata, MetadataContent(metadata or DocumentMetadata()))
-        toc = await analyse_toc(
-            pages_path=draft.pages_path,
-            toc_path=draft.toc_path,
-            toc_llm=kwargs["toc_llm"],
-            toc_assumed=kwargs["toc_assumed"],
-        )
+        reused = await IO_DOMAIN.run(draft.toc_path.exists)
+        async with analysis_unit(UnitKind.TOC, reused=reused):
+            toc = await analyse_toc(
+                pages_path=draft.pages_path, toc_path=draft.toc_path,
+                toc_llm=kwargs['toc_llm'], toc_assumed=kwargs['toc_assumed'])
         return replace(draft, document_metadata=metadata, toc=toc)
 
     @policy_operation

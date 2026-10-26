@@ -1,94 +1,24 @@
-"""Operation-local translation accounting; never mutates shared model clients."""
+"""Translation scopes and live units; no book-sized progress registry."""
 from __future__ import annotations
-
-import asyncio
+# pylint: disable=protected-access
 from contextlib import contextmanager
 from contextvars import ContextVar
 from functools import wraps
 
-from ..runtime import invoke_callback
-from .events import TranslationEvent, TranslationEventKind, TranslationItemKind
+from .._progress import OperationProgress, WorkUnit
+from ..progress import OperationKind, UnitOutcome
 
 _active: ContextVar[TranslationProgress | None] = ContextVar('translation_progress', default=None)
-_item: ContextVar[tuple[TranslationItemKind, str | int | None] | None] = ContextVar('translation_progress_item', default=None)
+_item: ContextVar[WorkUnit | None] = ContextVar('translation_unit', default=None)
+_assets: ContextVar[dict[str, WorkUnit] | None] = ContextVar('translation_assets', default=None)
 
 
-class TranslationProgress:
-    """Scalar totals per public item, with serialized cumulative notifications."""
+class TranslationProgress(OperationProgress):
+    """Aggregate counts, with at most two EPUB header units held open."""
 
-    def __init__(self, callback, totals, *, completed=0, item_events=True):
-        self.callback = callback
-        self.item_events = item_events
-        self.totals = dict(totals)
-        self.completed = completed
-        self.total: int | None = completed + sum(self.totals.values())
-        self.chapter_count = sum(key[0] == TranslationItemKind.CHAPTER for key in self.totals)
-        self.has_toc = any(key[0] == TranslationItemKind.TOC for key in self.totals)
-        self.has_metadata = any(key[0] == TranslationItemKind.METADATA for key in self.totals)
-        self.done = dict.fromkeys(self.totals, 0)
-        self.started = set()
-        self.finished = set()
-        self.lock = asyncio.Lock()
-
-    async def emit(self, kind, key=None):
-        event = TranslationEvent(
-            kind, chapter_count=self.chapter_count,
-            has_toc=self.has_toc, has_metadata=self.has_metadata,
-            item_kind=key[0] if key else None, item_id=key[1] if key else None,
-            item_completed_words=self.done[key] if key else None,
-            item_total_words=self.totals[key] if key else None,
-            completed_words=self.completed, total_words=self.total)
-        try:
-            await invoke_callback(self.callback, event)
-        except Exception as error:
-            from ..policies import ErrorCallbackError
-            raise ErrorCallbackError('translation progress callback failed') from error
-
-    async def start_item(self, key):
-        if key not in self.totals:
-            return
-        async with self.lock:
-            if key not in self.started:
-                self.started.add(key)
-                if self.item_events:
-                    await self.emit(TranslationEventKind.ITEM_START, key)
-
-    async def advance(self, key, words):
-        if key not in self.totals:
-            return
-        async with self.lock:
-            if key not in self.started:
-                self.started.add(key)
-                if self.item_events:
-                    await self.emit(TranslationEventKind.ITEM_START, key)
-            if words < 0 or words > self.totals[key] - self.done[key]:
-                raise RuntimeError('translation word accounting exceeded its source total')
-            self.done[key] += words
-            self.completed += words
-            await self.emit(TranslationEventKind.PROGRESS, key)
-
-    async def finish_item(self, key):
-        if key not in self.totals or key in self.finished:
-            return
-        if self.done[key] < self.totals[key] or key not in self.started:
-            await self.advance(key, self.totals[key] - self.done[key])
-        async with self.lock:
-            if key not in self.finished:
-                self.finished.add(key)
-                if self.item_events:
-                    await self.emit(TranslationEventKind.ITEM_COMPLETE, key)
-
-    async def finish(self):
-        # Only adapters that reached their actual EOF/finalization may close
-        # items. Closing a partially consumed stream must not fabricate work.
-        for key, words in self.totals.items():
-            if not words:
-                await self.finish_item(key)
-        if any(key not in self.finished for key in self.totals):
-            return
-        if self.total is None:
-            self.total = self.completed
-        await self.emit(TranslationEventKind.COMPLETE)
+    def __init__(self, callback):
+        super().__init__(callback, OperationKind.TRANSLATION)
+        self.headers = {}
 
 
 @contextmanager
@@ -100,6 +30,15 @@ def progress_context(progress):
         _active.reset(token)
 
 
+@contextmanager
+def unit_context(unit):
+    token = _item.set(unit)
+    try:
+        yield
+    finally:
+        _item.reset(token)
+
+
 def active_progress():
     return _active.get()
 
@@ -108,38 +47,56 @@ def selected_item():
     return _item.get()
 
 
-def translation_item(kind, identifier, *, complete=False):
-    """Bind adapter work, including its nested fill/asset calls, to one item."""
+def translation_unit(kind, word_count):
+    """Keep all nested requests inside one stable adapter-owned unit."""
     def decorate(function):
         @wraps(function)
         async def wrapped(*args, **kwargs):
-            key = (kind, identifier(*args, **kwargs))
-            token = _item.set(key)
-            try:
-                progress = active_progress()
-                if progress is not None:
-                    await progress.start_item(key)
+            progress = active_progress()
+            if progress is None or not progress.started:
+                return await function(*args, **kwargs)
+            words = word_count(*args, **kwargs)
+            if not words:
+                with progress_context(None):
+                    return await function(*args, **kwargs)
+            unit = await progress.unit(kind, words=words)
+            with unit_context(unit):
                 result = await function(*args, **kwargs)
-                if complete and progress is not None:
-                    await progress.finish_item(key)
-                return result
-            finally:
-                _item.reset(token)
+            await unit.progress(1)
+            outcome = unit.outcome
+            if (result is None or result == 'preserved' or
+                    (isinstance(result, (list, tuple)) and any(value is None or
+                        (isinstance(value, tuple) and value[-1:] == ('preserved',)) for value in result))):
+                outcome = UnitOutcome.FALLBACK
+            await unit.finish(outcome)
+            return result
         return wrapped
     return decorate
 
 
-async def finish_chapters(items):
-    """Close chapter items on ordered consumer boundaries, not request order."""
-    from contextlib import aclosing
-    previous = None
-    progress = active_progress()
-    async with aclosing(items):
-        async for item in items:
-            key = (TranslationItemKind.CHAPTER, item.chapter_id if item.chapter_id is not None else 'head')
-            if previous is not None and previous != key and progress is not None:
-                await progress.finish_item(previous)
-            previous = key
-            yield item
-    if previous is not None and progress is not None:
-        await progress.finish_item(previous)
+def translation_operation(function):
+    """Defer operation completion to the outer public output boundary."""
+    @wraps(function)
+    async def wrapped(*args, **kwargs):
+        if active_progress() is not None or kwargs.get('on_translation_event') is None:
+            return await function(*args, **kwargs)
+        progress = TranslationProgress(kwargs['on_translation_event'])
+        with progress_context(progress):
+            result = await function(*args, **kwargs)
+            await progress.finish()
+            return result
+    return wrapped
+
+
+
+@contextmanager
+def asset_unit_context(units):
+    token = _assets.set(units)
+    try:
+        yield
+    finally:
+        _assets.reset(token)
+
+
+def selected_assets():
+    return _assets.get()

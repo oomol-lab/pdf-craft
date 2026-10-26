@@ -15,7 +15,7 @@
 | 书籍元信息提取或翻译 | `on_metadata` | `MetadataContent`，一次完整书籍视图 |
 
 内容、几何与元信息值类型可从 `pdf_craft` 导入；XML 快照使用标准库
-`xml.etree.ElementTree.Element`。内容回调与 `on_ocr_event`、`on_translation_event`
+`xml.etree.ElementTree.Element`。内容回调与 `on_extraction_event`、`on_translation_event`
 等进度事件分开。流式翻译的全书总量在未知时可为 `None`，不要依赖初始百分比。
 回调 API 的首次发布见 [2.5.0 更新日志](../changelog/v2.5.0.md)，EPUB 可选定位的修复见
 [2.5.1 更新日志](../changelog/v2.5.1.md)。

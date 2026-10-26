@@ -32,9 +32,12 @@ async def prepare_furniture(paths, transformer, root):
         await IO_DOMAIN.run(chapters.mkdir)
         cache = {}
         async for chapter, indexed in worker_iter(_headings(paths.chapters)):
-            translated = await transformer.transform(Chapter(chapter.id, chapter.level,
-                                                             [deepcopy(item) for _, item in indexed]),
-                                                     emit_scope_events=False, emit_item_events=False)
+            translated_items = []
+            for _, heading in indexed:
+                translated_heading = await transformer.transform(
+                    Chapter(chapter.id, chapter.level, [deepcopy(heading)]))
+                translated_items.extend(translated_heading.flow_items)
+            translated = Chapter(chapter.id, chapter.level, translated_items)
             filename = chapter_filename(chapter)
             await IO_DOMAIN.run(save_xml, encode(Chapter(translated.id, translated.level,
                 [item for item in translated.flow_items if not getattr(item, '_translation_missing', False)])), chapters / filename)

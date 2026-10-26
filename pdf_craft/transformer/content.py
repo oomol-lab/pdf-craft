@@ -48,7 +48,7 @@ async def translate_content(items, transformer, window, coverage, anchored_cover
         if path is None:
             from .._failure_sources import page_sources
             with page_sources(pages or {}):
-                target = await transformer.transform(source, emit_scope_events=False, emit_item_events=False)
+                target = await transformer.transform(source)
         else:
             import pickle
             def load():
@@ -142,8 +142,6 @@ async def _translate_workspace(extraction, output, transformer, *, window=1,
     items = translate_content(read_content(output / 'chapters'), transformer, window, coverage, assets,
                               with_anchored=with_anchored, aborted=aborted, pages=pages)
     from contextlib import aclosing
-    from .progress import finish_chapters
-    items = finish_chapters(items)
     async with paragraph_notifications(pages, output / 'assets', numbers, on_body, on_footnote) as notify:
         async with aclosing(notify.iterate(items)) as incoming:
             async for item in incoming:

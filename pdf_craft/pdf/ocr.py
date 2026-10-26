@@ -129,6 +129,7 @@ class OCR:
         page_indexes: Container[int] = range(1, sys.maxsize),
         max_tokens: int | None = None,
         max_output_tokens: int | None = None,
+        on_preparation_event=None,
     ) -> AsyncGenerator[OCREvent, None]:
         """Keep PDF rendering serial while vendor page calls share async capacity."""
         selected_policy = error_policy
@@ -148,6 +149,8 @@ class OCR:
             temporary_directory("pdf-craft-vendor-ocr-"),
         )
         events: deque[OCREvent] = deque()
+        from ..runtime import callback_bridge
+        prepare_callback = callback_bridge(asyncio.get_running_loop(), on_preparation_event) if on_preparation_event is not None else events.append
         prepared_stream = DiskStream(temporary_path / "prepared")
         render_task = None
         asset_hub = AssetHub(asset_path)
@@ -165,12 +168,12 @@ class OCR:
                     for ref in refs:
                         check_aborted(cooperative_aborted)
                         started = time.perf_counter()
-                        events.append(OCREvent(
+                        prepare_callback(OCREvent(
                             OCREventKind.START, ref.page_index, total_pages,
                         ))
                         if ref.page_index not in page_indexes:
                             did_ignore_any = True
-                            events.append(OCREvent(
+                            prepare_callback(OCREvent(
                                 OCREventKind.IGNORE, ref.page_index, total_pages,
                                 int((time.perf_counter() - started) * 1000),
                             ))
@@ -179,7 +182,7 @@ class OCR:
                         failed = ocr_path / f"page_{ref.page_index}.failed"
                         if target.exists() and not failed.exists():
                             usable_pages += 1
-                            events.append(OCREvent(
+                            prepare_callback(OCREvent(
                                 OCREventKind.SKIP, ref.page_index, total_pages,
                                 int((time.perf_counter() - started) * 1000),
                             ))
@@ -201,7 +204,7 @@ class OCR:
                             save_xml(encode(page), target)
                             failed.write_text(type(error).__name__, encoding="utf-8")
                             terminal_failures.append(ref.page_index)
-                            events.append(OCREvent(
+                            prepare_callback(OCREvent(
                                 OCREventKind.FAILED, ref.page_index, total_pages,
                                 int((time.perf_counter() - started) * 1000),
                                 error=error,
@@ -230,7 +233,7 @@ class OCR:
                                 scale_x = width / resized_width
                                 scale_y = height / resized_height
                         image.close()
-                        events.append(OCREvent(
+                        prepare_callback(OCREvent(
                             OCREventKind.RENDERED, ref.page_index, total_pages,
                             int((time.perf_counter() - started) * 1000),
                         ))
