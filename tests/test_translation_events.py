@@ -10,8 +10,8 @@ from xml.etree.ElementTree import tostring
 from pdf_craft import (
     NarrativeXMLTransformer,
     NonContinuableError,
-    TranslationEventKind,
-    TranslationItemKind,
+    ProgressEventKind,
+    UnitKind,
 )
 from pdf_craft.transformer.package import ChapterExtractionTransformer
 from pdf_craft import PDFCraft
@@ -19,7 +19,7 @@ from pdf_craft.extractor.chapter.chapter import SourceTextFragment, Chapter, Tex
 from tests.extraction_helpers import make_extraction
 
 
-class TestTranslationEvents(unittest.IsolatedAsyncioTestCase):
+class TestProgressEvents(unittest.IsolatedAsyncioTestCase):
     async def test_direct_extraction_transform_does_not_claim_translation_events(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -74,50 +74,14 @@ class TestTranslationEvents(unittest.IsolatedAsyncioTestCase):
                 on_translation_event=events.append,
             )
 
-            self.assertEqual(events[0].kind, TranslationEventKind.START)
-            self.assertEqual(events[0].chapter_count, 2)
-            self.assertFalse(events[0].has_toc)
-            self.assertFalse(events[0].has_metadata)
-            self.assertEqual(events[0].total_words, 2)
-            item_starts = [event for event in events if event.kind == TranslationEventKind.ITEM_START]
-            self.assertEqual(
-                [(event.item_id, event.item_total_words) for event in item_starts],
-                [(7, 1), ("head", 1)],
-            )
-            item_events = [
-                event for event in events
-                if event.kind in (
-                    TranslationEventKind.ITEM_START,
-                    TranslationEventKind.ITEM_COMPLETE,
-                )
-            ]
-            self.assertEqual(
-                {(event.kind, event.item_kind, event.item_id) for event in item_events},
-                {
-                    (TranslationEventKind.ITEM_START, TranslationItemKind.CHAPTER, 7),
-                    (TranslationEventKind.ITEM_COMPLETE, TranslationItemKind.CHAPTER, 7),
-                    (TranslationEventKind.ITEM_START, TranslationItemKind.CHAPTER, "head"),
-                    (TranslationEventKind.ITEM_COMPLETE, TranslationItemKind.CHAPTER, "head"),
-                },
-            )
-            for item_id in (7, "head"):
-                self.assertLess(
-                    next(index for index, event in enumerate(item_events)
-                         if event.kind == TranslationEventKind.ITEM_START
-                         and event.item_id == item_id),
-                    next(index for index, event in enumerate(item_events)
-                         if event.kind == TranslationEventKind.ITEM_COMPLETE
-                         and event.item_id == item_id),
-                )
-            self.assertEqual(events[-1].kind, TranslationEventKind.COMPLETE)
+            self.assertEqual(events[0].unit_counts[UnitKind.CONTENT], 2)
+            started = [e for e in events if e.kind == ProgressEventKind.STARTED and e.unit_id is not None]
+            completed = [e for e in events if e.kind == ProgressEventKind.COMPLETED and e.unit_id is not None]
+            self.assertEqual([e.unit_id for e in started], [0, 1])
+            self.assertEqual({e.unit_id for e in completed}, {0, 1})
             self.assertEqual(events[-1].completed_words, 2)
+            self.assertIsNone(events[-1].unit_id)
 
-            progress = [event for event in events if event.kind == TranslationEventKind.PROGRESS]
-            self.assertEqual(
-                [(event.item_id, event.item_completed_words, event.item_total_words)
-                 for event in progress],
-                [(7, 1, 1), ("head", 1, 1)],
-            )
 
 
 class TestCrossChapterTranslation(unittest.IsolatedAsyncioTestCase):
@@ -166,8 +130,8 @@ class TestCrossChapterTranslation(unittest.IsolatedAsyncioTestCase):
                 await asyncio.sleep(0)
                 events.append(event)
                 if (
-                    event.kind == TranslationEventKind.ITEM_COMPLETE
-                    and event.item_id == 2
+                    event.kind == ProgressEventKind.COMPLETED
+                    and event.unit_id == 1
                 ):
                     fast_reported.set()
                 callback_active = False
@@ -184,12 +148,12 @@ class TestCrossChapterTranslation(unittest.IsolatedAsyncioTestCase):
             await asyncio.wait_for(fast_reported.wait(), timeout=1)
             fast_progress = next(
                 event for event in events
-                if event.kind == TranslationEventKind.PROGRESS
-                and event.item_id == 2
+                if event.kind == ProgressEventKind.PROGRESS
+                and event.unit_id == 1 and event.stage == 2
             )
             self.assertEqual(
                 fast_progress.completed_words,
-                4,
+                2,
             )
             result = await pending
             self.assertTrue(result._validate())

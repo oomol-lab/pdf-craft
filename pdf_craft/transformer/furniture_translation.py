@@ -20,6 +20,9 @@ from pdf_craft._failure_sources import furniture_section_locations, page_sources
 from pdf_craft._policy import current, locations, recover, source_locations
 from pdf_craft.policies import FailureCategory, FailureLocation
 from .furniture import Box, FurniturePosition, FurnitureSection, FurnitureTransformer
+from .progress import translation_unit
+from ..progress import UnitKind
+from ..common.words import count_text_words
 from .translation_coverage import (
     FurniturePositionCoverage, FurnitureSectionCoverage, write_furniture_coverage,
 )
@@ -130,13 +133,13 @@ async def _translate_furnitures_async(
         )
 
     await IO_DOMAIN.run(finish)
-    from .progress import active_progress
-    from .events import TranslationItemKind
-    progress = active_progress()
-    if progress is not None:
-        await progress.finish_item((TranslationItemKind.FURNITURE, 'furniture'))
 
 
+
+@translation_unit(UnitKind.FURNITURE, lambda position, *args, **kwargs:
+    (count_text_words(position.get('folio_prefix', '')) + count_text_words(position.get('folio_suffix', '')))
+    if position.get('folio_style') is not None else
+    (count_text_words(position.text or '') if position.get('toc_id') is None else 0))
 async def _translate_position_async(
     position: Element,
     pattern_id: str,
@@ -206,6 +209,8 @@ async def _translate_position_async(
     return "translated"
 
 
+@translation_unit(UnitKind.FURNITURE, lambda page_index, entries, transformer:
+    sum(count_text_words(section.content) for _, section in entries))
 async def _translate_page_sections_async(
     page_index: str,
     entries: list[tuple[Element, FurnitureSection]],

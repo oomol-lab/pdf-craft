@@ -235,3 +235,5 @@ Thanks to everyone who has contributed to PDF Craft. Contributions to code, docu
 <!-- community-footer:end -->
 
 Translation progress reports source words (one Han character per word, long-word cap 20), with complete pre-scanned totals and per-round updates. See [translation progress](docs/en/TRANSLATION_PROGRESS.md).
+
+Extraction and translation share [unit progress events](docs/en/TRANSLATION_PROGRESS.md), with upfront counts, integer stages, and source words.

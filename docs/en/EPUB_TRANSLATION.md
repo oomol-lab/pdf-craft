@@ -195,3 +195,5 @@ See [error handling](ERROR_HANDLING.md) for strict defaults, source locations an
 
 Temporary LLM limits are recovered by the executor's `RateLimitScope` without consuming
 `LLM.retry_times`. See [shared rate-limit scopes](API_REFERENCE.md#shared-rate-limit-scopes).
+
+See [the unified unit lifecycle and source-word contract](TRANSLATION_PROGRESS.md).

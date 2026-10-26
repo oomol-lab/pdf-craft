@@ -209,8 +209,8 @@ PCEX/PDF 翻译共用。
 失败决策与重试配置见 [错误处理](ERROR_HANDLING.md)。
 
 def on_translation_event(event) -> None:
-    if event.kind == TranslationEventKind.PROGRESS:
-        print(event.completed_words, event.total_words)
+    if event.kind == ProgressEventKind.PROGRESS:
+        print(event.unit_id, event.stage, event.unit_completed_words, event.completed_words)
 
 失败决策与重试配置见 [错误处理](ERROR_HANDLING.md)。
 
@@ -243,3 +243,5 @@ def on_translation_event(event) -> None:
 
 LLM 暂时限流由 executor 的 `RateLimitScope` 恢复，不消耗 `LLM.retry_times`。
 共享配额、冷却及等待上限见 [共享限流范围](API_REFERENCE.md#共享限流范围)。
+
+统一事件、单元计数和 stage 编号见[进度协议](TRANSLATION_PROGRESS.md)。

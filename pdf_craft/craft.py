@@ -29,6 +29,7 @@ from .document.access import ExtractionContext, PageGeometry, page_geometries, a
 from .extractor.chapter.chapter import SourceTextFragment, TextFlowItem
 from .extractor.chapter.reader import create_chapters_reader
 from .extractor import PDFExtractor
+from .extractor.progress import extraction_facade
 from .footnote import FootnoteOptions
 from .llm import LLM
 from .metering import AbortedCheck, OCRTokensMetering
@@ -38,7 +39,6 @@ from .pdf import (
     AsyncPDFHandler,
     DeepSeekOCRSize,
     OCRImageURLResolver,
-    OCREvent,
     PDFHandler,
 )
 from .pipeline.epub import translate_epub as run_epub_translation
@@ -47,11 +47,12 @@ from .transformer import (
     AnchoredContentExtractionTransformer,
     AnchoredContentTransformer,
     SubmitKind,
-    TranslationEvent,
+    ProgressEvent,
     XMLTranslator,
 )
 from .transformer.narrative_xml import NarrativeXMLTransformer
 from .transformer.pcex_progress import report_pcex_translation
+from .transformer.progress import translation_operation
 from .transformer.package import (
     ChapterExtractionTransformer,
     FurnitureExtractionTransformer,
@@ -96,7 +97,7 @@ class ExtractionOptions:
     toc_llm: LLM | None = None
     footnotes: FootnoteOptions | None = None
     aborted: AbortedCheck = lambda: False
-    on_ocr_event: Callable[[OCREvent], object] = lambda _: None
+    on_extraction_event: Callable[[ProgressEvent], object] | None = None
     on_body: Callable[[Element], object] | None = None
     on_footnote: Callable[[Element], object] | None = None
     context: ExtractionContext | None = None
@@ -196,6 +197,7 @@ class AsyncPDFCraft:
 
     @policy_operation
     @pdf_backend_scope
+    @extraction_facade
     async def extract_pdf_with_metering(
         self, source: PathLike | str, extraction_path: PathLike | str,
         options: ExtractionOptions | None = None,
@@ -228,7 +230,7 @@ class AsyncPDFCraft:
                     footnotes.refinement if footnotes is not None else None
                 ),
                 aborted=options.aborted,
-                on_ocr_event=options.on_ocr_event,
+                on_extraction_event=options.on_extraction_event,
                 **({"context": options.context} if options.context is not None else {}),
                 **({"on_body": options.on_body} if options.on_body is not None else {}),
                 **({"on_footnote": options.on_footnote} if options.on_footnote is not None else {}),
@@ -260,6 +262,7 @@ class AsyncPDFCraft:
         )
 
     @policy_operation
+    @translation_operation
     async def translate_extraction(
         self, extraction: PDFCraftExtraction | PathLike | str, output_path: PathLike | str,
         translator: XMLTranslator,
@@ -268,7 +271,7 @@ class AsyncPDFCraft:
         with_furniture: bool = False,
         translation_id: str | None = None,
         target_language: str | None = None,
-        on_translation_event: Callable[[TranslationEvent], object] | None = None,
+        on_translation_event: Callable[[ProgressEvent], object] | None = None,
         on_body: Callable[[ParagraphContent[SourceRegion]], object] | None = None,
         on_footnote: Callable[[ParagraphContent[SourceRegion]], object] | None = None,
         on_metadata: MetadataCallback | None = None,
@@ -354,13 +357,14 @@ class AsyncPDFCraft:
 
     @policy_operation
     @pdf_backend_scope
+    @translation_operation
     async def translate_pdf(
         self, source: PathLike | str, extraction: PDFCraftExtraction | PathLike | str,
         output: PathLike | str,
         translator: XMLTranslator,
         *, window: int = 1,
         with_furniture: bool = False,
-        on_translation_event: Callable[[TranslationEvent], object] | None = None,
+        on_translation_event: Callable[[ProgressEvent], object] | None = None,
         on_body: Callable[[PDFParagraphContent], object] | None = None,
         on_footnote: Callable[[PDFParagraphContent], object] | None = None,
         on_metadata: MetadataCallback | None = None,
@@ -388,6 +392,7 @@ class AsyncPDFCraft:
 
     @policy_operation
     @pdf_backend_scope
+    @translation_operation
     async def patch_pdf_with_extraction(
         self,
         source: PathLike | str,
@@ -398,7 +403,7 @@ class AsyncPDFCraft:
         on_body: Callable[[PDFParagraphContent], object] | None = None,
         on_footnote: Callable[[PDFParagraphContent], object] | None = None,
         with_furniture: bool = False,
-        on_translation_event: Callable[[TranslationEvent], object] | None = None,
+        on_translation_event: Callable[[ProgressEvent], object] | None = None,
         on_metadata: MetadataCallback | None = None,
         retry_policy: RetryPolicy | None = None, error_policy: ErrorPolicyInput = OMITTED,
         request_headers: Mapping[str, str] | None = None,
@@ -416,6 +421,7 @@ class AsyncPDFCraft:
                             on_translation_event=on_translation_event)
 
     @policy_operation
+    @translation_operation
     async def translate_epub(
         self, source: PathLike | str, output: PathLike | str, *,
         target_language: str, submit: SubmitKind,
@@ -423,7 +429,7 @@ class AsyncPDFCraft:
         max_group_tokens: int = 2600,
         llm: LLM | None = None,
         translation_llm: LLM | None = None, fill_llm: LLM | None = None,
-        on_translation_event: Callable[[TranslationEvent], object] | None = None,
+        on_translation_event: Callable[[ProgressEvent], object] | None = None,
         executor: AsyncExecutor | None = None,
         translation_executor: AsyncExecutor | None = None,
         fill_executor: AsyncExecutor | None = None,
@@ -453,6 +459,7 @@ class AsyncPDFCraft:
 
     @policy_operation
     @pdf_backend_scope
+    @translation_operation
     async def convert_pdf_to_markdown(
         self, source: PathLike | str, output: PathLike | str, *,
         analysing_path: PathLike | str | None = None,
@@ -463,7 +470,7 @@ class AsyncPDFCraft:
         submit: SubmitKind = SubmitKind.REPLACE,
         window: int = 1,
         with_anchored: bool = True,
-        on_translation_event: Callable[[TranslationEvent], object] | None = None,
+        on_translation_event: Callable[[ProgressEvent], object] | None = None,
         on_metadata: MetadataCallback | None = None,
         retry_policy: RetryPolicy | None = None, error_policy: ErrorPolicyInput = OMITTED,
         request_headers: Mapping[str, str] | None = None,
@@ -494,6 +501,7 @@ class AsyncPDFCraft:
 
     @policy_operation
     @pdf_backend_scope
+    @translation_operation
     async def convert_pdf_to_epub(
         self, source: PathLike | str, output: PathLike | str, *,
         analysing_path: PathLike | str | None = None,
@@ -507,7 +515,7 @@ class AsyncPDFCraft:
         submit: SubmitKind = SubmitKind.REPLACE,
         window: int = 1,
         with_anchored: bool = True,
-        on_translation_event: Callable[[TranslationEvent], object] | None = None,
+        on_translation_event: Callable[[ProgressEvent], object] | None = None,
         on_metadata: MetadataCallback | None = None,
         retry_policy: RetryPolicy | None = None, error_policy: ErrorPolicyInput = OMITTED,
         request_headers: Mapping[str, str] | None = None,
@@ -548,6 +556,7 @@ class AsyncPDFCraft:
                 )
         return metering
 
+    @extraction_facade
     async def _extract_to_workspace(
         self, source: PathLike | str, analysing_path: Path,
         options: ExtractionOptions,
@@ -572,7 +581,7 @@ class AsyncPDFCraft:
                 footnote_refinement=(
                     footnotes.refinement if footnotes is not None else None
                 ),
-                aborted=options.aborted, on_ocr_event=options.on_ocr_event,
+                aborted=options.aborted, on_extraction_event=options.on_extraction_event,
                 **({"context": options.context} if options.context is not None else {}),
                 **({"on_body": options.on_body} if options.on_body is not None else {}),
                 **({"on_footnote": options.on_footnote} if options.on_footnote is not None else {}),
@@ -584,7 +593,7 @@ class AsyncPDFCraft:
         translator: XMLTranslator, *, window: int = 1,
         with_anchored: bool = True, with_furniture: bool = False,
         translation_id: str | None = None, target_language: str | None = None,
-        on_translation_event: Callable[[TranslationEvent], object] | None = None,
+        on_translation_event: Callable[[ProgressEvent], object] | None = None,
         on_body: Callable[[ParagraphContent[SourceRegion]], object] | None = None,
         on_footnote: Callable[[ParagraphContent[SourceRegion]], object] | None = None,
         on_metadata: MetadataCallback | None = None, aborted=lambda: False,
@@ -614,7 +623,7 @@ class AsyncPDFCraft:
         self, extraction: PDFCraftExtraction, workspace: Path,
         translator: XMLTranslator, *, window: int = 1,
         with_anchored: bool = True, with_furniture: bool = False,
-        on_translation_event: Callable[[TranslationEvent], object] | None = None,
+        on_translation_event: Callable[[ProgressEvent], object] | None = None,
         on_body: Callable[[ParagraphContent[SourceRegion]], object] | None = None,
         on_footnote: Callable[[ParagraphContent[SourceRegion]], object] | None = None,
         on_metadata: MetadataCallback | None = None, aborted=lambda: False,
@@ -640,7 +649,7 @@ class AsyncPDFCraft:
         window: int = 1,
         with_anchored: bool = True,
         with_furniture: bool = False,
-        on_translation_event: Callable[[TranslationEvent], object] | None = None,
+        on_translation_event: Callable[[ProgressEvent], object] | None = None,
         on_body: Callable[[ParagraphContent[SourceRegion]], object] | None = None,
         on_footnote: Callable[[ParagraphContent[SourceRegion]], object] | None = None,
         on_metadata: MetadataCallback | None = None, aborted=lambda: False, metadata_language=None,

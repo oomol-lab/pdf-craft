@@ -71,7 +71,7 @@ For out-of-memory errors or very slow runs, first process a small sample with `E
 
 ### Find the page that failed
 
-Use `on_ocr_event` to record the page index, event kind, timing, and tokens. `START`, `RENDERED`, `COMPLETE`, `FAILED`, `SKIP`, and `IGNORE` distinguish a page that was not selected, reused from cache, failed to render, or failed in OCR.
+Use `on_extraction_event` to record unit identity, page index, integer stage and final outcome. See [the unified progress protocol](TRANSLATION_PROGRESS.md). ErrorPolicy supplies failure details; metered returns supply tokens.
 
 `ErrorPolicy(ignore_ocr_errors=True)` (or a predicate in that field) permits later pages to continue after a recoverable OCR failure. Pass it as `error_policy` to the façade or operation. Predicates receive `FailureContext`, including source-page locations and a structured error summary. Check the corresponding output pages afterward. If an `aborted` callback requests cancellation, the underlying extraction aborts; a token budget is a separate interruption condition. Capture the actual exception and the recent OCR events when diagnosing either case.
 

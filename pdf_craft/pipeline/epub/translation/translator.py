@@ -29,7 +29,7 @@ from ..cfi import ContentCFILocator
 from ..events import EpubFragmentContent
 from ..adapter.spines import spine_cfi_paths
 from ..adapter.chapters import read_chapters
-from pdf_craft.transformer.events import TranslationEvent, TranslationItemKind
+from pdf_craft.progress import ProgressEvent, UnitKind
 from pdf_craft.transformer.xml_translator.segment import search_text_segments
 from pdf_craft.transformer.xml_translator.xml import (
     XMLLikeNode,
@@ -44,8 +44,7 @@ from .xml_interrupter import XMLInterrupter
 from pdf_craft.transformer.xml_translator.xml_translator.submitter import submit as submit_xml
 from pdf_craft.document.metadata import MetadataCallback
 from pdf_craft.transformer.word_count import count_xml_words
-from pdf_craft.transformer.progress import TranslationProgress, progress_context
-from pdf_craft.transformer.events import TranslationEventKind
+from pdf_craft.transformer.progress import TranslationProgress, progress_context, active_progress
 from pdf_craft.runtime import invoke_callback
 
 
@@ -80,7 +79,7 @@ async def translate(
     llm: LLM | None = None,
     translation_llm: LLM | None = None,
     fill_llm: LLM | None = None,
-    on_translation_event: Callable[[TranslationEvent], object] | None = None,
+    on_translation_event: Callable[[ProgressEvent], object] | None = None,
     executor: AsyncExecutor | None = None,
     translation_executor: AsyncExecutor | None = None,
     fill_executor: AsyncExecutor | None = None,
@@ -137,11 +136,18 @@ async def translate(
                     submit=submit,
                     capture_cfi=on_body is not None or has_error_callback(),
                 )
-            totals = {}
+            from collections import Counter
+            counts, header_words, total = Counter(), Counter(), 0
             if on_translation_event is not None:
                 for task in generate():
-                    totals[task.item_kind, task.item_id] = task.word_count
-            return generate(), totals
+                    kind = task.item_kind
+                    if kind in (UnitKind.METADATA, UnitKind.NAVIGATION):
+                        counts[kind] = 1
+                        header_words[kind] += task.word_count or 0
+                    else:
+                        counts[kind] += 1
+                    total += task.word_count or 0
+            return generate(), counts, header_words, total
         except BaseException as error:
             archive.__exit__(type(error), error, error.__traceback__)
             archive = None
@@ -209,10 +215,11 @@ async def translate(
     failure: BaseException | None = None
     progress = None
     try:
-        tasks, totals = await ARCHIVE_DOMAIN.run(prepare)
-        progress = TranslationProgress(on_translation_event, totals) if on_translation_event is not None else None
+        tasks, counts, header_words, total = await ARCHIVE_DOMAIN.run(prepare)
+        outer_progress = active_progress()
+        progress = outer_progress or (TranslationProgress(on_translation_event) if on_translation_event is not None else None)
         if progress is not None:
-            await progress.emit(TranslationEventKind.START)
+            await progress.start(counts, total)
         from ..adapter.metadata import translated_metadata_content
         metadata_notified = False
         has_metadata_task = False
@@ -240,6 +247,8 @@ async def translate(
                         if not has_metadata_task and not metadata_notified:
                             await notify_metadata([])
                         return
+                    if progress is not None and task.item_kind in header_words and task.item_kind not in progress.headers:
+                        progress.headers[task.item_kind] = await progress.unit(task.item_kind, words=header_words[task.item_kind])
                     if task.payload.element_type == _ElementType.METADATA:
                         has_metadata_task = True
                     if task.payload.element_type == _ElementType.CHAPTER and not has_metadata_task and not metadata_notified:
@@ -373,7 +382,11 @@ async def translate(
                 failure.__traceback__ if failure is not None else None,
             )
     if progress is not None:
-        await progress.finish()
+        for unit in progress.headers.values():
+            await unit.finish()
+        progress.headers.clear()
+        if outer_progress is None:
+            await progress.finish()
 
 
 def _generate_tasks_from_book(
@@ -397,7 +410,7 @@ def _generate_tasks_from_book(
             element=element,
             action=head_submit,
             payload=_ElementContext(element_type=_ElementType.TOC, toc_context=toc_context),
-            item_kind=TranslationItemKind.TOC,
+            item_kind=UnitKind.NAVIGATION,
             source_locations=tuple(FailureLocation('field', source=current().source,
                 member_path=str(toc_context.toc_path), unit_id=str(index), field_path='navigation.title',
                 original=item.title) for index, item in enumerate(toc_list)),
@@ -411,7 +424,7 @@ def _generate_tasks_from_book(
             element=element,
             action=head_submit,
             payload=_ElementContext(element_type=_ElementType.METADATA, metadata_context=metadata_context),
-            item_kind=TranslationItemKind.METADATA,
+            item_kind=UnitKind.METADATA,
             source_locations=tuple(FailureLocation('field', source=current().source,
                 member_path=str(metadata_context.opf_path), unit_id=str(index), field_path=field.tag_name,
                 original=field.text) for index, field in enumerate(metadata_fields)),
@@ -445,7 +458,7 @@ def _generate_tasks_from_book(
                         segment.text.strip() for segment in search_text_segments(body_element)
                     ),
                 ),
-                item_kind=TranslationItemKind.METADATA,
+                item_kind=UnitKind.METADATA,
                 source_locations=(FailureLocation('field', source=current().source,
                     member_path=str(chapter_path), unit_id='head/title', field_path='head/title',
                     original=title_element.text, media_type=media_type),),
@@ -474,7 +487,7 @@ def _generate_tasks_from_book(
                     locator=locator,
                     cfi_package=packages.get(chapter_path),
                 ),
-                item_kind=TranslationItemKind.CHAPTER,
+                item_kind=UnitKind.CONTENT,
                 item_id=str(chapter_path),
                 word_count=count_xml_words(body_element),
             )

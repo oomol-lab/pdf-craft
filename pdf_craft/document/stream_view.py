@@ -99,9 +99,6 @@ async def _content_view(extraction, *, mode=RenderMode.SOURCE, translation_id=No
                     view = replace(view, furnitures=furniture, furniture_coverage=furniture_coverage)
                 items = translate_content(items, transformer, window, [], [],
                                           with_anchored=with_anchored, aborted=aborted, pretranslated=pretranslated, pages=pages)
-        from ..transformer.progress import finish_chapters
-        if translator is not None:
-            items = finish_chapters(items)
         async with aclosing(items):
             yield view, pages, numbers, items
 

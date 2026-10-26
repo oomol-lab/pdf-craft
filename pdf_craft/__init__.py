@@ -51,9 +51,6 @@ from .transformer import (
     ExtractionTransformer,
     SubmitKind,
     XMLTranslator,
-    TranslationEvent,
-    TranslationEventKind,
-    TranslationItemKind,
 )
 from .llm import LLM, create_llm_request
 from .jev import JEV, create_jev_request
@@ -82,8 +79,6 @@ from .pdf import (
     AsyncPDFDocument,
     AsyncPDFHandler,
     DeepSeekOCRSize,
-    OCREvent,
-    OCREventKind,
     PDFDocumentMetadata,
     pdf_pages_count,
 )
@@ -112,3 +107,5 @@ from .policies import (
 from .rate_limit import RateLimitScope, RateLimitTimeoutError
 
 from .common.words import MAX_WORD_LENGTH, WordCounter, count_text_words
+
+from .progress import ProgressEvent, ProgressEventKind, OperationKind, UnitKind, UnitOutcome

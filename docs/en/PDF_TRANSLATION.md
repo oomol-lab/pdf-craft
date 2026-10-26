@@ -243,7 +243,7 @@ options = ExtractionOptions(
 craft.convert_pdf_to_markdown("book.pdf", "sample.md", extraction=options)
 ```
 
-Useful controls include `page_indexes` (one-based page numbers), `dpi`, `ocr_size`, OCR token limits, cover and footnote inclusion, and `on_ocr_event` for per-page observability.
+Useful controls include `page_indexes` (one-based page numbers), `dpi`, `ocr_size`, OCR token limits, cover and footnote inclusion, and `on_extraction_event` for per-page observability.
 
 `includes_furniture=True` is the default for a direct PDF-to-PCEX extraction: it retains any native-PDF running heads, footers, and folios as `furnitures.xml`, but does not translate them. Scan-only pages can simply have no native furniture to retain. The `convert_pdf_to_markdown()` and `convert_pdf_to_epub()` convenience workflows deliberately override this option to `False`, even if it is set on the supplied `ExtractionOptions`, because neither result renders fixed page furniture.
 

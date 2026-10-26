@@ -23,13 +23,14 @@ from pdf_craft.document.package import (
     EXTRACTION_SUFFIX, FORMAT_VERSION, _read_manifest, _v3_manifest,
     validate_translation_id,
 )
-from pdf_craft.runtime import IO_DOMAIN, invoke_callback
+from pdf_craft.runtime import IO_DOMAIN
 from pdf_craft.extractor.chapter.chapter import (
     SourceTextFragment, TextFlowItem, decode, encode, narrative_texts,
 )
 from .word_count import count_xml_words
+from .progress import translation_operation, active_progress, unit_context
 from pdf_craft.transformer.protocol import _ChapterTransformer
-from pdf_craft.transformer.events import TranslationEvent, TranslationEventKind, TranslationItemKind
+from pdf_craft.progress import ProgressEvent, UnitKind
 from pdf_craft.transformer.xml_translator.segment import search_text_segments
 from pdf_craft.transformer.narrative_xml import NarrativeXMLTransformer
 from pdf_craft.transformer.xml_translator.xml_translator import SubmitKind
@@ -67,12 +68,13 @@ class ChapterExtractionTransformer:
         self.toc_transformer = toc_transformer
 
     @policy_operation
+    @translation_operation
     async def transform(
         self,
         extraction: PDFCraftExtraction,
         output_path: Path,
         *,
-        on_translation_event: Callable[[TranslationEvent], object] | None = None,
+        on_translation_event: Callable[[ProgressEvent], object] | None = None,
         emit_translation_events: bool = False,
         retry_policy: RetryPolicy | None = None, error_policy: ErrorPolicyInput = OMITTED,
         request_headers: Mapping[str, str] | None = None,
@@ -93,12 +95,13 @@ class ChapterExtractionTransformer:
         finally:
             await IO_DOMAIN.run(temporary.cleanup)
 
+    @translation_operation
     async def _transform_to_workspace_async(
         self,
         extraction: PDFCraftExtraction,
         output_path: Path,
         *,
-        on_translation_event: Callable[[TranslationEvent], object] | None = None,
+        on_translation_event: Callable[[ProgressEvent], object] | None = None,
         emit_translation_events: bool = False,
     ) -> PDFCraftExtraction:
         if (isinstance(self.chapter_transformer, NarrativeXMLTransformer)
@@ -111,31 +114,17 @@ class ChapterExtractionTransformer:
                 emit_translation_events=emit_translation_events, preserve_layers=True,
                 toc_transformer=self.toc_transformer,
             )
-        from .progress import active_progress
-        progress = active_progress()
-        if progress is not None:
-            on_translation_event = None
         is_xml_transformer = isinstance(self.chapter_transformer, NarrativeXMLTransformer)
         chapter_tasks = await IO_DOMAIN.run(
             self._prepare_async_workspace, extraction, output_path,
         )
-        total_words = sum(item[3] for item in chapter_tasks)
-        if emit_translation_events and on_translation_event is not None:
-            await invoke_callback(on_translation_event, TranslationEvent(
-                kind=TranslationEventKind.START,
-                chapter_count=len(chapter_tasks),
-                has_toc=False,
-                has_metadata=False,
-                total_words=total_words,
-                completed_words=0,
-            ))
-
-        completed_words = 0
+        progress = active_progress()
+        if emit_translation_events and progress is not None and not progress.started:
+            await progress.start({UnitKind.CONTENT: len(chapter_tasks)}, sum(item[3] for item in chapter_tasks))
         narrative_coverage: list[NarrativeCoverage] = []
 
         async def commit_chapter(task_index, transformed):
-            nonlocal completed_words
-            path, chapter, item_id, word_count = chapter_tasks[task_index]
+            path, chapter, _, _ = chapter_tasks[task_index]
             await IO_DOMAIN.run(save_xml, encode(transformed), path)
             source_layouts = {
                 identity: layout
@@ -159,83 +148,34 @@ class ChapterExtractionTransformer:
                     else "preserved"
                 )
                 chapter_coverage.append(NarrativeCoverage(*identity, state))
-            completed_words += word_count
-            if progress is not None:
-                await progress.finish_item((TranslationItemKind.CHAPTER, item_id))
-            if emit_translation_events and on_translation_event is not None:
-                for event_kind in (
-                    TranslationEventKind.PROGRESS,
-                    TranslationEventKind.ITEM_COMPLETE,
-                ):
-                    await invoke_callback(on_translation_event, TranslationEvent(
-                        kind=event_kind,
-                        item_kind=TranslationItemKind.CHAPTER,
-                        item_id=item_id,
-                        item_completed_words=word_count,
-                        item_total_words=word_count,
-                        completed_words=completed_words,
-                        total_words=total_words,
-                    ))
             return chapter_coverage
 
         if is_xml_transformer:
-            if progress is not None:
-                for _, _, item_id, _ in chapter_tasks:
-                    await progress.start_item((TranslationItemKind.CHAPTER, item_id))
-            if emit_translation_events and on_translation_event is not None:
-                for _, _, item_id, word_count in chapter_tasks:
-                    await invoke_callback(on_translation_event, TranslationEvent(
-                        kind=TranslationEventKind.ITEM_START,
-                        item_kind=TranslationItemKind.CHAPTER,
-                        item_id=item_id,
-                        item_completed_words=0,
-                        item_total_words=word_count,
-                    ))
-
-            transformed_chapters = await cast(
-                NarrativeXMLTransformer, self.chapter_transformer,
-            ).transform_many(
-                (chapter, item_id)
-                for _, chapter, item_id, _ in chapter_tasks
-            )
+            transformed_chapters = await cast(NarrativeXMLTransformer, self.chapter_transformer).transform_many(
+                (chapter, item_id) for _, chapter, item_id, _ in chapter_tasks)
             for task_index, transformed in enumerate(transformed_chapters):
-                narrative_coverage.extend(
-                    await commit_chapter(task_index, transformed)
-                )
+                narrative_coverage.extend(await commit_chapter(task_index, transformed))
         else:
             for task_index, (_, chapter, item_id, word_count) in enumerate(chapter_tasks):
-                if emit_translation_events and on_translation_event is not None:
-                    await invoke_callback(on_translation_event, TranslationEvent(
-                        kind=TranslationEventKind.ITEM_START,
-                        item_kind=TranslationItemKind.CHAPTER,
-                        item_id=item_id,
-                        item_completed_words=0,
-                        item_total_words=word_count,
-                    ))
-                transformed = await cast(
-                    _ChapterTransformer, self.chapter_transformer,
-                ).transform(chapter)
-                narrative_coverage.extend(
-                    await commit_chapter(task_index, transformed)
-                )
+                unit = await progress.unit(UnitKind.CONTENT, words=word_count) if progress is not None and progress.started else None
+                with unit_context(unit):
+                    transformed = await cast(_ChapterTransformer, self.chapter_transformer).transform(chapter)
+                if unit is not None:
+                    await unit.finish()
+                narrative_coverage.extend(await commit_chapter(task_index, transformed))
 
-        toc_path = output_path / "toc.xml"
-        if self.toc_transformer is not None and await IO_DOMAIN.run(toc_path.exists):
-            toc = await IO_DOMAIN.run(read_xml, toc_path)
-            transformed_toc = await self.toc_transformer(toc)
-            await IO_DOMAIN.run(save_xml, transformed_toc, toc_path)
+        if self.toc_transformer is not None:
+            toc_path = output_path / 'toc.xml'
+            if await IO_DOMAIN.run(toc_path.exists):
+                toc = await IO_DOMAIN.run(read_xml, toc_path)
+                transformed_toc = await self.toc_transformer(toc)
+                await IO_DOMAIN.run(save_xml, transformed_toc, toc_path)
 
         result = await IO_DOMAIN.run(
             self._finish_async_workspace,
             output_path,
             narrative_coverage,
         )
-        if emit_translation_events and on_translation_event is not None:
-            await invoke_callback(on_translation_event, TranslationEvent(
-                kind=TranslationEventKind.COMPLETE,
-                completed_words=completed_words,
-                total_words=total_words,
-            ))
         return result
 
     def _prepare_async_workspace(

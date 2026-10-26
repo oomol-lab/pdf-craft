@@ -15,7 +15,7 @@ from pdf_craft.common import save_xml
 from pdf_craft.markdown.render import render_markdown_file
 from pdf_craft.metering import OCRTokensMetering
 from pdf_craft.ocr_config import OCRConfig
-from pdf_craft.pdf import OCREvent, OCREventKind
+from pdf_craft.progress import ProgressEvent, ProgressEventKind, OperationKind, UnitKind, UnitOutcome
 from pdf_craft_tool.smoke.assets import discover_assets
 from pdf_craft_tool.smoke.checks import check_epub, check_markdown, check_pdf_patch_geometry
 from pdf_craft_tool.smoke.runner import (
@@ -199,7 +199,8 @@ class TestSmokeMatrix(unittest.TestCase):
             with patch("pdf_craft_tool.smoke.runner.PDFCraft") as craft_class:
                 craft = craft_class.return_value
                 def extract(_source, _path, options, **_kwargs):
-                    options.on_ocr_event(OCREvent(OCREventKind.COMPLETE, 1, 1, 12, 5, 7))
+                    options.on_extraction_event(ProgressEvent(ProgressEventKind.COMPLETED, OperationKind.EXTRACTION,
+                        unit_id=0, unit_kind=UnitKind.PAGE, page_index=1, stage=5, outcome=UnitOutcome.PROCESSED))
                     return package, metering
                 craft.extract_pdf_with_metering.side_effect = extract
                 run_path = run_smoke(
@@ -210,8 +211,8 @@ class TestSmokeMatrix(unittest.TestCase):
             self.assertEqual(manifest["status"], "passed")
             self.assertEqual([item["stage"] for item in manifest["timeline"]],
                              ["configure", "extract", "render", "check", "finish"])
-            self.assertEqual(manifest["ocr_events"], [{"kind": "complete", "page_index": 1,
-                "total_pages": 1, "cost_time_ms": 12, "input_tokens": 5, "output_tokens": 7}])
+            self.assertEqual(manifest["ocr_events"], [{"kind": "completed", "unit_id": 0, "unit_kind": "PAGE", "page_index": 1,
+                "stage": 5, "outcome": "PROCESSED"}])
 
     def test_failed_configuration_records_stage_and_traceback_path(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -234,10 +235,8 @@ class TestSmokeMatrix(unittest.TestCase):
                 craft = craft_class.return_value
 
                 def extract(_source, _path, options, **_kwargs):
-                    options.on_ocr_event(OCREvent(
-                        OCREventKind.FAILED, 1, 1,
-                        error=ValueError("OCR rejected api-secret and access-secret"),
-                    ))
+                    options.on_extraction_event(ProgressEvent(ProgressEventKind.COMPLETED, OperationKind.EXTRACTION,
+                        unit_id=0, unit_kind=UnitKind.PAGE, page_index=1, outcome=UnitOutcome.FALLBACK))
                     raise ValueError("request failed with signing-secret")
 
                 craft.extract_pdf_with_metering.side_effect = extract

@@ -192,10 +192,13 @@ async def _materialize_pdf_handler(
             if not 1 <= page_index <= count:
                 continue
             page_dpi = dpi[page_index] if isinstance(dpi, dict) else dpi
+            from ..extractor.progress import page_stage
+            await page_stage(page_index, 0)
             image = await document.render_page(page_index, page_dpi)
             await IO_DOMAIN.run(
                 _save_and_close_page_image, image, root / f"page-{page_index}.png",
             )
+            await page_stage(page_index, 1)
     finally:
         await document.close()
     return _MaterializedPDFHandler(root, count, metadata, page_sizes, dpi)

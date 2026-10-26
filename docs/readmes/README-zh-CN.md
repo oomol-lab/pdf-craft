@@ -215,3 +215,5 @@ PDF Craft 使用 [MIT 许可证](../../LICENSE)。第三方依赖及所选 OCR �
 <!-- community-footer:end -->
 
 翻译进度统一使用原文 words（汉字一字一 word，长词按 20 字符折算），预统计完整总量并在每轮处理后更新。详见[翻译进度](../zh-CN/TRANSLATION_PROGRESS.md)。
+
+提取和翻译共用[工作单元进度事件](../zh-CN/TRANSLATION_PROGRESS.md)，提供预统计数量、整数 stage 和原文 words。

@@ -876,7 +876,7 @@ def _extract(
             generate_plot=args.plot, toc_assumed=args.toc_assumed,
             toc_llm=(create_llm_from_env(args.toc_llm, cache_path=extraction_path.parent / "toc-cache",
                 log_dir_path=extraction_path.parent / "toc-logs") if args.toc_llm else None),
-            on_ocr_event=_print_ocr_event,
+            on_extraction_event=_print_ocr_event,
         ),
         analysing_path=extraction_path.parent / "analysis",
     )
@@ -1002,7 +1002,8 @@ def _project_root() -> Path:
 
 
 def _print_ocr_event(event) -> None:
-    print(f"OCR {event.kind.name.lower()}: page {event.page_index}/{event.total_pages}")
+    print(f"[{event.operation.name}] {event.kind.name} unit={event.unit_id} "
+          f"page={event.page_index} stage={event.stage} outcome={event.outcome}")
 
 
 def _print_metering(metering) -> None:

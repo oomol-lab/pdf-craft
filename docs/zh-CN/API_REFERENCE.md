@@ -122,7 +122,8 @@ writer 收尾、删除临时归档并保持目标不存在；若发布边界先�
 公共扩展点：内部 engine、`pdf_craft_tool` CLI、`pdf_craft` 的私有模块路径，以及
 `doc-page-extractor` 的内部 extractor/factory。
 
-翻译入口通过 `on_translation_event` 报告 START、条目生命周期、每轮 PROGRESS 和 COMPLETE。
+提取和翻译使用操作/单元两层的 STARTED、PROGRESS、COMPLETED，开始时报告必填 unit_counts，
+运行时按需分配整数 unit_id。提取使用 ExtractionOptions.on_extraction_event，翻译使用 on_translation_event。
 进度统一使用原文 **words** 累计量，PCEX/PDF/EPUB 会预统计完整总量。计数器的流式规则、
 20 字符长词上限、fallback 语义和不兼容字段改名见[翻译进度](TRANSLATION_PROGRESS.md)。
 内容回调仍独立交付成果。
@@ -202,7 +203,7 @@ ExtractionOptions(
     toc_assumed=False,
     toc_llm=None,
     aborted=lambda: False,
-    on_ocr_event=lambda event: None,
+    on_extraction_event=lambda event: None,
     on_body=None,
     on_footnote=None,
     on_metadata=None,
@@ -254,8 +255,7 @@ JEV 与 LLM 使用不同供应商配额时，可分别传 `jev_executor` 与 `ll
 PDF 文件自身的 metadata 只补充 OCR 未得到的字段，绝不覆盖 OCR 结果；得到的 PCEX metadata 会同时供
 EPUB 渲染与 PDF 回填使用，后者会将其写入输出 PDF 的 document metadata。元信息请求最终失败默认抛异常；只有 ErrorPolicy 允许分析降级时才使用 PDF metadata fallback 并继续。
 
-`aborted` 返回 `True` 时请求中止当前任务。`on_ocr_event` 会收到每次 OCR 事件，可用于
-进度、token 或日志记录。`ErrorPolicy.ignore_pdf_render_errors` 和 `ErrorPolicy.ignore_ocr_errors` 接受布尔值，也接受
+`aborted` 返回 `True` 时请求中止当前任务。`on_extraction_event` 接收统一工作单元进度，见[协议与 stage 编号](TRANSLATION_PROGRESS.md)。`ErrorPolicy.ignore_pdf_render_errors` 和 `ErrorPolicy.ignore_ocr_errors` 接受布尔值，也接受
 根据 FailureContext 返回布尔值的 callable；它们只影响页面级错误是否继续处理。
 
 ## PDF 工作流
@@ -745,15 +745,14 @@ Scope 不解释 HTTP 状态，也不把普通 429 一律视为余额耗尽。限
 ## 计量、事件与错误
 
 `OCRTokensMetering` 提供 `input_tokens` 和 `output_tokens`，由带 `with_metering` 的提取
-方法以及一键转换方法返回。`OCREvent` 和 `OCREventKind` 用于 `on_ocr_event` 回调，适合
-记录页面级 OCR 状态。
+方法以及一键转换方法返回。`ProgressEvent` 用于提取和翻译的统一工作单元进度，见[协议与迁移](TRANSLATION_PROGRESS.md)。
 
 失败决策与重试配置见 [错误处理](ERROR_HANDLING.md)。
 
 `ExtractionOptions.aborted` 返回 `True`，以及 `max_ocr_tokens` /
 `max_ocr_output_tokens` 达到上限时，当前 PDF facade 会透出 OCR backend 的中断异常；它尚未把
-这些异常适配为带 `OCRTokensMetering` 的 pdf-craft 统一异常。需要在中断前保留进度或 token
-统计时，应通过 `on_ocr_event` 持续记录事件，并按所选 backend 的异常类型处理。
+这些异常适配为带 `OCRTokensMetering` 的 pdf-craft 统一异常。需要在中断前保留进度时，应通过 `on_extraction_event` 持续记录事件，并按所选 backend 的异常类型处理。
+进度事件不再包含逐页 token；token 总量由 metered 接口返回。
 
 ## 组合建议
 

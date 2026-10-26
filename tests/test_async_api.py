@@ -17,9 +17,9 @@ from reportlab.pdfgen import canvas
 
 from pdf_craft import (
     AsyncPDFCraft, ConcurrentExecutor,
-    ExtractionOptions, FixedCapacity, NonContinuableError, PDFCraft,
+    FixedCapacity, NonContinuableError, PDFCraft,
     PDFCraftExtraction, PDFDocumentMetadata, PDFOptions, SubmitKind,
-    TranslationEventKind, TranslationEvent,
+    ProgressEventKind, ProgressEvent,
 )
 from pdf_craft.common import save_xml
 import pdf_craft.document.package as document_package
@@ -406,7 +406,7 @@ class TestAsyncAPI(unittest.IsolatedAsyncioTestCase):
 
             for index, is_async in enumerate((False, True)):
                 with self.subTest(async_callback=is_async):
-                    events: list[TranslationEvent] = []
+                    events: list[ProgressEvent] = []
                     callback_threads: list[int] = []
                     sync_callback, async_callback = _recording_callbacks(
                         events, callback_threads,
@@ -426,11 +426,11 @@ class TestAsyncAPI(unittest.IsolatedAsyncioTestCase):
                     self.assertEqual(
                         [event.kind for event in events],
                         [
-                            TranslationEventKind.START,
-                            TranslationEventKind.ITEM_START,
-                            TranslationEventKind.PROGRESS,
-                            TranslationEventKind.ITEM_COMPLETE,
-                            TranslationEventKind.COMPLETE,
+                            ProgressEventKind.STARTED,
+                            ProgressEventKind.STARTED,
+                            ProgressEventKind.PROGRESS,
+                            ProgressEventKind.COMPLETED,
+                            ProgressEventKind.COMPLETED,
                         ],
                     )
 
@@ -590,13 +590,9 @@ class TestAsyncAPI(unittest.IsolatedAsyncioTestCase):
             async def on_ocr_event(_event):
                 callback_threads.append(threading.get_ident())
 
-            extraction, metering = await AsyncPDFCraft.from_engine(
-                engine
-            ).extract_pdf_with_metering(
-                "source.pdf",
-                Path(directory) / "book.pcex",
-                ExtractionOptions(on_ocr_event=on_ocr_event),
-            )
+            extraction, metering = await PDFExtractor(engine).extract_with_metering(
+                Path('source.pdf'), Path(directory) / 'book.pcex', on_ocr_event=on_ocr_event)
+
             self.assertEqual(metering, "metering")
             self.assertTrue(extraction._validate())
             self.assertIsNotNone(engine.thread_name)
