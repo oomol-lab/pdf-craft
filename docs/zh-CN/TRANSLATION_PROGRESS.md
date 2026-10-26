@@ -112,6 +112,9 @@ counter.boundary()
 
 ## 不兼容迁移
 
+以下变更从 **2.6.4** 开始生效。从 2.6.3 或更早版本升级时需要更新进度回调，
+详见[发布说明](../changelog/v2.6.4.md)。
+
 包顶层的 `OCREvent`、`OCREventKind`、`TranslationEvent`、`TranslationEventKind`、
 `TranslationItemKind` 替换为 `ProgressEvent`、`ProgressEventKind`、`OperationKind`、`UnitKind`、`UnitOutcome`。
 `ExtractionOptions.on_ocr_event` 改为 `on_extraction_event`。原生 OCR 事件仅作为解析和 token
@@ -121,7 +124,10 @@ counter.boundary()
 改为区分作用域的 `COMPLETED`。旧页失败、缓存和 ignore 事件改为完成结果；排除页不创建单元。
 `item_id` 改为瞬时整数 `unit_id`，`item_completed_words` 改为 `unit_completed_words`，
 条目总量放到单元开始的 `total_words`。章节数、目录存在等旧标记改为 `unit_counts`。
-前一轮修改已将字符统计替换为 words。
+2.6.4 同时将字符统计替换为原文 words：事件 `*_characters` 字段改为 `*_words`，
+`TranslationTask.character_count` 改为 `word_count`，高级接口 `total_characters`
+改为 `total_words`，`source_character_count` 改为 `source_word_count`。
+数值采用上面的 words 口径，不再是字符数。
 
 高级调用者直接向 `XMLTranslator.translate_elements` 提供一次性 iterator 或异步任务流且需要回调时，必须显式提供
 预统计的 `unit_counts` 和 `total_words`；未知计数在模型执行前拒绝，不能用 None 或伪 0 代替。

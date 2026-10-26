@@ -193,7 +193,7 @@ Local execution also requires a matching CUDA-enabled PyTorch build, sufficient 
 | Store or exchange extraction results | [`.pcex` format](docs/en/PCEX_FORMAT.md) |
 | Resolve installation and conversion issues | [Troubleshooting](docs/en/TROUBLESHOOTING.md) |
 | Upgrade to 2.6.0: retry and recovery policies | [Migration guide](docs/en/ERROR_HANDLING.md#upgrading-from-25x) |
-| Read the 2.6.2 release notes | [Changelog](docs/changelog/v2.6.2.md) |
+| Upgrade to 2.6.4: progress API migration and concurrency | [Release notes](docs/changelog/v2.6.4.md) · [Migration guide](docs/en/TRANSLATION_PROGRESS.md#breaking-migration) |
 
 ## Feedback and contributions
 
