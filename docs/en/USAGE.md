@@ -107,6 +107,10 @@ context. Output token prices, including free output, are the caller's concern.
 LLM records streaming usage when reported, including provider cache-hit input.
 Results remain tentative through protocol repair and adapter validation. Responses
 rejected by a later relevant validator become wasted, without counting twice.
+PCEX metadata collections such as `subjects` are translated separately from scalar
+fields. If any member fails, the collection is preserved in its original form and
+all translation/fill consumption for that collection is wasted. Independently
+accepted fields, such as the title, retain their effective consumption.
 
 JEV records its reported input/output tokens; absent cache counts stay zero.
 A valid low probability used to choose LLM refinement is effective. A subsequent
