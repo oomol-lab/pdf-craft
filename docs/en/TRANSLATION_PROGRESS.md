@@ -147,6 +147,9 @@ counter.boundary()
 
 ## Breaking migration
 
+These changes ship in **2.6.4**. Applications upgrading from 2.6.3 or earlier
+must update progress consumers; see the [release notes](../changelog/v2.6.4.md).
+
 Replace root `OCREvent`/`OCREventKind` and `TranslationEvent`/`TranslationEventKind`/
 `TranslationItemKind` imports with `ProgressEvent`, `ProgressEventKind`, `OperationKind`,
 `UnitKind`, and `UnitOutcome`. Replace `ExtractionOptions.on_ocr_event` with
@@ -158,7 +161,10 @@ scoped `COMPLETED`. Old page failure/cache/ignore event kinds become completion
 outcomes; excluded pages no longer create work. `item_id` is replaced by transient
 integer `unit_id`, `item_completed_words` by `unit_completed_words`, and item totals
 by unit `STARTED.total_words`. Removed chapter/TOC flags are replaced by `unit_counts`.
-Character counters were already replaced with source words in the preceding change.
+Character counters are replaced with source words in 2.6.4: rename `*_characters`
+event fields to `*_words`, `TranslationTask.character_count` to `word_count`,
+advanced `total_characters` to `total_words`, and `source_character_count` to
+`source_word_count`. Values follow the source-word rules above, not character counts.
 
 Advanced `XMLTranslator.translate_elements` users supplying a one-pass iterator or async stream
 and a callback must supply pre-counted `unit_counts` and `total_words`; unknown counts
