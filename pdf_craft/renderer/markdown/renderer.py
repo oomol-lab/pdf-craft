@@ -45,9 +45,12 @@ class MarkdownRenderer:
         from ...metering import check_aborted
         from shutil import copy2
         from contextlib import aclosing
+        independent_callbacks = isinstance(translator, XMLTranslator)
         async with content_view(extraction, mode=mode, translation_id=translation_id,
                                 translator=translator, window=window,
-                                with_anchored=with_anchored, on_metadata=on_metadata, aborted=aborted) as (view, pages, numbers, items):
+                                with_anchored=with_anchored, on_metadata=on_metadata, aborted=aborted,
+                                on_body=on_body if independent_callbacks else None,
+                                on_footnote=on_footnote if independent_callbacks else None) as (view, pages, numbers, items):
             cover = cover_path
             if cover is None and await IO_DOMAIN.run(view.cover.exists):
                 cover = view.cover
@@ -59,7 +62,9 @@ class MarkdownRenderer:
                 body_path, notes_path = staged / "body.md", staged / "footnotes.md"
                 assets = staged / "assets"
                 await IO_DOMAIN.run(assets.mkdir)
-                async with paragraph_notifications(pages, view.assets, numbers, on_body, on_footnote) as notify:
+                async with paragraph_notifications(pages, view.assets, numbers,
+                                                   None if independent_callbacks else on_body,
+                                                   None if independent_callbacks else on_footnote) as notify:
                     async with worker_context(_open_output(body_path)) as body, worker_context(_open_output(notes_path)) as notes:
                         have_body, have_notes = False, False
                         seen_notes = set()

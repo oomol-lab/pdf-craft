@@ -39,3 +39,13 @@
   progress callbacks no longer changes a successful empty-task result into failure.
 - Classify EPUB document `head/title` fields as NAVIGATION, sharing the navigation
   aggregate while keeping OPF book metadata in METADATA, as documented.
+
+
+- Start OCR-based book metadata from committed front pages while later OCR continues;
+  native PDF metadata now has an immediate extraction unit and consistent manifest
+  values regardless of callbacks.
+- Schedule ready PCEX metadata, narrative, footnotes, assets and furniture through a
+  shared bounded window. Release furniture by individual heading completion, retain
+  original asset context, and deliver body/footnote callbacks independently in order.
+- Keep pending dependencies and reorder results on disk, close progress SQLite
+  connections explicitly, and avoid operation completion for partially consumed streams.

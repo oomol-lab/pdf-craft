@@ -322,6 +322,9 @@ class StreamCallbacksTests(unittest.IsolatedAsyncioTestCase):
         from pdf_craft import AsyncPDFCraft, ExtractionOptions
         from pdf_craft.transform import PDFExtractionEngine
         class FakeOCR:
+            def metadata(self, *_args):
+                return None
+
             is_vendor = False
             last_page_pixel_sizes = {1: (100, 100), 2: (100, 100), 3: (100, 100)}
             def recognize(self, **kwargs):

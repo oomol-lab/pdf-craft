@@ -171,6 +171,7 @@ async def _materialize_pdf_handler(
     page_indexes: Container[int] | None,
     dpi: int | dict[int, int],
     root: Path,
+    *, on_metadata=None,
 ) -> _MaterializedPDFHandler:
     if not inspect.iscoroutinefunction(handler.open):
         raise TypeError(
@@ -180,6 +181,8 @@ async def _materialize_pdf_handler(
     try:
         count = await document.pages_count()
         metadata = await document.metadata()
+        if on_metadata is not None:
+            await on_metadata(metadata)
         page_sizes = {
             page_index: await document.page_size(page_index)
             for page_index in range(1, count + 1)

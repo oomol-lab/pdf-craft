@@ -32,7 +32,7 @@ from .runtime import (
     run_subprocess, temporary_directory,
 )
 from .document.metadata import MetadataContent
-from .extractor.metadata import extract_book_metadata_from_ocr, merge_ocr_and_pdf_metadata
+from .extractor.metadata import FrontPages, extract_book_metadata_from_ocr, merge_ocr_and_pdf_metadata
 from .extractor.chapter import (
     generate_chapter_files,
     prepare_chapter_analysis,
@@ -78,6 +78,7 @@ class PDFExtractionEngine:
         ocr_executor: AsyncExecutor | None = None,
         ocr_image_url_resolver: OCRImageURLResolver | None = None,
     ) -> None:
+        self._native_metadata_result: DocumentMetadata | None = None
         self._poppler_path = poppler_path_for(pdf_handler)
         self._ocr = OCR(
             ocr=ensure_ocr_config(ocr, models_cache_path, local_only),
@@ -106,23 +107,40 @@ class PDFExtractionEngine:
         on_metadata = kwargs.pop("on_metadata", None)
         if kwargs.get("extract_book_metadata", False) and kwargs.get("metadata_llm") is None:
             raise ValueError("extract_book_metadata=True requires metadata_llm")
-        if on_metadata is not None and not kwargs.get("extract_book_metadata", False):
-            metadata = merge_ocr_and_pdf_metadata(
-                None, await self._read_pdf_metadata_async(kwargs["pdf_path"]),
-            )
-            await invoke_callback(on_metadata, MetadataContent(metadata))
-            kwargs["document_metadata"] = metadata
-            on_metadata = None  # Already delivered the final native-only view.
+        if not kwargs.get("extract_book_metadata", False):
+            native = getattr(self, '_native_metadata_result', None)
+            if native is not None:
+                # The asynchronous handler already notified before materializing
+                # page images. Do not read or settle the same work again.
+                kwargs["document_metadata"] = native
+            else:
+                from .extractor.progress import analysis_unit
+                from .progress import UnitKind
+                async with analysis_unit(UnitKind.METADATA):
+                    metadata = kwargs.get("document_metadata") or merge_ocr_and_pdf_metadata(
+                        None, await self._read_pdf_metadata_async(kwargs["pdf_path"]))
+                    if on_metadata is not None:
+                        await invoke_callback(on_metadata, MetadataContent(metadata))
+                    kwargs["document_metadata"] = metadata
+            on_metadata = None
         context = kwargs.pop("context", None)
         on_body = kwargs.pop("on_body", None)
         on_footnote = kwargs.pop("on_footnote", None)
         async with temporary_directory("pdf-craft-live-extraction-") as directory:
             if context is not None:
                 context._bind(kwargs["analysing_path"] / "extraction" / "assets")
+            front = None
+            if kwargs.get("extract_book_metadata", False):
+                from .pdf.page_ref import pdf_pages_count
+                count = await IO_DOMAIN.run(pdf_pages_count, kwargs["pdf_path"], self._ocr._get_pdf_handler())
+                front = await IO_DOMAIN.run(FrontPages.open, kwargs["analysing_path"] / "ocr",
+                                            count, kwargs.get("page_indexes"))
             live = LiveExtraction(directory, kwargs["analysing_path"] / "ocr",
                                   kwargs["includes_footnotes"], on_body, on_footnote)
             callback = kwargs.get("on_ocr_event")
             async def event(value):
+                if front is not None:
+                    front.event(value)
                 if context is not None:
                     context._update(self._ocr.last_page_pixel_sizes, kwargs["dpi"] or 300)
                 await live.event(value)
@@ -133,7 +151,33 @@ class PDFExtractionEngine:
                     sizes = await IO_DOMAIN.run(OCR._load_page_pixel_sizes, self._ocr,
                                                kwargs["analysing_path"] / "ocr" / "page_pixel_sizes.json")
                     context._update(sizes, kwargs["dpi"] or 300)
-                return await self._extract_package_async(**kwargs, live=live, on_metadata=on_metadata)
+                if front is None:
+                    return await self._extract_package_async(**kwargs, live=live, on_metadata=on_metadata)
+                from .common.tasks import joined
+                async def extract_metadata():
+                    from .extractor.progress import analysis_unit
+                    from .progress import UnitKind
+                    await front.wait_ready(3)
+                    async with analysis_unit(UnitKind.METADATA):
+                        value = kwargs.get("document_metadata") or await self._extract_book_metadata_async(
+                            pdf_path=kwargs["pdf_path"], pages_path=kwargs["analysing_path"] / "ocr",
+                            enabled=True, metadata_llm=kwargs["metadata_llm"], front_pages=front)
+                        if on_metadata is not None:
+                            await invoke_callback(on_metadata, MetadataContent(value or DocumentMetadata()))
+                        return value
+                metadata_task = asyncio.create_task(extract_metadata())
+                async def extract():
+                    return await self._extract_package_async(**kwargs, live=live,
+                                                             metadata_task=metadata_task, front_pages=front)
+                async def observe_metadata():
+                    return await metadata_task
+                try:
+                    result, _ = await joined(extract(), observe_metadata())
+                    return result
+                finally:
+                    from .concurrency import settle_tasks
+                    metadata_task.cancel()
+                    await settle_tasks([metadata_task])
             finally:
                 await live.cancel()
                 if context is not None:
@@ -143,6 +187,8 @@ class PDFExtractionEngine:
         """Run optional footnote refinement between two OCR-domain phases."""
 
         live = kwargs.pop("live", None)
+        metadata_task = kwargs.pop("metadata_task", None)
+        front_pages = kwargs.pop("front_pages", None)
         on_metadata = kwargs.pop("on_metadata", None)
         footnote_refinement = kwargs.pop("footnote_refinement", None)
         kwargs["error_policy"] = decision_bridge(asyncio.get_running_loop(), OMITTED)
@@ -190,13 +236,17 @@ class PDFExtractionEngine:
             lambda aborted: self._prepare_extraction(**{**kwargs, "aborted": aborted}),
             original_aborted=original_aborted,
         )
+        if front_pages is not None:
+            front_pages.finish()
         if live is not None:
             await live.finish()
         from .extractor.progress import active_extraction
         progress = active_extraction()
         if progress is not None:
             await progress.cached_pages()
-        draft = await self._resolve_llm_stages(draft, kwargs, on_metadata)
+        if metadata_task is not None:
+            draft = replace(draft, document_metadata=await metadata_task)
+        draft = await self._resolve_llm_stages(draft, kwargs, on_metadata, metadata_resolved=metadata_task is not None)
         chapter_analysis = None
         try:
             if live is not None and live.analysis_error is not None:
@@ -432,10 +482,10 @@ class PDFExtractionEngine:
             native_pdf_text_prepared=native_pdf_text_prepared,
         )
 
-    async def _resolve_llm_stages(self, draft: _ExtractionDraft, kwargs: dict, on_metadata=None) -> _ExtractionDraft:
+    async def _resolve_llm_stages(self, draft: _ExtractionDraft, kwargs: dict, on_metadata=None, *, metadata_resolved=False) -> _ExtractionDraft:
         from .extractor.progress import analysis_unit
         from .progress import UnitKind
-        if kwargs['extract_book_metadata']:
+        if kwargs['extract_book_metadata'] and not metadata_resolved:
             async with analysis_unit(UnitKind.METADATA):
                 metadata = draft.document_metadata or await self._extract_book_metadata_async(
                     pdf_path=draft.pdf_path, pages_path=draft.pages_path,
@@ -460,6 +510,7 @@ class PDFExtractionEngine:
         enabled: bool,
         metadata_llm: LLM | None,
         error_policy: ErrorPolicyInput = OMITTED,
+        front_pages: FrontPages | None = None,
     ) -> DocumentMetadata | None:
         if not enabled:
             return None
@@ -467,7 +518,7 @@ class PDFExtractionEngine:
         ocr_metadata = None
         try:
             assert metadata_llm is not None
-            ocr_metadata = await extract_book_metadata_from_ocr(pages_path, metadata_llm)
+            ocr_metadata = await extract_book_metadata_from_ocr(pages_path, metadata_llm, **({"front_pages": front_pages} if front_pages is not None else {}))
         except Exception as error:
             from ._policy import recover
             from .policies import FailureCategory

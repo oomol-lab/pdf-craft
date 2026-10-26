@@ -131,7 +131,7 @@ def extraction_operation(function):
             try:
                 await progress.start({UnitKind.PAGE: sum(1 for _ in progress.indexes()),
                                       UnitKind.TOC: 1,
-                                      UnitKind.METADATA: int(bool(kwargs.get('extract_book_metadata')))})
+                                      UnitKind.METADATA: 1})
                 result = await function(self, pdf_path, *args, **kwargs)
                 await progress.finish_pages()
                 await progress.finish()
@@ -176,7 +176,7 @@ def extraction_facade(function):
             token = _active.set(progress)
             try:
                 await progress.start({UnitKind.PAGE: sum(1 for _ in progress.indexes()), UnitKind.TOC: 1,
-                                      UnitKind.METADATA: int(options.extract_book_metadata)})
+                                      UnitKind.METADATA: 1})
                 result = await function(self, *args, **kwargs)
                 await progress.finish_pages()
                 await progress.finish()

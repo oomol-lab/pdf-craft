@@ -92,7 +92,8 @@ class ExtractionUnitTests(TestCase):
             with self.assertRaises(ErrorCallbackError):
                 self.craft().extract_pdf('scripted.pdf', Path(folder) / 'book.pcex',
                     ExtractionOptions(includes_furniture=False, on_extraction_event=callback), error_policy=True)
-            self.assertFalse(any(event.kind == Kind.COMPLETED for event in events))
+            self.assertFalse(any(event.kind == Kind.COMPLETED and
+                                 event.unit_kind != UnitKind.METADATA for event in events))
 
     def test_late_structural_page_recovery_is_reflected_in_terminal_outcome(self):
         from pdf_craft.extractor.chapter.page_analysis import PageStructureError

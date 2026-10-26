@@ -251,8 +251,9 @@ await craft.render_markdown(extraction, "book.md", translator=translator,
 
 PDF 提取未启用 LLM 时，读取原生 PDF metadata 后、开始 OCR 前通知一次，并把相同值写入
 manifest；启用 LLM 时等待提取完成，与原生字段 fallback 合并后再通知一次。LLM 失败允许降级时
-仍通知最终 fallback，两边都没有有效数据时通知空 `DocumentMetadata()`。未提供回调且未开启
-元信息提取时，不增加专为通知的原生元信息读取。
+仍通知最终 fallback，两边都没有有效数据时通知空 `DocumentMetadata()`。不论是否注册回调，
+均读取并保存相同的原生元信息；只注册进度回调不会改变 manifest。仅在提供 `on_metadata` 时
+构造公共快照。OCR 元信息在前部证据落盘后启动，可与后续 OCR 重叠，只通知最终合并结果。
 
 PCEX 翻译与在线翻译渲染在共享元信息阶段通知一次，含目标语言及未翻译字段。EPUB 输入翻译
 同样支持 `on_metadata`：只通知 OPF 书籍元信息，不将目录或每个文档的 head/title 当成书籍通知。
@@ -269,3 +270,9 @@ EPUB 扩展字段仍保留在输出；标准化回调对象不是完整 OPF XML 
 这次命名调整不改变片段粒度、CFI、空白或换行处理。
 
 翻译进度使用原文 words 累计值，见[统一计数和事件约定](TRANSLATION_PROGRESS.md)。
+
+
+PCEX 翻译的 metadata/正文/脚注/资产/furniture 就绪任务共用一个 `window`；依赖标题的家具
+在磁盘等待，不占执行槽。标题定稿/fallback 立即释放对应依赖；资产只等待必要原文 lookahead，
+上下文最多 480 字符。正文与脚注回调各自有序，可以早于按序渲染消费；进度事件按实际执行交错。
+详见[进度与调度](TRANSLATION_PROGRESS.md#pcex-调度与交付)。

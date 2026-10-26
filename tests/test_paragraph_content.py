@@ -204,7 +204,13 @@ asyncio.run(AsyncPDFCraft().render_markdown(sys.argv[1], sys.argv[2]))
                     try:
                         await asyncio.wait_for(received.wait(),3)
                         self.assertFalse(task.done())
+                        # Independent callback channels can now precede the
+                        # ordered renderer; both must progress before EOF.
                         if kind!='pcex':
+                            for _ in range(100):
+                                if rendered:
+                                    break
+                                await asyncio.sleep(0.01)
                             self.assertTrue(rendered)
                         self.assertEqual([r.page.page_index for r in callbacks[0].regions],[1,2])
                         self.assertEqual(callbacks[0].regions[1].source_order_in_page,4)
@@ -247,7 +253,7 @@ asyncio.run(AsyncPDFCraft().render_markdown(sys.argv[1], sys.argv[2]))
         with tempfile.TemporaryDirectory() as directory:
             root=Path(directory)
             save_xml(encode(chapter),root/'chapter_head.xml')
-            with patch('pdf_craft.transformer.content._translate_slots_async',new=slots):
+            with patch('pdf_craft.transformer.pcex_schedule._translate_slots_async',new=slots):
                 items=[item async for item in translate_content(read_content(root),Identity(),2,[],[],with_anchored=True)]
             self.assertEqual(len(items),5)
             from pdf_craft.transformer.anchored_translation import _asset_slots

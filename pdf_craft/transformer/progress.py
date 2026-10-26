@@ -19,6 +19,7 @@ class TranslationProgress(OperationProgress):
     def __init__(self, callback):
         super().__init__(callback, OperationKind.TRANSLATION)
         self.headers = {}
+        self.pending_streams = 0
 
 
 @contextmanager

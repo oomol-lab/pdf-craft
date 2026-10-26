@@ -215,7 +215,10 @@ Without LLM metadata extraction, PDF extraction notifies once after reading nati
 before OCR, and writes that same value into the manifest. With LLM extraction enabled, it waits
 for the final field-wise merge with native fallback, without an intermediate notification.
 Allowed LLM failures use the fallback; an empty result still notifies with `DocumentMetadata()`.
-Without a callback or LLM metadata extraction, native metadata is not read just for notification.
+Native PDF metadata is read consistently even without a content callback; registering
+only a progress callback does not change the manifest. Public snapshots are constructed
+only for `on_metadata`. OCR metadata begins with committed front-page evidence and may
+overlap later OCR; only the final merge is notified.
 
 PCEX translation and online Markdown/EPUB/PDF translation rendering notify once from the shared
 metadata stage. EPUB input translation also supports `on_metadata` for OPF book metadata, not
@@ -236,3 +239,12 @@ No public snapshot is built when the callback is absent.
 The rename does not change fragment granularity, CFI, whitespace or newline handling.
 
 Translation progress uses cumulative source words; see [the event and counting contract](TRANSLATION_PROGRESS.md).
+
+
+PCEX translation admits ready metadata/body/footnote/asset/furniture jobs through one
+shared `window`; title-dependent furniture waits on disk, outside execution slots.
+Heading completion releases its own dependants, including fallback. Asset context is
+original text, clipped to 480 characters, and requires only source lookahead. Body and
+footnote callbacks are independently ordered; they can precede ordered renderer
+consumption. Progress reports actual work and may interleave. See
+[progress and scheduling](TRANSLATION_PROGRESS.md#pcex-scheduling-and-delivery).

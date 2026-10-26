@@ -657,19 +657,22 @@ class AsyncPDFCraft:
         narrative_transformer = NarrativeXMLTransformer(
             translator, mode=SubmitKind.REPLACE, window=window,
         )
-        metadata_overlay = await narrative_transformer.translate_metadata(
-            await IO_DOMAIN.run(extraction._document_metadata),
-            on_metadata=on_metadata, target_language=metadata_language,
-        )
+        async def translate_metadata():
+            return await narrative_transformer.translate_metadata(
+                await IO_DOMAIN.run(extraction._document_metadata),
+                on_metadata=on_metadata, target_language=metadata_language)
+        metadata_overlay = {}
         if narrative_transformer.supports_stream:
             from .transformer.content import translate_workspace
             translated = await translate_workspace(
                 extraction, workspace / "narrative", narrative_transformer,
-                window=window, with_anchored=with_anchored,
+                window=window, with_anchored=with_anchored, with_furniture=with_furniture,
+                metadata=translate_metadata, metadata_result=metadata_overlay,
                 on_body=on_body, on_footnote=on_footnote, aborted=aborted,
                 on_translation_event=on_translation_event, emit_translation_events=True,
             )
         else:
+            metadata_overlay = await translate_metadata()
             # Preserve custom task-translator extensions whose contract is
             # whole-element/batch, rather than silently changing that contract.
             translated = await ChapterExtractionTransformer(
@@ -685,7 +688,7 @@ class AsyncPDFCraft:
             if on_body is not None or on_footnote is not None:
                 from .renderer.paragraph import notify_extraction
                 await notify_extraction(extraction, translated, on_body, on_footnote)
-        if with_furniture:
+        if with_furniture and not narrative_transformer.supports_stream:
             translated = await FurnitureExtractionTransformer(
                 narrative_transformer._furniture_transformer(),
             )._transform_to_workspace_async(translated, workspace / "furniture")
@@ -700,14 +703,26 @@ class AsyncPDFCraft:
             yield PDFExtractor(self._pdf_engine())
             return
         async with temporary_directory("pdf-craft-pdf-pages-") as directory:
+            native_result = None
+            async def native_metadata(value):
+                nonlocal native_result
+                from .extractor.metadata import merge_ocr_and_pdf_metadata
+                from .extractor.progress import analysis_unit
+                from .progress import UnitKind
+                from .document.metadata import MetadataContent
+                from .runtime import invoke_callback
+                async with analysis_unit(UnitKind.METADATA):
+                    native_result = merge_ocr_and_pdf_metadata(None, value)
+                    if options.on_metadata is not None:
+                        await invoke_callback(options.on_metadata, MetadataContent(native_result))
             materialized = await _materialize_pdf_handler(
-                handler,
-                source,
-                options.page_indexes,
-                options.dpi if options.dpi is not None else 300,
-                directory,
+                handler, source, options.page_indexes,
+                options.dpi if options.dpi is not None else 300, directory,
+                on_metadata=native_metadata if not options.extract_book_metadata else None,
             )
-            yield PDFExtractor(self._pdf_engine(materialized))
+            engine = self._pdf_engine(materialized)
+            engine._native_metadata_result = native_result
+            yield PDFExtractor(engine)
 
     def _pdf_engine(self, pdf_handler: PDFHandler | None = None):
         if self._engine is not None:

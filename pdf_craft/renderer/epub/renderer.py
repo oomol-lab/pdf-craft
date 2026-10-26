@@ -49,13 +49,18 @@ class EpubRenderer:
         from ...document.stream_view import content_view
         from ..paragraph import paragraph_notifications
         from .content import render_content
+        independent_callbacks = isinstance(translator, XMLTranslator)
         async with content_view(extraction, mode=mode, translation_id=translation_id,
                                 translator=translator, window=window,
-                                with_anchored=with_anchored, on_metadata=on_metadata, aborted=aborted) as (view, pages, numbers, items):
+                                with_anchored=with_anchored, on_metadata=on_metadata, aborted=aborted,
+                                on_body=on_body if independent_callbacks else None,
+                                on_footnote=on_footnote if independent_callbacks else None) as (view, pages, numbers, items):
             effective_meta = _merge_book_meta(view.book_meta(), book_meta)
             async with temporary_directory("pdf-craft-epub-") as directory:
                 staged = Path(directory) / output_path.name
-                async with paragraph_notifications(pages, view.assets, numbers, on_body, on_footnote) as notify:
+                async with paragraph_notifications(pages, view.assets, numbers,
+                                                   None if independent_callbacks else on_body,
+                                                   None if independent_callbacks else on_footnote) as notify:
                     await render_content(items, view, numbers, notify, Path(directory), staged,
                         mode=mode, book_meta=effective_meta, label_language=label_language,
                         table_render=table_render, latex_render=latex_render, inline_latex=inline_latex,
