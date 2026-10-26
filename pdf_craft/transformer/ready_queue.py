@@ -44,13 +44,17 @@ class ReadyQueue:
                  (pickle.dumps(result), identifier))
 
     def result(self, index):
-        if self.run('SELECT 1 FROM jobs WHERE item=? AND state!="done" LIMIT 1', (index,)):
-            return None
-        rows = self.run('SELECT source FROM items WHERE id=? AND sealed=1', (index,))
+        # Publication, readiness and payloads must share one SQLite snapshot:
+        # the scanner can add jobs and seal the item while callbacks read it.
+        rows = self.run(
+            'SELECT items.source,jobs.kind,jobs.result FROM items '
+            'LEFT JOIN jobs ON jobs.item=items.id '
+            'WHERE items.id=? AND items.sealed=1 AND NOT EXISTS '
+            '(SELECT 1 FROM jobs WHERE item=items.id AND state!="done") ORDER BY jobs.id',
+            (index,))
         if not rows:
             return None
-        results = [(kind, pickle.loads(data)) for kind, data in self.run(
-            'SELECT kind,result FROM jobs WHERE item=? ORDER BY id', (index,))]
+        results = [(kind, pickle.loads(data)) for _, kind, data in rows if kind is not None]
         return pickle.loads(rows[0][0]), results
 
     def discard(self, index, *, notified=False, observing=False):

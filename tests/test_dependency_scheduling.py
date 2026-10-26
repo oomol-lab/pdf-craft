@@ -594,6 +594,31 @@ class TerminationTests(IsolatedAsyncioTestCase):
             self.assertFalse((root / 'output.pcex').exists())
 
 
+class ReadyQueueTests(TestCase):
+    def test_result_cannot_mix_publication_states_between_queries(self):
+        with TemporaryDirectory() as directory:
+            queue = ReadyQueue(Path(directory) / 'work.sqlite')
+            queue.item(0, 'source', 'body')
+            original_run = queue.run
+            published = False
+            def interleave(sql, parameters=()):
+                nonlocal published
+                rows = original_run(sql, parameters)
+                if sql.startswith('SELECT') and not published:
+                    published = True
+                    queue.add('body', 'payload', item=0)
+                    queue.run('UPDATE items SET sealed=1 WHERE id=0')
+                return rows
+            with patch.object(queue, 'run', side_effect=interleave):
+                self.assertIsNone(queue.result(0))
+            self.assertTrue(published)
+            self.assertIsNone(queue.result(0))
+            job = queue.take(['body'])
+            assert job is not None
+            queue.finish(job[0], 'translated')
+            self.assertEqual(queue.result(0), ('source', [('body', 'translated')]))
+
+
 class ConnectionTests(TestCase):
     def test_disk_units_and_queue_close_connections_even_when_sql_raises(self):
         connections = []
