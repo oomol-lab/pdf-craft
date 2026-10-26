@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+from pdf_craft.usage import UsageCollector, adopted_result
 from collections.abc import Mapping
 
 from pdf_craft.policies import RetryPolicy, ErrorPolicyInput
@@ -40,10 +41,12 @@ class FurnitureXMLTransformer:
         self._mode = mode
 
     @policy_operation
+    @adopted_result(lambda value: value is not None)
     async def transform_position(
         self, position: FurniturePosition, *,
         retry_policy: RetryPolicy | None = None, error_policy: ErrorPolicyInput = OMITTED,
         request_headers: Mapping[str, str] | None = None,
+        usage: UsageCollector | None = None,
     ) -> str | None:
         element = Element("furniture-position")
         element.text = position.content
@@ -66,12 +69,14 @@ class FurnitureXMLTransformer:
         return translated.text
 
     @policy_operation
+    @adopted_result(lambda values: any(value is not None for value in values))
     async def transform_sections(
         self,
         page_index: int,
         sections: Sequence[FurnitureSection], *,
         retry_policy: RetryPolicy | None = None, error_policy: ErrorPolicyInput = OMITTED,
         request_headers: Mapping[str, str] | None = None,
+        usage: UsageCollector | None = None,
     ) -> Sequence[str | None]:
         element = Element("furniture-page", {"index": str(page_index)})
         for index, section in enumerate(sections):

@@ -1,5 +1,8 @@
 # Public API reference
 
+Task size queries and operation-scoped resource reports are documented in [Usage and sizing](USAGE.md) (since 2.6.5).
+
+
 ## Optional input assertions
 
 `assert_pdf_readable`, `assert_pdf_renderable`, `assert_pdf_editable` and

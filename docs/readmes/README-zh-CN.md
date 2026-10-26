@@ -164,6 +164,7 @@ python -m pip install "pdf-craft[local]"
 
 | 我想了解 | 文档 |
 | --- | --- |
+| 提前查询任务规模、查看远程资源消耗 | [规模与用量](../zh-CN/USAGE.md) |
 | 升级到 2.6.4：进度 API 迁移与并发优化 | [发布说明](../changelog/v2.6.4.md) · [迁移指南](../zh-CN/TRANSLATION_PROGRESS.md#不兼容迁移) |
 | 安装系统依赖、配置本地 GPU | [安装指南](../zh-CN/INSTALLATION.md) |
 | 选择 OCR 模型、配置远程服务或模型缓存 | [OCR 配置指南](../zh-CN/OCR_BACKENDS.md) |

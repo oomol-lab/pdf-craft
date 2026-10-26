@@ -1,5 +1,6 @@
 # pylint: disable=unused-argument
 
+from pdf_craft.usage import UsageCollector
 from collections.abc import Mapping
 from pdf_craft.policies import RetryPolicy, ErrorPolicyInput
 from pdf_craft._policy import OMITTED, policy_operation, has_error_callback
@@ -28,6 +29,7 @@ from pdf_craft.common.stream import DiskDelivery
 from ..cfi import ContentCFILocator
 from ..events import EpubFragmentContent
 from ..adapter.spines import spine_cfi_paths
+from ..adapter.zip import ReadOnlyZip
 from ..adapter.chapters import read_chapters
 from pdf_craft.progress import ProgressEvent, UnitKind
 from pdf_craft.transformer.xml_translator.segment import search_text_segments
@@ -88,6 +90,7 @@ async def translate(
     on_metadata: MetadataCallback | None = None, *,
         retry_policy: RetryPolicy | None = None, error_policy: ErrorPolicyInput = OMITTED,
         request_headers: Mapping[str, str] | None = None,
+        usage: UsageCollector | None = None,
     ) -> None:
     """Translate an EPUB with native async LLM concurrency and pooled ZIP I/O."""
     if window < 1:
@@ -137,16 +140,8 @@ async def translate(
                     capture_cfi=on_body is not None or has_error_callback(),
                 )
             from collections import Counter
-            counts, header_words, total = Counter(), Counter(), 0
-            if on_translation_event is not None:
-                for task in generate():
-                    kind = task.item_kind
-                    if kind in (UnitKind.METADATA, UnitKind.NAVIGATION):
-                        counts[kind] = 1
-                        header_words[kind] += task.word_count or 0
-                    else:
-                        counts[kind] += 1
-                    total += task.word_count or 0
+            counts, header_words, total = (scan_tasks(generate()) if on_translation_event is not None
+                                           else (Counter(), Counter(), 0))
             return generate(), counts, header_words, total
         except BaseException as error:
             archive.__exit__(type(error), error, error.__traceback__)
@@ -390,7 +385,7 @@ async def translate(
 
 
 def _generate_tasks_from_book(
-    zip: Zip,
+    zip: ReadOnlyZip,
     toc_list: list,
     toc_context: TocContext,
     metadata_fields: list,
@@ -515,3 +510,25 @@ def _source_cfi(locator, segments, package):
     # Unsupported media types have no locator. Unexpected locator errors are
     # implementation/parse errors, not permission to invent a missing CFI.
     return locator.capture(segments).cfi(package)
+
+
+def scan_tasks(tasks):
+    """One scalar counting pass shared by previews and translation progress."""
+    from collections import Counter
+    counts, headers, total = Counter(), Counter(), 0
+    for task in tasks:
+        kind = task.item_kind
+        if kind in (UnitKind.METADATA, UnitKind.NAVIGATION):
+            counts[kind] = 1
+            headers[kind] += task.word_count or 0
+        else:
+            counts[kind] += 1
+        total += task.word_count or 0
+    return counts, headers, total
+
+
+def source_tasks(archive: ReadOnlyZip, submit: SubmitKind = SubmitKind.REPLACE):
+    """Read the same source projection without opening an output archive."""
+    toc, toc_context = read_toc(archive)
+    metadata, metadata_context = read_metadata(archive)
+    return _generate_tasks_from_book(archive, toc, toc_context, metadata, metadata_context, submit)

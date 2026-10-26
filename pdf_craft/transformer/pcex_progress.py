@@ -16,7 +16,9 @@ from .progress import TranslationProgress, active_progress, progress_context
 from .word_count import count_xml_words
 
 
-def scan(paths, transformer, *, metadata, with_anchored, with_furniture):
+def scan(paths, transformer=None, *, metadata, with_anchored, with_furniture):
+    from .narrative_xml import NarrativeXMLTransformer
+    count_words = transformer.source_word_count if transformer is not None else NarrativeXMLTransformer.source_word_count
     counts, total = Counter(), 0
 
     def add(kind, words, *, include_empty=False):
@@ -26,9 +28,9 @@ def scan(paths, transformer, *, metadata, with_anchored, with_furniture):
             total += words
 
     for path in chapter_paths(paths.chapters):
-        sources = (_unit(item) for item in file_content(path) if item.value is not None) if transformer.supports_stream else (decode(read_xml(path)),)
+        sources = (_unit(item) for item in file_content(path) if item.value is not None) if transformer is None or transformer.supports_stream else (decode(read_xml(path)),)
         for source in sources:
-            add(UnitKind.CONTENT, transformer.source_word_count(source))
+            add(UnitKind.CONTENT, count_words(source))
             if with_anchored:
                 for slot in _asset_slots(source):
                     if _asset_has_text(slot.asset):

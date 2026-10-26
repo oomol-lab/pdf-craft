@@ -1,5 +1,6 @@
 # pylint: disable=unused-argument
 
+from pdf_craft.usage import UsageCollector
 from collections.abc import Mapping
 from pdf_craft.pdf.backend import pdf_backend_scope, poppler_path_for
 from pdf_craft.policies import RetryPolicy, ErrorPolicyInput
@@ -57,6 +58,7 @@ class PDFTranslationPipeline:
         translation_id: str | None = None,
         retry_policy: RetryPolicy | None = None, error_policy: ErrorPolicyInput = OMITTED,
         request_headers: Mapping[str, str] | None = None,
+        usage: UsageCollector | None = None,
     ) -> None:
         """Write text already present in ``extraction`` back to ``pdf_path``.
 

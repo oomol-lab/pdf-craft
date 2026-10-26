@@ -1,5 +1,8 @@
 # pdf-craft API 参考
 
+2.6.5 新增任务规模查询及操作级资源用量报告，见[规模与用量](USAGE.md)。
+
+
 ## 可选输入断言
 
 `assert_pdf_readable`、`assert_pdf_renderable`、`assert_pdf_editable` 和

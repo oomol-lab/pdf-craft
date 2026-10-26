@@ -1,3 +1,4 @@
+# pylint: disable=protected-access
 from ..policies import ErrorPolicyInput, FailureCategory, FailureLocation
 from .._policy import OMITTED, decide_sync, decide_context, failure, decision_bridge
 
@@ -439,7 +440,7 @@ class OCR:
             try:
                 first_response = await runtime.request(VendorOCRInput(
                     item.page_index, item.request_path, aborted, 1,
-                ))
+                ), _defer_usage=True)
             except NonContinuableError:
                 raise
             except Exception as error:
@@ -461,7 +462,7 @@ class OCR:
                     )
                     second_response = await runtime.request(VendorOCRInput(
                         item.page_index, second_item.request_path, aborted, 2,
-                    ))
+                    ), _defer_usage=True)
                     second_result = await OCR_DOMAIN.run(
                         _parse_vendor_response,
                         self._config,
@@ -574,7 +575,7 @@ class OCR:
 
             feeder = asyncio.create_task(feed())
             try:
-                async for result in runtime.request_many(requests()):
+                async for result in runtime.request_many(requests(), _defer_usage=True):
                     index, stage = result.request.page_index, result.request.stage_index
                     item = inflight.pop((index, stage))
                     failure_stage = stage
@@ -971,6 +972,20 @@ def _parse_vendor_response(
     item: _PreparedVendorPage,
     response: VendorOCRResponse,
 ):
+    try:
+        result = _decode_vendor_response(config, item, response)
+    except BaseException:
+        if response._usage is not None:
+            response._usage.settle(False)
+            object.__setattr__(response, "_usage", None)
+        raise
+    if response._usage is not None:
+        response._usage.settle(True)
+        object.__setattr__(response, "_usage", None)
+    return result
+
+
+def _decode_vendor_response(config, item, response):
     from PIL import Image as PILImage
     from doc_page_extractor.structure import build_structured_page
     from doc_page_extractor.types import OCRPageResult

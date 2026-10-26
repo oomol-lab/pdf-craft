@@ -2,6 +2,7 @@
 """Official asynchronous JEV service configuration and transport."""
 
 from __future__ import annotations
+from pdf_craft.usage import UsageCollector, request_attempt, observe_tokens
 from collections.abc import Mapping
 
 import asyncio
@@ -79,6 +80,7 @@ class JEVRuntime:
         *,
         _started: asyncio.Event | None = None,
         request_headers: Mapping[str, str] | None = None,
+        usage: UsageCollector | None = None,
     ) -> float:
         return await self._evaluate_with_retry(page_index, request, _started)
 
@@ -86,6 +88,7 @@ class JEVRuntime:
     async def evaluate_many(
         self, requests: Iterable[tuple[int, dict[str, Any]]],
         *, request_headers: Mapping[str, str] | None = None,
+        usage: UsageCollector | None = None,
     ) -> list[tuple[int, float]]:
         if self._client is None:
             raise RuntimeError("JEVRuntime must be entered before evaluation")
@@ -181,20 +184,27 @@ class JEVRuntime:
 
     async def _evaluate_once(self, request: dict[str, Any]) -> float:
         assert self._client is not None
-        try:
-            response = await self._client.system_one(
-                state=request["state"],
-                questions=request["questions"],
-                **extra_header_arguments(),
-            )
-        except OperationError:
-            raise
-        except Exception as error:
-            normalized = _provider_error(error)
-            if normalized is error:
+        with request_attempt(self.config) as attempt_usage:
+            try:
+                response = await self._client.system_one(
+                    state=request["state"],
+                    questions=request["questions"],
+                    **extra_header_arguments(),
+                )
+            except OperationError:
                 raise
-            raise normalized from error
-        return float(response.nouls["page_passes_strict_standard"].noul)
+            except Exception as error:
+                normalized = _provider_error(error)
+                if normalized is error:
+                    raise
+                raise normalized from error
+            observe_tokens(getattr(response, 'usage', None))
+            probability = float(response.nouls["page_passes_strict_standard"].noul)
+            if not 0 <= probability <= 1:
+                raise ValueError('JEV pass probability must be between 0 and 1')
+            if attempt_usage is not None:
+                attempt_usage.accept()
+            return probability
 
     async def _evaluate_with_retry(
         self,
@@ -251,6 +261,7 @@ class JEVRequest(Protocol):
     def __call__(
         self, page_index: int, request: dict[str, Any], *,
         request_headers: Mapping[str, str] | None = None,
+        usage: UsageCollector | None = None,
     ) -> Awaitable[float]: ...
 
 

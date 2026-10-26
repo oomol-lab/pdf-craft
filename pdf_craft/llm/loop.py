@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from typing import Generic, Protocol, TypeVar
 
 from .types import Message, MessageRole
+from ..usage import UsageScope
 
 T = TypeVar("T")
 S = TypeVar("S")
@@ -72,18 +73,21 @@ async def run_repair_loop(options: RepairLoopOptions[T, S]) -> T:
     last_response: str | None = None
     attempts = max(1, options.max_attempts)
     for attempt in range(attempts):
-        response = await options.request(current, attempt, attempts - 1)
-        last_response = response
-        result = (
-            await options.protocol.empty(state, attempt, attempts)
-            if not response.strip()
-            else await options.protocol.validate(response, state, attempt, attempts)
-        )
-        state = result.state
-        if isinstance(result, ProtocolSuccess):
-            return result.value
-        if isinstance(result, ProtocolPartial):
-            return result.value
+        with UsageScope() as scope:
+            response = await options.request(current, attempt, attempts - 1)
+            last_response = response
+            result = (
+                await options.protocol.empty(state, attempt, attempts)
+                if not response.strip()
+                else await options.protocol.validate(response, state, attempt, attempts)
+            )
+            state = result.state
+            if isinstance(result, ProtocolSuccess):
+                scope.accept()
+                return result.value
+            if isinstance(result, ProtocolPartial):
+                scope.accept()
+                return result.value
         if isinstance(result, ProtocolFailure):
             raise result.error
         if attempt + 1 >= attempts:

@@ -3,15 +3,16 @@
 
 from __future__ import annotations
 
+from pdf_craft.usage import UsageCollector, UsageScope, request_attempt, observe_tokens, adopted_result, usage_enabled
 import asyncio
 import base64
 import inspect
 import json
 import re
 import time
-from collections.abc import Mapping, AsyncIterable, AsyncIterator, Awaitable, Callable, Iterable
+from collections.abc import Mapping, AsyncGenerator, AsyncIterable, AsyncIterator, Awaitable, Callable, Iterable
 from contextlib import asynccontextmanager
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Protocol, Any, Literal, Never, Self
 from urllib.parse import urlsplit
@@ -62,6 +63,7 @@ class VendorOCRResponse:
     raw_text: str | None = None
     input_tokens: int = 0
     output_tokens: int = 0
+    _usage: UsageScope | None = field(default=None, repr=False, compare=False)
 
 
 @dataclass(frozen=True)
@@ -141,7 +143,18 @@ class VendorOCRRuntime:
         *,
         _started: asyncio.Event | None = None,
         request_headers: Mapping[str, str] | None = None,
+        usage: UsageCollector | None = None,
+        _defer_usage: bool = False,
     ) -> VendorOCRResponse:
+        with UsageScope() as candidate:
+            response = await self._request_resolved(request, _started)
+            if _defer_usage and usage_enabled():
+                object.__setattr__(response, '_usage', candidate.defer())
+            else:
+                candidate.accept()
+            return response
+
+    async def _request_resolved(self, request, _started):
         resolved = await self._resolve_image_url(request)
         if isinstance(self.config, UnlimitedOCRVendorConfig):
             return await self._request_once(resolved, _started)
@@ -179,7 +192,19 @@ class VendorOCRRuntime:
     async def request_many(
         self, requests: Iterable[VendorOCRInput] | AsyncIterable[VendorOCRInput],
         *, request_headers: Mapping[str, str] | None = None,
+        usage: UsageCollector | None = None,
+        _defer_usage: bool = False,
     ) -> AsyncIterator[VendorOCRResult]:
+        incoming = self._request_many(requests, request_headers=request_headers,
+                                      _defer_usage=_defer_usage, usage=usage)
+        try:
+            async for result in incoming:
+                yield result
+        finally:
+            await incoming.aclose()
+
+    async def _request_many(self, requests, *, request_headers=None, _defer_usage=False,
+                            usage=None) -> AsyncGenerator[VendorOCRResult, None]:
         from .._request_headers import snapshot
         headers = dict(snapshot(request_headers)) if request_headers is not None else current_headers()
 
@@ -221,7 +246,10 @@ class VendorOCRRuntime:
                         exhausted = True
                     else:
                         started = asyncio.Event()
-                        new_task = asyncio.create_task(self.request(request, _started=started, request_headers=headers))
+                        options: dict[str, Any] = {"_defer_usage": True} if _defer_usage and usage_enabled() else {}
+                        if usage is not None:
+                            options["usage"] = usage
+                        new_task = asyncio.create_task(self.request(request, _started=started, request_headers=headers, **options))
                         tasks[new_task] = request
                         admission_owner = new_task
                         admission = asyncio.create_task(started.wait())
@@ -295,6 +323,7 @@ class VendorOCRRuntime:
                     raise
         raise current
 
+    @adopted_result()
     async def _request_once(
         self,
         request: _ResolvedVendorOCRInput,
@@ -348,19 +377,26 @@ class VendorOCRRuntime:
         async def send() -> dict[str, Any]:
             if started is not None:
                 started.set()
-            response = await self._require_client().post(
-                _chat_completions_url(config.base_url),
-                headers={
-                    "Authorization": f"Bearer {config.api_key}",
-                    "Content-Type": "application/json",
-                    "Accept": "application/json",
-                    "User-Agent": "pdf-craft-vendor-ocr/1.0",
-                    **current_headers(),
-                },
-                json=payload,
-            )
-            data = _checked_response(response, request.page_index, "DeepSeek OCR")
-            return {"data": data, "response": response}
+            with request_attempt(self.config) as attempt_usage:
+                response = await self._require_client().post(
+                    _chat_completions_url(config.base_url),
+                    headers={
+                        "Authorization": f"Bearer {config.api_key}",
+                        "Content-Type": "application/json",
+                        "Accept": "application/json",
+                        "User-Agent": "pdf-craft-vendor-ocr/1.0",
+                        **current_headers(),
+                    },
+                    json=payload,
+                )
+                try:
+                    observe_tokens(response.json().get('usage'))
+                except (ValueError, AttributeError):
+                    pass
+                data = _checked_response(response, request.page_index, "DeepSeek OCR")
+                if attempt_usage is not None:
+                    attempt_usage.accept()
+                return {"data": data, "response": response}
 
         sent = await self.executor.run(send)
         data = sent["data"]
@@ -429,6 +465,7 @@ class VendorOCRRuntime:
                     await asyncio.sleep(config.retry_interval_seconds)
                 resubmissions += 1
 
+    @adopted_result()
     async def _request_unlimited_task(
         self,
         request: _ResolvedVendorOCRInput,
@@ -524,16 +561,21 @@ class VendorOCRRuntime:
         )
 
         async def submit() -> dict[str, Any]:
-            return await self._post_form(
-                self._unlimited_url(
-                    "/rest/2.0/brain/online/v2/unlimited-ocr-parser/task",
-                    token,
-                ),
-                image_fields,
-                request.page_index,
-                "Unlimited OCR submit",
-                result_kind="submit",
-            )
+            with request_attempt(self.config) as attempt_usage:
+                result = await self._post_form(
+                    self._unlimited_url(
+                        "/rest/2.0/brain/online/v2/unlimited-ocr-parser/task",
+                        token,
+                    ),
+                    image_fields,
+                    request.page_index,
+                    "Unlimited OCR submit",
+                    result_kind="submit",
+                )
+
+                if attempt_usage is not None:
+                    attempt_usage.accept()
+                return result
 
         return await self._run_io_once(submit, started)
 
@@ -718,6 +760,7 @@ class VendorOCRRuntime:
 class VendorOCRRequest(Protocol):
     def __call__(
         self, request: VendorOCRInput, *, request_headers: Mapping[str, str] | None = None,
+        usage: UsageCollector | None = None,
     ) -> Awaitable[VendorOCRResponse]: ...
 
 

@@ -12,6 +12,7 @@ from typing import Any, TypeVar, cast
 from uuid import uuid4
 
 from ._request_headers import snapshot
+from .usage import usage_context
 from .concurrency import NonContinuableError, fatal_error_boundary
 from .policies import (
     AllFallbackError,
@@ -134,7 +135,8 @@ def policy_operation(function: F) -> F:
             raise TypeError("error_policy must be ErrorPolicy, bool, callback or None")
         token = _execution.set(policy)
         try:
-            return await function(*args, **kwargs)
+            with usage_context(bound.get("usage")):
+                return await function(*args, **kwargs)
         finally:
             _execution.reset(token)
 
