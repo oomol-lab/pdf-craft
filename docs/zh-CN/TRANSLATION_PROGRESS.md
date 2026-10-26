@@ -12,7 +12,8 @@
 
 操作 `STARTED` 提供**必填 `unit_counts`**，未启用的类型记 0；翻译还提供准确 `total_words`。
 预扫描只累计各类型数量和 words，不创建全量 unit、ID、stage 对象、工作计划，也不保留整书文本。
-运行时按需创建单元，结束后不在内存注册表中保留。跨越整批等待的页状态及乱序 EPUB 交付状态可暂存磁盘。
+运行时按需创建单元，结束后不在内存注册表中保留。XML 单元在执行组开始时才创建，
+不在预扫描或预取输入时分配 ID。资产按独立图片/表格计数，不随请求拆批大小改变。跨越整批等待的页状态及乱序 EPUB 交付状态可暂存磁盘。
 
 | 操作 | UnitKind | 计数口径 |
 | --- | --- | --- |
@@ -20,7 +21,7 @@
 | extraction | TOC | 一次目录分析，包含统计分析或缓存复用。 |
 | extraction | METADATA | `extract_book_metadata=True` 时一次书籍元信息提取。 |
 | translation | CONTENT | PCEX 中含 narrative words 的 flow/脚注条目；EPUB 的正文任务。 |
-| translation | ASSET | 适配器中每批最多四个有文字的图片/表格。 |
+| translation | ASSET | 独立的图片或表格，包含该资产的 title/content/caption 字段。 |
 | translation | FURNITURE | 独立 pattern position，或同一页的普通 sections。 |
 | translation | METADATA | 书籍元信息聚合为 0 或 1 个单元。 |
 | translation | NAVIGATION | EPUB 导航及文档标题聚合为 0 或 1 个单元。 |
@@ -29,6 +30,7 @@ PCEX 提前翻译的标题仍是同一 CONTENT 单元，正文消费缓存或 fu
 PCEX 目录从标题派生，不单独翻译计数。只交付 PDF 原生元信息不创建 metadata 提取单元。
 排除页不在 PAGE 总数中；所选页命中缓存仍要完成一个 PAGE。
 不透明的自定义整章 Transformer 以整章为 CONTENT，只能在适配器可观察边界报告进度。
+不透明的整书批处理无法透露内部启动时机，在逐项采纳返回章节时才创建并完成其单元，不提前分配全书 ID。
 
 单元 `STARTED` 提供 `unit_kind`、`unit_id`、`max_stage`，翻译另提供该单元的 `total_words`。
 PAGE 事件保留真实的 1-based `page_index`。
@@ -118,8 +120,8 @@ counter.boundary()
 条目总量放到单元开始的 `total_words`。章节数、目录存在等旧标记改为 `unit_counts`。
 前一轮修改已将字符统计替换为 words。
 
-高级调用者直接向 `XMLTranslator.translate_elements` 提供动态异步任务流且需要回调时，必须显式提供
+高级调用者直接向 `XMLTranslator.translate_elements` 提供一次性 iterator 或异步任务流且需要回调时，必须显式提供
 预统计的 `unit_counts` 和 `total_words`；未知计数在模型执行前拒绝，不能用 None 或伪 0 代替。
-同步任务 iterable 可以直接统计。高层 PCEX/PDF/EPUB 自动进行标量预扫描。
+可重复遍历的同步 iterable 可以直接统计，不额外收集任务列表。高层 PCEX/PDF/EPUB 自动进行标量预扫描。
 
 移除旧高级接口的 `completed_words` 偏移及 `emit_scope_events` / `emit_item_events` 开关；启用回调即使用一致的作用域生命周期。

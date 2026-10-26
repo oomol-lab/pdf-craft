@@ -4,7 +4,7 @@ from collections.abc import Mapping
 from pdf_craft.policies import RetryPolicy, ErrorPolicyInput
 from pdf_craft._policy import OMITTED, policy_operation
 # pylint: disable=protected-access,unused-argument
-from collections.abc import AsyncIterable, Callable, Iterable
+from collections.abc import AsyncIterable, Callable, Iterable, Iterator
 from contextlib import aclosing
 from dataclasses import dataclass, field
 from typing import Generic, TypeVar, cast
@@ -29,7 +29,7 @@ from .hill_climbing import HillClimbing
 from .stream_mapper import InlineSegmentMapping, XMLStreamMapper
 from .submitter import SubmitKind, submit
 from ...word_count import count_xml_words
-from ...progress import TranslationProgress, active_progress, selected_item
+from ...progress import TranslationProgress, active_progress, selected_item, selected_assets
 from pdf_craft.progress import UnitOutcome
 from collections import Counter
 import asyncio
@@ -207,8 +207,10 @@ class XMLTranslator:
         on_before_submit: Callable[[tuple[Element, list[InlineSegmentMapping], T]], object] | None = None,
         _task_store=None,
         unit_counts=None,
+        _progress_path=None,
     ) -> list[tuple[Element, T]]:
-        if isinstance(tasks, AsyncIterable) and _task_store is None:
+        if _progress_path is None and _task_store is None and (
+                isinstance(tasks, AsyncIterable) or active_progress() is not None or on_translation_event is not None):
             from pdf_craft.runtime import temporary_directory
             from .source_store import TaskStore
             async with temporary_directory('pdf-craft-task-context-') as directory:
@@ -223,7 +225,8 @@ class XMLTranslator:
                     window=window, on_mapping=on_mapping, on_result=on_result,
                     collect_results=collect_results, on_task_mapping=on_task_mapping,
                     on_before_submit=on_before_submit,
-                    _task_store=TaskStore(directory), unit_counts=unit_counts,
+                    _task_store=TaskStore(directory) if isinstance(tasks, AsyncIterable) else None,
+                    unit_counts=unit_counts, _progress_path=directory,
                 )
         if window < 1:
             raise ValueError("window must be at least 1")
@@ -234,24 +237,27 @@ class XMLTranslator:
             interrupt_block_element=interrupt_block_element,
         )
         async_tasks = tasks if isinstance(tasks, AsyncIterable) else None
-        task_list = [] if async_tasks is not None else list(cast(Iterable[TranslationTask[T]], tasks))
+        task_list = () if async_tasks is not None else cast(Iterable[TranslationTask[T]], tasks)
+        one_pass = async_tasks is not None or isinstance(tasks, Iterator)
         progress = active_progress()
         scope_item = selected_item() if progress is not None else None
+        asset_units = selected_assets() if progress is not None else None
         owns_progress = progress is None and on_translation_event is not None
         if owns_progress:
-            if async_tasks is not None and (unit_counts is None or total_words is None):
-                raise ValueError('dynamic translation progress requires unit_counts and total_words')
+            if one_pass and (unit_counts is None or total_words is None):
+                raise ValueError('one-pass translation progress requires unit_counts and total_words')
             progress = TranslationProgress(on_translation_event)
             counts, words = Counter(), 0
-            for task in task_list:
-                counts[task.item_kind or UnitKind.CONTENT] += 1
-                words += task.word_count if task.word_count is not None else count_xml_words(task.element)
-            await progress.start(unit_counts if async_tasks is not None else counts,
+            if not one_pass:
+                for task in task_list:
+                    counts[task.item_kind or UnitKind.CONTENT] += 1
+                    words += task.word_count if task.word_count is not None else count_xml_words(task.element)
+            await progress.start(unit_counts if one_pass else counts,
                                  total_words if total_words is not None else words)
         # Live units only; async tasks already persist source context on disk.
         live_units = {}
-        disk_units = (await IO_DOMAIN.run(DiskUnits, _task_store.root / 'progress.sqlite', progress)
-                      if progress is not None and _task_store is not None else None)
+        disk_units = (await IO_DOMAIN.run(DiskUnits, _progress_path / 'progress.sqlite', progress)
+                      if progress is not None and _progress_path is not None else None)
         progress_lock = asyncio.Lock()
 
         async def save_unit(identity, unit):
@@ -263,6 +269,8 @@ class XMLTranslator:
         async def load_unit(identity):
             unit = (await IO_DOMAIN.run(disk_units.load, identity) if disk_units is not None
                     else live_units.get(identity))
+            if unit is not None and scope_item is not None:
+                return scope_item
             return progress.headers.get(unit.kind, unit) if unit is not None and progress is not None else unit
 
 
@@ -291,7 +299,6 @@ class XMLTranslator:
                     from .source_store import tag_source
                     assert _task_store is not None
                     identity = _task_store.allocate()
-                    await start_task(task, identity)
                     tag_locations(task.element, task_locations(task))
                     tag_source(task.element, identity)
                     await IO_DOMAIN.run(_task_store.save, identity, task)
@@ -302,8 +309,6 @@ class XMLTranslator:
                     await close()
 
         results: list[tuple[Element, T]] = []
-        for task in task_list:
-            await start_task(task, id(task.element))
         stream_mapper = await self._stream_mapper_async()
         async def mapping_callback(mapping):
             from .source_store import source_identity
@@ -319,30 +324,57 @@ class XMLTranslator:
                 return
             from .source_store import source_identity
             async with progress_lock:
-                by_identity = {}
+                by_unit = {}
                 for segment in segments:
                     if getattr(segment, '_translation_context', False):
                         continue
-                    identity = source_identity(segment.head.root) if _task_store is not None else id(segment.head.root)
-                    by_identity[identity] = by_identity.get(identity, 0) + segment._progress_words
-                for identity, words in by_identity.items():
-                    unit = await load_unit(identity)
-                    assert unit is not None
+                    if asset_units is not None:
+                        slot = next((node.get('translation_slot') for node in segment.head.parent_stack
+                                     if node.tag == 'asset'), None)
+                        unit = asset_units.get(slot) if slot is not None else None
+                        if unit is None:
+                            # Context-only blocks never carry asset work weights.
+                            if segment._progress_words:
+                                raise RuntimeError('asset source words have no logical unit')
+                            continue
+                        identity = None
+                    else:
+                        identity = source_identity(segment.head.root) if _task_store is not None else id(segment.head.root)
+                        unit = await load_unit(identity)
+                        assert unit is not None
+                    key = unit if asset_units is not None else identity
+                    if key not in by_unit:
+                        by_unit[key] = [unit, 0]
+                    by_unit[key][1] += segment._progress_words
+                for key, (unit, words) in by_unit.items():
                     await unit.progress(words=words)
-                    await save_unit(identity, unit)
+                    if asset_units is None:
+                        await save_unit(key, unit)
+
+        async def translate_round(segments):
+            if progress is not None and asset_units is None:
+                from .source_store import source_identity
+                async with progress_lock:
+                    for segment in segments:
+                        if getattr(segment, '_translation_context', False):
+                            continue
+                        identity = source_identity(segment.head.root) if _task_store is not None else id(segment.head.root)
+                        if await load_unit(identity) is None:
+                            task = (await IO_DOMAIN.run(_task_store.load, identity)
+                                    if _task_store is not None else element2task[identity])
+                            await start_task(task, identity)
+            return await self._translate_inline_segments_async(
+                inline_segments=segments, callbacks=callbacks,
+                immutable_elements_for_inline_segments=immutable_elements_for_inline_segments,
+                source_text_renderer=source_text_renderer,
+                canonical_text_validator=canonical_text_validator,
+                on_round=round_completed)
 
         mapping_stream = stream_mapper.map_stream_async(
             elements=generate_async_elements() if async_tasks is not None else generate_elements(),
             callbacks=callbacks, window=window, track_progress=progress is not None,
             on_mapping=mapping_callback if on_mapping is not None or on_task_mapping is not None else None,
-            map=lambda inline_segments: self._translate_inline_segments_async(
-                inline_segments=inline_segments,
-                callbacks=callbacks,
-                immutable_elements_for_inline_segments=immutable_elements_for_inline_segments,
-                source_text_renderer=source_text_renderer,
-                canonical_text_validator=canonical_text_validator,
-                on_round=round_completed,
-            ),
+            map=translate_round,
         )
         async with aclosing(mapping_stream):
             async for element, mappings in mapping_stream:

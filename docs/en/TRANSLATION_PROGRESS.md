@@ -16,7 +16,9 @@ Operation `STARTED` contains a **non-optional `unit_counts` mapping**, including
 for inactive kinds. Translation also provides exact `total_words`. The pre-scan
 accumulates counts and word totals only; it does not allocate units, IDs, stage
 objects, a book-wide task plan, or retain the book's text. A unit is created on demand.
-Completed units do not remain in an in-memory progress registry. Pending page and
+Completed units do not remain in an in-memory progress registry. XML units are
+admitted when an execution group begins, rather than while inputs are pre-scanned
+or prefetched. Asset counts and identities do not depend on request batch size. Pending page and
 out-of-order EPUB state can live on temporary disk across existing batch barriers.
 
 | Operation | UnitKind | Logical work counted |
@@ -25,7 +27,7 @@ out-of-order EPUB state can live on temporary disk across existing batch barrier
 | Extraction | TOC | One directory analysis, including statistical analysis/cache reuse. |
 | Extraction | METADATA | One book-metadata extraction when `extract_book_metadata=True`. |
 | Translation | CONTENT | PCEX flow/footnote entry with narrative words; EPUB body task. |
-| Translation | ASSET | Up to four translatable asset payloads in one adapter batch. |
+| Translation | ASSET | One independent image/table asset, including its title/content/caption fields. |
 | Translation | FURNITURE | One independent pattern position, or ordinary sections on one page. |
 | Translation | METADATA | Zero or one aggregate of book metadata. |
 | Translation | NAVIGATION | Zero or one aggregate of EPUB navigation and document-title fields. |
@@ -36,7 +38,9 @@ PCEX TOC is derived from headings and is not a separate translation. Native-only
 PDF metadata delivery does not create a metadata extraction unit. Excluded pages
 are absent from PAGE counts. Cache reuse of a selected page still completes a PAGE.
 For opaque custom whole-chapter transformers, a CONTENT unit is a whole chapter;
-only their observable adapter boundaries can report progress.
+only their observable adapter boundaries can report progress. Opaque whole-book batch
+translators report each chapter unit when its returned result is accepted; internal
+execution start times are unavailable. No IDs are allocated for those chapters in advance.
 
 Unit `STARTED` contains `unit_kind`, `unit_id`, `max_stage`, and, for translation,
 `total_words`. PAGE events also carry the real one-based `page_index`.
@@ -143,9 +147,9 @@ integer `unit_id`, `item_completed_words` by `unit_completed_words`, and item to
 by unit `STARTED.total_words`. Removed chapter/TOC flags are replaced by `unit_counts`.
 Character counters were already replaced with source words in the preceding change.
 
-Advanced `XMLTranslator.translate_elements` users supplying a dynamic async stream
+Advanced `XMLTranslator.translate_elements` users supplying a one-pass iterator or async stream
 and a callback must supply pre-counted `unit_counts` and `total_words`; unknown counts
-are rejected before model work. A synchronous task iterable can be counted directly.
+are rejected before model work. A reusable synchronous iterable can be counted directly, retaining no extra task list.
 High-level PCEX/PDF/EPUB paths perform their own scalar pre-scan.
 
 The old advanced `completed_words` offset and `emit_scope_events` / `emit_item_events` switches are removed; scoped lifecycle reporting is consistent whenever a callback is supplied.

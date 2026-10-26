@@ -6,10 +6,10 @@ from functools import wraps
 
 from ..common import read_xml
 from ..document.content import chapter_paths, file_content
-from ..extractor.chapter.chapter import Chapter, StandaloneAsset, encode, decode
+from ..extractor.chapter.chapter import decode
 from ..runtime import IO_DOMAIN, worker_context
 from ..progress import UnitKind
-from .anchored_translation import _asset_slots, _asset_has_text, _BATCH_SIZE
+from .anchored_translation import _asset_slots, _asset_has_text, asset_word_count
 from .content import _unit
 from .narrative_xml import _metadata_element
 from .progress import TranslationProgress, active_progress, progress_context
@@ -19,9 +19,9 @@ from .word_count import count_xml_words
 def scan(paths, transformer, *, metadata, with_anchored, with_furniture):
     counts, total = Counter(), 0
 
-    def add(kind, words):
+    def add(kind, words, *, include_empty=False):
         nonlocal total
-        if words:
+        if words or include_empty:
             counts[kind] += 1
             total += words
 
@@ -30,16 +30,9 @@ def scan(paths, transformer, *, metadata, with_anchored, with_furniture):
         for source in sources:
             add(UnitKind.CONTENT, transformer.source_word_count(source))
             if with_anchored:
-                batch_words, batch_size = 0, 0
                 for slot in _asset_slots(source):
-                    if not _asset_has_text(slot.asset):
-                        continue
-                    batch_words += count_xml_words(encode(Chapter(None, -1, [StandaloneAsset(slot.asset)])))
-                    batch_size += 1
-                    if batch_size == _BATCH_SIZE:
-                        add(UnitKind.ASSET, batch_words)
-                        batch_words, batch_size = 0, 0
-                add(UnitKind.ASSET, batch_words)
+                    if _asset_has_text(slot.asset):
+                        add(UnitKind.ASSET, asset_word_count(slot.asset), include_empty=True)
     if metadata is not None:
         add(UnitKind.METADATA, count_xml_words(_metadata_element(metadata)[0]))
     if with_furniture and paths.furnitures.exists():

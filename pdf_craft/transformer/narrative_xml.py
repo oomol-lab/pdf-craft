@@ -24,7 +24,7 @@ from pdf_craft.transformer.xml_translator.xml.const import ID_KEY
 from pdf_craft.transformer.xml_translator.utils import normalize_whitespace
 from pdf_craft.progress import ProgressEvent, UnitKind
 from .word_count import count_xml_words
-from .progress import translation_unit, opaque_batch_units
+from .progress import translation_unit, active_progress
 from .chapter_formula_interrupter import (
     _RESTORED_FORMULA_ID_KEY, ChapterFormulaInterrupter,
 )
@@ -244,7 +244,6 @@ class NarrativeXMLTransformer:
         return result
 
     @policy_operation
-    @opaque_batch_units
     async def transform_many(
         self,
         chapters: Iterable[tuple[Chapter, str | int]], *,
@@ -326,6 +325,15 @@ class NarrativeXMLTransformer:
             results[index] = decode(translated_element)
             from .translation_coverage import apply_outcomes
             apply_outcomes(results[index], tasks_by_index[index].outcomes)
+            progress = active_progress()
+            if not self.supports_stream and progress is not None and progress.started:
+                words = self.source_word_count(prepared[index][0])
+                if words:
+                    unit = await progress.unit(UnitKind.CONTENT, words=words)
+                    await unit.progress(1)
+                    from ..progress import UnitOutcome
+                    await unit.finish(UnitOutcome.FALLBACK if any(
+                        not accepted for accepted in tasks_by_index[index].outcomes.values()) else UnitOutcome.PROCESSED)
         return results
 
     def source_word_count(self, chapter: Chapter) -> int:

@@ -10,6 +10,7 @@ from ..progress import OperationKind, UnitOutcome
 
 _active: ContextVar[TranslationProgress | None] = ContextVar('translation_progress', default=None)
 _item: ContextVar[WorkUnit | None] = ContextVar('translation_unit', default=None)
+_assets: ContextVar[dict[str, WorkUnit] | None] = ContextVar('translation_assets', default=None)
 
 
 class TranslationProgress(OperationProgress):
@@ -87,30 +88,15 @@ def translation_operation(function):
     return wrapped
 
 
-def opaque_batch_units(function):
-    """Preserve custom whole-batch contracts without a resident unit plan."""
-    @wraps(function)
-    async def wrapped(self, chapters, **kwargs):
-        progress = active_progress()
-        if progress is None or not progress.started or not hasattr(self._translator, 'translate_elements'):
-            return await function(self, chapters, **kwargs)
-        from ..runtime import temporary_directory, IO_DOMAIN
-        from .._progress import DiskUnits
-        from ..progress import UnitKind
-        # The opaque batch contract itself requires a reusable chapter sequence.
-        chapters = list(chapters)
-        async with temporary_directory('pdf-craft-opaque-progress-') as root:
-            units = await IO_DOMAIN.run(DiskUnits, root / 'units.sqlite', progress)
-            for index, (chapter, _) in enumerate(chapters):
-                words = self.source_word_count(chapter)
-                if words:
-                    await IO_DOMAIN.run(units.save, index, await progress.unit(UnitKind.CONTENT, words=words))
-            with progress_context(None):
-                results = await function(self, chapters, **kwargs)
-            for index, _ in enumerate(results):
-                unit = await IO_DOMAIN.run(units.load, index)
-                if unit is not None:
-                    await unit.finish()
-                    await IO_DOMAIN.run(units.delete, index)
-            return results
-    return wrapped
+
+@contextmanager
+def asset_unit_context(units):
+    token = _assets.set(units)
+    try:
+        yield
+    finally:
+        _assets.reset(token)
+
+
+def selected_assets():
+    return _assets.get()

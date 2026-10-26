@@ -12,6 +12,7 @@ from pathlib import Path
 
 from pdf_craft.common import read_xml, save_xml
 from pdf_craft.extractor.chapter.chapter import (
+    Chapter,
     DisplayFormula,
     FlowItem,
     InlineExpression,
@@ -32,6 +33,9 @@ from .anchored_content import (
     AnchoredContentTranslation,
 )
 from .translation_coverage import AnchoredContentCoverage, write_anchored_coverage
+from .word_count import count_xml_words
+from .progress import active_progress, asset_unit_context
+from ..progress import UnitKind, UnitOutcome
 
 
 _BATCH_SIZE = 4
@@ -117,15 +121,37 @@ async def _transform_batch_async(
     targets = tuple(FailureLocation('regions', member_path=f'chapters/chapter_{item.chapter_id}.xml',
                     unit_id=str(item.identity), channel='asset', page_indexes=(item.asset.page_index,))
                     for item in payloads)
-    try:
-        translated = await _transform_assets_async(transformer, payloads)
-        matched = _match_translations(payloads, translated)
-        if matched is None:
-            raise ValueError('asset translation does not preserve source identities')
-        return matched
-    except Exception as error:
-        await recover(error, FailureCategory.FILL, 'asset_structure', 'omit_translation', targets=targets)
-        return [None for _ in payloads]
+    progress = active_progress()
+    units = {}
+    if progress is not None and progress.started:
+        for item in payloads:
+            units[asset_unit_key(item)] = await progress.unit(UnitKind.ASSET, words=asset_word_count(item.asset))
+    with asset_unit_context(units if units else None):
+        try:
+            translated = await _transform_assets_async(transformer, payloads)
+            matched = _match_translations(payloads, translated)
+            if matched is None:
+                raise ValueError('asset translation does not preserve source identities')
+        except Exception as error:
+            await recover(error, FailureCategory.FILL, 'asset_structure', 'omit_translation', targets=targets)
+            matched = [None for _ in payloads]
+    # Reached only after acceptance or an explicitly allowed recovery. Raising
+    # errors and cancellation leave the operation incomplete, as before.
+    for item, value in zip(payloads, matched, strict=True):
+        unit = units.get(asset_unit_key(item))
+        if unit is not None:
+            await unit.progress(1)
+            await unit.finish(UnitOutcome.FALLBACK if value is None else UnitOutcome.PROCESSED)
+    return matched
+
+
+def asset_unit_key(item: AnchoredContent) -> str:
+    return ':'.join(str(value) for value in item.identity)
+
+
+def asset_word_count(asset: SourceAsset) -> int:
+    """The same independent source field scope in pre-scan and execution."""
+    return count_xml_words(encode(Chapter(None, -1, [StandaloneAsset(asset)])))
 
 
 async def _transform_assets_async(

@@ -18,8 +18,6 @@ from pdf_craft.transformer.chapter_formula_interrupter import ChapterFormulaInte
 from pdf_craft.transformer.xml_translator.xml_translator import SubmitKind, TranslationTask
 
 from .word_count import count_xml_words
-from .progress import translation_unit
-from ..progress import UnitKind
 from .anchored_content import (
     AnchoredContent,
     AnchoredContentTranslation,
@@ -34,14 +32,6 @@ class AsyncXMLTaskTranslator(Protocol):
     ) -> tuple[Element, object]: ...
 
 
-def _chapter_item_id(_self, assets, **_kwargs):
-    if not assets:
-        return 'head'
-    value = assets[0].chapter_id
-    try:
-        return int(value)
-    except ValueError:
-        return value
 
 
 class AnchoredContentXMLTransformer:
@@ -56,7 +46,6 @@ class AnchoredContentXMLTransformer:
         self._mode = mode
 
     @policy_operation
-    @translation_unit(UnitKind.ASSET, lambda self, assets, **kwargs: count_xml_words(encode(Chapter(None, -1, [StandaloneAsset(item.asset) for item in assets]))))
     async def transform_assets(
         self,
         assets: Sequence[AnchoredContent], *,

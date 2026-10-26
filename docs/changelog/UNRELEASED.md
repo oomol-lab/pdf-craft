@@ -26,3 +26,10 @@
   for successful publication. See [migration and stage numbers](../en/TRANSLATION_PROGRESS.md).
 
 - Remove advanced translation completed-word offsets and legacy scope/item event switches; scoped reporting is uniform whenever a callback is enabled.
+
+- Allocate XML work-unit IDs on execution admission, including synchronous inputs,
+  rather than eagerly allocating the book's units. Opaque custom batch translators
+  report at their observable result-adoption boundary.
+- Count independent image/table assets rather than request batches. Asset progress
+  now covers decoder/identity validation and accepted recovery, so ignored decoder
+  failures settle the same units and words as other fallback paths.
