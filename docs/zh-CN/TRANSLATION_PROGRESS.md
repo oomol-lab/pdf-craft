@@ -27,7 +27,8 @@
 | translation | NAVIGATION | EPUB 导航及文档标题聚合为 0 或 1 个单元。 |
 
 PCEX 提前翻译的标题仍是同一 CONTENT 单元，正文消费缓存或 furniture 复用时不重复计数。
-PCEX 目录从标题派生，不单独翻译计数。只交付 PDF 原生元信息不创建 metadata 提取单元。
+PCEX 目录从标题派生，不单独翻译计数。EPUB XHTML 的 head/title 始终属于 NAVIGATION，
+即使没有目录或 OPF 元信息；只有 OPF 书籍字段归入 METADATA。只交付 PDF 原生元信息不创建 metadata 提取单元。
 排除页不在 PAGE 总数中；所选页命中缓存仍要完成一个 PAGE。
 不透明的自定义整章 Transformer 以整章为 CONTENT，只能在适配器可观察边界报告进度。
 不透明的整书批处理无法透露内部启动时机，在逐项采纳返回章节时才创建并完成其单元，不提前分配全书 ID。
@@ -66,6 +67,8 @@ OCR 完成不等于页最终提取完成。按序跨页解析与 OCR 重叠；�
 翻译 facade 等目标写入成功。一键 PDF 转换在已校验的内部 workspace 边界完成 extraction，
 随后可选翻译并渲染。异常、取消、致命服务错误和回调异常向外传播，不补造操作完成事件。
 失败任务可能已经完成部分单元，甚至已处理全部 words。主动提前停止消费的低层内容流不报告操作完成。
+公开 XML task 在实际消费后若没有 segment，仍计一个单元，以 SKIPPED 结束，不请求模型。
+自定义 source projection 移除所有片段也遵守此规则，并结清其声明的原文 words。
 
 不提供百分比或阶段权重。客户端可以只累计已完成数量：
 

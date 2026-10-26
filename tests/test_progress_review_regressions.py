@@ -4,6 +4,7 @@ import asyncio
 from collections import Counter
 from copy import deepcopy
 from pathlib import Path
+from typing import Any
 from tempfile import TemporaryDirectory
 from unittest import IsolatedAsyncioTestCase
 from unittest.mock import patch
@@ -183,3 +184,96 @@ class AdmissionTests(IsolatedAsyncioTestCase):
                 maximum = max(maximum, active)
         self.assertEqual(maximum, 1)
         self.assertEqual(Counter(event.unit_kind for event in unit_events(events, Kind.COMPLETED)), {UnitKind.CONTENT: 20})
+
+
+class EmptyTaskTests(IsolatedAsyncioTestCase):
+    async def test_consumed_empty_tasks_settle_without_changing_results(self):
+        from xml.etree.ElementTree import tostring
+        samples = {
+            'empty': ('<body/>',),
+            'mixed': ('<body/>', '<body><p>Alpha beta</p></body>', '<body><p> </p></body>',
+                      '<body><p>Gamma</p></body>', '<body><section/></body>'),
+        }
+        for mode in ('reusable', 'iterator', 'async'):
+            for name, xmls in samples.items():
+                with self.subTest(mode=mode, sample=name):
+                    events, results = [], []
+                    for observe in (False, True):
+                        tasks = [TranslationTask(fromstring(xml), SubmitKind.REPLACE, index)
+                                 for index, xml in enumerate(xmls)]
+                        async def stream(tasks=tasks):
+                            for task in tasks:
+                                yield task
+                        supplied = stream() if mode == 'async' else iter(tasks) if mode == 'iterator' else tasks
+                        kwargs: dict[str, Any] = dict(on_translation_event=events.append) if observe else {}
+                        if observe and mode != 'reusable':
+                            kwargs.update(unit_counts={UnitKind.CONTENT: len(xmls)},
+                                          total_words=0 if name == 'empty' else 3)
+                        with patch.object(XMLTranslator, '_translate_text_async', source_response), patch.object(
+                                XMLTranslator, '_request_and_submit_async', identity_fill):
+                            result = await translator().translate_elements(supplied, **kwargs)
+                        results.append([(tostring(element), payload) for element, payload in result])
+                    self.assertEqual(results[0], results[1])
+                    self.assertEqual([payload for _, payload in results[1]], [] if name == 'empty' else [1, 3])
+                    assert_lifecycle(self, events)
+                    self.assertEqual(events[0].unit_counts[UnitKind.CONTENT], len(xmls))
+                    skipped = [event for event in unit_events(events, Kind.COMPLETED) if event.outcome == UnitOutcome.SKIPPED]
+                    self.assertEqual(len(skipped), 1 if name == 'empty' else 3)
+                    self.assertEqual(events[-1].completed_words, 0 if name == 'empty' else 3)
+
+    async def test_projection_removing_all_segments_settles_declared_words(self):
+        events = []
+        with patch.object(XMLTranslator, '_translate_text_async', side_effect=AssertionError('unexpected model call')):
+            result = await translator().translate_elements([
+                TranslationTask(fromstring('<body><p>Source words</p></body>'), SubmitKind.REPLACE, 0)],
+                interrupt_source_text_segments=lambda _segments: (), on_translation_event=events.append)
+        self.assertEqual(result, [])
+        assert_lifecycle(self, events)
+        self.assertEqual(events[0].total_words, 2)
+        completed = unit_events(events, Kind.COMPLETED)
+        self.assertEqual([(event.outcome, event.unit_completed_words) for event in completed], [(UnitOutcome.SKIPPED, 2)])
+
+
+class EpubHeaderKindTests(IsolatedAsyncioTestCase):
+    async def test_document_titles_and_navigation_share_unit_separate_from_book_metadata(self):
+        from itertools import product
+        from zipfile import ZipFile
+        from tests.test_stream_callbacks import epub
+        from pdf_craft.pipeline.epub.translation.translator import translate
+        from pdf_craft import LLM, ConcurrentExecutor, FixedCapacity
+        for has_title, has_metadata, has_navigation in product((False, True), repeat=3):
+            with self.subTest(title=has_title, metadata=has_metadata, navigation=has_navigation), TemporaryDirectory() as folder:
+                root = Path(folder)
+                source = root / 'input.epub'
+                epub(source)
+                with ZipFile(source) as archive:
+                    members = {name: archive.read(name) for name in archive.namelist()}
+                if has_title:
+                    members['EPUB/a.xhtml'] = members['EPUB/a.xhtml'].replace(
+                        b'<head/>', b'<head><title>Document title</title></head>')
+                if has_metadata:
+                    members['EPUB/book.opf'] = members['EPUB/book.opf'].replace(b'<metadata/>',
+                        b'<metadata xmlns:dc="http://purl.org/dc/elements/1.1/"><dc:title>Book title</dc:title></metadata>')
+                if has_navigation:
+                    members['EPUB/toc.ncx'] = (
+                        b'<ncx><navMap><navPoint id="a"><navLabel><text>Navigation title</text></navLabel>'
+                        b'<content src="a.xhtml"/></navPoint></navMap></ncx>')
+                with ZipFile(source, 'w') as archive:
+                    for name, value in members.items():
+                        archive.writestr(name, value)
+                events = []
+                with patch.object(XMLTranslator, '_translate_text_async', source_response), patch.object(
+                        XMLTranslator, '_request_and_submit_async', identity_fill):
+                    await translate(source, root / 'output.epub', 'fr', SubmitKind.REPLACE,
+                        llm=LLM('unused', 'https://example.invalid', 'unused', 'o200k_base'),
+                        on_translation_event=events.append, executor=ConcurrentExecutor(FixedCapacity(2)))
+                assert_lifecycle(self, events)
+                self.assertEqual(events[0].unit_counts[UnitKind.METADATA], int(has_metadata))
+                self.assertEqual(events[0].unit_counts[UnitKind.NAVIGATION], int(has_title or has_navigation))
+                self.assertEqual(events[0].unit_counts[UnitKind.CONTENT], 1)
+                starts = {event.unit_kind: event.total_words for event in unit_events(events, Kind.STARTED)}
+                if has_metadata:
+                    self.assertEqual(starts[UnitKind.METADATA], 2)
+                if has_title or has_navigation:
+                    self.assertEqual(starts[UnitKind.NAVIGATION], 2 * (int(has_title) + int(has_navigation)))
+                self.assertEqual(events[0].total_words, 16 + 2 * sum((has_title, has_metadata, has_navigation)))

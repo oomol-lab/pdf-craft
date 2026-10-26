@@ -34,7 +34,9 @@ out-of-order EPUB state can live on temporary disk across existing batch barrier
 
 PCEX headings translated ahead of the body are the same CONTENT units: consuming
 cached headings or reusing them in furniture does not create more units or words.
-PCEX TOC is derived from headings and is not a separate translation. Native-only
+PCEX TOC is derived from headings and is not a separate translation. EPUB XHTML
+`head/title` fields belong to NAVIGATION, even without a TOC or OPF metadata.
+Only OPF book fields belong to the METADATA aggregate. Native-only
 PDF metadata delivery does not create a metadata extraction unit. Excluded pages
 are absent from PAGE counts. Cache reuse of a selected page still completes a PAGE.
 For opaque custom whole-chapter transformers, a CONTENT unit is a whole chapter;
@@ -86,6 +88,9 @@ then optionally translate and render. Output failure, cancellation, fatal servic
 errors, and callback errors propagate; they do not fabricate operation completion.
 A failed operation may already have completed some units or even processed all words.
 An intentionally partially consumed low-level content stream has no operation completion.
+A consumed public XML task that produces no segments still counts as one unit;
+it completes as `SKIPPED` without a model request. This includes custom source
+projections that remove all segments; any declared source words are settled.
 
 No percentages or stage weights are supplied. For example, a client can retain only
 aggregate completed counts, and live-unit stages if desired:

@@ -458,7 +458,7 @@ def _generate_tasks_from_book(
                         segment.text.strip() for segment in search_text_segments(body_element)
                     ),
                 ),
-                item_kind=UnitKind.METADATA,
+                item_kind=UnitKind.NAVIGATION,
                 source_locations=(FailureLocation('field', source=current().source,
                     member_path=str(chapter_path), unit_id='head/title', field_path='head/title',
                     original=title_element.text, media_type=media_type),),

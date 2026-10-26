@@ -33,3 +33,9 @@
 - Count independent image/table assets rather than request batches. Asset progress
   now covers decoder/identity validation and accepted recovery, so ignored decoder
   failures settle the same units and words as other fallback paths.
+
+- Settle consumed XML tasks with no translation segments as `SKIPPED`, including
+  synchronous/one-pass/async inputs and empty roots among nonempty tasks. Enabling
+  progress callbacks no longer changes a successful empty-task result into failure.
+- Classify EPUB document `head/title` fields as NAVIGATION, sharing the navigation
+  aggregate while keeping OPF book metadata in METADATA, as documented.

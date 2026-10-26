@@ -370,11 +370,26 @@ class XMLTranslator:
                 canonical_text_validator=canonical_text_validator,
                 on_round=round_completed)
 
+        async def empty_task(element):
+            from .source_store import source_identity, strip_source
+            identity = source_identity(element) if _task_store is not None else id(element)
+            task = (await IO_DOMAIN.run(_task_store.pop, identity) if _task_store is not None
+                    else element2task.pop(identity))
+            # The mapper has consumed the actual projection and proved there
+            # is no model work. Settle raw task units here, not at pre-scan.
+            if progress is not None and scope_item is None and asset_units is None:
+                kind = task.item_kind or UnitKind.CONTENT
+                if kind not in progress.headers:
+                    unit = await progress.unit(kind, words=(task.word_count
+                        if task.word_count is not None else count_xml_words(task.element)))
+                    await unit.finish(UnitOutcome.SKIPPED)
+            strip_source(element)
+
         mapping_stream = stream_mapper.map_stream_async(
             elements=generate_async_elements() if async_tasks is not None else generate_elements(),
             callbacks=callbacks, window=window, track_progress=progress is not None,
             on_mapping=mapping_callback if on_mapping is not None or on_task_mapping is not None else None,
-            map=translate_round,
+            map=translate_round, on_empty=empty_task,
         )
         async with aclosing(mapping_stream):
             async for element, mappings in mapping_stream:
