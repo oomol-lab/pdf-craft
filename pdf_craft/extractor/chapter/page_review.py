@@ -127,7 +127,7 @@ class JevReviewProcessor:
     ) -> list[PageAnalysis]:
         from ..progress import page_stage
         for page in analyses:
-            await page_stage(page.page_index, 3)
+            await page_stage(page.page_index, 5)
         requests = build_jev_review_requests(
             source_pages, analyses, page_pixel_sizes
         )

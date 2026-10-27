@@ -57,12 +57,12 @@ Stages belong to units and concurrent units may be at different stages.
 
 | Unit | Stage numbers |
 | --- | --- |
-| Extraction PAGE | 0: admitted/rendering; 1: rendered/OCR; 2: OCR result persisted; 3: JEV review; 4: LLM refinement; 5: final adopted page result. `max_stage=5`. |
+| Extraction PAGE | 0: page preparation/rendering; 1: first OCR pass (including admission wait); 2: second-pass image preparation (background color, masking, saving); 3: second OCR pass (including admission wait); 4: OCR parsing, assembly and persistence complete; 5: JEV review; 6: LLM refinement; 7: final adopted page result. `max_stage=7`. |
 | Extraction TOC / METADATA | 0: analysis (possibly multiple requests); 1: final accepted or fallback result. `max_stage=1`. |
 | Translation units | 0: model translation and XML-fill rounds; 1: adapter finalization when observable; 2: finalized unit. `max_stage=2`. |
 
-JEV/refinement are conditional. Reused pages can jump directly to stage 2; pages
-without refinement jump to 5. No objects or optional-stage plans describe these
+JEV/refinement are conditional. Without a second scan, pages jump from 1 to 4. Reused pages can jump directly
+to stage 4; pages without refinement jump to 7. No objects or optional-stage plans describe these
 steps. A stage may report multiple word updates, and zero-word updates are valid.
 Stage 0 deliberately includes both translation and XML-fill/validation calls; it
 does not distinguish each request or imply a single serial book-wide phase.
@@ -147,7 +147,16 @@ counter.boundary()
 
 ## Breaking migration
 
-These changes ship in **2.6.4**. Applications upgrading from 2.6.3 or earlier
+In 2.6.5, PAGE stages use `max_stage=7`: old OCR-persisted/JEV/LLM/final stages
+2/3/4/5 are now 4/5/6/7. Update numeric stage labels in consumers. Stages 1, 2
+and 3 are reported on entry, before the expensive operation or request admission;
+measure elapsed time between events rather than treating stages as equal weights.
+Retries remain in the same stage and do not create units or move stages backwards.
+For local OCR, stage 2 covers background-color detection and masking; upstream
+serialization of its request image remains inside the stage-3 recognition call.
+TOC, METADATA and translation stage numbers and the event structure are unchanged.
+
+The earlier event-system migration shipped in **2.6.4**. Applications upgrading from 2.6.3 or earlier
 must update progress consumers; see the [release notes](../changelog/v2.6.4.md).
 
 Replace root `OCREvent`/`OCREventKind` and `TranslationEvent`/`TranslationEventKind`/
