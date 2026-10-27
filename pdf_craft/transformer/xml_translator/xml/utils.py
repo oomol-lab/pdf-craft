@@ -5,11 +5,11 @@ from ..utils import normalize_whitespace
 from .const import ID_KEY
 
 
-def normalize_text_in_element(text: str | None) -> str | None:
-    if text is None:
+def normalize_text_in_element(text: str | None, *, preserve_whitespace: bool = False) -> str | None:
+    if not text:
         return None
     text = normalize_whitespace(text)
-    if not text.strip():
+    if not text.strip() and not preserve_whitespace:
         return None
     return text
 

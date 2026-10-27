@@ -552,7 +552,7 @@ def _validate_chapter_fill_canonical_text(
             # Structural validation supplies the useful diagnostic first.
             return None
         actual_by_owner[id(owner)].extend(
-            text_segment.text for text_segment in search_text_segments(filled)
+            text_segment.text for text_segment in search_text_segments(filled, preserve_whitespace=True)
         )
 
     owner = owners[0]
