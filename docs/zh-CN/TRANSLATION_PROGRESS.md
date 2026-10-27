@@ -44,11 +44,11 @@ words 是累计值，不是增量。总量取开始事件，不要求每次重�
 
 | 单元 | 编号含义 |
 | --- | --- |
-| extraction PAGE | 0：开始/渲染；1：已渲染、OCR；2：OCR 结果落盘；3：JEV；4：LLM 精修；5：最终采用结果。`max_stage=5`。 |
+| extraction PAGE | 0：页面准备/渲染；1：第一轮 OCR（含请求池等待）；2：第二轮图片准备（背景色、遮罩、保存）；3：第二轮 OCR（含请求池等待）；4：OCR 解析、组装及落盘完成；5：JEV；6：LLM 精修；7：最终采用结果。`max_stage=7`。 |
 | extraction TOC / METADATA | 0：分析，可包含多轮请求；1：最终接受或 fallback。`max_stage=1`。 |
 | translation | 0：翻译及 XML 填充循环；1：可观察的适配器定稿；2：单元处理结束。`max_stage=2`。 |
 
-JEV 和精修是条件步骤，缓存页可直接进入 2，无精修页可直接进入 5。跳过时跨过编号，不实例化
+JEV 和精修是条件步骤，不双扫时从 1 直接到 4，缓存页可直接进入 4，无精修页可直接进入 7。跳过时跨过编号，不实例化
 optional 或阶段清单。同一个 stage 可以多次更新 words，一轮没有新增 words 也允许通知。
 标准 XML 翻译每轮最终采纳或最终 fallback 后更新，不把每次失败重试都计入。
 
@@ -112,7 +112,13 @@ counter.boundary()
 
 ## 不兼容迁移
 
-以下变更从 **2.6.4** 开始生效。从 2.6.3 或更早版本升级时需要更新进度回调，
+2.6.5 的 PAGE 使用 `max_stage=7`，原 OCR 落盘/JEV/LLM/最终结果的 2/3/4/5 分别变为
+4/5/6/7；客户端需要更新数字对应的文案。stage 1、2、3 在进入操作或请求入池前立即报告，
+可按事件时间差分别计时，不应把各 stage 当作等权百分比。重试停留在当前 stage，不新增 unit，
+也不倒退。本地 OCR 的 stage 2 覆盖背景色计算和遮罩；上游在识别调用内部保存请求图片，
+这部分耗时仍计入 stage 3。TOC、METADATA、translation 的 stage 编号及事件结构不变。
+
+以下事件系统迁移从 **2.6.4** 开始生效。从 2.6.3 或更早版本升级时需要更新进度回调，
 详见[发布说明](../changelog/v2.6.4.md)。
 
 包顶层的 `OCREvent`、`OCREventKind`、`TranslationEvent`、`TranslationEventKind`、

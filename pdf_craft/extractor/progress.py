@@ -2,13 +2,14 @@
 from __future__ import annotations
 # pylint: disable=protected-access
 import asyncio
+from concurrent.futures import CancelledError as FutureCancelledError
 from contextvars import ContextVar
 from contextlib import asynccontextmanager
 from functools import wraps
 
 from .._progress import OperationProgress, DiskUnits, WorkUnit
 from ..progress import OperationKind, UnitKind, UnitOutcome
-from ..runtime import IO_DOMAIN, temporary_directory
+from ..runtime import IO_DOMAIN, callback_bridge, temporary_directory
 from ..pdf.ocr import OCREventKind
 
 _active: ContextVar[ExtractionProgress | None] = ContextVar('extraction_progress', default=None)
@@ -23,7 +24,11 @@ class ExtractionProgress(OperationProgress):
         self.page_count, self.selected = page_count, selected
         self.pages = DiskUnits(path, self)
         self.lock = asyncio.Lock()
+        self.report_stage_sync = callback_bridge(asyncio.get_running_loop(), self._stage_pair)
         self.pending_toc: WorkUnit | None = None
+
+    async def _stage_pair(self, pair):
+        await self.page(*pair)
 
     def indexes(self):
         return (index for index in range(1, self.page_count + 1)
@@ -35,7 +40,7 @@ class ExtractionProgress(OperationProgress):
         async with self.lock:
             unit = await IO_DOMAIN.run(self.pages.load, index)
             if unit is None:
-                unit = await self.unit(UnitKind.PAGE, page_index=index, max_stage=5)
+                unit = await self.unit(UnitKind.PAGE, page_index=index, max_stage=7)
             if outcome is not None:
                 unit.outcome = outcome
             await unit.progress(max(unit.stage, stage))
@@ -44,7 +49,7 @@ class ExtractionProgress(OperationProgress):
     async def ocr(self, event):
         if event.kind == OCREventKind.IGNORE:
             return
-        stage = {OCREventKind.START: 0, OCREventKind.RENDERED: 1}.get(event.kind, 2)
+        stage = {OCREventKind.START: 0, OCREventKind.RENDERED: 0}.get(event.kind, 4)
         outcome = {OCREventKind.SKIP: UnitOutcome.REUSED, OCREventKind.FAILED: UnitOutcome.FALLBACK}.get(event.kind)
         await self.page(event.page_index, stage, outcome)
 
@@ -52,7 +57,7 @@ class ExtractionProgress(OperationProgress):
         # A complete OCR cache emits no native events. Replay just its scalars.
         for index in self.indexes():
             if await IO_DOMAIN.run(self.pages.load, index) is None:
-                await self.page(index, 2, UnitOutcome.REUSED)
+                await self.page(index, 4, UnitOutcome.REUSED)
 
     async def finish_pages(self):
         if self.pending_toc is not None:
@@ -70,6 +75,17 @@ async def page_stage(index, stage):
     progress = _active.get()
     if progress is not None:
         await progress.page(index, stage)
+
+
+def page_stage_sync(index, stage):
+    progress = _active.get()
+    if progress is not None:
+        try:
+            progress.report_stage_sync((index, stage))
+        except FutureCancelledError as error:
+            # run_coroutine_threadsafe exposes cancellation as an Exception in
+            # the worker. Restore it before OCR error recovery can catch it.
+            raise asyncio.CancelledError() from error
 
 
 async def observe_recovery(context):

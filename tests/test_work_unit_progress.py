@@ -63,6 +63,9 @@ class ExtractionUnitTests(TestCase):
                 self.assertEqual({event.page_index for event in pages}, {1, 2, 3})
                 if index == 1:
                     self.assertTrue(all(event.outcome == UnitOutcome.REUSED for event in pages))
+                    self.assertFalse(any(event.unit_kind == UnitKind.PAGE and event.stage in (1, 2, 3)
+                                         for event in events))
+                    self.assertEqual({event.stage for event in events if event.unit_kind == UnitKind.PAGE}, {0, 4, 7})
 
     def test_ignored_ocr_failure_completes_page_as_fallback(self):
         with TemporaryDirectory() as folder:
@@ -154,8 +157,8 @@ class RefinementProgressTests(TestCase):
                     ExtractionOptions(includes_furniture=False, footnotes=FootnoteOptions(refinement),
                                       on_extraction_event=events.append), error_policy=True)
             assert_lifecycle(self, events)
-            self.assertTrue(any(event.page_index == 1 and event.stage == 4 for event in events))
-            self.assertFalse(any(event.page_index == 2 and event.stage == 4 for event in events))
+            self.assertTrue(any(event.page_index == 1 and event.stage == 6 for event in events))
+            self.assertFalse(any(event.page_index == 2 and event.stage == 6 for event in events))
             page = next(event for event in unit_events(events, Kind.COMPLETED) if event.page_index == 1)
             self.assertEqual(page.outcome, UnitOutcome.FALLBACK)
 

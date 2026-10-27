@@ -1,5 +1,5 @@
 # pylint: disable=protected-access
-from ..policies import ErrorPolicyInput, FailureCategory, FailureLocation
+from ..policies import ErrorCallbackError, ErrorPolicyInput, FailureCategory, FailureLocation
 from .._policy import OMITTED, decide_sync, decide_context, failure, decision_bridge
 
 import asyncio
@@ -369,7 +369,7 @@ class OCR:
                                 plot_path=plot_path,
                                 aborted=aborted,
                             )
-                        except NonContinuableError:
+                        except (NonContinuableError, ErrorCallbackError):
                             raise
                         except OperationError as error:
                             operation_error = error
@@ -436,12 +436,14 @@ class OCR:
         plot_path: Path | None,
         aborted: AbortedCheck,
     ) -> Page:
+        from ..extractor.progress import page_stage
         try:
+            await page_stage(item.page_index, 1)
             try:
                 first_response = await runtime.request(VendorOCRInput(
                     item.page_index, item.request_path, aborted, 1,
                 ), _defer_usage=True)
-            except NonContinuableError:
+            except (NonContinuableError, ErrorCallbackError):
                 raise
             except Exception as error:
                 _raise_vendor_page_error(item.page_index, 1, error)
@@ -453,6 +455,7 @@ class OCR:
             output_tokens = first_response.output_tokens
             if includes_footnotes and _supports_vendor_stages(self._config):
                 try:
+                    await page_stage(item.page_index, 2)
                     second_item = await OCR_DOMAIN.run(
                         _prepare_second_stage,
                         item,
@@ -460,6 +463,7 @@ class OCR:
                         Path(item.image_path.parent),
                         aborted,
                     )
+                    await page_stage(item.page_index, 3)
                     second_response = await runtime.request(VendorOCRInput(
                         item.page_index, second_item.request_path, aborted, 2,
                     ), _defer_usage=True)
@@ -469,7 +473,7 @@ class OCR:
                         second_item,
                         second_response,
                     )
-                except NonContinuableError:
+                except (NonContinuableError, ErrorCallbackError):
                     raise
                 except Exception as error:
                     _raise_vendor_page_error(item.page_index, 2, error)
@@ -489,13 +493,13 @@ class OCR:
                     output_tokens,
                     aborted,
                 )
-            except NonContinuableError:
+            except (NonContinuableError, ErrorCallbackError):
                 raise
             except Exception as error:
                 _raise_vendor_page_error(
                     item.page_index, finish_stage, error,
                 )
-        except OperationError:
+        except (OperationError, NonContinuableError, ErrorCallbackError):
             raise
         except Exception as error:
             _raise_vendor_page_error(item.page_index, 1, error)
@@ -511,6 +515,7 @@ class OCR:
         plot_path: Path | None,
         aborted: AbortedCheck,
     ):
+        from ..extractor.progress import page_stage
         # Both stages share the runtime's admission/capacity controller. A page
         # becomes eligible for stage two immediately, independently of later
         # first-stage pages. The request backlog and first results live on disk.
@@ -524,6 +529,7 @@ class OCR:
 
             async def enqueue(item, stage):
                 nonlocal outstanding, serial
+                await page_stage(item.page_index, 1 if stage == 1 else 3)
                 outstanding += 1
                 serial += 1
                 path = root / f"request_{serial}.pickle"
@@ -587,6 +593,7 @@ class OCR:
                         parsed = await OCR_DOMAIN.run(_parse_vendor_response, self._config, item, result.response)
                         if stage == 1 and includes_footnotes and _supports_vendor_stages(self._config):
                             failure_stage = 2
+                            await page_stage(index, 2)
                             second_item = await OCR_DOMAIN.run(
                                 _prepare_second_stage, item, parsed, root, aborted,
                             )
@@ -606,7 +613,7 @@ class OCR:
                             includes_footnotes, plot_path, tokens_in, tokens_out, aborted,
                         )
                         yield item, page, None
-                    except NonContinuableError:
+                    except (NonContinuableError, ErrorCallbackError):
                         raise
                     except Exception as error:
                         # Preparing the second pass is a stage-two operation.
@@ -760,6 +767,8 @@ class OCR:
                             input_tokens=0,
                             output_tokens=0,
                         )
+                        from ..extractor.progress import page_stage_sync
+                        page_stage_sync(ref.page_index, 1)
                         page = self._extractor.image2page(
                             image=image,
                             page_index=ref.page_index,

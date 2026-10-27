@@ -6,6 +6,7 @@ from PIL.Image import Image
 
 from ..common import ASSET_TAGS, AssetHub, remove_surrogates
 from ..error import OCRBillingError, OCRError
+from ..policies import ErrorCallbackError
 from ..metering import AbortedCheck, check_aborted
 from ..ocr_config import (
     DeepSeekOCR2LocalConfig,
@@ -197,8 +198,9 @@ class PageExtractorNode:
             )
             step_index: int = 1
             results = []
-            generator = self._get_page_extractor().extract_page_results(
+            generator = self._page_results(
                 image=image,
+                page_index=page_index,
                 size=ocr_size,
                 stages=2 if includes_footnotes else 1,
                 context=context,
@@ -212,6 +214,8 @@ class PageExtractorNode:
                 except AbortError:
                     raise
                 except TokenLimitError:
+                    raise
+                except ErrorCallbackError:
                     raise
                 except Exception as error:
                     if _has_payment_required_status(error):
@@ -236,6 +240,39 @@ class PageExtractorNode:
                 output_tokens=context.output_tokens,
                 aborted=aborted,
             )
+
+    def _page_results(self, *, image, page_index, size, stages, context, device_number):
+        """Own pass boundaries; upstream still performs each local recognition."""
+        from doc_page_extractor.redacter import background_color, redact, clip_layouts_to_unmasked_area
+        from doc_page_extractor.structure import build_structured_page
+        from ..extractor.progress import page_stage_sync
+        from .ocr import _redact_rectangles
+
+        if isinstance(self._ocr, (UnlimitedOCRLocalConfig, UnlimitedOCRVendorConfig)):
+            stages = 1
+        extractor = self._get_page_extractor()
+        rectangles = ()
+        result = None
+        for index in range(stages):
+            if index:
+                assert result is not None
+                page_stage_sync(page_index, 2)
+                rectangles = tuple(_redact_rectangles(image.size, (layout.det for layout in result.layouts)))
+                image = redact(image=image.copy(), fill_color=background_color(image), rectangles=rectangles)
+                page_stage_sync(page_index, 3)
+            generator = extractor.extract_page_results(
+                image=image, size=size, stages=1, context=context, device_number=device_number,
+            )
+            try:
+                for rendered, result in generator:
+                    if rectangles:
+                        result.layouts = clip_layouts_to_unmasked_area(result.layouts, rectangles)
+                        result.structured = build_structured_page(result.layouts)
+                    yield rendered, result
+            finally:
+                close = getattr(generator, 'close', None)
+                if close is not None:
+                    close()
 
     def results2page(
         self,
