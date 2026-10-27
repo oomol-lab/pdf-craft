@@ -16,11 +16,13 @@ from pdf_craft import ConcurrentExecutor, DeepSeekOCRLocalConfig, DeepSeekOCRVen
 from pdf_craft.common import AssetHub
 from pdf_craft.extractor.progress import ExtractionProgress, _active
 from pdf_craft.pdf.ocr import OCR
+from pdf_craft.pdf.handler import _materialize_pdf_handler
 from pdf_craft.pdf.page_extractor import PageExtractorNode
 from pdf_craft.pdf.vendor_ocr import VendorOCRResponse, VendorOCRRuntime
 from pdf_craft.progress import ProgressEventKind, UnitKind
 from pdf_craft.runtime import OCR_DOMAIN
 from tests.test_vendor_ocr_concurrency import _Handler
+from tests.test_async_api import _AsyncDocument, _AsyncHandler
 
 
 def stages(events, index=1):
@@ -28,6 +30,39 @@ def stages(events, index=1):
 
 
 class PageOCRStagesTests(IsolatedAsyncioTestCase):
+    async def test_async_handler_keeps_pre_rendered_pages_in_preparation_until_ocr(self):
+        for budget in (None, 10000):
+            with self.subTest(budget=budget), TemporaryDirectory() as folder:
+                root, events, requested = Path(folder), [], []
+                progress = ExtractionProgress(events.append, root / 'units.sqlite', 2, None)
+                token = _active.set(progress)
+                async def request(_runtime, value, started=None):
+                    if started is not None:
+                        started.set()
+                    self.assertEqual(stages(events, value.page_index)[-1], 1)
+                    requested.append(value.page_index)
+                    return VendorOCRResponse({}, raw_text='')
+                try:
+                    handler = await _materialize_pdf_handler(
+                        _AsyncHandler(_AsyncDocument()), root / 'source.pdf', None, 72, root,
+                    )
+                    for index in (1, 2):
+                        self.assertEqual(stages(events, index), [0])
+                    ocr = OCR(DeepSeekOCRVendorConfig(
+                        base_url='https://example.invalid', api_key='x', model='x',
+                    ), handler)
+                    with patch.object(VendorOCRRuntime, '_request_deepseek', request):
+                        async for event in ocr.recognize_vendor(
+                                ConcurrentExecutor(FixedCapacity(1)), pdf_path=root / 'source.pdf',
+                                asset_path=root / 'assets', ocr_path=root / 'ocr', includes_footnotes=False,
+                                dpi=72, max_tokens=budget, on_preparation_event=progress.ocr):
+                            await progress.ocr(event)
+                    self.assertEqual(sorted(requested), [1, 2])
+                    for index in (1, 2):
+                        self.assertEqual(stages(events, index), [0, 0, 0, 1, 4])
+                finally:
+                    _active.reset(token)
+
     async def test_vendor_boundaries_precede_requests_mask_and_persistence(self):
         for budget in (None, 10000):
             for footnotes in (False, True):

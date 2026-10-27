@@ -114,7 +114,8 @@ counter.boundary()
 
 2.6.5 的 PAGE 使用 `max_stage=7`，原 OCR 落盘/JEV/LLM/最终结果的 2/3/4/5 分别变为
 4/5/6/7；客户端需要更新数字对应的文案。stage 1、2、3 在进入操作或请求入池前立即报告，
-可按事件时间差分别计时，不应把各 stage 当作等权百分比。重试停留在当前 stage，不新增 unit，
+可按事件时间差分别计时，不应把各 stage 当作等权百分比。自定义异步 PDFHandler 预渲染时
+保持 stage 0，各页实际进入 OCR 时才报告 stage 1。重试停留在当前 stage，不新增 unit，
 也不倒退。本地 OCR 的 stage 2 覆盖背景色计算和遮罩；上游在识别调用内部保存请求图片，
 这部分耗时仍计入 stage 3。TOC、METADATA、translation 的 stage 编号及事件结构不变。
 
