@@ -178,6 +178,37 @@ smoke 的 `checks.json` 只接受最终结果完全匹配；Loop 中间重试不
 
 ## 冒烟矩阵
 
+### citation 脚注遮罩付费回归
+
+针对用户报告的“二轮 OCR 右侧漏擦、脚注重复识别、PDF 译文重叠”，新增独立入口：
+
+```shell
+poetry run python -m pdf_craft_tool.smoke.citation_footnotes \
+  --output pdf-craft-output/citation-footnotes-NEW-RUN
+```
+
+这会真实调用 DeepSeek OCR vendor、JEV、LLM，并将三页 `tests/assets/pdf/citation.pdf`
+翻译为英文 PDF。仅在明确需要付费回归时运行，不属于普通测试或 CI；配置沿用工作区
+`.env` 和 `--profile default`。每次必须使用不存在的新目录，原始 PDF 的哈希、大小与页数
+都会核验。无需复制用户附件或使用 `/tmp` 中的文件。
+
+自动检查同时覆盖报告中的固定几何反例和真实 OCR 第一轮产生的 bbox：第二轮遮罩必须
+完整覆盖既定区域，且不能多擦掉原本留给脚注识别的区域。任何降级都终止运行，不能将
+保留原文、缺失页面或精修失败当作通过。
+
+产物包括 `citation-checks.json`、每页 `ocr-evidence/` 两轮输入图及 bbox/遮罩检查、
+`analysis/` OCR XML 与布局图，以及成功完成流水线后的 `translated.pdf`、原译文预览。
+异常时仍保留已有诊断。`automated_passed=true` 仅表示自动检查通过；还必须逐页比较
+原译文，尤其检查首页脚注是否重复或重叠，不能仅凭 PDF 能打开或页数正确验收。
+
+离线检查器测试不会调用供应商：
+
+```shell
+poetry run python -m unittest tests.test_paid_citation_regression -q
+```
+
+### 通用矩阵
+
 先查看全部真实样本：
 
 ```shell
