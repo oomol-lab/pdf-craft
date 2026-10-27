@@ -26,6 +26,32 @@ def source_chapter(styled=False):
 
 
 class FriendlyTextProtocolTests(unittest.TestCase):
+    def test_long_citation_text_round_trips_without_formatting_spaces(self):
+        text = ("① I will not discuss in this book, as I have done elsewhere, "
+                "the broader implications of these terms. In my view, what is "
+                "most important here is the structure of something beyond the parents.")
+        for content in (text, ' ' + text + ' '):
+            with self.subTest(content=content):
+                root = Element('xml')
+                SubElement(root, 'fragment', {'id': '1'}).text = content
+                decoded = next(decode_friendly(encode_friendly(root), tags='xml'))
+                self.assertEqual(decoded[0].text, content)
+
+    def test_mixed_content_round_trips_exact_text_and_tail_boundaries(self):
+        root = fromstring('<xml><fragment id="1">Before <span id="2">inside</span> after '
+                          '<anchor id="3"/>ending. </fragment></xml>')
+        decoded = next(decode_friendly(encode_friendly(root), tags='xml'))
+        self.assertEqual(decoded[0].text, root[0].text)
+        self.assertEqual(decoded[0][0].text, root[0][0].text)
+        self.assertEqual(decoded[0][0].tail, root[0][0].tail)
+        self.assertEqual(decoded[0][1].tail, root[0][1].tail)
+
+    def test_adjacent_inline_slots_do_not_gain_indentation_text(self):
+        root = fromstring('<xml><fragment id="1"><span id="2">one</span>'
+                          '<span id="3">two</span></fragment></xml>')
+        decoded = next(decode_friendly(encode_friendly(root), tags='xml'))
+        self.assertEqual(list(decoded[0].itertext()), ['one', 'two'])
+
     def test_literal_text_and_tail_round_trip_without_double_decoding(self):
         for text in ('Use <span> and <xml>.', 'A & B; x < y > z',
                      '&lt;span&gt;', '&amp; &#60; &#x3c;', '"quotes" and apostrophes'):
@@ -68,6 +94,37 @@ class FriendlyTextProtocolTests(unittest.TestCase):
 
 
 class FillTextProtocolTests(unittest.IsolatedAsyncioTestCase):
+    async def test_protocol_generated_long_fill_is_canonical_on_first_attempt(self):
+        text = ("① I will not discuss in this book, as I have done elsewhere, "
+                "the broader implications of these terms. In my view, what is "
+                "most important here is the structure of something beyond the parents.")
+        root = Element('xml')
+        SubElement(root, 'fragment', {'id': '1'}).text = text
+        response = encode_friendly(root)
+        translator, runtime = _repairing_translator([response, response])
+        translator._translate_text_async = AsyncMock(return_value=text)
+        result = await NarrativeXMLTransformer(translator).transform(source_chapter())
+        self.assertEqual(runtime.context_value.calls, 1)
+        item = result.flow_items[0]
+        assert isinstance(item, TextFlowItem)
+        fragment = item.children[0]
+        assert isinstance(fragment, SourceTextFragment)
+        self.assertEqual(fragment.content, [text])
+
+    async def test_added_boundary_space_still_requires_corrected_fill(self):
+        text = 'A complete sentence.'
+        bad = '<xml><fragment id="1">A complete sentence. </fragment></xml>'
+        good = '<xml><fragment id="1">A complete sentence.</fragment></xml>'
+        translator, runtime = _repairing_translator([bad, good])
+        translator._translate_text_async = AsyncMock(return_value=text)
+        result = await NarrativeXMLTransformer(translator).transform(source_chapter())
+        item = result.flow_items[0]
+        assert isinstance(item, TextFlowItem)
+        fragment = item.children[0]
+        assert isinstance(fragment, SourceTextFragment)
+        self.assertEqual(fragment.content, [text])
+        self.assertEqual(runtime.context_value.calls, 2)
+
     async def test_pcex_escaped_translation_passes_real_canonical_fill(self):
         for text, escaped in [('使用 <span> 标签。', '使用 &lt;span&gt; 标签。'),
                               ('使用 &lt;xml&gt; 和 &。', '使用 &amp;lt;xml&amp;gt; 和 &amp;。')]:

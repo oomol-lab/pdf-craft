@@ -22,6 +22,10 @@ CRITICAL RULES:
    - Apply the same mapping to translated text
    - Preserve paragraph breaks (elements are natural separators)
    - IMPORTANT: Translation may change word order - use SEMANTIC matching, not position
+   - Keep text-bearing elements on one line, without indentation or extra whitespace
+     inside their opening/closing tags. Whitespace around inline tags is visible
+     text too: preserve the translation's word boundaries exactly. Pretty-print
+     only between top-level blocks, never inside a paragraph or fragment.
 
 ---
 

@@ -27,48 +27,48 @@ def _escape_text(text: str) -> str:
     return escape_html(text, quote=False)
 
 
-_TINY_TEXT_LEN = 35
-
-
 def _encode_element(
     buffer: StringIO,
     element: Element,
     indent: int,
     depth: int,
     escape: Callable[[str], str],
+    inline: bool = False,
 ) -> None:
-    _write_indent(buffer, indent, depth)
+    if not inline:
+        _write_indent(buffer, indent, depth)
     if len(element) == 0 and not element.text:
         tag = element_to_tag(element, TagKind.SELF_CLOSING)
         buffer.write(str(tag))
     else:
-        text = (element.text or "").strip()
+        text = element.text or ""
         opening_tag = element_to_tag(element, TagKind.OPENING)
         closing_tag = element_to_tag(element, TagKind.CLOSING)
         buffer.write(str(opening_tag))
-        is_one_line = len(text) <= _TINY_TEXT_LEN and len(element) == 0 and "\n" not in text
+        # Only the protocol wrapper can be pretty-printed. Even an element
+        # with no own text may contain adjacent inline text slots; indenting
+        # those changes visible text. Preserve every inner text/tail boundary.
+        pretty = (depth == 0 and element.tag == 'xml' and element.text is None
+                  and all(child.tail is None for child in element))
         if text:
-            if not is_one_line:
-                buffer.write("\n")
-                _write_indent(buffer, indent, depth + 1)
             buffer.write(escape(text))
 
         for child in element:
-            buffer.write("\n")
+            if pretty:
+                buffer.write("\n")
             _encode_element(
                 buffer=buffer,
                 element=child,
                 indent=indent,
                 depth=depth + 1,
                 escape=escape,
+                inline=not pretty,
             )
-            child_tail = (child.tail or "").strip()
+            child_tail = child.tail or ""
             if child_tail:
-                buffer.write("\n")
-                _write_indent(buffer, indent, depth + 1)
                 buffer.write(escape(child_tail))
 
-        if not is_one_line:
+        if pretty and len(element):
             buffer.write("\n")
             _write_indent(buffer, indent, depth)
 
