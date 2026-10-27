@@ -1,0 +1,5 @@
+{
+  "source": "table&formula.pdf, notation paragraph; recorded paid diagnostic request request-028.json",
+  "canonical": "2.1. 记号。按惯例，我们用 \\(\\mu\\) 表示 Moebius 函数，用 \\(\\Lambda\\) 表示 von Mangoldt 函数。我们令 \\(\\tau (n)\\) 为整数 \\(n\\) 的除数个数，\\(\\omega (n)\\) 为素因子个数。对于素数 \\(p\\) 和非零整数 \\(n\\)，我们定义 \\(v_{p}(n)\\) 为使得 \\(p^{\\alpha}|n\\) 成立的最大非负整数 \\(\\alpha\\)。",
+  "fill_response": "```xml\n<xml>\n  <fragment data-orig-len=\"144\" id=\"1\">2.1. 记号。按惯例，我们用<expression id=\"2\">\\(\\mu\\)</expression>表示 Moebius 函数，用<expression id=\"3\">\\(\\Lambda\\)</expression>表示 von Mangoldt 函数。我们令<expression id=\"4\">\\(\\tau (n)\\)</expression>为整数<expression id=\"5\">\\(n\\)</expression>的除数个数，<expression id=\"6\">\\(\\omega (n)\\)</expression>为素因子个数。对于素数<expression id=\"7\">\\(p\\)</expression>和非零整数<expression id=\"8\">\\(n\\)</expression>，我们定义<expression id=\"9\">\\(v_{p}(n)\\)</expression>为使得<expression id=\"11\">\\(p^{\\alpha}|n\\)</expression>成立的最大非负整数<expression id=\"10\">\\(\\alpha\\)</expression>。</fragment>\n</xml>\n```"
+}

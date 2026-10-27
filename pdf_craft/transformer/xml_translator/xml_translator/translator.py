@@ -550,10 +550,12 @@ class XMLTranslator:
         callbacks: Callbacks,
         canonical_text_validator: Callable[[Element], str | None] | None = None,
     ) -> None:
+        from ...canonical_math import CanonicalMath
+        canonical_math = CanonicalMath(translated_text) if canonical_text_validator is not None else None
         user_message = (
             f"Source text:\n{source_text}\n\n"
             f"XML template:\n```XML\n{encode_friendly(hill_climbing.request_element())}\n```\n\n"
-            f"Translated text:\n{translated_text}"
+            f"Translated text:\n{canonical_math.text if canonical_math is not None else translated_text}"
         )
         if canonical_text_validator is not None:
             user_message += (
@@ -567,8 +569,16 @@ class XMLTranslator:
                 "when it uses plain symbols or prose instead of source LaTeX. "
                 "The caller restores original formulas after this fill loop; do "
                 "not copy source formula spelling when it differs from the "
-                "canonical translation. Preserve the required tags and IDs."
+                "canonical translation. If a required inline <expression> has "
+                "no corresponding characters in the canonical translation, "
+                "keep that expression tag and its exact ID with empty contents "
+                "at its corresponding position (for example <expression id=\"5\"/>). "
+                "Do not append source formula text to make the slot nonempty: "
+                "the caller restores its original formula even from an empty slot. "
+                "Preserve all required tags and IDs."
             )
+            assert canonical_math is not None
+            user_message += canonical_math.instructions()
         fill_template = await self._fill_runtime.template("fill")
         fixed_messages = [
             Message(MessageRole.SYSTEM, fill_template.render()),
@@ -586,6 +596,8 @@ class XMLTranslator:
                     validated = translator._extract_xml_element(response)
                     if isinstance(validated, str):
                         error = validated
+                    elif canonical_math is not None and (reference_error := canonical_math.expand(validated)):
+                        error = reference_error
                     elif canonical_text_validator is None:
                         error = hill_climbing.validate(validated)
                         if error is None:
@@ -594,6 +606,8 @@ class XMLTranslator:
                         error = hill_climbing.validate(validated)
                         if error is None:
                             error = canonical_text_validator(validated)
+                            if error is not None and canonical_math is not None:
+                                error += canonical_math.instructions()
                         if error is None:
                             error = hill_climbing.submit(validated)
                     if error is None:

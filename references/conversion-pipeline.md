@@ -192,6 +192,11 @@ EpubTranslation 仅作为 EpubFragmentContent 的兼容别名。
 原有 inline_expr 表达，不发布临时 expression/anchor 或恢复标记。图片/表格 anchor 保持
 零宽结构语义，不能因公式文字可填充而放宽 anchor 或独立公式边界。
 
+源 `expression` ID 是几何/恢复槽位，不定义首阶段译文的数学表达式边界。填充协议以
+不可改写的 `math-ref` 传递完整 canonical 公式；合并公式可以放入一个源槽，其余必需槽
+留空。先验证引用表，再原样展开 canonical 值，随后执行原有结构/ID 与全文精确比较，
+最后恢复源公式。不能按源槽给译文额外补定界符，临时引用不得进入最终 PCEX。
+
 付费公式回归入口是 `python -m pdf_craft_tool.smoke.fill_formula_loop --output NEW-DIRECTORY`。
 它对三个固定真实源段落重新翻译和填充，以 temperature=0.7、top_p=1.0 连续三轮全过
 为门禁，不复用模型响应，不将 fallback 当成功；详细运行要求见 docs/verification/issue-821.md。

@@ -301,7 +301,7 @@ class InlineSegment:
     # 即便 self.validate(...) 的错误没有排除干净，也要尽可能匹配一个质量较高（尽力而为）的版本
     def assign_attributes(self, template_element: Element) -> Element:
         assigned_element = Element(self.parent.tag, self.parent.attrib)
-        if template_element.text and template_element.text.strip():
+        if template_element.text:
             assigned_element.text = append_text_in_element(
                 origin_text=assigned_element.text,
                 append_text=template_element.text,
@@ -326,7 +326,7 @@ class InlineSegment:
                 previous_assigned_child_element = assigned_child_element_stack.pop()
             if child_element.tail is not None:
                 child_text += child_element.tail
-            if not child_text.strip():
+            if not child_text:
                 continue
             if previous_assigned_child_element is None:
                 assigned_element.text = append_text_in_element(

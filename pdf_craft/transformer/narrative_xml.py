@@ -522,6 +522,10 @@ def _validate_chapter_fill_canonical_text(
     uses that same representation while still catching a space independently
     introduced on both sides of a fragment boundary.
 
+    Temporary formula padding is reconstructed from the canonical value when
+    all other characters and gaps match. This never ignores spaces in the final
+    comparison or changes words, punctuation, outer or cross-fragment spacing.
+
     Temporary ``expression`` nodes are ordinary inline text slots here. The
     first translation may flatten LaTeX into prose, so their model-produced
     text participates in the same canonical comparison as a span. Original
@@ -541,6 +545,7 @@ def _validate_chapter_fill_canonical_text(
         if child.get(ID_KEY, "").isdigit()
     }
     actual_by_owner: dict[int, list[str]] = {id(owner): [] for owner in owners}
+    filled_slots: list[Element] = []
     owner_by_segment = {
         segment.id: _source_unit_owner(segment)
         for segment in inline_segments
@@ -551,8 +556,9 @@ def _validate_chapter_fill_canonical_text(
         if filled is None:
             # Structural validation supplies the useful diagnostic first.
             return None
+        filled_slots.append(filled)
         actual_by_owner[id(owner)].extend(
-            text_segment.text for text_segment in search_text_segments(filled)
+            text_segment.text for text_segment in search_text_segments(filled, preserve_whitespace=True)
         )
 
     owner = owners[0]
@@ -563,6 +569,11 @@ def _validate_chapter_fill_canonical_text(
         return None
     expected = normalize_whitespace(translated_text)
     actual = "".join(actual_by_owner[id(owner)])
+    if actual != expected:
+        from .canonical_text import restore_formula_boundary_whitespace
+        if restore_formula_boundary_whitespace(filled_slots, expected):
+            actual = ''.join(segment.text for filled in filled_slots
+                             for segment in search_text_segments(filled, preserve_whitespace=True))
     if actual != expected:
         return (
             "Visible text for one PCEX <text> differs from the canonical "

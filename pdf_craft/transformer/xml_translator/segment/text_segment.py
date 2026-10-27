@@ -93,8 +93,9 @@ def _incision_of(segment: TextSegment, common_depth: int) -> int:
     return block_diff * 3 + inline_diff  # 数字越大越容易被拆分
 
 
-def search_text_segments(root: Element, *, track_origins: bool = False) -> Generator[TextSegment, None, None]:
-    generator = _search_text_segments([], root, track_origins)
+def search_text_segments(root: Element, *, track_origins: bool = False,
+                         preserve_whitespace: bool = False) -> Generator[TextSegment, None, None]:
+    generator = _search_text_segments([], root, track_origins, preserve_whitespace)
     text_segment = next(generator, None)
     if text_segment is None:
         return
@@ -115,8 +116,12 @@ def search_text_segments(root: Element, *, track_origins: bool = False) -> Gener
     yield text_segment
 
 
-def _search_text_segments(stack: list[Element], element: Element, track_origins: bool) -> Generator[TextSegment, None, None]:
-    text = normalize_text_in_element(element.text)
+def _search_text_segments(stack: list[Element], element: Element, track_origins: bool,
+                          preserve_whitespace: bool) -> Generator[TextSegment, None, None]:
+    # Whitespace between inline slots belongs to the sentence. Block-only XML
+    # indentation can still be ignored; it is not a word separator.
+    inline_content = is_inline_element(element) or any(is_inline_element(child) for child in element)
+    text = normalize_text_in_element(element.text, preserve_whitespace=preserve_whitespace or inline_content)
     next_stack = stack + [element]
     next_block_depth = find_block_depth(next_stack)
 
@@ -134,8 +139,11 @@ def _search_text_segments(stack: list[Element], element: Element, track_origins:
             origins=(TextOrigin(element, TextPosition.TEXT, 0, len(element.text or ""), id(element)),) if track_origins else (),
         )
     for child_element in element:
-        yield from _search_text_segments(next_stack, child_element, track_origins)
-        child_tail = normalize_text_in_element(child_element.tail)
+        yield from _search_text_segments(next_stack, child_element, track_origins, preserve_whitespace)
+        child_tail = normalize_text_in_element(
+            child_element.tail,
+            preserve_whitespace=preserve_whitespace or is_inline_element(child_element),
+        )
         if child_tail is not None:
             yield TextSegment(
                 text=child_tail,
