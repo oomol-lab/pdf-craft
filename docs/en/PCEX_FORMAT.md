@@ -58,6 +58,11 @@ formula asset occurs exactly once under `<display-formula>`, never under
 `asset_hash` identifies `assets/<hash>.png`; `display-formula` is a flow
 boundary, not an anchored asset.
 
+Text and whitespace inside `fragment` and asset `title`/`content`/`caption`
+are semantic mixed content, including nested HTML. Writers must not add pretty-print
+indentation there: adjacent inline nodes have no implicit separator, and existing
+whitespace-only text/tails must be preserved. Only structural XML is indented.
+
 ### Reflow rendering of anchored assets
 
 An asset nested in `<text>` records its reading position inside one logical
