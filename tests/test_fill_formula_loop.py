@@ -26,6 +26,18 @@ def formulas(chapter):
 
 
 class FillFormulaLoopTests(unittest.TestCase):
+    def test_captured_abstract_fill_round_trips_without_invented_formula_separators(self):
+        response = json.loads(FIXTURE.with_name('abstract_roundtrip_response.json').read_text())
+        case = next(c for c in json.loads(FIXTURE.read_text())['cases']
+                    if c['name'] == response['source_case'])
+        source = decode(fromstring(case['source_xml']), allow_legacy=False)
+        translator, runtime = _repairing_translator([response['fill']])
+        translator._translate_text_async = AsyncMock(return_value=response['translation'])
+        target = asyncio.run(NarrativeXMLTransformer(translator).transform(source, error_policy=False))
+        self.assertEqual(runtime.context_value.calls, 1)
+        self.assertEqual(Counter(formulas(target)), Counter(formulas(source)))
+        self.assertEqual(decode(fromstring(tostring(encode(target))), allow_legacy=False), target)
+
     def test_three_real_paragraphs_accept_flattened_fill_then_restore_formulas(self):
         for case in json.loads(FIXTURE.read_text())['cases']:
             with self.subTest(case=case['name']):

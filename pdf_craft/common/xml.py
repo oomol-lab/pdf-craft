@@ -1,15 +1,20 @@
 from pathlib import Path
+from collections.abc import Collection
 from xml.etree.ElementTree import Element, fromstring, tostring
 
 
-def indent(elem: Element, level: int = 0) -> Element:
+def indent(elem: Element, level: int = 0, *, preserve_tags: Collection[str] = ()) -> Element:
+    # Mixed-content owners must opt out as complete subtrees: even an absent
+    # tail between two inline nodes means no separator, not formatting space.
+    if elem.tag in preserve_tags:
+        return elem
     indent_str = "  " * level
     next_indent_str = "  " * (level + 1)
     if len(elem):
         if not elem.text or not elem.text.strip():
             elem.text = "\n" + next_indent_str
         for i, child in enumerate(elem):
-            indent(child, level + 1)
+            indent(child, level + 1, preserve_tags=preserve_tags)
             if not child.tail or not child.tail.strip():
                 if i == len(elem) - 1:
                     child.tail = "\n" + indent_str

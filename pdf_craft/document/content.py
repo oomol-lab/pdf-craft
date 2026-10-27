@@ -10,9 +10,9 @@ from contextlib import aclosing
 from pathlib import Path
 from xml.etree.ElementTree import Element
 
-from ..common import indent, save_xml
+from ..common import save_xml
 from ..extractor.chapter.chapter import (
-    Chapter, FlowItem, Reference, TextFlowItem, SourceAsset, _encode_flow, _encode_reference,
+    Chapter, FlowItem, Reference, TextFlowItem, SourceAsset, _encode_flow, _encode_reference, indent_chapter,
 )
 from ..runtime import IO_DOMAIN, worker_iter
 
@@ -222,5 +222,5 @@ class ChapterWriter:
             if len(self.references):
                 self.root.append(self.references)
             self.path.mkdir(parents=True, exist_ok=True)
-            save_xml(indent(self.root), self.path / self.filename)
+            save_xml(indent_chapter(self.root), self.path / self.filename)
             self.root = None

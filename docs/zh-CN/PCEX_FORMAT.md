@@ -51,6 +51,10 @@ mixed text、`inline_expr`、脚注引用和允许的 HTML 包装元素。图片
 可选 64 位小写十六进制 `asset_hash` 与 `title`、`content`、`caption`；`asset_hash` 对应
 `assets/<hash>.png`。`display-formula` 是阅读流边界，不是 anchored asset。
 
+`fragment` 与 asset 的 `title`/`content`/`caption` 内部（包括嵌套 HTML）是有语义的
+mixed content。写入时不得在其中添加排版缩进：相邻行内节点之间没有隐含分隔符，
+已有的纯空白 text/tail 也必须原样保留。只有外层结构节点可以缩进。
+
 ### Anchored asset 的重排渲染
 
 嵌在 `<text>` 内的 asset 记录的是它在一个作者逻辑自然段中的阅读位置，并不要求渲染器复刻

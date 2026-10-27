@@ -203,7 +203,12 @@ def encode(chapter: Chapter) -> Element:
         container = Element("references")
         for ref in refs: container.append(_encode_reference(ref))
         root.append(container)
-    return indent(root)
+    return indent_chapter(root)
+
+
+def indent_chapter(root: Element) -> Element:
+    """Format structure without changing PCEX's semantic mixed content."""
+    return indent(root, preserve_tags={"fragment", "title", "content", "caption"})
 
 
 def _decode_flow(element: Element, refs: dict[tuple[int, int], Reference], *, allow_legacy: bool = True) -> FlowItem:
