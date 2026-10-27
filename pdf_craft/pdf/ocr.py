@@ -1091,22 +1091,11 @@ def _redact_rectangles(
     width, height = size
     y_cutted = round(height * (2 / 3))
     yield (0, 0, width, y_cutted)
-    parts: list[tuple[int, int, int]] = []
     for x1, _, x2, y2 in dets:
-        part_height = y2 - y_cutted
-        if part_height > 0:
-            parts.append((x1, x2, part_height))
-    parts.sort()
-    forbidden = -sys.maxsize
-    for index, (x1, x2, part_height) in enumerate(parts):
-        left = max(x1, forbidden)
-        right = x2
-        for next_x1, _, next_height in parts[index + 1:]:
-            if next_height > part_height:
-                right = min(right, next_x1)
-        if left < right:
-            yield (left, y_cutted, right, y_cutted + part_height)
-            forbidden = right
+        if y2 > y_cutted:
+            # Overlapping masks are intentional: painting their union preserves
+            # every recognized column without splitting away either side.
+            yield (x1, y_cutted, x2, y2)
 
 
 def _vendor_page_error(
