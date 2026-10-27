@@ -141,3 +141,48 @@ class PageOCRStagesTests(IsolatedAsyncioTestCase):
                     self.assertFalse((root / 'ocr/page_1.xml').exists())
                 finally:
                     _active.reset(token)
+
+    async def test_local_stage_cancellation_stops_without_fallback_or_later_pages(self):
+        for cancelled_stage in (2, 3):
+            with self.subTest(stage=cancelled_stage), TemporaryDirectory() as folder:
+                root, events, native_events, rendered, calls = Path(folder), [], [], [], []
+                def callback(event):
+                    events.append(event)
+                    if event.page_index == 1 and event.stage == cancelled_stage:
+                        raise asyncio.CancelledError()
+                progress = ExtractionProgress(callback, root / 'units.sqlite', 3, None)
+                token = _active.set(progress)
+                class Adapter:
+                    allows_multi_stage = True
+                    def download(self, revision=None):
+                        pass
+                    def load(self):
+                        pass
+                    def extract_page(self, **_kwargs):
+                        calls.append('recognition')
+                        return OCRPageResult([], 'test')
+                ocr = OCR(DeepSeekOCRLocalConfig(), cast(Any, _Handler(rendered)))
+                ocr._extractor._page_extractor = create_page_extractor_with_adapter(cast(Any, Adapter()))
+                from pdf_craft.runtime import callback_bridge
+                from pdf_craft.pdf.ocr import OCREventKind
+                report = callback_bridge(asyncio.get_running_loop(), progress.ocr)
+                def recognize():
+                    for event in ocr.recognize(
+                            pdf_path=root / 'source.pdf', asset_path=root / 'assets', ocr_path=root / 'ocr',
+                            includes_footnotes=True, error_policy=True):
+                        native_events.append(event)
+                        report(event)
+                try:
+                    with self.assertRaises(asyncio.CancelledError):
+                        await OCR_DOMAIN.run(recognize)
+                    self.assertEqual(rendered, [1])
+                    self.assertEqual(calls, ['recognition'])
+                    self.assertEqual(stages(events)[-1], cancelled_stage)
+                    self.assertFalse(any(e.kind in (OCREventKind.COMPLETE, OCREventKind.FAILED)
+                                         for e in native_events))
+                    self.assertFalse(any(e.kind == ProgressEventKind.COMPLETED for e in events))
+                    self.assertEqual(list((root / 'ocr').glob('page_*.xml')), [])
+                    self.assertEqual(list((root / 'ocr').glob('page_*.failed')), [])
+                    self.assertFalse((root / 'ocr/done').exists())
+                finally:
+                    _active.reset(token)

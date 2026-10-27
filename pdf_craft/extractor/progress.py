@@ -2,6 +2,7 @@
 from __future__ import annotations
 # pylint: disable=protected-access
 import asyncio
+from concurrent.futures import CancelledError as FutureCancelledError
 from contextvars import ContextVar
 from contextlib import asynccontextmanager
 from functools import wraps
@@ -79,7 +80,12 @@ async def page_stage(index, stage):
 def page_stage_sync(index, stage):
     progress = _active.get()
     if progress is not None:
-        progress.report_stage_sync((index, stage))
+        try:
+            progress.report_stage_sync((index, stage))
+        except FutureCancelledError as error:
+            # run_coroutine_threadsafe exposes cancellation as an Exception in
+            # the worker. Restore it before OCR error recovery can catch it.
+            raise asyncio.CancelledError() from error
 
 
 async def observe_recovery(context):
