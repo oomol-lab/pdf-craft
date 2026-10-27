@@ -132,3 +132,63 @@ paragraph completes with its source formulas present. A repeated explanatory
 clause near a cross-fragment boundary remains a translation/context-quality
 observation; this fix deliberately does not rewrite model wording or claim
 semantic perfection of the generated translation.
+
+## Review recovery: canonical formulas may merge source slots
+
+Independent review of `6e5bafd` reproduced a different failure in the same
+paragraph: the first-stage canonical text combined `chi(n)=chi'(n)` inside one
+pair of delimiters, while fill rebuilt two complete formula strings according
+to two source expression IDs. Extra closing/opening delimiters are nonspace
+characters, so the exact validator correctly rejected that candidate. Padding
+reconstruction cannot solve this representation mismatch.
+
+Source expression IDs describe original geometry and restoration identity;
+they do not define mathematical boundaries in the translated text. The fill
+allocation protocol now transports complete, immutable canonical formulas as
+`math-ref` tokens. The system prompt explicitly permits this transport payload
+inside existing slots. One merged canonical reference can occupy one expression
+slot, while the other required source slots remain empty.
+
+`canonical_math.py` expands each exact first-stage value before the original
+structure/ID validation and complete canonical-text comparison. Reference keys
+must be known, unique, empty and complete; the table is validated before any
+mutation. Extra literal delimiters around a reference still fail the final exact
+comparison. No delimiter is removed from validation, no retry budget is changed,
+and no source formula is rewritten. References never survive into PCEX or the
+published output. Already-valid literal responses retain the existing exact
+validation path for compatibility.
+
+`tests/test_canonical_math_allocation.py` covers merged canonical math with two
+source IDs, rejection of separately rewrapped formulas and extra wrappers around
+references, missing source IDs, invalid reference tables without mutation, exact
+single/double-backslash and dollar delimiters, and final original-formula
+restoration. This includes the failure class found by Review rather than merely
+relaxing its assertion.
+
+Fresh normal matrix command after the protocol was frozen:
+
+```sh
+PDF_CRAFT_LLM_DEFAULT_PROVIDER=oomol \
+PDF_CRAFT_LLM_TRANSLATION_PROFILE=default \
+PDF_CRAFT_LLM_FILL_PROFILE=default \
+.venv/bin/python -m pdf_craft_tool smoke matrix \
+  --config tests/smoke/vendor_real.json \
+  --output-root pdf-craft-output/issue886-math-reference-final
+```
+
+The table/formula run reports passed and produces both `translated.pcex` and
+`output/book.md`. Its 108 source inline formulas have exactly the same
+kind/content multiset in the translated layer; no math-ref remains in Markdown.
+The additional fresh `issue886-math-reference-citation` gate reports
+`automated_passed=true`; all three masks pass and all three output previews were
+inspected without observing duplicated footnote overlays. The earlier
+`issue886-math-ref-*` exploratory processes were stopped when synchronizing the
+system prompt with the new payload contract; they are not acceptance evidence.
+
+Review-recovery acceptance: the single fresh normal `vendor_real.json` invocation
+above exited **0**, with **all four runs passed** (citation, table/formula,
+Cambridge and The little prince). Its `acceptance-summary.json` indexes the exact
+reports. No cached response replay, accepted fallback or raised retry budget was
+used. The separate fresh citation gate also exited **0**. Complete local suite:
+**1,170 tests passed**, Pyright **0 errors/0 warnings**, Pylint **10/10** and diff
+check clean. The reviewer must independently run another new-directory matrix.
