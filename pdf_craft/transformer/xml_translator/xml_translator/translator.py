@@ -567,7 +567,13 @@ class XMLTranslator:
                 "when it uses plain symbols or prose instead of source LaTeX. "
                 "The caller restores original formulas after this fill loop; do "
                 "not copy source formula spelling when it differs from the "
-                "canonical translation. Preserve the required tags and IDs."
+                "canonical translation. If a required inline <expression> has "
+                "no corresponding characters in the canonical translation, "
+                "keep that expression tag and its exact ID with empty contents "
+                "at its corresponding position (for example <expression id=\"5\"/>). "
+                "Do not append source formula text to make the slot nonempty: "
+                "the caller restores its original formula even from an empty slot. "
+                "Preserve all required tags and IDs."
             )
         fill_template = await self._fill_runtime.template("fill")
         fixed_messages = [
