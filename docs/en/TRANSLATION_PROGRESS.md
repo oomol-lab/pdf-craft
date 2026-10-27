@@ -151,6 +151,8 @@ In 2.6.5, PAGE stages use `max_stage=7`: old OCR-persisted/JEV/LLM/final stages
 2/3/4/5 are now 4/5/6/7. Update numeric stage labels in consumers. Stages 1, 2
 and 3 are reported on entry, before the expensive operation or request admission;
 measure elapsed time between events rather than treating stages as equal weights.
+Custom async PDF handlers stay in stage 0 while pre-rendering pages; stage 1 is
+reported only when each page enters OCR.
 Retries remain in the same stage and do not create units or move stages backwards.
 For local OCR, stage 2 covers background-color detection and masking; upstream
 serialization of its request image remains inside the stage-3 recognition call.

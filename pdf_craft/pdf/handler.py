@@ -201,7 +201,6 @@ async def _materialize_pdf_handler(
             await IO_DOMAIN.run(
                 _save_and_close_page_image, image, root / f"page-{page_index}.png",
             )
-            await page_stage(page_index, 1)
     finally:
         await document.close()
     return _MaterializedPDFHandler(root, count, metadata, page_sizes, dpi)
