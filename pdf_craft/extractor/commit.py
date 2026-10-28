@@ -1,19 +1,17 @@
-"""Disk-backed projection and delivery of adopted extraction semantics.
+"""Disk-backed projection of adopted extraction semantics.
 
 OCR is immutable evidence. This private projection is rebuilt per operation and
 never used to rerun paragraph analysis: its only consumers are TOC/furniture.
 """
-from copy import deepcopy
 from pathlib import Path
 import shutil
 import sqlite3
 from contextlib import closing
-from xml.etree.ElementTree import Element, tostring, fromstring
+from xml.etree.ElementTree import Element
 from tempfile import TemporaryDirectory
 
 from ..common import read_xml, save_xml
 from ..document.content import chapter_paths
-from ..runtime import IO_DOMAIN, invoke_callback, temporary_directory
 
 
 def project_adopted(chapters: Path, evidence: Path, destination: Path, printed_pages):
@@ -71,43 +69,6 @@ def project_adopted(chapters: Path, evidence: Path, destination: Path, printed_p
     sizes = evidence / 'page_pixel_sizes.json'
     if sizes.exists():
         shutil.copyfile(sizes, destination / sizes.name)
-
-
-async def notify_adopted(chapters: Path, on_body, on_footnote):
-    """Only validated final chapter XML escapes; callbacks own their snapshots."""
-    if on_body is None and on_footnote is None:
-        return
-    async with temporary_directory('pdf-craft-notifications-') as directory:
-        database = directory / 'references.sqlite'
-        def collect(path):
-            root = read_xml(path)
-            with closing(sqlite3.connect(database)) as db:
-                db.execute('CREATE TABLE IF NOT EXISTS refs(page,number,xml,PRIMARY KEY(page,number))')
-                for node in root.findall('./references/ref'):
-                    node.tail = None
-                    page, number = map(int, node.attrib['id'].split('-'))
-                    db.execute('INSERT OR IGNORE INTO refs VALUES (?,?,?)', (page, number, tostring(node)))
-                db.commit()
-            return root
-        paths = await IO_DOMAIN.run(lambda: list(chapter_paths(chapters)))
-        for path in paths:
-            root = await IO_DOMAIN.run(collect, path)
-            if on_body is not None:
-                for node in root.findall('./flow/*'):
-                    snapshot = deepcopy(node)
-                    snapshot.tail = None
-                    await invoke_callback(on_body, snapshot)
-        def next_reference():
-            with closing(sqlite3.connect(database)) as db:
-                row = db.execute('SELECT page,number,xml FROM refs ORDER BY page,number LIMIT 1').fetchone()
-                if row is not None:
-                    db.execute('DELETE FROM refs WHERE page=? AND number=?', row[:2])
-                    db.commit()
-                    return fromstring(row[2])
-            return None
-        if on_footnote is not None and paths:
-            while (node := await IO_DOMAIN.run(next_reference)) is not None:
-                await invoke_callback(on_footnote, node)
 
 
 def partition_adopted(source: Path, destination: Path, toc):

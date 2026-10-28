@@ -4,7 +4,7 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest import IsolatedAsyncioTestCase
 from unittest.mock import patch
-from xml.etree.ElementTree import fromstring, tostring
+from xml.etree.ElementTree import fromstring
 from zipfile import ZipFile
 
 from pdf_craft import AsyncPDFCraft, ExtractionOptions
@@ -27,27 +27,6 @@ class CommitBoundaryTests(IsolatedAsyncioTestCase):
                 self.assertEqual(len(list(toc.iter('item'))), 1)
                 text = ''.join(archive.read(n).decode() for n in archive.namelist() if n.startswith('chapters/'))
                 self.assertNotIn('Second chapter', text)
-
-    async def test_callbacks_only_deliver_adopted_chapter_content(self):
-        received = []
-        class Engine(RefinedEngine):
-            async def _refine_pages(self, chapter_analysis, footnote_refinement, draft):
-                if received:
-                    raise AssertionError('candidate content escaped before adoption')
-                return await super()._refine_pages(chapter_analysis, footnote_refinement, draft)
-        with TemporaryDirectory() as directory:
-            root = Path(directory)
-            await AsyncPDFCraft.from_engine(Engine('ignored')).extract_pdf(
-                root/'source.pdf',root/'book.pcex',
-                ExtractionOptions(includes_furniture=False,footnotes=refinement(),
-                                  on_body=lambda node: received.append(tostring(node))),
-                analysing_path=root/'analysis',error_policy=False)
-            self.assertTrue(received)
-            self.assertNotIn(b'Second chapter', b''.join(received))
-            with ZipFile(root/'book.pcex') as archive:
-                expected = [tostring(node) for name in sorted(archive.namelist()) if name.startswith('chapters/') and name.endswith('.xml')
-                            for node in fromstring(archive.read(name)).findall('./flow/*')]
-            self.assertEqual([value.rstrip() for value in received], [value.rstrip() for value in expected])
 
     async def test_furniture_coverage_uses_adopted_not_ignored_layouts(self):
         observed = []
@@ -87,16 +66,6 @@ class CommitBoundaryTests(IsolatedAsyncioTestCase):
             self.assertIn((0,0,100,100), list(_read_ocr_boxes(root/'projection/page_1.xml')))
             self.assertNotIn((0,0,100,20), list(_read_ocr_boxes(root/'projection/page_1.xml')))
 
-    async def test_final_footnotes_are_delivered_once_in_source_order(self):
-        from pdf_craft.extractor.commit import notify_adopted
-        with TemporaryDirectory() as directory:
-            root = Path(directory)
-            for index, ids in ((1,['2-1','1-2']), (2,['2-1','1-1'])):
-                refs = ''.join(f'<ref id="{ident}"><mark>*</mark><flow/></ref>' for ident in ids)
-                save_xml(fromstring(f'<chapter><flow/><references>{refs}</references></chapter>'), root/f'chapter_{index}.xml')
-            seen = []
-            await notify_adopted(root, None, lambda node: seen.append(node.get('id')))
-            self.assertEqual(seen, ['1-1','1-2','2-1'])
 
 class AdoptionScaleTests(IsolatedAsyncioTestCase):
     def test_adoption_partition_releases_chunks_before_source_eof(self):

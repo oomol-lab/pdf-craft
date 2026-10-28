@@ -2,7 +2,7 @@
 
 Only the recovery path scans source pages. It rebuilds surviving contiguous
 runs separately, so no reference or continuation can cross a discarded page.
-OCR caches remain evidence; formal callbacks run only after final adoption.
+OCR caches remain evidence. Primary extraction callbacks do not assert final adoption.
 """
 from __future__ import annotations
 

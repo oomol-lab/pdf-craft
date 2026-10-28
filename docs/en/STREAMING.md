@@ -9,7 +9,7 @@ after successful validation/packaging.
 
 | Operation | Content callbacks | Payload |
 | --- | --- | --- |
-| PDF → PCEX extraction | `ExtractionOptions.on_body` / `on_footnote` | Independent PCEX XML `Element` snapshots |
+| PDF → PCEX extraction | `ExtractionOptions.on_body` / `on_footnote` | Independent primary-extraction PCEX XML `Element` snapshots |
 | PCEX translation, Markdown or EPUB rendering | `on_body` / `on_footnote` | `ParagraphContent[SourceRegion]`, one whole paragraph |
 | PCEX → PDF patching or translation | `on_body` / `on_footnote` | `PDFParagraphContent`, one whole paragraph with final layout |
 | Existing EPUB translation | `on_body` | `EpubFragmentContent`, one atomic translation fragment |
@@ -49,19 +49,24 @@ the artifact. Fragment page numbers, source orders, and pixel bounding boxes are
 preserved; source page geometry is recorded in the resulting `pages.xml`.
 Asset hashes refer to extraction resources, not embedded image bytes.
 
-Since **2.6.6**, these notifications replay adopted, validated chapter content.
-In 2.6.5 they exposed traditional-analysis previews before optional refinement. Extraction first
-finishes traditional analysis, optional refinement, ownership/reference checks,
-printed-directory exclusion, and final chapter assembly. Only then does `on_body`
-deliver flow items in chapter reading order, and `on_footnote` deliver each definition
-once in source page/order order. Callback mutations do not change the artifact.
-An accepted removed or merged heading does not leak an earlier title or TOC ID.
+Since **2.6.7**, these callbacks again deliver **primary extraction results** incrementally.
+Once the necessary cross-page input closes a paragraph or footnote, it is delivered
+without waiting for unrelated pages, metadata, printed-directory detection, JEV/LLM
+refinement or packaging. Each channel is ordered and delivered exactly once, with
+no final replay. Source page/order/bbox identities are preserved in detached snapshots.
 
-This intentionally delays the first content callback until semantic analysis is
-complete. OCR and candidate analysis remain concurrent, with backlogs on disk;
-`on_extraction_event` continues reporting live progress. Metadata uses independent
-bibliographic evidence and may arrive earlier. A later callback or publication
-failure still fails the operation: receiving content is not a success signal.
+Content, body/footnote ownership and heading levels can all differ from the final
+PCEX after refinement, printed-directory exclusion and chapter reordering. Read the
+returned PCEX for final content; these callbacks are not a mirror of final chapters.
+Version 2.6.6 delayed callbacks until whole-book adoption; 2.6.7 fixes that regression
+using the existing API. The batch barriers (all OCR before JEV, all JEV before LLM
+refinement) remain unchanged and do not block primary callbacks.
+
+Maintenance invariant: deliverable primary content must not be delayed by unrelated
+work or orchestration changes. Barrier regressions cover delivery before later OCR,
+refinement and TOC completion, cross-page closure, EOF draining, caches, errors and
+cancellation. Backlogs stay on disk. A later callback or publication failure still
+fails the operation: receiving content is not a success signal.
 
 ### Analysis cache migration
 
