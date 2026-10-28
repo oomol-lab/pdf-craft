@@ -49,7 +49,8 @@ the artifact. Fragment page numbers, source orders, and pixel bounding boxes are
 preserved; source page geometry is recorded in the resulting `pages.xml`.
 Asset hashes refer to extraction resources, not embedded image bytes.
 
-These notifications replay adopted, validated chapter content. Extraction first
+Since **2.6.6**, these notifications replay adopted, validated chapter content.
+In 2.6.5 they exposed traditional-analysis previews before optional refinement. Extraction first
 finishes traditional analysis, optional refinement, ownership/reference checks,
 printed-directory exclusion, and final chapter assembly. Only then does `on_body`
 deliver flow items in chapter reading order, and `on_footnote` deliver each definition
