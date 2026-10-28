@@ -1,5 +1,7 @@
+# pylint: disable=protected-access
 from collections.abc import AsyncIterable, AsyncGenerator, Awaitable, Callable, Iterable, Iterator
 from contextlib import aclosing
+from collections import deque
 from dataclasses import dataclass
 from itertools import chain
 from typing import TypeVar
@@ -51,18 +53,21 @@ class XMLStreamMapper:
     ) -> AsyncGenerator[tuple[Element, list[InlineSegmentMapping]], None]:
         current_element: Element | None = None
         mapping_buffer: list[InlineSegmentMapping] = []
-        notifications = []
+        notifications = deque()
 
-        async def accepted(root, mappings):
-            rejected = {id(child) for node in root.iter() if node.get('__pdf_craft_missing') == '1'
-                        for child in node.iter()}
-            result = [(block, texts) for block, texts in mappings if id(block) not in rejected]
-            if on_mapping is not None:
-                for origin, texts, block in notifications:
-                    if id(block) not in rejected:
-                        await invoke_callback(on_mapping, (origin, texts))
-            notifications.clear()
-            return result
+        def rejected(root):
+            return {id(child) for node in root.iter() if node.get('__pdf_craft_missing') == '1'
+                    for child in node.iter()}
+
+        async def notify_ready(root, position):
+            while notifications and notifications[0][0] <= position:
+                _, origin, texts, block = notifications.popleft()
+                if id(block) not in rejected(root):
+                    await invoke_callback(on_mapping, (origin, texts))
+
+        def accepted(root, mappings):
+            missing = rejected(root)
+            return [(block, texts) for block, texts in mappings if id(block) not in missing]
 
 
         async def execute(group: Group[_ResourcePayload] | _EmptyElement):
@@ -105,7 +110,7 @@ class XMLStreamMapper:
 
                     if source_identity(current_element) != source_identity(origin_element):
                         assert current_element is not None
-                        yield current_element, await accepted(current_element, mapping_buffer)
+                        yield current_element, accepted(current_element, mapping_buffer)
                         current_element = origin_element
                         mapping_buffer = []
 
@@ -130,11 +135,13 @@ class XMLStreamMapper:
                         text_segments = list(callbacks.interrupt_translated_text_segments(text_segments))
                         if text_segments:
                             if on_mapping is not None:
-                                notifications.append((origin, text_segments, block_element))
+                                notifications.append((origin._notification_end, origin, text_segments, block_element))
                             mapping_buffer.append((block_element, text_segments))
+                    if on_mapping is not None:
+                        await notify_ready(current_element, origin._notification_index)
 
         if current_element is not None:
-            yield current_element, await accepted(current_element, mapping_buffer)
+            yield current_element, accepted(current_element, mapping_buffer)
 
     def _split_into_serial_groups(self, elements: Iterable[Element], callbacks: Callbacks,
                                   track_origins: bool = False, track_progress: bool = False,
@@ -231,7 +238,20 @@ class XMLStreamMapper:
                 inline._progress_words = weight  # pylint: disable=protected-access
                 yield inline
 
-        inline_segment_generator = expand(element)
+        if track_origins:
+            # A platform owner can occur on both sides of nested blocks. Wait
+            # only for its own last piece (and any enclosing atomic owner),
+            # never for an unrelated sibling or a subsequent XML root.
+            inlines = list(expand(element))
+            last = {id(unit_owner(inline)): index for index, inline in enumerate(inlines)}
+            for index, inline in enumerate(inlines):
+                inline._notification_index = index  # pylint: disable=protected-access
+                inline._notification_end = max(  # pylint: disable=protected-access
+                    (last[id(parent)] for parent in inline.head.parent_stack if id(parent) in last),
+                    default=index)
+            inline_segment_generator = iter(inlines)
+        else:
+            inline_segment_generator = expand(element)
         start_incision = _PAGE_INCISION
         inline_segment = next(inline_segment_generator, None)
         if inline_segment is None:

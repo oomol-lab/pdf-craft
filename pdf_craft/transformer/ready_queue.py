@@ -23,8 +23,8 @@ class ReadyQueue:
     def add(self, kind, payload, *, item=None, dependency=None):
         if dependency is not None:
             self.run('INSERT OR IGNORE INTO titles(id) VALUES (?)', (dependency,))
-        self.run('INSERT INTO jobs(kind,item,dependency,payload) VALUES (?,?,?,?)',
-                 (kind, item, dependency, pickle.dumps(payload)))
+        return self.run('INSERT INTO jobs(kind,item,dependency,payload) VALUES (?,?,?,?) RETURNING id',
+                        (kind, item, dependency, pickle.dumps(payload)))[0][0]
 
     def item(self, index, source, channel):
         self.run('INSERT INTO items(id,channel,source) VALUES (?,?,?)', (index, channel, pickle.dumps(source)))

@@ -228,7 +228,9 @@ class MetadataCallbackTests(unittest.IsolatedAsyncioTestCase):
         from pdf_craft.pipeline.pdf.patcher import PDFPatcher
         async def patch_pdf(_self, _source, target, replacements, **_kwargs):
             await IO_DOMAIN.run(list, replacements)
-            target.write_bytes(b'PDF output')
+            writer = pypdf.PdfWriter()
+            writer.add_blank_page(100, 100)
+            writer.write(target)
         for kind in ('pcex', 'markdown', 'epub', 'pdf'):
             with self.subTest(kind=kind), tempfile.TemporaryDirectory() as directory, patch.object(
                     XMLTranslator, '_translate_inline_segments_async', new=translated), patch.object(

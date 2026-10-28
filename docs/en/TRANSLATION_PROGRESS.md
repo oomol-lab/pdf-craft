@@ -23,7 +23,7 @@ out-of-order EPUB state can live on temporary disk across existing batch barrier
 
 | Operation | UnitKind | Logical work counted |
 | --- | --- | --- |
-| Extraction | PAGE | One selected source page, through final accepted extraction. |
+| Extraction | PAGE | One selected source page, through local processing and necessary validation. |
 | Extraction | TOC | One directory analysis, including statistical analysis/cache reuse. |
 | Extraction | METADATA | One book-metadata extraction: native PDF fields, or OCR evidence with native fallback. |
 | Translation | CONTENT | PCEX flow/footnote entry with narrative words; EPUB body task. |
@@ -57,7 +57,7 @@ Stages belong to units and concurrent units may be at different stages.
 
 | Unit | Stage numbers |
 | --- | --- |
-| Extraction PAGE | 0: page preparation/rendering; 1: first OCR pass (including admission wait); 2: second-pass image preparation (background color, masking, saving); 3: second OCR pass (including admission wait); 4: OCR parsing, assembly and persistence complete; 5: JEV review; 6: LLM refinement; 7: final adopted page result. `max_stage=7`. |
+| Extraction PAGE | 0: page preparation/rendering; 1: first OCR pass (including admission wait); 2: second-pass image preparation (background color, masking, saving); 3: second OCR pass (including admission wait); 4: OCR parsing, assembly and persistence complete; 5: JEV review; 6: LLM refinement; 7: page processing and necessary validation finished. `max_stage=7`. |
 | Extraction TOC / METADATA | 0: analysis (possibly multiple requests); 1: final accepted or fallback result. `max_stage=1`. |
 | Translation units | 0: model translation and XML-fill rounds; 1: adapter finalization when observable; 2: finalized unit. `max_stage=2`. |
 
@@ -76,10 +76,12 @@ for its requested evidence, up to twelve pages. Complete and partial caches use 
 same readiness rule. Existing unselected cached XML remains evidence, including
 fallback XML with a failure marker; it is ready immediately because this operation
 will not retry it. Selected failed caches wait for their terminal replacement.
-TOC still follows OCR; page refinement follows TOC and a
-cross-page analysis barrier. JEV/LLM candidates may be rolled back during
-global validation. PAGE completion waits until final recovery/validation and successful
-publication, so it never needs retraction. Events do not change these dependencies.
+JEV waits only for the required initial neighboring pages; LLM follows its own page score.
+PAGE stage 7 / COMPLETED means that page processing, optional refinement and necessary
+validation have finished. It does not wait for paragraph assembly, TOC or publication.
+Cache/no-refinement/fallback paths settle at their own processing boundary. Later artifact
+recovery is reported through error policy, without retracting or reopening completed PAGE
+units. Only operation COMPLETED promises successful artifact publication.
 
 ## Completion, fallback, and errors
 
@@ -210,7 +212,7 @@ Progress may interleave in execution order. Body and footnote content callbacks 
 retain their own source order and use separate disk delivery, independently of the
 ordered chapter writer/renderer. Slow callbacks and out-of-order results do not hold
 execution slots; callback failures still cancel and settle sibling work. Renderers
-may wait for finalized book metadata/furniture before consuming the spooled content.
+do not impose a metadata/all-furniture barrier on PDF layout: ready body, note and furniture work joins only at connected page windows. PDF metadata is written at publication.
 Operation completion requires successful complete consumption/publication; closing a
 partially consumed stream cancels and settles remaining jobs immediately instead of
 waiting for the book to finish, and cannot fabricate completion. EPUB input retains its existing
@@ -218,3 +220,5 @@ unified task stream and ordered `EpubFragmentContent` delivery.
 
 
 To obtain the same source-word total before starting translation, or inspect actual remote consumption independently of progress, see [Usage and sizing](USAGE.md).
+
+Words and content callbacks advance independently, not in lockstep. Each final group outcome advances words; content waits for its own complete atomic unit and necessary layout. EPUB fragments do not wait for unrelated chapter groups or the next chapter.

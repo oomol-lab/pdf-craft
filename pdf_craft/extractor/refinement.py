@@ -72,6 +72,8 @@ async def refine_ready(pages, process, directory, order, *, window=MAX_PAGE_JOBS
             if usages[index] is not None:
                 usages.pop(index).settle(False)
             raise
+        from .progress import page_stage
+        await page_stage(index, 7)
         completed.add(index)
 
     scanner = asyncio.create_task(fatal_error_boundary(scan)())

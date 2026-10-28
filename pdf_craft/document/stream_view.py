@@ -14,7 +14,7 @@ from ..runtime import IO_DOMAIN, worker_context, temporary_directory
 @asynccontextmanager
 async def _content_view(extraction, *, mode=RenderMode.SOURCE, translation_id=None,
                        translator=None, window=1, with_anchored=True, with_furniture=False,
-                       on_metadata=None, on_body=None, on_footnote=None, aborted=lambda: False):
+                       on_metadata=None, on_body=None, on_footnote=None, aborted=lambda: False, deferred=None):
     """No translated workspace: the consumer receives the producer directly."""
     if translator is not None and translation_id is not None:
         raise ValueError("translation_id cannot be combined with translator")
@@ -98,6 +98,12 @@ async def _content_view(extraction, *, mode=RenderMode.SOURCE, translation_id=No
                     async with pcex_schedule(items, transformer, window, paths=paths, root=furniture_root,
                                              with_furniture=with_furniture, with_anchored=with_anchored,
                                              aborted=aborted, pages=pages, metadata=translate_metadata, notifier=notify) as schedule:
+                        if deferred is not None:
+                            deferred['schedule'] = schedule
+                            items = schedule.results([], [], ordered=False)
+                            async with aclosing(items):
+                                yield view, pages, numbers, items
+                            return
                         overlay = await schedule.header()
                         view = replace(view, metadata=_effective_metadata(metadata, overlay, RenderMode.REPLACE if mode == RenderMode.SOURCE else mode),
                                        language=overlay.get('language', transformer.target_language) or view.language)

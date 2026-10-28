@@ -37,6 +37,7 @@ def read_record(path):
 class ReplacementFeed:
     root: Path
     count: int
+    windows: tuple[tuple[int, ...], ...] = ()
 
     def __iter__(self):
         for index in range(self.count):
@@ -49,3 +50,36 @@ class ReplacementFeed:
             value = read_record(path)
             if value is not None:
                 yield value
+
+    def first(self):
+        if self.windows:
+            return next((value for batch in self.ready_batches() for value in batch), None)
+        return next(iter(self), None)
+
+    def ready_batches(self):
+        """Wait only for a connected page window, not earlier unrelated pages."""
+        pending = list(self.windows)
+        while pending:
+            error = self.root / 'error'
+            if error.exists():
+                raise RuntimeError(read_record(error))
+            ready = next((slots for slots in pending if all((self.root / str(slot)).exists() for slot in slots)), None)
+            if ready is None:
+                time.sleep(.01)
+                continue
+            pending.remove(ready)
+            yield [value for slot in ready if (value := read_record(self.root / str(slot))) is not None]
+
+
+def dependency_windows(entries):
+    """Connected source-page spans, independent of translated content arrival."""
+    groups, slots, last = [], [], 0
+    for slot, first, end in sorted(entries, key=lambda entry: (entry[1], entry[0])):
+        if slots and first > last:
+            groups.append(tuple(slots))
+            slots = []
+        slots.append(slot)
+        last = max(last, end)
+    if slots:
+        groups.append(tuple(slots))
+    return tuple(groups)

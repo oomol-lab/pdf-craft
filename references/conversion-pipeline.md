@@ -238,3 +238,7 @@ Vendor 渲染准备回调与 OCR 完成迭代可能并发进入实时提取。�
 分析线程、等待 loop 回调的渲染线程分别由操作持有和释放，不能占用其所依赖的短 IO 池。
 收尾等待用户回调时不能持有页面消费锁；取消需关闭输入、停止交付并等待工作线程退出。
 WorkUnit 的 progress/finish 需串行结算，已失败或取消的结算不能重试通知并伪装为完成。
+
+## 局部完成与 PDF 回填交付
+
+PAGE 在局部 OCR/JEV/按需精修及必要校验完成处结算，晚到的 OCR 通知和产物恢复不能重开终态；操作完成仍等发布。EPUB mapper 按原子 owner 的最后一个片段界定通知就绪，最终 XML 写回仍以 root 为单位。PDF consumer 使用 deferred content view，把 metadata 留到文件收尾；家具按页快照汇合，源几何预先定义关联窗口，ReplacementFeed 按窗口就绪供 Qt 消费。窗口乱序组成暂存 PDF，最终按原页序写入；正文/脚注各自按槽位子序列交付。相关屏障见 tests/test_realtime_observers.py。

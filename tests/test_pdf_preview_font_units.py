@@ -13,6 +13,22 @@ from pdf_craft.pipeline.pdf.text_layout import _qt_modules
 
 
 class TestPreviewFontUnits(unittest.TestCase):
+    def test_failed_page_releases_its_preview_slot_without_content(self):
+        page = PageGeometry(1, 200, 200, render_dpi=72)
+        source = SourceRegion(page, 0, (0, 0, 200, 200))
+        content = ParagraphContent("Translated", "Original", [source])
+        replacement = _PreviewReplacement.attach(
+            PDFReplacement(1, source.bbox, content.text, (200, 200)),
+            content, False, 7,
+        )
+        window = SimpleNamespace(_summaries=[SimpleNamespace(replacement=replacement)])
+        with tempfile.TemporaryDirectory() as directory:
+            preview = WindowPreview(Path(directory), window, None, {1: (200, 200)})
+            try:
+                self.assertEqual(list(preview.contents({1})), [(7, False, None)])
+            finally:
+                preview.close()
+
     def test_size_and_baselines_use_qt_logical_pixels_then_page_geometry(self):
         filler = QTextParagraphFiller(PatchTextOptions(max_font_size=12, min_font_size=12))
         for pixels in (200, 400, 800):
@@ -41,6 +57,7 @@ class TestPreviewFontUnits(unittest.TestCase):
                     )
                     preview.page(1, [contribution], [])
                     _, _, exported = next(preview.contents(set()))
+                    assert exported is not None
                     region = exported.regions[0]
                     self.assertAlmostEqual(region.font_size, placement.font_size * dpi / 72 * scale)
                     self.assertEqual(len(region.lines), len(frozen))

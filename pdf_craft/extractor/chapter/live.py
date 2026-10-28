@@ -167,17 +167,28 @@ class LiveExtraction:
             self.ignored.add(event.page_index)
         elif event.kind in (OCREventKind.COMPLETE, OCREventKind.SKIP, OCREventKind.FAILED):
             self.ready.add(event.page_index)
-        if self._refining:
-            if terminal and not duplicate:
-                if self._page_indexes is None or event.page_index in self._page_indexes:
+        validated_page = None
+        if terminal and not duplicate:
+            if self._page_indexes is None or event.page_index in self._page_indexes:
+                page_path = self.pages_path / f"page_{event.page_index}.xml"
+                if event.kind == OCREventKind.FAILED and not await IO_DOMAIN.run(page_path.exists):
+                    # Some OCR adapters report a terminal failure without a
+                    # fallback page. It is skipped, not a corrupt XML result.
+                    self.ignored.add(event.page_index)
+                if event.page_index not in self.ignored:
                     try:
-                        page = await IO_DOMAIN.run(decode, await IO_DOMAIN.run(
-                            read_xml, self.pages_path / f"page_{event.page_index}.xml"))
+                        validated_page = await IO_DOMAIN.run(decode, await IO_DOMAIN.run(
+                            read_xml, page_path))
                     except Exception as error:
                         setattr(error, 'page_index', event.page_index)
                         self._record_error(error)
                         return
-                    await IO_DOMAIN.run(self.pages.append, page)
+                    if self._refining:
+                        await IO_DOMAIN.run(self.pages.append, validated_page)
+                if not self._refining or event.page_index in self.ignored:
+                    from ..progress import page_stage
+                    await page_stage(event.page_index, 7)
+        if self._refining:
             return
         while self.position < len(self.order):
             index = self.order[self.position]
@@ -185,8 +196,9 @@ class LiveExtraction:
                 self.ignored.remove(index)
             elif index in self.ready:
                 try:
-                    page = await IO_DOMAIN.run(decode, await IO_DOMAIN.run(
-                        read_xml, self.pages_path / f"page_{index}.xml"))
+                    page = validated_page if index == event.page_index and validated_page is not None else (
+                        await IO_DOMAIN.run(decode, await IO_DOMAIN.run(
+                            read_xml, self.pages_path / f"page_{index}.xml")))
                 except Exception as error:
                     setattr(error, 'page_index', index)
                     self._record_error(error)
@@ -229,6 +241,13 @@ class LiveExtraction:
                     if self._page_indexes is not None and page.index not in self._page_indexes:
                         continue
                     await self._wait_capacity(ordinal)
+                    from ..progress import active_extraction
+                    from ...progress import UnitOutcome
+                    progress = active_extraction()
+                    if progress is not None:
+                        await progress.page(page.index, 4, UnitOutcome.REUSED)
+                        if not self._refining:
+                            await progress.page(page.index, 7)
                     await IO_DOMAIN.run(self.pages.append, page)
                     ordinal += 1
             except Exception as error:

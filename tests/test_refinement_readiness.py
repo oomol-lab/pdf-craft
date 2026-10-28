@@ -1,4 +1,5 @@
 """Real extraction entry must not serialize independent OCR neighborhoods."""
+# pylint: disable=protected-access,dangerous-default-value
 import asyncio
 import json
 import threading
@@ -21,9 +22,12 @@ class RefinementReadinessTests(IsolatedAsyncioTestCase):
         release = threading.Event()
         blocked, refined = asyncio.Event(), asyncio.Event()
         loop = asyncio.get_running_loop()
-        calls, bodies = [], []
+        calls, bodies, events = [], [], []
 
         class OCR(IdentityOCR):
+            def _get_pdf_handler(self):
+                return None
+
             def recognize(self, **kwargs):
                 deferred = None
                 for event in super().recognize(**kwargs):
@@ -54,10 +58,12 @@ class RefinementReadinessTests(IsolatedAsyncioTestCase):
             engine = PDFExtractionEngine('unused')
             engine._ocr = cast(Any, OCR())  # pylint: disable=protected-access
             with patch.object(JEVRuntime, 'evaluate', evaluate), patch(
-                    'pdf_craft.transform.runtime_for', return_value=Runtime()):
+                    'pdf_craft.transform.runtime_for', return_value=Runtime()), patch(
+                    'pdf_craft.pdf.page_ref.pdf_pages_count', return_value=6):
                 task = asyncio.create_task(AsyncPDFCraft.from_engine(engine).extract_pdf(
                     root/'source.pdf', root/'book.pcex', ExtractionOptions(
-                        includes_furniture=False, footnotes=refinement(), on_body=bodies.append),
+                        includes_furniture=False, footnotes=refinement(), on_body=bodies.append,
+                        on_extraction_event=events.append),
                     analysing_path=root/'analysis', error_policy=False))
                 try:
                     await asyncio.wait_for(blocked.wait(), 3)
@@ -68,6 +74,14 @@ class RefinementReadinessTests(IsolatedAsyncioTestCase):
                     self.assertIn(3, calls)
                     self.assertNotIn(1, calls)
                     self.assertFalse(bodies, 'natural paragraph delivery must still preserve page order')
+                    from pdf_craft import ProgressEventKind, UnitKind
+                    for _ in range(100):
+                        if any(e.kind == ProgressEventKind.COMPLETED and e.page_index == 3 for e in events):
+                            break
+                        await asyncio.sleep(.001)
+                    self.assertTrue(any(e.kind == ProgressEventKind.COMPLETED and e.unit_kind == UnitKind.PAGE
+                                        and e.page_index == 3 for e in events))
+                    self.assertFalse(any(e.kind == ProgressEventKind.COMPLETED and e.unit_id is None for e in events))
                 finally:
                     release.set()
                     await asyncio.wait_for(task, 10)

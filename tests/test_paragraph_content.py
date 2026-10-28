@@ -481,6 +481,7 @@ asyncio.run(AsyncPDFCraft().render_markdown(sys.argv[1], sys.argv[2]))
                 preview.page(1, [contribution], [SimpleNamespace(rectangle=rectangle, color=(1, 2, 3))])
                 index, channel, content = next(preview.contents(set()))
                 self.assertEqual((index, channel), (4, False))
+                assert content is not None
                 exported = content.regions[0]
                 _, qt_gui = _qt_modules()
                 dpi = qt_gui.QFontMetricsF(qt_gui.QFont()).fontDpi()
@@ -497,8 +498,8 @@ asyncio.run(AsyncPDFCraft().render_markdown(sys.argv[1], sys.argv[2]))
                 self.assertEqual(formula.baseline, draw.baseline * 3)
                 self.assertEqual(formula.descent, draw.descent * 3)
                 self.assertEqual((formula.scale_x, formula.scale_y), (2 / draw.scale, 3 / draw.scale))
-                # An ignored failed page must not announce a rendered paragraph.
-                self.assertEqual(list(preview.contents({1})), [])
+                # Release the internal slot without announcing rendered content.
+                self.assertEqual(list(preview.contents({1})), [(4, False, None)])
             finally:
                 preview.close()
 

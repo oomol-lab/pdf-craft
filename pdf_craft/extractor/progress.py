@@ -1,4 +1,4 @@
-"""Page lifetimes span OCR, global analysis and final recovery, on disk."""
+"""Page work settles locally; publication belongs to the operation."""
 from __future__ import annotations
 # pylint: disable=protected-access
 import asyncio
@@ -17,7 +17,7 @@ _selected: ContextVar[WorkUnit | None] = ContextVar('extraction_progress_unit', 
 
 
 class ExtractionProgress(OperationProgress):
-    """Page state is disk-backed across the existing batch barriers."""
+    """Page state is disk-backed, including terminal records for late events."""
 
     def __init__(self, callback, path, page_count, selected):
         super().__init__(callback, OperationKind.EXTRACTION)
@@ -41,9 +41,14 @@ class ExtractionProgress(OperationProgress):
             unit = await IO_DOMAIN.run(self.pages.load, index)
             if unit is None:
                 unit = await self.unit(UnitKind.PAGE, page_index=index, max_stage=7)
+            if unit.closed:
+                return  # Later artifact recovery cannot reopen completed page work.
             if outcome is not None:
                 unit.outcome = outcome
-            await unit.progress(max(unit.stage, stage))
+            if stage == 7:
+                await unit.finish()
+            else:
+                await unit.progress(max(unit.stage, stage))
             await IO_DOMAIN.run(self.pages.save, index, unit)
 
     async def ocr(self, event):

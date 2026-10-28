@@ -17,9 +17,9 @@ after successful validation/packaging.
 
 The content, geometry and metadata value classes are importable from `pdf_craft`;
 XML snapshots use `xml.etree.ElementTree.Element`. Content callbacks are separate
-from progress events such as `on_extraction_event` and `on_translation_event`. In streaming
-translation, whole-book totals can be `None` until known; do not require an initial
-percentage. See the [2.5.0 release notes](../changelog/v2.5.0.md) for the original
+from progress events such as `on_extraction_event` and `on_translation_event`. Standard PCEX/EPUB translation scans source words and unit counts before operation
+STARTED; word progress is not a guarantee that content callbacks or file publication
+have caught up. See the [2.5.0 release notes](../changelog/v2.5.0.md) for the original
 callback APIs and [2.5.1](../changelog/v2.5.1.md) for optional EPUB locations.
 
 ## PDF extraction
@@ -284,3 +284,13 @@ fallback); body and footnote delivery each drain all pending content before thei
 channel ends. A failed or cancelled input scan is not normal EOF. Successful
 completion includes callback delivery as well as the final artifact; silently
 omitted content is not a fallback.
+
+## Local completion and PDF layout latency (2.6.7)
+
+PAGE stage 7 / COMPLETED means page OCR, JEV, optional LLM refinement and necessary validation have finished; it does not wait for paragraph assembly, TOC or publication. Only operation completion promises the final artifact. Subsequent recovery does not reopen completed page units.
+
+Accepted EPUB atomic fragments enter ordered delivery immediately, without waiting for the chapter or next chapter. A unit split across groups, or contained by an unfinished atomic owner, still waits for its own complete outcome; rejected partial translations are never previewed.
+
+PDF patching consumes ready body, note and furniture results. Furniture jobs are page fragments or shared templates, translated once and joined only by dependent pages. Metadata is joined at publication, not before layout. Whole paragraphs retain first-pass cross-bbox layout; connected pages wait for their actual paragraphs/furniture before second-pass page normalization. Independent ready windows can compose before a slow earlier window; final PDF page order is assembled afterward. Body and note notifications each retain source order without a shared cross-channel delivery barrier.
+
+Words, content and publication are independent observations: none is delayed to synchronize with another. Necessary atomic/page dependencies and slow user callbacks may still delay notifications. Custom whole-element translator extensions keep their explicit batch contract; they do not acquire the standard XMLTranslator's streaming guarantee.

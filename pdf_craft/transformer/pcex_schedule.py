@@ -28,6 +28,7 @@ class PCEXSchedule:
         self.with_anchored, self.furniture, self.metadata = with_anchored, furniture, metadata
         self.changed = asyncio.Event()
         self.work_changed = asyncio.Event()
+        self.furniture_changed = asyncio.Event()
         self.scanned = False
         self.count = 0
         self.consumed = False
@@ -41,6 +42,7 @@ class PCEXSchedule:
     def wake(self):
         self.changed.set()
         self.work_changed.set()
+        self.furniture_changed.set()
         for changed in self.notifications.values():
             changed.set()
 
@@ -234,14 +236,20 @@ class PCEXSchedule:
                 return
             await changed.wait()
 
-    async def results(self, coverage, assets, on_completed=None):
+    async def results(self, coverage, assets, on_completed=None, *, ordered=True):
         assert self.runner is not None
         index = 0
         while True:
             self.changed.clear()
             if self.runner.done():
                 self.runner.result()
-            result = await IO_DOMAIN.run(self.queue.result, index)
+            selected = index
+            if not ordered:
+                rows = await IO_DOMAIN.run(self.queue.run,
+                    'SELECT id FROM items WHERE sealed=1 AND consumed=0 AND NOT EXISTS '
+                    '(SELECT 1 FROM jobs WHERE item=items.id AND state!="done") ORDER BY id LIMIT 1')
+                selected = rows[0][0] if rows else -1
+            result = await IO_DOMAIN.run(self.queue.result, selected)
             if result is not None:
                 item, states, asset_states = await IO_DOMAIN.run(self.combine, *result)
                 coverage.extend(states)
@@ -249,7 +257,7 @@ class PCEXSchedule:
                 if on_completed is not None:
                     await on_completed(item)
                 yield item
-                await IO_DOMAIN.run(self.queue.discard, index, observing=self.notifier is not None)
+                await IO_DOMAIN.run(self.queue.discard, selected, observing=self.notifier is not None)
                 index += 1
             elif self.runner.done() and index == self.count:
                 self.consumed = True

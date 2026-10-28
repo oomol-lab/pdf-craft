@@ -116,6 +116,8 @@ def _pop_stack(
 class InlineSegment:
     _translation_context: bool = False
     _progress_words: int = 0
+    _notification_index: int = 0
+    _notification_end: int = 0
     def __init__(self, depth: int, children: list["TextSegment | InlineSegment"]) -> None:
         assert depth > 0
         self.id: int | None = None

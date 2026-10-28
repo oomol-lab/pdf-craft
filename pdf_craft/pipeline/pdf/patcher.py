@@ -29,7 +29,7 @@ from ...runtime import IO_DOMAIN, QT_DOMAIN, temporary_directory
 from .error_policy import _process_error_policy_checker
 from .eraser import EraseOptions, EraseRectangle, RectangularEraser
 from .models import PDFReplacement, PDFReplacementRegion
-from .feed import ReplacementFeed
+from .feed import ReplacementFeed, _PreviewReplacement
 from .text_layout import (
     FontResolution, PatchTextOptions, QTextParagraphFiller, WindowedParagraphPlanner, _contains_cjk,
 )
@@ -127,7 +127,7 @@ class PDFPatcher:
         """Prepare and compile asynchronously, then isolate native Qt composition."""
         async with _process_error_policy_checker(error_policy) as worker_checker:
             if isinstance(replacements, ReplacementFeed):
-                has_replacements = await IO_DOMAIN.run(lambda: next(iter(replacements), None) is not None)
+                has_replacements = await IO_DOMAIN.run(lambda: replacements.first() is not None)
             else:
                 replacements = await IO_DOMAIN.run(tuple, replacements)
                 has_replacements = bool(replacements)
@@ -192,9 +192,15 @@ class PDFPatcher:
             reset_font_resolutions()
         self._failed_page_indexes = ()
         document_metadata = dict(document_metadata or {})
+        feed = getattr(self, '_replacement_feed', None)
         replacements = iter(replacements)
         try:
-            first_replacement = next(replacements)
+            if feed is not None and feed.windows:
+                first_replacement = feed.first()
+                if first_replacement is None:
+                    raise StopIteration
+            else:
+                first_replacement = next(replacements)
         except StopIteration:
             # A pcex without translated coverage is an identity operation.
             # Do not run Ghostscript or reconstruct its pages: copying keeps
@@ -256,6 +262,9 @@ class PDFPatcher:
                 for page_index in pages:
                     target_page_indexes.add(page_index)
                     record_page_failure(page_index, error)
+                if isinstance(replacement, _PreviewReplacement) and self._preview_path is not None:
+                    from .feed import write_record
+                    write_record(self._preview_path / str(replacement.preview_index), None)
 
             streaming = isinstance(replacements, ReplacementFeed)
             def validated(values):
@@ -324,17 +333,43 @@ class PDFPatcher:
                     record_replacement_failure(replacement, error)
 
             planner = WindowedParagraphPlanner(self._filler, page_sizes, self.options)
-            for window in planner.plan(validated(replacements) if streaming else spooled_replacements(), on_window_error=on_window_error):
-                for index in range(next_page_index, window.first_page_index):
-                    writer.add_page(source_reader.pages[index - 1])
+            independent = isinstance(feed, ReplacementFeed) and bool(feed.windows)
+            def plans():
+                if independent:
+                    assert isinstance(feed, ReplacementFeed)
+                    for batch in feed.ready_batches():
+                        yield from planner.plan(validated(batch), on_window_error=on_window_error)
+                else:
+                    yield from planner.plan(validated(replacements) if streaming else spooled_replacements(),
+                                            on_window_error=on_window_error)
+            composed = {}
+            for window in plans():
+                if independent:
+                    # Compose ready connected windows now, assemble PDF page
+                    # order later. Qt plans/raster data remain window-local.
+                    output = pypdf.PdfWriter()
+                else:
+                    output = writer
+                    for index in range(next_page_index, window.first_page_index):
+                        writer.add_page(source_reader.pages[index - 1])
                 self._compose_window(
-                    pypdf, canvas, source_path, source_reader, reader, writer, root,
+                    pypdf, canvas, source_path, source_reader, reader, output, root,
                     page_sizes, window, target_page_indexes, error_policy, failed_page_indexes,
                     patched_page_indexes, record_page_failure,
                 )
+                if independent:
+                    path = root / f'composed-{window.first_page_index}.pdf'
+                    self._write_output(output, path)
+                    for offset, index in enumerate(range(window.first_page_index, window.last_page_index + 1)):
+                        composed[index] = path, offset
                 next_page_index = window.last_page_index + 1
-            for index in range(next_page_index, len(reader.pages) + 1):
-                writer.add_page(source_reader.pages[index - 1])
+            if independent:
+                for index in range(1, len(reader.pages) + 1):
+                    entry = composed.get(index)
+                    writer.add_page(pypdf.PdfReader(str(entry[0])).pages[entry[1]] if entry else source_reader.pages[index - 1])
+            else:
+                for index in range(next_page_index, len(reader.pages) + 1):
+                    writer.add_page(source_reader.pages[index - 1])
             self._failed_page_indexes = tuple(sorted(failed_page_indexes))
             # A paragraph is accepted only if all of its pages survived. Small
             # auxiliary successes must never conceal total primary failure.
@@ -473,7 +508,7 @@ class PDFPatcher:
                 from .feed import write_record
                 assert self._preview_path is not None
                 for number, channel, content in preview.contents(failed_page_indexes):
-                    write_record(self._preview_path / str(number), (channel, content))
+                    write_record(self._preview_path / str(number), None if content is None else (channel, content))
         finally:
             if preview is not None:
                 preview.close()
