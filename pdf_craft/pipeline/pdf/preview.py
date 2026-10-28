@@ -110,7 +110,11 @@ class WindowPreview:
         for index, summary in enumerate(self.window._summaries):
             content = (summary.replacement.preview
                        if isinstance(summary.replacement, _PreviewReplacement) else None)
-            if content is None or any(region.page.page_index in failed_pages for region in content.regions):
+            if content is None:
+                continue
+            assert isinstance(summary.replacement, _PreviewReplacement)
+            if any(region.page.page_index in failed_pages for region in content.regions):
+                yield summary.replacement.preview_index, summary.replacement.preview_is_footnote, None
                 continue
             regions = []
             for source in content.regions:

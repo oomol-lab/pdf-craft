@@ -8,7 +8,6 @@ from ...policies import ErrorPolicyInput
 from ..._policy import OMITTED
 from ...extractor.chapter.text_projection import iter_continuous_content
 
-from ...common.stream import DiskDelivery
 from ...document.stream_view import content_view
 from ...document.render import RenderMode, materialize_pdf_patch_view
 from ...extractor.chapter.chapter import TextFlowItem, SourceTextFragment, Reference
@@ -17,7 +16,8 @@ from ...transformer.translation_coverage import read_coverage, paragraph_identit
 from ...renderer.paragraph import paragraph_notifications, display_values
 from ...renderer.output import publish
 from ...document.paragraph import PDFParagraphContent, PDFSourceRegion
-from .feed import _PreviewReplacement, ReplacementFeed, write_record, read_record
+from .feed import _PreviewReplacement, ReplacementFeed, write_record, read_record, dependency_windows
+from .streaming import source_furniture_coverage, produce_furniture, deliver_previews, update_metadata
 from .pipeline import PDFTranslationPipeline, _to_pdf_patch_content, _replacement_source_order
 from .patcher import PDFPatcher
 from .metadata import pdf_document_metadata
@@ -36,6 +36,7 @@ def prepare_index(chapters, furniture, coverage, pages, dpi, directory, translat
     from .models import PDFReplacement
     entries, obstacles, translated_boxes = {}, [], set()
     eligible = set()
+    channels = {}
     from .source_safety import unsafe_source_geometry, source_identity
     for path in chapter_paths(chapters):
         for item in file_content(path):
@@ -50,6 +51,7 @@ def prepare_index(chapters, furniture, coverage, pages, dpi, directory, translat
                 if not isinstance(text, TextFlowItem):
                     continue
                 key = source_key(text)
+                channels[key] = "notes" if reference is not None else "body"
                 if not key or key in entries:
                     continue
                 fragments = [fragment for fragment in text.children if isinstance(fragment, SourceTextFragment)]
@@ -93,7 +95,7 @@ def prepare_index(chapters, furniture, coverage, pages, dpi, directory, translat
         obstacles_by_page.setdefault(region.page_index, []).append(region)
     ordered = sorted(entries, key=lambda key: entries[key][1])
     rejected, unsafe = unsafe_source_geometry(chapters, furniture_items, eligible, pages, dpi, directory / 'source-safety.sqlite')
-    return {key: (index, entries[key][0], entries[key][1]) for index, key in enumerate(ordered)}, obstacles_by_page, furniture_items, rejected, unsafe
+    return {key: (index, entries[key][0], entries[key][1]) for index, key in enumerate(ordered)}, obstacles_by_page, furniture_items, rejected, unsafe, channels
 
 
 def _with_page_obstacles(replacement, obstacles):
@@ -113,9 +115,10 @@ async def patch_content(source, extraction, target, *, translator=None, translat
     from .error_policy import _process_error_policy_checker
     async with _process_error_policy_checker(error_policy) as checker:
         mode = RenderMode.REPLACE if translation_id is not None else RenderMode.SOURCE
+        deferred = {}
         async with content_view(extraction, mode=mode, translation_id=translation_id,
                                 translator=translator, window=window, with_anchored=False, with_furniture=with_furniture,
-                                on_translation_event=on_translation_event, on_metadata=on_metadata) as (view, pages, numbers, items):
+                                on_translation_event=on_translation_event, on_metadata=on_metadata, deferred=deferred) as (view, pages, numbers, items):
             async with worker_context(materialize_pdf_patch_view(extraction, translation_id)) as patch_view:
                 coverage = await IO_DOMAIN.run(read_coverage, patch_view.coverage)
                 if view.furniture_coverage is not None:
@@ -128,8 +131,13 @@ async def patch_content(source, extraction, target, *, translator=None, translat
                     await IO_DOMAIN.run(previews.mkdir)
                     sizes = {index: (page.width, page.height) for index, page in pages.items()}
                     dpi = next(iter(pages.values())).render_dpi if pages else 300
-                    index, obstacles, furniture, rejected, unsafe = await IO_DOMAIN.run(
-                        prepare_index, view.chapters, view.furnitures or patch_view.furnitures, coverage,
+                    schedule = deferred.get('schedule')
+                    dynamic_furniture = schedule is not None and schedule.furniture is not None
+                    furniture_path = view.furnitures or patch_view.furnitures
+                    initial_coverage = (await IO_DOMAIN.run(source_furniture_coverage, furniture_path, coverage)
+                                        if dynamic_furniture else coverage)
+                    index, obstacles, furniture, rejected, unsafe, source_channels = await IO_DOMAIN.run(
+                        prepare_index, view.chapters, furniture_path, initial_coverage,
                         sizes, dpi, root, translator is not None)
                     if rejected:
                         from ..._policy import recover
@@ -143,6 +151,12 @@ async def patch_content(source, extraction, target, *, translator=None, translat
                                       affected=tuple(FailureLocation('page', source=str(source), page_indexes=(page,)) for page in sorted(unsafe)))
                     # Furniture and narrative are sorted together by original geometry.
                     all_entries = [(key, data[1], data[2]) for key, data in index.items()]
+                    # Reserve geometry from immutable source; translated values
+                    # arrive per page without changing the dependency graph.
+                    if dynamic_furniture:
+                        for value in furniture:
+                            for region in value.source_regions():
+                                obstacles[region.page_index] = [*obstacles.get(region.page_index, ()), region]
                     for number, value in enumerate(furniture):
                         value = _with_page_obstacles(value, obstacles)
                         path = root / ('furniture-' + str(number))
@@ -150,9 +164,21 @@ async def patch_content(source, extraction, target, *, translator=None, translat
                         all_entries.append((None, path, _replacement_source_order(value)))
                     all_entries.sort(key=lambda entry: entry[2])
                     slots = {key: (slot, path) for slot, (key, path, _) in enumerate(all_entries) if key is not None}
+                    channel_slots = {'body': [], 'notes': []}
+                    furniture_slots, spans = {}, []
                     for slot, (key, path, _) in enumerate(all_entries):
+                        if key is not None:
+                            channel_slots[source_channels[key]].append(slot)
+                            indexes = [part[0] for part in key]
+                            spans.append((slot, min(indexes), max(indexes)))
                         if key is None:
+                            if dynamic_furniture:
+                                value = await IO_DOMAIN.run(read_record, path)
+                                furniture_slots.setdefault(value.page_index, []).append((slot, value))
+                                spans.append((slot, value.page_index, value.page_index))
+                                continue
                             value = await IO_DOMAIN.run(read_record, path)
+                            spans.append((slot, value.page_index, value.page_index))
                             await IO_DOMAIN.run(write_record, feed_root / str(slot), value)
                             await IO_DOMAIN.run(write_record, previews / str(slot), None)
                     del all_entries
@@ -162,7 +188,7 @@ async def patch_content(source, extraction, target, *, translator=None, translat
                     patcher._stream_pages = {n: page.render_dpi for n, page in pages.items()}
                     if on_body is not None or on_footnote is not None:
                         patcher._preview_path = previews
-                    feed = ReplacementFeed(feed_root, count)
+                    feed = ReplacementFeed(feed_root, count, dependency_windows(spans))
                     # Notification helper renders Markdown only when a PDF channel is requested.
                     async with paragraph_notifications(pages, view.assets, numbers) as notify:
                         async def produce():
@@ -229,46 +255,27 @@ async def patch_content(source, extraction, target, *, translator=None, translat
                             finally:
                                 await items.aclose()
 
-                        async def deliver(patching):
-                            body = DiskDelivery(root / 'body', on_body) if on_body is not None else None
-                            notes = DiskDelivery(root / 'notes', on_footnote) if on_footnote is not None else None
-                            try:
-                                for slot in range(count):
-                                    path = previews / str(slot)
-                                    while not await IO_DOMAIN.run(path.exists):
-                                        for channel in (body, notes):
-                                            if channel is not None and channel._task.done():
-                                                channel._task.result()
-                                        if patching.done() and production.done():
-                                            patching.result()
-                                            production.result()
-                                            break  # ignored failed page has no accepted layout
-                                        await asyncio.sleep(.01)
-                                    if await IO_DOMAIN.run(path.exists):
-                                        value = await IO_DOMAIN.run(read_record, path)
-                                        if value is not None:
-                                            channel, content = value
-                                            delivery = notes if channel else body
-                                            if delivery is not None:
-                                                await delivery.append(content)
-                                for delivery in (body, notes):
-                                    if delivery is not None:
-                                        await delivery.finish()
-                            finally:
-                                for delivery in (body, notes):
-                                    if delivery is not None:
-                                        await delivery.cancel()
-
                         production = asyncio.create_task(produce())
+                        furniture_task = (asyncio.create_task(produce_furniture(
+                            schedule, furniture_slots, feed_root, previews, sizes, dpi, root, obstacles))
+                            if dynamic_furniture else None)
                         staged = root / 'output.pdf'
                         patching = asyncio.create_task(patcher.patch(source, staged, feed,
                             error_policy=checker, document_metadata=pdf_document_metadata(view.metadata)))
-                        delivery = asyncio.create_task(deliver(patching)) if on_body is not None or on_footnote is not None else None
-                        tasks = [production, patching] + ([delivery] if delivery is not None else [])
+                        producers = [production, patching] + ([furniture_task] if furniture_task is not None else [])
+                        delivery = asyncio.create_task(deliver_previews(root, previews, channel_slots, producers,
+                            on_body, on_footnote)) if on_body is not None or on_footnote is not None else None
+                        tasks = producers + ([delivery] if delivery is not None else [])
                         try:
                             await asyncio.gather(*tasks)
+                            if schedule is not None:
+                                from ...document.render import _effective_metadata
+                                overlay = await schedule.header()
+                                await IO_DOMAIN.run(update_metadata, staged, pdf_document_metadata(
+                                    _effective_metadata(view.metadata, overlay, RenderMode.REPLACE)))
                             await IO_DOMAIN.run(publish, [(staged, target)])
                         finally:
+                            await IO_DOMAIN.run(write_record, feed_root / 'error', 'PDF content stream stopped')
                             for task in tasks:
                                 task.cancel()
                             await settle_tasks(tasks)

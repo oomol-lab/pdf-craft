@@ -144,8 +144,8 @@ class PDFExtractionEngine:
                     front.event(value)
                 if context is not None:
                     context._update(self._ocr.last_page_pixel_sizes, kwargs["dpi"] or 300)
-                await live.event(value)
                 await invoke_callback(callback, value)
+                await live.event(value)
             kwargs["on_ocr_event"] = event
             try:
                 if context is not None:

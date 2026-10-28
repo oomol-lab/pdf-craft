@@ -76,14 +76,26 @@ class ExtractionUnitTests(TestCase):
             page = next(event for event in unit_events(events, Kind.COMPLETED) if event.page_index == 1)
             self.assertEqual(page.outcome, UnitOutcome.FALLBACK)
 
-    def test_export_failure_does_not_complete_operation_or_pending_pages(self):
+    def test_export_failure_keeps_completed_page_work_but_not_operation(self):
         with TemporaryDirectory() as folder:
             events = []
             with patch.object(PDFCraftExtraction, '_export_async', side_effect=OSError('disk full')):
                 with self.assertRaisesRegex(OSError, 'disk full'):
                     self.run_extract(self.craft(), Path(folder), events)
             self.assertFalse(any(event.unit_id is None and event.kind == Kind.COMPLETED for event in events))
-            self.assertFalse(any(event.unit_kind == UnitKind.PAGE for event in unit_events(events, Kind.COMPLETED)))
+            self.assertEqual(sum(event.unit_kind == UnitKind.PAGE for event in unit_events(events, Kind.COMPLETED)), 3)
+
+    def test_page_completion_precedes_global_stages(self):
+        from pdf_craft.transform import PDFExtractionEngine
+        original = PDFExtractionEngine._resolve_llm_stages
+        events = []
+        async def resolve(engine, *args, **kwargs):
+            completed = [e.page_index for e in unit_events(events, Kind.COMPLETED)
+                         if e.unit_kind == UnitKind.PAGE]
+            self.assertEqual(sorted(completed), [1, 2, 3])
+            return await original(engine, *args, **kwargs)
+        with TemporaryDirectory() as folder, patch.object(PDFExtractionEngine, '_resolve_llm_stages', resolve):
+            self.run_extract(self.craft(), Path(folder), events)
 
     def test_callback_failure_is_never_ignored(self):
         with TemporaryDirectory() as folder:
@@ -98,7 +110,7 @@ class ExtractionUnitTests(TestCase):
             self.assertFalse(any(event.kind == Kind.COMPLETED and
                                  event.unit_kind != UnitKind.METADATA for event in events))
 
-    def test_late_structural_page_recovery_is_reflected_in_terminal_outcome(self):
+    def test_late_artifact_recovery_does_not_reopen_page_work(self):
         from pdf_craft.extractor.chapter.page_analysis import PageStructureError
         from pdf_craft.transform import PDFExtractionEngine
         original = PDFExtractionEngine._finish_extraction
@@ -116,7 +128,7 @@ class ExtractionUnitTests(TestCase):
             assert_lifecycle(self, events)
             recovered = [event.page_index for event in unit_events(events, Kind.COMPLETED)
                          if event.unit_kind == UnitKind.PAGE and event.outcome == UnitOutcome.FALLBACK]
-            self.assertIn(2, recovered)
+            self.assertEqual(recovered, [])
 
 
 class AccountingTests(IsolatedAsyncioTestCase):

@@ -104,3 +104,5 @@ LLM 的中间响应以可恢复的有效成果为准，不以模型逐字符遵�
 friendly XML 排版、空白标准化和 canonical 恢复统一使用 `transformer/whitespace.py`，
 复用现有 block/inline 分类；根据来源上下文处理 CSS document whitespace，不再用 Unicode
 范围的 `\s+` 代替语义。具体支持边界、标准链接及例外见 `docs/zh-CN/LLM_ACCEPTANCE.md`。
+
+PAGE 单元的完成是页处理及必要校验的事实，不是后续组段/产物发布成功；后续恢复继续经错误策略报告，不重开或覆盖已完成页事件。operation 完成仍要求所有实际成果校验与发布成功。EPUB 内容通知只释放完整且未被自身/外层原子 owner 拒绝的片段，不按整章等待，也不泄露可能撤回的半份内容。
