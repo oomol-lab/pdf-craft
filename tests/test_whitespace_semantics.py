@@ -92,6 +92,13 @@ class WhitespaceRecoveryTests(TestCase):
                     self.assertFalse(restore_canonical_whitespace([candidate], canonical, [source]))
                     self.assertEqual(tostring(candidate), before)
 
+    def test_ambiguous_preserved_boundary_cannot_redistribute_gap(self):
+        source = fromstring('<fragment><b white-space="pre">left </b><i white-space="pre"> right</i></fragment>')
+        candidate = fromstring('<fragment><b>a </b><i> b</i></fragment>')
+        before = tostring(candidate)
+        self.assertFalse(restore_canonical_whitespace([candidate], 'a\nb', [source]))
+        self.assertEqual(tostring(candidate), before)
+
     def test_unmatched_source_never_uses_model_preservation_attributes(self):
         source = fromstring('<fragment><b white-space="pre">source</b></fragment>')
         candidate = fromstring('<fragment><i white-space="normal">a b</i></fragment>')
@@ -107,9 +114,9 @@ class WhitespaceRecoveryTests(TestCase):
             self.assertEqual(candidate[0].text, 'a')
             self.assertEqual(candidate[0].tail, ' b')
         misplaced = fromstring('<fragment><span>a </span> b</fragment>')
-        before = tostring(misplaced)
-        self.assertFalse(restore_canonical_whitespace([misplaced], 'a  b', [source]))
-        self.assertEqual(tostring(misplaced), before)
+        self.assertTrue(restore_canonical_whitespace([misplaced], 'a  b', [source]))
+        self.assertEqual(misplaced[0].text, 'a')
+        self.assertEqual(misplaced[0].tail, ' b')
 
     def test_normal_gap_recovery_is_transactional_and_keeps_special_content(self):
         for response, canonical, expected in (
@@ -142,17 +149,50 @@ class WhitespaceRecoveryTests(TestCase):
         for mode in ('pre', 'pre-wrap', 'break-spaces'):
             source = fromstring(f'<fragment style="white-space:{mode}">source</fragment>')
             root = fromstring('<fragment white-space="normal">a b</fragment>')
-            before = tostring(root)
-            self.assertFalse(restore_canonical_whitespace([root], 'a  b', [source]))
-            self.assertEqual(tostring(root), before)
+            self.assertTrue(restore_canonical_whitespace([root], 'a  b', [source]))
+            self.assertEqual(root.text, 'a  b')
         source = fromstring('<fragment style="white-space:pre-line"/>')
         root = fromstring('<fragment>a \n b</fragment>')
         self.assertTrue(restore_canonical_whitespace([root], 'a\nb', [source]))
         self.assertEqual(''.join(root.itertext()), 'a\nb')
-        self.assertFalse(restore_canonical_whitespace([root], 'a b', [source]))
+        self.assertTrue(restore_canonical_whitespace([root], 'a b', [source]))
+        self.assertEqual(root.text, 'a b')
 
 
 class FillRecoveryRequestTests(IsolatedAsyncioTestCase):
+    async def test_unique_protected_gaps_recover_in_one_fill(self):
+        for mode in ('pre', 'pre-wrap', 'break-spaces', 'pre-line'):
+            cases = (
+                ('source', 'ab', '', '', 'a\nb', 'a\nb'),
+                (' source', 'a', ' ', '', ' a', ' a'),
+                ('source ', 'a', '', ' ', 'a ', 'a '),
+            )
+            for original, candidate, head, tail, canonical, expected in cases:
+                with self.subTest(mode=mode, canonical=canonical):
+                    source = source_chapter()
+                    item = source.flow_items[0]
+                    assert isinstance(item, TextFlowItem)
+                    fragment = item.children[0]
+                    assert isinstance(fragment, SourceTextFragment)
+                    span = tag_definition('span')
+                    assert span is not None
+                    style = [('style', f'white-space: {mode}')]
+                    fragment.content = [HTMLTag(span, style, [original])]
+                    response = f'<xml><fragment id="1">{head}<span>{candidate}</span>{tail}</fragment></xml>'
+                    translator, runtime = _repairing_translator([response])
+                    translator._translate_text_async = AsyncMock(return_value=canonical)
+                    target = await NarrativeXMLTransformer(translator).transform(source, error_policy=False)
+                    self.assertEqual(runtime.context_value.calls, 1)
+                    result = target.flow_items[0]
+                    assert isinstance(result, TextFlowItem)
+                    result_fragment = result.children[0]
+                    assert isinstance(result_fragment, SourceTextFragment)
+                    self.assertEqual(len(result_fragment.content), 1)
+                    tag = result_fragment.content[0]
+                    assert isinstance(tag, HTMLTag)
+                    self.assertEqual(tag.attributes, style)
+                    self.assertEqual(tag.children, [expected])
+
     async def test_missing_protected_edges_retry_without_discarding_canonical(self):
         for mode in ('pre', 'pre-wrap', 'break-spaces', 'pre-line'):
             canonicals = ('\na', 'a\n') if mode == 'pre-line' else (' a', 'a ', '\na', 'a\n')
@@ -193,11 +233,10 @@ class FillRecoveryRequestTests(IsolatedAsyncioTestCase):
         fragment.content = [HTMLTag(bold, [('style', 'white-space: pre')], ['source']),
                             HTMLTag(italic, [], ['other'])]
         wrong = '<xml><fragment id="1"><i/><b>a b</b></fragment></xml>'
-        corrected = wrong.replace('a b', 'a  b')
-        translator, runtime = _repairing_translator([wrong, corrected])
+        translator, runtime = _repairing_translator([wrong])
         translator._translate_text_async = AsyncMock(return_value='a  b')
         target = await NarrativeXMLTransformer(translator).transform(source, error_policy=False)
-        self.assertEqual(runtime.context_value.calls, 2)
+        self.assertEqual(runtime.context_value.calls, 1)
         result = target.flow_items[0]
         assert isinstance(result, TextFlowItem)
         result_fragment = result.children[0]
@@ -208,7 +247,7 @@ class FillRecoveryRequestTests(IsolatedAsyncioTestCase):
         self.assertEqual(b.children, ['a  b'])
 
     async def test_normal_tail_adjacent_to_pre_needs_no_extra_fill(self):
-        for gap in (' ', '  '):
+        for gap, inside in ((' ', ''), ('  ', ''), ('', '  '), (' ', ' ')):
             source = source_chapter()
             item = source.flow_items[0]
             assert isinstance(item, TextFlowItem)
@@ -217,7 +256,7 @@ class FillRecoveryRequestTests(IsolatedAsyncioTestCase):
             span = tag_definition('span')
             assert span is not None
             fragment.content = [HTMLTag(span, [('style', 'white-space: pre')], ['source']), ' tail']
-            response = f'<xml><fragment id="1"><span>a</span>{gap}b</fragment></xml>'
+            response = f'<xml><fragment id="1"><span>a{inside}</span>{gap}b</fragment></xml>'
             translator, runtime = _repairing_translator([response])
             translator._translate_text_async = AsyncMock(return_value='a  b')
             target = await NarrativeXMLTransformer(translator).transform(source, error_policy=False)
@@ -243,11 +282,10 @@ class FillRecoveryRequestTests(IsolatedAsyncioTestCase):
         assert definition is not None
         fragment.content = [HTMLTag(definition, [('style', 'white-space: pre')], ['source  text'])]
         wrong = '<xml><fragment id="1"><span>Hello world</span></fragment></xml>'
-        corrected = wrong.replace('Hello world', 'Hello  world')
-        translator, runtime = _repairing_translator([wrong, corrected])
+        translator, runtime = _repairing_translator([wrong])
         translator._translate_text_async = AsyncMock(return_value='Hello  world')
         target = await NarrativeXMLTransformer(translator).transform(source, error_policy=False)
-        self.assertEqual(runtime.context_value.calls, 2)
+        self.assertEqual(runtime.context_value.calls, 1)
         self.assertIn('white-space="pre"', runtime.context_value.messages[0][0][1].message)
         text = target.flow_items[0]
         assert isinstance(text, TextFlowItem)

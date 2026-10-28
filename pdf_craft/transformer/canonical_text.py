@@ -86,67 +86,50 @@ def restore_canonical_whitespace(roots: list[Element], canonical: str,
         return False
     actual_gaps, expected_gaps = _gaps(actual), _gaps(canonical)
     field_gaps = [_gaps(f.text) for f in fields]
-    changes: dict[int, str] = {}
+    changes: dict[int, tuple[str, int | None]] = {}
     wanted: dict[int, str] = {}
-    missing_owners: dict[int, int] = {}
     for position in actual_gaps.keys() | expected_gaps.keys():
-        # A preserved node ending here does not own its parent's normal tail.
-        # Inspect actual fields/known owners, not inclusive character ranges.
-        interior = [f for f in fields if f.start < position < f.end]
-        owners = _source_owners(fields, position)
-        actual_owners = [f for f, gaps in zip(fields, field_gaps) if gaps.get(position - f.start)]
-        if owners and any(not collapses_breaks(f.mode) and f not in owners for f in actual_owners):
-            return False  # Do not move a known normal gap into a protected slot.
-        relevant = interior or owners or actual_owners
-        if not relevant:
-            # Missing gaps still have a source context. Empty wrapper fields
-            # are possible owners too: choosing a preserved child over a normal
-            # wrapper (or vice versa) would invent a semantic placement.
-            candidates = [i for i, f in enumerate(fields) if f.start <= position <= f.end]
-            relevant = [fields[i] for i in candidates]
-            if any(not collapses_breaks(f.mode) for f in relevant):
-                if len(candidates) != 1:
-                    return False
-                missing_owners[position] = candidates[0]
-        protected_modes = {f.mode for f in relevant if not collapses_breaks(f.mode)}
+        candidates = [i for i, f in enumerate(fields) if f.start <= position <= f.end]
+        interior = [i for i in candidates if fields[i].start < position < fields[i].end]
+        owners = [i for i in candidates if fields[i] in _source_owners(fields, position)]
+        existing = [i for i in candidates if field_gaps[i].get(position - fields[i].start)]
+        # Resolve ownership before choosing normalization. Source ownership wins
+        # over model placement in either direction across a preservation boundary.
+        relevant = interior or owners or existing or candidates
+        target = relevant[0] if len(relevant) == 1 else None
+        protected_modes = {fields[i].mode for i in relevant if not collapses_breaks(fields[i].mode)}
         mode = next(iter(protected_modes)) if len(protected_modes) == 1 else WhiteSpace.PRE
         protected = bool(protected_modes)
-        expected = normalize(expected_gaps[position], mode) if protected else normalize(expected_gaps[position])
+        if target is None and owners and any(i not in owners for i in existing) and (
+                protected or any(not collapses_breaks(fields[i].mode) for i in existing)):
+            return False  # A cross-mode move with multiple source owners is ambiguous.
+        expected = normalize(expected_gaps[position], mode if protected else WhiteSpace.NORMAL)
         if not protected and position in (0, offset):
             expected = ''  # Normal paragraph edges, not independently trimmed XML nodes.
         if expected:
             wanted[position] = expected
-        if actual_gaps[position] != expected:
-            if protected and position not in missing_owners and normalize(actual_gaps[position], mode) != expected:
-                return False
-            changes[position] = expected
-    values = [f.text for f in fields]
-    for position, expected in sorted(changes.items()):
-        candidates = [i for i, f in enumerate(fields) if f.start <= position <= f.end]
-        target = None
-        if expected:
-            existing = [i for i in candidates if position - fields[i].start in field_gaps[i]]
-            interior = [i for i in candidates if fields[i].start < position < fields[i].end]
-            owners = [i for i in candidates if fields[i] in _source_owners(fields, position)]
-            if position in missing_owners:
-                target = missing_owners[position]
-            elif existing:
-                target = existing[0]  # CSS collapses a run across inline boundaries.
-            elif len(interior) == 1:
-                target = interior[0]
-            elif len(owners) == 1:
-                target = owners[0]
+        misplaced = target is not None and any(i != target for i in existing)
+        if actual_gaps[position] == expected and not misplaced:
+            continue
+        if expected and target is None:
+            if protected:
+                return False  # Canonical text cannot allocate multiple preserved fields.
+            if existing:
+                target = existing[0]  # CSS collapses a normal run across inline boundaries.
             else:
-                # Source formula identities can be restored from empty slots;
-                # separators must live outside their replaceable contents.
+                # Formula identities are restored later; padding stays outside.
                 expressions = [f for f in fields if f.element.tag == 'expression' and f.attribute == 'text'
                                and position in (f.start, f.end)]
                 if expressions:
                     outside = [i for i in candidates if all(n.tag != 'expression' for n in fields[i].path)]
                     if outside:
                         target = outside[0]
-            if target is None:
-                return False
+                if target is None:
+                    return False
+        changes[position] = expected, target
+    values = [f.text for f in fields]
+    for position, (expected, target) in sorted(changes.items()):
+        candidates = [i for i, f in enumerate(fields) if f.start <= position <= f.end]
         for i in candidates:
             f = fields[i]
             result, cursor = [], f.start

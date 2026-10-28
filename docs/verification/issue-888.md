@@ -161,3 +161,35 @@ mask checks pass, `automated_passed=true` and `failures=[]`. All six source/outp
 previews were inspected: no large duplicate footnote overlay; header/folio,
 continuation and formula presentation imperfections remain outside this fix.
 Logs and the code fingerprint are retained alongside the fresh smoke artifacts.
+
+## Third review recovery: one ownership decision for normalization and repair
+
+Review of `ff3c4e6` reproduced protected source padding moved to a normal parent,
+accepted because concatenated text matched; it also found avoidable retries for
+known interior gaps in protected fields. Both came from separating context
+classification from reconstruction and retaining a blanket protected mismatch
+rejection. Recovery now resolves the owner once: a unique interior field or source
+owner precedes candidate placement, and the same owner controls normalization
+and reconstruction. Relocation runs even when concatenated text already matches.
+Known protected gaps are restored exactly in that owner. Multiple protected
+owners with ambiguous allocation still reject transactionally.
+
+Earlier tests that required two requests for an unambiguous interior protected
+gap now require one request and verify exact final text and source style. New
+complete-fill cases cover all four preservation modes, missing interior breaks,
+protected-to-normal moves at both edges, and the reverse move to a normal tail.
+The earlier historical description of requiring protected interior text verbatim
+is superseded by this algorithmic recovery; protected semantics remain intact.
+
+Final verification: **1,192 tests passed**, **68 focused tests passed**, Pyright
+**0 errors / 0 warnings**, changed-file Pylint **10/10**, clean diff checks.
+The old function reproduced both rejected behaviors (`implementation-before.log`).
+
+Fresh paid run `pdf-craft-output/issue888-owner-citation-01/` failed during OCR
+page 2 with a TLS `httpx.ConnectError`, before translation; that failure log is
+retained. One fresh retry, `pdf-craft-output/issue888-owner-citation-02/`, exited
+**0**, `automated_passed=true`, all three masks passed, and `failures=[]` (no
+accepted fallback). All six source/translated previews were inspected: no large
+duplicate footnote overlay. Header/folio, continuation and formula presentation
+imperfections remain outside this whitespace fix. Logs and source fingerprint
+are saved with the successful run in `implementation-evidence.json`.

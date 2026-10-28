@@ -12,7 +12,7 @@ it does not authorize guessing wording or weakening final-result correctness.
 The first-stage translated paragraph is the trusted text. Original XML supplies
 source identities, structure, styling and whitespace context, never replacement
 untranslated wording. After structural validation, unchanged non-whitespace
-characters are aligned with that translated paragraph. Uniquely owned normal
+characters are aligned with that translated paragraph. Uniquely owned
 whitespace is reconstructed before the candidate is adopted. A trailing cosmetic
 space or a missing word separator inside one text slot need not cost another
 fill call. A missing separator between differently styled slots needs an existing
@@ -80,3 +80,11 @@ the known canonical leading/trailing whitespace can be restored exactly. At a
 mixed boundary with multiple possible owners, correction is required rather than
 silently discarding it or guessing which style owns it. This is recovery from
 known translated text, not permission to collapse protected CSS whitespace.
+
+Gap ownership is decided once, before normalization and reconstruction. A unique
+source owner takes precedence over the model's placement: whitespace moved from
+`pre` to a normal parent (or the reverse) is restored to that owner, even when
+concatenated characters already match. Inside one text field, canonical spaces,
+tabs and breaks are restored using that field's mode without another fill call.
+This includes protected whitespace: it is restored exactly, not normalized away.
+Multiple protected owners without a unique allocation still require clarification.
