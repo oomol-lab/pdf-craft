@@ -36,16 +36,19 @@ def _source_owners(fields, position):
 
 def restore_canonical_whitespace(roots: list[Element], canonical: str,
                                  sources: list[Element] | None = None,
-                                 modes: list[WhiteSpace] | None = None) -> bool:
+                                 modes: list[WhiteSpace] | None = None, *,
+                                 replaced_tags: frozenset[str] = frozenset()) -> bool:
     """Align unchanged characters, then reconstruct legal gaps transactionally.
 
     Text, punctuation, NBSP and other Unicode separators remain immutable.
     Missing gaps inside one field are unique. At a tag/fragment boundary use
-    the existing gap owner or a unique source owner; formula padding belongs
-    outside the expression that the postprocessor will replace. Otherwise retry.
+    the existing gap owner or a unique source owner. At boundaries of adapter-
+    declared replacement nodes, only surviving fields can own the separator,
+    even when the candidate's concatenated text already matches. Otherwise retry.
     """
     fields: list[_Field] = []
     offset = 0
+    replacement_boundaries: set[int] = set()
 
     def field(element, attribute, path, mode, source):
         nonlocal offset
@@ -55,6 +58,7 @@ def restore_canonical_whitespace(roots: list[Element], canonical: str,
         offset = end
 
     def walk(element, source, inherited, path):
+        start = offset
         mode = mode_for(source if source is not None else element, inherited)
         field(element, 'text', path, mode, source.text if source is not None else '')
         originals = {} if source is None else {
@@ -71,6 +75,8 @@ def restore_canonical_whitespace(roots: list[Element], canonical: str,
             if not walk(child, original, mode, path + [child]):
                 return False
             field(child, 'tail', path, mode, original.tail if original is not None else '')
+        if element.tag in replaced_tags:
+            replacement_boundaries.update((start, offset))
         return True
 
     if sources is not None and len(sources) != len(roots):
@@ -90,12 +96,19 @@ def restore_canonical_whitespace(roots: list[Element], canonical: str,
     wanted: dict[int, str] = {}
     for position in actual_gaps.keys() | expected_gaps.keys():
         candidates = [i for i, f in enumerate(fields) if f.start <= position <= f.end]
+        existing = [i for i in candidates if field_gaps[i].get(position - fields[i].start)]
+        if position in replacement_boundaries:
+            # Replacement erases a node's entire content, but keeps its tail.
+            # Resolve ownership against that final projection before comparing
+            # gaps; correct-looking padding inside a token would otherwise vanish.
+            candidates = [i for i in candidates if not any(
+                node.tag in replaced_tags for node in fields[i].path)]
         interior = [i for i in candidates if fields[i].start < position < fields[i].end]
         owners = [i for i in candidates if fields[i] in _source_owners(fields, position)]
-        existing = [i for i in candidates if field_gaps[i].get(position - fields[i].start)]
+        surviving = [i for i in existing if i in candidates]
         # Resolve ownership before choosing normalization. Source ownership wins
         # over model placement in either direction across a preservation boundary.
-        relevant = interior or owners or existing or candidates
+        relevant = interior or owners or surviving or candidates
         target = relevant[0] if len(relevant) == 1 else None
         protected_modes = {fields[i].mode for i in relevant if not collapses_breaks(fields[i].mode)}
         mode = next(iter(protected_modes)) if len(protected_modes) == 1 else WhiteSpace.PRE
@@ -108,24 +121,19 @@ def restore_canonical_whitespace(roots: list[Element], canonical: str,
             expected = ''  # Normal paragraph edges, not independently trimmed XML nodes.
         if expected:
             wanted[position] = expected
-        misplaced = target is not None and any(i != target for i in existing)
+        misplaced = any(i not in candidates for i in existing) or (
+            target is not None and any(i != target for i in existing))
         if actual_gaps[position] == expected and not misplaced:
             continue
         if expected and target is None:
             if protected:
                 return False  # Canonical text cannot allocate multiple preserved fields.
-            if existing:
-                target = existing[0]  # CSS collapses a normal run across inline boundaries.
+            if surviving and position not in replacement_boundaries:
+                target = surviving[0]  # CSS collapses a normal run across inline boundaries.
             else:
-                # Formula identities are restored later; padding stays outside.
-                expressions = [f for f in fields if f.element.tag == 'expression' and f.attribute == 'text'
-                               and position in (f.start, f.end)]
-                if expressions:
-                    outside = [i for i in candidates if all(n.tag != 'expression' for n in fields[i].path)]
-                    if outside:
-                        target = outside[0]
-                if target is None:
-                    return False
+                # An empty replacement can later restore visible content between
+                # two currently adjacent gaps. Their positions are not equivalent.
+                return False
         changes[position] = expected, target
     values = [f.text for f in fields]
     for position, (expected, target) in sorted(changes.items()):

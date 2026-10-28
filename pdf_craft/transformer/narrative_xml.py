@@ -557,7 +557,8 @@ def _validate_chapter_fill_canonical_text(
     from .canonical_text import restore_canonical_whitespace
     if restore_canonical_whitespace(
             filled_slots, translated_text,
-            sources=[segment.create_element() for segment in inline_segments if segment.id is not None]):
+            sources=[segment.create_element() for segment in inline_segments if segment.id is not None],
+            replaced_tags=frozenset({'expression'})):
         return None
     return (
             "Visible text for one PCEX <text> differs from the canonical "

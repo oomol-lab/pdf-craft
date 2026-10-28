@@ -21,7 +21,8 @@ class InlineWhitespaceTests(TestCase):
         fixture = json.loads((Path(__file__).parent / 'assets/translation/table_formula_padding.json').read_text())
         root = next(decode_friendly(fixture['fill_response'], tags='xml'))
         identities = [(node.tag, dict(node.attrib)) for node in root.iter()]
-        self.assertTrue(restore_canonical_whitespace(list(root), fixture['canonical']))
+        self.assertTrue(restore_canonical_whitespace(list(root), fixture['canonical'],
+                                                    replaced_tags=frozenset({'expression'})))
         self.assertEqual(''.join(segment.text for fragment in root
                                  for segment in search_text_segments(fragment, preserve_whitespace=True)),
                          fixture['canonical'])
@@ -104,7 +105,8 @@ class InlineWhitespaceTests(TestCase):
 
     def test_padding_is_owned_outside_restored_formula_slots(self):
         root = fromstring('<fragment>取<expression>甲</expression><expression>乙</expression>。</fragment>')
-        self.assertTrue(restore_canonical_whitespace([root], '取甲 乙。'))
+        self.assertTrue(restore_canonical_whitespace([root], '取甲 乙。',
+                                                    replaced_tags=frozenset({'expression'})))
         self.assertEqual(root[0].tail, ' ')
         self.assertEqual(root[0].text, '甲')
         first = fromstring('<fragment><expression>x</expression></fragment>')
