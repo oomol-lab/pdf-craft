@@ -338,7 +338,11 @@ class PDFPatcher:
                 if independent:
                     assert isinstance(feed, ReplacementFeed)
                     for batch in feed.ready_batches():
-                        yield from planner.plan(validated(batch), on_window_error=on_window_error)
+                        # The planner remembers preceding body font sizes.
+                        # Independent windows have no such ordering dependency:
+                        # use only this window's body or the configured fallback.
+                        local_planner = WindowedParagraphPlanner(self._filler, page_sizes, self.options)
+                        yield from local_planner.plan(validated(batch), on_window_error=on_window_error)
                 else:
                     yield from planner.plan(validated(replacements) if streaming else spooled_replacements(),
                                             on_window_error=on_window_error)

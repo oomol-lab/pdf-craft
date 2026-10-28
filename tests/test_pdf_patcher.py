@@ -58,6 +58,61 @@ class TestPDFPatcher(unittest.TestCase):
     def patcher(self, *args, **kwargs) -> PDFPatcher:
         return PDFPatcher(*args, visual_base_compiler=self._compiler, **kwargs)
 
+    def test_independent_window_readiness_cannot_change_heading_layout(self):
+        # The patch is entered and fully consumed within each loop iteration.
+        # pylint: disable=cell-var-from-loop
+        from pdf_craft.document.access import PageGeometry
+        from pdf_craft.document.paragraph import ParagraphContent, SourceRegion
+        from pdf_craft.pipeline.pdf.feed import ReplacementFeed, _PreviewReplacement, read_record, write_record
+        options = PatchTextOptions(
+            styles={"text": PatchTextStyle(min_font_size=20, max_font_size=20),
+                    "heading": PatchTextStyle(min_font_size=4, max_font_size=50)},
+            headline_min_body_ratio=1.2, headline_fallback_font_size=6,
+        )
+        results = []
+        for order in ((0, 1), (1, 0)):
+            with self.subTest(order=order), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                source = root / "source.pdf"
+                document = canvas.Canvas(str(source), pagesize=(200, 200))
+                for _ in range(2):
+                    document.showPage()
+                document.save()
+                feed_root, previews = root / "feed", root / "previews"
+                feed_root.mkdir()
+                previews.mkdir()
+                values = []
+                for slot, (text, box, role) in enumerate((
+                    ("Heading text.", (0, 0, 20, 10), "heading"),
+                    ("Body text.", (0, 0, 180, 60), "text"),
+                )):
+                    content = ParagraphContent(text, text, [
+                        SourceRegion(PageGeometry(slot + 1, 200, 200, render_dpi=72), 0, box)])
+                    values.append(_PreviewReplacement.attach(
+                        PDFReplacement(slot + 1, box, text, (200, 200), layout_ref=role),
+                        content, False, slot))
+                write_record(feed_root / str(order[0]), values[order[0]])
+                patcher = self.patcher(options=options, dpi=72)
+                patcher._preview_path = previews
+                compose_window = patcher._compose_window
+                delivered = []
+                def compose(*args, **kwargs):
+                    compose_window(*args, **kwargs)
+                    if not delivered:
+                        self.assertTrue((previews / str(order[0])).exists())
+                        self.assertFalse((feed_root / str(order[1])).exists())
+                        delivered.append(order[0])
+                        write_record(feed_root / str(order[1]), values[order[1]])
+                with patch.object(patcher, "_compose_window", side_effect=compose):
+                    asyncio.run(patcher.patch(
+                        source, root / "output.pdf",
+                        ReplacementFeed(feed_root, 2, ((0,), (1,))), error_policy=False))
+                self.assertEqual(len(pypdf.PdfReader(root / "output.pdf").pages), 2)
+                results.append([read_record(previews / str(slot))[1] for slot in (0, 1)])
+        # Includes font size, baselines, line breaks, erasures and source geometry.
+        self.assertEqual(results[0], results[1])
+        self.assertLess(results[0][0].regions[0].font_size, 10)
+
     @staticmethod
     def _two_page_source(path: Path) -> None:
         document = canvas.Canvas(str(path), pagesize=(200, 100))
