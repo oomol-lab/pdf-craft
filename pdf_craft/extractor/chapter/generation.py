@@ -35,26 +35,30 @@ def generate_chapter_files(
     toc: TocInfo,
     analysed_pages: Iterable[PageAnalysis] | None = None,
     resolved_database: Path | None = None,
+    *, chunk_size: int | None = None,
 ):
     chapters_path.mkdir(parents=True, exist_ok=True)
     for chapter_file in chapters_path.glob("chapter_*.xml"):
         chapter_file.unlink()
 
     from .stream import chapters_from_disk
-    chapters = chapters_from_disk(resolved_database, toc) if resolved_database is not None else _generate_chapters(
+    chapters = chapters_from_disk(resolved_database, toc, chunk_size=chunk_size) if resolved_database is not None else _generate_chapters(
         pages_path=pages_path,
         toc=toc,
-        analysed_pages=analysed_pages,
+        analysed_pages=analysed_pages, chunk_size=chunk_size,
     )
-    for chapter in chapters:
+    for number, chapter in enumerate(chapters):
         tail: str
-        if chapter.id is None:
+        if chunk_size is not None:
+            tail = str(number)  # Private storage sequence, never a chapter ID.
+        elif chapter.id is None:
             tail = "head"
         else:
             tail = f"{chapter.id}"
 
         chapter = normalize_punctuation_in_chapter(chapter)
-        chapter = analyse_chapter_internal_levels(chapter)
+        if chunk_size is None:
+            chapter = analyse_chapter_internal_levels(chapter)
         chapter_file = chapters_path / f"chapter_{tail}.xml"
         chapter_element = encode(chapter)
         save_xml(chapter_element, chapter_file)
@@ -64,6 +68,7 @@ def _generate_chapters(
     pages_path: Path,
     toc: TocInfo,
     analysed_pages: Iterable[PageAnalysis] | None = None,
+    *, chunk_size: int | None = None,
 ) -> Generator[Chapter, None, None]:
     if analysed_pages is None:
         from tempfile import TemporaryDirectory
@@ -75,10 +80,25 @@ def _generate_chapters(
         with TemporaryDirectory(prefix="pdf-craft-chapter-stream-") as directory:
             database = Path(directory) / "content.sqlite"
             resolve_to_disk(read_pages, database)
-            yield from chapters_from_disk(database, toc)
+            yield from chapters_from_disk(database, toc, chunk_size=chunk_size)
         return
     pages = list(analysed_pages)
     restored = restore_streams(pages)
+    if chunk_size is not None:
+        reachable = set()
+        for chunk in _partition_chapters(restored.paragraphs, toc, assembled=True, chunk_size=chunk_size):
+            reachable.update(ref.id for ref in search_references_in_chapter(chunk))
+            yield chunk
+        definitions = []
+        for reference in restored.citations:
+            if reference.id not in reachable:
+                definitions.append(reference)
+                if len(definitions) == chunk_size:
+                    yield Chapter(None, -1, [], definitions)
+                    definitions = []
+        if definitions:
+            yield Chapter(None, -1, [], definitions)
+        return
     chapters = list(_partition_chapters(restored.paragraphs, toc, assembled=True))
     reachable = {reference.id for chapter in chapters
                  for reference in search_references_in_chapter(chapter)}
@@ -95,7 +115,7 @@ def _generate_chapters(
     yield from chapters
 
 
-def _partition_chapters(body_layouts, toc: TocInfo, *, assembled: bool = False) -> Generator[Chapter, None, None]:
+def _partition_chapters(body_layouts, toc: TocInfo, *, assembled: bool = False, chunk_size: int | None = None) -> Generator[Chapter, None, None]:
     chapter: Chapter | None = None
     ref2toc: dict[tuple[int, int], Toc] = {}
 
@@ -109,6 +129,18 @@ def _partition_chapters(body_layouts, toc: TocInfo, *, assembled: bool = False) 
                    if isinstance(item, SourceAsset) else item for item in body_layouts)
     else:
         layouts = _assemble_flow_items(body_layouts)
+    if chunk_size is not None:
+        if chunk_size < 1 or toc.content:
+            raise ValueError('adopted chunks require a positive limit and no final TOC')
+        items = []
+        for flow_item in layouts:
+            items.append(flow_item)
+            if len(items) == chunk_size:
+                yield Chapter(None, -1, items)
+                items = []
+        if items:
+            yield Chapter(None, -1, items)
+        return
     for layout in _split_toc_headings(layouts, ref2toc):
         matched_toc = False
         if (

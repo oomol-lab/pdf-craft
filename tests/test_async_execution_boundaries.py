@@ -69,12 +69,11 @@ class TestAsyncExecutionBoundaries(unittest.IsolatedAsyncioTestCase):
             pages.mkdir()
             toc = Path(directory) / "toc.xml"
             with patch.object(analysing, "find_toc_pages", off_loop(analysing.find_toc_pages)), \
-                 patch.object(analysing, "save_xml", off_loop(analysing.save_xml)), \
-                 patch.object(analysing, "read_xml", off_loop(analysing.read_xml)):
+                 patch.object(analysing, "save_xml", off_loop(analysing.save_xml)):
                 first = await analysing.analyse_toc(pages, toc, True)
                 cached = await analysing.analyse_toc(pages, toc, True)
             self.assertEqual(first, cached)
-            self.assertEqual(calls, ["find_toc_pages", "save_xml", "read_xml"])
+            self.assertEqual(calls, ["find_toc_pages", "save_xml", "find_toc_pages", "save_xml"])
 
     async def test_cancel_compiler_cleans_workspace_without_starting_qt(self):
         started = asyncio.Event()

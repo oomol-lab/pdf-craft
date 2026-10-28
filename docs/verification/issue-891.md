@@ -1,0 +1,133 @@
+# 提取语义定稿边界验收（#891）
+
+## 边界变化
+
+来源 OCR 是证据；传统分析和 LLM 精修是内部候选。印刷目录页识别先行，但不分配
+章节 ID。统一定稿出口从已采用内容派生目录与 furniture，再校验 PCEX；正式正文／
+脚注回调只交付最终内容一次。删除、降为正文、合并标题不再要求撤回精修。
+
+派生 TOC 不再按文件存在与否复用。候选、恢复结果及下游页投影均为本次临时数据，
+不能覆盖原 OCR。旧目录 ID 修补模块已删除。metadata 的原始证据语义不变。
+内容回调会更晚开始；计算并发和实时进度保留，待交付数据落磁盘。
+
+## 离线回归
+
+`tests/test_extraction_commit.py` 的首四项在修改包代码前执行：3 failures、1 error。
+分别证明标题消失导致目录失配、候选提前交付、furniture 误用旧占用、旧目录缓存被信任。
+修复后通过，并补充脚注通道标题晋升、恢复图片占用、脚注唯一有序交付。
+既有晚期恢复测试还发现目录工作单元重复启动，已修复并通过其生命周期断言。
+
+最终 `python test.py`：**1215 tests，全部通过**（含事件并发、磁盘队列和取消测试）。
+Pyright：0 errors / 0 warnings；改动 Python 文件 pylint：10.00/10。
+原先要求“撤回精修保留旧目录 ID”的测试改为要求真正采用精修且不降级；并未撤掉
+严格错误策略、最终结构校验或真实存储／回调错误传播检查。
+
+## 真实调用
+
+本工作树 `pdf-craft-output/issue891-evidence/` 保存日志、客户回归脚本及过滤后的 smoke 配置。
+运行时使用本地配置与 OOMOL provider，不提交密钥、客户资料或生成产物。
+Paid 日志中的 commit 是运行开始时的基线 HEAD；实际执行的是本工作树修改后的源码。
+最后仅清理了未被严格成功路径调用的旧目录恢复辅助代码；清理后完整离线检查通过。
+
+| 验收 | 结果与证据 |
+| --- | --- |
+| Morals，原页 32–49 | 全新 OCR 目录、四路并发，18 页均完成，146.91 秒；66 个正文、1 个脚注回调与最终 PCEX 一致 |
+| Strategic，原页 7–24 | 全新 OCR 目录、四路并发，18 页均完成，108.41 秒；56 个正文回调与最终 PCEX 一致 |
+| citation_footnotes | 三页真实 OCR、精修、翻译、PDF 回填完成；几何遮罩全覆盖且没有多擦区域，错误策略记录为空 |
+| table/formula vendor matrix | ZIP 完整，22 个正文段落全部 translated；表格 translated，纯图片 preserved；Markdown 含表格和公式 |
+| fill_formula_loop | 连续三轮，每轮三个用例全部通过；未靠 fallback 或缺失译文通过 |
+
+两个客户用例还验证：每页内部消费恰好一次、全部页完成、操作完成一次、无错误降级。
+裁片中心只是历史推测范围，不能声称覆盖了准确的原线上竞态页。此次新 Strategic 响应
+保留了 DILEMMAS OF INTERACTION；强制标题消失的确定性回归由离线测试覆盖。
+
+证据目录：
+
+- `pdf-craft-output/issue891-customers-01/summary.json`
+- `pdf-craft-output/issue891-citation-01/{summary.json,citation-checks.json,previews/}`
+- `pdf-craft-output/issue891-table-01/`
+- `pdf-craft-output/issue891-formula-01/acceptance.json`
+
+人工查看了 citation 三页原图／译图：未见原报告中的脚注重复覆盖。
+此前根据整页缩略图记录了“第三页公式显示不完整”，这一判断没有像素证据，
+现予以撤回；后续对被拒绝的原产物进行了像素核验，见本文末尾更正。
+不把有限用例验收扩大为所有排版场景的保证。
+
+## 发版留待单独处理
+
+未修改版本号、未新增 changelog，也未修改已发布的 `docs/changelog/v2.6.5.md`。
+本页及功能文档记录本次变化，供之后整理发布说明。首次内容回调时机改变及派生缓存
+重算应在下一版发布说明中特别提示。
+
+
+## Review 退回后的规模修复
+
+首轮实现确实新增了两处规模回归，Review 的拒绝有效：空目录让采用阶段将全书聚成
+一个临时 chapter_head；投影为每段文字重复查找正文节点，形成 O(N²) 扫描。
+
+修复后，采用阶段（含恢复路径）输出不带章节 ID 的私有磁盘块：最多 128 个完整
+FlowItem，未引用定义单独限量分块；最终 TOC 生成后才逐块消费并建立章节。
+正文自然段和引用不拆开，来源身份不变。最终章节和既有 PageAnalysis 的大小限制
+没有被宣称消除；本次消除的是新增的全书临时对象图和 XML 副本。
+正文节点集合每块只索引一次，后续用集合判断是否为正文标题。
+
+新增规模回归先红（1 error、1 failure），再转绿，并通过真实磁盘路径集成测试：
+
+- 10,000 条输入，读取 128 条即释放首块，不等待 EOF；块不含语义章节 ID。
+- 1,025 个带引用标题，经 SQLite → 私有块 → 最终章节，分块上限、顺序、引用全部验证。
+- 4,000 段投影仅进行一次正文节点扫描，避免易波动的时间阈值作为单测标准。
+- 独立计时 2,000 / 8,000 / 16,000 段分别约 0.0034 / 0.0093 / 0.0172 秒；
+  日志 `pdf-craft-output/issue891-evidence/projection-scaling-fixed.log`。
+
+本轮新验收输出采用 `issue891-customers-02`、`issue891-citation-02`、
+`issue891-table-02`、`issue891-formula-02`；不复用首轮 OCR 或模型输出。
+当时保留了待核实的公式视觉疑问；后续核查结论见本文末尾。不将结构检查等同于视觉检查。
+
+本轮最终验证：**1218 tests 全部通过，83.247 秒**；Pyright 0 errors/0 warnings，
+改动 Python 文件 pylint 10/10。两个直接读取内部 chapter_head 的恢复测试改为遍历
+私有分块，原有整体段落／资产影响范围断言不变。
+
+本轮真实调用：Morals 148.06 秒（67 正文、1 脚注），Strategic 110.53 秒（57 正文）；
+均 18 页、4 路 OCR、全新目录、无降级、回调逐项匹配最终 PCEX。
+citation 自动遮罩检查、真实提取/精修/翻译/回填完成，三张译图未见重复脚注覆盖，
+本次第三页公式完整可见；此前对显示问题的判断后来经像素核查撤回。
+table/formula ZIP 完整、22 段及表格 translated、原图 preserved，Markdown 表格/公式检查通过；
+`issue891-table-02/checks.json` 保存检查结果。公式 Loop 连续三轮九用例通过，
+`acceptance.json` 的包源码指纹与最终修改后的包代码一致；付费运行后仅更新测试和文档。
+
+
+## 第二次退回：原产物像素核验及验收更正
+
+针对 847c2c8 的退回称第三页公式仅有分子。检查所引用的同一归档
+`pdf-craft-output/review891/citation/` 后，未发现这一缺失：
+
+- `previews/translated-3-formula-detail.png` 本身可见两个分数线、箭头、被划杠主体与 a。
+- 读取原 `source-3.png` / `translated-3.png`，在完整公式区域
+  `(292,688,356,728)` 裁片上进行 RGB 逐像素比较，差异 bbox 为 **None**（完全相同）。
+- 公式区有 **207 个深色像素**，译图缺失 **0** 个，不是空白区域的无效比较。
+- 重新从被拒绝的 `translated.pdf` 经 DefaultPDFHandler 100 DPI 渲染，与该归档原译图
+  逐像素完全相同。因此不是后来替换产物或仅验证 PCEX。
+- 对比曾显示“正常”的运行与该归档，底图图像/Mask 数据相同，擦除矩形也相同且不碰公式。
+
+证据：`pdf-craft-output/issue891-formula-debug/rejected-artifact-pixel-check.json`，
+原审查放大图及 PDF 保持原样。先前实现报告也曾把整页缩略图误读为公式缺失，现明确更正。
+没有足够证据支持修改 PDF 合成算法，不为通过验收而更改正确产物。
+
+本次增强的是 citation smoke：从固定 fixture 的公式几何位置裁取最终 PDF 渲染图，
+要求源公式每个深色像素在译图一像素邻域中仍存在（容纳栅格化取整）；同时记录精确 RGB
+差异，并自动输出六倍最近邻放大对照。此检查作为 automated_passed 的必需条件，
+仍保留人工查看三页整图。固定位置不依赖可能漏识别公式的 LLM 输出。
+新增离线测试验证“只保留分子、抹除分数线/箭头/分母”必须失败，源区域全空白也不能通过。
+本轮不修改任何 pdf_craft 包代码，仅增强付费验收与更正记录。
+
+增强后的 smoke 已全新运行：`pdf-craft-output/issue891-citation-visual-03/`，
+真实 OCR/JEV/LLM 提取、英文翻译及 PDF 回填完成，错误策略记录为空。
+`citation-checks.json` 的 `display_formula`：source_ink_pixels=207，missing_ink_pixels=0，
+pixel_difference_bbox=null，passed=true；自动遮罩检查也通过。
+人工查看三页译图及新生成的公式放大图，未见脚注重复覆盖，公式各部分完整。
+重新检查首轮 `issue891-citation-01`、第二轮 `issue891-citation-02` 及被拒绝的归档，
+三者的源/译公式裁片均精确相同。
+
+本轮最终离线 **1220 tests 通过（83.608 秒）**，Pyright 0 errors/0 warnings，
+新增/修改 Python 文件 pylint 10/10。两个公式验收单测在新函数实现前失败，实现后通过。
+此处是补强验收器的先红后绿，并非声称重现了原本并不存在的公式擦除 bug。

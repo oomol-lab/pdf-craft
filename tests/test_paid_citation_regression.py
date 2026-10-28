@@ -71,3 +71,27 @@ class CitationGateTests(IsolatedAsyncioTestCase):
             report = json.loads((output / 'citation-checks.json').read_text())
             self.assertFalse(report['automated_passed'])
             self.assertFalse(report['pipeline_completed'])
+
+class FormulaVisualOracleTests(TestCase):
+    def test_missing_denominators_and_arrow_fail_even_with_numerators_present(self):
+        from PIL import Image, ImageDraw
+        from pdf_craft_tool.smoke.citation_footnotes import check_preserved_ink
+        with Image.new('RGB', (64, 40), 'white') as source:
+            draw = ImageDraw.Draw(source)
+            draw.text((5, 2), 'S1    S2', fill='black')
+            draw.line((5, 18, 23, 18), fill='black', width=2)
+            draw.line((38, 18, 58, 18), fill='black', width=2)
+            draw.line((25, 20, 35, 20), fill='black', width=2)
+            draw.text((5, 25), 'S     a', fill='black')
+            with source.copy() as intact, source.copy() as damaged:
+                self.assertTrue(check_preserved_ink(source, intact)['passed'])
+                ImageDraw.Draw(damaged).rectangle((0, 16, 64, 40), fill='white')
+                result = check_preserved_ink(source, damaged)
+                self.assertFalse(result['passed'])
+                self.assertGreater(result['missing_ink_pixels'], 0)
+
+    def test_empty_formula_source_cannot_make_a_vacuous_success(self):
+        from PIL import Image
+        from pdf_craft_tool.smoke.citation_footnotes import check_preserved_ink
+        with Image.new('RGB', (64,40), 'white') as blank:
+            self.assertFalse(check_preserved_ink(blank, blank)['passed'])

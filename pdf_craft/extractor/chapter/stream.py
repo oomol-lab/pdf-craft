@@ -171,7 +171,7 @@ def resolve_to_disk(
         db.commit()
 
 
-def chapters_from_disk(database: Path, toc) -> Iterator[Chapter]:
+def chapters_from_disk(database: Path, toc, *, chunk_size: int | None = None) -> Iterator[Chapter]:
     """Finalize chapter boundaries with only the current chapter in memory."""
     with closing(sqlite3.connect(database)) as db:
         db.executescript("""
@@ -185,13 +185,25 @@ def chapters_from_disk(database: Path, toc) -> Iterator[Chapter]:
                 yield pickle.loads(row[0])
 
         count = 0
-        for count, chapter in enumerate(_partition_chapters(bodies(), toc), start=1):
+        for count, chapter in enumerate(_partition_chapters(bodies(), toc, chunk_size=chunk_size), start=1):
             for reference in search_references_in_chapter(chapter):
                 db.execute("UPDATE refs SET used=1 WHERE page=? AND number=?", reference.id)
             minimum = min((child.page_index for item in chapter.flow_items
                            if isinstance(item, TextFlowItem) for child in item.children), default=None)
             db.execute("INSERT INTO assembled VALUES (?, ?, ?)",
                        (count, minimum, pickle.dumps(chapter)))
+        if chunk_size is not None:
+            for (value,) in db.execute("SELECT value FROM assembled ORDER BY id"):
+                yield pickle.loads(value)
+            definitions = []
+            for (value,) in db.execute("SELECT value FROM refs WHERE used=0 ORDER BY page,number"):
+                definitions.append(pickle.loads(value))
+                if len(definitions) == chunk_size:
+                    yield Chapter(None, -1, [], definitions)
+                    definitions = []
+            if definitions:
+                yield Chapter(None, -1, [], definitions)
+            return
         for page, number in db.execute("SELECT page,number FROM refs WHERE used=0 ORDER BY page,number"):
             if count == 0:
                 count = 1

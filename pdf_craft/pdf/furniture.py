@@ -1,7 +1,7 @@
 """Native PDF PageFurniture extraction and compact XML serialization.
 
-The OCR cache tells us which rendered regions already belong to the document
-flow. Poppler supplies the complementary native-text geometry. Everything in
+The adopted page projection tells us which rendered regions belong to the final
+document flow. Raw OCR classifications must not decide final occupancy. Poppler supplies the complementary native-text geometry. Everything in
 this module is deliberately an extraction concern: only the compact,
 translation-facing ``furnitures.xml`` leaves this module.
 """
@@ -447,6 +447,8 @@ def _read_ocr_boxes(path: Path) -> list[_Box]:
         return []
     boxes: list[_Box] = []
     for layout in root.iter("layout"):
+        if layout.get("ref") == "ignored":
+            continue
         raw = layout.get("det")
         if raw is None:
             continue

@@ -49,14 +49,28 @@ the artifact. Fragment page numbers, source orders, and pixel bounding boxes are
 preserved; source page geometry is recorded in the resulting `pages.xml`.
 Asset hashes refer to extraction resources, not embedded image bytes.
 
-These notifications describe the traditional cross-page analysis before global
-TOC exclusion, heading-level finalization, punctuation normalization, and optional
-footnote refinement. They are not a replay of the finalized chapter files. Unknown
-footnote ownership remains preserved in the final narrative; these unresolved items
-are delivered through `on_body` in source reading order after page ownership closes,
-without an out-of-order EOF appendix. Empty projected
-fragments keep their source identities. The complete archive remains the authority
-for final structure, definitions, and resource validation.
+These notifications replay adopted, validated chapter content. Extraction first
+finishes traditional analysis, optional refinement, ownership/reference checks,
+printed-directory exclusion, and final chapter assembly. Only then does `on_body`
+deliver flow items in chapter reading order, and `on_footnote` deliver each definition
+once in source page/order order. Callback mutations do not change the artifact.
+An accepted removed or merged heading does not leak an earlier title or TOC ID.
+
+This intentionally delays the first content callback until semantic analysis is
+complete. OCR and candidate analysis remain concurrent, with backlogs on disk;
+`on_extraction_event` continues reporting live progress. Metadata uses independent
+bibliographic evidence and may arrive earlier. A later callback or publication
+failure still fails the operation: receiving content is not a success signal.
+
+### Analysis cache migration
+
+Raw OCR pages remain source evidence and can be reused under the existing OCR
+cache rules. Derived TOC/chapter/furniture files are rebuilt from this operation's
+adopted content; an existing `toc.xml` is not proof of validity. No version/config
+fingerprint exists for those old derived files, so they are never reused as input.
+Intermediate and degraded semantic results cannot overwrite OCR evidence. Existing
+PCEX files retain their format and identities; re-extracting a PDF can assign new
+chapter IDs because IDs now belong to the final adopted heading set.
 
 ## EPUB translation
 

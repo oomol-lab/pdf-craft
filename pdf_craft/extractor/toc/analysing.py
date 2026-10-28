@@ -7,7 +7,7 @@ import logging
 import re
 from pathlib import Path
 
-from ...common import XMLReader, read_xml, save_xml
+from ...common import XMLReader, save_xml
 from ...llm import LLM
 from ...runtime import IO_DOMAIN
 from ...pdf import TITLE_TAGS, Page
@@ -20,7 +20,6 @@ from .llm_analyser import (
 from .toc_levels import Ref2Level, analyse_title_levels, analyse_toc_levels
 from .toc_pages import PageRef, find_toc_pages
 from .types import Toc, TocInfo
-from .types import decode as decode_toc
 from .types import encode as encode_toc
 
 logger = logging.getLogger(__name__)
@@ -37,12 +36,12 @@ async def analyse_toc(
     retry_policy: RetryPolicy | None = None, error_policy: ErrorPolicyInput = OMITTED,
     request_headers: Mapping[str, str] | None = None,
     usage: UsageCollector | None = None,
+    printed_page_indexes: list[int] | None = None,
 ) -> TocInfo:
-    if await IO_DOMAIN.run(toc_path.exists):
-        return decode_toc(await IO_DOMAIN.run(read_xml, toc_path))
-
+    # Derived TOCs are outputs, not reusable evidence. Old caches lack the
+    # adopted-state/configuration identity, so recompute rather than trust them.
     await IO_DOMAIN.run(toc_path.parent.mkdir, parents=True, exist_ok=True)
-    toc_info = await _do_analyse_toc(pages_path, toc_llm, toc_assumed)
+    toc_info = await _do_analyse_toc(pages_path, toc_llm, toc_assumed, printed_page_indexes)
     await IO_DOMAIN.run(save_xml, encode_toc(toc_info), toc_path)
 
     return toc_info
@@ -52,28 +51,16 @@ async def _do_analyse_toc(
     pages_path: Path,
     toc_llm: LLM | None,
     toc_assumed: bool,
+    printed_page_indexes: list[int] | None = None,
 ) -> TocInfo:
     pages: XMLReader[Page] = await IO_DOMAIN.run(XMLReader,
         prefix="page",
         dir_path=pages_path,
         decode=decode_pdf,
     )
-    toc_pages: list[PageRef] = []
-    if toc_assumed:
-        toc_pages = await IO_DOMAIN.run(find_toc_pages,
-            iter_titles=lambda: (
-                (page.index, list(
-                    (layout.order, _TITLE_HEAD_REGX.sub("", layout.text))
-                    for layout in page.body_layouts
-                    if layout.ref in TITLE_TAGS
-                ))
-                for page in pages.read()
-            ),
-            iter_page_bodies=lambda: (
-                (page.index, "".join(layout.text for layout in page.body_layouts))
-                for page in pages.read()
-            ),
-        )
+    toc_pages = await IO_DOMAIN.run(detect_printed_pages, pages_path) if toc_assumed else []
+    if printed_page_indexes is not None:
+        toc_pages = [page for page in toc_pages if page.page_index in printed_page_indexes]
 
     ref2level: Ref2Level | None = None
     toc_page_indexes: list[int] = []
@@ -124,11 +111,25 @@ async def _do_analyse_toc(
 
     # A printed directory page is excluded from chapter content. It cannot
     # also provide a chapter anchor, even if another directory page matched it.
+    if printed_page_indexes is not None:
+        toc_page_indexes = list(printed_page_indexes)
     excluded = set(toc_page_indexes)
     ref2level = {key: level for key, level in ref2level.items() if key[0] not in excluded}
     return TocInfo(
         content=_structure_toc_by_levels(ref2level),
         page_indexes=toc_page_indexes,
+    )
+
+
+def detect_printed_pages(pages_path: Path) -> list[PageRef]:
+    """Classify printed directories without assigning chapter identities."""
+    pages = XMLReader(prefix="page", dir_path=pages_path, decode=decode_pdf)
+    return find_toc_pages(
+        iter_titles=lambda: ((page.index, [(layout.order, _TITLE_HEAD_REGX.sub("", layout.text))
+                                          for layout in page.body_layouts if layout.ref in TITLE_TAGS])
+                             for page in pages.read()),
+        iter_page_bodies=lambda: ((page.index, "".join(layout.text for layout in page.body_layouts))
+                                 for page in pages.read()),
     )
 
 
