@@ -2,6 +2,7 @@ from collections.abc import Callable
 from html import escape as escape_html
 from io import StringIO
 from xml.etree.ElementTree import Element
+from ....whitespace import WhiteSpace, mode_for, normalize, can_indent
 
 from .tag import TagKind
 from .transform import element_to_tag
@@ -34,23 +35,23 @@ def _encode_element(
     depth: int,
     escape: Callable[[str], str],
     inline: bool = False,
+    inherited: WhiteSpace = WhiteSpace.NORMAL,
 ) -> None:
+    mode = mode_for(element, inherited)
     if not inline:
         _write_indent(buffer, indent, depth)
     if len(element) == 0 and not element.text:
         tag = element_to_tag(element, TagKind.SELF_CLOSING)
         buffer.write(str(tag))
     else:
-        text = element.text or ""
+        text = normalize(element.text or "", mode)
         opening_tag = element_to_tag(element, TagKind.OPENING)
         closing_tag = element_to_tag(element, TagKind.CLOSING)
         buffer.write(str(opening_tag))
-        # Only the protocol wrapper can be pretty-printed. Even an element
-        # with no own text may contain adjacent inline text slots; indenting
-        # those changes visible text. Preserve every inner text/tail boundary.
-        pretty = (depth == 0 and element.tag == 'xml' and element.text is None
-                  and all(child.tail is None for child in element))
-        if text:
+        # Only structural inter-block gaps are disposable indentation. Mixed
+        # text/inline content follows the same policy used during acceptance.
+        pretty = can_indent(element, mode)
+        if text and not pretty:
             buffer.write(escape(text))
 
         for child in element:
@@ -63,9 +64,10 @@ def _encode_element(
                 depth=depth + 1,
                 escape=escape,
                 inline=not pretty,
+                inherited=mode,
             )
-            child_tail = child.tail or ""
-            if child_tail:
+            child_tail = normalize(child.tail or "", mode)
+            if child_tail and not pretty:
                 buffer.write(escape(child_tail))
 
         if pretty and len(element):

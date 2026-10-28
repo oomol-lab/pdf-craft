@@ -1,0 +1,160 @@
+"""CSS Text transport subset and algorithmic recovery (no model requests)."""
+# pylint: disable=protected-access
+from copy import deepcopy
+from unittest import TestCase, IsolatedAsyncioTestCase
+from unittest.mock import AsyncMock
+from xml.etree.ElementTree import fromstring, tostring
+from pdf_craft.extractor.chapter.chapter import TextFlowItem, SourceTextFragment
+from pdf_craft.markdown.paragraph import HTMLTag, tag_definition
+
+from pdf_craft.transformer.whitespace import WhiteSpace, normalize, mode_for, can_indent
+from pdf_craft.transformer.canonical_text import restore_canonical_whitespace
+from pdf_craft.transformer.narrative_xml import NarrativeXMLTransformer
+from pdf_craft.transformer.xml_translator.xml.friendly import encode_friendly, decode_friendly
+from tests.test_anchored_content_translation import _repairing_translator
+from tests.test_fill_text_protocol import source_chapter
+
+
+class WhiteSpaceStandardsTests(TestCase):
+    def test_modes_match_css_text_whitespace_table(self):
+        text = ' a\t  b \r\n  c '
+        for mode, expected in (
+                (WhiteSpace.NORMAL, ' a b c '), (WhiteSpace.NOWRAP, ' a b c '),
+                (WhiteSpace.PRE_LINE, ' a b\nc '),
+                (WhiteSpace.PRE, ' a\t  b \n  c '),
+                (WhiteSpace.PRE_WRAP, ' a\t  b \n  c '),
+                (WhiteSpace.BREAK_SPACES, ' a\t  b \n  c ')):
+            with self.subTest(mode=mode):
+                self.assertEqual(normalize(text, mode), expected)
+                self.assertEqual(normalize(expected, mode), expected)
+
+    def test_special_spaces_are_not_document_whitespace(self):
+        text = 'a\u00a0\u2009\u202f\u3000b'
+        self.assertEqual(normalize(text, trim=True), text)
+        self.assertEqual(normalize('\u00a0x\u00a0', trim=True), '\u00a0x\u00a0')
+
+    def test_context_inheritance_overrides_and_html_defaults(self):
+        self.assertEqual(mode_for(fromstring('<pre/>')), WhiteSpace.PRE)
+        self.assertEqual(mode_for(fromstring('<textarea/>')), WhiteSpace.PRE_WRAP)
+        self.assertEqual(mode_for(fromstring('<span/>'), WhiteSpace.PRE), WhiteSpace.PRE)
+        self.assertEqual(mode_for(fromstring('<span style="white-space: normal"/>'), WhiteSpace.PRE), WhiteSpace.NORMAL)
+        self.assertEqual(mode_for(fromstring('<p style="white-space: pre !important; white-space: normal"/>')), WhiteSpace.PRE)
+        self.assertEqual(mode_for(fromstring('<p xml:space="preserve"/>')), WhiteSpace.PRE)
+
+    def test_only_block_only_containers_get_indentation(self):
+        root = fromstring('<div><div><p>first</p><p>second</p></div><p>last</p></div>')
+        rendered = encode_friendly(root)
+        self.assertIn('\n  <div>\n    <p>first</p>\n    <p>second</p>\n  </div>', rendered)
+        for value in ('<div>hello<span>world</span></div>',
+                      '<span><p>one</p><p>two</p></span>',
+                      '<div display="inline"><p>one</p><p>two</p></div>',
+                      '<div style="white-space: pre"><p>one</p><p>two</p></div>'):
+            element = fromstring(value)
+            self.assertFalse(can_indent(element, mode_for(element)))
+            self.assertNotIn('\n', encode_friendly(element))
+
+    def test_friendly_normalizes_without_creating_inline_separators(self):
+        root = fromstring('<div>hello   <span> world</span>\n again<span>!</span></div>')
+        rendered = encode_friendly(root)
+        self.assertIn('hello <span> world</span> again<span>!</span>', rendered)
+        decoded = next(decode_friendly(rendered, tags='div'))
+        self.assertEqual(normalize(''.join(root.itertext()), trim=True),
+                         normalize(''.join(decoded.itertext()), trim=True))
+        pre = fromstring('<pre>hello   <span> world</span>\n again</pre>')
+        self.assertEqual(''.join(next(decode_friendly(encode_friendly(pre), tags='pre')).itertext()),
+                         ''.join(pre.itertext()))
+        self.assertEqual(encode_friendly(fromstring('<p>hello<span>world</span></p>')),
+                         '<p>hello<span>world</span></p>')
+        preserved = fromstring('<div xml:space="preserve">a  <span>b</span>\n c</div>')
+        decoded = next(decode_friendly(encode_friendly(preserved), tags='div'))
+        self.assertEqual(tostring(decoded), tostring(preserved))
+
+
+class WhitespaceRecoveryTests(TestCase):
+    def test_normal_gap_recovery_is_transactional_and_keeps_special_content(self):
+        for response, canonical, expected in (
+                ('<fragment>  Helloworld. \n</fragment>', 'Hello world.', 'Hello world.'),
+                ('<fragment>one word</fragment>', 'oneword', 'oneword'),
+                ('<fragment>Hello\n  world</fragment>', 'Hello   world', 'Hello world'),
+                ('<fragment>Hello\u00a0world</fragment>', 'Hello\u00a0world', 'Hello\u00a0world')):
+            root = fromstring(response)
+            self.assertTrue(restore_canonical_whitespace([root], canonical))
+            self.assertEqual(''.join(root.itertext()), expected)
+        for response, canonical in (('<fragment>wrong word</fragment>', 'right word'),
+                                    ('<fragment>word?</fragment>', 'word!'),
+                                    ('<fragment>a b</fragment>', 'a\u00a0b')):
+            root = fromstring(response)
+            before = tostring(root)
+            self.assertFalse(restore_canonical_whitespace([root], canonical))
+            self.assertEqual(tostring(root), before)
+
+    def test_missing_gap_between_styled_slots_requires_unique_owner(self):
+        root = fromstring('<fragment><span id="2">Hello</span><span id="3">world</span></fragment>')
+        before = tostring(root)
+        self.assertFalse(restore_canonical_whitespace([root], 'Hello world'))
+        self.assertEqual(tostring(root), before)
+        source = fromstring('<fragment><span id="2">First </span><span id="3">second</span></fragment>')
+        self.assertTrue(restore_canonical_whitespace([root], 'Hello world', [source]))
+        self.assertEqual(root[0].text, 'Hello ')
+        self.assertEqual(root[1].text, 'world')
+
+    def test_preserved_whitespace_uses_source_context_not_model_attributes(self):
+        for mode in ('pre', 'pre-wrap', 'break-spaces'):
+            source = fromstring(f'<fragment style="white-space:{mode}">source</fragment>')
+            root = fromstring('<fragment white-space="normal">a b</fragment>')
+            before = tostring(root)
+            self.assertFalse(restore_canonical_whitespace([root], 'a  b', [source]))
+            self.assertEqual(tostring(root), before)
+        source = fromstring('<fragment style="white-space:pre-line"/>')
+        root = fromstring('<fragment>a \n b</fragment>')
+        self.assertTrue(restore_canonical_whitespace([root], 'a\nb', [source]))
+        self.assertEqual(''.join(root.itertext()), 'a\nb')
+        self.assertFalse(restore_canonical_whitespace([root], 'a b', [source]))
+
+
+class FillRecoveryRequestTests(IsolatedAsyncioTestCase):
+    async def test_source_preserved_inline_context_survives_the_whole_fill_path(self):
+        source = source_chapter()
+        item = source.flow_items[0]
+        assert isinstance(item, TextFlowItem)
+        fragment = item.children[0]
+        assert isinstance(fragment, SourceTextFragment)
+        definition = tag_definition('span')
+        assert definition is not None
+        fragment.content = [HTMLTag(definition, [('style', 'white-space: pre')], ['source  text'])]
+        wrong = '<xml><fragment id="1"><span>Hello world</span></fragment></xml>'
+        corrected = wrong.replace('Hello world', 'Hello  world')
+        translator, runtime = _repairing_translator([wrong, corrected])
+        translator._translate_text_async = AsyncMock(return_value='Hello  world')
+        target = await NarrativeXMLTransformer(translator).transform(source, error_policy=False)
+        self.assertEqual(runtime.context_value.calls, 2)
+        self.assertIn('white-space="pre"', runtime.context_value.messages[0][0][1].message)
+        text = target.flow_items[0]
+        assert isinstance(text, TextFlowItem)
+        result = text.children[0]
+        assert isinstance(result, SourceTextFragment)
+        span = result.content[0]
+        assert isinstance(span, HTMLTag)
+        self.assertEqual(span.children, ['Hello  world'])
+        self.assertEqual(span.attributes, [('style', 'white-space: pre')])
+
+    async def test_recoverable_normal_text_costs_one_fill_request(self):
+        translator, runtime = _repairing_translator([
+            '<xml><fragment id="1">  Helloworld. \n</fragment></xml>',
+        ])
+        translator._translate_text_async = AsyncMock(return_value='Hello world.')
+        target = await NarrativeXMLTransformer(translator).transform(source_chapter(), error_policy=False)
+        self.assertEqual(runtime.context_value.calls, 1)
+        item = target.flow_items[0]
+        assert isinstance(item, TextFlowItem)
+        fragment = item.children[0]
+        assert isinstance(fragment, SourceTextFragment)
+        self.assertEqual(fragment.content, ['Hello world.'])
+
+    async def test_ambiguous_boundary_retries_then_accepts_explicit_mapping(self):
+        wrong = '<xml><fragment id="1"><span id="2">Hello</span><span id="3">world</span><span id="4"/></fragment></xml>'
+        good = wrong.replace('Hello</span>', 'Hello </span>')
+        translator, runtime = _repairing_translator([wrong, good])
+        translator._translate_text_async = AsyncMock(return_value='Hello world')
+        await NarrativeXMLTransformer(translator).transform(deepcopy(source_chapter(styled=True)), error_policy=False)
+        self.assertEqual(runtime.context_value.calls, 2)

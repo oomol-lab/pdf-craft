@@ -519,11 +519,9 @@ class AnchoredContentTranslationTests(unittest.TestCase):
         self.assertEqual(restored_image, image)
         self.assertEqual(_text(first.content) + _text(second.content), "However, the Council.")
         self.assertEqual(_pdf_patch_text(translated), "However, the Council.")
-        self.assertEqual(runtime.context_value.calls, 2)
+        self.assertEqual(runtime.context_value.calls, 1)
         initial_messages = runtime.context_value.messages[0][0]
         self.assertIn("Canonical visible-text constraint", initial_messages[-1].message)
-        retry_messages = runtime.context_value.messages[1][0]
-        self.assertIn("Anchors are zero-width", retry_messages[-1].message)
 
     def test_fill_repairs_plain_fragment_boundary_to_match_canonical_translation(self):
         """A cross-page fragment split has no anchor but obeys the same rule."""
@@ -549,9 +547,7 @@ class AnchoredContentTranslationTests(unittest.TestCase):
         fragments = [child for child in text.children if isinstance(child, SourceTextFragment)]
         self.assertEqual("".join(_text(fragment.content) for fragment in fragments), "corruption is harmful.")
         self.assertEqual(_pdf_patch_text(translated), "corruption is harmful.")
-        self.assertEqual(runtime.context_value.calls, 2)
-        retry_messages = runtime.context_value.messages[1][0]
-        self.assertIn("canonical translation", retry_messages[-1].message)
+        self.assertEqual(runtime.context_value.calls, 1)
 
     def test_invalid_formula_fill_is_explicitly_missing_when_recovery_allowed(self):
         chapter = Chapter(None, -1, [TextFlowItem("body", 0, [
@@ -637,9 +633,7 @@ class AnchoredContentTranslationTests(unittest.TestCase):
         fragments = [child for child in text.children if isinstance(child, SourceTextFragment)]
         self.assertEqual("".join(_text(fragment.content) for fragment in fragments), "First. Second.")
         self.assertEqual(_pdf_patch_text(translated), "First. Second.")
-        self.assertEqual(runtime.context_value.calls, 2)
-        retry_messages = runtime.context_value.messages[1][0]
-        self.assertIn("Expected 'First. Second.'", retry_messages[-1].message)
+        self.assertEqual(runtime.context_value.calls, 1)
 
     def test_canonical_fill_keeps_a_separate_first_stage_result_per_text_owner(self):
         """Owner identity, not translated paragraph spacing, defines canonical scope."""

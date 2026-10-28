@@ -2,11 +2,13 @@ from xml.etree.ElementTree import Element
 
 from .tag import Tag, TagKind
 
+_XML_SPACE = '{http://www.w3.org/XML/1998/namespace}space'
+
 
 def tag_to_element(tag: Tag) -> Element:
     element = Element(tag.name)
     for attr_name, attr_value in tag.attributes:
-        element.set(attr_name, attr_value)
+        element.set(_XML_SPACE if attr_name == 'xml:space' else attr_name, attr_value)
     return element
 
 
@@ -20,7 +22,7 @@ def element_to_tag(element: Element, kind: TagKind, proto: str = "") -> Tag:
     if kind != TagKind.CLOSING:
         for attr_name in sorted(list(element.keys())):
             attr_value = element.get(attr_name, "")
-            tag.attributes.append((attr_name, attr_value))
+            tag.attributes.append(('xml:space' if attr_name == _XML_SPACE else attr_name, attr_value))
 
     # To make LLM easier to understand, the naming here is restricted in a more strict way.
     # https://github.com/oomol-lab/pdf-craft/issues/149

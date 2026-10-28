@@ -2,6 +2,7 @@ from collections.abc import Generator, Iterable
 from dataclasses import dataclass
 from enum import Enum, auto
 from typing import Self
+from ...whitespace import mode_in_stack
 from xml.etree.ElementTree import Element
 
 from pdf_craft.transformer.xml_translator.xml import (
@@ -121,8 +122,10 @@ def _search_text_segments(stack: list[Element], element: Element, track_origins:
     # Whitespace between inline slots belongs to the sentence. Block-only XML
     # indentation can still be ignored; it is not a word separator.
     inline_content = is_inline_element(element) or any(is_inline_element(child) for child in element)
-    text = normalize_text_in_element(element.text, preserve_whitespace=preserve_whitespace or inline_content)
     next_stack = stack + [element]
+    mode = mode_in_stack(next_stack)
+    text = normalize_text_in_element(element.text, mode=mode,
+                                     preserve_whitespace=preserve_whitespace or inline_content)
     next_block_depth = find_block_depth(next_stack)
 
     # A text-free inline leaf still occupies a position in the reading flow
@@ -142,6 +145,7 @@ def _search_text_segments(stack: list[Element], element: Element, track_origins:
         yield from _search_text_segments(next_stack, child_element, track_origins, preserve_whitespace)
         child_tail = normalize_text_in_element(
             child_element.tail,
+            mode=mode,
             preserve_whitespace=preserve_whitespace or is_inline_element(child_element),
         )
         if child_tail is not None:

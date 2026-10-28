@@ -206,3 +206,9 @@ craft = PDFCraft(
 暂时限流不消耗上述重试次数，由 executor 的 `RateLimitScope` 统一冷却与恢复。
 超过每请求累计等待预算时抛出 `RateLimitTimeoutError`，原因链保留原限流错误；最终按对应业务
 ErrorPolicy 决定是否降级。详见 [共享限流范围](API_REFERENCE.md#共享限流范围)。
+
+## 可恢复的模型格式差异
+
+XML 填充会先依据已知译文恢复无歧义的空白，再采纳结果。可修复的表面格式不应触发额外
+模型请求；有歧义的归属、文字变化及受保护空白继续校验。详见
+[LLM 验收原则与空白处理](LLM_ACCEPTANCE.md)，包含共同规则、HTML/CSS 标准及支持范围。
