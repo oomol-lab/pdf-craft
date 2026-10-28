@@ -19,6 +19,20 @@ fill call. A missing separator between differently styled slots needs an existin
 or unique source owner; otherwise the model must clarify its allocation. Source
 formula restoration retains its explicit outside-expression padding rule.
 
+Acceptance also accounts for subsequent transformations. The PCEX adapter marks
+temporary formula nodes whose contents will be replaced. Shared recovery places
+their boundary separators in surviving text/tail fields before acceptance, even
+if the candidate's concatenated text already matches. A space inside a formula
+token must not disappear when that token is restored. Interior formula spaces
+remain formula content. Empty tokens will restore real formulas, so their two
+sides are distinct positions; an ambiguous missing separator still needs explicit
+allocation. This uses the same recovery algorithm, not a second formula cleanup.
+
+Immutable math references, required empty slots and source formula identities
+remain part of the PCEX-specific protocol. PCEX serialization is a separate,
+lossless boundary: both chapter writers preserve the accepted mixed content;
+they do not apply friendly XML's whitespace normalization when saving it.
+
 Changes are transactional: unsuccessful recovery leaves the candidate untouched.
 Words, punctuation, NBSP, other Unicode separators, source IDs and required tags
 remain checked. Missing/changed prose or ambiguous slot ownership still enters
