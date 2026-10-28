@@ -34,7 +34,7 @@ anchored 图片/表格文字。
 2. 通过 `OCR.recognize()` 识别页面布局。
 3. 在 `analysing_path/ocr/` 写入 OCR 页 XML 和恢复缓存，在
    `analysing_path/extraction/assets/` 写入资源。
-4. OCR 终态页事件恢复输入页序，初级快照随页产生。配置精修时进入有界 JEV→可选 LLM 页任务；
+4. 启用精修时，OCR 终态页事件直接发布落盘初级证据，不先恢复连续页序，进入有界 JEV→可选 LLM 页任务；
    仅等待必要初级邻页，LLM只携带当前页评分，不读取邻页评分或精修结果。乱序结果按输入序增量组段，
    闭合正文/脚注立即交付，不能等待全书OCR、全批JEV、metadata或TOC。无精修时复用传统增量解析。
 5. 在 `analysing_path/extraction/` 生成章节、TOC、页面几何和 manifest；章节使用 PCEX v3
@@ -54,12 +54,13 @@ PageAnalysis 的 continuation 表示文字前驱，跳过同一归属流中的�
 组装完成后的语义投影；原始文字记录不被改写，投影为空的 fragment 也保留原身份和 bbox。
 
 无精修时由 `extractor/chapter/stream.py` 传统增量解析。精修生产链路使用
-`chapter/primary.py` 从初级证据建立局部快照，`extractor/refinement.py` 有界三页窗口并发页任务，
+`chapter/primary.py` 从固定三页初级证据建立请求局部投影，`extractor/refinement.py` 按邻页就绪调度有界页任务，
 `chapter/assembly.py` 按序校验连接、持久化自然段与定义；`chapter/live.py` 管理输入、背压与通知生命周期。
 每页只有自己的评分能进入LLM，邻页内容始终是初级快照。评分/页候选与前后处理的真实资源仍由用户executor限制。
 已完成内容、页候选和依赖边落盘，内存不保留全书task/DOM。当前窗口8页，OCR准入最多领先消费12页；
 未闭合自然段/脚注仍以完整语义单位为边界。准入等待不得持有页消费锁；缓存重放也经过背压。
-初级正文的语义前驱跨纯图片/表格页保留，最多额外保存最近正文原始页，不积攒中间资产页；
+仅在按序组段边界绑定窗口局部脚注别名及窗口之外的 incoming 关系；请求不能为等待全局身份而阻塞。
+顺序组段中，初级正文的语义前驱跨纯图片/表格页保留，最多额外保存最近正文原始页，不积攒中间资产页；
 仍复用 joiner 的空页/公式/完句边界。取消必须主动取消管道拥有者并收敛子任务，不能仅关闭输入后等待满窗口自然完成。
 
 候选的schema、源身份、页内关系在单页repair parse处校验；跨页incoming连接在有序组段时校验。

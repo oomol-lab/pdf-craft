@@ -158,7 +158,11 @@ class RefinementBoundaryTests(IsolatedAsyncioTestCase):
                 live.pages.close()
                 await asyncio.wait_for(live.finish(), 3)
                 last = next(page for page in observed if page.page_index == len(pages))
-                self.assertEqual(last.layouts[0].continues_from_previous, merged)
+                # The three-page request cannot see a text predecessor beyond
+                # a transparent asset page. Its unresolved incoming edge is
+                # bound at ordered assembly; callback/output comparison below
+                # still proves the complete natural paragraph is preserved.
+                self.assertFalse(last.layouts[0].continues_from_previous)
                 self.assertEqual(bodies, baseline)
                 import sqlite3
                 from contextlib import closing
