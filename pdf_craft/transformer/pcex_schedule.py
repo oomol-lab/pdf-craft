@@ -63,9 +63,11 @@ class PCEXSchedule:
                 self.count += 1
                 self.wake()
         finally:
-            self.scanned = True
-            self.wake()
             await self.items.aclose()
+        # EOF means successful production AND source cleanup. Failure/cancel
+        # wakes the owner through the scanner task, never through a false EOF.
+        self.scanned = True
+        self.wake()
 
     async def execute(self, job):
         from .content import _unit
@@ -110,7 +112,7 @@ class PCEXSchedule:
                       if self.notifier is not None else [])
         observers = ([delivery._task for delivery in (self.notifier.body, self.notifier.notes) if delivery is not None]
                      if self.notifier is not None else [])
-        for task in deliveries + observers:
+        for task in [scanner, *deliveries, *observers]:
             task.add_done_callback(lambda _task: self.wake())
         running = set()
         kinds = ['metadata', 'body', 'footnote', 'asset', 'furniture']
@@ -119,7 +121,8 @@ class PCEXSchedule:
                 await IO_DOMAIN.run(self.queue.add, 'metadata', None)
             while True:
                 self.work_changed.clear()
-                if scanner.done():
+                input_finished = scanner.done()
+                if input_finished:
                     scanner.result()
                 for task in deliveries + observers:
                     if task.done():
@@ -144,7 +147,12 @@ class PCEXSchedule:
                     if self.furniture is not None:
                         await IO_DOMAIN.run(self.furniture.finish)
                     self.headers_ready.set()
-                if self.scanned and not running:
+                # A take() that observed an empty queue before producer EOF
+                # cannot prove quiescence after EOF. Re-admit from a fresh read
+                # after observing successful scanner completion.
+                if not input_finished and scanner.done():
+                    continue
+                if input_finished and not running:
                     if not await IO_DOMAIN.run(self.queue.pending):
                         self.completion.check('translation')
                         if all(task.done() for task in deliveries):
@@ -208,6 +216,9 @@ class PCEXSchedule:
         changed = self.notifications[channel]
         while True:
             changed.clear()
+            # Observe successful EOF BEFORE the read used to prove emptiness.
+            # If EOF arrives during the read, wake() keeps the next read live.
+            input_finished = self.scanned
             rows = await IO_DOMAIN.run(self.queue.run,
                 'SELECT id FROM items WHERE channel=? AND notified=0 ORDER BY id LIMIT 1', (channel,))
             if rows:
@@ -219,7 +230,7 @@ class PCEXSchedule:
                     await IO_DOMAIN.run(self.queue.discard, index, notified=True, observing=True)
                     self.wake()
                     continue
-            elif self.scanned:
+            elif input_finished:
                 return
             await changed.wait()
 

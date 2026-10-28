@@ -263,3 +263,10 @@ original text, clipped to 480 characters, and requires only source lookahead. Bo
 footnote callbacks are independently ordered; they can precede ordered renderer
 consumption. Progress reports actual work and may interleave. See
 [progress and scheduling](TRANSLATION_PROGRESS.md#pcex-scheduling-and-delivery).
+
+PCEX translation waits for successful input completion before deciding that a queue is
+empty. Title-dependent furniture waits for the title result (including explicit
+fallback); body and footnote delivery each drain all pending content before their
+channel ends. A failed or cancelled input scan is not normal EOF. Successful
+completion includes callback delivery as well as the final artifact; silently
+omitted content is not a fallback.
