@@ -147,7 +147,7 @@ counter.boundary()
 
 ## Breaking migration
 
-In 2.6.5, PAGE stages use `max_stage=7`: old OCR-persisted/JEV/LLM/final stages
+In 2.6.6, PAGE stages use `max_stage=7`: old OCR-persisted/JEV/LLM/final stages
 2/3/4/5 are now 4/5/6/7. Update numeric stage labels in consumers. Stages 1, 2
 and 3 are reported on entry, before the expensive operation or request admission;
 measure elapsed time between events rather than treating stages as equal weights.
