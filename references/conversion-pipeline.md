@@ -35,7 +35,8 @@ anchored 图片/表格文字。
 3. 在 `analysing_path/ocr/` 写入 OCR 页 XML 和恢复缓存，在
    `analysing_path/extraction/assets/` 写入资源。
 4. OCR 的终态页事件经磁盘流恢复输入页序，传统跨页解析与 OCR 并行推进；闭合正文、脚注和
-   未定归属来源存入磁盘数据库。这些是内部候选，不交付正式内容回调。
+   未定归属来源存入磁盘数据库。闭合内容通过 on_body/on_footnote 立即交付初级提取结果；
+   初级内容、归属和层级不承诺等于最终章节，不等待无关 OCR、metadata、目录或精修。
    先识别印刷目录页以排除正文，再完成精修和关联校验；最终目录由已采用标题生成。
 5. 在 `analysing_path/extraction/` 生成章节、TOC、页面几何和 manifest；章节使用 PCEX v3
    FlowItem，保留文字 fragment、段内 anchored image/table 与独立段落公式的阅读顺序。
@@ -57,7 +58,8 @@ PageAnalysis 的 continuation 表示文字前驱，跳过同一归属流中的�
 在线生成的内容数据库，有目录页排除时从 OCR 缓存按排除规则重放。章节定稿逐章处理。
 需要可编辑页级 ownership 的 PageAnalysisProcessor 仍使用 `restore_streams` 的整批事务语义；
 `extractor/commit.py` 是统一定稿出口：由已采用章节投影标题与占用供 TOC/furniture 使用，
-再按最终目录划分章节、校验；正式回调只重放最终章节，脚注按来源排序去重。
+再按最终目录划分章节、校验；最终采用不重复回放初级内容回调。
+初级回调通道内有序、恰好一次且保留来源；初级可交付内容不得被无关编排延迟，维护时需保留屏障回归。
 采用阶段使用每块最多 128 个完整 FlowItem 的私有磁盘分块，未引用定义另按 128 条分块，
 文件序号不是章节 ID。不得用空 TOC 聚合成全书 chapter_head 再拆分；恢复路径同样分块。
 分块不切断自然段或引用，标题层级只在最终分章后计算；投影每块只建立一次正文节点集合。

@@ -222,7 +222,8 @@ class ExtractionRecoveryTests(IsolatedAsyncioTestCase):
             decisions = []
             with self.assertRaisesRegex(ValueError, 'user callback'):
                 await self.extract(Path(directory), error_policy=lambda ctx: decisions.append(ctx) or True, callback=callback)
-            self.assertEqual([ctx.fallback for ctx in decisions], ['page_image'])
+            # Primary delivery aborts before finalization/recovery is attempted.
+            self.assertEqual(decisions, [])
 
     async def test_all_late_downgrades_fail_instead_of_claiming_ocr_success(self):
         with TemporaryDirectory() as directory:

@@ -136,7 +136,7 @@ class PDFExtractionEngine:
                 front = await IO_DOMAIN.run(FrontPages.open, kwargs["analysing_path"] / "ocr",
                                             count, kwargs.get("page_indexes"))
             live = LiveExtraction(directory, kwargs["analysing_path"] / "ocr",
-                                  kwargs["includes_footnotes"])
+                                  kwargs["includes_footnotes"], on_body, on_footnote)
             callback = kwargs.get("on_ocr_event")
             async def event(value):
                 if front is not None:
@@ -153,8 +153,6 @@ class PDFExtractionEngine:
                     context._update(sizes, kwargs["dpi"] or 300)
                 if front is None:
                     result = await self._extract_package_async(**kwargs, live=live, on_metadata=on_metadata)
-                    from .extractor.commit import notify_adopted
-                    await notify_adopted(kwargs["analysing_path"] / "extraction" / "chapters", on_body, on_footnote)
                     return result
                 from .common.tasks import joined
                 async def extract_metadata():
@@ -176,8 +174,6 @@ class PDFExtractionEngine:
                     return await metadata_task
                 try:
                     result, _ = await joined(extract(), observe_metadata())
-                    from .extractor.commit import notify_adopted
-                    await notify_adopted(kwargs["analysing_path"] / "extraction" / "chapters", on_body, on_footnote)
                     return result
                 finally:
                     from .concurrency import settle_tasks

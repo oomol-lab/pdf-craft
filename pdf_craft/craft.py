@@ -81,7 +81,12 @@ class PDFOptions:
 
 @dataclass(frozen=True)
 class ExtractionOptions:
-    """Controls for one PDF extraction run."""
+    """Controls for one PDF extraction run.
+
+    on_body/on_footnote deliver closed primary extraction XML incrementally,
+    before optional refinement. Content, ownership and levels may differ from
+    final PCEX chapters; delivery does not indicate operation success.
+    """
 
     page_indexes: Container[int] | None = None
     ocr_size: DeepSeekOCRSize = "gundam"
