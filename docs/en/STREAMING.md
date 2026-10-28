@@ -53,7 +53,11 @@ PDF extraction is a page pipeline. Each JEV job starts when its target and avail
 initial neighbors are ready. Its optional LLM repair follows that page's decision,
 without waiting for other JEV jobs. Neighbor context always uses immutable initial
 pages. Only the target JEV score enters the LLM prompt; neighbor scores are never
-disclosed, even if already available.
+disclosed, even if already available. A pending earlier OCR page outside a job's
+three-page neighborhood cannot block that job: pages 2–4 can start page 3's
+JEV/LLM while page 1 is pending. Ordered paragraph delivery still waits for page 1.
+Cross-window footnote identities and paragraph predecessors are bound during
+ordered assembly, without feeding refined neighbors back into requests.
 
 Page results may finish out of order. Ordered incremental assembly closes complete
 paragraphs and footnote definitions and immediately enqueues their callbacks. Each

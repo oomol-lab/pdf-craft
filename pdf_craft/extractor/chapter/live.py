@@ -11,7 +11,6 @@ from ...pdf import Page, decode
 from ...pdf.ocr import OCREventKind
 from ...runtime import IO_DOMAIN, ExecutionDomain, callback_bridge
 from .stream import resolve_to_disk
-from .primary import PrimaryPages
 from ..refinement import MAX_INPUT_LEAD
 
 
@@ -37,6 +36,7 @@ class LiveExtraction:
         self._consumed = 0
         self._admitted = 0
         self._page_indexes = page_indexes
+        self._expected_order = None
         self._capacity = asyncio.Event()
         # A blocking stream consumer must never occupy the pool that feeds it.
         # One owned worker per live stream; joined before its workspace is freed.
@@ -68,7 +68,7 @@ class LiveExtraction:
 
     async def _refine(self, factory, on_body, on_footnote):
         from .assembly import PageAssembly
-        from ..refinement import refine_pages, PageResult
+        from ..refinement import refine_ready
         # Reuse the owned delivery queues, but never route callback coroutines
         # through a blocking worker when the producer already runs on the loop.
         body = self.deliveries[0].append if on_body is not None else None
@@ -77,13 +77,10 @@ class LiveExtraction:
         assembly = await IO_DOMAIN.run(lambda: PageAssembly(
             self.database, on_body=callback_bridge(loop, body) if body else None,
             on_footnote=callback_bridge(loop, note) if note else None))
-        async def primary():
-            initial = PrimaryPages()
-            async for page in self.pages.aread():
-                yield await IO_DOMAIN.run(initial.append, page)
-        async with factory() as process, aclosing(refine_pages(primary(), process)) as results:
+        async with factory() as process, aclosing(refine_ready(
+                self.pages.aread(), process, self.pages.path / 'refinement',
+                self._refinement_order)) as results:
             async for result in results:
-                result = result if isinstance(result, PageResult) else PageResult(result)
                 try:
                     await self._analysis_domain.run(assembly.append, result.page)
                 except Exception as error:
@@ -107,6 +104,13 @@ class LiveExtraction:
                 self._consumed += 1
                 self._capacity.set()
         await self._analysis_domain.run(assembly.finish)
+
+    def _refinement_order(self):
+        if self._expected_order is None:
+            return ()  # A cache/direct stream discovers its order from input.
+        if not self.ignored:
+            return self._expected_order
+        return [index for index in self._expected_order if index not in self.ignored]
 
     async def _wait_capacity(self, ordinal):
         while self._refining:
@@ -151,12 +155,30 @@ class LiveExtraction:
                 self._record_error(error)
         if self.analysis_error is not None:
             return
+        if self._refining and self._expected_order is None:
+            indexes = range(1, event.total_pages + 1)
+            self._expected_order = indexes if self._page_indexes is None else [
+                index for index in indexes if index in self._page_indexes]
+        terminal = event.kind in (OCREventKind.COMPLETE, OCREventKind.SKIP, OCREventKind.FAILED)
+        duplicate = terminal and event.page_index in self.ready
         if event.kind == OCREventKind.START:
             self.order.append(event.page_index)
         elif event.kind == OCREventKind.IGNORE:
             self.ignored.add(event.page_index)
         elif event.kind in (OCREventKind.COMPLETE, OCREventKind.SKIP, OCREventKind.FAILED):
             self.ready.add(event.page_index)
+        if self._refining:
+            if terminal and not duplicate:
+                if self._page_indexes is None or event.page_index in self._page_indexes:
+                    try:
+                        page = await IO_DOMAIN.run(decode, await IO_DOMAIN.run(
+                            read_xml, self.pages_path / f"page_{event.page_index}.xml"))
+                    except Exception as error:
+                        setattr(error, 'page_index', event.page_index)
+                        self._record_error(error)
+                        return
+                    await IO_DOMAIN.run(self.pages.append, page)
+            return
         while self.position < len(self.order):
             index = self.order[self.position]
             if index in self.ignored:
@@ -211,7 +233,10 @@ class LiveExtraction:
                     ordinal += 1
             except Exception as error:
                 self._record_error(error)
-        self.pages.close()
+        # A missing page after a decode failure is not successful input EOF.
+        # Preserve the original page location for finite recovery instead of
+        # replacing it with a scheduler-wide missing-input error.
+        self.pages.close(self.analysis_error)
         try:
             await self.task
         except Exception as error:

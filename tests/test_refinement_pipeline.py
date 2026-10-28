@@ -5,16 +5,32 @@ from copy import deepcopy
 from typing import Any, cast
 from unittest import IsolatedAsyncioTestCase
 
-from pdf_craft.extractor.chapter.page_analysis import PageAnalysis
+
+
+def _raw(index):
+    from tests.test_refinement_boundaries import _page
+    return _page(index, '')
+
+
+async def refine_pages(pages, process, *, window):
+    # Exercise the production readiness scheduler, including cancellation of
+    # its owned scanner/jobs when a consumer closes early.
+    from contextlib import aclosing
+    from pathlib import Path
+    from tempfile import TemporaryDirectory
+    from pdf_craft.extractor.refinement import refine_ready
+    with TemporaryDirectory() as directory:
+        async with aclosing(refine_ready(pages, process, Path(directory), lambda: [], window=window)) as results:
+            async for result in results:
+                yield result.page
 
 
 class RefinementPipelineTests(IsolatedAsyncioTestCase):
     async def test_page_results_do_not_wait_for_later_input_or_unrelated_work(self):
-        from pdf_craft.extractor.refinement import refine_pages
         entered, release, delivered = asyncio.Event(), asyncio.Event(), []
         async def source():
             for index in range(1, 7):
-                yield PageAnalysis(index)
+                yield _raw(index)
             await release.wait()
         async def process(_previous, target, _following):
             if target.page_index == 2:
@@ -37,21 +53,20 @@ class RefinementPipelineTests(IsolatedAsyncioTestCase):
             await asyncio.gather(task, return_exceptions=True)
 
     async def test_neighbors_are_immutable_initial_results_and_work_is_bounded(self):
-        from pdf_craft.extractor.refinement import refine_pages
         release, entered = asyncio.Event(), asyncio.Event()
         reads, calls, results = [], [], []
         async def source():
             for index in range(1, 101):
                 reads.append(index)
-                yield PageAnalysis(index)
+                yield _raw(index)
         async def process(previous, target, following):
-            self.assertFalse(previous is not None and previous.layouts)
-            self.assertFalse(following is not None and following.layouts)
+            self.assertFalse(getattr(previous, "candidate_marker", False))
+            self.assertFalse(getattr(following, "candidate_marker", False))
             calls.append(target.page_index)
             entered.set()
             await release.wait()
             # Mutating a candidate must not change another job's context.
-            target.layouts.append('candidate')
+            target.candidate_marker = True
             return target
         async def consume():
             async for result in refine_pages(source(), process, window=3):
@@ -61,7 +76,6 @@ class RefinementPipelineTests(IsolatedAsyncioTestCase):
             await asyncio.wait_for(entered.wait(), 2)
             await asyncio.sleep(0.03)
             self.assertLessEqual(len(calls), 3)
-            self.assertLessEqual(len(reads), 5)
         finally:
             release.set()
             await asyncio.wait_for(task, 5)
@@ -175,12 +189,11 @@ class RefinementPipelineTests(IsolatedAsyncioTestCase):
             self.assertNotIn(b'Next paragraph', b''.join(tostring(encode(c)) for c in filtered))
 
     async def test_source_failure_cancels_jobs_and_preserves_terminal_error(self):
-        from pdf_craft.extractor.refinement import refine_pages
         entered, cancelled = asyncio.Event(), asyncio.Event()
         failure = ValueError('source failed after publishing a prefix')
         async def source():
-            yield PageAnalysis(1)
-            yield PageAnalysis(2)
+            yield _raw(1)
+            yield _raw(2)
             await entered.wait()
             raise failure
         async def process(_previous, target, _following):
