@@ -8,7 +8,7 @@ from ...common import XMLReader, read_xml
 from ...common.stream import DiskDelivery, DiskStream
 from ...pdf import Page, decode
 from ...pdf.ocr import OCREventKind
-from ...runtime import IO_DOMAIN, callback_bridge
+from ...runtime import IO_DOMAIN, ExecutionDomain, callback_bridge
 from .stream import resolve_to_disk
 
 
@@ -26,6 +26,13 @@ class LiveExtraction:
         self.position = 0
         self.analysis_error: Exception | None = None
         self.deliveries = []
+        self._lock = asyncio.Lock()
+        self._stopped = False
+        self._finishing: asyncio.Task | None = None
+        self._failure: BaseException | None = None
+        # A blocking stream consumer must never occupy the pool that feeds it.
+        # One owned worker per live stream; joined before its workspace is freed.
+        self._analysis_domain = ExecutionDomain("live-analysis", 1)
         loop = asyncio.get_running_loop()
 
         def callback(kind, handler):
@@ -44,12 +51,27 @@ class LiveExtraction:
 
         body = callback("body", on_body)
         footnote = callback("footnote", on_footnote)
-        self.task = asyncio.create_task(IO_DOMAIN.run(
+        self.task = asyncio.create_task(self._analysis_domain.run(
             resolve_to_disk, self.pages.read, self.database,
             includes_footnotes=includes_footnotes, on_body=body, on_footnote=footnote,
         ))
 
     async def event(self, event):
+        async with self._lock:
+            if self._failure is not None:
+                raise self._failure
+            if self._stopped:
+                raise RuntimeError("extraction stream is closed")
+            try:
+                await self._event(event)
+            except BaseException as error:
+                # IO may already have committed when cancellation arrives. Never
+                # retry consumption with a stale cursor after a terminal failure.
+                self._failure = error
+                self.pages.close(error)
+                raise
+
+    async def _event(self, event):
         if self.task.done():
             try:
                 await self.task
@@ -82,6 +104,27 @@ class LiveExtraction:
             self.position += 1
 
     async def finish(self):
+        async with self._lock:
+            if self._failure is not None:
+                raise self._failure
+            if self._finishing is None:
+                if self._stopped:
+                    raise RuntimeError("extraction stream is closed")
+                self._stopped = True
+                self._finishing = asyncio.create_task(self._finish())
+            finishing = self._finishing
+        # Do not hold the event lock while waiting for user callbacks: cancel
+        # must be able to close input and interrupt those deliveries.
+        try:
+            await asyncio.shield(finishing)
+        except BaseException as error:
+            if self._failure is None:
+                self._failure = error
+            self.pages.close(error)
+            finishing.cancel()
+            raise
+
+    async def _finish(self):
         if not self.order:
             # A complete OCR cache emits no page events, but is replayable.
             reader = await IO_DOMAIN.run(XMLReader, "page", self.pages_path, decode)
@@ -106,7 +149,16 @@ class LiveExtraction:
         self.analysis_error = error
 
     async def cancel(self):
-        self.pages.close(RuntimeError("extraction stream aborted"))
-        await settle_tasks([self.task])
-        for delivery in self.deliveries:
-            await delivery.cancel()
+        async with self._lock:
+            self._stopped = True
+            self.pages.close(RuntimeError("extraction stream aborted"))
+            if self._finishing is not None:
+                self._finishing.cancel()
+        try:
+            for delivery in self.deliveries:
+                await delivery.cancel()
+        finally:
+            try:
+                await settle_tasks([self.task] + ([self._finishing] if self._finishing is not None else []))
+            finally:
+                self._analysis_domain.close()

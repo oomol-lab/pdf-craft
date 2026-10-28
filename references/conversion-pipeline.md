@@ -220,3 +220,11 @@ LLM 首轮等前 3 页（不足时 EOF），后续 read_more 只等指定输入�
 正文、脚注、资产、家具、metadata 分别入场，按稳定身份汇合；正文/脚注各自的磁盘通知与全局顺序文件写入独立。
 `document/content.py contextual_content` 用磁盘 spool 等必要原文 lookahead，保持 480 字符资产上下文。
 EPUB 输入的调度架构不变。用户契约见 `docs/*/TRANSLATION_PROGRESS.md` 与 `STREAMING.md`。
+
+## 事件消费与执行域
+
+Vendor 渲染准备回调与 OCR 完成迭代可能并发进入实时提取。页面顺序消费必须覆盖
+读取、追加和游标提交的完整临界区；不能靠 ready.discard 掩盖重复消费。阻塞等待页流的
+分析线程、等待 loop 回调的渲染线程分别由操作持有和释放，不能占用其所依赖的短 IO 池。
+收尾等待用户回调时不能持有页面消费锁；取消需关闭输入、停止交付并等待工作线程退出。
+WorkUnit 的 progress/finish 需串行结算，已失败或取消的结算不能重试通知并伪装为完成。
