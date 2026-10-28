@@ -24,10 +24,11 @@ def project_adopted(chapters: Path, evidence: Path, destination: Path, printed_p
         db.execute('CREATE INDEX by_page ON fields(page)')
         for path in chapter_paths(chapters):
             root = read_xml(path)
+            body_texts = set(root.findall('./flow/text'))
             for text in root.iter('text'):
                 fragments = list(text.findall('fragment'))
                 first = fragments[0] if fragments else None
-                heading = text in root.findall('./flow/text') and text.get('role') == 'heading'
+                heading = text in body_texts and text.get('role') == 'heading'
                 title = ''.join(''.join(f.itertext()) for f in fragments) if heading else ''
                 for fragment in fragments:
                     db.execute('INSERT INTO fields VALUES (?,?,?,?,?)', (

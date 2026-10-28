@@ -304,7 +304,7 @@ class PDFExtractionEngine:
                 await run_cancellable(OCR_DOMAIN, lambda _check: generate_chapter_files(
                     pages_path=draft.pages_path, chapters_path=adopted,
                     toc=TocInfo([], draft.toc.page_indexes), analysed_pages=analysed_pages,
-                    resolved_database=resolved_database), original_aborted=aborted)
+                    resolved_database=resolved_database, chunk_size=128), original_aborted=aborted)
             else:
                 adopted = prepared_chapters
             projection = directory / "pages"

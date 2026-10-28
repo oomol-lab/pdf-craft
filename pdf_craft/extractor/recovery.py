@@ -255,7 +255,7 @@ async def recover_chapters(draft, ocr, error: Exception, directory: Path, *, ana
             await IO_DOMAIN.run(shutil.copyfile, draft.pages_path / f'page_{index}.xml', path / f'page_{index}.xml')
         records = DiskStream(path / 'records')
         def collect(path=path, records=records):
-            for chapter in _generate_chapters(path, TocInfo([], draft.toc.page_indexes)):
+            for chapter in _generate_chapters(path, TocInfo([], draft.toc.page_indexes), chunk_size=128):
                 records.append(chapter)
             records.close()
         try:
@@ -267,16 +267,15 @@ async def recover_chapters(draft, ocr, error: Exception, directory: Path, *, ana
         else:
             # Final chapter identities are assigned after all runs are adopted.
             fragments[run[0]] = records
-    current = Chapter(None, -1, [])
+    sequence = 0
     for index in indexes:
         records = fragments.get(index)
         if records is None:
             continue
         async for part in worker_iter(records.read()):
             check_cancelled()
-            current.flow_items.extend(part.flow_items)
-            current.definitions.extend(part.definitions)
-    await IO_DOMAIN.run(save_xml, encode(current), prepared / f'chapter_{current.id if current.id is not None else "head"}.xml')
+            await IO_DOMAIN.run(save_xml, encode(part), prepared / f'chapter_{sequence}.xml')
+            sequence += 1
     ocr_failed = {index for index in content_indexes if (draft.pages_path / f'page_{index}.failed').exists()}
     if content_indexes and not (content_indexes - degraded - ocr_failed):
         raise NoUsableOCRPagesError(tuple(sorted(degraded | ocr_failed)))

@@ -58,6 +58,10 @@ PageAnalysis 的 continuation 表示文字前驱，跳过同一归属流中的�
 需要可编辑页级 ownership 的 PageAnalysisProcessor 仍使用 `restore_streams` 的整批事务语义；
 `extractor/commit.py` 是统一定稿出口：由已采用章节投影标题与占用供 TOC/furniture 使用，
 再按最终目录划分章节、校验；正式回调只重放最终章节，脚注按来源排序去重。
+采用阶段使用每块最多 128 个完整 FlowItem 的私有磁盘分块，未引用定义另按 128 条分块，
+文件序号不是章节 ID。不得用空 TOC 聚合成全书 chapter_head 再拆分；恢复路径同样分块。
+分块不切断自然段或引用，标题层级只在最终分章后计算；投影每块只建立一次正文节点集合。
+精修既有的整批 PageAnalysis 和最终单章大小仍是已有的内存边界，本约束消除新增的全书聚合。
 来源 OCR 不接受语义回写，投影只供下游派生，不能反过来重跑段落分析。
 无法证明有效的旧派生缓存（含 toc.xml）重算；保留有效 OCR。metadata 仍独立读取原始书目证据。
 FootnoteOptions(refinement=FootnoteRefinement(...)) 在调用方 event loop 在线执行 JEV 筛选及

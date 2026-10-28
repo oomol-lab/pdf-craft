@@ -294,8 +294,10 @@ class ExtractionRecoveryTests(IsolatedAsyncioTestCase):
                 return await recover_chapters(draft, RecoveryOCR(), PageStructureError('invalid connection', 2),
                                               destination, analyses=analyses, aborted=lambda: False)
             output = await recover_once(root / 'recovered', error_policy=lambda ctx: decisions.append(ctx) or True)
-            chapter = decode_chapter(parse(output.chapters / 'chapter_head.xml').getroot())
-            self.assertEqual([type(item) for item in chapter.flow_items], [StandaloneAsset, StandaloneAsset, TextFlowItem])
+            from pdf_craft.document.content import chapter_paths
+            items = [item for path in chapter_paths(output.chapters)
+                     for item in decode_chapter(parse(path).getroot()).flow_items]
+            self.assertEqual([type(item) for item in items], [StandaloneAsset, StandaloneAsset, TextFlowItem])
             self.assertEqual({value.page_indexes[0] for value in decisions[0].affected}, {1, 2})
             self.assertEqual(decisions[0].targets[0].page_indexes, (2,))
             (pages_path / 'page_3.failed').touch()
