@@ -190,6 +190,7 @@ Local execution also requires a matching CUDA-enabled PyTorch build, sufficient 
 | Convert PDFs, create EPUBs, or write translations into PDFs | [PDF conversion and translation](docs/en/PDF_TRANSLATION.md) |
 | Translate existing EPUBs and configure bilingual output | [EPUB translation](docs/en/EPUB_TRANSLATION.md) |
 | Display incremental content and source locations | [Callback guide](docs/en/STREAMING.md) |
+| Understand extraction streaming and latency tradeoffs | [Design rationale (Chinese)](docs/design/pdf-extraction-streaming.md) |
 | Look up parameters, types, and methods | [API reference](docs/en/API_REFERENCE.md) |
 | Store or exchange extraction results | [`.pcex` format](docs/en/PCEX_FORMAT.md) |
 | Resolve installation and conversion issues | [Troubleshooting](docs/en/TROUBLESHOOTING.md) |

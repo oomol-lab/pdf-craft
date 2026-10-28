@@ -19,6 +19,8 @@ pdf-craft 是一个把扫描书籍 PDF 转换为 Markdown 或 EPUB 的 Python �
 - 当选择 setup、验证、worktree 行为、发布或外部依赖处理方式时，阅读[开发与 Worktree](references/development-and-worktrees.md)。
 - 当准备发版、更新版本号、编写 changelog 或调整发布流程时，阅读[发版流程](references/release-workflow.md)。
 
+- 当修改 PDF 提取调度、页精修或内容回调时，阅读[流式设计与取舍](docs/design/pdf-extraction-streaming.md)。
+
 - 当修改失败恢复、翻译缺失、错误定位或任务成功判断时，阅读[失败与有效成果](references/failure-and-completion.md)。
 
 ## 项目特有默认规则

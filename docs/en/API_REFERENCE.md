@@ -291,9 +291,11 @@ options = ExtractionOptions(
 )
 ```
 
-OCR and traditional footnote resolution still run first. JEV only selects pages for the LLM;
-the repaired page must pass the deterministic schema and integrity checks before chapter
-`FlowItem` assembly continues. Use `FootnoteOptions()` without `refinement` for the
+Initial page inputs feed independent JEV → optional LLM jobs before whole-book OCR ends.
+The LLM sees only the target JEV score and immutable initial neighbor content, never neighbor
+scores or repairs. Validated page results enter ordered incremental paragraph assembly;
+closed content is delivered before final TOC organization or packaging. See the
+[design rationale (Chinese)](../design/pdf-extraction-streaming.md). Use `FootnoteOptions()` without `refinement` for the
 algorithm-only tier. Use `jev_executor` and `llm_executor` instead of the common `executor`
 when those services have separate provider quotas. AI refinement requires explicit executors;
 there is no per-service numeric concurrency fallback.

@@ -1,6 +1,7 @@
 """Bridge persisted OCR completions to ordered, incremental chapter analysis."""
 
 import asyncio
+from contextlib import aclosing
 from pathlib import Path
 
 from ...concurrency import settle_tasks
@@ -10,13 +11,15 @@ from ...pdf import Page, decode
 from ...pdf.ocr import OCREventKind
 from ...runtime import IO_DOMAIN, ExecutionDomain, callback_bridge
 from .stream import resolve_to_disk
+from .primary import PrimaryPages
+from ..refinement import MAX_INPUT_LEAD
 
 
 class LiveExtraction:
     """Only page-order metadata stays in RAM; all content queues live on disk."""
 
     def __init__(self, path: Path, pages_path: Path, includes_footnotes: bool,
-                 on_body=None, on_footnote=None) -> None:
+                 on_body=None, on_footnote=None, *, refinement=None, page_indexes=None) -> None:
         self.pages_path = pages_path
         self.database = path / "content.sqlite"
         self.pages: DiskStream[Page] = DiskStream(path / "pages")
@@ -30,6 +33,11 @@ class LiveExtraction:
         self._stopped = False
         self._finishing: asyncio.Task | None = None
         self._failure: BaseException | None = None
+        self._refining = refinement is not None
+        self._consumed = 0
+        self._admitted = 0
+        self._page_indexes = page_indexes
+        self._capacity = asyncio.Event()
         # A blocking stream consumer must never occupy the pool that feeds it.
         # One owned worker per live stream; joined before its workspace is freed.
         self._analysis_domain = ExecutionDomain("live-analysis", 1)
@@ -51,10 +59,67 @@ class LiveExtraction:
 
         body = callback("body", on_body)
         footnote = callback("footnote", on_footnote)
-        self.task = asyncio.create_task(self._analysis_domain.run(
+        self.task = asyncio.create_task(self._refine(refinement, on_body, on_footnote)) if refinement is not None else asyncio.create_task(self._analysis_domain.run(
             resolve_to_disk, self.pages.read, self.database,
             includes_footnotes=includes_footnotes, on_body=body, on_footnote=footnote,
         ))
+
+        self.task.add_done_callback(lambda _task: self._capacity.set())
+
+    async def _refine(self, factory, on_body, on_footnote):
+        from .assembly import PageAssembly
+        from ..refinement import refine_pages, PageResult
+        # Reuse the owned delivery queues, but never route callback coroutines
+        # through a blocking worker when the producer already runs on the loop.
+        body = self.deliveries[0].append if on_body is not None else None
+        note = self.deliveries[-1].append if on_footnote is not None else None
+        loop = asyncio.get_running_loop()
+        assembly = await IO_DOMAIN.run(lambda: PageAssembly(
+            self.database, on_body=callback_bridge(loop, body) if body else None,
+            on_footnote=callback_bridge(loop, note) if note else None))
+        async def primary():
+            initial = PrimaryPages()
+            async for page in self.pages.aread():
+                yield await IO_DOMAIN.run(initial.append, page)
+        async with factory() as process, aclosing(refine_pages(primary(), process)) as results:
+            async for result in results:
+                result = result if isinstance(result, PageResult) else PageResult(result)
+                try:
+                    await self._analysis_domain.run(assembly.append, result.page)
+                except Exception as error:
+                    if result.usage is not None:
+                        result.usage.settle(False)
+                    from ..recovery import recoverable_structure
+                    if result.initial is None or not recoverable_structure(error):
+                        raise
+                    from ..._policy import recover
+                    from ...policies import FailureCategory, FailureLocation
+                    await recover(error, FailureCategory.ANALYSIS, 'footnote_commit', 'algorithm_result',
+                                  targets=(FailureLocation('page', page_indexes=(result.page.page_index,)),))
+                    await self._analysis_domain.run(assembly.append, result.initial)
+                    result.usage = None
+                except BaseException:
+                    if result.usage is not None:
+                        result.usage.settle(False)
+                    raise
+                if result.usage is not None:
+                    result.usage.settle(True)
+                self._consumed += 1
+                self._capacity.set()
+        await self._analysis_domain.run(assembly.finish)
+
+    async def _wait_capacity(self, ordinal):
+        while self._refining:
+            self._capacity.clear()
+            if self.task.done():
+                try:
+                    await self.task
+                except Exception as error:
+                    self._record_error(error)
+                return
+            if ordinal < self._consumed + MAX_INPUT_LEAD:
+                return
+            await self._capacity.wait()
 
     async def event(self, event):
         async with self._lock:
@@ -64,12 +129,19 @@ class LiveExtraction:
                 raise RuntimeError("extraction stream is closed")
             try:
                 await self._event(event)
+                admit = event.kind == OCREventKind.START and (
+                    self._page_indexes is None or event.page_index in self._page_indexes)
+                ordinal = self._admitted
+                if admit:
+                    self._admitted += 1
             except BaseException as error:
-                # IO may already have committed when cancellation arrives. Never
-                # retry consumption with a stale cursor after a terminal failure.
                 self._failure = error
                 self.pages.close(error)
                 raise
+        # Admission waits outside the consumption lock: an older OCR request
+        # must remain able to publish the input that makes this window advance.
+        if admit:
+            await self._wait_capacity(ordinal)
 
     async def _event(self, event):
         if self.task.done():
@@ -130,8 +202,13 @@ class LiveExtraction:
             reader = await IO_DOMAIN.run(XMLReader, "page", self.pages_path, decode)
             from ...runtime import worker_iter
             try:
+                ordinal = 0
                 async for page in worker_iter(reader.read()):
+                    if self._page_indexes is not None and page.index not in self._page_indexes:
+                        continue
+                    await self._wait_capacity(ordinal)
                     await IO_DOMAIN.run(self.pages.append, page)
+                    ordinal += 1
             except Exception as error:
                 self._record_error(error)
         self.pages.close()
@@ -151,7 +228,11 @@ class LiveExtraction:
     async def cancel(self):
         async with self._lock:
             self._stopped = True
-            self.pages.close(RuntimeError("extraction stream aborted"))
+            self.pages.close(self._failure or RuntimeError("extraction stream aborted"))
+            # Closing input only wakes readers. A full refinement window can
+            # instead be waiting for a provider or admission slot indefinitely.
+            # Cancelling its owner enters refine_pages' child-task teardown.
+            self.task.cancel()
             if self._finishing is not None:
                 self._finishing.cancel()
         try:

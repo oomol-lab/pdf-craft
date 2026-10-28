@@ -34,10 +34,9 @@ anchored 图片/表格文字。
 2. 通过 `OCR.recognize()` 识别页面布局。
 3. 在 `analysing_path/ocr/` 写入 OCR 页 XML 和恢复缓存，在
    `analysing_path/extraction/assets/` 写入资源。
-4. OCR 的终态页事件经磁盘流恢复输入页序，传统跨页解析与 OCR 并行推进；闭合正文、脚注和
-   未定归属来源存入磁盘数据库。闭合内容通过 on_body/on_footnote 立即交付初级提取结果；
-   初级内容、归属和层级不承诺等于最终章节，不等待无关 OCR、metadata、目录或精修。
-   先识别印刷目录页以排除正文，再完成精修和关联校验；最终目录由已采用标题生成。
+4. OCR 终态页事件恢复输入页序，初级快照随页产生。配置精修时进入有界 JEV→可选 LLM 页任务；
+   仅等待必要初级邻页，LLM只携带当前页评分，不读取邻页评分或精修结果。乱序结果按输入序增量组段，
+   闭合正文/脚注立即交付，不能等待全书OCR、全批JEV、metadata或TOC。无精修时复用传统增量解析。
 5. 在 `analysing_path/extraction/` 生成章节、TOC、页面几何和 manifest；章节使用 PCEX v3
    FlowItem，保留文字 fragment、段内 anchored image/table 与独立段落公式的阅读顺序。
 6. 仅从该 extraction 渲染 Markdown 或 EPUB。
@@ -54,23 +53,24 @@ PageAnalysis 的 continuation 表示文字前驱，跳过同一归属流中的�
 完整来源和前缀范围保留到组装：正文投影保留前缀，定义投影才移除前缀。断词修复延后到 ownership
 组装完成后的语义投影；原始文字记录不被改写，投影为空的 fragment 也保留原身份和 bbox。
 
-默认传统算法由 `extractor/chapter/stream.py` 增量连接、来源投影和磁盘组装；无目录页排除时复用
-在线生成的内容数据库，有目录页排除时从 OCR 缓存按排除规则重放。章节定稿逐章处理。
-需要可编辑页级 ownership 的 PageAnalysisProcessor 仍使用 `restore_streams` 的整批事务语义；
-`extractor/commit.py` 是统一定稿出口：由已采用章节投影标题与占用供 TOC/furniture 使用，
-再按最终目录划分章节、校验；最终采用不重复回放初级内容回调。
-初级回调通道内有序、恰好一次且保留来源；初级可交付内容不得被无关编排延迟，维护时需保留屏障回归。
-采用阶段使用每块最多 128 个完整 FlowItem 的私有磁盘分块，未引用定义另按 128 条分块，
-文件序号不是章节 ID。不得用空 TOC 聚合成全书 chapter_head 再拆分；恢复路径同样分块。
-分块不切断自然段或引用，标题层级只在最终分章后计算；投影每块只建立一次正文节点集合。
-精修既有的整批 PageAnalysis 和最终单章大小仍是已有的内存边界，本约束消除新增的全书聚合。
-来源 OCR 不接受语义回写，投影只供下游派生，不能反过来重跑段落分析。
-无法证明有效的旧派生缓存（含 toc.xml）重算；保留有效 OCR。metadata 仍独立读取原始书目证据。
-FootnoteOptions(refinement=FootnoteRefinement(...)) 在调用方 event loop 在线执行 JEV 筛选及
-LLM 页级修正；CLI 的 --footnotes 只启用传统算法。LLM JSON 通过 request_guaranteed_json
-编译 ownership、必需元数据、引用位置及定义关系，候选在完整暂存对象图上组装成功才接纳。
-候选在暂存对象图通过校验后才提交；允许降级的页保留算法结果，必要时撤销整批精修，任何失败均不修改调用方原对象。不得额外嵌套请求重试。
-ref 仍以 layout_id + citation_index + before/mark/after 定位，不要求 LLM 算 offset。
+无精修时由 `extractor/chapter/stream.py` 传统增量解析。精修生产链路使用
+`chapter/primary.py` 从初级证据建立局部快照，`extractor/refinement.py` 有界三页窗口并发页任务，
+`chapter/assembly.py` 按序校验连接、持久化自然段与定义；`chapter/live.py` 管理输入、背压与通知生命周期。
+每页只有自己的评分能进入LLM，邻页内容始终是初级快照。评分/页候选与前后处理的真实资源仍由用户executor限制。
+已完成内容、页候选和依赖边落盘，内存不保留全书task/DOM。当前窗口8页，OCR准入最多领先消费12页；
+未闭合自然段/脚注仍以完整语义单位为边界。准入等待不得持有页消费锁；缓存重放也经过背压。
+初级正文的语义前驱跨纯图片/表格页保留，最多额外保存最近正文原始页，不积攒中间资产页；
+仍复用 joiner 的空页/公式/完句边界。取消必须主动取消管道拥有者并收敛子任务，不能仅关闭输入后等待满窗口自然完成。
+
+候选的schema、源身份、页内关系在单页repair parse处校验；跨页incoming连接在有序组段时校验。
+单页组装事务失败不得产生半次回调或半份spool，允许的局部恢复只退回当前页初级结果。
+已有结构故障升级路径仍保留；恢复利用已采用页记录和依赖闭包保护其他精修结果，不整批撤回。
+独立离线页分析/repair工具仍可使用批接口，但不是提取生产管道的全局屏障。
+
+`extractor/commit.py` 只从已处理内容派生TOC/furniture，再分章和校验；回调不镜像这次全局整理，
+不得等待它或在最终章节处重放。私有磁盘分块每块最多128个完整FlowItem；文件序号不是章节ID。
+OCR证据不回写，无法证明有效的派生缓存重算。metadata独立读取所需前N页初级书目证据。
+产品目的、工程取舍和持续时序验收详见[设计文章](../docs/design/pdf-extraction-streaming.md)。
 
 连接的唯一编辑真源为后继的 continues_from_previous；continues_to_next 由此派生，旧字段若
 显式返回，仅作为同页一致性断言。没有按修正先后顺序选择布尔值的 reconciliation。
@@ -222,7 +222,7 @@ EpubTranslation 仅作为 EpubFragmentContent 的兼容别名。
 
 `extractor/metadata.py FrontPages` 只记录前 12 个候选身份与落盘就绪位；原生 metadata 在 OCR 前完成，
 LLM 首轮等前 3 页（不足时 EOF），后续 read_more 只等指定输入。正式 OCR 终态/缓存驱动 readiness，
-最终封装等待 metadata；TOC/JEV/页精修依赖不变。
+最终封装等待 metadata；内容流不等待该分支。TOC只整理最终产物，页精修按局部输入就绪推进。
 
 `transformer/pcex_schedule.py` 共用一个活跃业务 window 和原 translator executor，内部 group window=1，
 避免容量相乘。`ready_queue.py` 将未执行/标题依赖/乱序结果落盘；`furniture_plan.py` 根据具体标题终态释放复用。

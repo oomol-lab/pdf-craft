@@ -247,8 +247,10 @@ options = ExtractionOptions(
 )
 ```
 
-传统算法仍先完整生成可逆的 PageAnalysis；JEV 只负责筛选低置信页，LLM 返回的完整目标页必须通过
-schema、layout 不可变性、citation/ref 一一对应和 gap 等确定性约束，之后才继续组装 FlowItem。
+初级页及相邻初级输入就绪后逐页 JEV，按当前页评分独立决定是否 LLM 精修；不等全书 OCR 或全批 JEV。
+LLM prompt 只包含当前页评分，不披露邻页评分；邻页始终使用不可变初级内容。候选通过 schema、
+来源身份及页内关系校验后按序增量组段，跨页约束在组段时检查；闭合内容立即交付。
+最终 TOC 整理不阻塞正文/脚注回调，详见[设计取舍](../design/pdf-extraction-streaming.md)。
 JEV 与 LLM 使用不同供应商配额时，可分别传 `jev_executor` 与 `llm_executor`；传共同的
 `executor` 表示两者共享容量。AI 矫正必须显式传入执行器，不再提供各服务独立的数字并发默认值。
 

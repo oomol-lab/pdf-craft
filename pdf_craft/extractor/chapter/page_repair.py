@@ -97,7 +97,7 @@ PAGE_REPAIR_SYSTEM_PROMPT = """\
 
 图片/表格可以嵌在同一个自然段内部，它们的位置不可移动，自身的两个 continuation 必须为 false。判断文字 continuation 时跳过这些锚点，连接同一归属流中的前一文字 layout；只有独立段落公式阻断这种连接。
 
-相邻页只是历史现场，可能错误。相邻页的 jev_p_pass 是较弱审核器对其现有标注可靠性的估计，不是事实或约束。目标页分数被刻意隐藏，请独立检查；如果原结果正确，可以原样返回。
+相邻页仅提供不可变的初级内容上下文，不提供审核评分。若目标页带有 jev_p_pass，它只表示较弱审核器对当前页的估计，不是事实或约束；请独立检查，如果原结果正确可以原样返回。
 
 修改纪律：
 - 现有标注是一套已闭环的候选结果，不是让你从头重做的空白草稿。默认保留每个字段；只在文本语义、几何位置或引用对应给出具体证据时修改。
@@ -261,8 +261,9 @@ async def _repair_pages(
                     previous_page=previous,
                     target_page=target,
                     next_page=following,
-                    previous_pass_probability=_neighbor_probability(previous, reviews),
-                    next_pass_probability=_neighbor_probability(following, reviews),
+                    previous_pass_probability=None,
+                    next_pass_probability=None,
+                    target_pass_probability=(reviews[page_index].pass_probability if page_index in reviews else None),
                     request=request,
                     all_pages=repaired,
                 )
@@ -307,6 +308,7 @@ async def repair_page_with_llm(
     next_page: PageAnalysis | None,
     previous_pass_probability: float | None,
     next_pass_probability: float | None,
+    target_pass_probability: float | None = None,
     request: PageRepairRequest,
     all_pages: list[PageAnalysis] | None = None,
     retry_policy: RetryPolicy | None = None, error_policy: ErrorPolicyInput = OMITTED,
@@ -321,6 +323,7 @@ async def repair_page_with_llm(
         next_page=next_page,
         previous_pass_probability=previous_pass_probability,
         next_pass_probability=next_pass_probability,
+        target_pass_probability=target_pass_probability,
     )
     def compile_candidate(data, _index, _maximum):
         context = all_pages or [page for page in (previous_page, target_page, next_page)
@@ -385,13 +388,16 @@ def build_page_repair_messages(
     next_page: PageAnalysis | None,
     previous_pass_probability: float | None,
     next_pass_probability: float | None,
+    target_pass_probability: float | None = None,
 ) -> list[Message]:
+    del previous_pass_probability, next_pass_probability
+    target = _page_packet(target_page)
+    if target_pass_probability is not None:
+        target['jev_p_pass'] = target_pass_probability
     payload = {
-        "previous_page": _context_packet(
-            previous_page, previous_pass_probability
-        ),
-        "target_page": _page_packet(target_page),
-        "next_page": _context_packet(next_page, next_pass_probability),
+        "previous_page": _context_packet(previous_page),
+        "target_page": target,
+        "next_page": _context_packet(next_page),
         "output_contract": RepairedPage.model_json_schema(),
     }
     return [
@@ -405,12 +411,10 @@ def build_page_repair_messages(
 
 def _context_packet(
     page: PageAnalysis | None,
-    pass_probability: float | None,
 ) -> dict | None:
     if page is None:
         return None
     return {
-        "jev_p_pass": pass_probability,
         "analysis": _page_packet(page),
     }
 

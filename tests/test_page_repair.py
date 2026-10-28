@@ -96,7 +96,7 @@ class PageRepairTests(unittest.IsolatedAsyncioTestCase):
             self.assertNotIn("jev_p_pass", payload["target_page"])
             for key in ("previous_page", "next_page"):
                 if payload[key] is not None:
-                    self.assertIsNone(payload[key]["jev_p_pass"])
+                    self.assertNotIn("jev_p_pass", payload[key])
 
     async def test_direct_llm_processor_can_select_pages_without_jev(self):
         source_pages = [
@@ -126,7 +126,7 @@ class PageRepairTests(unittest.IsolatedAsyncioTestCase):
         for payload in payloads:
             for key in ("previous_page", "next_page"):
                 if payload[key] is not None:
-                    self.assertIsNone(payload[key]["jev_p_pass"])
+                    self.assertNotIn("jev_p_pass", payload[key])
 
     async def test_batch_failure_is_direct_and_cancels_sibling_repairs(self):
         source_pages = [
@@ -254,14 +254,14 @@ class PageRepairTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(llm_payloads), 1)
         payload = llm_payloads[0]
         self.assertEqual(payload["target_page"]["page_index"], 2)
-        self.assertNotIn("jev_p_pass", payload["target_page"])
-        self.assertEqual(payload["previous_page"]["jev_p_pass"], 0.9)
-        self.assertEqual(payload["next_page"]["jev_p_pass"], 0.8)
+        self.assertEqual(payload["target_page"]["jev_p_pass"], probabilities[2])
+        self.assertNotIn("jev_p_pass", payload["previous_page"])
+        self.assertNotIn("jev_p_pass", payload["next_page"])
         self.assertEqual([page.page_index for page in repaired], [1, 2, 3])
         self.assertTrue(repaired[0].layouts[-1].continues_to_next)
         self.assertTrue(repaired[1].layouts[0].continues_from_previous)
 
-    def test_neighbor_scores_are_disclosed_but_target_score_is_absent(self):
+    def test_neighbor_scores_are_never_disclosed_even_when_available(self):
         previous = analyse_pages([1], [TextFlowItem(
             "body", -1, [_fragment(1, 0, "Previous")]
         )], [])[0]
@@ -280,8 +280,8 @@ class PageRepairTests(unittest.IsolatedAsyncioTestCase):
         )
         payload = json.loads(messages[1].message)
 
-        self.assertEqual(payload["previous_page"]["jev_p_pass"], 0.91)
-        self.assertEqual(payload["next_page"]["jev_p_pass"], 0.34)
+        self.assertNotIn("jev_p_pass", payload["previous_page"])
+        self.assertNotIn("jev_p_pass", payload["next_page"])
         self.assertNotIn("jev_p_pass", payload["target_page"])
         citation_layout = next(
             layout for layout in payload["target_page"]["layouts"]

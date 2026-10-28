@@ -31,14 +31,7 @@ class PrimaryStreamTests(IsolatedAsyncioTestCase):
                                 if not release.wait(10):
                                     raise TimeoutError('test did not release OCR')
 
-                class Engine(RefinedEngine):
-                    async def _refine_pages(self, chapter_analysis, footnote_refinement, draft):
-                        self_test.assertTrue(bodies, 'refinement cannot precede primary body delivery')
-                        self_test.assertTrue(notes, 'refinement cannot precede primary note delivery')
-                        return await super()._refine_pages(chapter_analysis, footnote_refinement, draft)
-
-                self_test = self
-                engine = Engine('ignored')
+                engine = RefinedEngine('ignored')
                 engine._ocr = OCR()
                 def body(node):
                     bodies.append(tostring(node))
@@ -63,14 +56,14 @@ class PrimaryStreamTests(IsolatedAsyncioTestCase):
                     release.set()
                     await task
                 self.assertEqual(len(notes), 6)
-                self.assertEqual(len(bodies), 8)
+                self.assertEqual(len(bodies), 7 if refined else 8)
                 self.assertEqual(len(set(notes)), 6)
                 self.assertEqual([fromstring(node).get("id") for node in notes],
                                  [f"{index}-1" for index in range(1, 7)])
                 fragments = [fragment for node in bodies for fragment in fromstring(node).iter("fragment")]
                 self.assertTrue(all(fragment.get("bbox") and fragment.get("source_order") is not None
                                     for fragment in fragments))
-                self.assertIn(b'Second chapter', b''.join(bodies))
+                self.assertEqual(b'Second chapter' in b''.join(bodies), not refined)
                 with ZipFile(root/'book.pcex') as archive:
                     final = b''.join(archive.read(name) for name in archive.namelist() if name.startswith('chapters/'))
                 self.assertEqual(b'Second chapter' in final, not refined)

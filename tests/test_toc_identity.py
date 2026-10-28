@@ -1,6 +1,7 @@
 """Deterministic TOC/chapter identity gates; no provider or model requests."""
 # pylint: disable=protected-access,unused-argument,super-init-not-called
 import json
+from contextlib import asynccontextmanager
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest import IsolatedAsyncioTestCase
@@ -14,7 +15,6 @@ from pdf_craft import (
 )
 from pdf_craft.common import save_xml
 from pdf_craft.extractor.chapter.chapter import decode as decode_chapter, SourceTextFragment, TextFlowItem
-from pdf_craft.extractor.chapter.page_repair import AllPageLlmRepairProcessor
 from pdf_craft.extractor.toc import TocInfo, Toc, iter_toc
 from pdf_craft.extractor.toc.analysing import analyse_toc
 from pdf_craft.pdf import decode, encode
@@ -53,7 +53,8 @@ class RefinedEngine(PDFExtractionEngine):
         self._ocr = IdentityOCR()
         self.mode = mode
 
-    async def _refine_pages(self, chapter_analysis, footnote_refinement, draft):
+    @asynccontextmanager
+    async def _stream_refinement(self, options, kwargs):
         async def request(messages, _index, _maximum):
             result = _response_from_message(messages[1])
             if result['page_index'] == 1:
@@ -66,8 +67,13 @@ class RefinedEngine(PDFExtractionEngine):
                     first['continues_to_next'] = True
                     second['continues_from_previous'] = True
             return json.dumps(result)
-        return await AllPageLlmRepairProcessor(request)(
-            chapter_analysis.source_pages, chapter_analysis.pages, chapter_analysis.page_pixel_sizes)
+        from pdf_craft.extractor.chapter.page_repair import repair_page_with_llm
+        from pdf_craft.extractor.refinement import PageResult
+        async def process(previous, target, following):
+            return PageResult(await repair_page_with_llm(
+                previous_page=previous, target_page=target, next_page=following,
+                previous_pass_probability=None, next_pass_probability=None, request=request))
+        yield process
 
 
 def refinement():

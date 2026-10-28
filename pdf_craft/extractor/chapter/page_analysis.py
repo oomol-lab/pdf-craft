@@ -824,6 +824,7 @@ def _content_text_leaves(
             elif isinstance(part, _ReferencePlaceholder):
                 offset += len(part.text)
             elif isinstance(part, _AnalysedInlineExpression):
+                leaves.append((path, offset, offset + len(part.content)))
                 offset += len(part.content)
             else:
                 visit(part.children, path)
@@ -870,6 +871,20 @@ def _replace_content_text_leaves(
                 cursor = end
             if cursor < len(part):
                 result.append(part[cursor:])
+        elif isinstance(part, _AnalysedInlineExpression) and path in replacements:
+            spans = replacements[path]
+            if len(spans) != 1:
+                raise ValueError('Reference must cover the complete atomic OCR expression')
+            start, end, span = spans[0]
+            placeholder = _ReferencePlaceholder(span.mark_text, span.citation_page_index, span.citation_index)
+            if (start, end) == (0, len(part.content)):
+                result.append(placeholder)
+            elif start == end == 0:
+                result.extend((placeholder, part))
+            elif start == end == len(part.content):
+                result.extend((part, placeholder))
+            else:
+                raise ValueError('Reference must cover the complete atomic OCR expression')
         elif isinstance(part, _AnalysedHTMLTag):
             result.append(replace(
                 part,

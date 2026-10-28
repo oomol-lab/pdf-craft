@@ -10,6 +10,9 @@ from collections.abc import Iterable
 from dataclasses import dataclass
 from pathlib import Path
 import shutil
+import pickle
+import sqlite3
+from contextlib import closing
 from xml.etree.ElementTree import ParseError
 
 from ..common import read_xml, save_xml, AssetHub
@@ -167,7 +170,7 @@ class RecoveredChapters:
     toc: "TocInfo"
 
 
-async def recover_chapters(draft, ocr, error: Exception, directory: Path, *, analyses=(), aborted):
+async def recover_chapters(draft, ocr, error: Exception, directory: Path, *, analyses=(), adopted_database=None, aborted):
     """Prepare replacement chapters; disk/publication errors are outside this boundary.
 
     Each source run is tried at most once. Unknown failures conservatively
@@ -190,6 +193,22 @@ async def recover_chapters(draft, ocr, error: Exception, directory: Path, *, ana
         if not recoverable_structure(scope_error):
             raise
         affected = set(content_indexes)  # The scope probe is optional, never another recovery prerequisite.
+    if adopted_database is not None and adopted_database.exists():
+        def expand_saved():
+            values = set(affected)
+            with closing(sqlite3.connect(adopted_database)) as db:
+                if not db.execute("SELECT 1 FROM sqlite_master WHERE name='edges'").fetchone():
+                    return values
+                frontier = list(values)
+                while frontier:
+                    index = frontier.pop()
+                    for left, right in db.execute('SELECT left_page,right_page FROM edges WHERE left_page=? OR right_page=?', (index, index)):
+                        for linked in (left, right):
+                            if linked in content_indexes and linked not in values:
+                                values.add(linked)
+                                frontier.append(linked)
+            return values
+        affected = await IO_DOMAIN.run(expand_saved)
     prepared = directory / 'chapters'
     prepared.mkdir(parents=True)
     degraded = set()
@@ -254,8 +273,28 @@ async def recover_chapters(draft, ocr, error: Exception, directory: Path, *, ana
         for index in run:
             await IO_DOMAIN.run(shutil.copyfile, draft.pages_path / f'page_{index}.xml', path / f'page_{index}.xml')
         records = DiskStream(path / 'records')
-        def collect(path=path, records=records):
-            for chapter in _generate_chapters(path, TocInfo([], draft.toc.page_indexes), chunk_size=128):
+        def collect(path=path, records=records, run=run):
+            if adopted_database is not None and adopted_database.exists():
+                from .chapter.assembly import PageAssembly
+                from .chapter.primary import PrimaryPages
+                from .chapter.stream import chapters_from_disk
+                from ..pdf import decode
+                from copy import deepcopy
+                spool = path / 'adopted.sqlite'
+                assembly = PageAssembly(spool)
+                primary = PrimaryPages()
+                with closing(sqlite3.connect(adopted_database)) as db:
+                    for index in run:
+                        raw = decode(read_xml(path / f'page_{index}.xml'))
+                        initial = primary.append(raw)
+                        row = db.execute('SELECT value FROM adopted WHERE page=?', (index,)).fetchone()
+                        page = pickle.loads(row[0]) if row else deepcopy(initial)
+                        assembly.append(page)
+                assembly.finish()
+                chapters = chapters_from_disk(spool, TocInfo([], []), chunk_size=128)
+            else:
+                chapters = _generate_chapters(path, TocInfo([], draft.toc.page_indexes), chunk_size=128)
+            for chapter in chapters:
                 records.append(chapter)
             records.close()
         try:

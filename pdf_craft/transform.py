@@ -7,7 +7,7 @@ from ._policy import decision_bridge, OMITTED, policy_operation
 
 import asyncio
 from collections.abc import Callable, Container
-from contextlib import aclosing
+from contextlib import aclosing, asynccontextmanager
 from dataclasses import dataclass, replace
 from os import PathLike
 from pathlib import Path
@@ -35,9 +35,7 @@ from .document.metadata import MetadataContent
 from .extractor.metadata import FrontPages, extract_book_metadata_from_ocr, merge_ocr_and_pdf_metadata
 from .extractor.chapter import (
     generate_chapter_files,
-    prepare_chapter_analysis,
 )
-from .extractor.chapter.page_repair import JevLlmRepairProcessor
 from .extractor.toc import TocInfo, analyse_toc
 from .document import (
     DocumentMetadata,
@@ -136,7 +134,10 @@ class PDFExtractionEngine:
                 front = await IO_DOMAIN.run(FrontPages.open, kwargs["analysing_path"] / "ocr",
                                             count, kwargs.get("page_indexes"))
             live = LiveExtraction(directory, kwargs["analysing_path"] / "ocr",
-                                  kwargs["includes_footnotes"], on_body, on_footnote)
+                                  kwargs["includes_footnotes"], on_body, on_footnote,
+                                  refinement=(lambda: self._stream_refinement(kwargs['footnote_refinement'], kwargs))
+                                  if kwargs.get('footnote_refinement') is not None else None,
+                                  page_indexes=kwargs.get("page_indexes"))
             callback = kwargs.get("on_ocr_event")
             async def event(value):
                 if front is not None:
@@ -248,27 +249,15 @@ class PDFExtractionEngine:
         if metadata_task is not None:
             draft = replace(draft, document_metadata=await metadata_task)
         draft = await self._resolve_llm_stages(draft, kwargs, on_metadata, metadata_resolved=metadata_task is not None)
-        chapter_analysis = None
         try:
             if live is not None and live.analysis_error is not None:
                 raise live.analysis_error
-            from .usage import UsageScope
-            with UsageScope(provider=footnote_refinement.llm if footnote_refinement is not None else None) as refinement_usage:
-                repaired_pages = None
-                if footnote_refinement is not None:
-                    chapter_analysis = await run_cancellable(
-                        OCR_DOMAIN,
-                        lambda _aborted: prepare_chapter_analysis(draft.pages_path, draft.toc),
-                        original_aborted=original_aborted,
-                    )
-                    repaired_pages = await self._refine_pages(chapter_analysis, footnote_refinement, draft)
-                return await self._commit_extraction(
-                    draft, analysed_pages=repaired_pages,
-                    resolved_database=(live.database if live is not None and repaired_pages is None
-                                       and not draft.toc.page_indexes else None),
-                    aborted=original_aborted, refinement_usage=refinement_usage,
-                    toc_llm=kwargs["toc_llm"], toc_assumed=kwargs["toc_assumed"],
-                )
+            return await self._commit_extraction(
+                draft, analysed_pages=None,
+                resolved_database=(live.database if live is not None and
+                                   (footnote_refinement is not None or not draft.toc.page_indexes) else None),
+                aborted=original_aborted, toc_llm=kwargs["toc_llm"], toc_assumed=kwargs["toc_assumed"],
+            )
         except Exception as error:
             from .extractor.recovery import recover_chapters, recoverable_structure
             if not recoverable_structure(error):
@@ -276,7 +265,8 @@ class PDFExtractionEngine:
             async with temporary_directory("pdf-craft-page-recovery-") as directory:
                 recovered = await recover_chapters(
                     draft, self._ocr, error, directory,
-                    analyses=chapter_analysis.pages if chapter_analysis is not None else (),
+                    analyses=(),
+                    adopted_database=(live.database if footnote_refinement is not None and live is not None else None),
                     aborted=original_aborted or (lambda: False),
                 )
                 draft = replace(draft, toc=recovered.toc)
@@ -320,41 +310,57 @@ class PDFExtractionEngine:
                 refinement_usage.accept()
             return result
 
-    async def _refine_pages(self, chapter_analysis, footnote_refinement, draft):
-        runtime = runtime_for(
-            footnote_refinement.llm,
-            footnote_refinement.resolved_llm_executor(),
-            protocol_version="footnote-refinement-json-v1",
-        )
-
+    @asynccontextmanager
+    async def _stream_refinement(self, options, kwargs):
+        from .extractor.chapter.page_review import build_jev_review_requests
+        from .extractor.chapter.page_repair import repair_page_with_llm
+        from .extractor.progress import page_stage
+        from .common import read_xml
+        from .pdf import decode
+        from ._policy import recover, locations
+        from .policies import FailureCategory, FailureLocation
+        from .usage import UsageScope
+        from .extractor.refinement import PageResult
+        runtime = runtime_for(options.llm, options.resolved_llm_executor(),
+                              protocol_version='footnote-refinement-json-v2')
         async def request(messages, index, maximum):
-            return await runtime.request(
-                messages,
-                max_tokens=footnote_refinement.max_output_tokens,
-                retry_index=index,
-                retry_max=maximum,
-            )
-
-        async with JEVRuntime(
-            footnote_refinement.jev,
-            footnote_refinement.resolved_jev_executor(),
-        ) as jev:
-            processor = JevLlmRepairProcessor(
-                jev.evaluate,
-                request,
-                threshold=footnote_refinement.risk_threshold,
-                batch_evaluator=jev.evaluate_many,
-            )
-            from ._failure_sources import page_sources
-            from .document.access import page_geometries
-            with page_sources(page_geometries(chapter_analysis.page_pixel_sizes, draft.dpi or 300)):
-                repaired_pages = await processor(
-                    chapter_analysis.source_pages,
-                    chapter_analysis.pages,
-                    chapter_analysis.page_pixel_sizes,
-                )
-
-        return repaired_pages
+            return await runtime.request(messages, max_tokens=options.max_output_tokens,
+                                         retry_index=index, retry_max=maximum)
+        async with JEVRuntime(options.jev, options.resolved_jev_executor()) as jev:
+            async def process(previous, target, following):
+                neighbors = [page for page in (previous, target, following) if page is not None]
+                source = await IO_DOMAIN.run(lambda: [decode(read_xml(
+                    kwargs['analysing_path'] / 'ocr' / f'page_{page.page_index}.xml')) for page in neighbors])
+                packet = next(packet for index, packet in build_jev_review_requests(
+                    source, neighbors, self._ocr.last_page_pixel_sizes) if index == target.page_index)
+                location = FailureLocation('page', page_indexes=(target.page_index,))
+                context = tuple(FailureLocation('page', page_indexes=(page.page_index,))
+                                for page in (previous, following) if page is not None)
+                with locations((location,)):
+                    await page_stage(target.page_index, 5)
+                    try:
+                        probability = await jev.evaluate(target.page_index, packet)
+                        if not 0 <= probability <= 1:
+                            raise ValueError('JEV pass probability must be between 0 and 1')
+                    except Exception as error:
+                        await recover(error, FailureCategory.ANALYSIS, 'jev_review', 'algorithm_result',
+                                      targets=(location,), context_locations=context)
+                        return PageResult(target)
+                    if round(1 - probability, 12) < options.risk_threshold:
+                        return PageResult(target)
+                    await page_stage(target.page_index, 6)
+                    with UsageScope(provider=options.llm) as usage:
+                        try:
+                            result = await repair_page_with_llm(
+                                previous_page=previous, target_page=target, next_page=following,
+                                previous_pass_probability=None, next_pass_probability=None,
+                                target_pass_probability=probability, request=request)
+                        except Exception as error:
+                            await recover(error, FailureCategory.ANALYSIS, 'footnote_repair', 'algorithm_result',
+                                          targets=(location,), context_locations=context)
+                            return PageResult(target)
+                        return PageResult(result, usage.defer(), target)
+            yield process
 
     async def prepare_extract(
         self,
