@@ -212,7 +212,7 @@ Progress may interleave in execution order. Body and footnote content callbacks 
 retain their own source order and use separate disk delivery, independently of the
 ordered chapter writer/renderer. Slow callbacks and out-of-order results do not hold
 execution slots; callback failures still cancel and settle sibling work. Renderers
-do not impose a metadata/all-furniture barrier on PDF layout: ready body, note and furniture work joins only at connected page windows. PDF metadata is written at publication.
+do not impose a metadata/all-furniture barrier on PDF layout: each paragraph is fitted when ready, and body, note and furniture work joins only at directly affected pages. PDF metadata is written at publication.
 Operation completion requires successful complete consumption/publication; closing a
 partially consumed stream cancels and settles remaining jobs immediately instead of
 waiting for the book to finish, and cannot fabricate completion. EPUB input retains its existing

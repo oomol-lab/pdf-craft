@@ -195,7 +195,7 @@ class PDFPatcher:
         feed = getattr(self, '_replacement_feed', None)
         replacements = iter(replacements)
         try:
-            if feed is not None and feed.windows:
+            if feed is not None and (feed.windows or feed.spans):
                 first_replacement = feed.first()
                 if first_replacement is None:
                     raise StopIteration
@@ -333,9 +333,12 @@ class PDFPatcher:
                     record_replacement_failure(replacement, error)
 
             planner = WindowedParagraphPlanner(self._filler, page_sizes, self.options)
-            independent = isinstance(feed, ReplacementFeed) and bool(feed.windows)
+            independent = isinstance(feed, ReplacementFeed) and bool(feed.windows or feed.spans)
             def plans():
-                if independent:
+                if isinstance(feed, ReplacementFeed) and feed.spans:
+                    from .incremental_layout import plan_ready_pages
+                    yield from plan_ready_pages(feed, self._filler, page_sizes, self.options, validated, on_window_error)
+                elif independent:
                     assert isinstance(feed, ReplacementFeed)
                     for batch in feed.ready_batches():
                         # The planner remembers preceding body font sizes.
@@ -451,7 +454,9 @@ class PDFPatcher:
         preview = None
         if getattr(self, '_preview_path', None) is not None:
             from .preview import WindowPreview
-            preview = WindowPreview(root, window, self._filler, page_sizes)
+            feed = getattr(self, '_replacement_feed', None)
+            preview = WindowPreview(root, window, self._filler, page_sizes,
+                                    incremental=isinstance(feed, ReplacementFeed) and bool(feed.spans))
         try:
             for index in range(window.first_page_index, window.last_page_index + 1):
                 if index not in target_page_indexes:

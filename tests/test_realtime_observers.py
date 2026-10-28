@@ -13,6 +13,54 @@ from tests.test_translation_word_progress import identity_fill
 
 
 class RealtimeObserversTests(IsolatedAsyncioTestCase):
+    async def test_cross_page_chain_delivers_first_paragraph_before_last_translation(self):
+        from reportlab.pdfgen.canvas import Canvas
+        from pdf_craft import AsyncPDFCraft
+        from pdf_craft.common import save_xml
+        from pdf_craft.extractor.chapter.chapter import Chapter, TextFlowItem, SourceTextFragment, encode
+        from tests.extraction_helpers import make_extraction
+        from tests.test_translation_word_progress import translator
+        release, blocked, delivered = asyncio.Event(), asyncio.Event(), asyncio.Event()
+        contents = []
+        async def request(_self, text):
+            if 'Last paragraph' in text:
+                blocked.set()
+                await release.wait()
+            return text
+        def body(content):
+            contents.append(content)
+            delivered.set()
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = root/'source.pdf'
+            canvas = Canvas(str(source), pagesize=(200, 200))
+            for _ in range(4):
+                canvas.showPage()
+            canvas.save()
+            extraction = make_extraction(root/'extraction',
+                page_pixel_sizes={i: (200, 200) for i in range(1, 5)}, render_dpi=72)
+            texts = ['First paragraph', 'Middle paragraph', 'Last paragraph']
+            chapter = Chapter(None, -1, [TextFlowItem('body', 0, [
+                SourceTextFragment(i+1, 1, (10,110,180,160), [text + ' begins']),
+                SourceTextFragment(i+2, 0, (10,20,180,70), [' and ends.']),
+            ]) for i, text in enumerate(texts)])
+            save_xml(encode(chapter), root/'extraction/chapters/chapter_head.xml')
+            with patch.object(XMLTranslator, '_translate_text_async', request), patch.object(
+                    XMLTranslator, '_request_and_submit_async', identity_fill):
+                task = asyncio.create_task(AsyncPDFCraft().translate_pdf(source, extraction, root/'out.pdf',
+                    translator(), window=4, on_body=body, error_policy=False))
+                try:
+                    await asyncio.wait_for(blocked.wait(), 3)
+                    await asyncio.wait_for(delivered.wait(), 10)
+                    self.assertIn('First paragraph', contents[0].text)
+                    self.assertEqual(len(contents), 1)
+                    self.assertEqual([r.page.page_index for r in contents[0].regions], [1, 2])
+                    self.assertTrue(any(r.lines for r in contents[0].regions))
+                finally:
+                    release.set()
+                    await asyncio.wait_for(task, 20)
+            self.assertEqual(len(contents), 3)
+
     async def test_unrefined_page_completion_does_not_wait_for_earlier_ocr(self):
         from pdf_craft.common import save_xml
         from pdf_craft.pdf import encode

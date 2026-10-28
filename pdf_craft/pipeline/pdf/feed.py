@@ -38,6 +38,22 @@ class ReplacementFeed:
     root: Path
     count: int
     windows: tuple[tuple[int, ...], ...] = ()
+    spans: tuple[tuple[int, int, int], ...] = ()
+
+    def ready_items(self):
+        """Deliver each settled input, including skipped slots, independently."""
+        pending = set(range(self.count))
+        while pending:
+            error = self.root / 'error'
+            if error.exists():
+                raise RuntimeError(read_record(error))
+            ready = [slot for slot in sorted(pending) if (self.root / str(slot)).exists()]
+            if not ready:
+                time.sleep(.01)
+                continue
+            for slot in ready:
+                pending.remove(slot)
+                yield slot, read_record(self.root / str(slot))
 
     def __iter__(self):
         for index in range(self.count):
@@ -52,6 +68,8 @@ class ReplacementFeed:
                 yield value
 
     def first(self):
+        if self.spans:
+            return next((value for _, value in self.ready_items() if value is not None), None)
         if self.windows:
             return next((value for batch in self.ready_batches() for value in batch), None)
         return next(iter(self), None)
