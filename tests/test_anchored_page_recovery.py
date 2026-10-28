@@ -176,7 +176,7 @@ class ExtractionRecoveryTests(IsolatedAsyncioTestCase):
             options = replace(options, footnotes=FootnoteOptions(FootnoteRefinement(
                 JEV(key='unused'), LLM(key='unused', model='unused', url='https://unused.invalid', token_encoding='o200k_base'),
                 executor=ConcurrentExecutor(FixedCapacity(1)))))
-        target = 'pdf_craft.transform.prepare_chapter_analysis' if stage == "prepare" else 'pdf_craft.transform.generate_chapter_files'
+        target = 'pdf_craft.extractor.chapter.live.primary_page' if stage == "prepare" else 'pdf_craft.transform.generate_chapter_files'
         with patch(target, side_effect=error):
             return await AsyncPDFCraft.from_engine(engine).extract_pdf(
                 root / 'source.pdf', root / 'book.pcex',

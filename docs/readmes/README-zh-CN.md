@@ -171,6 +171,7 @@ python -m pip install "pdf-craft[local]"
 | 转换 PDF、生成 EPUB、翻译并写回 PDF | [PDF 转换与翻译](../zh-CN/PDF_TRANSLATION.md) |
 | 翻译已有 EPUB，设置双语输出 | [EPUB 翻译指南](../zh-CN/EPUB_TRANSLATION.md) |
 | 提前展示内容，获取来源页与坐标 | [增量回调指南](../zh-CN/STREAMING.md) |
+| 理解流式提取的产品目标与工程取舍 | [PDF → PCEX 设计文章](../design/pdf-extraction-streaming.md) |
 | 查询参数、类型和调用方式 | [API 参考](../zh-CN/API_REFERENCE.md) |
 | 存储或交换提取结果 | [`.pcex` 格式参考](../zh-CN/PCEX_FORMAT.md) |
 | 解决安装、识别与输出问题 | [故障排查](../zh-CN/TROUBLESHOOTING.md) |

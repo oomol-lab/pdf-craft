@@ -83,9 +83,9 @@ class PDFOptions:
 class ExtractionOptions:
     """Controls for one PDF extraction run.
 
-    on_body/on_footnote deliver closed primary extraction XML incrementally,
-    before optional refinement. Content, ownership and levels may differ from
-    final PCEX chapters; delivery does not indicate operation success.
+    on_body/on_footnote deliver closed page-processed XML incrementally,
+    after optional local refinement and before final TOC organization.
+    Delivery does not indicate operation success or mirror final chapter levels.
     """
 
     page_indexes: Container[int] | None = None

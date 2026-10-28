@@ -9,7 +9,7 @@ after successful validation/packaging.
 
 | Operation | Content callbacks | Payload |
 | --- | --- | --- |
-| PDF → PCEX extraction | `ExtractionOptions.on_body` / `on_footnote` | Independent primary-extraction PCEX XML `Element` snapshots |
+| PDF → PCEX extraction | `ExtractionOptions.on_body` / `on_footnote` | Independent page-processed PCEX XML `Element` snapshots |
 | PCEX translation, Markdown or EPUB rendering | `on_body` / `on_footnote` | `ParagraphContent[SourceRegion]`, one whole paragraph |
 | PCEX → PDF patching or translation | `on_body` / `on_footnote` | `PDFParagraphContent`, one whole paragraph with final layout |
 | Existing EPUB translation | `on_body` | `EpubFragmentContent`, one atomic translation fragment |
@@ -49,24 +49,29 @@ the artifact. Fragment page numbers, source orders, and pixel bounding boxes are
 preserved; source page geometry is recorded in the resulting `pages.xml`.
 Asset hashes refer to extraction resources, not embedded image bytes.
 
-Since **2.6.7**, these callbacks again deliver **primary extraction results** incrementally.
-Once the necessary cross-page input closes a paragraph or footnote, it is delivered
-without waiting for unrelated pages, metadata, printed-directory detection, JEV/LLM
-refinement or packaging. Each channel is ordered and delivered exactly once, with
-no final replay. Source page/order/bbox identities are preserved in detached snapshots.
+PDF extraction is a page pipeline. Each JEV job starts when its target and available
+initial neighbors are ready. Its optional LLM repair follows that page's decision,
+without waiting for other JEV jobs. Neighbor context always uses immutable initial
+pages. Only the target JEV score enters the LLM prompt; neighbor scores are never
+disclosed, even if already available.
 
-Content, body/footnote ownership and heading levels can all differ from the final
-PCEX after refinement, printed-directory exclusion and chapter reordering. Read the
-returned PCEX for final content; these callbacks are not a mirror of final chapters.
-Version 2.6.6 delayed callbacks until whole-book adoption; 2.6.7 fixes that regression
-using the existing API. The batch barriers (all OCR before JEV, all JEV before LLM
-refinement) remain unchanged and do not block primary callbacks.
+Page results may finish out of order. Ordered incremental assembly closes complete
+paragraphs and footnote definitions and immediately enqueues their callbacks. Each
+channel is ordered and delivered exactly once, with no final replay. This replaces
+the temporary pre-refinement previews restored by the 2.6.7 hotfix: callbacks now
+represent processed pages, not an initial preview followed by a repaired revision.
+Pages that need no repair use their initial result.
 
-Maintenance invariant: deliverable primary content must not be delayed by unrelated
-work or orchestration changes. Barrier regressions cover delivery before later OCR,
-refinement and TOC completion, cross-page closure, EOF draining, caches, errors and
-cancellation. Backlogs stay on disk. A later callback or publication failure still
-fails the operation: receiving content is not a success signal.
+Final TOC, heading levels, printed-directory exclusion and chapter partitioning may
+change the artifact's organization; callbacks do not mirror those global edits and
+must not wait for them. Metadata is independent of the content stream. A bounded
+page window and upstream admission apply backpressure; completed content and
+notification backlogs use disk. Callback errors and cancellation abort the operation;
+receiving content is not a task-success signal.
+
+Maintain barrier regressions proving that later OCR, unrelated JEV work and final
+TOC completion cannot delay ready downstream work or closed content. See the
+[design rationale and tradeoffs (Chinese)](../design/pdf-extraction-streaming.md).
 
 ### Analysis cache migration
 

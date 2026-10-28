@@ -180,12 +180,40 @@ def chapters_from_disk(database: Path, toc, *, chunk_size: int | None = None) ->
             UPDATE refs SET used=0;
         """)
 
+        adopted = bool(db.execute("SELECT 1 FROM sqlite_master WHERE name='adopted'").fetchone())
+
         def bodies():
             for row in db.execute("SELECT value FROM bodies ORDER BY page, position, rowid"):
-                yield pickle.loads(row[0])
+                item = pickle.loads(row[0])
+                if adopted:
+                    # Bodies may have been delivered before a continued
+                    # definition closed. Hydrate only during final assembly.
+                    for reference in search_references_in_chapter(Chapter(None, -1, [item])):
+                        found = db.execute('SELECT value FROM refs WHERE page=? AND number=?', reference.id).fetchone()
+                        if found is None:
+                            raise ValueError(f'Missing adopted reference {reference.id}')
+                        stored = pickle.loads(found[0])
+                        reference.flow_items = stored.flow_items
+                        reference.mark = stored.mark
+                    from .chapter import StandaloneAsset, DisplayFormula
+                    if isinstance(item, (StandaloneAsset, DisplayFormula)):
+                        item = item.asset
+                if adopted and isinstance(item, TextFlowItem):
+                    children = []
+                    for child in item.children:
+                        if child.page_index in toc.page_indexes:
+                            if children:
+                                yield TextFlowItem(item.role, item.level, children)
+                                children = []
+                        else:
+                            children.append(child)
+                    if children:
+                        yield TextFlowItem(item.role, item.level, children)
+                elif not adopted or item.page_index not in toc.page_indexes:
+                    yield item
 
         count = 0
-        for count, chapter in enumerate(_partition_chapters(bodies(), toc, chunk_size=chunk_size), start=1):
+        for count, chapter in enumerate(_partition_chapters(bodies(), toc, assembled=adopted, chunk_size=chunk_size), start=1):
             for reference in search_references_in_chapter(chapter):
                 db.execute("UPDATE refs SET used=1 WHERE page=? AND number=?", reference.id)
             minimum = min((child.page_index for item in chapter.flow_items
@@ -196,7 +224,9 @@ def chapters_from_disk(database: Path, toc, *, chunk_size: int | None = None) ->
             for (value,) in db.execute("SELECT value FROM assembled ORDER BY id"):
                 yield pickle.loads(value)
             definitions = []
-            for (value,) in db.execute("SELECT value FROM refs WHERE used=0 ORDER BY page,number"):
+            for page, value in db.execute("SELECT page,value FROM refs WHERE used=0 ORDER BY page,number"):
+                if page in toc.page_indexes:
+                    continue
                 definitions.append(pickle.loads(value))
                 if len(definitions) == chunk_size:
                     yield Chapter(None, -1, [], definitions)

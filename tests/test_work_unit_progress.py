@@ -141,8 +141,8 @@ class RefinementProgressTests(TestCase):
     def test_conditional_refinement_and_ignored_repair_are_settled(self):
         from pdf_craft import FootnoteOptions, FootnoteRefinement, JEV, LLM, ConcurrentExecutor, FixedCapacity
         from pdf_craft.jev import JEVRuntime
-        async def reviews(_runtime, requests):
-            return [(index, 0.0 if index == 1 else 1.0) for index, _ in requests]
+        async def reviews(_runtime, index, _request):
+            return 0.0 if index == 1 else 1.0
         with TemporaryDirectory() as folder:
             events = []
             craft = fixtures.TestFailureFallbackEPUB._craft(
@@ -151,7 +151,7 @@ class RefinementProgressTests(TestCase):
             refinement = FootnoteRefinement(
                 JEV(key='unused'), LLM('unused', 'https://example.invalid', 'unused', 'o200k_base'),
                 executor=ConcurrentExecutor(FixedCapacity(2)))
-            with patch.object(JEVRuntime, 'evaluate_many', reviews), patch(
+            with patch.object(JEVRuntime, 'evaluate', reviews), patch(
                     'pdf_craft.extractor.chapter.page_repair.repair_page_with_llm', side_effect=ValueError('final repair failure')):
                 craft.extract_pdf('scripted.pdf', Path(folder) / 'book.pcex',
                     ExtractionOptions(includes_furniture=False, footnotes=FootnoteOptions(refinement),
