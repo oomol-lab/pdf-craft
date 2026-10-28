@@ -29,7 +29,7 @@ from ..ocr_config import (
     DeepSeekOCR2VendorConfig, DeepSeekOCRVendorConfig, OCRConfig,
     UnlimitedOCRVendorConfig, VendorOCRConfig,
 )
-from ..runtime import IO_DOMAIN, OCR_DOMAIN, run_cancellable, temporary_directory
+from ..runtime import IO_DOMAIN, OCR_DOMAIN, ExecutionDomain, run_cancellable, temporary_directory
 from .handler import DefaultPDFHandler, PDFHandler
 from .page_extractor import Page, PageExtractorNode, PageLayout
 from .page_ref import PageRefContext
@@ -251,11 +251,16 @@ class OCR:
                 prepared_stream.close()
 
             async def produce_pages():
+                # This worker waits for loop callbacks which themselves use IO.
+                # It cannot occupy a slot in the shared pool feeding those calls.
+                domain = ExecutionDomain("page-render", 1)
                 try:
-                    await run_cancellable(IO_DOMAIN, render_pages, original_aborted=aborted)
+                    await run_cancellable(domain, render_pages, original_aborted=aborted)
                 except BaseException as error:
                     prepared_stream.close(error)
                     raise
+                finally:
+                    domain.close()
 
             render_task = asyncio.create_task(produce_pages())
 

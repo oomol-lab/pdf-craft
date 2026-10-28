@@ -40,6 +40,10 @@ class ExecutionDomain:
             thread_name_prefix=f"pdf-craft-{name}",
         )
 
+    def close(self) -> None:
+        """Release an owned domain after all its operations have settled."""
+        self._executor.shutdown(wait=True)
+
     async def run(self, function: Callable[P, R], /, *args: P.args, **kwargs: P.kwargs) -> R:
         loop = asyncio.get_running_loop()
         future = loop.run_in_executor(

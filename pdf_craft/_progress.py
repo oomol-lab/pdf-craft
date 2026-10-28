@@ -73,11 +73,23 @@ class WorkUnit:
         self.stage = 0
         self.outcome = UnitOutcome.PROCESSED
         self.closed = False
+        self._lock = asyncio.Lock()
+        self._failure: BaseException | None = None
 
     def fields(self):
         return dict(unit_id=self.id, unit_kind=self.kind, page_index=self.page_index)
 
     async def progress(self, stage=None, words=0):
+        async with self._lock:
+            if self._failure is not None:
+                raise self._failure
+            try:
+                await self._progress(stage, words)
+            except BaseException as error:
+                self._failure = error
+                raise
+
+    async def _progress(self, stage=None, words=0):
         if self.closed:
             raise RuntimeError('cannot advance a completed unit')
         if stage is not None:
@@ -92,11 +104,21 @@ class WorkUnit:
                               unit_completed_words=self.words if self.total_words is not None else None)
 
     async def finish(self, outcome=None):
+        async with self._lock:
+            if self._failure is not None:
+                raise self._failure
+            try:
+                await self._finish(outcome)
+            except BaseException as error:
+                self._failure = error
+                raise
+
+    async def _finish(self, outcome):
         if self.closed:
             return
         if outcome is not None:
             self.outcome = outcome
-        await self.progress(self.max_stage, (self.total_words - self.words) if self.total_words is not None else 0)
+        await self._progress(self.max_stage, (self.total_words - self.words) if self.total_words is not None else 0)
         self.closed = True
         self.owner.finished[self.kind] += 1
         await self.owner.emit(ProgressEventKind.COMPLETED, **self.fields(), stage=self.stage,
