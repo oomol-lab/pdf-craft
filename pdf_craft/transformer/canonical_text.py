@@ -1,105 +1,154 @@
-"""Restore canonical padding at temporary formula boundaries, never wording."""
-from collections import Counter
-from xml.etree.ElementTree import Element
+"""Recover known canonical whitespace only when its slot ownership is unique."""
+from collections import defaultdict
 from typing import NamedTuple
+from xml.etree.ElementTree import Element
 
-from .xml_translator.utils import normalize_whitespace
+from .whitespace import DOCUMENT_SPACE, WhiteSpace, collapses_breaks, mode_for, normalize
+from .xml_translator.xml.matching import element_id, match_children
 
 
-class _TextSlot(NamedTuple):
+class _Field(NamedTuple):
     element: Element
     attribute: str
     path: list[Element]
-    root: Element
+    mode: WhiteSpace
+    source: str
+    text: str
     start: int
     end: int
-    text: str
-    plain: str
 
 
 def _gaps(text):
-    offset, gaps = 0, Counter()
+    offset, gaps = 0, defaultdict(str)
     for char in text:
-        if char == ' ':
-            gaps[offset] += 1
+        if char in DOCUMENT_SPACE:
+            gaps[offset] += char
         else:
             offset += 1
     return gaps
 
 
-def restore_formula_boundary_whitespace(roots: list[Element], canonical: str) -> bool:
-    """Restore padding only if all nonspace characters and other gaps match."""
-    slots: list[_TextSlot] = []
-    boundaries, root_ends = set(), set()
+def _source_owners(fields, position):
+    return [f for f in fields if f.source and (
+        (position == f.start and f.source[:1] in DOCUMENT_SPACE)
+        or (position == f.end and f.source[-1:] in DOCUMENT_SPACE))]
+
+
+def restore_canonical_whitespace(roots: list[Element], canonical: str,
+                                 sources: list[Element] | None = None,
+                                 modes: list[WhiteSpace] | None = None) -> bool:
+    """Align unchanged characters, then reconstruct legal gaps transactionally.
+
+    Text, punctuation, NBSP and other Unicode separators remain immutable.
+    Missing gaps inside one field are unique. At a tag/fragment boundary use
+    the existing gap owner or a unique source owner; formula padding belongs
+    outside the expression that the postprocessor will replace. Otherwise retry.
+    """
+    fields: list[_Field] = []
     offset = 0
 
-    def slot(element, attribute, path, root):
+    def field(element, attribute, path, mode, source):
         nonlocal offset
-        text = normalize_whitespace(getattr(element, attribute) or '')
-        plain = text.replace(' ', '')
-        slots.append(_TextSlot(element, attribute, path, root, offset, offset + len(plain), text, plain))
-        offset += len(plain)
+        text = normalize(getattr(element, attribute) or '', mode)
+        end = offset + sum(char not in DOCUMENT_SPACE for char in text)
+        fields.append(_Field(element, attribute, path, mode, source or '', text, offset, end))
+        offset = end
 
-    def walk(element, path, root):
-        start = offset
-        slot(element, 'text', path, root)
+    def walk(element, source, inherited, path):
+        mode = mode_for(source if source is not None else element, inherited)
+        field(element, 'text', path, mode, source.text if source is not None else '')
+        originals = {} if source is None else {
+            id(child): original for original, child in match_children(
+                ((node.tag, element_id(node), node) for node in source), element,
+            )
+        }
         for child in element:
-            walk(child, path + [child], root)
-            slot(child, 'tail', path, root)
-        if element.tag == 'expression':
-            boundaries.update((start, offset))
+            original = originals.get(id(child))
+            # A provided source is authoritative. A missing match must never
+            # let model-supplied attributes override its preservation context.
+            if source is not None and original is None:
+                return False
+            if not walk(child, original, mode, path + [child]):
+                return False
+            field(child, 'tail', path, mode, original.tail if original is not None else '')
+        return True
 
-    for root in roots:
-        walk(root, [root], root)
-        root_ends.add(offset)
-    actual = ''.join(item.text for item in slots)
-    if actual.replace(' ', '') != canonical.replace(' ', ''):
+    if sources is not None and len(sources) != len(roots):
+        return False
+    for index, root in enumerate(roots):
+        if not walk(root, sources[index] if sources is not None else None,
+                    modes[index] if modes is not None else WhiteSpace.NORMAL, [root]):
+            return False
+    actual = ''.join(item.text for item in fields)
+    canonical = canonical.replace('\r\n', '\n').replace('\r', '\n')
+    if ''.join(c for c in actual if c not in DOCUMENT_SPACE) != ''.join(
+            c for c in canonical if c not in DOCUMENT_SPACE):
         return False
     actual_gaps, expected_gaps = _gaps(actual), _gaps(canonical)
-    differences = {p for p in actual_gaps.keys() | expected_gaps.keys()
-                   if actual_gaps[p] != expected_gaps[p]}
-    if not differences or not differences <= boundaries or differences & (root_ends - {offset}):
-        return False
-
-    values, fields = {}, {}
-    for item in slots:
-        element, attribute, _, _, cursor, _, text, _ = item
-        chars = []
-        for char in text:
-            if char != ' ' or cursor not in differences:
-                chars.append(char)
-            if char != ' ':
-                cursor += 1
-        key = id(element), attribute
-        values[key], fields[key] = ''.join(chars), item
-    content = [item for item in slots if item.plain]
-    for position in differences:
-        if not expected_gaps[position]:
+    field_gaps = [_gaps(f.text) for f in fields]
+    changes: dict[int, tuple[str, int | None]] = {}
+    wanted: dict[int, str] = {}
+    for position in actual_gaps.keys() | expected_gaps.keys():
+        candidates = [i for i, f in enumerate(fields) if f.start <= position <= f.end]
+        interior = [i for i in candidates if fields[i].start < position < fields[i].end]
+        owners = [i for i in candidates if fields[i] in _source_owners(fields, position)]
+        existing = [i for i in candidates if field_gaps[i].get(position - fields[i].start)]
+        # Resolve ownership before choosing normalization. Source ownership wins
+        # over model placement in either direction across a preservation boundary.
+        relevant = interior or owners or existing or candidates
+        target = relevant[0] if len(relevant) == 1 else None
+        protected_modes = {fields[i].mode for i in relevant if not collapses_breaks(fields[i].mode)}
+        mode = next(iter(protected_modes)) if len(protected_modes) == 1 else WhiteSpace.PRE
+        protected = bool(protected_modes)
+        if target is None and owners and any(i not in owners for i in existing) and (
+                protected or any(not collapses_breaks(fields[i].mode) for i in existing)):
+            return False  # A cross-mode move with multiple source owners is ambiguous.
+        expected = normalize(expected_gaps[position], mode if protected else WhiteSpace.NORMAL)
+        if not protected and position in (0, offset):
+            expected = ''  # Normal paragraph edges, not independently trimmed XML nodes.
+        if expected:
+            wanted[position] = expected
+        misplaced = target is not None and any(i != target for i in existing)
+        if actual_gaps[position] == expected and not misplaced:
             continue
-        if position == 0:
-            target = fields[id(roots[0]), 'text']
-        elif position == offset:
-            root = roots[-1]
-            target = fields[id(root[-1]), 'tail'] if len(root) else fields[id(root), 'text']
-        else:
-            left = next(s for s in reversed(content) if s.end == position)
-            right = next(s for s in content if s.start == position)
-            common = 0
-            for a, b in zip(left.path, right.path):
-                if a is not b:
-                    break
-                common += 1
-            # Put a separator outside the expression that source restoration replaces.
-            target = fields[id(left.path[common]), 'tail'] if common < len(left.path) else left
-        key = id(target.element), target.attribute
-        value, index, remaining = values[key], 0, position - target.start
-        while remaining:
-            if value[index] != ' ':
-                remaining -= 1
-            index += 1
-        values[key] = value[:index] + ' ' * expected_gaps[position] + value[index:]
-    if ''.join(values[id(s.element), s.attribute] for s in slots) != canonical:
+        if expected and target is None:
+            if protected:
+                return False  # Canonical text cannot allocate multiple preserved fields.
+            if existing:
+                target = existing[0]  # CSS collapses a normal run across inline boundaries.
+            else:
+                # Formula identities are restored later; padding stays outside.
+                expressions = [f for f in fields if f.element.tag == 'expression' and f.attribute == 'text'
+                               and position in (f.start, f.end)]
+                if expressions:
+                    outside = [i for i in candidates if all(n.tag != 'expression' for n in fields[i].path)]
+                    if outside:
+                        target = outside[0]
+                if target is None:
+                    return False
+        changes[position] = expected, target
+    values = [f.text for f in fields]
+    for position, (expected, target) in sorted(changes.items()):
+        candidates = [i for i, f in enumerate(fields) if f.start <= position <= f.end]
+        for i in candidates:
+            f = fields[i]
+            result, cursor = [], f.start
+            inserted = False
+            for char in values[i]:
+                if cursor == position and not inserted:
+                    if i == target:
+                        result.append(expected)
+                    inserted = True
+                if char not in DOCUMENT_SPACE or cursor != position:
+                    result.append(char)
+                if char not in DOCUMENT_SPACE:
+                    cursor += 1
+            if cursor == position and not inserted and i == target:
+                result.append(expected)
+            values[i] = ''.join(result)
+    if dict(_gaps(''.join(values))) != wanted:
         return False
-    for element, attribute, *_ in slots:
-        setattr(element, attribute, values[id(element), attribute] or None)
+    # All recovery succeeded before changing any response fields.
+    for f, value in zip(fields, values):
+        setattr(f.element, f.attribute, value or None)
     return True

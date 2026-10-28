@@ -505,32 +505,17 @@ def _validate_chapter_fill_canonical_text(
     translated_text: str,
     response: Element,
 ) -> str | None:
-    """Reject a PCEX fill response that changes text at fragment boundaries.
+    """Recover uniquely determined whitespace before admitting a PCEX fill.
 
-    ``translated_text`` is the canonical result of the first LLM request.  A
-    narrative ``<text>`` is one TextFlowItem, while its fragments and opaque
-    anchors are only the mapping structure required for later PDF geometry.
-    The fill model may choose which fragment owns a character, but concatenating
-    visible content from all slots of that TextFlowItem must reproduce its
-    canonical translation exactly.  This check runs before HillClimbing admits
-    a candidate, so a structurally valid ``How / ever`` attempt cannot become
-    the immutable baseline for a later repair.
+    Each call owns one TextFlowItem and its known first-stage translation.
+    Its fragment/inline slots retain geometry and identity. Shared CSS document-
+    whitespace rules allow normal paragraph trimming and uniquely owned gap
+    reconstruction. Protected whitespace and ambiguous ownership still require
+    a corrected response. Words, punctuation and special spaces remain exact.
 
-    XMLTranslator invokes this validator once per TextFlowItem, so canonical
-    ownership never has to be inferred from a translated blank line.  The XML
-    segment layer canonicalizes runs of whitespace to one space; comparison
-    uses that same representation while still catching a space independently
-    introduced on both sides of a fragment boundary.
-
-    Temporary formula padding is reconstructed from the canonical value when
-    all other characters and gaps match. This never ignores spaces in the final
-    comparison or changes words, punctuation, outer or cross-fragment spacing.
-
-    Temporary ``expression`` nodes are ordinary inline text slots here. The
-    first translation may flatten LaTeX into prose, so their model-produced
-    text participates in the same canonical comparison as a span. Original
-    formulas are restored by ChapterFormulaInterrupter only after the repair
-    loop has accepted this complete response.
+    Source templates provide context and ownership, never untranslated wording.
+    Temporary expression text participates in this comparison; original formulas
+    are restored only after the complete candidate has been accepted.
     """
     owners = _ordered_source_unit_owners(inline_segments)
     if len(owners) != 1:
@@ -569,18 +554,16 @@ def _validate_chapter_fill_canonical_text(
         return None
     expected = normalize_whitespace(translated_text)
     actual = "".join(actual_by_owner[id(owner)])
-    if actual != expected:
-        from .canonical_text import restore_formula_boundary_whitespace
-        if restore_formula_boundary_whitespace(filled_slots, expected):
-            actual = ''.join(segment.text for filled in filled_slots
-                             for segment in search_text_segments(filled, preserve_whitespace=True))
-    if actual != expected:
-        return (
+    from .canonical_text import restore_canonical_whitespace
+    if restore_canonical_whitespace(
+            filled_slots, translated_text,
+            sources=[segment.create_element() for segment in inline_segments if segment.id is not None]):
+        return None
+    return (
             "Visible text for one PCEX <text> differs from the canonical "
             "translation. Anchors are zero-width and must not add spaces "
             f"or characters. Expected {expected!r}, got {actual!r}."
-        )
-    return None
+    )
 
 
 def _ordered_source_unit_owners(inline_segments: list[InlineSegment]) -> list[Element]:

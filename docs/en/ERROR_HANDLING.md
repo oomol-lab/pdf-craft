@@ -215,3 +215,11 @@ Temporary rate limits do not consume the retry counts above. Executor-owned `Rat
 coordinates cooling and recovery. Its per-request waiting budget raises `RateLimitTimeoutError`
 with the provider cause chain; the corresponding business ErrorPolicy then decides recovery.
 See [shared rate-limit scopes](API_REFERENCE.md#shared-rate-limit-scopes).
+
+## Recoverable model formatting
+
+XML fill restores unambiguous whitespace from the known translation before
+adoption. Cosmetic formatting alone need not trigger another model request;
+ambiguous ownership, changed wording and protected whitespace remain validated.
+See [LLM acceptance and whitespace](LLM_ACCEPTANCE.md) for the shared policy,
+HTML/CSS references and supported transport subset.

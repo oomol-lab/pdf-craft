@@ -111,7 +111,7 @@ class FillTextProtocolTests(unittest.IsolatedAsyncioTestCase):
         assert isinstance(fragment, SourceTextFragment)
         self.assertEqual(fragment.content, [text])
 
-    async def test_added_boundary_space_still_requires_corrected_fill(self):
+    async def test_added_boundary_space_is_recovered_without_another_request(self):
         text = 'A complete sentence.'
         bad = '<xml><fragment id="1">A complete sentence. </fragment></xml>'
         good = '<xml><fragment id="1">A complete sentence.</fragment></xml>'
@@ -123,7 +123,7 @@ class FillTextProtocolTests(unittest.IsolatedAsyncioTestCase):
         fragment = item.children[0]
         assert isinstance(fragment, SourceTextFragment)
         self.assertEqual(fragment.content, [text])
-        self.assertEqual(runtime.context_value.calls, 2)
+        self.assertEqual(runtime.context_value.calls, 1)
 
     async def test_pcex_escaped_translation_passes_real_canonical_fill(self):
         for text, escaped in [('使用 <span> 标签。', '使用 &lt;span&gt; 标签。'),

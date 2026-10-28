@@ -561,8 +561,11 @@ class XMLTranslator:
             user_message += (
                 "\n\nCanonical visible-text constraint:\n"
                 "For each PCEX <text> unit, concatenating all visible text in its "
-                "fragment slots must exactly reproduce the corresponding canonical "
-                "translation above. <anchor .../> nodes are zero-width structural "
+                "fragment slots must reproduce the corresponding canonical "
+                "translation above after the caller's shared whitespace normalization "
+                "and unambiguous recovery. Preserve words, punctuation and special "
+                "spaces; normal cosmetic whitespace can be reconstructed by the caller. "
+                "<anchor .../> nodes are zero-width structural "
                 "tokens: do not add a space or any character on either side of one."
                 " Inline <expression> nodes are ordinary text slots like <span>: "
                 "fill them with the corresponding canonical translated text, even "
