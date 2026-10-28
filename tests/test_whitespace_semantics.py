@@ -71,6 +71,27 @@ class WhiteSpaceStandardsTests(TestCase):
 
 
 class WhitespaceRecoveryTests(TestCase):
+    def test_missing_protected_edges_restore_only_with_unique_field(self):
+        for mode in ('pre', 'pre-wrap', 'break-spaces', 'pre-line'):
+            gaps = ('\n',) if mode == 'pre-line' else (' ', '  ', '\t', '\n')
+            for gap in gaps:
+                for canonical in (gap + 'a', 'a' + gap, gap + 'a' + gap):
+                    with self.subTest(mode=mode, canonical=canonical):
+                        source = fromstring(f'<fragment white-space="{mode}">source</fragment>')
+                        candidate = fromstring('<fragment>a</fragment>')
+                        self.assertTrue(restore_canonical_whitespace([candidate], canonical, [source]))
+                        self.assertEqual(candidate.text, canonical)
+
+    def test_missing_protected_edges_at_mixed_boundary_are_not_padding(self):
+        for mode in ('pre', 'pre-wrap', 'break-spaces', 'pre-line'):
+            for canonical in (' a', 'a ', '\na', 'a\n'):
+                with self.subTest(mode=mode, canonical=canonical):
+                    source = fromstring(f'<fragment><span white-space="{mode}">source</span></fragment>')
+                    candidate = fromstring('<fragment><span>a</span></fragment>')
+                    before = tostring(candidate)
+                    self.assertFalse(restore_canonical_whitespace([candidate], canonical, [source]))
+                    self.assertEqual(tostring(candidate), before)
+
     def test_unmatched_source_never_uses_model_preservation_attributes(self):
         source = fromstring('<fragment><b white-space="pre">source</b></fragment>')
         candidate = fromstring('<fragment><i white-space="normal">a b</i></fragment>')
@@ -132,6 +153,35 @@ class WhitespaceRecoveryTests(TestCase):
 
 
 class FillRecoveryRequestTests(IsolatedAsyncioTestCase):
+    async def test_missing_protected_edges_retry_without_discarding_canonical(self):
+        for mode in ('pre', 'pre-wrap', 'break-spaces', 'pre-line'):
+            canonicals = ('\na', 'a\n') if mode == 'pre-line' else (' a', 'a ', '\na', 'a\n')
+            for canonical in canonicals:
+                with self.subTest(mode=mode, canonical=canonical):
+                    source = source_chapter()
+                    item = source.flow_items[0]
+                    assert isinstance(item, TextFlowItem)
+                    fragment = item.children[0]
+                    assert isinstance(fragment, SourceTextFragment)
+                    span = tag_definition('span')
+                    assert span is not None
+                    style = [('style', f'white-space: {mode}')]
+                    fragment.content = [HTMLTag(span, style, ['source'])]
+                    wrong = '<xml><fragment id="1"><span>a</span></fragment></xml>'
+                    corrected = wrong.replace('>a<', f'>{canonical}<')
+                    translator, runtime = _repairing_translator([wrong, corrected])
+                    translator._translate_text_async = AsyncMock(return_value=canonical)
+                    target = await NarrativeXMLTransformer(translator).transform(source, error_policy=False)
+                    self.assertEqual(runtime.context_value.calls, 2)
+                    result = target.flow_items[0]
+                    assert isinstance(result, TextFlowItem)
+                    result_fragment = result.children[0]
+                    assert isinstance(result_fragment, SourceTextFragment)
+                    tag = result_fragment.content[0]
+                    assert isinstance(tag, HTMLTag)
+                    self.assertEqual(tag.attributes, style)
+                    self.assertEqual(tag.children, [canonical])
+
     async def test_no_id_different_tags_reorder_keeps_source_pre_during_adoption(self):
         source = source_chapter()
         item = source.flow_items[0]

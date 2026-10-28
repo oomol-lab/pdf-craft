@@ -135,3 +135,29 @@ All three translated previews were compared with the same pinned source fixture:
 the large duplicate footnote overlay is absent. Header/folio artifacts,
 continuation-label handling and formula presentation retain unrelated imperfections;
 no claim of perfect OCR, translation or layout is made.
+
+## Second review recovery: missing protected edge gaps
+
+Review of `f6fe071` found that missing canonical edge whitespace had no existing
+source/candidate owner and was therefore treated as normal padding, even inside
+`pre`. Recovery now considers possible source fields when no actual owner exists.
+A unique protected field restores the exact known canonical gap; multiple possible
+fields require correction without mutating the candidate. Actual normal tails
+retain their own context, so the previous mixed-boundary fix remains covered.
+
+Direct regressions cover leading/trailing spaces, tabs and breaks in `pre`,
+`pre-wrap`, `break-spaces`, and preserved breaks in `pre-line`. Complete fill
+regressions cover a protected span inside a normal wrapper: ambiguous missing gaps
+retry, the clarified response is accepted, and the final styled span retains the
+canonical whitespace. Existing normal-tail tests still require one fill call.
+
+Fresh paid evidence: `pdf-craft-output/issue888-protected-edge-citation-01/`.
+
+Final verification after this recovery: **1,190 tests passed**, Pyright **0 errors /
+0 warnings**, changed-file Pylint **10/10**, and clean diff checks. The old committed
+function independently reproduces silent newline loss in all four relevant modes
+(`implementation-before.log`). The new fresh paid smoke exits **0**, all three
+mask checks pass, `automated_passed=true` and `failures=[]`. All six source/output
+previews were inspected: no large duplicate footnote overlay; header/folio,
+continuation and formula presentation imperfections remain outside this fix.
+Logs and the code fingerprint are retained alongside the fresh smoke artifacts.

@@ -88,6 +88,7 @@ def restore_canonical_whitespace(roots: list[Element], canonical: str,
     field_gaps = [_gaps(f.text) for f in fields]
     changes: dict[int, str] = {}
     wanted: dict[int, str] = {}
+    missing_owners: dict[int, int] = {}
     for position in actual_gaps.keys() | expected_gaps.keys():
         # A preserved node ending here does not own its parent's normal tail.
         # Inspect actual fields/known owners, not inclusive character ranges.
@@ -97,6 +98,16 @@ def restore_canonical_whitespace(roots: list[Element], canonical: str,
         if owners and any(not collapses_breaks(f.mode) and f not in owners for f in actual_owners):
             return False  # Do not move a known normal gap into a protected slot.
         relevant = interior or owners or actual_owners
+        if not relevant:
+            # Missing gaps still have a source context. Empty wrapper fields
+            # are possible owners too: choosing a preserved child over a normal
+            # wrapper (or vice versa) would invent a semantic placement.
+            candidates = [i for i, f in enumerate(fields) if f.start <= position <= f.end]
+            relevant = [fields[i] for i in candidates]
+            if any(not collapses_breaks(f.mode) for f in relevant):
+                if len(candidates) != 1:
+                    return False
+                missing_owners[position] = candidates[0]
         protected_modes = {f.mode for f in relevant if not collapses_breaks(f.mode)}
         mode = next(iter(protected_modes)) if len(protected_modes) == 1 else WhiteSpace.PRE
         protected = bool(protected_modes)
@@ -106,7 +117,7 @@ def restore_canonical_whitespace(roots: list[Element], canonical: str,
         if expected:
             wanted[position] = expected
         if actual_gaps[position] != expected:
-            if protected and normalize(actual_gaps[position], mode) != expected:
+            if protected and position not in missing_owners and normalize(actual_gaps[position], mode) != expected:
                 return False
             changes[position] = expected
     values = [f.text for f in fields]
@@ -117,7 +128,9 @@ def restore_canonical_whitespace(roots: list[Element], canonical: str,
             existing = [i for i in candidates if position - fields[i].start in field_gaps[i]]
             interior = [i for i in candidates if fields[i].start < position < fields[i].end]
             owners = [i for i in candidates if fields[i] in _source_owners(fields, position)]
-            if existing:
+            if position in missing_owners:
+                target = missing_owners[position]
+            elif existing:
                 target = existing[0]  # CSS collapses a run across inline boundaries.
             elif len(interior) == 1:
                 target = interior[0]

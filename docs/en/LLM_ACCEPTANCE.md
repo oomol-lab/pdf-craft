@@ -72,3 +72,11 @@ including different-tag reordering without IDs. An unmatched source context is
 rejected. A protected node does not protect its normal parent-owned tail; gaps
 are classified by actual field ownership. Known normal padding cannot migrate
 into a preserved slot merely to satisfy comparison.
+
+A missing edge gap is not automatically normal paragraph padding. Its possible
+source text/tail owners determine the preservation context, even if neither the
+source nor the candidate contains edge whitespace. In a single protected field,
+the known canonical leading/trailing whitespace can be restored exactly. At a
+mixed boundary with multiple possible owners, correction is required rather than
+silently discarding it or guessing which style owns it. This is recovery from
+known translated text, not permission to collapse protected CSS whitespace.
