@@ -63,11 +63,14 @@ def font_size_for_placement(filler, placement):
 
 
 class WindowPreview:
-    def __init__(self, root, window, filler, page_sizes):
+    def __init__(self, root, window, filler, page_sizes, *, incremental=False):
         self.window, self.filler, self.sizes = window, filler, page_sizes
+        self.incremental = incremental
         self.db = sqlite3.connect(root / 'preview.sqlite')
-        self.db.execute('DROP TABLE IF EXISTS preview')
-        self.db.execute('CREATE TABLE preview (paragraph INTEGER, page INTEGER, number INTEGER, value BLOB)')
+        if not incremental:
+            self.db.execute('DROP TABLE IF EXISTS preview')
+        self.db.execute('CREATE TABLE IF NOT EXISTS preview (paragraph INTEGER, page INTEGER, number INTEGER, value BLOB)')
+        self.db.execute('CREATE TABLE IF NOT EXISTS delivered (paragraph INTEGER PRIMARY KEY)')
 
     def page(self, page_index, contributions, erasures):
         masks = iter(erasures)
@@ -103,8 +106,9 @@ class WindowPreview:
                     areas.append(EraseArea((r.x*sx, r.top*sy, (r.x+r.width)*sx, r.bottom*sy), mask.color))
                 value = PDFSourceRegion(source.page, source.source_order_in_page, source.bbox,
                                         size, lines, formulas, areas)
+                identity = (summary.replacement.preview_index if self.incremental else contribution.paragraph_index)
                 self.db.execute('INSERT INTO preview VALUES (?,?,?,?)',
-                                (contribution.paragraph_index, page_index, region.reading_order, pickle.dumps(value)))
+                                (identity, page_index, region.reading_order, pickle.dumps(value)))
 
     def contents(self, failed_pages):
         for index, summary in enumerate(self.window._summaries):
@@ -113,17 +117,34 @@ class WindowPreview:
             if content is None:
                 continue
             assert isinstance(summary.replacement, _PreviewReplacement)
+            identity = summary.replacement.preview_index if self.incremental else index
+            if self.incremental and self.db.execute('SELECT 1 FROM delivered WHERE paragraph=?', (identity,)).fetchone():
+                continue
             if any(region.page.page_index in failed_pages for region in content.regions):
+                if self.incremental:
+                    self._delivered(identity)
                 yield summary.replacement.preview_index, summary.replacement.preview_is_footnote, None
                 continue
             regions = []
             for source in content.regions:
                 row = self.db.execute('SELECT value FROM preview WHERE paragraph=? AND page=? AND number=?',
-                                      (index, source.page.page_index, source.source_order_in_page)).fetchone()
+                                      (identity, source.page.page_index, source.source_order_in_page)).fetchone()
+                if row is None and self.incremental:
+                    break  # This natural paragraph still has uncomposed pages.
                 regions.append(pickle.loads(row[0]) if row else
                                PDFSourceRegion(source.page, source.source_order_in_page, source.bbox, None, []))
+            if len(regions) != len(content.regions):
+                continue
+            if self.incremental:
+                self._delivered(identity)
             assert isinstance(summary.replacement, _PreviewReplacement)
             yield summary.replacement.preview_index, summary.replacement.preview_is_footnote, PDFParagraphContent(content.text, content.original, regions)
 
+    def _delivered(self, identity):
+        self.db.execute('INSERT INTO delivered VALUES (?)', (identity,))
+        self.db.execute('DELETE FROM preview WHERE paragraph=?', (identity,))
+
     def close(self):
+        if self.incremental:
+            self.db.commit()
         self.db.close()

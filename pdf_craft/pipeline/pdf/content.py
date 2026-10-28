@@ -16,7 +16,7 @@ from ...transformer.translation_coverage import read_coverage, paragraph_identit
 from ...renderer.paragraph import paragraph_notifications, display_values
 from ...renderer.output import publish
 from ...document.paragraph import PDFParagraphContent, PDFSourceRegion
-from .feed import _PreviewReplacement, ReplacementFeed, write_record, read_record, dependency_windows
+from .feed import _PreviewReplacement, ReplacementFeed, write_record, read_record
 from .streaming import source_furniture_coverage, produce_furniture, deliver_previews, update_metadata
 from .pipeline import PDFTranslationPipeline, _to_pdf_patch_content, _replacement_source_order
 from .patcher import PDFPatcher
@@ -188,7 +188,7 @@ async def patch_content(source, extraction, target, *, translator=None, translat
                     patcher._stream_pages = {n: page.render_dpi for n, page in pages.items()}
                     if on_body is not None or on_footnote is not None:
                         patcher._preview_path = previews
-                    feed = ReplacementFeed(feed_root, count, dependency_windows(spans))
+                    feed = ReplacementFeed(feed_root, count, spans=tuple(spans))
                     # Notification helper renders Markdown only when a PDF channel is requested.
                     async with paragraph_notifications(pages, view.assets, numbers) as notify:
                         async def produce():

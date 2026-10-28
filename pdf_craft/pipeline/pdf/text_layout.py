@@ -286,6 +286,7 @@ class _WindowPlanStorage:
         paragraph_index: int,
         replacement: PDFReplacement,
         paragraph: FittedParagraph,
+        only_page: int | None = None,
     ) -> None:
         regions_by_page: dict[int, list[PDFReplacementRegion]] = {}
         for region in replacement.source_regions():
@@ -294,6 +295,8 @@ class _WindowPlanStorage:
         for placement in paragraph.placements:
             placements_by_page.setdefault(placement.page_index, []).append(placement)
         for page_index in sorted(regions_by_page | placements_by_page):
+            if only_page is not None and page_index != only_page:
+                continue
             contribution = _PagePlanContribution(
                 paragraph_index,
                 tuple(regions_by_page.get(page_index, ())),
@@ -2349,6 +2352,7 @@ class WindowedParagraphPlanner:
         first_page: int,
         last_page: int,
         replacements: list[PDFReplacement],
+        *, prepared: list[FittedParagraph] | None = None,
     ) -> FillWindowPlan:
         obstacles = _window_obstacles(replacements, self._page_sizes)
         set_layout_obstacles = getattr(self._filler, "set_layout_obstacles", None)
@@ -2370,13 +2374,15 @@ class WindowedParagraphPlanner:
             # headings must not receive a body-derived floor here: that floor
             # is a page-level fact which only exists after every local plan has
             # closed for this window.
-            for replacement in replacements:
-                paragraph = self._filler.fit(replacement, self._page_sizes)
+            for number, replacement in enumerate(replacements):
+                paragraph = (prepared[number] if prepared is not None else
+                             self._filler.fit(replacement, self._page_sizes))
                 paragraph_index = len(summaries)
                 summaries.append(_PlannedParagraphSummary(
                     replacement, paragraph.text, paragraph.font_size,
                 ))
-                storage.append(paragraph_index, replacement, paragraph)
+                storage.append(paragraph_index, replacement, paragraph,
+                               only_page=first_page if prepared is not None else None)
 
                 if _is_headline(replacement):
                     headline_replacements[paragraph_index] = replacement
