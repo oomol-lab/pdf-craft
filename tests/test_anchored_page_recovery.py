@@ -222,7 +222,7 @@ class ExtractionRecoveryTests(IsolatedAsyncioTestCase):
             decisions = []
             with self.assertRaisesRegex(ValueError, 'user callback'):
                 await self.extract(Path(directory), error_policy=lambda ctx: decisions.append(ctx) or True, callback=callback)
-            self.assertFalse(decisions)
+            self.assertEqual([ctx.fallback for ctx in decisions], ['page_image'])
 
     async def test_all_late_downgrades_fail_instead_of_claiming_ocr_success(self):
         with TemporaryDirectory() as directory:
@@ -262,13 +262,11 @@ class ExtractionRecoveryTests(IsolatedAsyncioTestCase):
     async def test_final_storage_failure_is_not_another_recovery_attempt(self):
         with TemporaryDirectory() as directory:
             decisions = []
-            import shutil
-            original_copy = shutil.copyfile
-            def copy(source, destination):
+            def save(source, destination):
                 if Path(destination).parent == Path(directory) / 'analysis/extraction/chapters':
                     raise OSError('cannot publish recovered chapters')
-                return original_copy(source, destination)
-            with patch('shutil.copyfile', side_effect=copy):
+                return save_xml(source, destination)
+            with patch('pdf_craft.extractor.commit.save_xml', side_effect=save):
                 with self.assertRaisesRegex(OSError, 'cannot publish'):
                     await self.extract(Path(directory), error_policy=lambda ctx: decisions.append(ctx) or True)
             self.assertEqual(len(decisions), 1)

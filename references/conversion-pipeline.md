@@ -35,8 +35,8 @@ anchored 图片/表格文字。
 3. 在 `analysing_path/ocr/` 写入 OCR 页 XML 和恢复缓存，在
    `analysing_path/extraction/assets/` 写入资源。
 4. OCR 的终态页事件经磁盘流恢复输入页序，传统跨页解析与 OCR 并行推进；闭合正文、脚注和
-   未定归属来源存入磁盘数据库。可选 `on_body` / `on_footnote` 交付独立 PCEX XML 快照，
-   回调背压由磁盘队列与 OCR 生产隔离。EOF 排空后再分析 TOC 数据。
+   未定归属来源存入磁盘数据库。这些是内部候选，不交付正式内容回调。
+   先识别印刷目录页以排除正文，再完成精修和关联校验；最终目录由已采用标题生成。
 5. 在 `analysing_path/extraction/` 生成章节、TOC、页面几何和 manifest；章节使用 PCEX v3
    FlowItem，保留文字 fragment、段内 anchored image/table 与独立段落公式的阅读顺序。
 6. 仅从该 extraction 渲染 Markdown 或 EPUB。
@@ -56,7 +56,10 @@ PageAnalysis 的 continuation 表示文字前驱，跳过同一归属流中的�
 默认传统算法由 `extractor/chapter/stream.py` 增量连接、来源投影和磁盘组装；无目录页排除时复用
 在线生成的内容数据库，有目录页排除时从 OCR 缓存按排除规则重放。章节定稿逐章处理。
 需要可编辑页级 ownership 的 PageAnalysisProcessor 仍使用 `restore_streams` 的整批事务语义；
-在线回调发生在可选 refinement 之前，不声明是修正后归档的重放。
+`extractor/commit.py` 是统一定稿出口：由已采用章节投影标题与占用供 TOC/furniture 使用，
+再按最终目录划分章节、校验；正式回调只重放最终章节，脚注按来源排序去重。
+来源 OCR 不接受语义回写，投影只供下游派生，不能反过来重跑段落分析。
+无法证明有效的旧派生缓存（含 toc.xml）重算；保留有效 OCR。metadata 仍独立读取原始书目证据。
 FootnoteOptions(refinement=FootnoteRefinement(...)) 在调用方 event loop 在线执行 JEV 筛选及
 LLM 页级修正；CLI 的 --footnotes 只启用传统算法。LLM JSON 通过 request_guaranteed_json
 编译 ownership、必需元数据、引用位置及定义关系，候选在完整暂存对象图上组装成功才接纳。

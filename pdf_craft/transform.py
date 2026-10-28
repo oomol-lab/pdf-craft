@@ -136,7 +136,7 @@ class PDFExtractionEngine:
                 front = await IO_DOMAIN.run(FrontPages.open, kwargs["analysing_path"] / "ocr",
                                             count, kwargs.get("page_indexes"))
             live = LiveExtraction(directory, kwargs["analysing_path"] / "ocr",
-                                  kwargs["includes_footnotes"], on_body, on_footnote)
+                                  kwargs["includes_footnotes"])
             callback = kwargs.get("on_ocr_event")
             async def event(value):
                 if front is not None:
@@ -152,7 +152,10 @@ class PDFExtractionEngine:
                                                kwargs["analysing_path"] / "ocr" / "page_pixel_sizes.json")
                     context._update(sizes, kwargs["dpi"] or 300)
                 if front is None:
-                    return await self._extract_package_async(**kwargs, live=live, on_metadata=on_metadata)
+                    result = await self._extract_package_async(**kwargs, live=live, on_metadata=on_metadata)
+                    from .extractor.commit import notify_adopted
+                    await notify_adopted(kwargs["analysing_path"] / "extraction" / "chapters", on_body, on_footnote)
+                    return result
                 from .common.tasks import joined
                 async def extract_metadata():
                     from .extractor.progress import analysis_unit
@@ -173,6 +176,8 @@ class PDFExtractionEngine:
                     return await metadata_task
                 try:
                     result, _ = await joined(extract(), observe_metadata())
+                    from .extractor.commit import notify_adopted
+                    await notify_adopted(kwargs["analysing_path"] / "extraction" / "chapters", on_body, on_footnote)
                     return result
                 finally:
                     from .concurrency import settle_tasks
@@ -261,11 +266,12 @@ class PDFExtractionEngine:
                         original_aborted=original_aborted,
                     )
                     repaired_pages = await self._refine_pages(chapter_analysis, footnote_refinement, draft)
-                return await self._finish_with_toc_recovery(
+                return await self._commit_extraction(
                     draft, analysed_pages=repaired_pages,
                     resolved_database=(live.database if live is not None and repaired_pages is None
                                        and not draft.toc.page_indexes else None),
                     aborted=original_aborted, refinement_usage=refinement_usage,
+                    toc_llm=kwargs["toc_llm"], toc_assumed=kwargs["toc_assumed"],
                 )
         except Exception as error:
             from .extractor.recovery import recover_chapters, recoverable_structure
@@ -278,65 +284,45 @@ class PDFExtractionEngine:
                     aborted=original_aborted or (lambda: False),
                 )
                 draft = replace(draft, toc=recovered.toc)
-                from .common import save_xml
-                from .extractor.toc import encode as encode_toc
-                await IO_DOMAIN.run(save_xml, encode_toc(draft.toc), draft.toc_path)
-                return await run_cancellable(
-                    OCR_DOMAIN,
-                    lambda aborted: self._finish_extraction(draft, aborted=aborted, prepared_chapters=recovered.chapters),
-                    original_aborted=original_aborted,
-                )
+                return await self._commit_extraction(
+                    draft, analysed_pages=None, resolved_database=None,
+                    prepared_chapters=recovered.chapters, aborted=original_aborted,
+                    toc_llm=kwargs["toc_llm"], toc_assumed=kwargs["toc_assumed"])
 
-    async def _finish_with_toc_recovery(self, draft, *, analysed_pages, resolved_database, aborted, refinement_usage=None):
-        """Directory consistency is repaired before discarding usable pages."""
+    async def _commit_extraction(self, draft, *, analysed_pages, resolved_database, aborted,
+                                      refinement_usage=None, prepared_chapters=None,
+                                      toc_llm=None, toc_assumed=False):
+        """Commit one adopted flow before deriving any final semantic consumers."""
         from .common import save_xml
-        from .document.validation import ChapterTocMismatch
-        from .extractor.chapter.toc_identity import chapter_ids, retained_toc
+        from .extractor.commit import project_adopted, partition_adopted
+        from .extractor.progress import analysis_unit
+        from .progress import UnitKind
         from .extractor.toc import encode as encode_toc
-        from ._policy import recover
-        from .policies import FailureCategory, FailureLocation
-
-        async def finish(**options):
-            return await run_cancellable(
-                OCR_DOMAIN,
-                lambda check: self._finish_extraction(draft, aborted=check, **options),
-                original_aborted=aborted,
-            )
-
-        def targets(error):
-            return tuple(FailureLocation('page', source=str(draft.pdf_path), page_indexes=(page,),
-                                         page=self._ocr.page_geometry(page, draft.dpi or 300))
-                         for page in error.page_indexes)
-
-        try:
-            result = await finish(analysed_pages=analysed_pages, resolved_database=resolved_database)
+        async with temporary_directory("pdf-craft-adopted-") as directory:
+            adopted = directory / "chapters"
+            if prepared_chapters is None:
+                await run_cancellable(OCR_DOMAIN, lambda _check: generate_chapter_files(
+                    pages_path=draft.pages_path, chapters_path=adopted,
+                    toc=TocInfo([], draft.toc.page_indexes), analysed_pages=analysed_pages,
+                    resolved_database=resolved_database), original_aborted=aborted)
+            else:
+                adopted = prepared_chapters
+            projection = directory / "pages"
+            await IO_DOMAIN.run(project_adopted, adopted, draft.pages_path, projection, draft.toc.page_indexes)
+            async with analysis_unit(UnitKind.TOC):
+                toc = await analyse_toc(
+                    pages_path=projection, toc_path=directory / 'toc.xml',
+                    toc_llm=toc_llm, toc_assumed=toc_assumed,
+                    printed_page_indexes=draft.toc.page_indexes)
+            draft = replace(draft, toc=toc)
+            await IO_DOMAIN.run(partition_adopted, adopted, draft.chapters_path, toc)
+            await IO_DOMAIN.run(save_xml, encode_toc(toc), draft.toc_path)
+            result = await run_cancellable(OCR_DOMAIN, lambda check: self._finish_extraction(
+                draft, aborted=check, prepared_chapters=draft.chapters_path,
+                furniture_pages_path=projection), original_aborted=aborted)
             if refinement_usage is not None:
                 refinement_usage.accept()
             return result
-        except ChapterTocMismatch as error:
-            mismatch = error
-        if analysed_pages is not None:
-            # A structurally legal page edit can invalidate a global TOC anchor.
-            # Withdraw the enhancement once, rather than declaring OCR unusable.
-            affected = tuple(FailureLocation('page', source=str(draft.pdf_path),
-                                              page_indexes=(page.page_index,),
-                                              page=self._ocr.page_geometry(page.page_index, draft.dpi or 300))
-                             for page in analysed_pages)
-            await recover(mismatch, FailureCategory.ANALYSIS, 'chapter_toc', 'algorithm_result',
-                          targets=targets(mismatch), affected=affected)
-            try:
-                return await finish()
-            except ChapterTocMismatch as error:
-                mismatch = error
-        await recover(mismatch, FailureCategory.ANALYSIS, 'chapter_toc', 'chapter_toc',
-                      targets=targets(mismatch))
-        # Already generated content is retained exactly. Only unavailable TOC
-        # anchors are removed, with caller approval; unexpected IDs still fail.
-        identities = await IO_DOMAIN.run(chapter_ids, draft.chapters_path)
-        toc = await IO_DOMAIN.run(retained_toc, draft.toc, identities)
-        draft = replace(draft, toc=toc)
-        await IO_DOMAIN.run(save_xml, encode_toc(toc), draft.toc_path)
-        return await finish(prepared_chapters=draft.chapters_path)
 
     async def _refine_pages(self, chapter_analysis, footnote_refinement, draft):
         runtime = runtime_for(
@@ -499,11 +485,10 @@ class PDFExtractionEngine:
             metadata = draft.document_metadata
         if on_metadata is not None:
             await invoke_callback(on_metadata, MetadataContent(metadata or DocumentMetadata()))
-        reused = await IO_DOMAIN.run(draft.toc_path.exists)
-        async with analysis_unit(UnitKind.TOC, reused=reused):
-            toc = await analyse_toc(
-                pages_path=draft.pages_path, toc_path=draft.toc_path,
-                toc_llm=kwargs['toc_llm'], toc_assumed=kwargs['toc_assumed'])
+        from .extractor.toc.analysing import detect_printed_pages
+        printed = (await IO_DOMAIN.run(detect_printed_pages, draft.pages_path)
+                   if kwargs['toc_assumed'] else [])
+        toc = TocInfo([], [page.page_index for page in printed])
         return replace(draft, document_metadata=metadata, toc=toc)
 
     @policy_operation
@@ -550,6 +535,7 @@ class PDFExtractionEngine:
         analysed_pages=None,
         resolved_database=None,
         prepared_chapters=None,
+        furniture_pages_path=None,
     ):
         if prepared_chapters is None:
             generate_chapter_files(
@@ -569,7 +555,7 @@ class PDFExtractionEngine:
         if draft.includes_furniture:
             write_furnitures(
                 draft.pdf_path,
-                draft.pages_path,
+                furniture_pages_path or draft.pages_path,
                 draft.extraction_paths.furnitures,
                 toc=draft.toc,
                 dpi=draft.dpi if draft.dpi is not None else 300,

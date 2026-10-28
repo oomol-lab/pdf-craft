@@ -2,7 +2,7 @@
 
 Only the recovery path scans source pages. It rebuilds surviving contiguous
 runs separately, so no reference or continuation can cross a discarded page.
-OCR caches and already delivered previews are never rewritten/replayed.
+OCR caches remain evidence; formal callbacks run only after final adoption.
 """
 from __future__ import annotations
 
@@ -14,7 +14,6 @@ from xml.etree.ElementTree import ParseError
 
 from ..common import read_xml, save_xml, AssetHub
 from .toc import TocInfo
-from .chapter.toc_identity import chapter_ids, retained_toc
 from ..concurrency import NonContinuableError
 from ..error import InterruptedError, NoUsableOCRPagesError, PDFError
 from ..document.validation import ChapterTocMismatch
@@ -30,7 +29,7 @@ from .chapter.page_analysis import PageAnalysis
 def recoverable_structure(error: Exception) -> bool:
     """Do not convert user decisions, storage faults, or interruption into images."""
     if isinstance(error, ChapterTocMismatch):
-        return False  # Directory errors have a bounded structural recovery path.
+        return False  # A derived-directory inconsistency must not discard source pages.
     cause: BaseException | None = error
     seen: set[int] = set()
     while cause is not None and id(cause) not in seen:
@@ -256,7 +255,7 @@ async def recover_chapters(draft, ocr, error: Exception, directory: Path, *, ana
             await IO_DOMAIN.run(shutil.copyfile, draft.pages_path / f'page_{index}.xml', path / f'page_{index}.xml')
         records = DiskStream(path / 'records')
         def collect(path=path, records=records):
-            for chapter in _generate_chapters(path, draft.toc):
+            for chapter in _generate_chapters(path, TocInfo([], draft.toc.page_indexes)):
                 records.append(chapter)
             records.close()
         try:
@@ -266,7 +265,7 @@ async def recover_chapters(draft, ocr, error: Exception, directory: Path, *, ana
                 raise
             await degrade(set(run), next_error)
         else:
-            # Keep original TOC chapter identities for the surviving run.
+            # Final chapter identities are assigned after all runs are adopted.
             fragments[run[0]] = records
     current = Chapter(None, -1, [])
     for index in indexes:
@@ -275,16 +274,10 @@ async def recover_chapters(draft, ocr, error: Exception, directory: Path, *, ana
             continue
         async for part in worker_iter(records.read()):
             check_cancelled()
-            if part.id is not None and part.id != current.id:
-                await IO_DOMAIN.run(save_xml, encode(current), prepared / f'chapter_{current.id if current.id is not None else "head"}.xml')
-                current = part
-            else:
-                current.flow_items.extend(part.flow_items)
-                current.definitions.extend(part.definitions)
+            current.flow_items.extend(part.flow_items)
+            current.definitions.extend(part.definitions)
     await IO_DOMAIN.run(save_xml, encode(current), prepared / f'chapter_{current.id if current.id is not None else "head"}.xml')
     ocr_failed = {index for index in content_indexes if (draft.pages_path / f'page_{index}.failed').exists()}
     if content_indexes and not (content_indexes - degraded - ocr_failed):
         raise NoUsableOCRPagesError(tuple(sorted(degraded | ocr_failed)))
-    toc = await IO_DOMAIN.run(retained_toc, draft.toc, await IO_DOMAIN.run(chapter_ids, prepared),
-                              removed_pages=degraded)
-    return RecoveredChapters(prepared, toc)
+    return RecoveredChapters(prepared, TocInfo([], draft.toc.page_indexes))

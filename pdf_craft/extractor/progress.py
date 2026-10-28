@@ -114,7 +114,11 @@ async def analysis_unit(kind, *, reused=False):
     if progress is None:
         yield
         return
-    unit = await progress.unit(kind, max_stage=1)
+    unit = progress.pending_toc if kind == UnitKind.TOC else None
+    if unit is None:
+        unit = await progress.unit(kind, max_stage=1)
+    if kind == UnitKind.TOC:
+        progress.pending_toc = unit
     token = _selected.set(unit)
     try:
         yield

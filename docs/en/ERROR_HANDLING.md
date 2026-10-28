@@ -2,30 +2,17 @@
 
 ## PDF directory and chapter recovery
 
-TOC anchors retain real PDF page numbers and page-local source positions, even
-when only a sparse selection of pages is extracted. A printed directory page
-excluded from body processing cannot also serve as a chapter anchor. Independent
-TOC anchors inside one refined heading still establish separate chapters; a
-single title spanning several source fragments is kept together.
+Printed directory pages are classified before paragraph analysis. Final chapter
+anchors and IDs are assigned only after traditional/refined content is adopted;
+TOC and chapters consume the same accepted heading set. Removing, demoting or
+merging a heading is not a TOC failure and does not require withdrawing refinement.
+Old derived TOCs are recomputed, not repaired by retaining stale IDs. Existing PCEX
+archives keep their original IDs; these rules apply to new extraction only.
 
-If accepted page refinement makes a TOC chapter unavailable, extraction first
-requests an `analysis` decision at stage `chapter_toc`, with fallback
-`algorithm_result`: withdraw the refinement batch once and regenerate from the
-unchanged OCR cache. Targets identify the mismatched anchors' known pages;
-affected locations cover the batch being withdrawn. If the original content
-still has unavailable anchors, a second `chapter_toc` fallback can rebuild the
-directory from the generated chapters. It removes only unavailable TOC entries,
-lifts surviving children and preserves their IDs and all chapter content.
-Unexpected chapter IDs remain errors. Neither decision silently discards pages;
-the default strict policy or a rejected decision propagates the error.
-
-After an approved page-image fallback, the directory drops anchors on those
-discarded pages, retaining surviving chapter IDs without renumbering. The
-all-pages-degraded failure rule still applies. Chapter/TOC mismatch diagnostics
-include missing and unexpected IDs and known page numbers, without book text.
-They never initiate whole-book image fallback by themselves. These fixes address
-possible causes of [service issue #229](https://github.com/oomol/pdf-craft-service/issues/229),
-not a uniquely identified production trigger.
+Real structure failures still obey the configured error policy. An approved
+page-image recovery changes the adopted content before TOC construction. All-primary-
+pages-degraded remains failure. Final validation still rejects inconsistent chapters,
+references or resources; the implementation does not suppress those checks.
 
 ## XML fill text and formatting
 
@@ -141,8 +128,7 @@ not authorize `page_image`. Pages are rendered directly from the source PDF, byp
 the broken graph. Rendering failures separately ask `pdf_render` for `page_placeholder`.
 Rejecting either decision propagates the error.
 
-This also protects extraction without LLM refinement. OCR caches and previously
-delivered previews are not rewritten or replayed. Partial degradation may complete;
+This also protects extraction without LLM refinement. OCR caches are not rewritten. Content callbacks deliver the adopted result once, after recovery. Partial degradation may complete;
 all primary pages degrading after errors still fails. Cancellation, user callback
 errors, terminal service errors and final storage/publication errors propagate.
 

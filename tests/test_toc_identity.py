@@ -104,22 +104,20 @@ class TocIdentityTests(IsolatedAsyncioTestCase):
                 with patch.object(IdentityOCR, 'recover_page_image', side_effect=AssertionError('unnecessary page loss')):
                     await self.extract(root, mode, policy=lambda event, decisions=decisions: decisions.append(event) or True)
                 chapters, ids = self.inspect(root)
-                self.assertEqual(ids, {1, 2})
-                self.assertTrue(decisions, 'withdrawing refinement must request an analysis decision')
-                self.assertEqual(decisions[0].fallback, 'algorithm_result')
-                self.assertEqual({value.page_indexes[0] for value in decisions[0].affected}, set(range(1, 7)))
+                self.assertEqual(ids, {1})
+                self.assertFalse(decisions, 'accepted heading changes are not failures')
                 for index in range(1, 7):
                     self.assertTrue(any(f'Page {index} body.' in str(item)
                                         for chapter in chapters for item in chapter.flow_items))
                 self.assertEqual(len([path for path in (root / 'analysis/ocr').glob('page_*.xml')]), 6)
 
-    async def test_merged_heading_preserves_both_toc_ids_without_losing_sources(self):
+    async def test_merged_heading_gets_one_final_anchor_without_losing_sources(self):
         with TemporaryDirectory() as folder:
             root = Path(folder)
             with patch.object(IdentityOCR, 'recover_page_image', side_effect=AssertionError('unnecessary page loss')):
                 await self.extract(root, 'merged')
             chapters, ids = self.inspect(root)
-            self.assertEqual(ids, {1, 2})
+            self.assertEqual(ids, {1})
             headings = [item for chapter in chapters for item in chapter.flow_items
                         if isinstance(item, TextFlowItem) and item.role == 'heading']
             self.assertEqual([fragment.source_order for item in headings for fragment in item.children
@@ -187,28 +185,24 @@ class TocIdentityTests(IsolatedAsyncioTestCase):
             self.assertEqual(getattr(raised.exception, 'missing_ids', None), (2,))
             self.assertEqual(getattr(raised.exception, 'page_indexes', None), (1,))
 
-    async def test_simulated_incident_succeeds_through_actual_recovery_without_page_loss(self):
-        # Unlike the fast guard test, the image fallback is usable here. On the
-        # original implementation this reaches NoUsableOCRPagesError after six
-        # image replacements, matching the reported failure shape.
+    async def test_simulated_incident_adopts_refinement_without_page_loss(self):
+        # Image fallback is usable, but a heading change must never need it.
         with TemporaryDirectory() as folder:
             root = Path(folder)
             await self.extract(root, 'body')
             chapters, ids = self.inspect(root)
-            self.assertEqual(ids, {1, 2})
+            self.assertEqual(ids, {1})
             self.assertEqual(sum('Page ' in str(item) for chapter in chapters for item in chapter.flow_items), 6)
 
-    async def test_strict_or_rejected_refinement_withdrawal_never_discards_pages(self):
-        from pdf_craft.document.validation import ChapterTocMismatch
+    async def test_strict_policy_accepts_consistent_refined_headings(self):
         for policy in (False, lambda _event: False):
             with self.subTest(policy=policy), TemporaryDirectory() as folder:
                 root = Path(folder)
                 with patch.object(IdentityOCR, 'recover_page_image', side_effect=AssertionError('page loss')):
-                    with self.assertRaises(ChapterTocMismatch):
-                        await self.extract(root, 'body', policy=policy)
-                self.assertFalse((root / 'book.pcex').exists())
+                    await self.extract(root, 'body', policy=policy)
+                self.assertEqual(self.inspect(root)[1], {1})
 
-    async def test_approved_directory_rebuild_retains_text_without_inventing_chapters(self):
+    async def test_stale_directory_recomputed_from_adopted_headings(self):
         from pdf_craft.extractor.toc import encode as encode_toc
         with TemporaryDirectory() as folder:
             root = Path(folder)
@@ -220,12 +214,11 @@ class TocIdentityTests(IsolatedAsyncioTestCase):
             with patch.object(IdentityOCR, 'recover_page_image', side_effect=AssertionError('page loss')):
                 await self.extract(root, footnotes=False, policy=lambda event: decisions.append(event) or True)
             chapters, ids = self.inspect(root)
-            self.assertEqual(ids, set())
-            self.assertEqual([event.fallback for event in decisions], ['chapter_toc'])
-            self.assertEqual(decisions[0].targets[0].page_indexes, (1,))
+            self.assertEqual(ids, {1, 2})
+            self.assertFalse(decisions)
             self.assertEqual(sum('Page ' in str(item) for chapter in chapters for item in chapter.flow_items), 6)
 
-    async def test_partial_recovery_preserves_surviving_global_id_without_renumbering(self):
+    async def test_partial_recovery_assigns_ids_only_to_surviving_headings(self):
         from pdf_craft.extractor.chapter.page_analysis import PageStructureError
         import pdf_craft.transform as transform
         original = transform.generate_chapter_files
@@ -243,7 +236,7 @@ class TocIdentityTests(IsolatedAsyncioTestCase):
             ):
                 await self.extract(root, footnotes=False)
             chapters, ids = self.inspect(root)
-            self.assertEqual(ids, {3})
+            self.assertEqual(ids, {1})
             self.assertTrue(any('Page 6 body.' in str(item) for chapter in chapters for item in chapter.flow_items))
 
     def test_toc_heading_split_keeps_assets_references_and_cross_page_source_identity(self):
@@ -275,13 +268,6 @@ class TocIdentityTests(IsolatedAsyncioTestCase):
         assert isinstance(title, TextFlowItem)
         self.assertEqual(len(title.children), 3)
         self.assertIsInstance(parts[0], Chapter)
-
-    def test_reparented_directory_child_keeps_its_original_id(self):
-        from pdf_craft.extractor.chapter.toc_identity import retained_toc
-        toc = TocInfo([Toc(4, 1, 0, 0, [Toc(12, 4, 0, 1, [])])], [])
-        result = retained_toc(toc, {12}, removed_pages={1})
-        self.assertEqual([item.id for item in result.content], [12])
-        self.assertEqual(toc.content[0].children[0].id, 12)
 
     async def test_printed_directory_pages_cannot_also_be_chapter_anchors(self):
         with TemporaryDirectory() as folder:
