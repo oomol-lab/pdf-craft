@@ -265,6 +265,11 @@ def _resolve_pages(
     footnotes_jointer = Jointer(
         ((page.index, page.footnotes_layouts) for page in page_list), sources
     )
+    return _resolve_jointers(body_jointer, footnotes_jointer)
+
+
+def _resolve_jointers(body_jointer: Jointer, footnotes_jointer: Jointer):
+    """Share paragraph/reference rules with bounded initial-page projection."""
     page_references = list(_extract_page_references(footnotes_jointer))
     references_generator = iter(page_references)
     current_references: References | None = next(references_generator, None)

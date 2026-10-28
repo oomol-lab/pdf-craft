@@ -11,7 +11,7 @@ from ...pdf import Page, decode
 from ...pdf.ocr import OCREventKind
 from ...runtime import IO_DOMAIN, ExecutionDomain, callback_bridge
 from .stream import resolve_to_disk
-from .primary import primary_page
+from .primary import PrimaryPages
 from ..refinement import MAX_INPUT_LEAD
 
 
@@ -78,11 +78,9 @@ class LiveExtraction:
             self.database, on_body=callback_bridge(loop, body) if body else None,
             on_footnote=callback_bridge(loop, note) if note else None))
         async def primary():
-            previous = previous_analysis = None
+            initial = PrimaryPages()
             async for page in self.pages.aread():
-                analysis = await IO_DOMAIN.run(primary_page, previous, page, None, previous_analysis)
-                yield analysis
-                previous, previous_analysis = page, analysis
+                yield await IO_DOMAIN.run(initial.append, page)
         async with factory() as process, aclosing(refine_pages(primary(), process)) as results:
             async for result in results:
                 result = result if isinstance(result, PageResult) else PageResult(result)
@@ -230,7 +228,11 @@ class LiveExtraction:
     async def cancel(self):
         async with self._lock:
             self._stopped = True
-            self.pages.close(RuntimeError("extraction stream aborted"))
+            self.pages.close(self._failure or RuntimeError("extraction stream aborted"))
+            # Closing input only wakes readers. A full refinement window can
+            # instead be waiting for a provider or admission slot indefinitely.
+            # Cancelling its owner enters refine_pages' child-task teardown.
+            self.task.cancel()
             if self._finishing is not None:
                 self._finishing.cancel()
         try:

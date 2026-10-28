@@ -176,8 +176,12 @@ class ExtractionRecoveryTests(IsolatedAsyncioTestCase):
             options = replace(options, footnotes=FootnoteOptions(FootnoteRefinement(
                 JEV(key='unused'), LLM(key='unused', model='unused', url='https://unused.invalid', token_encoding='o200k_base'),
                 executor=ConcurrentExecutor(FixedCapacity(1)))))
-        target = 'pdf_craft.extractor.chapter.live.primary_page' if stage == "prepare" else 'pdf_craft.transform.generate_chapter_files'
-        with patch(target, side_effect=error):
+        target = 'pdf_craft.extractor.chapter.live.PrimaryPages' if stage == "prepare" else 'pdf_craft.transform.generate_chapter_files'
+        with patch(target) as mocked:
+            if stage == "prepare":
+                mocked.return_value.append.side_effect = error
+            else:
+                mocked.side_effect = error
             return await AsyncPDFCraft.from_engine(engine).extract_pdf(
                 root / 'source.pdf', root / 'book.pcex',
                 options,

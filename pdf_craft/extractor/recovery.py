@@ -276,21 +276,20 @@ async def recover_chapters(draft, ocr, error: Exception, directory: Path, *, ana
         def collect(path=path, records=records, run=run):
             if adopted_database is not None and adopted_database.exists():
                 from .chapter.assembly import PageAssembly
-                from .chapter.primary import primary_page
+                from .chapter.primary import PrimaryPages
                 from .chapter.stream import chapters_from_disk
                 from ..pdf import decode
                 from copy import deepcopy
                 spool = path / 'adopted.sqlite'
                 assembly = PageAssembly(spool)
-                previous = initial = None
+                primary = PrimaryPages()
                 with closing(sqlite3.connect(adopted_database)) as db:
                     for index in run:
                         raw = decode(read_xml(path / f'page_{index}.xml'))
-                        initial = primary_page(previous, raw, None, initial)
+                        initial = primary.append(raw)
                         row = db.execute('SELECT value FROM adopted WHERE page=?', (index,)).fetchone()
                         page = pickle.loads(row[0]) if row else deepcopy(initial)
                         assembly.append(page)
-                        previous = raw
                 assembly.finish()
                 chapters = chapters_from_disk(spool, TocInfo([], []), chunk_size=128)
             else:
