@@ -621,4 +621,4 @@ ordering, lifetime and publication semantics.
 
 See [error handling](ERROR_HANDLING.md) for strict defaults, source locations and task-wide all-fallback protection.
 
-Content and progress advance independently. PAGE completion differs from publication; PDF layout waits only for connected page dependencies. See [streaming semantics](STREAMING.md).
+Content and progress advance independently. PAGE completion differs from publication; PDF layout waits only for each page's direct inputs. See [streaming semantics](STREAMING.md).
