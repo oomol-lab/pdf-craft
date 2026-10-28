@@ -136,7 +136,8 @@ class PDFExtractionEngine:
             live = LiveExtraction(directory, kwargs["analysing_path"] / "ocr",
                                   kwargs["includes_footnotes"], on_body, on_footnote,
                                   refinement=(lambda: self._stream_refinement(kwargs['footnote_refinement'], kwargs))
-                                  if kwargs.get('footnote_refinement') is not None else None)
+                                  if kwargs.get('footnote_refinement') is not None else None,
+                                  page_indexes=kwargs.get("page_indexes"))
             callback = kwargs.get("on_ocr_event")
             async def event(value):
                 if front is not None:

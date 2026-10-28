@@ -386,3 +386,44 @@ class RefinementPipelineTests(IsolatedAsyncioTestCase):
                     break
                 closure = expanded
             self.assertEqual(closure, {1, 2, 3})
+
+    async def test_ignored_pages_do_not_exhaust_refinement_admission(self):
+        from contextlib import asynccontextmanager
+        from pathlib import Path
+        from tempfile import TemporaryDirectory
+        from xml.etree.ElementTree import fromstring
+        from pdf_craft.pdf import decode, encode
+        from pdf_craft.common import save_xml
+        from pdf_craft.pdf.ocr import OCREvent, OCREventKind
+        from pdf_craft.extractor.chapter.live import LiveExtraction
+        @asynccontextmanager
+        async def factory():
+            async def process(_previous, target, _following):
+                return target
+            yield process
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            live = LiveExtraction(root/'live', root, True, refinement=factory)
+            live._page_indexes = {30, 31}
+            async def feed():
+                for index in range(1, 32):
+                    await live.event(OCREvent(OCREventKind.START, index, 31))
+                    if index < 30:
+                        await live.event(OCREvent(OCREventKind.IGNORE, index, 31))
+                    else:
+                        save_xml(encode(decode(fromstring(f'<page index="{index}"><body>'
+                            f'<layout ref="text" det="0,0,90,20">Page {index}.</layout>'
+                            '</body></page>'))), root/f'page_{index}.xml')
+                        await live.event(OCREvent(OCREventKind.COMPLETE, index, 31))
+                await live.finish()
+            try:
+                await asyncio.wait_for(feed(), 2)
+                self.assertEqual(live._consumed, 2)
+            finally:
+                await live.cancel()
+            cached = LiveExtraction(root/'cached-live', root, True, refinement=factory, page_indexes={31})
+            try:
+                await asyncio.wait_for(cached.finish(), 2)
+                self.assertEqual(cached._consumed, 1)
+            finally:
+                await cached.cancel()

@@ -19,7 +19,7 @@ class LiveExtraction:
     """Only page-order metadata stays in RAM; all content queues live on disk."""
 
     def __init__(self, path: Path, pages_path: Path, includes_footnotes: bool,
-                 on_body=None, on_footnote=None, *, refinement=None) -> None:
+                 on_body=None, on_footnote=None, *, refinement=None, page_indexes=None) -> None:
         self.pages_path = pages_path
         self.database = path / "content.sqlite"
         self.pages: DiskStream[Page] = DiskStream(path / "pages")
@@ -35,6 +35,8 @@ class LiveExtraction:
         self._failure: BaseException | None = None
         self._refining = refinement is not None
         self._consumed = 0
+        self._admitted = 0
+        self._page_indexes = page_indexes
         self._capacity = asyncio.Event()
         # A blocking stream consumer must never occupy the pool that feeds it.
         # One owned worker per live stream; joined before its workspace is freed.
@@ -129,14 +131,18 @@ class LiveExtraction:
                 raise RuntimeError("extraction stream is closed")
             try:
                 await self._event(event)
-                ordinal = len(self.order) - 1
+                admit = event.kind == OCREventKind.START and (
+                    self._page_indexes is None or event.page_index in self._page_indexes)
+                ordinal = self._admitted
+                if admit:
+                    self._admitted += 1
             except BaseException as error:
                 self._failure = error
                 self.pages.close(error)
                 raise
         # Admission waits outside the consumption lock: an older OCR request
         # must remain able to publish the input that makes this window advance.
-        if event.kind == OCREventKind.START:
+        if admit:
             await self._wait_capacity(ordinal)
 
     async def _event(self, event):
@@ -200,6 +206,8 @@ class LiveExtraction:
             try:
                 ordinal = 0
                 async for page in worker_iter(reader.read()):
+                    if self._page_indexes is not None and page.index not in self._page_indexes:
+                        continue
                     await self._wait_capacity(ordinal)
                     await IO_DOMAIN.run(self.pages.append, page)
                     ordinal += 1
