@@ -86,3 +86,52 @@ records the current code fingerprint and visual inspection. Review must compare
 the implementation against the official standards and independently execute a
 new-directory citation gate on the reviewed source; this run cannot substitute
 for the reviewer's acceptance.
+
+## Review recovery: source identity and mixed preservation boundaries
+
+Independent review of `db578a4` found two failures not covered by the initial
+suite. Both are reproduced offline with the old restoration function and the
+new complete-fill tests (`review-before.log`: one failure and one error):
+
+1. Different no-ID tags could reorder during attribute adoption, but recovery
+   previously matched source children by absolute index. A `b` in source `pre`
+   mode could therefore be validated as normal and later regain its protected
+   source styling around incorrectly collapsed text.
+2. An inclusive character range marked a normal tail as protected merely because
+   it touched the preceding `pre` element's end. Correct normal tail candidates
+   were rejected and moving whitespace into the protected element could pass.
+
+Recovery and `InlineSegment.assign_attributes` now share the same child matcher:
+IDs first within each tag, then same-tag occurrence order, retaining target order.
+When source context exists but a response node cannot be matched, recovery fails
+transactionally instead of falling back to model attributes. Existing structural
+validation still owns missing/duplicate IDs and tag counts.
+
+Gap classification now uses the actual text/tail owners and unique source
+ownership at boundaries, rather than inclusive element ranges. A normal tail
+next to `pre` stays normal: one, two or formatting-newline spaces collapse
+without an extra fill call. A known normal gap cannot be moved into a protected
+source slot. Interior protected gaps continue to require their preserved text.
+This follows CSS Text 3 4.1.1's distinction between collapsible and preserved
+whitespace, and the same declared transport subset as above.
+
+New complete-fill regressions check reordered no-ID `b`/`i` nodes: the incorrect
+single-space `pre` value is rejected, the corrected double-space value is
+accepted, and the adopted `b` retains both the source style and both spaces.
+Normal-tail tests assert one fill call and correct final source style/text.
+Direct recovery tests additionally assert that unmatched contexts or misplaced
+protected whitespace cannot mutate/admit the candidate.
+
+The updated implementation has its own fresh paid run at
+`pdf-craft-output/issue888-review-recovery-citation-01/`; it does not reuse the
+original implementation's or reviewer's responses. Final results and inspection
+are recorded in the implementation handoff and its ignored evidence files.
+
+Review-recovery final verification: **1,187 tests passed**, **73 focused tests
+passed**, Pyright **0 errors/0 warnings**, changed-file Pylint **10/10**, and
+`git diff --check` clean. The new citation run exits **0** with
+`automated_passed=true`, all three mask checks passed, and `failures=[]`.
+All three translated previews were compared with the same pinned source fixture:
+the large duplicate footnote overlay is absent. Header/folio artifacts,
+continuation-label handling and formula presentation retain unrelated imperfections;
+no claim of perfect OCR, translation or layout is made.

@@ -349,48 +349,8 @@ class InlineSegment:
         return assigned_element
 
     def _match_children(self, element: Element) -> Generator[tuple["InlineSegment", Element], None, None]:
-        tag2elements = nest((c.tag, c) for c in element)
-        element_order = {id(child): index for index, child in enumerate(element)}
-        tag2children = nest(
-            (c.parent.tag, (i, c)) for i, c in enumerate(c for c in self._children if isinstance(c, InlineSegment))
+        from ..xml.matching import match_children
+        yield from match_children(
+            ((child.parent.tag, child.id, child)
+             for child in self._children if isinstance(child, InlineSegment)), element,
         )
-        used_ids: set[int] = set()
-        children_and_elements: list[tuple[int, InlineSegment, Element]] = []
-
-        for tag, orders_and_children in tag2children.items():
-            # 优先考虑 id 匹配，剩下的以自然顺序尽可能匹配
-            ids = self._child_tag2ids.get(tag, [])
-            matched_children_elements: list[Element | None] = [None] * len(orders_and_children)
-            not_matched_elements: list[Element] = []
-
-            for child_element in tag2elements.get(tag, []):
-                id_order: int | None = None
-                child_id = id_in_element(child_element)
-                if child_id is not None and child_id not in used_ids:
-                    used_ids.add(child_id)  # 一个 id 只能用一次，防止重复
-                    try:
-                        id_order = ids.index(child_id)
-                    except ValueError:
-                        pass
-                if id_order is None:
-                    not_matched_elements.append(child_element)
-                else:
-                    matched_children_elements[id_order] = child_element
-
-            not_matched_elements.reverse()
-            for i in range(len(matched_children_elements)):
-                if not not_matched_elements:
-                    break
-                matched_element = matched_children_elements[i]
-                if matched_element is None:
-                    matched_children_elements[i] = not_matched_elements.pop()
-
-            for (order, child), child_element in zip(orders_and_children, matched_children_elements):
-                if child_element is not None:
-                    children_and_elements.append((order, child, child_element))
-
-        for _, child, child_element in sorted(
-            children_and_elements,
-            key=lambda item: element_order[id(item[2])],
-        ):
-            yield child, child_element

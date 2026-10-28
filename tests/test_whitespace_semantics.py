@@ -71,6 +71,25 @@ class WhiteSpaceStandardsTests(TestCase):
 
 
 class WhitespaceRecoveryTests(TestCase):
+    def test_unmatched_source_never_uses_model_preservation_attributes(self):
+        source = fromstring('<fragment><b white-space="pre">source</b></fragment>')
+        candidate = fromstring('<fragment><i white-space="normal">a b</i></fragment>')
+        before = tostring(candidate)
+        self.assertFalse(restore_canonical_whitespace([candidate], 'a  b', [source]))
+        self.assertEqual(tostring(candidate), before)
+
+    def test_preserved_sibling_does_not_own_normal_tail_space(self):
+        source = fromstring('<fragment><span white-space="pre">source</span> tail</fragment>')
+        for gap in (' ', '  ', '\n  '):
+            candidate = fromstring(f'<fragment><span>a</span>{gap}b</fragment>')
+            self.assertTrue(restore_canonical_whitespace([candidate], 'a  b', [source]))
+            self.assertEqual(candidate[0].text, 'a')
+            self.assertEqual(candidate[0].tail, ' b')
+        misplaced = fromstring('<fragment><span>a </span> b</fragment>')
+        before = tostring(misplaced)
+        self.assertFalse(restore_canonical_whitespace([misplaced], 'a  b', [source]))
+        self.assertEqual(tostring(misplaced), before)
+
     def test_normal_gap_recovery_is_transactional_and_keeps_special_content(self):
         for response, canonical, expected in (
                 ('<fragment>  Helloworld. \n</fragment>', 'Hello world.', 'Hello world.'),
@@ -113,6 +132,57 @@ class WhitespaceRecoveryTests(TestCase):
 
 
 class FillRecoveryRequestTests(IsolatedAsyncioTestCase):
+    async def test_no_id_different_tags_reorder_keeps_source_pre_during_adoption(self):
+        source = source_chapter()
+        item = source.flow_items[0]
+        assert isinstance(item, TextFlowItem)
+        fragment = item.children[0]
+        assert isinstance(fragment, SourceTextFragment)
+        bold, italic = tag_definition('b'), tag_definition('i')
+        assert bold is not None and italic is not None
+        fragment.content = [HTMLTag(bold, [('style', 'white-space: pre')], ['source']),
+                            HTMLTag(italic, [], ['other'])]
+        wrong = '<xml><fragment id="1"><i/><b>a b</b></fragment></xml>'
+        corrected = wrong.replace('a b', 'a  b')
+        translator, runtime = _repairing_translator([wrong, corrected])
+        translator._translate_text_async = AsyncMock(return_value='a  b')
+        target = await NarrativeXMLTransformer(translator).transform(source, error_policy=False)
+        self.assertEqual(runtime.context_value.calls, 2)
+        result = target.flow_items[0]
+        assert isinstance(result, TextFlowItem)
+        result_fragment = result.children[0]
+        assert isinstance(result_fragment, SourceTextFragment)
+        b = result_fragment.content[1]
+        assert isinstance(b, HTMLTag)
+        self.assertEqual(b.attributes, [('style', 'white-space: pre')])
+        self.assertEqual(b.children, ['a  b'])
+
+    async def test_normal_tail_adjacent_to_pre_needs_no_extra_fill(self):
+        for gap in (' ', '  '):
+            source = source_chapter()
+            item = source.flow_items[0]
+            assert isinstance(item, TextFlowItem)
+            fragment = item.children[0]
+            assert isinstance(fragment, SourceTextFragment)
+            span = tag_definition('span')
+            assert span is not None
+            fragment.content = [HTMLTag(span, [('style', 'white-space: pre')], ['source']), ' tail']
+            response = f'<xml><fragment id="1"><span>a</span>{gap}b</fragment></xml>'
+            translator, runtime = _repairing_translator([response])
+            translator._translate_text_async = AsyncMock(return_value='a  b')
+            target = await NarrativeXMLTransformer(translator).transform(source, error_policy=False)
+            self.assertEqual(runtime.context_value.calls, 1)
+            result = target.flow_items[0]
+            assert isinstance(result, TextFlowItem)
+            result_fragment = result.children[0]
+            assert isinstance(result_fragment, SourceTextFragment)
+            content = result_fragment.content
+            self.assertEqual(content[1], ' b')
+            first = content[0]
+            assert isinstance(first, HTMLTag)
+            self.assertEqual(first.children, ['a'])
+            self.assertEqual(first.attributes, [('style', 'white-space: pre')])
+
     async def test_source_preserved_inline_context_survives_the_whole_fill_path(self):
         source = source_chapter()
         item = source.flow_items[0]

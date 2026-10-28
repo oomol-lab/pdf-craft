@@ -46,3 +46,7 @@ friendly XML 压缩已有普通空白、排版纯 block 容器；block 内部的
 [空白处理规则](https://www.w3.org/TR/css-text-3/#white-space-processing)、
 [HTML 默认渲染规则](https://html.spec.whatwg.org/multipage/rendering.html)。没有解析外部样式或
 不支持的布局行为时，不承诺完整浏览器等价性。
+
+来源上下文与最终属性采纳共用 ID、标签及同标签出现顺序的匹配规则，覆盖无 ID 的不同标签
+重排；无法匹配来源时拒绝候选。pre 节点不会把父级拥有的 normal tail 也变成受保护空白；
+空白按实际字段归属分类，已知普通分隔不能为了通过比较而移入保留空白的槽位。

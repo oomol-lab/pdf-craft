@@ -66,3 +66,9 @@ and [whitespace processing](https://www.w3.org/TR/css-text-3/#white-space-proces
 HTML defaults are checked against the [HTML rendering standard](https://html.spec.whatwg.org/multipage/rendering.html).
 Our stated transport subset does not promise complete CSS/browser equivalence
 when external styling or unsupported layout behavior is involved.
+
+Source contexts use the same ID/tag/occurrence matching as final attribute adoption,
+including different-tag reordering without IDs. An unmatched source context is
+rejected. A protected node does not protect its normal parent-owned tail; gaps
+are classified by actual field ownership. Known normal padding cannot migrate
+into a preserved slot merely to satisfy comparison.

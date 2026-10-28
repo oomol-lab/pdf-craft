@@ -4,6 +4,7 @@ from typing import NamedTuple
 from xml.etree.ElementTree import Element
 
 from .whitespace import DOCUMENT_SPACE, WhiteSpace, collapses_breaks, mode_for, normalize
+from .xml_translator.xml.matching import element_id, match_children
 
 
 class _Field(NamedTuple):
@@ -25,6 +26,12 @@ def _gaps(text):
         else:
             offset += 1
     return gaps
+
+
+def _source_owners(fields, position):
+    return [f for f in fields if f.source and (
+        (position == f.start and f.source[:1] in DOCUMENT_SPACE)
+        or (position == f.end and f.source[-1:] in DOCUMENT_SPACE))]
 
 
 def restore_canonical_whitespace(roots: list[Element], canonical: str,
@@ -50,27 +57,47 @@ def restore_canonical_whitespace(roots: list[Element], canonical: str,
     def walk(element, source, inherited, path):
         mode = mode_for(source if source is not None else element, inherited)
         field(element, 'text', path, mode, source.text if source is not None else '')
-        children = list(source) if source is not None else []
-        ids = {child.get('id'): child for child in children if child.get('id') is not None}
-        for index, child in enumerate(element):
-            original = ids.get(child.get('id')) if child.get('id') is not None else (
-                children[index] if index < len(children) and children[index].tag == child.tag else None)
-            walk(child, original, mode, path + [child])
+        originals = {} if source is None else {
+            id(child): original for original, child in match_children(
+                ((node.tag, element_id(node), node) for node in source), element,
+            )
+        }
+        for child in element:
+            original = originals.get(id(child))
+            # A provided source is authoritative. A missing match must never
+            # let model-supplied attributes override its preservation context.
+            if source is not None and original is None:
+                return False
+            if not walk(child, original, mode, path + [child]):
+                return False
             field(child, 'tail', path, mode, original.tail if original is not None else '')
+        return True
 
+    if sources is not None and len(sources) != len(roots):
+        return False
     for index, root in enumerate(roots):
-        walk(root, sources[index] if sources is not None else None,
-             modes[index] if modes is not None else WhiteSpace.NORMAL, [root])
+        if not walk(root, sources[index] if sources is not None else None,
+                    modes[index] if modes is not None else WhiteSpace.NORMAL, [root]):
+            return False
     actual = ''.join(item.text for item in fields)
     canonical = canonical.replace('\r\n', '\n').replace('\r', '\n')
     if ''.join(c for c in actual if c not in DOCUMENT_SPACE) != ''.join(
             c for c in canonical if c not in DOCUMENT_SPACE):
         return False
     actual_gaps, expected_gaps = _gaps(actual), _gaps(canonical)
+    field_gaps = [_gaps(f.text) for f in fields]
     changes: dict[int, str] = {}
     wanted: dict[int, str] = {}
     for position in actual_gaps.keys() | expected_gaps.keys():
-        protected_modes = {f.mode for f in fields if not collapses_breaks(f.mode) and f.start <= position <= f.end}
+        # A preserved node ending here does not own its parent's normal tail.
+        # Inspect actual fields/known owners, not inclusive character ranges.
+        interior = [f for f in fields if f.start < position < f.end]
+        owners = _source_owners(fields, position)
+        actual_owners = [f for f, gaps in zip(fields, field_gaps) if gaps.get(position - f.start)]
+        if owners and any(not collapses_breaks(f.mode) and f not in owners for f in actual_owners):
+            return False  # Do not move a known normal gap into a protected slot.
+        relevant = interior or owners or actual_owners
+        protected_modes = {f.mode for f in relevant if not collapses_breaks(f.mode)}
         mode = next(iter(protected_modes)) if len(protected_modes) == 1 else WhiteSpace.PRE
         protected = bool(protected_modes)
         expected = normalize(expected_gaps[position], mode) if protected else normalize(expected_gaps[position])
@@ -87,11 +114,9 @@ def restore_canonical_whitespace(roots: list[Element], canonical: str,
         candidates = [i for i, f in enumerate(fields) if f.start <= position <= f.end]
         target = None
         if expected:
-            existing = [i for i in candidates if position - fields[i].start in _gaps(fields[i].text)]
+            existing = [i for i in candidates if position - fields[i].start in field_gaps[i]]
             interior = [i for i in candidates if fields[i].start < position < fields[i].end]
-            owners = [i for i in candidates if (
-                (position == fields[i].start and fields[i].source[:1] in DOCUMENT_SPACE and fields[i].source)
-                or (position == fields[i].end and fields[i].source[-1:] in DOCUMENT_SPACE and fields[i].source))]
+            owners = [i for i in candidates if fields[i] in _source_owners(fields, position)]
             if existing:
                 target = existing[0]  # CSS collapses a run across inline boundaries.
             elif len(interior) == 1:
