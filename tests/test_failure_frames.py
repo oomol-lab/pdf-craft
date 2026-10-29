@@ -5,8 +5,8 @@ from pdf_craft._policy import error_details
 
 class FailureFramesTest(unittest.TestCase):
     def test_locations_survive_serialization_without_locals(self):
+        private_document = "private document content"
         try:
-            private_document = "private document content"
             raise ValueError(private_document)
         except ValueError as error:
             details = pickle.loads(pickle.dumps(error_details(error)))
