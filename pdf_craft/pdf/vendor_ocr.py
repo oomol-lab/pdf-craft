@@ -3,6 +3,8 @@
 
 from __future__ import annotations
 
+from ..request_events import request_call, request_call_scope
+
 from pdf_craft.usage import UsageCollector, UsageScope, request_attempt, observe_tokens, adopted_result, usage_enabled
 import asyncio
 import base64
@@ -158,6 +160,7 @@ class VendorOCRRuntime:
                 candidate.accept()
             return response
 
+    @request_call
     async def _request_resolved(self, request, _started):
         resolved = await self._resolve_image_url(request)
         if isinstance(self.config, UnlimitedOCRVendorConfig):
@@ -512,7 +515,8 @@ class VendorOCRRuntime:
                             response, request.page_index, "Unlimited OCR download",
                         )
 
-                parsed = await self._run_io_with_retry(download)
+                with request_call_scope():
+                    parsed = await self._run_io_with_retry(download)
                 return VendorOCRResponse(data={
                     "task_id": task_id,
                     "status": status,
@@ -522,6 +526,7 @@ class VendorOCRRuntime:
                 raise OperationError(f"Unlimited OCR task {task_id} timed out")
             await asyncio.sleep(config.poll_interval_seconds)
 
+    @request_call
     async def _submit_unlimited(
         self,
         request: _ResolvedVendorOCRInput,
@@ -584,6 +589,7 @@ class VendorOCRRuntime:
 
         return await self._run_io_once(submit, started)
 
+    @request_call
     async def _run_unlimited_with_token(
         self,
         page_index: int,
@@ -607,6 +613,7 @@ class VendorOCRRuntime:
             if self._access_token == expired_token:
                 self._access_token = None
 
+    @request_call
     async def _get_access_token(self, page_index: int) -> str:
         if self._access_token is not None:
             return self._access_token

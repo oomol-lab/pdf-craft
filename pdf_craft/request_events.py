@@ -2,15 +2,18 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Callable, Iterator
+from collections.abc import Awaitable, Callable, Coroutine, Iterator
 from contextlib import contextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass, field, replace
 from datetime import datetime, timezone
 from enum import Enum
+from functools import wraps
+from itertools import count
+from threading import Lock
 import inspect
 import time
-from typing import Any
+from typing import Any, ParamSpec, TypeVar
 
 from .usage_types import RequestUsage
 
@@ -40,12 +43,44 @@ class RequestEvent:
     """One completed attempt. Provider identity is retained, never serialized here."""
     provider: object = field(repr=False)
     kind: RequestKind
+    call_id: int
     started_at: datetime
     duration_ms: float
     outcome: RequestOutcome
     usage: RequestUsage | None = None
     http_status: int | None = None
     error_type: str | None = None
+
+
+_call_ids = count(1)
+_call_id_lock = Lock()
+_call_id: ContextVar[int | None] = ContextVar('pdf_craft_request_call_id', default=None)
+_P = ParamSpec('_P')
+_T = TypeVar('_T')
+
+
+def _next_call_id() -> int:
+    with _call_id_lock:
+        return next(_call_ids)
+
+
+@contextmanager
+def request_call_scope() -> Iterator[None]:
+    """A new logical call, even when nested inside another provider call."""
+    token = _call_id.set(_next_call_id())
+    try:
+        yield
+    finally:
+        _call_id.reset(token)
+
+
+def request_call(function: Callable[_P, Awaitable[_T]]) -> Callable[_P, Coroutine[Any, Any, _T]]:
+    """Place outside retry/admission loops so all their attempts share one ID."""
+    @wraps(function)
+    async def invoke(*args: _P.args, **kwargs: _P.kwargs) -> _T:
+        with request_call_scope():
+            return await function(*args, **kwargs)
+    return invoke
 
 
 # Deliberately synchronous: hand off to the host's own telemetry queue without
@@ -164,7 +199,7 @@ def observe_request(provider: object, kind: RequestKind = RequestKind.MODEL) -> 
         error = caught
         raise
     finally:
-        event = RequestEvent(provider, kind, started_at, (time.monotonic() - started) * 1000,
+        event = RequestEvent(provider, kind, _call_id.get() or _next_call_id(), started_at, (time.monotonic() - started) * 1000,
                              _result(error, current), current.usage, current.http_status,
                              type(error).__name__ if error is not None else None)
         _observation.reset(token)

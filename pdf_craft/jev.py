@@ -2,6 +2,8 @@
 """Official asynchronous JEV service configuration and transport."""
 
 from __future__ import annotations
+
+from .request_events import request_call
 from pdf_craft.usage import UsageCollector, request_attempt, observe_tokens
 from collections.abc import Mapping
 
@@ -82,6 +84,7 @@ class JEVRuntime:
             await client.__aexit__(exc_type, exc_value, traceback)
 
     @policy_operation
+    @request_call
     @rate_limit_request
     async def evaluate(
         self,

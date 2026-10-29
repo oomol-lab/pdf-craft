@@ -823,3 +823,5 @@ fragment 身份和整数 OCR bbox 放在一起，`map_bbox(target_size)` 按实�
 
 
 LLM、JEV 和 OCR vendor 构造参数 `on_request` 可观察每次实际请求尝试，见[请求观察](REQUEST_OBSERVATIONS.md)。
+
+请求观察事件包含进程内 `call_id`，同一次调用的重试共用 ID；详见[请求观察](REQUEST_OBSERVATIONS.md)。

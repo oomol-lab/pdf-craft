@@ -4,6 +4,8 @@
 
 from __future__ import annotations
 
+from ..request_events import request_call
+
 from pdf_craft.usage import UsageCollector
 import asyncio
 import hashlib
@@ -203,6 +205,7 @@ class LLMContext(AbstractAsyncContextManager["LLMContext"]):
 
     @policy_operation
     @fatal_error_boundary
+    @request_call
     @rate_limit_request
     async def request(
         self, input, max_tokens=None, temperature=None, top_p=None, *,

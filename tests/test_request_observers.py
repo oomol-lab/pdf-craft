@@ -54,6 +54,8 @@ class RequestObserversTests(IsolatedAsyncioTestCase):
         self.assertEqual([e.outcome for e in events], [RequestOutcome.RATE_LIMITED,
                           RequestOutcome.SERVER_ERROR, RequestOutcome.SUCCESS])
         self.assertEqual([e.http_status for e in events], [429, 502, 200])
+        self.assertEqual(len({e.call_id for e in events}), 1)
+        self.assertIsInstance(events[0].call_id, int)
         for event in events:
             self.assertIs(event.provider, config)
             self.assertEqual(event.usage, RequestUsage(1, 10, 4, 2))
@@ -127,6 +129,7 @@ class RequestObserversTests(IsolatedAsyncioTestCase):
         self.assertEqual([name for name, _ in events], ['ok', 'cancel'])
         self.assertEqual([event.usage.input_tokens for _, event in events], [3, 8])
         self.assertEqual(events[1][1].outcome, RequestOutcome.CANCELLED)
+        self.assertNotEqual(events[0][1].call_id, events[1][1].call_id)
 
     async def test_sdk_stream_usage_is_requested_without_collector_and_disconnect_keeps_status(self):
         events = []
@@ -206,6 +209,8 @@ class RequestObserversTests(IsolatedAsyncioTestCase):
                          RequestKind.OCR_QUERY, RequestKind.OCR_QUERY, RequestKind.OCR_DOWNLOAD])
         self.assertEqual([e.http_status for e in events], [200, 200, 502, 200, 200])
         self.assertEqual(events[2].outcome, RequestOutcome.SERVER_ERROR)
+        self.assertEqual(events[2].call_id, events[3].call_id)
+        self.assertEqual(len({e.call_id for e in events}), 4)
         self.assertTrue(all(e.usage is None for e in events))
         self.assertEqual(collector.report()[config].effective.requests, 1)
 
@@ -361,3 +366,106 @@ class RequestObserversTests(IsolatedAsyncioTestCase):
         with self.assertRaises(Exception):
             await runtime.request('input')
         self.assertEqual(events[0].outcome, RequestOutcome.UNKNOWN_ERROR)
+
+    async def test_separate_calls_in_same_llm_context_get_new_ids(self):
+        events = []
+        runtime = runtime_for(llm(events.append, retry_times=1), executor())
+        # An IPv4 retry and an empty-response retry are still the same call.
+        failed = httpx.ConnectError('connect')
+        setattr(runtime, '_invoke', AsyncMock(side_effect=[failed, '', 'answer', 'second']))
+        async with runtime.context() as context:
+            self.assertEqual(await context.request('one'), 'answer')
+            self.assertEqual(await context.request('two'), 'second')
+        self.assertEqual(len(events), 4)
+        self.assertEqual(len({e.call_id for e in events[:3]}), 1)
+        self.assertGreater(events[3].call_id, events[0].call_id)
+
+    async def test_nested_observed_calls_restore_parent_id(self):
+        events = []
+        inner = runtime_for(llm(events.append), executor())
+        setattr(inner, '_invoke', AsyncMock(return_value='inner'))
+        outer = runtime_for(llm(events.append, retry_times=1), executor())
+        attempts = 0
+        async def invoke(*_args):
+            nonlocal attempts
+            attempts += 1
+            await inner.request('nested')
+            return '' if attempts == 1 else 'answer'
+        setattr(outer, '_invoke', invoke)
+        await outer.request('outer')
+        self.assertEqual(len(events), 4)
+        self.assertEqual(events[1].call_id, events[3].call_id)
+        self.assertEqual(len({e.call_id for e in events}), 3)
+
+    async def test_jev_retries_share_id_separate_evaluations_do_not(self):
+        events = []
+        from pdf_craft import RetryPolicy
+        from typesafe_sdk import TypeSafeAPIConnectionError
+        runtime = JEVRuntime(JEV('secret', on_request=events.append), executor(),
+                             retry_policy=RetryPolicy(analysis=2))
+        response = SimpleNamespace(usage=None, nouls={
+            'page_passes_strict_standard': SimpleNamespace(noul=0.8)})
+        runtime._client = MagicMock(system_one=AsyncMock(side_effect=[
+            TypeSafeAPIConnectionError('offline'), response, response]))
+        for page in (1, 2):
+            self.assertEqual(await runtime.evaluate(page, {'state': {}, 'questions': {}}), 0.8)
+        self.assertEqual(len(events), 3)
+        self.assertEqual(events[0].call_id, events[1].call_id)
+        self.assertNotEqual(events[1].call_id, events[2].call_id)
+
+    async def test_deepseek_retries_share_id_separate_pages_do_not(self):
+        events, calls = [], 0
+        config = DeepSeekOCRVendorConfig('https://invalid', 'secret', 'model',
+                        retry_times=1, retry_interval_seconds=0, on_request=events.append)
+        async def resolve(_path):
+            return 'https://invalid/image'
+        def respond(_request):
+            nonlocal calls
+            calls += 1
+            if calls == 1:
+                return httpx.Response(502, json={})
+            return httpx.Response(200, json={'choices': [{'message': {'content': 'text'}}]})
+        runtime = VendorOCRRuntime(config, executor(), resolve)
+        async with httpx.AsyncClient(transport=httpx.MockTransport(respond)) as client:
+            runtime._client = client
+            for page in (1, 2):
+                await runtime.request(VendorOCRInput(page, Path('unused.png'), lambda: False))
+        self.assertEqual(len(events), 3)
+        self.assertEqual(events[0].call_id, events[1].call_id)
+        self.assertNotEqual(events[1].call_id, events[2].call_id)
+
+    async def test_unlimited_normal_polls_and_control_retry_boundaries(self):
+        from collections import Counter
+        events, calls = [], Counter()
+        config = UnlimitedOCRVendorConfig('ak', 'sk', base_url='https://invalid',
+                    retry_times=1, retry_interval_seconds=0, poll_interval_seconds=0,
+                    on_request=events.append)
+        async def resolve(_path):
+            return 'https://invalid/image'
+        def respond(request):
+            path = request.url.path
+            calls[path] += 1
+            if calls[path] == 1:
+                return httpx.Response(502, json={})
+            if path == '/oauth/2.0/token':
+                return httpx.Response(200, json={'access_token': 'token'})
+            if path.endswith('/query'):
+                if calls[path] == 2:
+                    return httpx.Response(200, json={'result': {'status': 'running'}})
+                return httpx.Response(200, json={'result': {
+                    'status': 'success', 'parse_result_url': 'https://invalid/result'}})
+            if path == '/result':
+                return httpx.Response(200, json={'pages': []})
+            return httpx.Response(200, json={'result': {'task_id': 'task'}})
+        runtime = VendorOCRRuntime(config, executor(), resolve)
+        async with httpx.AsyncClient(transport=httpx.MockTransport(respond)) as client:
+            runtime._client = client
+            await runtime.request(VendorOCRInput(1, Path('unused.png'), lambda: False))
+        self.assertEqual([e.kind for e in events], [RequestKind.OCR_AUTH] * 2
+                         + [RequestKind.OCR_SUBMIT] * 2 + [RequestKind.OCR_QUERY] * 3
+                         + [RequestKind.OCR_DOWNLOAD] * 2)
+        for start in (0, 2, 4, 7):
+            self.assertEqual(events[start].call_id, events[start + 1].call_id)
+            self.assertEqual(events[start].outcome, RequestOutcome.SERVER_ERROR)
+        self.assertEqual(len({e.call_id for e in events}), 5)
+        self.assertNotEqual(events[5].call_id, events[6].call_id)
