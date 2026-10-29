@@ -12,7 +12,11 @@ import xml.etree.ElementTree as ET
 from pdfminer.high_level import extract_pages
 from pdfminer.layout import LTChar, LTContainer
 from pypdf import PdfReader, PdfWriter
-from pypdf.generic import ContentStream
+from pypdf.generic import (
+    ArrayObject, ContentStream, DecodedStreamObject, DictionaryObject,
+    NameObject, NumberObject,
+)
+from PIL import Image
 from reportlab.pdfgen.canvas import Canvas
 from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.cidfonts import UnicodeCIDFont
@@ -58,6 +62,58 @@ def _erase(writer, page, left, bottom, right, top):
 
 
 class PDFTextRedactionTests(unittest.TestCase):
+    def test_extgstate_font_size_controls_character_removal(self):
+        writer, page = _pdf(lambda c: c.drawString(20, 100, 'AB'))
+        resources = page['/Resources']
+        font = resources['/Font'].raw_get('/F1')
+        resources[NameObject('/ExtGState')] = DictionaryObject({
+            NameObject('/GS'): DictionaryObject({
+                NameObject('/Font'): ArrayObject([font, NumberObject(40)]),
+            }),
+        })
+        content = ContentStream(None, writer)
+        content.set_data(b'BT /F1 12 Tf /GS gs 1 0 0 1 20 100 Tm (AB) Tj ET')
+        page.replace_contents(content)
+        # Helvetica 40pt: A ends at x=46.68; this mask intersects B only.
+        self.assertEqual(_erase(writer, page, 50, 95, 60, 125), 1)
+        self.assertEqual(page.extract_text().strip(), 'A')
+
+    @unittest.skipUnless(shutil.which('pdftoppm'), 'requires Poppler')
+    def test_hidden_full_page_stamp_stays_invisible(self):
+        writer = PdfWriter()
+        page = writer.add_blank_page(width=200, height=200)
+        appearance = DecodedStreamObject()
+        appearance.set_data(b'1 0 0 rg 0 0 200 200 re f')
+        rectangle = ArrayObject([NumberObject(v) for v in (0, 0, 200, 200)])
+        appearance.update({
+            NameObject('/Type'): NameObject('/XObject'),
+            NameObject('/Subtype'): NameObject('/Form'),
+            NameObject('/BBox'): rectangle,
+            NameObject('/Resources'): DictionaryObject(),
+        })
+        annotation = DictionaryObject({
+            NameObject('/Type'): NameObject('/Annot'),
+            NameObject('/Subtype'): NameObject('/Stamp'),
+            NameObject('/Rect'): rectangle,
+            NameObject('/F'): NumberObject(2),  # Hidden, regardless of print/view.
+            NameObject('/AP'): DictionaryObject({NameObject('/N'): writer._add_object(appearance)}),
+        })
+        page[NameObject('/Annots')] = ArrayObject([writer._add_object(annotation)])
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source, target = root / 'source.pdf', root / 'target.pdf'
+            writer.write(source)
+            asyncio.run(OriginalVisualBaseCompiler().compile(source, target))
+            pixels = []
+            for pdf in (source, target):
+                prefix = pdf.with_suffix('')
+                subprocess.run(['pdftoppm', '-singlefile', '-scale-to', '100', '-png',
+                                str(pdf), str(prefix)], check=True, capture_output=True)
+                with Image.open(prefix.with_suffix('.png')) as image:
+                    pixels.append(image.convert('RGB').getpixel((50, 50)))
+            self.assertEqual(pixels[0], (255, 255, 255))
+            self.assertEqual(pixels[1], pixels[0])
+
     def test_original_base_preserves_display_list(self):
         def draw(canvas):
             canvas.rect(10, 10, 100, 100, fill=True)
