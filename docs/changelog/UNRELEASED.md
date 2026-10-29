@@ -1,5 +1,8 @@
 # Unreleased
 
+- Add process-local `call_id` to request observations so callers can correlate
+  retries without conflating independent provider calls or OCR polling operations.
+
 - Add constructor-level `on_request` observations for LLM, JEV and OCR vendors.
   Every transport attempt, including retries and failures, reports timing,
   outcome, available HTTP status and received token usage independently of

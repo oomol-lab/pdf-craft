@@ -9,9 +9,11 @@ from collections import Counter
 from pdf_craft import LLM, RequestEvent
 
 counts = Counter()
+attempts_by_call = Counter()
 
 def observed(event: RequestEvent) -> None:
     counts[event.outcome] += 1
+    attempts_by_call[event.call_id] += 1
 
 llm = LLM(key="...", url="...", model="...", token_encoding="o200k_base",
           on_request=observed)
@@ -33,6 +35,16 @@ This is request-quality monitoring, not a final task-success signal.
   retries. Query successes mean a valid query response, not completed OCR. Do not
   count all these HTTP attempts as billable model submissions. There is no extra
   aggregate event for the entire Unlimited OCR task.
+- `call_id`: a process-local, increasing integer identifying a logical call. Its
+  transport, rate-limit, IPv4 and internal response retries retain this ID. Separate
+  calls (including outer business-validation regeneration) get new IDs, even when
+  sharing a provider or LLM context. IDs may have gaps and completion order need
+  not follow ID order; uniqueness does not extend across processes or restarts.
+  Unlimited OCR assigns separate IDs to authentication, submission, each normal
+  poll, and download; retries of that operation retain its ID, including token
+  refresh/retry of the same submission or query. A new OCR task submission gets a
+  new ID. Group events by ID to count attempts yourself; there is no aggregate
+  completion event, so a failed attempt alone does not indicate retries are over.
 - `started_at`: timezone-aware UTC time; `duration_ms`: monotonic elapsed time
   for the attempt, excluding capacity/cooldown waits and cache access.
 - `outcome`: `success`, `rate_limited`, `server_error`, `request_rejected`,

@@ -625,3 +625,5 @@ Content and progress advance independently. PAGE completion differs from publica
 
 
 Provider attempt observations are available through constructor-level `on_request`; see [request observations](REQUEST_OBSERVATIONS.md).
+
+Request observations include a process-local `call_id` shared by retries of the same call; see [request observations](REQUEST_OBSERVATIONS.md).

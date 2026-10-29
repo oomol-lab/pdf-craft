@@ -8,9 +8,11 @@ from collections import Counter
 from pdf_craft import LLM, RequestEvent
 
 counts = Counter()
+attempts_by_call = Counter()
 
 def observed(event: RequestEvent) -> None:
     counts[event.outcome] += 1
+    attempts_by_call[event.call_id] += 1
 
 llm = LLM(key="...", url="...", model="...", token_encoding="o200k_base",
           on_request=observed)
@@ -27,6 +29,12 @@ llm = LLM(key="...", url="...", model="...", token_encoding="o200k_base",
   查询、下载分别为 `OCR_AUTH`、`OCR_SUBMIT`、`OCR_QUERY`、`OCR_DOWNLOAD`，各自重试
   也分别报告。查询成功只代表查询响应有效，不代表 OCR 完成。不能把这些 HTTP 请求数统统
   当成收费的模型提交次数；没有额外的整个 Unlimited OCR 任务汇总事件。
+- `call_id`：进程内唯一的自增整数，标识一次独立调用。网络、限流、IPv4 和调用内部响应重试
+  沿用同一 ID；外层业务校验后重新生成属于新调用。共享 provider 或 LLM context 不合并调用。
+  ID 可有空缺，完成顺序不必按 ID 排列，不保证跨进程或重启唯一。Unlimited OCR 的鉴权、提交、
+  每次正常轮询和下载分别分配 ID，各自重试沿用 ID（同一次提交/查询刷新令牌后重试也沿用）；
+  创建新的 OCR 任务提交则使用新 ID。调用者可按 ID 自行统计尝试次数；没有最终汇总事件，
+  不能仅凭一条失败事件判定该调用不再重试。
 - `started_at`：带时区的 UTC 开始时间；`duration_ms` 使用单调时钟，不包含排队、冷却或缓存访问。
 - `outcome`：success、rate_limited、server_error、request_rejected、timeout、network_error、
   invalid_response、cancelled、unknown_error。收到 504 是 server_error，客户端超时是 timeout。
