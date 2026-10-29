@@ -1,5 +1,10 @@
 # Unreleased
 
+- Prevent intersecting neighbouring OCR boxes from being treated as empty
+  expansion space during PDF fitting and page-local font normalization.
+  Extend the three-page paid regression with an independent written-text
+  overlap check; manual source/output inspection remains required.
+
 - Add process-local `call_id` to request observations so callers can correlate
   retries without conflating independent provider calls or OCR polling operations.
 

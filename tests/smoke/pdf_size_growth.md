@@ -50,8 +50,21 @@ or missing translation can count as a clean pass. On completion require:
 - Output size at most 873,447 bytes: **150% of the input**, ratio at most 1.5.
 - Pixel-identical preservation of the first-page chart in the fixed 100-DPI
   preview crop (220, 100, 405, 245); missing artwork fails even if size passes.
+- Page 2's footnote band (top-left PDF y=440–610pt) is checked independently
+  with Poppler `pdftotext -bbox-layout`. Chinese text lines sharing horizontal
+  space may overlap by at most 2pt, allowing the observed 1.44pt source-box
+  imperfection but rejecting the previous 10.28pt collision. At least six
+  Chinese lines, 100 Chinese characters, and note markers 43/44/45 must remain
+  in that band, so empty/deleted notes cannot trivially pass the overlap check.
+  These are fixture-specific checks, not a proof of complete translation.
 - Manual comparison of all source/output previews before claiming full visual
   acceptance. Chinese text checks alone do not prove complete translation.
+
+For the intersecting-box layout regression, both this case's automated checks
+and the reviewer's own multimodal inspection of all three source/output pairs
+are required before approval. In particular, page 2 must not turn tiny source
+overlap into a full line of overlapping translation; the other pages and chart
+must not visibly regress. Run only this paid case, not the complete matrix.
 
 The thresholds are fixture-specific, allowing font embedding overhead. They
 must not be generalized into a size limit on users' PDF files. Size failure

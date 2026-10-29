@@ -7,10 +7,15 @@ import asyncio
 import hashlib
 import json
 from pathlib import Path
+import re
 from time import perf_counter
+import xml.etree.ElementTree as ET
 
 import pypdf
 from PIL import Image, ImageChops
+
+from pdf_craft.pdf.poppler import PopplerDocument
+from pdf_craft.runtime import run_subprocess_sync
 
 from .deepseek_refined import run as run_refined
 
@@ -59,6 +64,42 @@ def check_artwork(output: Path) -> bool:
     return ImageChops.difference(original, rendered).getbbox() is None
 
 
+def check_footnote_layout(target: Path) -> dict:
+    """Pinned page 2: allow tiny source overlap, reject amplified ink overlap.
+
+    Poppler measures the written PDF, independently of the planner's guards.
+    Restrict to Chinese text lines in the footnote band so separate vector
+    formula runs at the same baseline are not mistaken for paragraphs.
+    """
+    stdout, _ = run_subprocess_sync(
+        PopplerDocument(target).command('pdftotext'),
+        '-f', '2', '-l', '2', '-bbox-layout', str(target), '-',
+    )
+    root = ET.fromstring(stdout)
+    lines = []
+    band_text = []
+    for element in root.iter('{http://www.w3.org/1999/xhtml}line'):
+        text = ''.join(element.itertext()).strip()
+        box = tuple(float(element.attrib[key]) for key in ('xMin', 'yMin', 'xMax', 'yMax'))
+        if 440 <= box[1] <= 610:
+            band_text.append(text)
+            if any('\u4e00' <= char <= '\u9fff' for char in text):
+                lines.append((box, text))
+    overlaps = []
+    for index, (first, first_text) in enumerate(lines):
+        for second, second_text in lines[index + 1:]:
+            width = min(first[2], second[2]) - max(first[0], second[0])
+            height = min(first[3], second[3]) - max(first[1], second[1])
+            if width > 1 and height > 2:
+                overlaps.append({'height_pt': height, 'first': first_text, 'second': second_text})
+    text = ' '.join(band_text)
+    markers = {str(number): bool(re.search(rf'\b{number}\b', text)) for number in (43, 44, 45)}
+    cjk_count = sum('\u4e00' <= char <= '\u9fff' for char in text)
+    return {'line_count': len(lines), 'cjk_characters': cjk_count, 'note_markers': markers,
+            'overlaps': overlaps, 'max_overlap_pt': 2,
+            'passed': len(lines) >= 6 and cjk_count >= 100 and all(markers.values()) and not overlaps}
+
+
 async def run(source: Path, output: Path, profile: str):
     """Always preserve the acceptance report, including pipeline failures."""
     if output.exists():
@@ -75,7 +116,9 @@ async def run(source: Path, output: Path, profile: str):
         report['pipeline_completed'] = True
         report['size_check'] = check_output(source, output / 'translated.pdf')
         report['source_artwork_preserved'] = check_artwork(output)
-        report['automated_passed'] = report['size_check']['passed'] and report['source_artwork_preserved']
+        report['footnote_layout'] = check_footnote_layout(output / 'translated.pdf')
+        report['automated_passed'] = (report['size_check']['passed'] and report['source_artwork_preserved']
+                                      and report['footnote_layout']['passed'])
     finally:
         report['elapsed_seconds'] = round(perf_counter() - started, 3)
         if output.is_dir():

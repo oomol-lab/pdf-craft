@@ -60,6 +60,10 @@ PCEX 的段内 image/table anchor 在不同输出端有不同含义。Markdown/E
 - 仅第二阶段可以使用页面级信息；仅第一阶段可以在多个 bbox 之间转移 TextFlowItem 的连续文字。
 - 段内 image/table anchor 不参与 PDF 回填的擦除、文本层或 obstacle 计算；StandaloneAsset、DisplayFormula 和引用/脚注等独立物理内容仍可作为保护区。
 - 普通布局的 width、行数与 forbidden line 不能因二阶段平均而被破坏。
+- 与源框有水平投影交集的邻框即使已经轻微相交，也不能被当成空白。下侧相交将
+  下禁止线收紧到源框底边，上侧相交对称处理；包含/被包含等无法确定上下关系时，
+  两侧均收紧到源框边界。此规则防止初排或字号归一化放大已有重叠，不负责修复
+  源框本身的交集，也不改变真正空白一侧的可用空间或标题既定溢出规则。
 - headline 最小字号无法正常容纳时仍必须输出自然宽单行，不能退化为窄 bbox 内的多行 forced write。
 - 修改此区域时至少覆盖：普通跨 bbox 段落、孤立单行统计回退、headline 下限、以及一个真实 PDF 回填页面的视觉检查。
 

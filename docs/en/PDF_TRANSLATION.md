@@ -203,6 +203,14 @@ When `max_font_size` is omitted from `PatchTextOptions` or a `PatchTextStyle`, t
 
 ### Headline hierarchy and bounded layout windows
 
+For ordinary fitting, an OCR box's bottom is a target, not an absolute limit:
+real clearance before neighbouring content may be used. Neighbouring boxes
+that already overlap are still protective. Fitting and page normalization may
+not expand through the occupied side beyond the source edge; nested boxes
+conservatively protect both edges. This prevents amplification of existing
+source overlap rather than repairing that overlap. Headline overflow and the
+explicit minimum-size force-write fallback retain their existing rules.
+
 PDF patching treats each `TextFlowItem` as one text flow, even when it has source boxes on more than one page. Its first pass chooses one uniform fitted size and moves complete wrapped lines through ordered source boxes. A second, page-local normalization may then move each already-assigned box toward its semantic-level target size without moving text between boxes or changing that box's line count. Qt remains responsible for ordinary Unicode shaping, wrapping, bidirectional text, and font fallback; pdf-craft does not add language-specific line-break rules. A rendered inline formula, together with its immediately following visible spacer, is the sole indivisible atom.
 
 Within a releasable page window, `body` TextFlowItems are fitted before `heading` TextFlowItems. The largest fitted body size on every page touched by a headline supplies its preferred lower bound, multiplied by `headline_min_body_ratio` (default `1.2`). A semantic style can override that ratio with `minimum_body_font_ratio`; the normal fitting search may still choose a larger title size when its boxes permit it.

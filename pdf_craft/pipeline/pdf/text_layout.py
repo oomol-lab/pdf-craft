@@ -2078,6 +2078,18 @@ def _vertical_boundaries(
             above.append(obstacle.bottom)
         elif obstacle.top >= rectangle.bottom - 1e-6:
             below.append(obstacle.top)
+        elif obstacle.top > rectangle.top and obstacle.bottom > rectangle.bottom:
+            # A lower neighbour already overlaps the OCR crop. Preserve that
+            # input imperfection, but do not call the rest of its area blank.
+            below.append(rectangle.bottom)
+        elif obstacle.top < rectangle.top and obstacle.bottom < rectangle.bottom:
+            above.append(rectangle.top)
+        else:
+            # Nested/equal-height intervals have no reliable above/below
+            # ordering. Neither edge is safe to expand across. This is not a
+            # repair of source geometry; it only prevents extra collision.
+            above.append(rectangle.top)
+            below.append(rectangle.bottom)
     return max(above), min(below)
 
 
