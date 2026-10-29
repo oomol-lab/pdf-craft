@@ -24,6 +24,7 @@ from jinja2 import Template
 from tiktoken import Encoding, get_encoding
 from openai.types.chat import ChatCompletionMessageParam
 
+from ..request_events import observe_response, invalid_response, response_hook, request_timed_out
 from .._policy import policy_operation
 from ..usage import request_attempt, observe_tokens, usage_enabled as _usage_enabled
 from .._request_headers import extra_header_arguments
@@ -124,9 +125,12 @@ class LLMRuntime:
         self, messages: list[ChatCompletionMessageParam], max_tokens,
         temperature, top_p, *, force_ipv4: bool,
     ) -> str:
+        client_type = httpx.AsyncClient if force_ipv4 else openai.DefaultAsyncHttpxClient
         http_client = (
-            httpx.AsyncClient(transport=httpx.AsyncHTTPTransport(local_address="0.0.0.0"))
-            if force_ipv4 else None
+            client_type(
+                transport=httpx.AsyncHTTPTransport(local_address="0.0.0.0") if force_ipv4 else None,
+                event_hooks={"response": [response_hook]},
+            ) if force_ipv4 or self.config.on_request is not None else None
         )
         # Scope the client to its event loop.
         stream = None
@@ -142,6 +146,7 @@ class LLMRuntime:
                 stream_options={"include_usage": True} if _usage_enabled() else openai.omit,
                 **extra_header_arguments(),
             )
+            observe_response(getattr(stream, "response", None))
             parts: list[str] = []
             async for chunk in stream:
                 observe_tokens(getattr(chunk, "usage", None))
@@ -239,15 +244,23 @@ class LLMContext(AbstractAsyncContextManager["LLMContext"]):
             while attempt <= self.runtime.config.retry_times:
                 try:
                     await self._log_async("request", attempt + 1, key=key)
+                    timeout_scope: asyncio.Timeout | None = None
                     async def invoke_once() -> str:
                         nonlocal transport_attempts
                         transport_attempts += 1
                         try:
                             with request_attempt(self.runtime.config) as attempt_usage:
-                                text = await self.runtime._invoke_for_request(
-                                    messages, max_tokens, temperature, top_p,
-                                    force_ipv4=force_ipv4,
-                                )
+                                try:
+                                    text = await self.runtime._invoke_for_request(
+                                        messages, max_tokens, temperature, top_p,
+                                        force_ipv4=force_ipv4,
+                                    )
+                                except asyncio.CancelledError:
+                                    if timeout_scope is not None and timeout_scope.expired():
+                                        request_timed_out()
+                                    raise
+                                if not text.strip():
+                                    invalid_response()
                                 if text.strip() and attempt_usage is not None:
                                     attempt_usage.accept()
                                 return text
@@ -269,7 +282,7 @@ class LLMContext(AbstractAsyncContextManager["LLMContext"]):
                             # Keep transport and cleanup on the caller task.
                             # Python 3.11 wait_for can detach its child when the
                             # caller is cancelled again during child teardown.
-                            async with asyncio.timeout(remaining):
+                            async with asyncio.timeout(remaining) as timeout_scope:
                                 response = await self.runtime.executor.run(invoke_once)
                         except asyncio.TimeoutError as error:
                             await self._log_async(

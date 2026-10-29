@@ -8,6 +8,7 @@ from collections.abc import Mapping
 import asyncio
 from collections.abc import AsyncIterator, Awaitable, Iterable
 from contextlib import asynccontextmanager
+from .request_events import validate_callback, RequestCallback, observe_response, invalid_response
 from dataclasses import dataclass, field
 from typing import Any, Self, Protocol
 
@@ -36,12 +37,21 @@ class JEV:
     model: str = "jev-latest"
     url: str = "https://api.typesafe.ai"
     timeout: float | None = 60.0
+    on_request: RequestCallback | None = field(default=None, repr=False, compare=False)
 
     def __post_init__(self) -> None:
+        validate_callback(self.on_request)
         if not self.key.strip():
             raise ValueError("JEV API key cannot be empty")
         if not self.model.strip():
             raise ValueError("JEV model cannot be empty")
+
+
+class _ObservedTransport(httpx2.AsyncHTTPTransport):
+    async def handle_async_request(self, request: httpx2.Request) -> httpx2.Response:
+        response = await super().handle_async_request(request)
+        observe_response(response)
+        return response
 
 
 class JEVRuntime:
@@ -60,7 +70,7 @@ class JEVRuntime:
             base_url=self.config.url,
             timeout=self.config.timeout,
             retry=RetryPolicy(max_retries=0),
-            transport=httpx2.AsyncHTTPTransport(local_address="0.0.0.0"),
+            transport=_ObservedTransport(local_address="0.0.0.0"),
         )
         self._client = client
         await client.__aenter__()
@@ -199,9 +209,13 @@ class JEVRuntime:
                     raise
                 raise normalized from error
             observe_tokens(getattr(response, 'usage', None))
-            probability = float(response.nouls["page_passes_strict_standard"].noul)
-            if not 0 <= probability <= 1:
-                raise ValueError('JEV pass probability must be between 0 and 1')
+            try:
+                probability = float(response.nouls["page_passes_strict_standard"].noul)
+                if not 0 <= probability <= 1:
+                    raise ValueError('JEV pass probability must be between 0 and 1')
+            except (ValueError, TypeError, KeyError, AttributeError):
+                invalid_response()
+                raise
             if attempt_usage is not None:
                 attempt_usage.accept()
             return probability

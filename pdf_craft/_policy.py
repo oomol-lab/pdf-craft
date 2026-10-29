@@ -160,12 +160,16 @@ def error_details(error: Exception) -> FailureError:
     import traceback
 
     chain: list[str] = []
+    frames: list[dict[str, str | int]] = []
     seen: set[int] = set()
     cause: BaseException | None = error
     request_id = code = None
     attempts = None
     while cause is not None and id(cause) not in seen:
         seen.add(id(cause))
+        frames.extend({"filename": frame.filename, "function": frame.name,
+                       **({"lineno": frame.lineno} if frame.lineno is not None else {})}
+                      for frame in traceback.extract_tb(cause.__traceback__))
         if cause is not error:
             chain.append(
                 f"{type(cause).__module__}.{type(cause).__qualname__}: {cause}"
@@ -178,7 +182,7 @@ def error_details(error: Exception) -> FailureError:
             or getattr(cause, "status_code", None)
             or getattr(getattr(cause, "response", None), "status_code", None)
         )
-        cause = cause.__cause__
+        cause = cause.__cause__ or (None if cause.__suppress_context__ else cause.__context__)
     return FailureError(
         f"{type(error).__module__}.{type(error).__qualname__}",
         str(error),
@@ -186,9 +190,7 @@ def error_details(error: Exception) -> FailureError:
         request_id,
         attempts,
         tuple(chain),
-        tuple({"filename": frame.filename, "function": frame.name,
-               **({"lineno": frame.lineno} if frame.lineno is not None else {})}
-              for frame in traceback.extract_tb(error.__traceback__)),
+        tuple(frames),
     )
 
 

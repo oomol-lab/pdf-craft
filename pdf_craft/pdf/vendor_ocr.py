@@ -21,6 +21,7 @@ import httpx
 from doc_page_extractor.extraction_context import ExtractionAbortedError
 from doc_page_extractor.errors import VendorOCRRequestError
 
+from ..request_events import RequestKind, observe_request, observe_response, invalid_response, response_hook
 from ..rate_limit import rate_limit_request, retry_after_seconds
 from .._policy import policy_operation
 from .._request_headers import current_headers
@@ -126,7 +127,10 @@ class VendorOCRRuntime:
         self._token_lock = asyncio.Lock()
 
     async def __aenter__(self) -> Self:
-        self._client = httpx.AsyncClient(timeout=self.config.timeout_seconds)
+        self._client = httpx.AsyncClient(
+            timeout=self.config.timeout_seconds,
+            event_hooks={"response": [response_hook]} if self.config.on_request else None,
+        )
         return self
 
     async def __aexit__(self, exc_type, exc_value, traceback) -> None:
@@ -374,7 +378,7 @@ class VendorOCRRuntime:
             _deepseek_payload, request.image_url, config,
         )
 
-        async def send() -> dict[str, Any]:
+        async def send() -> VendorOCRResponse:
             if started is not None:
                 started.set()
             with request_attempt(self.config) as attempt_usage:
@@ -394,15 +398,15 @@ class VendorOCRRuntime:
                 except (ValueError, AttributeError):
                     pass
                 data = _checked_response(response, request.page_index, "DeepSeek OCR")
+                result = self._decode_deepseek_response(response, data)
                 if attempt_usage is not None:
                     attempt_usage.accept()
-                return {"data": data, "response": response}
+                return result
 
-        sent = await self.executor.run(send)
-        data = sent["data"]
-        response = sent["response"]
-        assert isinstance(data, dict)
-        assert isinstance(response, httpx.Response)
+        return await self.executor.run(send)
+
+    @staticmethod
+    def _decode_deepseek_response(response: httpx.Response, data: dict[str, Any]) -> VendorOCRResponse:
         usage_value = data.get("usage")
         if usage_value is not None and not isinstance(usage_value, dict):
             _raise_malformed_response(
@@ -499,13 +503,14 @@ class VendorOCRRuntime:
             parse_url = str(result.get("parse_result_url") or "")
             if status == "success":
                 async def download() -> dict[str, Any]:
-                    response = await self._require_client().get(
-                        parse_url,
-                        headers={"User-Agent": "pdf-craft-vendor-ocr/1.0"},
-                    )
-                    return _checked_response(
-                        response, request.page_index, "Unlimited OCR download",
-                    )
+                    with observe_request(self.config, RequestKind.OCR_DOWNLOAD):
+                        response = await self._require_client().get(
+                            parse_url,
+                            headers={"User-Agent": "pdf-craft-vendor-ocr/1.0"},
+                        )
+                        return _checked_response(
+                            response, request.page_index, "Unlimited OCR download",
+                        )
 
                 parsed = await self._run_io_with_retry(download)
                 return VendorOCRResponse(data={
@@ -561,7 +566,7 @@ class VendorOCRRuntime:
         )
 
         async def submit() -> dict[str, Any]:
-            with request_attempt(self.config) as attempt_usage:
+            with request_attempt(self.config, RequestKind.OCR_SUBMIT) as attempt_usage:
                 result = await self._post_form(
                     self._unlimited_url(
                         "/rest/2.0/brain/online/v2/unlimited-ocr-parser/task",
@@ -611,35 +616,36 @@ class VendorOCRRuntime:
             config = self.config
             assert isinstance(config, UnlimitedOCRVendorConfig)
             async def fetch_token() -> dict[str, Any]:
-                response = await self._require_client().post(
-                    f"{config.base_url.rstrip('/')}/oauth/2.0/token",
-                    headers={
-                        "Accept": "application/json",
-                        "User-Agent": "pdf-craft-vendor-ocr/1.0",
-                        **current_headers(),
-                    },
-                    data={
-                        "grant_type": "client_credentials",
-                        "client_id": config.ak,
-                        "client_secret": config.sk,
-                    },
-                )
-                data = _checked_response(
-                    response, page_index, "Unlimited OCR token",
-                )
-                oauth_error = str(data.get("error") or "")
-                if oauth_error:
-                    _raise_unlimited_oauth_error(
-                        page_index, oauth_error, data, response,
+                with observe_request(self.config, RequestKind.OCR_AUTH):
+                    response = await self._require_client().post(
+                        f"{config.base_url.rstrip('/')}/oauth/2.0/token",
+                        headers={
+                            "Accept": "application/json",
+                            "User-Agent": "pdf-craft-vendor-ocr/1.0",
+                            **current_headers(),
+                        },
+                        data={
+                            "grant_type": "client_credentials",
+                            "client_id": config.ak,
+                            "client_secret": config.sk,
+                        },
                     )
-                access_token = data.get("access_token")
-                if not isinstance(access_token, str) or not access_token:
-                    _raise_malformed_response(
-                        response,
-                        "Unlimited OCR token response did not include a valid "
-                        "access_token",
+                    data = _checked_response(
+                        response, page_index, "Unlimited OCR token",
                     )
-                return data
+                    oauth_error = str(data.get("error") or "")
+                    if oauth_error:
+                        _raise_unlimited_oauth_error(
+                            page_index, oauth_error, data, response,
+                        )
+                    access_token = data.get("access_token")
+                    if not isinstance(access_token, str) or not access_token:
+                        _raise_malformed_response(
+                            response,
+                            "Unlimited OCR token response did not include a valid "
+                            "access_token",
+                        )
+                    return data
 
             data = await self._run_io_with_retry(fetch_token)
             token = data["access_token"]
@@ -656,65 +662,69 @@ class VendorOCRRuntime:
         *,
         result_kind: Literal["submit", "query"],
     ) -> dict[str, Any]:
-        response = await self._require_client().post(
-            url,
-            headers={
-                "Content-Type": "application/x-www-form-urlencoded",
-                "Accept": "application/json",
-                "User-Agent": "pdf-craft-vendor-ocr/1.0",
-                **current_headers(),
-            },
-            data=data,
-        )
-        result = _checked_response(response, page_index, action)
-        error_code_value = result.get("error_code", 0)
-        try:
-            error_code = int(error_code_value)
-        except (TypeError, ValueError):
-            _raise_malformed_response(
-                response, f"{action} response has invalid error_code",
+        from contextlib import nullcontext
+        observation = (observe_request(self.config, RequestKind.OCR_QUERY)
+                       if result_kind == "query" else nullcontext())
+        with observation:
+            response = await self._require_client().post(
+                url,
+                headers={
+                    "Content-Type": "application/x-www-form-urlencoded",
+                    "Accept": "application/json",
+                    "User-Agent": "pdf-craft-vendor-ocr/1.0",
+                    **current_headers(),
+                },
+                data=data,
             )
-        if error_code != 0:
-            _raise_unlimited_error(
-                action, page_index, error_code, result, response,
-            )
-        provider_result = result.get("result")
-        if not isinstance(provider_result, dict):
-            message = f"{action} response has invalid result: {result}"
-            _raise_malformed_response(response, message)
-        if result_kind == "submit":
-            task_id = provider_result.get("task_id")
-            if not isinstance(task_id, str) or not task_id:
+            result = _checked_response(response, page_index, action)
+            error_code_value = result.get("error_code", 0)
+            try:
+                error_code = int(error_code_value)
+            except (TypeError, ValueError):
                 _raise_malformed_response(
-                    response, f"{action} response did not include a valid task_id",
+                    response, f"{action} response has invalid error_code",
                 )
-        else:
-            status = provider_result.get("status")
-            if not isinstance(status, str) or status not in {
-                "pending", "running", "success", "failed",
-            }:
-                _raise_malformed_response(
-                    response, f"{action} response has invalid status",
+            if error_code != 0:
+                _raise_unlimited_error(
+                    action, page_index, error_code, result, response,
                 )
-            parse_url = provider_result.get("parse_result_url")
-            if status == "success" and (
-                not isinstance(parse_url, str) or not parse_url
-            ):
-                _raise_malformed_response(
-                    response,
-                    f"{action} success response did not include parse_result_url",
-                )
-            if status == "failed":
-                task_error = provider_result.get("task_error")
-                if not isinstance(task_error, str) or not task_error:
+            provider_result = result.get("result")
+            if not isinstance(provider_result, dict):
+                message = f"{action} response has invalid result: {result}"
+                _raise_malformed_response(response, message)
+            if result_kind == "submit":
+                task_id = provider_result.get("task_id")
+                if not isinstance(task_id, str) or not task_id:
+                    _raise_malformed_response(
+                        response, f"{action} response did not include a valid task_id",
+                    )
+            else:
+                status = provider_result.get("status")
+                if not isinstance(status, str) or status not in {
+                    "pending", "running", "success", "failed",
+                }:
+                    _raise_malformed_response(
+                        response, f"{action} response has invalid status",
+                    )
+                parse_url = provider_result.get("parse_result_url")
+                if status == "success" and (
+                    not isinstance(parse_url, str) or not parse_url
+                ):
                     _raise_malformed_response(
                         response,
-                        f"{action} failed response did not include task_error",
+                        f"{action} success response did not include parse_result_url",
                     )
-                _raise_unlimited_task_error(
-                    page_index, action, task_error, result, response,
-                )
-        return result
+                if status == "failed":
+                    task_error = provider_result.get("task_error")
+                    if not isinstance(task_error, str) or not task_error:
+                        _raise_malformed_response(
+                            response,
+                            f"{action} failed response did not include task_error",
+                        )
+                    _raise_unlimited_task_error(
+                        page_index, action, task_error, result, response,
+                    )
+            return result
 
     async def _run_io_with_retry(
         self,
@@ -879,6 +889,7 @@ def _checked_response(
     page_index: int,
     action: str,
 ) -> dict[str, Any]:
+    observe_response(response)
     if response.status_code >= 400:
         message = _response_message(response)
         raw_error = httpx.HTTPStatusError(
@@ -925,6 +936,7 @@ def _raise_malformed_response(
     *,
     cause: Exception | None = None,
 ) -> Never:
+    invalid_response()
     raw_error = httpx.HTTPStatusError(
         message, request=response.request, response=response,
     )

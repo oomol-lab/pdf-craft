@@ -7,22 +7,12 @@ from contextlib import contextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass, field, replace
 from threading import RLock
+
+from .usage_types import RequestUsage
+from .request_events import (RequestKind, observe_request, observation_enabled, observe_request_usage)
 from typing import Any, TypeVar, cast
 
 
-@dataclass
-class RequestUsage:
-    """Observed resources; cached input is a subset of input_tokens."""
-    requests: int = 0
-    input_tokens: int = 0
-    cached_input_tokens: int = 0
-    output_tokens: int = 0
-
-    def _add(self, other: RequestUsage) -> None:
-        self.requests += other.requests
-        self.input_tokens += other.input_tokens
-        self.cached_input_tokens += other.cached_input_tokens
-        self.output_tokens += other.output_tokens
 
 
 @dataclass
@@ -145,20 +135,25 @@ class UsageScope:
 
 
 @contextmanager
-def request_attempt(provider):
-    """Enter at the actual network send, not while waiting for executor capacity."""
-    collector = _collector.get()
-    if collector is None:
-        yield None
-        return
-    value = RequestUsage(requests=1)
-    token = _attempt.set(value)
-    with UsageScope() as scope:
-        try:
-            yield scope
-        finally:
-            scope.add(provider, value)
-            _attempt.reset(token)
+def request_attempt(provider, kind: RequestKind = RequestKind.MODEL):
+    """Collect each real attempt independently of later business adoption."""
+    with observe_request(provider, kind):
+        collector = _collector.get()
+        if collector is None and not observation_enabled():
+            token = _attempt.set(None)
+            try:
+                yield None
+            finally:
+                _attempt.reset(token)
+            return
+        value = RequestUsage(requests=1)
+        token = _attempt.set(value)
+        with UsageScope() as scope:
+            try:
+                yield scope
+            finally:
+                scope.add(provider, value)
+                _attempt.reset(token)
 
 
 def observe_tokens(data: Any) -> None:
@@ -182,10 +177,12 @@ def observe_tokens(data: Any) -> None:
     if cached is not None:
         value.cached_input_tokens = cached
     value.cached_input_tokens = min(value.input_tokens, value.cached_input_tokens)
+    if any(number is not None for number in (incoming, outgoing, cached)):
+        observe_request_usage(value)
 
 
 def usage_enabled() -> bool:
-    return _collector.get() is not None
+    return _collector.get() is not None or observation_enabled()
 
 
 F = TypeVar("F", bound=Callable[..., Awaitable[Any]])
