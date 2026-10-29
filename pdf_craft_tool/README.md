@@ -207,6 +207,31 @@ poetry run python -m pdf_craft_tool.smoke.citation_footnotes \
 poetry run python -m unittest tests.test_paid_citation_regression -q
 ```
 
+### PDF 体积膨胀付费回归
+
+```shell
+poetry run python -m pdf_craft_tool.smoke.pdf_size_growth \
+  --output pdf-craft-output/pdf-size-NEW-RUN
+```
+
+固定样本 `tests/assets/pdf/strategic-justice-size.pdf` 是故障原书第 150–152 页，
+仅 3 页、582,298 bytes，保留矢量内容与共享颜色资源。样本来源、裁剪方法和实测数据见
+[体积回归说明](../tests/smoke/pdf_size_growth.md)。这是独立付费 gate，与 citation
+入口一样使用工作区 `.env`、`--profile default`，不属于普通测试或 CI。
+
+每次用全新目录，真实执行 OCR、脚注精修、中文翻译和 PDF fill，任何降级都失败。
+`size-checks.json` 记录耗时、原始/产物字节数、倍率、页数及每页中文字符数。
+此固定样本要求输出不超过 4 MiB、倍率不超过 8，且保持 3 页、每页有中文文本。
+当前未修复合成代码应以非零退出码触发体积告警；不要放宽阈值或把失败设为跳过。
+该预算只用于本样本，不是对用户 PDF 的通用限制，也不能证明实例峰值内存达标。
+通过大小检查后仍需检查 `previews/` 原译文，避免通过丢内容换取体积下降。
+
+离线验证入口（不调用供应商）：
+
+```shell
+poetry run python -m unittest tests.test_paid_pdf_size_regression -q
+```
+
 ### 通用矩阵
 
 先查看全部真实样本：
