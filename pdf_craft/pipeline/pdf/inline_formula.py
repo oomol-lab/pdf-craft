@@ -68,7 +68,12 @@ class InlineFormulaPDFRenderer:
             from matplotlib import rc_context  # type: ignore[reportMissingImports]
             from matplotlib.backends.backend_pdf import FigureCanvasPdf  # type: ignore[reportMissingImports]
             from matplotlib.figure import Figure  # type: ignore[reportMissingImports]
+            from matplotlib.font_manager import FontProperties  # type: ignore[reportMissingImports]
+            from matplotlib.patches import PathPatch  # type: ignore[reportMissingImports]
+            from matplotlib.path import Path as VectorPath  # type: ignore[reportMissingImports]
+            from matplotlib.textpath import TextToPath  # type: ignore[reportMissingImports]
             from matplotlib.texmanager import TexManager  # type: ignore[reportMissingImports]
+            from matplotlib.transforms import Affine2D  # type: ignore[reportMissingImports]
 
             expression = f"${latex}$"
             # PCEX formulas originate from mathematical source documents, where
@@ -84,25 +89,25 @@ class InlineFormulaPDFRenderer:
                 width, height, descent = TexManager().get_text_width_height_descent(
                     expression, point_size, None,
                 )
-                # Give Matplotlib a tiny temporary margin, then ask its PDF
-                # backend to crop to the TeX glyph bounds.  The resulting
-                # MediaBox starts at (0, 0) and is exactly the DVI metrics,
-                # unlike a raw dvipdfmx output which retains an A4 page and
-                # places its glyphs at ordinary document coordinates.
-                margin = 1.0
-                figure_width = width + 2 * margin
-                figure_height = height + 2 * margin
-                figure = Figure(figsize=(figure_width / 72, figure_height / 72))
-                FigureCanvasPdf(figure)
-                figure.text(
-                    margin / figure_width,
-                    (margin + descent) / figure_height,
-                    expression,
-                    fontsize=point_size,
-                    va="baseline",
+                # TeX's optical sizes select different font programs. Embedding
+                # a whole Type1 font for a five-glyph atom adds ~30KB per face
+                # and size. Keep only its vector contours instead. ActualText
+                # is added by the formula composition layer, not these glyphs.
+                # Explicitly select the requested size inside TextToPath's
+                # high-resolution DVI: its default 100pt design would otherwise
+                # change optical glyphs and their metrics when scaled down.
+                path_expression = rf"\fontsize{{{point_size}}}{{{1.25 * point_size}}}\selectfont {expression}"
+                vertices, codes = TextToPath().get_text_path(
+                    FontProperties(family="serif"), path_expression, ismath="TeX",
                 )
+                figure = Figure(figsize=(width / 72, height / 72))
+                FigureCanvasPdf(figure)
+                transform = Affine2D().translate(0, descent).scale(1 / 72) + figure.dpi_scale_trans
+                figure.add_artist(PathPatch(
+                    VectorPath(vertices, codes), facecolor="black", edgecolor="none", transform=transform,
+                ))
                 output = BytesIO()
-                figure.savefig(output, format="pdf", transparent=True, bbox_inches="tight", pad_inches=0)
+                figure.savefig(output, format="pdf", transparent=True)
             self._cache[key] = FormulaFragment(output.getvalue(), float(width), float(height), float(descent))
         except Exception:  # local TeX packages and individual expressions vary widely.
             self._cache[key] = None

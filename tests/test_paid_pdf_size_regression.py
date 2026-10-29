@@ -13,7 +13,8 @@ from reportlab.pdfbase.cidfonts import UnicodeCIDFont
 from reportlab.pdfgen.canvas import Canvas
 
 from pdf_craft_tool.smoke.pdf_size_growth import (
-    MAX_OUTPUT_BYTES, SOURCE, SOURCE_BYTES, SOURCE_SHA256, check_artwork, check_output, run,
+    MAX_OUTPUT_BYTES, SOURCE, SOURCE_BYTES, SOURCE_SHA256, check_artwork, check_footnote_layout,
+    check_output, run,
 )
 
 
@@ -28,6 +29,29 @@ def translated_pdf(path, pages=3):
 
 
 class SizeOracleTests(TestCase):
+    def test_footnote_oracle_rejects_overlapping_ink_or_missing_notes(self):
+        pdfmetrics.registerFont(UnicodeCIDFont('STSong-Light'))
+        with TemporaryDirectory() as directory:
+            target = Path(directory) / 'out.pdf'
+            for overlap, missing in [(False, False), (True, False), (False, True)]:
+                canvas = Canvas(str(target), pagesize=(441, 666))
+                canvas.showPage()
+                canvas.setFont('STSong-Light', 8)
+                for index in range(6):
+                    prefix = {0: '43. ', 3: '44. ', 5: '45. '}.get(index, '')
+                    if missing and index == 5:
+                        continue
+                    top = 460 + 22 * index
+                    if overlap and index == 1:
+                        top = 462
+                    canvas.drawString(30, 666 - top, prefix + '中文翻译验收脚注内容' * 3)
+                canvas.showPage()
+                canvas.save()
+                with self.subTest(overlap=overlap, missing=missing):
+                    result = check_footnote_layout(target)
+                    self.assertEqual(result['passed'], not overlap and not missing)
+                    self.assertEqual(bool(result['overlaps']), overlap)
+
     def test_missing_artwork_is_rejected_despite_small_translated_output(self):
         with TemporaryDirectory() as directory:
             output = Path(directory)

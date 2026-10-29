@@ -52,6 +52,11 @@ PCEX 的段内 image/table anchor 在不同输出端有不同含义。Markdown/E
 
 行内公式在 QTextLayout 中是不可截断的 proxy span；最终绘制可替换为 PDF 向量公式并保留 ActualText。无论是孤立单行还是 headline 溢出，都必须重新以最终字号度量公式；公式渲染失败仍遵循既有 plain-text fallback。
 
+TeX 公式片段仅携带实际字形的矢量轮廓，不为几个字符嵌入整套 Type1 字体。
+不同字号可能触发不同的 TeX optical size；生成轮廓时必须显式保留请求字号，
+不能将默认 100pt 设计简单缩放到目标字号。度量、baseline/descent 与 ActualText
+仍沿用 TeX 和既有公式合成链路。此规则只涉及短公式片段，不将源 PDF 或正文转轮廓。
+
 用户配置字体族，Qt 负责字体 fallback 与逐字 glyph fallback。排版器必须使用 Qt 的实际 font metrics，不得用近似字宽推导字体大小或行数。
 
 ## 不变量与验证
@@ -60,6 +65,10 @@ PCEX 的段内 image/table anchor 在不同输出端有不同含义。Markdown/E
 - 仅第二阶段可以使用页面级信息；仅第一阶段可以在多个 bbox 之间转移 TextFlowItem 的连续文字。
 - 段内 image/table anchor 不参与 PDF 回填的擦除、文本层或 obstacle 计算；StandaloneAsset、DisplayFormula 和引用/脚注等独立物理内容仍可作为保护区。
 - 普通布局的 width、行数与 forbidden line 不能因二阶段平均而被破坏。
+- 与源框有水平投影交集的邻框即使已经轻微相交，也不能被当成空白。下侧相交将
+  下禁止线收紧到源框底边，上侧相交对称处理；包含/被包含等无法确定上下关系时，
+  两侧均收紧到源框边界。此规则防止初排或字号归一化放大已有重叠，不负责修复
+  源框本身的交集，也不改变真正空白一侧的可用空间或标题既定溢出规则。
 - headline 最小字号无法正常容纳时仍必须输出自然宽单行，不能退化为窄 bbox 内的多行 forced write。
 - 修改此区域时至少覆盖：普通跨 bbox 段落、孤立单行统计回退、headline 下限、以及一个真实 PDF 回填页面的视觉检查。
 

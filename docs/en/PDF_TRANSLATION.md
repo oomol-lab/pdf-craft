@@ -199,9 +199,22 @@ During translation, a model may flatten source LaTeX into natural text such as â
 
 `render_inline_formulas=True` is the default: available Matplotlib and TeX produce vector formula fragments, while a disabled or unavailable renderer (or one failed formula) falls back to readable plain text without failing the PDF. Vector fragments include a plain-text PDF `/ActualText` semantic replacement; this is not a complete tagged-PDF structure, so reader-specific selection and copy order relative to surrounding text are not guaranteed.
 
+Formula fragments carry only the used glyph contours, retaining TeX's optical
+size and baseline metrics. They do not embed an entire Type1 font for a few
+characters at each fitted size. Source graphics and ordinary translated text
+continue to use their existing PDF resources and text layers.
+
 When `max_font_size` is omitted from `PatchTextOptions` or a `PatchTextStyle`, text uses automatic geometry-driven fitting rather than a typographic default size. Its search starts from a small internal probe and expands until the source boxes reject the next size; the largest size that fits wins. Supplying a numeric `max_font_size` remains an explicit hard ceiling, including values such as `12`.
 
 ### Headline hierarchy and bounded layout windows
+
+For ordinary fitting, an OCR box's bottom is a target, not an absolute limit:
+real clearance before neighbouring content may be used. Neighbouring boxes
+that already overlap are still protective. Fitting and page normalization may
+not expand through the occupied side beyond the source edge; nested boxes
+conservatively protect both edges. This prevents amplification of existing
+source overlap rather than repairing that overlap. Headline overflow and the
+explicit minimum-size force-write fallback retain their existing rules.
 
 PDF patching treats each `TextFlowItem` as one text flow, even when it has source boxes on more than one page. Its first pass chooses one uniform fitted size and moves complete wrapped lines through ordered source boxes. A second, page-local normalization may then move each already-assigned box toward its semantic-level target size without moving text between boxes or changing that box's line count. Qt remains responsible for ordinary Unicode shaping, wrapping, bidirectional text, and font fallback; pdf-craft does not add language-specific line-break rules. A rendered inline formula, together with its immediately following visible spacer, is the sole indivisible atom.
 
