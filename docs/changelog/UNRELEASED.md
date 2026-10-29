@@ -4,6 +4,9 @@
   expansion space during PDF fitting and page-local font normalization.
   Extend the three-page paid regression with an independent written-text
   overlap check; manual source/output inspection remains required.
+- Render inline TeX atoms as vector glyph contours with their requested
+  optical size and existing ActualText semantics, avoiding full Type1 font
+  programs for a few formula glyphs at each fitted size.
 
 - Add process-local `call_id` to request observations so callers can correlate
   retries without conflating independent provider calls or OCR polling operations.

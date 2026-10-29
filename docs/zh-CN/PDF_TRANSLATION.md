@@ -316,6 +316,10 @@ options = PatchTextOptions(
 plain-text 的 PDF `/ActualText` 语义替代；这不是完整的 tagged PDF，因此不同阅读器中公式相对正文的
 拖选与复制顺序不作保证。
 
+公式片段只携带实际用到的字形轮廓，保留 TeX 对应字号的 optical size 和基线度量，
+避免每种拟合字号都为几个字符嵌入整套 Type1 字体。原 PDF 图形和普通译文继续使用
+既有资源及文本层。
+
 ## 原子 API
 
 需要分别控制提取、变换和渲染时，可以组合以下公开方法：

@@ -17,6 +17,27 @@ from pdf_craft.pipeline.pdf.inline_formula import InlineFormulaPDFRenderer
 
 
 class TestPDFInlineFormulaFallback(unittest.TestCase):
+    def test_optical_sizes_do_not_embed_a_whole_tex_font_for_a_few_glyphs(self):
+        # pypdf's virtual page list confuses pylint's inferred overload.
+        # pylint: disable=no-member
+        renderer = InlineFormulaPDFRenderer()
+        if not renderer.available:
+            self.skipTest("requires a complete local Matplotlib/TeX PDF backend")
+        for size in (5, 6, 7):
+            with self.subTest(size=size):
+                fragment = renderer.render('(P,P)', size)
+                self.assertIsNotNone(fragment)
+                assert fragment is not None
+                page = cast(Any, pypdf.PdfReader(BytesIO(fragment.pdf)).pages[0])
+                self.assertFalse(page['/Resources']['/Font'])
+                self.assertLess(len(fragment.pdf), 10000)
+                self.assertAlmostEqual(float(page.mediabox.width), fragment.width, places=3)
+                self.assertAlmostEqual(float(page.mediabox.height), fragment.height, places=3)
+                operators = [operator for _, operator in page.get_contents().operations]
+                self.assertIn(b'c', operators)
+                self.assertTrue(any(operator in (b'f', b'f*') for operator in operators))
+                self.assertFalse(page['/Resources']['/XObject'])  # no raster replacement
+
     def test_real_tex_renderer_emits_a_vector_pdf_when_available(self):
         renderer = InlineFormulaPDFRenderer()
         if not renderer.available:

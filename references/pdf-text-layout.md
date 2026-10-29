@@ -52,6 +52,11 @@ PCEX 的段内 image/table anchor 在不同输出端有不同含义。Markdown/E
 
 行内公式在 QTextLayout 中是不可截断的 proxy span；最终绘制可替换为 PDF 向量公式并保留 ActualText。无论是孤立单行还是 headline 溢出，都必须重新以最终字号度量公式；公式渲染失败仍遵循既有 plain-text fallback。
 
+TeX 公式片段仅携带实际字形的矢量轮廓，不为几个字符嵌入整套 Type1 字体。
+不同字号可能触发不同的 TeX optical size；生成轮廓时必须显式保留请求字号，
+不能将默认 100pt 设计简单缩放到目标字号。度量、baseline/descent 与 ActualText
+仍沿用 TeX 和既有公式合成链路。此规则只涉及短公式片段，不将源 PDF 或正文转轮廓。
+
 用户配置字体族，Qt 负责字体 fallback 与逐字 glyph fallback。排版器必须使用 Qt 的实际 font metrics，不得用近似字宽推导字体大小或行数。
 
 ## 不变量与验证

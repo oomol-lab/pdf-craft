@@ -199,6 +199,11 @@ During translation, a model may flatten source LaTeX into natural text such as â
 
 `render_inline_formulas=True` is the default: available Matplotlib and TeX produce vector formula fragments, while a disabled or unavailable renderer (or one failed formula) falls back to readable plain text without failing the PDF. Vector fragments include a plain-text PDF `/ActualText` semantic replacement; this is not a complete tagged-PDF structure, so reader-specific selection and copy order relative to surrounding text are not guaranteed.
 
+Formula fragments carry only the used glyph contours, retaining TeX's optical
+size and baseline metrics. They do not embed an entire Type1 font for a few
+characters at each fitted size. Source graphics and ordinary translated text
+continue to use their existing PDF resources and text layers.
+
 When `max_font_size` is omitted from `PatchTextOptions` or a `PatchTextStyle`, text uses automatic geometry-driven fitting rather than a typographic default size. Its search starts from a small internal probe and expands until the source boxes reject the next size; the largest size that fits wins. Supplying a numeric `max_font_size` remains an explicit hard ceiling, including values such as `12`.
 
 ### Headline hierarchy and bounded layout windows

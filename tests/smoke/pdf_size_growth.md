@@ -134,5 +134,14 @@ size checks: visual review caught missing source artwork, fixed before run 02.
 The preview still exhibits paragraph/font-size and footnote layout issues; this
 result establishes the size regression fix, not complete layout acceptance.
 
+An independent intersecting-box review also exposed size variance: the same
+fixture can request additional TeX optical sizes after OCR/translation changes.
+Matplotlib's text-PDF path embedded complete CMR/CMMI Type1 fonts even for a
+five-glyph atom, adding about 64KB for one additional design size. Inline TeX
+atoms now carry only their used vector contours, compiled at the requested
+optical size, with unchanged TeX metrics and composition-layer ActualText.
+The source PDF and ordinary text are not outlined. The original 150% budget
+remains unchanged; this case must pass with fresh OCR and translation.
+
 The retained chart crop is pixel-identical to the source at 100 DPI. The paid
 gate now checks that crop automatically; it rejects the blank-artwork run 01.
