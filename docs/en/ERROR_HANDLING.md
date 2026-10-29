@@ -209,3 +209,6 @@ adoption. Cosmetic formatting alone need not trigger another model request;
 ambiguous ownership, changed wording and protected whitespace remain validated.
 See [LLM acceptance and whitespace](LLM_ACCEPTANCE.md) for the shared policy,
 HTML/CSS references and supported transport subset.
+
+
+`FailureError.frames` contains serializable filename/function/optional line locations, first for the outer exception and then its cause chain (or unsuppressed implicit context). Cycles stop traversal. It excludes source lines and frame locals; filenames may be absolute.

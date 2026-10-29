@@ -1,3 +1,4 @@
+from .request_events import validate_callback, RequestCallback
 from dataclasses import dataclass, field
 from os import PathLike
 from pathlib import Path
@@ -92,8 +93,10 @@ class DeepSeekOCRVendorConfig:
     timeout_seconds: int = 180
     retry_times: int = 2
     retry_interval_seconds: float = 1.0
+    on_request: RequestCallback | None = field(default=None, repr=False, compare=False)
 
     def __post_init__(self) -> None:
+        validate_callback(self.on_request)
         _validate_vendor_retry(self.retry_times, self.retry_interval_seconds)
 
 
@@ -108,8 +111,10 @@ class DeepSeekOCR2VendorConfig:
     timeout_seconds: int = 180
     retry_times: int = 2
     retry_interval_seconds: float = 1.0
+    on_request: RequestCallback | None = field(default=None, repr=False, compare=False)
 
     def __post_init__(self) -> None:
+        validate_callback(self.on_request)
         _validate_vendor_retry(self.retry_times, self.retry_interval_seconds)
 
 
@@ -122,8 +127,10 @@ class UnlimitedOCRVendorConfig:
     timeout_seconds: int = 180
     retry_times: int = 2
     retry_interval_seconds: float = 1.0
+    on_request: RequestCallback | None = field(default=None, repr=False, compare=False)
 
     def __post_init__(self) -> None:
+        validate_callback(self.on_request)
         _validate_vendor_retry(self.retry_times, self.retry_interval_seconds)
 
 

@@ -820,3 +820,6 @@ fragment 身份和整数 OCR bbox 放在一起，`map_bbox(target_size)` 按实�
 统一策略、默认严格失败和全局全部降级的规则见 [错误处理](ERROR_HANDLING.md)。
 
 内容回调和进度独立及时交付；PAGE 完成与文件成功不同，PDF 回填只等关联页依赖。详细边界见 [流式说明](STREAMING.md)。
+
+
+LLM、JEV 和 OCR vendor 构造参数 `on_request` 可观察每次实际请求尝试，见[请求观察](REQUEST_OBSERVATIONS.md)。

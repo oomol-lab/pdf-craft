@@ -1,3 +1,5 @@
+from ..request_events import validate_callback, RequestCallback
+
 import math
 from os import PathLike
 from pathlib import Path
@@ -18,7 +20,10 @@ class LLM:
                  cache_path: PathLike | str | None = None,
                  log_dir_path: PathLike | str | None = None, *,
                  total_timeout: float | None = 360.0,
-                 cleanup_timeout: float = 5.0) -> None:
+                 cleanup_timeout: float = 5.0,
+                 on_request: RequestCallback | None = None) -> None:
+        validate_callback(on_request)
+        self.on_request = on_request
         for name, value in (("total_timeout", total_timeout), ("cleanup_timeout", cleanup_timeout)):
             if value is not None and (not math.isfinite(value) or value <= 0):
                 raise ValueError(f"{name} must be a finite positive number")

@@ -29,6 +29,10 @@ def _compile(source_path: Path, target_path: Path) -> None:
         xobjects = DictionaryObject(resources.get('/XObject', DictionaryObject()).get_object())
         for item in page.get('/Annots', ()):
             annotation = item.get_object()
+            # This is a screen-view visual base. Hidden and NoView annotations
+            # must not become permanently visible page artwork when flattened.
+            if int(annotation.get('/F', 0)) & (2 | 32):
+                continue
             appearance = annotation['/AP']['/N']
             # The PDF annotation appearance mapping fits the transformed BBox
             # to Rect. Its own Matrix is applied by the Form's Do operator.

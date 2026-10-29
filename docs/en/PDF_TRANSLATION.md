@@ -282,3 +282,6 @@ coordinate mapping, timing and output semantics.
 See [error handling](ERROR_HANDLING.md) for strict defaults, source locations and task-wide all-fallback protection.
 
 Translation progress uses cumulative source words; see [the event and counting contract](TRANSLATION_PROGRESS.md).
+
+
+Pure PDF inspection/rendering continues to use Poppler. Character removal is an editing operation: its font/CMap and content-stream reads may use pdfminer and pypdf without adding a preflight gate to extraction. ExtGState fonts are honored; Hidden/NoView Stamps remain invisible in the screen-view base.

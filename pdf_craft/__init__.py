@@ -112,3 +112,5 @@ from .progress import ProgressEvent, ProgressEventKind, OperationKind, UnitKind,
 
 from .usage import RequestUsage, Usage, UsageCollector, UsageReport
 from .size import pcex_words_count, epub_words_count
+
+from .request_events import RequestEvent, RequestKind, RequestOutcome, RequestCallback
