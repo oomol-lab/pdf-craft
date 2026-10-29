@@ -82,6 +82,8 @@ class FailureError:
     request_id: str | None = None
     attempts: int | None = None
     causes: tuple[str, ...] = ()
+    # Serializable traceback locations; excludes source text and frame locals.
+    frames: tuple[dict[str, str | int], ...] = ()
 
 
 @dataclass(frozen=True)
