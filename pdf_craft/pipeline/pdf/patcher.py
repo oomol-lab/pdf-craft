@@ -30,6 +30,8 @@ from .error_policy import _process_error_policy_checker
 from .eraser import EraseOptions, EraseRectangle, RectangularEraser
 from .models import PDFReplacement, PDFReplacementRegion
 from .feed import ReplacementFeed, _PreviewReplacement
+from .storage import append_windows, compress_streams
+from .covered_paths import remove_covered_fills
 from .text_layout import (
     FontResolution, PatchTextOptions, QTextParagraphFiller, WindowedParagraphPlanner, _contains_cjk,
 )
@@ -358,7 +360,7 @@ class PDFPatcher:
                 else:
                     output = writer
                     for index in range(next_page_index, window.first_page_index):
-                        writer.add_page(source_reader.pages[index - 1])
+                        writer.add_page(source_reader.pages[index - 1], excluded_keys=("/Annots",))
                 self._compose_window(
                     pypdf, canvas, source_path, source_reader, reader, output, root,
                     page_sizes, window, target_page_indexes, error_policy, failed_page_indexes,
@@ -371,12 +373,10 @@ class PDFPatcher:
                         composed[index] = path, offset
                 next_page_index = window.last_page_index + 1
             if independent:
-                for index in range(1, len(reader.pages) + 1):
-                    entry = composed.get(index)
-                    writer.add_page(pypdf.PdfReader(str(entry[0])).pages[entry[1]] if entry else source_reader.pages[index - 1])
+                append_windows(writer, composed, source_reader)
             else:
                 for index in range(next_page_index, len(reader.pages) + 1):
-                    writer.add_page(source_reader.pages[index - 1])
+                    writer.add_page(source_reader.pages[index - 1], excluded_keys=("/Annots",))
             self._failed_page_indexes = tuple(sorted(failed_page_indexes))
             # A paragraph is accepted only if all of its pages survived. Small
             # auxiliary successes must never conceal total primary failure.
@@ -403,6 +403,8 @@ class PDFPatcher:
 
     @staticmethod
     def _write_output(writer, target_path: Path) -> None:
+        compress_streams(writer)
+        writer.compress_identical_objects(remove_duplicates=True, remove_unreferenced=True)
         target_path.parent.mkdir(parents=True, exist_ok=True)
         with NamedTemporaryFile(dir=target_path.parent, suffix=".pdf", delete=False) as output:
             temporary_path = Path(output.name)
@@ -460,13 +462,17 @@ class PDFPatcher:
         try:
             for index in range(window.first_page_index, window.last_page_index + 1):
                 if index not in target_page_indexes:
-                    writer.add_page(source_reader.pages[index - 1])
+                    writer.add_page(source_reader.pages[index - 1], excluded_keys=("/Annots",))
                     continue
                 if index in failed_page_indexes:
-                    writer.add_page(source_reader.pages[index - 1])
+                    writer.add_page(source_reader.pages[index - 1], excluded_keys=("/Annots",))
                     continue
                 try:
-                    page = reader.pages[index - 1]
+                    # Keep merged content out of the long-lived visual reader.
+                    # A page-local writer also makes pypdf merge/replace operate
+                    # on writer-owned objects rather than deprecated reader edits.
+                    page_writer = pypdf.PdfWriter()
+                    page = page_writer.add_page(reader.pages[index - 1])
                     page_width, page_height = page_sizes[index]
                     contributions = tuple(window.page_contributions(index))
                     page_regions = tuple(
@@ -480,6 +486,7 @@ class PDFPatcher:
                         document, index, page_regions, page_sizes,
                     )
                     if page_erasures:
+                        remove_covered_fills(page, page_erasures, page_height)
                         erasure_path = root / f"erase-{index}.pdf"
                         self._write_erasure_overlay(canvas, erasure_path, page_width, page_height, page_erasures)
                         page.merge_page(pypdf.PdfReader(str(erasure_path)).pages[0])
@@ -503,7 +510,9 @@ class PDFPatcher:
                                         formula.x, page_height - formula.baseline - formula.descent,
                                     ),
                                 )
+                    compress_streams(page_writer)
                     writer.add_page(page)
+                    writer.reset_translation(page.indirect_reference)
                     patched_page_indexes.add(index)
                     if preview is not None:
                         preview.page(index, contributions, page_erasures)
@@ -512,7 +521,7 @@ class PDFPatcher:
                         if any(region.page_index == index for region in summary.replacement.source_regions())), stage="page_compose"):
                         raise
                     record_page_failure(index, error)
-                    writer.add_page(source_reader.pages[index - 1])
+                    writer.add_page(source_reader.pages[index - 1], excluded_keys=("/Annots",))
             if preview is not None:
                 from .feed import write_record
                 assert self._preview_path is not None
