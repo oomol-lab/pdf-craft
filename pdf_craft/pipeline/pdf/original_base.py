@@ -6,7 +6,7 @@ from pypdf import PdfReader, PdfWriter
 from pypdf.generic import ContentStream, DictionaryObject, FloatObject, NameObject
 
 from ...runtime import IO_DOMAIN
-from .storage import compress_streams
+from .storage import compress_streams, deduplicate_objects
 
 
 class OriginalVisualBaseCompiler:
@@ -53,5 +53,5 @@ def _compile(source_path: Path, target_path: Path) -> None:
         content.operations = operations
         page.replace_contents(content)
     compress_streams(writer)
-    writer.compress_identical_objects(remove_duplicates=True, remove_unreferenced=True)
+    deduplicate_objects(writer)
     writer.write(target_path)

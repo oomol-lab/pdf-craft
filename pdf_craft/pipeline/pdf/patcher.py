@@ -30,7 +30,7 @@ from .error_policy import _process_error_policy_checker
 from .eraser import EraseOptions, EraseRectangle, RectangularEraser
 from .models import PDFReplacement, PDFReplacementRegion
 from .feed import ReplacementFeed, _PreviewReplacement
-from .storage import append_windows, compress_streams
+from .storage import append_windows, compress_streams, deduplicate_objects
 from .text_redaction import remove_masked_text
 from .original_base import OriginalVisualBaseCompiler
 from .text_layout import (
@@ -405,7 +405,7 @@ class PDFPatcher:
     @staticmethod
     def _write_output(writer, target_path: Path) -> None:
         compress_streams(writer)
-        writer.compress_identical_objects(remove_duplicates=True, remove_unreferenced=True)
+        deduplicate_objects(writer)
         target_path.parent.mkdir(parents=True, exist_ok=True)
         with NamedTemporaryFile(dir=target_path.parent, suffix=".pdf", delete=False) as output:
             temporary_path = Path(output.name)

@@ -6,15 +6,16 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from typing import Any, cast
 import unittest
+from unittest.mock import patch
 
 from pypdf import PdfReader, PdfWriter
 from pypdf.generic import (
     ArrayObject, ContentStream, DecodedStreamObject, DictionaryObject,
-    NameObject, NumberObject,
+    NameObject, NumberObject, EncodedStreamObject,
 )
 
 from pdf_craft.pipeline.pdf.patcher import PDFPatcher
-from pdf_craft.pipeline.pdf.storage import append_windows, compress_streams
+from pdf_craft.pipeline.pdf.storage import append_windows, compress_streams, deduplicate_objects
 from pdf_craft.pipeline.pdf.visual_base import (
     extract_annotations, reattach_annotations, write_annotation_free_copy,
 )
@@ -32,6 +33,23 @@ def page_objects(writer):
 
 
 class PDFStorageTests(unittest.TestCase):
+    def test_encoded_images_deduplicate_without_any_decoder(self):
+        writer = PdfWriter()
+        for _ in range(2):
+            page = writer.add_blank_page(width=100, height=100)
+            image = EncodedStreamObject()
+            image[NameObject('/Filter')] = NameObject('/JBIG2Decode')
+            image._data = b'opaque encoded bytes; no decoder should be called'
+            page[NameObject('/Resources')] = DictionaryObject({
+                NameObject('/XObject'): DictionaryObject({NameObject('/Image'): writer._add_object(image)}),
+            })
+        with patch.object(EncodedStreamObject, 'get_data', side_effect=AssertionError('decoded image')):
+            deduplicate_objects(writer)
+            result = reader_from(writer)
+        images = [cast(Any, p['/Resources'])['/XObject'].raw_get('/Image') for p in result.pages]
+        self.assertEqual(images[0].idnum, images[1].idnum)
+        self.assertEqual(images[0].get_object()._data, b'opaque encoded bytes; no decoder should be called')
+
     def test_lazy_merged_content_survives_compression_and_roundtrip(self):
         writer = PdfWriter()
         page = writer.add_blank_page(width=100, height=100)

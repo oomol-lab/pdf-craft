@@ -123,9 +123,9 @@ def write_annotation_free_copy(reader: Any, target_path: Path) -> None:
         elif annots_name in target_page:
             del target_page[annots_name]
     with target_path.open("wb") as output:
-        from .storage import compress_streams
+        from .storage import compress_streams, deduplicate_objects
         compress_streams(writer)
-        writer.compress_identical_objects(remove_duplicates=True, remove_unreferenced=True)
+        deduplicate_objects(writer)
         writer.write(output)
 
 
