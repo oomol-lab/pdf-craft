@@ -150,8 +150,9 @@ class LLMRuntime:
             parts: list[str] = []
             async for chunk in stream:
                 observe_tokens(getattr(chunk, "usage", None))
-                if chunk.choices and chunk.choices[0].delta.content:
-                    parts.append(chunk.choices[0].delta.content)
+                text = _stream_content(chunk)
+                if text:
+                    parts.append(text)
             return "".join(parts)
         finally:
             # Separate allowances ensure a stalled stream close cannot prevent
@@ -396,6 +397,26 @@ class LLMContext(AbstractAsyncContextManager["LLMContext"]):
                 **({"error": type(error).__name__} if error else {}),
             }, ensure_ascii=False))
             _close_file_handlers(logger)
+
+
+def _stream_content(chunk) -> str | None:
+    """Validate the consumed protocol fields, not arbitrary runtime failures.
+
+    The SDK's permissive construction may leave null or incorrectly typed fields
+    in otherwise typed chunks. Role/finish chunks may have content=None, and
+    usage-only chunks have an empty choices list.
+    """
+    choices = getattr(chunk, 'choices', None)
+    if isinstance(choices, list):
+        if not choices:
+            return None
+        delta = getattr(choices[0], 'delta', None)
+        if delta is not None and hasattr(delta, 'content'):
+            content = delta.content
+            if content is None or isinstance(content, str):
+                return content
+    invalid_response()
+    raise ValueError('LLM stream chunk has invalid choices, delta or content')
 
 
 def runtime_for(

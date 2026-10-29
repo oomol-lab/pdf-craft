@@ -1,6 +1,7 @@
 """Attempt observations must not hide retries or change resource adoption."""
 # pylint: disable=protected-access
 import asyncio
+import json
 from contextvars import ContextVar
 from datetime import datetime, timezone
 from pathlib import Path
@@ -308,3 +309,55 @@ class RequestObserversTests(IsolatedAsyncioTestCase):
         with self.assertRaises(Exception):
             await runtime.request('input')
         self.assertEqual(events[0].outcome, RequestOutcome.TIMEOUT)
+
+    async def test_real_sdk_malformed_stream_chunks_are_invalid_responses(self):
+        malformed = [
+            {'choices': [{'index': 0, 'delta': None}]},
+            {'choices': None},
+            {'choices': {}},
+            {'choices': [None]},
+            {'choices': [{'index': 0, 'delta': {'content': {'bad': 'payload'}}}]},
+        ]
+        for chunk in malformed:
+            with self.subTest(chunk=chunk):
+                events = []
+                usage = {'choices': [], 'usage': {'prompt_tokens': 9, 'completion_tokens': 2}}
+                payload = ''.join('data: ' + json.dumps(value) + '\n\n' for value in [usage, chunk])
+                payload += 'data: [DONE]\n\n'
+                async def respond(_transport, request, body=payload):
+                    return httpx.Response(200, request=request,
+                        headers={'Content-Type': 'text/event-stream'}, content=body.encode())
+                with patch('httpx.AsyncHTTPTransport.handle_async_request', respond):
+                    with self.assertRaises(Exception):
+                        await runtime_for(llm(events.append, retry_times=0), executor()).request('input')
+                self.assertEqual(len(events), 1)
+                self.assertEqual(events[0].outcome, RequestOutcome.INVALID_RESPONSE)
+                self.assertEqual(events[0].http_status, 200)
+                self.assertEqual(events[0].usage, RequestUsage(1, 9, 0, 2))
+
+    async def test_real_sdk_accepts_role_only_and_usage_only_stream_chunks(self):
+        events = []
+        chunks = [
+            {'choices': [{'index': 0, 'delta': {'role': 'assistant'}}]},
+            {'choices': [{'index': 0, 'delta': {'content': 'answer'}}]},
+            {'choices': [{'index': 0, 'delta': {}, 'finish_reason': 'stop'}]},
+            {'choices': [], 'usage': {'prompt_tokens': 9, 'completion_tokens': 2}},
+        ]
+        payload = ''.join('data: ' + json.dumps(chunk) + '\n\n' for chunk in chunks)
+        payload += 'data: [DONE]\n\n'
+        async def respond(_transport, request):
+            return httpx.Response(200, request=request,
+                headers={'Content-Type': 'text/event-stream'}, content=payload.encode())
+        with patch('httpx.AsyncHTTPTransport.handle_async_request', respond):
+            self.assertEqual(await runtime_for(llm(events.append), executor()).request('input'), 'answer')
+        self.assertEqual(len(events), 1)
+        self.assertEqual(events[0].outcome, RequestOutcome.SUCCESS)
+        self.assertEqual(events[0].usage, RequestUsage(1, 9, 0, 2))
+
+    async def test_internal_attribute_error_is_not_a_protocol_error(self):
+        events = []
+        runtime = runtime_for(llm(events.append, retry_times=0), executor())
+        setattr(runtime, '_invoke', AsyncMock(side_effect=AttributeError('internal failure')))
+        with self.assertRaises(Exception):
+            await runtime.request('input')
+        self.assertEqual(events[0].outcome, RequestOutcome.UNKNOWN_ERROR)

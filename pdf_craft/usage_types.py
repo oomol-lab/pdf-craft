@@ -17,4 +17,3 @@ class RequestUsage:
         self.input_tokens += other.input_tokens
         self.cached_input_tokens += other.cached_input_tokens
         self.output_tokens += other.output_tokens
-
