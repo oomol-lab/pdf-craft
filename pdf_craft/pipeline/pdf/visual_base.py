@@ -1,11 +1,8 @@
-"""Compile source PDF pages into a non-interactive visual base layer.
+"""Separate interactive annotations from source page artwork.
 
-The patcher must not leave the original page below its translated text.  PDF
-text remains selectable even when a rectangle visually covers it, and page
-annotations are interactive independently of the content stream.  This module
-therefore separates interactive annotations from a document before Ghostscript
-turns the remaining page display list into a font-free PDF.  A narrowly defined
-full-page visual Stamp stays behind so its appearance becomes page content.
+The default compiler preserves fonts and graphics for mask-based text removal.
+The explicit Ghostscript compiler remains available for legacy outline output.
+Full-page visual Stamps are flattened; other annotations are restored at the end.
 """
 
 from __future__ import annotations
@@ -22,7 +19,7 @@ class VisualBaseCompiler(Protocol):
     """The local compiler boundary used by :class:`PDFPatcher`."""
 
     async def compile(self, source_path: Path, target_path: Path) -> None:
-        """Compile ``source_path`` into a visual-only PDF at ``target_path``."""
+        """Prepare ``source_path`` page content at ``target_path``."""
 
 
 class GhostscriptVisualBaseCompiler:

@@ -118,7 +118,7 @@ Per i metadati bibliografici dell’EPUB, attiva l’estrazione tramite OCR dell
 
 **Traduci libri.** Fornisci un `XMLTranslator` durante la conversione da PDF a Markdown o EPUB, oppure traduci direttamente un EPUB esistente. La traduzione usa un LLM di testo separato; OCR e traduzione si configurano indipendentemente. Negli EPUB puoi sostituire l’originale o aggiungere la traduzione per una lettura bilingue.
 
-**Crea un PDF tradotto.** Estrai i contenuti, traducili e inserisci la traduzione nelle pagine originali. Servono anche Ghostscript e font locali adatti. Controlla l’impaginazione in base al testo originale e alla traduzione.
+**Crea un PDF tradotto.** Estrai i contenuti, traducili e inserisci la traduzione nelle pagine originali. Servono anche font locali adatti. Controlla l’impaginazione in base al testo originale e alla traduzione.
 
 **Estrai una volta, riutilizza in seguito.** Salva un file `.pcex` per generare documenti, tradurre o elaborare i contenuti su un altro computer. Riutilizza l’istanza `craft` configurata:
 

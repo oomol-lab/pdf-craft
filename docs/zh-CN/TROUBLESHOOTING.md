@@ -25,7 +25,7 @@ OCR 请求成功并不代表翻译 LLM 已经配置正确。
 | 现象 | 优先检查 |
 | --- | --- |
 | `Poppler not found in PATH` | Poppler 是否安装、命令是否在 PATH 中 |
-| PDF 写回启动失败或提示 Ghostscript | Ghostscript 是否安装、`gs` 是否在 PATH 中 |
+| 显式旧转轮廓编译器提示 Ghostscript | Ghostscript 是否安装、`gs` 是否在 PATH 中 |
 | 行内公式只显示 plain text 而非矢量公式 | Matplotlib 和本机 TeX 是否安装；否则这是预期降级 |
 | local OCR 报 CUDA 不可用 | PyTorch 是否为 CUDA 版本、驱动和 GPU 是否可见 |
 | local OCR 提示缺少运行时 | 是否安装了 `pdf-craft[local]` |
@@ -225,11 +225,7 @@ PDF 翻译写回需要原始 PDF 和与它匹配的提取结果。写回阶段�
 - 中间结果来自另一份输入文件；
 - 翻译文本无法放入原始文字区域。
 
-先确认原始 PDF 没有被替换，并使用同一份输入文件完成提取、翻译和写回。PDF 写回需要 Ghostscript：
-它会将源页的非 Annotation 内容编译为无字体的视觉底图，使原文字与隐藏 OCR 文字不会干扰选择、搜索
-或提取。Qt 层是唯一普通可选择的译文文字；原 `/Annots` 数组会在其上重新挂载，链接、高亮、批注和
-表单等仍可交互。擦除使用带 padding 的局部 RGB 背景色，而不恢复纹理。PDF 写回只支持替换式提交；
-`APPEND_BLOCK` 适用于 Markdown/EPUB 等结构化输出，不适用于 PDF 页面写回。
+先确认提取结果与原始 PDF 匹配。默认写回保留源页字体和图形。在绘制背景遮罩和 Qt 译文前，逐字符删除边界框与带 padding 的遮罩相交或碰边的原文字，包括不可见 OCR 文字；遮罩外原文字仍可选中。共享 Form 按使用位置分别编辑。若命中用作图形裁剪路径的文字，则报页面合成错误，避免改变图形。视觉 Stamp 会展平，交互批注在译文上方恢复。仅显式使用旧转轮廓编译器时需要 Ghostscript。
 
 行内公式默认会在 Matplotlib 和本机 TeX 同时可用时绘制为 PDF 矢量内容。任一可选运行时缺失或某一个
 公式绘制失败时，会有意降级为可读的 plain text，不会使整份 PDF 失败。若想主动选择这一行为，可设置

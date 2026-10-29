@@ -26,8 +26,8 @@ The extra supplies the Python runtime for local models. It does not choose a PyT
 - Poppler for PDF conversion, OCR extraction, and PDF patching. Patching renders
   source pages only to sample local erasure colors; it does not rasterize them into
   the output.
-- Ghostscript for PDF patching. It compiles the source page into a visual-only
-  layer, so the original text cannot be selected beneath translated text.
+- Ghostscript only for the explicitly selected legacy outline compiler; default
+  PDF patching removes masked source characters without Ghostscript.
 - Network and valid credentials for vendor OCR
 - A CUDA-capable NVIDIA GPU, matching PyTorch, model storage, and adequate VRAM for local OCR
 
@@ -90,9 +90,9 @@ sudo apt-get install --only-upgrade poppler-utils libpoppler-glib8
 
 Backend upgrades do not guarantee that a previously unsupported document becomes compatible.
 
-## Install Ghostscript for PDF patching
+## Optional legacy Ghostscript compiler
 
-PDF patching requires the Ghostscript command-line executable:
+The optional `GhostscriptVisualBaseCompiler` requires the Ghostscript executable:
 
 ```bash
 # macOS

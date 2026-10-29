@@ -6,13 +6,14 @@ from tempfile import TemporaryDirectory
 from unittest import IsolatedAsyncioTestCase, TestCase
 from unittest.mock import AsyncMock, patch
 
+from PIL import Image, ImageDraw
 from pypdf import PdfReader, PdfWriter
 from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.cidfonts import UnicodeCIDFont
 from reportlab.pdfgen.canvas import Canvas
 
 from pdf_craft_tool.smoke.pdf_size_growth import (
-    MAX_OUTPUT_BYTES, SOURCE, SOURCE_BYTES, SOURCE_SHA256, check_output, run,
+    MAX_OUTPUT_BYTES, SOURCE, SOURCE_BYTES, SOURCE_SHA256, check_artwork, check_output, run,
 )
 
 
@@ -27,6 +28,21 @@ def translated_pdf(path, pages=3):
 
 
 class SizeOracleTests(TestCase):
+    def test_missing_artwork_is_rejected_despite_small_translated_output(self):
+        with TemporaryDirectory() as directory:
+            output = Path(directory)
+            previews = output / 'previews'
+            previews.mkdir()
+            translated_pdf(output / 'translated.pdf')
+            self.assertTrue(check_output(SOURCE, output / 'translated.pdf')['passed'])
+            original = Image.new('RGB', (613, 925), 'white')
+            ImageDraw.Draw(original).rectangle((250, 130, 350, 200), outline='black')
+            original.save(previews / 'source-1.png')
+            original.save(previews / 'translated-1.png')
+            self.assertTrue(check_artwork(output))
+            Image.new('RGB', original.size, 'white').save(previews / 'translated-1.png')
+            self.assertFalse(check_artwork(output))
+
     def test_fixture_contains_only_three_pages_without_hidden_page_objects(self):
         self.assertEqual(SOURCE.stat().st_size, SOURCE_BYTES)
         self.assertEqual(hashlib.sha256(SOURCE.read_bytes()).hexdigest(), SOURCE_SHA256)

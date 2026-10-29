@@ -118,7 +118,7 @@ Pour obtenir les métadonnées bibliographiques d’un EPUB, activez leur extrac
 
 **Traduire des livres.** Fournissez un `XMLTranslator` lors de la conversion PDF vers Markdown ou EPUB, ou traduisez directement un EPUB existant. La traduction utilise un LLM textuel distinct ; OCR et traduction se configurent séparément. Pour l’EPUB, vous pouvez remplacer l’original ou ajouter la traduction pour une lecture bilingue.
 
-**Créer un PDF traduit.** Extrayez le contenu, traduisez-le et réinsérez le texte sur les pages d’origine. Ce traitement nécessite aussi Ghostscript et des polices locales adaptées. Vérifiez la mise en page avec le texte original et sa traduction.
+**Créer un PDF traduit.** Extrayez le contenu, traduisez-le et réinsérez le texte sur les pages d’origine. Ce traitement nécessite aussi des polices locales adaptées. Vérifiez la mise en page avec le texte original et sa traduction.
 
 **Extraire une fois, réutiliser ensuite.** Enregistrez un fichier `.pcex` pour un rendu ultérieur, une traduction ou un traitement sur une autre machine. Réutilisez l’instance `craft` configurée :
 

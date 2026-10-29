@@ -10,7 +10,6 @@ import json
 import tempfile
 import unittest
 import unicodedata
-from shutil import which
 from pathlib import Path
 from typing import Any
 from xml.etree.ElementTree import tostring
@@ -30,7 +29,6 @@ _ASSET_ROOT = Path(__file__).parent / "assets" / "pdf"
 
 
 class TestPDFPatchSmoke(unittest.TestCase):
-    @unittest.skipUnless(which("gs"), "requires local Ghostscript")
     def test_pipeline_fills_real_fixture_as_extractable_pdf_text(self):
         """Exercise TextFlowItem extraction, erasure, filler, and output."""
         source = _ASSET_ROOT / "friendly.pdf"
@@ -94,7 +92,6 @@ class TestPDFPatchSmoke(unittest.TestCase):
             source_images = len(list(source_page.images))
             self.assertEqual(len(list(first_page.images)), source_images)
 
-    @unittest.skipUnless(which("gs"), "requires local Ghostscript")
     def test_default_layout_fills_the_real_figure_caption_body_bbox_beyond_12pt(self):
         """The automatic first pass must not retain the former 12pt ceiling."""
         source = _ASSET_ROOT / "figure-caption.pdf"
@@ -171,7 +168,6 @@ class TestPDFPatchSmoke(unittest.TestCase):
             )
             self.assertIn("The population was only 11.8%", output_text)
 
-    @unittest.skipUnless(which("gs"), "requires local Ghostscript")
     def test_citation_fixture_replacement_is_rendered_and_searchable(self):
         """Keep a real citation-page replacement in the PDF text layer."""
         source = _ASSET_ROOT / "citation.pdf"

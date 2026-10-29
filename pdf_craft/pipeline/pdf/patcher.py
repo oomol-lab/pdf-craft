@@ -31,7 +31,8 @@ from .eraser import EraseOptions, EraseRectangle, RectangularEraser
 from .models import PDFReplacement, PDFReplacementRegion
 from .feed import ReplacementFeed, _PreviewReplacement
 from .storage import append_windows, compress_streams
-from .covered_paths import remove_covered_fills
+from .text_redaction import remove_masked_text
+from .original_base import OriginalVisualBaseCompiler
 from .text_layout import (
     FontResolution, PatchTextOptions, QTextParagraphFiller, WindowedParagraphPlanner, _contains_cjk,
 )
@@ -39,17 +40,17 @@ from .text_layout import (
 
 _LOGGER = logging.getLogger(__name__)
 from .visual_base import (
-    GhostscriptVisualBaseCompiler, extract_annotations, reattach_annotations,
+    extract_annotations, reattach_annotations,
     VisualBaseCompiler, write_annotation_free_copy,
 )
 
 
 class PDFPatcher:
-    """Replace OCR-backed regions over a non-interactive source visual base.
+    """Replace OCR-backed regions with mask-based source character removal.
 
     The eraser owns a locally sampled background-color rectangle overlay and
     the filler owns a separate Qt-generated PDF text overlay.  The original
-    page is first compiled to a font-free visual base. Interactive Annotation
+    page retains its fonts and graphics; characters touching erase masks are deleted. Interactive Annotation
     objects are restored only after both overlays are complete, while full-page
     visual Stamps are flattened below them.
     """
@@ -69,9 +70,9 @@ class PDFPatcher:
 
         ``pdf_handler`` renders source pages only to sample local background
         colors for erasure. ``visual_base_compiler`` is responsible for
-        removing the source page's interactive text semantics while preserving
-        its visual content.  It defaults to Ghostscript's local ``pdfwrite``
-        executable.
+        preparing original page content and flattening visual Stamps. The default
+        preserves source fonts and graphics; masked characters are then removed
+        before the erase and translation overlays are applied.
         """
         if options is not None and (font_name is not None or font_size is not None):
             raise ValueError("pass either options or legacy font_name/font_size arguments")
@@ -90,7 +91,7 @@ class PDFPatcher:
         self._filler = QTextParagraphFiller(options)
         self._async_pdf_handler = pdf_handler
         self._pdf_handler = _native_pdf_handler or DefaultPDFHandler()
-        self._visual_base_compiler = visual_base_compiler or GhostscriptVisualBaseCompiler()
+        self._visual_base_compiler = visual_base_compiler or OriginalVisualBaseCompiler()
         self.dpi = dpi
         self._preserved_source_pages: set[int] = set()
         self._stream_pages: dict[int, int] = {}
@@ -205,7 +206,7 @@ class PDFPatcher:
                 first_replacement = next(replacements)
         except StopIteration:
             # A pcex without translated coverage is an identity operation.
-            # Do not run Ghostscript or reconstruct its pages: copying keeps
+            # Do not compile a visual base or reconstruct its pages: copying keeps
             # all source fidelity and interaction exactly intact.
             if not document_metadata:
                 target_path.parent.mkdir(parents=True, exist_ok=True)
@@ -434,13 +435,13 @@ class PDFPatcher:
     def _validate_visual_base(reader, page_sizes: dict[int, tuple[float, float]]) -> None:
         """Reject a broken external conversion before any output is written."""
         if len(reader.pages) != len(page_sizes):
-            raise RuntimeError("Ghostscript visual base page count differs from the source PDF")
+            raise RuntimeError("Visual base page count differs from the source PDF")
         for index, page in enumerate(reader.pages, 1):
             width, height = float(page.mediabox.width), float(page.mediabox.height)
             source_width, source_height = page_sizes[index]
             if (width, height) != (source_width, source_height):
                 raise RuntimeError(
-                    f"Ghostscript visual base page {index} size differs from the source PDF"
+                    f"Visual base page {index} size differs from the source PDF"
                 )
 
     def _compose_window(
@@ -486,7 +487,7 @@ class PDFPatcher:
                         document, index, page_regions, page_sizes,
                     )
                     if page_erasures:
-                        remove_covered_fills(page, page_erasures, page_height)
+                        remove_masked_text(page_writer, page, page_erasures, page_height)
                         erasure_path = root / f"erase-{index}.pdf"
                         self._write_erasure_overlay(canvas, erasure_path, page_width, page_height, page_erasures)
                         page.merge_page(pypdf.PdfReader(str(erasure_path)).pages[0])

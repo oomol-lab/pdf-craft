@@ -10,6 +10,7 @@ from pathlib import Path
 from time import perf_counter
 
 import pypdf
+from PIL import Image, ImageChops
 
 from .deepseek_refined import run as run_refined
 
@@ -44,6 +45,20 @@ def check_output(source: Path, target: Path) -> dict:
             'checks': checks, 'passed': all(checks.values())}
 
 
+def check_artwork(output: Path) -> bool:
+    """Pinned fixture: the untranslated chart must survive at 100 DPI.
+
+    This catches blank/lost source content even when translated text and the
+    size budget pass. The crop excludes translated captions and body text.
+    """
+    crop = (220, 100, 405, 245)
+    with Image.open(output / 'previews/source-1.png') as source, \
+         Image.open(output / 'previews/translated-1.png') as target:
+        original = source.convert('RGB').crop(crop)
+        rendered = target.convert('RGB').crop(crop)
+    return ImageChops.difference(original, rendered).getbbox() is None
+
+
 async def run(source: Path, output: Path, profile: str):
     """Always preserve the acceptance report, including pipeline failures."""
     if output.exists():
@@ -59,7 +74,8 @@ async def run(source: Path, output: Path, profile: str):
         )
         report['pipeline_completed'] = True
         report['size_check'] = check_output(source, output / 'translated.pdf')
-        report['automated_passed'] = report['size_check']['passed']
+        report['source_artwork_preserved'] = check_artwork(output)
+        report['automated_passed'] = report['size_check']['passed'] and report['source_artwork_preserved']
     finally:
         report['elapsed_seconds'] = round(perf_counter() - started, 3)
         if output.is_dir():

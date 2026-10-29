@@ -15,7 +15,7 @@ When a real conversion fails, first identify the layer: PDF reading and renderin
 | Symptom | Check first |
 | --- | --- |
 | `Poppler not found in PATH` | Install Poppler and make its commands visible to the process. |
-| PDF patching cannot start or reports Ghostscript | Install Ghostscript and make `gs` visible to the process. |
+| Legacy outline compiler reports Ghostscript | Install Ghostscript and make `gs` visible to the process. |
 | Inline formulas are plain text instead of vectors | Install Matplotlib and local TeX, or accept the intentional fallback. |
 | Local OCR cannot use CUDA | NVIDIA driver, CUDA-enabled PyTorch, visible GPU, and `pdf-craft[local]`. |
 | Local OCR cannot find a model | Cache path, disk space, and `local_only`. |
@@ -105,12 +105,7 @@ If an output is absent, make sure its parent directory exists and is writable, t
 PDF patching requires the original PDF plus a `.pcex` extracted from that same
 document. `pages.xml` must include the relevant page geometry; missing data is not
 recovered from OCR caches or by re-rendering. Body text must fit the original OCR
-bounding boxes. Patching requires Ghostscript: it creates a fontless visual base of
-source non-Annotation content, so original and hidden OCR text cannot interfere with
-selection, search, or extraction. The Qt layer is the translated selectable text;
-the original `/Annots` array is reattached above it so links, highlights, notes, and
-forms remain interactive. Erasure uses a padded local RGB background color rather
-than texture reconstruction. `APPEND_BLOCK` is unsupported.
+bounding boxes. The default patcher preserves source fonts and graphics. Before drawing the background masks and Qt translation, it deletes each source character whose bounding box overlaps or touches a padded erase rectangle, including invisible OCR text. Characters outside those masks remain selectable. Shared Forms are edited per invocation. Text used as a clipping path raises a composition error when hit, because removing it would change graphics. Visual Stamps are flattened; interactive annotations are restored above the translation. Ghostscript is only needed when explicitly selecting the legacy outline compiler.
 
 Inline formulas default to vector PDF rendering when Matplotlib and local TeX are
 both available. They intentionally fall back to readable plain text if either

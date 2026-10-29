@@ -191,10 +191,7 @@ traceback 会写入日志。若所有需要写回的页面都退回，则抛出 
   范围内，以及每个章节页面是否具有对应的几何记录。它不验证结果目录是否确实由该源 PDF
   提取而来，因此调用方应自行确保二者匹配；开启 `error_policy=True` 后，能归属到某页的
   几何错误可以按策略让该页保留原始 PDF 内容。
-- 写回前，Ghostscript 会将每个源页的非 Annotation 内容编译为无字体的纯视觉底图。源矢量
-  文字仍以线条显示，但不再可选中、搜索或提取；隐藏 OCR 文字也会被移除。源页完整的
-  `/Annots` 数组会在译文之上重新挂载，因此链接、高亮、批注、表单控件及其他 PDF Annotation
-  保持独立且可交互。译文是唯一普通可选择的文字层。
+- 默认写回保留源页字体和图形。在绘制背景遮罩和 Qt 译文前，逐字符删除边界框与带 padding 的遮罩相交或碰边的原文字，包括不可见 OCR 文字；遮罩外原文字仍可选中。共享 Form 按使用位置分别编辑。若命中用作图形裁剪路径的文字，则报页面合成错误，避免改变图形。视觉 Stamp 会展平，交互批注在译文上方恢复。仅显式使用旧转轮廓编译器时需要 Ghostscript。
 - 写回只处理 `role` 为 `body` 或 `heading` 的 `TextFlowItem`。图片、表格以及其他
   布局不会成为可替换项。
 - 正文译文优先在对应 OCR bbox 内排版。默认排版策略会在允许的字号范围内寻找可容纳的
@@ -221,7 +218,7 @@ craft.patch_pdf_with_extraction(
 不是公开输入。省略 `translation_id` 时写回当前 PCEX 根内容；显式指定时选择对应翻译版本的
 正文、metadata 和可选 furniture。anchored 图片/表格文字没有字段级 PDF 坐标，本轮不会写回
 PDF。这个入口不会调用 OCR 或 LLM。PDF 写回使用 `pypdf`、`reportlab`、PySide6/Qt、
-本机 Ghostscript，以及 Poppler（默认用于局部背景取色，也可使用调用方提供的 `AsyncPDFHandler`）进行局部背景取色；在依赖被移除或
+`pdfminer.six`，以及 Poppler（默认用于局部背景取色，也可使用调用方提供的 `AsyncPDFHandler`）进行局部背景取色；在依赖被移除或
 非标准安装的环境中，底层导入失败会抛出 `RuntimeError`。
 
 ### 调整写回排版
@@ -296,15 +293,11 @@ options = PatchTextOptions(
 
 ### 写回的页面与文本层
 
-写回不会将整页通过 `AsyncPDFDocument.render_page()` 栅格化。Ghostscript 先将源页的非 Annotation 内容
-编译为无字体的纯视觉底图，再依次合并独立的矩形擦除 overlay 和由 Qt `QTextLayout` / PDF paint
-device 生成的译文文本 overlay。因此扫描页仍会自然保留扫描背景，原生 PDF 页也不会因写回而压扁；
-源文字与隐藏 OCR 文字均不再可选择、搜索或提取，译文是唯一普通可选择的文字层。原 `/Annots` 数组
-会在译文之上重新挂载，链接、高亮、批注、表单控件等 Annotation 保持独立且可交互。
+默认写回保留源页字体和图形。在绘制背景遮罩和 Qt 译文前，逐字符删除边界框与带 padding 的遮罩相交或碰边的原文字，包括不可见 OCR 文字；遮罩外原文字仍可选中。共享 Form 按使用位置分别编辑。若命中用作图形裁剪路径的文字，则报页面合成错误，避免改变图形。视觉 Stamp 会展平，交互批注在译文上方恢复。仅显式使用旧转轮廓编译器时需要 Ghostscript。
 
 擦除会先以 padding 扩大每个来源 bbox，然后只渲染原始页来计算该矩形内按频次加权的 RGB 中位背景色，
 再以这个颜色完整覆盖扩展矩形。渲染页不会作为输出页。当前擦除不恢复纸张纹理、表格线、公式或插图。
-写回需要本机具备 PySide6/Qt、Ghostscript、Poppler（默认用于局部背景取色，也可使用调用方提供的 `AsyncPDFHandler`）和可用字体；省略或
+写回需要本机具备 PySide6/Qt、Poppler（默认用于局部背景取色，也可使用调用方提供的 `AsyncPDFHandler`）和可用字体；省略或
 留空 `font_name` 时，会从 Qt 字体库自动选取一个本机真实字体并在整次写回中固定。显式指定的字体只是
 优先选择，Qt 找不到指定字体或字形时会使用系统 fallback，不会因此中断写回。
 

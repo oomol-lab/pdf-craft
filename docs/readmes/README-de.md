@@ -118,7 +118,7 @@ Für bibliografische EPUB-Metadaten kannst du die OCR-basierte Metadatenextrakti
 
 **Bücher übersetzen.** Übergib bei der Konvertierung von PDF in Markdown oder EPUB einen `XMLTranslator` oder übersetze ein vorhandenes EPUB direkt. Die Übersetzung verwendet ein separates Text-LLM; OCR und Übersetzung werden unabhängig konfiguriert. Bei EPUB kannst du den Originaltext ersetzen oder die Übersetzung zum zweisprachigen Lesen ergänzen.
 
-**Übersetzte PDF erstellen.** Extrahiere und übersetze den Inhalt und schreibe die Übersetzung auf die ursprünglichen Seiten zurück. Dafür werden zusätzlich Ghostscript und geeignete lokale Schriftarten benötigt. Prüfe das Layout anhand von Original und Übersetzung.
+**Übersetzte PDF erstellen.** Extrahiere und übersetze den Inhalt und schreibe die Übersetzung auf die ursprünglichen Seiten zurück. Dafür werden zusätzlich geeignete lokale Schriftarten benötigt. Prüfe das Layout anhand von Original und Übersetzung.
 
 **Einmal extrahieren, später wiederverwenden.** Speichere eine `.pcex`-Datei für spätere Ausgabe, Übersetzung oder Verarbeitung auf einem anderen Rechner. Verwende die konfigurierte `craft`-Instanz:
 

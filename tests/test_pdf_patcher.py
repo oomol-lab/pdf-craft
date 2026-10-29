@@ -29,7 +29,7 @@ from pdf_craft.pipeline.pdf.text_layout import _CJK_FONT_CANDIDATES, _ensure_qt_
 
 
 class BlankVisualBaseCompiler:
-    """A deterministic compiler double; production always uses Ghostscript."""
+    """A deterministic compiler double; production preserves original page content."""
 
     async def compile(self, source_path: Path, target_path: Path) -> None:
         reader = pypdf.PdfReader(str(source_path))
@@ -924,7 +924,6 @@ class TestPDFPatcher(unittest.TestCase):
             self.assertNotIn("Original", page.extract_text())
             self.assertIn("Translated", page.extract_text())
 
-    @unittest.skipUnless(which("gs"), "requires local Ghostscript")
     def test_flattens_full_page_visual_stamp_below_visible_translation(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)

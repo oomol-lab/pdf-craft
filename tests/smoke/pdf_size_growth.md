@@ -48,6 +48,8 @@ or missing translation can count as a clean pass. On completion require:
 
 - Three output pages, each containing extractable Chinese text.
 - Output size at most 1,164,596 bytes: **200% of the input**, ratio at most 2.0.
+- Pixel-identical preservation of the first-page chart in the fixed 100-DPI
+  preview crop (220, 100, 405, 245); missing artwork fails even if size passes.
 - Manual comparison of all source/output previews before claiming full visual
   acceptance. Chinese text checks alone do not prove complete translation.
 
@@ -84,38 +86,40 @@ the final-merge memory peak has been reduced. No post-processing is performed
 by this gate, so it cannot hide the production bug.
 
 
-## Fix and 200% acceptance
+## Current fix and acceptance
 
-The decisive change removes source vector fills completely concealed by an
-existing opaque erasure rectangle, before merging that rectangle and translated
-text. A one-point inset preserves antialiased mask edges. Bounding boxes include
-Bezier control points and the current transformation matrix; strokes, clipping
-paths, images, text, shadings, and Form XObjects are not pruned. Unsupported
-interleaving and malformed graphics-state stacks are left unchanged.
+The default fill no longer converts the source page's text to outlines. It keeps
+source fonts and graphic objects and deletes each original character whose box
+overlaps or touches an actual padded erase rectangle, including invisible OCR
+text. Deleted character advances become PDF positioning instructions, preserving
+unmasked character positions. Shared/nested Forms are edited per invocation;
+associated marked-content replacement text is removed. Visual Stamps are
+flattened without rewriting the other page artwork.
 
-Page-local writers prevent merged paths from accumulating in the source reader.
-Streams (including ICC resources) are compressed before window assembly; final
-resources are deduplicated and window readers released. Annotation edges are
-filtered before cloning, and destinations are rebound for translated and raw
-pages without importing hidden source page trees. pypdf is upgraded to 6.21.4.
+pdfminer.six (MIT) supplies font/CMap geometry and pypdf writes the original
+encoded character bytes. No PyMuPDF dependency or full-page rasterization is
+introduced. Text used as a clipping path currently raises a page-composition
+error if hit: silently deleting its clipping effect would change graphics.
+Existing error policy applies; strict smoke rejects any such fallback.
 
-The first fresh paid run with these fixes produced **769,045 bytes (1.320707×)**
-in **64.820 seconds**, with all three pages and translated text present. The
-200% limit is a fixed-fixture acceptance criterion, not a general guarantee for
-every PDF. This smoke does not measure the full-book peak RSS or prove the
-original 4 GiB instance can run the whole book.
+Page-local writers, stream compression, resource deduplication and released
+window readers remain. Annotation references are filtered before cloning and
+rebound without importing hidden page trees. pypdf is upgraded to 6.21.4.
+The previous concealed-vector pruning implementation is superseded: graphics
+are no longer pruned to meet this gate.
 
-A separate same-output diagnostic pruned only the original paths under the
-existing masks: its 771,734-byte PDF rendered identically to the unpruned output
-at 100 DPI on all three pages (pixel comparison, not merely page counts).
-The initial 0.02-point inset had a two-pixel difference; the final one-point
-inset removed that difference. No rasterization or image-quality reduction is
-used to meet the size limit.
+The size gate does not prove complete visual correctness or measure full-book
+peak RSS. In particular, retaining three pages with Chinese text cannot detect
+missing source artwork: compare all three previews, including the first-page
+chart. Existing paragraph/footnote layout issues are separate from this gate.
 
+The accepted character-removal run (`size-growth-text-removal-02`) produced
+**814,760 bytes / 582,298 bytes = 1.399215× (139.9%)**, in **54.537 seconds**.
+All three pages contain translated Chinese, and the source chart survives.
+The previous `text-removal-01` run is **rejected** despite passing automated
+size checks: visual review caught missing source artwork, fixed before run 02.
+The preview still exhibits paragraph/font-size and footnote layout issues; this
+result establishes the size regression fix, not complete layout acceptance.
 
-A second independent fresh paid run produced **771,370 bytes (1.324700×)** in
-**57.768 seconds**, also passing the 200% gate with all pages and Chinese text.
-Both runs used the final production code and separate OCR/LLM cache directories:
-`pdf-craft-output/size-growth-under-2x-01/` and
-`pdf-craft-output/size-growth-under-2x-02/`. Offline verification: **1,275 tests
-passed**, pyright passed, and pylint passed (10.00/10).
+The retained chart crop is pixel-identical to the source at 100 DPI. The paid
+gate now checks that crop automatically; it rejects the blank-artwork run 01.
