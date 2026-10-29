@@ -186,7 +186,8 @@ def error_details(error: Exception) -> FailureError:
         request_id,
         attempts,
         tuple(chain),
-        tuple({"filename": frame.filename, "function": frame.name, "lineno": frame.lineno}
+        tuple({"filename": frame.filename, "function": frame.name,
+               **({"lineno": frame.lineno} if frame.lineno is not None else {})}
               for frame in traceback.extract_tb(error.__traceback__)),
     )
 
