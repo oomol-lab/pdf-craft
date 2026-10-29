@@ -47,7 +47,7 @@ pipeline runs with `strict=True`: no accepted recovery, original-page fallback
 or missing translation can count as a clean pass. On completion require:
 
 - Three output pages, each containing extractable Chinese text.
-- Output size at most 1,164,596 bytes: **200% of the input**, ratio at most 2.0.
+- Output size at most 873,447 bytes: **150% of the input**, ratio at most 1.5.
 - Pixel-identical preservation of the first-page chart in the fixed 100-DPI
   preview crop (220, 100, 405, 245); missing artwork fails even if size passes.
 - Manual comparison of all source/output previews before claiming full visual

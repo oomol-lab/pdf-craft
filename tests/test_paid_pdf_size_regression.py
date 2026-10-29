@@ -66,6 +66,30 @@ class SizeOracleTests(TestCase):
         self.assertFalse(result['checks']['translated_text_on_every_page'])
         self.assertFalse(result['passed'])
 
+    def test_exact_150_percent_passes_but_one_extra_byte_fails(self):
+        with TemporaryDirectory() as directory:
+            target = Path(directory) / 'out.pdf'
+            translated_pdf(target)
+            writer = PdfWriter(clone_from=target)
+            padding = 0
+            for _ in range(5):
+                writer.add_metadata({'/SizeRegressionPadding': 'x' * padding})
+                writer.write(target)
+                delta = MAX_OUTPUT_BYTES - target.stat().st_size
+                if delta == 0:
+                    break
+                padding += delta
+            self.assertEqual(MAX_OUTPUT_BYTES, 873447)
+            self.assertEqual(target.stat().st_size, MAX_OUTPUT_BYTES)
+            self.assertTrue(check_output(SOURCE, target)['passed'])
+            with target.open('ab') as stream:
+                stream.write(b'\n')
+            result = check_output(SOURCE, target)
+            self.assertTrue(result['checks']['translated_text_on_every_page'])
+            self.assertFalse(result['checks']['size_ratio'])
+            self.assertFalse(result['checks']['output_size'])
+            self.assertFalse(result['passed'])
+
     def test_large_valid_translated_pdf_fails_size_budget(self):
         with TemporaryDirectory() as directory:
             target = Path(directory) / 'out.pdf'

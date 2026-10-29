@@ -20,8 +20,8 @@ SOURCE_BYTES = 582298
 PAGES = 3
 # Fixed-fixture budgets, not a general restriction on user PDFs. Allow font
 # embedding overhead, while rejecting the observed multi-megabyte page streams.
-MAX_OUTPUT_BYTES = 2 * SOURCE_BYTES
-MAX_SIZE_RATIO = 2.0
+MAX_OUTPUT_BYTES = SOURCE_BYTES * 3 // 2
+MAX_SIZE_RATIO = 1.5
 
 
 def check_output(source: Path, target: Path) -> dict:
