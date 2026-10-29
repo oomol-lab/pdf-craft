@@ -428,3 +428,6 @@ backend 配置指南；已有 EPUB 的翻译和其 LLM 参数请参考 EPUB 翻�
 统一策略、默认严格失败和全局全部降级的规则见 [错误处理](ERROR_HANDLING.md)。
 
 翻译进度使用原文 words 累计值，见[统一计数和事件约定](TRANSLATION_PROGRESS.md)。
+
+
+纯 PDF 读取和渲染仍统一使用 Poppler。字符删除属于编辑操作，其字体/CMap 与内容流辅助读取可使用 pdfminer、pypdf，不为提取增加前置门禁。字符定位遵循 ExtGState 字体设置；屏幕底图保留 Hidden/NoView Stamp 的不可见状态。

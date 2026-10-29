@@ -12,7 +12,7 @@ from typing import Any
 from pdfminer.cmapdb import IdentityCMap, IdentityCMapByte
 from pdfminer.layout import LTChar
 from pdfminer.pdfinterp import PDFPageInterpreter
-from pdfminer.pdftypes import stream_value
+from pdfminer.pdftypes import PDFObjRef, dict_value, list_value, resolve1, stream_value
 from pdfminer.psparser import literal_name
 from pdfminer.utils import mult_matrix, translate_matrix
 
@@ -101,6 +101,26 @@ class TextRemovalInterpreter(PDFPageInterpreter):
         self.do_Tc(ac)
         self.do_T_a()
         self.do_TJ([s])
+
+    def do_gs(self, name):
+        # pdfminer leaves gs unimplemented. Of the ExtGState parameters, Font
+        # changes text placement. Resolve the font object, not a page Font name:
+        # it need not occur in the page's /Font resource dictionary at all.
+        states = dict_value(self.resources.get('ExtGState'))
+        state = dict_value(states[literal_name(name)])
+        if 'Font' in state:
+            values = list_value(state['Font'])
+            if len(values) != 2:
+                raise ValueError('Invalid ExtGState Font')
+            reference, size = values
+            size = resolve1(size)
+            if isinstance(size, bool) or not isinstance(size, (int, float)):
+                raise ValueError('Invalid ExtGState font size')
+            self.textstate.font = self.rsrcmgr.get_font(
+                reference.objid if isinstance(reference, PDFObjRef) else None,
+                dict_value(reference),
+            )
+            self.textstate.fontsize = size
 
     def do_TJ(self, seq: Any):
         state = self.textstate

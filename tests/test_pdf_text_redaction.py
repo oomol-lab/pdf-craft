@@ -1,4 +1,5 @@
 """Character removal must preserve unmasked text positions and source graphics."""
+# pylint: disable=protected-access
 import asyncio
 from pathlib import Path
 from io import BytesIO
@@ -78,41 +79,69 @@ class PDFTextRedactionTests(unittest.TestCase):
         self.assertEqual(_erase(writer, page, 50, 95, 60, 125), 1)
         self.assertEqual(page.extract_text().strip(), 'A')
 
+    @unittest.skipUnless(shutil.which('pdftotext'), 'requires Poppler')
+    def test_extgstate_font_not_in_font_resources_keeps_advances_and_restore(self):
+        writer, page = _pdf(lambda c: c.drawString(20, 100, 'unused'))
+        courier = DictionaryObject({NameObject('/Type'): NameObject('/Font'),
+                                   NameObject('/Subtype'): NameObject('/Type1'),
+                                   NameObject('/BaseFont'): NameObject('/Courier')})
+        page['/Resources'][NameObject('/ExtGState')] = DictionaryObject({
+            NameObject('/GS'): DictionaryObject({NameObject('/Font'): ArrayObject([
+                writer._add_object(courier), NumberObject(40),
+            ])}),
+        })
+        content = ContentStream(None, writer)
+        content.set_data(b'BT /F1 12 Tf ET q BT /GS gs 20 100 Td (ABC) Tj ET Q '
+                         b'BT 20 150 Td (KEEP) Tj ET')
+        page.replace_contents(content)
+        self.assertEqual(_erase(writer, page, 45, 95, 60, 125), 1)
+        with tempfile.TemporaryDirectory() as directory:
+            pdf = Path(directory) / 'result.pdf'
+            writer.write(pdf)
+            root = ET.fromstring(subprocess.check_output(['pdftotext', '-bbox', str(pdf), '-']))
+            words = {node.text: node.attrib for node in root.iter() if node.tag.endswith('}word')}
+        self.assertNotIn('B', words)
+        self.assertAlmostEqual(float(words['C']['xMin']), 68, places=4)
+        self.assertAlmostEqual(float(words['KEEP']['xMin']), 20, places=4)
+        self.assertLess(float(words['KEEP']['xMax']), 60)  # Restored 12pt, not 40pt.
+
     @unittest.skipUnless(shutil.which('pdftoppm'), 'requires Poppler')
     def test_hidden_full_page_stamp_stays_invisible(self):
-        writer = PdfWriter()
-        page = writer.add_blank_page(width=200, height=200)
-        appearance = DecodedStreamObject()
-        appearance.set_data(b'1 0 0 rg 0 0 200 200 re f')
-        rectangle = ArrayObject([NumberObject(v) for v in (0, 0, 200, 200)])
-        appearance.update({
-            NameObject('/Type'): NameObject('/XObject'),
-            NameObject('/Subtype'): NameObject('/Form'),
-            NameObject('/BBox'): rectangle,
-            NameObject('/Resources'): DictionaryObject(),
-        })
-        annotation = DictionaryObject({
-            NameObject('/Type'): NameObject('/Annot'),
-            NameObject('/Subtype'): NameObject('/Stamp'),
-            NameObject('/Rect'): rectangle,
-            NameObject('/F'): NumberObject(2),  # Hidden, regardless of print/view.
-            NameObject('/AP'): DictionaryObject({NameObject('/N'): writer._add_object(appearance)}),
-        })
-        page[NameObject('/Annots')] = ArrayObject([writer._add_object(annotation)])
-        with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
-            source, target = root / 'source.pdf', root / 'target.pdf'
-            writer.write(source)
-            asyncio.run(OriginalVisualBaseCompiler().compile(source, target))
-            pixels = []
-            for pdf in (source, target):
-                prefix = pdf.with_suffix('')
-                subprocess.run(['pdftoppm', '-singlefile', '-scale-to', '100', '-png',
-                                str(pdf), str(prefix)], check=True, capture_output=True)
-                with Image.open(prefix.with_suffix('.png')) as image:
-                    pixels.append(image.convert('RGB').getpixel((50, 50)))
-            self.assertEqual(pixels[0], (255, 255, 255))
-            self.assertEqual(pixels[1], pixels[0])
+        for flags in (2, 32):
+            with self.subTest(flags=flags):
+                writer = PdfWriter()
+                page = writer.add_blank_page(width=200, height=200)
+                appearance = DecodedStreamObject()
+                appearance.set_data(b'1 0 0 rg 0 0 200 200 re f')
+                rectangle = ArrayObject([NumberObject(v) for v in (0, 0, 200, 200)])
+                appearance.update({
+                    NameObject('/Type'): NameObject('/XObject'),
+                    NameObject('/Subtype'): NameObject('/Form'),
+                    NameObject('/BBox'): rectangle,
+                    NameObject('/Resources'): DictionaryObject(),
+                })
+                annotation = DictionaryObject({
+                    NameObject('/Type'): NameObject('/Annot'),
+                    NameObject('/Subtype'): NameObject('/Stamp'),
+                    NameObject('/Rect'): rectangle,
+                    NameObject('/F'): NumberObject(flags),  # Hidden / NoView.
+                    NameObject('/AP'): DictionaryObject({NameObject('/N'): writer._add_object(appearance)}),
+                })
+                page[NameObject('/Annots')] = ArrayObject([writer._add_object(annotation)])
+                with tempfile.TemporaryDirectory() as directory:
+                    root = Path(directory)
+                    source, target = root / 'source.pdf', root / 'target.pdf'
+                    writer.write(source)
+                    asyncio.run(OriginalVisualBaseCompiler().compile(source, target))
+                    pixels = []
+                    for pdf in (source, target):
+                        prefix = pdf.with_suffix('')
+                        subprocess.run(['pdftoppm', '-singlefile', '-scale-to', '100', '-png',
+                                        str(pdf), str(prefix)], check=True, capture_output=True)
+                        with Image.open(prefix.with_suffix('.png')) as image:
+                            pixels.append(image.convert('RGB').getpixel((50, 50)))
+                    self.assertEqual(pixels[0], (255, 255, 255))
+                    self.assertEqual(pixels[1], pixels[0])
 
     def test_original_base_preserves_display_list(self):
         def draw(canvas):
