@@ -1,11 +1,8 @@
-"""Compile source PDF pages into a non-interactive visual base layer.
+"""Separate interactive annotations from source page artwork.
 
-The patcher must not leave the original page below its translated text.  PDF
-text remains selectable even when a rectangle visually covers it, and page
-annotations are interactive independently of the content stream.  This module
-therefore separates interactive annotations from a document before Ghostscript
-turns the remaining page display list into a font-free PDF.  A narrowly defined
-full-page visual Stamp stays behind so its appearance becomes page content.
+The default compiler preserves fonts and graphics for mask-based text removal.
+The explicit Ghostscript compiler remains available for legacy outline output.
+Full-page visual Stamps are flattened; other annotations are restored at the end.
 """
 
 from __future__ import annotations
@@ -22,7 +19,7 @@ class VisualBaseCompiler(Protocol):
     """The local compiler boundary used by :class:`PDFPatcher`."""
 
     async def compile(self, source_path: Path, target_path: Path) -> None:
-        """Compile ``source_path`` into a visual-only PDF at ``target_path``."""
+        """Prepare ``source_path`` page content at ``target_path``."""
 
 
 class GhostscriptVisualBaseCompiler:
@@ -103,12 +100,14 @@ def write_annotation_free_copy(reader: Any, target_path: Path) -> None:
 
     writer = pypdf.PdfWriter()
     for page in reader.pages:
-        writer.add_page(page)
+        # Exclude graph edges before cloning: deleting them afterwards leaves
+        # their target pages/resources in the writer and pays the cloning cost.
+        writer.add_page(page, excluded_keys=("/Annots", "/AA", "/B"))
         target_page: Any = writer.pages[-1]
         visual_stamps = ArrayObject(
-            annotation
-            for annotation in _annotation_items(target_page.get("/Annots"))  # pylint: disable=no-member
-            if _is_full_page_visual_stamp(annotation, target_page)
+            annotation.clone(writer, ignore_fields=("/P",))
+            for annotation in _annotation_items(page.get("/Annots"))
+            if _is_full_page_visual_stamp(annotation, page)
         )
         # These page-level entries can trigger actions or article navigation.
         # They are not Annotation objects and must not survive in the visual
@@ -124,6 +123,9 @@ def write_annotation_free_copy(reader: Any, target_path: Path) -> None:
         elif annots_name in target_page:
             del target_page[annots_name]
     with target_path.open("wb") as output:
+        from .storage import compress_streams, deduplicate_objects
+        compress_streams(writer)
+        deduplicate_objects(writer)
         writer.write(output)
 
 
@@ -204,9 +206,10 @@ def reattach_annotations(
         zip(writer.pages, annotation_pages, strict=True), 1,
     ):
         if index not in selected_indexes:
-            # A raw source page already carries its original annotations.  Do
-            # not clone them again or create duplicate interactive objects.
-            continue
+            # Raw pages also need their destinations rebound to the final page
+            # tree. Retain visual Stamps here: unlike patched pages their
+            # appearance has not been flattened into the visual base.
+            source_annotations = _annotation_items(source_pages[index - 1].get_object().get('/Annots'))
         if not source_annotations:
             continue
         page_reference = target_page.indirect_reference
@@ -475,9 +478,11 @@ def _restore_annotation_actions(
         if destination is not None:
             target[NameObject("/Dest")] = destination
     if "/A" in source:
-        target[NameObject("/A")] = _clone_action(
+        action = _clone_action(
             source.raw_get("/A"), writer, target_pages, source_named_destinations,
         )
+        if action is not None:
+            target[NameObject("/A")] = action
     if "/AA" in source:
         target[NameObject("/AA")] = _clone_additional_actions(
             source.raw_get("/AA"), writer, target_pages, source_named_destinations,
@@ -498,9 +503,11 @@ def _clone_additional_actions(
         return source.clone(writer) if hasattr(source, "clone") else source
     cloned = DictionaryObject()
     for key, action in source.items():
-        cloned[NameObject(key)] = _clone_action(
+        restored = _clone_action(
             action, writer, target_pages, source_named_destinations,
         )
+        if restored is not None:
+            cloned[NameObject(key)] = restored
     return cloned
 
 
@@ -524,6 +531,8 @@ def _clone_action(
         destination = _clone_destination(source.raw_get("/D"), writer, target_pages, names)
         if destination is not None:
             cloned_object[NameObject("/D")] = destination
+        else:
+            return None
     return cloned_reference
 
 
@@ -555,6 +564,11 @@ def _clone_destination(
             if target_page is not None:
                 cloned.append(target_page)
                 continue
+            destination_object = _dereference(raw_value)
+            if isinstance(destination_object, dict) and destination_object.get('/Type') == '/Page':
+                # A destination outside the source page tree has no output
+                # counterpart. Never clone its /Parent and sibling pages.
+                return None
         cloned.append(raw_value.clone(writer) if hasattr(raw_value, "clone") else raw_value)
     return cloned
 

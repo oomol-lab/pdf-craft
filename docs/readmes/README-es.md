@@ -118,7 +118,7 @@ Si necesitas datos bibliográficos para el EPUB, activa la extracción de metada
 
 **Traduce libros.** Puedes proporcionar un `XMLTranslator` al convertir PDF a Markdown o EPUB, o traducir directamente un EPUB existente. La traducción usa un LLM de texto independiente; OCR y traducción se configuran por separado. En EPUB puedes sustituir el original o añadir la traducción para una lectura bilingüe.
 
-**Crea un PDF traducido.** Extrae y traduce el contenido, y escribe el texto traducido en las páginas originales. También necesitas Ghostscript y fuentes locales adecuadas. Revisa la maquetación según el original y la traducción.
+**Crea un PDF traducido.** Extrae y traduce el contenido, y escribe el texto traducido en las páginas originales. También necesitas fuentes locales adecuadas. Revisa la maquetación según el original y la traducción.
 
 **Extrae una vez y reutiliza después.** Guarda un archivo `.pcex` para generar otros documentos, traducir o procesar en otro equipo. Reutiliza la instancia `craft` configurada:
 

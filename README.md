@@ -148,7 +148,7 @@ translation succeeds. See [usage and capability limits](docs/en/ERROR_HANDLING.m
 
 **Translate books.** Supply an `XMLTranslator` when converting PDF to Markdown or EPUB, or translate an existing EPUB directly. Translation uses a separate text LLM; OCR and translation have independent configurations. EPUB translation can replace the original text or append the translation for bilingual reading.
 
-**Create a translated PDF.** Extract the content, translate it, and write the translation back onto the original pages. This workflow also needs Ghostscript and suitable local fonts. Check the resulting layout against the source and translated text.
+**Create a translated PDF.** Extract the content, translate it, and write the translation back onto the original pages. This workflow needs suitable local fonts; the default fill preserves source graphics and removes masked source characters. Check the resulting layout against the source and translated text.
 
 **Extract once, reuse later.** Save a `.pcex` extraction file for subsequent rendering, translation, or processing on another machine. Reuse the configured `craft` instance:
 

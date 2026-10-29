@@ -33,7 +33,7 @@ CUDA 环境安装匹配的 PyTorch。没有可用 CUDA 设备时，使用标准�
 - Python `>=3.11,<3.14`。
 - Poppler：PDF 页面渲染、OCR 提取和 PDF 写回都需要它。写回会渲染源页以估计局部擦除颜色，
   但不会将该 raster 当作输出页面。
-- Ghostscript：PDF 写回需要它将源页编译为纯视觉底图，避免原文在译文下方被选中。
+- Ghostscript：仅显式使用旧转轮廓编译器时需要；默认写回按遮罩删除原文字，不依赖它。
 - vendor OCR：网络连接和有效的供应商配置；只要运行 OCR 提取，还需要 Poppler；本机不需要 CUDA。
 - local OCR：支持 CUDA 的 NVIDIA GPU、匹配的 PyTorch、模型缓存、足够的显存和 Poppler。
 
@@ -125,9 +125,9 @@ sudo apt-get install --only-upgrade poppler-utils libpoppler-glib8
 
 后端升级不保证此前不兼容的文件变得可处理。
 
-## 为 PDF 写回安装 Ghostscript
+## 可选的旧 Ghostscript 编译器
 
-PDF 写回需要 Ghostscript 命令行程序：
+显式选择 `GhostscriptVisualBaseCompiler` 时需要 Ghostscript 命令行程序：
 
 ### macOS
 

@@ -24,6 +24,7 @@ from pdf_craft.extractor.chapter.chapter import (
 )
 from pdf_craft.pdf.furniture import extract_furnitures
 from pdf_craft.runtime import run_subprocess, run_subprocess_sync
+from pdf_craft.pipeline.pdf.visual_base import GhostscriptVisualBaseCompiler
 from tests.extraction_helpers import make_extraction
 
 
@@ -206,6 +207,7 @@ class TestSubprocessLifecycle(unittest.IsolatedAsyncioTestCase):
             await _assert_processes_dead(self, pids)
 
     @unittest.skipIf(os.name == "nt", "executable PATH fixture is POSIX-only")
+    @patch("pdf_craft.pipeline.pdf.patcher.OriginalVisualBaseCompiler", GhostscriptVisualBaseCompiler)
     async def test_qt_patch_success_and_failure_reap_ghostscript(self):
         for mode in ("success", "fail"):
             with self.subTest(mode=mode), tempfile.TemporaryDirectory() as directory:
@@ -228,6 +230,7 @@ class TestSubprocessLifecycle(unittest.IsolatedAsyncioTestCase):
                 await _assert_processes_dead(self, pids)
 
     @unittest.skipIf(os.name == "nt", "executable PATH fixture is POSIX-only")
+    @patch("pdf_craft.pipeline.pdf.patcher.OriginalVisualBaseCompiler", GhostscriptVisualBaseCompiler)
     async def test_qt_patch_cancellation_reaps_ghostscript_process_tree(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
