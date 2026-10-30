@@ -583,7 +583,7 @@ points to a definition with the same ID in that chapter's `<references>`:
 
 The ID must have the exact form `<page_index>-<order>`, with both components parseable as integers. Here, `order` is the 1-based reference sequence assigned as pdf-craft extracts footnotes from that page; it is not a fragment's 0-based `source_order`.
 
-Every v3 reference definition contains exactly one textual `<mark>` and one `<flow>`. The mark preserves the footnote marker that appeared in the text, such as `1`, `*`, or `①`; its flow uses the same `<text>`, `<display-formula>`, and `<standalone-asset>` nodes as a chapter. Reference fragments retain their own `page_index`, `source_order`, and `bbox`.
+Every v3 reference definition contains exactly one `<mark>` and one `<flow>`. The mark preserves the footnote marker that appeared in the text, such as `1`, `*`, or `①`. An empty `<mark/>` explicitly represents a recognized note whose printed marker was not recovered; no visible label is invented. Its flow uses the same `<text>`, `<display-formula>`, and `<standalone-asset>` nodes as a chapter. Reference fragments retain their own `page_index`, `source_order`, and `bbox`.
 
 Every `<ref>` in chapter or reference-flow content must resolve to a definition in the same chapter or the chapter is invalid. A reference body may not nest another footnote `<ref>`. The canonical encoder writes only definitions that are actually referenced by chapter flow content, sorts them by `(page_index, order)`, and renumbers them uniformly during Markdown and EPUB rendering.
 

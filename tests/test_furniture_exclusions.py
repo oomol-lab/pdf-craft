@@ -13,6 +13,26 @@ from pdf_craft.pdf.furniture import extract_furnitures
 
 
 class FurnitureExclusionTests(TestCase):
+    def test_hidden_search_layer_does_not_become_visible_furniture(self):
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            pdf = root/'source.pdf'
+            canvas = Canvas(str(pdf), pagesize=(200, 200))
+            canvas.setFont('Helvetica', 10)
+            canvas.drawString(10, 180, 'Visible header')
+            hidden = canvas.beginText(10, 40)
+            hidden.setTextRenderMode(3)
+            hidden.textLine('Invisible old OCR note')
+            canvas.drawText(hidden)
+            canvas.save()
+            ocr = root/'ocr'
+            ocr.mkdir()
+            save_xml(fromstring('<page index="1"><body/><footnotes/></page>'), ocr/'page_1.xml')
+            (ocr/'page_pixel_sizes.json').write_text(json.dumps({'1': [200, 200]}))
+            text = ''.join(extract_furnitures(pdf, ocr).itertext())
+            self.assertIn('Visible header', text)
+            self.assertNotIn('Invisible old OCR note', text)
+
     def test_excluded_text_stays_out_while_unclaimed_native_header_survives(self):
         with TemporaryDirectory() as directory:
             root = Path(directory)

@@ -1,5 +1,16 @@
 # Unreleased
 
+- Make page refinement conservative by default (`risk_threshold=0.30`), review
+  unnumbered note continuations, and stop treating unresolved OCR aliases as
+  confirmed cross-page definitions. Explicit caller thresholds are unchanged.
+- Bind repaired cross-page note origins during ordered adoption without waiting
+  for neighbouring LLM jobs; preserve standalone notes whose printed mark was
+  missed and avoid duplicate formula-wrapped labels.
+- Keep actual reference marks in streaming PDF content instead of `?` placeholders.
+  Explicitly identified non-linear OCR diagrams can retain original artwork.
+- Restrict native furniture supplementation to Poppler-visible text, so hidden
+  search/OCR layers cannot reappear as translated headers or footnotes.
+
 - Keep deliberately excluded OCR regions occupied during native furniture
   extraction, so page-refinement exclusions cannot be translated and filled
   back through the furniture path. Add both citation refinement modes to the

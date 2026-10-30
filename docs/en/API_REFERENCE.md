@@ -324,6 +324,12 @@ separate `refinement=Refinement(...)` argument; no compatibility alias is provid
 | False | Refinement(...) | Ordinary OCR, JEV, and LLM repair only when needed |
 | True | Refinement(...) | Footnote OCR, JEV, and LLM repair only when needed |
 
+Page refinement defaults to `risk_threshold=0.30`: an estimated error risk at
+or above that value routes the page to the LLM. This quality-oriented default
+may increase LLM calls; explicit caller thresholds remain authoritative.
+Review includes unnumbered note continuations. An unresolved initial alias is
+not an immutable cross-page definition.
+
 Book-metadata extraction is deliberately opt-in. When enabled, PDF Craft lets a dedicated LLM
 read the first three raw OCR pages and request further front pages in batches, up to twelve pages.
 Only values with OCR evidence are accepted. PDF file metadata is used only to fill fields that OCR

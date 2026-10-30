@@ -117,6 +117,49 @@ def check_furniture_exclusions(output, *, require_exclusions=True):
             'passed': len(ignored) == 3 and (count > 0 or not require_exclusions) and not collisions}
 
 
+def check_reading_flows(output, footnotes):
+    """Pinned fixture semantics, independent of JEV's score or process exit."""
+    from unicodedata import normalize
+    def text(element):
+        return ''.join(normalize('NFKC', ''.join(element.itertext())).split())
+    body, notes, furniture = '', '', ''
+    joined = set()
+    definitions = 0
+    first_page_paragraphs = []
+    with ZipFile(output/'book.pcex') as archive:
+        for name in archive.namelist():
+            if name.startswith('chapters/') and name.endswith('.xml'):
+                root = ET.fromstring(archive.read(name))
+                flow = root.find('flow')
+                references = root.find('references')
+                if flow is not None:
+                    body += text(flow)
+                    for item in flow.findall('text'):
+                        fragments = list(item.iter('fragment'))
+                        if fragments and fragments[0].attrib.get('page_index') == '1':
+                            first_page_paragraphs.append([fragment.attrib.get('source_order')
+                                                          for fragment in fragments
+                                                          if fragment.attrib.get('page_index') == '1'])
+                        pages = {int(f.attrib['page_index']) for f in item.iter('fragment')}
+                        if {1,2} <= pages:
+                            joined.add('1-2')
+                        if {2,3} <= pages:
+                            joined.add('2-3')
+                if references is not None:
+                    notes += text(references)
+                    definitions += len(references)
+        furniture = text(ET.fromstring(archive.read('furnitures.xml')))
+    phrases = ('我不会在本书', '对拉康来说', '我们可以说', '试着泛化', '米勒', '主人话语')
+    leaked = [phrase for phrase in phrases if phrase in body or phrase in furniture]
+    missing = [phrase for phrase in phrases if footnotes and phrase not in notes]
+    return {'body_note_leaks': leaked, 'missing_note_content': missing,
+            'first_page_paragraphs': first_page_paragraphs,
+            'cross_page_body_paragraphs': sorted(joined), 'definitions': definitions,
+            'passed': not leaked and not missing and joined == {'1-2','2-3'}
+                      and first_page_paragraphs == [['0'], ['1'], ['2']]
+                      and (definitions >= 5 if footnotes else definitions == 0)}
+
+
 async def run(source: Path, output: Path, profile: str, *, footnotes=True):
     if output.exists():
         raise ValueError('Output must be a new directory (no reuse of cached OCR)')
@@ -127,6 +170,7 @@ async def run(source: Path, output: Path, profile: str, *, footnotes=True):
     pipeline_completed = False
     formula = {"passed": False}
     exclusions = {"passed": False}
+    reading = {"passed": False}
     original_furniture = transform.write_furnitures
 
     def furniture(pdf, pages, destination, **kwargs):
@@ -160,6 +204,7 @@ async def run(source: Path, output: Path, profile: str, *, footnotes=True):
         pipeline_completed = True
         formula = check_formula_preview(output)
         exclusions = check_furniture_exclusions(output, require_exclusions=not footnotes)
+        reading = check_reading_flows(output, footnotes)
     finally:
         # Preserve diagnostics even if extraction/refinement/translation raises.
         geometry_passed = historical['passed'] and (
@@ -168,7 +213,8 @@ async def run(source: Path, output: Path, profile: str, *, footnotes=True):
         report = {'source_sha256': SOURCE_SHA256, 'historical_geometry': historical,
                   'pages': records, 'pipeline_completed': pipeline_completed,
                   'display_formula': formula, 'footnotes': footnotes, 'furniture_exclusions': exclusions,
-                  'automated_passed': pipeline_completed and geometry_passed and formula['passed'] and exclusions['passed'],
+                  'reading_flows': reading,
+                  'automated_passed': pipeline_completed and geometry_passed and formula['passed'] and exclusions['passed'] and reading['passed'],
                   'visual_review': 'pending: compare all source/translated pages, especially page-1 footnotes'}
         if output.is_dir():
             (output / 'citation-checks.json').write_text(json.dumps(report, indent=2))

@@ -344,6 +344,11 @@ def _native_pages(
         return {index: [] for index in sorted(available_pages)}
 
     result: dict[int, list[FurnitureSection]] = {}
+    visible = _visible_text_boxes(pdf_path, aborted)
+    if visible is None:
+        # Unverified hidden OCR must not become new visible text. Furniture is
+        # optional; preserve the PDF background when visibility is unavailable.
+        return {index: [] for index in sorted(available_pages)}
     page_elements = [element for element in root.iter() if _local_name(element.tag) == "page"]
     for page_index, page_el in enumerate(page_elements, 1):
         if available_pages and page_index not in available_pages:
@@ -364,12 +369,63 @@ def _native_pages(
         x_scale, y_scale = target_width / source_width, target_height / source_height
         sections: list[FurnitureSection] = []
         for line in (element for element in page_el.iter() if _local_name(element.tag) == "line"):
+            line = _visible_line(line, visible.get(page_index, ()), source_width, source_height)
+            if line is None:
+                continue
             section = _section_from_poppler_line(
                 line, page_index, x_scale, y_scale, target_width, target_height
             )
             if section is not None:
                 sections.append(section)
         result[page_index] = sections
+    return result
+
+
+def _visible_text_boxes(pdf_path, aborted):
+    """Poppler's HTML exporter omits invisible OCR text unless -hidden is set.
+
+    pdftotext alone exposes that search layer as if it were page furniture.
+    Use its exact word geometry only where Poppler also finds visible text;
+    the source image remains untouched everywhere else.
+    """
+    from .poppler import PopplerDocument
+    from .backend import current_poppler_path
+    try:
+        stdout, _ = run_subprocess_sync(
+            PopplerDocument(pdf_path, current_poppler_path()).command('pdftohtml'),
+            '-xml', '-stdout', '-i', '-zoom', '1', '-noroundcoord', str(pdf_path), aborted=aborted)
+        root = ET.fromstring(stdout)
+        result = {}
+        for page in root.findall('page'):
+            width, height = float(page.attrib['width']), float(page.attrib['height'])
+            boxes = []
+            for text in page.findall('text'):
+                left, top = float(text.attrib['left']), float(text.attrib['top'])
+                right, bottom = left+float(text.attrib['width']), top+float(text.attrib['height'])
+                boxes.append((left/width, top/height, right/width, bottom/height))
+            result[int(page.attrib['number'])] = boxes
+        return result
+    except (FileNotFoundError, RuntimeError, ET.ParseError, KeyError, ValueError, ZeroDivisionError):
+        return None
+
+
+def _visible_line(line, boxes, width, height):
+    words = []
+    for word in line:
+        if _local_name(word.tag) != 'word':
+            continue
+        left, top, right, bottom = (float(word.attrib[key]) for key in ('xMin', 'yMin', 'xMax', 'yMax'))
+        area = max(1e-9, (right-left)*(bottom-top))
+        if any(max(0, min(right, x2*width)-max(left, x1*width))*
+               max(0, min(bottom, y2*height)-max(top, y1*height))/area >= .5
+               for x1,y1,x2,y2 in boxes):
+            words.append(word)
+    if not words:
+        return None
+    result = ET.Element(line.tag)
+    for key, choose in (('xMin', min), ('yMin', min), ('xMax', max), ('yMax', max)):
+        result.set(key, str(choose(float(word.attrib[key]) for word in words)))
+    result.extend(words)
     return result
 
 

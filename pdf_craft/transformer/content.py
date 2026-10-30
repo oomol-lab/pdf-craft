@@ -22,6 +22,7 @@ def _unit(item):
     # copy of their definitions. Definitions have their own stream entries.
     for reference in search_references_in_chapter(chapter):
         reference.flow_items = []
+        reference.mark = ''  # Immutable display metadata, not another translation/billing field.
     return chapter
 
 

@@ -5,6 +5,8 @@ from __future__ import annotations
 from copy import deepcopy
 import json
 import re
+from math import sqrt
+from unicodedata import east_asian_width
 from collections.abc import Awaitable, Callable, Iterable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
@@ -31,6 +33,8 @@ JEV_QUESTION: dict[str, Any] = {
                 "paragraph 表示正文、标题、引文等主阅读流；citation 表示由正文引用标记引出的页脚注释。",
                 "结合文字语义、位置和上下文判断归属，不能只看 bbox。页底对正文标记作解释的内容通常是 citation。",
                 "页码、running header、章节栏头、装饰性短数字等 page furniture 不属于 paragraph 或 citation；若它们进入任一语义流，本页判错。",
+                "OCR 原分类与初级 ownership 不是事实。逐块检查脚注全部范围，包括没有编号的后续解释、图式及跨页续文；只纠正带编号的第一块而遗漏其余部分仍应判错。",
+                "相邻页可能也误分类。跨页正文必须接真正的正文，不能接脚注或转下页/接上页等出版提示。",
             ],
             "continuation_standard": [
                 "continues_from_previous / continues_to_next 表示同一流中相邻文字 layout 在语义上属于同一个自然段或同一条 citation，而不只是视觉上相邻。图片/表格可作为段内锚点，判断文字连接时跳过它们，资产自身 gap 为 false；独立段落公式才是硬边界。",
@@ -74,6 +78,19 @@ JEV_QUESTION: dict[str, Any] = {
         },
     }
 }
+
+
+def text_scale_estimate(text, bbox):
+    """Soft layout evidence, not font metrics or an ownership decision.
+
+    OCR block height alone conflates font size and line count. Approximate
+    occupied glyph area makes long small-print continuations comparable with
+    short marked notes. Whitespace and Latin's narrower advance are accounted
+    for, but formulas/leading make this only a hint to the semantic reviewer.
+    """
+    units = sum(1 if east_asian_width(char) in {'W', 'F'} else .5
+                for char in text if not char.isspace())
+    return round(sqrt(max(0, bbox[2]-bbox[0])*max(0, bbox[3]-bbox[1])/max(1, units)), 2)
 
 
 @dataclass(frozen=True)
@@ -189,7 +206,9 @@ def build_jev_review_requests(
                 "state": {
                     "format": "pdf-craft PageReviewPacket v2",
                     "coordinate_note": (
-                        "bbox_normalized is [left, top, right, bottom] in page fractions."
+                        "bbox_normalized is [left, top, right, bottom] in page fractions. "
+                        "text_scale_estimate is a rough OCR-pixel glyph-area scale, not actual font size; "
+                        "compare small-print blocks with their neighbours, never classify by this alone."
                     ),
                     "target_page": target,
                     "previous_page": _boundary_context(
@@ -221,6 +240,8 @@ def _review_questions(includes_footnotes: bool) -> dict[str, Any]:
         "原 footnote 来源候选默认 ignored；若有明确证据属于正文或跨页正文续文，应判为需要修正以恢复 paragraph。",
         "原 body 中有明确证据属于脚注的完整块应 ignored，否则需要修正；不能仅凭页底、小字号或数字开头判为脚注。",
         "同时包含正文与脚注的块不能整块忽略；不确定时保留初级归属，不要求删除正文或重建缺失文字。",
+        "必须逐块检查全部脚注范围，包括不带编号的后续解释、图式及跨页续文；只排除编号开头而保留无编号续段仍是错误。相邻初级页也可能误分类，不应据此放行。",
+        "转下页/接上页及独立页码不是正文。正文跨页连接应跳过这些出版提示和脚注，不能把它们接到真实正文。",
     ]
     instructions['continuation_standard'] = [
         "continuation 表示同一自然段的语义续接，不能仅因位置相邻而连接。",
@@ -318,6 +339,7 @@ def _layout_packet(
         "source_order": source_order,
         "source_type": source_type,
         "ocr_stream": getattr(getattr(source, "origin", None), "stream", None),
+        "text_scale_estimate": text_scale_estimate(raw_text, bbox) if source_type == 'text' else None,
         "bbox_normalized": [
             round(bbox[0] / width, 3),
             round(bbox[1] / height, 3),

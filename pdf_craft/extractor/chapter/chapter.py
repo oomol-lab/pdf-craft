@@ -351,10 +351,11 @@ def _decode_reference(element: Element, *, allow_legacy: bool = True) -> Referen
     try: page, order = map(int, element.get("id", "").split("-", 1))
     except ValueError as error: raise ValueError("<references><ref> has invalid id") from error
     mark_el = element.find("mark")
-    if mark_el is None or mark_el.text is None: raise ValueError("<references><ref> missing required <mark>")
+    if mark_el is None: raise ValueError("<references><ref> missing required <mark>")
     if not allow_legacy: _attributes(mark_el, set())
     from .mark import transform2mark
-    mark = transform2mark(mark_el.text) or mark_el.text
+    mark_text = mark_el.text or ''
+    mark = transform2mark(mark_text) or mark_text
     flow = element.find("flow")
     if flow is not None:
         if not allow_legacy: _attributes(flow, set())

@@ -13,7 +13,7 @@ class Refinement:
 
     jev: JEV
     llm: LLM
-    risk_threshold: float = 0.70
+    risk_threshold: float = 0.30
     max_output_tokens: int = 16000
     executor: AsyncExecutor | None = None
     jev_executor: AsyncExecutor | None = None

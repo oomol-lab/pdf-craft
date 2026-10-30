@@ -9,6 +9,7 @@ restore those decisions without changing source text or geometry.
 from __future__ import annotations
 
 from dataclasses import dataclass, field, replace
+import re
 from typing import Iterable, Literal, TypeAlias
 
 from ...expression import ExpressionKind
@@ -67,6 +68,7 @@ class _AnalysedTextSource:
     reading_order: int | None = None
     citation_prefix: int = 0
     origin: TextSource | None = None
+    citation_prefix_parts: int = 0
 
 
 @dataclass(frozen=True)
@@ -126,6 +128,7 @@ class AnalysedCitation:
     mark: _CitationMark | None
     stream_order: int
     origin_page_index: int | None = None
+    continues_previous: bool = False
 
     @property
     def state(self) -> Literal["definition", "continuation", "unresolved"]:
@@ -154,6 +157,7 @@ class LayoutAnnotations:
     citation_id: str | None = None
     citation_index: int | None = None
     references: list[ReferenceLocation] = field(default_factory=list)
+    preserve_as_image: bool = False
 
 
 @dataclass(frozen=True)
@@ -1035,13 +1039,19 @@ def project_definition_mark(layout: AnalysedLayout, mark: str | None) -> Analyse
     if not isinstance(source, _AnalysedTextSource):
         return layout
     prefix = 0
-    if mark and source.content and isinstance(source.content[0], str):
-        first = source.content[0]
+    parts = 0
+    if mark and source.content and isinstance(source.content[0], _AnalysedInlineExpression) and source.content[0].content.strip() == mark:
+        parts = 1
+    remaining = source.content[parts:]
+    if mark and remaining and isinstance(remaining[0], str):
+        first = remaining[0]
         start = len(first) - len(first.lstrip())
-        if first[start:].startswith(mark):
+        if parts:
+            prefix = start
+        elif first[start:].startswith(mark):
             end = start + len(mark)
             prefix = end + len(first[end:]) - len(first[end:].lstrip())
-    return replace(layout, source=replace(source, citation_prefix=prefix))
+    return replace(layout, source=replace(source, citation_prefix=prefix, citation_prefix_parts=parts))
 
 
 def _citation_prefix(fragment: SourceTextFragment) -> int:
@@ -1057,10 +1067,17 @@ def _citation_prefix(fragment: SourceTextFragment) -> int:
 
 def _project_fragment_content(source, layout, references) -> list:
     content = _restore_content(source.content, layout.references, references)
+    if layout.ownership == 'citation' and source.citation_prefix_parts:
+        content = content[source.citation_prefix_parts:]
     if layout.ownership == "citation" and source.citation_prefix and content:
         content[0] = content[0][source.citation_prefix:]
         if not content[0]:
             content.pop(0)
+    if layout.ownership == 'citation' and content and isinstance(content[0], str):
+        # Publication cues locate printed continuation, not author prose. Once
+        # note identity is restored they must not migrate through translation
+        # into an earlier physical page of the same paragraph.
+        content[0] = re.sub(r'^\s*[（(]\s*(?:接上[页頁]|续上[页頁])\s*[）)]\s*', '', content[0])
     return content
 
 
@@ -1146,7 +1163,9 @@ def _analyse_mark(mark: str | Mark) -> _CitationMark:
     return _AnalysedMark(mark.number, mark.char, mark.clazz, mark.style)
 
 
-def _restore_mark(mark: _CitationMark) -> str | Mark:
+def _restore_mark(mark: _CitationMark | None) -> str | Mark:
+    if mark is None:
+        return ''  # OCR may identify a note's content but miss its printed mark.
     if isinstance(mark, str):
         return mark
     return Mark(mark.number, mark.char, mark.clazz, mark.style)

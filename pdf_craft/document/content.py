@@ -69,6 +69,11 @@ def file_content(path: Path):
                 break
     document = BytesIO(_v3_chapter_xml(path)) if first_tags[-1:] == ['body'] else path.open('rb')
     with document:
+        # Only printed labels are needed by occurrences. Read that scalar
+        # metadata without decoding/copying definition bodies, before yielding
+        # paragraphs; no translated definition or provider request is awaited.
+        marks = _reference_marks(document)
+        document.seek(0)
         stack = []
         chapter_id, level, body_index, note_index = None, -1, 0, 0
         for event, element in iterparse(document, events=('start', 'end')):
@@ -93,7 +98,10 @@ def file_content(path: Path):
                     for occurrence in element.iter('ref'):
                         definition = Element('ref', {'id': occurrence.get('id', '')})
                         mark = Element('mark')
-                        mark.text = '?'
+                        identifier = occurrence.get('id', '')
+                        if identifier not in marks:
+                            raise ValueError(f'Reference {identifier} has no definition')
+                        mark.text = marks[identifier]
                         definition.extend((mark, Element('flow')))
                         references.append(definition)
                 if len(references):
@@ -108,6 +116,22 @@ def file_content(path: Path):
                 stack[-2].remove(element)
                 element.clear()
             stack.pop()
+
+
+def _reference_marks(document):
+    from xml.etree.ElementTree import iterparse
+    marks, stack = {}, []
+    for event, element in iterparse(document, events=('start', 'end')):
+        if event == 'start':
+            stack.append(element)
+            continue
+        if element.tag == 'mark' and len(stack) == 4 and stack[-3].tag == 'references':
+            marks[stack[-2].get('id', '')] = element.text or ''
+        if len(stack) > 1:
+            stack[-2].remove(element)
+        element.clear()
+        stack.pop()
+    return marks
 
 
 def asset_contexts(path: Path):

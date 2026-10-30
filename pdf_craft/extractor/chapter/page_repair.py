@@ -20,6 +20,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from ...llm import Message, MessageRole
 from ...llm.guaranteed import GuaranteedOptions, request_guaranteed_json
 from ...pdf import Page
+from .mark import transform2mark
 from .page_analysis import (
     AnalysedCitation,
     AnalysedLayout,
@@ -34,6 +35,7 @@ from .page_analysis import (
     continuation_sequences,
 )
 from .page_review import (
+    text_scale_estimate,
     JEV_REVIEW_THRESHOLD,
     JevReviewProcessor,
     PageEvaluator,
@@ -72,6 +74,7 @@ class RepairedLayout(_StrictModel):
     paragraph_level: int | None = Field(ge=-1)
     citation_id: str | None
     citation_index: int | None = Field(default=None, ge=1)
+    preserve_as_image: bool = False
 
 
 class RepairedCitation(_StrictModel):
@@ -79,6 +82,7 @@ class RepairedCitation(_StrictModel):
     index: int | None = Field(default=None, ge=1)
     mark: str | None
     stream_order: int = Field(ge=0)
+    continues_previous: bool = False
 
 
 class RepairedPage(_StrictModel):
@@ -94,56 +98,67 @@ _ASSET_CONTRACT = """图片/表格可以嵌在同一个自然段内部，它们�
 
 _NEIGHBOR_CONTRACT = """相邻页仅提供不可变的初级内容上下文，不提供审核评分。跨出局部窗口的语义身份及跨纯图片/表格页的正文前驱，可能尚未绑定；不要猜测窗口外的身份或仅因看不到前驱而修改连接。这些关系由后续按序组段绑定，不是本次请求必须补齐的字段。若目标页带有 jev_p_pass，它只表示较弱审核器对当前页的估计，不是事实或约束；请独立检查，如果原结果正确可以原样返回。"""
 
-_CONTINUATION_RULES = """修改纪律：
-- 现有标注是一套已闭环的候选结果，不是让你从头重做的空白草稿。默认保留每个字段；只在文本语义、几何位置或来源对应给出具体证据时修改。
-- 发现页码或 running header 时，将该 layout 改为 ignored，但不要顺手改写与它无关的语义归属或段落边界。
-- 判断 gap 时，在心中直接拼接前一 layout 末尾和后一 layout 开头。只有拼接后语法与意义显然是同一流内的自然段时才设为 true；空间相邻、冒号、缩进或排版分块单独都不足以决定连接。结合 bbox 判断：同缩进且行距正常的冒号引导句与后续文字可能是同一段；而前文说“阅读下面的段落”之类引导语，后面内容明显整体缩进且增加垂直留白时，后者是独立块引文，gap 应为 false。
-- 对现有 false 边界采用很高的合并门槛。两个 layout 主题相关、后者解释前者、处在同一引文中，或普通行距接近，都不表示它们是同一自然段；完整句之后开始的新段必须保持 false。只有存在明确的 OCR/跨栏/跨页人工断裂证据，而且前后文字拼接后才形成一个原本无法各自成立的句子或同一流内段落时，才把 false 改成 true。
-- 特别检查页首的跨页尾句：如果某 layout 的 continues_from_previous 已为 true，它只是承接上一页并以句号等终止标点结束的短尾部，而下一 layout 从完整新句开始，则二者之间的既有 false 必须保留。不能因为同缩进、普通行距或主题连续，把上一段的页首尾句并入下一段。
-- 同页已有的 false 边界默认不可打开。除非前一 layout 明显以未完句结束、后一 layout 明显只是该句的直接续文，并且没有段落缩进或垂直留白证据，否则禁止把它改成 true；两个完整句子即使主题连续，也必须保持 false。
-- initial_stream_boundary_from_previous 是根据现有归属预先计算的几何提示：vertical_gap 是上下间距，left_delta 为正表示当前块左侧向内缩，right_inset_delta 为正表示当前块右侧也向内缩。它只是证据，归属有误时可以忽略；但同时出现明显左右缩进和较大留白时，应认真检查当前块是否为独立块引文。
-- 每条连接仅由后继 layout 的 continues_from_previous 决定；continues_to_next 是本地派生展示信息，返回时省略它。不能依靠修改前驱的展示值来建立连接。"""
+_OWNERSHIP_RULES = """归属优先于续接：
+- OCR 的 body/footnote 分类及初级 ownership 都可能出错。必须逐块检查，包括没有编号的页底续文；不要只修带编号的第一块。
+- 脚注可有多个自然段、公式和跨页续文。紧随脚注的解释、引文、图式或续页段没有新编号，并不使它变成正文。根据完整阅读顺序、内容和几何识别整个范围。
+- 编号是注释的起点，不是每个块必须重复的类型标签。同一小字阅读带中，解释或继续展开上一条脚注的无编号块仍属于该脚注；没有编号、换段或继续讨论同一主题都不是回归正文的证据。只有明确返回主阅读流的证据才结束这条注释。
+- 跨页正文应连接上一页真正正文的末尾，不能连接页码、续页提示或脚注。先在心中分别梳理正文流与页底注释流，再判断每条连接。
+- 单独的页码、“转下页/接上页”等出版提示属于 ignored，不是正文或脚注文字；不要将它和相邻真实内容拼成一句。
+- 相邻初级结果同样可能误分类。只将其作为证据，不能因为相邻页暂将脚注续文标为正文，就让目标页沿用错误归属。"""
 
-PAGE_REPAIR_SYSTEM_PROMPT = f"""\
-你负责修复 PDF OCR 页的语义分析结果。输入包含上一页、目标页和下一页的完整文本结构；只允许修改目标页。
+_READING_EXAMPLE = """阅读示例（不是按位置硬编码）：正文末块为“这个结论还需要”，下一页正文开头为“进一步讨论。”，
+两者之间本页有“① 关于某术语的注解。”以及“换一种说法，这个术语也可以……”等小字块。
+后一个无编号块如果延续注解，应仍属于①，不可因换了自然段就改为正文。下一页下方的“（接上页）……”
+也要检查注释续接。关闭脚注时整个已确认注释范围 ignored；开启时所有这些块属于同一 citation，
+自然段各自保留。text_scale_estimate 是由块面积和文字量推算的软线索，用于比较小字区域，
+不是实际字号；需结合编号、内容、正文续接和几何，不能单凭这个数值删除内容。"""
 
+PAGE_REPAIR_SYSTEM_PROMPT = f"""你负责检查并修正 PDF OCR 页的语义结构，只返回目标页完整 JSON。
 {_SOURCE_CONTRACT}
 
-可编辑语义：layout 的 paragraph/citation/ignored 归属、前驱 continuation、paragraph role/level、citation 分组与页内索引，以及正文 ref 的位置。页码、running header 和装饰物必须标为 ignored；ignored layout 仍保留在页面中，但不会进入任何恢复流。
+先根据原文、阅读顺序和上下文独立划分正文、脚注、出版提示，再与初级结果比较。
+初级结果仅是待审核的算法猜测，不是已经正确的模板。只改有证据的错误，但必须检查所有块。
+{_OWNERSHIP_RULES}
+{_READING_EXAMPLE}
 
+正文是主阅读流；脚注是解释正文标记的独立阅读流，即使 OCR 把整片页脚标为 body 也要纠正。
+编号脚注后的无编号块要先检查是否属于该脚注的后续自然段。若主阅读流在前面的未完句处跨页，
+其后插入的编号注释及相邻解释不能被当成主阅读流的新正文。结合邻页真正正文的开头判定。
+页脚跨页时通常在下一页正文下方续写，不能与下一页顶部主阅读流互接。
+
+citations 描述本页脚注：新开始的每条注释分别建立 index=1,2,...、实际 mark 和
+citation_id=new-页码-index；同一注释的多个块共享一个 ID，不同编号绝不能合为一个无索引注释。
+已确定起点的跨页定义保持其 ID、起点和成员；但 unresolved 初级别名不是已确认定义，可以删除或拆分。
+真正的续页注释 index/mark 为 null，排在本页新注释前；前驱在邻页尚未绑定时保留局部 unresolved ID，
+若首块确实续接前页同一段则 continues_from_previous=true，最终在有序组段时绑定已采用的起点。
+同一注释在下一页另起自然段时，citation.continues_previous=true，但 layout.continues_from_previous=false；
+注释身份的延续与自然段的延续不是同一件事。图式之后新起解释段不能和图式标签拼成一句。
+正文标记只连接本页已建立的有索引定义：references 给出 layout_id、citation_index、anchor。
+anchor.before/mark/after 连续取自该 layout.text，mark 是实际引用字符，前后文须足以唯一定位。
+没有可匹配标记的定义也要保留，不得为了省事将所有定义改成无索引。
+独立的新注释即使 OCR 漏掉编号/星号，也应创建本页新 index，mark 可为 null，不要假装成前页的无索引续段。
+印刷标记属于来源文字，不能改写；本地按 citation.mark 统一投影。不得在正文额外制造符号。
+
+先定归属，再定自然段：同一个脚注内可以有多个段落、引文和图式，它们共享 ID 但不一定相连。
+初级 continues_from_previous=false 的段落边界默认保留。只有前段明显未完、后段直接补齐同一个句子，
+且没有独立新段证据时，才改为 true；前段已完整结束、后段从完整新句开始时必须保留 false。
+论述同一主题、承接上文、同一个脚注 ID，都不构成合并自然段的理由。“或者/因此”等引导的新段也不能顺手并入前段。
+图式后的解释可以是同一注释的新自然段；“接上页”只说明排版续页，不自动说明同一个自然段。
+正文、脚注各自按阅读顺序判断；后继的 continues_from_previous 是唯一连接真源，省略 continues_to_next。
+只连接语法、语义上确实同一自然段的块；主题相同不够，完整新句、独立引文和缩进留白支持另起一段。
+不要将页码/续页提示接入任一流。跨页半句允许续接，不能因此把后续完整新段一并合并。
 {_ASSET_CONTRACT}
-
 {_NEIGHBOR_CONTRACT}
 
-{_CONTINUATION_RULES}
-- layout.text 保留完整来源，包括印刷标记。citation.mark 是标记的语义；本地输出时才移除实际匹配的前缀范围，改回 paragraph 时原文完整恢复。
-- citation 成员关系与 gap 是两个正交维度：多个 layout 可以都属于同一 citation_id，却因为是脚注内的不同自然段而将相邻 gap 设为 false。常见脚注会依次包含以冒号结尾的引导句、缩进引文和后续评论；它们可以是三个自然段，但仍全部属于同一 citation。不要为了拆段而把引导句改成 paragraph。
-- 修好已有具体错误后就停止。页面被送来不意味着每种结构都有错，不得为了显示做过审查而制造额外修改。
-- 校验错误只说明结果存在矛盾，不代表必须修改错误消息中的某一侧。回到文本语义判断哪个 ownership 或 gap 才是根因，不要为了过校验而拼接不相干的文字。
-
-ref 规则：
-- 每个 ref 返回 layout_id、citation_index 和 anchor。
-- anchor.before、anchor.mark、anchor.after 表示同一 layout.text 中连续相邻的三段；mark 是 ref 覆盖的实际字符，before/after 只是定位上下文。
-- 复制足以唯一定位的相邻原文，不要返回字符 offset。上下文允许短，但必须让程序无歧义地确定位置。
-- OCR 完全漏掉标记时 mark 可以为空，表示 before 与 after 之间的零宽位置；此时上下文必须足以唯一定位。
-- ref 只属于 paragraph 文本 layout。每个 citation 可以有零个或多个 ref；没有匹配 ref 的定义也必须保留。每个 ref 指向本页存在的有索引 citation。
-
-ignored 规则：ignored layout 的两个 continuation 必须为 false，paragraph_role、paragraph_level、citation_id、citation_index 必须全部为 null，也不能承载 ref。
-
-citation 规则：
-- 已有 citation_id 不可重命名。新增定义使用 new-页码-index；不得重命名跨页定义或修改其起点。
-- 未确定归属的无索引片段可并入上一页已存在的定义：使用其 citation_id，index/mark 为 null。禁止猜测不存在的前驱。跨页共享定义的起点和既有片段不可删除；页内非共享定义允许通过重分组拆分或合并。
-- 本页新开始的 citation 使用从 1 连续递增的 index，并具有非空 mark。
-- 上一页 citation 的续页片段 index 和 mark 都为 null，且必须排在有索引 citation 之前。
-- citation layout 的 citation_id/index 必须与 citations 中相应项一致；paragraph layout 不得携带 citation_id/index。
-
-返回前逐项自检：
-1. 所有 ignored layout 的 gap 均为 false，所有语义字段均为 null。
-2. 删去 ignored 后，按 document_order 查看相邻 paragraph：continues_from_previous 必须有真实前驱，不得连接到 ignored 或独立段落公式。图片/表格是透明锚点，两侧文字可以属于同一自然段；它们自身的 continuation 必须为 false，文字的前驱应跳过这些锚点。
-3. 对每个 citation_id 独立做同样的相邻 gap 检查，不要把不同 citation 串成一条流。
-4. 每个 ref 都指向有索引 citation，每个 anchor 都只能在指定 layout_id 内定位到一处。
-
-返回一个完整目标页 JSON，字段严格遵守给定 output_contract。不要解释，不要使用 Markdown 围栏。每次收到校验错误后，都重新返回完整目标页 JSON。"""
+paragraph 的 role/level 为 body/-1 或有证据的 heading/层级。citation 文本同样需 role/level。
+OCR 若把非线性的图式/分式示意图误当文字块，且这些标签不能组成线性句子，设置 preserve_as_image=true，
+仍保留其归属和原始身份。程序将保留原图，不把二维标签挤成一行译文。普通正文、编号注释和行内公式不可用此选项。
+ignored 不进入任何流：两个 gap=false，role/level/citation_id/citation_index 均为 null，无 ref。
+返回所有原 layout，保持其身份、文字与顺序；citations 中不能有无成员定义。
+遵守 output_contract，不解释、不加 Markdown 围栏。校验冲突时重新检查语义，而非拼接无关内容过关。
+最终检查：若正文在脚注区上方以未完句截断，并与下一页正文首块续接，则这期间脚注区的其余解释块、图式
+不能另充正文。注释有多个自然段很正常，所有未被新编号切开的同区解释块应共享上一条注释 ID。
+"""
 
 
 class JevLlmRepairProcessor:
@@ -349,6 +364,7 @@ async def repair_page_with_llm(
                      if page.page_index < target_page.page_index
                      for citation in page.citations if citation.index is not None}
         candidate = _compile_repaired_page(target_page, cast(RepairedPage, data), available)
+        _validate_reading_boundary(candidate, next_page)
         shared_ids = {citation.citation_id for page in context
                       if page.page_index != target_page.page_index
                       for citation in page.citations}
@@ -368,6 +384,55 @@ async def repair_page_with_llm(
     ))
 
 
+def _validate_reading_boundary(candidate, following):
+    """Reject a main-flow detour through a clearly bracketed note band.
+
+    This is deliberately narrow: an open prose enclosure resumes at the next
+    page's first text, and the candidate itself has already excluded/identified
+    marked notes between that enclosure and its supposed later body. The
+    conflicting ownership remains an LLM decision, never a geometry rewrite.
+    """
+    if following is None or following.page_index != candidate.page_index + 1:
+        return
+    next_text = next((layout_reference_text(item) for item in following.layouts
+                      if item.ownership == 'paragraph' and item.source_order is not None), '')
+    if not next_text:
+        return
+    ordered = sorted(candidate.layouts, key=lambda item: item.document_order)
+    pairs = {'(': ')', '（': '）'}
+    for index, layout in enumerate(ordered):
+        if layout.ownership != 'paragraph' or layout.source_order is None:
+            continue
+        text = layout_reference_text(layout)
+        for opening, closing in pairs.items():
+            if text.count(opening) <= text.count(closing):
+                continue
+            prefix = next_text.split(closing, 1)[0]
+            if closing not in next_text or opening in prefix:
+                continue
+            tail = ordered[index+1:]
+            notes = [item for item in tail if item.source_order is not None
+                     and item.ownership != 'paragraph'
+                     and any(transform2mark(char) is not None for char in layout_reference_text(item)[:5])]
+            if not notes:
+                continue
+            note_start = min(item.document_order for item in notes)
+            note_top = min(item.bbox[1] for item in notes)
+            left = min(item.bbox[0] for item in notes)
+            right = max(item.bbox[2] for item in notes)
+            detours = [item for item in tail if item.ownership == 'paragraph'
+                       and item.source_order is not None and item.document_order > note_start
+                       and item.bbox[1] >= note_top
+                       and min(item.bbox[2], right) - max(item.bbox[0], left) >= .5*(item.bbox[2]-item.bbox[0])
+                       and closing not in layout_reference_text(item)]
+            if detours:
+                names = ', '.join(_layout_id(item) for item in detours)
+                raise ValueError(
+                    f'[READING_FLOW] {_layout_id(layout)} 的未闭合括号在下一页正文开头续接。'
+                    f'已确认的编号注释区之后 {names} 却另列为正文；请重新检查它们是否是最后一条脚注的'
+                    '无编号续文/图式，而不是仅因无编号就当正文。不要改原文或拼接无关段落。')
+
+
 def _validate_shared_citations(
     source: PageAnalysis, candidate: PageAnalysis, shared_ids: set[str],
 ) -> None:
@@ -377,6 +442,10 @@ def _validate_shared_citations(
     stored on layouts. Protect both contracts before committing the graph.
     Additional members and paragraph boundaries remain editable.
     """
+    # A window-local unresolved alias is an algorithmic guess, not a known
+    # cross-page definition. Protecting it would freeze classification errors.
+    shared_ids = shared_ids & {citation.citation_id for citation in source.citations
+                               if citation.index is not None or citation.origin_page_index is not None}
     proposed = {citation.citation_id: citation for citation in candidate.citations}
     for original in source.citations:
         if original.citation_id in shared_ids:
@@ -419,25 +488,30 @@ def build_page_repair_messages(
         "output_contract": RepairedPage.model_json_schema(),
     }
     system_prompt = PAGE_REPAIR_SYSTEM_PROMPT if includes_footnotes else f"""
-你负责精校 PDF OCR 页的正文语义，只允许修改目标页。
+你负责恢复目标页的主阅读流，只返回完整 JSON。本次关闭脚注输出，不建立脚注编号或引用体系。
 {_SOURCE_CONTRACT}
-本次关闭脚注：ownership 只允许 paragraph 或 ignored；citations 和 references 必须为空，
-citation_id / citation_index 必须为 null，不建立脚注编号、引用或脚注流。
-输入保留第一轮 OCR 已识别的全部候选。ocr_stream 是原分类的证据，不是最终归属：
-原 footnote 候选默认 ignored，仅表示本次不输出脚注，并不表示其文字一定是脚注。
-若有明确语义证据表明它是正文（包括正文跨页续文），应改成 paragraph，恢复恰当的 role/level 和连接。
-反之，原 body 中有明确证据属于脚注的完整 layout 应改成 ignored，保留来源，不进入正文。
-不能仅凭页底位置、小字号、数字开头或疑似脚注而排除文字；必须结合内容、邻文及几何判断。
-若一个 layout 混合正文和脚注，不能整块 ignored，也不能删除其部分文字；保持 paragraph。
-不确定时保留初级归属，不猜测或凭空补写 OCR 未识别的内容。
-可修改正文自然段续接、role/level；页码、running header 与装饰物应 ignored。
+先独立识别正文与注释的完整范围，再对照初级算法归属；不能照抄初级 ownership。
+{_OWNERSHIP_RULES}
+{_READING_EXAMPLE}
+
+输出规则：正文 paragraph；明确的注释、页码、出版提示、running header 为 ignored。
+原 footnote 分类不是事实：若实际上属于正文，则恢复 paragraph。原 body 同样可能包含脚注，需排除。
+脚注编号仅表示注释起点，其后的无编号解释、引文、图式或续页内容仍可能属于同一注释。
+若正文在页脚区之前截断，并在下一页首块继续，期间脚注区中的同级解释不可另外当成正文。
+应先用相邻页开头确认真正正文如何续接，再决定主阅读流范围；不要让脚注内容插入主阅读流。
+
+只有明确的内容、邻文和几何证据才能排除块，不能仅因页底、小字或编号而误删正文。
+混合正文与注释的块不能整块 ignored，不做块内删改。无法确定时保留初级归属。
+paragraph 的 role/level 为 body/-1 或有依据的 heading/层级；同一自然段才能 continues_from_previous=true。
+初级 false 的自然段边界默认保留；只有明确的未完句直接续接才能改为 true。
+前段完整结束、后段从完整新句开始时必须保留 false，主题相关不构成合段理由。
+完整新句、独立引文或话题重启保留另起段落。省略 continues_to_next，由本地计算。
 {_ASSET_CONTRACT}
 {_NEIGHBOR_CONTRACT}
-{_CONTINUATION_RULES}
-修好具体错误后就停止，不因送来精校而制造修改；校验冲突应回到语义判断，不强行拼接无关内容。
-ignored 的 continuation 必须为 false，paragraph_role、paragraph_level、citation_id、citation_index 为 null。
-返回前检查正文前驱真实存在，不能连接 ignored 或独立公式；资产透明但自身 gap 为 false。
-返回完整目标页 JSON，遵守 output_contract，不要解释或 Markdown 围栏。校验失败后重新返回完整 JSON。
+ignored 的 gap=false，role/level/citation_id/citation_index 为 null；不能建立引用关系。
+所有 layouts 的 citation_id/citation_index 必须为 null，citations/references 必须为空。
+保留全部原始 layout 身份、文字和顺序，遵守 output_contract，不输出解释或 Markdown 围栏。
+最终检查：明确属于注释区域的无编号续文也应 ignored，不能只排除编号开头的第一块。
 """
     return [
         Message(MessageRole.SYSTEM, system_prompt),
@@ -537,6 +611,7 @@ def _layout_packet(
         "source_type": getattr(layout.source, "ref", "text"),
         "bbox": list(layout.bbox),
         "text": text,
+        "text_scale_estimate": text_scale_estimate(text, layout.bbox) if layout.source_order is not None else None,
         "definition_mark": definition_mark,
         "initial_stream_boundary_from_previous": (
             _boundary_geometry(previous_in_initial_stream, layout)
@@ -610,6 +685,8 @@ def _compile_repaired_page(
     repaired_layouts: dict[str, AnalysedLayout] = {}
     for layout_id, original in source_layouts.items():
         proposed = response_layouts[layout_id]
+        if proposed.preserve_as_image and (original.source_order is None or proposed.ownership == 'ignored'):
+            issues.append(f'[GRAPHIC_SOURCE] {layout_id}: only retained OCR text can be preserved as artwork')
         if proposed.ownership != "ignored" and original.source_order is not None:
             if proposed.paragraph_role is None or proposed.paragraph_level is None:
                 issues.append(f"[PARAGRAPH_METADATA] {layout_id} requires role and level.")
@@ -659,6 +736,7 @@ def _compile_repaired_page(
                 citation_id=proposed.citation_id,
                 citation_index=proposed.citation_index,
                 references=[],
+                preserve_as_image=proposed.preserve_as_image,
             ),
         )
     for ownership, citation_id in [("paragraph", None), *[("citation", ident) for ident in citations_by_id]]:
@@ -830,6 +908,8 @@ def _compile_citations(
     found_indexed = False
     for position, item in enumerate(proposed):
         prefix = f"citations[{position}]"
+        if item.continues_previous and item.index is not None:
+            issues.append(f'[CITATION_ORIGIN] {prefix}: an indexed origin cannot continue a previous note')
         if item.citation_id in seen_ids:
             issues.append(
                 f"[CITATION_ID_DUPLICATE] {prefix}.citation_id is duplicated: "
@@ -854,9 +934,9 @@ def _compile_citations(
                     f"got {item.index}."
                 )
             expected_index += 1
-            if item.mark is None or item.mark == "":
+            if item.mark == "":
                 issues.append(
-                    f"[CITATION_MARK] {prefix}.mark must be non-empty for an "
+                    f"[CITATION_MARK] {prefix}.mark cannot be empty for an "
                     "indexed citation."
                 )
         old = existing.get(item.citation_id)
@@ -877,6 +957,7 @@ def _compile_citations(
             mark=mark,
             stream_order=old.stream_order if old is not None else item.stream_order,
             origin_page_index=(old.origin_page_index if old is not None else source.page_index),
+            continues_previous=item.continues_previous,
         ))
     return result
 

@@ -271,6 +271,10 @@ JEV 与 LLM 使用不同供应商配额时，可分别传 `jev_executor` 与 `ll
 | False | Refinement(...) | 普通 OCR + JEV + 按需 LLM 页面精校 |
 | True | Refinement(...) | 脚注 OCR + JEV + 按需 LLM 页面精校 |
 
+页面精校的 `risk_threshold` 默认值为 **0.30**：JEV 估计的错误风险达到该值时调用 LLM。
+这是更偏向质量的默认选择，可能增加 LLM 请求；显式传入的阈值仍按调用者配置执行。
+精校覆盖脚注的完整范围，包括无编号续文。未确认起点的初级别名不作为不可更改的跨页事实。
+
 `extract_book_metadata` 默认关闭。开启后必须通过独立的 `metadata_llm` 参数显式提供 LLM，
 不会隐式复用 `toc_llm`。它会先向 LLM 提供前三个原始 OCR 页；模型可继续请求前部页面，但总数最多为
 12 页。每个元信息字段必须给出 OCR 证据并通过 JSON repair Loop 的结构与业务校验。OCR 值优先，
