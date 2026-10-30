@@ -8,12 +8,15 @@ import asyncio
 import json
 from pathlib import Path
 import shutil
+import xml.etree.ElementTree as ET
+from zipfile import ZipFile
 from unittest.mock import patch
 
 from PIL import Image, ImageChops, ImageDraw, ImageFilter
 from math import floor, ceil
 
 from pdf_craft.pdf import ocr
+from pdf_craft import transform
 from .deepseek_refined import run as run_refined
 
 SOURCE = Path(__file__).resolve().parents[2] / 'tests/assets/pdf/citation.pdf'
@@ -83,7 +86,38 @@ def check_formula_preview(output):
     return {'page': 3, 'preview_bbox': box, **result}
 
 
-async def run(source: Path, output: Path, profile: str):
+def check_furniture_exclusions(output, *, require_exclusions=True):
+    """Compare the actual adopted exclusions with published PCEX furniture.
+
+    This observes production geometry without deciding which text the model
+    should exclude. Manual inspection separately checks the semantic decision.
+    """
+    ignored = {}
+    for path in (output/'adopted-pages').glob('page_*.xml'):
+        root = ET.parse(path).getroot()
+        ignored[int(root.attrib['index'])] = [tuple(map(int, layout.attrib['det'].split(',')))
+                                             for layout in root.iter('layout')
+                                             if layout.get('ref') == 'ignored']
+    collisions = []
+    with ZipFile(output/'book.pcex') as archive:
+        furniture = ET.fromstring(archive.read('furnitures.xml'))
+    for page in furniture.findall('./pages/page'):
+        index = int(page.attrib['index'])
+        for section in page.findall('section'):
+            x1, y1, x2, y2 = map(int, section.attrib['det'].split(','))
+            area = max(1, (x2-x1)*(y2-y1))
+            for left, top, right, bottom in ignored.get(index, []):
+                covered = max(0, min(x2, right)-max(x1, left))*max(0, min(y2, bottom)-max(y1, top))
+                if covered / area >= .95:
+                    collisions.append({'page': index, 'furniture_bbox': [x1,y1,x2,y2],
+                                       'excluded_bbox': [left,top,right,bottom]})
+    count = sum(map(len, ignored.values()))
+    return {'excluded_regions': count, 'collisions': collisions,
+            'exercised': count > 0,
+            'passed': len(ignored) == 3 and (count > 0 or not require_exclusions) and not collisions}
+
+
+async def run(source: Path, output: Path, profile: str, *, footnotes=True):
     if output.exists():
         raise ValueError('Output must be a new directory (no reuse of cached OCR)')
     records = []
@@ -92,6 +126,13 @@ async def run(source: Path, output: Path, profile: str):
     original_prepare = ocr._prepare_second_stage
     pipeline_completed = False
     formula = {"passed": False}
+    exclusions = {"passed": False}
+    original_furniture = transform.write_furnitures
+
+    def furniture(pdf, pages, destination, **kwargs):
+        # Copy only the finalized input, without changing production behavior.
+        shutil.copytree(pages, output/'adopted-pages')
+        return original_furniture(pdf, pages, destination, **kwargs)
 
     def prepare(item, first_result, directory, aborted):
         # Observe production preparation; do not replace its geometry or inputs.
@@ -111,22 +152,23 @@ async def run(source: Path, output: Path, profile: str):
         return result
 
     try:
-        with patch.object(ocr, '_prepare_second_stage', prepare):
+        with patch.object(ocr, '_prepare_second_stage', prepare), patch.object(transform, 'write_furnitures', furniture):
             await run_refined(
                 source, output, profile, source_sha256=SOURCE_SHA256, source_bytes=477248,
-                pages=3, target_language='en', strict=True, generate_plot=True,
+                pages=3, target_language='en', strict=True, generate_plot=True, footnotes=footnotes,
             )
         pipeline_completed = True
         formula = check_formula_preview(output)
+        exclusions = check_furniture_exclusions(output, require_exclusions=not footnotes)
     finally:
         # Preserve diagnostics even if extraction/refinement/translation raises.
-        geometry_passed = (historical['passed'] and len(records) == 3
-                           and {row['page'] for row in records} == {1, 2, 3}
-                           and all(row['passed'] for row in records))
+        geometry_passed = historical['passed'] and (
+            (len(records) == 3 and {row['page'] for row in records} == {1, 2, 3}
+             and all(row['passed'] for row in records)) if footnotes else not records)
         report = {'source_sha256': SOURCE_SHA256, 'historical_geometry': historical,
                   'pages': records, 'pipeline_completed': pipeline_completed,
-                  'display_formula': formula,
-                  'automated_passed': pipeline_completed and geometry_passed and formula['passed'],
+                  'display_formula': formula, 'footnotes': footnotes, 'furniture_exclusions': exclusions,
+                  'automated_passed': pipeline_completed and geometry_passed and formula['passed'] and exclusions['passed'],
                   'visual_review': 'pending: compare all source/translated pages, especially page-1 footnotes'}
         if output.is_dir():
             (output / 'citation-checks.json').write_text(json.dumps(report, indent=2))
@@ -140,10 +182,18 @@ def main():
     parser.add_argument('--source', type=Path, default=SOURCE)
     parser.add_argument('--output', type=Path, required=True)
     parser.add_argument('--profile', default='default')
+    parser.add_argument('--footnotes', choices=('on', 'off', 'both'), default='on')
     args = parser.parse_args()
     if args.output.exists():
         parser.error('--output must be a new directory (no reuse of cached OCR)')
-    asyncio.run(run(args.source, args.output, args.profile))
+    async def execute():
+        if args.footnotes == 'both':
+            args.output.mkdir(parents=True)
+            for enabled in (True, False):
+                await run(args.source, args.output/('on' if enabled else 'off'), args.profile, footnotes=enabled)
+        else:
+            await run(args.source, args.output, args.profile, footnotes=args.footnotes == 'on')
+    asyncio.run(execute())
 
 
 if __name__ == '__main__':

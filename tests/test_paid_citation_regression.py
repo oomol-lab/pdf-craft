@@ -10,6 +10,7 @@ from pdf_craft.pdf.ocr import _redact_rectangles
 
 from pdf_craft_tool.smoke.citation_footnotes import (
     HISTORICAL_BOXES, HISTORICAL_SIZE, SOURCE, SOURCE_SHA256, check_masks, run,
+    check_furniture_exclusions,
 )
 
 
@@ -95,3 +96,28 @@ class FormulaVisualOracleTests(TestCase):
         from pdf_craft_tool.smoke.citation_footnotes import check_preserved_ink
         with Image.new('RGB', (64,40), 'white') as blank:
             self.assertFalse(check_preserved_ink(blank, blank)['passed'])
+
+
+class FurnitureExclusionOracleTests(TestCase):
+    def test_published_furniture_cannot_reintroduce_adopted_exclusions(self):
+        from zipfile import ZipFile
+        for leaked, empty in ((False, False), (True, False), (False, True)):
+            with self.subTest(leaked=leaked, empty=empty), TemporaryDirectory() as directory:
+                output = Path(directory)
+                pages = output/'adopted-pages'
+                pages.mkdir()
+                for index in range(1, 4):
+                    layout = '' if empty else '<layout ref="ignored" det="0,100,100,140"/>'
+                    (pages/f'page_{index}.xml').write_text(f'<page index="{index}"><body>{layout}</body></page>')
+                section = '<section det="0,110,100,130">Excluded note</section>' if leaked else ''
+                furniture = ('<furnitures><patterns/><pages><page index="1">'
+                             f'{section}<section det="0,0,100,20">Header</section></page></pages></furnitures>')
+                with ZipFile(output/'book.pcex', 'w') as archive:
+                    archive.writestr('furnitures.xml', furniture)
+                report = check_furniture_exclusions(output)
+                self.assertEqual(report['passed'], not leaked and not empty)
+                self.assertEqual(bool(report['collisions']), leaked)
+                if empty:
+                    control = check_furniture_exclusions(output, require_exclusions=False)
+                    self.assertTrue(control['passed'])
+                    self.assertFalse(control['exercised'])

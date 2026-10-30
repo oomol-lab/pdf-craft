@@ -1,5 +1,10 @@
 # Unreleased
 
+- Keep deliberately excluded OCR regions occupied during native furniture
+  extraction, so page-refinement exclusions cannot be translated and filled
+  back through the furniture path. Add both citation refinement modes to the
+  paid regression with an adopted-exclusion check and manual visual review.
+
 - Preserve first-pass footnote candidates for body-only page refinement, allowing
   wrongly classified body text to be restored and clearly identified footnotes
   in the body to be excluded without an extra OCR pass or citation output.

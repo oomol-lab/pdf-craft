@@ -28,7 +28,7 @@ class CommitBoundaryTests(IsolatedAsyncioTestCase):
                 text = ''.join(archive.read(n).decode() for n in archive.namelist() if n.startswith('chapters/'))
                 self.assertNotIn('Second chapter', text)
 
-    async def test_furniture_coverage_uses_adopted_not_ignored_layouts(self):
+    async def test_furniture_coverage_respects_adopted_and_excluded_layouts(self):
         observed = []
         def furniture(_pdf, pages, destination, **_kwargs):
             observed.extend(_read_ocr_boxes(pages/'page_1.xml'))
@@ -39,7 +39,7 @@ class CommitBoundaryTests(IsolatedAsyncioTestCase):
                 await AsyncPDFCraft.from_engine(RefinedEngine('ignored')).extract_pdf(
                     root/'source.pdf',root/'book.pcex',
                     ExtractionOptions(footnotes=True, refinement=refinement()),analysing_path=root/'analysis',error_policy=True)
-            self.assertNotIn((1,21,190,40), observed)
+            self.assertIn((1,21,190,40), observed)
 
     async def test_unversioned_toc_cache_is_not_authoritative(self):
         with TemporaryDirectory() as directory:
@@ -64,7 +64,7 @@ class CommitBoundaryTests(IsolatedAsyncioTestCase):
             toc = await analyse_toc(root/'projection', root/'toc.xml', False)
             self.assertEqual([(item.page_index,item.order) for item in toc.content], [(1,1)])
             self.assertIn((0,0,100,100), list(_read_ocr_boxes(root/'projection/page_1.xml')))
-            self.assertNotIn((0,0,100,20), list(_read_ocr_boxes(root/'projection/page_1.xml')))
+            self.assertIn((0,0,100,20), list(_read_ocr_boxes(root/'projection/page_1.xml')))
 
 
 class AdoptionScaleTests(IsolatedAsyncioTestCase):
