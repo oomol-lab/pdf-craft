@@ -298,3 +298,10 @@ Translation progress uses cumulative source words; see [the event and counting c
 
 
 Pure PDF inspection/rendering continues to use Poppler. Character removal is an editing operation: its font/CMap and content-stream reads may use pdfminer and pypdf without adding a preflight gate to extraction. ExtGState fonts are honored; Hidden/NoView Stamps remain invisible in the screen-view base.
+
+
+Regions deliberately excluded (`ignored`) by page analysis remain occupied for
+native furniture extraction; they cannot re-enter translation as unclaimed text.
+Uncovered native running heads and folios retain their normal behavior. Exclusion
+does not erase the source PDF background: disabling footnotes may leave original
+notes visible, but must not translate and fill them through furniture.

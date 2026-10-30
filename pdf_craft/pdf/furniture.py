@@ -1,9 +1,10 @@
 """Native PDF PageFurniture extraction and compact XML serialization.
 
-The adopted page projection tells us which rendered regions belong to the final
-document flow. Raw OCR classifications must not decide final occupancy. Poppler supplies the complementary native-text geometry. Everything in
-this module is deliberately an extraction concern: only the compact,
-translation-facing ``furnitures.xml`` leaves this module.
+The adopted page projection owns final occupancy, including deliberately
+excluded regions that must not be recovered as furniture. Raw OCR classifications
+must not decide final occupancy. Poppler supplies the complementary native-text
+geometry. Only the compact, translation-facing ``furnitures.xml`` leaves this
+extraction module.
 """
 
 from __future__ import annotations
@@ -96,7 +97,7 @@ def extract_furnitures(
     native_pdf_text: bytes | None = None,
     native_pdf_text_prepared: bool = False,
 ) -> ET.Element:
-    """Extract native text not covered by OCR flow boxes.
+    """Extract native text not covered by adopted or explicitly excluded boxes.
 
     Image-only pages have no Poppler text lines, so scanned pages naturally
     produce no furniture. ``dpi`` remains part of the internal API for
@@ -447,8 +448,8 @@ def _read_ocr_boxes(path: Path) -> list[_Box]:
         return []
     boxes: list[_Box] = []
     for layout in root.iter("layout"):
-        if layout.get("ref") == "ignored":
-            continue
+        # ignored means deliberately excluded, not unseen. Its geometry still
+        # blocks complementary native-text recovery, without emitting content.
         raw = layout.get("det")
         if raw is None:
             continue

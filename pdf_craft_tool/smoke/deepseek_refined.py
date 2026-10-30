@@ -26,7 +26,7 @@ SOURCE_SHA256 = 'dd5cec9ee94ebf4fa755a9e8d6155d83156df50af0294495910f5ac2d3cde5e
 
 async def run(source: Path, output: Path, profile: str, *,
               source_sha256=SOURCE_SHA256, source_bytes=1234259, pages=6,
-              target_language='zh-CN', strict=False, generate_plot=False):
+              target_language='zh-CN', strict=False, generate_plot=False, footnotes=True):
     data = source.read_bytes()
     if len(data) != source_bytes or hashlib.sha256(data).hexdigest() != source_sha256:
         raise ValueError('This gate requires the unchanged original PDF (hash/size mismatch)')
@@ -67,7 +67,7 @@ async def run(source: Path, output: Path, profile: str, *,
         ExtractionOptions(includes_cover=True, includes_furniture=True,
                           generate_plot=generate_plot,
                           extract_book_metadata=False, toc_assumed=True, toc_llm=llm,
-                          footnotes=True, refinement=Refinement(jev=jev, llm=llm, executor=executor),
+                          footnotes=footnotes, refinement=Refinement(jev=jev, llm=llm, executor=executor),
                           on_body=body, on_footnote=note, on_extraction_event=progress),
         analysing_path=output / 'analysis', retry_policy=retry, error_policy=error_policy,
     )
@@ -94,7 +94,7 @@ async def run(source: Path, output: Path, profile: str, *,
         finally:
             document.close()
     summary = {'source_sha256': source_sha256, 'source_bytes': len(data), 'pages': result_pages,
-               'parameters': {'input_format': 'pdf', 'footnotes': 'refined', 'output_format': 'pdf',
+               'parameters': {'input_format': 'pdf', 'footnotes': footnotes, 'refinement': True, 'output_format': 'pdf',
                               'rendering_mode': 'replace', 'target_language': target_language},
                'extraction': {'includes_cover': True, 'includes_furniture': True,
                               'extract_book_metadata': False, 'toc_assumed': True, 'preview_callbacks': True},
