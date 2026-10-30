@@ -212,3 +212,12 @@ HTML/CSS references and supported transport subset.
 
 
 `FailureError.frames` contains serializable filename/function/optional line locations, first for the outer exception and then its cause chain (or unsuppressed implicit context). Cycles stop traversal. It excludes source lines and frame locals; filenames may be absolute.
+
+Vendor OCR HTTP failures expose `FailureError.http_status`, `provider_code`,
+`provider_type`, and `request_id` independently of the human message. These values
+come from the JSON `error.code`/`error.type` and response headers; absent or malformed
+fields remain `None`. `image_url_unsafe` is a provider code, not a pdf-craft enum.
+`exception_chain` holds detached exception details with per-cause tracebacks. Human
+messages and `causes` may contain private input: consumers must choose a suitable
+redaction policy before logging or sending them to analytics. Structured reasons do
+not alter fallback decisions, retry classification or document usability checks.

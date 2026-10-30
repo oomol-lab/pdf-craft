@@ -983,6 +983,20 @@ def _is_retryable(error: OperationError) -> bool:
 def _vendor_error(message: str, cause: Exception) -> VendorOCRRequestError:
     error = VendorOCRRequestError(message)
     error.__cause__ = cause
+    if isinstance(cause, httpx.HTTPStatusError):
+        response = cause.response
+        setattr(error, "http_status", response.status_code)
+        setattr(error, "request_id", response.headers.get("x-request-id") or response.headers.get("request-id"))
+        try:
+            body = response.json()
+        except ValueError:
+            body = None
+        details = body.get("error") if isinstance(body, dict) else None
+        if isinstance(details, dict):
+            for source, target in (("code", "provider_code"), ("type", "provider_type")):
+                value = details.get(source)
+                if isinstance(value, str):
+                    setattr(error, target, value)
     return error
 
 
