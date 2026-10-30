@@ -9,6 +9,11 @@ from .page_analysis import analyse_pages
 from .source import capture_sources
 
 
+def project_page(page, includes_footnotes):
+    """Select analysis capabilities without changing persistent OCR evidence."""
+    return page if includes_footnotes else replace(page, footnotes_layouts=[])
+
+
 class PrimaryPages:
     """Initial projections with a bounded semantic, rather than physical, tail.
 

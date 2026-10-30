@@ -11,7 +11,7 @@ from xml.etree.ElementTree import fromstring
 from epub_generator import BookMeta
 
 from pdf_craft import (
-    AsyncPDFCraft, ExtractionOptions, FootnoteOptions, FootnoteRefinement,
+    AsyncPDFCraft, ExtractionOptions, Refinement,
     ConcurrentExecutor, FixedCapacity, JEV, LLM, PDFCraft, PDFOptions,
 )
 from pdf_craft.document import PDFCraftExtraction
@@ -53,13 +53,13 @@ class PublicConfigurationCompatibilityTests(unittest.TestCase):
         self.assertTrue(options.local_only)
         self.assertIsNone(options.ocr_executor)
 
-    def test_footnote_refinement_requires_explicit_executors(self):
+    def test_refinement_requires_explicit_executors(self):
         jev = JEV("jev-key")
         llm = LLM(
             "llm-key", "https://example.invalid/v1", "model", "o200k_base",
         )
         executor = ConcurrentExecutor(FixedCapacity(3))
-        refinement = FootnoteRefinement(
+        refinement = Refinement(
             jev, llm, 0.4, 1234, executor=executor,
         )
 
@@ -69,7 +69,7 @@ class PublicConfigurationCompatibilityTests(unittest.TestCase):
         self.assertIs(refinement.resolved_llm_executor(), executor)
 
         with self.assertRaisesRegex(ValueError, "JEV executor"):
-            FootnoteRefinement(jev, llm)
+            Refinement(jev, llm)
 
 
 def _source_extraction(root: Path, *, with_toc: bool = False) -> PDFCraftExtraction:
@@ -394,7 +394,7 @@ class TestPDFCraft(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             engine = _Engine()
-            refinement = FootnoteRefinement(
+            refinement = Refinement(
                 jev=JEV("jev-key"),
                 llm=LLM("llm-key", "https://example.invalid/v1", "model", "o200k_base"),
                 executor=ConcurrentExecutor(FixedCapacity(2)),
@@ -404,7 +404,7 @@ class TestPDFCraft(unittest.TestCase):
                 root / "book.pcex",
                 ExtractionOptions(
                     page_indexes=(2, 4), max_ocr_tokens=12,
-                    footnotes=FootnoteOptions(refinement=refinement),
+                    footnotes=True, refinement=refinement,
                 ),
                 analysing_path=root / "analysis",
             )
@@ -414,7 +414,7 @@ class TestPDFCraft(unittest.TestCase):
             self.assertEqual(engine.kwargs["max_tokens"], 12)
             self.assertTrue(engine.kwargs["includes_furniture"])
             self.assertTrue(engine.kwargs["includes_footnotes"])
-            self.assertIs(engine.kwargs["footnote_refinement"], refinement)
+            self.assertIs(engine.kwargs["refinement"], refinement)
             extraction._validate(require_toc=True)
             self.assertTrue((root / "analysis" / "extraction").is_dir())
 
@@ -424,12 +424,12 @@ class TestPDFCraft(unittest.TestCase):
             PDFCraft.from_engine(engine).extract_pdf(
                 "source.pdf",
                 Path(directory) / "book.pcex",
-                ExtractionOptions(footnotes=FootnoteOptions()),
+                ExtractionOptions(footnotes=True),
             )
 
         assert engine.kwargs is not None
         self.assertTrue(engine.kwargs["includes_footnotes"])
-        self.assertIsNone(engine.kwargs["footnote_refinement"])
+        self.assertIsNone(engine.kwargs["refinement"])
 
     def test_public_extraction_requires_pcex_output(self):
         with tempfile.TemporaryDirectory() as directory:

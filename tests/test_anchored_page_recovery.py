@@ -172,10 +172,10 @@ class ExtractionRecoveryTests(IsolatedAsyncioTestCase):
         options = ExtractionOptions(includes_furniture=False, on_body=callback)
         if stage == "prepare":
             from dataclasses import replace
-            from pdf_craft import JEV, LLM, FootnoteOptions, FootnoteRefinement, ConcurrentExecutor, FixedCapacity
-            options = replace(options, footnotes=FootnoteOptions(FootnoteRefinement(
+            from pdf_craft import JEV, LLM, Refinement, ConcurrentExecutor, FixedCapacity
+            options = replace(options, footnotes=True, refinement=Refinement(
                 JEV(key='unused'), LLM(key='unused', model='unused', url='https://unused.invalid', token_encoding='o200k_base'),
-                executor=ConcurrentExecutor(FixedCapacity(1)))))
+                executor=ConcurrentExecutor(FixedCapacity(1))))
         target = 'pdf_craft.extractor.refinement._project_window' if stage == "prepare" else 'pdf_craft.transform.generate_chapter_files'
         with patch(target) as mocked:
             mocked.side_effect = error

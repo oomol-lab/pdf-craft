@@ -16,7 +16,7 @@ from pypdf import PdfReader
 import pdf_craft
 from pdf_craft import (
     AsyncPDFCraft, ConcurrentExecutor, FixedCapacity, ExtractionOptions,
-    FootnoteOptions, FootnoteRefinement, RetryPolicy, XMLTranslator, PDFOptions,
+    Refinement, RetryPolicy, XMLTranslator, PDFOptions,
 )
 from pdf_craft.pdf.handler import DefaultPDFHandler
 from ..runtime import create_jev_from_env, create_llm_from_env, create_ocr_config_from_env, load_project_env
@@ -67,7 +67,7 @@ async def run(source: Path, output: Path, profile: str, *,
         ExtractionOptions(includes_cover=True, includes_furniture=True,
                           generate_plot=generate_plot,
                           extract_book_metadata=False, toc_assumed=True, toc_llm=llm,
-                          footnotes=FootnoteOptions(FootnoteRefinement(jev=jev, llm=llm, executor=executor)),
+                          footnotes=True, refinement=Refinement(jev=jev, llm=llm, executor=executor),
                           on_body=body, on_footnote=note, on_extraction_event=progress),
         analysing_path=output / 'analysis', retry_policy=retry, error_policy=error_policy,
     )

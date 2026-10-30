@@ -365,7 +365,8 @@ narrative 与 metadata 固定翻译；`with_anchored` 和 `with_furniture` 只�
 | `max_page_image_file_size` | `None` | 限制页面图片大小，必要时调整分辨率 |
 | `max_ocr_tokens` / `max_ocr_output_tokens` | `None` | 限制 OCR 请求的 token 数 |
 | `includes_cover` | `False` | 生成封面图片 |
-| `footnotes` | `None` | `None` 关闭脚注；`FootnoteOptions()` 使用传统算法；配置 `FootnoteRefinement` 后启用 JEV + LLM 矫正 |
+| `footnotes` | `False` | 是否提取脚注 |
+| `refinement` | `None` | 独立的页面精校配置，必须成套提供 JEV + LLM 及执行器；关闭脚注时也可开启 |
 | `includes_furniture` | `True` | 将 native PDF 的页眉、页脚和页码等页面 furniture 保留为 `furnitures.xml`；不翻译它们 |
 | `extract_book_metadata` | `False` | 从前几页 OCR 提取书目元数据 |
 | `metadata_llm` | `None` | 开启 `extract_book_metadata=True` 时必需的独立 LLM；不复用 `toc_llm` |

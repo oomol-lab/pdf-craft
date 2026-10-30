@@ -198,7 +198,8 @@ ExtractionOptions(
     max_ocr_tokens=None,
     max_ocr_output_tokens=None,
     includes_cover=False,
-    footnotes=None,
+    footnotes=False,
+    refinement=None,
     includes_furniture=True,
     extract_book_metadata=False,
     metadata_llm=None,
@@ -219,15 +220,13 @@ ExtractionOptions(
 `toc_llm` 是可选的目录层级分析
 LLM，不是 OCR 配置，也不承担 `XMLTranslator` 的正文翻译职责。
 
-`footnotes` 表示脚注处理档位：`None` 完全关闭，`FootnoteOptions()` 使用传统算法，配置
-`FootnoteRefinement` 后再由 JEV 筛选低置信页并交给 LLM 矫正。凭据与模型配置和 `LLM`
-一样由调用方显式传入：
+`footnotes: bool = False` 控制是否提取脚注；`refinement: Refinement | None = None`
+独立控制页面精校。`Refinement` 必须同时提供 JEV、LLM 及显式执行器，不支持只配置其中一个。
 
 ```python
 from pdf_craft import (
     ExtractionOptions,
-    FootnoteOptions,
-    FootnoteRefinement,
+    Refinement,
     JEV,
     LLM,
     ConcurrentExecutor,
@@ -237,12 +236,11 @@ from pdf_craft import (
 executor = ConcurrentExecutor(FixedCapacity(4))
 
 options = ExtractionOptions(
-    footnotes=FootnoteOptions(
-        refinement=FootnoteRefinement(
-            jev=JEV(key="...", model="jev-latest"),
-            llm=LLM("...", "https://example.com/v1", "model", "o200k_base"),
-            executor=executor,
-        ),
+    footnotes=True,
+    refinement=Refinement(
+        jev=JEV(key="...", model="jev-latest"),
+        llm=LLM("...", "https://example.com/v1", "model", "o200k_base"),
+        executor=executor,
     ),
 )
 ```
@@ -253,6 +251,21 @@ LLM prompt 只包含当前页评分，不披露邻页评分；邻页始终使用
 最终 TOC 整理不阻塞正文/脚注回调，详见[设计取舍](../design/pdf-extraction-streaming.md)。
 JEV 与 LLM 使用不同供应商配额时，可分别传 `jev_executor` 与 `llm_executor`；传共同的
 `executor` 表示两者共享容量。AI 矫正必须显式传入执行器，不再提供各服务独立的数字并发默认值。
+
+
+将上例改成 `footnotes=False` 即可只精校正文，不提取脚注。两种精校模式复用同一条
+有界流式管道。关闭脚注时不增加脚注 OCR 轮次，已有 OCR 缓存的脚注布局也从分析视图中
+排除，但不改写缓存；审核与精校不能创建 citation/reference，也不会产生脚注内容回调。
+OCR 已归为正文的文字不会仅因看起来像脚注而被删除。
+旧的 `FootnoteOptions` / `FootnoteRefinement` 嵌套配置需迁移为布尔 `footnotes`
+和独立的 `refinement=Refinement(...)`，不提供兼容别名。
+
+| footnotes | refinement | 处理方式 |
+| --- | --- | --- |
+| False | None | 普通 OCR + 算法分析 |
+| True | None | 脚注 OCR + 算法分析 |
+| False | Refinement(...) | 普通 OCR + JEV + 按需 LLM 页面精校 |
+| True | Refinement(...) | 脚注 OCR + JEV + 按需 LLM 页面精校 |
 
 `extract_book_metadata` 默认关闭。开启后必须通过独立的 `metadata_llm` 参数显式提供 LLM，
 不会隐式复用 `toc_llm`。它会先向 LLM 提供前三个原始 OCR 页；模型可继续请求前部页面，但总数最多为

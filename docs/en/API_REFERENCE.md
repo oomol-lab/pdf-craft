@@ -258,20 +258,20 @@ extraction; they do not fall back to an analysis/OCR directory.
 | `generate_plot` | `False` | Generate plot diagnostics in the analysis workspace (not in `.pcex`). |
 | `toc_assumed` | `False` | Treat the document as already having usable TOC information. |
 | `toc_llm` | `None` | LLM used when TOC analysis is needed. |
-| `footnotes` | `None` | `None` disables footnotes; `FootnoteOptions()` uses the traditional algorithm; adding `FootnoteRefinement` enables JEV and LLM refinement. |
+| `footnotes` | `False` | Enable footnote extraction, including the extra OCR pass where supported. |
+| `refinement` | `None` | Optional `Refinement` with both JEV and LLM plus explicit executors; independent of `footnotes`. |
 | `aborted` | a callback returning `False` | A callback checked during processing to request cancellation. |
 | `on_extraction_event` | `None` | Receives unified `ProgressEvent` extraction updates; see [progress](TRANSLATION_PROGRESS.md). |
 | `on_body` / `on_footnote` | `None` | Receive independent PCEX XML snapshots during extraction. |
 | `on_metadata` | `None` | Receives one finalized `MetadataContent`, including an empty view when appropriate. |
 | `context` | `None` | Caller-owned `ExtractionContext` for page geometry and active resource reads. |
 
-Footnote extraction has an optional refinement tier with explicit credentials:
+Page refinement is independent of footnote extraction and uses explicit credentials:
 
 ```python
 from pdf_craft import (
     ExtractionOptions,
-    FootnoteOptions,
-    FootnoteRefinement,
+    Refinement,
     JEV,
     LLM,
     ConcurrentExecutor,
@@ -281,12 +281,11 @@ from pdf_craft import (
 executor = ConcurrentExecutor(FixedCapacity(4))
 
 options = ExtractionOptions(
-    footnotes=FootnoteOptions(
-        refinement=FootnoteRefinement(
-            jev=JEV(key="...", model="jev-latest"),
-            llm=LLM("...", "https://example.com/v1", "model", "o200k_base"),
-            executor=executor,
-        ),
+    footnotes=True,
+    refinement=Refinement(
+        jev=JEV(key="...", model="jev-latest"),
+        llm=LLM("...", "https://example.com/v1", "model", "o200k_base"),
+        executor=executor,
     ),
 )
 ```
@@ -295,10 +294,28 @@ Initial page inputs feed independent JEV → optional LLM jobs before whole-book
 The LLM sees only the target JEV score and immutable initial neighbor content, never neighbor
 scores or repairs. Validated page results enter ordered incremental paragraph assembly;
 closed content is delivered before final TOC organization or packaging. See the
-[design rationale (Chinese)](../design/pdf-extraction-streaming.md). Use `FootnoteOptions()` without `refinement` for the
-algorithm-only tier. Use `jev_executor` and `llm_executor` instead of the common `executor`
+[design rationale (Chinese)](../design/pdf-extraction-streaming.md). Use `refinement=None` for algorithm-only analysis, with or without footnotes. Use `jev_executor` and `llm_executor` instead of the common `executor`
 when those services have separate provider quotas. AI refinement requires explicit executors;
 there is no per-service numeric concurrency fallback.
+
+
+`footnotes` and `refinement` are independent. Set `footnotes=False` in the example
+above to refine body paragraphs without extracting footnotes. Both modes share
+the same bounded streaming page pipeline. With footnotes disabled, cached OCR
+footnote layouts are excluded from the analysis view (the cache is not rewritten),
+and review/repair cannot create citations or references or emit footnote content.
+Text already classified by OCR as body is not removed merely because it resembles
+a footnote. `Refinement()` without both providers is invalid; JEV-only and LLM-only
+configurations are not supported. Existing nested `FootnoteOptions` /
+`FootnoteRefinement` configurations must migrate to `footnotes: bool` and the
+separate `refinement=Refinement(...)` argument; no compatibility alias is provided.
+
+| footnotes | refinement | Processing |
+| --- | --- | --- |
+| False | None | Ordinary OCR and algorithmic analysis |
+| True | None | Footnote OCR and algorithmic analysis |
+| False | Refinement(...) | Ordinary OCR, JEV, and LLM repair only when needed |
+| True | Refinement(...) | Footnote OCR, JEV, and LLM repair only when needed |
 
 Book-metadata extraction is deliberately opt-in. When enabled, PDF Craft lets a dedicated LLM
 read the first three raw OCR pages and request further front pages in batches, up to twelve pages.

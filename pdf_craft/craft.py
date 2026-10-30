@@ -31,7 +31,7 @@ from .extractor.chapter.chapter import SourceTextFragment, TextFlowItem
 from .extractor.chapter.reader import create_chapters_reader
 from .extractor import PDFExtractor
 from .extractor.progress import extraction_facade
-from .footnote import FootnoteOptions
+from .refinement import Refinement
 from .llm import LLM
 from .metering import AbortedCheck, OCRTokensMetering
 from .ocr_config import OCRConfig
@@ -101,13 +101,20 @@ class ExtractionOptions:
     generate_plot: bool = False
     toc_assumed: bool = False
     toc_llm: LLM | None = None
-    footnotes: FootnoteOptions | None = None
+    footnotes: bool = False
+    refinement: Refinement | None = None
     aborted: AbortedCheck = lambda: False
     on_extraction_event: Callable[[ProgressEvent], object] | None = None
     on_body: Callable[[Element], object] | None = None
     on_footnote: Callable[[Element], object] | None = None
     context: ExtractionContext | None = None
     on_metadata: MetadataCallback | None = None
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.footnotes, bool):
+            raise TypeError("footnotes must be bool")
+        if self.refinement is not None and not isinstance(self.refinement, Refinement):
+            raise TypeError("refinement must be Refinement or None")
 
 
 class AsyncPDFCraft:
@@ -239,15 +246,13 @@ class AsyncPDFCraft:
                 max_tokens=options.max_ocr_tokens,
                 max_output_tokens=options.max_ocr_output_tokens,
                 includes_cover=options.includes_cover,
-                includes_footnotes=footnotes is not None,
+                includes_footnotes=footnotes,
                 includes_furniture=options.includes_furniture,
                 extract_book_metadata=options.extract_book_metadata,
                 metadata_llm=options.metadata_llm,
                 generate_plot=options.generate_plot,
                 toc_assumed=options.toc_assumed, toc_llm=options.toc_llm,
-                footnote_refinement=(
-                    footnotes.refinement if footnotes is not None else None
-                ),
+                refinement=options.refinement,
                 aborted=options.aborted,
                 on_extraction_event=options.on_extraction_event,
                 **({"context": options.context} if options.context is not None else {}),
@@ -600,15 +605,13 @@ class AsyncPDFCraft:
                 max_tokens=options.max_ocr_tokens,
                 max_output_tokens=options.max_ocr_output_tokens,
                 includes_cover=options.includes_cover,
-                includes_footnotes=footnotes is not None,
+                includes_footnotes=footnotes,
                 includes_furniture=options.includes_furniture,
                 extract_book_metadata=options.extract_book_metadata,
                 metadata_llm=options.metadata_llm,
                 generate_plot=options.generate_plot,
                 toc_assumed=options.toc_assumed, toc_llm=options.toc_llm,
-                footnote_refinement=(
-                    footnotes.refinement if footnotes is not None else None
-                ),
+                refinement=options.refinement,
                 aborted=options.aborted, on_extraction_event=options.on_extraction_event,
                 **({"context": options.context} if options.context is not None else {}),
                 **({"on_body": options.on_body} if options.on_body is not None else {}),

@@ -8,7 +8,7 @@ from unittest import IsolatedAsyncioTestCase
 from xml.etree.ElementTree import fromstring, tostring
 from zipfile import ZipFile
 
-from pdf_craft import AsyncPDFCraft, ExtractionOptions, FootnoteOptions
+from pdf_craft import AsyncPDFCraft, ExtractionOptions
 from tests.test_toc_identity import IdentityOCR, RefinedEngine, refinement
 
 
@@ -44,7 +44,7 @@ class PrimaryStreamTests(IsolatedAsyncioTestCase):
                 task = asyncio.create_task(AsyncPDFCraft.from_engine(engine).extract_pdf(
                     root/'source.pdf', root/'book.pcex',
                     ExtractionOptions(includes_furniture=False,
-                                      footnotes=refinement() if refined else FootnoteOptions(),
+                                      footnotes=True, refinement=refinement() if refined else None,
                                       on_body=body, on_footnote=note),
                     analysing_path=root/'analysis', error_policy=False))
                 try:
@@ -91,7 +91,7 @@ class PrimaryStreamTests(IsolatedAsyncioTestCase):
                 engine._ocr = OCR()
                 task = asyncio.create_task(AsyncPDFCraft.from_engine(engine).extract_pdf(
                     root/'source.pdf', root/'book.pcex',
-                    ExtractionOptions(includes_furniture=False, footnotes=FootnoteOptions(),
+                    ExtractionOptions(includes_furniture=False, footnotes=True,
                                       on_body=lambda node: bodies.append(tostring(node)),
                                       on_footnote=lambda node: notes.append(tostring(node))),
                     analysing_path=root/'analysis', error_policy=False))

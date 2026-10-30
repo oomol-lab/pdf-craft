@@ -1,5 +1,11 @@
 # Unreleased
 
+- Replace nested `FootnoteOptions` / `FootnoteRefinement` with independent
+  `ExtractionOptions.footnotes: bool` and `refinement: Refinement | None`.
+  Refinement still requires both JEV and LLM with explicit executors. Body-only
+  page refinement reuses the streaming pipeline without extra footnote OCR,
+  citations, references or footnote callbacks, including on cached OCR inputs.
+
 - Prevent intersecting neighbouring OCR boxes from being treated as empty
   expansion space during PDF fitting and page-local font normalization.
   Extend the three-page paid regression with an independent written-text

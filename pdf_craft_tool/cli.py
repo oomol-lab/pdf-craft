@@ -12,7 +12,6 @@ from typing import Any, cast
 from pdf_craft import (
     ConcurrentExecutor,
     ExtractionOptions,
-    FootnoteOptions,
     FixedCapacity,
     OCRMode,
     OCRTokensMetering,
@@ -868,7 +867,7 @@ def _extract(
             max_page_image_file_size=args.max_page_image_file_size,
             max_ocr_tokens=args.max_ocr_tokens, max_ocr_output_tokens=args.max_ocr_output_tokens,
             includes_cover=args.cover,
-            footnotes=FootnoteOptions() if args.footnotes else None,
+            footnotes=args.footnotes,
             includes_furniture=includes_furniture,
             extract_book_metadata=args.book_metadata,
             metadata_llm=(create_llm_from_env(args.metadata_llm, cache_path=extraction_path.parent / "metadata-cache",

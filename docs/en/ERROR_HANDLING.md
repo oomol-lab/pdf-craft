@@ -156,7 +156,7 @@ not replace one another.
 | Removed argument or hook | Replacement |
 | --- | --- |
 | `XMLTranslator(..., max_retries=N)` or `translate_epub(..., max_retries=N)` | `retry_policy=RetryPolicy(fill=max(0, N - 1))` preserves the old total-attempt limit. The new default is 3 retries, or 4 total attempts. |
-| `FootnoteRefinement(..., max_retries=N)` | `retry_policy=RetryPolicy(analysis=N)` on the Craft instance or extraction call. |
+| `FootnoteRefinement(..., max_retries=N)` | Migrate to `Refinement(...)` and set `retry_policy=RetryPolicy(analysis=N)` on the Craft instance or extraction call. |
 | `JEV(..., retry_times=N)` | `RetryPolicy(analysis=N)`, shared with the other analysis operations. |
 | `ExtractionOptions(ignore_pdf_errors=...)` | `ErrorPolicy(ignore_pdf_render_errors=...)` passed as the execution's `error_policy`. |
 | `ExtractionOptions(ignore_ocr_errors=...)` | `ErrorPolicy(ignore_ocr_errors=...)` passed as the execution's `error_policy`. |

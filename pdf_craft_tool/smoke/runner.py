@@ -15,7 +15,6 @@ from typing import Any, Literal, cast
 from pdf_craft import (
     ConcurrentExecutor,
     ExtractionOptions,
-    FootnoteOptions,
     FixedCapacity,
     LLM,
     OCRConfig,
@@ -249,9 +248,7 @@ def _run_pdf(
                     max_ocr_tokens=run.max_ocr_tokens,
                     max_ocr_output_tokens=run.max_ocr_output_tokens,
                     includes_cover=run.includes_cover,
-                    footnotes=(
-                        FootnoteOptions() if run.includes_footnotes else None
-                    ),
+                    footnotes=run.includes_footnotes,
                 generate_plot=run.generate_plot, toc_assumed=run.toc_assumed,
                 on_extraction_event=report.on_extraction_event,
                 ),
