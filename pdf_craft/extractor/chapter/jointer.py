@@ -49,6 +49,7 @@ class _AssetHolder:
     content: str
     caption: str | None
     hash: str | None
+    source: TextSource | None = None
 
 
 @dataclass
@@ -238,6 +239,7 @@ class Jointer:
                 caption=_parse_block_content(layout.caption),
                 asset_hash=layout.hash,
                 reading_order=self._reading_positions.get((page_index, layout.det)),
+                source=layout.source,
             )
 
     def _join_asset_layouts(self, page_index, layouts: list[PageLayout]):
@@ -275,6 +277,8 @@ class Jointer:
                     content=layout.text,
                     caption=None,
                     hash=layout.hash,
+                    source=(self._sources[(page_index, id(layout))][1]
+                            if (page_index, id(layout)) in self._sources else None),
                 )
             elif layout.ref in _ASSET_CAPTION_TAGS:
                 pending = flush_pending_paragraph()

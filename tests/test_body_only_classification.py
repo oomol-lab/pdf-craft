@@ -36,6 +36,22 @@ _PAGE = '''<page index="{index}"><body>
 
 
 class FirstPassEvidenceTests(TestCase):
+    def test_asset_origin_survives_analysis_and_restoration(self):
+        from pdf_craft.extractor.chapter.primary import PrimaryPages
+        from pdf_craft.extractor.chapter.page_analysis import _restore_asset
+        raw = decode(fromstring('<page index="1"><body><layout ref="equation" det="1,1,90,20">'
+                                'y=2</layout></body><footnotes><layout ref="equation" det="1,80,90,100">'
+                                'x=1</layout></footnotes></page>'))
+        page = PrimaryPages(False).append(raw)
+        self.assertEqual(len(page.layouts), 2)
+        for layout, stream, ownership in zip(page.layouts, ('body', 'footnote'), ('paragraph', 'ignored')):
+            assert layout.source.origin is not None
+            self.assertEqual(layout.source.origin.stream, stream)
+            self.assertEqual(layout.ownership, ownership)
+            asset = _restore_asset(layout, {})
+            self.assertEqual(asset.source, layout.source.origin)
+            self.assertEqual(asset.reading_order, layout.source.reading_order)
+
     def test_first_pass_keeps_footnote_evidence_without_requesting_a_second_pass(self):
         node = PageExtractorNode(DeepSeekOCRLocalConfig())
         image = Image.new('RGB', (200, 220), 'white')
@@ -56,6 +72,13 @@ class BodyOnlyClassificationTests(IsolatedAsyncioTestCase):
                 with self.subTest(cached=cached, fail_commit=fail_commit):
                     await self._extract(cached, fail_commit)
 
+    async def test_cached_note_assets_stay_excluded_on_pass_fallback_and_recovery(self):
+        for pass_review, fail_refinement, fail_commit in ((False, False, False), (True, False, False), (False, True, False),
+                                                         (True, False, True), (False, True, True)):
+            with self.subTest(pass_review=pass_review, fail_refinement=fail_refinement, fail_commit=fail_commit):
+                await self._extract(True, fail_commit, pass_review=pass_review,
+                                    fail_refinement=fail_refinement, note_assets=True)
+
     async def test_failed_refinement_preserves_default_exclusion(self):
         await self._extract(True, False, fail_refinement=True)
 
@@ -65,7 +88,7 @@ class BodyOnlyClassificationTests(IsolatedAsyncioTestCase):
     async def test_restored_body_is_delivered_before_later_ocr_finishes(self):
         await self._extract(False, False, streaming=True)
 
-    async def _extract(self, cached, fail_commit, pass_review=False, streaming=False, fail_refinement=False):
+    async def _extract(self, cached, fail_commit, pass_review=False, streaming=False, fail_refinement=False, note_assets=False):
         packets, prompts, bodies, notes = [], [], [], []
         release = threading.Event()
         blocked, delivered = asyncio.Event(), asyncio.Event()
@@ -90,6 +113,11 @@ class BodyOnlyClassificationTests(IsolatedAsyncioTestCase):
                     text = _PAGE.format(index=index) if index == 1 else (
                         f'<page index="{index}"><body><layout ref="text" det="1,20,190,55">'
                         'with a genuine continuation.</layout></body><footnotes/></page>')
+                    if note_assets and index == 1:
+                        text = text.replace('</footnotes>',
+                            '<layout ref="equation" det="1,100,190,110">x=17</layout>'
+                            '<layout ref="image" det="1,115,190,125">Footnote figure</layout>'
+                            '<layout ref="table" det="1,130,190,135">Footnote table</layout></footnotes>')
                     save_xml(encode(decode(fromstring(text))), folder/f'page_{index}.xml')
                     if not cached:
                         yield OCREvent(OCREventKind.COMPLETE, index, 6)
@@ -106,10 +134,10 @@ class BodyOnlyClassificationTests(IsolatedAsyncioTestCase):
                     raise ValueError('invalid model candidate')
                 data = _response_from_message(messages[1])
                 if data['page_index'] == 1:
-                    by_text = {item['text']: item for item in json.loads(messages[1].message)['target_page']['layouts']}
-                    self_test.assertIn('Misclassified body must survive.', by_text)
+                    by_id = {item['layout_id']: item for item in json.loads(messages[1].message)['target_page']['layouts']}
+                    self_test.assertIn('Misclassified body must survive.', [item['text'] for item in by_id.values()])
                     for item in data['layouts']:
-                        text = next(key for key, value in by_text.items() if value['layout_id'] == item['layout_id'])
+                        text = by_id[item['layout_id']]['text']
                         if text.startswith('1. An explanatory'):
                             item.update(ownership='ignored', paragraph_role=None, paragraph_level=None,
                                         continues_from_previous=False)
@@ -153,11 +181,22 @@ class BodyOnlyClassificationTests(IsolatedAsyncioTestCase):
             self.assertFalse(first['citations'])
             previous = next(packet['state']['previous_page'] for packet in packets
                             if packet['state']['target_page']['page_index'] == 2)
-            self.assertIn('Misclassified body must survive.',
-                          [item['raw_text'] for item in previous['excluded_candidates']])
+            if not note_assets:
+                self.assertIn('Misclassified body must survive.',
+                              [item['raw_text'] for item in previous['excluded_candidates']])
+            else:
+                self.assertTrue(previous['excluded_candidates'])
+                self.assertTrue(all(item['ocr_stream'] == 'footnote' and item['ownership'] == 'ignored'
+                                    for item in previous['excluded_candidates']))
             for messages in prompts:
                 self.assertIn('不能整块 ignored', messages[0].message)
                 self.assertIn('不建立脚注编号', messages[0].message)
+                if note_assets and json.loads(messages[1].message)['target_page']['page_index'] == 1:
+                    assets = [item for item in json.loads(messages[1].message)['target_page']['layouts']
+                              if item['source_type'] in ('formula', 'image', 'table')]
+                    self.assertEqual(len(assets), 3)
+                    self.assertTrue(all(item['ocr_stream'] == 'footnote' and item['ownership'] == 'ignored'
+                                        for item in assets))
             self.assertEqual(len(prompts), 0 if pass_review else 6)
             with ZipFile(root/'book.pcex') as archive:
                 chapters = [fromstring(archive.read(name)) for name in archive.namelist()
@@ -166,6 +205,19 @@ class BodyOnlyClassificationTests(IsolatedAsyncioTestCase):
             self.assertEqual('Misclassified body must survive.' in text, not (pass_review or fail_refinement))
             self.assertEqual('An explanatory note' in text, pass_review or fail_refinement)
             self.assertNotIn('A real footnote', text)
+            if note_assets:
+                self.assertNotIn('x=17', text)
+                self.assertNotIn('Footnote figure', text)
+                self.assertNotIn('Footnote table', text)
+                # Recovery may intentionally add a page image for page 6.
+                # Only page 1 contains the excluded source assets.
+                self.assertFalse(any(asset.attrib.get('page_index') == '1'
+                                     for chapter in chapters for asset in chapter.iter('asset')))
+                assets = [item for item in first['layouts'] if item['source_type'] in ('formula', 'image', 'table')]
+                self.assertEqual(len(assets), 3)
+                for item in assets:
+                    self.assertEqual(item['ocr_stream'], 'footnote')
+                    self.assertEqual(item['ownership'], 'ignored')
             self.assertIn('The actual body ends here. 3. An inline explanation shares this block.', text)
             self.assertIn('The bottom paragraph continues', text)
             self.assertIn('with a genuine continuation.', text)
