@@ -21,7 +21,7 @@ class PageResult:
     initial: Any = None
 
 
-async def refine_ready(pages, process, directory, order, *, window=MAX_PAGE_JOBS):
+async def refine_ready(pages, process, directory, order, *, window=MAX_PAGE_JOBS, includes_footnotes=True):
     """Only raw neighbors gate requests; global identities are bound on delivery.
 
     ``order`` supplies the complete selected sequence from OCR page count.
@@ -37,7 +37,7 @@ async def refine_ready(pages, process, directory, order, *, window=MAX_PAGE_JOBS
     changed = asyncio.Event()
     running, usages = {}, {}
     position = 0
-    initial = PrimaryPages()
+    initial = PrimaryPages(includes_footnotes)
 
     def save(name, value):
         with (directory / name).open('wb') as file:
@@ -58,7 +58,7 @@ async def refine_ready(pages, process, directory, order, *, window=MAX_PAGE_JOBS
     async def execute(previous, index, following):
         def context():
             return _project_window(tuple(load(f'raw-{key}') if key is not None else None
-                                         for key in (previous, index, following)))
+                                         for key in (previous, index, following)), includes_footnotes)
         neighbors = await IO_DOMAIN.run(context)
         result = await process(*deepcopy(neighbors))
         result = result if isinstance(result, PageResult) else PageResult(result)
@@ -141,7 +141,7 @@ async def refine_ready(pages, process, directory, order, *, window=MAX_PAGE_JOBS
                 usage.settle(False)
 
 
-def _project_window(pages):
+def _project_window(pages, includes_footnotes=True):
     from .chapter.primary import PrimaryPages
-    projection = PrimaryPages()
+    projection = PrimaryPages(includes_footnotes)
     return tuple(projection.append(page) if page is not None else None for page in pages)

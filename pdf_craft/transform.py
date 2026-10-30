@@ -317,7 +317,6 @@ class PDFExtractionEngine:
     @asynccontextmanager
     async def _stream_refinement(self, options, kwargs):
         from .extractor.chapter.page_review import build_jev_review_requests
-        from .extractor.chapter.primary import project_page
         includes_footnotes = kwargs['includes_footnotes']
         from .extractor.chapter.page_repair import repair_page_with_llm
         from .extractor.progress import page_stage
@@ -335,8 +334,8 @@ class PDFExtractionEngine:
         async with JEVRuntime(options.jev, options.resolved_jev_executor()) as jev:
             async def process(previous, target, following):
                 neighbors = [page for page in (previous, target, following) if page is not None]
-                source = await IO_DOMAIN.run(lambda: [project_page(decode(read_xml(
-                    kwargs['analysing_path'] / 'ocr' / f'page_{page.page_index}.xml')), includes_footnotes)
+                source = await IO_DOMAIN.run(lambda: [decode(read_xml(
+                    kwargs['analysing_path'] / 'ocr' / f'page_{page.page_index}.xml'))
                     for page in neighbors])
                 packet = next(packet for index, packet in build_jev_review_requests(
                     source, neighbors, self._ocr.last_page_pixel_sizes, includes_footnotes=includes_footnotes) if index == target.page_index)

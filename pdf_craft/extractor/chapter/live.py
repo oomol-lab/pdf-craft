@@ -71,7 +71,7 @@ class LiveExtraction:
 
     def _decode(self, element):
         from .primary import project_page
-        return project_page(decode(element), self.includes_footnotes)
+        return project_page(decode(element), self.includes_footnotes or self._refining)
 
     async def _refine(self, factory, on_body, on_footnote):
         from .assembly import PageAssembly
@@ -86,7 +86,7 @@ class LiveExtraction:
             on_footnote=callback_bridge(loop, note) if note else None))
         async with factory() as process, aclosing(refine_ready(
                 self.pages.aread(), process, self.pages.path / 'refinement',
-                self._refinement_order)) as results:
+                self._refinement_order, includes_footnotes=self.includes_footnotes)) as results:
             async for result in results:
                 try:
                     await self._analysis_domain.run(assembly.append, result.page)

@@ -422,7 +422,14 @@ def build_page_repair_messages(
 你负责精校 PDF OCR 页的正文语义，只允许修改目标页。
 {_SOURCE_CONTRACT}
 本次关闭脚注：ownership 只允许 paragraph 或 ignored；citations 和 references 必须为空，
-citation_id / citation_index 必须为 null。不要识别脚注、建立引用关系或因为疑似脚注而删除文字。
+citation_id / citation_index 必须为 null，不建立脚注编号、引用或脚注流。
+输入保留第一轮 OCR 已识别的全部候选。ocr_stream 是原分类的证据，不是最终归属：
+原 footnote 候选默认 ignored，仅表示本次不输出脚注，并不表示其文字一定是脚注。
+若有明确语义证据表明它是正文（包括正文跨页续文），应改成 paragraph，恢复恰当的 role/level 和连接。
+反之，原 body 中有明确证据属于脚注的完整 layout 应改成 ignored，保留来源，不进入正文。
+不能仅凭页底位置、小字号、数字开头或疑似脚注而排除文字；必须结合内容、邻文及几何判断。
+若一个 layout 混合正文和脚注，不能整块 ignored，也不能删除其部分文字；保持 paragraph。
+不确定时保留初级归属，不猜测或凭空补写 OCR 未识别的内容。
 可修改正文自然段续接、role/level；页码、running header 与装饰物应 ignored。
 {_ASSET_CONTRACT}
 {_NEIGHBOR_CONTRACT}

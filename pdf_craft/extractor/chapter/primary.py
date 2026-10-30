@@ -22,7 +22,8 @@ class PrimaryPages:
     unnecessary. Empty pages and display formulas retain the joiner's boundary
     semantics. Footnote identity resolution keeps its separate adjacent input.
     """
-    def __init__(self):
+    def __init__(self, includes_footnotes=True):
+        self.includes_footnotes = includes_footnotes
         self.previous = None
         self.previous_analysis = None
         self.body_tail = None
@@ -36,11 +37,17 @@ class PrimaryPages:
         body = Jointer(((page.index, pages[page.index].body_layouts)
                         for page in (self.body_tail, current) if page is not None), sources)
         notes = Jointer(((page.index, pages[page.index].footnotes_layouts)
-                         for page in (self.previous, current) if page is not None), sources)
+                         for page in (self.previous, current) if page is not None and self.includes_footnotes), sources)
         paragraphs, citations = _resolve_jointers(body, notes)
+        if not self.includes_footnotes:
+            # Treat the original note stream as source candidates, not as
+            # definitions. Do not parse note indices or match body references.
+            paragraphs.extend(Jointer(((current.index, pages[current.index].footnotes_layouts),), sources).execute())
         analyses = analyse_pages(pages, paragraphs, citations)
         target = next(page for page in analyses if page.page_index == current.index)
         _canonicalize(target, analyses, self.previous_analysis)
+        if not self.includes_footnotes:
+            target = _body_candidates(target)
         if not current.body_layouts:
             self.body_tail = None
         elif any(layout.source_order is not None or getattr(layout.source, 'ref', None) == 'formula'
@@ -120,3 +127,20 @@ def bind_local_result(candidate, local, previous, canonical, canonical_previous)
                     layout.annotations.continues_from_previous = canonical_by_order[layout.document_order].continues_from_previous
                 break
     return result
+
+
+def _body_candidates(page):
+    """Retain all OCR identities, but do not adopt note candidates as content.
+
+    The original stream is evidence, not a verdict. A body-only repair may
+    promote an ignored note to paragraph; an unreviewed note stays excluded.
+    Printed marks remain text rather than active reference placeholders.
+    """
+    layouts = []
+    for layout in page.layouts:
+        annotations = replace(layout.annotations, citation_id=None, citation_index=None, references=[])
+        if getattr(getattr(layout.source, 'origin', None), 'stream', None) == 'footnote':
+            annotations = replace(annotations, ownership='ignored', continues_from_previous=False,
+                                  continues_to_next=False, paragraph_role=None, paragraph_level=None)
+        layouts.append(replace(layout, annotations=annotations))
+    return replace(page, layouts=layouts, citations=[])

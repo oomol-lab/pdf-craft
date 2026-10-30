@@ -301,11 +301,18 @@ there is no per-service numeric concurrency fallback.
 
 `footnotes` and `refinement` are independent. Set `footnotes=False` in the example
 above to refine body paragraphs without extracting footnotes. Both modes share
-the same bounded streaming page pipeline. With footnotes disabled, cached OCR
-footnote layouts are excluded from the analysis view (the cache is not rewritten),
-and review/repair cannot create citations or references or emit footnote content.
-Text already classified by OCR as body is not removed merely because it resembles
-a footnote. `Refinement()` without both providers is invalid; JEV-only and LLM-only
+the same bounded streaming page pipeline. Disabled footnotes never add a footnote
+OCR pass, create citations/references, or emit footnote content. With refinement,
+first-pass OCR and cached footnote layouts remain visible as candidates, excluded
+from output by default. JEV can identify misclassification and LLM repair can
+restore a wrongly classified body block as a paragraph, or mark a clearly
+identified whole footnote block in the body as ignored. Page-bottom placement,
+small type, or a leading number alone never justifies dropping body text; a block
+mixing body and notes stays a paragraph. Raw evidence and source identity are
+preserved. Without refinement, OCR footnote classifications remain excluded;
+review acceptance or permitted repair fallback does not guess candidate recovery.
+Old caches that already discarded the text cannot be repaired: OCR again using
+a fresh analysis directory. `Refinement()` without both providers is invalid; JEV-only and LLM-only
 configurations are not supported. Existing nested `FootnoteOptions` /
 `FootnoteRefinement` configurations must migrate to `footnotes: bool` and the
 separate `refinement=Refinement(...)` argument; no compatibility alias is provided.

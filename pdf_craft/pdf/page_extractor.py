@@ -345,7 +345,11 @@ class PageExtractorNode:
             if ref == "unknown":
                 continue
             is_footnote = kind == "footnote"
-            if is_footnote and not includes_footnotes:
+            # Keep first-pass evidence even when footnote output is disabled:
+            # page refinement may recover text misclassified by the OCR model.
+            # Analysis, rather than this irreversible decoding step, selects
+            # which capabilities are enabled. This does not request stage two.
+            if is_footnote and not includes_footnotes and stage_index != 1:
                 continue
 
             text = self._normalize_block_text(block)
