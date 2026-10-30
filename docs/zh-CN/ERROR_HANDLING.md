@@ -206,3 +206,9 @@ XML 填充会先依据已知译文恢复无歧义的空白，再采纳结果。�
 
 
 `FailureError.frames` 提供可序列化的文件名、函数名和可选行号，按外层异常、cause（无 cause 时为未抑制的 context）顺序展开，遇到循环停止。不包含源码行或局部变量；文件名可能是绝对路径。
+
+Vendor OCR HTTP 失败通过 `FailureError.http_status`、`provider_code`、`provider_type`
+和 `request_id` 独立暴露机器可读原因，来自响应 JSON 的 `error.code`/`error.type`
+与响应头；缺失或类型不符时为 `None`。`image_url_unsafe` 是供应商错误码，并非库枚举。
+`exception_chain` 保留各层异常的独立栈。异常消息与 `causes` 可能包含私有输入，
+调用方写日志或分析事件前需采用适当脱敏策略。这些字段不改变降级、重试与可用性规则。

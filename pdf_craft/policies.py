@@ -84,6 +84,11 @@ class FailureError:
     causes: tuple[str, ...] = ()
     # Serializable traceback locations; excludes source text and frame locals.
     frames: tuple[dict[str, str | int], ...] = ()
+    http_status: int | None = None
+    provider_code: str | None = None
+    provider_type: str | None = None
+    # Each entry has its own traceback; messages may contain private source text.
+    exception_chain: tuple[FailureError, ...] = ()
 
 
 @dataclass(frozen=True)

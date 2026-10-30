@@ -160,6 +160,8 @@ def error_details(error: Exception) -> FailureError:
     import traceback
 
     chain: list[str] = []
+    exceptions: list[FailureError] = []
+    provider: dict = {}
     frames: list[dict[str, str | int]] = []
     seen: set[int] = set()
     cause: BaseException | None = error
@@ -174,6 +176,17 @@ def error_details(error: Exception) -> FailureError:
             chain.append(
                 f"{type(cause).__module__}.{type(cause).__qualname__}: {cause}"
             )
+        local_frames = tuple({"filename": frame.filename, "function": frame.name,
+                              **({"lineno": frame.lineno} if frame.lineno is not None else {})}
+                             for frame in traceback.extract_tb(cause.__traceback__)[-40:])
+        exceptions.append(FailureError(
+            type=f"{type(cause).__module__}.{type(cause).__qualname__}",
+            message=str(cause), frames=local_frames,
+        ))
+        for name in ("http_status", "provider_code", "provider_type"):
+            value = getattr(cause, name, None)
+            if value is not None and name not in provider:
+                provider[name] = value
         attempts = attempts or getattr(cause, "attempts", None)
         request_id = request_id or getattr(cause, "request_id", None)
         code = (
@@ -191,6 +204,8 @@ def error_details(error: Exception) -> FailureError:
         attempts,
         tuple(chain),
         tuple(frames),
+        **provider,
+        exception_chain=tuple(exceptions),
     )
 
 
