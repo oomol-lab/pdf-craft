@@ -40,4 +40,3 @@ class Refinement:
         executor = self.llm_executor or self.executor
         assert executor is not None
         return executor
-
