@@ -62,6 +62,8 @@ class SourceAsset:
     caption: Content = field(default_factory=list)
     asset_hash: str | None = None
     reading_order: int | None = field(default=None, compare=False, repr=False)
+    # Runtime OCR evidence, like SourceTextFragment.source; not PCEX schema.
+    source: TextSource | None = field(default=None, compare=False, repr=False)
 
     def __post_init__(self) -> None:
         if self.ref not in {"image", "table", "formula"}:

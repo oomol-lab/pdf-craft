@@ -136,7 +136,7 @@ class TestStructuredPageMapping(unittest.TestCase):
         self.assertEqual(layout.text, "Table 1: Caption")
         self.assertFalse(is_footnote)
 
-    def test_footnote_kind_is_excluded_when_footnotes_are_disabled(self):
+    def test_later_footnote_kind_is_excluded_when_footnotes_are_disabled(self):
         node = PageExtractorNode(DeepSeekOCRLocalConfig())
         image = Image.new("RGB", (100, 100), "white")
         structured = _Structured(
@@ -155,7 +155,7 @@ class TestStructuredPageMapping(unittest.TestCase):
                     image=image,
                     structured=structured,
                     asset_hub=AssetHub(Path(temp_dir)),
-                    stage_index=1,
+                    stage_index=2,
                     includes_footnotes=False,
                 )
             )

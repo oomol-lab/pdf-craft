@@ -79,6 +79,7 @@ class _AnalysedAssetSource:
     caption: _AnalysedContent
     asset_hash: str | None
     reading_order: int | None = None
+    origin: TextSource | None = None
 
 
 _AnalysedSource: TypeAlias = _AnalysedTextSource | _AnalysedAssetSource
@@ -622,6 +623,7 @@ def _analyse_layout(
             caption=_analyse_content(source.caption, references, (2,)),
             asset_hash=source.asset_hash,
             reading_order=source.reading_order,
+            origin=source.source,
         )
     return AnalysedLayout(
         source=analysed_source,
@@ -1077,6 +1079,8 @@ def _restore_asset(
         content=_restore_content(source.content, layout.references, references, (1,)),
         caption=_restore_content(source.caption, layout.references, references, (2,)),
         asset_hash=source.asset_hash,
+        reading_order=source.reading_order,
+        source=source.origin,
     )
 
 

@@ -193,10 +193,10 @@ def build_jev_review_requests(
                     ),
                     "target_page": target,
                     "previous_page": _boundary_context(
-                        packets.get(page_index - 1), "previous"
+                        packets.get(page_index - 1), "previous", includes_footnotes
                     ),
                     "next_page": _boundary_context(
-                        packets.get(page_index + 1), "next"
+                        packets.get(page_index + 1), "next", includes_footnotes
                     ),
                 },
                 "questions": _review_questions(includes_footnotes),
@@ -217,16 +217,19 @@ def _review_questions(includes_footnotes: bool) -> dict[str, Any]:
     ]
     instructions['ownership_standard'] = [
         "paragraph 是正文、标题、引文等主阅读流；页码、running header 和装饰物不应进入此流。",
-        "本次不进行脚注归属识别，不因正文疑似脚注而要求将其改成 citation。",
+        "关闭脚注指最终不输出脚注，不代表 OCR 原分类必然正确；不建立 citation 或引用体系。",
+        "原 footnote 来源候选默认 ignored；若有明确证据属于正文或跨页正文续文，应判为需要修正以恢复 paragraph。",
+        "原 body 中有明确证据属于脚注的完整块应 ignored，否则需要修正；不能仅凭页底、小字号或数字开头判为脚注。",
+        "同时包含正文与脚注的块不能整块忽略；不确定时保留初级归属，不要求删除正文或重建缺失文字。",
     ]
     instructions['continuation_standard'] = [
         "continuation 表示同一自然段的语义续接，不能仅因位置相邻而连接。",
         "完整句、标题、独立条目或话题重启不得连接；页首半句话可合法承接前页。",
         "图片/表格是透明段内锚点，资产自身 gap 为 false；独立段落公式是硬边界。",
-        "previous_page / next_page 的 paragraph_boundary 只用于正文跨页边界判断。",
+        "相邻页 paragraph_boundary 及 excluded_candidates 是初级证据；后者保留默认排除的 footnote 来源，可用于辨认跨页正文误分类，不是已经精校的结果。",
     ]
     del instructions['citation_standard'], instructions['reference_standard']
-    instructions['decision_rule'] = "只审核正文归属、语义续接及 furniture 排除；有明确错误才返回 false。"
+    instructions['decision_rule'] = "审核全部候选的正文/排除归属、正文续接及 furniture 排除；有明确错误才返回 false。"
     question['criteria']['true']['definition'] = "正文归属、语义续接及 furniture 排除正确，可原样通过。"
     question['criteria']['false']['definition'] = "正文归属、语义续接或 furniture 排除存在明确错误。"
     return questions
@@ -314,6 +317,7 @@ def _layout_packet(
         "document_order": layout.document_order,
         "source_order": source_order,
         "source_type": source_type,
+        "ocr_stream": getattr(getattr(source, "origin", None), "stream", None),
         "bbox_normalized": [
             round(bbox[0] / width, 3),
             round(bbox[1] / height, 3),
@@ -343,6 +347,7 @@ def _layout_packet(
 def _boundary_context(
     packet: dict[str, Any] | None,
     side: str,
+    includes_footnotes: bool = True,
 ) -> dict[str, Any] | None:
     if packet is None:
         return None
@@ -355,6 +360,10 @@ def _boundary_context(
         if layout["ownership"] == "citation" and layout.get("source_type") not in {"image", "table"}
     ]
     boundary = slice(-2, None) if side == "previous" else slice(None, 2)
+    candidates = {} if includes_footnotes else {'excluded_candidates': [
+        layout for layout in packet['layouts']
+        if layout['ownership'] == 'ignored' and layout['ocr_stream'] == 'footnote'
+    ][boundary]}
     return {
         "page_index": packet["page_index"],
         "ocr_body_layout_count": packet["ocr_body_layout_count"],
@@ -362,6 +371,7 @@ def _boundary_context(
         "citations": packet["citations"],
         "paragraph_boundary": paragraphs[boundary],
         "citation_boundary": citations[boundary],
+        **candidates,
     }
 
 

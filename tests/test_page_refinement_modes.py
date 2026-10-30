@@ -133,7 +133,9 @@ class RefinementModeTests(IsolatedAsyncioTestCase):
                 for packet in packets:
                     state = packet['state']
                     target = state['target_page']
-                    self.assertEqual(target['ocr_footnote_layout_count'], 0)
+                    self.assertEqual(target['ocr_footnote_layout_count'], 1)
+                    self.assertTrue(any(item['ocr_stream'] == 'footnote' and item['ownership'] == 'ignored'
+                                        for item in target['layouts']))
                     self.assertEqual(target['citations'], [])
                     for name in ('previous_page', 'next_page'):
                         neighbor = state[name]

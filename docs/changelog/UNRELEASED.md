@@ -1,5 +1,10 @@
 # Unreleased
 
+- Preserve first-pass footnote candidates for body-only page refinement, allowing
+  wrongly classified body text to be restored and clearly identified footnotes
+  in the body to be excluded without an extra OCR pass or citation output.
+  Keep raw evidence and source identities, including cache and fallback paths.
+
 - Replace nested `FootnoteOptions` / `FootnoteRefinement` with independent
   `ExtractionOptions.footnotes: bool` and `refinement: Refinement | None`.
   Refinement still requires both JEV and LLM with explicit executors. Body-only
