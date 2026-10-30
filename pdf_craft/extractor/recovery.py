@@ -103,7 +103,7 @@ def affected_pages(targets: set[int], analyses: Iterable[PageAnalysis]) -> set[i
     return affected
 
 
-def source_dependencies(path: Path, indexes: list[int], targets: set[int]) -> set[int]:
+def source_dependencies(path: Path, indexes: list[int], targets: set[int], includes_footnotes: bool = True) -> set[int]:
     """Conservative page links when no valid analysis graph is available.
 
     Inspect one raw page at a time. This does not restore damaged analysis or
@@ -151,7 +151,7 @@ def source_dependencies(path: Path, indexes: list[int], targets: set[int]) -> se
             # Empty pages, headings and display formulas close the text run.
             previous_text_page = None
             anchors.clear()
-        if previous_page_index is not None and previous_had_footnotes and page.footnotes_layouts:
+        if includes_footnotes and previous_page_index is not None and previous_had_footnotes and page.footnotes_layouts:
             links.append({previous_page_index, page.index})
         previous_page_index = page.index
         previous_had_footnotes = bool(page.footnotes_layouts)
@@ -178,6 +178,7 @@ async def recover_chapters(draft, ocr, error: Exception, directory: Path, *, ana
     """
     if not recoverable_structure(error):
         raise error
+    includes_footnotes = getattr(draft, 'includes_footnotes', True)
     indexes = sorted(int(path.stem[5:]) for path in draft.pages_path.glob('page_*.xml') if path.stem[5:].isdigit())
     content_indexes = set(indexes) - set(draft.toc.page_indexes)
     if not content_indexes:
@@ -188,7 +189,7 @@ async def recover_chapters(draft, ocr, error: Exception, directory: Path, *, ana
     analyses = list(analyses)
     try:
         affected = (affected_pages(targets, analyses) if analyses else await IO_DOMAIN.run(
-            source_dependencies, draft.pages_path, [index for index in indexes if index in content_indexes], targets)) & content_indexes
+            source_dependencies, draft.pages_path, [index for index in indexes if index in content_indexes], targets, includes_footnotes)) & content_indexes
     except Exception as scope_error:
         if not recoverable_structure(scope_error):
             raise
@@ -276,7 +277,7 @@ async def recover_chapters(draft, ocr, error: Exception, directory: Path, *, ana
         def collect(path=path, records=records, run=run):
             if adopted_database is not None and adopted_database.exists():
                 from .chapter.assembly import PageAssembly
-                from .chapter.primary import PrimaryPages
+                from .chapter.primary import PrimaryPages, project_page
                 from .chapter.stream import chapters_from_disk
                 from ..pdf import decode
                 from copy import deepcopy
@@ -285,7 +286,7 @@ async def recover_chapters(draft, ocr, error: Exception, directory: Path, *, ana
                 primary = PrimaryPages()
                 with closing(sqlite3.connect(adopted_database)) as db:
                     for index in run:
-                        raw = decode(read_xml(path / f'page_{index}.xml'))
+                        raw = project_page(decode(read_xml(path / f'page_{index}.xml')), includes_footnotes)
                         initial = primary.append(raw)
                         row = db.execute('SELECT value FROM adopted WHERE page=?', (index,)).fetchone()
                         page = pickle.loads(row[0]) if row else deepcopy(initial)
@@ -293,7 +294,8 @@ async def recover_chapters(draft, ocr, error: Exception, directory: Path, *, ana
                 assembly.finish()
                 chapters = chapters_from_disk(spool, TocInfo([], []), chunk_size=128)
             else:
-                chapters = _generate_chapters(path, TocInfo([], draft.toc.page_indexes), chunk_size=128)
+                chapters = _generate_chapters(path, TocInfo([], draft.toc.page_indexes), chunk_size=128,
+                                              includes_footnotes=includes_footnotes)
             for chapter in chapters:
                 records.append(chapter)
             records.close()

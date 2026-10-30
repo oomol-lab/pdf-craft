@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from copy import deepcopy
 import json
 import re
 from collections.abc import Awaitable, Callable, Iterable, Mapping
@@ -165,6 +166,7 @@ def build_jev_review_requests(
     source_pages: Iterable[Page],
     analyses: Iterable[PageAnalysis],
     page_pixel_sizes: Mapping[int, tuple[int, int]],
+    *, includes_footnotes: bool = True,
 ) -> Iterable[tuple[int, dict[str, Any]]]:
     """Build the selected PageReviewPacket v2 prompt for every page."""
 
@@ -197,9 +199,37 @@ def build_jev_review_requests(
                         packets.get(page_index + 1), "next"
                     ),
                 },
-                "questions": JEV_QUESTION,
+                "questions": _review_questions(includes_footnotes),
             }
     return generate()
+
+
+def _review_questions(includes_footnotes: bool) -> dict[str, Any]:
+    if includes_footnotes:
+        return JEV_QUESTION
+    questions = deepcopy(JEV_QUESTION)
+    question = questions[JEV_QUESTION_NAME]
+    instructions = question['instructions']
+    instructions['scope'] = [
+        "只判断 target_page；相邻初级页仅用于验证正文语义连续性，不评估 OCR 逐字转录质量。",
+        "本次关闭脚注提取。不要检查、要求或重建 citation、脚注索引及正文引用关系。",
+        "只有具体语义错误才判错，不能因标点、空格、页复杂或缺少图片而判错。",
+    ]
+    instructions['ownership_standard'] = [
+        "paragraph 是正文、标题、引文等主阅读流；页码、running header 和装饰物不应进入此流。",
+        "本次不进行脚注归属识别，不因正文疑似脚注而要求将其改成 citation。",
+    ]
+    instructions['continuation_standard'] = [
+        "continuation 表示同一自然段的语义续接，不能仅因位置相邻而连接。",
+        "完整句、标题、独立条目或话题重启不得连接；页首半句话可合法承接前页。",
+        "图片/表格是透明段内锚点，资产自身 gap 为 false；独立段落公式是硬边界。",
+        "previous_page / next_page 的 paragraph_boundary 只用于正文跨页边界判断。",
+    ]
+    del instructions['citation_standard'], instructions['reference_standard']
+    instructions['decision_rule'] = "只审核正文归属、语义续接及 furniture 排除；有明确错误才返回 false。"
+    question['criteria']['true']['definition'] = "正文归属、语义续接及 furniture 排除正确，可原样通过。"
+    question['criteria']['false']['definition'] = "正文归属、语义续接或 furniture 排除存在明确错误。"
+    return questions
 
 
 def load_page_pixel_sizes(path: Path) -> dict[int, tuple[int, int]]:

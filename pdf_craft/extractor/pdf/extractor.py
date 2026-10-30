@@ -108,7 +108,7 @@ class PDFExtractor:
                 "metadata_llm": None, "aborted": original_aborted or (lambda: False),
                 "max_tokens": None, "max_output_tokens": None,
                 "on_ocr_event": on_ocr_event, "page_indexes": None,
-                "footnote_refinement": None,
+                "refinement": None,
         }
         defaults.update(kwargs)
         defaults["analysing_path"] = analysing_path

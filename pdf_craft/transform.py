@@ -16,7 +16,7 @@ from .error import (
     NoUsableOCRPagesError,
     PDFError,
 )
-from .footnote import FootnoteRefinement
+from .refinement import Refinement
 from .concurrency import AsyncExecutor, fatal_error_boundary
 from .jev import JEVRuntime
 from .llm import LLM, runtime_for
@@ -62,6 +62,7 @@ class _ExtractionDraft:
     includes_furniture: bool
     native_pdf_text: bytes | None
     native_pdf_text_prepared: bool
+    includes_footnotes: bool = True
 
 
 class PDFExtractionEngine:
@@ -101,6 +102,8 @@ class PDFExtractionEngine:
     @fatal_error_boundary
     async def extract_package_async(self, **kwargs):
         """Own disk queues until producers and callback consumers have unwound."""
+        if kwargs.get("refinement") is not None and not isinstance(kwargs["refinement"], Refinement):
+            raise TypeError("refinement must be Refinement or None")
         from .extractor.chapter.live import LiveExtraction
         on_metadata = kwargs.pop("on_metadata", None)
         if kwargs.get("extract_book_metadata", False) and kwargs.get("metadata_llm") is None:
@@ -135,8 +138,8 @@ class PDFExtractionEngine:
                                             count, kwargs.get("page_indexes"))
             live = LiveExtraction(directory, kwargs["analysing_path"] / "ocr",
                                   kwargs["includes_footnotes"], on_body, on_footnote,
-                                  refinement=(lambda: self._stream_refinement(kwargs['footnote_refinement'], kwargs))
-                                  if kwargs.get('footnote_refinement') is not None else None,
+                                  refinement=(lambda: self._stream_refinement(kwargs['refinement'], kwargs))
+                                  if kwargs.get('refinement') is not None else None,
                                   page_indexes=kwargs.get("page_indexes"))
             callback = kwargs.get("on_ocr_event")
             async def event(value):
@@ -192,7 +195,7 @@ class PDFExtractionEngine:
         metadata_task = kwargs.pop("metadata_task", None)
         front_pages = kwargs.pop("front_pages", None)
         on_metadata = kwargs.pop("on_metadata", None)
-        footnote_refinement = kwargs.pop("footnote_refinement", None)
+        refinement = kwargs.pop("refinement", None)
         kwargs["error_policy"] = decision_bridge(asyncio.get_running_loop(), OMITTED)
         event_callback = kwargs.get("on_ocr_event")
         original_aborted = kwargs.get("aborted")
@@ -231,8 +234,8 @@ class PDFExtractionEngine:
             kwargs["on_ocr_event"] = callback_bridge(
                 asyncio.get_running_loop(), event_callback,
             )
-        if footnote_refinement is not None and not isinstance(footnote_refinement, FootnoteRefinement):
-            raise TypeError("footnote_refinement must be FootnoteRefinement")
+        if refinement is not None and not isinstance(refinement, Refinement):
+            raise TypeError("refinement must be Refinement")
         draft = await run_cancellable(
             OCR_DOMAIN,
             lambda aborted: self._prepare_extraction(**{**kwargs, "aborted": aborted}),
@@ -255,7 +258,7 @@ class PDFExtractionEngine:
             return await self._commit_extraction(
                 draft, analysed_pages=None,
                 resolved_database=(live.database if live is not None and
-                                   (footnote_refinement is not None or not draft.toc.page_indexes) else None),
+                                   (refinement is not None or not draft.toc.page_indexes) else None),
                 aborted=original_aborted, toc_llm=kwargs["toc_llm"], toc_assumed=kwargs["toc_assumed"],
             )
         except Exception as error:
@@ -266,7 +269,7 @@ class PDFExtractionEngine:
                 recovered = await recover_chapters(
                     draft, self._ocr, error, directory,
                     analyses=(),
-                    adopted_database=(live.database if footnote_refinement is not None and live is not None else None),
+                    adopted_database=(live.database if refinement is not None and live is not None else None),
                     aborted=original_aborted or (lambda: False),
                 )
                 draft = replace(draft, toc=recovered.toc)
@@ -290,7 +293,8 @@ class PDFExtractionEngine:
                 await run_cancellable(OCR_DOMAIN, lambda _check: generate_chapter_files(
                     pages_path=draft.pages_path, chapters_path=adopted,
                     toc=TocInfo([], draft.toc.page_indexes), analysed_pages=analysed_pages,
-                    resolved_database=resolved_database, chunk_size=128), original_aborted=aborted)
+                    resolved_database=resolved_database, chunk_size=128,
+                    includes_footnotes=draft.includes_footnotes), original_aborted=aborted)
             else:
                 adopted = prepared_chapters
             projection = directory / "pages"
@@ -313,6 +317,8 @@ class PDFExtractionEngine:
     @asynccontextmanager
     async def _stream_refinement(self, options, kwargs):
         from .extractor.chapter.page_review import build_jev_review_requests
+        from .extractor.chapter.primary import project_page
+        includes_footnotes = kwargs['includes_footnotes']
         from .extractor.chapter.page_repair import repair_page_with_llm
         from .extractor.progress import page_stage
         from .common import read_xml
@@ -329,10 +335,11 @@ class PDFExtractionEngine:
         async with JEVRuntime(options.jev, options.resolved_jev_executor()) as jev:
             async def process(previous, target, following):
                 neighbors = [page for page in (previous, target, following) if page is not None]
-                source = await IO_DOMAIN.run(lambda: [decode(read_xml(
-                    kwargs['analysing_path'] / 'ocr' / f'page_{page.page_index}.xml')) for page in neighbors])
+                source = await IO_DOMAIN.run(lambda: [project_page(decode(read_xml(
+                    kwargs['analysing_path'] / 'ocr' / f'page_{page.page_index}.xml')), includes_footnotes)
+                    for page in neighbors])
                 packet = next(packet for index, packet in build_jev_review_requests(
-                    source, neighbors, self._ocr.last_page_pixel_sizes) if index == target.page_index)
+                    source, neighbors, self._ocr.last_page_pixel_sizes, includes_footnotes=includes_footnotes) if index == target.page_index)
                 location = FailureLocation('page', page_indexes=(target.page_index,))
                 context = tuple(FailureLocation('page', page_indexes=(page.page_index,))
                                 for page in (previous, following) if page is not None)
@@ -354,7 +361,8 @@ class PDFExtractionEngine:
                             result = await repair_page_with_llm(
                                 previous_page=previous, target_page=target, next_page=following,
                                 previous_pass_probability=None, next_pass_probability=None,
-                                target_pass_probability=probability, request=request)
+                                target_pass_probability=probability, request=request,
+                                includes_footnotes=includes_footnotes)
                         except Exception as error:
                             await recover(error, FailureCategory.ANALYSIS, 'footnote_repair', 'algorithm_result',
                                           targets=(location,), context_locations=context)
@@ -471,6 +479,7 @@ class PDFExtractionEngine:
             metering=metering,
             dpi=dpi,
             includes_furniture=includes_furniture,
+            includes_footnotes=includes_footnotes,
             native_pdf_text=native_pdf_text,
             native_pdf_text_prepared=native_pdf_text_prepared,
         )

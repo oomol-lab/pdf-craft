@@ -23,7 +23,7 @@
 ## PDF 提取
 
 ```python
-from pdf_craft import AsyncPDFCraft, ExtractionOptions, FootnoteOptions
+from pdf_craft import AsyncPDFCraft, ExtractionOptions
 
 async def body(element):
     print(element.tag, list(element.iter("fragment")))
@@ -34,7 +34,7 @@ async def footnote(element):
 extraction = await AsyncPDFCraft(pdf_options).extract_pdf(
     "book.pdf", "book.pcex",
     ExtractionOptions(
-        footnotes=FootnoteOptions(), on_body=body, on_footnote=footnote,
+        footnotes=True, on_body=body, on_footnote=footnote,
     ),
 )
 ```
@@ -312,3 +312,6 @@ PDF 回填由正文、脚注、家具的就绪结果共同驱动。家具按页�
 Words、内容回调与文件完成是不同观察面，各自尽早报告，不追求同步。慢回调、保序等待和必要的跨页依赖仍可能造成通知间隔；不能以此增加整章/全书屏障。自定义整章 translator 的兼容路径依然遵守其批接口，不承诺标准 XMLTranslator 的增量能力。
 
 独立 PDF 页面排版不继承其他先完成页面的字号。标题只参考当前页的正文；没有正文参考时使用配置的标题 fallback。原有按序批量排版仍保留前文正文字号规则。
+
+页面精校由独立的 `refinement=Refinement(...)` 开启，必须同时提供 JEV、LLM 和执行器；
+即使 `footnotes=False` 也可精校正文。关闭脚注时不会产生 `on_footnote` 内容回调。

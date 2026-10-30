@@ -61,7 +61,7 @@ from .pdf.vendor_ocr import (
     VendorOCRResponse,
     create_vendor_ocr_request,
 )
-from .footnote import FootnoteOptions, FootnoteRefinement
+from .refinement import Refinement
 from .metering import AbortedCheck, InterruptedKind, OCRTokensMetering
 from .ocr_config import (
     DeepSeekOCR2LocalConfig,

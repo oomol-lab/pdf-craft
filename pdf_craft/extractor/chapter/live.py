@@ -20,6 +20,9 @@ class LiveExtraction:
     def __init__(self, path: Path, pages_path: Path, includes_footnotes: bool,
                  on_body=None, on_footnote=None, *, refinement=None, page_indexes=None) -> None:
         self.pages_path = pages_path
+        self.includes_footnotes = includes_footnotes
+        if not includes_footnotes:
+            on_footnote = None
         self.database = path / "content.sqlite"
         self.pages: DiskStream[Page] = DiskStream(path / "pages")
         self.order: list[int] = []
@@ -65,6 +68,10 @@ class LiveExtraction:
         ))
 
         self.task.add_done_callback(lambda _task: self._capacity.set())
+
+    def _decode(self, element):
+        from .primary import project_page
+        return project_page(decode(element), self.includes_footnotes)
 
     async def _refine(self, factory, on_body, on_footnote):
         from .assembly import PageAssembly
@@ -177,7 +184,7 @@ class LiveExtraction:
                     self.ignored.add(event.page_index)
                 if event.page_index not in self.ignored:
                     try:
-                        validated_page = await IO_DOMAIN.run(decode, await IO_DOMAIN.run(
+                        validated_page = await IO_DOMAIN.run(self._decode, await IO_DOMAIN.run(
                             read_xml, page_path))
                     except Exception as error:
                         setattr(error, 'page_index', event.page_index)
@@ -197,7 +204,7 @@ class LiveExtraction:
             elif index in self.ready:
                 try:
                     page = validated_page if index == event.page_index and validated_page is not None else (
-                        await IO_DOMAIN.run(decode, await IO_DOMAIN.run(
+                        await IO_DOMAIN.run(self._decode, await IO_DOMAIN.run(
                             read_xml, self.pages_path / f"page_{index}.xml")))
                 except Exception as error:
                     setattr(error, 'page_index', index)
@@ -233,7 +240,7 @@ class LiveExtraction:
     async def _finish(self):
         if not self.order:
             # A complete OCR cache emits no page events, but is replayable.
-            reader = await IO_DOMAIN.run(XMLReader, "page", self.pages_path, decode)
+            reader = await IO_DOMAIN.run(XMLReader, "page", self.pages_path, self._decode)
             from ...runtime import worker_iter
             try:
                 ordinal = 0

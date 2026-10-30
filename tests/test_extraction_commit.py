@@ -20,7 +20,7 @@ class CommitBoundaryTests(IsolatedAsyncioTestCase):
             root = Path(directory)
             await AsyncPDFCraft.from_engine(RefinedEngine('ignored')).extract_pdf(
                 root/'source.pdf', root/'book.pcex',
-                ExtractionOptions(includes_furniture=False, footnotes=refinement()),
+                ExtractionOptions(includes_furniture=False, footnotes=True, refinement=refinement()),
                 analysing_path=root/'analysis', error_policy=False)
             with ZipFile(root/'book.pcex') as archive:
                 toc = fromstring(archive.read('toc.xml'))
@@ -38,7 +38,7 @@ class CommitBoundaryTests(IsolatedAsyncioTestCase):
             with patch('pdf_craft.transform.write_furnitures',furniture):
                 await AsyncPDFCraft.from_engine(RefinedEngine('ignored')).extract_pdf(
                     root/'source.pdf',root/'book.pcex',
-                    ExtractionOptions(footnotes=refinement()),analysing_path=root/'analysis',error_policy=True)
+                    ExtractionOptions(footnotes=True, refinement=refinement()),analysing_path=root/'analysis',error_policy=True)
             self.assertNotIn((1,21,190,40), observed)
 
     async def test_unversioned_toc_cache_is_not_authoritative(self):

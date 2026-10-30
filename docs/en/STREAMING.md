@@ -40,7 +40,9 @@ extraction = await AsyncPDFCraft(pdf_options).extract_pdf(
 ```
 
 Both callbacks are optional and accept synchronous or asynchronous functions.
-Enable footnote extraction with `FootnoteOptions` to recognize footnotes.
+Enable footnote extraction with `ExtractionOptions(footnotes=True)`. Page refinement
+is independent: pass `refinement=Refinement(...)` with both JEV and LLM, even when
+`footnotes=False`. Disabled footnotes never emit `on_footnote` content.
 `on_body` receives one closed PCEX flow item: `<text>`, `<standalone-asset>`, or
 `<display-formula>`. `on_footnote` receives one closed `<ref>` definition containing
 `<mark>` and `<flow>`. The XML vocabulary is specified in [PCEX_FORMAT.md](PCEX_FORMAT.md).

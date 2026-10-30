@@ -11,7 +11,7 @@ from zipfile import ZipFile
 
 from pdf_craft import (
     AsyncPDFCraft, ConcurrentExecutor, ExtractionOptions, FixedCapacity,
-    FootnoteOptions, FootnoteRefinement, JEV, LLM, ErrorPolicyInput,
+    Refinement, JEV, LLM, ErrorPolicyInput,
 )
 from pdf_craft.common import save_xml
 from pdf_craft.extractor.chapter.chapter import decode as decode_chapter, SourceTextFragment, TextFlowItem
@@ -77,9 +77,9 @@ class RefinedEngine(PDFExtractionEngine):
 
 
 def refinement():
-    return FootnoteOptions(FootnoteRefinement(
+    return Refinement(
         JEV('unused'), LLM('unused', 'https://example.invalid', 'unused', 'o200k_base'),
-        executor=ConcurrentExecutor(FixedCapacity(1))))
+        executor=ConcurrentExecutor(FixedCapacity(1)))
 
 
 class TocIdentityTests(IsolatedAsyncioTestCase):
@@ -87,8 +87,8 @@ class TocIdentityTests(IsolatedAsyncioTestCase):
         engine = RefinedEngine(mode)
         return await AsyncPDFCraft.from_engine(engine).extract_pdf(
             root / 'source.pdf', root / 'book.pcex',
-            ExtractionOptions(includes_furniture=False, footnotes=(FootnoteOptions() if mode == 'traditional'
-                                                                        else refinement()) if footnotes else None),
+            ExtractionOptions(includes_furniture=False, footnotes=footnotes,
+                              refinement=refinement() if footnotes and mode != 'traditional' else None),
             analysing_path=root / 'analysis', error_policy=policy,
         )
 

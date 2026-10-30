@@ -66,7 +66,7 @@ analysis/OCR 缓存。
 - `AnchoredContentExtractionTransformer`、`AnchoredContentTransformer`、`AnchoredContentXMLTransformer`
 - `predownload_models`
 - `LLM`
-- `JEV`、`FootnoteOptions`、`FootnoteRefinement`
+- `JEV`、`Refinement`
 - `DeepSeekOCRLocalConfig`、`DeepSeekOCR2LocalConfig`、`UnlimitedOCRLocalConfig`
 - `DeepSeekOCRVendorConfig`、`DeepSeekOCR2VendorConfig`、`UnlimitedOCRVendorConfig`
 - `AsyncPDFHandler`、`AsyncPDFDocument`

@@ -35,7 +35,7 @@ def generate_chapter_files(
     toc: TocInfo,
     analysed_pages: Iterable[PageAnalysis] | None = None,
     resolved_database: Path | None = None,
-    *, chunk_size: int | None = None,
+    *, chunk_size: int | None = None, includes_footnotes: bool = True,
 ):
     chapters_path.mkdir(parents=True, exist_ok=True)
     for chapter_file in chapters_path.glob("chapter_*.xml"):
@@ -45,7 +45,7 @@ def generate_chapter_files(
     chapters = chapters_from_disk(resolved_database, toc, chunk_size=chunk_size) if resolved_database is not None else _generate_chapters(
         pages_path=pages_path,
         toc=toc,
-        analysed_pages=analysed_pages, chunk_size=chunk_size,
+        analysed_pages=analysed_pages, chunk_size=chunk_size, includes_footnotes=includes_footnotes,
     )
     for number, chapter in enumerate(chapters):
         tail: str
@@ -68,7 +68,7 @@ def _generate_chapters(
     pages_path: Path,
     toc: TocInfo,
     analysed_pages: Iterable[PageAnalysis] | None = None,
-    *, chunk_size: int | None = None,
+    *, chunk_size: int | None = None, includes_footnotes: bool = True,
 ) -> Generator[Chapter, None, None]:
     if analysed_pages is None:
         from tempfile import TemporaryDirectory
@@ -79,7 +79,7 @@ def _generate_chapters(
                     if page.index not in excluded)
         with TemporaryDirectory(prefix="pdf-craft-chapter-stream-") as directory:
             database = Path(directory) / "content.sqlite"
-            resolve_to_disk(read_pages, database)
+            resolve_to_disk(read_pages, database, includes_footnotes=includes_footnotes)
             yield from chapters_from_disk(database, toc, chunk_size=chunk_size)
         return
     pages = list(analysed_pages)

@@ -88,26 +88,34 @@ class RepairedPage(_StrictModel):
     references: list[RepairedReference]
 
 
-PAGE_REPAIR_SYSTEM_PROMPT = """\
-你负责修复 PDF OCR 页的语义分析结果。输入包含上一页、目标页和下一页的完整文本结构；只允许修改目标页。
+_SOURCE_CONTRACT = """不可变事实：目标页 page_index、layout 数量、layout_id、document_order、bbox、source_type 和 text。你不能增删、拆分、合并或重排 layout，也不能改动文字。"""
 
-不可变事实：目标页 page_index、layout 数量、layout_id、document_order、bbox、source_type 和 text。你不能增删、拆分、合并或重排 layout，也不能改动文字。
+_ASSET_CONTRACT = """图片/表格可以嵌在同一个自然段内部，它们的位置不可移动，自身的两个 continuation 必须为 false。判断文字 continuation 时跳过这些锚点，连接同一归属流中的前一文字 layout；只有独立段落公式阻断这种连接。"""
 
-可编辑语义：layout 的 paragraph/citation/ignored 归属、前驱 continuation、paragraph role/level、citation 分组与页内索引，以及正文 ref 的位置。页码、running header 和装饰物必须标为 ignored；ignored layout 仍保留在页面中，但不会进入任何恢复流。
+_NEIGHBOR_CONTRACT = """相邻页仅提供不可变的初级内容上下文，不提供审核评分。跨出局部窗口的语义身份及跨纯图片/表格页的正文前驱，可能尚未绑定；不要猜测窗口外的身份或仅因看不到前驱而修改连接。这些关系由后续按序组段绑定，不是本次请求必须补齐的字段。若目标页带有 jev_p_pass，它只表示较弱审核器对当前页的估计，不是事实或约束；请独立检查，如果原结果正确可以原样返回。"""
 
-图片/表格可以嵌在同一个自然段内部，它们的位置不可移动，自身的两个 continuation 必须为 false。判断文字 continuation 时跳过这些锚点，连接同一归属流中的前一文字 layout；只有独立段落公式阻断这种连接。
-
-相邻页仅提供不可变的初级内容上下文，不提供审核评分。跨出这个局部窗口的脚注起点和跨纯图片/表格页的正文前驱，可能尚未绑定；不要猜测窗口外的身份或仅因看不到前驱而修改连接。这些关系由后续按序组段绑定，不是本次请求必须补齐的字段。若目标页带有 jev_p_pass，它只表示较弱审核器对当前页的估计，不是事实或约束；请独立检查，如果原结果正确可以原样返回。
-
-修改纪律：
-- 现有标注是一套已闭环的候选结果，不是让你从头重做的空白草稿。默认保留每个字段；只在文本语义、几何位置或引用对应给出具体证据时修改。
-- 发现页码或 running header 时，将该 layout 改为 ignored，但不要顺手改写与它无关的 citation、ref 或段落边界。
-- 判断 gap 时，在心中直接拼接前一 layout 末尾和后一 layout 开头。只有拼接后语法与意义显然是同一自然段或同一条 citation 时才设为 true；空间相邻、冒号、缩进或排版分块单独都不足以决定连接。结合 bbox 判断：同缩进且行距正常的冒号引导句与后续文字可能是同一段；而前文说“阅读下面的段落”之类引导语，后面内容明显整体缩进且增加垂直留白时，后者是独立块引文，gap 应为 false。
-- 对现有 false 边界采用很高的合并门槛。两个 layout 主题相关、后者解释前者、处在同一引文中，或普通行距接近，都不表示它们是同一自然段；完整句之后开始的新段必须保持 false。只有存在明确的 OCR/跨栏/跨页人工断裂证据，而且前后文字拼接后才形成一个原本无法各自成立的句子或同一脚注段落时，才把 false 改成 true。
+_CONTINUATION_RULES = """修改纪律：
+- 现有标注是一套已闭环的候选结果，不是让你从头重做的空白草稿。默认保留每个字段；只在文本语义、几何位置或来源对应给出具体证据时修改。
+- 发现页码或 running header 时，将该 layout 改为 ignored，但不要顺手改写与它无关的语义归属或段落边界。
+- 判断 gap 时，在心中直接拼接前一 layout 末尾和后一 layout 开头。只有拼接后语法与意义显然是同一流内的自然段时才设为 true；空间相邻、冒号、缩进或排版分块单独都不足以决定连接。结合 bbox 判断：同缩进且行距正常的冒号引导句与后续文字可能是同一段；而前文说“阅读下面的段落”之类引导语，后面内容明显整体缩进且增加垂直留白时，后者是独立块引文，gap 应为 false。
+- 对现有 false 边界采用很高的合并门槛。两个 layout 主题相关、后者解释前者、处在同一引文中，或普通行距接近，都不表示它们是同一自然段；完整句之后开始的新段必须保持 false。只有存在明确的 OCR/跨栏/跨页人工断裂证据，而且前后文字拼接后才形成一个原本无法各自成立的句子或同一流内段落时，才把 false 改成 true。
 - 特别检查页首的跨页尾句：如果某 layout 的 continues_from_previous 已为 true，它只是承接上一页并以句号等终止标点结束的短尾部，而下一 layout 从完整新句开始，则二者之间的既有 false 必须保留。不能因为同缩进、普通行距或主题连续，把上一段的页首尾句并入下一段。
 - 同页已有的 false 边界默认不可打开。除非前一 layout 明显以未完句结束、后一 layout 明显只是该句的直接续文，并且没有段落缩进或垂直留白证据，否则禁止把它改成 true；两个完整句子即使主题连续，也必须保持 false。
 - initial_stream_boundary_from_previous 是根据现有归属预先计算的几何提示：vertical_gap 是上下间距，left_delta 为正表示当前块左侧向内缩，right_inset_delta 为正表示当前块右侧也向内缩。它只是证据，归属有误时可以忽略；但同时出现明显左右缩进和较大留白时，应认真检查当前块是否为独立块引文。
-- 每条连接仅由后继 layout 的 continues_from_previous 决定；continues_to_next 是本地派生展示信息，返回时省略它。不能依靠修改前驱的展示值来建立连接。
+- 每条连接仅由后继 layout 的 continues_from_previous 决定；continues_to_next 是本地派生展示信息，返回时省略它。不能依靠修改前驱的展示值来建立连接。"""
+
+PAGE_REPAIR_SYSTEM_PROMPT = f"""\
+你负责修复 PDF OCR 页的语义分析结果。输入包含上一页、目标页和下一页的完整文本结构；只允许修改目标页。
+
+{_SOURCE_CONTRACT}
+
+可编辑语义：layout 的 paragraph/citation/ignored 归属、前驱 continuation、paragraph role/level、citation 分组与页内索引，以及正文 ref 的位置。页码、running header 和装饰物必须标为 ignored；ignored layout 仍保留在页面中，但不会进入任何恢复流。
+
+{_ASSET_CONTRACT}
+
+{_NEIGHBOR_CONTRACT}
+
+{_CONTINUATION_RULES}
 - layout.text 保留完整来源，包括印刷标记。citation.mark 是标记的语义；本地输出时才移除实际匹配的前缀范围，改回 paragraph 时原文完整恢复。
 - citation 成员关系与 gap 是两个正交维度：多个 layout 可以都属于同一 citation_id，却因为是脚注内的不同自然段而将相邻 gap 设为 false。常见脚注会依次包含以冒号结尾的引导句、缩进引文和后续评论；它们可以是三个自然段，但仍全部属于同一 citation。不要为了拆段而把引导句改成 paragraph。
 - 修好已有具体错误后就停止。页面被送来不意味着每种结构都有错，不得为了显示做过审查而制造额外修改。
@@ -314,6 +322,7 @@ async def repair_page_with_llm(
     retry_policy: RetryPolicy | None = None, error_policy: ErrorPolicyInput = OMITTED,
     request_headers: Mapping[str, str] | None = None,
     usage: UsageCollector | None = None,
+    includes_footnotes: bool = True,
 ) -> PageAnalysis:
     """Repair exactly ``target_page`` using full text-only neighbor context."""
 
@@ -324,8 +333,16 @@ async def repair_page_with_llm(
         previous_pass_probability=previous_pass_probability,
         next_pass_probability=next_pass_probability,
         target_pass_probability=target_pass_probability,
+        includes_footnotes=includes_footnotes,
     )
     def compile_candidate(data, _index, _maximum):
+        if not includes_footnotes:
+            response = cast(RepairedPage, data)
+            if response.citations or response.references or any(
+                layout.ownership == 'citation' or layout.citation_id is not None
+                or layout.citation_index is not None for layout in response.layouts
+            ):
+                raise ValueError("[FOOTNOTES_DISABLED] Page refinement cannot create citations or references")
         context = all_pages or [page for page in (previous_page, target_page, next_page)
                                 if page is not None]
         available = {citation.citation_id: citation for page in context
@@ -389,6 +406,7 @@ def build_page_repair_messages(
     previous_pass_probability: float | None,
     next_pass_probability: float | None,
     target_pass_probability: float | None = None,
+    includes_footnotes: bool = True,
 ) -> list[Message]:
     del previous_pass_probability, next_pass_probability
     target = _page_packet(target_page)
@@ -400,8 +418,22 @@ def build_page_repair_messages(
         "next_page": _context_packet(next_page),
         "output_contract": RepairedPage.model_json_schema(),
     }
+    system_prompt = PAGE_REPAIR_SYSTEM_PROMPT if includes_footnotes else f"""
+你负责精校 PDF OCR 页的正文语义，只允许修改目标页。
+{_SOURCE_CONTRACT}
+本次关闭脚注：ownership 只允许 paragraph 或 ignored；citations 和 references 必须为空，
+citation_id / citation_index 必须为 null。不要识别脚注、建立引用关系或因为疑似脚注而删除文字。
+可修改正文自然段续接、role/level；页码、running header 与装饰物应 ignored。
+{_ASSET_CONTRACT}
+{_NEIGHBOR_CONTRACT}
+{_CONTINUATION_RULES}
+修好具体错误后就停止，不因送来精校而制造修改；校验冲突应回到语义判断，不强行拼接无关内容。
+ignored 的 continuation 必须为 false，paragraph_role、paragraph_level、citation_id、citation_index 为 null。
+返回前检查正文前驱真实存在，不能连接 ignored 或独立公式；资产透明但自身 gap 为 false。
+返回完整目标页 JSON，遵守 output_contract，不要解释或 Markdown 围栏。校验失败后重新返回完整 JSON。
+"""
     return [
-        Message(MessageRole.SYSTEM, PAGE_REPAIR_SYSTEM_PROMPT),
+        Message(MessageRole.SYSTEM, system_prompt),
         Message(
             MessageRole.USER,
             json.dumps(payload, ensure_ascii=False, indent=2),

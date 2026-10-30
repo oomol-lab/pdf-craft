@@ -87,7 +87,10 @@ class RefinementPipelineTests(IsolatedAsyncioTestCase):
     async def test_real_entry_does_not_wait_for_all_jev_after_ocr_eof(self):
         await self._check_local_entry(False)
 
-    async def _check_local_entry(self, block_ocr):
+    async def test_body_only_entry_keeps_incremental_delivery(self):
+        await self._check_local_entry(True, footnotes=False)
+
+    async def _check_local_entry(self, block_ocr, footnotes=True):
         import json
         import threading
         from pathlib import Path
@@ -129,7 +132,7 @@ class RefinementPipelineTests(IsolatedAsyncioTestCase):
             with patch.object(JEVRuntime, 'evaluate', evaluate), patch('pdf_craft.transform.runtime_for', return_value=Runtime()):
                 task = asyncio.create_task(AsyncPDFCraft.from_engine(engine).extract_pdf(
                     root/'source.pdf', root/'book.pcex', ExtractionOptions(
-                        includes_furniture=False, footnotes=refinement(), on_body=lambda _node: body_ready.set()),
+                        includes_furniture=False, footnotes=footnotes, refinement=refinement(), on_body=lambda _node: body_ready.set()),
                     analysing_path=root/'analysis', error_policy=False))
                 try:
                     if block_ocr:
@@ -327,7 +330,7 @@ class RefinementPipelineTests(IsolatedAsyncioTestCase):
             decisions = []
             await AsyncPDFCraft.from_engine(Engine('ignored')).extract_pdf(
                 root/'source.pdf', root/'book.pcex', ExtractionOptions(
-                    includes_furniture=False, footnotes=refinement()),
+                    includes_furniture=False, footnotes=True, refinement=refinement()),
                 analysing_path=root/'analysis', error_policy=lambda event: decisions.append(event) or True)
             self.assertEqual([event.stage for event in decisions], ['footnote_commit'])
             with ZipFile(root/'book.pcex') as archive:

@@ -1,4 +1,4 @@
-"""Public configuration for footnote extraction and optional refinement."""
+"""Public configuration for optional page-semantic refinement."""
 
 from dataclasses import dataclass
 
@@ -8,8 +8,8 @@ from .concurrency import AsyncExecutor
 
 
 @dataclass(frozen=True)
-class FootnoteRefinement:
-    """Use JEV to route uncertain footnote pages to an LLM."""
+class Refinement:
+    """Use JEV to route uncertain pages to an LLM."""
 
     jev: JEV
     llm: LLM
@@ -20,14 +20,16 @@ class FootnoteRefinement:
     llm_executor: AsyncExecutor | None = None
 
     def __post_init__(self) -> None:
+        if self.jev is None or self.llm is None:
+            raise ValueError("Refinement requires both JEV and LLM")
         if not 0 <= self.risk_threshold <= 1:
-            raise ValueError("footnote refinement risk_threshold must be between 0 and 1")
+            raise ValueError("page refinement risk_threshold must be between 0 and 1")
         if self.max_output_tokens < 1:
-            raise ValueError("footnote refinement max_output_tokens must be at least 1")
+            raise ValueError("page refinement max_output_tokens must be at least 1")
         if self.jev_executor is None and self.executor is None:
-            raise ValueError("Footnote refinement requires a JEV executor")
+            raise ValueError("Page refinement requires a JEV executor")
         if self.llm_executor is None and self.executor is None:
-            raise ValueError("Footnote refinement requires an LLM executor")
+            raise ValueError("Page refinement requires an LLM executor")
 
     def resolved_jev_executor(self) -> AsyncExecutor:
         executor = self.jev_executor or self.executor
@@ -38,10 +40,3 @@ class FootnoteRefinement:
         executor = self.llm_executor or self.executor
         assert executor is not None
         return executor
-
-
-@dataclass(frozen=True)
-class FootnoteOptions:
-    """Enable algorithmic footnote extraction with optional AI refinement."""
-
-    refinement: FootnoteRefinement | None = None

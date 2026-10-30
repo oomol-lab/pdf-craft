@@ -62,7 +62,7 @@ class RefinementReadinessTests(IsolatedAsyncioTestCase):
                     'pdf_craft.pdf.page_ref.pdf_pages_count', return_value=6):
                 task = asyncio.create_task(AsyncPDFCraft.from_engine(engine).extract_pdf(
                     root/'source.pdf', root/'book.pcex', ExtractionOptions(
-                        includes_furniture=False, footnotes=refinement(), on_body=bodies.append,
+                        includes_furniture=False, footnotes=True, refinement=refinement(), on_body=bodies.append,
                         on_extraction_event=events.append),
                     analysing_path=root/'analysis', error_policy=False))
                 try:

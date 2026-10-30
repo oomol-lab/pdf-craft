@@ -151,7 +151,7 @@ class AccountingTests(IsolatedAsyncioTestCase):
 
 class RefinementProgressTests(TestCase):
     def test_conditional_refinement_and_ignored_repair_are_settled(self):
-        from pdf_craft import FootnoteOptions, FootnoteRefinement, JEV, LLM, ConcurrentExecutor, FixedCapacity
+        from pdf_craft import Refinement, JEV, LLM, ConcurrentExecutor, FixedCapacity
         from pdf_craft.jev import JEVRuntime
         async def reviews(_runtime, index, _request):
             return 0.0 if index == 1 else 1.0
@@ -160,13 +160,13 @@ class RefinementProgressTests(TestCase):
             craft = fixtures.TestFailureFallbackEPUB._craft(
                 {i: fixtures.TestFailureFallbackEPUB._page((20, 30, 40)) for i in (1, 2, 3)},
                 {i: f'Page {i} text.' for i in (1, 2, 3)})
-            refinement = FootnoteRefinement(
+            refinement = Refinement(
                 JEV(key='unused'), LLM('unused', 'https://example.invalid', 'unused', 'o200k_base'),
                 executor=ConcurrentExecutor(FixedCapacity(2)))
             with patch.object(JEVRuntime, 'evaluate', reviews), patch(
                     'pdf_craft.extractor.chapter.page_repair.repair_page_with_llm', side_effect=ValueError('final repair failure')):
                 craft.extract_pdf('scripted.pdf', Path(folder) / 'book.pcex',
-                    ExtractionOptions(includes_furniture=False, footnotes=FootnoteOptions(refinement),
+                    ExtractionOptions(includes_furniture=False, footnotes=True, refinement=refinement,
                                       on_extraction_event=events.append), error_policy=True)
             assert_lifecycle(self, events)
             self.assertTrue(any(event.page_index == 1 and event.stage == 6 for event in events))

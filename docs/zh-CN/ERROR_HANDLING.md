@@ -157,7 +157,7 @@ PCEX 回填在擦除前检查文本框是否大面积覆盖无关内容，包括
 | 已移除的参数或回调 | 替代方式 |
 | --- | --- |
 | `XMLTranslator(..., max_retries=N)`、`translate_epub(..., max_retries=N)` | 使用 `retry_policy=RetryPolicy(fill=max(0, N - 1))` 保持旧的总尝试次数。新默认值是额外重试 3 次，共 4 次尝试。 |
-| `FootnoteRefinement(..., max_retries=N)` | 在 Craft 实例或提取调用中传入 `retry_policy=RetryPolicy(analysis=N)`。 |
+| `FootnoteRefinement(..., max_retries=N)` | 迁移为 `Refinement(...)`，并在 Craft 实例或提取调用中传入 `retry_policy=RetryPolicy(analysis=N)`。 |
 | `JEV(..., retry_times=N)` | 使用 `RetryPolicy(analysis=N)`，与其他分析步骤共享配置。 |
 | `ExtractionOptions(ignore_pdf_errors=...)` | 在执行的 `error_policy` 中使用 `ErrorPolicy(ignore_pdf_render_errors=...)`。 |
 | `ExtractionOptions(ignore_ocr_errors=...)` | 在执行的 `error_policy` 中使用 `ErrorPolicy(ignore_ocr_errors=...)`。 |
