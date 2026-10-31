@@ -2,7 +2,7 @@
 
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
-from dataclasses import dataclass
+from dataclasses import dataclass, fields
 from datetime import datetime, timezone
 from importlib.metadata import PackageNotFoundError, version
 import json
@@ -16,7 +16,7 @@ from zipfile import BadZipFile, ZIP_DEFLATED, ZipFile, ZipInfo
 
 from epub_generator import BookMeta
 
-from ..common import indent, save_xml
+from ..common import indent, save_xml, safe_text
 from ..runtime import IO_DOMAIN, run_atomic_cancellable
 
 
@@ -52,6 +52,9 @@ class DocumentAuthor:
     original_name: str | None = None
     nationality: str | None = None
 
+    def __post_init__(self) -> None:
+        _accept_metadata_text(self)
+
 
 @dataclass(frozen=True)
 class DocumentMetadata:
@@ -71,6 +74,35 @@ class DocumentMetadata:
     rights: str | None = None
     modified: datetime | None = None
     language: str | None = None
+
+    def __post_init__(self) -> None:
+        _accept_metadata_text(self)
+
+
+def _accept_metadata_text(metadata: DocumentAuthor | DocumentMetadata) -> None:
+    for field in fields(metadata):
+        value = getattr(metadata, field.name)
+        if isinstance(value, str):
+            object.__setattr__(metadata, field.name, safe_text(value))
+        elif isinstance(value, tuple):
+            object.__setattr__(metadata, field.name, tuple(
+                safe_text(item) if isinstance(item, str) else item for item in value
+            ))
+
+
+def accept_metadata(value: Any) -> Any:
+    """Accept text values from external PCEX JSON without changing its schema.
+
+    Only pass bibliographic metadata here, never content identities or XML.
+    Keeping the JSON shape preserves legacy authors and partial overlays.
+    """
+    if isinstance(value, str):
+        return safe_text(value)
+    if isinstance(value, list):
+        return [accept_metadata(item) for item in value]
+    if isinstance(value, dict):
+        return {key: accept_metadata(item) for key, item in value.items()}
+    return value
 
 
 @dataclass(frozen=True)
@@ -310,7 +342,7 @@ def write_manifest(
             "subjects": list(metadata.subjects),
             "rights": metadata.rights,
             "modified": modified,
-            "language": language if language is not None else metadata.language,
+            "language": safe_text(language) if language is not None else metadata.language,
         },
     }
     path = ExtractionPaths.at(root).manifest
@@ -532,7 +564,7 @@ def _read_manifest(path: Path) -> dict[str, Any]:
             datetime.fromisoformat(document["modified"])
         except ValueError as error:
             raise ValueError("manifest.json document.modified must be ISO 8601") from error
-    payload["document"] = document
+    payload["document"] = accept_metadata(document)
     return payload
 
 

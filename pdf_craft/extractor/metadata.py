@@ -21,6 +21,7 @@ from ..concurrency import ConcurrentExecutor, FixedCapacity
 from ..llm import LLM, Message, MessageRole, runtime_for
 from ..llm.guaranteed import GuaranteedOptions, request_guaranteed_json
 from ..pdf import PDFDocumentMetadata
+from ..common import safe_text
 
 
 _INITIAL_PAGE_COUNT = 3
@@ -47,6 +48,7 @@ class _Evidence(BaseModel):
     @field_validator("value", "evidence")
     @classmethod
     def _require_nonempty_text(cls, value: str) -> str:
+        value = safe_text(value)
         if not value.strip():
             raise ValueError("must not be empty")
         return value

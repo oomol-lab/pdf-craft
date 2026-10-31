@@ -7,11 +7,13 @@ from pdf_craft._policy import OMITTED, policy_operation
 # pylint: disable=protected-access
 
 from collections.abc import Callable
+from dataclasses import asdict, replace
 from pathlib import Path
 
 from epub_generator import BookMeta, LaTeXRender, TableRender
 
 from ...document import PDFCraftExtraction, RenderMode
+from ...document.package import accept_metadata
 from ...document.metadata import MetadataCallback
 from ...document.paragraph import ParagraphContent, SourceRegion
 from ...metering import AbortedCheck
@@ -82,6 +84,7 @@ def _merge_book_meta(extracted: BookMeta | None, explicit: BookMeta | None) -> B
     """
     if explicit is None:
         return extracted
+    explicit = replace(explicit, **accept_metadata(asdict(explicit)))
     base = extracted or BookMeta()
     return BookMeta(
         title=_text_override(explicit.title, base.title),
