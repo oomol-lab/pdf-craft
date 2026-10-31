@@ -248,7 +248,7 @@ extraction; they do not fall back to an analysis/OCR directory.
 | `page_indexes` | `None` | A container of one-based page numbers to process. |
 | `ocr_size` | `"gundam"` | OCR preset; valid values depend on the backend. |
 | `dpi` | `None` | Page-rendering DPI; the underlying default is used when omitted. |
-| `max_page_image_file_size` | `None` | Maximum rendered-image size per page. |
+| `max_page_image_file_size` | `None` | Positive byte limit for encoded page PNGs, including vendor request images. |
 | `max_ocr_tokens` | `None` | Cumulative OCR input-plus-output token budget. |
 | `max_ocr_output_tokens` | `None` | Cumulative OCR output-token budget. |
 | `includes_cover` | `False` | Retain a recognized cover image. |
@@ -265,6 +265,15 @@ extraction; they do not fall back to an analysis/OCR directory.
 | `on_body` / `on_footnote` | `None` | Receive independent PCEX XML snapshots during extraction. |
 | `on_metadata` | `None` | Receives one finalized `MetadataContent`, including an empty view when appropriate. |
 | `context` | `None` | Caller-owned `ExtractionContext` for page geometry and active resource reads. |
+
+With `max_page_image_file_size`, the requested DPI is tried first. Only an
+actually oversized PNG triggers a lower DPI and another encoding, with at most
+five generations per image (including the first). Each adjustment uses the
+measured byte size; images already within the limit keep their requested DPI.
+The final vendor request image is checked before URL resolution/upload, including
+the optional footnote pass. If the limit cannot be met, the operation reports a
+failure through the existing error policy rather than sending the oversized PNG.
+`None` disables the byte limit. No provider-specific byte limit is assumed.
 
 Page refinement is independent of footnote extraction and uses explicit credentials:
 

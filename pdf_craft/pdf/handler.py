@@ -153,13 +153,24 @@ class _MaterializedPDFDocument:
 
     def render_page(self, page_index: int, dpi: int) -> Image.Image:
         expected_dpi = self._dpi[page_index] if isinstance(self._dpi, dict) else self._dpi
-        if dpi != expected_dpi:
+        if dpi <= 0 or dpi > expected_dpi:
             raise ValueError(
                 f"materialized PDF page uses {expected_dpi} DPI, requested {dpi} DPI"
             )
         image = Image.open(self._root / f"page-{page_index}.png")
-        image.load()
-        return image
+        try:
+            image.load()
+            if dpi == expected_dpi:
+                return image
+            # Async handlers have already supplied the source raster. Retry
+            # from that raster, never from a previously downsized candidate.
+            resized = image.resize((max(1, round(image.width * dpi / expected_dpi)),
+                                    max(1, round(image.height * dpi / expected_dpi))))
+        except BaseException:
+            image.close()
+            raise
+        image.close()
+        return resized
 
     def close(self) -> None:
         return None
