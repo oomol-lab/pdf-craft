@@ -15,7 +15,7 @@ from xml.etree import ElementTree
 from ..common import save_xml
 from .package import (
     PDFCraftExtraction, TranslationInfo, _book_meta, _read_translation_index,
-    validate_translation_id,
+    validate_translation_id, _read_manifest, accept_metadata,
 )
 
 
@@ -70,9 +70,7 @@ def materialize_pdf_patch_view(
     """
     extraction._validate()  # pylint: disable=protected-access
     with extraction._materialize() as paths:  # pylint: disable=protected-access
-        source_metadata = json.loads(
-            paths.manifest.read_text(encoding="utf-8")
-        )["document"]
+        source_metadata = _read_manifest(paths.manifest)["document"]
         if translation_id is None:
             yield _PDFPatchView(
                 paths.chapters, paths.translation, paths.furnitures,
@@ -131,7 +129,7 @@ def materialize_render_view(
         raise ValueError("translation_id is only valid for replace or bilingual rendering")
 
     with extraction._materialize() as paths:  # pylint: disable=protected-access
-        source_metadata = json.loads(paths.manifest.read_text(encoding="utf-8"))["document"]
+        source_metadata = _read_manifest(paths.manifest)["document"]
         if mode == RenderMode.SOURCE:
             yield RenderView(
                 paths.chapters, paths.assets, paths.toc, paths.cover,
@@ -162,7 +160,7 @@ def materialize_render_view(
 
 
 def _read_metadata_overlay(path: Path) -> dict[str, Any]:
-    return json.loads(path.read_text(encoding="utf-8"))
+    return accept_metadata(json.loads(path.read_text(encoding="utf-8")))
 
 
 def _effective_metadata(

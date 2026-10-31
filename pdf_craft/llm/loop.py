@@ -2,7 +2,10 @@ from __future__ import annotations
 
 from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import dataclass
-from typing import Generic, Protocol, TypeVar
+from typing import Any, Generic, Protocol, TypeVar
+from pathlib import Path
+
+from .failure_log import FailureLog
 
 from .types import Message, MessageRole
 from ..usage import UsageScope
@@ -63,9 +66,23 @@ class RepairLoopOptions(Generic[T, S]):
     state: S
     max_attempts: int = 1
     history_limit: int = 2
+    failure_log_path: Path | None = None
+    failure_log_context: dict[str, Any] | None = None
 
 
 async def run_repair_loop(options: RepairLoopOptions[T, S]) -> T:
+    log = FailureLog(options.failure_log_path, {
+        'max_attempts': max(1, options.max_attempts), 'history_limit': options.history_limit,
+        **(options.failure_log_context or {}),
+    })
+    with log.scope():
+        try:
+            return await _run(options, log)
+        finally:
+            await log.close()
+
+
+async def _run(options: RepairLoopOptions[T, S], log: FailureLog) -> T:
     initial = list(options.messages)
     current = list(initial)
     retry_history: list[Message] = []
@@ -73,6 +90,7 @@ async def run_repair_loop(options: RepairLoopOptions[T, S]) -> T:
     last_response: str | None = None
     attempts = max(1, options.max_attempts)
     for attempt in range(attempts):
+        log.begin(attempt + 1, current)
         with UsageScope() as scope:
             response = await options.request(current, attempt, attempts - 1)
             last_response = response
@@ -81,6 +99,7 @@ async def run_repair_loop(options: RepairLoopOptions[T, S]) -> T:
                 if not response.strip()
                 else await options.protocol.validate(response, state, attempt, attempts)
             )
+            await log.validated(response, result)
             state = result.state
             if isinstance(result, ProtocolSuccess):
                 scope.accept()
@@ -101,4 +120,10 @@ async def run_repair_loop(options: RepairLoopOptions[T, S]) -> T:
         additions.append(Message(MessageRole.USER, result.feedback))
         retry_history = [*retry_history, *additions][-max(1, options.history_limit):]
         current = [*initial, *retry_history]
-    return await options.protocol.exhausted(state, attempts, last_response)
+    try:
+        return await options.protocol.exhausted(state, attempts, last_response)
+    except Exception as error:
+        identifier = await log.retain(error, attempts)
+        if identifier is not None:
+            setattr(error, "failure_log_id", identifier)
+        raise

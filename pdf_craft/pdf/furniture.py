@@ -19,7 +19,7 @@ from xml.etree import ElementTree as ET
 
 from ..runtime import run_subprocess_sync
 
-from ..common import indent, save_xml
+from ..common import indent, save_xml, safe_text
 from ..extractor.toc.types import TocInfo, iter_toc
 from ..extractor.toc.text import normalize_text
 from .types import decode as decode_page
@@ -159,8 +159,8 @@ def extract_furnitures(
     pages_el = ET.SubElement(root, "pages")
     for page_index, sections in sorted(pages.items()):
         page_el = ET.SubElement(pages_el, "page", {"index": str(page_index)})
-        for section in sections:
-            attributes = {"det": ",".join(map(str, section.det))}
+        for section_id, section in enumerate(sections, 1):
+            attributes = {"id": str(section_id), "det": ",".join(map(str, section.det))}
             if section.toc_id is not None:
                 attributes["toc_id"] = str(section.toc_id)
             section_el = ET.SubElement(page_el, "section", attributes)
@@ -337,7 +337,8 @@ def _native_pages(
                 "-bbox-layout", str(pdf_path), "-",
                 aborted=aborted,
             )
-        root = ET.fromstring(stdout.decode("utf-8"))
+        # Poppler can include unfiltered PDF metadata in the XHTML head.
+        root = ET.fromstring(safe_text(stdout.decode("utf-8")))
     except (FileNotFoundError, RuntimeError, ET.ParseError):
         # Furniture is optional. A PDF page remains usable if Poppler cannot
         # provide native geometry, just as a scanned page has no such output.

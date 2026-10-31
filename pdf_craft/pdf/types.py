@@ -1,11 +1,11 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, fields
 from datetime import datetime
 from typing import Literal
 from xml.etree.ElementTree import Element
 
 from PIL.Image import Image
 
-from ..common import indent
+from ..common import indent, safe_text
 
 DeepSeekOCRSize = Literal["tiny", "small", "base", "large", "gundam"]
 
@@ -41,6 +41,14 @@ class PDFDocumentMetadata:
     editors: list[str]
     translators: list[str]
     modified: datetime
+
+    def __post_init__(self) -> None:
+        for field in fields(self):
+            value = getattr(self, field.name)
+            if isinstance(value, str):
+                setattr(self, field.name, safe_text(value))
+            elif isinstance(value, list):
+                setattr(self, field.name, [safe_text(item) for item in value])
 
 
 def decode(element: Element) -> Page:

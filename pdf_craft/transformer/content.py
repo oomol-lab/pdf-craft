@@ -91,11 +91,8 @@ async def _translate_workspace(extraction, output, transformer, *, window=1,
             if metadata_result is not None:
                 metadata_result.update(overlay)
     if with_furniture and await IO_DOMAIN.run((output / 'coverage.xml').exists):
-        from .translation_coverage import read_coverage, write_furniture_coverage, FurniturePositionCoverage, FurnitureSectionCoverage
-        furniture_states = await IO_DOMAIN.run(read_coverage, output / 'coverage.xml')
-        await IO_DOMAIN.run(write_furniture_coverage, output / 'translation.xml',
-            (FurniturePositionCoverage(*key, state) for key, state in furniture_states.positions.items()),
-            (FurnitureSectionCoverage(*key, state) for key, state in furniture_states.sections.items()))
+        from .translation_coverage import copy_furniture_coverage
+        await IO_DOMAIN.run(copy_furniture_coverage, output / 'coverage.xml', output / 'translation.xml')
         await IO_DOMAIN.run((output / 'coverage.xml').unlink)
     await IO_DOMAIN.run(write_narrative_coverage, output / "translation.xml", coverage)
     if assets:

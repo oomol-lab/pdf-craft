@@ -16,3 +16,7 @@ class ChapterTocMismatch(ValueError):
 
     def __reduce__(self):
         return type(self), (self.missing_ids, self.unexpected_ids, self.page_indexes)
+
+
+class FurnitureValidationError(ValueError):
+    """Auxiliary furniture is invalid; this does not identify damaged OCR pages."""

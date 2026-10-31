@@ -362,7 +362,7 @@ narrative 与 metadata 固定翻译；`with_anchored` 和 `with_furniture` 只�
 | `page_indexes` | `None` | 只处理指定的 1-based 页面索引 |
 | `ocr_size` | `"gundam"` | 选择 OCR preset；不同 preset 的质量、速度和资源消耗取决于所选 backend |
 | `dpi` | `None` | 控制 PDF 页面渲染分辨率 |
-| `max_page_image_file_size` | `None` | 限制页面图片大小，必要时调整分辨率 |
+| `max_page_image_file_size` | `None` | PNG 实际编码字节数上限（正整数），包括提交给 OCR 供应商的请求图片 |
 | `max_ocr_tokens` / `max_ocr_output_tokens` | `None` | 限制 OCR 请求的 token 数 |
 | `includes_cover` | `False` | 生成封面图片 |
 | `footnotes` | `False` | 是否提取脚注 |
@@ -378,6 +378,12 @@ narrative 与 metadata 固定翻译；`with_anchored` 和 `with_furniture` 只�
 | `on_body` / `on_footnote` | `None` | 提取过程中接收独立 PCEX XML 快照 |
 | `on_metadata` | `None` | 一次性接收定稿后的 `MetadataContent` |
 | `context` | `None` | 调用方持有的 `ExtractionContext`，用于页面几何和活跃期间的资源访问 |
+
+设置 `max_page_image_file_size` 后，先按预设 DPI 生成 PNG，只有实际编码字节数超限
+才降低 DPI 并重新生成；每张图片最多生成 5 次，包含首次。调整幅度依据每轮实测大小，
+已达标的页面不提前降 DPI。最终供应商请求图片（包括脚注第二轮）在 URL 解析或上传前
+再次检查；无法满足上限时沿用现有错误策略报告失败，不发送超限图片。`None` 表示不限制，
+库不假定所有供应商共有固定的 10 MB 上限。
 
 页面渲染和 OCR 的降级通过门面或单次操作的 `error_policy` 配置，不属于
 `ExtractionOptions`。详见[错误处理与迁移指南](ERROR_HANDLING.md)。

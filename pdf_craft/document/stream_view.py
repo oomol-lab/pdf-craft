@@ -2,12 +2,11 @@
 # pylint: disable=protected-access
 from contextlib import asynccontextmanager, aclosing
 from dataclasses import replace
-import json
 
 from .access import page_geometries
 from .content import read_content
-from .package import _read_pages, _read_translation_index
-from .render import RenderMode, RenderView, _select_translation, _effective_metadata
+from .package import _read_pages, _read_translation_index, _read_manifest
+from .render import RenderMode, RenderView, _select_translation, _effective_metadata, _read_metadata_overlay
 from ..runtime import IO_DOMAIN, worker_context, temporary_directory
 
 
@@ -24,7 +23,7 @@ async def _content_view(extraction, *, mode=RenderMode.SOURCE, translation_id=No
         def fixed():
             from .content import chapter_paths, file_content
             from ..extractor.chapter.chapter import Reference
-            metadata = json.loads(paths.manifest.read_text(encoding='utf-8'))['document']
+            metadata = _read_manifest(paths.manifest)['document']
             dpi, sizes = _read_pages(paths.pages)
             ids = sorted({item.value.id for path in chapter_paths(paths.chapters)
                           for item in file_content(path) if isinstance(item.value, Reference)})
@@ -37,7 +36,7 @@ async def _content_view(extraction, *, mode=RenderMode.SOURCE, translation_id=No
             info = await IO_DOMAIN.run(lambda: _select_translation(
                 _read_translation_index(paths.translations), translation_id))
             layer = paths.translations / info.id
-            overlay = await IO_DOMAIN.run(lambda: json.loads((layer / 'metadata.json').read_text(encoding='utf-8')))
+            overlay = await IO_DOMAIN.run(_read_metadata_overlay, layer / 'metadata.json')
             metadata = _effective_metadata(metadata, overlay, mode)
             from ..transformer.translation_coverage import read_coverage
             coverage = await IO_DOMAIN.run(read_coverage, layer / 'coverage.xml')

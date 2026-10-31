@@ -186,7 +186,7 @@ def furniture_section_locations(sections: Sequence[FurnitureSection]) -> tuple[F
     return tuple(
         FailureLocation(
             "regions", source=current().source, member_path="furnitures.xml",
-            unit_id=f"section:{section.page_index}:{','.join(map(str, section.det))}",
+            unit_id=f"section:{section.page_index}:{section.section_id or ','.join(map(str, section.det))}",
             channel="furniture", page_indexes=(section.page_index,),
             original=section.content, page=_pages.get().get(section.page_index), bbox=section.det,
         )

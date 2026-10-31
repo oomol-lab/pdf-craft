@@ -307,9 +307,9 @@ class PDFExtractionEngine:
             draft = replace(draft, toc=toc)
             await IO_DOMAIN.run(partition_adopted, adopted, draft.chapters_path, toc)
             await IO_DOMAIN.run(save_xml, encode_toc(toc), draft.toc_path)
+            await self._write_furnitures(draft, projection, aborted)
             result = await run_cancellable(OCR_DOMAIN, lambda check: self._finish_extraction(
-                draft, aborted=check, prepared_chapters=draft.chapters_path,
-                furniture_pages_path=projection), original_aborted=aborted)
+                draft, aborted=check, prepared_chapters=draft.chapters_path), original_aborted=aborted)
             if refinement_usage is not None:
                 refinement_usage.accept()
             return result
@@ -544,6 +544,38 @@ class PDFExtractionEngine:
                           targets=(FailureLocation('field', source=str(pdf_path), field_path='metadata'),))
             return None
 
+    async def _write_furnitures(self, draft, projection, aborted):
+        """Optional native furniture must never discard adopted narrative pages."""
+        if not draft.includes_furniture:
+            return
+        from .document.package import _validate_furnitures
+        from .document.validation import FurnitureValidationError
+        from .extractor.recovery import recoverable_structure
+        from .extractor.toc import iter_toc
+        from ._policy import recover
+        from .policies import FailureCategory, FailureLocation
+
+        def generate(check):
+            write_furnitures(
+                draft.pdf_path, projection, draft.extraction_paths.furnitures,
+                toc=draft.toc, dpi=draft.dpi if draft.dpi is not None else 300,
+                aborted=check, native_pdf_text=draft.native_pdf_text,
+                native_pdf_text_prepared=draft.native_pdf_text_prepared,
+            )
+            _validate_furnitures(draft.extraction_paths.furnitures,
+                                 self._ocr.last_page_pixel_sizes,
+                                 {item.id for item in iter_toc(draft.toc.content)})
+
+        try:
+            await run_cancellable(OCR_DOMAIN, generate, original_aborted=aborted)
+        except Exception as error:
+            if not isinstance(error, FurnitureValidationError) and not recoverable_structure(error):
+                raise
+            await recover(error, FailureCategory.ANALYSIS, 'furniture', 'omit_furniture',
+                          targets=(FailureLocation('field', source=str(draft.pdf_path),
+                                                   member_path='furnitures.xml', field_path='furniture'),))
+            await IO_DOMAIN.run(draft.extraction_paths.furnitures.unlink, missing_ok=True)
+
     def _finish_extraction(
         self,
         draft: _ExtractionDraft,
@@ -552,7 +584,6 @@ class PDFExtractionEngine:
         analysed_pages=None,
         resolved_database=None,
         prepared_chapters=None,
-        furniture_pages_path=None,
     ):
         if prepared_chapters is None:
             generate_chapter_files(
@@ -569,17 +600,6 @@ class PDFExtractionEngine:
                 path.unlink()
             for path in prepared_chapters.glob('chapter_*.xml'):
                 shutil.copyfile(path, draft.chapters_path / path.name)
-        if draft.includes_furniture:
-            write_furnitures(
-                draft.pdf_path,
-                furniture_pages_path or draft.pages_path,
-                draft.extraction_paths.furnitures,
-                toc=draft.toc,
-                dpi=draft.dpi if draft.dpi is not None else 300,
-                aborted=aborted,
-                native_pdf_text=draft.native_pdf_text,
-                native_pdf_text_prepared=draft.native_pdf_text_prepared,
-            )
         cover_path = draft.cover_path
         if cover_path is not None and not cover_path.exists():
             cover_path = None

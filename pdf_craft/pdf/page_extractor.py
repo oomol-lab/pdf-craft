@@ -4,7 +4,7 @@ from pathlib import Path
 
 from PIL.Image import Image
 
-from ..common import ASSET_TAGS, AssetHub, remove_surrogates
+from ..common import ASSET_TAGS, AssetHub, safe_text
 from ..error import OCRBillingError, OCRError
 from ..policies import ErrorCallbackError
 from ..metering import AbortedCheck, check_aborted
@@ -411,7 +411,7 @@ class PageExtractorNode:
     def _normalize_text(self, text: str | None) -> str:
         if text is None:
             return ""
-        text = remove_surrogates(text)
+        text = safe_text(text)
         text = re.sub(r"\s+", " ", text)
         return text.strip()
 

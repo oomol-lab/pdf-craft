@@ -132,19 +132,16 @@ This also protects extraction without LLM refinement. OCR caches are not rewritt
 all primary pages degrading after errors still fails. Cancellation, user callback
 errors, terminal service errors and final storage/publication errors propagate.
 
-## PDF source geometry protection
+## Overlapping PDF source boxes
 
-Available since 2.6.1.
-
-Before erasing text, PCEX PDF rendering checks for text boxes that substantially
-cover unrelated source content, including figures and untranslated text. It asks
-`pdf_fill` about stage `source_geometry`, fallback `original_pdf_page`. Targets
-identify conflicting source bboxes; affected pages include complete cross-page
-paragraphs. Accepting retains those actual source PDF pages while other pages
-continue. No translated layout preview is emitted for skipped replacements;
-existing missing-translation previews can still carry original text with empty
-lines. If all primary targets degrade, the task still fails. Rejecting or raising
-from the decision callback aborts before output publication.
+Source-box overlap alone does not skip PDF replacement on a page or its
+connected paragraphs. The former area-ratio check introduced in 2.6.1 no longer
+emits `pdf_fill/source_geometry/original_pdf_page`; accepted translations proceed
+through normal layout and composition. Layout obstacles still apply. Erasure
+uses source rectangles, so inaccurate boxes can still cover figures or unrelated
+text; removing the check does not repair those boxes. Actual validation, layout
+and composition failures continue to follow the error policy, and failure of all
+primary fill targets still fails the operation.
 
 ## Upgrading from 2.5.x
 
@@ -221,3 +218,34 @@ fields remain `None`. `image_url_unsafe` is a provider code, not a pdf-craft enu
 messages and `causes` may contain private input: consumers must choose a suitable
 redaction policy before logging or sending them to analytics. Structured reasons do
 not alter fallback decisions, retry classification or document usability checks.
+
+
+## Exhausted LLM repair evidence
+
+Set the keyword-only `LLM(..., failure_log_path="analysis/llm-failures")` to
+retain full interaction evidence only when a protocol repair loop exhausts its
+integrity-validation budget. The default `None` disables it. This is independent
+of response caching and ordinary `log_dir_path` events, and also works without
+`analysing_path`. Both Craft facades share the same implementation.
+
+The exception and `FailureContext.error.failure_log_id` identify
+`<failure_log_path>/<failure_log_id>/`. Read `summary.json` for the stage, model,
+targets when known, attempt count, final error and `complete` flag;
+`attempts.jsonl` contains every repair attempt's actual messages, effective
+parameters, response and validation feedback. `transports.jsonl` separately
+records transport requests/responses (including transport retries) and available
+provider request IDs. The loop ID does not replace a provider's `request_id`.
+
+Successful loops, including repaired ones, remove temporary evidence. A callback
+that accepts a fallback still receives the ID and leaves the exhausted loop's
+files available for a diagnostics archive. Cancellation and ordinary transport
+failure clean temporary records rather than creating a protocol-exhaustion log.
+Transport events are flushed in order after the request releases provider capacity.
+Evidence disk I/O does not consume the LLM transport timeout budget; cancellation
+waits for an in-flight write to settle before removing temporary records.
+Disk errors issue a `pdf_craft.llm.failure_log` warning and do not replace the
+business result; a retained summary may have `complete=false`, or no ID may be
+available if publication failed. Records are written incrementally, with only the
+current attempt in memory. Keys, Authorization values and credential-bearing URLs
+are redacted, but the remaining document text is private: restrict access and
+archive/expire these directories according to the host's retention policy.

@@ -1,6 +1,7 @@
 """CSS Text transport subset and algorithmic recovery (no model requests)."""
 # pylint: disable=protected-access
 from copy import deepcopy
+import unicodedata
 from unittest import TestCase, IsolatedAsyncioTestCase
 from unittest.mock import AsyncMock
 from xml.etree.ElementTree import fromstring, tostring
@@ -134,6 +135,21 @@ class WhitespaceRecoveryTests(TestCase):
             before = tostring(root)
             self.assertFalse(restore_canonical_whitespace([root], canonical))
             self.assertEqual(tostring(root), before)
+
+    def test_combining_mark_gap_recovery_is_equivalent_or_transactionally_rejected(self):
+        canonicals = ('a\u0301 \u0323b', 'a\u0323 \u0301b', 'a\u0301\u0323 b', 'á \u0323b')
+        candidates = ('a\u0301\u0323b', 'a\u0323\u0301b', 'a\u0301 \u0323b',
+                      'a\u0323 \u0301b', 'á\u0323b', 'ạ\u0301b')
+        for canonical in canonicals:
+            for actual in candidates:
+                with self.subTest(canonical=canonical, actual=actual):
+                    root = fromstring(f'<fragment>{actual}</fragment>')
+                    before = tostring(root)
+                    if restore_canonical_whitespace([root], canonical):
+                        self.assertEqual(unicodedata.normalize('NFC', ''.join(root.itertext())),
+                                         unicodedata.normalize('NFC', canonical))
+                    else:
+                        self.assertEqual(tostring(root), before)
 
     def test_missing_gap_between_styled_slots_requires_unique_owner(self):
         root = fromstring('<fragment><span id="2">Hello</span><span id="3">world</span></fragment>')

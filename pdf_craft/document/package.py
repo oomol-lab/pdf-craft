@@ -2,7 +2,7 @@
 
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
-from dataclasses import dataclass
+from dataclasses import dataclass, fields
 from datetime import datetime, timezone
 from importlib.metadata import PackageNotFoundError, version
 import json
@@ -16,7 +16,8 @@ from zipfile import BadZipFile, ZIP_DEFLATED, ZipFile, ZipInfo
 
 from epub_generator import BookMeta
 
-from ..common import indent, save_xml
+from .furniture import section_identity, coverage_identity
+from ..common import indent, save_xml, safe_text
 from ..runtime import IO_DOMAIN, run_atomic_cancellable
 
 
@@ -52,6 +53,9 @@ class DocumentAuthor:
     original_name: str | None = None
     nationality: str | None = None
 
+    def __post_init__(self) -> None:
+        _accept_metadata_text(self)
+
 
 @dataclass(frozen=True)
 class DocumentMetadata:
@@ -71,6 +75,35 @@ class DocumentMetadata:
     rights: str | None = None
     modified: datetime | None = None
     language: str | None = None
+
+    def __post_init__(self) -> None:
+        _accept_metadata_text(self)
+
+
+def _accept_metadata_text(metadata: DocumentAuthor | DocumentMetadata) -> None:
+    for field in fields(metadata):
+        value = getattr(metadata, field.name)
+        if isinstance(value, str):
+            object.__setattr__(metadata, field.name, safe_text(value))
+        elif isinstance(value, tuple):
+            object.__setattr__(metadata, field.name, tuple(
+                safe_text(item) if isinstance(item, str) else item for item in value
+            ))
+
+
+def accept_metadata(value: Any) -> Any:
+    """Accept text values from external PCEX JSON without changing its schema.
+
+    Only pass bibliographic metadata here, never content identities or XML.
+    Keeping the JSON shape preserves legacy authors and partial overlays.
+    """
+    if isinstance(value, str):
+        return safe_text(value)
+    if isinstance(value, list):
+        return [accept_metadata(item) for item in value]
+    if isinstance(value, dict):
+        return {key: accept_metadata(item) for key, item in value.items()}
+    return value
 
 
 @dataclass(frozen=True)
@@ -310,7 +343,7 @@ def write_manifest(
             "subjects": list(metadata.subjects),
             "rights": metadata.rights,
             "modified": modified,
-            "language": language if language is not None else metadata.language,
+            "language": safe_text(language) if language is not None else metadata.language,
         },
     }
     path = ExtractionPaths.at(root).manifest
@@ -532,7 +565,7 @@ def _read_manifest(path: Path) -> dict[str, Any]:
             datetime.fromisoformat(document["modified"])
         except ValueError as error:
             raise ValueError("manifest.json document.modified must be ISO 8601") from error
-    payload["document"] = document
+    payload["document"] = accept_metadata(document)
     return payload
 
 
@@ -625,7 +658,17 @@ def _validate_furnitures(
     page_sizes: dict[int, tuple[int, int]],
     toc_ids: set[int],
 ) -> None:
-    root = _require_xml_root(path, "furnitures")
+    from .validation import FurnitureValidationError
+    try:
+        _check_furnitures(path, page_sizes, toc_ids)
+    except (ValueError, ElementTree.ParseError) as error:
+        raise FurnitureValidationError(str(error)) from error
+
+
+def _check_furnitures(path: Path, page_sizes: dict[int, tuple[int, int]], toc_ids: set[int]) -> None:
+    root = ElementTree.parse(path).getroot()
+    if root.tag != "furnitures":
+        raise ValueError("furnitures.xml root must be <furnitures>")
     if list(root.tag for root in root) != ["patterns", "pages"]:
         raise ValueError("furnitures.xml must contain patterns and pages")
     pattern_ids: set[str] = set()
@@ -686,11 +729,14 @@ def _validate_furnitures(
             if section.tag != "section" or "det" not in section.attrib:
                 raise ValueError("furnitures.xml has invalid section")
             _validate_bbox(section.attrib["det"], page_sizes[index], path.name)
-            section_identity = (index, section.attrib["det"])
-            if section_identity in sections:
+            identity = (index, section_identity(section))
+            section_id = section.get("id")
+            if section_id is not None and re.fullmatch(r"[1-9][0-9]*", section_id) is None:
+                raise ValueError("furnitures.xml has invalid section id")
+            if identity in sections:
                 raise ValueError("furnitures.xml has duplicate section identity")
-            sections.add(section_identity)
-            if set(section.attrib).issubset({"det", "toc_id"}):
+            sections.add(identity)
+            if set(section.attrib).issubset({"id", "det", "toc_id"}):
                 toc_id = section.get("toc_id")
                 if not _valid_toc_id(toc_id, toc_ids):
                     raise ValueError("furnitures.xml has invalid section toc_id")
@@ -939,7 +985,7 @@ def _validate_translation(
             for position in pattern
         }
         sections = {
-            (page.get("index", ""), section.get("det", ""))
+            (page.get("index", ""), section_identity(section), section.get("det", ""))
             for page in furniture_root.find("pages") or []
             for section in page
             if not list(section)
@@ -955,10 +1001,14 @@ def _validate_translation(
                     raise ValueError("translation.xml references an invalid furniture position")
                 seen_positions.add(identity)
             elif entry.tag == "section":
-                if set(entry.attrib) != {"page_index", "det", "state"}:
+                if set(entry.attrib) not in ({"page_index", "det", "state"},
+                                            {"page_index", "det", "section_id", "state"}):
                     raise ValueError("translation.xml has invalid furniture section")
-                identity = (entry.get("page_index", ""), entry.get("det", ""))
-                if identity not in sections or identity in seen_sections:
+                if "section_id" in entry.attrib and re.fullmatch(r"[1-9][0-9]*", entry.get("section_id", "")) is None:
+                    raise ValueError("translation.xml has invalid furniture section id")
+                identity = (entry.get("page_index", ""), coverage_identity(entry))
+                reference = (*identity, entry.get("det", ""))
+                if reference not in sections or identity in seen_sections:
                     raise ValueError("translation.xml references an invalid furniture section")
                 seen_sections.add(identity)
             else:

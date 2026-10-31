@@ -19,6 +19,7 @@ class LLM:
                  retry_times: int = 5, retry_interval_seconds: float = 6.0,
                  cache_path: PathLike | str | None = None,
                  log_dir_path: PathLike | str | None = None, *,
+                 failure_log_path: PathLike | str | None = None,
                  total_timeout: float | None = 360.0,
                  cleanup_timeout: float = 5.0,
                  on_request: RequestCallback | None = None) -> None:
@@ -34,6 +35,7 @@ class LLM:
         self.retry_times, self.retry_interval_seconds = retry_times, retry_interval_seconds
         self.cache_path = _directory(cache_path)
         self.log_dir_path = _directory(log_dir_path)
+        self.failure_log_path = _directory(failure_log_path)
         self._encoding: Encoding | None = None
         self._templates: dict[str, Template] = {}
         self._resource_lock = Lock()

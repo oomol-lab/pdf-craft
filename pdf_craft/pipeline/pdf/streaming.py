@@ -3,6 +3,7 @@
 import asyncio
 from dataclasses import replace
 
+from ...document.furniture import section_identity
 from ...common import read_xml, save_xml
 from ...common.stream import DiskDelivery
 from ...runtime import IO_DOMAIN
@@ -20,7 +21,7 @@ def source_furniture_coverage(path, coverage):
     return replace(coverage,
         positions={(p.get('id', ''), v.get('id', '')): 'translated'
                    for p in root.findall('patterns/pattern') for v in p.findall('position')},
-        sections={(int(p.get('index', '0')), s.get('det', '')): 'translated'
+        sections={(int(p.get('index', '0')), section_identity(s)): 'translated'
                   for p in root.findall('pages/page') for s in p.findall('section')})
 
 
@@ -32,7 +33,7 @@ def page_furniture(plan, index, pages, dpi, directory):
     path = directory / f'furniture-page-{index}.xml'
     save_xml(root, path)
     coverage = TranslationCoverage({}, {(v.pattern_id, v.position_id): v.state for v in positions},
-                                   {(v.page_index, v.det): v.state for v in sections}, {})
+                                   {v.identity: v.state for v in sections}, {})
     return list(PDFTranslationPipeline()._iter_covered_replacements([], path, coverage, pages, dpi))
 
 
@@ -41,22 +42,27 @@ async def produce_furniture(schedule, slots, feed_root, previews, pages, dpi, di
     pending = dict(slots)
     while pending:
         schedule.furniture_changed.clear()
-        if schedule.runner.done():
+        finished = schedule.runner.done()
+        if finished:
             schedule.runner.result()
         for index in list(pending):
             values = await IO_DOMAIN.run(page_furniture, schedule.furniture, index, pages, dpi, directory)
             if values is None:
                 continue
-            by_box = {value.bbox: value for value in values}
+            by_identity = {value.furniture_identity: value for value in values}
             for slot, prototype in pending.pop(index):
-                value = by_box.get(prototype.bbox)
+                value = by_identity.get(prototype.furniture_identity)
                 if value is not None:
                     value = _with_page_obstacles(value, obstacles)
                 await IO_DOMAIN.run(write_record, feed_root / str(slot), value)
                 await IO_DOMAIN.run(write_record, previews / str(slot), None)
         if pending:
-            if schedule.runner.done():
+            # Only a snapshot taken after successful completion proves that a
+            # dependency is missing. Completion during the reads needs a rescan.
+            if finished:
                 raise RuntimeError('furniture ended with unresolved page dependencies')
+            if schedule.runner.done():
+                continue
             await schedule.furniture_changed.wait()
 
 
