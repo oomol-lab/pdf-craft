@@ -50,6 +50,8 @@ class LocalReviewPacketTests(unittest.TestCase):
             self.assertNotIn(JEV_QUESTION_NAME, request['questions'])
         requests[0][1]['state']['local_raw_evidence']['target_page']['layouts'].clear()
         self.assertEqual(len(requests[1][1]['state']['local_raw_evidence']['target_page']['layouts']), 10)
+        requests[0][1]['questions']['gap_0']['instructions'].clear()
+        self.assertTrue(packets()[0][1]['questions']['gap_0']['instructions'])
 
     def test_decisions_live_in_checks_not_in_raw_evidence(self):
         request = packets(1)[0][1]

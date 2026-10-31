@@ -12,16 +12,12 @@ def page(index, text):
 
 
 class JEVWindowEvidenceTests(unittest.TestCase):
-    def test_each_review_gets_its_own_mode_specific_rubric(self):
-        body_only = _review_questions(False)
-        with_notes = _review_questions(True)
+    def test_footnote_review_gets_its_own_rubric_copy(self):
+        with_notes = _review_questions()
         name = "page_passes_strict_standard"
-        self.assertNotIn("citation_standard", body_only[name]["instructions"])
         self.assertIn("citation_standard", with_notes[name]["instructions"])
-        body_only[name]["instructions"]["scope"].clear()
         with_notes[name]["instructions"]["citation_standard"].clear()
-        self.assertTrue(_review_questions(False)[name]["instructions"]["scope"])
-        self.assertTrue(_review_questions(True)[name]["instructions"]["citation_standard"])
+        self.assertTrue(_review_questions()[name]["instructions"]["citation_standard"])
 
     def test_target_outgoing_edge_uses_available_raw_next_page(self):
         pages = [page(1, 'An earlier paragraph.'), page(2, 'This sentence continues'), page(3, 'on the next page.')]

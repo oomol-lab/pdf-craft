@@ -34,7 +34,19 @@ _RULES: dict[str, Any] = {
 }
 
 
-def local_review_requests(state: dict[str, Any], ownership: list[str]) -> Iterator[dict[str, Any]]:
+_OWNERSHIP_STANDARD: list[str] = [
+    "paragraph 是正文、标题、引文等主阅读流；页码、running header 和装饰物不应进入此流。",
+    "关闭脚注指最终不输出脚注，不代表 OCR 原分类必然正确；不建立 citation 或引用体系。",
+    "原 footnote 来源候选默认 ignored；若有明确证据属于正文或跨页正文续文，应判为需要修正以恢复 paragraph。",
+    "原 body 中有明确证据属于脚注的完整块应 ignored，否则需要修正；不能仅凭页底、小字号或数字开头判为脚注。",
+    "同时包含正文与脚注的块不能整块忽略；不确定时保留初级归属，不要求删除正文或重建缺失文字。",
+    "必须逐块检查全部脚注范围，包括不带编号的后续解释、图式及跨页续文；只排除编号开头而保留无编号续段仍是错误。相邻初级页也可能误分类，不应据此放行。",
+    "转下页/接上页及独立页码不是正文。正文跨页连接应跳过这些出版提示和脚注，不能把它们接到真实正文。",
+    "成页或章末校释是主阅读内容，属于paragraph；页底附属于正文引用的注释才属于脚注。不能仅因编号或释义体裁就排除成页校释。",
+    "关闭脚注时，正文中遗留①、上标数字、星号等原始引用字符完全合法；没有相应citation/ref也合法。只有实际把注释解释文字混入正文才是归属错误。"
+]
+
+def local_review_requests(state: dict[str, Any]) -> Iterator[dict[str, Any]]:
     """Yield bounded question batches with the same immutable raw neighborhood."""
     page = state["target_page"]["page_index"]
     index: dict[str, Any] = {}
@@ -99,7 +111,7 @@ def local_review_requests(state: dict[str, Any], ownership: list[str]) -> Iterat
             questions[key] = dict(type="noul", instructions=[
                 f"此题只审核target_page中source_order={order}的现有操作：{meaning}，位置索引为checks.{key}。只审这一块归属，不审其他块或自然段入向。",
                 "本次关闭脚注提取，不要求建立citation、脚注编号匹配或正文ref。原OCR分类、算法ownership都不是正确答案。",
-                *ownership,
+                *_OWNERSHIP_STANDARD,
                 "完整三页证据在local_raw_evidence。依据原文、已有标记和几何联合定位，不假设未提供的图像分隔线或文字。不要把别块的错误判给此块。清楚可修复的归属错误才FAIL，作者措辞、OCR错字或单纯不确定不是归属错误。"], criteria=criteria)
         observe(page, layout)
     raw_evidence = _raw_evidence(state)
