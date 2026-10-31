@@ -62,12 +62,38 @@ def split_reading_serials(
         if group_id != last_group_id:
             last_group_id = group_id
             if layouts_buffer:
-                yield from _split_vertical_columns(layouts_buffer)
+                yield from _split_column_seams(layouts_buffer)
                 layouts_buffer = []
         layouts_buffer.append(layout)
 
     if layouts_buffer:
-        yield from _split_vertical_columns(layouts_buffer)
+        yield from _split_column_seams(layouts_buffer)
+
+
+def _split_column_seams(layouts: list[PageLayout]):
+    """A spanning figure can hide the gutter in the x-axis histogram.
+
+    Keep the OCR order and ordinary stacked paragraphs. Only expose a clear
+    left-to-right column wrap to the joiner; its existing text/role guards
+    still decide whether the two sides form one author paragraph.
+    """
+    start = 0
+    for index in range(1, len(layouts)):
+        before, after = layouts[index - 1], layouts[index]
+        left1, top1, right1, bottom1 = before.det
+        left2, top2, right2, bottom2 = after.det
+        width1, width2 = right1 - left1, right2 - left2
+        overlap = min(bottom1, bottom2) - max(top1, top2)
+        if (before.ref == after.ref == "text"
+                and min(width1, width2) > 0
+                and max(width1, width2) <= 2 * min(width1, width2)
+                and right1 <= left2
+                and bottom1 - top1 >= 0.1 * width1
+                and (top2 <= top1
+                     or overlap >= 0.5 * min(bottom1 - top1, bottom2 - top2))):
+            yield from _split_vertical_columns(layouts[start:index])
+            start = index
+    yield from _split_vertical_columns(layouts[start:])
 
 
 def _split_vertical_columns(layouts: list[PageLayout]):

@@ -10,7 +10,7 @@ from ...pdf import TITLE_TAGS, PageLayout
 from .chapter import SourceAsset, SourceTextFragment, TextSource, InlineExpression, TextFlowItem
 from .content import Content, expand_text_in_content, first, last
 from .mergeable import LINK_FLAGS, check_mergeable, has_numbered_prefix
-from .paragraph_geometry import indented_line_boundary
+from .paragraph_geometry import indented_line_boundary, indented_line_starts
 from .reading_serials import split_reading_serials
 
 _ASSET_CAPTION_TAGS = tuple(f"{t}_caption" for t in ASSET_TAGS)
@@ -81,6 +81,8 @@ class Jointer:
         self._layouts = layouts
         self._sources = sources if sources is not None else {}
         self._reading_positions: dict[tuple[int, tuple[int, int, int, int]], int] = {}
+        self._indented_starts: set[tuple[int, int, int, int]] = set()
+        self._current_page: int | None = None
 
     def execute(self) -> Generator[TextFlowItem | SourceAsset, None, None]:
         for item in self.execute_with_progress():
@@ -183,6 +185,8 @@ class Jointer:
     ) -> Generator[tuple[int, list[PageLayout] | None], None, None]:
         for page_index, raw_layouts in self._layouts:
             self._reading_positions.clear()
+            self._current_page = page_index
+            self._indented_starts = indented_line_starts(raw_layouts)
             for layout in raw_layouts:
                 record = self._sources.get((page_index, id(layout)))
                 if record is not None:
@@ -370,7 +374,10 @@ class Jointer:
                 and has_numbered_prefix(block2.content, include_quoted=True)):
             return False
 
-        if not across_assets and indented_line_boundary(para1, para2):
+        if not across_assets and indented_line_boundary(
+            para1, para2, column_indented=(block2.page_index == self._current_page
+                                          and block2.bbox in self._indented_starts),
+        ):
             return False
 
         return check_mergeable(block1.content, block2.content)
