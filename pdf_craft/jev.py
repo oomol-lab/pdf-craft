@@ -126,6 +126,7 @@ class JEVRuntime:
                 page_index, request, _started=started,
             ))
             state = request.get('state', {})
+            state = state.get('local_raw_evidence', state)
             context_pages = tuple(FailureLocation('page', page_indexes=(part['page_index'],))
                 for key in ('previous_page', 'next_page') if isinstance((part := state.get(key)), dict)
                 and 'page_index' in part)
@@ -213,9 +214,13 @@ class JEVRuntime:
                 raise normalized from error
             observe_tokens(getattr(response, 'usage', None))
             try:
-                probability = float(response.nouls["page_passes_strict_standard"].noul)
-                if not 0 <= probability <= 1:
+                names = request["questions"]
+                if not names:
+                    raise ValueError('JEV evaluation requires at least one question')
+                probabilities = [float(response.nouls[name].noul) for name in names]
+                if any(not 0 <= probability <= 1 for probability in probabilities):
                     raise ValueError('JEV pass probability must be between 0 and 1')
+                probability = min(probabilities)
             except (ValueError, TypeError, KeyError, AttributeError):
                 invalid_response()
                 raise

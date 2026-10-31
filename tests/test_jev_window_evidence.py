@@ -12,16 +12,12 @@ def page(index, text):
 
 
 class JEVWindowEvidenceTests(unittest.TestCase):
-    def test_each_review_gets_its_own_mode_specific_rubric(self):
-        body_only = _review_questions(False)
-        with_notes = _review_questions(True)
+    def test_footnote_review_gets_its_own_rubric_copy(self):
+        with_notes = _review_questions()
         name = "page_passes_strict_standard"
-        self.assertNotIn("citation_standard", body_only[name]["instructions"])
         self.assertIn("citation_standard", with_notes[name]["instructions"])
-        body_only[name]["instructions"]["scope"].clear()
         with_notes[name]["instructions"]["citation_standard"].clear()
-        self.assertTrue(_review_questions(False)[name]["instructions"]["scope"])
-        self.assertTrue(_review_questions(True)[name]["instructions"]["citation_standard"])
+        self.assertTrue(_review_questions()[name]["instructions"]["citation_standard"])
 
     def test_target_outgoing_edge_uses_available_raw_next_page(self):
         pages = [page(1, 'An earlier paragraph.'), page(2, 'This sentence continues'), page(3, 'on the next page.')]
@@ -46,10 +42,11 @@ class JEVWindowEvidenceTests(unittest.TestCase):
         target = _project_window([None, source, None], False)[1]
         assert target is not None
         packet = dict(build_jev_review_requests([source], [target], {1: (100, 100)}, includes_footnotes=False))[1]
-        observed = packet['state']['target_page']['layouts'][0]
+        observed = packet['state']['local_raw_evidence']['target_page']['layouts'][0]
         self.assertIn('这是一条藏在中间的脚注解释', observed['raw_text'])
         self.assertNotIn('continues_to_next', observed)
-        self.assertIn('continues_from_previous', observed)
+        self.assertNotIn('continues_from_previous', observed)
+        self.assertIn('owner_0', packet['state']['checks'])
 
 
     def test_neighbor_ownership_mistakes_do_not_hide_real_body_evidence(self):
@@ -64,6 +61,6 @@ class JEVWindowEvidenceTests(unittest.TestCase):
         packet = dict(build_jev_review_requests(
             [previous, current], [p for p in projected if p],
             {1: (100, 100), 2: (100, 100)}, includes_footnotes=False))[2]
-        texts = [item['raw_text'] for item in packet['state']['previous_page']['paragraph_boundary']]
+        texts = [item['raw_text'] for item in packet['state']['local_raw_evidence']['previous_page']['paragraph_boundary']]
         self.assertIn('The analyst asked: was he angry?', texts)
         self.assertIn('② A second misplaced footnote.', texts)

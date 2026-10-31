@@ -153,7 +153,7 @@ class RefinementProgressTests(TestCase):
     def test_conditional_refinement_and_ignored_repair_are_settled(self):
         from pdf_craft import Refinement, JEV, LLM, ConcurrentExecutor, FixedCapacity
         from pdf_craft.jev import JEVRuntime
-        async def reviews(_runtime, index, _request):
+        async def reviews(_runtime, index, _request, **_kwargs):
             return 0.0 if index == 1 else 1.0
         with TemporaryDirectory() as folder:
             events = []

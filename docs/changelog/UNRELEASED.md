@@ -8,10 +8,14 @@
 - Skip OCR for strictly white rendered pages and white vendor footnote second-pass
   images without inventing requests or usage. Preserve first-pass content and old
   valid caches; near-white ink continues through OCR.
-- Review incoming paragraph edges with complete raw neighborhoods and separate
-  footnote-mode rubrics. Page refinement defaults to `risk_threshold=0.45`;
-  explicit thresholds remain configurable. Scores are not calibrated error
-  probabilities and do not impose a fixed refinement quota.
+- Adopt local JEV review for body-only refinement: incoming edges and ownership
+  are checked in batches of at most four named questions, with complete raw
+  neighborhoods and page-level maximum-risk aggregation. Keep the dedicated
+  footnote-enabled rubric and its separate internal working point. Incomplete
+  reviews follow the error policy and never count as passing pages.
+- Remove `Refinement.risk_threshold`; decisions are fixed internally. Configuration
+  after `jev` and `llm` is keyword-only. Existing callers must remove threshold
+  arguments and name optional settings such as `max_output_tokens`.
 - Bind cross-page note origins during ordered adoption without waiting for
   neighbouring LLM jobs. Preserve unnumbered notes, actual printed reference
   marks and explicitly identified non-linear source diagrams; unresolved aliases
@@ -20,8 +24,8 @@
   shared external-text cleaning, preventing hidden OCR text from becoming visible
   furniture and invalid control characters from suppressing valid native text.
 - Document structural-review principles, dynamic-repair constraints and final
-  verification results. The frozen evaluation protocol remains separate from the
-  public page-review runtime.
+  verification results, including request equivalence between the frozen local
+  protocol and the body-only extraction runtime.
 
 - Keep deliberately excluded OCR regions occupied during native furniture
   extraction, so page-refinement exclusions cannot be translated and filled

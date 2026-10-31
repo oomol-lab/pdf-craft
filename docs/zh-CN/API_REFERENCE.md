@@ -271,11 +271,21 @@ JEV 与 LLM 使用不同供应商配额时，可分别传 `jev_executor` 与 `ll
 | False | Refinement(...) | 普通 OCR + JEV + 按需 LLM 页面精校 |
 | True | Refinement(...) | 脚注 OCR + JEV + 按需 LLM 页面精校 |
 
-页面精校的 `risk_threshold` 默认值为 **0.45**：JEV 风险评分达到该值时调用 LLM。
-这是控制 LLM 调用成本的部分精修，接受一部分结构错误未被修复；显式传入的阈值仍按调用者配置执行。
-评分不是经过校准的错误概率，此阈值不限制单本精修配额，也不保证网站整体的精修比例。
-审核原则与限制见[JEV 结构审核](../design/jev-structural-review.md)。
-精校覆盖脚注的完整范围，包括无编号续文。未确认起点的初级别名不作为不可更改的跨页事实。
+页面精校使用库内部固定的分模式判定，`Refinement` 不接受 `risk_threshold`。
+关闭脚注时，JEV 分别核验自然段入向和来源归属，每次最多四个具名问题；收到全部
+请求分数后才采用该页判定。开启脚注时，沿用包含定义及引用关系的专用页级审核。
+分数不是经过校准的错误概率，也不设置精修配额。审核原则与限制见
+[JEV 结构审核](../design/jev-structural-review.md)。
+
+迁移时删除原配置中的 `risk_threshold`。`jev`、`llm` 之后的配置均使用关键字参数：
+
+```python
+refinement = Refinement(jev, llm, executor=executor, max_output_tokens=16000)
+```
+
+局部问题通过用户提供的 JEV executor 并发执行，不等待其他页。审核失败或分数不全
+按 analysis 错误策略处理，不能将缺失分数当作通过。精校覆盖无编号脚注续文，未确认
+起点的初级别名不作为不可更改的跨页事实。
 
 `extract_book_metadata` 默认关闭。开启后必须通过独立的 `metadata_llm` 参数显式提供 LLM，
 不会隐式复用 `toc_llm`。它会先向 LLM 提供前三个原始 OCR 页；模型可继续请求前部页面，但总数最多为

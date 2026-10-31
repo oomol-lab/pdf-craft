@@ -316,7 +316,7 @@ class PDFExtractionEngine:
 
     @asynccontextmanager
     async def _stream_refinement(self, options, kwargs):
-        from .extractor.chapter.page_review import build_jev_review_requests
+        from .extractor.chapter.page_review import build_jev_review_requests, review_threshold
         includes_footnotes = kwargs['includes_footnotes']
         from .extractor.chapter.page_repair import repair_page_with_llm
         from .extractor.progress import page_stage
@@ -337,22 +337,30 @@ class PDFExtractionEngine:
                 source = await IO_DOMAIN.run(lambda: [decode(read_xml(
                     kwargs['analysing_path'] / 'ocr' / f'page_{page.page_index}.xml'))
                     for page in neighbors])
-                packet = next(packet for index, packet in build_jev_review_requests(
-                    source, neighbors, self._ocr.last_page_pixel_sizes, includes_footnotes=includes_footnotes) if index == target.page_index)
+                count = 0
+                def requests():
+                    nonlocal count
+                    for index, packet in build_jev_review_requests(
+                            source, neighbors, self._ocr.last_page_pixel_sizes,
+                            includes_footnotes=includes_footnotes, target_page_index=target.page_index):
+                        if index == target.page_index:
+                            count += 1
+                            yield index, packet
                 location = FailureLocation('page', page_indexes=(target.page_index,))
                 context = tuple(FailureLocation('page', page_indexes=(page.page_index,))
                                 for page in (previous, following) if page is not None)
                 with locations((location,)):
                     await page_stage(target.page_index, 5)
                     try:
-                        probability = await jev.evaluate(target.page_index, packet)
-                        if not 0 <= probability <= 1:
-                            raise ValueError('JEV pass probability must be between 0 and 1')
+                        evaluated = await jev.evaluate_many(requests())
+                        if not evaluated or len(evaluated) != count:
+                            return PageResult(target)
+                        probability = min(value for _, value in evaluated)
                     except Exception as error:
                         await recover(error, FailureCategory.ANALYSIS, 'jev_review', 'algorithm_result',
                                       targets=(location,), context_locations=context)
                         return PageResult(target)
-                    if round(1 - probability, 12) < options.risk_threshold:
+                    if 1 - probability < review_threshold(includes_footnotes):
                         return PageResult(target)
                     await page_stage(target.page_index, 6)
                     with UsageScope(provider=options.llm) as usage:

@@ -333,14 +333,25 @@ separate `refinement=Refinement(...)` argument; no compatibility alias is provid
 | False | Refinement(...) | Ordinary OCR, JEV, and LLM repair only when needed |
 | True | Refinement(...) | Footnote OCR, JEV, and LLM repair only when needed |
 
-Page refinement defaults to `risk_threshold=0.45`: a JEV risk score at or above
-that value routes the page to the LLM. This is partial refinement: the default
-trades missed structural errors for fewer LLM calls, and explicit caller thresholds
-remain authoritative. Scores are not calibrated error probabilities, and this
-threshold does not impose a per-book quota or guarantee a website-wide routing
-rate. See the [structural-review scope and limits](../design/jev-structural-review.md).
-Review includes unnumbered note continuations. An unresolved initial alias is
-not an immutable cross-page definition.
+Page refinement uses internal, mode-specific decisions; `Refinement` has no
+`risk_threshold` parameter. With footnotes disabled, JEV checks incoming paragraph
+edges and ownership in batches of at most four named questions. Every requested
+score must be available before the page decision is adopted. With footnotes
+enabled, the dedicated page rubric also checks citation/reference relationships.
+Scores are not calibrated error probabilities and do not impose a refinement quota.
+See the [structural-review scope and limits](../design/jev-structural-review.md).
+
+Migration: remove `risk_threshold` from existing configuration. Parameters after
+`jev` and `llm`, including `max_output_tokens`, are keyword-only. For example:
+
+```python
+refinement = Refinement(jev, llm, executor=executor, max_output_tokens=16000)
+```
+
+Each page's question batches share the supplied JEV executor and do not wait for
+other pages. Failed or incomplete review follows the analysis error policy;
+missing scores never count as a passing page. Unnumbered notes remain in scope,
+and unresolved initial aliases are not immutable cross-page definitions.
 
 Book-metadata extraction is deliberately opt-in. When enabled, PDF Craft lets a dedicated LLM
 read the first three raw OCR pages and request further front pages in batches, up to twelve pages.

@@ -74,7 +74,7 @@ class ProviderRateLimitTests(unittest.IsolatedAsyncioTestCase):
             with patch('pdf_craft.jev.AsyncTypeSafeClient', return_value=client):
                 async with JEVRuntime(JEV('key'), ConcurrentExecutor(FixedCapacity(1)),
                                       retry_policy=RetryPolicy(analysis=0)) as runtime:
-                    self.assertEqual(await clock.finish(runtime.evaluate(1, {'state': {}, 'questions': {}})), .9)
+                    self.assertEqual(await clock.finish(runtime.evaluate(1, {'state': {}, 'questions': {'page_passes_strict_standard': {'type': 'noul'}}})), .9)
             self.assertIsNone(limit.__cause__, 'normalization must not cause a self-cycle')
             normalized = jev_error(SimpleJEVLimit())
             assert isinstance(normalized, RateLimitedError)

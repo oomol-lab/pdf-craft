@@ -271,3 +271,9 @@ local/vendor 首轮渲染严格纯白时保存空页和几何，不请求 OCR；
 限制四百万像素，测不到保持未知。raw XML 可选属性 `first_line_inset`、
 `vertical_columns` 向后兼容旧缓存；不改 PCEX 格式。初级投影基于几何与文字共同
 判断段界，像素缩进不得拆开未完成词语或跨资产正文。不会增加全书等待。
+
+
+关闭脚注的页审核使用 `chapter/local_review.py`：每题只审一个入向或归属决定，每请求
+最多四题，按需生成并交给现有 JEV executor。页内全部批次齐备才聚合最大风险，
+缺失批次按 analysis 错误策略恢复，不生成通过结论。开启脚注保留独立页级 rubric。
+`Refinement` 无公开 threshold，内部按模式固定判定；逐页就绪、stage 和内容流契约不变。
