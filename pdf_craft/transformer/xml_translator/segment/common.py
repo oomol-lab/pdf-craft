@@ -8,6 +8,7 @@ from pdf_craft.transformer.xml_translator.xml import ID_KEY
 class FoundInvalidIDError(Exception):
     invalid_id: str | None
     element: Element
+    reason: str | None = None
 
 
 def validate_id_in_element(element: Element, enable_no_id: bool = False) -> int | FoundInvalidIDError:

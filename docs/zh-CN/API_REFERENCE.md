@@ -672,6 +672,7 @@ LLM(
     retry_interval_seconds=6.0,
     cache_path=None,
     log_dir_path=None,
+    failure_log_path=None,       # keyword-only; exhausted repair-loop evidence
     total_timeout=360.0,
     cleanup_timeout=5.0,
 )

@@ -221,3 +221,31 @@ fields remain `None`. `image_url_unsafe` is a provider code, not a pdf-craft enu
 messages and `causes` may contain private input: consumers must choose a suitable
 redaction policy before logging or sending them to analytics. Structured reasons do
 not alter fallback decisions, retry classification or document usability checks.
+
+
+## Exhausted LLM repair evidence
+
+Set the keyword-only `LLM(..., failure_log_path="analysis/llm-failures")` to
+retain full interaction evidence only when a protocol repair loop exhausts its
+integrity-validation budget. The default `None` disables it. This is independent
+of response caching and ordinary `log_dir_path` events, and also works without
+`analysing_path`. Both Craft facades share the same implementation.
+
+The exception and `FailureContext.error.failure_log_id` identify
+`<failure_log_path>/<failure_log_id>/`. Read `summary.json` for the stage, model,
+targets when known, attempt count, final error and `complete` flag;
+`attempts.jsonl` contains every repair attempt's actual messages, effective
+parameters, response and validation feedback. `transports.jsonl` separately
+records transport requests/responses (including transport retries) and available
+provider request IDs. The loop ID does not replace a provider's `request_id`.
+
+Successful loops, including repaired ones, remove temporary evidence. A callback
+that accepts a fallback still receives the ID and leaves the exhausted loop's
+files available for a diagnostics archive. Cancellation and ordinary transport
+failure clean temporary records rather than creating a protocol-exhaustion log.
+Disk errors issue a `pdf_craft.llm.failure_log` warning and do not replace the
+business result; a retained summary may have `complete=false`, or no ID may be
+available if publication failed. Records are written incrementally, with only the
+current attempt in memory. Keys, Authorization values and credential-bearing URLs
+are redacted, but the remaining document text is private: restrict access and
+archive/expire these directories according to the host's retention policy.

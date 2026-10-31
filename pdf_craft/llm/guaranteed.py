@@ -24,6 +24,7 @@ class GuaranteedRequestError(Exception):
     def __init__(self, message: str, *, attempts: int, response: str | None = None, cause: Exception | None = None):
         super().__init__(message)
         self.attempts, self.response, self.__cause__ = attempts, response, cause
+        self.failure_log_id: str | None = None
 
 
 class GuaranteedEmptyResponseError(GuaranteedRequestError):

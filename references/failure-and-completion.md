@@ -101,6 +101,11 @@ LLM 的中间响应以可恢复的有效成果为准，不以模型逐字符遵�
 替换后仍保留的字段，不能只验证替换前的拼接文字。空槽位恢复出实际内容时，其两侧位置
 不能随意互换。持久化继续忠实保存结果，不复用交互层的空白归一化来改写已采纳内容。
 
+fill 验收按 Unicode 规范等价比较，不做兼容折叠、去重音或大小写折叠。组合字符可能
+跨 fragment/text/tail，比较和恢复须使用一致的整体文本与偏移；无歧义恢复后可保存
+规范等价的分解表示，但不改写来源 XML。请求内 block/inline ID 共用唯一身份空间，
+结构验收、canonical 验收及最终采纳必须解释为同一映射，重复身份不得形成部分成功。
+
 friendly XML 排版、空白标准化和 canonical 恢复统一使用 `transformer/whitespace.py`，
 复用现有 block/inline 分类；根据来源上下文处理 CSS document whitespace，不再用 Unicode
 范围的 `\s+` 代替语义。具体支持边界、标准链接及例外见 `docs/zh-CN/LLM_ACCEPTANCE.md`。

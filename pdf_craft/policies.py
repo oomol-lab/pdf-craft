@@ -89,6 +89,7 @@ class FailureError:
     provider_type: str | None = None
     # Each entry has its own traceback; messages may contain private source text.
     exception_chain: tuple[FailureError, ...] = ()
+    failure_log_id: str | None = None
 
 
 @dataclass(frozen=True)

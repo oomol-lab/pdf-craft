@@ -21,7 +21,6 @@ from pdf_craft.markdown.paragraph import flatten
 from pdf_craft.transformer.xml_translator.segment import search_text_segments
 from pdf_craft.transformer.xml_translator.segment import ImmutableBlockElement, InlineSegment
 from pdf_craft.transformer.xml_translator.xml import clone_element
-from pdf_craft.transformer.xml_translator.xml.const import ID_KEY
 from pdf_craft.transformer.xml_translator.utils import normalize_whitespace
 from pdf_craft.progress import ProgressEvent, UnitKind
 from .word_count import count_xml_words
@@ -524,11 +523,8 @@ def _validate_chapter_fill_canonical_text(
             "each canonical fill request must contain exactly one <text> unit."
         )
 
-    response_by_id = {
-        int(child.get(ID_KEY, "")): child
-        for child in response
-        if child.get(ID_KEY, "").isdigit()
-    }
+    from .xml_translator.xml.matching import element_id
+    response_by_id = {element_id(child): child for child in response}
     actual_by_owner: dict[int, list[str]] = {id(owner): [] for owner in owners}
     filled_slots: list[Element] = []
     owner_by_segment = {
@@ -539,8 +535,7 @@ def _validate_chapter_fill_canonical_text(
     for segment_id, owner in owner_by_segment.items():
         filled = response_by_id.get(segment_id)
         if filled is None:
-            # Structural validation supplies the useful diagnostic first.
-            return None
+            return f"Missing required canonical text slot id={segment_id}."
         filled_slots.append(filled)
         actual_by_owner[id(owner)].extend(
             text_segment.text for text_segment in search_text_segments(filled, preserve_whitespace=True)
