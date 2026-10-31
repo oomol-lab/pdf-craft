@@ -132,19 +132,16 @@ This also protects extraction without LLM refinement. OCR caches are not rewritt
 all primary pages degrading after errors still fails. Cancellation, user callback
 errors, terminal service errors and final storage/publication errors propagate.
 
-## PDF source geometry protection
+## Overlapping PDF source boxes
 
-Available since 2.6.1.
-
-Before erasing text, PCEX PDF rendering checks for text boxes that substantially
-cover unrelated source content, including figures and untranslated text. It asks
-`pdf_fill` about stage `source_geometry`, fallback `original_pdf_page`. Targets
-identify conflicting source bboxes; affected pages include complete cross-page
-paragraphs. Accepting retains those actual source PDF pages while other pages
-continue. No translated layout preview is emitted for skipped replacements;
-existing missing-translation previews can still carry original text with empty
-lines. If all primary targets degrade, the task still fails. Rejecting or raising
-from the decision callback aborts before output publication.
+Source-box overlap alone does not skip PDF replacement on a page or its
+connected paragraphs. The former area-ratio check introduced in 2.6.1 no longer
+emits `pdf_fill/source_geometry/original_pdf_page`; accepted translations proceed
+through normal layout and composition. Layout obstacles still apply. Erasure
+uses source rectangles, so inaccurate boxes can still cover figures or unrelated
+text; removing the check does not repair those boxes. Actual validation, layout
+and composition failures continue to follow the error policy, and failure of all
+primary fill targets still fails the operation.
 
 ## Upgrading from 2.5.x
 
