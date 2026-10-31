@@ -11,6 +11,7 @@ from collections.abc import Iterable, Iterator
 from pathlib import Path
 from typing import cast
 
+from ...document.furniture import section_identity
 from .error_policy import _process_error_policy_checker
 from pdf_craft.common import read_xml
 from pdf_craft.runtime import IO_DOMAIN, worker_context
@@ -133,7 +134,7 @@ class PDFTranslationPipeline:
                 else:
                     obstacles.extend(regions)
 
-        translated_furniture: list[tuple[str, tuple[PDFReplacementRegion, ...]]] = []
+        translated_furniture: list[tuple[str, tuple[PDFReplacementRegion, ...], tuple[int, str]]] = []
         if furnitures_path.exists():
             furniture = read_xml(furnitures_path)
             positions = {
@@ -152,13 +153,13 @@ class PDFTranslationPipeline:
                         )
                         state = "translated" if content is not None else "preserved"
                     else:
-                        state = coverage.sections.get((page_index, det))
+                        state = coverage.sections.get((page_index, section_identity(section)))
                         content = section.text or ""
                     region = _region_for_box(page_index, _parse_det(det), pages, render_dpi, 0, error_policy)
                     if region is None:
                         continue
                     if state == "translated" and content is not None and content.strip():
-                        translated_furniture.append((content.strip(), (region,)))
+                        translated_furniture.append((content.strip(), (region,), (page_index, section_identity(section))))
                     else:
                         obstacles.append(region)
 
@@ -181,12 +182,12 @@ class PDFTranslationPipeline:
                 layout_ref=layout.role, layout_level=layout.level,
                 inline_formulas=inline_formulas, obstacle_regions=shared_obstacles,
             ))
-        for content, regions in translated_furniture:
+        for content, regions, identity in translated_furniture:
             first = regions[0]
             replacements.append(PDFReplacement(
                 first.page_index, first.bbox, content, first.page_pixel_size, first.dpi,
                 reading_order=first.reading_order, regions=regions,
-                layout_ref="furniture", layout_level=0,
+                layout_ref="furniture", layout_level=0, furniture_identity=identity,
                 obstacle_regions=shared_obstacles,
             ))
 

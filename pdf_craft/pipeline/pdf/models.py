@@ -53,6 +53,8 @@ class PDFReplacement:
     # continuous PDF layout flow. Text regions are collected globally by the
     # window planner, so callers only attach non-replacement obstacles.
     obstacle_regions: tuple[PDFReplacementRegion, ...] = ()
+    # Stable source furniture identity for joining asynchronous results.
+    furniture_identity: tuple[int, str] | None = None
 
     def source_regions(self) -> tuple[PDFReplacementRegion, ...]:
         """Return explicit paragraph regions or the legacy single region."""

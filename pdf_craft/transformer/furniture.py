@@ -32,6 +32,7 @@ class FurnitureSection:
     page_index: int
     det: Box
     content: str
+    section_id: str | None = None
 
 
 class FurnitureTransformer(Protocol):

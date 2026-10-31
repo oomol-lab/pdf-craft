@@ -19,7 +19,7 @@ from ..common import read_xml, save_xml, AssetHub
 from .toc import TocInfo
 from ..concurrency import NonContinuableError
 from ..error import InterruptedError, NoUsableOCRPagesError, PDFError
-from ..document.validation import ChapterTocMismatch
+from ..document.validation import ChapterTocMismatch, FurnitureValidationError
 from ..policies import AllFallbackError, ErrorCallbackError, FailureCategory, FailureLocation
 from .._policy import recover
 from ..runtime import IO_DOMAIN, worker_iter
@@ -31,7 +31,7 @@ from .chapter.page_analysis import PageAnalysis
 
 def recoverable_structure(error: Exception) -> bool:
     """Do not convert user decisions, storage faults, or interruption into images."""
-    if isinstance(error, ChapterTocMismatch):
+    if isinstance(error, (ChapterTocMismatch, FurnitureValidationError)):
         return False  # A derived-directory inconsistency must not discard source pages.
     cause: BaseException | None = error
     seen: set[int] = set()

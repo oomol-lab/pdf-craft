@@ -35,7 +35,7 @@ class FurnitureCompletionTests(IsolatedAsyncioTestCase):
 
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            slots = {7: [(11, SimpleNamespace(bbox=(1, 2, 3, 4)))]}
+            slots = {7: [(11, SimpleNamespace(bbox=(1, 2, 3, 4), furniture_identity=(7, "1")))]}
             with patch.object(streaming, 'page_furniture', snapshot), \
                  patch.object(streaming, 'write_record', write), \
                  patch.object(streaming.IO_DOMAIN, 'run', io):

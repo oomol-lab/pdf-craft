@@ -16,6 +16,7 @@ from zipfile import BadZipFile, ZIP_DEFLATED, ZipFile, ZipInfo
 
 from epub_generator import BookMeta
 
+from .furniture import section_identity, coverage_identity
 from ..common import indent, save_xml, safe_text
 from ..runtime import IO_DOMAIN, run_atomic_cancellable
 
@@ -657,7 +658,17 @@ def _validate_furnitures(
     page_sizes: dict[int, tuple[int, int]],
     toc_ids: set[int],
 ) -> None:
-    root = _require_xml_root(path, "furnitures")
+    from .validation import FurnitureValidationError
+    try:
+        _check_furnitures(path, page_sizes, toc_ids)
+    except (ValueError, ElementTree.ParseError) as error:
+        raise FurnitureValidationError(str(error)) from error
+
+
+def _check_furnitures(path: Path, page_sizes: dict[int, tuple[int, int]], toc_ids: set[int]) -> None:
+    root = ElementTree.parse(path).getroot()
+    if root.tag != "furnitures":
+        raise ValueError("furnitures.xml root must be <furnitures>")
     if list(root.tag for root in root) != ["patterns", "pages"]:
         raise ValueError("furnitures.xml must contain patterns and pages")
     pattern_ids: set[str] = set()
@@ -718,11 +729,14 @@ def _validate_furnitures(
             if section.tag != "section" or "det" not in section.attrib:
                 raise ValueError("furnitures.xml has invalid section")
             _validate_bbox(section.attrib["det"], page_sizes[index], path.name)
-            section_identity = (index, section.attrib["det"])
-            if section_identity in sections:
+            identity = (index, section_identity(section))
+            section_id = section.get("id")
+            if section_id is not None and re.fullmatch(r"[1-9][0-9]*", section_id) is None:
+                raise ValueError("furnitures.xml has invalid section id")
+            if identity in sections:
                 raise ValueError("furnitures.xml has duplicate section identity")
-            sections.add(section_identity)
-            if set(section.attrib).issubset({"det", "toc_id"}):
+            sections.add(identity)
+            if set(section.attrib).issubset({"id", "det", "toc_id"}):
                 toc_id = section.get("toc_id")
                 if not _valid_toc_id(toc_id, toc_ids):
                     raise ValueError("furnitures.xml has invalid section toc_id")
@@ -971,7 +985,7 @@ def _validate_translation(
             for position in pattern
         }
         sections = {
-            (page.get("index", ""), section.get("det", ""))
+            (page.get("index", ""), section_identity(section), section.get("det", ""))
             for page in furniture_root.find("pages") or []
             for section in page
             if not list(section)
@@ -987,10 +1001,14 @@ def _validate_translation(
                     raise ValueError("translation.xml references an invalid furniture position")
                 seen_positions.add(identity)
             elif entry.tag == "section":
-                if set(entry.attrib) != {"page_index", "det", "state"}:
+                if set(entry.attrib) not in ({"page_index", "det", "state"},
+                                            {"page_index", "det", "section_id", "state"}):
                     raise ValueError("translation.xml has invalid furniture section")
-                identity = (entry.get("page_index", ""), entry.get("det", ""))
-                if identity not in sections or identity in seen_sections:
+                if "section_id" in entry.attrib and re.fullmatch(r"[1-9][0-9]*", entry.get("section_id", "")) is None:
+                    raise ValueError("translation.xml has invalid furniture section id")
+                identity = (entry.get("page_index", ""), coverage_identity(entry))
+                reference = (*identity, entry.get("det", ""))
+                if reference not in sections or identity in seen_sections:
                     raise ValueError("translation.xml references an invalid furniture section")
                 seen_sections.add(identity)
             else:
