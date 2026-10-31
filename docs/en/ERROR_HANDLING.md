@@ -240,6 +240,9 @@ Successful loops, including repaired ones, remove temporary evidence. A callback
 that accepts a fallback still receives the ID and leaves the exhausted loop's
 files available for a diagnostics archive. Cancellation and ordinary transport
 failure clean temporary records rather than creating a protocol-exhaustion log.
+Transport events are flushed in order after the request releases provider capacity.
+Evidence disk I/O does not consume the LLM transport timeout budget; cancellation
+waits for an in-flight write to settle before removing temporary records.
 Disk errors issue a `pdf_craft.llm.failure_log` warning and do not replace the
 business result; a retained summary may have `complete=false`, or no ID may be
 available if publication failed. Records are written incrementally, with only the

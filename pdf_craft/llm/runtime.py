@@ -265,9 +265,8 @@ class LLMContext(AbstractAsyncContextManager["LLMContext"]):
                         try:
                             with request_attempt(self.runtime.config) as attempt_usage:
                                 try:
-                                    evidence = active_log()
                                     if evidence is not None:
-                                        await evidence.request(self.runtime.config, messages,
+                                        evidence.request(self.runtime.config, messages,
                                             {'max_tokens': max_tokens, 'temperature': temperature, 'top_p': top_p},
                                             self.context_id)
                                     raw_text = await self.runtime._invoke_for_request(
@@ -275,7 +274,7 @@ class LLMContext(AbstractAsyncContextManager["LLMContext"]):
                                         force_ipv4=force_ipv4,
                                     )
                                     if evidence is not None:
-                                        await evidence.response(raw_text)
+                                        evidence.response(raw_text)
                                     text = safe_text(raw_text)
                                 except asyncio.CancelledError:
                                     if timeout_scope is not None and timeout_scope.expired():
@@ -294,27 +293,33 @@ class LLMContext(AbstractAsyncContextManager["LLMContext"]):
                                 raise
                             raise normalized from error
 
-                    if deadline is None:
-                        response = await self.runtime.executor.run(invoke_once)
-                    else:
-                        remaining = deadline - time.monotonic()
-                        if remaining <= 0:
-                            await raise_timeout(attempt + 1)
-                        try:
+                    try:
+                        if deadline is None:
+                            response = await self.runtime.executor.run(invoke_once)
+                        else:
+                            remaining = deadline - time.monotonic()
+                            if remaining <= 0:
+                                await raise_timeout(attempt + 1)
                             # Keep transport and cleanup on the caller task.
                             # Python 3.11 wait_for can detach its child when the
                             # caller is cancelled again during child teardown.
                             async with asyncio.timeout(remaining) as timeout_scope:
                                 response = await self.runtime.executor.run(invoke_once)
-                        except asyncio.TimeoutError as error:
-                            await self._log_async(
-                                "timeout", attempt + 1, key=key, error=error,
-                            )
-                            raise LLMTransportError(
-                                "LLM request exceeded its total timeout",
-                                attempts=transport_attempts,
-                                cause=error,
-                            ) from error
+                    except asyncio.TimeoutError as error:
+                        await self._log_async("timeout", attempt + 1, key=key, error=error)
+                        raise LLMTransportError(
+                            "LLM request exceeded its total timeout",
+                            attempts=transport_attempts,
+                            cause=error,
+                        ) from error
+                    finally:
+                        # Disk I/O neither holds provider capacity nor consumes
+                        # the shared budget for subsequent transport retries.
+                        if evidence is not None:
+                            started = time.monotonic()
+                            await evidence.flush()
+                            if deadline is not None:
+                                deadline += time.monotonic() - started
                     if not response.strip():
                         empty_attempts += 1
                         await self._log_async("empty-response", attempt + 1, key=key)
