@@ -142,6 +142,5 @@ async def refine_ready(pages, process, directory, order, *, window=MAX_PAGE_JOBS
 
 
 def _project_window(pages, includes_footnotes=True):
-    from .chapter.primary import PrimaryPages
-    projection = PrimaryPages(includes_footnotes)
-    return tuple(projection.append(page) if page is not None else None for page in pages)
+    from .chapter.primary import project_window
+    return project_window(pages, includes_footnotes)

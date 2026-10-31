@@ -57,6 +57,32 @@ class PrimaryPages:
         return target
 
 
+def project_window(pages, includes_footnotes=True):
+    """Project a ready raw neighborhood together, including its outgoing edges.
+
+    Sequential snapshots only know the left context. A review already has the
+    right page, so its target must not retain an artificial open-right boundary.
+    This remains a bounded local computation and never reads refined pages.
+    """
+    raw = deepcopy({page.index: page for page in pages if page is not None})
+    sources = capture_sources(list(raw.values()))
+    body = Jointer(((page.index, page.body_layouts) for page in raw.values()), sources)
+    notes = Jointer(((page.index, page.footnotes_layouts) for page in raw.values()
+                     if includes_footnotes), sources)
+    paragraphs, citations = _resolve_jointers(body, notes)
+    if not includes_footnotes:
+        for page in raw.values():
+            paragraphs.extend(Jointer(((page.index, page.footnotes_layouts),), sources).execute())
+    analyses = analyse_pages(raw, paragraphs, citations)
+    previous = None
+    for analysis in analyses:
+        _canonicalize(analysis, analyses, previous)
+        previous = analysis
+    projected = {page.page_index: page if includes_footnotes else _body_candidates(page)
+                 for page in analyses}
+    return tuple(projected[page.index] if page is not None else None for page in pages)
+
+
 def _canonicalize(target, analyses, previous_analysis):
     """Keep citation origins stable across overlapping local projections."""
     aliases = {}

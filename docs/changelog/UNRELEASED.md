@@ -1,6 +1,17 @@
 # Unreleased
 
-- Make page refinement conservative by default (`risk_threshold=0.30`), review
+- Align JEV page review with the authoritative incoming paragraph edges instead
+  of derived outgoing flags; project ready raw neighborhoods together and retain
+  complete layout text and neighboring candidates as review evidence, so
+  misclassified notes cannot hide the actual prose predecessor. Clarify both
+  footnote-mode rubrics:
+  sentence endings alone do not split paragraphs, and standalone endnotes remain
+  part of the main reading flow. Keep refinement thresholds caller-configurable.
+
+- Use partial page refinement by default (`risk_threshold=0.45`), with separate
+  structural review rubrics for each footnote mode and no concrete test-answer
+  examples. This limits LLM calls without promising complete error recall or a
+  fixed routing percentage; explicit caller thresholds remain authoritative. Review
   unnumbered note continuations, and stop treating unresolved OCR aliases as
   confirmed cross-page definitions. Explicit caller thresholds are unchanged.
 - Bind repaired cross-page note origins during ordered adoption without waiting
