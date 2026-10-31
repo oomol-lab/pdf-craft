@@ -29,6 +29,12 @@ def _gaps(text):
     return gaps
 
 
+def _decompose_codepoints(text: str) -> str:
+    # Keep each character's marks in its original position until gaps have
+    # been restored. Whole-string NFD could reorder them across a missing gap.
+    return ''.join(unicodedata.normalize('NFD', char) for char in text)
+
+
 def _source_owners(fields, position):
     return [f for f in fields if f.source and (
         (position == f.start and f.source[:1] in DOCUMENT_SPACE)
@@ -90,17 +96,19 @@ def restore_canonical_whitespace(roots: list[Element], canonical: str,
     canonical = canonical.replace('\r\n', '\n').replace('\r', '\n')
     visible = lambda text: ''.join(c for c in text if c not in DOCUMENT_SPACE)
     if visible(actual) != visible(canonical):
-        # Decomposition supplies comparable code-point offsets even when a
-        # base character and its mark live in different XML slots. Compare the
-        # combined stream too: canonical mark ordering can cross slot edges.
-        if unicodedata.normalize('NFD', visible(actual)) != unicodedata.normalize('NFD', visible(canonical)):
+        # Decompose without reordering source characters: whitespace may be
+        # missing between marks, and that boundary must be restored first.
+        # Normalized comparison keeps existing whitespace as a hard barrier.
+        canonical = unicodedata.normalize('NFD', canonical)
+        if (visible(_decompose_codepoints(actual)) != visible(canonical)
+                and visible(unicodedata.normalize('NFD', actual)) != visible(canonical)):
             return False
         decomposed = []
         cursor = 0
         for item in fields:
-            text = unicodedata.normalize('NFD', item.text)
+            text = _decompose_codepoints(item.text)
             end = cursor + len(visible(text))
-            decomposed.append(item._replace(text=text, source=unicodedata.normalize('NFD', item.source),
+            decomposed.append(item._replace(text=text, source=_decompose_codepoints(item.source),
                                             start=cursor, end=end))
             cursor = end
         boundary_offsets = {old.start: new.start for old, new in zip(fields, decomposed)}
@@ -109,7 +117,6 @@ def restore_canonical_whitespace(roots: list[Element], canonical: str,
         fields = decomposed
         offset = cursor
         actual = ''.join(item.text for item in fields)
-        canonical = unicodedata.normalize('NFD', canonical)
     actual_gaps, expected_gaps = _gaps(actual), _gaps(canonical)
     field_gaps = [_gaps(f.text) for f in fields]
     changes: dict[int, tuple[str, int | None]] = {}
@@ -174,7 +181,17 @@ def restore_canonical_whitespace(roots: list[Element], canonical: str,
             if cursor == position and not inserted and i == target:
                 result.append(expected)
             values[i] = ''.join(result)
-    if dict(_gaps(''.join(values))) != wanted:
+    recovered = ''.join(values)
+    if dict(_gaps(recovered)) != wanted:
+        return False
+    # Matching gap offsets alone does not prove equivalent text: combining
+    # marks can reorder inside a cluster, but never across its whitespace.
+    # Build the expected stream with the source-context whitespace decisions
+    # and verify the complete candidate before atomically changing any field.
+    characters = visible(canonical)
+    expected_text = ''.join(wanted.get(index, '') + char for index, char in enumerate(characters))
+    expected_text += wanted.get(len(characters), '')
+    if unicodedata.normalize('NFD', recovered) != unicodedata.normalize('NFD', expected_text):
         return False
     # All recovery succeeded before changing any response fields.
     for f, value in zip(fields, values):

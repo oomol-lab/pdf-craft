@@ -96,7 +96,7 @@ and commit. The private replay is opt-in and skipped in normal CI; its synthetic
 Russian regression runs in ordinary CI without the private files.
 
 
-Final implementation validation: 1386 tests passed (3 expected skips), Pyright
+Initial implementation validation: 1386 tests passed (3 expected skips), Pyright
 reported 0 errors/warnings, and Pylint passed (10.00/10; informational PySide6
 extension notices only). The 23 new public tests and the private recorded replay
 also passed with TCP disabled; the public tests used an empty tokenizer cache.
@@ -110,3 +110,42 @@ merged baseline `94be3e61f5e8ea72b6faf7e8814cd7b49c4ad75c`, 40 repetitions of
 reproduced 4 identical errors. All 10 tests in that module passed independently,
 and the final full candidate suite passed. No furniture scheduler code was
 changed for this issue; the intermittent baseline race remains a limitation.
+
+
+## Review correction: combining marks and whitespace boundaries
+
+The independent review rejected the initial implementation because removing
+whitespace before canonical normalization could reorder combining marks across
+that whitespace. For canonical `a\u0301 \u0323`, the response `a\u0323\u0301`
+was incorrectly accepted and persisted as `a\u0323 \u0301`, which is not
+canonically equivalent. The supplied counterexample and the precomposed form
+were reproduced in the permanent full-path tests before this correction.
+
+Recovery now decomposes each original code point without reordering across
+characters, retaining its association with the field/offset where whitespace
+must be restored. Whole-stream normalization in the preliminary comparison
+keeps existing whitespace as a barrier. Before committing any response field,
+the implementation constructs the expected complete stream using canonical
+characters and source-context-approved gaps, and verifies the reconstructed
+complete text for Unicode canonical equivalence. Matching gap offsets alone is
+insufficient. A failure leaves the XML fields unchanged.
+
+The added regression covers both combining-mark orders, absent and present
+incorrect spaces, precomposed characters, fragment boundaries and inline
+text/tail boundaries. Valid within-cluster reordering before a space still
+succeeds, including cross-slot cases. Missing spaces after a precomposed
+character can be recovered when ownership is unique; the accepted output is
+saved and reloaded, with canonical equivalence and source geometry checked.
+A separate table of 24 mark/space combinations checks either equivalent output
+or transactional rejection. The production Russian replay and the earlier
+positive acceptance/logging gates remain unchanged.
+
+
+Correction validation: the full suite passed 1392 tests with 3 conditional skips;
+Pyright reported 0 errors/warnings, and Pylint passed at 10.00/10 (only the
+existing informational PySide6 extension notices). With TCP connections blocked,
+the 28 public acceptance/evidence tests passed using an empty tokenizer cache;
+21 whitespace tests plus the private recorded case passed using existing
+cached tokenizer resources. The real recorded response still succeeds on the
+first fill attempt, and recorded responses 1–3 still succeed on attempt 3.
+No OCR, real LLM calls or changes to private evidence were involved.
