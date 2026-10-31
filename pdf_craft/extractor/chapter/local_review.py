@@ -73,9 +73,11 @@ def local_review_requests(state: dict[str, Any]) -> Iterator[dict[str, Any]]:
 
     prior = state.get("previous_page")
     if prior is not None:
+        # Formulas have no text source_order, but must still reset the incoming
+        # text candidates, just as they do inside the target page.
         found = {layout["document_order"]: layout
                  for field in ("paragraph_boundary", "citation_boundary", "excluded_candidates")
-                 for layout in prior.get(field, []) if layout["source_order"] is not None}
+                 for layout in prior.get(field, [])}
         for _, layout in sorted(found.items()):
             observe(prior["page_index"], layout)
     for layout in state["target_page"]["layouts"]:

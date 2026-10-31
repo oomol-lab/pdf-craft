@@ -91,6 +91,23 @@ class PrintedLineGeometryTests(TestCase):
                 assert origin is not None
                 self.assertEqual(origin.text, text)
 
+    def test_inline_math_does_not_disable_visible_first_line_observation(self):
+        node = PageExtractorNode(DeepSeekOCRVendorConfig("https://unused.invalid", "unused", "unused"))
+        text = r"A new paragraph with \(x\) keeps its original mathematical text."
+        layout = Layout((0, 0, 100, 70), text, kind=LayoutKind.TEXT)
+        response = OCRPageResult([layout], "test", structured=build_structured_page([layout]))
+        with _printed_lines() as image, TemporaryDirectory() as directory:
+            page = node.results2page(results=[(image, response)], page_index=2,
+                asset_hub=AssetHub(Path(directory)), includes_footnotes=False,
+                raw_image=None, plot_path=None, input_tokens=0, output_tokens=0,
+                aborted=lambda: False)
+        observed = page.body_layouts[0]
+        self.assertEqual(observed.text, text)
+        self.assertIsNotNone(observed.first_line_inset)
+        assert observed.first_line_inset is not None
+        self.assertGreater(observed.first_line_inset, 1)
+        self.assertFalse(observed.vertical_columns)
+
     def test_optional_observation_roundtrips_and_old_cache_remains_unknown(self):
         for inset in (None, 0.0, 1.25):
             with self.subTest(inset=inset):

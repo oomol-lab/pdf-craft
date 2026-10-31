@@ -63,6 +63,33 @@ class LocalReviewPacketTests(unittest.TestCase):
         self.assertEqual(candidates, ['p1_s0'])
         self.assertNotIn('p3_s0', candidates)
 
+    def test_previous_page_formula_clears_text_predecessors(self):
+        prior = decode(fromstring('<page index="1"><body>'
+            '<layout ref="text" det="1,1,99,20">We can write</layout>'
+            '<layout ref="formula" det="1,25,99,40">x = 1</layout>'
+            '</body></page>'))
+        current = page(2)
+        raw = [prior, current]
+        analysed = [p for p in _project_window(raw, False) if p is not None]
+        requests = list(build_jev_review_requests(raw, analysed, {1: (100, 300), 2: (100, 300)},
+                       includes_footnotes=False, target_page_index=2))
+        names = [name for _, request in requests for name in request['questions']]
+        self.assertEqual(names, ['owner_0'])
+
+    def test_text_after_previous_page_formula_is_the_only_predecessor(self):
+        prior = decode(fromstring('<page index="1"><body>'
+            '<layout ref="text" det="1,1,99,20">We can write</layout>'
+            '<layout ref="formula" det="1,25,99,40">x = 1</layout>'
+            '<layout ref="text" det="1,50,99,70">After the formula.</layout>'
+            '</body></page>'))
+        raw = [prior, page(2)]
+        analysed = [p for p in _project_window(raw, False) if p is not None]
+        requests = list(build_jev_review_requests(raw, analysed, {1: (100, 300), 2: (100, 300)},
+                       includes_footnotes=False, target_page_index=2))
+        check = next(request['state']['checks']['gap_0'] for _, request in requests
+                     if 'gap_0' in request['state']['checks'])
+        self.assertEqual(check['preceding_source_candidates'], ['p1_s2'])
+
     def test_footnote_protocol_and_its_working_point_are_not_recalibrated(self):
         requests = packets(1, footnotes=True)
         self.assertEqual(len(requests), 1)
