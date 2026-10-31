@@ -94,6 +94,39 @@ class PageAssembly:
         if self.note_callback is not None:
             self._events.append((self.note_callback, _encode_reference(ref)))
 
+    def _bind_incoming(self, page, refined):
+        # Local jobs see only raw neighbours. A repaired predecessor may have
+        # introduced a definition absent from that raw window. Bind an explicit
+        # incoming continuation here, at the sole ordered adoption boundary.
+        if self.active_note is not None or refined:
+            page = deepcopy(page)
+            next_index = max((citation.index or 0 for citation in page.citations), default=0) + 1
+            for citation in page.citations:
+                members = sorted((layout for layout in page.layouts
+                                  if layout.citation_id == citation.citation_id
+                                  and layout.source_order is not None),
+                                 key=lambda item: item.document_order)
+                incoming = citation.continues_previous or (members and members[0].continues_from_previous)
+                if citation.index is None and citation.origin_page_index is None and incoming and self.active_note is not None:
+                    alias = citation.citation_id
+                    citation.citation_id = self.active_note
+                    citation.origin_page_index = self.notes[self.active_note][0].page_index
+                    for layout in page.layouts:
+                        if layout.citation_id == alias:
+                            layout.annotations.citation_id = self.active_note
+                elif refined and citation.index is None and citation.origin_page_index is None and members and not members[0].continues_from_previous:
+                    # A validated semantic decision can identify a standalone
+                    # note even when OCR missed its printed mark. Allocate an
+                    # internal identity; never invent a visible label or an
+                    # attachment to a preceding note.
+                    citation.index = next_index
+                    citation.origin_page_index = page.page_index
+                    next_index += 1
+                    for layout in page.layouts:
+                        if layout.citation_id == citation.citation_id:
+                            layout.annotations.citation_index = citation.index
+        return page
+
     def _append(self, page):
         if self.active_note is not None and self.active_note not in {c.citation_id for c in page.citations}:
             self._close_note(self.active_note)
@@ -160,7 +193,8 @@ class PageAssembly:
             callback(value)
         self._events = []
 
-    def append(self, page):
+    def append(self, page, *, refined=False):
+        page = self._bind_incoming(page, refined)
         def commit():
             # Record the semantic dependency closure as scalars, not a book DOM.
             pending_pages = {item.page_index for item in self.body.pending}

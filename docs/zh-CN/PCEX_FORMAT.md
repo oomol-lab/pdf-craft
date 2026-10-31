@@ -579,7 +579,7 @@ pdf-craft 从 OCR Markdown 生成这些节点时，会按 GFM 风格白名单过
 
 ID 格式严格为 `<page_index>-<order>`，两段都必须是整数。这里的 `order` 是 pdf-craft 在该页抽取脚注时从 `1` 起分配的引用序号，不是 fragment 的 0-based `source_order`。
 
-每个 v3 引用定义必须恰好包含一个带文本的 `<mark>` 和一个 `<flow>`。mark 保存文本中原本出现的脚注标记，例如 `①` 或 `*`；其 flow 与 chapter 一样使用 `<text>`、`<display-formula>`、`<standalone-asset>` 节点。引用 fragment 保留自己的 `page_index`、`source_order` 和 `bbox`。
+每个 v3 引用定义必须恰好包含一个 `<mark>` 和一个 `<flow>`。mark 保存文本中原本出现的脚注标记，例如 `①` 或 `*`；当 OCR 已确认注释但未识别出印刷标记时，`<mark/>` 表示明确的无标记定义，不能虚构字符。其 flow 与 chapter 一样使用 `<text>`、`<display-formula>`、`<standalone-asset>` 节点。引用 fragment 保留自己的 `page_index`、`source_order` 和 `bbox`。
 
 chapter/reference flow 内容中的每个 `<ref>` 必须能在同章解析到定义，否则章节无效。引用定义内部不能再嵌套另一个脚注 `<ref>`。规范编码器只输出 chapter flow 实际引用到的定义，按 `(page_index, order)` 排序，并在 Markdown/EPUB 中将它们统一重新编号。
 

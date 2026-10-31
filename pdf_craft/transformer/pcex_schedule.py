@@ -6,7 +6,7 @@ from dataclasses import replace
 from typing import Any
 
 from ..concurrency import fatal_error_boundary, settle_tasks
-from ..extractor.chapter.chapter import Reference, TextFlowItem, narrative_texts
+from ..extractor.chapter.chapter import Chapter, Reference, TextFlowItem, narrative_texts, search_references_in_chapter
 from ..runtime import IO_DOMAIN, temporary_directory
 from .._failure_sources import page_sources
 from .._policy import Completion
@@ -208,6 +208,12 @@ class PCEXSchedule:
         value = target.definitions[0] if isinstance(source.value, Reference) else target.flow_items[0]
         if isinstance(value, Reference):
             value.mark = source.value.mark
+        elif isinstance(source.value, TextFlowItem):
+            marks = {reference.id: reference.mark for reference in search_references_in_chapter(
+                Chapter(source.chapter_id, source.level, [source.value]))}
+            for reference in search_references_in_chapter(target):
+                if reference.id in marks:
+                    reference.mark = marks[reference.id]
         return replace(source, value=value, original=source.value,
                        narrative_states={(state.chapter_id, state.page_index, state.order): state.state for state in states},
                        asset_children=frozenset(state.child_index for state in assets if state.state == 'translated')), states, assets

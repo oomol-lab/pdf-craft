@@ -89,7 +89,7 @@ class LiveExtraction:
                 self._refinement_order, includes_footnotes=self.includes_footnotes)) as results:
             async for result in results:
                 try:
-                    await self._analysis_domain.run(assembly.append, result.page)
+                    await self._analysis_domain.run(assembly.append, result.page, refined=result.initial is not None)
                 except Exception as error:
                     if result.usage is not None:
                         result.usage.settle(False)

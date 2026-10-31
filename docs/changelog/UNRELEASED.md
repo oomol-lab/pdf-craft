@@ -1,5 +1,28 @@
 # Unreleased
 
+- Improve paragraph joining with guarded vertical-column seams, numbered-entry
+  boundaries, quotation boundaries and measured first-line indentation. Preserve
+  source text, geometry and incremental delivery; uncertain observations keep the
+  existing path. Empty OCR text retains its source identity as ignored evidence
+  without hiding the actual prose predecessor.
+- Skip OCR for strictly white rendered pages and white vendor footnote second-pass
+  images without inventing requests or usage. Preserve first-pass content and old
+  valid caches; near-white ink continues through OCR.
+- Review incoming paragraph edges with complete raw neighborhoods and separate
+  footnote-mode rubrics. Page refinement defaults to `risk_threshold=0.45`;
+  explicit thresholds remain configurable. Scores are not calibrated error
+  probabilities and do not impose a fixed refinement quota.
+- Bind cross-page note origins during ordered adoption without waiting for
+  neighbouring LLM jobs. Preserve unnumbered notes, actual printed reference
+  marks and explicitly identified non-linear source diagrams; unresolved aliases
+  are not confirmed cross-page definitions.
+- Restrict native furniture supplementation to Poppler-visible text and apply
+  shared external-text cleaning, preventing hidden OCR text from becoming visible
+  furniture and invalid control characters from suppressing valid native text.
+- Document structural-review principles, dynamic-repair constraints and final
+  verification results. The frozen evaluation protocol remains separate from the
+  public page-review runtime.
+
 - Keep deliberately excluded OCR regions occupied during native furniture
   extraction, so page-refinement exclusions cannot be translated and filled
   back through the furniture path. Add both citation refinement modes to the

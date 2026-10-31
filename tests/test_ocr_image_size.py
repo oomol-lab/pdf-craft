@@ -40,16 +40,20 @@ def png_size(image):
 class _Document:
     pages_count = 1
 
-    def __init__(self, fixed=False, white=False):
+    def __init__(self, fixed=False, white=False, marked=False):
         self.calls = []
         self.fixed = fixed
         self.white = white
+        self.marked = marked
 
     def render_page(self, page_index, dpi):
         assert page_index == 1
         self.calls.append(dpi)
         size = (300, 360) if self.fixed else (dpi, round(dpi * 1.2))
-        return Image.new("RGB", size, "white") if self.white else noisy(size)
+        image = Image.new("RGB", size, "white") if self.white else noisy(size)
+        if self.marked:
+            image.putpixel((0, 0), (0, 0, 0))
+        return image
 
     def close(self):
         pass
@@ -258,7 +262,7 @@ class VendorImageBudgetTests(IsolatedAsyncioTestCase):
 
     async def test_second_stage_resize_keeps_saved_footnotes_in_source_geometry(self):
         for budget in (None, 10000):
-            doc, received = _Document(white=True), []
+            doc, received = _Document(white=True, marked=True), []
             async def resolve(path):
                 with Image.open(path) as image:
                     received.append(image.size)

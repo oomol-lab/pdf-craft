@@ -27,6 +27,8 @@ class PageLayout:
     text: str
     order: int
     hash: str | None
+    first_line_inset: float | None = None
+    vertical_columns: bool = False
 
 
 @dataclass
@@ -108,12 +110,15 @@ def _decode_layout(element: Element, order: int) -> PageLayout:
     det = (det_list[0], det_list[1], det_list[2], det_list[3])
     text = element.text.strip() if element.text else ""
     hash_value = element.get("hash")
+    inset = element.get("first_line_inset")
     return PageLayout(
         ref=ref,
         det=det,
         text=text,
         order=order,
         hash=hash_value,
+        first_line_inset=float(inset) if inset is not None else None,
+        vertical_columns=element.get("vertical_columns") == "true",
     )
 
 
@@ -123,5 +128,9 @@ def _encode_layout(layout: PageLayout) -> Element:
     layout_element.set("det", ",".join(map(str, layout.det)))
     if layout.hash is not None:
         layout_element.set("hash", layout.hash)
+    if layout.first_line_inset is not None:
+        layout_element.set("first_line_inset", str(layout.first_line_inset))
+    if layout.vertical_columns:
+        layout_element.set("vertical_columns", "true")
     layout_element.text = layout.text
     return layout_element

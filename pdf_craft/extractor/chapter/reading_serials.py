@@ -1,6 +1,7 @@
 from dataclasses import dataclass
 from enum import Enum, auto
 from typing import Generator, Generic, Iterable, TypeVar
+from unicodedata import east_asian_width
 
 from ...common import avg, split_by_cv
 from ...pdf import PageLayout
@@ -61,12 +62,65 @@ def split_reading_serials(
         if group_id != last_group_id:
             last_group_id = group_id
             if layouts_buffer:
-                yield layouts_buffer
+                yield from _split_vertical_columns(layouts_buffer)
                 layouts_buffer = []
         layouts_buffer.append(layout)
 
     if layouts_buffer:
-        yield layouts_buffer
+        yield from _split_vertical_columns(layouts_buffer)
+
+
+def _split_vertical_columns(layouts: list[PageLayout]):
+    """Expose vertical line seams to the joiner without changing OCR order.
+
+    Touching column boxes need not create histogram valleys. Their boundaries
+    are line seams, unlike the independent horizontal paragraphs in a column.
+    Require parallel, sparse CJK strips; a tall bbox alone is insufficient.
+    """
+    columns: set[int] = set()
+    for index in range(1, len(layouts)):
+        if _parallel_vertical_text(layouts[index - 1], layouts[index]):
+            columns.update((index - 1, index))
+    pending = []
+    for index, layout in enumerate(layouts):
+        if index in columns:
+            if pending:
+                yield pending
+                pending = []
+            yield [layout]
+        else:
+            pending.append(layout)
+    if pending:
+        yield pending
+
+
+def _vertical_text(layout: PageLayout) -> bool:
+    if layout.ref != "text":
+        return False
+    x1, y1, x2, y2 = layout.det
+    width, height = x2 - x1, y2 - y1
+    text = "".join(layout.text.split())
+    # At most about four glyph columns (area-based square-glyph estimate).
+    # This rejects densely wrapped horizontal narrow columns of similar shape.
+    return (width > 0 and len(text) >= 6
+            and ((layout.vertical_columns and height >= 3 * width)
+                 or (height >= 4 * width and len(text) * width <= 16 * height))
+            and sum(east_asian_width(char) in ("W", "F") for char in text)
+            >= len(text) / 2)
+
+
+def _parallel_vertical_text(first: PageLayout, second: PageLayout) -> bool:
+    if not _vertical_text(first) or not _vertical_text(second):
+        return False
+    left1, top1, right1, bottom1 = first.det
+    left2, top2, right2, bottom2 = second.det
+    width1, width2 = right1 - left1, right2 - left2
+    overlap = min(bottom1, bottom2) - max(top1, top2)
+    separation = abs((left1 + right1 - left2 - right2) / 2)
+    gap = max(left1, left2) - min(right1, right2)
+    return (overlap >= 0.7 * min(bottom1 - top1, bottom2 - top2)
+            and separation >= 0.5 * min(width1, width2)
+            and gap <= max(width1, width2))
 
 
 def _wrap_projection(

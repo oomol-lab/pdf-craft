@@ -19,6 +19,7 @@ from ..ocr_config import (
 )
 from .ngrams import has_repetitive_ngrams
 from .types import DeepSeekOCRSize, Page, PageLayout
+from .line_geometry import first_line_inset, has_vertical_columns
 
 _LAYOUT_KIND_TO_REF = {
     "text": "text",
@@ -339,6 +340,8 @@ class PageExtractorNode:
         if structured is None:
             return
 
+        obstructions = [block.det for block in structured.blocks
+                        if _LAYOUT_KIND_TO_REF.get(str(block.kind.value)) in ASSET_TAGS]
         for block in structured.blocks:
             kind = str(block.kind.value)
             ref = _LAYOUT_KIND_TO_REF.get(kind, "unknown")
@@ -382,6 +385,12 @@ class PageExtractorNode:
                 text=text,
                 hash=asset_hash,
                 order=0,
+                first_line_inset=(first_line_inset(image, det, obstructions)
+                                  if stage_index == 1 and ref == "text" and not is_footnote
+                                  and "<" not in text and "\\" not in text else None),
+                vertical_columns=(has_vertical_columns(image, det)
+                                  if stage_index == 1 and ref == "text" and not is_footnote
+                                  and "<" not in text and "\\" not in text else False),
             ), is_footnote
 
     def _normalize_block_text(self, block) -> str:

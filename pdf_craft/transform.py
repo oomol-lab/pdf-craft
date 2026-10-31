@@ -362,6 +362,13 @@ class PDFExtractionEngine:
                                 previous_pass_probability=None, next_pass_probability=None,
                                 target_pass_probability=probability, request=request,
                                 includes_footnotes=includes_footnotes)
+                            if any(layout.annotations.preserve_as_image for layout in result.layouts):
+                                from .extractor.page_graphics import preserve_graphics
+                                result = await run_cancellable(OCR_DOMAIN, lambda check: preserve_graphics(
+                                    result, kwargs['pdf_path'], self._ocr._get_pdf_handler(),
+                                    self._ocr.last_page_pixel_sizes[target.page_index],
+                                    kwargs['analysing_path']/'extraction'/'assets', kwargs['dpi'] or 300, check),
+                                    original_aborted=kwargs.get('aborted'))
                         except Exception as error:
                             await recover(error, FailureCategory.ANALYSIS, 'footnote_repair', 'algorithm_result',
                                           targets=(location,), context_locations=context)

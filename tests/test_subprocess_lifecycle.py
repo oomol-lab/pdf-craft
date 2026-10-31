@@ -176,7 +176,12 @@ class TestSubprocessLifecycle(unittest.IsolatedAsyncioTestCase):
                     '{"1": [100, 100]}', encoding="utf-8",
                 )
                 pid_path = root / "pid"
-                with _tool_environment(root, pid_path, mode):
+                # This fake tool exercises pdftotext process ownership, not a
+                # real PDF's visibility. That second Poppler read is covered
+                # separately by real visible/hidden text fixtures.
+                with _tool_environment(root, pid_path, mode), patch(
+                    'pdf_craft.pdf.furniture._visible_text_boxes', return_value={1: [(0, 0, 1, 1)]},
+                ):
                     result = await asyncio.to_thread(
                         extract_furnitures, root / "source.pdf", ocr,
                     )

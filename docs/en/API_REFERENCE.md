@@ -333,6 +333,15 @@ separate `refinement=Refinement(...)` argument; no compatibility alias is provid
 | False | Refinement(...) | Ordinary OCR, JEV, and LLM repair only when needed |
 | True | Refinement(...) | Footnote OCR, JEV, and LLM repair only when needed |
 
+Page refinement defaults to `risk_threshold=0.45`: a JEV risk score at or above
+that value routes the page to the LLM. This is partial refinement: the default
+trades missed structural errors for fewer LLM calls, and explicit caller thresholds
+remain authoritative. Scores are not calibrated error probabilities, and this
+threshold does not impose a per-book quota or guarantee a website-wide routing
+rate. See the [structural-review scope and limits](../design/jev-structural-review.md).
+Review includes unnumbered note continuations. An unresolved initial alias is
+not an immutable cross-page definition.
+
 Book-metadata extraction is deliberately opt-in. When enabled, PDF Craft lets a dedicated LLM
 read the first three raw OCR pages and request further front pages in batches, up to twelve pages.
 Only values with OCR evidence are accepted. PDF file metadata is used only to fill fields that OCR

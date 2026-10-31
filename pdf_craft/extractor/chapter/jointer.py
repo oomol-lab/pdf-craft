@@ -9,7 +9,8 @@ from ...markdown.paragraph import parse_raw_markdown
 from ...pdf import TITLE_TAGS, PageLayout
 from .chapter import SourceAsset, SourceTextFragment, TextSource, InlineExpression, TextFlowItem
 from .content import Content, expand_text_in_content, first, last
-from .mergeable import LINK_FLAGS, check_mergeable
+from .mergeable import LINK_FLAGS, check_mergeable, has_numbered_prefix
+from .paragraph_geometry import indented_line_boundary
 from .reading_serials import split_reading_serials
 
 _ASSET_CAPTION_TAGS = tuple(f"{t}_caption" for t in ASSET_TAGS)
@@ -67,6 +68,11 @@ class JoinedPageProgress:
 
     closed_through: int
     processed_through: int
+
+
+def _is_empty_text_layout(layout: PageLayout) -> bool:
+    """An empty text observation is evidence, not a paragraph separator."""
+    return layout.ref == "text" and not layout.text.strip()
 
 
 class Jointer:
@@ -128,7 +134,8 @@ class Jointer:
                 yield from last_tail.override
                 last_tail = None
             if last_tail and self._can_merge_paragraphs(
-                last_tail.page_para, first_layout
+                last_tail.page_para, first_layout,
+                across_assets=bool(last_tail.override or head),
             ):
                 # ``blocks`` is a compatibility projection.  Extend the real
                 # ordered v3 children so cross-page source fragments survive.
@@ -181,7 +188,9 @@ class Jointer:
                 if record is not None:
                     self._reading_positions[(page_index, layout.det)] = record[1].reading_order
             found_serial = False
-            for layouts in split_reading_serials(raw_layouts):
+            for layouts in split_reading_serials(
+                [layout for layout in raw_layouts if not _is_empty_text_layout(layout)]
+            ):
                 found_serial = True
                 yield page_index, layouts
             if not found_serial:
@@ -340,7 +349,7 @@ class Jointer:
             yield pending
 
     def _can_merge_paragraphs(
-        self, para1: TextFlowItem, para2: TextFlowItem
+        self, para1: TextFlowItem, para2: TextFlowItem, *, across_assets: bool = False,
     ) -> bool:
         if para1.role != "body":
             return False
@@ -350,6 +359,18 @@ class Jointer:
         block1 = para1.children[-1]
         block2 = para2.children[0]
         if not isinstance(block1, SourceTextFragment) or not isinstance(block2, SourceTextFragment):
+            return False
+
+        # OCR sometimes uses quotation brackets for numbered commentary entries.
+        # Do not treat a quoted numeral in ordinary prose as an entry: establish
+        # the numbered context from the paragraph head, even across line seams.
+        origin = para1.children[0]
+        if (isinstance(origin, SourceTextFragment)
+                and has_numbered_prefix(origin.content, include_quoted=True)
+                and has_numbered_prefix(block2.content, include_quoted=True)):
+            return False
+
+        if not across_assets and indented_line_boundary(para1, para2):
             return False
 
         return check_mergeable(block1.content, block2.content)

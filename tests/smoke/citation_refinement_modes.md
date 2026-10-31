@@ -22,7 +22,11 @@ containment (95% area) fails; missing page projection evidence also fails.
 Off mode requires at least one excluded region to exercise this regression.
 On mode can legitimately contain no exclusions; its report explicitly marks
 `exercised=false` rather than claiming it tested the exclusion branch. `citation-checks.json` retains the result.
-This checks propagation of decisions, not whether the model made good decisions.
+The gate also checks the pinned fixture's reading flows: note phrases must not
+leak into body/furniture, enabled notes must be retained, the first page's three
+body paragraphs stay separate, and the two true cross-page body paragraphs
+remain joined. These source assertions are independent of JEV's score.
+Visual review still checks placement, diagrams, markers and line collisions.
 
 Review must compare all three source/output pairs in each mode using multimodal
 inspection. Excluded text must not be translated and refilled as furniture;
@@ -36,3 +40,10 @@ Keep `book.pcex`, `translated.pdf`, `adopted-pages/`, previews, reports and visu
 review conclusions in a stable evidence directory outside the disposable VGE
 worktree before merging. No source images, paid responses or credentials belong
 in Git.
+
+Native furniture is supplemented only from visible Poppler text. The fixture's
+hidden OCR search layer is not visual page content; it must not be reprinted
+as translated headers, page numbers or missed notes. Source headers and disabled
+notes can therefore correctly remain as their original scanned background.
+The page-1 non-linear note diagram should also retain its original artwork,
+while prose before/after it is translated and stays in the same note.

@@ -4,9 +4,9 @@ from dataclasses import replace
 from copy import deepcopy
 
 from .generation import _resolve_jointers
-from .jointer import Jointer
+from .jointer import Jointer, _is_empty_text_layout
 from .page_analysis import analyse_pages
-from .source import capture_sources
+from .source import capture_sources, empty_sources
 
 
 def project_page(page, includes_footnotes):
@@ -43,18 +43,46 @@ class PrimaryPages:
             # Treat the original note stream as source candidates, not as
             # definitions. Do not parse note indices or match body references.
             paragraphs.extend(Jointer(((current.index, pages[current.index].footnotes_layouts),), sources).execute())
-        analyses = analyse_pages(pages, paragraphs, citations)
+        analyses = analyse_pages(pages, paragraphs, citations,
+                                 ignored_sources=empty_sources(pages.values(), sources))
         target = next(page for page in analyses if page.page_index == current.index)
         _canonicalize(target, analyses, self.previous_analysis)
         if not self.includes_footnotes:
             target = _body_candidates(target)
-        if not current.body_layouts:
+        if not any(not _is_empty_text_layout(layout) for layout in current.body_layouts):
             self.body_tail = None
         elif any(layout.source_order is not None or getattr(layout.source, 'ref', None) == 'formula'
                  for layout in target.layouts if layout.ownership == 'paragraph'):
             self.body_tail = current
         self.previous, self.previous_analysis = current, target
         return target
+
+
+def project_window(pages, includes_footnotes=True):
+    """Project a ready raw neighborhood together, including its outgoing edges.
+
+    Sequential snapshots only know the left context. A review already has the
+    right page, so its target must not retain an artificial open-right boundary.
+    This remains a bounded local computation and never reads refined pages.
+    """
+    raw = deepcopy({page.index: page for page in pages if page is not None})
+    sources = capture_sources(list(raw.values()))
+    body = Jointer(((page.index, page.body_layouts) for page in raw.values()), sources)
+    notes = Jointer(((page.index, page.footnotes_layouts) for page in raw.values()
+                     if includes_footnotes), sources)
+    paragraphs, citations = _resolve_jointers(body, notes)
+    if not includes_footnotes:
+        for page in raw.values():
+            paragraphs.extend(Jointer(((page.index, page.footnotes_layouts),), sources).execute())
+    analyses = analyse_pages(raw, paragraphs, citations,
+                             ignored_sources=empty_sources(raw.values(), sources))
+    previous = None
+    for analysis in analyses:
+        _canonicalize(analysis, analyses, previous)
+        previous = analysis
+    projected = {page.page_index: page if includes_footnotes else _body_candidates(page)
+                 for page in analyses}
+    return tuple(projected[page.index] if page is not None else None for page in pages)
 
 
 def _canonicalize(target, analyses, previous_analysis):

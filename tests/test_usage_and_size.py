@@ -269,7 +269,10 @@ class UsageTests(IsolatedAsyncioTestCase):
             return 'https://images.invalid/page.png'
         with TemporaryDirectory() as directory:
             image = Path(directory) / 'page.png'
-            Image.new('RGB', (4, 4), 'white').save(image)
+            with Image.new('RGB', (4, 4), 'white') as rendered:
+                # Both mocked requests require visible input, including pass 2.
+                rendered.putpixel((3, 3), (0, 0, 0))
+                rendered.save(image)
             client = VendorOCRRuntime(config, ConcurrentExecutor(FixedCapacity(1)), resolve)
             async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as transport:
                 client._client = transport

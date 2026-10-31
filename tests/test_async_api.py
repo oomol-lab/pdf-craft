@@ -176,7 +176,10 @@ class _AsyncDocument:
     async def render_page(self, page_index: int, dpi: int) -> Image.Image:
         del page_index, dpi
         self.thread_ids.append(threading.get_ident())
-        return Image.new("RGB", (100, 100), "white")
+        # Visible ink keeps this fixture on the OCR path.
+        image = Image.new("RGB", (100, 100), "white")
+        image.putpixel((image.width - 1, image.height - 1), (0, 0, 0))
+        return image
 
     async def close(self) -> None:
         self.thread_ids.append(threading.get_ident())

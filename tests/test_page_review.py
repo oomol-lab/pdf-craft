@@ -110,6 +110,34 @@ class PageReviewTests(unittest.IsolatedAsyncioTestCase):
         self.assertAlmostEqual(reviewer.results[0].risk, 0.71)
         self.assertTrue(reviewer.results[0].requires_review)
 
+    async def test_partial_refinement_routes_at_default_boundary_and_honors_override(self):
+        from pdf_craft import ConcurrentExecutor, FixedCapacity, JEV, LLM, Refinement
+
+        config = Refinement(
+            JEV("unused"),
+            LLM("unused", "https://example.invalid/v1", "model", "o200k_base"),
+            executor=ConcurrentExecutor(FixedCapacity(1)),
+        )
+        pages = [decode(fromstring(
+            f"<page index='{index}'><body>"
+            "<layout ref='text' det='1,1,9,9'>A paragraph.</layout>"
+            "</body></page>"
+        )) for index in (1, 2, 3)]
+        paragraphs, citations = _resolve_pages(pages)
+        analyses = analyse_pages([1, 2, 3], paragraphs, citations)
+
+        async def evaluate(index, _request):
+            return {1: 0.56, 2: 0.55, 3: 0.54}[index]
+
+        for threshold in (None, config.risk_threshold, 0.70):
+            reviewer = (JevReviewProcessor(evaluate) if threshold is None
+                        else JevReviewProcessor(evaluate, threshold))
+            await reviewer(pages, analyses, {index: (10, 10) for index in (1, 2, 3)})
+            self.assertEqual(
+                [result.requires_review for result in reviewer.results],
+                [False, False, False] if threshold == 0.70 else [False, True, True],
+            )
+
     def test_chapter_analysis_exposes_projection_before_restoration(self):
         with tempfile.TemporaryDirectory() as directory:
             pages_path = Path(directory)
@@ -138,14 +166,14 @@ class PageReviewTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(await evaluator(1, {}), 0.45)
         self.assertEqual(await evaluator(26, {}), 0.16)
 
-    def test_citation_large_baseline_keeps_zero_false_negatives(self):
+    def test_citation_large_baseline_replays_its_recorded_threshold(self):
         baseline_path = (
             Path(__file__).parent
             / "assets/analysis/citation_large_jev_baseline.json"
         )
         baseline = json.loads(baseline_path.read_text(encoding="utf-8"))
         expected = set(baseline["confirmed_review_pages"])
-        self.assertEqual(baseline["threshold"], JEV_REVIEW_THRESHOLD)
+        self.assertEqual(baseline["threshold"], 0.70)
         for run in baseline["runs"]:
             with self.subTest(run=run["name"]):
                 selected = {
@@ -153,7 +181,7 @@ class PageReviewTests(unittest.IsolatedAsyncioTestCase):
                     for page_index, probability in enumerate(
                         run["pass_probabilities"], 1
                     )
-                    if 1 - probability >= JEV_REVIEW_THRESHOLD
+                    if 1 - probability >= baseline["threshold"]
                 }
                 self.assertEqual(selected, expected)
 
