@@ -1,43 +1,27 @@
 # Unreleased
 
-- Improve upstream paragraph joining with guarded vertical-column seams, numbered
-  entry boundaries and measured first-line indentation. Preserve source text,
-  geometry and incremental delivery; uncertain observations keep the existing path.
+- Improve paragraph joining with guarded vertical-column seams, numbered-entry
+  boundaries, quotation boundaries and measured first-line indentation. Preserve
+  source text, geometry and incremental delivery; uncertain observations keep the
+  existing path. Empty OCR text retains its source identity as ignored evidence
+  without hiding the actual prose predecessor.
 - Skip OCR for strictly white rendered pages and white vendor footnote second-pass
   images without inventing requests or usage. Preserve first-pass content and old
   valid caches; near-white ink continues through OCR.
-- Record JEV structural-review principles and the upstream dynamic-repair method,
-  paired results, counterexamples and convergence limits. The frozen local JEV
-  research protocol is not a replacement for the public page-review runtime.
-
-- Preserve paragraph boundaries between completed quotations and new quoted turns,
-  without splitting inline quoted terms or attribution. Give explicit numbered
-  entries precedence over comma/hyphen continuation hints. Empty OCR text no
-  longer hides the real prose predecessor; retain its source identity and geometry
-  as ignored evidence, including footnote candidates and empty-page boundaries.
-  Add regressions for both footnote modes and verify citation PDF writeback.
-
-- Align JEV page review with the authoritative incoming paragraph edges instead
-  of derived outgoing flags; project ready raw neighborhoods together and retain
-  complete layout text and neighboring candidates as review evidence, so
-  misclassified notes cannot hide the actual prose predecessor. Clarify both
-  footnote-mode rubrics:
-  sentence endings alone do not split paragraphs, and standalone endnotes remain
-  part of the main reading flow. Keep refinement thresholds caller-configurable.
-
-- Use partial page refinement by default (`risk_threshold=0.45`), with separate
-  structural review rubrics for each footnote mode and no concrete test-answer
-  examples. This limits LLM calls without promising complete error recall or a
-  fixed routing percentage; explicit caller thresholds remain authoritative. Review
-  unnumbered note continuations, and stop treating unresolved OCR aliases as
-  confirmed cross-page definitions. Explicit caller thresholds are unchanged.
-- Bind repaired cross-page note origins during ordered adoption without waiting
-  for neighbouring LLM jobs; preserve standalone notes whose printed mark was
-  missed and avoid duplicate formula-wrapped labels.
-- Keep actual reference marks in streaming PDF content instead of `?` placeholders.
-  Explicitly identified non-linear OCR diagrams can retain original artwork.
-- Restrict native furniture supplementation to Poppler-visible text, so hidden
-  search/OCR layers cannot reappear as translated headers or footnotes.
+- Review incoming paragraph edges with complete raw neighborhoods and separate
+  footnote-mode rubrics. Page refinement defaults to `risk_threshold=0.45`;
+  explicit thresholds remain configurable. Scores are not calibrated error
+  probabilities and do not impose a fixed refinement quota.
+- Bind cross-page note origins during ordered adoption without waiting for
+  neighbouring LLM jobs. Preserve unnumbered notes, actual printed reference
+  marks and explicitly identified non-linear source diagrams; unresolved aliases
+  are not confirmed cross-page definitions.
+- Restrict native furniture supplementation to Poppler-visible text and apply
+  shared external-text cleaning, preventing hidden OCR text from becoming visible
+  furniture and invalid control characters from suppressing valid native text.
+- Document structural-review principles, dynamic-repair constraints and final
+  verification results. The frozen evaluation protocol remains separate from the
+  public page-review runtime.
 
 - Keep deliberately excluded OCR regions occupied during native furniture
   extraction, so page-refinement exclusions cannot be translated and filled

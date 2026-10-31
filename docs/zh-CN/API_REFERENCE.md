@@ -274,7 +274,7 @@ JEV 与 LLM 使用不同供应商配额时，可分别传 `jev_executor` 与 `ll
 页面精校的 `risk_threshold` 默认值为 **0.45**：JEV 风险评分达到该值时调用 LLM。
 这是控制 LLM 调用成本的部分精修，接受一部分结构错误未被修复；显式传入的阈值仍按调用者配置执行。
 评分不是经过校准的错误概率，此阈值不限制单本精修配额，也不保证网站整体的精修比例。
-实验结果与限制见[部分精修研究记录](../verification/jev-partial-refinement.md)。
+审核原则与限制见[JEV 结构审核](../design/jev-structural-review.md)。
 精校覆盖脚注的完整范围，包括无编号续文。未确认起点的初级别名不作为不可更改的跨页事实。
 
 `extract_book_metadata` 默认关闭。开启后必须通过独立的 `metadata_llm` 参数显式提供 LLM，
