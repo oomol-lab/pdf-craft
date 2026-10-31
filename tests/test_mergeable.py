@@ -86,6 +86,18 @@ class TestCheckMergeable(unittest.TestCase):
                     f"{description}: content1={content1!r}, content2={content2!r}",
                 )
 
+    def test_numbered_paragraph_boundary_precedes_continuation_hints(self):
+        cases: Iterable[tuple[_Content, _Content, bool]] = [
+            (["Items follow,"], ["(2) Another item"], False),
+            (["条目如下，"], ["二、另一项"], False),
+            (["A hyphenated‐"], ["iv) A separate item"], False),
+            (["A word is hyphen-"], ["ated here"], True),
+            (["An inline marker,"], ["(2)"], True),
+        ]
+        for left, right, expected in cases:
+            with self.subTest(left=left, right=right):
+                self.assertEqual(check_mergeable(left, right), expected)
+
     def test_real_bug_cases(self):
         for content1, content2, expected, description in _REAL_BUG_CASES:
             with self.subTest(description=description):

@@ -69,6 +69,11 @@ class JoinedPageProgress:
     processed_through: int
 
 
+def _is_empty_text_layout(layout: PageLayout) -> bool:
+    """An empty text observation is evidence, not a paragraph separator."""
+    return layout.ref == "text" and not layout.text.strip()
+
+
 class Jointer:
     def __init__(self, layouts: Iterable[tuple[int, list[PageLayout]]],
                  sources: dict[tuple[int, int], tuple[int, TextSource]] | None = None) -> None:
@@ -181,7 +186,9 @@ class Jointer:
                 if record is not None:
                     self._reading_positions[(page_index, layout.det)] = record[1].reading_order
             found_serial = False
-            for layouts in split_reading_serials(raw_layouts):
+            for layouts in split_reading_serials(
+                [layout for layout in raw_layouts if not _is_empty_text_layout(layout)]
+            ):
                 found_serial = True
                 yield page_index, layouts
             if not found_serial:

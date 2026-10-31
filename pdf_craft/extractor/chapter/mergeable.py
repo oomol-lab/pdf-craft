@@ -16,8 +16,6 @@ _LINE_STOP_FLAGS = (
     "？",
     ")",
     "）",
-    """,
-    """,
     ";",
     "；",
     "]",
@@ -26,6 +24,12 @@ _LINE_STOP_FLAGS = (
     ">",
     "》",
 )
+
+# A closing quote alone may end an inline term or precede attribution. Only
+# treat a completed quotation followed by a new quotation as a boundary.
+_QUOTE_OPENINGS = ('"', "'", "“", "‘", "「", "『", "«")
+_QUOTE_CLOSINGS = '\"\'”’」』»'
+_QUOTED_SENTENCE_ENDINGS = (".", "!", "?", "。", "！", "？", ";", "；")
 
 # 续行标识符号
 _LINE_CONTINUE_FLAGS = (
@@ -98,6 +102,20 @@ def check_mergeable(
     if text1_stripped.endswith(_LINE_STOP_FLAGS):
         return False
 
+    unquoted_tail = text1_stripped.rstrip(_QUOTE_CLOSINGS)
+    if (
+        len(unquoted_tail) < len(text1_stripped)
+        and unquoted_tail.endswith(_QUOTED_SENTENCE_ENDINGS)
+        and text2_stripped.startswith(_QUOTE_OPENINGS)
+    ):
+        return False
+
+    # Explicit numbered paragraphs take precedence over comma/hyphen hints.
+    for pattern in _NUMBERING_PATTERNS:
+        match = pattern.match(text2_stripped)
+        if match and (len(content2) > 1 or bool(text2_stripped[match.end() :].strip())):
+            return False
+
     # 条件2：前一个段落结束的符号明显表明句子未结束，则必须合并
     if text1_stripped.endswith(_LINE_CONTINUE_FLAGS):
         return True
@@ -111,10 +129,5 @@ def check_mergeable(
     ):
         return True
 
-    # 条件4：下一个段落如果以编号开头，说明是新的编号段落，不应合并
-    for pattern in _NUMBERING_PATTERNS:
-        match = pattern.match(text2_stripped)
-        if match and (len(content2) > 1 or bool(text2_stripped[match.end() :].strip())):
-            return False
 
     return True

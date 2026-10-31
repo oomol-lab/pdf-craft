@@ -344,5 +344,273 @@
     "False": "fcac02af2e4031ce04d45113855f4ab14de16b7524ca1049b9f5b26607f78646",
     "True": "012a9f15880dea33f48a56df06db6b16223cb6f68f58aa2c175f77f734214c2a"
   },
-  "llm_repair_success_measured": false
+  "llm_repair_success_measured": false,
+  "historical_metric_note": "operating_points use rounded risk >= threshold, not actual runtime decisions; local30 claimed improvement is not established. See runtime_boundary_audit.",
+  "runtime_boundary_audit": {
+    "runtime_rule": "(1 - pass_probability) >= 0.45 without rounding",
+    "candidate_reconstructed_routed": [
+      14,
+      10,
+      12,
+      11,
+      10,
+      12,
+      14,
+      11,
+      11
+    ],
+    "candidate_reconstructed_mean_routing": 0.11666666666666667,
+    "candidate_reconstructed_error_recall": 0.25925925925925924,
+    "precision_note": "Original pass retained for novel; difficult pages reconstructed from rounded risk. This is not full raw-precision replay."
+  },
+  "continuation_study": {
+    "raw_source_ids_text_and_bboxes_preserved": true,
+    "pages": 100,
+    "changed_pages": 18,
+    "changed_decisions": 44,
+    "actual_routed_baseline": [
+      13,
+      10,
+      10
+    ],
+    "actual_routed_with_deterministic_fixes": [
+      10,
+      10,
+      10
+    ],
+    "normal_pages_routed": [
+      0,
+      0,
+      0
+    ],
+    "labels_frozen_not_reaudited_for_fixes": true,
+    "unit_tests_passed": 1362,
+    "paid_citation": {
+      "footnotes_on": true,
+      "footnotes_off": true,
+      "automated_checks_passed": true,
+      "manual_all_three_pages_reviewed": true
+    },
+    "unadopted": [
+      "vertical geometry prototypes",
+      "per-gap JEV repair",
+      "compact rubric experiments"
+    ]
+  },
+  "focused_incoming_experiment": {
+    "adopted": false,
+    "checks": "incoming only; excludes ownership, citations, references and LLM repair-success validation",
+    "pages": 100,
+    "pages_with_edges": 96,
+    "edges_per_round": 657,
+    "successful_requests_per_round": 201,
+    "threshold": 0.5,
+    "actual_routed": [
+      45,
+      45,
+      42
+    ],
+    "provisional_normal_routed": [
+      0,
+      0,
+      0
+    ],
+    "historical_error_pages_routed": [
+      38,
+      38,
+      35
+    ],
+    "historical_labels_precede_fixes_not_residual_recall": true,
+    "budget_comparison": {
+      "threshold": 0.88,
+      "routed": [
+        14,
+        12,
+        13
+      ],
+      "historical_error_pages_routed": [
+        11,
+        10,
+        11
+      ]
+    },
+    "selected_single_field_controls": 13,
+    "additional_controls": 8,
+    "controlled_rounds": 3,
+    "all_selected_good_bad_pairs_distinguished": true,
+    "independent_books": false,
+    "geometry_prototype_rejected_by_unfinished_sentence_counterexample": true
+  },
+  "current_acceptance_metric": {
+    "definition": "normal pages unnecessarily routed to LLM / all pages of the same book",
+    "maximum": 0.05,
+    "evaluation": "Existing sampled windows, not complete books; confirmed normal pages only, not a certified upper bound on total false routing.",
+    "points": [
+      {
+        "round": 1,
+        "threshold": 0.4,
+        "sample_pages": 100,
+        "routed": 50,
+        "confirmed_normal_routed": 2,
+        "confirmed_extra_routing_fraction": 0.02,
+        "historically_error_routed": 40,
+        "uncertain_routed": 8,
+        "by_book": {
+          "biancheng": {
+            "sample_pages": 50,
+            "confirmed_normal_routed": 1,
+            "confirmed_extra_routing_fraction": 0.02
+          },
+          "lacan": {
+            "sample_pages": 24,
+            "confirmed_normal_routed": 1,
+            "confirmed_extra_routing_fraction": 0.041666666666666664
+          },
+          "baopuzi": {
+            "sample_pages": 26,
+            "confirmed_normal_routed": 0,
+            "confirmed_extra_routing_fraction": 0.0
+          }
+        }
+      },
+      {
+        "round": 1,
+        "threshold": 0.5,
+        "sample_pages": 100,
+        "routed": 45,
+        "confirmed_normal_routed": 0,
+        "confirmed_extra_routing_fraction": 0.0,
+        "historically_error_routed": 38,
+        "uncertain_routed": 7,
+        "by_book": {
+          "biancheng": {
+            "sample_pages": 50,
+            "confirmed_normal_routed": 0,
+            "confirmed_extra_routing_fraction": 0.0
+          },
+          "lacan": {
+            "sample_pages": 24,
+            "confirmed_normal_routed": 0,
+            "confirmed_extra_routing_fraction": 0.0
+          },
+          "baopuzi": {
+            "sample_pages": 26,
+            "confirmed_normal_routed": 0,
+            "confirmed_extra_routing_fraction": 0.0
+          }
+        }
+      },
+      {
+        "round": 2,
+        "threshold": 0.4,
+        "sample_pages": 100,
+        "routed": 50,
+        "confirmed_normal_routed": 2,
+        "confirmed_extra_routing_fraction": 0.02,
+        "historically_error_routed": 39,
+        "uncertain_routed": 9,
+        "by_book": {
+          "biancheng": {
+            "sample_pages": 50,
+            "confirmed_normal_routed": 1,
+            "confirmed_extra_routing_fraction": 0.02
+          },
+          "lacan": {
+            "sample_pages": 24,
+            "confirmed_normal_routed": 1,
+            "confirmed_extra_routing_fraction": 0.041666666666666664
+          },
+          "baopuzi": {
+            "sample_pages": 26,
+            "confirmed_normal_routed": 0,
+            "confirmed_extra_routing_fraction": 0.0
+          }
+        }
+      },
+      {
+        "round": 2,
+        "threshold": 0.5,
+        "sample_pages": 100,
+        "routed": 45,
+        "confirmed_normal_routed": 0,
+        "confirmed_extra_routing_fraction": 0.0,
+        "historically_error_routed": 38,
+        "uncertain_routed": 7,
+        "by_book": {
+          "biancheng": {
+            "sample_pages": 50,
+            "confirmed_normal_routed": 0,
+            "confirmed_extra_routing_fraction": 0.0
+          },
+          "lacan": {
+            "sample_pages": 24,
+            "confirmed_normal_routed": 0,
+            "confirmed_extra_routing_fraction": 0.0
+          },
+          "baopuzi": {
+            "sample_pages": 26,
+            "confirmed_normal_routed": 0,
+            "confirmed_extra_routing_fraction": 0.0
+          }
+        }
+      },
+      {
+        "round": 3,
+        "threshold": 0.4,
+        "sample_pages": 100,
+        "routed": 51,
+        "confirmed_normal_routed": 2,
+        "confirmed_extra_routing_fraction": 0.02,
+        "historically_error_routed": 40,
+        "uncertain_routed": 9,
+        "by_book": {
+          "biancheng": {
+            "sample_pages": 50,
+            "confirmed_normal_routed": 1,
+            "confirmed_extra_routing_fraction": 0.02
+          },
+          "lacan": {
+            "sample_pages": 24,
+            "confirmed_normal_routed": 1,
+            "confirmed_extra_routing_fraction": 0.041666666666666664
+          },
+          "baopuzi": {
+            "sample_pages": 26,
+            "confirmed_normal_routed": 0,
+            "confirmed_extra_routing_fraction": 0.0
+          }
+        }
+      },
+      {
+        "round": 3,
+        "threshold": 0.5,
+        "sample_pages": 100,
+        "routed": 42,
+        "confirmed_normal_routed": 0,
+        "confirmed_extra_routing_fraction": 0.0,
+        "historically_error_routed": 35,
+        "uncertain_routed": 7,
+        "by_book": {
+          "biancheng": {
+            "sample_pages": 50,
+            "confirmed_normal_routed": 0,
+            "confirmed_extra_routing_fraction": 0.0
+          },
+          "lacan": {
+            "sample_pages": 24,
+            "confirmed_normal_routed": 0,
+            "confirmed_extra_routing_fraction": 0.0
+          },
+          "baopuzi": {
+            "sample_pages": 26,
+            "confirmed_normal_routed": 0,
+            "confirmed_extra_routing_fraction": 0.0
+          }
+        }
+      }
+    ],
+    "selection": "0.40 is a post-hoc research operating point, not a new production default or independently validated threshold.",
+    "remaining": "Reaudit post-fix pages formerly labeled error and selected uncertain pages; then evaluate unseen books.",
+    "not_fpr_over_normal_pages": true
+  }
 }

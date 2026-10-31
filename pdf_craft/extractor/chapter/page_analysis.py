@@ -330,6 +330,8 @@ def analyse_pages(
     page_indexes: Iterable[int],
     paragraphs: Iterable[TextFlowItem | SourceAsset],
     citations: Iterable[Reference | UnindexedCitation],
+    *,
+    ignored_sources: Iterable[SourceTextFragment] = (),
 ) -> list[PageAnalysis]:
     """Project traditional resolution results back onto their source pages."""
 
@@ -456,6 +458,12 @@ def analyse_pages(
                         citation_index=segment.index,
                     )
                 )
+
+    for source in ignored_sources:
+        _get_page(pages, source.page_index).layouts.append(_analyse_layout(
+            source=source, ownership="ignored", continues_from_previous=False,
+            continues_to_next=False,
+        ))
 
     document_order = 0
     for page in pages.values():

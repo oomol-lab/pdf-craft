@@ -19,7 +19,7 @@ from .page_analysis import PageAnalysis, UnindexedCitation, analyse_pages, resto
 from .page_review import load_page_pixel_sizes
 from .punctuation import normalize_punctuation_in_chapter
 from .reference import References, extract_head_mark
-from .source import capture_sources
+from .source import capture_sources, empty_sources
 
 
 @dataclass(frozen=True)
@@ -240,17 +240,21 @@ def _analyse_chapter_pages(
     source_pages = [
         page for page in pages.read() if page.index not in toc_page_indexes
     ]
-    paragraphs, citations = _resolve_pages(source_pages)
+    sources = capture_sources(source_pages)
+    paragraphs, citations = _resolve_pages(source_pages, sources=sources)
     analysed_pages = analyse_pages(
         page_indexes=(page.index for page in source_pages),
         paragraphs=paragraphs,
         citations=citations,
+        ignored_sources=empty_sources(source_pages, sources),
     )
     return source_pages, analysed_pages
 
 
 def _resolve_pages(
     pages: Iterable[Page],
+    *,
+    sources=None,
 ) -> tuple[
     list[TextFlowItem | SourceAsset],
     list[Reference | UnindexedCitation],
@@ -258,7 +262,7 @@ def _resolve_pages(
     """Run the traditional algorithms up to the reversible page boundary."""
 
     page_list = list(pages)
-    sources = capture_sources(page_list)
+    sources = capture_sources(page_list) if sources is None else sources
     body_jointer = Jointer(
         ((page.index, page.body_layouts) for page in page_list), sources
     )

@@ -1,9 +1,10 @@
 """Capture page-wide source identity and reading positions before analysis."""
 from copy import deepcopy
+from collections.abc import Iterable, Iterator, Mapping
 
 from ...pdf import Page
-from .chapter import TextSource
-from .jointer import _parse_block_content
+from .chapter import TextSource, SourceTextFragment
+from .jointer import _parse_block_content, _is_empty_text_layout
 
 
 def capture_sources(pages: list[Page]) -> dict[tuple[int, int], tuple[int, TextSource]]:
@@ -65,3 +66,15 @@ def capture_sources(pages: list[Page]) -> dict[tuple[int, int], tuple[int, TextS
                     tuple(deepcopy(_parse_block_content(item.text))),
                 ))
     return sources
+
+
+def empty_sources(
+    pages: Iterable[Page],
+    sources: Mapping[tuple[int, int], tuple[int, TextSource]],
+) -> Iterator[SourceTextFragment]:
+    """Retain blank OCR identities and geometry without semantic paragraphs."""
+    for page in pages:
+        for layout in [*page.body_layouts, *page.footnotes_layouts]:
+            if _is_empty_text_layout(layout):
+                order, origin = sources[(page.index, id(layout))]
+                yield SourceTextFragment(page.index, order, layout.det, [], origin)

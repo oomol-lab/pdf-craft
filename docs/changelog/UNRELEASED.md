@@ -1,5 +1,12 @@
 # Unreleased
 
+- Preserve paragraph boundaries between completed quotations and new quoted turns,
+  without splitting inline quoted terms or attribution. Give explicit numbered
+  entries precedence over comma/hyphen continuation hints. Empty OCR text no
+  longer hides the real prose predecessor; retain its source identity and geometry
+  as ignored evidence, including footnote candidates and empty-page boundaries.
+  Add regressions for both footnote modes and verify citation PDF writeback.
+
 - Align JEV page review with the authoritative incoming paragraph edges instead
   of derived outgoing flags; project ready raw neighborhoods together and retain
   complete layout text and neighboring candidates as review evidence, so
