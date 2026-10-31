@@ -7,7 +7,7 @@ from pdf_craft._policy import OMITTED, policy_operation
 # pylint: disable=protected-access,unused-argument
 from collections.abc import AsyncIterable, Callable, Iterable, Iterator
 from contextlib import aclosing
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field
 from typing import Generic, TypeVar, cast
 from xml.etree.ElementTree import Element
 
@@ -501,6 +501,7 @@ class XMLTranslator:
             await self._request_and_submit_async(
                 hill_climbing=hill_climbing, source_text=source_text,
                 translated_text=translated_text, callbacks=callbacks,
+                failure_locations=targets,
                 canonical_text_validator=(
                     (lambda element: canonical_text_validator(inline_segments, translated_text, element))
                     if canonical_text_validator is not None else None
@@ -549,6 +550,7 @@ class XMLTranslator:
         translated_text: str,
         callbacks: Callbacks,
         canonical_text_validator: Callable[[Element], str | None] | None = None,
+        failure_locations: tuple = (),
     ) -> None:
         from ...canonical_math import CanonicalMath
         canonical_math = CanonicalMath(translated_text) if canonical_text_validator is not None else None
@@ -637,6 +639,9 @@ class XMLTranslator:
                 protocol=_XMLProtocol(),
                 state=None,
                 max_attempts=current().retry.attempts(RetryScope.FILL),
+                failure_log_path=getattr(self._fill_llm, 'failure_log_path', None),
+                failure_log_context={'stage': 'xml_fill', 'model': self._fill_llm.model,
+                    'targets': [asdict(location) for location in failure_locations]},
             ))
 
     def _extract_xml_element(self, text: str) -> Element | str:
@@ -664,3 +669,4 @@ class XMLFillError(Exception):
     def __init__(self, message: str, *, attempts: int):
         super().__init__(message)
         self.attempts = attempts
+        self.failure_log_id: str | None = None

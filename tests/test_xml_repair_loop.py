@@ -58,6 +58,7 @@ def _translator(responses):
         Any, SimpleNamespace(context=lambda **_: context, template=template)
     )
     translator._cache_seed_content = None
+    translator._fill_llm = cast(Any, SimpleNamespace(model="test", failure_log_path=None))
     return translator, context
 
 

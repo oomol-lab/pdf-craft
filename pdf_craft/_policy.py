@@ -165,7 +165,7 @@ def error_details(error: Exception) -> FailureError:
     frames: list[dict[str, str | int]] = []
     seen: set[int] = set()
     cause: BaseException | None = error
-    request_id = code = None
+    request_id = code = failure_log_id = None
     attempts = None
     while cause is not None and id(cause) not in seen:
         seen.add(id(cause))
@@ -182,6 +182,7 @@ def error_details(error: Exception) -> FailureError:
         exceptions.append(FailureError(
             type=f"{type(cause).__module__}.{type(cause).__qualname__}",
             message=str(cause), frames=local_frames,
+            failure_log_id=getattr(cause, "failure_log_id", None),
         ))
         for name in ("http_status", "provider_code", "provider_type"):
             value = getattr(cause, name, None)
@@ -189,6 +190,7 @@ def error_details(error: Exception) -> FailureError:
                 provider[name] = value
         attempts = attempts or getattr(cause, "attempts", None)
         request_id = request_id or getattr(cause, "request_id", None)
+        failure_log_id = failure_log_id or getattr(cause, "failure_log_id", None)
         code = (
             code
             or getattr(cause, "code", None)
@@ -206,6 +208,7 @@ def error_details(error: Exception) -> FailureError:
         tuple(frames),
         **provider,
         exception_chain=tuple(exceptions),
+        failure_log_id=failure_log_id,
     )
 
 

@@ -36,6 +36,7 @@ from ..concurrency import (
     AsyncExecutor, NonContinuableError, OperationError, RateLimitedError, fatal_error_boundary,
 )
 from .core import LLM
+from .failure_log import active_log
 from .error import is_retry_error
 from .increasable import Increasable
 from .types import Message, MessageRole
@@ -150,6 +151,10 @@ class LLMRuntime:
                 **extra_header_arguments(),
             )
             observe_response(getattr(stream, "response", None))
+            evidence = active_log()
+            if evidence is not None:
+                headers = getattr(getattr(stream, "response", None), 'headers', {})
+                evidence.provider_request(headers.get('x-request-id'))
             parts: list[str] = []
             async for chunk in stream:
                 observe_tokens(getattr(chunk, "usage", None))
@@ -219,6 +224,10 @@ class LLMContext(AbstractAsyncContextManager["LLMContext"]):
             temperature, self.runtime._temperature, retry_index, retry_max,
         )
         top_p = self.runtime._scheduled(top_p, self.runtime._top_p, retry_index, retry_max)
+        evidence = active_log()
+        if evidence is not None:
+            evidence.configure(self.runtime.config, messages,
+                {'max_tokens': max_tokens, 'temperature': temperature, 'top_p': top_p}, self.context_id)
         key = self._cache_key(messages, max_tokens, temperature, top_p) if use_cache else None
         cache_path = self.runtime.config.cache_path
         if key and cache_path:
@@ -256,10 +265,18 @@ class LLMContext(AbstractAsyncContextManager["LLMContext"]):
                         try:
                             with request_attempt(self.runtime.config) as attempt_usage:
                                 try:
-                                    text = safe_text(await self.runtime._invoke_for_request(
+                                    evidence = active_log()
+                                    if evidence is not None:
+                                        await evidence.request(self.runtime.config, messages,
+                                            {'max_tokens': max_tokens, 'temperature': temperature, 'top_p': top_p},
+                                            self.context_id)
+                                    raw_text = await self.runtime._invoke_for_request(
                                         messages, max_tokens, temperature, top_p,
                                         force_ipv4=force_ipv4,
-                                    ))
+                                    )
+                                    if evidence is not None:
+                                        await evidence.response(raw_text)
+                                    text = safe_text(raw_text)
                                 except asyncio.CancelledError:
                                     if timeout_scope is not None and timeout_scope.expired():
                                         request_timed_out()
