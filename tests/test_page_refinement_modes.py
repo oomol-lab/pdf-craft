@@ -64,7 +64,10 @@ class RefinementModeTests(IsolatedAsyncioTestCase):
     async def test_body_only_review_pass_avoids_llm_requests(self):
         await self._extract(False, True, True, pass_review=True)
 
-    async def _extract(self, footnotes, refined, cached, fail_commit=False, pass_review=False):
+    async def test_incomplete_local_review_falls_back_without_calling_llm(self):
+        await self._extract(False, True, True, pass_review=True, fail_review=True)
+
+    async def _extract(self, footnotes, refined, cached, fail_commit=False, pass_review=False, fail_review=False):
         packets, prompts, bodies, notes, flags = [], [], [], [], []
 
         class OCR(IdentityOCR):
@@ -81,6 +84,8 @@ class RefinementModeTests(IsolatedAsyncioTestCase):
 
         async def evaluate(_runtime, _index, packet, **_kwargs):
             packets.append(packet)
+            if fail_review and _index == 1 and any(name.startswith('owner_') for name in packet['questions']):
+                raise ValueError('missing local ownership review')
             return 0.99 if pass_review else 0.1
 
         class Runtime:
@@ -112,10 +117,10 @@ class RefinementModeTests(IsolatedAsyncioTestCase):
                         includes_furniture=False, footnotes=footnotes,
                         refinement=refinement() if refined else None,
                         on_body=bodies.append, on_footnote=notes.append),
-                    analysing_path=root/'analysis', error_policy=fail_commit)
+                    analysing_path=root/'analysis', error_policy=fail_commit or fail_review)
                 self.assertEqual(runtime.call_count, int(refined))
             self.assertEqual(flags, [footnotes])
-            self.assertEqual(len(packets), 6 if refined else 0)
+            self.assertEqual(len(packets), (6 if footnotes else 12) if refined else 0)
             self.assertEqual(len(prompts), 6 if refined and not pass_review else 0)
             self.assertEqual(len(notes), 6 if footnotes else 0)
             self.assertTrue(bodies)
@@ -131,7 +136,7 @@ class RefinementModeTests(IsolatedAsyncioTestCase):
             if not footnotes:
                 self.assertFalse(any(list(chapter.iter('ref')) for chapter in chapters))
                 for packet in packets:
-                    state = packet['state']
+                    state = packet['state']['local_raw_evidence']
                     target = state['target_page']
                     self.assertEqual(target['ocr_footnote_layout_count'], 1)
                     self.assertTrue(any(item['ocr_stream'] == 'footnote' and item['ownership'] == 'ignored'
@@ -141,9 +146,10 @@ class RefinementModeTests(IsolatedAsyncioTestCase):
                         neighbor = state[name]
                         if neighbor is not None:
                             self.assertEqual(neighbor['citation_boundary'], [])
-                    instructions = packet['questions']['page_passes_strict_standard']['instructions']
-                    self.assertNotIn('citation_standard', instructions)
-                    self.assertNotIn('reference_standard', instructions)
+                    for question in packet['questions'].values():
+                        self.assertIsInstance(question['instructions'], list)
+                        self.assertNotIn('citation_standard', question)
+                        self.assertNotIn('reference_standard', question)
                 for messages in prompts:
                     self.assertIn('本次关闭脚注', messages[0].message)
                     self.assertNotIn('ref 规则：', messages[0].message)

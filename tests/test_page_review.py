@@ -110,14 +110,7 @@ class PageReviewTests(unittest.IsolatedAsyncioTestCase):
         self.assertAlmostEqual(reviewer.results[0].risk, 0.71)
         self.assertTrue(reviewer.results[0].requires_review)
 
-    async def test_partial_refinement_routes_at_default_boundary_and_honors_override(self):
-        from pdf_craft import ConcurrentExecutor, FixedCapacity, JEV, LLM, Refinement
-
-        config = Refinement(
-            JEV("unused"),
-            LLM("unused", "https://example.invalid/v1", "model", "o200k_base"),
-            executor=ConcurrentExecutor(FixedCapacity(1)),
-        )
+    async def test_review_uses_unrounded_risk(self):
         pages = [decode(fromstring(
             f"<page index='{index}'><body>"
             "<layout ref='text' det='1,1,9,9'>A paragraph.</layout>"
@@ -129,14 +122,10 @@ class PageReviewTests(unittest.IsolatedAsyncioTestCase):
         async def evaluate(index, _request):
             return {1: 0.56, 2: 0.55, 3: 0.54}[index]
 
-        for threshold in (None, config.risk_threshold, 0.70):
-            reviewer = (JevReviewProcessor(evaluate) if threshold is None
-                        else JevReviewProcessor(evaluate, threshold))
-            await reviewer(pages, analyses, {index: (10, 10) for index in (1, 2, 3)})
-            self.assertEqual(
-                [result.requires_review for result in reviewer.results],
-                [False, False, False] if threshold == 0.70 else [False, True, True],
-            )
+        reviewer = JevReviewProcessor(evaluate)
+        await reviewer(pages, analyses, {index: (10, 10) for index in (1, 2, 3)})
+        self.assertEqual([result.requires_review for result in reviewer.results], [False, False, True])
+        self.assertEqual(reviewer.results[1].risk, 1 - 0.55)
 
     def test_chapter_analysis_exposes_projection_before_restoration(self):
         with tempfile.TemporaryDirectory() as directory:

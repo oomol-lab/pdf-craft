@@ -172,15 +172,16 @@ class BodyOnlyClassificationTests(IsolatedAsyncioTestCase):
                 finally:
                     release.set()
                     await asyncio.wait_for(task, 10)
-            self.assertEqual(len(packets), 6)
-            first = next(packet['state']['target_page'] for packet in packets
-                         if packet['state']['target_page']['page_index'] == 1)
+            states = [packet['state']['local_raw_evidence'] for packet in packets]
+            self.assertEqual({state['target_page']['page_index'] for state in states}, set(range(1, 7)))
+            self.assertTrue(all(0 < len(packet['questions']) <= 4 for packet in packets))
+            first = next(state['target_page'] for state in states if state['target_page']['page_index'] == 1)
             candidates = {item['raw_text']: item for item in first['layouts']}
             self.assertEqual(candidates['Misclassified body must survive.']['ocr_stream'], 'footnote')
             self.assertEqual(candidates['Misclassified body must survive.']['ownership'], 'ignored')
             self.assertFalse(first['citations'])
-            previous = next(packet['state']['previous_page'] for packet in packets
-                            if packet['state']['target_page']['page_index'] == 2)
+            previous = next(state['previous_page'] for state in states
+                            if state['target_page']['page_index'] == 2)
             if not note_assets:
                 self.assertIn('Misclassified body must survive.',
                               [item['raw_text'] for item in previous['excluded_candidates']])

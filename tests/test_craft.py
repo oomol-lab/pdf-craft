@@ -60,10 +60,10 @@ class PublicConfigurationCompatibilityTests(unittest.TestCase):
         )
         executor = ConcurrentExecutor(FixedCapacity(3))
         refinement = Refinement(
-            jev, llm, 0.4, 1234, executor=executor,
+            jev, llm, max_output_tokens=1234, executor=executor,
         )
 
-        self.assertEqual(refinement.risk_threshold, 0.4)
+        self.assertFalse(hasattr(refinement, "risk_threshold"))
         self.assertEqual(refinement.max_output_tokens, 1234)
         self.assertIs(refinement.resolved_jev_executor(), executor)
         self.assertIs(refinement.resolved_llm_executor(), executor)

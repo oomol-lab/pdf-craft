@@ -194,9 +194,9 @@ class UsageTests(IsolatedAsyncioTestCase):
             nouls={'page_passes_strict_standard': SimpleNamespace(noul=value)}) for value in (0.1, 2)])
         with patch('pdf_craft.jev.AsyncTypeSafeClient', return_value=sdk):
             async with JEVRuntime(jev, ConcurrentExecutor(FixedCapacity(1))) as client:
-                self.assertEqual(await client.evaluate(1, {'state': {}, 'questions': {}}, usage=usage), 0.1)
+                self.assertEqual(await client.evaluate(1, {'state': {}, 'questions': {'page_passes_strict_standard': {'type': 'noul'}}}, usage=usage), 0.1)
                 with self.assertRaises(Exception):
-                    await client.evaluate(2, {'state': {}, 'questions': {}}, usage=usage)
+                    await client.evaluate(2, {'state': {}, 'questions': {'page_passes_strict_standard': {'type': 'noul'}}}, usage=usage)
         self.assertEqual(usage.report()[jev], Usage(RequestUsage(1, 40, 0, 1), RequestUsage(1, 40, 0, 1)))
 
     async def test_ocr_usage_survives_invalid_content_and_raw_decode_rejection(self):

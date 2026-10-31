@@ -1,6 +1,6 @@
 """Public configuration for optional page-semantic refinement."""
 
-from dataclasses import dataclass
+from dataclasses import KW_ONLY, dataclass
 
 from .jev import JEV
 from .llm import LLM
@@ -9,11 +9,11 @@ from .concurrency import AsyncExecutor
 
 @dataclass(frozen=True)
 class Refinement:
-    """Use JEV to route uncertain pages to an LLM."""
+    """Use JEV to select evidenced structure errors for LLM page repair."""
 
     jev: JEV
     llm: LLM
-    risk_threshold: float = 0.45
+    _: KW_ONLY
     max_output_tokens: int = 16000
     executor: AsyncExecutor | None = None
     jev_executor: AsyncExecutor | None = None
@@ -22,8 +22,6 @@ class Refinement:
     def __post_init__(self) -> None:
         if self.jev is None or self.llm is None:
             raise ValueError("Refinement requires both JEV and LLM")
-        if not 0 <= self.risk_threshold <= 1:
-            raise ValueError("page refinement risk_threshold must be between 0 and 1")
         if self.max_output_tokens < 1:
             raise ValueError("page refinement max_output_tokens must be at least 1")
         if self.jev_executor is None and self.executor is None:

@@ -46,10 +46,11 @@ class JEVWindowEvidenceTests(unittest.TestCase):
         target = _project_window([None, source, None], False)[1]
         assert target is not None
         packet = dict(build_jev_review_requests([source], [target], {1: (100, 100)}, includes_footnotes=False))[1]
-        observed = packet['state']['target_page']['layouts'][0]
+        observed = packet['state']['local_raw_evidence']['target_page']['layouts'][0]
         self.assertIn('这是一条藏在中间的脚注解释', observed['raw_text'])
         self.assertNotIn('continues_to_next', observed)
-        self.assertIn('continues_from_previous', observed)
+        self.assertNotIn('continues_from_previous', observed)
+        self.assertIn('owner_0', packet['state']['checks'])
 
 
     def test_neighbor_ownership_mistakes_do_not_hide_real_body_evidence(self):
@@ -64,6 +65,6 @@ class JEVWindowEvidenceTests(unittest.TestCase):
         packet = dict(build_jev_review_requests(
             [previous, current], [p for p in projected if p],
             {1: (100, 100), 2: (100, 100)}, includes_footnotes=False))[2]
-        texts = [item['raw_text'] for item in packet['state']['previous_page']['paragraph_boundary']]
+        texts = [item['raw_text'] for item in packet['state']['local_raw_evidence']['previous_page']['paragraph_boundary']]
         self.assertIn('The analyst asked: was he angry?', texts)
         self.assertIn('② A second misplaced footnote.', texts)

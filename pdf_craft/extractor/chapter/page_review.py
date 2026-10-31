@@ -14,6 +14,7 @@ from typing import Any, Protocol
 
 from ...pdf import Page
 from .page_analysis import AnalysedLayout, PageAnalysis
+from .local_review import LOCAL_REVIEW_THRESHOLD, local_review_requests
 
 
 JEV_REVIEW_THRESHOLD = 0.45
@@ -219,17 +220,20 @@ class PageAnalysisProcessor(Protocol):
 
 
 class JevReviewProcessor:
-    """Score every page with JEV while leaving PageAnalysis unchanged."""
+    """Aggregate complete JEV reviews while leaving PageAnalysis unchanged."""
 
     def __init__(
         self,
         evaluator: PageEvaluator,
-        threshold: float = JEV_REVIEW_THRESHOLD,
+        threshold: float | None = None,
         batch_evaluator: PageBatchEvaluator | None = None,
+        includes_footnotes: bool = True,
     ) -> None:
+        threshold = review_threshold(includes_footnotes) if threshold is None else threshold
         if not 0 <= threshold <= 1:
             raise ValueError("JEV review threshold must be between 0 and 1")
         self._evaluator = evaluator
+        self._includes_footnotes = includes_footnotes
         self._batch_evaluator = batch_evaluator
         self._threshold = threshold
         self.results: list[PageReviewResult] = []
@@ -243,16 +247,19 @@ class JevReviewProcessor:
         from ..progress import page_stage
         for page in analyses:
             await page_stage(page.page_index, 5)
-        requests = build_jev_review_requests(
-            source_pages, analyses, page_pixel_sizes
-        )
+        expected: dict[int, int] = {}
+
+        def requests():
+            for index, packet in build_jev_review_requests(
+                    source_pages, analyses, page_pixel_sizes, includes_footnotes=self._includes_footnotes):
+                expected[index] = expected.get(index, 0) + 1
+                yield index, packet
+
         if self._batch_evaluator is not None:
-            evaluated = await self._batch_evaluator(iter(requests))
+            evaluated = await self._batch_evaluator(requests())
         else:
-            # Compatibility for custom evaluators. Official JEV runtimes use
-            # the lazy executor-backed batch evaluator above.
             evaluated = []
-            for page_index, request in requests:
+            for page_index, request in requests():
                 try:
                     probability = await self._evaluator(page_index, request)
                 except Exception as error:
@@ -262,17 +269,20 @@ class JevReviewProcessor:
                                   targets=(FailureLocation('page', page_indexes=(page_index,)),))
                     continue
                 evaluated.append((page_index, probability))
-        self.results = []
-        for page_index, pass_probability in evaluated:
-            if not 0 <= pass_probability <= 1:
+        probabilities: dict[int, list[float]] = {}
+        for page_index, probability in evaluated:
+            if not 0 <= probability <= 1:
                 raise ValueError("JEV pass probability must be between 0 and 1")
-            risk = round(1 - pass_probability, 12)
-            self.results.append(PageReviewResult(
-                page_index=page_index,
-                pass_probability=pass_probability,
-                risk=risk,
-                requires_review=risk >= self._threshold,
-            ))
+            probabilities.setdefault(page_index, []).append(probability)
+        self.results = []
+        for page_index, count in expected.items():
+            values = probabilities.get(page_index, [])
+            # A missing batch is a failed review, never a successful partial page.
+            if len(values) != count:
+                continue
+            probability = min(values)
+            risk = 1 - probability
+            self.results.append(PageReviewResult(page_index, probability, risk, risk >= self._threshold))
         return analyses
 
 
@@ -280,9 +290,9 @@ def build_jev_review_requests(
     source_pages: Iterable[Page],
     analyses: Iterable[PageAnalysis],
     page_pixel_sizes: Mapping[int, tuple[int, int]],
-    *, includes_footnotes: bool = True,
+    *, includes_footnotes: bool = True, target_page_index: int | None = None,
 ) -> Iterable[tuple[int, dict[str, Any]]]:
-    """Build the selected PageReviewPacket v2 prompt for every page."""
+    """Build local body-only batches or the dedicated footnote-page rubric."""
 
     page_by_index = {page.index: page for page in source_pages}
     packets: dict[int, dict[str, Any]] = {}
@@ -299,25 +309,35 @@ def build_jev_review_requests(
 
     def generate():
         for page_index, target in packets.items():
-            yield page_index, {
-                "state": {
-                    "format": "pdf-craft PageReviewPacket v2",
-                    "coordinate_note": (
-                        "bbox_normalized is [left, top, right, bottom] in page fractions. "
-                        "text_scale_estimate is a rough OCR-pixel glyph-area scale, not actual font size; "
-                        "compare small-print blocks with their neighbours, never classify by this alone."
-                    ),
-                    "target_page": target,
-                    "previous_page": _boundary_context(
-                        packets.get(page_index - 1), "previous", includes_footnotes
-                    ),
-                    "next_page": _boundary_context(
-                        packets.get(page_index + 1), "next", includes_footnotes
-                    ),
-                },
-                "questions": _review_questions(includes_footnotes),
+            if target_page_index is not None and page_index != target_page_index:
+                continue
+            state = {
+                "format": "pdf-craft PageReviewPacket v2",
+                "coordinate_note": (
+                    "bbox_normalized is [left, top, right, bottom] in page fractions. "
+                    "text_scale_estimate is a rough OCR-pixel glyph-area scale, not actual font size; "
+                    "compare small-print blocks with their neighbours, never classify by this alone."
+                ),
+                "target_page": target,
+                "previous_page": _boundary_context(
+                    packets.get(page_index - 1), "previous", includes_footnotes
+                ),
+                "next_page": _boundary_context(
+                    packets.get(page_index + 1), "next", includes_footnotes
+                ),
             }
+            if includes_footnotes:
+                yield page_index, {"state": state, "questions": _review_questions(True)}
+            else:
+                ownership = _review_questions(False)[JEV_QUESTION_NAME]["instructions"]["ownership_standard"]
+                for request in local_review_requests(state, ownership):
+                    yield page_index, request
     return generate()
+
+
+def review_threshold(includes_footnotes: bool) -> float:
+    """Mode-specific internal decisions, not a caller-controlled cost quota."""
+    return JEV_REVIEW_THRESHOLD if includes_footnotes else LOCAL_REVIEW_THRESHOLD
 
 
 def _review_questions(includes_footnotes: bool) -> dict[str, Any]:

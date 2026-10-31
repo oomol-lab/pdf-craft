@@ -160,7 +160,7 @@ class RequestObserversTests(IsolatedAsyncioTestCase):
             usage={'input_tokens': 5}, nouls={'page_passes_strict_standard': SimpleNamespace(noul=2)},
         )))
         with self.assertRaisesRegex(Exception, "probability"):
-            await runtime.evaluate(1, {'state': {}, 'questions': {}})
+            await runtime.evaluate(1, {'state': {}, 'questions': {'page_passes_strict_standard': {'type': 'noul'}}})
         self.assertEqual(events[0].outcome, RequestOutcome.INVALID_RESPONSE)
         self.assertEqual(events[0].usage.input_tokens, 5)
         self.assertIsNone(events[0].http_status)
@@ -408,7 +408,7 @@ class RequestObserversTests(IsolatedAsyncioTestCase):
         runtime._client = MagicMock(system_one=AsyncMock(side_effect=[
             TypeSafeAPIConnectionError('offline'), response, response]))
         for page in (1, 2):
-            self.assertEqual(await runtime.evaluate(page, {'state': {}, 'questions': {}}), 0.8)
+            self.assertEqual(await runtime.evaluate(page, {'state': {}, 'questions': {'page_passes_strict_standard': {'type': 'noul'}}}), 0.8)
         self.assertEqual(len(events), 3)
         self.assertEqual(events[0].call_id, events[1].call_id)
         self.assertNotEqual(events[1].call_id, events[2].call_id)
