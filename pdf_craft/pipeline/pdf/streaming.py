@@ -3,6 +3,7 @@
 import asyncio
 from dataclasses import replace
 
+from ...document.furniture import section_identity
 from ...common import read_xml, save_xml
 from ...common.stream import DiskDelivery
 from ...runtime import IO_DOMAIN
@@ -20,7 +21,7 @@ def source_furniture_coverage(path, coverage):
     return replace(coverage,
         positions={(p.get('id', ''), v.get('id', '')): 'translated'
                    for p in root.findall('patterns/pattern') for v in p.findall('position')},
-        sections={(int(p.get('index', '0')), s.get('det', '')): 'translated'
+        sections={(int(p.get('index', '0')), section_identity(s)): 'translated'
                   for p in root.findall('pages/page') for s in p.findall('section')})
 
 
@@ -32,7 +33,7 @@ def page_furniture(plan, index, pages, dpi, directory):
     path = directory / f'furniture-page-{index}.xml'
     save_xml(root, path)
     coverage = TranslationCoverage({}, {(v.pattern_id, v.position_id): v.state for v in positions},
-                                   {(v.page_index, v.det): v.state for v in sections}, {})
+                                   {v.identity: v.state for v in sections}, {})
     return list(PDFTranslationPipeline()._iter_covered_replacements([], path, coverage, pages, dpi))
 
 
@@ -48,9 +49,9 @@ async def produce_furniture(schedule, slots, feed_root, previews, pages, dpi, di
             values = await IO_DOMAIN.run(page_furniture, schedule.furniture, index, pages, dpi, directory)
             if values is None:
                 continue
-            by_box = {value.bbox: value for value in values}
+            by_identity = {value.furniture_identity: value for value in values}
             for slot, prototype in pending.pop(index):
-                value = by_box.get(prototype.bbox)
+                value = by_identity.get(prototype.furniture_identity)
                 if value is not None:
                     value = _with_page_obstacles(value, obstacles)
                 await IO_DOMAIN.run(write_record, feed_root / str(slot), value)

@@ -12,6 +12,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from xml.etree.ElementTree import Element, SubElement
 
+from pdf_craft.document.furniture import coverage_identity
 from pdf_craft.common import indent, read_xml, save_xml
 from pdf_craft.extractor.chapter.chapter import (
     Chapter, SourceAsset, SourceTextFragment, StandaloneAsset, TextFlowItem,
@@ -43,6 +44,11 @@ class FurnitureSectionCoverage:
     page_index: int
     det: str
     state: CoverageState
+    section_id: str | None = None
+
+    @property
+    def identity(self) -> tuple[int, str]:
+        return self.page_index, self.section_id if self.section_id is not None else self.det
 
 
 @dataclass(frozen=True)
@@ -107,7 +113,7 @@ def read_coverage(path: Path) -> TranslationCoverage:
     for entry in root.findall("furnitures/position"):
         positions[(entry.get("pattern_id", ""), entry.get("position_id", ""))] = entry.get("state", "preserved")
     for entry in root.findall("furnitures/section"):
-        sections[(int(entry.get("page_index", "0")), entry.get("det", ""))] = entry.get("state", "preserved")
+        sections[(int(entry.get("page_index", "0")), coverage_identity(entry))] = entry.get("state", "preserved")
     for entry in root.findall("anchored/asset"):
         anchored[(
             entry.get("chapter_id", ""),
@@ -200,11 +206,10 @@ def _furniture_element(
             "state": entry.state,
         })
     for entry in sections:
-        SubElement(furniture, "section", {
-            "page_index": str(entry.page_index),
-            "det": entry.det,
-            "state": entry.state,
-        })
+        attributes = {"page_index": str(entry.page_index), "det": entry.det, "state": entry.state}
+        if entry.section_id is not None:
+            attributes["section_id"] = entry.section_id
+        SubElement(furniture, "section", attributes)
     return furniture
 
 
@@ -238,3 +243,12 @@ def apply_outcomes(chapter, outcomes):
 
 def accepted_translation(item):
     return not getattr(item, '_translation_missing', False)
+
+
+def copy_furniture_coverage(source: Path, target: Path) -> None:
+    """Transfer coverage without losing explicit IDs or legacy geometry."""
+    from copy import deepcopy
+    furniture = read_xml(source).find("furnitures")
+    root = _load_or_create(target)
+    _replace_child(root, "furnitures", deepcopy(furniture) if furniture is not None else None)
+    _save(root, target)

@@ -159,8 +159,8 @@ def extract_furnitures(
     pages_el = ET.SubElement(root, "pages")
     for page_index, sections in sorted(pages.items()):
         page_el = ET.SubElement(pages_el, "page", {"index": str(page_index)})
-        for section in sections:
-            attributes = {"det": ",".join(map(str, section.det))}
+        for section_id, section in enumerate(sections, 1):
+            attributes = {"id": str(section_id), "det": ",".join(map(str, section.det))}
             if section.toc_id is not None:
                 attributes["toc_id"] = str(section.toc_id)
             section_el = ET.SubElement(page_el, "section", attributes)

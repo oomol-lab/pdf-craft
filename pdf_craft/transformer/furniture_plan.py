@@ -3,6 +3,7 @@
 from copy import deepcopy
 from xml.etree.ElementTree import Element
 
+from ..document.furniture import section_identity
 from ..common import read_xml, save_xml
 from ..extractor.chapter.chapter import TextFlowItem, SourceTextFragment
 from ..extractor.toc import decode, iter_toc
@@ -54,7 +55,7 @@ class FurniturePlan:
                               dependency=section.get('toc_id'))
                     queue.run('INSERT INTO furniture_pages VALUES (?,?)', (job, int(page.get('index', '0'))))
                 else:
-                    ordinary.append((deepcopy(section), _as_section(page.get('index', ''), section.get('det', ''), section.text or '')))
+                    ordinary.append((deepcopy(section), _as_section(page.get('index', ''), section.get('det', ''), section.text or '', section.get('id'))))
             if ordinary:
                 job = queue.add('furniture', ('sections', page.get('index', ''), ordinary))
                 queue.run('INSERT INTO furniture_pages VALUES (?,?)', (job, int(page.get('index', '0'))))
@@ -83,7 +84,7 @@ class FurniturePlan:
             target = FailureLocation('template', source=current().source, member_path='furnitures.xml',
                                      unit_id=f'{pattern_id}:{position_id}', page_indexes=pages, original=position.text)
             impact = furniture_section_locations(tuple(
-                _as_section(page.get('index', '0'), section.get('det', ''), section.text or '')
+                _as_section(page.get('index', '0'), section.get('det', ''), section.text or '', section.get('id'))
                 for page in self.root.findall('pages/page') for section in page.findall('section')
                 if section.get('det') and any(link.get('pattern_id') == pattern_id and link.get('position_id') == position_id
                                              for link in section.findall('association'))))
@@ -130,6 +131,8 @@ class FurniturePlan:
     @staticmethod
     def _apply(root, rows):
         positions, sections = [], []
+        elements = {(page.get('index', ''), section_identity(section)): section
+                    for page in root.findall('pages/page') for section in page.findall('section')}
         import pickle
         for (data,) in rows:
             kind, *values = pickle.loads(data)
@@ -143,15 +146,15 @@ class FurniturePlan:
                 positions.append(FurniturePositionCoverage(pattern, position, state))
             elif kind == 'reuse':
                 page, target, state = values
-                element = root.find(f'pages/page[@index="{page}"]/section[@det="{target.get("det")}"]')
+                element = elements.get((page, section_identity(target)))
                 assert element is not None
                 element.text = target.text
-                sections.append(FurnitureSectionCoverage(int(page), target.get('det', ''), state))
+                sections.append(FurnitureSectionCoverage(int(page), target.get('det', ''), state, target.get('id')))
             else:
                 page, entries, states = values
-                for (target, _), (_, det, state) in zip(entries, states, strict=True):
-                    element = root.find(f'pages/page[@index="{page}"]/section[@det="{det}"]')
+                for (target, _), state in zip(entries, states, strict=True):
+                    element = elements.get((page, section_identity(target)))
                     assert element is not None
                     element.text = target.text
-                    sections.append(FurnitureSectionCoverage(int(page), det, state))
+                    sections.append(state)
         return root, positions, sections

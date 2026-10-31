@@ -199,6 +199,16 @@ translations = craft.list_translations(translated)
 
 保存的翻译版本只包含纯译文。Markdown 和 EPUB 渲染通过 `RenderMode` 选择仅 source、译文替换或双语输出；替换与双语模式可指定 translation ID，省略时稳定选择 index 中的第一个版本。PDF 写回可显式选择 translation ID，并应用其 narrative、metadata 与 furniture coverage；anchored 字段缺少字段级 PDF 坐标，只供可重排输出使用。
 
+### 页面 furniture section 身份
+
+新提取的 `furnitures.xml` 为每页 `<section>` 分配从 1 开始的正十进制 `id`，
+身份是 `(page_index, id)`，`det` 只描述位置。不同 section 可以具有完全相同的框。
+翻译、页快照和 PDF 回填均保留此编号，不重新编号。Furniture coverage 保存
+`page_index`、`section_id`、`det`、`state`；坐标仍须与目标 section 一致，但不参与身份判定。
+
+旧归档中没有 `id` 的 section，以及没有 `section_id` 的 coverage，继续按原来的
+`(page_index, det)` 读取，不静默迁移或重新编号。旧格式内存在歧义的重复身份仍然拒绝。
+
 ### `translations/` 的 identity 与隔离
 
 `translations/index.json` 必须且只能包含一个 `translations` 数组。每项必须且只能包含 `id`、
@@ -209,7 +219,7 @@ ASCII 字母、数字、下划线或连字符；它在当前文件中唯一，�
 fragment 的 `(page_index, source_order)`、自然段首 fragment identity、chapter scope 内 reference 的
 `(page_index, order)`，以及图片/表格 asset 的 flow slot。译文可以改变文字，但不能改变这些 identity、
 页面几何或 asset 结构。图片/表格字段只有在 anchored coverage 标记为 `translated` 的 slot 中才可变化。`coverage.xml` 复用现有 coverage schema，且只能引用 source identity。narrative 即使没有条目也保留对应节点；可选的 anchored 和 furniture 没有 coverage 时不生成节点。
-可选 furniture 译文保留 `(pattern_id, position_id)` 和 `(page_index, det)` identity。`metadata.json` 是
+可选 furniture 译文保留 `(pattern_id, position_id)` 和 `(page_index, section_id)` identity。`metadata.json` 是
 按字段名覆盖的 overlay，不增加人工节点 ID；其中 `language` 必须等于 index 中的目标语言。
 
 `translate_extraction()` 会把嵌在 `<text>` 内的图片/表格 asset 视为不透明、自闭合的 anchor：它们的 title、content、caption

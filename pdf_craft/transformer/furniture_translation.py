@@ -80,7 +80,7 @@ async def _translate_furnitures_async(
         return
     root, titles = prepared
     position_coverage: list[tuple[str, str, str]] = []
-    section_coverage: list[tuple[str, str, str]] = []
+    section_coverage: list[FurnitureSectionCoverage] = []
 
     for pattern in root.findall("patterns/pattern"):
         pattern_id = pattern.get("id", "")
@@ -94,7 +94,7 @@ async def _translate_furnitures_async(
                                      unit_id=f'{pattern_id}:{position_id}', page_indexes=occurrence_pages,
                                      original=position.text)
             impact = furniture_section_locations(tuple(
-                _as_section(page.get('index', '0'), section.get('det', ''), section.text or '')
+                _as_section(page.get('index', '0'), section.get('det', ''), section.text or '', section.get("id"))
                 for page in root.findall('pages/page') for section in page.findall('section')
                 if section.get('det') and any(association.get('pattern_id') == pattern_id
                     and association.get('position_id') == position_id for association in section.findall('association'))))
@@ -112,11 +112,11 @@ async def _translate_furnitures_async(
                 continue
             det = section.get("det", "")
             if section.get("toc_id") is not None:
-                section_coverage.append((
-                    page_index, det, _reconcile_toc_section(section, titles),
+                section_coverage.append(FurnitureSectionCoverage(
+                    int(page_index), det, _reconcile_toc_section(section, titles), section.get("id"),
                 ))
                 continue
-            ordinary.append((section, _as_section(page_index, det, section.text or "")))
+            ordinary.append((section, _as_section(page_index, det, section.text or "", section.get("id"))))
         section_coverage.extend(await _translate_page_sections_async(
             page_index, ordinary, transformer,
         ))
@@ -126,10 +126,7 @@ async def _translate_furnitures_async(
         write_furniture_coverage(
             translation_path,
             (FurniturePositionCoverage(*entry) for entry in position_coverage),
-            (
-                FurnitureSectionCoverage(int(page_index), det, state)
-                for page_index, det, state in section_coverage
-            ),
+            section_coverage,
         )
 
     await IO_DOMAIN.run(finish)
@@ -215,7 +212,7 @@ async def _translate_page_sections_async(
     page_index: str,
     entries: list[tuple[Element, FurnitureSection]],
     transformer: FurnitureTransformer,
-) -> list[tuple[str, str, str]]:
+) -> list[FurnitureSectionCoverage]:
     if not entries:
         return []
     targets = furniture_section_locations([section for _, section in entries])
@@ -237,9 +234,9 @@ async def _translate_page_sections_async(
         det = element.get("det", "")
         if _usable_target(target):
             element.text = target
-            coverage.append((page_index, det, "translated"))
+            coverage.append(FurnitureSectionCoverage(int(page_index), det, "translated", element.get("id")))
         else:
-            coverage.append((page_index, det, "preserved"))
+            coverage.append(FurnitureSectionCoverage(int(page_index), det, "preserved", element.get("id")))
     return coverage
 
 
@@ -306,12 +303,12 @@ def _replace_toc_title_field(source: str, translated_title: str) -> str:
     return prefix + translated_title.lstrip()
 
 
-def _as_section(page_index: str, det: str, content: str) -> FurnitureSection:
+def _as_section(page_index: str, det: str, content: str, section_id: str | None = None) -> FurnitureSection:
     values = tuple(int(value) for value in det.split(","))
     if len(values) != 4:
         raise ValueError(f"invalid furniture section bbox: {det}")
     box: Box = (values[0], values[1], values[2], values[3])
-    return FurnitureSection(int(page_index), box, content)
+    return FurnitureSection(int(page_index), box, content, section_id)
 
 
 def _integer_attribute(element: Element, name: str) -> int | None:

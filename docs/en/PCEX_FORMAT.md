@@ -212,11 +212,24 @@ translations = craft.list_translations(translated)
 
 Stored translations contain replacement text only. Markdown and EPUB rendering select source-only, replacement, or bilingual output with `RenderMode`; replacement and bilingual modes accept a translation ID or deterministically default to the first indexed entry. PDF patching accepts an explicit translation ID and applies its narrative, metadata, and furniture coverage; anchored fields remain reflow-output content because PCEX has no field-level PDF geometry.
 
+### Page furniture section identity
+
+Newly extracted `furnitures.xml` assigns every page-local `<section>` a positive decimal
+`id`, starting at 1 on each page. Its persisted identity is `(page_index, id)`;
+`det` describes geometry only. Different sections may have exactly the same rectangle.
+Translation, snapshots and PDF patching preserve these IDs without renumbering.
+Furniture coverage stores `page_index`, `section_id`, `det` and `state`; the
+rectangle must still match the referenced section, but it does not identify it.
+
+Legacy sections without `id` and their coverage without `section_id` remain readable
+using the original `(page_index, det)` key. Existing archives are not silently
+renumbered. Ambiguous duplicate identities in legacy input remain invalid.
+
 ### `translations/` identity and isolation
 
 `translations/index.json` contains exactly one `translations` array. Each item has exactly `id`, `target_language`, and ISO 8601 `created_at` fields. The ID must be 4-32 ASCII letters, digits, underscores, or hyphens, begin with a letter or digit, be unique in this file, and name the matching directory. Language is deliberately not an identity.
 
-Every layer has the same chapter filenames as the source. Correspondence uses existing PCEX identities: chapter identity, fragment `(page_index, source_order)`, paragraph first-fragment identity, reference `(page_index, order)` within its chapter, and image/table asset flow slot. A layer may change translated text but must not change those identities, page geometry, or asset structure. Image/table fields may differ only for slots marked `translated` by anchored coverage. `coverage.xml` may refer only to source identities. The narrative section remains present when it has no entries; optional anchored and furniture sections are omitted when they have no coverage. Optional translated furniture retains `(pattern_id, position_id)` and `(page_index, det)` identities. `metadata.json` is a field-name overlay; it needs no artificial node IDs and must contain a `language` equal to the indexed target language.
+Every layer has the same chapter filenames as the source. Correspondence uses existing PCEX identities: chapter identity, fragment `(page_index, source_order)`, paragraph first-fragment identity, reference `(page_index, order)` within its chapter, and image/table asset flow slot. A layer may change translated text but must not change those identities, page geometry, or asset structure. Image/table fields may differ only for slots marked `translated` by anchored coverage. `coverage.xml` may refer only to source identities. The narrative section remains present when it has no entries; optional anchored and furniture sections are omitted when they have no coverage. Optional translated furniture retains `(pattern_id, position_id)` and `(page_index, section_id)` identities. `metadata.json` is a field-name overlay; it needs no artificial node IDs and must contain a `language` equal to the indexed target language.
 
 `translate_extraction()` treats an image/table asset nested in `<text>` as an
 opaque, self-closing anchor. Its title, content, and caption are not included
