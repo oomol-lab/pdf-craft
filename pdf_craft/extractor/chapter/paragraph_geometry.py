@@ -2,6 +2,7 @@
 
 from unicodedata import east_asian_width
 
+from ...pdf import PageLayout
 from .chapter import SourceTextFragment, TextFlowItem
 from .content import last
 from .mark import NumberClass, transform2mark
@@ -10,7 +11,9 @@ _CLOSING_QUOTES = '\"\'”’」』»'
 _COMPLETED_ENDINGS = (".", "!", "?", "。", "！", "？", ":", "：", "…")
 
 
-def indented_line_boundary(before: TextFlowItem, after: TextFlowItem) -> bool:
+def indented_line_boundary(
+    before: TextFlowItem, after: TextFlowItem, *, column_indented: bool = False,
+) -> bool:
     """A short indented line can prove a boundary; multiline bboxes cannot.
 
     Punctuation only enables this geometric check, never proves a paragraph
@@ -24,6 +27,10 @@ def indented_line_boundary(before: TextFlowItem, after: TextFlowItem) -> bool:
     if (right.source is not None and right.source.first_line_inset is not None
             and right.source.first_line_inset >= 0.75
             and isinstance(text, str) and _compatible_line_end(text)):
+        return True
+    if (column_indented and isinstance(text, str) and _compatible_line_end(text)
+            and (left.page_index != right.page_index
+                 or right.bbox[1] >= left.bbox[3] - 0.1 * (right.bbox[3] - right.bbox[1]))):
         return True
     if left.page_index != right.page_index:
         return False
@@ -63,16 +70,52 @@ def _indented_single_line(narrow: SourceTextFragment, wide: SourceTextFragment) 
             and wide.bbox[2] - right >= 0.75 * height)
 
 
+def indented_line_starts(layouts: list[PageLayout]) -> set[tuple[int, int, int, int]]:
+    """Locate short indented lines against nearby wider text in the same column.
+
+    Two successive dialogue lines can share an inset. Their mutual alignment
+    does not establish the column margin. Use the nearest enclosing multiline
+    box among three neighbours on either side, without changing OCR evidence.
+    Existing pixel measurements take precedence over this fallback estimate.
+    """
+    starts = set()
+    for index, layout in enumerate(layouts):
+        if (layout.ref != "text" or layout.first_line_inset is not None
+                or not _single_line_text(layout.text, layout.det)):
+            continue
+        left, top, right, bottom = layout.det
+        height, width = bottom - top, right - left
+        candidates = []
+        for other in layouts[max(0, index - 3):index + 4]:
+            if other.ref != "text" or other is layout:
+                continue
+            a, b, c, d = other.det
+            if (c - a >= 1.5 * width and a <= left and c >= right
+                    and (d <= top or b >= bottom)
+                    and not _single_line_text(other.text, other.det)):
+                candidates.append((max(top - d, b - bottom), a))
+        if candidates:
+            distance = min(value[0] for value in candidates)
+            margins = [value[1] for value in candidates if value[0] == distance]
+            if max(margins) - min(margins) <= 0.3 * height and left - max(margins) >= 0.75 * height:
+                starts.add(layout.det)
+    return starts
+
+
 def _single_line(fragment: SourceTextFragment) -> bool:
     text = (fragment.source.text if fragment.source is not None
             else "".join(x for x in fragment.content if isinstance(x, str)))
+    return _single_line_text(text, fragment.bbox)
+
+
+def _single_line_text(text: str, bbox: tuple[int, int, int, int]) -> bool:
     # Math/HTML source lengths do not estimate printed advances; leave them to
     # the existing rule rather than treating markup characters as visible ink.
     if "\n" in text or "\\" in text or "<" in text:
         return False
     units = sum(1 if east_asian_width(char) in ("W", "F") else 0.5
                 for char in text.strip())
-    left, top, right, bottom = fragment.bbox
+    left, top, right, bottom = bbox
     height = bottom - top
     return (units >= 4 and height > 0
             and 0.6 * units * height <= right - left <= 1.8 * units * height)
