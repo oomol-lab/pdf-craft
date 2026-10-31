@@ -5,7 +5,7 @@ from xml.etree.ElementTree import Element
 from tiktoken import Encoding
 
 from pdf_craft.transformer.xml_translator.segment import (
-    BlockImmutableElementsError, BlockSegment, BlockSubmitter, TextSegment,
+    BlockImmutableElementsError, BlockSegment, BlockSubmitter, FoundInvalidIDError, TextSegment,
     search_text_segments,
 )
 from pdf_craft.transformer.xml_translator.xml import plain_text
@@ -68,7 +68,7 @@ class HillClimbing:
         # its block text may otherwise survive a later repaired response with
         # an equal score.
         if error_message is not None and any(
-            isinstance(error, BlockImmutableElementsError)
+            isinstance(error, (BlockImmutableElementsError, FoundInvalidIDError))
             for error in self._block_segment.validate(element)
         ):
             return error_message

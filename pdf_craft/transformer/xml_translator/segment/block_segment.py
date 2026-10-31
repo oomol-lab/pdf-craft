@@ -100,6 +100,18 @@ class BlockSegment:
         return root_element
 
     def validate(self, validated_element: Element) -> Generator[BlockError | FoundInvalidIDError, None, None]:
+        # IDs share one request-local namespace, including nested inline nodes.
+        # Validation and adoption must never choose different duplicate nodes.
+        seen: set[int] = set()
+        for node in validated_element.iter():
+            if node is validated_element or node.get("id") is None:
+                continue
+            identifier = validate_id_in_element(node)
+            if isinstance(identifier, int):
+                if identifier in seen:
+                    yield FoundInvalidIDError(node.get("id"), node,
+                        f"Duplicate ID {identifier}: keep exactly one node for each required ID.")
+                seen.add(identifier)
         if validated_element.tag != self._root_tag:
             yield BlockWrongTagError(
                 block=None,

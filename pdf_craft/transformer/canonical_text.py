@@ -1,5 +1,6 @@
 """Recover known canonical whitespace only when its slot ownership is unique."""
 from collections import defaultdict
+import unicodedata
 from typing import NamedTuple
 from xml.etree.ElementTree import Element
 
@@ -87,9 +88,28 @@ def restore_canonical_whitespace(roots: list[Element], canonical: str,
             return False
     actual = ''.join(item.text for item in fields)
     canonical = canonical.replace('\r\n', '\n').replace('\r', '\n')
-    if ''.join(c for c in actual if c not in DOCUMENT_SPACE) != ''.join(
-            c for c in canonical if c not in DOCUMENT_SPACE):
-        return False
+    visible = lambda text: ''.join(c for c in text if c not in DOCUMENT_SPACE)
+    if visible(actual) != visible(canonical):
+        # Decomposition supplies comparable code-point offsets even when a
+        # base character and its mark live in different XML slots. Compare the
+        # combined stream too: canonical mark ordering can cross slot edges.
+        if unicodedata.normalize('NFD', visible(actual)) != unicodedata.normalize('NFD', visible(canonical)):
+            return False
+        decomposed = []
+        cursor = 0
+        for item in fields:
+            text = unicodedata.normalize('NFD', item.text)
+            end = cursor + len(visible(text))
+            decomposed.append(item._replace(text=text, source=unicodedata.normalize('NFD', item.source),
+                                            start=cursor, end=end))
+            cursor = end
+        boundary_offsets = {old.start: new.start for old, new in zip(fields, decomposed)}
+        boundary_offsets.update({old.end: new.end for old, new in zip(fields, decomposed)})
+        replacement_boundaries = {boundary_offsets[index] for index in replacement_boundaries}
+        fields = decomposed
+        offset = cursor
+        actual = ''.join(item.text for item in fields)
+        canonical = unicodedata.normalize('NFD', canonical)
     actual_gaps, expected_gaps = _gaps(actual), _gaps(canonical)
     field_gaps = [_gaps(f.text) for f in fields]
     changes: dict[int, tuple[str, int | None]] = {}

@@ -4,7 +4,7 @@ from io import StringIO
 
 from .tag import Tag, TagKind, is_valid_name_char, is_valid_value_char
 
-_SPACES = (" ", "\n")
+_SPACES = (" ", "\n", "\t", "\r")
 
 
 class _Phase(Enum):
@@ -14,6 +14,7 @@ class _Phase(Enum):
     TAG_NAME = auto()
     TAG_GAP = auto()
     ATTRIBUTE_NAME = auto()
+    ATTRIBUTE_BEFORE_EQUAL = auto()
     ATTRIBUTE_NAME_EQUAL = auto()
     ATTRIBUTE_VALUE = auto()
     MUST_CLOSING_SIGN = auto()
@@ -35,6 +36,7 @@ class _XMLTagsParser:
         self._tag_buffer: StringIO = StringIO()
         self._tag: Tag | None = None
         self._phase: _Phase = _Phase.OUTSIDE
+        self._quote = '"'
 
     def do(self, chars: Iterable[str]) -> Generator[str | Tag, None, None]:
         for char in chars:
@@ -114,13 +116,24 @@ class _XMLTagsParser:
                     attr_name, attr_value = self._tag.attributes[-1]
                     attr_name = attr_name + char
                     self._tag.attributes[-1] = (attr_name, attr_value)
+                elif char in _SPACES:
+                    self._phase = _Phase.ATTRIBUTE_BEFORE_EQUAL
                 elif char == "=":
                     self._phase = _Phase.ATTRIBUTE_NAME_EQUAL
                 else:
                     parsed_result = _ParsedResult.Failed
 
+            elif self._phase == _Phase.ATTRIBUTE_BEFORE_EQUAL:
+                if char == "=":
+                    self._phase = _Phase.ATTRIBUTE_NAME_EQUAL
+                elif char not in _SPACES:
+                    parsed_result = _ParsedResult.Failed
+
             elif self._phase == _Phase.ATTRIBUTE_NAME_EQUAL:
-                if char == '"':
+                if char in _SPACES:
+                    pass
+                elif char in ('"', "'"):
+                    self._quote = char
                     self._phase = _Phase.ATTRIBUTE_VALUE
                 else:
                     parsed_result = _ParsedResult.Failed
@@ -130,7 +143,7 @@ class _XMLTagsParser:
                     attr_name, attr_value = self._tag.attributes[-1]
                     attr_value = attr_value + char
                     self._tag.attributes[-1] = (attr_name, attr_value)
-                elif char == '"':
+                elif char == self._quote:
                     self._phase = _Phase.TAG_GAP
                 else:
                     parsed_result = _ParsedResult.Failed
@@ -166,6 +179,8 @@ class _XMLTagsParser:
             self._phase = _Phase.OUTSIDE
 
     def _is_tag_valid(self, tag: Tag) -> bool:
+        if len({name for name, _ in tag.attributes}) != len(tag.attributes):
+            return False
         if tag.kind == TagKind.CLOSING and len(tag.attributes) > 0:
             return False
         if tag.find_invalid_name() is not None:

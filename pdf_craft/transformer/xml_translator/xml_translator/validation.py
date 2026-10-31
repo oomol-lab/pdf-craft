@@ -333,6 +333,8 @@ def _format_block_error(error: BlockError | FoundInvalidIDError) -> str:
         return f"Unexpected block found at `{selector}`. Fix: Remove this unexpected block."
 
     elif isinstance(error, FoundInvalidIDError):
+        if error.reason is not None:
+            return error.reason
         if error.invalid_id is None:
             example = f"<{error.element.tag}>"
         else:
@@ -424,6 +426,8 @@ def _format_inline_error(encoding: Encoding, error: InlineError | FoundInvalidID
                 f"Fix: Add {missing} more `<{tag}>` element(s)."
             )
     elif isinstance(error, FoundInvalidIDError):
+        if error.reason is not None:
+            return error.reason
         if error.invalid_id is None:
             example = f"<{error.element.tag}>"
         else:
