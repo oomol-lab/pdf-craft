@@ -43,6 +43,7 @@ from ..ocr_config import (
     VendorOCRConfig,
 )
 from ..runtime import IO_DOMAIN
+from .png import validate_image_limit
 
 
 OCRImageURLResolver = Callable[[Path], Awaitable[str]]
@@ -118,8 +119,11 @@ class VendorOCRRuntime:
         config: VendorOCRConfig,
         executor: AsyncExecutor,
         image_url_resolver: OCRImageURLResolver | None = None,
+        *, max_image_file_size: int | None = None,
     ) -> None:
         self.config = config
+        validate_image_limit(max_image_file_size)
+        self.max_image_file_size = max_image_file_size
         self.executor = executor
         self.image_url_resolver = image_url_resolver or _default_image_url
         if not _is_async_callable(self.image_url_resolver):
@@ -181,6 +185,12 @@ class VendorOCRRuntime:
     ) -> _ResolvedVendorOCRInput:
         try:
             check_aborted(request.aborted)
+            if self.max_image_file_size is not None:
+                size = await IO_DOMAIN.run(lambda: request.image_path.stat().st_size)
+                if size > self.max_image_file_size:
+                    raise OperationError(
+                        f"OCR request PNG exceeds max_page_image_file_size={self.max_image_file_size}: {size} bytes"
+                    )
             result = await self.image_url_resolver(request.image_path)
             return _ResolvedVendorOCRInput(
                 request, _validate_image_url(result),

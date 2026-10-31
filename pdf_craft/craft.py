@@ -111,6 +111,8 @@ class ExtractionOptions:
     on_metadata: MetadataCallback | None = None
 
     def __post_init__(self) -> None:
+        from .pdf.png import validate_image_limit
+        validate_image_limit(self.max_page_image_file_size)
         if not isinstance(self.footnotes, bool):
             raise TypeError("footnotes must be bool")
         if self.refinement is not None and not isinstance(self.refinement, Refinement):

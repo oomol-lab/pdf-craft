@@ -33,6 +33,7 @@ from ..runtime import IO_DOMAIN, OCR_DOMAIN, ExecutionDomain, run_cancellable, t
 from .handler import DefaultPDFHandler, PDFHandler
 from .page_extractor import Page, PageExtractorNode, PageLayout
 from .page_ref import PageRefContext
+from .png import PNGSizeError, resized_png, validate_image_limit
 from .types import DeepSeekOCRSize, PDFDocumentMetadata, encode
 from .vendor_ocr import (
     OCRImageURLResolver,
@@ -75,6 +76,7 @@ class _PreparedVendorPage:
     scale_x: float = 1.0
     scale_y: float = 1.0
     erased_rectangles: tuple[tuple[int, int, int, int], ...] = ()
+    max_image_file_size: int | None = None
 
 
 class OCR:
@@ -139,6 +141,7 @@ class OCR:
         del ocr_size
         if not self.is_vendor:
             raise RuntimeError("recognize_vendor is only available for vendor OCR")
+        validate_image_limit(max_page_image_file_size)
         geometry_path, done_path, page_pixel_sizes, is_complete = await IO_DOMAIN.run(
             self._prepare_vendor_workspace, ocr_path, plot_path,
         )
@@ -189,15 +192,36 @@ class OCR:
                                 int((time.perf_counter() - started) * 1000),
                             ))
                             continue
+                        image_path = temporary_path / f"page_{ref.page_index}.png"
                         try:
                             image = ref.render(
                                 dpi=dpi if dpi is not None else 300,
                                 max_image_file_size=max_page_image_file_size,
+                                png_path=image_path, aborted=cooperative_aborted,
                             )
-                        except PDFError as error:
+                            self._last_page_pixel_sizes[ref.page_index] = image.size
+                            request_path = image_path
+                            scale_x = 1.0
+                            scale_y = 1.0
+                            try:
+                                if isinstance(self._config, UnlimitedOCRVendorConfig) and max(image.size) > 8192:
+                                    request_path = temporary_path / f"page_{ref.page_index}_request.png"
+                                    request_size = resized_png(
+                                        image, request_path, max_page_image_file_size,
+                                        cooperative_aborted, maximum=8192,
+                                    )
+                                    scale_x = image.width / request_size[0]
+                                    scale_y = image.height / request_size[1]
+                            finally:
+                                image.close()
+                        except (PDFError, PNGSizeError) as error:
+                            if isinstance(error, PNGSizeError):
+                                cause = error
+                                error = PDFError(str(error), ref.page_index)
+                                error.__cause__ = cause
                             if not decide_sync(error_policy, error, FailureCategory.PDF_RENDER, 'page_render', 'page_placeholder',
                                     targets=(FailureLocation('page', source=str(pdf_path), page_indexes=(ref.page_index,)),)) :
-                                raise
+                                raise error
                             page = self._create_fallback_page(
                                 asset_hub, ref.page_index, None,
                             )
@@ -212,29 +236,6 @@ class OCR:
                                 error=error,
                             ))
                             continue
-                        self._last_page_pixel_sizes[ref.page_index] = image.size
-                        image_path = temporary_path / f"page_{ref.page_index}.png"
-                        image.save(image_path, format="PNG")
-                        request_path = image_path
-                        scale_x = 1.0
-                        scale_y = 1.0
-                        if isinstance(self._config, UnlimitedOCRVendorConfig):
-                            width, height = image.size
-                            maximum = max(width, height)
-                            if maximum > 8192:
-                                ratio = 8192 / maximum
-                                resized_width = max(1, round(width * ratio))
-                                resized_height = max(1, round(height * ratio))
-                                resized = image.resize((resized_width, resized_height))
-                                request_path = (
-                                    temporary_path
-                                    / f"page_{ref.page_index}_request.png"
-                                )
-                                resized.save(request_path, format="PNG")
-                                resized.close()
-                                scale_x = width / resized_width
-                                scale_y = height / resized_height
-                        image.close()
                         prepare_callback(OCREvent(
                             OCREventKind.RENDERED, ref.page_index, total_pages,
                             int((time.perf_counter() - started) * 1000),
@@ -247,6 +248,7 @@ class OCR:
                             total_pages=total_pages,
                             scale_x=scale_x,
                             scale_y=scale_y,
+                            max_image_file_size=max_page_image_file_size,
                         ))
                 prepared_stream.close()
 
@@ -347,6 +349,7 @@ class OCR:
             async with VendorOCRRuntime(
                 cast(VendorOCRConfig, self._config), executor,
                 image_url_resolver,
+                max_image_file_size=max_page_image_file_size,
             ) as runtime:
                 if max_tokens is not None or max_output_tokens is not None:
                     # Exact cumulative budgets settle a complete page before
@@ -648,9 +651,13 @@ class OCR:
         loaded = []
         raw_image = None
         try:
+            with PILImage.open(item.image_path) as source:
+                source_size = source.size
             for path, page_result in results:
                 with PILImage.open(path) as opened:
-                    image = opened.copy()
+                    # Stage-two detections have been mapped back to the source
+                    # geometry. Cropping/plotting must use that same geometry.
+                    image = opened.copy() if opened.size == source_size else opened.resize(source_size)
                 loaded.append((image, page_result))
             if item.page_index == 1 and loaded:
                 raw_image = loaded[0][0].copy()
@@ -687,6 +694,7 @@ class OCR:
         max_output_tokens: int | None = None,
         device_number: int | None = None,
     ) -> Generator[OCREvent, None, None]:
+        validate_image_limit(max_page_image_file_size)
         ocr_path.mkdir(parents=True, exist_ok=True)
         geometry_path = ocr_path / "page_pixel_sizes.json"
         self._last_page_pixel_sizes = self._load_page_pixel_sizes(geometry_path)
@@ -761,6 +769,7 @@ class OCR:
                             if dpi is not None
                             else 300,  # DPI=300 for scanned page
                             max_image_file_size=max_page_image_file_size,
+                            aborted=aborted,
                         )
                         image = rendered_image
                         self._last_page_pixel_sizes[ref.page_index] = rendered_image.size
@@ -1023,26 +1032,17 @@ def _decode_vendor_response(config, item, response):
         layouts = parse_unlimited_ocr_layouts(
             response.data["parse_result"], source="unlimited-ocr-vendor",
         )
-        if item.scale_x != 1.0 or item.scale_y != 1.0:
-            for layout in layouts:
-                x1, y1, x2, y2 = layout.det
-                layout.det = (
-                    round(x1 * item.scale_x),
-                    round(y1 * item.scale_y),
-                    round(x2 * item.scale_x),
-                    round(y2 * item.scale_y),
-                )
-                if layout.polygon is not None:
-                    layout.polygon = [
-                        (
-                            round(x * item.scale_x),
-                            round(y * item.scale_y),
-                        )
-                        for x, y in layout.polygon
-                    ]
         source = "unlimited-ocr-vendor"
     else:
         raise TypeError(f"Unsupported vendor OCR config: {type(config).__name__}")
+    if item.scale_x != 1.0 or item.scale_y != 1.0:
+        for layout in layouts:
+            x1, y1, x2, y2 = layout.det
+            layout.det = (round(x1 * item.scale_x), round(y1 * item.scale_y),
+                          round(x2 * item.scale_x), round(y2 * item.scale_y))
+            if layout.polygon is not None:
+                layout.polygon = [(round(x * item.scale_x), round(y * item.scale_y))
+                                  for x, y in layout.polygon]
     if item.erased_rectangles:
         from doc_page_extractor.redacter import clip_layouts_to_unmasked_area
         layouts = clip_layouts_to_unmasked_area(layouts, item.erased_rectangles)
@@ -1077,13 +1077,17 @@ def _prepare_second_stage(
             rectangles=rectangles,
         )
         path = directory / f"page_{item.page_index}_stage_2.png"
-        redacted.save(path, format="PNG")
-        if redacted is not image:
-            redacted.close()
+        try:
+            request_size = resized_png(redacted, path, item.max_image_file_size, aborted)
+        finally:
+            if redacted is not image:
+                redacted.close()
         check_aborted(aborted)
         return replace(
             item, request_path=path,
             erased_rectangles=item.erased_rectangles + rectangles,
+            scale_x=item.scale_x * image.width / request_size[0],
+            scale_y=item.scale_y * image.height / request_size[1],
         )
     finally:
         image.close()
