@@ -41,7 +41,8 @@ async def produce_furniture(schedule, slots, feed_root, previews, pages, dpi, di
     pending = dict(slots)
     while pending:
         schedule.furniture_changed.clear()
-        if schedule.runner.done():
+        finished = schedule.runner.done()
+        if finished:
             schedule.runner.result()
         for index in list(pending):
             values = await IO_DOMAIN.run(page_furniture, schedule.furniture, index, pages, dpi, directory)
@@ -55,8 +56,12 @@ async def produce_furniture(schedule, slots, feed_root, previews, pages, dpi, di
                 await IO_DOMAIN.run(write_record, feed_root / str(slot), value)
                 await IO_DOMAIN.run(write_record, previews / str(slot), None)
         if pending:
-            if schedule.runner.done():
+            # Only a snapshot taken after successful completion proves that a
+            # dependency is missing. Completion during the reads needs a rescan.
+            if finished:
                 raise RuntimeError('furniture ended with unresolved page dependencies')
+            if schedule.runner.done():
+                continue
             await schedule.furniture_changed.wait()
 
 

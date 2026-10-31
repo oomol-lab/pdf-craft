@@ -55,6 +55,7 @@ class FailureLog:
         self.started = _now()
         self.pending: Path | None = None
         self.record: dict[str, Any] = {}
+        self.transports: list[dict[str, Any]] = []
         self.secrets: set[str] = set()
         self.complete = True
         self.retained = False
@@ -115,24 +116,35 @@ class FailureLog:
         self.record.update(model=config.model, parameters=parameters, local_request_id=request_id,
                            messages=[{'role': m.role.name.lower(), 'content': m.message} for m in messages])
 
-    async def request(self, config, messages, parameters: dict, request_id: str) -> None:
+    def request(self, config, messages, parameters: dict, request_id: str) -> None:
+        """Snapshot an actual invocation without doing I/O in provider capacity."""
         self.configure(config, messages, parameters, request_id)
         if self.path is None:
             return
-        await self._io(lambda: self._append('transports.jsonl', {
+        self.transports.append({
             'attempt': self.record['attempt'], 'event': 'request', 'time': _now(),
             'model': config.model, 'parameters': parameters, 'local_request_id': request_id,
-            'messages': self.record['messages']}))
+            'messages': self.record['messages']})
 
     def provider_request(self, identifier: str | None) -> None:
         if identifier:
             self.record['provider_request_id'] = identifier
 
-    async def response(self, text: str) -> None:
+    def response(self, text: str) -> None:
         if self.path is not None:
-            await self._io(lambda: self._append('transports.jsonl', {
+            self.transports.append({
                 'attempt': self.record['attempt'], 'event': 'response', 'time': _now(), 'response': text,
-                'provider_request_id': self.record.get('provider_request_id')}))
+                'provider_request_id': self.record.get('provider_request_id')})
+
+    async def flush(self) -> None:
+        """Drain this invocation's events after executor retries have settled.
+
+        Only the current logical transport call is buffered, including its
+        rate-limit retries. No writer task or queue survives the owning request.
+        """
+        records, self.transports = self.transports, []
+        for record in records:
+            await self._io(lambda record=record: self._append('transports.jsonl', record))
 
     async def validated(self, response: str, result) -> None:
         if self.path is None:
@@ -162,4 +174,5 @@ class FailureLog:
         if pending is not None and not self.retained:
             await self._io(lambda: shutil.rmtree(pending))
         self.record.clear()
+        self.transports.clear()
         self.secrets.clear()
