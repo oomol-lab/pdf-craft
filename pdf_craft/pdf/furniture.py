@@ -19,7 +19,7 @@ from xml.etree import ElementTree as ET
 
 from ..runtime import run_subprocess_sync
 
-from ..common import indent, save_xml
+from ..common import indent, save_xml, safe_text
 from ..extractor.toc.types import TocInfo, iter_toc
 from ..extractor.toc.text import normalize_text
 from .types import decode as decode_page
@@ -337,7 +337,8 @@ def _native_pages(
                 "-bbox-layout", str(pdf_path), "-",
                 aborted=aborted,
             )
-        root = ET.fromstring(stdout.decode("utf-8"))
+        # Poppler can include unfiltered PDF metadata in the XHTML head.
+        root = ET.fromstring(safe_text(stdout.decode("utf-8")))
     except (FileNotFoundError, RuntimeError, ET.ParseError):
         # Furniture is optional. A PDF page remains usable if Poppler cannot
         # provide native geometry, just as a scanned page has no such output.

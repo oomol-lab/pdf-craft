@@ -7,6 +7,7 @@ from collections.abc import Callable
 import sys
 from ctypes.util import find_library
 from pathlib import Path
+from ..common import safe_text
 
 
 def read_page_labels(source: Path, count: int,
@@ -61,7 +62,7 @@ def read_page_labels(source: Path, count: int,
                 label = library.poppler_page_get_label(page)
                 if label:
                     try:
-                        value = ctypes.string_at(label).decode("utf-8").strip()
+                        value = safe_text(ctypes.string_at(label).decode("utf-8")).strip()
                         if value:
                             labels[index + 1] = value
                     finally:

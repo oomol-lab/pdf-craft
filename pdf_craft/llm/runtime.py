@@ -39,6 +39,7 @@ from .core import LLM
 from .error import is_retry_error
 from .increasable import Increasable
 from .types import Message, MessageRole
+from ..common import safe_text
 
 _CACHE_LOCK = threading.Lock()
 _LOGGER_LOCK = threading.Lock()
@@ -225,7 +226,7 @@ class LLMContext(AbstractAsyncContextManager["LLMContext"]):
             cached_text = await IO_DOMAIN.run(_read_cached, cached)
             if cached_text is not None:
                 await self._log_async("cache-hit", 0, key=key)
-                return cached_text
+                return safe_text(cached_text)
         await self._log_async("cache-miss", 0, key=key)
         last_error: BaseException | None = None
         empty_attempts = 0
@@ -255,10 +256,10 @@ class LLMContext(AbstractAsyncContextManager["LLMContext"]):
                         try:
                             with request_attempt(self.runtime.config) as attempt_usage:
                                 try:
-                                    text = await self.runtime._invoke_for_request(
+                                    text = safe_text(await self.runtime._invoke_for_request(
                                         messages, max_tokens, temperature, top_p,
                                         force_ipv4=force_ipv4,
-                                    )
+                                    ))
                                 except asyncio.CancelledError:
                                     if timeout_scope is not None and timeout_scope.expired():
                                         request_timed_out()
