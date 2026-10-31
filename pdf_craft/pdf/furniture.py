@@ -395,7 +395,7 @@ def _visible_text_boxes(pdf_path, aborted):
         stdout, _ = run_subprocess_sync(
             PopplerDocument(pdf_path, current_poppler_path()).command('pdftohtml'),
             '-xml', '-stdout', '-i', '-zoom', '1', '-noroundcoord', str(pdf_path), aborted=aborted)
-        root = ET.fromstring(stdout)
+        root = ET.fromstring(safe_text(stdout.decode("utf-8")))
         result = {}
         for page in root.findall('page'):
             width, height = float(page.attrib['width']), float(page.attrib['height'])

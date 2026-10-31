@@ -116,7 +116,13 @@ class SafeTextTests(unittest.TestCase):
         </line></page></body></html>'''
         with self.assertRaises(ET.ParseError):
             ET.fromstring(incoming)
-        with TemporaryDirectory() as directory:
+        # Supply both Poppler outputs: the native reader also verifies visibility.
+        visible = b'''<pdf2xml><page number="1" width="100" height="100">
+        <text left="1" top="2" width="69" height="10">Real\x01word</text>
+        </page></pdf2xml>'''
+        with TemporaryDirectory() as directory, patch(
+            'pdf_craft.pdf.furniture.run_subprocess_sync', return_value=(visible, b''),
+        ):
             pages = _native_pages(Path('unused.pdf'), Path(directory),
                                   native_pdf_text=incoming, native_pdf_text_prepared=True)
         self.assertEqual(pages[1][0].content, 'Realword')

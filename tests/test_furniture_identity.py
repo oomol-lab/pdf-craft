@@ -93,7 +93,13 @@ class FurnitureIdentityTests(TestCase):
             writer.write(pdf)
             ocr = root / 'ocr'
             ocr.mkdir()
-            result = extract_furnitures(pdf, ocr, native_pdf_text=native, native_pdf_text_prepared=True)
+            # The empty PDF is only a path fixture; provide matching visible
+            # Poppler text so this test isolates rounded geometry and identities.
+            visible = (b'<pdf2xml><page number="1" width="100" height="100">'
+                       b'<text left="33.20" top="20" width="7.45" height="10">Alpha Beta</text>'
+                       b'</page></pdf2xml>')
+            with patch('pdf_craft.pdf.furniture.run_subprocess_sync', return_value=(visible, b'')):
+                result = extract_furnitures(pdf, ocr, native_pdf_text=native, native_pdf_text_prepared=True)
             path = root / 'furnitures.xml'
             save_xml(result, path)
             _validate_furnitures(path, {1: (417, 417)}, set())

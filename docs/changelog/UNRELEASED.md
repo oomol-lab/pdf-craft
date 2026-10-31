@@ -1,5 +1,15 @@
 # Unreleased
 
+- Improve upstream paragraph joining with guarded vertical-column seams, numbered
+  entry boundaries and measured first-line indentation. Preserve source text,
+  geometry and incremental delivery; uncertain observations keep the existing path.
+- Skip OCR for strictly white rendered pages and white vendor footnote second-pass
+  images without inventing requests or usage. Preserve first-pass content and old
+  valid caches; near-white ink continues through OCR.
+- Record JEV structural-review principles and the upstream dynamic-repair method,
+  paired results, counterexamples and convergence limits. The frozen local JEV
+  research protocol is not a replacement for the public page-review runtime.
+
 - Preserve paragraph boundaries between completed quotations and new quoted turns,
   without splitting inline quoted terms or attribution. Give explicit numbered
   entries precedence over comma/hyphen continuation hints. Empty OCR text no
