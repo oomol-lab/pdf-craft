@@ -395,7 +395,10 @@ class StreamCallbacksTests(unittest.IsolatedAsyncioTestCase):
                 del dpi
                 if page_index == 2 and not started.wait(2):
                     raise AssertionError('OCR waited for all pages to render')
-                return Image.new('RGB', (12, 16), 'white')
+                # Visible ink keeps this fixture on the OCR path.
+                image = Image.new('RGB', (12, 16), 'white')
+                image.putpixel((image.width - 1, image.height - 1), (0, 0, 0))
+                return image
         class Handler:
             def open(self, _path):
                 return Document([])

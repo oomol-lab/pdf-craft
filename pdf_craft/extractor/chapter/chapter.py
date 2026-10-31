@@ -42,6 +42,7 @@ class TextSource:
     classification: str
     text: str
     content: tuple
+    first_line_inset: float | None = None
 
 
 @dataclass

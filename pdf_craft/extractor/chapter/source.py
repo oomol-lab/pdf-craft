@@ -64,6 +64,7 @@ def capture_sources(pages: list[Page]) -> dict[tuple[int, int], tuple[int, TextS
                 sources[(page.index, id(item))] = (offset + item.order, TextSource(
                     stream, item.order, positions[id(item)], item.ref, item.text,
                     tuple(deepcopy(_parse_block_content(item.text))),
+                    first_line_inset=item.first_line_inset,
                 ))
     return sources
 

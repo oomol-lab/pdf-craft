@@ -213,6 +213,32 @@ class OCR:
                             ))
                             continue
                         self._last_page_pixel_sizes[ref.page_index] = image.size
+                        check_aborted(cooperative_aborted)
+                        blank_page = _blank_page_if_white(image, ref.page_index)
+                        if blank_page is not None:
+                            # Settle a proven empty render before either vendor
+                            # scheduling path. No synthetic provider request or
+                            # usage is generated, including for all-empty books.
+                            try:
+                                self._save_page_pixel_sizes(geometry_path)
+                                save_xml(encode(blank_page), target)
+                                failed.unlink(missing_ok=True)
+                                if cover_path and blank_page.image:
+                                    cover_path.parent.mkdir(parents=True, exist_ok=True)
+                                    blank_page.image.save(cover_path, format="PNG")
+                            finally:
+                                if blank_page.image:
+                                    blank_page.image.close()
+                                image.close()
+                            usable_pages += 1
+                            elapsed = int((time.perf_counter() - started) * 1000)
+                            prepare_callback(OCREvent(
+                                OCREventKind.RENDERED, ref.page_index, total_pages, elapsed,
+                            ))
+                            prepare_callback(OCREvent(
+                                OCREventKind.COMPLETE, ref.page_index, total_pages, elapsed,
+                            ))
+                            continue
                         image_path = temporary_path / f"page_{ref.page_index}.png"
                         image.save(image_path, format="PNG")
                         request_path = image_path
@@ -468,23 +494,24 @@ class OCR:
                         Path(item.image_path.parent),
                         aborted,
                     )
-                    await page_stage(item.page_index, 3)
-                    second_response = await runtime.request(VendorOCRInput(
-                        item.page_index, second_item.request_path, aborted, 2,
-                    ), _defer_usage=True)
-                    second_result = await OCR_DOMAIN.run(
-                        _parse_vendor_response,
-                        self._config,
-                        second_item,
-                        second_response,
-                    )
+                    if not await OCR_DOMAIN.run(_white_image_path, second_item.request_path):
+                        await page_stage(item.page_index, 3)
+                        second_response = await runtime.request(VendorOCRInput(
+                            item.page_index, second_item.request_path, aborted, 2,
+                        ), _defer_usage=True)
+                        second_result = await OCR_DOMAIN.run(
+                            _parse_vendor_response,
+                            self._config,
+                            second_item,
+                            second_response,
+                        )
+                        results.append((second_item.request_path, second_result))
+                        input_tokens += second_response.input_tokens
+                        output_tokens += second_response.output_tokens
                 except (NonContinuableError, ErrorCallbackError):
                     raise
                 except Exception as error:
                     _raise_vendor_page_error(item.page_index, 2, error)
-                results.append((second_item.request_path, second_result))
-                input_tokens += second_response.input_tokens
-                output_tokens += second_response.output_tokens
             finish_stage = len(results)
             try:
                 return await OCR_DOMAIN.run(
@@ -602,9 +629,10 @@ class OCR:
                             second_item = await OCR_DOMAIN.run(
                                 _prepare_second_stage, item, parsed, root, aborted,
                             )
-                            await IO_DOMAIN.run(save_first, index, parsed, result.response)
-                            await enqueue(second_item, 2)
-                            continue
+                            if not await OCR_DOMAIN.run(_white_image_path, second_item.request_path):
+                                await IO_DOMAIN.run(save_first, index, parsed, result.response)
+                                await enqueue(second_item, 2)
+                                continue
                         results = [(item.image_path, parsed)]
                         tokens_in = result.response.input_tokens
                         tokens_out = result.response.output_tokens
@@ -773,20 +801,23 @@ class OCR:
                             output_tokens=0,
                         )
                         from ..extractor.progress import page_stage_sync
-                        page_stage_sync(ref.page_index, 1)
-                        page = self._extractor.image2page(
-                            image=image,
-                            page_index=ref.page_index,
-                            asset_hub=asset_hub,
-                            ocr_size=ocr_size,
-                            includes_footnotes=includes_footnotes,
-                            includes_raw_image=(ref.page_index == 1),
-                            plot_path=plot_path,
-                            max_tokens=remain_tokens,
-                            max_output_tokens=remain_output_tokens,
-                            device_number=device_number,
-                            aborted=aborted,
-                        )
+                        check_aborted(aborted)
+                        page = _blank_page_if_white(image, ref.page_index)
+                        if page is None:
+                            page_stage_sync(ref.page_index, 1)
+                            page = self._extractor.image2page(
+                                image=image,
+                                page_index=ref.page_index,
+                                asset_hub=asset_hub,
+                                ocr_size=ocr_size,
+                                includes_footnotes=includes_footnotes,
+                                includes_raw_image=(ref.page_index == 1),
+                                plot_path=plot_path,
+                                max_tokens=remain_tokens,
+                                max_output_tokens=remain_output_tokens,
+                                device_number=device_number,
+                                aborted=aborted,
+                            )
                     except PDFError as error:
                         if not decide_sync(error_policy, error, FailureCategory.PDF_RENDER, 'page_render', 'page_placeholder',
                                     targets=(FailureLocation('page', source=str(pdf_path), page_indexes=(ref.page_index,)),)) :
@@ -1124,6 +1155,31 @@ def _raise_vendor_page_error(
 ) -> Never:
     operation_error = _vendor_page_error(page_index, step_index, error)
     raise operation_error from operation_error.__cause__
+
+
+def _is_white_image(image: Image) -> bool:
+    """Recognize only exact visible white, never infer blankness from sparsity.
+
+    Even one near-white pixel keeps the OCR path. Unsupported color modes and
+    non-opaque alpha are deliberately left to OCR rather than approximated.
+    """
+    if image.mode == "L":
+        return image.getextrema() == (255, 255)
+    if image.mode in ("RGB", "RGBA"):
+        return all(channel == (255, 255) for channel in image.getextrema())
+    return False
+
+
+def _white_image_path(path: Path) -> bool:
+    from PIL import Image as PILImage
+    with PILImage.open(path) as image:
+        return _is_white_image(image)
+
+
+def _blank_page_if_white(image: Image, page_index: int) -> Page | None:
+    if not _is_white_image(image):
+        return None
+    return Page(page_index, image.copy() if page_index == 1 else None, [], [], 0, 0)
 
 
 def _find_cause(

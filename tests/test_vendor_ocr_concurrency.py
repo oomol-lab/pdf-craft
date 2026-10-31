@@ -50,7 +50,10 @@ class _Document:
     def render_page(self, page_index: int, dpi: int) -> Image.Image:
         del dpi
         self._rendered.append(page_index)
-        return Image.new("RGB", (12, 16), "white")
+        # Visible ink keeps this fixture on the OCR path.
+        image = Image.new("RGB", (12, 16), "white")
+        image.putpixel((image.width - 1, image.height - 1), (0, 0, 0))
+        return image
 
     def close(self) -> None:
         return None
@@ -1226,7 +1229,10 @@ class VendorOCRConcurrencyTests(unittest.IsolatedAsyncioTestCase):
                 rendered.append(page_index)
                 render_started.set()
                 time.sleep(0.05)
-                return Image.new("RGB", (12, 16), "white")
+                # Visible ink keeps this fixture on the OCR path.
+                image = Image.new("RGB", (12, 16), "white")
+                image.putpixel((image.width - 1, image.height - 1), (0, 0, 0))
+                return image
 
         class SlowHandler:
             def open(self, _pdf_path: Path) -> SlowDocument:
