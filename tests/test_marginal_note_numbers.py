@@ -18,6 +18,40 @@ def raw_page(*, number='28', box='10,910,50,940', body='A reading passage about 
 
 
 class MarginalNoteNumberTests(unittest.TestCase):
+    def test_measured_multiline_prose_supports_a_short_reading_band(self):
+        raw = raw_page(number='8', body='A complete reading passage ends here.')
+        raw.body_layouts[0].det = (100, 100, 900, 240)
+        raw.footnotes_layouts[0].det = (10, 900, 50, 940)
+        unknown = _project_window([None, raw, None], True)[1]
+        assert unknown is not None
+        self.assertTrue(unknown.citations)
+        raw.body_layouts[0].first_line_inset = 0.0
+        observed = _project_window([None, raw, None], True)[1]
+        assert observed is not None
+        self.assertFalse(observed.citations)
+        self.assertEqual(observed.layouts[-1].ownership, 'ignored')
+
+    def test_chinese_side_folios_need_dominant_observed_vertical_columns(self):
+        for vertical in (False, True):
+            with self.subTest(vertical=vertical):
+                raw = decode(fromstring('<page index="1"><body>' + ''.join(
+                    f'<layout ref="text" det="{x},100,{x+50},900" '
+                    f'vertical_columns="{str(vertical).lower()}">这是一段竖排正文，沿着文字列阅读。</layout>'
+                    for x in (100, 200, 300)) + '</body><footnotes>'
+                    '<layout ref="text" det="350,600,380,640">二五</layout>'
+                    '</footnotes></page>'))
+                page = _project_window([None, raw, None], True)[1]
+                assert page is not None
+                candidate = next(item for item in page.layouts if item.source_order == 3)
+                self.assertEqual(candidate.ownership, 'ignored' if vertical else 'citation')
+
+    def test_a_vertical_sidebar_does_not_make_horizontal_body_vertical(self):
+        raw = raw_page(number='二五', box='910,500,940,540',
+            extra='<layout ref="text" det="40,100,70,300" vertical_columns="true">侧栏。</layout>')
+        page = _project_window([None, raw, None], True)[1]
+        assert page is not None
+        self.assertTrue(page.citations)
+
     def test_outside_both_reading_axes_is_retained_as_an_ignored_source(self):
         raw = raw_page()
         before = deepcopy(raw)

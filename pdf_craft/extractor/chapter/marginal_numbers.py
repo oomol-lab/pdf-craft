@@ -7,17 +7,19 @@ from .jointer import _parse_block_content
 from .numeric_marks import explicit_numbers
 from .mark import Mark, search_marks
 
+_CHINESE_DIGITS = str.maketrans('〇零一二三四五六七八九', '00123456789')
+_SHORT_NUMBER = re.compile(r'(?:[0-9]{1,3}|[〇零一二三四五六七八九]{1,3})')
 
 def marginal_numbers(page):
     """Select only isolated short numbers outside both main reading axes.
 
-    A page-bottom position is insufficient. Keep anything within text columns,
-    beside continuing text, in an asset, or mentioned by the current body.
+    A position is insufficient. Keep anything within text columns, in an asset,
+    or mentioned by the current body. Side folios need observed vertical writing.
     The caller must retain the excluded observation and its original identity.
     """
     # Four-digit tokens may be years; leave that domain to semantic review.
     candidates = [item for item in page.footnotes_layouts
-                  if item.ref == 'text' and re.fullmatch(r'[0-9]{1,3}', item.text)]
+                  if item.ref == 'text' and _SHORT_NUMBER.fullmatch(item.text)]
     if not candidates:
         return []
     text_kinds = ('text', *TITLE_TAGS)
@@ -25,6 +27,10 @@ def marginal_numbers(page):
             and any(char.isalnum() for char in item.text)]
     if not body:
         return []
+    vertical = [item for item in body if item.vertical_columns]
+    vertical_writing = len(vertical) >= 2 and sum(len(item.text.strip()) for item in vertical) > (
+        sum(len(item.text.strip()) for item in body) / 2)
+    multiline = any(item.ref == 'text' and item.first_line_inset is not None for item in body)
     left, right = min(item.det[0] for item in body), max(item.det[2] for item in body)
     top, bottom = min(item.det[1] for item in body), max(item.det[3] for item in body)
     all_layouts = [*page.body_layouts, *page.footnotes_layouts]
@@ -33,15 +39,20 @@ def marginal_numbers(page):
     referenced.update(str(mark.number) for mark in search_marks(text) if isinstance(mark, Mark))
     found = []
     for item in candidates:
+        chinese = not item.text.isascii()
+        if chinese and not vertical_writing:
+            continue
         x1, y1, x2, y2 = item.det
-        if (x1 >= x2 or y1 >= y2 or not (x2 < left or x1 > right)
-                or bottom - top < 6 * (y2 - y1) or right - left < 4 * (x2 - x1)):
+        if (x1 >= x2 or y1 >= y2 or not (x2 <= left or x1 >= right)
+                or bottom - top < (3 if multiline else 6) * (y2 - y1)
+                or right - left < 4 * (x2 - x1)):
             continue
-        number = item.text.lstrip('0') or '0'
-        if number in referenced or re.search(r'(?<![0-9])' + re.escape(number) + r'(?![0-9])', text):
+        number = item.text.translate(_CHINESE_DIGITS).lstrip('0') or '0'
+        if (number in referenced or re.search(r'(?<![0-9])' + re.escape(number) + r'(?![0-9])', text)
+                or (chinese and item.text in ''.join(text.split()))):
             continue
-        if any(other is not item and other.ref in text_kinds and other.text.strip()
-               and other.det[3] > y1 for other in all_layouts):
+        if not vertical_writing and any(other is not item and other.ref in text_kinds and other.text.strip()
+                                      and other.det[3] > y1 for other in all_layouts):
             continue
         if any(other.ref in (*ASSET_TAGS, 'formula', 'equation')
                and min(x2, other.det[2]) > max(x1, other.det[0])
