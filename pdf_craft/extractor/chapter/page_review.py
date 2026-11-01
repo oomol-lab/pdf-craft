@@ -107,9 +107,12 @@ class JevReviewProcessor:
                 probability = await review_body_page(
                     ((index, packet) for packet in local_review_requests(state)), evaluate)
             if probability is not None:
-                risk = 1 - probability
+                cutoff = 1 - self._threshold
+                # Compare on the score's own scale: taking the complement can
+                # turn the exact cutoff into a slightly lower float risk.
+                risk = self._threshold if probability == cutoff else 1 - probability
                 self.results.append(PageReviewResult(state['target_page']['page_index'],
-                    probability, risk, risk >= self._threshold))
+                    probability, risk, probability <= cutoff))
         return analyses
 
     async def _evaluate_single_questions(self, requests):
