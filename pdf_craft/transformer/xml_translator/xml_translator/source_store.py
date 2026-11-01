@@ -88,18 +88,6 @@ class TaskStore:
             return task
 
 
-def unit_owner(origin):
-    """A PCEX paragraph is atomic; EPUB retains its existing fragment owner."""
-    return next((node for node in origin.head.parent_stack if node.tag == 'text'), origin.parent)
-
-
-def unit_key(owner):
-    fragment = owner.find('fragment') if owner.tag == 'text' else None
-    if fragment is not None:
-        return f'{fragment.get("page_index")}:{fragment.get("source_order")}'
-    return owner.get(NODE_KEY) or str(id(owner))
-
-
 def owner_outcomes(root, mappings):
     del mappings
     return {str(node.get('__pdf_craft_unit')): node.get('__pdf_craft_missing') != '1'

@@ -44,10 +44,11 @@ from pdf_craft.transformer import (
     AnchoredContentTranslation,
     AnchoredContentXMLTransformer,
 )
+from pdf_craft.transformer.structured_translation import StructuredTranslation
 from pdf_craft.transformer.narrative_xml import (
+    _source_unit_owner,
     NarrativeXMLTransformer,
     _NarrativeAnchorProjection,
-    _render_chapter_source_text,
 )
 from pdf_craft.transformer.anchored_translation import (
     _transform_batch_async,
@@ -94,7 +95,7 @@ class _TemplateTranslator:
         translated = task.element
         async for element, mappings in mapper.map_stream_async(
             elements=iter((task.element,)), callbacks=callbacks,
-            map=translate_group, window=1,
+            map=translate_group, window=1, ownership=kwargs.get('translation_protocol'),
         ):
             translated = submit(element, task.action, mappings)
         return translated, task.payload
@@ -151,6 +152,10 @@ class _XMLTaskTranslator:
         self.sources: list[str] = []
 
     async def translate_element(self, task, **kwargs):
+        protocol = kwargs.get('translation_protocol')
+        if protocol is not None and protocol.context is not None:
+            segments = list(search_inline_segments(search_text_segments(task.element)))
+            self.sources.append(protocol.context(segments))
         self.sources.extend(
             segment.text
             for segment in kwargs["interrupt_source_text_segments"](
@@ -270,7 +275,7 @@ class _ResponseContext:
         return None
 
     async def request(self, *_args, **_kwargs):
-        self.messages.append(_args)
+        self.messages.append(_args or (_kwargs["input"],))
         self.calls += 1
         return next(self._responses)
 
@@ -357,7 +362,7 @@ class AnchoredContentTranslationTests(unittest.TestCase):
         anchors = _NarrativeAnchorProjection(root)
         anchors.replace_assets()
 
-        source = _render_chapter_source_text(list(search_inline_segments(search_text_segments(root))))
+        source = StructuredTranslation(owner=_source_unit_owner).render(list(search_inline_segments(search_text_segments(root))))
 
         self.assertEqual(source, "How-ever\n\nNext paragraph.")
 

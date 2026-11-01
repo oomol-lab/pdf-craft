@@ -328,7 +328,7 @@ class UsageTests(IsolatedAsyncioTestCase):
 
 class SizeTests(IsolatedAsyncioTestCase):
     async def test_pcex_preview_matches_progress_for_all_options(self):
-        async def identity(_self, text):
+        async def identity(_self, text, **_kwargs):
             return text
         with TemporaryDirectory() as directory:
             root = Path(directory)
@@ -347,7 +347,7 @@ class SizeTests(IsolatedAsyncioTestCase):
                     self.assertEqual(events[0].total_words, expected)
 
     async def test_epub_preview_matches_progress_without_output_or_model(self):
-        async def identity(_self, text):
+        async def identity(_self, text, **_kwargs):
             return text
         with TemporaryDirectory() as directory:
             root = Path(directory)

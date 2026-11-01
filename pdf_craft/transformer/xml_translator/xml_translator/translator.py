@@ -8,7 +8,7 @@ from pdf_craft._policy import OMITTED, policy_operation
 from collections.abc import AsyncIterable, Callable, Iterable, Iterator
 from contextlib import aclosing
 from dataclasses import asdict, dataclass, field
-from typing import Generic, TypeVar, cast
+from typing import Generic, TypeVar, cast, TYPE_CHECKING
 from xml.etree.ElementTree import Element
 
 from pdf_craft.concurrency import AsyncExecutor
@@ -36,6 +36,9 @@ from collections import Counter
 import asyncio
 from pdf_craft._progress import DiskUnits
 
+if TYPE_CHECKING:
+    from ...structured_translation import StructuredTranslation
+
 T = TypeVar("T")
 SourceTextRenderer = Callable[[list[InlineSegment]], str]
 CanonicalTextValidator = Callable[[list[InlineSegment], str, Element], str | None]
@@ -50,30 +53,6 @@ def _already_in_target_language(text: str, target_language: str) -> bool:
     han_count = sum(is_han_char(char) for char in text)
     latin_count = sum(is_latin_letter(char) for char in text)
     return han_count >= 2 and han_count >= latin_count
-
-
-def _groups_by_source_unit_owner(
-    inline_segments: list[InlineSegment],
-) -> list[list[InlineSegment]]:
-    """Split PCEX canonical-validation work at logical ``<text>`` owners.
-
-    This helper is deliberately activated only for the optional canonical
-    validation path.  The ordinary XML translator keeps its generic batching
-    semantics, while PCEX gets one first-stage translation result per
-    TextFlowItem and therefore never infers ownership from translated prose.
-    """
-    groups: list[list[InlineSegment]] = []
-    previous_owner: Element | None = None
-    for segment in inline_segments:
-        owner = next(
-            (element for element in segment.head.parent_stack if element.tag == "text"),
-            segment.parent,
-        )
-        if owner is not previous_owner:
-            groups.append([])
-            previous_owner = owner
-        groups[-1].append(segment)
-    return groups
 
 
 @dataclass
@@ -172,6 +151,7 @@ class XMLTranslator:
         on_translation_event: Callable[[ProgressEvent], object] | None = None,
         total_words: int | None = None,
         window: int = 1, *,
+        translation_protocol: "StructuredTranslation | None" = None,
         unit_counts: Mapping[UnitKind, int] | None = None,
         retry_policy: RetryPolicy | None = None, error_policy: ErrorPolicyInput = OMITTED,
         request_headers: Mapping[str, str] | None = None,
@@ -185,7 +165,7 @@ class XMLTranslator:
             interrupt_block_element=interrupt_block_element,
             immutable_elements_for_inline_segments=immutable_elements_for_inline_segments,
             source_text_renderer=source_text_renderer,
-            canonical_text_validator=canonical_text_validator,
+            canonical_text_validator=canonical_text_validator, translation_protocol=translation_protocol,
             on_translation_event=on_translation_event,
             total_words=total_words,
             window=window, unit_counts=unit_counts,
@@ -200,6 +180,7 @@ class XMLTranslator:
         immutable_elements_for_inline_segments: Callable[[list[InlineSegment]], list[ImmutableBlockElement]] | None = None,
         source_text_renderer: SourceTextRenderer | None = None,
         canonical_text_validator: CanonicalTextValidator | None = None,
+        translation_protocol: "StructuredTranslation | None" = None,
         on_translation_event: Callable[[ProgressEvent], object] | None = None,
         total_words: int | None = None,
         window: int = 1,
@@ -222,7 +203,7 @@ class XMLTranslator:
                     interrupt_translated_text_segments=interrupt_translated_text_segments,
                     interrupt_block_element=interrupt_block_element,
                     immutable_elements_for_inline_segments=immutable_elements_for_inline_segments,
-                    source_text_renderer=source_text_renderer, canonical_text_validator=canonical_text_validator,
+                    source_text_renderer=source_text_renderer, canonical_text_validator=canonical_text_validator, translation_protocol=translation_protocol,
                     on_translation_event=on_translation_event,
                     total_words=total_words,
                     window=window, on_mapping=on_mapping, on_result=on_result,
@@ -370,7 +351,7 @@ class XMLTranslator:
                 inline_segments=segments, callbacks=callbacks,
                 immutable_elements_for_inline_segments=immutable_elements_for_inline_segments,
                 source_text_renderer=source_text_renderer,
-                canonical_text_validator=canonical_text_validator,
+                canonical_text_validator=canonical_text_validator, translation_protocol=translation_protocol,
                 on_round=round_completed)
 
         async def empty_task(element):
@@ -390,7 +371,7 @@ class XMLTranslator:
 
         mapping_stream = stream_mapper.map_stream_async(
             elements=generate_async_elements() if async_tasks is not None else generate_elements(),
-            callbacks=callbacks, window=window, track_progress=progress is not None,
+            callbacks=callbacks, window=window, track_progress=progress is not None, ownership=translation_protocol,
             on_mapping=mapping_callback if on_mapping is not None or on_task_mapping is not None else None,
             map=translate_round, on_empty=empty_task,
         )
@@ -439,12 +420,10 @@ class XMLTranslator:
         ] | None,
         source_text_renderer: SourceTextRenderer | None,
         canonical_text_validator: CanonicalTextValidator | None,
-        on_round=None,
+        on_round=None, translation_protocol: "StructuredTranslation | None" = None,
     ) -> list[InlineSegmentMapping | None]:
-        segment_groups = (
-            _groups_by_source_unit_owner(inline_segments)
-            if canonical_text_validator is not None else [inline_segments]
-        )
+        segment_groups = (translation_protocol.groups(inline_segments)
+                          if translation_protocol is not None else [inline_segments])
         mappings: list[InlineSegmentMapping | None] = []
         for group in segment_groups:
             mappings.extend(await self._translate_inline_segment_group_async(
@@ -456,6 +435,8 @@ class XMLTranslator:
                 ),
                 source_text_renderer=source_text_renderer,
                 canonical_text_validator=canonical_text_validator,
+                source_context=(translation_protocol.context(group)
+                                if translation_protocol is not None and translation_protocol.context else ''),
             ))
             if on_round is not None:
                 await on_round(group)
@@ -469,6 +450,7 @@ class XMLTranslator:
         immutable_elements: list[ImmutableBlockElement],
         source_text_renderer: SourceTextRenderer | None,
         canonical_text_validator: CanonicalTextValidator | None,
+        source_context: str = '',
     ) -> list[InlineSegmentMapping | None]:
         primary = [segment for segment in inline_segments if not getattr(segment, '_translation_context', False)]
         if not primary:
@@ -491,7 +473,8 @@ class XMLTranslator:
         )
         targets = segment_locations(primary)
         try:
-            translated_text = await self._translate_text_async(source_text)
+            translated_text = (await self._translate_text_async(source_text, context=source_context)
+                               if source_context else await self._translate_text_async(source_text))
         except Exception as error:
             await recover(error, FailureCategory.TRANSLATION, 'text_translation',
                           'omit_translation', targets=targets, context_locations=context_targets,
@@ -525,7 +508,7 @@ class XMLTranslator:
             for text_segment in inline_segment:
                 yield text_segment.text
 
-    async def _translate_text_async(self, text: str) -> str:
+    async def _translate_text_async(self, text: str, *, context: str = "") -> str:
         if _already_in_target_language(text, self._target_language):
             return text
         template = await self._translation_runtime.template("translate")
@@ -540,7 +523,8 @@ class XMLTranslator:
                         user_prompt=self._user_prompt,
                     ),
                 ),
-                Message(role=MessageRole.USER, message=text),
+                Message(role=MessageRole.USER, message=(f"Read-only context (do not translate):\n{context}\n\nText to translate:\n{text}"
+                             if context else text)),
             ])
 
     async def _request_and_submit_async(
@@ -562,8 +546,8 @@ class XMLTranslator:
         if canonical_text_validator is not None:
             user_message += (
                 "\n\nCanonical visible-text constraint:\n"
-                "For each PCEX <text> unit, concatenating all visible text in its "
-                "fragment slots must reproduce the corresponding canonical "
+                "For this translation unit, concatenating all visible text in its "
+                "source slots must reproduce the corresponding canonical "
                 "translation above after the caller's shared whitespace normalization "
                 "and unambiguous recovery. Preserve words, punctuation and special "
                 "spaces; normal cosmetic whitespace can be reconstructed by the caller. "

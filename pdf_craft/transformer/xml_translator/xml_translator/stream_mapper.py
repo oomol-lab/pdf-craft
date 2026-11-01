@@ -14,7 +14,7 @@ from pdf_craft.transformer.xml_translator.segment import InlineSegment, TextSegm
 from pdf_craft.runtime import invoke_callback
 from .callbacks import Callbacks
 from .concurrency import run_async_parameters, run_concurrency_async
-from .source_store import source_identity, rebind, NODE_KEY, ROOT_KEY, unit_owner, unit_key
+from .source_store import source_identity, rebind, NODE_KEY, ROOT_KEY
 from .score import ScoreSegment, expand_to_score_segments, truncate_score_segment
 
 _PAGE_INCISION = 0
@@ -50,6 +50,7 @@ class XMLStreamMapper:
         on_mapping: Callable[[tuple[InlineSegment, list[TextSegment]]], object] | None = None,
         track_progress: bool = False,
         on_empty: Callable[[Element], object] | None = None,
+        *, ownership=None,
     ) -> AsyncGenerator[tuple[Element, list[InlineSegmentMapping]], None]:
         current_element: Element | None = None
         mapping_buffer: list[InlineSegmentMapping] = []
@@ -87,7 +88,7 @@ class XMLStreamMapper:
                 try:
                     async for element in elements:
                         yield_groups = self._split_into_serial_groups(
-                            (element,), callbacks, on_mapping is not None, track_progress, on_empty is not None,
+                            (element,), callbacks, on_mapping is not None, track_progress, on_empty is not None, ownership,
                         )
                         for group in yield_groups:
                             yield group
@@ -98,7 +99,7 @@ class XMLStreamMapper:
             results = run_async_parameters(groups(), execute, window, preserve_sources=False)
         else:
             results = run_concurrency_async(
-                self._split_into_serial_groups(elements, callbacks, on_mapping is not None, track_progress, on_empty is not None),
+                self._split_into_serial_groups(elements, callbacks, on_mapping is not None, track_progress, on_empty is not None, ownership),
                 execute, window,
             )
         async with aclosing(results):
@@ -114,11 +115,12 @@ class XMLStreamMapper:
                         current_element = origin_element
                         mapping_buffer = []
 
-                    owner = unit_owner(origin)
+                    owner = ownership.unit(origin) if ownership is not None else origin.parent
                     if isinstance(elements, AsyncIterable):
                         owner = rebind(current_element, origin, owner)
                     assert owner is not None
-                    owner.set('__pdf_craft_unit', unit_key(owner))
+                    owner.set('__pdf_craft_unit', ownership.key(owner) if ownership is not None else
+                              owner.get(NODE_KEY) or str(id(owner)))
                     if target is None:
                         owner.set('__pdf_craft_missing', '1')
                     if target:
@@ -145,10 +147,10 @@ class XMLStreamMapper:
 
     def _split_into_serial_groups(self, elements: Iterable[Element], callbacks: Callbacks,
                                   track_origins: bool = False, track_progress: bool = False,
-                                  include_empty: bool = False):
+                                  include_empty: bool = False, ownership=None):
         def generate():
             for element in elements:
-                resources = self._expand_to_resources(element, callbacks, track_origins, track_progress)
+                resources = self._expand_to_resources(element, callbacks, track_origins, track_progress, ownership)
                 first = next(resources, None)
                 if first is None:
                     if include_empty:
@@ -206,7 +208,7 @@ class XMLStreamMapper:
             [r.payload[0] for r in tail],
         )
 
-    def _expand_to_resources(self, element: Element, callbacks: Callbacks, track_origins: bool = False, track_progress: bool = False):
+    def _expand_to_resources(self, element: Element, callbacks: Callbacks, track_origins: bool = False, track_progress: bool = False, ownership=None):
         def expand(element: Element):
             # Weights belong to original blocks, before formula/context transport
             # projection. Never count temporary tokens or prompt context.
@@ -243,7 +245,8 @@ class XMLStreamMapper:
             # only for its own last piece (and any enclosing atomic owner),
             # never for an unrelated sibling or a subsequent XML root.
             inlines = list(expand(element))
-            last = {id(unit_owner(inline)): index for index, inline in enumerate(inlines)}
+            last = {id(ownership.unit(inline) if ownership is not None else inline.parent): index
+                    for index, inline in enumerate(inlines)}
             for index, inline in enumerate(inlines):
                 inline._notification_index = index  # pylint: disable=protected-access
                 inline._notification_end = max(  # pylint: disable=protected-access

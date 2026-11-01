@@ -6,6 +6,7 @@ MathML, so the EPUB MathML interrupter cannot be used here.  This adapter uses
 the same XMLTranslator interruption protocol with the PCEX schema instead.
 """
 
+import json
 from collections.abc import Generator, Iterable
 from dataclasses import dataclass
 from xml.etree.ElementTree import Element
@@ -22,7 +23,7 @@ _FORMULA_ID_KEY = "__PDF_CRAFT_CHAPTER_FORMULA_ID"
 _FORMULA_TAG = "expression"
 _FORMULA_CONTEXT_KEY = "__PDF_CRAFT_CHAPTER_FORMULA_CONTEXT"
 _FORMULA_CONTEXT_TAG = "formula_context"
-_RESTORED_FORMULA_ID_KEY = "__PDF_CRAFT_RESTORED_FORMULA_ID"
+_INLINE_DISPLAY_KEY = "__PDF_CRAFT_INLINE_DISPLAY"
 
 
 @dataclass(frozen=True)
@@ -63,12 +64,29 @@ class ChapterFormulaInterrupter:
         self._block_formula_positions: dict[str, TextPosition] = {}
         self._block_formula_progress: dict[str, list[int]] = {}
         self._block_formula_context_counts: dict[str, int] = {}
-        self._adjacent_inline_predecessors: dict[str, str] = {}
 
-    @property
-    def adjacent_inline_predecessors(self) -> dict[str, str]:
-        """Return source-adjacent formula pairs used for transport repair."""
-        return dict(self._adjacent_inline_predecessors)
+    def prepare(self, root: Element) -> None:
+        """Declare format-specific inline geometry before generic XML grouping.
+
+        PCEX inline_expr is not an HTML tag. Leaving it block-level made the
+        generic submitter preserve a second source node beside its field.
+        This transient display hint keeps every formula in its real owner,
+        including fragments, captions and nested table cells.
+        """
+        for element in root.iter('inline_expr'):
+            element.set(_INLINE_DISPLAY_KEY, json.dumps(element.get(DISPLAY_ATTRIBUTE)))
+            element.set(DISPLAY_ATTRIBUTE, 'inline')
+
+    def finish(self, root: Element) -> None:
+        """Remove transport metadata only after accepted text was submitted."""
+        for element in root.iter('inline_expr'):
+            original = element.attrib.pop(_INLINE_DISPLAY_KEY, None)
+            if original is not None:
+                display = json.loads(original)
+                if display is None:
+                    element.attrib.pop(DISPLAY_ATTRIBUTE, None)
+                else:
+                    element.set(DISPLAY_ATTRIBUTE, display)
 
     def interrupt_source_text_segments(
         self, text_segments: Iterable[TextSegment],
@@ -77,15 +95,6 @@ class ChapterFormulaInterrupter:
         for text_segment in text_segments:
             formula, formula_index = self._formula_in(text_segment)
             formula_id = formula.token_id if formula is not None else None
-            if (
-                formula is not None
-                and not formula.is_block
-                and self._last_formula_id is not None
-                and formula_id != self._last_formula_id
-            ):
-                previous = self._formula_by_id.get(self._last_formula_id)
-                if previous is not None and not previous.is_block:
-                    self._adjacent_inline_predecessors[formula.token_id] = previous.token_id
             if formula is not None and not formula.is_block:
                 self._raw_text_segments.setdefault(formula.token_id, []).append(text_segment)
             elif formula is not None:
@@ -163,12 +172,10 @@ class ChapterFormulaInterrupter:
 
             text_basic_parent_stack = text_segment.parent_stack[:-1]
             for raw_text_segment in raw_text_segments:
-                raw_text_segment.parent_stack[0].set(
-                    _RESTORED_FORMULA_ID_KEY, token_id,
-                )
                 raw_text_segment.parent_stack = (
                     text_basic_parent_stack + raw_text_segment.parent_stack
                 )
+                raw_text_segment.block_depth = _block_depth(raw_text_segment.parent_stack)
                 yield raw_text_segment
 
     def interrupt_block_element(self, element: Element) -> Element:
@@ -209,11 +216,6 @@ class ChapterFormulaInterrupter:
             display="inline",
             latex=to_markdown_string(kind, plain_text(element)),
         )
-        # The source node may survive a partial XML submission and be moved
-        # beside its fragment. Keep a temporary stable identity on both that
-        # fallback node and any restored copy until NarrativeXMLTransformer has
-        # repaired ownership.
-        element.set(_RESTORED_FORMULA_ID_KEY, formula.token_id)
         return formula
 
     def _formula_for_asset(self, element: Element) -> _Formula:

@@ -19,7 +19,7 @@ from tests.test_translation_word_progress import translator, identity_fill
 from tests.test_work_unit_progress import assert_lifecycle, unit_events
 
 
-async def source_response(_self, text):
+async def source_response(_self, text, **_kwargs):
     return text
 
 
@@ -104,7 +104,7 @@ class AdmissionTests(IsolatedAsyncioTestCase):
         events, starts_at_request = [], []
         runtime = translator()
         runtime._max_group_score = 1
-        async def request(_self, text):
+        async def request(_self, text, **_kwargs):
             starts_at_request.append(len(unit_events(events, Kind.STARTED)))
             return text
         tasks = [TranslationTask(fromstring(f'<body><p>Source {index}.</p></body>'), SubmitKind.REPLACE,
@@ -126,7 +126,7 @@ class AdmissionTests(IsolatedAsyncioTestCase):
                 produced += 1
                 yield TranslationTask(fromstring(f'<body><p>Source {index}.</p></body>'), SubmitKind.REPLACE,
                                       index, item_kind=UnitKind.CONTENT, word_count=2)
-        async def request(_self, text):
+        async def request(_self, text, **_kwargs):
             if len(unit_events(events, Kind.STARTED)) == 1:
                 self.assertLess(produced, 20)
             return text
@@ -144,7 +144,7 @@ class AdmissionTests(IsolatedAsyncioTestCase):
             for index in range(20):
                 yield TranslationTask(fromstring(f'<body><p>Source {index}.</p></body>'), SubmitKind.REPLACE,
                                       index, item_kind=UnitKind.CONTENT, word_count=2)
-        async def request(_self, text):
+        async def request(_self, text, **_kwargs):
             starts_at_request.append(len(unit_events(events, Kind.STARTED)))
             return text
         runtime = translator()

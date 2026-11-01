@@ -36,7 +36,7 @@ class TranslationWordProgressTests(unittest.IsolatedAsyncioTestCase):
     async def test_every_accepted_round_reports_before_next_round(self):
         model_calls, events = [], []
 
-        async def request(_self, text):
+        async def request(_self, text, **_kwargs):
             if model_calls:
                 self.assertTrue(any(event.kind == Kind.PROGRESS for event in events))
             model_calls.append(text)
@@ -93,7 +93,7 @@ class TranslationWordProgressTests(unittest.IsolatedAsyncioTestCase):
             events, calls = [], []
             entered, release = asyncio.Event(), asyncio.Event()
 
-            async def request(_self, text):
+            async def request(_self, text, **_kwargs):
                 calls.append(text)
                 self.assertEqual(events[0].kind, Kind.STARTED)
                 self.assertEqual(events[0].total_words, 11)  # 2 metadata + 2 heading + 3 body + 4 furniture
@@ -124,7 +124,7 @@ class TranslationWordProgressTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_epub_prescan_has_total_before_first_model_call(self):
         events, calls = [], []
-        async def request(_self, text):
+        async def request(_self, text, **_kwargs):
             calls.append(text)
             self.assertEqual(events[0].kind, Kind.STARTED)
             self.assertEqual(events[0].total_words, 16)
@@ -144,7 +144,7 @@ class TranslationWordProgressTests(unittest.IsolatedAsyncioTestCase):
     async def test_concurrent_completion_is_monotonic_and_does_not_wait_for_slow_item(self):
         events = []
         entered, release, fast_done = asyncio.Event(), asyncio.Event(), asyncio.Event()
-        async def request(_self, text):
+        async def request(_self, text, **_kwargs):
             if 'slow' in text:
                 entered.set()
                 await release.wait()
@@ -212,7 +212,7 @@ class TranslationWordProgressTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_enabled_asset_fields_are_counted_but_context_is_not(self):
         from tests.test_one_shot_submission import source_fixture
-        async def request(_self, text):
+        async def request(_self, text, **_kwargs):
             return text
         for enabled, total in ((False, 7), (True, 9)):
             with self.subTest(enabled=enabled), tempfile.TemporaryDirectory() as directory:
@@ -243,7 +243,7 @@ class TranslationWordProgressTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_epub_totals_include_navigation_metadata_and_document_title(self):
         from zipfile import ZipFile
-        async def request(_self, text):
+        async def request(_self, text, **_kwargs):
             return text
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -293,7 +293,7 @@ class TranslationWordProgressTests(unittest.IsolatedAsyncioTestCase):
             self.assertFalse((root / 'output.epub').exists())
 
     async def test_partial_stream_consumption_does_not_fabricate_complete(self):
-        async def request(_self, text):
+        async def request(_self, text, **_kwargs):
             return text
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -325,7 +325,7 @@ class TranslationWordProgressTests(unittest.IsolatedAsyncioTestCase):
         runtime._max_group_score = 1
         narrative = NarrativeXMLTransformer(runtime)
         events, calls = [], []
-        async def request(_self, text):
+        async def request(_self, text, **_kwargs):
             calls.append(text)
             return text
         with patch.object(XMLTranslator, '_translate_text_async', request), patch.object(XMLTranslator, '_request_and_submit_async', identity_fill):

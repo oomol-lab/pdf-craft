@@ -16,6 +16,7 @@ from xml.etree.ElementTree import Element
 from pdf_craft.extractor.chapter.chapter import Chapter, Reference, SourceAsset, StandaloneAsset, decode, encode
 from pdf_craft.markdown.paragraph import HTMLTag, flatten
 from pdf_craft.transformer.chapter_formula_interrupter import ChapterFormulaInterrupter
+from .structured_translation import StructuredTranslation
 from pdf_craft.transformer.xml_translator.xml_translator import SubmitKind, TranslationTask
 
 from .word_count import count_xml_words
@@ -67,16 +68,14 @@ class AnchoredContentXMLTransformer:
             return (None,) * len(assets)
         for asset, item in zip(asset_elements, assets, strict=True):
             asset.set("translation_slot", _slot_key(item))
-            if item.context:
-                context = Element("translation-context", {"display": "inline"})
-                context.text = item.context
-                asset.insert(0, context)
         source_structures = {
             _slot_key(item): _asset_structure(asset)
             for asset, item in zip(asset_elements, assets, strict=True)
         }
 
-        formula_interrupter = ChapterFormulaInterrupter()
+        contexts = {_slot_key(item): item.context for item in assets}
+        protocol = StructuredTranslation(owner=_asset_unit_owner, formulas=ChapterFormulaInterrupter(),
+                                         context=lambda segments: _asset_context(segments, contexts))
         task = TranslationTask(
                 element=element,
                 action=self._mode,
@@ -84,12 +83,7 @@ class AnchoredContentXMLTransformer:
                 item_id=_batch_id(assets),
                 word_count=count_xml_words(element),
             )
-        translated, _ = await self._translator.translate_element(
-            task,
-            interrupt_source_text_segments=formula_interrupter.interrupt_source_text_segments,
-            interrupt_translated_text_segments=formula_interrupter.interrupt_translated_text_segments,
-            interrupt_block_element=formula_interrupter.interrupt_block_element,
-        )
+        translated, _ = await protocol.translate(self._translator, task)
         if task.outcomes and not all(task.outcomes.values()):
             return (None,) * len(assets)
         translated_assets = _decode_assets_by_slot(
@@ -137,13 +131,6 @@ def _slot_key(item: AnchoredContent) -> str:
     return f"{chapter_id}:{flow_index}:{child_index}"
 
 
-def _remove_translation_context(root: Element) -> None:
-    for parent in root.iter():
-        for child in list(parent):
-            if child.tag == "translation-context":
-                parent.remove(child)
-
-
 def _decode_assets_by_slot(
     root: Element,
     expected_slots: dict[str, tuple[str, int, int]],
@@ -167,7 +154,6 @@ def _decode_assets_by_slot(
     if set(slot_keys) != set(expected_slots):
         return None
 
-    _remove_translation_context(root)
     if any(
         _asset_structure(asset) != source_structures[slot]
         for asset, slot in zip(translated_elements, slot_keys, strict=True)
@@ -205,7 +191,6 @@ def _asset_structure(element: Element) -> tuple[Any, ...]:
         tuple(
             (_asset_structure(child), bool(child.tail and child.tail.strip()))
             for child in element
-            if child.tag != "translation-context"
         ),
     )
 
@@ -225,3 +210,16 @@ def _restore_source_references(content, references: dict[tuple[int, int], Refere
         else:
             restored.append(part)
     return restored
+
+
+def _asset_unit_owner(segment):
+    return next((node for node in reversed(segment.head.parent_stack)
+                 if node.tag in {'td', 'th', 'title', 'content', 'caption'}), segment.parent)
+
+
+def _asset_context(segments, contexts):
+    return '\n\n'.join(dict.fromkeys(
+        contexts.get(node.get('translation_slot'), '')
+        for segment in segments for node in segment.head.parent_stack
+        if node.tag == 'asset' and node.get('translation_slot') in contexts
+    ))
