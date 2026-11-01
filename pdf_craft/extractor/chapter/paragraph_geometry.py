@@ -11,6 +11,34 @@ _CLOSING_QUOTES = '\"\'”’」』»'
 _COMPLETED_ENDINGS = (".", "!", "?", "。", "！", "？", ":", "：", "…")
 
 
+def printed_separator_boundary(before: TextFlowItem, after: TextFlowItem) -> bool:
+    """Keep a detached centered asterism separate, without removing its source.
+
+    A lone left-aligned star may instead be a note marker. Require a narrow
+    centered source on its own printed line; inline symbols and mathematical
+    objects do not establish this boundary.
+    """
+    left, right = before.children[-1], after.children[0]
+    if (not isinstance(left, SourceTextFragment) or not isinstance(right, SourceTextFragment)
+            or left.page_index != right.page_index):
+        return False
+    for narrow, wide in ((left, right), (right, left)):
+        if not all(isinstance(item, str) for item in narrow.content):
+            continue
+        text = ''.join(item for item in narrow.content if isinstance(item, str))
+        symbols = ''.join(text.split())
+        if not symbols or not (set(symbols) == {'*'} or symbols == '⁂'):
+            continue
+        x1, y1, x2, y2 = narrow.bbox
+        a, b, c, d = wide.bbox
+        height, width = y2 - y1, x2 - x1
+        if (height > 0 and 0 < width <= 8 * height and c - a >= 4 * width
+                and abs((x1 + x2) - (a + c)) <= height
+                and (y2 <= b or d <= y1)):
+            return True
+    return False
+
+
 def indented_line_boundary(
     before: TextFlowItem, after: TextFlowItem, *, column_indented: bool = False,
 ) -> bool:

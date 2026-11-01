@@ -10,7 +10,7 @@ from ...pdf import TITLE_TAGS, PageLayout
 from .chapter import SourceAsset, SourceTextFragment, TextSource, InlineExpression, TextFlowItem
 from .content import Content, expand_text_in_content, first, last
 from .mergeable import LINK_FLAGS, check_mergeable, has_numbered_prefix
-from .paragraph_geometry import indented_line_boundary, indented_line_starts
+from .paragraph_geometry import indented_line_boundary, indented_line_starts, printed_separator_boundary
 from .reading_serials import split_reading_serials
 
 _ASSET_CAPTION_TAGS = tuple(f"{t}_caption" for t in ASSET_TAGS)
@@ -363,6 +363,9 @@ class Jointer:
         block1 = para1.children[-1]
         block2 = para2.children[0]
         if not isinstance(block1, SourceTextFragment) or not isinstance(block2, SourceTextFragment):
+            return False
+
+        if not across_assets and printed_separator_boundary(para1, para2):
             return False
 
         # OCR sometimes uses quotation brackets for numbered commentary entries.
