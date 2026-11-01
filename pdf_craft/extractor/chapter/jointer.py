@@ -243,7 +243,8 @@ class Jointer:
             if layout.ref == "table":
                 _normalize_table(layout)
 
-            yield SourceAsset(
+            from .asset_text import normalize_image_description
+            yield normalize_image_description(SourceAsset(
                 page_index=page_index,
                 ref="formula" if layout.ref == "equation" else layout.ref,
                 bbox=layout.det,
@@ -253,7 +254,7 @@ class Jointer:
                 asset_hash=layout.hash,
                 reading_order=self._reading_positions.get((page_index, layout.det)),
                 source=layout.source,
-            )
+            ))
 
     def _join_asset_layouts(self, page_index, layouts: list[PageLayout]):
         last_asset: _AssetHolder | None = None

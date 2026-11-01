@@ -741,7 +741,7 @@ class AnchoredContentTranslationTests(unittest.TestCase):
 
         self.assertEqual(
             result[0],
-            AnchoredContentTranslation(("head", 0, 1), ["T:Title"], ["T:Content"], ["T:Caption"]),
+            AnchoredContentTranslation(("head", 0, 1), ["T:Title"], ["Content"], ["T:Caption"]),
         )
         self.assertIn("Nearby narrative.", "\n".join(translator.sources))
 
