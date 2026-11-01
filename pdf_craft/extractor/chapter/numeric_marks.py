@@ -1,5 +1,6 @@
 """Explicit numeric reference typography, not ordinary body numbers."""
 import re
+from collections import Counter
 
 from ...expression import ExpressionKind
 from ...markdown.paragraph import HTMLTag
@@ -9,6 +10,13 @@ SUPERSCRIPT_NUMBERS = re.compile('[⁰¹²³⁴⁵⁶⁷⁸⁹]+')
 _DIGITS = str.maketrans('⁰¹²³⁴⁵⁶⁷⁸⁹', '0123456789')
 _DECIMAL = re.compile(r'[1-9][0-9]{0,2}')
 _RAISED = re.compile(r'(?:\{\s*\}\s*)?\^(?:\{\s*([1-9][0-9]{0,2})\s*\}|([1-9]))')
+_FLATTENED = re.compile(
+    r'(?P<word>[A-Za-z]{2,})[.!?][\'"’”]?(?P<number>[1-9][0-9]{0,2})'
+    r'(?=\s+[A-Z“‘]|[.!?]?(?:\s*$))'
+)
+_ABBREVIATIONS = frozenset(('fig', 'figs', 'eq', 'eqs', 'ch', 'chap', 'sec', 'sect',
+                           'vol', 'pp', 'no', 'nos', 'art', 'cf', 'version', 'ver'))
+_LITERAL_TAGS = frozenset(('code', 'pre', 'kbd', 'samp'))
 
 
 def superscript_number(text):
@@ -52,3 +60,24 @@ def explicit_numbers(content):
             elif isinstance(part, HTMLTag):
                 found.update(explicit_numbers(part.children))
     return found
+
+
+def prose_containers(content):
+    """Share literal-code boundaries between candidate collection and adoption."""
+    for part in content:
+        if isinstance(part, HTMLTag) and part.definition.name not in _LITERAL_TAGS:
+            yield from prose_containers(part.children)
+    yield content
+
+
+def flattened_spans(text):
+    """Only a prose sentence ending, not a decimal, equation label or version."""
+    for match in _FLATTENED.finditer(text):
+        if match['word'].lower() not in _ABBREVIATIONS and not match['word'].isupper():
+            yield match
+
+
+def flattened_numbers(content):
+    """Keep occurrence counts: more than one inferred location is ambiguous."""
+    return Counter(match['number'] for container in prose_containers(content)
+                   for part in container if isinstance(part, str) for match in flattened_spans(part))

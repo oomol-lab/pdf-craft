@@ -11,14 +11,16 @@ from .mark import Mark, transform2mark
 from .numeric_marks import inline_number, html_number, SUPERSCRIPT_NUMBERS, superscript_number
 
 _START_PREFIX_PATTERN = re.compile(r"^(?:\\?\*){1,6}\s+")
+_ESCAPED_STAR_PREFIX = re.compile(r'^(?:\\\*){1,6}(?!\\?\*)\s*(?=\S)')
 _NUMERIC_PREFIX = re.compile(r'^([1-9][0-9]{0,2})[.)]?\s+(?=\S)')
 
 
 class References:
     def __init__(
-        self, page_index: int, items: Iterable[SourceAsset | TextFlowItem], *, numeric_marks=(),
+        self, page_index: int, items: Iterable[SourceAsset | TextFlowItem], *, numeric_marks=(), flat_marks=(),
     ) -> None:
         self._numeric_marks = numeric_marks
+        self._flat_marks = frozenset(flat_marks)
         self._page_index: int = page_index
         self._unindexed_items: list[SourceAsset | TextFlowItem] = []
         self._references: list[Reference] = list(
@@ -46,6 +48,10 @@ class References:
 
     def get(self, mark: str | Mark) -> Reference | None:
         return self._mark2reference.get(mark, None)
+
+    def flattened_reference(self, mark: str) -> Reference | None:
+        """Only a unique paired candidate can consume a flattened body digit."""
+        return self.get(mark) if mark in self._flat_marks else None
 
     def _extract_references(
         self, page_index: int, items: Iterable[SourceAsset | TextFlowItem]
@@ -167,7 +173,9 @@ def extract_head_mark(content: Content, *, numeric_marks=()) -> tuple[Mark | str
 
     mark: Mark | str | None = None
     rest: str = ""
-    matched = _START_PREFIX_PATTERN.match(head_text)
+    # An explicit Markdown escape already establishes a literal star. Requiring
+    # a space after it loses perfectly valid attached English/CJK note text.
+    matched = _ESCAPED_STAR_PREFIX.match(head_text) or _START_PREFIX_PATTERN.match(head_text)
     new_content: Content = content[1:]
 
     if matched:

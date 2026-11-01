@@ -20,6 +20,22 @@ class FootnoteMarkerTests(unittest.TestCase):
         self.assertEqual(rest, ['An actual explanatory note.'])
         self.assertEqual(content, before)
 
+    def test_explicit_escaped_star_does_not_need_a_following_space(self):
+        for value, mark, rest in ((r'\*See the explanatory note.', '*', 'See the explanatory note.'),
+                                  (r'\*参见说明。', '*', '参见说明。'),
+                                  (r'\*\*A separate note.', '**', 'A separate note.')):
+            with self.subTest(value=value):
+                actual, content = extract_head_mark([value])
+                self.assertEqual(actual, mark)
+                self.assertEqual(content, [rest])
+
+    def test_plain_markdown_emphasis_and_unmarked_formula_are_not_note_heads(self):
+        for value in ('*emphasized* continuation.', '**bold** continuation.', '*x + y', r'\*'):
+            with self.subTest(value=value):
+                mark, content = extract_head_mark([value])
+                self.assertIsNone(mark)
+                self.assertEqual(content, [value])
+
     def test_exact_inline_circle_is_a_marker_but_math_is_not(self):
         content = [InlineExpression(ExpressionKind.INLINE_PAREN, '①'), ' An explanatory note.']
         before = deepcopy(content)

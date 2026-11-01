@@ -1,4 +1,5 @@
 import re
+from collections import Counter
 from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Generator, Iterable, Mapping
@@ -20,7 +21,8 @@ from .page_analysis import PageAnalysis, UnindexedCitation, analyse_pages, resto
 from .page_review import load_page_pixel_sizes
 from .punctuation import normalize_punctuation_in_chapter
 from .reference import References, extract_head_mark
-from .numeric_marks import explicit_numbers, html_number, SUPERSCRIPT_NUMBERS, superscript_number
+from .numeric_marks import (explicit_numbers, html_number, SUPERSCRIPT_NUMBERS, superscript_number,
+                            flattened_numbers, flattened_spans, prose_containers)
 from .source import capture_sources, excluded_sources
 from .marginal_numbers import reading_notes
 
@@ -279,12 +281,24 @@ def _resolve_jointers(body_jointer: Jointer, footnotes_jointer: Jointer):
     """Share paragraph/reference rules with bounded initial-page projection."""
     paragraphs = list(body_jointer.execute())
     numeric_marks: dict[int, set[str]] = {}
+    flattened: dict[int, Counter[str]] = {}
+    seen = set()
     for item in paragraphs:
         if isinstance(item, TextFlowItem):
             for fragment in item.children:
                 if isinstance(fragment, SourceTextFragment):
-                    numeric_marks.setdefault(fragment.page_index, set()).update(explicit_numbers(fragment.content))
-    page_references = list(_extract_page_references(footnotes_jointer, numeric_marks))
+                    key = fragment.page_index, fragment.source_order
+                    if key in seen:
+                        continue
+                    seen.add(key)
+                    content = fragment.source.content if fragment.source is not None else fragment.content
+                    numeric_marks.setdefault(fragment.page_index, set()).update(explicit_numbers(content))
+                    flattened.setdefault(fragment.page_index, Counter()).update(flattened_numbers(content))
+    flat_marks = {page: {mark for mark, count in counts.items() if count == 1} - numeric_marks[page]
+                  for page, counts in flattened.items()}
+    for page, marks in flat_marks.items():
+        numeric_marks[page].update(marks)
+    page_references = list(_extract_page_references(footnotes_jointer, numeric_marks, flat_marks))
     references_generator = iter(page_references)
     current_references: References | None = next(references_generator, None)
 
@@ -376,8 +390,9 @@ def _assemble_flow_items(
     yield from flush()
 
 
-def _extract_page_references(jointer: Jointer, numeric_marks=None) -> Generator[References, None, None]:
+def _extract_page_references(jointer: Jointer, numeric_marks=None, flat_marks=None) -> Generator[References, None, None]:
     numeric_marks = numeric_marks or {}
+    flat_marks = flat_marks or {}
     last_page_index: int = -1
     layout_buffer: list[SourceAsset | TextFlowItem] = []
 
@@ -389,6 +404,7 @@ def _extract_page_references(jointer: Jointer, numeric_marks=None) -> Generator[
                         page_index=last_page_index,
                         items=layout_buffer,
                         numeric_marks=numeric_marks.get(last_page_index, ()),
+                        flat_marks=flat_marks.get(last_page_index, ()),
                     )
                 last_page_index = page_index
                 layout_buffer = []
@@ -399,6 +415,7 @@ def _extract_page_references(jointer: Jointer, numeric_marks=None) -> Generator[
             page_index=last_page_index,
             items=layout_buffer,
             numeric_marks=numeric_marks.get(last_page_index, ()),
+            flat_marks=flat_marks.get(last_page_index, ()),
         )
 
 
@@ -442,6 +459,30 @@ def _split_reference_origins(
         children=children,
     )
 def _replace_mark_with_reference(references: References, block: SourceTextFragment):
+    # Explicit references take precedence. Flattened digits are considered only
+    # at the unique paired prose location collected from immutable source text.
+    for container in prose_containers(block.content):
+        index = 0
+        while index < len(container):
+            part = container[index]
+            if not isinstance(part, str):
+                index += 1
+                continue
+            replacement = []
+            end = 0
+            for match in flattened_spans(part):
+                reference = references.flattened_reference(match['number'])
+                if reference is not None:
+                    start, stop = match.span('number')
+                    replacement.extend((part[end:start], reference))
+                    end = stop
+            if end:
+                replacement.append(part[end:])
+                container[index:index+1] = replacement
+                index += len(replacement)
+            else:
+                index += 1
+
     def expand(text: str):
         # Asterisks form a marker domain too; match maximal runs so ** is
         # never consumed as two occurrences of *. Markdown's escape belongs
