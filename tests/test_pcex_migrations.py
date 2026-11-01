@@ -45,6 +45,19 @@ def old_archive(source: Path, target: Path, *, migrate_layers=True):
 
 
 class PCEXMigrationTests(TestCase):
+    def test_invalid_historical_workspace_is_rejected_before_copying(self):
+        with TemporaryDirectory() as folder:
+            root = Path(folder)
+            extraction = make_extraction(root / 'source')
+            save_xml(encode(Chapter(None, -1, [])), root / 'outside.xml')
+            (root / 'source/chapters/chapter_head.xml').symlink_to(root / 'outside.xml')
+            manifest_path = root / 'source/manifest.json'
+            manifest = json.loads(manifest_path.read_text(encoding='utf-8'))
+            manifest['format_version'] = 4
+            manifest_path.write_text(json.dumps(manifest), encoding='utf-8')
+            with self.assertRaisesRegex(ValueError, 'invalid chapter member'):
+                extraction._validate()
+
     def test_v5_image_content_is_opaque_even_without_caption(self):
         with TemporaryDirectory() as folder:
             root = Path(folder)

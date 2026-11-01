@@ -164,6 +164,7 @@ class _WorkspaceStorage:
         else:
             # Internal historical workspaces get the same boundary guarantee as
             # archives, without rewriting the caller's source directory.
+            _validate_workspace(paths)  # Copying must not hide invalid symlinks.
             import shutil
             with TemporaryDirectory(prefix="pdf-craft-migration-") as directory:
                 shutil.copytree(self.root, directory, dirs_exist_ok=True)
