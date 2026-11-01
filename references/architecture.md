@@ -82,6 +82,15 @@ analysis/OCR 缓存。
 - `pdf_craft/llm/` 负责增强目录分析所需的可选 LLM 调用。核心转换应保持不依赖该增强能力也可使用。
 - `pdf_craft/common/` 负责可复用的文件系统、XML、资源和统计辅助逻辑。
 
+## 翻译请求打包边界
+
+PCEX 和原生 EPUB 的首阶段翻译与 fill 共用 `transformer/request_batch.py`。
+内容/章节身份、canonical 验收单元与请求批次是三个独立边界；批次只携带显式临时 ID，
+不能改变持久化章节来迁就请求。批次收集发生在模型 executor 外，实际网络并发继续使用
+原来的共享 executor。单元修复预算、采纳和来源定位保留在原链路中；成功单元不随同批
+失败单元重试。具体预算、日志/usage 语义和离线实验入口见
+[翻译请求打包验证](../docs/verification/translation-request-batches.md)。
+
 ## 外部包边界
 
 `doc-page-extractor` 和 `epub-generator` 是被 pin 住的运行时依赖。它们内部的问题通常应在各自仓库修复，再通过版本升级或明确的本地联调引入。本仓库 `scripts/` 下的同步脚本会覆盖 `.venv` 中已安装的依赖源码；这些脚本只是手动本地联调辅助，不是普通项目 setup。

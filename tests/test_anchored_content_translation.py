@@ -8,6 +8,7 @@ from pdf_craft import RetryPolicy
 
 
 import asyncio
+import json
 from copy import deepcopy
 import tempfile
 import threading
@@ -651,8 +652,8 @@ class AnchoredContentTranslationTests(unittest.TestCase):
             ]),
         ])
         translator, runtime = _repairing_translator((
-            '<xml><fragment id="1">First canonical.</fragment></xml>',
-            '<xml><fragment id="1">Second canonical.</fragment></xml>',
+            json.dumps([{'id': '1', 'text': '<xml><fragment id="1">Second canonical.</fragment></xml>'},
+                        {'id': '0', 'text': '<xml><fragment id="1">First canonical.</fragment></xml>'}]),
         ))
         sources: list[str] = []
 
@@ -665,7 +666,7 @@ class AnchoredContentTranslationTests(unittest.TestCase):
         translated = asyncio.run(NarrativeXMLTransformer(cast(Any, translator)).transform(chapter))
 
         self.assertEqual(sources, ["First source.", "Second source."])
-        self.assertEqual(runtime.context_value.calls, 2)
+        self.assertEqual(runtime.context_value.calls, 1)
         contents = [
             _text(item.children[0].content)
             for item in translated.flow_items
