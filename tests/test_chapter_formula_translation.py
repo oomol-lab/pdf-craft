@@ -65,7 +65,7 @@ class _FormulaAwareTranslator:
 
         translated = task.element
         async for element, mappings in mapper.map_stream_async(
-            elements=iter((task.element,)), callbacks=callbacks, map=translate_group, window=1,
+            elements=iter((task.element,)), callbacks=callbacks, map=translate_group, window=1, ownership=kwargs.get('translation_protocol'),
         ):
             translated = submit(element, task.action, mappings)
         return translated, task.payload

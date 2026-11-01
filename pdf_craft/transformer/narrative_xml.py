@@ -18,16 +18,13 @@ from pdf_craft.extractor.chapter.chapter import (
     search_references_in_chapter,
 )
 from pdf_craft.markdown.paragraph import flatten
-from pdf_craft.transformer.xml_translator.segment import search_text_segments
 from pdf_craft.transformer.xml_translator.segment import ImmutableBlockElement, InlineSegment
 from pdf_craft.transformer.xml_translator.xml import clone_element
-from pdf_craft.transformer.xml_translator.utils import normalize_whitespace
 from pdf_craft.progress import ProgressEvent, UnitKind
 from .word_count import count_xml_words
 from .progress import translation_unit, active_progress
-from .chapter_formula_interrupter import (
-    _RESTORED_FORMULA_ID_KEY, ChapterFormulaInterrupter,
-)
+from .chapter_formula_interrupter import ChapterFormulaInterrupter
+from .structured_translation import StructuredTranslation
 from .anchored_xml import AnchoredContentXMLTransformer
 from .furniture_xml import FurnitureXMLTransformer, AsyncXMLTaskTranslator as FurnitureXMLTaskTranslator
 from .xml_translator.xml_translator import SubmitKind, TranslationTask
@@ -234,7 +231,7 @@ class NarrativeXMLTransformer:
         _prepare_chapter_references(element)
         anchors = _NarrativeAnchorProjection(element)
         anchors.replace_assets()
-        formula_interrupter = ChapterFormulaInterrupter()
+        protocol = _narrative_protocol()
         async_translator = cast(AsyncXMLTaskTranslator, self._translator)
         task = TranslationTask(
                 element=element,
@@ -245,23 +242,15 @@ class NarrativeXMLTransformer:
                 item_id=item_id if item_id is not None else chapter.id,
                 word_count=count_xml_words(element),
         )
-        translated, _ = await async_translator.translate_element(
-            task,
+        translated, _ = await protocol.translate(
+            async_translator, task,
             on_translation_event=on_translation_event,
             total_words=total_words,
-            interrupt_source_text_segments=formula_interrupter.interrupt_source_text_segments,
-            interrupt_translated_text_segments=formula_interrupter.interrupt_translated_text_segments,
-            interrupt_block_element=formula_interrupter.interrupt_block_element,
             immutable_elements_for_inline_segments=anchors.immutable_elements_for_inline_segments,
-            source_text_renderer=_render_chapter_source_text,
-            canonical_text_validator=_validate_chapter_fill_canonical_text,
             window=self._window,
         )
         anchors.restore_assets(translated)
         _restore_chapter_references(translated)
-        _restore_fragment_owned_inline_expressions(
-            translated, formula_interrupter.adjacent_inline_predecessors,
-        )
         result = decode(translated)
         from .translation_coverage import apply_outcomes
         apply_outcomes(result, task.outcomes)
@@ -294,7 +283,7 @@ class NarrativeXMLTransformer:
         ] = []
         tasks: list[TranslationTask[int]] = []
         anchors_by_root: dict[int, _NarrativeAnchorProjection] = {}
-        formula_interrupter = ChapterFormulaInterrupter()
+        protocol = _narrative_protocol()
         for index, (chapter, item_id) in enumerate(chapters):
             if not self.has_translatable_content(chapter):
                 prepared.append((chapter, Element("empty"), None))
@@ -327,15 +316,10 @@ class NarrativeXMLTransformer:
             return anchors.immutable_elements_for_inline_segments(inline_segments)
 
         async_translator = cast(AsyncXMLBatchTranslator, self._translator)
-        translated = await async_translator.translate_elements(
-            tasks,
+        translated = await protocol.translate_many(
+            async_translator, tasks,
             window=self._window,
-            interrupt_source_text_segments=formula_interrupter.interrupt_source_text_segments,
-            interrupt_translated_text_segments=formula_interrupter.interrupt_translated_text_segments,
-            interrupt_block_element=formula_interrupter.interrupt_block_element,
             immutable_elements_for_inline_segments=immutable_elements,
-            source_text_renderer=_render_chapter_source_text,
-            canonical_text_validator=_validate_chapter_fill_canonical_text,
         )
         results = [chapter for chapter, _, _ in prepared]
         tasks_by_index = {task.payload: task for task in tasks}
@@ -344,9 +328,6 @@ class NarrativeXMLTransformer:
             assert anchors is not None
             anchors.restore_assets(translated_element)
             _restore_chapter_references(translated_element)
-            _restore_fragment_owned_inline_expressions(
-                translated_element, formula_interrupter.adjacent_inline_predecessors,
-            )
             results[index] = decode(translated_element)
             from .translation_coverage import apply_outcomes
             apply_outcomes(results[index], tasks_by_index[index].outcomes)
@@ -421,73 +402,17 @@ def _restore_chapter_references(chapter: Element) -> None:
         mark.attrib.pop("display", None)
 
 
-def _restore_fragment_owned_inline_expressions(
-    chapter: Element,
-    adjacent_predecessors: dict[str, str],
-) -> None:
-    """Keep translator-restored inline formulas inside their source fragment.
-
-    XMLTranslator may return an interrupted inline token as a sibling of its
-    owning ``fragment``.  That is a transport shape, not PCEX v3: a ``text``
-    node can contain only fragments and anchored image/table assets.  Restore
-    the token before strict chapter decoding, preserving the formula's tail.
-    """
-    for text in chapter.findall(".//text"):
-        owner: Element | None = None
-        for child in list(text):
-            if child.tag == "fragment":
-                owner = child
-            elif child.tag == "inline_expr":
-                if owner is None:
-                    raise ValueError("translator returned inline_expr without a preceding fragment")
-                text.remove(child)
-                token_id = child.get(_RESTORED_FORMULA_ID_KEY, "")
-                predecessor_id = adjacent_predecessors.get(token_id)
-                predecessor = next((
-                    existing for existing in owner.iter("inline_expr")
-                    if existing.get(_RESTORED_FORMULA_ID_KEY) == predecessor_id
-                ), None)
-                duplicate = any(
-                    existing.tag == "inline_expr"
-                    and (
-                        existing.get(_RESTORED_FORMULA_ID_KEY) == token_id
-                        if token_id else (
-                            existing.get("kind") == child.get("kind")
-                            and (existing.text or "") == (child.text or "")
-                        )
-                    )
-                    for existing in owner.iter("inline_expr")
-                )
-                if not duplicate:
-                    if predecessor is None:
-                        owner.append(child)
-                    else:
-                        child.tail, predecessor.tail = predecessor.tail, child.tail
-                        owner.insert(list(owner).index(predecessor) + 1, child)
-    for formula in chapter.iter("inline_expr"):
-        formula.attrib.pop(_RESTORED_FORMULA_ID_KEY, None)
+def _narrative_protocol() -> StructuredTranslation:
+    return StructuredTranslation(owner=_source_unit_owner, identity=_source_unit_identity,
+                                 is_text_unit=lambda owner: owner.tag == 'text',
+                                 formulas=ChapterFormulaInterrupter())
 
 
-def _render_chapter_source_text(inline_segments) -> str:
-    """Render PCEX ``<text>`` nodes as contiguous source-language units.
-
-    XMLTranslator intentionally remains format-neutral, so its default view
-    separates independent inline segments.  A PCEX fragment is not an author
-    paragraph, however: its owner ``<text>`` is.  Joining only segments that
-    share that owner gives the translation model continuous NarrativeFlow text
-    while the original fragment/anchor XML remains available for strict fill.
-    """
-    parts: list[str] = []
-    previous_owner: Element | None = None
-    has_previous = False
-    for inline_segment in inline_segments:
-        owner = _source_unit_owner(inline_segment)
-        if has_previous and owner is not previous_owner:
-            parts.append("\n\n")
-        parts.extend(segment.text for segment in inline_segment)
-        previous_owner = owner
-        has_previous = True
-    return "".join(parts)
+def _source_unit_identity(owner: Element) -> str:
+    fragment = owner.find('fragment') if owner.tag == 'text' else None
+    if fragment is not None:
+        return f'{fragment.get("page_index")}:{fragment.get("source_order")}'
+    return owner.get('__pdf_craft_stream_node') or str(id(owner))
 
 
 def _source_unit_owner(inline_segment) -> Element:
@@ -497,81 +422,6 @@ def _source_unit_owner(inline_segment) -> Element:
             return element
     # Display formulas and other non-text XML content remain hard boundaries.
     return inline_segment.parent
-
-
-def _validate_chapter_fill_canonical_text(
-    inline_segments: list[InlineSegment],
-    translated_text: str,
-    response: Element,
-) -> str | None:
-    """Recover uniquely determined whitespace before admitting a PCEX fill.
-
-    Each call owns one TextFlowItem and its known first-stage translation.
-    Its fragment/inline slots retain geometry and identity. Shared CSS document-
-    whitespace rules allow normal paragraph trimming and uniquely owned gap
-    reconstruction. Protected whitespace and ambiguous ownership still require
-    a corrected response. Words, punctuation and special spaces remain exact.
-
-    Source templates provide context and ownership, never untranslated wording.
-    Temporary expression text participates in this comparison; original formulas
-    are restored only after the complete candidate has been accepted.
-    """
-    owners = _ordered_source_unit_owners(inline_segments)
-    if len(owners) != 1:
-        return (
-            "PCEX canonical fill validation received multiple TextFlowItems; "
-            "each canonical fill request must contain exactly one <text> unit."
-        )
-
-    from .xml_translator.xml.matching import element_id
-    response_by_id = {element_id(child): child for child in response}
-    actual_by_owner: dict[int, list[str]] = {id(owner): [] for owner in owners}
-    filled_slots: list[Element] = []
-    owner_by_segment = {
-        segment.id: _source_unit_owner(segment)
-        for segment in inline_segments
-        if segment.id is not None
-    }
-    for segment_id, owner in owner_by_segment.items():
-        filled = response_by_id.get(segment_id)
-        if filled is None:
-            return f"Missing required canonical text slot id={segment_id}."
-        filled_slots.append(filled)
-        actual_by_owner[id(owner)].extend(
-            text_segment.text for text_segment in search_text_segments(filled, preserve_whitespace=True)
-        )
-
-    owner = owners[0]
-    # Display formulas and temporary formula-context nodes are not
-    # TextFlowItems. Their dedicated interruption protocol owns fidelity, so
-    # this text-only invariant must not reinterpret their token stream.
-    if owner.tag != "text":
-        return None
-    expected = normalize_whitespace(translated_text)
-    actual = "".join(actual_by_owner[id(owner)])
-    from .canonical_text import restore_canonical_whitespace
-    if restore_canonical_whitespace(
-            filled_slots, translated_text,
-            sources=[segment.create_element() for segment in inline_segments if segment.id is not None],
-            replaced_tags=frozenset({'expression'})):
-        return None
-    return (
-            "Visible text for one PCEX <text> differs from the canonical "
-            "translation. Anchors are zero-width and must not add spaces "
-            f"or characters. Expected {expected!r}, got {actual!r}."
-    )
-
-
-def _ordered_source_unit_owners(inline_segments: list[InlineSegment]) -> list[Element]:
-    owners: list[Element] = []
-    seen: set[int] = set()
-    for segment in inline_segments:
-        owner = _source_unit_owner(segment)
-        if id(owner) in seen:
-            continue
-        seen.add(id(owner))
-        owners.append(owner)
-    return owners
 
 
 _ANCHOR_TAG = "anchor"

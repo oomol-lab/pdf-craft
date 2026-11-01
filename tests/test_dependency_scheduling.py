@@ -37,7 +37,7 @@ async def wait(event):
     await asyncio.wait_for(event.wait(), 4)
 
 
-async def identity(_self, text):
+async def identity(_self, text, **_kwargs):
     return text
 
 
@@ -266,7 +266,7 @@ class PCEXDependencyTests(IsolatedAsyncioTestCase):
                     metadata_started.set()
                     await release.wait()
                     return {}
-                async def request(_self, text):
+                async def request(_self, text, **_kwargs):
                     if 'First' in text:
                         body_started.set()
                         await release.wait()
@@ -471,7 +471,7 @@ class TerminationTests(IsolatedAsyncioTestCase):
                 source = source_fixture(root / 'source')
                 blocked, cancelled, release = asyncio.Event(), asyncio.Event(), asyncio.Event()
                 events = []
-                async def request(_self, text):
+                async def request(_self, text, **_kwargs):
                     if 'First' in text:
                         blocked.set()
                         try:

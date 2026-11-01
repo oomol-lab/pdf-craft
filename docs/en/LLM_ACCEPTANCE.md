@@ -28,8 +28,11 @@ remain formula content. Empty tokens will restore real formulas, so their two
 sides are distinct positions; an ambiguous missing separator still needs explicit
 allocation. This uses the same recovery algorithm, not a second formula cleanup.
 
-Immutable math references, required empty slots and source formula identities
-remain part of the PCEX-specific protocol. PCEX serialization is a separate,
+Narrative, independent image/table fields and native EPUB share the structured
+translation protocol: immutable math references, required empty slots and source
+formula restoration after acceptance. Adapters supply unit boundaries and formula
+formats (PCEX inline_expr or EPUB MathML). Caption context is read-only, not part
+of the translated text. PCEX serialization is a separate,
 lossless boundary: both chapter writers preserve the accepted mixed content;
 they do not apply friendly XML's whitespace normalization when saving it.
 

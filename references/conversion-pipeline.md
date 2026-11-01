@@ -203,7 +203,23 @@ PCEX 的共享 NarrativeXMLTransformer 元信息阶段负责翻译通知，EPUB 
 EpubTranslation 仅作为 EpubFragmentContent 的兼容别名。
 
 
-## PCEX 公式填充与恢复顺序
+## 共享结构化翻译与公式恢复
+
+`transformer/structured_translation.py StructuredTranslation` 是 Narrative、独立图片/表格字段
+和原生 EPUB 的共同协议。适配器提供语义单元与公式格式，协议统一分组、完整译文渲染、
+canonical 验收、投影 prepare/finish。适配器同时声明采纳/回调身份，流式 mapper 与
+fill 使用同一单元边界；通用 XMLTranslator 和 mapper 不查找 PCEX 的 <text>/<fragment>。
+正文/脚注适配器按 TextFlowItem，资源适配器按 title/content/caption 或表格单元格分组；
+EPUB 保留原有 XML 分组及源 CFI。metadata/furniture 不需要公式投影，仍可直接使用 XMLTranslator。
+资源附近正文以只读提示上下文传入第一阶段，不是待翻译节点，也不进入 canonical 文本、
+持久化或词数统计。各单元独立取得完整译文和使用已有有限修复预算；不是新增质量重试层。
+
+PCEX 公式适配器在分段前显式声明 inline_expr 的临时 inline display，MathML 适配器解析
+源 math 的 inline/block 默认值；还原后的段深度按完整父栈重新计算。因此普通 XML 提交器
+直接保留真实字段/单元格归属，不再在 Narrative 收尾时猜测公式所属 fragment 或删除重复。
+finish 恢复源 display 属性并清除投影身份，最终业务结构验证仍由各适配器执行。
+
+### 填充与恢复顺序
 
 第一阶段自然段译文是 fill Loop 的全文基准，允许把源 LaTeX 自然表达为 `97%`、
 “16倍”等文字。Loop 内的临时 `expression` 与普通 inline 标签遵守同样的结构/属性/ID

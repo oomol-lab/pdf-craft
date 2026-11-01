@@ -21,6 +21,14 @@ class XMLInterrupter:
         self._placeholder2interrupted: dict[str, Element] = {}
         self._raw_text_segments: dict[str, list[TextSegment]] = {}
 
+    def prepare(self, root: Element) -> None:
+        """MathML already declares inline/block display in the source schema."""
+
+    def finish(self, root: Element) -> None:
+        """No temporary projection identity belongs in the final XHTML."""
+        for node in root.iter():
+            node.attrib.pop(_ID_KEY, None)
+
     def interrupt_source_text_segments(
         self, text_segments: Iterable[TextSegment]
     ) -> Generator[TextSegment, None, None]:
@@ -87,9 +95,10 @@ class XMLInterrupter:
                     _ID_KEY: cast(str, interrupted_element.get(_ID_KEY)),
                 },
             )
-            interrupted_display = interrupted_element.get(DISPLAY_ATTRIBUTE, None)
-            if interrupted_display is not None:
-                placeholder_element.set(DISPLAY_ATTRIBUTE, interrupted_display)
+            # Resolve MathML's implicit inline default before projecting to an
+            # otherwise unknown XML tag. Generic grouping must keep its owner.
+            placeholder_element.set(DISPLAY_ATTRIBUTE,
+                                    'inline' if is_inline_element(interrupted_element) else 'block')
 
             raw_parent_stack = text_segment.parent_stack[:interrupted_index]
             parent_stack = raw_parent_stack + [placeholder_element]
@@ -191,4 +200,5 @@ class XMLInterrupter:
             text_basic_parent_stack = text_segment.parent_stack[:-1]
             raw_text_segment.block_parent.attrib.pop(_ID_KEY, None)
             raw_text_segment.parent_stack = text_basic_parent_stack + raw_text_segment.parent_stack
+            raw_text_segment.block_depth = find_block_depth(raw_text_segment.parent_stack)
             yield raw_text_segment

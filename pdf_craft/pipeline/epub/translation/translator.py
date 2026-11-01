@@ -43,6 +43,7 @@ from pdf_craft.transformer.xml_translator.xml_translator import SubmitKind, Tran
 from .epub_transcode import decode_metadata, decode_toc_list, encode_metadata, encode_toc_list
 from .punctuation import unwrap_french_quotes
 from .xml_interrupter import XMLInterrupter
+from ....transformer.structured_translation import StructuredTranslation
 from pdf_craft.transformer.xml_translator.xml_translator.submitter import submit as submit_xml
 from pdf_craft.document.metadata import MetadataCallback
 from pdf_craft.transformer.word_count import count_xml_words
@@ -229,7 +230,7 @@ async def translate(
                 await invoke_callback(on_metadata, content)
             metadata_notified = True
 
-        interrupter = XMLInterrupter()
+        protocol = StructuredTranslation(formulas=XMLInterrupter())
         header_results = []
         translated_titles = {}
 
@@ -251,6 +252,7 @@ async def translate(
                         await notify_metadata([])
                     if on_body is not None:
                         task.payload.source_root_id = id(task.element)
+                    protocol.prepare(task.element)
                     yield task
             finally:
                 await ARCHIVE_DOMAIN.run(tasks.close)
@@ -293,6 +295,7 @@ async def translate(
 
         async def on_result(result):
             element, context = result
+            protocol.finish(element)
             if context.element_type == _ElementType.METADATA and on_metadata is None:
                 await notify_metadata(decode_metadata(unwrap_french_quotes(element)))
             if context.element_type in (_ElementType.TOC, _ElementType.METADATA):
@@ -348,9 +351,7 @@ async def translate(
                 with progress_context(progress):
                     await translator._translate_elements(
                         window=window,
-                        interrupt_source_text_segments=interrupter.interrupt_source_text_segments,
-                        interrupt_translated_text_segments=interrupter.interrupt_translated_text_segments,
-                        interrupt_block_element=interrupter.interrupt_block_element,
+                        **protocol.arguments(),
                         on_translation_event=on_translation_event,
                         tasks=task_stream(),
                         on_result=on_result,
