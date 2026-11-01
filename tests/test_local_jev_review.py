@@ -10,7 +10,7 @@ from xml.etree.ElementTree import fromstring
 from pdf_craft import ConcurrentExecutor, FixedCapacity, JEV, Refinement, OperationError
 from pdf_craft._policy import policy_operation
 from pdf_craft.extractor.chapter.page_review import (
-    JEV_QUESTION_NAME, JevReviewProcessor, build_jev_review_requests, review_threshold,
+    JevReviewProcessor, build_jev_review_requests, review_threshold,
 )
 from pdf_craft.extractor.refinement import _project_window
 from pdf_craft.jev import JEVRuntime
@@ -48,7 +48,7 @@ class LocalReviewPacketTests(unittest.TestCase):
             self.assertLessEqual(len(request['questions']), 4)
             self.assertEqual(set(request['questions']), set(request['state']['checks']))
             self.assertEqual(request['state']['local_raw_evidence']['target_page']['page_index'], 2)
-            self.assertNotIn(JEV_QUESTION_NAME, request['questions'])
+            self.assertNotIn("page_passes_strict_standard", request['questions'])
         requests[0][1]['state']['local_raw_evidence']['target_page']['layouts'].clear()
         self.assertEqual(len(requests[1][1]['state']['local_raw_evidence']['target_page']['layouts']), 10)
         requests[0][1]['questions']['gap_0_word']['instructions'].clear()
@@ -64,10 +64,11 @@ class LocalReviewPacketTests(unittest.TestCase):
         self.assertEqual(candidates, ['p1_s0'])
         self.assertNotIn('p3_s0', candidates)
 
-    def test_footnote_protocol_and_its_working_point_are_not_recalibrated(self):
+    def test_footnote_protocol_uses_bounded_facts_without_a_public_threshold(self):
         requests = packets(1, footnotes=True)
-        self.assertEqual(len(requests), 1)
-        self.assertIn('citation_standard', requests[0][1]['questions'][JEV_QUESTION_NAME]['instructions'])
+        self.assertGreater(len(requests), 1)
+        self.assertIn('footnote_role_0', {n for _, p in requests for n in p['questions']})
+        self.assertTrue(all(len(p['questions']) <= 4 for _, p in requests))
         self.assertEqual(review_threshold(True), 0.45)
         self.assertEqual(review_threshold(False), 0.52)
         self.assertNotIn('risk_threshold', inspect.signature(Refinement).parameters)

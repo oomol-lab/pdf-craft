@@ -12,7 +12,7 @@ from pdf_craft import (
     OperationError, RateLimitedError,
 )
 from pdf_craft.jev import JEVRuntime
-from pdf_craft.extractor.chapter.page_review import JEV_QUESTION_NAME
+JEV_QUESTION_NAME = "test_decision"
 
 
 class JEVTests(unittest.IsolatedAsyncioTestCase):

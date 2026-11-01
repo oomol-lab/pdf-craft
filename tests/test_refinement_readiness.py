@@ -44,7 +44,8 @@ class RefinementReadinessTests(IsolatedAsyncioTestCase):
 
         async def evaluate(_runtime, index, _packet, **_kwargs):
             calls.append(index)
-            return 0.1
+            return {name: .1 if name.startswith(("gap_", "reference_", "definition_", "note_gap_")) else .01
+                    for name in _packet["questions"]}
 
         class Runtime:
             async def request(self, messages, **_kwargs):
@@ -57,7 +58,7 @@ class RefinementReadinessTests(IsolatedAsyncioTestCase):
             root = Path(directory)
             engine = PDFExtractionEngine('unused')
             engine._ocr = cast(Any, OCR())  # pylint: disable=protected-access
-            with patch.object(JEVRuntime, 'evaluate', evaluate), patch(
+            with patch.object(JEVRuntime, 'evaluate_questions', evaluate), patch(
                     'pdf_craft.transform.runtime_for', return_value=Runtime()), patch(
                     'pdf_craft.pdf.page_ref.pdf_pages_count', return_value=6):
                 task = asyncio.create_task(AsyncPDFCraft.from_engine(engine).extract_pdf(
@@ -85,7 +86,7 @@ class RefinementReadinessTests(IsolatedAsyncioTestCase):
                 finally:
                     release.set()
                     await asyncio.wait_for(task, 10)
-                self.assertEqual(sorted(calls), list(range(1, 7)))
+                self.assertEqual(sorted(set(calls)), list(range(1, 7)))
                 self.assertTrue(bodies)
 
     async def test_window_aliases_preserve_long_footnotes_and_stable_prompts(self):

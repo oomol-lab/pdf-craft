@@ -10,10 +10,10 @@ from pdf_craft.extractor.chapter.generation import (
 )
 from pdf_craft.extractor.chapter.page_analysis import analyse_pages
 from pdf_craft.extractor.chapter.page_review import (
-    JEV_QUESTION_NAME,
     JEV_REVIEW_THRESHOLD,
     JevReviewProcessor,
     build_jev_review_requests,
+    build_jev_review_states,
 )
 from pdf_craft.extractor.toc import TocInfo
 from pdf_craft.pdf import decode
@@ -81,11 +81,11 @@ class PageReviewTests(unittest.IsolatedAsyncioTestCase):
             [page], analyses, {1: (100, 100)},
         ))
 
-        self.assertEqual(len(requests), 1)
-        page_index, request = requests[0]
+        self.assertGreater(len(requests), 1)
+        page_index, _ = requests[0]
         self.assertEqual(page_index, 1)
-        self.assertIn(JEV_QUESTION_NAME, request["questions"])
-        target = request["state"]["target_page"]
+        self.assertTrue(all(len(p["questions"]) <= 4 for _, p in requests))
+        target = next(iter(build_jev_review_states([page], analyses, {1: (100, 100)})))[1]["target_page"]
         self.assertEqual(target["pixel_size"], [100, 100])
         self.assertEqual(target["layouts"][0]["raw_text"], "Body①")
         self.assertEqual(target["layouts"][0]["analysed_text"], "Body⟦REF⟧")
@@ -100,7 +100,7 @@ class PageReviewTests(unittest.IsolatedAsyncioTestCase):
         paragraphs, citations = _resolve_pages(pages)
         analyses = analyse_pages([1], paragraphs, citations)
         async def evaluate(_page, _request):
-            return 0.29
+            return 0.71
 
         reviewer = JevReviewProcessor(evaluate)
 
@@ -120,7 +120,7 @@ class PageReviewTests(unittest.IsolatedAsyncioTestCase):
         analyses = analyse_pages([1, 2, 3], paragraphs, citations)
 
         async def evaluate(index, _request):
-            return {1: 0.56, 2: 0.55, 3: 0.54}[index]
+            return (1 - {1: 0.56, 2: 0.55, 3: 0.54}[index]) if next(iter(_request["questions"])).startswith(("footnote_role_", "furniture_")) else .99
 
         reviewer = JevReviewProcessor(evaluate)
         await reviewer(pages, analyses, {index: (10, 10) for index in (1, 2, 3)})

@@ -154,7 +154,8 @@ class RefinementProgressTests(TestCase):
         from pdf_craft import Refinement, JEV, LLM, ConcurrentExecutor, FixedCapacity
         from pdf_craft.jev import JEVRuntime
         async def reviews(_runtime, index, _request, **_kwargs):
-            return 0.0 if index == 1 else 1.0
+            return {name: float(index != 1) if name.startswith(("gap_", "reference_", "definition_", "note_gap_"))
+                    else float(index == 1) for name in _request["questions"]}
         with TemporaryDirectory() as folder:
             events = []
             craft = fixtures.TestFailureFallbackEPUB._craft(
@@ -163,7 +164,7 @@ class RefinementProgressTests(TestCase):
             refinement = Refinement(
                 JEV(key='unused'), LLM('unused', 'https://example.invalid', 'unused', 'o200k_base'),
                 executor=ConcurrentExecutor(FixedCapacity(2)))
-            with patch.object(JEVRuntime, 'evaluate', reviews), patch(
+            with patch.object(JEVRuntime, 'evaluate_questions', reviews), patch(
                     'pdf_craft.extractor.chapter.page_repair.repair_page_with_llm', side_effect=ValueError('final repair failure')):
                 craft.extract_pdf('scripted.pdf', Path(folder) / 'book.pcex',
                     ExtractionOptions(includes_furniture=False, footnotes=True, refinement=refinement,

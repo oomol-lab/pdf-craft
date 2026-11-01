@@ -171,12 +171,14 @@ class JevLlmRepairProcessor:
         *,
         threshold: float = JEV_REVIEW_THRESHOLD,
         batch_evaluator: PageBatchEvaluator | None = None,
+        question_batch_evaluator=None,
         retry_policy: RetryPolicy | None = None, error_policy: ErrorPolicyInput = None,
     ) -> None:
         self._retry_policy = retry_policy or RetryPolicy()
         self._error_policy = error_policy
         self._reviewer = JevReviewProcessor(
             evaluator, threshold, batch_evaluator=batch_evaluator,
+            question_batch_evaluator=question_batch_evaluator,
         )
         self._request = request
 

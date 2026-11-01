@@ -316,7 +316,8 @@ class PDFExtractionEngine:
 
     @asynccontextmanager
     async def _stream_refinement(self, options, kwargs):
-        from .extractor.chapter.page_review import build_jev_review_requests, review_threshold
+        from .extractor.chapter.page_review import (
+            build_jev_review_requests, build_jev_review_states, review_threshold)
         includes_footnotes = kwargs['includes_footnotes']
         from .extractor.chapter.page_repair import repair_page_with_llm
         from .extractor.progress import page_stage
@@ -337,14 +338,11 @@ class PDFExtractionEngine:
                 source = await IO_DOMAIN.run(lambda: [decode(read_xml(
                     kwargs['analysing_path'] / 'ocr' / f'page_{page.page_index}.xml'))
                     for page in neighbors])
-                count = 0
                 def requests():
-                    nonlocal count
                     for index, packet in build_jev_review_requests(
                             source, neighbors, self._ocr.last_page_pixel_sizes,
                             includes_footnotes=includes_footnotes, target_page_index=target.page_index):
                         if index == target.page_index:
-                            count += 1
                             yield index, packet
                 location = FailureLocation('page', page_indexes=(target.page_index,))
                 context = tuple(FailureLocation('page', page_indexes=(page.page_index,))
@@ -353,10 +351,13 @@ class PDFExtractionEngine:
                     await page_stage(target.page_index, 5)
                     try:
                         if includes_footnotes:
-                            evaluated = await jev.evaluate_many(requests())
-                            if not evaluated or len(evaluated) != count:
+                            from .extractor.chapter.footnote_review import review_footnote_page
+                            _, state = next(iter(build_jev_review_states(
+                                source, neighbors, self._ocr.last_page_pixel_sizes,
+                                includes_footnotes=True, target_page_index=target.page_index)))
+                            probability = await review_footnote_page(state, jev.evaluate_questions_many)
+                            if probability is None:
                                 return PageResult(target)
-                            probability = min(value for _, value in evaluated)
                         else:
                             from .extractor.chapter.structural_review import review_body_page
                             probability = await review_body_page(requests(), jev.evaluate_questions_many)
