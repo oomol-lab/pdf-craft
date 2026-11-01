@@ -387,7 +387,7 @@ class PageExtractorNode:
                 order=0,
                 first_line_inset=(first_line_inset(image, det, obstructions)
                                   if stage_index == 1 and ref == "text" and not is_footnote
-                                  and "<" not in text and "\\" not in text else None),
+                                  and "<" not in text else None),
                 vertical_columns=(has_vertical_columns(image, det)
                                   if stage_index == 1 and ref == "text" and not is_footnote
                                   and "<" not in text and "\\" not in text else False),

@@ -8,11 +8,11 @@ from pdf_craft.usage import UsageCollector, request_attempt, observe_tokens
 from collections.abc import Mapping
 
 import asyncio
-from collections.abc import AsyncIterator, Awaitable, Iterable
+from collections.abc import AsyncIterator, Awaitable, Iterable, Callable, Coroutine
 from contextlib import asynccontextmanager
 from .request_events import validate_callback, RequestCallback, observe_response, invalid_response
 from dataclasses import dataclass, field
-from typing import Any, Self, Protocol
+from typing import Any, Self, Protocol, TypeVar
 
 import httpx2
 from typesafe_sdk import (
@@ -30,6 +30,9 @@ from .concurrency import (
     AsyncExecutor, NonContinuableError, OperationError, RateLimitedError,
     task_group_error, settle_tasks,
 )
+
+_Result = TypeVar("_Result")
+
 
 @dataclass(frozen=True)
 class JEV:
@@ -98,18 +101,45 @@ class JEVRuntime:
         return await self._evaluate_with_retry(page_index, request, _started)
 
     @policy_operation
+    @request_call
+    @rate_limit_request
+    async def evaluate_questions(
+        self, page_index: int, request: dict[str, Any], *,
+        _started: asyncio.Event | None = None,
+        request_headers: Mapping[str, str] | None = None,
+        usage: UsageCollector | None = None,
+    ) -> dict[str, float]:
+        """Retain named scores through the same request/retry/accounting path."""
+        return await self._run_with_retry(lambda: self._request_scores_once(request), _started)
+
+    @policy_operation
+    async def evaluate_questions_many(
+        self, requests: Iterable[tuple[int, dict[str, Any]]], *,
+        request_headers: Mapping[str, str] | None = None,
+        usage: UsageCollector | None = None,
+    ) -> list[tuple[int, dict[str, float]]]:
+        """Use the existing executor admission for named-score batches."""
+        return await self._evaluate_many(requests, self.evaluate_questions)
+
+    @policy_operation
     async def evaluate_many(
         self, requests: Iterable[tuple[int, dict[str, Any]]],
         *, request_headers: Mapping[str, str] | None = None,
         usage: UsageCollector | None = None,
     ) -> list[tuple[int, float]]:
+        return await self._evaluate_many(requests, self.evaluate)
+
+    async def _evaluate_many(
+        self, requests: Iterable[tuple[int, dict[str, Any]]],
+        evaluate: Callable[..., Coroutine[Any, Any, _Result]],
+    ) -> list[tuple[int, _Result]]:
         if self._client is None:
             raise RuntimeError("JEVRuntime must be entered before evaluation")
         iterator = iter(enumerate(requests))
-        completed: list[tuple[int, int, float]] = []
-        tasks: dict[asyncio.Task[float], tuple[int, int, tuple[FailureLocation, ...]]] = {}
+        completed: list[tuple[int, int, _Result]] = []
+        tasks: dict[asyncio.Task[_Result], tuple[int, int, tuple[FailureLocation, ...]]] = {}
         admission: asyncio.Task[bool] | None = None
-        admission_owner: asyncio.Task[float] | None = None
+        admission_owner: asyncio.Task[_Result] | None = None
         exhausted = False
 
         def start_next() -> None:
@@ -122,7 +152,7 @@ class JEVRuntime:
                 exhausted = True
                 return
             started = asyncio.Event()
-            task = asyncio.create_task(self.evaluate(
+            task = asyncio.create_task(evaluate(
                 page_index, request, _started=started,
             ))
             state = request.get('state', {})
@@ -168,7 +198,7 @@ class JEVRuntime:
                     order, page_index, context_pages = tasks.pop(task)
                     try:
                         probability = task.result()
-                        if not 0 <= probability <= 1:
+                        if not _valid_evaluation(probability):
                             raise ValueError('JEV pass probability must be between 0 and 1')
                     except Exception as error:
                         from ._policy import recover
@@ -197,6 +227,9 @@ class JEVRuntime:
         ]
 
     async def _evaluate_once(self, request: dict[str, Any]) -> float:
+        return min((await self._request_scores_once(request)).values())
+
+    async def _request_scores_once(self, request: dict[str, Any]) -> dict[str, float]:
         assert self._client is not None
         with request_attempt(self.config) as attempt_usage:
             try:
@@ -217,16 +250,15 @@ class JEVRuntime:
                 names = request["questions"]
                 if not names:
                     raise ValueError('JEV evaluation requires at least one question')
-                probabilities = [float(response.nouls[name].noul) for name in names]
-                if any(not 0 <= probability <= 1 for probability in probabilities):
+                probabilities = {name: float(response.nouls[name].noul) for name in names}
+                if any(not 0 <= probability <= 1 for probability in probabilities.values()):
                     raise ValueError('JEV pass probability must be between 0 and 1')
-                probability = min(probabilities)
             except (ValueError, TypeError, KeyError, AttributeError):
                 invalid_response()
                 raise
             if attempt_usage is not None:
                 attempt_usage.accept()
-            return probability
+            return probabilities
 
     async def _evaluate_with_retry(
         self,
@@ -234,12 +266,17 @@ class JEVRuntime:
         request: dict[str, Any],
         started: asyncio.Event | None = None,
     ) -> float:
-        del page_index
+        return await self._run_with_retry(lambda: self._evaluate_once(request), started)
+
+    async def _run_with_retry(
+        self, invoke_once: Callable[[], Awaitable[_Result]],
+        started: asyncio.Event | None = None,
+    ) -> _Result:
         try:
-            async def invoke() -> float:
+            async def invoke() -> _Result:
                 if started is not None:
                     started.set()
-                return await self._evaluate_once(request)
+                return await invoke_once()
 
             return await self.executor.run(invoke)
         except NonContinuableError:
@@ -249,16 +286,16 @@ class JEVRuntime:
             if not _is_retryable(error) or (execution_policy().retry.attempts(RetryScope.ANALYSIS) - 1) == 0:
                 raise
             return await self._retry_after_error(
-                request, error, attempts_used=1,
+                invoke_once, error, attempts_used=1,
             )
 
     async def _retry_after_error(
         self,
-        request: dict[str, Any],
+        invoke_once: Callable[[], Awaitable[_Result]],
         error: OperationError,
         *,
         attempts_used: int,
-    ) -> float:
+    ) -> _Result:
         current = error
         while attempts_used <= (execution_policy().retry.attempts(RetryScope.ANALYSIS) - 1):
             delay = 0.5  # Non-rate transport retry; limiting belongs to the executor.
@@ -266,7 +303,7 @@ class JEVRuntime:
                 await asyncio.sleep(delay)
             try:
                 return await self.executor.run(
-                    lambda: self._evaluate_once(request),
+                    invoke_once,
                 )
             except NonContinuableError:
                 raise
@@ -321,3 +358,8 @@ def _is_retryable(error: OperationError) -> bool:
     return isinstance(cause, TypeSafeAPIError) and isinstance(status, int) and (
         status == 408 or status >= 500
     )
+
+
+def _valid_evaluation(value: Any) -> bool:
+    values = value.values() if isinstance(value, dict) else (value,)
+    return bool(values) and all(0 <= probability <= 1 for probability in values)

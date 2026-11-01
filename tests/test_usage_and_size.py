@@ -185,19 +185,22 @@ class UsageTests(IsolatedAsyncioTestCase):
         self.assertEqual(usage.report()[llm], Usage(RequestUsage(2, 10, 0, 2), RequestUsage(2, 10, 0, 2)))
 
     async def test_jev_low_probability_is_effective_and_invalid_probability_is_wasted(self):
-        jev, usage = JEV('secret'), UsageCollector()
-        sdk = MagicMock()
-        sdk.__aenter__ = AsyncMock(return_value=sdk)
-        sdk.__aexit__ = AsyncMock()
-        sdk.system_one = AsyncMock(side_effect=[SimpleNamespace(
-            usage=SimpleNamespace(input_tokens=40, output_tokens=1),
-            nouls={'page_passes_strict_standard': SimpleNamespace(noul=value)}) for value in (0.1, 2)])
-        with patch('pdf_craft.jev.AsyncTypeSafeClient', return_value=sdk):
-            async with JEVRuntime(jev, ConcurrentExecutor(FixedCapacity(1))) as client:
-                self.assertEqual(await client.evaluate(1, {'state': {}, 'questions': {'page_passes_strict_standard': {'type': 'noul'}}}, usage=usage), 0.1)
-                with self.assertRaises(Exception):
-                    await client.evaluate(2, {'state': {}, 'questions': {'page_passes_strict_standard': {'type': 'noul'}}}, usage=usage)
-        self.assertEqual(usage.report()[jev], Usage(RequestUsage(1, 40, 0, 1), RequestUsage(1, 40, 0, 1)))
+        for method in ('evaluate', 'evaluate_questions'):
+            jev, usage = JEV('secret'), UsageCollector()
+            sdk = MagicMock()
+            sdk.__aenter__ = AsyncMock(return_value=sdk)
+            sdk.__aexit__ = AsyncMock()
+            sdk.system_one = AsyncMock(side_effect=[SimpleNamespace(
+                usage=SimpleNamespace(input_tokens=40, output_tokens=1),
+                nouls={'page_passes_strict_standard': SimpleNamespace(noul=value)}) for value in (0.1, 2)])
+            with patch('pdf_craft.jev.AsyncTypeSafeClient', return_value=sdk):
+                async with JEVRuntime(jev, ConcurrentExecutor(FixedCapacity(1))) as client:
+                    evaluate = getattr(client, method)
+                    expected = 0.1 if method == 'evaluate' else {'page_passes_strict_standard': 0.1}
+                    self.assertEqual(await evaluate(1, {'state': {}, 'questions': {'page_passes_strict_standard': {'type': 'noul'}}}, usage=usage), expected)
+                    with self.assertRaises(Exception):
+                        await evaluate(2, {'state': {}, 'questions': {'page_passes_strict_standard': {'type': 'noul'}}}, usage=usage)
+            self.assertEqual(usage.report()[jev], Usage(RequestUsage(1, 40, 0, 1), RequestUsage(1, 40, 0, 1)))
 
     async def test_ocr_usage_survives_invalid_content_and_raw_decode_rejection(self):
         config = DeepSeekOCRVendorConfig('https://invalid', 'key', 'ocr', retry_times=0)

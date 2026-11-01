@@ -278,7 +278,9 @@ local/vendor 首轮渲染严格纯白时保存空页和几何，不请求 OCR；
 判断段界，像素缩进不得拆开未完成词语或跨资产正文。不会增加全书等待。
 
 
-关闭脚注的页审核使用 `chapter/local_review.py`：每题只审一个入向或归属决定，每请求
-最多四题，按需生成并交给现有 JEV executor。页内全部批次齐备才聚合最大风险，
-缺失批次按 analysis 错误策略恢复，不生成通过结论。开启脚注保留独立页级 rubric。
+关闭脚注的页审核由 `chapter/local_review.py` 生成基础具名题，
+`review_evidence.py` 按原始局部证据和当前页基础分数筛选独立事实，
+`structural_review.py` 聚合来源特定的风险与容错证明。每请求最多四题，共用现有 JEV
+executor、重试、usage 和请求观察；事实不读取邻页评分，不增加全书屏障。
+基础或补充批次不完整时按 analysis 错误策略恢复，不生成通过结论。开启脚注保留独立页级 rubric。
 `Refinement` 无公开 threshold，内部按模式固定判定；逐页就绪、stage 和内容流契约不变。

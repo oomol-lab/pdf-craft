@@ -352,10 +352,16 @@ class PDFExtractionEngine:
                 with locations((location,)):
                     await page_stage(target.page_index, 5)
                     try:
-                        evaluated = await jev.evaluate_many(requests())
-                        if not evaluated or len(evaluated) != count:
-                            return PageResult(target)
-                        probability = min(value for _, value in evaluated)
+                        if includes_footnotes:
+                            evaluated = await jev.evaluate_many(requests())
+                            if not evaluated or len(evaluated) != count:
+                                return PageResult(target)
+                            probability = min(value for _, value in evaluated)
+                        else:
+                            from .extractor.chapter.structural_review import review_body_page
+                            probability = await review_body_page(requests(), jev.evaluate_questions_many)
+                            if probability is None:
+                                return PageResult(target)
                     except Exception as error:
                         await recover(error, FailureCategory.ANALYSIS, 'jev_review', 'algorithm_result',
                                       targets=(location,), context_locations=context)

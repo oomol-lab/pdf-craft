@@ -125,7 +125,9 @@ class BodyOnlyClassificationTests(IsolatedAsyncioTestCase):
         self_test = self
         async def evaluate(_runtime, index, packet, **kwargs):
             packets.append(packet)
-            return .99 if pass_review else .1
+            return {name: (.99 if pass_review else .1)
+                    if name.startswith(('gap_', 'owner_', 'redundancy_')) else .01
+                    for name in packet['questions']}
 
         class Runtime:
             async def request(self, messages, **kwargs):
@@ -157,7 +159,7 @@ class BodyOnlyClassificationTests(IsolatedAsyncioTestCase):
                     raise PageStructureError('exercise adopted recovery', 6)
                 return await commit(*args, **kwargs)
             engine._commit_extraction = commit_once
-            with patch.object(JEVRuntime, 'evaluate', evaluate), patch(
+            with patch.object(JEVRuntime, 'evaluate_questions', evaluate), patch(
                     'pdf_craft.transform.runtime_for', return_value=Runtime()):
                 task = asyncio.create_task(AsyncPDFCraft.from_engine(engine).extract_pdf(
                     root/'source.pdf', root/'book.pcex', ExtractionOptions(

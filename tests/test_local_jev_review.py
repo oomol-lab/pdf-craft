@@ -39,9 +39,10 @@ class LocalReviewPacketTests(unittest.TestCase):
     def test_body_only_reviews_each_decision_in_small_independent_batches(self):
         requests = packets()
         names = [name for _, request in requests for name in request['questions']]
-        self.assertEqual(set(names), {f'{family}_{n}' for family in ('gap', 'owner') for n in range(10)})
-        self.assertEqual(len(names), 20)
-        self.assertEqual(len(requests), 6)
+        self.assertEqual(set(names), {f'gap_{n}_{part}' for n in range(10) for part in ('word', 'syntax')}
+                         | {f'owner_{n}' for n in range(10)})
+        self.assertEqual(len(names), 30)
+        self.assertEqual(len(requests), 8)
         for index, request in requests:
             self.assertEqual(index, 2)
             self.assertLessEqual(len(request['questions']), 4)
@@ -50,16 +51,16 @@ class LocalReviewPacketTests(unittest.TestCase):
             self.assertNotIn(JEV_QUESTION_NAME, request['questions'])
         requests[0][1]['state']['local_raw_evidence']['target_page']['layouts'].clear()
         self.assertEqual(len(requests[1][1]['state']['local_raw_evidence']['target_page']['layouts']), 10)
-        requests[0][1]['questions']['gap_0']['instructions'].clear()
-        self.assertTrue(packets()[0][1]['questions']['gap_0']['instructions'])
+        requests[0][1]['questions']['gap_0_word']['instructions'].clear()
+        self.assertTrue(packets()[0][1]['questions']['gap_0_word']['instructions'])
 
     def test_decisions_live_in_checks_not_in_raw_evidence(self):
         request = packets(1)[0][1]
         raw = request['state']['local_raw_evidence']['target_page']['layouts'][0]
         self.assertNotIn('continues_from_previous', raw)
         self.assertNotIn('analysed_text', raw)
-        self.assertIn('present_decision', request['state']['checks']['gap_0'])
-        candidates = request['state']['checks']['gap_0']['preceding_source_candidates']
+        self.assertIn('present_decision', request['state']['checks']['gap_0_word'])
+        candidates = request['state']['checks']['gap_0_word']['preceding_source_candidates']
         self.assertEqual(candidates, ['p1_s0'])
         self.assertNotIn('p3_s0', candidates)
 
@@ -106,8 +107,8 @@ class LocalReviewRuntimeTests(unittest.IsolatedAsyncioTestCase):
         client.system_one = AsyncMock(side_effect=system_one)
         with patch('pdf_craft.jev.AsyncTypeSafeClient', return_value=client):
             async with JEVRuntime(JEV('unused'), ConcurrentExecutor(FixedCapacity(2))) as runtime:
-                reviewer = JevReviewProcessor(runtime.evaluate, batch_evaluator=runtime.evaluate_many,
-                                               includes_footnotes=False)
+                reviewer = JevReviewProcessor(runtime.evaluate, includes_footnotes=False,
+                                               question_batch_evaluator=runtime.evaluate_questions_many)
                 @policy_operation
                 async def run(*, error_policy=None):
                     return await reviewer(raw, analysed, sizes)
@@ -147,14 +148,16 @@ class LocalReviewRuntimeTests(unittest.IsolatedAsyncioTestCase):
                 finally:
                     release.set()
                     results = await asyncio.wait_for(task, 2)
-        self.assertEqual(len(results), 6)
+        self.assertEqual(len(results), 8)
         self.assertEqual(peak, 2)
 
     async def test_local_batch_results_reduce_to_one_unrounded_page_decision(self):
         raw, analysed, sizes = inputs(5)
-        async def evaluate(_index, request):
-            return .48 if 'gap_4' in request['questions'] else .99
-        reviewer = JevReviewProcessor(evaluate, includes_footnotes=False)
+        async def evaluate(requests):
+            return [(index, {name: .48 if name == 'gap_4_word' else .99
+                             for name in request['questions']}) for index, request in requests]
+        reviewer = JevReviewProcessor(AsyncMock(), includes_footnotes=False,
+                                      question_batch_evaluator=evaluate)
         await reviewer(raw, analysed, sizes)
         current = next(result for result in reviewer.results if result.page_index == 2)
         self.assertTrue(current.requires_review)

@@ -407,8 +407,9 @@ class RequestObserversTests(IsolatedAsyncioTestCase):
             'page_passes_strict_standard': SimpleNamespace(noul=0.8)})
         runtime._client = MagicMock(system_one=AsyncMock(side_effect=[
             TypeSafeAPIConnectionError('offline'), response, response]))
-        for page in (1, 2):
-            self.assertEqual(await runtime.evaluate(page, {'state': {}, 'questions': {'page_passes_strict_standard': {'type': 'noul'}}}), 0.8)
+        packet = {'state': {}, 'questions': {'page_passes_strict_standard': {'type': 'noul'}}}
+        self.assertEqual(await runtime.evaluate_questions(1, packet), {'page_passes_strict_standard': 0.8})
+        self.assertEqual(await runtime.evaluate(2, packet), 0.8)
         self.assertEqual(len(events), 3)
         self.assertEqual(events[0].call_id, events[1].call_id)
         self.assertNotEqual(events[1].call_id, events[2].call_id)

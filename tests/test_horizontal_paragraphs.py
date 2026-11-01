@@ -88,6 +88,15 @@ class HorizontalParagraphTests(unittest.TestCase):
         result = list(Jointer([(1, layouts)]).execute())
         self.assertEqual(len(result), 4)
 
+    def test_long_indented_single_line_uses_glyph_margin_not_width_ratio(self):
+        layouts = [
+            _layout(0, (0, 0, 1000, 200), "前面的背景內容已經說完。"),
+            _layout(1, (80, 230, 620, 270), '有人說：“你準備好了嗎？”'),
+            _layout(2, (80, 290, 880, 330), "另一個人慢慢拿起行李回答："),
+        ]
+        result = list(Jointer([(1, layouts)]).execute())
+        self.assertEqual(len(result), 3)
+
     def test_indented_page_head_after_completed_quotation_is_separate(self):
         previous = [_layout(0, (0, 0, 1000, 200), '老人說：“你一定記得！”')]
         current = [

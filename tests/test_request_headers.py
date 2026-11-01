@@ -273,7 +273,9 @@ class RequestHeaderTests(unittest.IsolatedAsyncioTestCase):
                 runtime.evaluate(1, request, request_headers={'X-Test': value})
                 for value in ('one', 'two')
             )), [0.9, 0.9])
-        self.assertEqual(counts, {'one': 2, 'two': 2})
+            self.assertEqual(await runtime.evaluate_questions(1, request, request_headers={'X-Test': 'named'}),
+                             {'page_passes_strict_standard': 0.9})
+        self.assertEqual(counts, {'one': 2, 'two': 2, 'named': 2})
         self.assertTrue(all(auth == 'Bearer key' for _, auth in seen))
 
 

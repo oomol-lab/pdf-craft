@@ -85,12 +85,14 @@ def indented_line_starts(layouts: list[PageLayout]) -> set[tuple[int, int, int, 
             continue
         left, top, right, bottom = layout.det
         height, width = bottom - top, right - left
+        # A long indented line may occupy most of its column. Compare the
+        # extra margin to glyph height rather than requiring a width ratio.
         candidates = []
         for other in layouts[max(0, index - 3):index + 4]:
             if other.ref != "text" or other is layout:
                 continue
             a, b, c, d = other.det
-            if (c - a >= 1.5 * width and a <= left and c >= right
+            if (c - a >= width + 1.5 * height and a <= left and c >= right
                     and (d <= top or b >= bottom)
                     and not _single_line_text(other.text, other.det)):
                 candidates.append((max(top - d, b - bottom), a))

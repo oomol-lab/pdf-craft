@@ -118,6 +118,10 @@ class RefinementPipelineTests(IsolatedAsyncioTestCase):
                 neighbor_jev.set()
                 await release_jev.wait()
             return 0.1
+        async def evaluate_questions(_runtime, index, packet, **kwargs):
+            value = await evaluate(_runtime, index, packet, **kwargs)
+            return {name: value if name.startswith(('gap_', 'owner_', 'redundancy_')) else .01
+                    for name in packet['questions']}
         class Runtime:
             async def request(self, messages, **_kwargs):
                 payload = json.loads(messages[1].message)
@@ -129,7 +133,9 @@ class RefinementPipelineTests(IsolatedAsyncioTestCase):
             root = Path(directory)
             engine = PDFExtractionEngine('ignored')
             engine._ocr = cast(Any, OCR())
-            with patch.object(JEVRuntime, 'evaluate', evaluate), patch('pdf_craft.transform.runtime_for', return_value=Runtime()):
+            with patch.object(JEVRuntime, 'evaluate', evaluate), patch.object(
+                    JEVRuntime, 'evaluate_questions', evaluate_questions), patch(
+                    'pdf_craft.transform.runtime_for', return_value=Runtime()):
                 task = asyncio.create_task(AsyncPDFCraft.from_engine(engine).extract_pdf(
                     root/'source.pdf', root/'book.pcex', ExtractionOptions(
                         includes_furniture=False, footnotes=footnotes, refinement=refinement(), on_body=lambda _node: body_ready.set()),
@@ -142,7 +148,7 @@ class RefinementPipelineTests(IsolatedAsyncioTestCase):
                     await asyncio.wait_for(body_ready.wait(), 2)
                     self.assertFalse(task.done())
                     first = next(p for p in prompts if p['target_page']['page_index'] == 1)
-                    self.assertEqual(first['target_page']['jev_p_pass'], 0.1)
+                    self.assertAlmostEqual(first['target_page']['jev_p_pass'], 0.1)
                     for key in ('previous_page', 'next_page'):
                         if first[key] is not None:
                             self.assertNotIn('jev_p_pass', first[key])

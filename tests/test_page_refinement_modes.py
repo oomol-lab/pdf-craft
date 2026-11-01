@@ -88,6 +88,11 @@ class RefinementModeTests(IsolatedAsyncioTestCase):
                 raise ValueError('missing local ownership review')
             return 0.99 if pass_review else 0.1
 
+        async def evaluate_questions(_runtime, _index, packet, **_kwargs):
+            value = await evaluate(_runtime, _index, packet, **_kwargs)
+            return {name: value if name.startswith(('gap_', 'owner_', 'redundancy_')) else .01
+                    for name in packet['questions']}
+
         class Runtime:
             async def request(self, messages, **_kwargs):
                 prompts.append(messages)
@@ -110,7 +115,8 @@ class RefinementModeTests(IsolatedAsyncioTestCase):
                     raise PageStructureError('forced recovery boundary', 1)
                 return await commit(*args, **kwargs)
             engine._commit_extraction = commit_with_failure
-            with patch.object(JEVRuntime, 'evaluate', evaluate), patch(
+            with patch.object(JEVRuntime, 'evaluate', evaluate), patch.object(
+                    JEVRuntime, 'evaluate_questions', evaluate_questions), patch(
                     'pdf_craft.transform.runtime_for', return_value=Runtime()) as runtime:
                 await AsyncPDFCraft.from_engine(engine).extract_pdf(
                     root/'source.pdf', root/'book.pcex', ExtractionOptions(
@@ -120,7 +126,10 @@ class RefinementModeTests(IsolatedAsyncioTestCase):
                     analysing_path=root/'analysis', error_policy=fail_commit or fail_review)
                 self.assertEqual(runtime.call_count, int(refined))
             self.assertEqual(flags, [footnotes])
-            self.assertEqual(len(packets), (6 if footnotes else 12) if refined else 0)
+            self.assertEqual(bool(packets), refined)
+            if refined:
+                self.assertEqual({packet.get('state', {}).get('local_raw_evidence', packet['state'])
+                                  ['target_page']['page_index'] for packet in packets}, set(range(1, 7)))
             self.assertEqual(len(prompts), 6 if refined and not pass_review else 0)
             self.assertEqual(len(notes), 6 if footnotes else 0)
             self.assertTrue(bodies)

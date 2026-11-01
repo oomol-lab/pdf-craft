@@ -15,6 +15,7 @@ from typing import Any, Protocol
 from ...pdf import Page
 from .page_analysis import AnalysedLayout, PageAnalysis
 from .local_review import LOCAL_REVIEW_THRESHOLD, local_review_requests
+from .structural_review import NamedBatchEvaluator, review_body_page
 
 
 JEV_REVIEW_THRESHOLD = 0.45
@@ -163,10 +164,12 @@ class JevReviewProcessor:
         threshold: float | None = None,
         batch_evaluator: PageBatchEvaluator | None = None,
         includes_footnotes: bool = True,
+        question_batch_evaluator: NamedBatchEvaluator | None = None,
     ) -> None:
         threshold = review_threshold(includes_footnotes) if threshold is None else threshold
         if not 0 <= threshold <= 1:
             raise ValueError("JEV review threshold must be between 0 and 1")
+        self._question_batch_evaluator = question_batch_evaluator
         self._evaluator = evaluator
         self._includes_footnotes = includes_footnotes
         self._batch_evaluator = batch_evaluator
@@ -182,6 +185,18 @@ class JevReviewProcessor:
         from ..progress import page_stage
         for page in analyses:
             await page_stage(page.page_index, 5)
+        if not self._includes_footnotes:
+            if self._question_batch_evaluator is None:
+                raise ValueError("Body-only review requires a named-score batch evaluator")
+            self.results = []
+            for page in analyses:
+                local_requests = build_jev_review_requests(source_pages, analyses, page_pixel_sizes,
+                    includes_footnotes=False, target_page_index=page.page_index)
+                probability = await review_body_page(local_requests, self._question_batch_evaluator)
+                if probability is not None:
+                    risk = 1 - probability
+                    self.results.append(PageReviewResult(page.page_index, probability, risk, risk >= self._threshold))
+            return analyses
         expected: dict[int, int] = {}
 
         def requests():
