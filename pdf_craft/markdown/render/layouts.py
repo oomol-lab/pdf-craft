@@ -152,8 +152,7 @@ def _render_asset(
         if asset.asset_hash:
             has_content = True
 
-    from ...extractor.chapter.asset_text import image_caption
-    caption = image_caption(asset) if asset.ref == "image" else asset.caption
+    caption = asset.caption
     if caption:
         caption_str = "".join(
             render_markdown_paragraph(

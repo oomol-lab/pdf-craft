@@ -243,18 +243,21 @@ class Jointer:
             if layout.ref == "table":
                 _normalize_table(layout)
 
-            from .asset_text import normalize_image_description
-            yield normalize_image_description(SourceAsset(
+            # OCR image-block prose describes the image; write the canonical
+            # caption directly. PCEX version migration belongs at archive input.
+            yield SourceAsset(
                 page_index=page_index,
                 ref="formula" if layout.ref == "equation" else layout.ref,
                 bbox=layout.det,
                 title=_parse_block_content(layout.title),
-                content=_parse_block_content(layout.content),
-                caption=_parse_block_content(layout.caption),
+                content=[] if layout.ref == "image" else _parse_block_content(layout.content),
+                caption=_parse_block_content(
+                    (layout.caption or layout.content) if layout.ref == "image" else layout.caption
+                ),
                 asset_hash=layout.hash,
                 reading_order=self._reading_positions.get((page_index, layout.det)),
                 source=layout.source,
-            ))
+            )
 
     def _join_asset_layouts(self, page_index, layouts: list[PageLayout]):
         last_asset: _AssetHolder | None = None

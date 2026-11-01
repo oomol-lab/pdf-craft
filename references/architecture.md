@@ -21,9 +21,9 @@
 目标语言只是层的元数据，同一种语言可以有多个 ID。根级 `translation.xml` 仍是旧式或内部物化
 译文视图的覆盖记录，不代表 v4 中可供渲染选择的持久化译文层。
 
-PCEX 格式版本以已经发布的 Git tag 为兼容基线，不随开发期间的中间 commit 逐次递增。只有准备
-新版本且格式相对上一个已发布版本发生 schema 变化时，才评估是否增加 `format_version`。当前 v4
-相对 `v2.3.1` 的 v3 增加了可叠加 translation layer；读取器继续接受 v1/v2/v3。
+PCEX 当前格式为 v5，v4→v5 明确图片说明使用 caption。字段契约改变必须升级格式版本，
+并通过 [PCEX Migration 边界](pcex-migrations.md) 集中转换旧版本；业务只消费当前格式。
+旧归档在物化副本上迁移，不修改原文件；源章节和已有译文层同步转换。
 
 PCEX chapter 的阅读流使用 `FlowItem`：`TextFlowItem` 是作者意义的正文/标题段，包含保留
 来源 bbox 的 `SourceTextFragment`，并可在 fragment 之间嵌入图片/表格 `SourceAsset`。

@@ -340,7 +340,7 @@ class TestBookMetadata(unittest.IsolatedAsyncioTestCase):
 
             with ZipFile(archive_path) as archive:
                 manifest = json.loads(archive.read("manifest.json"))
-            self.assertEqual(manifest["format_version"], 4)
+            self.assertEqual(manifest["format_version"], 5)
             self.assertEqual(manifest["document"]["authors"][0]["original_name"], "Original Name")
 
             manifest["format_version"] = 1

@@ -11,7 +11,7 @@ from PIL import Image, ImageDraw
 from pdf_craft import AsyncPDFCraft, RenderMode
 from pdf_craft.common import read_xml, save_xml
 from pdf_craft.expression import ExpressionKind
-from pdf_craft.extractor.chapter.asset_text import image_caption, normalize_image_description
+from pdf_craft.extractor.chapter.asset_text import translatable_asset
 from pdf_craft.extractor.chapter.chapter import Chapter, InlineExpression, SourceAsset, StandaloneAsset, encode
 from pdf_craft.extractor.chapter.jointer import Jointer
 from pdf_craft.pdf import PageLayout
@@ -33,25 +33,15 @@ class ImageDescriptionContractTests(TestCase):
         self.assertEqual(asset.caption, ['Description'])
         self.assertEqual(asset.content, [])
 
-    def test_new_descriptions_use_caption_without_changing_legacy_source(self):
-        source = SourceAsset(1, 'image', (1, 1, 80, 40), content=['description'])
-        saved = deepcopy(source)
-        normalized = normalize_image_description(source)
-        self.assertEqual(normalized.caption, ['description'])
-        self.assertEqual(normalized.content, [])
-        self.assertEqual(source, saved)
-        self.assertEqual(image_caption(source), ['description'])
-        self.assertEqual(image_caption(normalized), ['description'])
-
-    def test_explicit_caption_wins_and_title_is_not_duplicated(self):
-        source = SourceAsset(1, 'image', (1, 1, 80, 40),
-                             title=['Title'], content=['Embedded OCR'], caption=['Caption'])
-        self.assertEqual(image_caption(source), ['Caption'])
-        self.assertEqual(normalize_image_description(source), source)
-        source.caption, source.content = [], ['Title']
-        self.assertEqual(image_caption(source), [])
-        source.content = []
-        self.assertEqual(image_caption(source), [])
+    def test_image_content_is_never_guessed_to_be_a_caption(self):
+        for has_caption in (False, True):
+            source = SourceAsset(1, 'image', (1, 1, 80, 40),
+                                 content=['Opaque pixel text'], caption=['Caption'] if has_caption else [])
+            saved = deepcopy(source)
+            projected = translatable_asset(source)
+            self.assertEqual(projected.content, [])
+            self.assertEqual(projected.caption, source.caption)
+            self.assertEqual(source, saved)
 
 
 class ImageDescriptionOutputTests(IsolatedAsyncioTestCase):
@@ -67,7 +57,7 @@ class ImageDescriptionOutputTests(IsolatedAsyncioTestCase):
         requests = [call.args[0] for call in cast(AsyncMock, translator._translate_text_async).await_args_list]
         self.assertFalse(any('Embedded OCR' in request for request in requests))
 
-    async def test_legacy_description_roundtrips_and_selects_layers_in_markdown_and_epub(self):
+    async def test_current_description_roundtrips_and_selects_layers_in_markdown_and_epub(self):
         with TemporaryDirectory() as folder:
             root = Path(folder)
             source = make_extraction(root / 'source')
@@ -77,7 +67,7 @@ class ImageDescriptionOutputTests(IsolatedAsyncioTestCase):
             picture.save(root / 'source/assets' / f'{digest}.png')
             formula = InlineExpression(ExpressionKind.INLINE_DOLLAR, 'x')
             description = ['Figure before ', formula, ' after']
-            image = SourceAsset(1, 'image', (1, 1, 80, 40), content=description, asset_hash=digest)
+            image = SourceAsset(1, 'image', (1, 1, 80, 40), caption=description, asset_hash=digest)
             explicit = SourceAsset(1, 'image', (1, 45, 80, 85), title=['Heading'],
                                    content=['Embedded OCR'], caption=['Figure explicit'], asset_hash=digest)
             save_xml(encode(Chapter(None, -1, [StandaloneAsset(image), StandaloneAsset(explicit)])),
@@ -94,7 +84,7 @@ class ImageDescriptionOutputTests(IsolatedAsyncioTestCase):
             with target._materialize() as paths:
                 self.assertEqual(paths.chapters.joinpath('chapter_head.xml').read_bytes(), source_xml)
                 layer = read_xml(paths.translations / 'caption-main/chapters/chapter_head.xml')
-                field = layer.find('.//asset/content')
+                field = layer.find('.//asset/caption')
                 assert field is not None
                 self.assertEqual(field.text, '图注 之前 ')
             for mode, original_count, translated_count in (
