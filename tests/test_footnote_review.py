@@ -166,3 +166,35 @@ class FootnoteReviewTests(unittest.IsolatedAsyncioTestCase):
         names = {name for _, p in supplementary_footnote_requests(state(target), {})
                  for name in p['questions']}
         self.assertFalse(any(name.startswith('main_section_') for name in names))
+
+    def test_reading_position_proof_cannot_clear_another_role_or_source_fault(self):
+        scores = dict(furniture_0=.8, furniture_1=.9, footnote_role_0=.95,
+                      retained_reading_position_0=.97)
+        passed = footnote_pass_scores(scores)
+        self.assertAlmostEqual(passed['furniture_0'], .97)
+        self.assertAlmostEqual(passed['furniture_1'], .1)
+        self.assertAlmostEqual(passed['footnote_role_0'], .05)
+        self.assertNotIn('retained_reading_position_0', passed)
+        scores['retained_reading_position_0'] = .02
+        self.assertAlmostEqual(footnote_pass_scores(scores)['furniture_0'], .2)
+
+    def test_position_proof_only_checks_retained_reading_suspected_as_apparatus(self):
+        value = state(source(0, 'A chapter opening.'), source(1, 'A note.', 'citation'),
+                      source(2, 'Excluded material.', 'ignored'), source(3, 'An ordinary paragraph.'))
+        before = deepcopy(value)
+        packets = list(supplementary_footnote_requests(value, dict(furniture_0=.8, furniture_1=.9,
+                                                                 furniture_2=.9, furniture_3=.01)))
+        names = {n for _, p in packets for n in p['questions'] if n.startswith('retained_reading_position_')}
+        self.assertEqual(names, {'retained_reading_position_0'})
+        self.assertEqual(value, before)
+
+    async def test_missing_reading_position_proof_does_not_publish_a_verdict(self):
+        async def evaluate(requests):
+            rows = []
+            for i, packet in requests:
+                if any(n.startswith('retained_reading_position_') for n in packet['questions']):
+                    continue
+                rows.append((i, {n: .8 if n.startswith('furniture_') else .01
+                                 for n in packet['questions']}))
+            return rows
+        self.assertIsNone(await review_footnote_page(state(source(0, 'A chapter opening.')), evaluate))

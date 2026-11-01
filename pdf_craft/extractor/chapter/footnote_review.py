@@ -409,6 +409,33 @@ def supplementary_footnote_requests(state, scores):
                 yield (p, value)
 
     yield from _main_section_requests(state)
+    yield from _retained_reading_requests(state, scores)
+
+
+def _retained_reading_requests(state, scores):
+    """Verify main-reading placement without changing other role decisions."""
+    jobs = []
+    for layout in state["target_page"]["layouts"]:
+        order = layout["source_order"]
+        if (
+            layout["source_type"] != "text"
+            or layout["ownership"] != "paragraph"
+            or order is None
+            or scores.get(f"furniture_{order}", 0) < FOOTNOTE_REVIEW_THRESHOLD
+        ):
+            continue
+        name = f"retained_reading_position_{order}"
+        jobs.append(
+            (
+                name,
+                question("retained_reading_position", name),
+                dict(source_order=order),
+            )
+        )
+    for packet in review_batches(
+        dict(local_raw_evidence=raw_roles(state), encoding_note=_ENCODING), jobs
+    ):
+        yield state["target_page"]["page_index"], packet
 
 
 def _main_section_requests(state):
@@ -487,6 +514,10 @@ def _main_section_requests(state):
 
 
 def footnote_pass_scores(scores):
+    reading_proofs = {
+        k: v for k, v in scores.items() if k.startswith("retained_reading_position_")
+    }
+    scores = {k: v for k, v in scores.items() if k not in reading_proofs}
     main_proofs = {
         k: v
         for k, v in scores.items()
@@ -530,6 +561,10 @@ def footnote_pass_scores(scores):
             key = f"main_reading_{order}"
             if key in values:
                 values[key] = min(values[key], 1 - proof)
+    for name, proof in reading_proofs.items():
+        key = f"furniture_{name.rsplit('_', 1)[1]}"
+        if key in values:
+            values[key] = max(values[key], proof)
     return values
 
 

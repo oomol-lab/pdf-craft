@@ -490,6 +490,32 @@ _TEMPLATES["reference_position"] = {'type': 'noul',
                        'marker.'}}
 
 
+_TEMPLATES["retained_reading_position"] = {'type': 'noul',
+ 'instructions': ['Assess ONLY state.checks.{name}, identified by source_order in '
+                  'local_raw_evidence.target_page.layouts. Other sources or questions cannot decide this '
+                  'one.',
+                  'Does the WHOLE source have a positive, identifiable place in the main reading sequence, '
+                  'rather than being page apparatus? Use the original printed arrangement and neighboring '
+                  'reading text. bbox_normalized is [left,top,right,bottom] in page fractions from 0 to 1; '
+                  'near top=0 or bottom=1 is the physical page edge, not the start or end of the story.',
+                  'Require an actual reading-content role, such as a section/volume opening in the reading '
+                  'columns or an instructional step among the main instructions. Its mentioning a book name, '
+                  'chapter, printing or pages does not turn it into page apparatus. Judge placement and role '
+                  'of the entire source, not just familiar content words.',
+                  'A marginal folio, running header/footer or publication continuation cue is not main '
+                  'reading, even if it names a chapter. On a blank page, a bottom-margin chapter label does '
+                  'not become a chapter opening just because it is the first or only source. Conversely a '
+                  'genuine section-title leaf can have only its centrally placed title. Do not infer a '
+                  'reading role from the source having been retained by OCR.',
+                  'Do not judge spelling, paragraph joins or note-reference completeness. Uncertainty about '
+                  'an apparatus role alone is not positive proof of main reading. Require concrete '
+                  'main-reading placement/function; otherwise answer false.'],
+ 'criteria': {'true': 'The complete source has a demonstrated main-reading role in this local printed '
+                      'sequence.',
+              'false': 'Such a complete-source main-reading role is not established; it may be apparatus or '
+                       'uncertain.'}}
+
+
 def question(kind: str, name: str) -> dict[str, Any]:
     """Create an isolated question for one named source decision."""
     value = deepcopy(_TEMPLATES[kind])
