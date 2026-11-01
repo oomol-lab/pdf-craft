@@ -27,6 +27,7 @@ from .mark import transform2mark
 from .reference import References
 from .source import capture_sources
 from .numeric_marks import explicit_numbers
+from .marginal_numbers import reading_notes
 
 
 def _joined(pages: Iterable[Page], footnotes: bool, on_page=None, on_raw_page=None):
@@ -40,7 +41,7 @@ def _joined(pages: Iterable[Page], footnotes: bool, on_page=None, on_raw_page=No
                 on_page(page.index)
             sources.clear()
             sources.update(capture_sources([page]))
-            yield page.index, page.footnotes_layouts if footnotes else page.body_layouts
+            yield page.index, reading_notes(page) if footnotes else page.body_layouts
 
     return Jointer(layouts(), sources)
 

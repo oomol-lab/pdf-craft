@@ -25,7 +25,7 @@ class NumericFootnoteMarkTests(unittest.TestCase):
                 raw, _ = project(body, '4 An explanatory note.')
                 emitted = []
                 database = Path(directory) / 'stream.sqlite'
-                resolve_to_disk(lambda: iter([raw]), database, on_footnote=emitted.append)
+                resolve_to_disk(lambda raw=raw: iter([raw]), database, on_footnote=emitted.append)
                 self.assertEqual(len(emitted), 1)
                 connection = sqlite3.connect(database)
                 try:

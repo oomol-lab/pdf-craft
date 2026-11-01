@@ -21,7 +21,8 @@ from .page_review import load_page_pixel_sizes
 from .punctuation import normalize_punctuation_in_chapter
 from .reference import References, extract_head_mark
 from .numeric_marks import explicit_numbers, html_number, SUPERSCRIPT_NUMBERS, superscript_number
-from .source import capture_sources, empty_sources
+from .source import capture_sources, excluded_sources
+from .marginal_numbers import reading_notes
 
 
 @dataclass(frozen=True)
@@ -248,7 +249,7 @@ def _analyse_chapter_pages(
         page_indexes=(page.index for page in source_pages),
         paragraphs=paragraphs,
         citations=citations,
-        ignored_sources=empty_sources(source_pages, sources),
+        ignored_sources=excluded_sources(source_pages, sources, includes_footnotes=True),
     )
     return source_pages, analysed_pages
 
@@ -269,7 +270,7 @@ def _resolve_pages(
         ((page.index, page.body_layouts) for page in page_list), sources
     )
     footnotes_jointer = Jointer(
-        ((page.index, page.footnotes_layouts) for page in page_list), sources
+        ((page.index, reading_notes(page)) for page in page_list), sources
     )
     return _resolve_jointers(body_jointer, footnotes_jointer)
 
