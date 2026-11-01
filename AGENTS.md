@@ -22,9 +22,11 @@ pdf-craft 是一个把扫描书籍 PDF 转换为 Markdown 或 EPUB 的 Python �
 - 当修改 PDF 提取调度、页精修或内容回调时，阅读[流式设计与取舍](docs/design/pdf-extraction-streaming.md)。
 
 - 当修改失败恢复、翻译缺失、错误定位或任务成功判断时，阅读[失败与有效成果](references/failure-and-completion.md)。
+- 当修改 PCEX schema、字段语义、格式版本或历史数据读取时，必须阅读 [PCEX Migration 边界](references/pcex-migrations.md)。
 
 ## 项目特有默认规则
 
+- PCEX 业务代码只处理当前格式。历史格式兼容必须集中在 `pdf_craft/document/migrations.py`，在输入物化边界完成；禁止在翻译、内容流、渲染器中按字段缺失或旧形态添加 fallback。字段语义改变必须升级 PCEX 格式版本并同步迁移源章节与译文层，不能以功能测试通过代替这一架构要求。
 - 这是库项目。除非未来任务引入长期服务，否则不要启动常驻开发服务器。
 - 普通验证应避免 CUDA、模型下载、网络请求和完整 PDF 转换，除非任务明确触及这些行为。
 - 模型缓存和转换输出不得进入提交内容。`pdf_craft_tool` 的产物默认写入每个 worktree 自己的 `pdf-craft-output/`；只有任务明确需要 OCR 时，才考虑共享外部模型缓存。

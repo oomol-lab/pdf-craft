@@ -17,11 +17,12 @@ from zipfile import BadZipFile, ZIP_DEFLATED, ZipFile, ZipInfo
 from epub_generator import BookMeta
 
 from .furniture import section_identity, coverage_identity
+from .migrations import CURRENT_VERSION, migrate_workspace
 from ..common import indent, save_xml, safe_text
 from ..runtime import IO_DOMAIN, run_atomic_cancellable
 
 
-FORMAT_VERSION = 4
+FORMAT_VERSION = CURRENT_VERSION
 EXTRACTION_SUFFIX = ".pcex"
 _MANIFEST_FIELDS = {"format_version", "producer", "created_at", "document"}
 _DOCUMENT_FIELDS_V1 = {
@@ -157,7 +158,18 @@ class _WorkspaceStorage:
 
     @contextmanager
     def materialize(self) -> Iterator[ExtractionPaths]:
-        yield ExtractionPaths.at(self.root)
+        paths = ExtractionPaths.at(self.root)
+        if _read_manifest(paths.manifest)['format_version'] == FORMAT_VERSION:
+            yield paths
+        else:
+            # Internal historical workspaces get the same boundary guarantee as
+            # archives, without rewriting the caller's source directory.
+            _validate_workspace(paths)  # Copying must not hide invalid symlinks.
+            import shutil
+            with TemporaryDirectory(prefix="pdf-craft-migration-") as directory:
+                shutil.copytree(self.root, directory, dirs_exist_ok=True)
+                migrate_workspace(Path(directory))
+                yield ExtractionPaths.at(Path(directory))
 
 
 class _ArchiveStorage:
@@ -171,6 +183,7 @@ class _ArchiveStorage:
         with TemporaryDirectory(prefix="pdf-craft-extraction-") as directory:
             paths = ExtractionPaths.at(Path(directory))
             _extract_archive(self.path, paths.root)
+            migrate_workspace(paths.root)
             _validate_workspace(paths)
             yield paths
 
@@ -505,8 +518,8 @@ def _validate_workspace(paths: ExtractionPaths, *, require_toc: bool = False) ->
             paths.translation, paths.furnitures, narrative_identities, anchored_identities,
         )
     translations = _read_translation_index(paths.translations)
-    if translations and manifest["format_version"] != FORMAT_VERSION:
-        raise ValueError("translation layers require PCEX format version 4")
+    if translations and manifest["format_version"] < 4:
+        raise ValueError("translation layers require PCEX format version 4 or newer")
     for translation in translations:
         _validate_translation_layer(
             paths, translation, page_sizes, toc_ids, chapter_structures,
@@ -524,7 +537,7 @@ def _read_manifest(path: Path) -> dict[str, Any]:
     if not isinstance(payload, dict) or set(payload) - _MANIFEST_FIELDS:
         raise ValueError("manifest.json contains unsupported fields")
     format_version = payload.get("format_version")
-    if format_version not in {1, 2, 3, FORMAT_VERSION}:
+    if format_version not in {1, 2, 3, 4, FORMAT_VERSION}:
         raise ValueError("unsupported PDFCraftExtraction format version")
     producer = payload.get("producer")
     if not isinstance(producer, dict) or set(producer) != {"name", "version"} or not all(
@@ -1110,9 +1123,6 @@ def _translation_members(root: Path) -> Iterator[tuple[Path, str]]:
 
 
 def _write_archive(paths: ExtractionPaths, target: Path) -> None:
-    manifest = _read_manifest(paths.manifest)
-    legacy_chapters = manifest["format_version"] in {1, 2}
-    legacy_manifest = manifest["format_version"] in {1, 2, 3}
     members: list[tuple[Path, str]] = [
         (paths.pages, "pages.xml"),
     ]
@@ -1139,62 +1149,13 @@ def _write_archive(paths: ExtractionPaths, target: Path) -> None:
                 for info in _read_translation_index(paths.translations):
                     archive.writestr(f"translations/{info.id}/", b"")
                     archive.writestr(f"translations/{info.id}/chapters/", b"")
-            if legacy_manifest:
-                archive.writestr(
-                    "manifest.json",
-                    json.dumps(_v3_manifest(manifest), ensure_ascii=False, indent=2).encode(),
-                )
-            else:
-                archive.write(paths.manifest, "manifest.json")
+            archive.write(paths.manifest, "manifest.json")
             for source, member in members:
-                if legacy_chapters and member.startswith("chapters/"):
-                    archive.writestr(member, _v3_chapter_xml(source))
-                else:
-                    archive.write(source, member)
+                archive.write(source, member)
         temporary_path.replace(target)
     except Exception:
         temporary_path.unlink(missing_ok=True)
         raise
-
-
-def _v3_manifest(manifest: dict[str, Any]) -> dict[str, Any]:
-    """Normalize a validated v1/v2 manifest at the public export boundary."""
-    document = manifest["document"]
-    raw_authors = document.get("authors", [])
-    authors = (
-        [{"name": author, "original_name": None, "nationality": None} for author in raw_authors]
-        if manifest["format_version"] == 1 else raw_authors
-    )
-    return {
-        "format_version": FORMAT_VERSION,
-        "producer": manifest["producer"],
-        "created_at": manifest.get("created_at"),
-        "document": {
-            "title": document.get("title"),
-            "original_title": document.get("original_title"),
-            "description": document.get("description"),
-            "publisher": document.get("publisher"),
-            "isbn": document.get("isbn"),
-            "authors": authors,
-            "editors": document.get("editors", []),
-            "translators": document.get("translators", []),
-            "publication_date": document.get("publication_date"),
-            "edition": document.get("edition"),
-            "subjects": document.get("subjects", []),
-            "rights": document.get("rights"),
-            "modified": document.get("modified"),
-            "language": document.get("language"),
-        },
-    }
-
-
-def _v3_chapter_xml(path: Path) -> bytes:
-    """Decode a legacy chapter and serialize its canonical v3 FlowItem form."""
-    from ..extractor.chapter.chapter import decode as decode_chapter, encode as encode_chapter
-
-    root = _require_xml_root(path, "chapter")
-    chapter = decode_chapter(root, allow_legacy=True)
-    return ElementTree.tostring(encode_chapter(chapter), encoding="utf-8", xml_declaration=True)
 
 
 def _extract_archive(archive_path: Path, target: Path) -> None:

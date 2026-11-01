@@ -1,0 +1,172 @@
+"""Historical PCEX shapes are consumed only at the materialization boundary."""
+# pylint: disable=protected-access
+import json
+from pathlib import Path
+from tempfile import TemporaryDirectory
+from unittest import IsolatedAsyncioTestCase, TestCase
+from unittest.mock import AsyncMock
+from typing import cast
+from xml.etree import ElementTree as ET
+from zipfile import ZipFile, ZIP_DEFLATED
+
+from PIL import Image
+
+from pdf_craft import AsyncPDFCraft, RenderMode
+from pdf_craft.common import read_xml, save_xml
+from pdf_craft.document.package import FORMAT_VERSION
+from pdf_craft.document.migrations import migrate_workspace
+from pdf_craft.expression import ExpressionKind
+from pdf_craft.extractor.chapter.chapter import Chapter, InlineExpression, SourceAsset, StandaloneAsset, encode
+from tests.extraction_helpers import make_extraction
+from tests.test_structured_translation import offline_translator
+
+
+def required(root: ET.Element, path: str) -> ET.Element:
+    value = root.find(path)
+    assert value is not None, path
+    return value
+
+
+def old_archive(source: Path, target: Path, *, migrate_layers=True):
+    """Turn a canonical caption into the exact historical content-only shape."""
+    with ZipFile(source) as before, ZipFile(target, 'w', compression=ZIP_DEFLATED) as after:
+        for member in before.infolist():
+            data = before.read(member)
+            if member.filename == 'manifest.json':
+                manifest = json.loads(data)
+                manifest['format_version'] = 4
+                data = json.dumps(manifest).encode()
+            elif member.filename.endswith('chapter_head.xml') and (
+                    member.filename.startswith('chapters/') or migrate_layers):
+                root = ET.fromstring(data)
+                required(root, './/asset/caption').tag = 'content'
+                data = ET.tostring(root)
+            after.writestr(member, data)
+
+
+class PCEXMigrationTests(TestCase):
+    def test_invalid_historical_workspace_is_rejected_before_copying(self):
+        with TemporaryDirectory() as folder:
+            root = Path(folder)
+            extraction = make_extraction(root / 'source')
+            save_xml(encode(Chapter(None, -1, [])), root / 'outside.xml')
+            (root / 'source/chapters/chapter_head.xml').symlink_to(root / 'outside.xml')
+            manifest_path = root / 'source/manifest.json'
+            manifest = json.loads(manifest_path.read_text(encoding='utf-8'))
+            manifest['format_version'] = 4
+            manifest_path.write_text(json.dumps(manifest), encoding='utf-8')
+            with self.assertRaisesRegex(ValueError, 'invalid chapter member'):
+                extraction._validate()
+
+    def test_v5_image_content_is_opaque_even_without_caption(self):
+        with TemporaryDirectory() as folder:
+            root = Path(folder)
+            extraction = make_extraction(root / 'source')
+            asset = SourceAsset(1, 'image', (1, 1, 80, 40), content=['OPAQUE_CONTENT'])
+            save_xml(encode(Chapter(None, -1, [StandaloneAsset(asset)])),
+                     root / 'source/chapters/chapter_head.xml')
+            with extraction._materialize() as paths:
+                image = required(read_xml(paths.chapters / 'chapter_head.xml'), './/asset')
+                self.assertIsNotNone(image.find('content'))
+                self.assertIsNone(image.find('caption'))
+            before = (root / 'source/chapters/chapter_head.xml').read_bytes()
+            migrate_workspace(root / 'source')
+            self.assertEqual((root / 'source/chapters/chapter_head.xml').read_bytes(), before)
+
+    def test_explicit_v4_caption_and_opaque_content_are_not_merged(self):
+        with TemporaryDirectory() as folder:
+            root = Path(folder)
+            extraction = make_extraction(root / 'source')
+            asset = SourceAsset(1, 'image', (1, 1, 80, 40), content=['Opaque'], caption=['Caption'])
+            save_xml(encode(Chapter(None, -1, [StandaloneAsset(asset)])), root / 'source/chapters/chapter_head.xml')
+            manifest = json.loads((root / 'source/manifest.json').read_text(encoding='utf-8'))
+            manifest['format_version'] = 4
+            (root / 'source/manifest.json').write_text(json.dumps(manifest), encoding='utf-8')
+            with extraction._materialize() as paths:
+                image = required(read_xml(paths.chapters / 'chapter_head.xml'), './/asset')
+                self.assertEqual(image.findtext('content'), 'Opaque')
+                self.assertEqual(image.findtext('caption'), 'Caption')
+                self.assertEqual(json.loads(paths.manifest.read_text(encoding='utf-8'))['format_version'], FORMAT_VERSION)
+            self.assertEqual(json.loads((root / 'source/manifest.json').read_text(encoding='utf-8'))['format_version'], 4)
+
+
+class PCEXLayerMigrationTests(IsolatedAsyncioTestCase):
+    async def test_current_opaque_content_is_not_translated_or_rendered(self):
+        with TemporaryDirectory() as folder:
+            root = Path(folder)
+            source = make_extraction(root / 'source')
+            asset = SourceAsset(1, 'image', (1, 1, 80, 40), content=['OPAQUE_ONLY'], asset_hash='a' * 64)
+            Image.new('RGB', (2, 2)).save(root / 'source/assets' / ('a' * 64 + '.png'))
+            save_xml(encode(Chapter(None, -1, [StandaloneAsset(asset)])), root / 'source/chapters/chapter_head.xml')
+            craft = AsyncPDFCraft()
+            translator = offline_translator()
+            target = await craft.translate_extraction(source, root / 'current.pcex', translator,
+                                                      translation_id='opaque-layer', target_language='zh-CN')
+            cast(AsyncMock, translator._translate_text_async).assert_not_awaited()
+            await craft.render_markdown(target, root / 'output.md')
+            self.assertNotIn('OPAQUE_ONLY', (root / 'output.md').read_text(encoding='utf-8'))
+
+    async def test_v4_source_and_layers_migrate_together_before_translation_or_rendering(self):
+        with TemporaryDirectory() as folder:
+            root = Path(folder)
+            craft = AsyncPDFCraft()
+            source = make_extraction(root / 'source')
+            formula = InlineExpression(ExpressionKind.INLINE_DOLLAR, 'x')
+            asset = SourceAsset(1, 'image', (1, 1, 80, 40),
+                                caption=['Figure before ', formula, ' after'], asset_hash='a' * 64)
+            Image.new('RGB', (2, 2)).save(root / 'source/assets' / ('a' * 64 + '.png'))
+            save_xml(encode(Chapter(None, -1, [StandaloneAsset(asset)])), root / 'source/chapters/chapter_head.xml')
+            await craft.translate_extraction(source, root / 'current.pcex', offline_translator(),
+                                             translation_id='caption-layer', target_language='zh-CN', error_policy=False)
+            old_archive(root / 'current.pcex', root / 'legacy.pcex')
+            original_bytes = (root / 'legacy.pcex').read_bytes()
+            opened = await craft.open_extraction(root / 'legacy.pcex')
+            with opened._materialize() as paths:
+                manifest = json.loads(paths.manifest.read_text(encoding='utf-8'))
+                self.assertEqual(manifest['format_version'], 5)
+                for chapters, expected in ((paths.chapters, 'Figure before '),
+                                           (paths.translations / 'caption-layer/chapters', '图注 之前 ')):
+                    image = required(read_xml(chapters / 'chapter_head.xml'), './/asset')
+                    self.assertIsNone(image.find('content'))
+                    self.assertEqual(required(image, 'caption').text, expected)
+                    self.assertEqual(required(image, 'caption/inline_expr').text, 'x')
+                snapshot = {p.relative_to(paths.root): p.read_bytes() for p in paths.root.rglob('*') if p.is_file()}
+                migrate_workspace(paths.root)
+                self.assertEqual(snapshot, {p.relative_to(paths.root): p.read_bytes()
+                                           for p in paths.root.rglob('*') if p.is_file()})
+            await craft.export_extraction(opened, root / 'exported.pcex')
+            with ZipFile(root / 'legacy.pcex') as old, ZipFile(root / 'exported.pcex') as new:
+                for name in old.namelist():
+                    if name.startswith('assets/') or name.endswith(('coverage.xml', 'metadata.json', 'index.json')):
+                        self.assertEqual(old.read(name), new.read(name))
+            for mode, original_count, translated_count in (
+                    (RenderMode.SOURCE, 1, 0), (RenderMode.REPLACE, 0, 1), (RenderMode.BILINGUAL, 1, 1)):
+                md = root / f'{mode.value}.md'
+                await craft.render_markdown(opened, md, mode=mode,
+                                            translation_id=None if mode == RenderMode.SOURCE else 'caption-layer')
+                self.assertEqual(md.read_text(encoding='utf-8').count('Figure before'), original_count)
+                self.assertEqual(md.read_text(encoding='utf-8').count('图注 之前'), translated_count)
+            self.assertEqual((root / 'legacy.pcex').read_bytes(), original_bytes)
+            updated = await craft.translate_extraction(opened, root / 'second-layer.pcex', offline_translator(),
+                                                       translation_id='another-layer', target_language='zh-CN')
+            with updated._materialize() as paths:
+                self.assertTrue((paths.translations / 'caption-layer/chapters/chapter_head.xml').is_file())
+                self.assertTrue((paths.translations / 'another-layer/chapters/chapter_head.xml').is_file())
+            # Invalid old layers must not be silently repaired by migration.
+            old_archive(root / 'current.pcex', root / 'invalid.pcex', migrate_layers=False)
+            with self.assertRaisesRegex(ValueError, 'structure'):
+                await craft.open_extraction(root / 'invalid.pcex')
+            # Structurally valid but conflicting fields must not lose a layer's
+            # existing caption when the source's caption was empty.
+            with ZipFile(root / 'legacy.pcex') as before, ZipFile(root / 'ambiguous.pcex', 'w') as after:
+                for member in before.infolist():
+                    data = before.read(member)
+                    if member.filename.endswith('chapter_head.xml'):
+                        chapter = ET.fromstring(data)
+                        caption = ET.SubElement(required(chapter, './/asset'), 'caption')
+                        if member.filename.startswith('translations/'):
+                            caption.text = 'Existing translated caption'
+                        data = ET.tostring(chapter)
+                    after.writestr(member, data)
+            with self.assertRaisesRegex(ValueError, 'ambiguous legacy image caption'):
+                await craft.open_extraction(root / 'ambiguous.pcex')

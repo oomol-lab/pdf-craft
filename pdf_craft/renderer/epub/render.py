@@ -256,10 +256,9 @@ def _convert_asset_to_epub(
             ref_id_to_number=ref_id_to_number,
         )
     )
-    from ...extractor.chapter.asset_text import image_caption
     caption = list(
         _transform_content(
-            content=image_caption(asset) if asset.ref == "image" else asset.caption,
+            content=asset.caption,
             inline_latex=inline_latex,
             ref_id_to_number=ref_id_to_number,
         )

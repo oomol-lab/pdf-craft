@@ -55,19 +55,8 @@ def file_content(path: Path):
     independent stream channel. They are not copied into every body paragraph.
     """
     from xml.etree.ElementTree import iterparse
-    from .package import _v3_chapter_xml
     from ..extractor.chapter.chapter import decode
-    from io import BytesIO
-    # Legacy chapters have a different source namespace. Keep the established
-    # migration codec, then use the same item parser for the migrated XML.
-    with path.open('rb') as probe:
-        first_tags = []
-        for event, element in iterparse(probe, events=('start',)):
-            del event
-            first_tags.append(element.tag)
-            if len(first_tags) == 2:
-                break
-    document = BytesIO(_v3_chapter_xml(path)) if first_tags[-1:] == ['body'] else path.open('rb')
+    document = path.open('rb')
     with document:
         # Only printed labels are needed by occurrences. Read that scalar
         # metadata without decoding/copying definition bodies, before yielding
