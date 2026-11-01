@@ -20,6 +20,7 @@ from .page_analysis import PageAnalysis, UnindexedCitation, analyse_pages, resto
 from .page_review import load_page_pixel_sizes
 from .punctuation import normalize_punctuation_in_chapter
 from .reference import References, extract_head_mark
+from .numeric_marks import explicit_numbers, html_number, SUPERSCRIPT_NUMBERS, superscript_number
 from .source import capture_sources, empty_sources
 
 
@@ -275,7 +276,14 @@ def _resolve_pages(
 
 def _resolve_jointers(body_jointer: Jointer, footnotes_jointer: Jointer):
     """Share paragraph/reference rules with bounded initial-page projection."""
-    page_references = list(_extract_page_references(footnotes_jointer))
+    paragraphs = list(body_jointer.execute())
+    numeric_marks: dict[int, set[str]] = {}
+    for item in paragraphs:
+        if isinstance(item, TextFlowItem):
+            for fragment in item.children:
+                if isinstance(fragment, SourceTextFragment):
+                    numeric_marks.setdefault(fragment.page_index, set()).update(explicit_numbers(fragment.content))
+    page_references = list(_extract_page_references(footnotes_jointer, numeric_marks))
     references_generator = iter(page_references)
     current_references: References | None = next(references_generator, None)
 
@@ -293,8 +301,7 @@ def _resolve_jointers(body_jointer: Jointer, footnotes_jointer: Jointer):
             return current_references
         return None
 
-    paragraphs: list[TextFlowItem | SourceAsset] = []
-    for layout in body_jointer.execute():
+    for layout in paragraphs:
         if isinstance(layout, TextFlowItem):
             for fragment in layout.children:
                 if not isinstance(fragment, SourceTextFragment):
@@ -303,8 +310,6 @@ def _resolve_jointers(body_jointer: Jointer, footnotes_jointer: Jointer):
                 if references:
                     _replace_mark_with_reference(references, fragment)
                 join_texts_in_content(fragment.content)
-
-        paragraphs.append(layout)
 
     citations: list[Reference | UnindexedCitation] = []
     for references in page_references:
@@ -370,17 +375,19 @@ def _assemble_flow_items(
     yield from flush()
 
 
-def _extract_page_references(jointer: Jointer) -> Generator[References, None, None]:
+def _extract_page_references(jointer: Jointer, numeric_marks=None) -> Generator[References, None, None]:
+    numeric_marks = numeric_marks or {}
     last_page_index: int = -1
     layout_buffer: list[SourceAsset | TextFlowItem] = []
 
     for layout in jointer.execute():
-        for page_index, page_layout in _split_reference_origins(layout):
+        for page_index, page_layout in _split_reference_origins(layout, numeric_marks):
             if page_index != last_page_index:
                 if layout_buffer:
                     yield References(
                         page_index=last_page_index,
                         items=layout_buffer,
+                        numeric_marks=numeric_marks.get(last_page_index, ()),
                     )
                 last_page_index = page_index
                 layout_buffer = []
@@ -390,11 +397,13 @@ def _extract_page_references(jointer: Jointer) -> Generator[References, None, No
         yield References(
             page_index=last_page_index,
             items=layout_buffer,
+            numeric_marks=numeric_marks.get(last_page_index, ()),
         )
 
 
 def _split_reference_origins(
     layout: SourceAsset | TextFlowItem,
+    numeric_marks=None,
 ) -> Generator[tuple[int, SourceAsset | TextFlowItem], None, None]:
     if isinstance(layout, SourceAsset):
         yield layout.page_index, layout
@@ -406,7 +415,8 @@ def _split_reference_origins(
         if isinstance(child, SourceAsset):
             children.append(child)
             continue
-        mark, _ = extract_head_mark(child.content)
+        mark, _ = extract_head_mark(child.content,
+            numeric_marks=(numeric_marks or {}).get(child.page_index, ()))
         if (
             mark is not None
             and origin_page_index is not None
@@ -443,6 +453,15 @@ def _replace_mark_with_reference(references: References, block: SourceTextFragme
         yield from expand_numbered(text[end:])
 
     def expand_numbered(text: str):
+        end = 0
+        for match in SUPERSCRIPT_NUMBERS.finditer(text):
+            yield from expand_symbols(text[end:match.start()])
+            numeric = superscript_number(match[0])
+            yield (references.get(numeric) if numeric is not None else None) or match[0]
+            end = match.end()
+        yield from expand_symbols(text[end:])
+
+    def expand_symbols(text: str):
         for item in search_marks(text):
             reference: Reference | None = None
             if isinstance(item, Mark):
@@ -455,7 +474,12 @@ def _replace_mark_with_reference(references: References, block: SourceTextFragme
     def inline_references(content):
         for index, part in enumerate(content):
             if isinstance(part, HTMLTag):
-                inline_references(part.children)
+                numeric = html_number(part)
+                reference = references.get(numeric) if numeric is not None else None
+                if reference is not None:
+                    content[index] = reference
+                else:
+                    inline_references(part.children)
             elif isinstance(part, InlineExpression):
                 mark, _ = extract_head_mark([part])
                 reference = references.get(mark) if mark is not None else None

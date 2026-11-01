@@ -22,17 +22,20 @@ from .generation import (
     _assemble_flow_items, _partition_chapters, _split_reference_origins,
     _replace_mark_with_reference,
 )
-from .jointer import JoinedPageProgress, Jointer, normalize_source_projection
+from .jointer import JoinedPageProgress, Jointer, normalize_source_projection, _parse_block_content
 from .mark import transform2mark
 from .reference import References
 from .source import capture_sources
+from .numeric_marks import explicit_numbers
 
 
-def _joined(pages: Iterable[Page], footnotes: bool, on_page=None):
+def _joined(pages: Iterable[Page], footnotes: bool, on_page=None, on_raw_page=None):
     sources = {}
 
     def layouts():
         for page in pages:
+            if on_raw_page is not None:
+                on_raw_page(page)
             if on_page is not None:
                 on_page(page.index)
             sources.clear()
@@ -42,15 +45,20 @@ def _joined(pages: Iterable[Page], footnotes: bool, on_page=None):
     return Jointer(layouts(), sources)
 
 
-def _references_with_progress(jointer: Jointer):
+def _references_with_progress(jointer: Jointer, numeric_marks=None):
+    numeric_marks = numeric_marks if numeric_marks is not None else {}
     buffers = {}
     for item in jointer.execute_with_progress():
         if isinstance(item, JoinedPageProgress):
             for page in sorted(page for page in buffers if page <= item.closed_through):
-                yield References(page_index=page, items=buffers.pop(page))
+                yield References(page_index=page, items=buffers.pop(page),
+                                 numeric_marks=numeric_marks.get(page, ()))
+            for page in list(numeric_marks):
+                if page <= item.closed_through:
+                    del numeric_marks[page]
             yield item
         else:
-            for page, layout in _split_reference_origins(item):
+            for page, layout in _split_reference_origins(item, numeric_marks):
                 buffers.setdefault(page, []).append(layout)
 
 
@@ -89,7 +97,12 @@ def resolve_to_disk(
                        (page, position, pickle.dumps(item), int(unresolved)))
 
         def notes():
-            for references in _references_with_progress(_joined(read_pages(), True)):
+            numeric_marks = {}
+            def observe(page):
+                numeric_marks[page.index] = {mark for layout in page.body_layouts
+                    for mark in explicit_numbers(_parse_block_content(layout.text))}
+            for references in _references_with_progress(
+                    _joined(read_pages(), True, on_raw_page=observe), numeric_marks):
                 if isinstance(references, JoinedPageProgress):
                     yield references
                     continue
@@ -146,10 +159,10 @@ def resolve_to_disk(
                         if isinstance(fragment, SourceTextFragment):
                             # Without a printed mark this page need not wait for
                             # the independent definition stream to catch up.
-                            if includes_footnotes and any(
+                            if includes_footnotes and (explicit_numbers(fragment.content) or any(
                                 char == "*" or transform2mark(char) is not None
                                 for part in flatten(fragment.content) if isinstance(part, str) for char in part
-                            ):
+                            )):
                                 references = get_references(fragment.page_index)
                                 if references is not None:
                                     _replace_mark_with_reference(references, fragment)

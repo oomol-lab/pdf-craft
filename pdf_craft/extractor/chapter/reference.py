@@ -8,14 +8,17 @@ from .chapter import (
 )
 from .content import Content
 from .mark import Mark, transform2mark
+from .numeric_marks import inline_number, html_number, SUPERSCRIPT_NUMBERS, superscript_number
 
 _START_PREFIX_PATTERN = re.compile(r"^(?:\\?\*){1,6}\s+")
+_NUMERIC_PREFIX = re.compile(r'^([1-9][0-9]{0,2})[.)]?\s+(?=\S)')
 
 
 class References:
     def __init__(
-        self, page_index: int, items: Iterable[SourceAsset | TextFlowItem]
+        self, page_index: int, items: Iterable[SourceAsset | TextFlowItem], *, numeric_marks=(),
     ) -> None:
+        self._numeric_marks = numeric_marks
         self._page_index: int = page_index
         self._unindexed_items: list[SourceAsset | TextFlowItem] = []
         self._references: list[Reference] = list(
@@ -96,7 +99,7 @@ class References:
             if isinstance(block, SourceAsset):
                 mark_layout[1].children.append(block)
                 continue
-            mark, content = extract_head_mark(block.content)
+            mark, content = extract_head_mark(block.content, numeric_marks=self._numeric_marks)
             if mark is None:
                 mark_layout[1].children.append(block)
             else:
@@ -122,10 +125,16 @@ class References:
             yield mark_layout
 
 
-def extract_head_mark(content: Content) -> tuple[Mark | str | None, Content]:
+def extract_head_mark(content: Content, *, numeric_marks=()) -> tuple[Mark | str | None, Content]:
     if not content:
         return None, content
     first = content[0]
+    numeric = inline_number(first) or html_number(first)
+    if numeric is not None:
+        remaining = list(content[1:])
+        if remaining and isinstance(remaining[0], str):
+            remaining[0] = remaining[0].lstrip()
+        return numeric, remaining
     if isinstance(first, InlineExpression):
         # OCR may transport a printed marker as inline math. Accept only an
         # entire known marker, never a prefix of an actual formula.
@@ -133,6 +142,8 @@ def extract_head_mark(content: Content) -> tuple[Mark | str | None, Content]:
             return None, content
         literal = first.content.strip()
         mark = transform2mark(literal)
+        if literal in numeric_marks:
+            mark = literal
         if mark is None and re.fullmatch(r"\*{1,6}", literal):
             mark = literal
         if mark is None:
@@ -146,6 +157,13 @@ def extract_head_mark(content: Content) -> tuple[Mark | str | None, Content]:
     head_text = first.lstrip()
     if not head_text:
         return None, content
+
+    numbered = _NUMERIC_PREFIX.match(head_text)
+    if numbered and numbered[1] in numeric_marks:
+        return numbered[1], [head_text[numbered.end():], *content[1:]]
+    raised = SUPERSCRIPT_NUMBERS.match(head_text)
+    if raised and (numeric := superscript_number(raised[0])) is not None:
+        return numeric, [head_text[raised.end():].lstrip(), *content[1:]]
 
     mark: Mark | str | None = None
     rest: str = ""
