@@ -4,11 +4,12 @@ from pathlib import Path
 from typing import Generator, Iterable, Mapping
 
 from ...common import XMLReader, save_xml
+from ...markdown.paragraph import HTMLTag
 from ...pdf import Page, decode
 from ..toc import Toc, TocInfo, iter_toc
 from .analyse_level import analyse_chapter_internal_levels
 from .chapter import (
-    Chapter, DisplayFormula, FlowItem, Reference, SourceAsset,
+    Chapter, DisplayFormula, FlowItem, Reference, SourceAsset, InlineExpression,
     SourceTextFragment, StandaloneAsset, TextFlowItem, encode, search_references_in_chapter,
 )
 from .content import expand_text_in_content, join_texts_in_content
@@ -432,12 +433,14 @@ def _split_reference_origins(
 def _replace_mark_with_reference(references: References, block: SourceTextFragment):
     def expand(text: str):
         # Asterisks form a marker domain too; match maximal runs so ** is
-        # never consumed as two occurrences of *.
-        for part in re.split(r"(?<!\*)(\*{1,6})(?!\*)", text):
-            if re.fullmatch(r"\*{1,6}", part):
-                yield references.get(part) or part
-            else:
-                yield from expand_numbered(part)
+        # never consumed as two occurrences of *. Markdown's escape belongs
+        # to the printed marker, not to the prose left beside a reference.
+        end = 0
+        for match in re.finditer(r"(?<!\*)(?:\\?\*){1,6}(?!\*)", text):
+            yield from expand_numbered(text[end:match.start()])
+            yield references.get(match[0].replace("\\", "")) or match[0]
+            end = match.end()
+        yield from expand_numbered(text[end:])
 
     def expand_numbered(text: str):
         for item in search_marks(text):
@@ -449,6 +452,17 @@ def _replace_mark_with_reference(references: References, block: SourceTextFragme
             else:
                 yield str(item)
 
+    def inline_references(content):
+        for index, part in enumerate(content):
+            if isinstance(part, HTMLTag):
+                inline_references(part.children)
+            elif isinstance(part, InlineExpression):
+                mark, _ = extract_head_mark([part])
+                reference = references.get(mark) if mark is not None else None
+                if reference is not None:
+                    content[index] = reference
+
+    inline_references(block.content)
     expand_text_in_content(
         content=block.content,
         expand=expand,

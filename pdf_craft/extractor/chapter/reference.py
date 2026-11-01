@@ -1,14 +1,15 @@
 import re
 from typing import Iterable
 
+from ...expression import ExpressionKind
 from .chapter import (
     SourceAsset, SourceTextFragment, DisplayFormula, TextFlowItem, Reference,
-    StandaloneAsset,
+    StandaloneAsset, InlineExpression,
 )
 from .content import Content
 from .mark import Mark, transform2mark
 
-_START_PREFIX_PATTERN = re.compile(r"^\*{1,6}\s+")
+_START_PREFIX_PATTERN = re.compile(r"^(?:\\?\*){1,6}\s+")
 
 
 class References:
@@ -122,9 +123,27 @@ class References:
 
 
 def extract_head_mark(content: Content) -> tuple[Mark | str | None, Content]:
-    if not content or not isinstance(content[0], str):
+    if not content:
         return None, content
-    head_text = content[0].lstrip()
+    first = content[0]
+    if isinstance(first, InlineExpression):
+        # OCR may transport a printed marker as inline math. Accept only an
+        # entire known marker, never a prefix of an actual formula.
+        if first.kind not in (ExpressionKind.INLINE_PAREN, ExpressionKind.INLINE_DOLLAR):
+            return None, content
+        literal = first.content.strip()
+        mark = transform2mark(literal)
+        if mark is None and re.fullmatch(r"\*{1,6}", literal):
+            mark = literal
+        if mark is None:
+            return None, content
+        remaining = list(content[1:])
+        if remaining and isinstance(remaining[0], str):
+            remaining[0] = remaining[0].lstrip()
+        return mark, remaining
+    if not isinstance(first, str):
+        return None, content
+    head_text = first.lstrip()
     if not head_text:
         return None, content
 
@@ -135,12 +154,14 @@ def extract_head_mark(content: Content) -> tuple[Mark | str | None, Content]:
 
     if matched:
         prefix = matched.group(0)
-        mark = prefix.strip()
+        mark = prefix.strip().replace("\\", "")
         rest = head_text[matched.end() :].lstrip()
     else:
         mark = transform2mark(head_text[0])
         if mark is not None:
             rest = head_text[1:].lstrip()
+    if mark is None:
+        return None, content
 
     rest = rest.lstrip()
     if rest:
