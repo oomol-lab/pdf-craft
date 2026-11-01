@@ -470,6 +470,26 @@ _TEMPLATES: dict[str, dict[str, Any]] = {'gap_word': {'type': 'noul',
                                                 'insufficient.'}}}
 
 
+_TEMPLATES["reference_position"] = {'type': 'noul',
+ 'instructions': ['For state.checks.{name} ONLY: find this source by its source_order; do not evaluate any '
+                  'other source in this packet.',
+                  'Assess ONLY the physical text position of reference replacements in this source, not note '
+                  'meaning, targets, paragraph joins or missing OCR.',
+                  'literal_edits describes edits from the original raw_text to analysed_text. Each original '
+                  'field was removed and each analysed field inserted at that location. A REF replacement '
+                  'must occupy the original printed marker position. An insertion of REF where the original '
+                  'contained no marker, combined with removing a marker elsewhere, does NOT preserve its '
+                  'position.',
+                  'Check the literal edit operations and their original_before/original_after context. '
+                  'Inline math or Markdown escaping around the SAME marker can change; whitespace changes do '
+                  'not relocate a marker. If position is preserved, accept. If it demonstrably moved, '
+                  'reject. Insufficient evidence is not a demonstrable error.'],
+ 'criteria': {'true': 'The replacements preserve original marker positions, or no displacement is '
+                      'established.',
+              'false': 'A reference token demonstrably occupies a different position from its original '
+                       'marker.'}}
+
+
 def question(kind: str, name: str) -> dict[str, Any]:
     """Create an isolated question for one named source decision."""
     value = deepcopy(_TEMPLATES[kind])

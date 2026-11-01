@@ -9,6 +9,7 @@ from .review_evidence import _duplicates, _selected_strips, _image_starts
 from .review_encoding import (
     compact_review_evidence as compact,
     TEXT_ENCODING_NOTE as _ENCODING,
+    literal_reference_edits,
 )
 from .structural_review import _collect, aggregate_risks
 
@@ -23,9 +24,10 @@ _DEF = [
 ]
 _REF = [
     _COMMON,
-    "只检查当前正文块：raw_text中真实的脚注引用，在analysed_text用⟦REF⟧表示，references指向同页存在的citation index，语义位置和mark应对应。",
-    "允许定义没有正文引用，也允许同一定义多次引用。正文数字、列表序号、公式或章末参考文献标记不自动等于页脚引用；缺失的定义不要求凭空重建。",
-    "当存在明确同页新脚注和对应正文真实印刷标记，却既没有建立定义索引也没有替换引用时，已有关系仍需要修正。仅仅无法判断或OCR缺字不判错。",
+    "只检查本块已有引用的字面对应，不检查段落续接、原文是否完整、注释是否解释得通。raw_text是原文，analysed_text中的每个⟦REF⟧是替换掉的印刷引用符号。按出现顺序对应references，path是内部XML路径，不是字数位置或脚注序号。",
+    "逐个对比被替换位置的原始符号与references目标definition.mark。definition.index是内部编号，与印刷mark可以不同。Markdown反斜杠转义和行内数学包装不是印刷符号的一部分。原文的其他语句、公式和普通数字不是引用对应错误。",
+    "本块没有⟦REF⟧且references为空不代表出错，不要求所有正文块都引用脚注。仅当本块原文明显有与同页定义mark一致的真实脚注引用，却没有建立对应，才判漏引用。作者年份、书目引用、章末注释、与现有mark不对应的数字不强行匹配，缺失定义不凭空补。",
+    "只在有具体字面证据的错目标、错替换位置、漏映射时判错；不能因为当前块末尾未完、邻块出错、定义没有正文引用、同一定义被多次引用或解释文字不匹配主题而否决。",
 ]
 
 
@@ -139,6 +141,10 @@ def footnote_review_requests(state):
     owners = []
     gaps = []
     refs = []
+    has_note_evidence = any(d["index"] is not None for d in page["citations"]) or any(
+        l["ownership"] == "citation" and any(c.isalnum() for c in l["raw_text"])
+        for l in page["layouts"]
+    )
     for l in page["layouts"]:
         if (
             l["source_type"] != "text"
@@ -208,7 +214,11 @@ def footnote_review_requests(state):
                     ),
                 )
             )
-        if l["ownership"] == "paragraph" and (page["citations"] or l["references"]):
+        if (
+            l["ownership"] == "paragraph"
+            and (page["citations"] or l["references"])
+            and (has_note_evidence or l["references"])
+        ):
             refs.append((f"reference_{order}", prompt(_REF), check))
     for jobs in (owners, gaps, refs):
         current = base
@@ -219,7 +229,11 @@ def footnote_review_requests(state):
             ]
             current = dict(local_raw_evidence=raw_roles(state), encoding_note=_ENCODING)
         for packet in review_batches(current, jobs):
-            yield (p, bound(packet))
+            packet = bound(packet)
+            if jobs is refs:
+                yield from _reference_requests(state, packet)
+            else:
+                yield p, packet
     definitions = [
         (f"definition_{i}", prompt(_DEF), dict(definition=c))
         for i, c in enumerate(page["citations"])
@@ -272,6 +286,43 @@ def footnote_review_requests(state):
         )
     for packet in review_batches(base, starts):
         yield (p, bound(packet))
+
+
+def _reference_requests(state, packet):
+    """Expose literal edits and audit reference identity/placement separately."""
+    page = state["target_page"]
+    layouts = {l["source_order"]: l for l in page["layouts"]}
+    jobs = []
+    for name, spec in packet["questions"].items():
+        check = packet["state"]["checks"][name]
+        source = layouts[check["source_order"]]
+        edits = (
+            literal_reference_edits(source["raw_text"], source["analysed_text"])
+            if source["references"]
+            else []
+        )
+        if edits is not None:
+            check["literal_edits"] = edits
+        check["references"] = deepcopy(source["references"])
+        check["target_definitions"] = [
+            dict(
+                citation_page=page["page_index"],
+                citation_index=d["index"],
+                mark=d["mark"],
+            )
+            for d in page["citations"]
+            if d["index"] is not None
+        ]
+        spec["instructions"] += [
+            "literal_edits列出原文到分析文字的字面差异：original是删除文字，analysed是插入文字，before/after保留原位置上下文。references按⟦REF⟧出现顺序列出其目标；target_definitions给出同页定义的印刷mark。此清单只是待审核的原始事实，不是正确性结论。只审核本块引用的身份与原位置是否保留，空白、转义或数学包装不影响同一个印刷标记。"
+        ]
+        jobs.append((name, spec, check))
+        if source["references"] and edits is not None:
+            location = f"reference_position_{name.rsplit('_', 1)[1]}"
+            jobs.append((location, question("reference_position", location), check))
+    base = {k: v for k, v in packet["state"].items() if k != "checks"}
+    for current in review_batches(base, jobs):
+        yield page["page_index"], current
 
 
 def supplementary_footnote_requests(state, scores):

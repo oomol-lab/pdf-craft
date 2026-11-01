@@ -5,6 +5,7 @@ literal runs rather than dropping them or allowing them to consume the entire
 review context. This encoding makes no claim that a repeated passage is wrong.
 """
 from copy import deepcopy
+from difflib import SequenceMatcher
 from itertools import groupby
 import re
 from typing import Any
@@ -83,3 +84,34 @@ def compact_review_evidence(value: Any) -> Any:
                        if key in ('raw_text', 'analysed_text') and isinstance(item, str)
                        else compact_review_evidence(item))
     return result
+
+
+def literal_reference_edits(raw: str, analysed: str) -> list[dict[str, str]] | None:
+    """Summarize exact edits, or omit an oversized comparison without a verdict."""
+    if raw == analysed:
+        return []
+    prefix = 0
+    while prefix < min(len(raw), len(analysed)) and raw[prefix] == analysed[prefix]:
+        prefix += 1
+    end_raw, end_analysed = len(raw), len(analysed)
+    while (
+        end_raw > prefix
+        and end_analysed > prefix
+        and raw[end_raw - 1] == analysed[end_analysed - 1]
+    ):
+        end_raw -= 1
+        end_analysed -= 1
+    if max(end_raw - prefix, end_analysed - prefix) > 4096:
+        return None
+    return [
+        dict(
+            original=raw[prefix + a : prefix + b],
+            analysed=analysed[prefix + c : prefix + d],
+            original_before=raw[max(0, prefix + a - 16) : prefix + a],
+            original_after=raw[prefix + b : prefix + b + 16],
+        )
+        for op, a, b, c, d in SequenceMatcher(
+            None, raw[prefix:end_raw], analysed[prefix:end_analysed], autojunk=False
+        ).get_opcodes()
+        if op != "equal"
+    ]
