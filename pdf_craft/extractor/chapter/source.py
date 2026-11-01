@@ -5,7 +5,7 @@ from collections.abc import Iterable, Iterator, Mapping
 from ...pdf import Page
 from .chapter import TextSource, SourceTextFragment
 from .jointer import _parse_block_content, _is_empty_text_layout
-from .marginal_numbers import marginal_numbers
+from .marginal_numbers import marginal_layouts
 
 
 def capture_sources(pages: list[Page]) -> dict[tuple[int, int], tuple[int, TextSource]]:
@@ -77,7 +77,7 @@ def excluded_sources(
 ) -> Iterator[SourceTextFragment]:
     """Retain blank and excluded observations without semantic paragraphs."""
     for page in pages:
-        ignored = {id(item) for item in marginal_numbers(page)} if includes_footnotes else set()
+        ignored = {id(item) for item in marginal_layouts(page)} if includes_footnotes else set()
         for layout in [*page.body_layouts, *page.footnotes_layouts]:
             if _is_empty_text_layout(layout) or id(layout) in ignored:
                 order, origin = sources[(page.index, id(layout))]

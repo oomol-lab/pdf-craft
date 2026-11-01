@@ -1,10 +1,10 @@
-"""Conservative, reversible folio hypotheses from local OCR observations."""
+"""Conservative, reversible page-apparatus hypotheses from local OCR."""
 import re
 
 from ...common import ASSET_TAGS
 from ...pdf import TITLE_TAGS
 from .jointer import _parse_block_content
-from .numeric_marks import explicit_numbers
+from .numeric_marks import explicit_numbers, flattened_numbers
 from .mark import Mark, search_marks
 
 _CHINESE_DIGITS = str.maketrans('〇零一二三四五六七八九', '00123456789')
@@ -69,5 +69,48 @@ def marginal_numbers(page):
 
 def reading_notes(page):
     """Filter a projection without editing the raw Page or its source offsets."""
-    ignored = {id(item) for item in marginal_numbers(page)}
+    ignored = {id(item) for item in marginal_layouts(page)}
     return [item for item in page.footnotes_layouts if id(item) not in ignored]
+
+
+def marginal_layouts(page):
+    """Share exclusions between note selection and retained ignored sources."""
+    return [*marginal_numbers(page), *_marginal_codes(page)]
+
+
+def _marginal_codes(page):
+    """A short outer code needs a substantial, unreferenced main reading band.
+
+    This is a reversible initial hypothesis. Keep the raw source for review;
+    uppercase alone, an illustration caption, or a note-bearing page is not
+    sufficient evidence. No book-specific language codes are recognised.
+    """
+    candidates = [item for item in page.footnotes_layouts
+                  if item.ref == 'text' and re.fullmatch(r'[A-Z]{2,5}', item.text)
+                  and not re.fullmatch(r'[IVXLCDM]+', item.text)]
+    if len(candidates) != 1:
+        return []
+    candidate = candidates[0]
+    if any(item is not candidate and any(char.isalnum() for char in item.text)
+           and not _SHORT_NUMBER.fullmatch(item.text) for item in page.footnotes_layouts):
+        return []
+    body = [item for item in page.body_layouts if item.ref == 'text'
+            and any(char.isalnum() for char in item.text)]
+    if len(body) < 2 or sum(len(item.text) for item in body) < 150:
+        return []
+    if any(explicit_numbers(_parse_block_content(item.text))
+           or flattened_numbers(_parse_block_content(item.text))
+           or any(isinstance(mark, Mark) for mark in search_marks(item.text))
+           or any(mark in item.text for mark in ('*', '†', '‡', '<sup', '^{'))
+           or re.search(r'\b' + re.escape(candidate.text) + r'\b', item.text)
+           for item in body):
+        return []
+    left, right = min(item.det[0] for item in body), max(item.det[2] for item in body)
+    top = min(item.det[1] for item in body)
+    bottom = max(item.det[3] for item in page.body_layouts)
+    x1, y1, x2, y2 = candidate.det
+    height, width = y2 - y1, x2 - x1
+    if (height > 0 and 0 < width <= 5 * height and y1 - bottom >= 4 * height
+            and y1 - top >= 15 * height and (x2 <= left or x1 >= right)):
+        return [candidate]
+    return []
