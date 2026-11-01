@@ -712,3 +712,15 @@ craft.patch_pdf_with_extraction(
 当前格式版本为 `4`。读取器接受规范的 v4 归档和旧的 `format_version: 1`、`2`、`3` 归档，但会拒绝未知版本。v1/v2 章节在导出时规范化为 v3 flow；v3 归档升级时不会被误认为已经包含 translation layer。
 
 应用程序若只需要后续渲染或翻译，也应通过 Craft 门面打开归档并执行版本和完整性检查，不要仅凭 ZIP 可解压就认定包可用。
+
+### 图片关联说明
+
+新提取将 OCR 图片块的关联说明写入 `caption`。显式 `title/caption` 是可见且独立翻译的
+图题、图注；与它们并存的 image `content` 只保留源数据，不再翻译或在 Markdown/EPUB
+重复展示。表格和公式的 `content` 语义不变。
+
+旧 PCEX 可能仅有 image `content`、没有 title/caption。两个渲染器将这种旧字段形态作为
+图外说明的兼容回退，保留公式、引用及混合内容，不在读取时迁移归档或重编号译文身份。
+该规则基于已保存字段；旧归档没有独立的图内/图外文字几何，不能据此声称能判别图像像素。
+渲染不会对像素中的文字新增 OCR 或翻译。新建 PCEX 应将图外说明放入 title/caption，
+不要将图内 OCR 文字放进旧版仅 content 的图片形态。

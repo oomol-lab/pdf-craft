@@ -205,11 +205,26 @@ class StructuredTranslationTests(IsolatedAsyncioTestCase):
                 self.assertNotIn('<expression', xml)
                 self.assertNotIn('<math-ref', xml)
             await craft.render_markdown(output, root / 'translated.md')
-            self.assertTrue((root / 'translated.md').is_file())
+            markdown = (root / 'translated.md').read_text()
+            self.assertEqual(markdown.count('图注 3 |'), 1)
+            self.assertIn(r'16\times', markdown)
+            self.assertNotIn('Figure 3 |', markdown)
             self.assertTrue(str(target.asset.content[0]).startswith('图注 3'))
-            # Image content is persisted independently of the picture renderer,
-            # which displays title/caption fields rather than image.content.
+            await craft.render_epub(output, root / 'translated.epub', inline_latex=True)
+            with ZipFile(root / 'translated.epub') as archive:
+                documents = [fromstring(archive.read(name)) for name in archive.namelist()
+                             if name.endswith('.xhtml')]
+            html = '\n'.join(tostring(document, encoding='unicode') for document in documents)
+            self.assertEqual(html.count('图注 3 |'), 1)
+            captions = [node for document in documents for node in document.iter()
+                        if node.get('class') == 'asset-caption'
+                        and ''.join(node.itertext()).startswith('图注 3 |')]
+            self.assertEqual(len(captions), 1)
+            formula_text = [''.join(node.itertext()) for node in captions[0].iter()
+                            if node.tag.endswith('}math')]
+            self.assertEqual(formula_text, ['16×'])
+            self.assertNotIn('Figure 3 |', html)
             print('REAL_ASSET_FORMULA_GATE', {'identity': original.identity, 'formula_count': len(formulas),
                                              'translation_adopted_in_export': True, 'document_render_completed': True,
-                                             'image_content_display': 'existing renderer displays title/caption only',
+                                             'caption_visible_in_markdown_and_epub': True,
                                              'network_requests': 0})

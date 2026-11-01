@@ -728,3 +728,21 @@ It cannot prove that the input PDF and extraction came from the same source file
 The current format version is `4`. The reader accepts canonical v4 archives and legacy `format_version: 1`, `2`, and `3` archives; unknown versions are rejected. v1/v2 chapters are normalized to the v3 flow schema when exported, while a v3 archive is upgraded without being interpreted as containing translation layers.
 
 Applications that only need downstream rendering or translation should open the archive through a Craft façade so version and integrity checks run. A ZIP that can merely be extracted is not necessarily a usable PDFCraftExtraction.
+
+### Image-associated descriptions
+
+New extraction writes the OCR image block's associated description to `caption`,
+not to the image's pixel content. Explicit `title` and `caption` are the visible,
+independently translated fields. Additional image `content` beside either field
+is retained as source data but is not independently translated or repeated in
+Markdown/EPUB. Table and formula `content` retain their existing semantics.
+
+Older PCEX files can have a content-only image: no title or caption, with its
+associated explanation stored in `content`. Both renderers use that field as a
+legacy caption fallback, preserving formulas, references and mixed markup.
+Rendering does not migrate the archive or change translation-layer identities.
+This compatibility rule uses the persisted fields; legacy archives do not carry
+separate inside/outside text geometry. It does not OCR, translate, or classify
+text painted inside the image pixels. Applications constructing new PCEX should
+use explicit title/caption fields for external descriptions, rather than storing
+image-internal OCR text in the legacy content-only shape.
