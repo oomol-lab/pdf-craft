@@ -1,6 +1,8 @@
 """Local footnote review using bounded questions and immutable OCR evidence."""
 
 from copy import deepcopy
+from .reference import extract_head_mark
+from .jointer import _parse_block_content
 from .local_review import local_review_requests, review_batches
 from .review_questions import question
 from .review_evidence import _duplicates, _selected_strips, _image_starts
@@ -38,7 +40,7 @@ def prompt(instructions):
     )
 
 
-def role_fact(kind):
+def role_fact(kind, *, from_citation=False):
     scope = "Decide ONLY the source identified by this check, using its complete original text and the supplied three-page context. Current OCR stream and ownership are hypotheses, not evidence of correctness. Do not judge adjacent pages, author accuracy, missing OCR or final heading levels."
     meanings = {
         "footnote_role": (
@@ -55,6 +57,11 @@ def role_fact(kind):
         ),
     }
     ask, rule = meanings[kind]
+    if kind == "main_reading" and from_citation:
+        ask, rule = (
+            "Is this WHOLE source retained reading content outside the ancillary footnote stream?",
+            "Reading content includes narrative, section explanations, instructions, chapter-end commentary and separately placed figure captions or labels. A full-page image with its own adjacent description does not establish a footnote apparatus. Page numbers, running headers and publishing directions are not reading content. Follow the supplied original text and printed column organization, not the current citation label. In vertical writing, a narrow fragment continuing or repeating a main-text column can still be main reading: cropping, an incomplete sentence or a second OCR pass does not make it a footnote. Require a concrete relationship to the main passage or figure, not merely similar subject matter. Genuine detached footnotes and their unmarked continuations remain footnotes even when they are grammatical explanations, quotations or short text. Read the supplied neighboring pages before reclassifying a long continuation: a detached note can fill a column or page, and a printing-only continued-page direction is not a new section heading. A continuation of an established marked note does not become autonomous main commentary merely because it is long, and it need not repeat its note marker on every block.",
+        )
     extra = []
     if kind == "footnote_role":
         extra = [
@@ -176,7 +183,13 @@ def footnote_review_requests(state):
             if l["ownership"] == "citation"
             else ("main_reading", "footnote_role")
         ):
-            owners.append((f"{kind}_{order}", role_fact(kind), check))
+            owners.append(
+                (
+                    f"{kind}_{order}",
+                    role_fact(kind, from_citation=l["ownership"] == "citation"),
+                    check,
+                )
+            )
         if l["ownership"] == "citation":
             gaps.append(
                 (
@@ -344,8 +357,91 @@ def supplementary_footnote_requests(state, scores):
                 value["state"]["encoding_note"] = _ENCODING
                 yield (p, value)
 
+    yield from _main_section_requests(state)
+
+
+def _main_section_requests(state):
+    """Check raw heading candidates for unindexed sources in the note stream.
+
+    Candidate selection establishes no heading or reading-role verdict. The
+    section start and whole-source membership must both be established by JEV.
+    """
+    page = state["target_page"]
+    headings = []
+    for side in ("previous_page", "target_page"):
+        part = state.get(side)
+        if not part:
+            continue
+        layouts = part.get(
+            "layouts",
+            part.get("paragraph_boundary", []) + part.get("citation_boundary", []),
+        )
+        for item in layouts:
+            text = item["raw_text"].strip()
+            if (
+                item["source_type"] == "text"
+                and item["source_order"] is not None
+                and 1 <= len(text) <= 64
+                and any(c.isalpha() for c in text)
+            ):
+                headings.append(
+                    dict(
+                        page_index=part["page_index"],
+                        source_order=item["source_order"],
+                        raw_text=text,
+                        bbox_normalized=item["bbox_normalized"],
+                        document_order=item["document_order"],
+                    )
+                )
+    jobs = []
+    for item in page["layouts"]:
+        if (
+            item["source_type"] != "text"
+            or item["ownership"] != "citation"
+            or item["source_order"] is None
+            or not str(item.get("citation_id", "")).startswith("unresolved-")
+            or not any(c.isalpha() for c in item["raw_text"])
+        ):
+            continue
+        if extract_head_mark(_parse_block_content(item["raw_text"]))[0] is not None:
+            continue
+        candidates = [
+            h for h in headings if h["document_order"] < item["document_order"]
+        ]
+        candidates = sorted(
+            candidates, key=lambda x: x["document_order"], reverse=True
+        )[:3]
+        if not candidates:
+            continue
+        for kind in ("section_sequence", "section_member"):
+            name = f"main_{kind}_{item['source_order']}"
+            spec = question(kind, name)
+            spec["instructions"] += [
+                "preceding_or_current_heading_candidates are unclassified short RAW text candidates, not established headings. Confirm their actual heading function independently; an OCR text tag or absent heading tag is not proof either way. A short vertical section label can identify a main commentary section without a Markdown heading marker. Do not treat an ordinary sentence, page number or inline note label as a section heading."
+            ]
+            jobs.append(
+                (
+                    name,
+                    spec,
+                    dict(
+                        source_order=item["source_order"],
+                        preceding_or_current_heading_candidates=candidates,
+                    ),
+                )
+            )
+    for packet in review_batches(
+        dict(local_raw_evidence=raw_roles(state), encoding_note=_ENCODING), jobs
+    ):
+        yield page["page_index"], packet
+
 
 def footnote_pass_scores(scores):
+    main_proofs = {
+        k: v
+        for k, v in scores.items()
+        if k.startswith(("main_section_sequence_", "main_section_member_"))
+    }
+    scores = {k: v for k, v in scores.items() if k not in main_proofs}
     proof_prefixes = (
         "section_sequence_",
         "section_member_",
@@ -376,6 +472,13 @@ def footnote_pass_scores(scores):
     facts = {k: v for k, v in scores.items() if k.startswith(proof_prefixes[2:])}
     for name, risk in aggregate_risks({}, facts).items():
         values[name] = 1 - risk
+    for name, score in main_proofs.items():
+        if name.startswith("main_section_sequence_"):
+            order = name.rsplit("_", 1)[1]
+            proof = min(score, main_proofs[f"main_section_member_{order}"])
+            key = f"main_reading_{order}"
+            if key in values:
+                values[key] = min(values[key], 1 - proof)
     return values
 
 

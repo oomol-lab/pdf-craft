@@ -99,3 +99,70 @@ class FootnoteReviewTests(unittest.IsolatedAsyncioTestCase):
             return []
         self.assertIsNone(await review_footnote_page(state(), evaluate))
         self.assertEqual(observed, [])
+
+    def test_unindexed_citation_checks_raw_section_without_heading_tag(self):
+        heading = source(0, 'Commentary')
+        target = source(1, 'A continuation of the main commentary.', 'citation')
+        target['citation_id'] = 'unresolved-2-0'
+        value = state(heading, target)
+        before = deepcopy(value)
+        packets = list(supplementary_footnote_requests(value, {}))
+        packet = next(p for _, p in packets if 'main_section_sequence_1' in p['questions'])
+        self.assertIn('main_section_member_1', packet['questions'])
+        candidates = packet['state']['checks']['main_section_sequence_1']['preceding_or_current_heading_candidates']
+        self.assertEqual([c['source_order'] for c in candidates], [0])
+        self.assertEqual(value, before)
+        self.assertTrue(all(len(p['questions']) <= 4 for _, p in packets))
+
+    def test_main_section_requires_both_facts_and_only_affects_target(self):
+        for sequence, member, expected in ((.95, .91, .09), (.95, .1, .8), (.1, .95, .8)):
+            scores = dict(main_reading_1=.2, main_reading_2=.1, furniture_1=.7,
+                          main_section_sequence_1=sequence, main_section_member_1=member)
+            passed = footnote_pass_scores(scores)
+            self.assertAlmostEqual(passed['main_reading_1'], expected)
+            self.assertAlmostEqual(passed['main_reading_2'], .9)
+            self.assertAlmostEqual(passed['furniture_1'], .3)
+            self.assertNotIn('main_section_sequence_1', passed)
+
+    async def test_missing_main_section_fact_cannot_publish_partial_verdict(self):
+        target = source(1, 'Main commentary continuation.', 'citation')
+        target['citation_id'] = 'unresolved-2-0'
+        value = state(source(0, 'Commentary'), target)
+        calls = []
+        async def evaluate(requests):
+            rows = [(i, {name: .95 if name.startswith(('gap_', 'note_gap_', 'main_section_')) else .01
+                         for name in p['questions'] if name != 'main_section_member_1'})
+                    for i, p in requests]
+            calls.extend(rows)
+            return rows
+        with self.assertRaisesRegex(ValueError, 'named scores'):
+            await review_footnote_page(value, evaluate)
+        self.assertTrue(any('main_section_sequence_1' in scores for _, scores in calls))
+
+    def test_marked_and_established_notes_do_not_request_main_section_proof(self):
+        for text, citation_id in (('* A marked note.', 'unresolved-2-0'),
+                                  ('An established note continuation.', 'citation-2-0')):
+            target = source(1, text, 'citation')
+            target['citation_id'] = citation_id
+            names = {name for _, p in supplementary_footnote_requests(state(source(0, 'Commentary'), target), {})
+                     for name in p['questions']}
+            self.assertFalse(any(name.startswith('main_section_') for name in names))
+
+    def test_section_candidates_are_bounded_and_never_from_next_page(self):
+        layouts = [source(i, f'Short candidate {i}') for i in range(5)]
+        target = source(5, 'Main passage continuation.', 'citation')
+        target['citation_id'] = 'unresolved-2-0'
+        value = state(*layouts, target)
+        value['next_page'] = dict(page_index=3, paragraph_boundary=[source(6, 'Later commentary')],
+                                  citation_boundary=[])
+        packets = list(supplementary_footnote_requests(value, {}))
+        check = next(p['state']['checks']['main_section_sequence_5'] for _, p in packets
+                     if 'main_section_sequence_5' in p['questions'])
+        self.assertEqual([c['source_order'] for c in check['preceding_or_current_heading_candidates']], [4, 3, 2])
+
+    def test_section_proof_without_prior_raw_candidate_is_not_invented(self):
+        target = source(0, 'An unmarked note.', 'citation')
+        target['citation_id'] = 'unresolved-2-0'
+        names = {name for _, p in supplementary_footnote_requests(state(target), {})
+                 for name in p['questions']}
+        self.assertFalse(any(name.startswith('main_section_') for name in names))
