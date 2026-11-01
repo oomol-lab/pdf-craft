@@ -18,6 +18,24 @@ def raw_page(*, number='28', box='10,910,50,940', body='A reading passage about 
 
 
 class MarginalNoteNumberTests(unittest.TestCase):
+    def test_centered_folio_needs_an_isolated_single_numeric_line(self):
+        raw = raw_page(number='28', box='480,970,520,990')
+        page = _project_window([None, raw, None], True)[1]
+        assert page is not None
+        self.assertFalse(page.citations)
+        self.assertEqual(page.layouts[-1].ownership, 'ignored')
+        self.assertEqual(raw.footnotes_layouts[0].text, '28')
+
+    def test_center_alignment_alone_cannot_exclude_notes_or_wide_ocr_frames(self):
+        for box, body in (('480,900,520,920', 'A reading passage.'),
+                          ('600,970,640,990', 'A reading passage.'),
+                          ('0,950,1000,990', 'A reading passage.'),
+                          ('480,970,520,990', 'A statement²⁸.')):
+            with self.subTest(box=box, body=body):
+                page = _project_window([None, raw_page(number='28', box=box, body=body), None], True)[1]
+                assert page is not None
+                self.assertTrue(page.citations)
+
     def test_measured_multiline_prose_supports_a_short_reading_band(self):
         raw = raw_page(number='8', body='A complete reading passage ends here.')
         raw.body_layouts[0].det = (100, 100, 900, 240)

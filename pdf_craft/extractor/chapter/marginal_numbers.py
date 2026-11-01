@@ -11,10 +11,10 @@ _CHINESE_DIGITS = str.maketrans('〇零一二三四五六七八九', '0012345678
 _SHORT_NUMBER = re.compile(r'(?:[0-9]{1,3}|[〇零一二三四五六七八九]{1,3})')
 
 def marginal_numbers(page):
-    """Select only isolated short numbers outside both main reading axes.
+    """Select isolated outer folios or single-line centered bottom folios.
 
-    A position is insufficient. Keep anything within text columns, in an asset,
-    or mentioned by the current body. Side folios need observed vertical writing.
+    A position is insufficient. Centered folios require a larger blank gap and
+    numeric-line proportions. Side folios need observed vertical writing.
     The caller must retain the excluded observation and its original identity.
     """
     # Four-digit tokens may be years; leave that domain to semantic review.
@@ -43,7 +43,12 @@ def marginal_numbers(page):
         if chinese and not vertical_writing:
             continue
         x1, y1, x2, y2 = item.det
-        if (x1 >= x2 or y1 >= y2 or not (x2 <= left or x1 >= right)
+        width, height = x2 - x1, y2 - y1
+        centered = (not chinese and height > 0
+                    and abs((x1 + x2) - (left + right)) <= 0.12 * (right - left)
+                    and y1 - bottom >= 2 * height
+                    and 0.15 * len(item.text) * height <= width <= 1.25 * len(item.text) * height)
+        if (x1 >= x2 or y1 >= y2 or not (x2 <= left or x1 >= right or centered)
                 or bottom - top < (3 if multiline else 6) * (y2 - y1)
                 or right - left < 4 * (x2 - x1)):
             continue
