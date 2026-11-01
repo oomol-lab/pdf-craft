@@ -1,6 +1,7 @@
 """Disk task contexts and stable node identities for detached reorder results."""
 import pickle
 from pathlib import Path
+from threading import Lock
 
 ROOT_KEY = '__pdf_craft_stream_root'
 NODE_KEY = '__pdf_craft_stream_node'
@@ -43,33 +44,48 @@ def strip_source(root):
 
 
 class TaskStore:
-    """No task payload or original document stays resident while awaiting order."""
+    """Disk contexts with one cached task, shared by IO workers.
+
+    Progress, mapping callbacks and ordered settlement may access this store
+    concurrently. File ownership and the cached identity/value are one
+    transaction; returning another caller's cached task corrupts source CFIs.
+    """
     def __init__(self, root: Path):
         self.root = root
         self.next_identity = 0
-        self.cache = None
-        self.identity = None
+        self._cached = None
+        self._lock = Lock()
 
     def allocate(self):
+        # Only the async producer allocates. Never wait for an IO worker's
+        # file transaction while running on the event-loop thread.
         self.next_identity += 1
         return self.next_identity
 
     def save(self, identity, task):
-        with (self.root / str(identity)).open('wb') as file:
-            pickle.dump(task, file, protocol=pickle.HIGHEST_PROTOCOL)
+        with self._lock:
+            if self._cached is not None and self._cached[0] == identity:
+                self._cached = None
+            with (self.root / str(identity)).open('wb') as file:
+                pickle.dump(task, file, protocol=pickle.HIGHEST_PROTOCOL)
 
     def load(self, identity):
-        if self.identity != identity:
+        with self._lock:
+            return self._load_locked(identity)
+
+    def _load_locked(self, identity):
+        if self._cached is None or self._cached[0] != identity:
             with (self.root / str(identity)).open('rb') as file:
-                self.cache = pickle.load(file)
-            self.identity = identity
-        return self.cache
+                task = pickle.load(file)
+            self._cached = (identity, task)
+        return self._cached[1]
 
     def pop(self, identity):
-        task = self.load(identity)
-        (self.root / str(identity)).unlink()
-        self.cache = self.identity = None
-        return task
+        with self._lock:
+            task = self._load_locked(identity)
+            (self.root / str(identity)).unlink()
+            self._cached = None
+            return task
 
 
 def unit_owner(origin):

@@ -190,6 +190,8 @@ SourceRegion.page 复用 PageGeometry，source_order_in_page 对应 PCEX source_
 
 LLM 有序交付使用磁盘重排缓存；异步任务上下文、来源 DOM 与完成结果都可落盘，通过
 稳定 root/node identity 在当前文档交付时恢复映射，队首慢请求不再保留全书原文 DOM。
+TaskStore 的单项缓存与文件读写/删除作为同一个锁内事务，由 IO worker 访问；进度与片段回调
+不能串用另一个任务的上下文。身份分配仍由单个 async producer 完成，不在事件循环等待文件锁。
 同步 iterable/自定义整章契约保留原对象身份。双阶段 vendor OCR 续阶段优先，未确定归属来源
 按阅读顺序发出，延续 #794/#795 回归。
 
