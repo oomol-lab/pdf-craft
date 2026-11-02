@@ -11,7 +11,7 @@ _DIGITS = str.maketrans('⁰¹²³⁴⁵⁶⁷⁸⁹', '0123456789')
 _DECIMAL = re.compile(r'[1-9][0-9]{0,2}')
 _RAISED = re.compile(r'(?:\{\s*\}\s*)?\^(?:\{\s*([1-9][0-9]{0,2})\s*\}|([1-9]))')
 _FLATTENED = re.compile(
-    r'(?P<word>[A-Za-z]{2,})[.!?][\'"’”]?(?P<number>[1-9][0-9]{0,2})'
+    r'(?P<word>[A-Za-z]{2,})[\'"’”]?[.!?][\'"’”]?(?P<number>[1-9][0-9]{0,2})'
     r'(?=\s+[A-Z“‘]|[.!?]?(?:\s*$))'
 )
 _ABBREVIATIONS = frozenset(('fig', 'figs', 'eq', 'eqs', 'ch', 'chap', 'sec', 'sect',

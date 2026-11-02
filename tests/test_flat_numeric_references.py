@@ -22,10 +22,21 @@ class FlattenedNumericReferenceTests(unittest.TestCase):
                 self.assertEqual(len(page.layouts[0].references), 1)
                 self.assertEqual(raw.body_layouts[0].text, body)
 
+    def test_punctuation_after_closing_quote_preserves_a_paired_reference(self):
+        for body in ("The answer is 'certain'.4 Another sentence follows.",
+                     'The answer is “certain”.4 Another sentence follows.',
+                     'The answer is "certain".4 Another sentence follows.'):
+            with self.subTest(body=body):
+                raw, page = project(body, '4. An explanatory note.')
+                assert page is not None
+                self.assertEqual(page.citations[0].mark, '4')
+                self.assertEqual(len(page.layouts[0].references), 1)
+                self.assertEqual(raw.body_layouts[0].text, body)
+
     def test_decimals_equations_abbreviations_and_code_are_not_footnote_evidence(self):
         for body in ('The value is 3.4.', 'See Fig.4 and Eq.4 for details.',
                      'The release is version.4.', 'A token `statement.4` is literal code.',
-                     'The value is \\(x^{4}\\).', 'An expression.4 lower case continuation.'):
+                     'The value is \\(x^{4}\\).', "See 'Fig'.4 for details.", 'An expression.4 lower case continuation.'):
             with self.subTest(body=body):
                 _, page = project(body, '4. An ambiguous note candidate.')
                 assert page is not None
