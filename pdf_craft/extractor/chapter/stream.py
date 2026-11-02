@@ -209,7 +209,8 @@ def chapters_from_disk(database: Path, toc, *, chunk_size: int | None = None) ->
         adopted = bool(db.execute("SELECT 1 FROM sqlite_master WHERE name='adopted'").fetchone())
 
         def bodies():
-            for row in db.execute("SELECT value FROM bodies ORDER BY page, position, rowid"):
+            ordering = 'document_order,rowid' if adopted else 'page,position,rowid'
+            for row in db.execute('SELECT value FROM bodies ORDER BY ' + ordering):
                 item = pickle.loads(row[0])
                 if adopted:
                     # Bodies may have been delivered before a continued

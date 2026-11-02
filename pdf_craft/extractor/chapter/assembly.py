@@ -4,8 +4,9 @@ import pickle
 import sqlite3
 from contextlib import closing
 from copy import deepcopy
+from dataclasses import replace
 
-from .chapter import Reference, SourceAsset, StandaloneAsset, DisplayFormula, _encode_flow, _encode_reference
+from .chapter import Reference, SourceAsset, TextFlowItem, StandaloneAsset, DisplayFormula, _encode_flow, _encode_reference
 from .page_analysis import _restore_layouts
 from .analysis_content import _restore_mark
 from .analysis_types import PageStructureError
@@ -44,10 +45,16 @@ class _Paragraphs:
         for index, item in enumerate(texts):
             item.annotations.continues_to_next = index + 1 < len(texts)
         references = self.references(self.pending)
+        offset = 0
         for item in _restore_layouts(self.pending, references):
+            # Restoration preserves every text fragment/asset, including empty
+            # fragments. Carry its source ordinal rather than inferring identity
+            # from coordinates or the order in which independent streams close.
+            document_order = self.pending[offset].document_order
+            offset += len(item.children) if isinstance(item, TextFlowItem) else 1
             if isinstance(item, SourceAsset):
                 item = DisplayFormula(item) if item.ref == 'formula' else StandaloneAsset(item)
-            self.emit(item)
+            self.emit(item, document_order)
         self.pending.clear()
 
 
@@ -57,13 +64,15 @@ class PageAssembly:
         self.database = database
         self.body_callback, self.note_callback = on_body, on_footnote
         self.notes = {}
+        self.unresolved = {}
         self.active_note = None
         self._transaction = None
         self._events = []
         self.body = _Paragraphs(self._body, self._references)
         self._run('CREATE TABLE adopted (page INTEGER PRIMARY KEY,value BLOB)')
         self._run('CREATE TABLE edges(left_page INTEGER,right_page INTEGER,PRIMARY KEY(left_page,right_page))')
-        self._run('CREATE TABLE bodies(page INTEGER,position INTEGER,value BLOB,unresolved INTEGER)')
+        self._run('CREATE TABLE bodies(page INTEGER,position INTEGER,value BLOB,unresolved INTEGER,document_order INTEGER)')
+        self._run('CREATE INDEX body_delivery ON bodies(unresolved,document_order)')
         self._run('CREATE TABLE refs(page INTEGER,number INTEGER,value BLOB,used INTEGER DEFAULT 0,PRIMARY KEY(page,number))')
 
     def _run(self, sql, parameters=()):
@@ -84,11 +93,26 @@ class PageAssembly:
                 result[key] = pickle.loads(rows[0][0])
         return result
 
-    def _body(self, item):
+    def _body(self, item, document_order):
         page, position = _position(item.asset if isinstance(item, (StandaloneAsset, DisplayFormula)) else item)
-        self._run('INSERT INTO bodies VALUES (?,?,?,0)', (page, position, pickle.dumps(item)))
-        if self.body_callback is not None:
-            self._events.append((self.body_callback, _encode_flow(item)))
+        self._run('INSERT INTO bodies VALUES (?,?,?,0,?)', (page, position, pickle.dumps(item), document_order))
+
+    def _deliver_bodies(self):
+        if self.body_callback is None:
+            return
+        # Independent unresolved notes must not overtake an earlier open body
+        # paragraph (or vice versa). Ready units wait on disk, not in a book DOM.
+        starts = [flow.pending[0].document_order for flow in (self.body, *self.unresolved.values()) if flow.pending]
+        frontier = ' AND document_order < ?' if starts else ''
+        parameters = (min(starts),) if starts else ()
+        while rows := self._run('SELECT rowid,value FROM bodies WHERE unresolved=0' + frontier
+                               + ' ORDER BY document_order,rowid LIMIT 128', parameters):
+            for rowid, value in rows:
+                self.body_callback(_encode_flow(pickle.loads(value)))
+                self._run('UPDATE bodies SET unresolved=2 WHERE rowid=?', (rowid,))
+
+    def _note_paragraphs(self, reference):
+        return _Paragraphs(lambda item, _order: reference.flow_items.append(item), self._references)
 
     def _close_note(self, identifier):
         ref, paragraphs = self.notes.pop(identifier)
@@ -133,6 +157,17 @@ class PageAssembly:
 
     def _append(self, page):
         page = materialize_asset_text(page)
+        unresolved = {citation.citation_id for citation in page.citations if citation.state == 'unresolved'}
+        for identifier in list(self.unresolved):
+            if identifier not in unresolved:
+                self.unresolved.pop(identifier).finish()
+        starts = {}
+        for identifier in unresolved - self.unresolved.keys():
+            self.unresolved[identifier] = _Paragraphs(self._body, self._references)
+            # An unresolved stream has no adopted predecessor at its first
+            # appearance. Preserve its text without borrowing a body predecessor.
+            starts[identifier] = next((layout for layout in sorted(page.layouts, key=lambda item: item.document_order)
+                                       if layout.citation_id == identifier and layout.source_order is not None), None)
         if self.active_note is not None and self.active_note not in {c.citation_id for c in page.citations}:
             self._close_note(self.active_note)
             self.active_note = None
@@ -142,19 +177,17 @@ class PageAssembly:
                     raise PageStructureError('Duplicate footnote origin', page.page_index)
                 ref = Reference(page.page_index, citation.index, _restore_mark(citation.mark), [])
                 self._run('INSERT INTO refs(page,number,value) VALUES (?,?,?)', (*ref.id, pickle.dumps(ref)))
-                self.notes[citation.citation_id] = ref, _Paragraphs(ref.flow_items.append, self._references)
+                self.notes[citation.citation_id] = ref, self._note_paragraphs(ref)
             elif citation.origin_page_index is not None and citation.citation_id not in self.notes:
                 raise PageStructureError('Footnote continuation has no open definition', page.page_index)
-        unresolved = {citation.citation_id for citation in page.citations if citation.origin_page_index is None}
         for layout in sorted(page.layouts, key=lambda item: item.document_order):
             if layout.ownership == 'ignored':
                 continue
-            if layout.ownership == 'paragraph' or layout.citation_id in unresolved:
-                if layout.citation_id in unresolved:
-                    layout = deepcopy(layout)
-                    layout.annotations.ownership = 'paragraph'
-                    layout.annotations.citation_id = None
-                    layout.annotations.citation_index = None
+            if layout.citation_id in unresolved:
+                if layout is starts.get(layout.citation_id):
+                    layout = replace(layout, annotations=replace(layout.annotations, continues_from_previous=False))
+                self.unresolved[layout.citation_id].append(layout)
+            elif layout.ownership == 'paragraph':
                 self.body.append(layout)
             else:
                 state = self.notes.get(layout.citation_id)
@@ -168,11 +201,15 @@ class PageAssembly:
 
     def _finish(self):
         self.body.finish()
+        for flow in self.unresolved.values():
+            flow.finish()
+        self.unresolved.clear()
         for identifier in list(self.notes):
             self._close_note(identifier)
 
     def _atomic(self, operation):
         body = deepcopy(self.body.pending)
+        unresolved = {key: deepcopy(flow.pending) for key, flow in self.unresolved.items()}
         notes = {key: (deepcopy(ref), deepcopy(flow.pending)) for key, (ref, flow) in self.notes.items()}
         active = self.active_note
         self._events = []
@@ -183,9 +220,14 @@ class PageAssembly:
                     operation()
         except BaseException:
             self.body.pending = body
+            self.unresolved = {}
+            for key, pending in unresolved.items():
+                flow = _Paragraphs(self._body, self._references)
+                flow.pending = pending
+                self.unresolved[key] = flow
             self.notes = {}
             for key, (ref, pending) in notes.items():
-                flow = _Paragraphs(ref.flow_items.append, self._references)
+                flow = self._note_paragraphs(ref)
                 flow.pending = pending
                 self.notes[key] = ref, flow
             self.active_note = active
@@ -197,15 +239,21 @@ class PageAssembly:
         for callback, value in self._events:
             callback(value)
         self._events = []
+        self._deliver_bodies()
 
     def append(self, page, *, refined=False):
         page = self._bind_incoming(page, refined)
         def commit():
             # Record the semantic dependency closure as scalars, not a book DOM.
-            pending_pages = {item.page_index for item in self.body.pending}
+            pending_streams = {None: {item.page_index for item in self.body.pending}}
+            pending_streams.update({key: {item.page_index for item in flow.pending}
+                                    for key, flow in self.unresolved.items()})
+            unresolved = {citation.citation_id for citation in page.citations if citation.state == 'unresolved'}
             for layout in page.layouts:
                 linked = {ref.citation_page_index for ref in layout.references}
-                if layout.ownership == 'paragraph':
+                if layout.ownership == 'paragraph' or layout.citation_id in unresolved:
+                    key = layout.citation_id if layout.citation_id in unresolved else None
+                    pending_pages = pending_streams.setdefault(key, set())
                     if layout.source_order is None:
                         if getattr(layout.source, 'ref', None) == 'formula':
                             pending_pages.clear()
@@ -215,7 +263,8 @@ class PageAssembly:
                         linked.update(pending_pages)
                         pending_pages.add(layout.page_index)
                     else:
-                        pending_pages = {layout.page_index}
+                        pending_pages.clear()
+                        pending_pages.add(layout.page_index)
                 for index in linked:
                     self._run('INSERT OR IGNORE INTO edges VALUES (?,?)', (index, page.page_index))
             for citation in page.citations:
