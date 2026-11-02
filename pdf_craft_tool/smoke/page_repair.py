@@ -1,4 +1,4 @@
-"""Smoke route for pinned-JEV admission followed by live LLM page repair."""
+"""Fixed page admission and live LLM repair, separate from JEV protocol tests."""
 
 from __future__ import annotations
 
@@ -13,12 +13,11 @@ from pdf_craft import ConcurrentExecutor, FixedCapacity, LLM
 from pdf_craft.extractor.chapter.generation import prepare_chapter_analysis
 from pdf_craft.extractor.chapter.analysis_types import PageAnalysis
 from pdf_craft.extractor.chapter.analysis_content import layout_reference_spans
-from pdf_craft.extractor.chapter.page_repair import JevLlmRepairProcessor
-from pdf_craft.extractor.chapter.page_review import JEV_REVIEW_THRESHOLD
+from pdf_craft.extractor.chapter.page_repair import AllPageLlmRepairProcessor
 from pdf_craft.extractor.toc import TocInfo
 from pdf_craft.llm import runtime_for
 
-from ..jev import PinnedJevEvaluator
+from ..jev import PinnedPageSelection
 
 
 def run_page_repair_smoke(
@@ -27,7 +26,7 @@ def run_page_repair_smoke(
     config: dict[str, Any] | None,
     report,
 ) -> tuple[str, list[str], dict[str, Any]]:
-    """Replay JEV routing, run live LLM repair, and compare semantic changes."""
+    """Replay historical page selection, then check final repair targets."""
 
     return asyncio.run(_run_page_repair_smoke(ocr_path, run_path, config, report))
 
@@ -55,7 +54,7 @@ async def _run_page_repair_smoke(
         raise ValueError(f"Page repair expectation does not exist: {expected_path}")
 
     with report.stage("configure"):
-        evaluator = PinnedJevEvaluator(
+        selection = PinnedPageSelection(
             baseline_path,
             str(config["jev_run"]) if config.get("jev_run") else None,
         )
@@ -88,10 +87,9 @@ async def _run_page_repair_smoke(
         )
         return response
 
-    processor = JevLlmRepairProcessor(
-        evaluator,
+    processor = AllPageLlmRepairProcessor(
         request,
-        threshold=float(config.get("threshold", JEV_REVIEW_THRESHOLD)),
+        page_indexes=selection.page_indexes,
         retry_policy=RetryPolicy(**config.get("retry_policy", {})),
     )
     analysis = prepare_chapter_analysis(ocr_path, TocInfo([], []))
@@ -102,11 +100,7 @@ async def _run_page_repair_smoke(
             analysis.page_pixel_sizes,
         )
     actual = {
-        "review_page_indexes": [
-            result.page_index
-            for result in processor.results
-            if result.requires_review
-        ],
+        "review_page_indexes": processor.page_indexes,
         "changes": _semantic_changes(analysis.pages, repaired),
     }
     result_path = run_path / "page-repair-result.json"
@@ -114,9 +108,9 @@ async def _run_page_repair_smoke(
 
     with report.stage("check"):
         expected = json.loads(expected_path.read_text(encoding="utf-8"))
-        errors = [] if actual == expected else [
-            "Page repair final semantic result differs from committed expectation"
-        ]
+        errors = _check_final_state(repaired, expected)
+        if actual['review_page_indexes'] != expected['review_page_indexes']:
+            errors.append('Fixed page repair admission differs from committed selection')
     attempts = {
         str(page_index): len(list(raw_path.glob(
             f"page_{page_index:03d}-attempt_*-response.txt"
@@ -128,13 +122,45 @@ async def _run_page_repair_smoke(
         errors,
         {
             "page_repair": {
-                "jev_run": evaluator.run_name,
+                "jev_run": selection.run_name,
+                "admission": "fixed-historical-page-selection",
                 "result": str(result_path),
                 "review_page_indexes": actual["review_page_indexes"],
                 "attempts": attempts,
             }
         },
     )
+
+
+def _check_final_state(pages: list[PageAnalysis], expected: dict[str, Any]) -> list[str]:
+    """Check target facts even when the initial algorithm already establishes them.
+
+    Changes remain diagnostic output. Expectations describe final state, not a
+    requirement to break an initially correct page and repair it again.
+    """
+    if not expected.get('pages'):
+        raise ValueError('Page repair expectation needs final page targets')
+    actual = {page.page_index: page for page in pages}
+    errors = []
+    for target in expected['pages']:
+        index = target['page_index']
+        page = actual.get(index)
+        if page is None:
+            errors.append(f'Missing final page {index}')
+            continue
+        layouts = {_layout_id(layout): _layout_semantics(layout) for layout in page.layouts}
+        for identity, fields in target.get('layouts', {}).items():
+            if identity not in layouts:
+                errors.append(f'Page {index}: missing final {identity}')
+                continue
+            for name, value in fields.items():
+                if name not in layouts[identity] or layouts[identity][name] != value:
+                    errors.append(f'Page {index}: {identity}.{name} differs from final target')
+        for name, value in (('citations', [_citation_semantics(c) for c in page.citations]),
+                            ('references', _reference_semantics(page))):
+            if name in target and target[name] != value:
+                errors.append(f'Page {index}: final {name} differ from target')
+    return errors
 
 
 def _semantic_changes(

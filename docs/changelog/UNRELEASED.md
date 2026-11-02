@@ -1,5 +1,14 @@
 # Unreleased
 
+- Keep independent horizontal OCR fields out of the same author paragraph,
+  while preserving supported column wraps and adjacent runs on one text line.
+  Preserve clearly ruled forms fragmented into OCR text as artwork, without
+  replacing already structured tables. Add a frozen OCR2 form regression and
+  a cross-field PDF patch smoke check.
+- Separate fixed page-repair admission from JEV question evaluation in local
+  tools. Historical whole-page probabilities select pages using their recorded
+  threshold; repair smoke checks final target facts rather than change counts.
+
 - Improve local page-structure review in both footnote modes. Keep review decisions
   internal, preserve complete source evidence and use readable English Jinja prompts.
 - Preserve paragraph boundaries, printed note markers and cross-page note identities

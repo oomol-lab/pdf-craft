@@ -12,6 +12,7 @@ import pypdf
 from pdf_craft.document import PDFCraftExtraction
 from pdf_craft.extractor.chapter.chapter import SourceTextFragment, TextFlowItem
 from pdf_craft.extractor.chapter.reader import create_chapters_reader
+from pdf_craft.extractor.chapter.paragraph_geometry import independent_horizontal_fields
 
 
 def check_package(extraction: PDFCraftExtraction, require_geometry: bool = False) -> list[str]:
@@ -43,18 +44,28 @@ def check_pdf_patch_geometry(extraction: PDFCraftExtraction) -> list[str]:
     except (OSError, ValueError) as error:
         return [f"PDF patch has invalid PDFCraftExtraction geometry metadata: {error}"]
     needed_pages: set[int] = set()
+    errors: list[str] = []
     with extraction._materialize() as paths:
         for chapter in create_chapters_reader(paths.chapters)():
             for layout in chapter.flow_items:
                 if isinstance(layout, TextFlowItem) and layout.role in {"body", "heading"}:
+                    previous = None
+                    for block in layout.children:
+                        if isinstance(block, SourceTextFragment):
+                            if previous is not None and independent_horizontal_fields(previous, block):
+                                errors.append(f'PDF patch paragraph joins independent fields on page '
+                                              f'{block.page_index}: {previous.source_order}, {block.source_order}')
+                            previous = block
+                        else:
+                            previous = None  # An asset can legitimately split an author paragraph.
                     needed_pages.update(
                         block.page_index for block in layout.children
                         if isinstance(block, SourceTextFragment) and block.content
                     )
     missing = sorted(needed_pages - set(page_sizes))
     if missing:
-        return [f"PDF patch geometry missing for replacement pages: {missing}"]
-    return []
+        errors.append(f"PDF patch geometry missing for replacement pages: {missing}")
+    return errors
 
 
 def check_markdown(path: Path, _assets_path: Path | None = None) -> list[str]:

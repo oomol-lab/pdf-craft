@@ -329,6 +329,16 @@ class TestSmokeMatrix(unittest.TestCase):
                 errors = check_pdf_patch_geometry(package)
             self.assertEqual(errors, ["PDF patch geometry missing for replacement pages: [2]"])
 
+    def test_pdf_patch_rejects_cross_field_paragraph_even_with_valid_geometry(self):
+        with tempfile.TemporaryDirectory() as directory:
+            package = make_extraction(Path(directory), page_pixel_sizes={1: (500, 500)})
+            chapter = Chapter(None, -1, [TextFlowItem('body', -1, [
+                SourceTextFragment(1, 0, (0, 0, 100, 20), ['Account']),
+                SourceTextFragment(1, 1, (120, 0, 220, 20), ['Date']),
+            ])])
+            with patch('pdf_craft_tool.smoke.checks.create_chapters_reader', return_value=lambda: iter([chapter])):
+                self.assertTrue(any('independent fields' in e for e in check_pdf_patch_geometry(package)))
+
     def test_pdf_route_skips_when_local_ocr_has_no_cuda_device(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
