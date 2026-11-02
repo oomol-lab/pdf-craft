@@ -54,7 +54,7 @@ def _translator(responses):
     context = _Context(responses)
 
     async def template(_name):
-        return SimpleNamespace(render=lambda: "fill")
+        return SimpleNamespace(render=lambda **_kwargs: "fill")
 
     async def encoding():
         return get_encoding('cl100k_base')

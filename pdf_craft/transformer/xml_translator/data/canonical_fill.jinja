@@ -1,0 +1,21 @@
+
+
+Canonical visible-text constraint: For this translation unit, concatenating all visible
+text in its source slots must reproduce the corresponding canonical translation above
+after the caller's shared whitespace normalization and unambiguous recovery. Preserve
+words, punctuation and special spaces; normal cosmetic whitespace can be reconstructed
+by the caller. <anchor .../> nodes are zero-width structural tokens: do not add a space
+or any character on either side of one. Inline <expression> nodes are ordinary text
+slots like <span>: fill them with the corresponding canonical translated text, even when
+it uses plain symbols or prose instead of source LaTeX. The caller restores original
+formulas after this fill loop; do not copy source formula spelling when it differs from
+the canonical translation. If a required inline <expression> has no corresponding
+characters in the canonical translation, keep that expression tag and its exact ID with
+empty contents at its corresponding position (for example <expression id="5"/>). Do not
+append source formula text to make the slot nonempty: the caller restores its original
+formula even from an empty slot. Preserve all required tags and IDs. The number of
+canonical math references may differ from the number of source expression slots. NEVER
+invent an expression tag or ID to house an extra reference. Several references and
+intervening text may occupy ONE existing expression slot; a reference may also appear
+directly in ordinary text. Preserve the exact template IDs and their owning blocks.
+Empty existing expression slots are permitted.

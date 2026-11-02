@@ -23,7 +23,7 @@ from pdf_craft.transformer.xml_translator.segment import (
 from pdf_craft.progress import ProgressEvent, UnitKind
 from pdf_craft.transformer.xml_translator.xml import decode_friendly, encode_friendly
 from .callbacks import Callbacks, warp_callbacks
-from ...request_batch import RequestBatcher, with_request_window
+from ...request_batch import BatchResponseError, RequestBatcher, with_request_window
 from pdf_craft._policy import current, recover
 from pdf_craft.policies import FailureCategory, RetryScope
 from pdf_craft._failure_sources import tag_locations, segment_locations, task_locations
@@ -459,6 +459,10 @@ class XMLTranslator:
         primary = [segment for segment in inline_segments if not getattr(segment, '_translation_context', False)]
         if not primary:
             return [None] * len(inline_segments)
+        if not any(text.text.strip(" \t\r\n") for segment in inline_segments for text in segment):
+            # Structural boundaries have no translation work, but must reach
+            # submission so empty block anchors retain their tails and parents.
+            return [(segment.parent, [text.clone() for text in segment]) for segment in inline_segments]
         context_targets = segment_locations([segment for segment in inline_segments
                                              if getattr(segment, '_translation_context', False)])
         hill_climbing = HillClimbing(
@@ -513,23 +517,46 @@ class XMLTranslator:
                 yield text_segment.text
 
     async def _translate_text_async(self, text: str, *, context: str = "") -> str:
-        if _already_in_target_language(text, self._target_language):
+        if not text.strip(" \t\r\n") or _already_in_target_language(text, self._target_language):
             return text
         template = await self._translation_runtime.template("translate")
-        async with self._translation_runtime.context(
-            cache_seed_content=self._cache_seed_content
-        ) as ctx:
-            return await self._requests.request(ctx, runtime=self._translation_runtime, stage='translation', messages=[
-                Message(
-                    role=MessageRole.SYSTEM,
-                    message=template.render(
-                        target_language=self._target_language,
-                        user_prompt=self._user_prompt,
-                    ),
-                ),
-                Message(role=MessageRole.USER, message=(f"Read-only context (do not translate):\n{context}\n\nText to translate:\n{text}"
-                             if context else text)),
-            ])
+        messages = [Message(MessageRole.SYSTEM, template.render(
+            target_language=self._target_language, user_prompt=self._user_prompt)),
+            Message(MessageRole.USER, (await self._translation_runtime.template('translation_input')).render(
+                text=text, context=context))]
+        translator = self
+        last_error = None
+
+        class _TranslationProtocol:
+            async def validate(self, response, state, attempt, max_attempts):
+                return ProtocolSuccess(response, state)
+
+            async def empty(self, state, attempt, max_attempts):
+                return ProtocolRetry(str(last_error or 'Empty translation response'), state, include_response=False)
+
+            async def exhausted(self, state, attempts, response):
+                error = last_error or BatchResponseError('No usable translation response')
+                error.attempts = attempts
+                raise error
+
+        async with self._translation_runtime.context(cache_seed_content=self._cache_seed_content) as ctx:
+            async def request(_current_messages, index, maximum):
+                nonlocal last_error
+                try:
+                    # Envelope repair resends the original source. A trailing
+                    # user feedback message would itself become source prose
+                    # for a plain-text translation model. No semantic retry.
+                    return await translator._requests.request(ctx, runtime=translator._translation_runtime,
+                        stage='translation', messages=messages, retry_index=index, retry_max=maximum)
+                except BatchResponseError as error:
+                    last_error = error
+                    return ''
+            return await run_repair_loop(RepairLoopOptions(
+                messages=messages, request=request, protocol=_TranslationProtocol(), state=None,
+                max_attempts=current().retry.attempts(RetryScope.TRANSLATION),
+                failure_log_path=getattr(self._translation_llm, 'failure_log_path', None),
+                failure_log_context={'stage': 'text_translation', 'model': self._translation_llm.model},
+            ))
 
     async def _request_and_submit_async(
         self,
@@ -542,37 +569,12 @@ class XMLTranslator:
     ) -> None:
         from ...canonical_math import CanonicalMath
         canonical_math = CanonicalMath(translated_text) if canonical_text_validator is not None else None
-        user_message = (
-            f"Source text:\n{source_text}\n\n"
-            f"XML template:\n```XML\n{encode_friendly(hill_climbing.request_element())}\n```\n\n"
-            f"Translated text:\n{canonical_math.text if canonical_math is not None else translated_text}"
-        )
-        canonical_instructions = ''
-        if canonical_text_validator is not None:
-            canonical_instructions = (
-                "\n\nCanonical visible-text constraint:\n"
-                "For this translation unit, concatenating all visible text in its "
-                "source slots must reproduce the corresponding canonical "
-                "translation above after the caller's shared whitespace normalization "
-                "and unambiguous recovery. Preserve words, punctuation and special "
-                "spaces; normal cosmetic whitespace can be reconstructed by the caller. "
-                "<anchor .../> nodes are zero-width structural "
-                "tokens: do not add a space or any character on either side of one."
-                " Inline <expression> nodes are ordinary text slots like <span>: "
-                "fill them with the corresponding canonical translated text, even "
-                "when it uses plain symbols or prose instead of source LaTeX. "
-                "The caller restores original formulas after this fill loop; do "
-                "not copy source formula spelling when it differs from the "
-                "canonical translation. If a required inline <expression> has "
-                "no corresponding characters in the canonical translation, "
-                "keep that expression tag and its exact ID with empty contents "
-                "at its corresponding position (for example <expression id=\"5\"/>). "
-                "Do not append source formula text to make the slot nonempty: "
-                "the caller restores its original formula even from an empty slot. "
-                "Preserve all required tags and IDs."
-            )
-            assert canonical_math is not None
-            user_message += canonical_math.instructions()
+        user_message = (await self._fill_runtime.template('fill_input')).render(
+            source_text=source_text, xml_template=encode_friendly(hill_climbing.request_element()),
+            translated_text=canonical_math.text if canonical_math is not None else translated_text,
+            math_instructions=canonical_math.instructions() if canonical_math is not None else '')
+        canonical_instructions = ((await self._fill_runtime.template('canonical_fill')).render()
+                                  if canonical_math is not None else '')
         fill_template = await self._fill_runtime.template("fill")
         fixed_messages = [
             Message(MessageRole.SYSTEM, fill_template.render() + canonical_instructions),
@@ -590,7 +592,7 @@ class XMLTranslator:
                     validated = translator._extract_xml_element(response)
                     if isinstance(validated, str):
                         error = validated
-                    elif canonical_math is not None and (reference_error := canonical_math.expand(validated)):
+                    elif canonical_math is not None and (reference_error := canonical_math.expand(validated, require_complete=False)):
                         error = reference_error
                     elif canonical_text_validator is None:
                         error = hill_climbing.validate(validated)

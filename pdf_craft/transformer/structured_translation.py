@@ -89,7 +89,7 @@ class StructuredTranslation:
             sources.append(segment.create_element())
             previous = owner
         if restore_canonical_whitespace(filled, canonical, sources=sources,
-                                        replaced_tags=frozenset({'expression'})):
+                                        replaced_tags=frozenset({'expression'}), join_roots=self.owner is not None):
             return None
         actual = ''.join(t.text for slot in filled for t in search_text_segments(slot, preserve_whitespace=True))
         return ('Visible text differs from the canonical translation. Preserve words, '

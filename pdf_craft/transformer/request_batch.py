@@ -24,16 +24,6 @@ from ..usage import current_usage_scope, shared_request_usage
 
 MAX_BATCH_UNITS = 64
 READY_DELAY = 0.01
-_BATCH_INSTRUCTION = '''Execute each independent conversation in the JSON array below.
-Every entry has an id and messages (role/content). The shared system instructions
-below apply independently to EVERY entry. Individual message histories continue
-only their own conversation. Preserve all XML IDs and math references within its
-own conversation; the same local ID in another conversation is unrelated.
-Return ONLY a JSON array of objects with exactly id and text. Copy every input
-id exactly once. text is that conversation's complete answer as a JSON string,
-including its XML when requested. Never merge, omit or exchange answers.
-The JSON array response envelope overrides any single-answer output format in
-the shared instructions. Apply that format inside each entry's text field.'''
 
 
 def ready_window(window: int) -> int:
@@ -74,9 +64,17 @@ def with_request_window(function: _F) -> _F:
 class BatchResponseError(ValueError):
     """A translation response could not be bound to its explicit input identity."""
 
+    attempts: int = 1
+
 
 class _IncompleteBatch(Exception):
     """Roll back a partial envelope's cache without discarding valid siblings."""
+
+
+@dataclass
+class _ResponseObject:
+    # Keep duplicate fields until all competing identities have been examined.
+    pairs: list[tuple[str, Any]]
 
 
 @dataclass(eq=False)
@@ -121,7 +119,8 @@ class RequestBatcher:
         shared = messages[0].message if messages and messages[0].role == MessageRole.SYSTEM else ''
         payload = self._payload(messages, '0', shared)
         tokens = len(encoding.encode(json.dumps(payload, ensure_ascii=False), disallowed_special=())) * 2
-        overhead = len(encoding.encode(self._instruction(shared), disallowed_special=())) + 16
+        instruction = (await runtime.template('batch')).render(shared=shared)
+        overhead = len(encoding.encode(instruction, disallowed_special=())) + 16
         scope = current_usage_scope()
         policy = current()
         key = (policy.task_id, policy.request_headers, id(scope.collector) if scope else None,
@@ -151,12 +150,6 @@ class RequestBatcher:
                 if batch.task is not None and not batch.task.done():
                     batch.task.cancel()
                     await settle_tasks([batch.task])
-
-    @staticmethod
-    def _instruction(shared):
-        return (_BATCH_INSTRUCTION + '\n\nShared system instructions:\n' + shared +
-                '\n\nBatch envelope takes precedence: return ONLY the JSON array of {id, text}. '
-                'Apply the shared output format inside each text string, never as a bare response.')
 
     @staticmethod
     def _payload(messages, identity, shared=''):
@@ -200,7 +193,7 @@ class RequestBatcher:
                 answers = {'0': response}
             else:
                 shared = first.messages[0].message if first.messages and first.messages[0].role == MessageRole.SYSTEM else ''
-                messages = [Message(MessageRole.SYSTEM, self._instruction(shared)),
+                messages = [Message(MessageRole.SYSTEM, (await first.runtime.template('batch')).render(shared=shared)),
                             Message(MessageRole.USER, json.dumps([
                                 self._payload(call.messages, str(index), shared) for index, call in enumerate(calls)
                             ], ensure_ascii=False))]
@@ -228,7 +221,7 @@ class RequestBatcher:
                     # batch-to-single retry. Accepted siblings have already left.
                     call.future.set_result('')
                 else:
-                    call.future.set_exception(BatchResponseError(f'Missing translation batch id={index}'))
+                    call.future.set_exception(BatchResponseError(f'Unbound translation batch id={index}: missing, invalid or ambiguous envelope entry (accepted {len(answers)}/{len(calls)} identities)'))
         except asyncio.CancelledError:
             for call in calls:
                 call.future.cancel()
@@ -245,28 +238,36 @@ class RequestBatcher:
             response = response[8:-4]
         elif response.startswith('```\n') and response.endswith('\n```'):
             response = response[4:-4]
-        def unique_object(pairs):
-            result = {}
-            for key, value in pairs:
-                if key in result:
-                    raise ValueError('Duplicate JSON field')
-                result[key] = value
-            return result
         try:
-            decoded = json.loads(response, object_pairs_hook=unique_object)
+            decoded = json.loads(response, object_pairs_hook=_ResponseObject)
         except (ValueError, TypeError):
             return {}
         if not isinstance(decoded, list):
             return {}
         answers = {}
         expected = {str(index) for index in range(count)}
+        seen, ambiguous = set(), set()
         for item in decoded:
-            if (not isinstance(item, dict) or set(item) != {'id', 'text'} or
-                    not isinstance(item['id'], str) or item['id'] not in expected or
-                    item['id'] in answers or not isinstance(item['text'], str)):
-                return {}
+            if not isinstance(item, _ResponseObject):
+                continue
+            identities = {value for key, value in item.pairs
+                          if key == 'id' and isinstance(value, str) and value in expected}
+            ambiguous.update(seen & identities)
+            seen.update(identities)
+            fields = dict(item.pairs)
+            if len(fields) != len(item.pairs):
+                # A malformed object's IDs still conflict with valid entries,
+                # in either order. Duplicate id fields can taint multiple IDs.
+                ambiguous.update(identities)
+                continue
+            if (set(fields) != {'id', 'text'} or len(identities) != 1
+                    or not isinstance(fields['text'], str)):
+                continue
+            identity = next(iter(identities))
             # JSON escapes become characters only here; match the ordinary
             # LLM ingress after decoding rather than letting escaped control
             # characters bypass the runtime's safe_text normalization.
-            answers[item['id']] = safe_text(item['text'])
-        return answers
+            text = safe_text(fields['text'])
+            if text.strip():
+                answers[identity] = text
+        return {identity: answer for identity, answer in answers.items() if identity not in ambiguous}

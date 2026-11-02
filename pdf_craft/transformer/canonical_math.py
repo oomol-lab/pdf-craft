@@ -6,6 +6,9 @@ one complete canonical expression without asking the fill model to retype its
 delimiters or split it according to the source slots.
 """
 import re
+from functools import lru_cache
+from pathlib import Path
+from jinja2 import Template
 from xml.etree.ElementTree import Element
 
 _MATH = re.compile(
@@ -31,28 +34,17 @@ class CanonicalMath:
     def instructions(self) -> str:
         if not self.values:
             return ''
-        legend = '\n'.join(f'{key}: {value}' for key, value in self.values.items())
-        return (
-            '\n\nImmutable canonical math references:\n' + legend + '\n'
-            'The translated text above uses read-only <math-ref key="mN"/> tokens. '
-            'Place each token exactly once; NEVER retype its formula or delimiters. '
-            'Source <expression> IDs are allocation slots, NOT independent math boundaries. '
-            'When the canonical translation combines multiple source formulas, put the '
-            'ONE math-ref token in one corresponding expression slot and keep the other '
-            'required expression slots empty. All source tags and IDs must remain. '
-            'For example a canonical combined x=y with two source slots can be filled as '
-            '<expression id="2"><math-ref key="m1"/></expression><expression id="3"/>. '
-            'Do not split a math-ref or surround it with additional math delimiters. '
-            'The caller expands these exact canonical values BEFORE structural and '
-            'full visible-text validation, then restores source formulas AFTER acceptance.'
-        )
+        return _instructions_template().render(values=self.values)
 
-    def expand(self, root: Element) -> str | None:
+    def expand(self, root: Element, *, require_complete: bool = True) -> str | None:
         """Expand validated references, retaining all canonical delimiter bytes.
 
         Literal responses keep their existing exact-validation path. If a
         response uses references, the reference table must be complete and unique.
         Validate the entire table before mutating any response node.
+        require_complete=False is only safe when the caller subsequently checks
+        the entire expanded text against canonical: it admits mixed literal and
+        reference spellings, never missing or duplicate mathematical content.
         """
         references = [node for node in root.iter() if node.tag == _REFERENCE_TAG]
         if not references:
@@ -65,7 +57,7 @@ class CanonicalMath:
                 return 'Invalid canonical math reference: use each known key once as an empty <math-ref key="mN"/>.'
             seen.add(key)
         missing = self.values.keys() - seen
-        if missing:
+        if missing and require_complete:
             return f'Missing canonical math references: {", ".join(sorted(missing))}. Retain every token exactly once.'
 
         for parent in list(root.iter()):
@@ -83,3 +75,9 @@ class CanonicalMath:
                 else:
                     previous = child
         return None
+
+
+@lru_cache(maxsize=1)
+def _instructions_template() -> Template:
+    path = Path(__file__).parent / 'xml_translator/data/canonical_math.jinja'
+    return Template(path.read_text(encoding='utf-8'))

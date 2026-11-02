@@ -118,7 +118,7 @@ def search_text_segments(root: Element, *, track_origins: bool = False,
 
 
 def _search_text_segments(stack: list[Element], element: Element, track_origins: bool,
-                          preserve_whitespace: bool) -> Generator[TextSegment, None, None]:
+                          preserve_whitespace: bool, parent_mixed: bool = False) -> Generator[TextSegment, None, None]:
     # Whitespace between inline slots belongs to the sentence. Block-only XML
     # indentation can still be ignored; it is not a word separator.
     inline_content = is_inline_element(element) or any(is_inline_element(child) for child in element)
@@ -128,10 +128,11 @@ def _search_text_segments(stack: list[Element], element: Element, track_origins:
                                      preserve_whitespace=preserve_whitespace or inline_content)
     next_block_depth = find_block_depth(next_stack)
 
-    # A text-free inline leaf still occupies a position in the reading flow
-    # (for example a line break or a named anchor). Carry an empty segment so
-    # template creation and recombination retain the node without inventing text.
-    if text is not None or (len(element) == 0 and is_inline_element(element)):
+    # Empty inline leaves and block children separating mixed text occupy real
+    # positions. Include the mixed parent's leading boundary as well, so its
+    # first child's tail cannot be mistaken for parent.text during submission.
+    mixed = any(child.tail and child.tail.strip() for child in element)
+    if text is not None or mixed or (len(element) == 0 and (is_inline_element(element) or parent_mixed)):
         yield TextSegment(
             text=text or "",
             parent_stack=next_stack,
@@ -142,7 +143,7 @@ def _search_text_segments(stack: list[Element], element: Element, track_origins:
             origins=(TextOrigin(element, TextPosition.TEXT, 0, len(element.text or ""), id(element)),) if track_origins else (),
         )
     for child_element in element:
-        yield from _search_text_segments(next_stack, child_element, track_origins, preserve_whitespace)
+        yield from _search_text_segments(next_stack, child_element, track_origins, preserve_whitespace, parent_mixed=mixed)
         child_tail = normalize_text_in_element(
             child_element.tail,
             mode=mode,
