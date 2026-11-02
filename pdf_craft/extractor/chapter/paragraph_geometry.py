@@ -62,7 +62,7 @@ def indented_line_boundary(
         return True
     if left.page_index != right.page_index:
         return False
-    if not isinstance(text, str) or not text.rstrip().rstrip(_CLOSING_QUOTES).endswith(_COMPLETED_ENDINGS):
+    if not isinstance(text, str) or not _compatible_line_end(text):
         return False
     # Side-by-side quote and attribution are not separate printed lines.
     height = min(left.bbox[3] - left.bbox[1], right.bbox[3] - right.bbox[1])
@@ -86,7 +86,7 @@ def _compatible_line_end(text: str) -> bool:
                 NumberClass.CIRCLED_NUMBER, NumberClass.CIRCLED_CHINESE, NumberClass.BLACK_CIRCLED_NUMBER):
             break
         tail = tail[:-1].rstrip()
-    return tail.rstrip(_CLOSING_QUOTES).endswith(_COMPLETED_ENDINGS)
+    return tail.rstrip(_CLOSING_QUOTES).rstrip('—').rstrip().endswith(_COMPLETED_ENDINGS)
 
 
 def _indented_single_line(narrow: SourceTextFragment, wide: SourceTextFragment) -> bool:
@@ -120,7 +120,7 @@ def indented_line_starts(layouts: list[PageLayout]) -> set[tuple[int, int, int, 
             if other.ref != "text" or other is layout:
                 continue
             a, b, c, d = other.det
-            if (c - a >= width + 1.5 * height and a <= left and c >= right
+            if (c - a >= width + 0.75 * height and a <= left and c >= right
                     and (d <= top or b >= bottom)
                     and not _single_line_text(other.text, other.det)):
                 candidates.append((max(top - d, b - bottom), a))

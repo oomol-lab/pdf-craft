@@ -21,6 +21,25 @@ def _can_join(layouts, *, across_assets=False):
 
 
 class HorizontalParagraphTests(unittest.TestCase):
+    def test_left_indented_line_may_reach_the_right_column_edge(self):
+        layouts = [
+            _layout(0, (0, 0, 1000, 200), "前面的背景描述已經完整結束。"),
+            _layout(1, (40, 230, 450, 270), '“下一步應該怎麼辦？”'),
+            _layout(2, (40, 290, 1000, 330), "有人又輕輕地說：這件事情早已經安排妥當了。"),
+        ]
+        result = list(Jointer([(1, layouts)]).execute())
+        self.assertEqual(len(result), 3)
+
+    def test_sentence_ending_before_terminal_dash_keeps_measured_indent(self):
+        for ending, joined in (('他說：“這件事已經做完了！——”', False),
+                               ('他只說出了這個詞的前半inter', True)):
+            with self.subTest(ending=ending):
+                layouts = [
+                    _layout(0, (0, 0, 1000, 200), ending),
+                    _layout(1, (80, 230, 620, 270), "另一個完整的回答就在這裏。"),
+                ]
+                self.assertEqual(_can_join(layouts), joined)
+
     def test_column_wrap_within_one_histogram_group_is_joined(self):
         # A page-wide image bridges the gutter in the projection histogram.
         layouts = [
