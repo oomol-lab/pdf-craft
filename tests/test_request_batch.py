@@ -3,6 +3,8 @@
 import asyncio
 import json
 import re
+from contextlib import contextmanager
+from unittest.mock import patch
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest import IsolatedAsyncioTestCase
@@ -19,7 +21,7 @@ from pdf_craft.expression import ExpressionKind
 from pdf_craft.transformer import AnchoredContent, AnchoredContentXMLTransformer
 from pdf_craft.llm import LLM, Message, MessageRole
 from pdf_craft.transformer.narrative_xml import NarrativeXMLTransformer
-from pdf_craft.transformer.request_batch import RequestBatcher
+from pdf_craft.transformer.request_batch import RequestBatcher, MAX_BATCH_UNITS, request_window
 from pdf_craft.transformer.structured_translation import StructuredTranslation
 from pdf_craft.transformer.xml_translator.xml_translator import XMLTranslator, TranslationTask, SubmitKind
 from pdf_craft.usage import UsageCollector, UsageScope, shared_request_usage, usage_context, request_attempt
@@ -29,15 +31,20 @@ class EchoModel:
     """Exercise real runtime, cache and fill validation, replacing only HTTP."""
     def __init__(self):
         self.calls = []
+        self.wire_calls = []
         self.active = self.peak = 0
 
     async def invoke(self, messages, *_args, **_kwargs):
+        self.wire_calls.append(messages)
         self.active += 1
         self.peak = max(self.peak, self.active)
         try:
             await asyncio.sleep(0)
             if messages[0].message.startswith('Execute each independent conversation'):
                 units = json.loads(messages[-1].message)
+                for unit in units:
+                    if unit['messages'][0]['role'] != 'system':
+                        unit['messages'].insert(0, {'role': 'system', 'content': messages[0].message})
                 self.calls.append([unit['messages'] for unit in units])
                 return json.dumps([{'id': unit['id'], 'text': self.answer(unit['messages'])}
                                    for unit in reversed(units)])
@@ -74,16 +81,38 @@ class ReadyBatcher(RequestBatcher):
             self.timers[key] = asyncio.get_running_loop().call_later(0.001, self._launch, key)
 
 
-def translator_fixture(*, ready_units=None):
+def translator_fixture(*, ready_units=None, max_group_score=10000):
     model = EchoModel()
     config = LLM('test', 'https://example.invalid', 'offline', 'cl100k_base', retry_times=0)
-    translator = XMLTranslator(config, config, 'English', None, 10000, 10000,
+    translator = XMLTranslator(config, config, 'English', None, 10000, max_group_score,
                                executor=ConcurrentExecutor(FixedCapacity(2)))
     if ready_units is not None:
         translator._requests = ReadyBatcher(ready_units)
     translator._translation_runtime.__dict__['_invoke'] = model.invoke
     translator._fill_runtime.__dict__['_invoke'] = model.invoke
     return translator, model
+
+
+@contextmanager
+def simultaneous_calls(translator, count):
+    """Control input readiness, leaving production packing/deadlines unchanged.
+
+    A default-window regression deadlocks here if admission still waits for
+    the preceding semantic unit to complete before reading its successor.
+    """
+    request = translator._requests.request
+    arrivals = {}
+    gates = {}
+    async def ready(context, messages, *, stage, **options):
+        if options.get('retry_index', 0) == 0:
+            arrivals[stage] = arrivals.get(stage, 0) + 1
+            gate = gates.setdefault(stage, asyncio.Event())
+            if arrivals[stage] == count:
+                gate.set()
+            await gate.wait()
+        return await request(context, messages, stage=stage, **options)
+    with patch.object(translator._requests, 'request', ready):
+        yield
 
 
 def paragraph(index):
@@ -115,7 +144,7 @@ class RequestBatchTests(IsolatedAsyncioTestCase):
 
     @policy_operation
     async def test_async_epub_roots_keep_own_payload_and_node_mapping(self):
-        translator, model = translator_fixture(ready_units=6)
+        translator, model = translator_fixture(max_group_score=2600)
         async def roots():
             for index in range(6):
                 await asyncio.sleep(0.02)  # Deliberately slower than the production flush deadline.
@@ -123,8 +152,9 @@ class RequestBatchTests(IsolatedAsyncioTestCase):
                                       SubmitKind.REPLACE, index)
         delivered = []
         protocol = StructuredTranslation()
-        results = await asyncio.wait_for(translator._translate_elements(roots(), **protocol.arguments(), window=8,
-                                                        on_result=lambda value: delivered.append(value[1])), 30)
+        with simultaneous_calls(translator, 6):
+            results = await asyncio.wait_for(translator._translate_elements(roots(), **protocol.arguments(),
+                                                        on_result=lambda value: delivered.append(value[1])), 5)
         self.assertEqual(delivered, list(range(6)))
         self.assertEqual([(index, root.findtext('body/p')) for root, index in results],
                          [(index, f'Paragraph {index}.') for index in range(6)])
@@ -139,10 +169,12 @@ class RequestBatchTests(IsolatedAsyncioTestCase):
             for index in range(6):
                 save_xml(encode(Chapter(index + 1, 1, [paragraph(index + 1)])),
                          root / f'source/chapters/chapter_{index + 1}.xml')
-            translator, model = translator_fixture(ready_units=6)
-            result = await asyncio.wait_for(AsyncPDFCraft().translate_extraction(
-                source, root / 'translated.pcex', translator,
-                target_language='English', window=8, with_anchored=False), 30)
+            translator, model = translator_fixture(max_group_score=2600)
+            model.answer = lambda messages: EchoModel.answer(messages).replace("Paragraph", "Translated")
+            with simultaneous_calls(translator, 6):
+                result = await asyncio.wait_for(AsyncPDFCraft().translate_extraction(
+                    source, root / 'translated.pcex', translator,
+                    target_language='English', with_anchored=False), 5)
             with result._materialize() as paths:
                 assert paths.translations is not None
                 index = json.loads((paths.translations / 'index.json').read_text())
@@ -152,11 +184,83 @@ class RequestBatchTests(IsolatedAsyncioTestCase):
                 entries = fromstring(coverage_files[0].read_text()).findall('./narrative/paragraph')
                 self.assertEqual(len(entries), 6)
                 self.assertTrue(all(entry.get('state') == 'translated' for entry in entries))
+                text = ''.join(path.read_text() for path in paths.translations.glob('*/chapters/*.xml'))
+                for number in range(1, 7):
+                    self.assertIn(f'Translated {number}.', text)
+                self.assertNotIn('Paragraph', text)
             self.assertEqual(len(model.calls), 2)
             print('PCEX_SCHEDULE_BATCH_COUNTS', json.dumps({
                 'physical_requests': len(model.calls), 'paragraphs': 6, 'scope': 'offline transport; controlled input readiness',
                 'translation': sum('XML template:' not in batch[0][1]['content'] for batch in model.calls),
                 'fill': sum('XML template:' in batch[0][1]['content'] for batch in model.calls)}))
+
+    @policy_operation
+    async def test_dense_epub_and_fragmented_roots_share_instructions_and_requests(self):
+        for fragmented in (False, True):
+            translator, model = translator_fixture()
+            model.answer = lambda messages: EchoModel.answer(messages).replace('Paragraph', 'Translated')
+            async def roots(fragmented=fragmented):
+                for index, indexes in enumerate(([i] for i in range(48)) if fragmented else [range(48)]):
+                    yield TranslationTask(fromstring('<html><body>' + ''.join(
+                        f'<p>Paragraph {i}.</p>' for i in indexes) + '</body></html>'), SubmitKind.REPLACE, index)
+            with simultaneous_calls(translator, 48):
+                results = await asyncio.wait_for(translator._translate_elements(
+                    roots(), **StructuredTranslation().arguments()), 5)
+            self.assertEqual([p.text for root, _ in results for p in root.findall('body/p')],
+                             [f'Translated {i}.' for i in range(48)])
+            self.assertEqual(len(model.calls), 2)  # Original dense EPUB also used 1 + 1.
+            self.assertEqual([len(batch) for batch in model.calls], [48, 48])
+            for messages in model.wire_calls:
+                self.assertEqual(len(messages), 2)
+                units = json.loads(messages[1].message)
+                self.assertTrue(all(all(m['role'] != 'system' for m in u['messages']) for u in units))
+            fill = model.wire_calls[1]
+            self.assertIn('Canonical visible-text constraint', fill[0].message)
+            self.assertNotIn('Canonical visible-text constraint', fill[1].message)
+
+    @policy_operation
+    async def test_accepted_paragraph_delivers_before_later_paragraph_finishes_repair(self):
+        translator, model = translator_fixture()
+        original = model.invoke
+        repairing, release, delivered = asyncio.Event(), asyncio.Event(), asyncio.Event()
+        fills = 0
+        async def invoke(messages, *args, **kwargs):
+            nonlocal fills
+            filling = any('XML template:' in message.message for message in messages)
+            if filling:
+                fills += 1
+                if fills == 2:
+                    repairing.set()
+                    await release.wait()
+            response = await original(messages, *args, **kwargs)
+            if filling and fills == 1:
+                # Accept the first paragraph; only the later paragraph repairs.
+                items = json.loads(response)
+                for item in items:
+                    item['text'] = item['text'].replace('Paragraph 1.', 'wrong')
+                response = json.dumps(items)
+            return response
+        translator._translation_runtime.__dict__['_invoke'] = invoke
+        translator._fill_runtime.__dict__['_invoke'] = invoke
+        async def roots():
+            yield TranslationTask(fromstring(
+                '<html><body><p>Paragraph 0.</p><p>Paragraph 1.</p></body></html>'), SubmitKind.REPLACE, 0)
+        values = []
+        def notify(mapping):
+            values.append(''.join(text.text for text in mapping[1]))
+            delivered.set()
+        with simultaneous_calls(translator, 2):
+            task = asyncio.create_task(translator._translate_elements(
+                roots(), **StructuredTranslation().arguments(), on_mapping=notify))
+            try:
+                await asyncio.wait_for(repairing.wait(), 5)
+                await asyncio.wait_for(delivered.wait(), 2)
+                self.assertEqual(values, ['Paragraph 0.'])
+                self.assertFalse(task.done())
+            finally:
+                release.set()
+                await asyncio.wait_for(task, 5)
+        self.assertEqual(values, ['Paragraph 0.', 'Paragraph 1.'])
 
     async def test_partial_fill_retries_only_rejected_unit(self):
         translator, model = translator_fixture()
@@ -212,9 +316,61 @@ class RequestBatchTests(IsolatedAsyncioTestCase):
                 self.assertEqual(result, text)
         await asyncio.wait_for(asyncio.gather(*(request(index) for index in range(25))), 3)
         self.assertLess(len(model.calls), 25)
-        self.assertTrue(all(len(batch) <= 8 for batch in model.calls))
+        self.assertTrue(all(len(batch) <= MAX_BATCH_UNITS for batch in model.calls))
         self.assertEqual(model.peak, 1)
         self.assertEqual(translator._requests.pending, {})
+
+    @policy_operation
+    async def test_window_limits_requests_without_limiting_content_readiness(self):
+        for window in (1, 2):
+            translator, model = translator_fixture()
+            translator._requests.budget = 4096  # Force several fill batches.
+            original = model.invoke
+            active = peak = 0
+            async def invoke(*args, invoke_original=original, **kwargs):
+                nonlocal active, peak
+                active += 1
+                peak = max(peak, active)
+                try:
+                    await asyncio.sleep(0.01)
+                    return await invoke_original(*args, **kwargs)
+                finally:
+                    active -= 1
+            translator._translation_runtime.__dict__['_invoke'] = invoke
+            translator._fill_runtime.__dict__['_invoke'] = invoke
+            async def roots():
+                for index in range(24):
+                    yield TranslationTask(fromstring(f'<html><body><p>Paragraph {index}.</p></body></html>'),
+                                          SubmitKind.REPLACE, index)
+            with simultaneous_calls(translator, 24):
+                results = await asyncio.wait_for(translator._translate_elements(
+                    roots(), **StructuredTranslation().arguments(), window=window), 5)
+            self.assertEqual(len(results), 24)
+            self.assertGreater(len(model.calls), 2)
+            self.assertEqual(peak, window)
+            self.assertEqual(active, 0)
+
+    @policy_operation
+    async def test_compact_batches_enforce_unit_and_wire_token_limits(self):
+        translator, model = translator_fixture()
+        shared = 'Shared translation instruction. ' * 500
+        async def request(index):
+            async with translator._translation_runtime.context() as context:
+                return await translator._requests.request(context, [
+                    Message(MessageRole.SYSTEM, shared), Message(MessageRole.USER, f'unit {index}')],
+                    runtime=translator._translation_runtime, stage='translation')
+        results = await asyncio.wait_for(asyncio.gather(*(request(index) for index in range(145))), 5)
+        self.assertEqual(results, [f'unit {index}' for index in range(145)])
+        self.assertTrue(any(len(batch) == MAX_BATCH_UNITS for batch in model.calls))
+        self.assertTrue(all(len(batch) <= MAX_BATCH_UNITS for batch in model.calls))
+        encoding = await translator._translation_runtime.encoding()
+        for messages in model.wire_calls:
+            self.assertEqual(messages[0].message.count(shared), 1)
+            self.assertNotIn(shared, messages[1].message)
+            units = json.loads(messages[1].message)
+            response = json.dumps([{'id': unit['id'], 'text': unit['messages'][0]['content']} for unit in units])
+            wire_tokens = sum(len(encoding.encode(message.message)) for message in messages)
+            self.assertLessEqual(wire_tokens + len(encoding.encode(response)), translator._requests.budget)
 
     async def test_repeated_local_formula_ids_stay_in_their_own_units(self):
         translator, model = translator_fixture()
@@ -315,6 +471,7 @@ class RequestBatchTests(IsolatedAsyncioTestCase):
         self.assertEqual(RequestBatcher._answers('[{"id":"9","text":"a"}]', 2), {})
         self.assertEqual(RequestBatcher._answers('[{"id":"1","text":"b"}]', 2), {'1': 'b'})
         self.assertEqual(RequestBatcher._answers('[{"id":"0","id":"1","text":"b"}]', 2), {})
+        self.assertEqual(RequestBatcher._answers(r'[{"id":"0","text":"a\u0000b\ud800c\u200b"}]', 1), {'0': 'abc\u200b'})
         self.assertEqual(RequestBatcher._answers('```json\n[{"id":"0","text":"a"}]\n```', 1), {'0': 'a'})
 
     @policy_operation
@@ -352,6 +509,54 @@ class RequestBatchTests(IsolatedAsyncioTestCase):
         with self.assertRaises(asyncio.CancelledError):
             await last
         self.assertTrue(closed.is_set())
+        self.assertEqual(batcher.pending, {})
+        self.assertEqual(batcher.timers, {})
+
+    @policy_operation
+    async def test_cancel_queued_transport_releases_ownership_without_sending(self):
+        translator, model = translator_fixture()
+        batcher = translator._requests
+        batcher.budget = 1  # Keep the two conversations in separate requests.
+        entered, queued, release = asyncio.Event(), asyncio.Event(), asyncio.Event()
+        original_invoke = model.invoke
+        original_execute = batcher._execute
+        executions = 0
+        async def invoke(*args, **kwargs):
+            entered.set()
+            await release.wait()
+            return await original_invoke(*args, **kwargs)
+        async def execute(*args):
+            nonlocal executions
+            executions += 1
+            if executions == 2:
+                queued.set()
+            return await original_execute(*args)
+        translator._translation_runtime.__dict__['_invoke'] = invoke
+        async def request(text):
+            async with translator._translation_runtime.context() as context:
+                return await batcher.request(context, [Message(MessageRole.USER, text)],
+                                             runtime=translator._translation_runtime, stage='translation')
+        with request_window(1), patch.object(batcher, '_execute', execute):
+            first = asyncio.create_task(request('first'))
+            second = None
+            try:
+                await asyncio.wait_for(entered.wait(), 2)
+                second = asyncio.create_task(request('second'))
+                await asyncio.wait_for(queued.wait(), 2)
+                second.cancel()
+                with self.assertRaises(asyncio.CancelledError):
+                    await second
+                release.set()
+                self.assertEqual(await asyncio.wait_for(first, 2), 'first')
+                self.assertEqual(await asyncio.wait_for(request('third'), 2), 'third')
+            finally:
+                release.set()
+                for task in (first, second):
+                    if task is not None:
+                        task.cancel()
+                await asyncio.gather(*(task for task in (first, second) if task is not None),
+                                     return_exceptions=True)
+        self.assertEqual(len(model.calls), 2)
         self.assertEqual(batcher.pending, {})
         self.assertEqual(batcher.timers, {})
 

@@ -23,8 +23,7 @@ from pdf_craft.transformer.xml_translator.segment import (
 from pdf_craft.progress import ProgressEvent, UnitKind
 from pdf_craft.transformer.xml_translator.xml import decode_friendly, encode_friendly
 from .callbacks import Callbacks, warp_callbacks
-from .concurrency import run_concurrency_async
-from ...request_batch import RequestBatcher, MAX_BATCH_UNITS
+from ...request_batch import RequestBatcher, with_request_window
 from pdf_craft._policy import current, recover
 from pdf_craft.policies import FailureCategory, RetryScope
 from pdf_craft._failure_sources import tag_locations, segment_locations, task_locations
@@ -174,6 +173,7 @@ class XMLTranslator:
             window=window, unit_counts=unit_counts,
         )
 
+    @with_request_window
     async def _translate_elements(
         self,
         tasks: Iterable[TranslationTask[T]] | AsyncIterable[TranslationTask[T]],
@@ -428,7 +428,7 @@ class XMLTranslator:
         segment_groups = (translation_protocol.groups(inline_segments)
                           if translation_protocol is not None else [inline_segments])
         mappings: list[InlineSegmentMapping | None] = []
-        async def execute(group):
+        for group in segment_groups:
             result = await self._translate_inline_segment_group_async(
                 inline_segments=group,
                 callbacks=callbacks,
@@ -443,12 +443,7 @@ class XMLTranslator:
             )
             if on_round is not None:
                 await on_round(group)
-            return result
-
-        results = run_concurrency_async(segment_groups, execute, MAX_BATCH_UNITS)
-        async with aclosing(results):
-            async for result in results:
-                mappings.extend(result)
+            mappings.extend(result)
         return mappings
 
     @adopted_result(lambda mappings: any(mapping is not None for mapping in mappings))
@@ -552,8 +547,9 @@ class XMLTranslator:
             f"XML template:\n```XML\n{encode_friendly(hill_climbing.request_element())}\n```\n\n"
             f"Translated text:\n{canonical_math.text if canonical_math is not None else translated_text}"
         )
+        canonical_instructions = ''
         if canonical_text_validator is not None:
-            user_message += (
+            canonical_instructions = (
                 "\n\nCanonical visible-text constraint:\n"
                 "For this translation unit, concatenating all visible text in its "
                 "source slots must reproduce the corresponding canonical "
@@ -579,7 +575,7 @@ class XMLTranslator:
             user_message += canonical_math.instructions()
         fill_template = await self._fill_runtime.template("fill")
         fixed_messages = [
-            Message(MessageRole.SYSTEM, fill_template.render()),
+            Message(MessageRole.SYSTEM, fill_template.render() + canonical_instructions),
             Message(MessageRole.USER, user_message),
         ]
         async with self._fill_runtime.context(
