@@ -516,6 +516,86 @@ _TEMPLATES["retained_reading_position"] = {'type': 'noul',
                        'uncertain.'}}
 
 
+_TEMPLATES['ended_utterance_boundary'] = {'type': 'noul',
+ 'instructions': ['At this proposed NEW paragraph boundary, has the preceding spoken turn ended by '
+                  'trailing off or interruption, with the target beginning outside that turn?',
+                  'Locate the nearest genuine main-reading predecessor in the supplied raw local '
+                  'evidence. A closing quote after an ellipsis is only a candidate cue. Do not '
+                  'invent missing words, speakers, indentation or a predecessor outside the '
+                  'supplied neighborhood.',
+                  'A deliberately unfinished utterance can finish a spoken turn: later independent '
+                  'narration about an interruption or a new utterance need not grammatically '
+                  'complete that abandoned utterance. Do not require the words inside a '
+                  'deliberately ended spoken turn to form a complete sentence.',
+                  'The outside grammatical frame must nevertheless be complete. If an outer '
+                  'conditional or subordinate clause containing the quoted speech still awaits its '
+                  'main clause or obligatory complement from the target, answer FALSE. Also reject '
+                  'if the target continues the same quoted utterance or merely supplies a missing '
+                  'obligatory component rather than begins outside it.',
+                  'This proves only that this syntax break is permissible under the ended-turn '
+                  'convention, not a word boundary, ownership, other gaps, or OCR correctness. If '
+                  'the actual ended-turn-to-independent-content relationship is not established, '
+                  'answer FALSE.'],
+ 'criteria': {'true': 'The spoken turn has ended and the target begins independently outside it; '
+                      'no unfinished outer frame requires this join.',
+              'false': 'The independent content after an ended turn is not established, or a '
+                       'required outside construction still continues.'}}
+
+_TEMPLATES['math_unit_boundary'] = {'type': 'noul',
+ 'instructions': ['At this specific NEW paragraph boundary, does the target constitute a '
+                  'separately presented mathematical statement, variable assignment, numerical '
+                  'display, or independently numbered exercise item?',
+                  'Use the supplied full local_raw_evidence, source boxes, and the nearest genuine '
+                  'predecessor. OCR text labels do not preclude a mathematical display, and '
+                  'mathematical notation inside ordinary running prose does not establish one. Do '
+                  'not invent indentation, missing text or a different predecessor.',
+                  'Successive complete variable assignments may be separately presented even when '
+                  'introduced by one imperative or connected by and. An instruction introducing a '
+                  'list of separately numbered exercises may stand separately from each item. A '
+                  'self-contained mathematical display is a hard paragraph boundary even when '
+                  'introduced by running prose.',
+                  'Do not certify an ordinary running clause merely because it contains a number '
+                  'or inline formula. Reject a target that supplies the missing word ending, a '
+                  'temperature/unit fragment embedded in an unfinished prose noun phrase, a '
+                  'continued condition whose main clause follows, or another obligatory prose '
+                  'complement without an independent mathematical/list-item function.',
+                  'Assess the actual independent mathematical/item function, not the truth of the '
+                  'mathematics or whether two related passages could be written together. If this '
+                  'role is not established, answer FALSE. This proof affects only this syntax '
+                  'break; it does not approve ownership, another boundary, or missing OCR.'],
+ 'criteria': {'true': 'The target is an independently presented mathematical or numbered exercise '
+                      'unit; a new paragraph is legitimate under this convention.',
+              'false': 'Such an independent unit is not established, or this is a required '
+                       'running-prose continuation.'}}
+
+
+_TEMPLATES['reporting_join'] = {'type': 'noul',
+ 'instructions': ['For this EXISTING incoming JOIN only, is the target utterance the direct spoken '
+                  'content introduced by the immediately preceding reporting frame, rather than a '
+                  'fresh independently attributed turn?',
+                  'Find the nearest genuine main-reading predecessor using the full supplied local '
+                  'raw evidence. A colon and quote delimiters are only selection cues. Establish '
+                  'an actual reporting relation, not merely topical continuity, a list, a '
+                  'quotation of a term, or two independent speakers.',
+                  'A reporting verb with its speaker can introduce the words spoken by that same '
+                  'speaker in the following quoted block. Joining that introduction and its direct '
+                  'spoken content is legitimate even if printing could also separate the quote. Do '
+                  'not demand a split merely because the target begins with an opening quotation '
+                  'mark.',
+                  'If the preceding frame already contains the full spoken content or the target '
+                  'introduces another speaker, another independent utterance, a new heading/item, '
+                  'or independent narration, answer FALSE. Do not infer missing speech or depend '
+                  'on following pages.',
+                  'This proof only permits this specific incoming join; it does not approve source '
+                  'ownership, references, other gaps, missing OCR or final styling. If an '
+                  'unambiguous introduction-to-direct-speech relation is not established, answer '
+                  'FALSE.'],
+ 'criteria': {'true': 'This join combines one reporting introduction with its own direct spoken '
+                      'complement, with no independent turn boundary.',
+              'false': 'That single reporting-frame relation is not established, or this joins '
+                       'independent turns/content.'}}
+
+
 def question(kind: str, name: str) -> dict[str, Any]:
     """Create an isolated question for one named source decision."""
     value = deepcopy(_TEMPLATES[kind])
