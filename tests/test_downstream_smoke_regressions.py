@@ -15,6 +15,7 @@ from pdf_craft.extractor.chapter.chapter import SourceAsset
 from pdf_craft.markdown.paragraph import HTMLTag, tag_definition
 from pdf_craft.transformer import AnchoredContent, AnchoredContentXMLTransformer
 from pdf_craft.transformer.canonical_math import CanonicalMath
+from pdf_craft.transformer.canonical_projection import MathProjectionError
 from pdf_craft.transformer.request_batch import BatchResponseError, RequestBatcher
 from pdf_craft.transformer.structured_translation import StructuredTranslation
 from pdf_craft.transformer.xml_translator.segment import search_inline_segments, search_text_segments
@@ -162,20 +163,12 @@ class DownstreamSmokeRegressions(IsolatedAsyncioTestCase):
         self.assertIsNone(math.expand(broken, require_complete=False))
         self.assertIsNotNone(protocol.validate(segments, canonical, broken))
 
-    async def test_extra_math_reference_does_not_require_an_extra_source_slot(self):
-        # The real character paragraph has 22 canonical formulas but 21 source
-        # slots. Crop to three references/two slots, keeping the same mismatch.
-        bad = ('<xml><fragment id="1"><expression id="2"><math-ref key="m1"/></expression> '
-               '<expression id="3"><math-ref key="m2"/></expression> '
-               '<expression id="4"><math-ref key="m3"/></expression></fragment></xml>')
-        good = ('<xml><fragment id="1"><expression id="2"><math-ref key="m1"/> '
-                '<math-ref key="m2"/></expression> '
-                '<expression id="3"><math-ref key="m3"/></expression></fragment></xml>')
-        translator, runtime = _repairing_translator([bad, good])
+    async def test_extra_canonical_math_cannot_be_adopted_as_a_new_source_formula(self):
+        translator, runtime = _repairing_translator([])
         translator._translate_text_async = AsyncMock(return_value='$x$ $y$ $z$')
-        await NarrativeXMLTransformer(translator).transform(formula_source(), error_policy=False)
-        self.assertEqual(runtime.context_value.calls, 2)
-        self.assertIn('Unexpected inline element', runtime.context_value.messages[1][0][-1].message)
+        with self.assertRaises(MathProjectionError):
+            await NarrativeXMLTransformer(translator).transform(formula_source(), error_policy=False)
+        self.assertEqual(runtime.context_value.calls, 0)
 
     def test_cross_slot_gap_uses_decomposed_character_offsets(self):
         root = fromstring('<text><fragment>é label</fragment><fragment>next</fragment></text>')

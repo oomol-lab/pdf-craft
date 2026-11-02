@@ -1,15 +1,14 @@
-"""Project accepted canonical math by value, independently of source slot IDs.
+"""Project accepted math using original source occurrences, never generated values.
 
 Source expression nodes are allocation containers. They are transparent when
 the canonical text declares mathematical boundaries: replacing their contents
 with an unrelated source formula would invalidate the text just accepted.
 """
-from collections.abc import Callable
 from copy import deepcopy
 from dataclasses import dataclass, replace
 import re
 import unicodedata
-from xml.etree.ElementTree import Element
+from xml.etree.ElementTree import Element, tostring
 
 from .canonical_math import CanonicalMath
 from .whitespace import WhiteSpace, normalize
@@ -22,11 +21,15 @@ MathMapping = tuple[Element, list[TextSegment]]
 class MathProjectionError(ValueError):
     """Canonical math cannot be represented without changing accepted content."""
 
+    attempts: int = 1
+
 
 @dataclass(frozen=True)
 class SourceMath:
     latex: str
     element: Element
+    slot: Element | None = None
+    context: bool = False
 
 
 def formula_content(value: str) -> tuple[str, bool]:
@@ -51,14 +54,12 @@ def _math_identity(value: str) -> str:
 
 
 class _FormulaPool:
-    def __init__(self, sources: list[SourceMath], create: Callable[[str], Element]):
-        self.sources = [source for source in sources
-                        if [match.group() for match in CanonicalMath.matches(source.latex)] == [source.latex]]
+    def __init__(self, sources: list[SourceMath]):
+        self.sources = sources
         self.parts = [formula_content(source.latex)[0].strip(' \t\r\n') for source in self.sources]
-        self.create = create
         self.used: set[int] = set()
 
-    def take(self, value: str) -> list[Element]:
+    def take(self, value: str) -> list[SourceMath]:
         body, _ = formula_content(value)
         expected = _math_identity(body)
         # Reuse exact source presentation, including an unchanged sequence of
@@ -81,23 +82,33 @@ class _FormulaPool:
                     if min(map(len, candidates)) > len(expected):
                         break
         if groups:
+            def signature(indexes):
+                nodes = [deepcopy(self.sources[index].element) for index in indexes]
+                for node in nodes:
+                    node.tail = None
+                return tuple(tostring(node) for node in nodes)
+            if len({signature(indexes) for indexes in groups}) != 1:
+                raise MathProjectionError('Ambiguous source formula: preserve its source-math identity.')
             indexes = groups[0]
             self.used.update(indexes)
-            nodes = [deepcopy(self.sources[index].element) for index in indexes]
-            for node in nodes:
-                node.tail = None
-            return nodes
-        return [self.create(value)]
+            return [self.sources[index] for index in indexes]
+        raise MathProjectionError('A translated formula has no unchanged source counterpart. Preserve source-math identities.')
+
+
+def bind_source_math(canonical: str, sources: list[SourceMath]) -> list[list[SourceMath]]:
+    """Recover literal replies only when every source occurrence is accounted for."""
+    pool = _FormulaPool(sources)
+    bindings = [pool.take(value) for value in CanonicalMath(canonical).values.values()]
+    if len(pool.used) != len(sources):
+        raise MathProjectionError('Missing source formulas: preserve every source-math identity once.')
+    return bindings
 
 
 def project_canonical_math(
-    mappings: list[MathMapping | None], canonical: str, sources: list[SourceMath],
-    create: Callable[[str], Element],
+    mappings: list[MathMapping | None], canonical: str, bindings: list[list[SourceMath]],
 ) -> list[MathMapping | None] | None:
     values = list(CanonicalMath(canonical).values.values())
     if not values:
-        # A prose rendering such as "16倍" retains the established source
-        # presentation contract; it has no canonical math boundaries to type.
         return None
     segments = [segment for mapping in mappings if mapping for segment in mapping[1]]
     if any(segment.block_parent.tag == 'expression' for segment in segments):
@@ -110,7 +121,8 @@ def project_canonical_math(
         _normalized(match.group()) != _normalized(value) for match, value in zip(matches, values)
     ):
         raise MathProjectionError('Canonical mathematical boundaries differ from the accepted formula table.')
-    pool = _FormulaPool(sources, create)
+    if len(bindings) != len(values):
+        raise MathProjectionError('Missing source identities for canonical mathematical boundaries.')
     projected: list[MathMapping | None] = []
     offset = 0
     for mapping in mappings:
@@ -124,14 +136,16 @@ def project_canonical_math(
             stack = [node for node in field.parent_stack
                      if not (node.tag == 'expression' and is_inline_element(node))]
             cursor = offset
-            for match, value in zip(matches, values):
+            for match, binding in zip(matches, bindings):
                 if match.end() <= offset or match.start() >= end:
                     continue
                 if cursor < match.start():
                     output.append(replace(field, text=text[cursor:match.start()], parent_stack=stack,
                                           block_depth=find_block_depth(stack)))
                 if offset <= match.start():
-                    for node in pool.take(value):
+                    for source in binding:
+                        node = deepcopy(source.element)
+                        node.tail = None
                         for part in search_text_segments(node, normalize_whitespace=False):
                             parents = stack + part.parent_stack
                             output.append(replace(part, parent_stack=parents, block_depth=find_block_depth(parents),

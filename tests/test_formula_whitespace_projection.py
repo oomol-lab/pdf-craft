@@ -28,19 +28,20 @@ class FormulaProjectionTests(IsolatedAsyncioTestCase):
             with self.subTest(left=left, between=between, right=right):
                 source = Chapter(None, -1, [TextFlowItem('body', -1, [
                     SourceTextFragment(1, 0, (0, 0, 100, 20), [
-                        'Use ', _expression('x'), _expression('y'), ' now.',
+                        'Use ', _expression('甲'), _expression('乙'), ' now.',
                     ]),
                 ])])
                 response = ('<xml><fragment id="1">取'
                             f'<expression id="2">{left}</expression>{between}'
                             f'<expression id="3">{right}</expression>。</fragment></xml>')
+                response = response.replace('甲', r'\(甲\)').replace('乙', r'\(乙\)')
                 translator, runtime = _repairing_translator([response])
-                translator._translate_text_async = AsyncMock(return_value='取甲 乙。')
+                translator._translate_text_async = AsyncMock(return_value='取<source-math key="s1"/> <source-math key="s2"/>。')
                 target = await NarrativeXMLTransformer(translator).transform(source, error_policy=False)
                 self.assertEqual(runtime.context_value.calls, 1)
                 expected = Chapter(None, -1, [TextFlowItem('body', -1, [
                     SourceTextFragment(1, 0, (0, 0, 100, 20), [
-                        '取', _expression('x'), ' ', _expression('y'), '。',
+                        '取', _expression('甲'), ' ', _expression('乙'), '。',
                     ]),
                 ])])
                 self.assertEqual(target, expected)
