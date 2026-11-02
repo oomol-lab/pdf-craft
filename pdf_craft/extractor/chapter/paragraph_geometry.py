@@ -1,6 +1,7 @@
 """Conservative paragraph evidence from visible horizontal single lines."""
 
 from unicodedata import east_asian_width
+from statistics import median
 
 from ...pdf import PageLayout
 from .chapter import SourceTextFragment, TextFlowItem
@@ -107,9 +108,10 @@ def indented_line_starts(layouts: list[PageLayout]) -> set[tuple[int, int, int, 
     Existing pixel measurements take precedence over this fallback estimate.
     """
     starts = set()
+    math_lines = _math_single_lines(layouts)
     for index, layout in enumerate(layouts):
         if (layout.ref != "text" or layout.first_line_inset is not None
-                or not _single_line_text(layout.text, layout.det)):
+                or (not _single_line_text(layout.text, layout.det) and layout.det not in math_lines)):
             continue
         left, top, right, bottom = layout.det
         height, width = bottom - top, right - left
@@ -122,7 +124,7 @@ def indented_line_starts(layouts: list[PageLayout]) -> set[tuple[int, int, int, 
             a, b, c, d = other.det
             if (c - a >= width + 0.75 * height and a <= left and c >= right
                     and (d <= top or b >= bottom)
-                    and not _single_line_text(other.text, other.det)):
+                    and not _single_line_text(other.text, other.det) and other.det not in math_lines):
                 candidates.append((max(top - d, b - bottom), a))
         if candidates:
             distance = min(value[0] for value in candidates)
@@ -149,3 +151,36 @@ def _single_line_text(text: str, bbox: tuple[int, int, int, int]) -> bool:
     height = bottom - top
     return (units >= 4 and height > 0
             and 0.6 * units * height <= right - left <= 1.8 * units * height)
+
+
+def _math_single_lines(layouts: list[PageLayout]) -> set[tuple[int, int, int, int]]:
+    """Use consistent neighboring line heights, never LaTeX source advances."""
+    lines = set()
+    for index, layout in enumerate(layouts):
+        if (layout.ref != 'text' or layout.first_line_inset is not None
+                or '\n' in layout.text or not ('\\(' in layout.text or '$' in layout.text)):
+            continue
+        left, top, right, bottom = layout.det
+        height = bottom - top
+        if height <= 0 or right - left < 3 * height:
+            continue
+        references = []
+        for position in range(max(0, index - 3), min(len(layouts), index + 4)):
+            other = layouts[position]
+            if other is layout or other.ref != 'text' or not _single_line_text(other.text, other.det):
+                continue
+            a, b, c, d = other.det
+            if ((d <= top or b >= bottom)
+                    and min(right, c) - max(left, a) >= .5 * min(right - left, c - a)):
+                references.append((d - b, abs(position - index), max(top - d, b - bottom)))
+        if len(references) >= 2:
+            heights = [reference[0] for reference in references]
+            scale = median(heights)
+            if (min(heights) >= .8 * scale and max(heights) <= 1.2 * scale
+                    and .6 * scale <= height <= 1.5 * scale):
+                lines.add(layout.det)
+        elif len(references) == 1:
+            scale, steps, gap = references[0]
+            if steps == 1 and gap <= 2 * scale and .8 * scale <= height <= 1.25 * scale:
+                lines.add(layout.det)
+    return lines

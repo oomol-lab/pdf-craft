@@ -5,6 +5,7 @@ import unittest
 from pdf_craft.extractor.chapter.chapter import SourceTextFragment, TextFlowItem
 from pdf_craft.extractor.chapter.jointer import Jointer
 from pdf_craft.extractor.chapter.primary import project_window
+from pdf_craft.extractor.chapter.paragraph_geometry import indented_line_starts
 from pdf_craft.pdf import Page, PageLayout
 
 
@@ -39,6 +40,32 @@ class HorizontalParagraphTests(unittest.TestCase):
                     _layout(1, (80, 230, 620, 270), "另一個完整的回答就在這裏。"),
                 ]
                 self.assertEqual(_can_join(layouts), joined)
+
+    def test_math_single_line_uses_consistent_neighboring_line_heights(self):
+        for second_height, math_height, expected in ((40, 45, False), (70, 45, True),
+                                                     (40, 90, True)):
+            with self.subTest(reference=second_height, target=math_height):
+                layouts = [
+                    _layout(0, (0, 0, 1000, 160), "A complete background paragraph ends here."),
+                    _layout(1, (0, 190, 400, 230), "Definitions."),
+                    _layout(2, (0, 250, 700, 250 + second_height), "Take a simple example:"),
+                    _layout(3, (80, 350, 600, 350 + math_height), r"Let \(u = t^2 + c\)."),
+                ]
+                for footnotes in (False, True):
+                    page = project_window([None, Page(1, None, layouts, [], 0, 0), None], footnotes)[1]
+                    assert page is not None
+                    self.assertEqual(page.layouts[3].continues_from_previous, expected)
+
+    def test_one_nearby_math_line_reference_has_stricter_distance_and_pixel_guards(self):
+        for top, inset, expected in ((270, None, False), (500, None, True), (270, 0.0, True)):
+            with self.subTest(top=top, known_inset=inset):
+                layouts = [
+                    _layout(0, (0, 0, 1000, 160), "A complete background paragraph ends here."),
+                    _layout(1, (0, 190, 400, 230), "For example:"),
+                    _layout(2, (80, top, 600, top + 45), r"Let \(u = t^2 + c\)."),
+                ]
+                layouts[2].first_line_inset = inset
+                self.assertEqual(layouts[2].det in indented_line_starts(layouts), not expected)
 
     def test_column_wrap_within_one_histogram_group_is_joined(self):
         # A page-wide image bridges the gutter in the projection histogram.

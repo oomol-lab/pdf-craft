@@ -9,6 +9,10 @@ from .mark import Mark, search_marks
 
 _CHINESE_DIGITS = str.maketrans('〇零一二三四五六七八九', '00123456789')
 _SHORT_NUMBER = re.compile(r'(?:[0-9]{1,3}|[〇零一二三四五六七八九]{1,3})')
+_CHAPTER_FOOTER = re.compile(
+    r'^([1-9][0-9]{0,2})\s+(?:chapter|chapitre|kapitel|cap[ií]tulo|capitolo)\s+'
+    r'(?:[1-9][0-9]{0,2}|[IVXLCDM]+)\s+([\w-]+(?:\s+[\w-]+){0,5})$', re.I)
+
 
 def marginal_numbers(page):
     """Select isolated outer folios or single-line centered bottom folios.
@@ -75,7 +79,7 @@ def reading_notes(page):
 
 def marginal_layouts(page):
     """Share exclusions between note selection and retained ignored sources."""
-    return [*marginal_numbers(page), *_marginal_codes(page)]
+    return [*marginal_numbers(page), *_marginal_codes(page), *_chapter_footers(page)]
 
 
 def _marginal_codes(page):
@@ -112,5 +116,43 @@ def _marginal_codes(page):
     height, width = y2 - y1, x2 - x1
     if (height > 0 and 0 < width <= 5 * height and y1 - bottom >= 4 * height
             and y1 - top >= 15 * height and (x2 <= left or x1 >= right)):
+        return [candidate]
+    return []
+
+
+def _chapter_footers(page):
+    """Require both a bounded footer grammar and an isolated outer reading band.
+
+    This local hypothesis never depends on a whole-book header inventory.
+    Real reference typography or other note content keeps the source for review.
+    """
+    candidates = [item for item in page.footnotes_layouts
+                  if item.ref == 'text' and _CHAPTER_FOOTER.fullmatch(item.text)]
+    if len(candidates) != 1:
+        return []
+    candidate = candidates[0]
+    if any(item is not candidate and any(char.isalnum() for char in item.text)
+           for item in page.footnotes_layouts):
+        return []
+    body = [item for item in page.body_layouts if item.ref == 'text'
+            and any(char.isalnum() for char in item.text)]
+    if len(body) < 2 or sum(len(item.text) for item in body) < 150:
+        return []
+    if any(explicit_numbers(_parse_block_content(item.text))
+           or flattened_numbers(_parse_block_content(item.text))
+           or any(isinstance(mark, Mark) for mark in search_marks(item.text))
+           or any(mark in item.text for mark in ('*', '†', '‡', '<sup'))
+           or re.search(r'(?:^|[\s($])(?:\{\s*\})?\^\{', item.text)
+           for item in body):
+        return []
+    left, right = min(item.det[0] for item in body), max(item.det[2] for item in body)
+    top = min(item.det[1] for item in body)
+    bottom = max(item.det[3] for item in page.body_layouts)
+    x1, y1, x2, y2 = candidate.det
+    height, width = y2 - y1, x2 - x1
+    edge = ((x1 <= left + .5 * height and x2 <= left + .4 * (right - left))
+            or (x2 >= right - .5 * height and x1 >= right - .4 * (right - left)))
+    if (height > 0 and 3 * height <= width <= 30 * height
+            and y1 - bottom >= height and y1 - top >= 15 * height and edge):
         return [candidate]
     return []
