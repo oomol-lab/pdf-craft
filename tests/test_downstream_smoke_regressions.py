@@ -21,7 +21,7 @@ from pdf_craft.transformer.xml_translator.segment import search_inline_segments,
 from pdf_craft.transformer.xml_translator.xml_translator import TranslationTask
 from tests.test_request_batch import translator_fixture
 from tests.test_anchored_content_translation import _repairing_translator
-from tests.test_canonical_math_allocation import source
+from tests.test_canonical_math_allocation import source as formula_source
 from pdf_craft.transformer.narrative_xml import NarrativeXMLTransformer
 from tests.test_structured_translation import offline_translator
 
@@ -82,6 +82,42 @@ class DownstreamSmokeRegressions(IsolatedAsyncioTestCase):
         self.assertEqual(RequestBatcher._answers(
             '[{"id":"0","text":"ok"},{"id":"0","text":null}]', 1), {})
 
+    def test_malformed_objects_invalidate_every_competing_identity_in_either_order(self):
+        valid = [{"id": str(index), "text": f"accepted {index}"} for index in range(3)]
+        for malformed, expected in (
+            ('{"id":"0","text":"x","text":"y"}', {'1': 'accepted 1', '2': 'accepted 2'}),
+            ('{"id":"0","id":"1","text":"ambiguous"}', {'2': 'accepted 2'}),
+            ('{"id":"0","id":"0","text":"ambiguous"}', {'1': 'accepted 1', '2': 'accepted 2'}),
+        ):
+            for first in (False, True):
+                with self.subTest(malformed=malformed, malformed_first=first):
+                    items = [json.dumps(entry) for entry in valid]
+                    items.insert(0 if first else len(items), malformed)
+                    self.assertEqual(RequestBatcher._answers('[' + ','.join(items) + ']', 3), expected)
+
+    async def test_malformed_identity_conflict_uses_existing_translation_retry_budget(self):
+        async def exercise(malformed_first):
+            translator, _ = translator_fixture()
+            invocations = []
+            async def invoke(messages, *_args, **_kwargs):
+                invocations.append(messages)
+                if len(invocations) == 1:
+                    items = ['{"id":"0","text":"competing answer"}',
+                             '{"id":"1","text":"accepted sibling"}']
+                    items.insert(0 if malformed_first else len(items),
+                                 '{"id":"0","text":"x","text":"y"}')
+                    return '[' + ','.join(items) + ']'
+                return messages[-1].message
+            translator._translation_runtime.__dict__['_invoke'] = invoke
+            result = await self._translations(translator, ['source A', 'source B'],
+                                              retry_policy=RetryPolicy(translation=1))
+            self.assertEqual(result, ['source A', 'accepted sibling'])
+            self.assertEqual(len(invocations), 2)
+            self.assertNotIn('source B', str(invocations[1]))
+        for first in (False, True):
+            with self.subTest(malformed_first=first):
+                await exercise(first)
+
     async def test_identical_text_and_quotations_are_not_quality_retry_triggers(self):
         translator, model = translator_fixture()
         source = 'A name, a quotation: «原文», and a mathematical symbol x.'
@@ -137,7 +173,7 @@ class DownstreamSmokeRegressions(IsolatedAsyncioTestCase):
                 '<expression id="3"><math-ref key="m3"/></expression></fragment></xml>')
         translator, runtime = _repairing_translator([bad, good])
         translator._translate_text_async = AsyncMock(return_value='$x$ $y$ $z$')
-        await NarrativeXMLTransformer(translator).transform(source(), error_policy=False)
+        await NarrativeXMLTransformer(translator).transform(formula_source(), error_policy=False)
         self.assertEqual(runtime.context_value.calls, 2)
         self.assertIn('Unexpected inline element', runtime.context_value.messages[1][0][-1].message)
 

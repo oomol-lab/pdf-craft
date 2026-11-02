@@ -71,6 +71,12 @@ class _IncompleteBatch(Exception):
     """Roll back a partial envelope's cache without discarding valid siblings."""
 
 
+@dataclass
+class _ResponseObject:
+    # Keep duplicate fields until all competing identities have been examined.
+    pairs: list[tuple[str, Any]]
+
+
 @dataclass(eq=False)
 class _Call:
     messages: list[Message]
@@ -232,37 +238,36 @@ class RequestBatcher:
             response = response[8:-4]
         elif response.startswith('```\n') and response.endswith('\n```'):
             response = response[4:-4]
-        def unique_object(pairs):
-            result = {}
-            for key, value in pairs:
-                if key in result:
-                    return None  # This object is ambiguous; independent siblings remain usable.
-                result[key] = value
-            return result
         try:
-            decoded = json.loads(response, object_pairs_hook=unique_object)
+            decoded = json.loads(response, object_pairs_hook=_ResponseObject)
         except (ValueError, TypeError):
             return {}
         if not isinstance(decoded, list):
             return {}
         answers = {}
         expected = {str(index) for index in range(count)}
-        seen = set()
+        seen, ambiguous = set(), set()
         for item in decoded:
-            if (not isinstance(item, dict) or not isinstance(item.get('id'), str)
-                    or item['id'] not in expected):
+            if not isinstance(item, _ResponseObject):
                 continue
-            identity = item['id']
-            if identity in seen:
-                answers.pop(identity, None)
+            identities = {value for key, value in item.pairs
+                          if key == 'id' and isinstance(value, str) and value in expected}
+            ambiguous.update(seen & identities)
+            seen.update(identities)
+            fields = dict(item.pairs)
+            if len(fields) != len(item.pairs):
+                # A malformed object's IDs still conflict with valid entries,
+                # in either order. Duplicate id fields can taint multiple IDs.
+                ambiguous.update(identities)
                 continue
-            seen.add(identity)
-            if set(item) != {'id', 'text'} or not isinstance(item['text'], str):
+            if (set(fields) != {'id', 'text'} or len(identities) != 1
+                    or not isinstance(fields['text'], str)):
                 continue
+            identity = next(iter(identities))
             # JSON escapes become characters only here; match the ordinary
             # LLM ingress after decoding rather than letting escaped control
             # characters bypass the runtime's safe_text normalization.
-            text = safe_text(item['text'])
+            text = safe_text(fields['text'])
             if text.strip():
                 answers[identity] = text
-        return answers
+        return {identity: answer for identity, answer in answers.items() if identity not in ambiguous}
