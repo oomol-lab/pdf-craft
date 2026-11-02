@@ -103,10 +103,14 @@ class DownstreamSmokeRegressions(IsolatedAsyncioTestCase):
             async def invoke(messages, *_args, **_kwargs):
                 invocations.append(messages)
                 if len(invocations) == 1:
-                    items = ['{"id":"0","text":"competing answer"}',
-                             '{"id":"1","text":"accepted sibling"}']
+                    # Ready calls can arrive in either order after async token
+                    # encoding. Envelope IDs identify requests, not gather order.
+                    payload = json.loads(messages[-1].message)
+                    identities = {entry['messages'][-1]['content']: entry['id'] for entry in payload}
+                    items = [json.dumps({'id': identities['source A'], 'text': 'competing answer'}),
+                             json.dumps({'id': identities['source B'], 'text': 'accepted sibling'})]
                     items.insert(0 if malformed_first else len(items),
-                                 '{"id":"0","text":"x","text":"y"}')
+                                 '{"id":' + json.dumps(identities['source A']) + ',"text":"x","text":"y"}')
                     return '[' + ','.join(items) + ']'
                 return messages[-1].message
             translator._translation_runtime.__dict__['_invoke'] = invoke
