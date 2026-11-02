@@ -3,6 +3,7 @@
 from copy import deepcopy
 import os
 import hashlib
+import json
 import unicodedata
 from typing import cast
 from pathlib import Path
@@ -57,15 +58,15 @@ def offline_translator():
 class StructuredTranslationTests(IsolatedAsyncioTestCase):
     async def test_non_narrative_units_have_independent_canonical_translations(self):
         translator, runtime = _repairing_translator([
-            '<xml><unit id="1">first</unit></xml>',
-            '<xml><unit id="1">second</unit></xml>',
+            json.dumps([{'id': '1', 'text': '<xml><unit id="1">second</unit></xml>'},
+                        {'id': '0', 'text': '<xml><unit id="1">first</unit></xml>'}]),
         ])
         translator._translate_text_async = AsyncMock(side_effect=['first', 'second'])
         protocol = StructuredTranslation(owner=lambda segment: segment.parent)
         root = fromstring('<document><unit>one</unit><unit>two</unit></document>')
         target, _ = await protocol.translate(translator, TranslationTask(root, SubmitKind.REPLACE, None))
         self.assertEqual([node.text for node in target], ['first', 'second'])
-        self.assertEqual(runtime.context_value.calls, 2)
+        self.assertEqual(runtime.context_value.calls, 1)
 
     async def test_asset_uses_canonical_math_references_and_exact_text_acceptance(self):
         translator, runtime = _repairing_translator([
@@ -156,10 +157,10 @@ class StructuredTranslationTests(IsolatedAsyncioTestCase):
     async def test_mathml_adapter_uses_shared_canonical_fill_before_restoring_source(self):
         from pdf_craft.pipeline.epub.translation.xml_interrupter import XMLInterrupter
         translator, runtime = _repairing_translator([
-            '<xml><p id="1">Avant <expression><math-ref key="m1"/></expression> après</p>'
-            '<p id="2">Deuxième</p></xml>',
+            json.dumps([{'id': '0', 'text': '<xml><p id="1">Avant <expression><math-ref key="m1"/></expression> après</p></xml>'},
+                        {'id': '1', 'text': '<xml><p id="1">Deuxième</p></xml>'}]),
         ])
-        translator._translate_text_async = AsyncMock(return_value='Avant $x$ après\n\nDeuxième')
+        translator._translate_text_async = AsyncMock(side_effect=['Avant $x$ après', 'Deuxième'])
         root = fromstring('<body><p>Before <math><mi>x</mi></math> after</p><p>Second</p></body>')
         protocol = StructuredTranslation(formulas=XMLInterrupter())
         target, _ = await protocol.translate(translator, TranslationTask(root, SubmitKind.REPLACE, None))

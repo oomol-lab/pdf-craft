@@ -294,6 +294,10 @@ class UsageTests(IsolatedAsyncioTestCase):
         executor = ConcurrentExecutor(FixedCapacity(3))
         async def invoke(_self, messages, *_args, **_kwargs):
             observe_tokens({'prompt_tokens': 10, 'completion_tokens': 2})
+            if messages[0].message.startswith('Execute each independent conversation'):
+                import json
+                return json.dumps([{'id': unit['id'], 'text': unit['messages'][-1]['content']}
+                                   for unit in json.loads(messages[-1].message)])
             return messages[-1].message
         async def fill(transformer, hill_climbing, **_kwargs):
             await transformer._fill_runtime.request('fill', use_cache=False)

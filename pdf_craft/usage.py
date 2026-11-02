@@ -91,6 +91,7 @@ class UsageScope:
         self.accepted = False
         self.deferred = False
         self._lock = RLock()
+        self.shared: set[SharedUsage] = set()
 
     def __enter__(self):
         self._token = _candidate.set(self)
@@ -132,6 +133,57 @@ class UsageScope:
                 else:
                     self.collector._record(provider, value, accepted)
         self.pending.clear()
+        for charge in tuple(self.shared):
+            charge.settle(self, accepted)
+        self.shared.clear()
+
+
+class SharedUsage:
+    """Count a physical batch once; effective if any participant is adopted."""
+
+    def __init__(self, scope, participants):
+        self.collector = scope.collector
+        self.pending = scope.pending
+        self.complete = self.accepted = False
+        self.participants = set(participants)
+        for participant in self.participants:
+            participant.shared.add(self)
+
+    def settle(self, scope, accepted):
+        self.participants.discard(scope)
+        if accepted and scope.parent is not None:
+            self.participants.add(scope.parent)
+            scope.parent.shared.add(self)
+        elif accepted:
+            self.accepted = True
+        self.flush()
+
+    def flush(self):
+        if self.complete and (self.accepted or not self.participants):
+            if self.collector is not None:
+                for provider, value in self.pending.values():
+                    self.collector._record(provider, value, self.accepted)
+            self.pending.clear()
+
+
+def current_usage_scope():
+    """Capture the candidate that will adopt an independently filled unit."""
+    return _candidate.get()
+
+
+@contextmanager
+def shared_request_usage(participants):
+    """Associate one transport charge with several existing business scopes."""
+    with UsageScope() as scope:
+        owners = {owner for owner in participants if owner is not None}
+        charge = SharedUsage(scope, owners) if scope.collector is not None and owners else None
+        try:
+            yield
+        finally:
+            if charge is not None:
+                scope.pending = {}
+                charge.complete = True
+                charge.flush()
 
 
 @contextmanager
