@@ -50,6 +50,36 @@ Unit `PROGRESS` carries `stage` and optional `unit_completed_words`; translation
 also carries operation-wide `completed_words`. All word counters are cumulative,
 not deltas. Totals come from the start events, rather than being repeated in every update.
 
+## PAGE refinement status
+
+Only extraction PAGE `COMPLETED` events have a non-null `refinement_status`, using
+`RefinementStatus` exported from `pdf_craft`. The field is `None` on other events.
+
+| Status | Result at the page-processing boundary |
+| --- | --- |
+| `DISABLED` | Page refinement was not enabled. |
+| `NOT_REQUIRED` | JEV passed the page or found no reviewable items; no LLM repair ran. |
+| `APPLIED` | LLM output passed page-local validation and this stage delivered the refined candidate. An accepted no-op also counts. |
+| `FALLBACK` | Refinement was enabled but review, repair or prerequisite processing failed; allowed recovery delivered the initial result or skipped an unavailable page. |
+
+This is not final-file adoption accounting. Status is emitted at the existing
+stage 7 boundary without waiting for paragraph assembly, TOC or publication.
+Later recovery neither rewrites nor repeats it. `outcome` still describes the
+ordinary page disposition; neither field can be inferred from the other.
+Fatal errors or cancellation do not invent page completion.
+
+Callers can collect their own report by saving the status under `page_index`:
+
+```python
+from pdf_craft import ProgressEventKind, UnitKind
+
+refinement_by_page = {}
+
+def on_extraction_event(event):
+    if event.kind == ProgressEventKind.COMPLETED and event.unit_kind == UnitKind.PAGE:
+        refinement_by_page[event.page_index] = event.refinement_status
+```
+
 ## Integer stages
 
 `max_stage` is the final stage **index**, not a duration or a percentage denominator.

@@ -36,6 +36,14 @@ class UnitOutcome(Enum):
     SKIPPED = auto()
 
 
+class RefinementStatus(Enum):
+    """Disposition at page-processing completion, independent of later assembly."""
+    DISABLED = auto()
+    NOT_REQUIRED = auto()
+    APPLIED = auto()
+    FALLBACK = auto()
+
+
 @dataclass(frozen=True)
 class ProgressEvent:
     """unit_id=None denotes the operation. Word values are cumulative."""
@@ -51,3 +59,4 @@ class ProgressEvent:
     unit_completed_words: int | None = None
     outcome: UnitOutcome | None = None
     page_index: int | None = None
+    refinement_status: RefinementStatus | None = None

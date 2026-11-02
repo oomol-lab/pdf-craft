@@ -8,7 +8,7 @@ from contextlib import asynccontextmanager
 from functools import wraps
 
 from .._progress import OperationProgress, DiskUnits, WorkUnit
-from ..progress import OperationKind, UnitKind, UnitOutcome
+from ..progress import OperationKind, UnitKind, UnitOutcome, RefinementStatus
 from ..runtime import IO_DOMAIN, callback_bridge, temporary_directory
 from ..pdf.ocr import OCREventKind
 
@@ -19,9 +19,10 @@ _selected: ContextVar[WorkUnit | None] = ContextVar('extraction_progress_unit', 
 class ExtractionProgress(OperationProgress):
     """Page state is disk-backed, including terminal records for late events."""
 
-    def __init__(self, callback, path, page_count, selected):
+    def __init__(self, callback, path, page_count, selected, *, refinement_enabled=False):
         super().__init__(callback, OperationKind.EXTRACTION)
         self.page_count, self.selected = page_count, selected
+        self.refinement_enabled = refinement_enabled
         self.pages = DiskUnits(path, self)
         self.lock = asyncio.Lock()
         self.report_stage_sync = callback_bridge(asyncio.get_running_loop(), self._stage_pair)
@@ -34,7 +35,7 @@ class ExtractionProgress(OperationProgress):
         return (index for index in range(1, self.page_count + 1)
                 if self.selected is None or index in self.selected)
 
-    async def page(self, index, stage=0, outcome=None):
+    async def page(self, index, stage=0, outcome=None, *, refinement_status=None):
         if not 1 <= index <= self.page_count or (self.selected is not None and index not in self.selected):
             return
         async with self.lock:
@@ -46,7 +47,11 @@ class ExtractionProgress(OperationProgress):
             if outcome is not None:
                 unit.outcome = outcome
             if stage == 7:
-                await unit.finish()
+                # Only the page worker supplies an affirmative refinement result.
+                # Other completion paths must not invent an applied/pass decision.
+                status = refinement_status or (RefinementStatus.FALLBACK if self.refinement_enabled
+                                               else RefinementStatus.DISABLED)
+                await unit.finish(refinement_status=status)
             else:
                 await unit.progress(max(unit.stage, stage))
             await IO_DOMAIN.run(self.pages.save, index, unit)
@@ -72,14 +77,15 @@ class ExtractionProgress(OperationProgress):
             unit = await IO_DOMAIN.run(self.pages.load, index)
             if unit is None:
                 raise RuntimeError('selected page never entered extraction')
-            await unit.finish()
+            if not unit.closed:
+                await self.page(index, 7)
             await IO_DOMAIN.run(self.pages.delete, index)
 
 
-async def page_stage(index, stage):
+async def page_stage(index, stage, *, refinement_status=None):
     progress = _active.get()
     if progress is not None:
-        await progress.page(index, stage)
+        await progress.page(index, stage, refinement_status=refinement_status)
 
 
 def page_stage_sync(index, stage):
@@ -151,7 +157,8 @@ def extraction_operation(function):
         count = await IO_DOMAIN.run(pdf_pages_count, pdf_path, handler)
         selected = kwargs.get('page_indexes')
         async with temporary_directory('pdf-craft-extraction-progress-') as root:
-            progress = ExtractionProgress(callback, root / 'pages.sqlite', count, selected)
+            progress = ExtractionProgress(callback, root / 'pages.sqlite', count, selected,
+                                          refinement_enabled=kwargs.get('refinement') is not None)
             token = _active.set(progress)
             try:
                 await progress.start({UnitKind.PAGE: sum(1 for _ in progress.indexes()),
@@ -197,7 +204,8 @@ def extraction_facade(function):
             native = engine._ocr._get_pdf_handler() if hasattr(engine, '_ocr') else None
             count = await IO_DOMAIN.run(pdf_pages_count, source, native)
         async with temporary_directory('pdf-craft-extraction-progress-') as root:
-            progress = ExtractionProgress(callback, root / 'pages.sqlite', count, options.page_indexes)
+            progress = ExtractionProgress(callback, root / 'pages.sqlite', count, options.page_indexes,
+                                          refinement_enabled=options.refinement is not None)
             token = _active.set(progress)
             try:
                 await progress.start({UnitKind.PAGE: sum(1 for _ in progress.indexes()), UnitKind.TOC: 1,

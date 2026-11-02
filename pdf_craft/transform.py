@@ -327,6 +327,7 @@ class PDFExtractionEngine:
         from .policies import FailureCategory, FailureLocation
         from .usage import UsageScope
         from .extractor.refinement import PageResult
+        from .progress import RefinementStatus
         runtime = runtime_for(options.llm, options.resolved_llm_executor(),
                               protocol_version='footnote-refinement-json-v2')
         async def request(messages, index, maximum):
@@ -366,7 +367,7 @@ class PDFExtractionEngine:
                     except Exception as error:
                         await recover(error, FailureCategory.ANALYSIS, 'jev_review', 'algorithm_result',
                                       targets=(location,), context_locations=context)
-                        return PageResult(target)
+                        return PageResult(target, refinement_status=RefinementStatus.FALLBACK)
                     if 1 - probability < review_threshold(includes_footnotes):
                         return PageResult(target)
                     await page_stage(target.page_index, 6)
@@ -387,8 +388,8 @@ class PDFExtractionEngine:
                         except Exception as error:
                             await recover(error, FailureCategory.ANALYSIS, 'footnote_repair', 'algorithm_result',
                                           targets=(location,), context_locations=context)
-                            return PageResult(target)
-                        return PageResult(result, usage.defer(), target)
+                            return PageResult(target, refinement_status=RefinementStatus.FALLBACK)
+                        return PageResult(result, usage.defer(), target, RefinementStatus.APPLIED)
             yield process
 
     async def prepare_extract(

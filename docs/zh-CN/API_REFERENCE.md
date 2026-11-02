@@ -277,11 +277,14 @@ JEV 与 LLM 使用不同供应商配额时，可分别传 `jev_executor` 与 `ll
 分数不是经过校准的错误概率，也不设置精修配额。审核原则与限制见
 [JEV 结构审核](../design/jev-structural-review.md)。
 
-迁移时删除原配置中的 `risk_threshold`。`jev`、`llm` 之后的配置均使用关键字参数：
+`jev`、`llm` 之后的配置均使用关键字参数：
 
 ```python
 refinement = Refinement(jev, llm, executor=executor, max_output_tokens=16000)
 ```
+
+PAGE 完成事件通过 `refinement_status`（包顶层导出的 `RefinementStatus`）报告该页处理阶段
+的结果，不追踪后续组装及最终文件采用，见[状态说明](TRANSLATION_PROGRESS.md#page-精修状态)。
 
 局部问题通过用户提供的 JEV executor 并发执行，不等待其他页。审核失败或分数不全
 按 analysis 错误策略处理，不能将缺失分数当作通过。精校覆盖无编号脚注续文，未确认

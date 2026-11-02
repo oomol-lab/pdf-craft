@@ -103,17 +103,17 @@ class WorkUnit:
         await self.owner.emit(ProgressEventKind.PROGRESS, **self.fields(), stage=self.stage,
                               unit_completed_words=self.words if self.total_words is not None else None)
 
-    async def finish(self, outcome=None):
+    async def finish(self, outcome=None, *, refinement_status=None):
         async with self._lock:
             if self._failure is not None:
                 raise self._failure
             try:
-                await self._finish(outcome)
+                await self._finish(outcome, refinement_status)
             except BaseException as error:
                 self._failure = error
                 raise
 
-    async def _finish(self, outcome):
+    async def _finish(self, outcome, refinement_status):
         if self.closed:
             return
         if outcome is not None:
@@ -123,7 +123,7 @@ class WorkUnit:
         self.owner.finished[self.kind] += 1
         await self.owner.emit(ProgressEventKind.COMPLETED, **self.fields(), stage=self.stage,
                               unit_completed_words=self.words if self.total_words is not None else None,
-                              outcome=self.outcome)
+                              outcome=self.outcome, refinement_status=refinement_status)
 
 
 class DiskUnits:

@@ -1,31 +1,14 @@
 # Unreleased
 
-- Improve paragraph joining with guarded vertical-column seams, numbered-entry
-  boundaries, quotation boundaries and measured first-line indentation. Preserve
-  source text, geometry and incremental delivery; uncertain observations keep the
-  existing path. Empty OCR text retains its source identity as ignored evidence
-  without hiding the actual prose predecessor.
-- Skip OCR for strictly white rendered pages and white vendor footnote second-pass
-  images without inventing requests or usage. Preserve first-pass content and old
-  valid caches; near-white ink continues through OCR.
-- Adopt local JEV review for body-only refinement: incoming edges and ownership
-  are checked in batches of at most four named questions, with complete raw
-  neighborhoods and page-level maximum-risk aggregation. Keep the dedicated
-  footnote-enabled rubric and its separate internal working point. Incomplete
-  reviews follow the error policy and never count as passing pages.
-- Remove `Refinement.risk_threshold`; decisions are fixed internally. Configuration
-  after `jev` and `llm` is keyword-only. Existing callers must remove threshold
-  arguments and name optional settings such as `max_output_tokens`.
-- Bind cross-page note origins during ordered adoption without waiting for
-  neighbouring LLM jobs. Preserve unnumbered notes, actual printed reference
-  marks and explicitly identified non-linear source diagrams; unresolved aliases
-  are not confirmed cross-page definitions.
-- Restrict native furniture supplementation to Poppler-visible text and apply
-  shared external-text cleaning, preventing hidden OCR text from becoming visible
-  furniture and invalid control characters from suppressing valid native text.
-- Document structural-review principles, dynamic-repair constraints and final
-  verification results, including request equivalence between the frozen local
-  protocol and the body-only extraction runtime.
+- Improve local page-structure review in both footnote modes. Keep review decisions
+  internal, preserve complete source evidence and use readable English Jinja prompts.
+- Preserve paragraph boundaries, printed note markers and cross-page note identities
+  during incremental extraction. Keep asset titles and captions independently editable;
+  ignored or reassigned text cannot reappear through asset association.
+- Skip OCR for strictly white inputs without inventing requests or usage, and prevent
+  hidden native text from becoming visible furniture.
+- Add `RefinementStatus` to PAGE completion events so callers can distinguish disabled,
+  unnecessary, applied and fallback refinement at that page-processing boundary.
 
 - Keep deliberately excluded OCR regions occupied during native furniture
   extraction, so page-refinement exclusions cannot be translated and filled
