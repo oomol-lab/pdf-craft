@@ -636,6 +636,30 @@ _TEMPLATES['seam_word'] = {'type': 'noul',
               'false': 'Such a literal unfinished-word completion is not established.'}}
 
 
+_TEMPLATES['dependency_completion'] = {'type': 'noul',
+ 'instructions': ['For the proposed left source and the immediate target opening, does the target '
+                  'supply an OBLIGATORY missing component of a syntactically unfinished left '
+                  'frame?',
+                  'Read the actual original left ending and right opening in the full supplied '
+                  'local evidence. A truncated prepositional/determiner/modifier construction, '
+                  'open parenthesis or unfinished conditional can require its continuation. The '
+                  'immediate right text must actually complete that dependency.',
+                  'This is independent of whether the left source has already ended a dictionary '
+                  'word: a complete word may still be inside a grammatically unfinished '
+                  'construction. Conversely lexical similarity alone is not proof.',
+                  'Reject mere topic continuity, two complete sentences, a voluntary next action, '
+                  'a different speaker after a completed utterance, captions/signatures, and '
+                  'invented missing words. A colon can introduce an independently presented quote '
+                  'or equation; the colon alone does not prove a mandatory same-paragraph '
+                  'continuation.',
+                  'Verify only this literal dependency. Another independent question verifies the '
+                  'named source is the correct nearest predecessor. Do not search older sources to '
+                  'find a convenient continuation.'],
+ 'criteria': {'true': 'An actual left grammatical dependency is completed by the immediate target '
+                      'opening.',
+              'false': 'That obligatory completion is not established.'}}
+
+
 def question(kind: str, name: str) -> dict[str, Any]:
     """Create an isolated question for one named source decision."""
     value = deepcopy(_TEMPLATES[kind])

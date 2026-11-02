@@ -7,6 +7,7 @@ from .review_encoding import compact_review_evidence, TEXT_ENCODING_NOTE
 from .structural_review import _decisions
 
 PAIRED_WORD_PREFIXES = ('seam_predecessor_', 'seam_word_')
+DEPENDENCY_PREFIXES = ('dependency_predecessor_', 'dependency_completion_')
 
 COMPLETION_TARGETS = {
     'left_word_complete_': 'word',
@@ -88,12 +89,29 @@ def _paired_words(local, scores, threshold):
             yield name, question(kind, name), value
 
 
+
+def _paired_dependencies(local, scores, threshold):
+    for key, check in local['checks'].items():
+        if (not key.startswith('gap_') or not check['present_decision']
+                or scores.get(key, 1) > 1 - threshold):
+            continue
+        prior = previous_paragraph(local, check)
+        if prior is None or contradictory_hint(local, check):
+            continue
+        value = dict(check, proposed_left_source=dict(
+            page_index=prior['page_index'], source_order=prior['source_order']))
+        order = key.rsplit('_', 1)[1]
+        name = 'dependency_predecessor_' + order
+        yield name, question('seam_predecessor', name), value
+        name = 'dependency_completion_' + order
+        yield name, question('dependency_completion', name), value
+
 def completion_requests(state, scores, threshold):
     """Keep families separate so existing proof packets stay byte-identical."""
     if not any(key.startswith('gap_') and value <= 1 - threshold
                for key, value in scores.items()):
         return
-    for family in (_left_completions, _math_units, _reporting_joins, _paired_words):
+    for family in (_left_completions, _math_units, _reporting_joins, _paired_words, _paired_dependencies):
         seen = set()
         for packet in local_review_requests(state):
             jobs = []
@@ -129,3 +147,14 @@ def apply_paired_word_proofs(values, proofs, threshold):
         key = 'gap_' + order
         if key in values and values[key] <= 1 - threshold:
             values[key] = max(values[key], min(preceding, proofs['seam_word_' + order]))
+
+
+def apply_dependency_proofs(values, proofs, threshold):
+    """A real grammatical dependency still needs the independently verified source."""
+    for name, preceding in proofs.items():
+        if not name.startswith('dependency_predecessor_'):
+            continue
+        order = name.rsplit('_', 1)[1]
+        key = 'gap_' + order
+        if key in values and values[key] <= 1 - threshold:
+            values[key] = max(values[key], min(preceding, proofs['dependency_completion_' + order]))

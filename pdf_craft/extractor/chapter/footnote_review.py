@@ -3,8 +3,8 @@
 from copy import deepcopy
 from .footnote_quotation import quotation_requests, apply_quotation_proofs
 from .footnote_completion import (
-    COMPLETION_TARGETS, PAIRED_WORD_PREFIXES, completion_requests,
-    apply_completion_proofs, apply_paired_word_proofs,
+    COMPLETION_TARGETS, PAIRED_WORD_PREFIXES, DEPENDENCY_PREFIXES, completion_requests,
+    apply_completion_proofs, apply_paired_word_proofs, apply_dependency_proofs,
 )
 from .reference import extract_head_mark
 from .jointer import _parse_block_content
@@ -125,7 +125,9 @@ def raw_roles(state):
         unique = {l["document_order"]: l for l in layouts}
         out[side] = dict(
             page_index=page["page_index"],
-            layouts=[{k: l[k] for k in fields} for _, l in sorted(unique.items())],
+            layouts=[dict({k: l[k] for k in fields}, **(
+                {'number_ink_bbox_normalized': l['number_ink_bbox_normalized']}
+                if 'number_ink_bbox_normalized' in l else {})) for _, l in sorted(unique.items())],
         )
     return compact(out)
 
@@ -521,6 +523,8 @@ def _main_section_requests(state):
 
 
 def footnote_pass_scores(scores):
+    dependencies = {k: v for k, v in scores.items() if k.startswith(DEPENDENCY_PREFIXES)}
+    scores = {k: v for k, v in scores.items() if k not in dependencies}
     word_proofs = {k: v for k, v in scores.items() if k.startswith(PAIRED_WORD_PREFIXES)}
     scores = {k: v for k, v in scores.items() if k not in word_proofs}
     completion_proofs = {k: v for k, v in scores.items() if k.startswith(tuple(COMPLETION_TARGETS))}
@@ -581,6 +585,7 @@ def footnote_pass_scores(scores):
     apply_quotation_proofs(values, quotation_proofs, FOOTNOTE_REVIEW_THRESHOLD)
     apply_completion_proofs(values, completion_proofs, FOOTNOTE_REVIEW_THRESHOLD)
     apply_paired_word_proofs(values, word_proofs, FOOTNOTE_REVIEW_THRESHOLD)
+    apply_dependency_proofs(values, dependencies, FOOTNOTE_REVIEW_THRESHOLD)
     return values
 
 
