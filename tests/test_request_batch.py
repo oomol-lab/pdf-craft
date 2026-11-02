@@ -327,13 +327,13 @@ class RequestBatchTests(IsolatedAsyncioTestCase):
             translator._requests.budget = 4096  # Force several fill batches.
             original = model.invoke
             active = peak = 0
-            async def invoke(*args, **kwargs):
+            async def invoke(*args, invoke_original=original, **kwargs):
                 nonlocal active, peak
                 active += 1
                 peak = max(peak, active)
                 try:
                     await asyncio.sleep(0.01)
-                    return await original(*args, **kwargs)
+                    return await invoke_original(*args, **kwargs)
                 finally:
                     active -= 1
             translator._translation_runtime.__dict__['_invoke'] = invoke
