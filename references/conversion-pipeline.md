@@ -218,18 +218,23 @@ finish 恢复源 display 属性并清除投影身份，最终业务结构验证�
 
 ### 填充与恢复顺序
 
-第一阶段自然段译文是 fill Loop 的全文基准，允许把源 LaTeX 自然表达为 `97%`、
-“16倍”等文字。Loop 内的临时 `expression` 与普通 inline 标签遵守同样的结构/属性/ID
-校验，里面的文字参与严格全文比较，但不与原公式内容作额外比较。完整候选通过结构及
-全文校验、退出 Loop 后，ChapterFormulaInterrupter 才按身份恢复源公式；这是确定的程序
-后处理，不再次比较源 LaTeX 与扁平化译文，也不发起新的 fill 请求。最终 PCEX 仍使用
-原有 inline_expr 表达，不发布临时 expression/anchor 或恢复标记。图片/表格 anchor 保持
-零宽结构语义，不能因公式文字可填充而放宽 anchor 或独立公式边界。
+第一阶段自然段译文是 fill Loop 的全文基准。源 `expression` ID 是分配容器，
+不能作为 canonical 数学内容的身份。临时 `math-ref` 先按引用表展开，再执行原有
+结构/ID 与 Unicode/空白语义下的全文校验；通过后，在同一个 fill 尝试内按 canonical
+数学边界构造最终公式映射。投影失败消耗已有 fill 预算，不另起修复循环。
 
-源 `expression` ID 是几何/恢复槽位，不定义首阶段译文的数学表达式边界。填充协议以
-不可改写的 `math-ref` 传递完整 canonical 公式；合并公式可以放入一个源槽，其余必需槽
-留空。先验证引用表，再原样展开 canonical 值，随后执行原有结构/ID 与全文精确比较，
-最后恢复源公式。不能按源槽给译文额外补定界符，临时引用不得进入最终 PCEX。
+有 canonical 数学表达时，临时 inline expression 容器透明化。公式按内容匹配源呈现，
+精确匹配的源公式或连续源公式组合可复用；其他 canonical 表达由格式适配器生成
+PCEX inline_expr 或 EPUB MathML，不能按槽位覆盖回另一条源公式。引用出现在普通
+文字位置也必须变成公式节点，不得把 LaTeX 留成普通字符串。数学表达拆分、合并、重排
+或重复不会改变段落/fragment 的来源身份。只有没有 canonical 数学定界符的纯文字
+表达（如 `97%`、“16倍”）继续使用原有源公式呈现契约；独立公式块仍由格式适配器保留。
+
+格式投影在采纳前生成最终公式映射，随后通过原提交器写回并清理临时标记。资源结构门禁
+仅在对应单元经过 canonical 数学投影后，将公式按其所在混合文本槽比较；其余 HTML、
+字段、表格边界继续精确比较。未经协议验证的公式移动、复制、丢失、换值仍按原门禁拒绝。
+记录限于当前资源批次，不为全书积累 DOM。上述行为属于运行时投影，PCEX 的 inline_expr
+字段和持久化语义不变，无历史格式分支。
 
 付费公式回归入口是 `python -m pdf_craft_tool.smoke.fill_formula_loop --output NEW-DIRECTORY`。
 它对三个固定真实源段落重新翻译和填充，以 temperature=0.7、top_p=1.0 连续三轮全过

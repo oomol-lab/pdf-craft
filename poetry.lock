@@ -3548,4 +3548,4 @@ local = ["doc-page-extractor"]
 [metadata]
 lock-version = "2.1"
 python-versions = ">=3.11,<3.14"
-content-hash = "23d73647114d49d2a6ead561a66f327b0210fb5a15d5d75acf36368343200b7f"
+content-hash = "e6fbbdeb054990d7a70309b47ebdf0682a3bb638bd21be4a7f6ed150a1ffc2e4"

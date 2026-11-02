@@ -43,6 +43,7 @@ if TYPE_CHECKING:
 T = TypeVar("T")
 SourceTextRenderer = Callable[[list[InlineSegment]], str]
 CanonicalTextValidator = Callable[[list[InlineSegment], str, Element], str | None]
+CanonicalMathProjector = Callable[[list[InlineSegmentMapping | None], str], list[InlineSegmentMapping | None] | None]
 
 
 def _already_in_target_language(text: str, target_language: str) -> bool:
@@ -440,6 +441,10 @@ class XMLTranslator:
                 canonical_text_validator=canonical_text_validator,
                 source_context=(translation_protocol.context(group)
                                 if translation_protocol is not None and translation_protocol.context else ''),
+                canonical_math_projector=(
+                    (lambda mappings, canonical, owner=translation_protocol.unit(group[0]):
+                     translation_protocol.project_math(mappings, canonical, owner))
+                    if translation_protocol is not None else None),
             )
             if on_round is not None:
                 await on_round(group)
@@ -455,6 +460,7 @@ class XMLTranslator:
         source_text_renderer: SourceTextRenderer | None,
         canonical_text_validator: CanonicalTextValidator | None,
         source_context: str = '',
+        canonical_math_projector: CanonicalMathProjector | None = None,
     ) -> list[InlineSegmentMapping | None]:
         primary = [segment for segment in inline_segments if not getattr(segment, '_translation_context', False)]
         if not primary:
@@ -489,7 +495,7 @@ class XMLTranslator:
                           backend='llm', model=getattr(self._translation_llm, 'model', None))
             return [None] * len(inline_segments)
         try:
-            await self._request_and_submit_async(
+            projected = await self._request_and_submit_async(
                 hill_climbing=hill_climbing, source_text=source_text,
                 translated_text=translated_text, callbacks=callbacks,
                 failure_locations=targets,
@@ -497,11 +503,14 @@ class XMLTranslator:
                     (lambda element: canonical_text_validator(inline_segments, translated_text, element))
                     if canonical_text_validator is not None else None
                 ),
+                canonical_math_projector=canonical_math_projector,
             )
         except Exception as error:
             await recover(error, FailureCategory.FILL, 'xml_fill', 'omit_translation',
                           targets=targets, context_locations=context_targets, backend='llm', model=getattr(self._fill_llm, 'model', None))
             return [None] * len(inline_segments)
+        if projected is not None:
+            return projected
         mappings: list[InlineSegmentMapping | None] = []
         for mapping in hill_climbing.gen_mappings():
             if mapping and not mapping[1]:
@@ -566,8 +575,10 @@ class XMLTranslator:
         callbacks: Callbacks,
         canonical_text_validator: Callable[[Element], str | None] | None = None,
         failure_locations: tuple = (),
-    ) -> None:
+        canonical_math_projector: CanonicalMathProjector | None = None,
+    ) -> list[InlineSegmentMapping | None] | None:
         from ...canonical_math import CanonicalMath
+        from ...canonical_projection import MathProjectionError
         canonical_math = CanonicalMath(translated_text) if canonical_text_validator is not None else None
         user_message = (await self._fill_runtime.template('fill_input')).render(
             source_text=source_text, xml_template=encode_friendly(hill_climbing.request_element()),
@@ -589,26 +600,29 @@ class XMLTranslator:
             class _XMLProtocol:
                 async def validate(self, response: str, state, attempt: int, max_attempts: int):
                     nonlocal last_error
+                    projected = None
                     validated = translator._extract_xml_element(response)
                     if isinstance(validated, str):
                         error = validated
                     elif canonical_math is not None and (reference_error := canonical_math.expand(validated, require_complete=False)):
                         error = reference_error
-                    elif canonical_text_validator is None:
-                        error = hill_climbing.validate(validated)
-                        if error is None:
-                            error = hill_climbing.submit(validated)
                     else:
                         error = hill_climbing.validate(validated)
-                        if error is None:
+                        if error is None and canonical_text_validator is not None:
                             error = canonical_text_validator(validated)
                             if error is not None and canonical_math is not None:
                                 error += canonical_math.instructions()
+                        if error is None and canonical_math_projector is not None:
+                            try:
+                                projected = canonical_math_projector(
+                                    hill_climbing.candidate_mappings(validated), translated_text)
+                            except MathProjectionError as projection_error:
+                                error = str(projection_error)
                         if error is None:
                             error = hill_climbing.submit(validated)
                     if error is None:
                         last_error = None
-                        return ProtocolSuccess(None, state)
+                        return ProtocolSuccess(projected, state)
                     last_error = error
                     return ProtocolRetry(error, state, include_response=True, reset_history=True)
 
@@ -622,7 +636,7 @@ class XMLTranslator:
                     error = last_error or "XML fill exhausted retries; no usable response was produced."
                     raise XMLFillError(error, attempts=attempts)
 
-            await run_repair_loop(RepairLoopOptions(
+            return await run_repair_loop(RepairLoopOptions(
                 messages=fixed_messages,
                 request=lambda current, index, maximum: self._requests.request(
                     llm_context, current, runtime=self._fill_runtime, stage='fill', retry_index=index, retry_max=maximum, use_cache=False,

@@ -36,6 +36,10 @@ class CanonicalMath:
             return ''
         return _instructions_template().render(values=self.values)
 
+    @staticmethod
+    def matches(text: str) -> list[re.Match[str]]:
+        return list(_MATH.finditer(text))
+
     def expand(self, root: Element, *, require_complete: bool = True) -> str | None:
         """Expand validated references, retaining all canonical delimiter bytes.
 

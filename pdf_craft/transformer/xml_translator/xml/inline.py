@@ -114,7 +114,7 @@ def is_inline_element(element: Element) -> bool:
             return True
         if display == "block":
             return False
-    tag = element.tag.lower()
+    tag = element.tag.removeprefix('{http://www.w3.org/1998/Math/MathML}').lower()
     if tag in _HTML_INLINE_TAGS:
         return True
     if tag == "math" and display != "block":

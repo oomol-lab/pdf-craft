@@ -1,7 +1,7 @@
 """Shared full-text allocation protocol; adapters supply semantic boundaries.
 
 The first translation is authoritative. Fill distributes that text into source
-slots, then a format projection restores immutable formulas before decoding.
+slots, then a format projection preserves their mathematical values before decoding.
 Neither the allocator nor its whitespace rules know a document's XML schema.
 """
 from collections.abc import Callable, Iterable
@@ -9,6 +9,7 @@ from typing import Any, Protocol
 from xml.etree.ElementTree import Element
 
 from .canonical_text import restore_canonical_whitespace
+from .canonical_projection import MathMapping
 from .xml_translator.segment import InlineSegment, TextSegment, search_text_segments
 from .xml_translator.xml.matching import element_id
 
@@ -21,6 +22,7 @@ class FormulaProjection(Protocol):
     def interrupt_source_text_segments(self, segments: Iterable[TextSegment], /) -> Iterable[TextSegment]: ...
     def interrupt_translated_text_segments(self, segments: Iterable[TextSegment], /) -> Iterable[TextSegment]: ...
     def interrupt_block_element(self, element: Element) -> Element: ...
+    def project_math(self, mappings: list[MathMapping | None], canonical: str) -> list[MathMapping | None] | None: ...
 
 
 class StructuredTranslation:
@@ -28,12 +30,15 @@ class StructuredTranslation:
 
     def __init__(self, *, owner: Callable[[InlineSegment], Element] | None = None,
                  is_text_unit: Callable[[Element], bool] = lambda _owner: True,
-                 formulas: FormulaProjection | None = None, identity: Callable[[Element], str] | None = None, context: Callable[[list[InlineSegment]], str] | None = None):
+                 formulas: FormulaProjection | None = None, identity: Callable[[Element], str] | None = None, context: Callable[[list[InlineSegment]], str] | None = None,
+                 record_math_units: bool = False):
         self.owner = owner
         self.identity = identity
         self.is_text_unit = is_text_unit
         self.formulas = formulas
         self.context = context
+        self._record_math_units = record_math_units
+        self.projected_math_units: set[str] = set()
 
     def unit(self, segment: InlineSegment) -> Element:
         return self.owner(segment) if self.owner is not None else segment.parent
@@ -99,6 +104,15 @@ class StructuredTranslation:
     def prepare(self, root: Element) -> None:
         if self.formulas is not None:
             self.formulas.prepare(root)
+
+    def project_math(self, mappings: list[MathMapping | None], canonical: str,
+                     owner: Element | None = None) -> list[MathMapping | None] | None:
+        if self.formulas is None:
+            return None
+        projected = self.formulas.project_math(mappings, canonical)
+        if projected is not None and self._record_math_units and owner is not None:
+            self.projected_math_units.add(self.key(owner))
+        return projected
 
     def finish(self, root: Element) -> None:
         if self.formulas is not None:
