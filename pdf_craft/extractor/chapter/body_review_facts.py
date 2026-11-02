@@ -16,6 +16,7 @@ def body_supplementary_requests(state, risks):
                     'Judge whether the LEFT reporting/quoted frame is complete, not whether the current OCR opening is grammatical. Missing characters at the target opening do not create an unclosed left clause. Preserve any actual outer conditional or obligatory complement in the left text; never invent one to repair an OCR fragment.')
         yield packet
     yield from review_batches(state, list(_example_setups(state, risks)))
+    yield from review_batches(state, list(_numbered_instructions(state)))
     for packet in review_batches(state, list(_illustration_joins(state))):
         packet['state']['local_raw_evidence'] = _role_evidence(packet['state']['local_raw_evidence'])
         packet['state'].pop('preceding_source_index', None)
@@ -58,6 +59,42 @@ def _example_setups(state, risks):
             criteria=dict(true='This existing join keeps one directly introduced example and its specification together.',
                           false='That direct same-example relationship is not established.'))
         yield key, spec, value
+
+
+def _numbered_instructions(state):
+    evidence = state['local_raw_evidence']
+    for name, check in state['checks'].items():
+        if not name.startswith('gap_') or check['present_decision']:
+            continue
+        if not re.match(r'^(?:find|calculate|determine|show|prove|evaluate|solve)\b', check['current_start'].strip(), re.I):
+            continue
+        prior = previous_paragraph(state, check)
+        if prior is None:
+            continue
+        page = next((evidence[k] for k in ('target_page', 'previous_page')
+                     if evidence.get(k) and evidence[k]['page_index'] == prior['page_index']), None)
+        if page is None:
+            continue
+        layouts = page.get('layouts', page.get('paragraph_boundary', []) + page.get('citation_boundary', []))
+        source = next((x for x in layouts if x['source_type'] == 'text'
+                       and x['source_order'] == prior['source_order']), None)
+        if source is None:
+            continue
+        raw = source['raw_text'].strip()
+        if not re.match(r'^(?:\(\d+\)|\d+[.)])\s*If\b', raw, re.I) or not raw.endswith(','):
+            continue
+        value = dict(check, selected_predecessor=dict(page_index=prior['page_index'],
+                     source_order=prior['source_order'], raw_text=source['raw_text']))
+        for kind, ask in [
+            ('one_numbered_instruction', 'Do the selected predecessor condition and the target command belong to ONE explicitly numbered exercise instruction, with no new numbered item, heading or independent task starting at the target?'),
+            ('conditional_command_required', 'Does the target command supply the actual required main instruction governed by the unfinished If-condition ending in a comma in selected_predecessor, so the proposed break cuts one grammatical exercise instruction?')]:
+            key = f"{kind}_{check['source_order']}"
+            prompt = dict(type='noul', instructions=[
+                f'Judge only checks.{key}. Use the exact selected_predecessor and current target in local_raw_evidence.', ask,
+                'Confirm the literal numbered condition and its immediate command, not merely a shared mathematical topic. A completed example followed by a new problem, independently displayed alternative transformation rows, or an intervening standalone formula cannot establish this fault. Do not invent omitted words or impose paragraph-style preferences. If the target is a distinct item or that grammatical dependency is not established, answer FALSE.'],
+                criteria=dict(true='This specific literal relationship is established.',
+                              false='That specific relationship is not established.'))
+            yield key, prompt, deepcopy(value)
 
 
 def _illustration_joins(state):
@@ -126,6 +163,10 @@ def apply_body_facts(risks, facts):
             target = 'gap_' + name.rsplit('_', 1)[1]
             if result.get(target, 0) >= LOCAL_REVIEW_THRESHOLD:
                 result[target] = min(result[target], 1-value)
+        elif name.startswith('one_numbered_instruction_'):
+            order = name.rsplit('_', 1)[1]
+            result['split_numbered_instruction_' + order] = min(
+                value, facts['conditional_command_required_' + order])
         elif name.startswith('prior_illustration_unit_'):
             order = name.rsplit('_', 1)[1]
             result['joined_illustration_switch_' + order] = min(

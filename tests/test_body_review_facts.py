@@ -77,12 +77,42 @@ class BodyReviewFactTests(unittest.TestCase):
             self.assertEqual(any('same_example_setup_0' in p['questions'] for p in packets), admitted)
 
 
+    def test_numbered_condition_and_its_command_are_checked_independently(self):
+        value = state([text(0, 'find the value of q.')], [text(0, '(7) If q + r = 12,')])
+        packets = [p for base in local_review_requests(value)
+                   for p in body_supplementary_requests(base['state'], {})]
+        names = {k for p in packets for k in p['questions']}
+        self.assertIn('one_numbered_instruction_0', names)
+        self.assertIn('conditional_command_required_0', names)
+
+    def test_displayed_rows_and_new_items_do_not_create_instruction_fault_candidates(self):
+        for prior, target in [('If the function equals q;', 'once differentiating gives r;'),
+                              ('(7) If q + r = 12,', '(8) Find the value of q.')]:
+            value = state([text(0, target)], [text(0, prior)])
+            packets = [p for base in local_review_requests(value)
+                       for p in body_supplementary_requests(base['state'], {})]
+            self.assertFalse(any('one_numbered_instruction_0' in p['questions'] for p in packets))
+
+    def test_numbered_instruction_fault_requires_both_facts(self):
+        result = apply_body_facts({'gap_0_syntax': .1},
+            {'one_numbered_instruction_0': .95, 'conditional_command_required_0': .2})
+        self.assertEqual(result['split_numbered_instruction_0'], .2)
+
+
 class BodyReviewFactRuntimeTests(unittest.IsolatedAsyncioTestCase):
     async def test_accepted_base_still_checks_the_concrete_illustration_edge(self):
         async def evaluate(requests):
             return [(index, {name: .9 for name in packet['questions']}) for index, packet in requests]
         probability = await review_body_page(
             ((2, packet) for packet in local_review_requests(illustration_join())), evaluate)
+        assert probability is not None
+        self.assertAlmostEqual(probability, .1)
+
+    async def test_accepted_base_still_checks_explicit_conditional_instruction(self):
+        value = state([text(0, 'find the value of q.')], [text(0, '(7) If q + r = 12,')])
+        async def evaluate(requests):
+            return [(index, {name: .9 for name in packet['questions']}) for index, packet in requests]
+        probability = await review_body_page(((2, p) for p in local_review_requests(value)), evaluate)
         assert probability is not None
         self.assertAlmostEqual(probability, .1)
 
