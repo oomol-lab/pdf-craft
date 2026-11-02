@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Any, Protocol
 
 from ...pdf import Page
-from .page_analysis import AnalysedLayout, PageAnalysis
+from .page_analysis import AnalysedLayout, PageAnalysis, _AnalysedAssetSource
 from .paragraph_geometry import text_scale_estimate
 from .local_review import LOCAL_REVIEW_THRESHOLD, local_review_requests
 from .structural_review import NamedBatchEvaluator, review_body_page
@@ -262,7 +262,9 @@ def _layout_packet(
         analysed_text = _content_text(source.content)
         source_type = "text"
     else:
-        raw_text = _content_text(source.content)
+        assert isinstance(source, _AnalysedAssetSource)
+        fields = (source.title, source.caption) if source.ref == 'image' else (source.content,)
+        raw_text = "\n".join(_content_text(field) for field in fields if field)
         analysed_text = raw_text
         source_type = getattr(source, "ref")
     width, height = size
@@ -336,6 +338,7 @@ def _boundary_context(
         "citations": packet["citations"],
         "paragraph_boundary": paragraphs,
         "citation_boundary": citations,
+        "assets": [layout for layout in packet['layouts'] if layout['source_type'] in {'image', 'table'}],
         **candidates,
     }
 

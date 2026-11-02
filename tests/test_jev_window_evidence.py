@@ -1,10 +1,12 @@
 """JEV sees settled local edges and unabridged evidence, never refined neighbors."""
 import unittest
+from copy import deepcopy
+from dataclasses import replace
 from xml.etree.ElementTree import fromstring
 
-from pdf_craft.pdf import decode
+from pdf_craft.pdf import decode, PageLayout
 from pdf_craft.extractor.refinement import _project_window
-from pdf_craft.extractor.chapter.page_review import build_jev_review_requests
+from pdf_craft.extractor.chapter.page_review import build_jev_review_requests, build_jev_review_states
 
 
 def page(index, text):
@@ -12,6 +14,55 @@ def page(index, text):
 
 
 class JEVWindowEvidenceTests(unittest.TestCase):
+    def test_image_caption_reaches_initial_review_in_both_modes(self):
+        source = page(1, 'Body passage.')
+        source.body_layouts.append(PageLayout(
+            ref='image', det=(10, 30, 90, 80), text='Illustration credit', order=1, hash=None))
+        before = deepcopy(source)
+        for footnotes in (False, True):
+            projected = _project_window([None, source, None], footnotes)[1]
+            assert projected is not None
+            _, state = next(iter(build_jev_review_states(
+                [source], [projected], {1: (100, 100)}, includes_footnotes=footnotes)))
+            image = next(x for x in state['target_page']['layouts'] if x['source_type'] == 'image')
+            self.assertEqual(image['raw_text'], 'Illustration credit')
+            self.assertEqual(image['analysed_text'], 'Illustration credit')
+        self.assertEqual(source, before)
+
+    def test_image_review_uses_visible_fields_without_opaque_content_fallback(self):
+        source = page(1, 'Body passage.')
+        source.body_layouts.append(PageLayout(
+            ref='image', det=(10, 30, 90, 80), text='', order=1, hash=None))
+        projected = _project_window([None, source, None], False)[1]
+        assert projected is not None
+        index = next(i for i, x in enumerate(projected.layouts) if getattr(x.source, 'ref', None) == 'image')
+        layout = projected.layouts[index]
+        asset = replace(layout.source, title=('Heading',), caption=('Description',), content=('OPAQUE_PIXEL_TEXT',))
+        projected.layouts[index] = replace(layout, source=asset)
+        def observed():
+            _, state = next(iter(build_jev_review_states(
+                [source], [projected], {1: (100, 100)}, includes_footnotes=False)))
+            return next(x for x in state['target_page']['layouts'] if x['source_type'] == 'image')['raw_text']
+        self.assertEqual(observed(), 'Heading Description')
+        projected.layouts[index] = replace(layout, source=replace(asset, title=(), caption=()))
+        self.assertEqual(observed(), '')
+        self.assertEqual(asset.content, ('OPAQUE_PIXEL_TEXT',))
+
+    def test_neighbor_image_geometry_and_caption_remain_read_only_evidence(self):
+        previous = page(1, 'A detached illustration description.')
+        previous.body_layouts.append(PageLayout(
+            ref='image', det=(10, 30, 90, 80), text='Image credit', order=1, hash=None))
+        current = page(2, 'Running prose resumes.')
+        for footnotes in (False, True):
+            analyses = _project_window([previous, current, None], footnotes)
+            _, state = next(iter(build_jev_review_states(
+                [previous, current], [x for x in analyses if x], {1: (100, 100), 2: (100, 100)},
+                includes_footnotes=footnotes, target_page_index=2)))
+            assets = state['previous_page']['assets']
+            self.assertEqual(len(assets), 1)
+            self.assertEqual(assets[0]['raw_text'], 'Image credit')
+            self.assertEqual(assets[0]['bbox_normalized'], [.1, .3, .9, .8])
+
     def test_footnote_review_gets_its_own_rubric_copy(self):
         source = page(1, 'A reading passage.')
         target = _project_window([None, source, None], True)[1]
