@@ -660,6 +660,25 @@ _TEMPLATES['dependency_completion'] = {'type': 'noul',
               'false': 'That obligatory completion is not established.'}}
 
 
+_TEMPLATES['displayed_number'] = {'type': 'noul',
+ 'instructions': ['For the specified numeric-only target, is it an independently typeset numerical '
+                  'display within the surrounding exposition?',
+                  'The check includes measured original boxes of this source and its immediately '
+                  'adjacent same-page text. Use the full original local evidence to judge the '
+                  'printed function. A numerical result may be displayed independently after an '
+                  'introducing clause without becoming running prose.',
+                  'Do NOT require that introducing clause to be a complete sentence without its '
+                  'displayed result: this question is ONLY the displayed numeric object function. '
+                  'Do not judge the arithmetic or whether a different author could have printed it '
+                  'inline.',
+                  'Reject an ordinary page number, note/list label, date, decimal word fragment, '
+                  'or a number embedded in an ordinary prose line. Do not invent centered '
+                  'placement or ignore contradictory original boxes.'],
+ 'criteria': {'true': 'This is an independently typeset numerical display, not ordinary running '
+                      'prose.',
+              'false': 'That printed numerical-display function is not established.'}}
+
+
 def question(kind: str, name: str) -> dict[str, Any]:
     """Create an isolated question for one named source decision."""
     value = deepcopy(_TEMPLATES[kind])

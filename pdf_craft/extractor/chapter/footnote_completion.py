@@ -14,6 +14,7 @@ COMPLETION_TARGETS = {
     'left_frame_complete_': 'syntax',
     'ended_utterance_boundary_': 'syntax',
     'math_unit_boundary_': 'syntax',
+    'displayed_number_': 'syntax',
     'reporting_join_': 'join',
 }
 
@@ -106,12 +107,43 @@ def _paired_dependencies(local, scores, threshold):
         name = 'dependency_completion_' + order
         yield name, question('dependency_completion', name), value
 
+
+def _displayed_numbers(local, scores, threshold):
+    for key, check in local['checks'].items():
+        if (not key.startswith('gap_') or check['present_decision']
+                or scores.get(key + '_syntax', 1) > 1 - threshold):
+            continue
+        target = target_layout(local, check)
+        if not re.fullmatch(r'[+-]?[0-9]+\.[0-9]{2,}(?:\.\.\.|…)?', target['raw_text'].strip()):
+            continue
+        texts = [item for item in local['local_raw_evidence']['target_page']['layouts']
+                 if item['source_type'] == 'text' and item['raw_text'].strip()]
+        index = next(i for i, item in enumerate(texts) if item['source_order'] == target['source_order'])
+        if index == 0 or index == len(texts) - 1:
+            continue
+        before, after = texts[index - 1], texts[index + 1]
+        if before['ocr_stream'] != 'body' or after['ocr_stream'] != 'body':
+            continue
+        left, top, right, bottom = target['bbox_normalized']
+        height, width = bottom - top, right - left
+        a, _, c, d = before['bbox_normalized']
+        x, y, r, _ = after['bbox_normalized']
+        if (height <= 0 or width <= 0 or min(c - a, r - x) < 2.5 * width
+                or abs((a + c) - (left + right)) > 2 * height
+                or top - d < .5 * height or y - bottom < .5 * height
+                or abs(x - a) > 1.5 * height):
+            continue
+        name = 'displayed_number_' + key.rsplit('_', 1)[1]
+        yield name, question('displayed_number', name), dict(check, measured_display_geometry=dict(
+            target_bbox=target['bbox_normalized'], preceding_bbox=before['bbox_normalized'],
+            following_bbox=after['bbox_normalized']))
+
 def completion_requests(state, scores, threshold):
     """Keep families separate so existing proof packets stay byte-identical."""
     if not any(key.startswith('gap_') and value <= 1 - threshold
                for key, value in scores.items()):
         return
-    for family in (_left_completions, _math_units, _reporting_joins, _paired_words, _paired_dependencies):
+    for family in (_left_completions, _math_units, _reporting_joins, _paired_words, _paired_dependencies, _displayed_numbers):
         seen = set()
         for packet in local_review_requests(state):
             jobs = []
