@@ -1,0 +1,143 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<page index="4" input_tokens="2262" output_tokens="3916">
+  <body>
+    <layout ref="text" det="408,330,768,396">FORM NHAMCS-100[ED] (8-1-2005)</layout>
+    <layout ref="text" det="969,333,1352,459">U.S. DEPARTMENT OF COMMERCE Economics and Statistics Administration U.S. CENSUS BUREAU ACTING AS OF THE UNITED STATES U.S. Department of Health and Human Services Centers for Disease Control and Prevention National Center for Health Statistics</layout>
+    <layout ref="text" det="1390,300,2040,330">Form Approved OMB No. 0920-0278 Exp. Date 05/31/2007 CDC 64.136</layout>
+    <layout ref="text" det="408,465,1346,531">NATIONAL HOSPITAL AMBULATORY MEDICAL CARE SURVEY 2006 EMERGENCY DEPARTMENT PATIENT RECORD</layout>
+    <layout ref="text" det="586,538,1964,640">Assurance of confidentiality -All information which would permit identification of an individual, a practice, or an establishment will be held confidential, will be used only by persons engaged in and for the purpose of the survey and will not be disclosed or released to other persons or used for any other purpose without consent of the individual or the establishment in accordance with section 308(d) of the Public Health Service Act (42 USC 242m).</layout>
+    <layout ref="text" det="408,700,650,726">NHAMCS-100[ED] (8-1-2005)</layout>
+    <layout ref="table" det="408,726,2053,1119" hash="5570f87066cd894bbd481d891668835c1d3f1b7c5f6702c64351c5cecf98fb06">&lt;table&gt;&lt;td colspan="13"&gt;a. Date of visitMonthDayYear12006&lt;td colspan="13"&gt;e. Patient residence1Private residence2Nursing home3Other institution4Other residence5Homeless6Unknown&lt;td colspan="13"&gt;h. Ethnicity1Hispanic or Latino2Not Hispanic or Latino&lt;/table&gt;</layout>
+    <layout ref="text" det="408,1119,653,1148">h. Ethnicity</layout>
+    <layout ref="text" det="408,1148,612,1178">1 Hispanic or</layout>
+    <layout ref="text" det="408,1178,561,1204">Latino</layout>
+    <layout ref="text" det="408,1204,612,1234">2 Not Hispanic</layout>
+    <layout ref="text" det="408,1234,510,1261">or Latino</layout>
+    <layout ref="text" det="688,1119,1035,1148">i. Race - Mark (X) one or more.</layout>
+    <layout ref="text" det="688,1148,849,1175">1 White</layout>
+    <layout ref="text" det="688,1175,816,1201">2 Black/</layout>
+    <layout ref="text" det="688,1201,862,1228">African American</layout>
+    <layout ref="text" det="688,1228,790,1257">3 Asian</layout>
+    <layout ref="text" det="956,1148,1224,1175" first_line_inset="-3.7391">Native Hawaiian/</layout>
+    <layout ref="text" det="956,1175,1275,1201">Other Pacific Islander</layout>
+    <layout ref="text" det="956,1201,1204,1228">5 American Indian/</layout>
+    <layout ref="text" det="956,1228,1148,1257">Alaska Native</layout>
+    <layout ref="text" det="1377,1119,1897,1148">j. Expected source(s) of payment for this visit -</layout>
+    <layout ref="text" det="1377,1148,1556,1175">Mark (X) all that apply.</layout>
+    <layout ref="text" det="1377,1175,1533,1201">1 Private insurance</layout>
+    <layout ref="text" det="1377,1201,1525,1228">2 Medicare</layout>
+    <layout ref="text" det="1377,1228,1589,1254">3 Medicaid/SCHIP</layout>
+    <layout ref="text" det="1377,1254,1594,1280">4 Worker's compensation</layout>
+    <layout ref="text" det="1658,1148,1912,1175">5 Self-pay</layout>
+    <layout ref="text" det="1658,1175,1925,1201">6 No charge/Charity</layout>
+    <layout ref="text" det="1658,1201,1785,1228">7 Other</layout>
+    <layout ref="text" det="1658,1228,1821,1254">8 Unknown</layout>
+    <layout ref="text" det="408,1307,638,1333">Initial visit</layout>
+    <layout ref="text" det="408,1333,510,1360">signs</layout>
+    <layout ref="text" det="408,1360,638,1386">2 [Pulse per minute</layout>
+    <layout ref="text" det="663,1307,765,1333">b. beats</layout>
+    <layout ref="text" det="663,1333,765,1360">per minute</layout>
+    <layout ref="text" det="790,1307,892,1333">3 [Blood</layout>
+    <layout ref="text" det="790,1333,892,1360">pressure</layout>
+    <layout ref="text" det="790,1360,969,1386">4 [Oriented X 3</layout>
+    <layout ref="text" det="790,1386,1096,1412">1 Yes 2 No 3 Unknown</layout>
+    <layout ref="text" det="1122,1267,1341,1297">2. TRIAGE</layout>
+    <layout ref="text" det="1122,1304,1734,1333">b. Immediate with which patient should be seen c. Presenting level of pain</layout>
+    <layout ref="text" det="1122,1336,1708,1363">1 Immediate 4 &gt;1 hour-2 hours 6 No triage</layout>
+    <layout ref="text" det="1122,1363,1708,1389">2 1-14 minutes 5 &gt;2 hours-24 7 Unknown</layout>
+    <layout ref="text" det="1122,1389,1453,1416">3 15-60 minutes hours</layout>
+    <layout ref="text" det="1734,1350,2060,1379">1 None 4 Severe</layout>
+    <layout ref="text" det="1734,1379,2060,1406">2 Mild 5 Unknown</layout>
+    <layout ref="text" det="1734,1406,1879,1432">3 Moderate</layout>
+    <layout ref="text" det="551,1449,829,1478">3. PREVIOUS CARE</layout>
+    <layout ref="text" det="408,1485,630,1511">Has patient been:</layout>
+    <layout ref="text" det="408,1525,653,1574">a. Seen in this ED within the last 72 hours?</layout>
+    <layout ref="text" det="408,1584,510,1610">1 Yes</layout>
+    <layout ref="text" det="408,1610,574,1637">2 No</layout>
+    <layout ref="text" det="408,1637,586,1666">3 Unknown</layout>
+    <layout ref="text" det="663,1525,956,1597">b. Discharged from any hospital within the last 7 days?</layout>
+    <layout ref="text" det="663,1604,765,1630">1 Yes</layout>
+    <layout ref="text" det="663,1630,765,1660">2 No</layout>
+    <layout ref="text" det="663,1660,816,1690">3 Unknown</layout>
+    <layout ref="text" det="1122,1442,1734,1475">4. REASON FOR VISIT</layout>
+    <layout ref="text" det="1040,1485,1782,1515">a. Patient's complaint(s), symptom(s), or other reason(s) for this</layout>
+    <layout ref="text" det="1043,1538,1224,1568">(1) Most important:</layout>
+    <layout ref="text" det="1043,1597,1142,1630">(2) Other:</layout>
+    <layout ref="text" det="1043,1660,1142,1690">(3) Other:</layout>
+    <layout ref="text" det="1862,1485,2012,1511">b. Is this visit</layout>
+    <layout ref="text" det="1862,1511,1981,1538">work</layout>
+    <layout ref="text" det="1862,1538,1989,1564">related?</layout>
+    <layout ref="text" det="1862,1594,1981,1620">2 No</layout>
+    <layout ref="text" det="1862,1620,1981,1647">3 Unknown</layout>
+    <layout ref="text" det="1046,1726,1545,1759">5. INJURY/POSITION/ADVERS EFFEC</layout>
+    <layout ref="text" det="408,1769,609,1832">a. Is this visit related to an injury,</layout>
+    <layout ref="text" det="408,1832,609,1888">injuries, poisoning, or adverse effect</layout>
+    <layout ref="text" det="408,1888,609,1947">of medical treatment?</layout>
+    <layout ref="text" det="408,1950,609,2010">1 Yes 2 No - SKIP to item 6.</layout>
+    <layout ref="text" det="612,1769,803,1835">b. Is this injury/poisoning intentional?</layout>
+    <layout ref="text" det="612,1841,803,1901">1 Yes, self inflicted</layout>
+    <layout ref="text" det="612,1901,803,1930">2 Yes, assault</layout>
+    <layout ref="text" det="612,1930,803,1957">3 No, unintentional</layout>
+    <layout ref="text" det="612,1957,803,1983">4 Unknown</layout>
+    <layout ref="text" det="408,2059,548,2086">As specifically</layout>
+    <layout ref="text" det="408,2086,548,2112">as possible, list</layout>
+    <layout ref="text" det="408,2112,548,2138">diagnoses</layout>
+    <layout ref="text" det="408,2138,548,2165">related to this</layout>
+    <layout ref="text" det="408,2165,548,2191">visit including</layout>
+    <layout ref="text" det="408,2191,510,2218">chronics</layout>
+    <layout ref="text" det="408,2218,510,2244">conditions.</layout>
+    <layout ref="text" det="408,2247,892,2274">(3) Other:</layout>
+    <layout ref="text" det="408,2280,880,2307">7. DIAGNOSTIC/SCREENING SERVICES</layout>
+    <layout ref="text" det="408,2310,880,2336">Mark (X) all ordered or provided at this visit.</layout>
+    <layout ref="text" det="408,2343,523,2369">1 NO ONE</layout>
+    <layout ref="text" det="408,2369,541,2396">Blood tests:</layout>
+    <layout ref="text" det="408,2399,612,2426">2 CBC (complete</layout>
+    <layout ref="text" det="408,2426,561,2452">blood count)</layout>
+    <layout ref="text" det="408,2452,612,2478">3 BUN/Creatinine</layout>
+    <layout ref="text" det="408,2478,612,2505">4 Cardiac enzymes</layout>
+    <layout ref="text" det="408,2505,612,2531">5 Electrolytes</layout>
+    <layout ref="text" det="408,2531,561,2558">6 Glucose</layout>
+    <layout ref="text" det="408,2558,638,2584">7 Liver function tests</layout>
+    <layout ref="text" det="408,2584,638,2610">8 Arterial blood gases</layout>
+    <layout ref="text" det="408,2610,638,2637">9 BAC (blood alcohol)</layout>
+    <layout ref="text" det="408,2637,638,2663">10 HIV serology</layout>
+    <layout ref="text" det="408,2663,638,2690">11 Other blood test</layout>
+    <layout ref="text" det="408,2772,638,2798">Mark (X) all providers</layout>
+    <layout ref="text" det="408,2798,638,2825">seen at this visit.</layout>
+    <layout ref="text" det="408,2828,699,2884">1 ED attending physician 2 ED resident/intern</layout>
+    <layout ref="text" det="408,2888,638,2937">3 On call attending physician/Fellow</layout>
+    <layout ref="text" det="408,2940,541,2967">4 RN/LPN</layout>
+    <layout ref="text" det="408,2967,638,2993">5 Nurse practitioner</layout>
+    <layout ref="text" det="408,2993,638,3020">6 Physician assistant</layout>
+    <layout ref="text" det="408,3020,507,3046">7 EMT</layout>
+    <layout ref="text" det="408,3046,510,3072">8 Other</layout>
+    <layout ref="text" det="714,2310,849,2336">Other tests:</layout>
+    <layout ref="text" det="714,2336,864,2363">12 EKG/ECG</layout>
+    <layout ref="text" det="714,2363,918,2389">13 Cardiac monitor</layout>
+    <layout ref="text" det="714,2389,918,2416">14 Pulse oximetry</layout>
+    <layout ref="text" det="714,2452,918,2478">15 Pregnancy test</layout>
+    <layout ref="text" det="714,2478,918,2505">16 Uniyalysis (UA)</layout>
+    <layout ref="text" det="714,2505,918,2531">17 Other test/service</layout>
+    <layout ref="text" det="714,2534,842,2561">Imbalances</layout>
+    <layout ref="text" det="714,2561,842,2587" first_line_inset="0.0">18 X-ray</layout>
+    <layout ref="text" det="714,2587,864,2614" first_line_inset="0.0">19 Ultrasound</layout>
+    <layout ref="text" det="714,2614,816,2640" first_line_inset="0.0">20 MRI</layout>
+    <layout ref="text" det="714,2640,864,2666" first_line_inset="-0.0909">21 CT scan</layout>
+    <layout ref="text" det="714,2666,892,2693" first_line_inset="-0.0909">22 Other imaging</layout>
+    <layout ref="text" det="714,2772,944,2798">Mark (X) all that apply.</layout>
+    <layout ref="text" det="714,2798,1020,2825">1 No follow-up planned</layout>
+    <layout ref="text" det="714,2825,1020,2851">2 Return if needed, PRN/</layout>
+    <layout ref="text" det="714,2851,864,2878">appointment</layout>
+    <layout ref="text" det="714,2878,969,2904">3 Return/Refer to</layout>
+    <layout ref="text" det="714,2904,941,2930">physician/critic for FU</layout>
+    <layout ref="text" det="714,2930,994,2957">4 Refer to social services</layout>
+    <layout ref="text" det="714,2957,864,2983">5 Left AMA</layout>
+    <layout ref="text" det="714,2983,994,3010">6 Left without being seen</layout>
+    <layout ref="text" det="714,3010,918,3036">7 DOA/died in ED</layout>
+    <layout ref="text" det="1071,2772,1530,2798">11. VISIT DISPOSITION</layout>
+    <layout ref="text" det="1071,2808,1456,2838">10 Admit to hospital ✓ 11 Other</layout>
+    <layout ref="text" det="1071,2838,1964,2917">If "Admit to hospital" was marked, then please continue with item 12. HOSPITAL ADMISSION on the reverse side.</layout>
+    <layout ref="text" det="1071,3039,1323,3069">9 Admit to observation unit</layout>
+    <layout ref="text" det="1810,3026,1920,3056">2006 ED</layout>
+  </body>
+</page>

@@ -9,7 +9,7 @@ from .source import _is_empty_text_layout
 from .mergeable import check_mergeable, has_numbered_prefix, reported_turn_boundary
 from .paragraph_geometry import (
     indented_line_boundary, indented_line_starts, printed_separator_boundary, colophon_record_starts,
-    completed_equation_rows,
+    completed_equation_rows, independent_horizontal_fields,
 )
 from .reading_serials import split_reading_serials
 
@@ -225,6 +225,9 @@ class Jointer:
         block1 = para1.children[-1]
         block2 = para2.children[0]
         if not isinstance(block1, SourceTextFragment) or not isinstance(block2, SourceTextFragment):
+            return False
+
+        if independent_horizontal_fields(block1, block2):
             return False
 
         if (block1.page_index == block2.page_index == self._current_page

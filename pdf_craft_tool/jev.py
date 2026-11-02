@@ -1,11 +1,10 @@
-"""Deterministic JEV baseline replay for repository experiments."""
+"""Historical page admission for repair experiments, not JEV question replay."""
 
 import json
 from pathlib import Path
-from typing import Any
 
-class PinnedJevEvaluator:
-    """Replay one named probability run from a committed JEV baseline."""
+class PinnedPageSelection:
+    """Use a recorded run and its own threshold to select fixed repair pages."""
 
     def __init__(self, baseline_path: Path, run_name: str | None = None) -> None:
         baseline = json.loads(baseline_path.read_text(encoding="utf-8"))
@@ -37,11 +36,9 @@ class PinnedJevEvaluator:
             )
         self.baseline_path = baseline_path
         self.run_name = str(selected.get("name", "unnamed"))
-        self._probabilities = [float(value) for value in probabilities]
-
-    async def __call__(self, page_index: int, _request: dict[str, Any]) -> float:
-        if page_index < 1 or page_index > len(self._probabilities):
-            raise ValueError(
-                f"JEV baseline {self.run_name!r} has no page {page_index}"
-            )
-        return self._probabilities[page_index - 1]
+        probabilities = [float(value) for value in probabilities]
+        threshold = baseline.get('threshold')
+        if not isinstance(threshold, (int, float)) or not 0 <= threshold <= 1:
+            raise ValueError('Historical JEV baseline needs its recorded threshold')
+        self.page_indexes = [index for index, probability in enumerate(probabilities, 1)
+                             if 1 - probability >= threshold]

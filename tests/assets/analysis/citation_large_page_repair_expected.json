@@ -1,6 +1,13 @@
 {
-  "review_page_indexes": [2, 4, 6, 12, 20, 26],
-  "changes": [
+  "review_page_indexes": [
+    2,
+    4,
+    6,
+    12,
+    20,
+    26
+  ],
+  "pages": [
     {
       "page_index": 2,
       "layouts": {

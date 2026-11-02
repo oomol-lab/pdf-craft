@@ -21,7 +21,7 @@ from pdf_craft.extractor.chapter.page_review import (
 from pdf_craft.extractor.toc import TocInfo
 from pdf_craft.pdf import decode
 from pdf_craft_tool.cli import _parser
-from pdf_craft_tool.jev import PinnedJevEvaluator
+from pdf_craft_tool.jev import PinnedPageSelection
 
 
 class PageReviewTests(unittest.IsolatedAsyncioTestCase):
@@ -173,16 +173,16 @@ class PageReviewTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(analysis.pages), 1)
         self.assertEqual(analysis.page_pixel_sizes[1], (10, 10))
 
-    async def test_pinned_evaluator_replays_first_named_run(self):
+    def test_pinned_selection_uses_recorded_threshold_without_replaying_questions(self):
         baseline_path = (
             Path(__file__).parent
             / "assets/analysis/citation_large_jev_baseline.json"
         )
-        evaluator = PinnedJevEvaluator(baseline_path, "strict-rubric")
+        evaluator = PinnedPageSelection(baseline_path, "strict-rubric")
 
         self.assertEqual(evaluator.run_name, "strict-rubric")
-        self.assertEqual(await evaluator(1, {}), 0.45)
-        self.assertEqual(await evaluator(26, {}), 0.16)
+        self.assertEqual(evaluator.page_indexes, [2, 4, 6, 12, 20, 26])
+        self.assertFalse(callable(evaluator))
 
     def test_citation_large_baseline_replays_its_recorded_threshold(self):
         baseline_path = (

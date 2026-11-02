@@ -139,7 +139,7 @@ poetry run python -m pdf_craft_tool analysis review-jev \
 该命令与发布包使用同一个异步 JEV 客户端，但只用于仓库内的分析与调试。
 
 `analysis repair-jev-llm` 使用同一 JEV 门槛筛选页面，再以三页纯文本上下文调用指定 LLM profile；
-目标页不披露自己的 JEV 分数，前后页只披露 `jev_p_pass` 作为弱可靠性提示。LLM 每次返回完整
+仅目标页可以携带自己的 JEV 分数，前后页不携带评分，避免引入邻页审核依赖。LLM 每次返回完整
 目标页 JSON，并由 schema 与业务完整性修复循环校验。运行记录分别保存在 `jev-raw/`、
 `llm-raw/` 和 `llm-logs/`：
 
@@ -153,8 +153,9 @@ poetry run python -m pdf_craft_tool analysis repair-jev-llm \
   --jev-run strict-rubric
 ```
 
-传入 `--jev-baseline` 时只重放已提交的 JEV 概率，不会调用 JEV 网络服务；
-这适合固定路由结果后反复调整 LLM prompt。这仍是实验性私有 CLI 通路，
+传入 `--jev-baseline` 时，根据历史概率及文件中记录的历史阈值选定待修页，直接调用 LLM，
+不模拟当前 JEV 的局部问题，也不向 LLM 提供历史评分。这适合固定准入后验证页面修复。
+当前 JEV 协议及评分应另行测试，不能将历史整页概率作为每道局部问题的回答。这仍是实验性私有 CLI 通路，
 正式转换不会默认调用 JEV 或 LLM。
 `--all-pages` 会完全跳过 JEV，不披露任何 JEV 分数，并将每一页都交给 LLM；
 它主要用于检查 LLM 面对误选正常页时的抗干扰能力。
@@ -163,8 +164,9 @@ poetry run python -m pdf_craft_tool analysis repair-jev-llm \
 ## 页级修复 smoke
 
 `tests/smoke/citation_large_page_repair.json` 固化了 citation_large 的页级修复通路：直接读取
-已提交的 `analysis/citation_large_ocr/page_*.xml`，重放固定 JEV baseline，只将低置信页交给
-LLM，并用 `citation_large_page_repair_expected.json` 严格校验最终语义变更。它不会重新运行 OCR，
+已提交的 `analysis/citation_large_ocr/page_*.xml`，从历史 baseline 固定选取六个待修页交给
+LLM，并用 `citation_large_page_repair_expected.json` 校验最终目标状态。初级分析已修好的目标同样通过，
+不要求 LLM 再修改一次；修改量仅作诊断记录。它不会重新运行 OCR，
 也不会在线调用 JEV：
 
 ```shell
@@ -173,8 +175,17 @@ poetry run python -m pdf_craft_tool smoke matrix \
   --config tests/smoke/citation_large_page_repair.json
 ```
 
-smoke 的 `checks.json` 只接受最终结果完全匹配；Loop 中间重试不会导致失败，但会记录在
+smoke 的 `checks.json` 要求固定准入页和所有声明的最终目标字段匹配；Loop 中间重试不会导致失败，但会记录在
 `manifest.json` 的 `page_repair.attempts` 中。
+
+PDF patch smoke 除页坐标外，还检查自然段是否错误跨越独立字段。供应商的文字、分类和
+分块数量可以变化，不要求表单固定识别成若干图片或表格；但跨栏拼接、大面积擦除和跨格
+译文覆盖不属于可接受波动。`tests/assets/analysis/ocr2_form/page_4.xml` 固定了
+`table&formula.pdf` 第四页的一次 OCR2 结果，用于无需网络的组段回归。
+共享 OCR 解码会将有明确网格且被拆成文本字段的区域保留为图片，而不是臆造单元格；
+这种情况下保留原表单，但不翻译其中字段。已有结构化表格仍走原来的资产链路。
+这属于 OCR 解码规则；复测已有 OCR 缓存时应使用新的 `analysing_path`，以重新执行解码。
+真实 smoke 仍需独立渲染、逐页对照源 PDF，自动检查通过不能代替视觉验收。
 
 ## 冒烟矩阵
 

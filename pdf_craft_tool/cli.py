@@ -34,7 +34,7 @@ from pdf_craft.extractor.chapter.page_repair import (
 from pdf_craft.extractor.toc import TocInfo
 from pdf_craft.llm import runtime_for
 
-from .jev import PinnedJevEvaluator
+from .jev import PinnedPageSelection
 from .runtime import (
     create_jev_from_env,
     create_ocr_config_from_env,
@@ -610,10 +610,16 @@ async def _repair_jev_llm_async(args: argparse.Namespace) -> None:
     llm_page_indexes = _page_indexes(args.llm_pages)
     if args.all_pages and llm_page_indexes is not None:
         raise ValueError("--all-pages cannot be combined with --llm-pages")
+    pinned = None
+    if args.jev_baseline is not None:
+        if args.all_pages or llm_page_indexes is not None:
+            raise ValueError("direct LLM page selection cannot be combined with JEV options")
+        pinned = PinnedPageSelection(args.jev_baseline, args.jev_run)
+        llm_page_indexes = tuple(pinned.page_indexes)
+    elif args.jev_run is not None:
+        raise ValueError("--jev-run requires --jev-baseline")
     jev_runtime = None
     if args.all_pages or llm_page_indexes is not None:
-        if args.jev_baseline is not None or args.jev_run is not None:
-            raise ValueError("direct LLM page selection cannot be combined with JEV options")
         all_page_processor = AllPageLlmRepairProcessor(
             request,
             page_indexes=llm_page_indexes,
@@ -621,47 +627,25 @@ async def _repair_jev_llm_async(args: argparse.Namespace) -> None:
         )
         processor = all_page_processor
         jev_processor = None
-        jev_source = {
-            "type": (
-                "skipped-all-pages" if args.all_pages
-                else "skipped-selected-pages"
-            )
-        }
+        jev_source = (
+            {"type": "fixed-historical-page-selection", "path": str(args.jev_baseline),
+             "run": pinned.run_name} if pinned is not None else
+            {"type": "skipped-all-pages" if args.all_pages else "skipped-selected-pages"}
+        )
     else:
         all_page_processor = None
-        if args.jev_baseline is not None:
-            evaluator = PinnedJevEvaluator(args.jev_baseline, args.jev_run)
-            jev_source = {
-                "type": "pinned-baseline",
-                "path": str(args.jev_baseline),
-                "run": evaluator.run_name,
-            }
-        else:
-            if args.jev_run is not None:
-                raise ValueError("--jev-run requires --jev-baseline")
-            jev_config = create_jev_from_env()
-            jev_runtime = JEVRuntime(jev_config, executor)
-            await jev_runtime.__aenter__()
-            evaluator = _recording_jev_evaluator(
-                jev_runtime.evaluate,
-                args.output / "jev-raw",
-            )
-            jev_source = {
-                "type": "typesafe-sdk",
-                "model": jev_config.model,
-            }
+        jev_config = create_jev_from_env()
+        jev_runtime = JEVRuntime(jev_config, executor)
+        await jev_runtime.__aenter__()
+        evaluator = _recording_jev_evaluator(jev_runtime.evaluate, args.output / "jev-raw")
+        jev_source = {"type": "typesafe-sdk", "model": jev_config.model}
         jev_processor = JevLlmRepairProcessor(
             evaluator,
             request,
             threshold=args.threshold,
             retry_policy=RetryPolicy(analysis=args.analysis_retries),
-            question_batch_evaluator=(
-                _recording_jev_batch_evaluator(
-                    jev_runtime.evaluate_questions_many,
-                    args.output / "jev-raw",
-                )
-                if jev_runtime is not None else None
-            ),
+            question_batch_evaluator=_recording_jev_batch_evaluator(
+                jev_runtime.evaluate_questions_many, args.output / "jev-raw"),
         )
         processor = jev_processor
     analysis = prepare_chapter_analysis(args.ocr_path, TocInfo([], []))

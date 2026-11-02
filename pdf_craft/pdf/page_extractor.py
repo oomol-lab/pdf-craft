@@ -20,6 +20,7 @@ from ..ocr_config import (
 from .ngrams import has_repetitive_ngrams
 from .types import DeepSeekOCRSize, Page, PageLayout
 from .line_geometry import first_line_inset, has_vertical_columns, number_ink_bbox
+from .ruled_forms import preserve_ruled_forms
 
 _LAYOUT_KIND_TO_REF = {
     "text": "text",
@@ -325,6 +326,9 @@ class PageExtractorNode:
                 plotted.close()
                 check_aborted(aborted)
 
+        if number_image is not None:
+            body_layouts, footnotes_layouts = preserve_ruled_forms(
+                number_image, body_layouts, footnotes_layouts, asset_hub)
         return Page(
             index=page_index,
             image=raw_image,

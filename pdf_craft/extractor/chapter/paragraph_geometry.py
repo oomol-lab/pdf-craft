@@ -15,6 +15,37 @@ _CLOSING_QUOTES = '\"\'”’」』»'
 _COMPLETED_ENDINGS = (".", "!", "?", "。", "！", "？", ":", "：", "…")
 
 
+def independent_horizontal_fields(before: SourceTextFragment, after: SourceTextFragment) -> bool:
+    """A horizontal jump needs column-wrap evidence, not just missing punctuation.
+
+    Short side-by-side labels are independent fields. Ordinary newspaper prose
+    may wrap from a column tail back to the top of a similarly wide next column.
+    Vertical CJK strips retain their separate reading-direction rules.
+    """
+    if before.page_index != after.page_index:
+        return False
+    x1, y1, x2, y2 = before.bbox
+    a, b, c, d = after.bbox
+    width1, width2 = x2 - x1, c - a
+    height1, height2 = y2 - y1, d - b
+    if min(width1, width2, height1, height2) <= 0 or min(x2, c) > max(x1, a):
+        return False
+    # OCR can split one physical line into a quotation and its attribution.
+    # Touching runs separated by at most half a line height are not columns.
+    if (0 <= a - x2 <= .5 * min(height1, height2)
+            and min(y2, d) - max(y1, b) >= .8 * max(height1, height2)):
+        return False
+    if all(height >= 3 * width for width, height in ((width1, height1), (width2, height2))):
+        texts = [str(last(item.content)) for item in (before, after)]
+        if all(sum(east_asian_width(ch) in ('W', 'F') for ch in text) > len(text) / 2
+               for text in texts):
+            return False
+    column_wrap = (a >= x2 and min(width1, width2) >= .75 * max(width1, width2)
+                   and (y1 - b >= min(height1, height2)
+                        or (b <= y1 and height1 >= .5 * width1)))
+    return not column_wrap
+
+
 def text_scale_estimate(text, bbox):
     """Soft layout evidence, not font metrics or an ownership decision.
 
