@@ -1,8 +1,9 @@
 import re
 
 from ...language import is_latin_letter
+from ...expression import ExpressionKind
 from ...markdown.paragraph import HTMLTag
-from .chapter import BlockMember
+from .chapter import BlockMember, InlineExpression
 from .content import first, last
 
 # 句尾标识符号
@@ -104,10 +105,19 @@ def has_numbered_prefix(content: list[str | BlockMember | HTMLTag[BlockMember]],
 def check_mergeable(
     content1: list[str | BlockMember | HTMLTag[BlockMember]],
     content2: list[str | BlockMember | HTMLTag[BlockMember]],
+    *, continued_page: bool = False,
 ) -> bool:
     # 从 content 中提取文本
     text1 = last(content1)
     text2 = first(content2)
+    if (continued_page and isinstance(text2, InlineExpression)
+            and text2.kind in (ExpressionKind.INLINE_PAREN, ExpressionKind.INLINE_DOLLAR)
+            and text2.content.strip()
+            and not re.fullmatch(r'\s*[({\[]?\s*[0-9]+\s*[)}\]]?\s*', text2.content)):
+        # Inline math can be the next token of an unfinished page-tail clause.
+        # Do not infer same-page paragraphs or reinterpret numeric item labels.
+        # This local sentinel is never written into source text or output.
+        text2 = '\ufffc'
 
     # 必须都是字符串才能判断
     if not isinstance(text1, str) or not isinstance(text2, str):

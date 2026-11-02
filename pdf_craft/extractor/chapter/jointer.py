@@ -421,7 +421,8 @@ class Jointer:
         ):
             return False
 
-        return check_mergeable(block1.content, block2.content)
+        return check_mergeable(block1.content, block2.content,
+                               continued_page=block1.page_index != block2.page_index)
 
 
 def _normalize_equation(layout: _AssetHolder):
