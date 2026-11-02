@@ -4,8 +4,6 @@ from __future__ import annotations
 
 import json
 import re
-from math import sqrt
-from unicodedata import east_asian_width
 from collections.abc import Awaitable, Callable, Iterable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
@@ -13,6 +11,7 @@ from typing import Any, Protocol
 
 from ...pdf import Page
 from .page_analysis import AnalysedLayout, PageAnalysis
+from .paragraph_geometry import text_scale_estimate
 from .local_review import LOCAL_REVIEW_THRESHOLD, local_review_requests
 from .structural_review import NamedBatchEvaluator, review_body_page
 from .footnote_review import (FOOTNOTE_REVIEW_THRESHOLD, footnote_review_requests, review_footnote_page)
@@ -20,18 +19,6 @@ from .footnote_review import (FOOTNOTE_REVIEW_THRESHOLD, footnote_review_request
 
 JEV_REVIEW_THRESHOLD = FOOTNOTE_REVIEW_THRESHOLD
 
-
-def text_scale_estimate(text, bbox):
-    """Soft layout evidence, not font metrics or an ownership decision.
-
-    OCR block height alone conflates font size and line count. Approximate
-    occupied glyph area makes long small-print continuations comparable with
-    short marked notes. Whitespace and Latin's narrower advance are accounted
-    for, but formulas/leading make this only a hint to the semantic reviewer.
-    """
-    units = sum(1 if east_asian_width(char) in {'W', 'F'} else .5
-                for char in text if not char.isspace())
-    return round(sqrt(max(0, bbox[2]-bbox[0])*max(0, bbox[3]-bbox[1])/max(1, units)), 2)
 
 
 @dataclass(frozen=True)

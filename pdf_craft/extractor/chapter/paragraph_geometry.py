@@ -2,6 +2,7 @@
 
 from unicodedata import east_asian_width
 from statistics import median
+from math import sqrt
 
 from ...pdf import PageLayout
 from .chapter import SourceTextFragment, TextFlowItem
@@ -11,6 +12,18 @@ from .mark import NumberClass, transform2mark
 _CLOSING_QUOTES = '\"\'”’」』»'
 _COMPLETED_ENDINGS = (".", "!", "?", "。", "！", "？", ":", "：", "…")
 
+
+def text_scale_estimate(text, bbox):
+    """Soft layout evidence, not font metrics or an ownership decision.
+
+    OCR block height alone conflates font size and line count. Approximate
+    occupied glyph area makes long small-print continuations comparable with
+    short marked notes. Whitespace and Latin's narrower advance are accounted
+    for, but formulas/leading make this only a hint to the semantic reviewer.
+    """
+    units = sum(1 if east_asian_width(char) in {'W', 'F'} else .5
+                for char in text if not char.isspace())
+    return round(sqrt(max(0, bbox[2]-bbox[0])*max(0, bbox[3]-bbox[1])/max(1, units)), 2)
 
 def printed_separator_boundary(before: TextFlowItem, after: TextFlowItem) -> bool:
     """Keep a detached centered asterism separate, without removing its source.

@@ -1,9 +1,11 @@
 """Conservative, reversible page-apparatus hypotheses from local OCR."""
 import re
+from statistics import median
 
 from ...common import ASSET_TAGS
 from ...pdf import TITLE_TAGS
 from .jointer import _parse_block_content
+from .paragraph_geometry import text_scale_estimate
 from .numeric_marks import explicit_numbers, flattened_numbers
 from .mark import Mark, search_marks
 
@@ -79,7 +81,9 @@ def reading_notes(page):
 
 def marginal_layouts(page):
     """Share exclusions between note selection and retained ignored sources."""
-    return [*marginal_numbers(page), *_marginal_codes(page), *_chapter_footers(page)]
+    candidates = [*marginal_numbers(page), *_marginal_codes(page), *_chapter_footers(page),
+                  *_side_folios(page), *_stacked_folios(page), *_table_codes(page)]
+    return list({id(item): item for item in candidates}.values())
 
 
 def _marginal_codes(page):
@@ -154,5 +158,124 @@ def _chapter_footers(page):
             or (x2 >= right - .5 * height and x1 >= right - .4 * (right - left)))
     if (height > 0 and 3 * height <= width <= 30 * height
             and y1 - bottom >= height and y1 - top >= 15 * height and edge):
+        return [candidate]
+    return []
+
+
+def _side_folios(page):
+    """Recognize a single outer folio without treating raised/list marks as one.
+
+    The shared glyph-area estimate is only a size gate. Isolation, reading-band
+    position, absence of a first-line/list alignment and reference guards must
+    independently hold; no neighboring refined state is consulted.
+    """
+    candidates = [item for item in page.footnotes_layouts
+                  if item.ref == 'text' and re.fullmatch('[0-9]{1,3}', item.text)]
+    if len(candidates) != 1:
+        return []
+    candidate = candidates[0]
+    if any(item is not candidate and any(char.isalnum() for char in item.text)
+           for item in page.footnotes_layouts):
+        return []
+    body = [item for item in page.body_layouts if item.ref == 'text'
+            and any(char.isalnum() for char in item.text)]
+    if len(body) < 2 or sum(len(item.text) for item in body) < 200:
+        return []
+    x1, y1, x2, y2 = candidate.det
+    height, width = y2 - y1, x2 - x1
+    if height <= 0 or not .15 * len(candidate.text) * height <= width <= 1.25 * len(candidate.text) * height:
+        return []
+    left, right = min(item.det[0] for item in body), max(item.det[2] for item in body)
+    top, bottom = min(item.det[1] for item in body), max(item.det[3] for item in body)
+    gap = left - x2 if x2 <= left else x1 - right if x1 >= right else -1
+    if gap < height or y1 < top or y2 > bottom or bottom - top < 15 * height or right - left < 8 * width:
+        return []
+    scale = median(text_scale_estimate(item.text, item.det) for item in body)
+    candidate_scale = text_scale_estimate(candidate.text, candidate.det)
+    if not .6 * scale <= candidate_scale <= 1.1 * scale:
+        return []
+    center = (y1 + y2) / 2
+    if any(item.det[1] - .5 * height <= center <= item.det[1] + 1.5 * height for item in body):
+        return []
+    if any(item.ref in (*ASSET_TAGS, 'formula', 'equation')
+           and min(x2, item.det[2]) > max(x1, item.det[0])
+           and min(y2, item.det[3]) > max(y1, item.det[1]) for item in page.body_layouts):
+        return []
+    number = candidate.text.lstrip('0') or '0'
+    text = ' '.join(item.text for item in body)
+    referenced = {mark for item in body for mark in explicit_numbers(_parse_block_content(item.text))}
+    referenced.update(str(mark.number) for mark in search_marks(text) if isinstance(mark, Mark))
+    if number in referenced or re.search(r'(?<![0-9])' + re.escape(number) + r'(?![0-9])', text):
+        return []
+    return [candidate]
+
+
+def _stacked_folios(page):
+    """A stacked side numeral supplies its own local orientation evidence."""
+    candidates = [item for item in page.footnotes_layouts
+                  if item.ref == 'text' and re.fullmatch('[〇零一二三四五六七八九]{2,3}', item.text)]
+    if len(candidates) != 1:
+        return []
+    candidate = candidates[0]
+    if any(item is not candidate and any(char.isalnum() for char in item.text)
+           for item in page.footnotes_layouts):
+        return []
+    body = [item for item in page.body_layouts if item.ref == 'text'
+            and any(char.isalnum() for char in item.text)]
+    text = ' '.join(item.text for item in body)
+    letters = [char for char in text if char.isalnum()]
+    if len(letters) < 200 or sum('\u3400' <= char <= '\u9fff' for char in letters) < .8 * len(letters):
+        return []
+    left, right = min(item.det[0] for item in body), max(item.det[2] for item in body)
+    top, bottom = min(item.det[1] for item in body), max(item.det[3] for item in body)
+    x1, y1, x2, y2 = candidate.det
+    width, height = x2 - x1, y2 - y1
+    if width <= 0 or height <= 0 or not .6 * width <= height / len(candidate.text) <= 1.5 * width:
+        return []
+    if (not (x2 <= left or x1 >= right) or y1 < top + .5 * (bottom - top)
+            or y2 > bottom or bottom - top < 6 * height or right - left < 4 * width):
+        return []
+    if any(item.ref in (*ASSET_TAGS, 'formula', 'equation')
+           and min(x2, item.det[2]) > max(x1, item.det[0])
+           and min(y2, item.det[3]) > max(y1, item.det[1]) for item in page.body_layouts):
+        return []
+    number = candidate.text.translate(_CHINESE_DIGITS).lstrip('0') or '0'
+    referenced = {mark for item in body for mark in explicit_numbers(_parse_block_content(item.text))}
+    referenced.update(str(mark.number) for mark in search_marks(text) if isinstance(mark, Mark))
+    if (number in referenced or candidate.text in ''.join(text.split())
+            or re.search(r'(?<![0-9])' + re.escape(number) + r'(?![0-9])', text)):
+        return []
+    return [candidate]
+
+
+def _table_codes(page):
+    """Keep near captions and reference keys; recognize only remote table codes."""
+    if len(page.body_layouts) != 1:
+        return []
+    table = page.body_layouts[0]
+    if (table.ref != 'table' or len(table.text) < 150 or '<table' not in table.text
+            or table.text.count('<tr') < 3):
+        return []
+    candidates = [item for item in page.footnotes_layouts
+                  if item.ref == 'text' and re.fullmatch('[A-Z]{2,5}', item.text)
+                  and not re.fullmatch('[IVXLCDM]+', item.text)]
+    if len(candidates) != 1:
+        return []
+    candidate = candidates[0]
+    if any(item is not candidate and any(char.isalnum() for char in item.text)
+           for item in page.footnotes_layouts):
+        return []
+    text = table.text
+    if (explicit_numbers(_parse_block_content(text)) or flattened_numbers(_parse_block_content(text))
+            or any(isinstance(mark, Mark) for mark in search_marks(text))
+            or any(mark in text for mark in ('*', '†', '‡', '<sup', '^{'))
+            or re.search(r'\b' + re.escape(candidate.text) + r'\b', text)):
+        return []
+    left, top, right, bottom = table.det
+    x1, y1, x2, y2 = candidate.det
+    height, width = y2 - y1, x2 - x1
+    aligned = x2 <= left or x1 >= right or abs(x1 - left) <= height or abs(x2 - right) <= height
+    if (height > 0 and 0 < width <= 5 * height and y1 - bottom >= 10 * height
+            and bottom - top >= 10 * height and right - left >= 10 * width and aligned):
         return [candidate]
     return []
