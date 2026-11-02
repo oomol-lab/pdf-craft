@@ -217,7 +217,7 @@ def _page_packet(
             citation_layout_counts[citation_id] = (
                 citation_layout_counts.get(citation_id, 0) + 1
             )
-    return {
+    packet = {
         "page_index": page.index,
         "pixel_size": list(size),
         "ocr_body_layout_count": len(page.body_layouts),
@@ -236,6 +236,10 @@ def _page_packet(
         ],
         "layouts": layouts,
     }
+
+    if any(item.annotations.keep_asset_attachment for item in analysis.layouts):
+        packet['asset_text_note'] = review_text('evidence', kind='asset_text')
+    return packet
 
 
 def _layout_packet(
@@ -262,7 +266,7 @@ def _layout_packet(
         source_type = "text"
     else:
         assert isinstance(source, _AnalysedAssetSource)
-        fields = (source.title, source.caption) if source.ref == 'image' else (source.content,)
+        fields = (source.title, source.caption) if source.ref == 'image' else (source.title, source.content, source.caption)
         raw_text = "\n".join(_content_text(field) for field in fields if field)
         analysed_text = raw_text
         source_type = getattr(source, "ref")
@@ -307,6 +311,13 @@ def _layout_packet(
             result['number_ink_bbox_normalized'] = [
                 round(value / (width if index % 2 == 0 else height), 3)
                 for index, value in enumerate(observation)]
+    target = getattr(source, 'asset_text_target', None)
+    if target is not None:
+        result['asset_text_association'] = {
+            'asset_page_index': target.page_index, 'asset_ref': target.ref,
+            'asset_bbox': list(target.bbox), 'slot': target.slot,
+            'retained': annotations.keep_asset_attachment,
+        }
     return result
 
 
@@ -319,11 +330,11 @@ def _boundary_context(
         return None
     paragraphs = [
         layout for layout in packet["layouts"]
-        if layout["ownership"] == "paragraph" and layout.get("source_type") not in {"image", "table"}
+        if layout["ownership"] == "paragraph" and not layout.get("asset_text_association", {}).get("retained") and layout.get("source_type") not in {"image", "table"}
     ]
     citations = [
         layout for layout in packet["layouts"]
-        if layout["ownership"] == "citation" and layout.get("source_type") not in {"image", "table"}
+        if layout["ownership"] == "citation" and not layout.get("asset_text_association", {}).get("retained") and layout.get("source_type") not in {"image", "table"}
     ]
     # A misplaced note may occupy the apparent tail: retain the real body too.
     candidates = {} if includes_footnotes else {'excluded_candidates': [
@@ -338,6 +349,9 @@ def _boundary_context(
         "paragraph_boundary": paragraphs,
         "citation_boundary": citations,
         "assets": [layout for layout in packet['layouts'] if layout['source_type'] in {'image', 'table'}],
+        **({'asset_text_sources': [layout for layout in packet['layouts']
+               if layout.get('asset_text_association', {}).get('retained')]}
+           if any(layout.get('asset_text_association') for layout in packet['layouts']) else {}),
         **candidates,
     }
 

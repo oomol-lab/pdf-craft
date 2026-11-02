@@ -62,6 +62,12 @@ PageAnalysis 的 continuation 表示文字前驱，跳过同一归属流中的�
 完整来源和前缀范围保留到组装：正文投影保留前缀，定义投影才移除前缀。断词修复延后到 ownership
 组装完成后的语义投影；原始文字记录不被改写，投影为空的 fragment 也保留原身份和 bbox。
 
+表题/表注的独立 OCR 来源由 `Jointer` 保留原始身份和几何，`analyse_pages` 将候选关联
+投影为可单独审核、精修的文本来源。`page_review` 同时暴露资产内生 title/content/caption；
+`page_repair` 仅在存在候选时提供解除关联选项。`materialize_asset_text` 在单页采用后的输出
+边界合并仍有效的同流成员，`PageAssembly` 保存的采用页保持来源完整。该运行时关联不是
+PCEX 字段，不得在持久化编解码器中增加旧字段 fallback。细节见[上游动态修复](../docs/design/upstream-dynamic-repair.md)。
+
 无精修时由 `extractor/chapter/stream.py` 传统增量解析。精修生产链路使用
 `chapter/primary.py` 从固定三页初级证据建立请求局部投影，`extractor/refinement.py` 按邻页就绪调度有界页任务，
 `chapter/assembly.py` 按序校验连接、持久化自然段与定义；`chapter/live.py` 管理输入、背压与通知生命周期。

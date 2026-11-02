@@ -1,13 +1,13 @@
 import re
-from dataclasses import dataclass
-from typing import Generator, Iterable, cast
+from dataclasses import dataclass, field
+from typing import Generator, Iterable, Literal, cast
 
 from ...common import ASSET_TAGS, AssetRef
 from ...expression import ExpressionKind, ParsedItem, parse_latex_expressions
 from ...language import is_latin_letter
 from ...markdown.paragraph import parse_raw_markdown
 from ...pdf import TITLE_TAGS, PageLayout
-from .chapter import SourceAsset, SourceTextFragment, TextSource, InlineExpression, TextFlowItem
+from .chapter import SourceAsset, SourceTextFragment, TextSource, InlineExpression, TextFlowItem, _AssetTextProjection
 from .content import Content, expand_text_in_content, first, last
 from .mergeable import LINK_FLAGS, check_mergeable, has_numbered_prefix, reported_turn_boundary
 from .paragraph_geometry import (
@@ -54,6 +54,7 @@ class _AssetHolder:
     caption: str | None
     hash: str | None
     source: TextSource | None = None
+    associated_texts: list[tuple[Literal["title", "caption"], SourceTextFragment]] = field(default_factory=list)
 
 
 @dataclass
@@ -250,21 +251,34 @@ class Jointer:
             if layout.ref == "table":
                 _normalize_table(layout)
 
-            # OCR image-block prose describes the image; write the canonical
-            # caption directly. PCEX version migration belongs at archive input.
+            intrinsic_title = _parse_block_content(layout.title)
+            intrinsic_caption = _parse_block_content(
+                (layout.caption or layout.content) if layout.ref == "image" else layout.caption)
+            title_parts = [fragment.content for slot, fragment in layout.associated_texts if slot == 'title']
+            caption_parts = [fragment.content for slot, fragment in layout.associated_texts if slot == 'caption']
             yield SourceAsset(
                 page_index=page_index,
                 ref="formula" if layout.ref == "equation" else layout.ref,
                 bbox=layout.det,
-                title=_parse_block_content(layout.title),
+                title=_join_asset_text([*title_parts, intrinsic_title]),
                 content=[] if layout.ref == "image" else _parse_block_content(layout.content),
-                caption=_parse_block_content(
-                    (layout.caption or layout.content) if layout.ref == "image" else layout.caption
-                ),
+                caption=_join_asset_text([intrinsic_caption, *caption_parts]),
                 asset_hash=layout.hash,
                 reading_order=self._reading_positions.get((page_index, layout.det)),
                 source=layout.source,
+                text_projection=(_AssetTextProjection(intrinsic_title, intrinsic_caption,
+                                 tuple(layout.associated_texts)) if layout.associated_texts else None),
             )
+
+    def _text_paragraph(self, page_index, layout):
+        if layout.ref in TITLE_TAGS:
+            layout.text = _MARKDOWN_HEAD_PATTERN.sub("", layout.text)
+        return TextFlowItem(
+            role="heading" if layout.ref in TITLE_TAGS else "body", level=-1,
+            children=[SourceTextFragment(
+                page_index, self._sources.get((page_index, id(layout)), (layout.order, None))[0],
+                layout.det, _parse_block_content(layout.text),
+                self._sources.get((page_index, id(layout)), (0, None))[1])])
 
     def _join_asset_layouts(self, page_index, layouts: list[PageLayout]):
         last_asset: _AssetHolder | None = None
@@ -280,12 +294,12 @@ class Jointer:
 
         for layout in layouts:
             if layout.ref in ASSET_TAGS:
-                pending_title: str | None = None
+                pending_title: SourceTextFragment | None = None
                 if pending_paragraph:
                     if layout.ref == "table" and _can_join_table_title(
                         pending_paragraph.source, layout
                     ):
-                        pending_title = pending_paragraph.source.text
+                        pending_title = cast(SourceTextFragment, pending_paragraph.paragraph.children[0])
                         pending_paragraph = None
                     else:
                         pending = flush_pending_paragraph()
@@ -297,32 +311,37 @@ class Jointer:
                     page_index=page_index,
                     ref=layout.ref,
                     det=layout.det,
-                    title=pending_title,
+                    title=None,
                     content=layout.text,
                     caption=None,
                     hash=layout.hash,
                     source=(self._sources[(page_index, id(layout))][1]
                             if (page_index, id(layout)) in self._sources else None),
+                    associated_texts=[] if pending_title is None else [('title', pending_title)],
                 )
             elif layout.ref in _ASSET_CAPTION_TAGS:
                 pending = flush_pending_paragraph()
                 if pending:
                     yield pending
-                if last_asset:
-                    if last_asset.caption:
-                        last_asset.caption += "\n" + layout.text
-                    else:
-                        last_asset.caption = layout.text
+                if (last_asset and layout.ref == last_asset.ref + '_caption'
+                        and _is_block_below(last_asset.det, layout.det)
+                        and _is_close_to_table(last_asset.det, layout.det)
+                        and _is_horizontally_related(layout.det, last_asset.det)):
+                    last_asset.associated_texts.append(('caption', cast(SourceTextFragment, self._text_paragraph(page_index, layout).children[0])))
+                else:
+                    if last_asset:
+                        yield last_asset
+                        last_asset = None
+                    # Preceding, isolated or unrelated captions remain independent
+                    # OCR sources rather than disappearing on a failed association.
+                    yield self._text_paragraph(page_index, layout)
             else:
                 if (
                     last_asset
                     and last_asset.ref == "table"
                     and _can_join_table_caption(last_asset, layout)
                 ):
-                    if last_asset.caption:
-                        last_asset.caption += "\n" + layout.text
-                    else:
-                        last_asset.caption = layout.text
+                    last_asset.associated_texts.append(('caption', cast(SourceTextFragment, self._text_paragraph(page_index, layout).children[0])))
                     continue
 
                 if last_asset:
@@ -333,23 +352,7 @@ class Jointer:
                 if pending:
                     yield pending
 
-                if layout.ref in TITLE_TAGS:
-                    # 将 Markdown 标题前的 `##` 之类的符号删除，DeepSeek OCR 总会生成这种符号
-                    layout.text = _MARKDOWN_HEAD_PATTERN.sub("", layout.text)
-
-                paragraph = TextFlowItem(
-                    role="heading" if layout.ref in TITLE_TAGS else "body",
-                    level=-1,
-                    children=[
-                        SourceTextFragment(
-                            page_index=page_index,
-                            source_order=self._sources.get((page_index, id(layout)), (layout.order, None))[0],
-                            bbox=layout.det,
-                            content=_parse_block_content(layout.text),
-                            source=self._sources.get((page_index, id(layout)), (0, None))[1],
-                        )
-                    ],
-                )
+                paragraph = self._text_paragraph(page_index, layout)
                 if _can_wait_for_table_title(layout):
                     pending_paragraph = _PendingParagraph(
                         source=layout,
@@ -525,6 +528,21 @@ def _normalize_table(layout: _AssetHolder):
     layout.content = found_table_content
 
 
+def _join_asset_text(parts):
+    result = []
+    for part in parts:
+        if not part:
+            continue
+        if result:
+            if isinstance(result[-1], str) and isinstance(part[0], str):
+                result[-1] += "\n" + part[0]
+                result.extend(part[1:])
+                continue
+            result.append("\n")
+        result.extend(part)
+    return result
+
+
 def _can_wait_for_table_title(layout: PageLayout) -> bool:
     if layout.ref in TITLE_TAGS:
         return False
@@ -555,7 +573,7 @@ def _is_table_title_text(text: str) -> bool:
     normalized = _normalize_table_adjacent_text(text)
     if not normalized or len(normalized) > _MAX_TABLE_TITLE_CHARS:
         return False
-    if "\n\n" in normalized:
+    if re.search(r"\r?\n[ \t\r]*\n", text):
         return False
     return bool(_TABLE_TITLE_PATTERN.search(normalized)) or normalized.endswith((":", "："))
 
@@ -564,7 +582,7 @@ def _is_table_caption_text(text: str) -> bool:
     normalized = _normalize_table_adjacent_text(text)
     if not normalized or len(normalized) > _MAX_TABLE_CAPTION_CHARS:
         return False
-    if "\n\n" in normalized:
+    if re.search(r"\r?\n[ \t\r]*\n", text):
         return False
     return bool(
         _TABLE_CAPTION_PATTERN.search(normalized)

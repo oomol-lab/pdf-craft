@@ -36,6 +36,20 @@ class _Structured:
 
 
 class TestStructuredPageMapping(unittest.TestCase):
+    def test_repeated_table_cells_survive_decoding_with_their_image(self):
+        node = PageExtractorNode(DeepSeekOCRLocalConfig())
+        image = Image.new("RGB", (100, 100), "white")
+        text = '<table><tr>' + '<td>0</td>' * 16 + '</tr></table>'
+        structured = _Structured([_Block(kind='table', det=(10, 10, 90, 90), html=text)])
+        with TemporaryDirectory() as directory:
+            layouts = list(node._iter_page_layouts(  # pylint: disable=protected-access
+                image, structured, AssetHub(Path(directory)), 1, False))
+            self.assertEqual(len(layouts), 1)
+            self.assertEqual(layouts[0][0].text, text)
+            self.assertIsNotNone(layouts[0][0].hash)
+            self.assertEqual(len(list(Path(directory).iterdir())), 1)
+        image.close()
+
     def test_asset_block_includes_structured_caption(self):
         node = PageExtractorNode(DeepSeekOCRLocalConfig())
         image = Image.new("RGB", (100, 100), "white")

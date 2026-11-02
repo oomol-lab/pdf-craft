@@ -23,8 +23,8 @@ Only content used across entries is extracted:
   shared by the two base entries.
 - [shared_followup.jinja](shared_followup.jinja): facts shared by the two supplementary
   entries. Small mode-specific qualifications stay beside the rule they qualify.
-- [evidence.jinja](evidence.jinja): coordinate and lossless-text descriptions used in
-  the evidence fields. This is not another review entry.
+- [evidence.jinja](evidence.jinja): coordinate, lossless-text and provisional asset-text association
+  descriptions used in the evidence fields. This is not another review entry.
 
 Do not split a question into another file just because it is long. Keep entry-specific
 wording inline; use ordinary conditions for genuine selection. Avoid macros, generated

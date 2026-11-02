@@ -23,6 +23,8 @@ def local_review_requests(state: dict[str, Any], *, concrete_joins: bool = False
 
     def observe(page_index, layout):
         nonlocal previous, available
+        if layout.get("asset_text_association", {}).get("retained"):
+            return
         if layout["source_type"] in ("formula", "equation"):
             if layout["ownership"] == "paragraph":
                 previous, available = {}, []
@@ -48,7 +50,8 @@ def local_review_requests(state: dict[str, Any], *, concrete_joins: bool = False
     for layout in state["target_page"]["layouts"]:
         raw, order = layout.get("raw_text", "").strip(), layout["source_order"]
         if layout["source_type"] == "text" and raw and order is not None:
-            if layout["ownership"] == "paragraph" and available:
+            if (layout["ownership"] == "paragraph" and available
+                    and not layout.get("asset_text_association", {}).get("retained")):
                 key = f"gap_{order}"
                 decision = layout["continues_from_previous"]
                 check = dict(source_order=order, present_decision=decision,

@@ -53,6 +53,18 @@ class SourceTextFragment:
     content: Content
     source: TextSource | None = field(default=None, compare=False, repr=False)
 
+@dataclass(frozen=True)
+class _AssetTextProjection:
+    """Runtime provenance of independent OCR text associated with an asset.
+
+    Intrinsic slot content excludes these members. This is not PCEX data.
+    """
+
+    title: Content
+    caption: Content
+    members: tuple[tuple[Literal["title", "caption"], SourceTextFragment], ...]
+
+
 @dataclass
 class SourceAsset:
     page_index: int
@@ -65,6 +77,7 @@ class SourceAsset:
     reading_order: int | None = field(default=None, compare=False, repr=False)
     # Runtime OCR evidence, like SourceTextFragment.source; not PCEX schema.
     source: TextSource | None = field(default=None, compare=False, repr=False)
+    text_projection: _AssetTextProjection | None = field(default=None, compare=False, repr=False)
 
     def __post_init__(self) -> None:
         if self.ref not in {"image", "table", "formula"}:

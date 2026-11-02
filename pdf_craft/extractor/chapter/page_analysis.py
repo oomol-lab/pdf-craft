@@ -60,6 +60,16 @@ _AnalysedContent: TypeAlias = tuple[_AnalysedContentPart, ...]
 
 
 @dataclass(frozen=True)
+class AssetTextTarget:
+    """A local, provisional attachment; source identity remains independent."""
+
+    page_index: int
+    ref: str
+    bbox: tuple[int, int, int, int]
+    slot: Literal['title', 'caption']
+
+
+@dataclass(frozen=True)
 class _AnalysedTextSource:
     page_index: int
     source_order: int
@@ -69,6 +79,7 @@ class _AnalysedTextSource:
     citation_prefix: int = 0
     origin: TextSource | None = None
     citation_prefix_parts: int = 0
+    asset_text_target: AssetTextTarget | None = None
 
 
 @dataclass(frozen=True)
@@ -82,6 +93,7 @@ class _AnalysedAssetSource:
     asset_hash: str | None
     reading_order: int | None = None
     origin: TextSource | None = None
+    associated_sources: tuple[_AnalysedTextSource, ...] = ()
 
 
 _AnalysedSource: TypeAlias = _AnalysedTextSource | _AnalysedAssetSource
@@ -158,6 +170,7 @@ class LayoutAnnotations:
     citation_index: int | None = None
     references: list[ReferenceLocation] = field(default_factory=list)
     preserve_as_image: bool = False
+    keep_asset_attachment: bool = False
 
 
 @dataclass(frozen=True)
@@ -465,6 +478,18 @@ def analyse_pages(
             continues_to_next=False,
         ))
 
+    for page in pages.values():
+        members = []
+        for layout in page.layouts:
+            if isinstance(layout.source, _AnalysedAssetSource):
+                for member in layout.source.associated_sources:
+                    members.append(AnalysedLayout(member, -1, LayoutAnnotations(
+                        ownership=layout.ownership, continues_from_previous=False,
+                        continues_to_next=False, paragraph_role='body', paragraph_level=-1,
+                        citation_id=layout.citation_id, citation_index=layout.citation_index,
+                        keep_asset_attachment=True)))
+        page.layouts.extend(members)
+
     document_order = 0
     for page in pages.values():
         # Reading positions were captured before splitting the OCR streams.
@@ -520,10 +545,78 @@ def _get_citation_segment(
     return segment
 
 
+def active_asset_text(layouts: Iterable[AnalysedLayout]) -> dict[int, AnalysedLayout]:
+    """Map active text-member identities to their same-stream local asset."""
+    items = list(layouts)
+    assets = {(item.page_index, item.source.ref, item.bbox): item for item in items
+              if isinstance(item.source, _AnalysedAssetSource) and item.ownership != 'ignored'}
+    active = {}
+    for item in items:
+        target = getattr(item.source, 'asset_text_target', None)
+        if (target is None or not item.annotations.keep_asset_attachment
+                or item.ownership == 'ignored' or item.annotations.preserve_as_image):
+            continue
+        asset = assets.get((target.page_index, target.ref, target.bbox))
+        if (asset is not None and (asset.ownership, asset.citation_id) ==
+                (item.ownership, item.citation_id)):
+            active[id(item)] = asset
+    return active
+
+
+def materialize_asset_text(page: PageAnalysis) -> PageAnalysis:
+    """Build output slots without mutating the adopted, source-complete page."""
+    active = active_asset_text(page.layouts)
+    if not active:
+        return page
+    members: dict[int, list[AnalysedLayout]] = {}
+    for item in page.layouts:
+        if id(item) in active:
+            members.setdefault(id(active[id(item)]), []).append(item)
+    layouts = []
+    for item in page.layouts:
+        if id(item) in active:
+            continue
+        attached = members.get(id(item), [])
+        if not attached:
+            layouts.append(item)
+            continue
+        source = item.source
+        assert isinstance(source, _AnalysedAssetSource)
+        title, caption = list(source.title), list(source.caption)
+        prefixes = []
+        for member in sorted(attached, key=lambda value: value.document_order):
+            assert isinstance(member.source, _AnalysedTextSource)
+            target = member.source.asset_text_target
+            assert target is not None
+            if target.slot == 'title':
+                prefixes.append(member.source.content)
+            else:
+                if caption:
+                    caption.append('\n')
+                caption.extend(member.source.content)
+        for prefix in reversed(prefixes):
+            title = [*prefix, *(['\n'] if title else []), *title]
+        # Keep the canonical adjacent string shape, preserving structured parts.
+        def compact(parts):
+            result = []
+            for part in parts:
+                if isinstance(part, str) and result and isinstance(result[-1], str):
+                    result[-1] += part
+                else:
+                    result.append(part)
+            return tuple(result)
+        projected = replace(source, title=compact(title), caption=compact(caption), associated_sources=())
+        references = []
+        for field_index, field_content in enumerate((projected.title, projected.content, projected.caption)):
+            _collect_reference_locations(field_content, references, (field_index,))
+        layouts.append(replace(item, source=projected, annotations=replace(item.annotations, references=references)))
+    return replace(page, layouts=layouts)
+
+
 def restore_streams(pages: Iterable[PageAnalysis]) -> RestoredStreams:
     """Restore paragraph and citation streams from editable page annotations."""
 
-    page_list = list(pages)
+    page_list = [materialize_asset_text(page) for page in pages]
     _validate_pages(page_list)
     citation_annotations = [
         citation for page in page_list for citation in page.citations
@@ -626,16 +719,25 @@ def _analyse_layout(
             citation_prefix=_citation_prefix(source) if ownership == "citation" else 0,
         )
     else:
+        projection = source.text_projection
+        associated = []
+        if projection is not None:
+            for slot, member in projection.members:
+                projected = _analyse_layout(member, ownership, False, False).source
+                assert isinstance(projected, _AnalysedTextSource)
+                associated.append(replace(projected, asset_text_target=AssetTextTarget(
+                    source.page_index, source.ref, source.bbox, slot)))
         analysed_source = _AnalysedAssetSource(
             page_index=source.page_index,
             ref=source.ref,
             bbox=source.bbox,
-            title=_analyse_content(source.title, references, (0,)),
+            title=_analyse_content(source.title if projection is None else projection.title, references, (0,)),
             content=_analyse_content(source.content, references, (1,)),
-            caption=_analyse_content(source.caption, references, (2,)),
+            caption=_analyse_content(source.caption if projection is None else projection.caption, references, (2,)),
             asset_hash=source.asset_hash,
             reading_order=source.reading_order,
             origin=source.source,
+            associated_sources=tuple(associated),
         )
     return AnalysedLayout(
         source=analysed_source,
@@ -1014,8 +1116,12 @@ def _restore_layouts(
 
 def continuation_sequences(layouts: Iterable[AnalysedLayout]) -> Iterable[list[AnalysedLayout]]:
     """Text predecessors skip image/table anchors; display formulas stop them."""
+    items = list(layouts)
+    attached = active_asset_text(items)
     sequence: list[AnalysedLayout] = []
-    for layout in layouts:
+    for layout in items:
+        if id(layout) in attached:
+            continue
         if isinstance(layout.source, _AnalysedAssetSource):
             if layout.source.ref == "formula":
                 yield sequence

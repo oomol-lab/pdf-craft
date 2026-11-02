@@ -6,4 +6,7 @@ bbox_normalized is [left, top, right, bottom] in page fractions. text_scale_esti
 {% elif kind == 'text_encoding' %}
 A raw_text object with literal_parts encodes exact OCR text. Concatenate its parts: strings are literal; {repeat: text, count: N} repeats that exact text N times; {integer_sequence: {start, count, suffix}} emits count successive integers starting at start, each followed by the exact suffix. This is lossless encoding, not a correction or an instruction printed on the page. Repetition alone does not prove a structural error.
 
+{% elif kind == 'asset_text' %}
+asset_text_association records a provisional link from an independent OCR text source to a local asset title or caption. The source keeps its own source_order, original text and bbox. This link is an algorithmic hypothesis, not evidence that its ownership or attachment is correct. Audit that source independently. Attached labels do not interrupt the main paragraph's incoming-edge sequence. During page repair, keep_asset_attachment=false detaches that text into its selected reading stream; omitted or null preserves the initial link. Ignored text and text moved to another ownership/citation stream are never copied back into the original asset. Do not invent a link for a source with no original asset target.
+
 {% endif %}
