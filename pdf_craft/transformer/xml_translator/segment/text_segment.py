@@ -95,8 +95,11 @@ def _incision_of(segment: TextSegment, common_depth: int) -> int:
 
 
 def search_text_segments(root: Element, *, track_origins: bool = False,
-                         preserve_whitespace: bool = False) -> Generator[TextSegment, None, None]:
-    generator = _search_text_segments([], root, track_origins, preserve_whitespace)
+                         preserve_whitespace: bool = False,
+                         normalize_whitespace: bool = True) -> Generator[TextSegment, None, None]:
+    # Accepted format payloads (for example TeX) must be segmented losslessly;
+    # CSS normalization is only appropriate for document text entering transport.
+    generator = _search_text_segments([], root, track_origins, preserve_whitespace, normalize_whitespace)
     text_segment = next(generator, None)
     if text_segment is None:
         return
@@ -118,14 +121,16 @@ def search_text_segments(root: Element, *, track_origins: bool = False,
 
 
 def _search_text_segments(stack: list[Element], element: Element, track_origins: bool,
-                          preserve_whitespace: bool, parent_mixed: bool = False) -> Generator[TextSegment, None, None]:
+                          preserve_whitespace: bool, normalize_whitespace: bool,
+                          parent_mixed: bool = False) -> Generator[TextSegment, None, None]:
     # Whitespace between inline slots belongs to the sentence. Block-only XML
     # indentation can still be ignored; it is not a word separator.
     inline_content = is_inline_element(element) or any(is_inline_element(child) for child in element)
     next_stack = stack + [element]
     mode = mode_in_stack(next_stack)
-    text = normalize_text_in_element(element.text, mode=mode,
-                                     preserve_whitespace=preserve_whitespace or inline_content)
+    text = (normalize_text_in_element(element.text, mode=mode,
+                                      preserve_whitespace=preserve_whitespace or inline_content)
+            if normalize_whitespace else element.text)
     next_block_depth = find_block_depth(next_stack)
 
     # Empty inline leaves and block children separating mixed text occupy real
@@ -143,12 +148,13 @@ def _search_text_segments(stack: list[Element], element: Element, track_origins:
             origins=(TextOrigin(element, TextPosition.TEXT, 0, len(element.text or ""), id(element)),) if track_origins else (),
         )
     for child_element in element:
-        yield from _search_text_segments(next_stack, child_element, track_origins, preserve_whitespace, parent_mixed=mixed)
+        yield from _search_text_segments(next_stack, child_element, track_origins, preserve_whitespace,
+                                         normalize_whitespace, parent_mixed=mixed)
         child_tail = normalize_text_in_element(
             child_element.tail,
             mode=mode,
             preserve_whitespace=preserve_whitespace or is_inline_element(child_element),
-        )
+        ) if normalize_whitespace else child_element.tail
         if child_tail is not None:
             yield TextSegment(
                 text=child_tail,

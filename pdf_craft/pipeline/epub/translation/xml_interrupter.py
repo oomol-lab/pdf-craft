@@ -1,6 +1,7 @@
 from collections.abc import Generator, Iterable
 from typing import cast
-from xml.etree.ElementTree import Element, tostring
+from xml.etree.ElementTree import Element, tostring, fromstring
+from latex2mathml.converter import convert
 
 from bs4 import BeautifulSoup
 from mathml2latex.mathml import process_mathml  # pyright: ignore[reportMissingImports]
@@ -8,6 +9,9 @@ from mathml2latex.mathml import process_mathml  # pyright: ignore[reportMissingI
 from pdf_craft.transformer.xml_translator.segment import TextSegment, combine_text_segments, find_block_depth
 from pdf_craft.transformer.xml_translator.utils import ensure_list, normalize_whitespace
 from pdf_craft.transformer.xml_translator.xml import DISPLAY_ATTRIBUTE, clone_element, is_inline_element
+from pdf_craft.transformer.canonical_projection import (
+    MathMapping, MathProjectionError, SourceMath, formula_content, project_canonical_math,
+)
 
 _ID_KEY = "__XML_INTERRUPTER_ID"
 _MATH_TAG = "math"
@@ -20,6 +24,7 @@ class XMLInterrupter:
         self._last_interrupted_id: str | None = None
         self._placeholder2interrupted: dict[str, Element] = {}
         self._raw_text_segments: dict[str, list[TextSegment]] = {}
+        self._latex_by_id: dict[str, str] = {}
 
     def prepare(self, root: Element) -> None:
         """MathML already declares inline/block display in the source schema."""
@@ -28,6 +33,28 @@ class XMLInterrupter:
         """No temporary projection identity belongs in the final XHTML."""
         for node in root.iter():
             node.attrib.pop(_ID_KEY, None)
+
+    def project_math(self, mappings: list[MathMapping | None], canonical: str) -> list[MathMapping | None] | None:
+        identities = {node.get(_ID_KEY) for mapping in mappings if mapping
+                      for segment in mapping[1] for node in segment.parent_stack}
+        sources = []
+        for key, element in self._placeholder2interrupted.items():
+            if key in identities and is_inline_element(element):
+                node = clone_element(element)
+                for child in node.iter():
+                    child.attrib.pop(_ID_KEY, None)
+                sources.append(SourceMath(self._latex_by_id[key], node))
+        return project_canonical_math(mappings, canonical, sources, self._canonical_formula)
+
+    @staticmethod
+    def _canonical_formula(value: str) -> Element:
+        latex, _ = formula_content(value)
+        try:
+            # This projection owns inline text allocations. Standalone display
+            # equations retain their original block through the existing path.
+            return fromstring(convert(latex, display='inline'))
+        except Exception as error:
+            raise MathProjectionError('Canonical formula cannot be represented as MathML.') from error
 
     def interrupt_source_text_segments(
         self, text_segments: Iterable[TextSegment]
@@ -113,6 +140,7 @@ class XMLInterrupter:
                 progress_blocks=tuple(dict.fromkeys(block for segment in text_segments for block in segment.progress_blocks)),
             )
             self._placeholder2interrupted[interrupted_id] = interrupted_element
+            self._latex_by_id[interrupted_id] = merged_text_segment.text.strip()
 
             # TODO: 比较难搞，先关了再说
             # parent_element: Element | None = None

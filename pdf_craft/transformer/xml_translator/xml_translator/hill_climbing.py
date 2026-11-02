@@ -60,6 +60,12 @@ class HillClimbing:
                 text_segments = list(search_text_segments(submitted_element))
                 yield inline_segment.parent, text_segments
 
+    def candidate_mappings(self, element: Element) -> list[InlineSegmentMapping | None]:
+        """Materialize a private, validated candidate before committing it."""
+        candidates = {item.id: item for item in self._block_segment.submit(element)}
+        return [(segment.parent, list(search_text_segments(candidates[segment.id].submitted_element)))
+                if segment.id in candidates else None for segment in self._block_segment]
+
     def submit(self, element: Element) -> str | None:
         error_message, block_weights = self._validate_block_weights_and_error_message(element)
 

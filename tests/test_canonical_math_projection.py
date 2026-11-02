@@ -1,0 +1,201 @@
+"""Validate final mathematical values, beyond acceptance of the fill response."""
+# pylint: disable=protected-access
+from copy import deepcopy
+import asyncio
+from io import BytesIO
+from unittest import IsolatedAsyncioTestCase
+from unittest.mock import AsyncMock, patch
+from xml.etree.ElementTree import fromstring, tostring
+
+from pdf_craft import RetryPolicy, SubmitKind
+from pdf_craft.expression import ExpressionKind
+from pdf_craft.markdown.paragraph import HTMLTag, tag_definition
+from pdf_craft.extractor.chapter.chapter import (
+    Chapter, InlineExpression, SourceTextFragment, TextFlowItem, SourceAsset, StandaloneAsset, decode, encode,
+)
+from pdf_craft.pipeline.epub.translation.xml_interrupter import XMLInterrupter
+from pdf_craft.transformer.canonical_projection import MathProjectionError
+from pdf_craft.transformer.chapter_formula_interrupter import ChapterFormulaInterrupter
+from pdf_craft.transformer.narrative_xml import NarrativeXMLTransformer
+from pdf_craft.transformer import AnchoredContent, AnchoredContentXMLTransformer
+from pdf_craft.transformer.structured_translation import StructuredTranslation
+from pdf_craft.transformer.xml_translator.xml.xml_like import XMLLikeNode
+from pdf_craft.transformer.xml_translator.xml_translator import TranslationTask
+from tests.test_anchored_content_translation import _repairing_translator, _pdf_patch_text
+from tests.test_structured_translation import offline_translator
+
+
+def expression(value):
+    return InlineExpression(ExpressionKind.INLINE_PAREN, value)
+
+
+def chapter(content):
+    return Chapter(None, -1, [TextFlowItem('body', -1, [
+        SourceTextFragment(2, 0, (0, 0, 90, 20), content),
+    ])])
+
+
+def content_of(value):
+    text = value.flow_items[0]
+    assert isinstance(text, TextFlowItem)
+    fragment = text.children[0]
+    assert isinstance(fragment, SourceTextFragment)
+    return fragment.content
+
+
+class CanonicalMathProjectionTests(IsolatedAsyncioTestCase):
+    async def translate(self, source, canonical, response):
+        saved = deepcopy(source)
+        translator, runtime = _repairing_translator([response])
+        translator._translate_text_async = AsyncMock(return_value=canonical)
+        target = await NarrativeXMLTransformer(translator).transform(source, error_policy=False)
+        self.assertEqual(runtime.context_value.calls, 1)
+        self.assertEqual(source, saved)
+        self.assertEqual(decode(fromstring(tostring(encode(target))), allow_legacy=False), target)
+        xml = tostring(encode(target), encoding='unicode')
+        self.assertNotIn('math-ref', xml)
+        self.assertNotIn('<expression', xml)
+        self.assertNotIn('__PDF_CRAFT', xml)
+        return target
+
+    async def test_one_source_formula_can_split_without_overwriting_first_value(self):
+        target = await self.translate(chapter(['Equality: ', expression('x=y'), '.']),
+            '$x$ 等于 $y$。',
+            '<xml><fragment id="1"><expression><math-ref key="m1"/></expression> '
+            '等于 <math-ref key="m2"/>。</fragment></xml>')
+        self.assertEqual(content_of(target), [
+            InlineExpression(ExpressionKind.INLINE_DOLLAR, 'x'), ' 等于 ',
+            InlineExpression(ExpressionKind.INLINE_DOLLAR, 'y'), '。',
+        ])
+        # The PDF plan must receive typed formula spans, not literal $y$ prose.
+        self.assertNotIn('$', await asyncio.to_thread(_pdf_patch_text, target))
+
+    async def test_more_canonical_references_than_source_slots_keep_their_values(self):
+        # Crop the paid 21-slot/22-reference character paragraph to 3/4, retaining
+        # the extra reference and the following two distinguishable equalities.
+        source = chapter(['A character ', expression(r'\chi\mod q'), ', ',
+                          expression(r'\chi_0(n)=1'), ' or ', expression(r'\chi_0(n)=0'), '.'])
+        target = await self.translate(source,
+            r'$\chi$ 是模 $q$ 的特征；当条件成立时 $\chi_0(n)=1$，否则 $\chi_0(n)=0$。',
+            '<xml><fragment id="1"><expression id="2"><math-ref key="m1"/></expression> '
+            '是模 <expression id="3"><math-ref key="m2"/></expression> 的特征；当条件成立时 '
+            '<expression id="4"><math-ref key="m3"/></expression>，否则 '
+            '<math-ref key="m4"/>。</fragment></xml>')
+        actual = content_of(target)
+        self.assertEqual([item.content for item in actual if isinstance(item, InlineExpression)],
+                         [r'\chi', 'q', r'\chi_0(n)=1', r'\chi_0(n)=0'])
+        self.assertEqual([item for item in actual if isinstance(item, str)],
+                         [' 是模 ', ' 的特征；当条件成立时 ', '，否则 ', '。'])
+        self.assertNotIn('$', await asyncio.to_thread(_pdf_patch_text, target))
+
+    async def test_reordered_and_repeated_formulas_do_not_follow_slot_identity(self):
+        source = chapter([expression('x'), ' then ', expression('y'), ' then ', expression('x')])
+        target = await self.translate(source, '$y$ then $x$ then $x$',
+            '<xml><fragment id="1"><expression id="2"><math-ref key="m1"/></expression> then '
+            '<expression id="3"><math-ref key="m2"/></expression> then '
+            '<expression id="4"><math-ref key="m3"/></expression></fragment></xml>')
+        self.assertEqual([item.content for item in content_of(target) if isinstance(item, InlineExpression)],
+                         ['y', 'x', 'x'])
+
+    async def test_math_delimiters_crossing_inline_formatting_are_one_formula(self):
+        source = chapter(['Value ', expression('x=y'), '.'])
+        target = await self.translate(source, '$x=y$.',
+            '<xml><fragment id="1"><expression>$x</expression>=y$.</fragment></xml>')
+        self.assertEqual(content_of(target), [expression('x=y'), '.'])
+
+    async def test_math_projection_failure_uses_existing_budget_without_partial_adoption(self):
+        source = chapter(['Equality: ', expression('x=y'), '.'])
+        response = ('<xml><fragment id="1"><expression><math-ref key="m1"/></expression> '
+                    '等于 <math-ref key="m2"/>。</fragment></xml>')
+        translator, runtime = _repairing_translator([response, response])
+        translator._translate_text_async = AsyncMock(return_value='$x$ 等于 $y$。')
+        create = ChapterFormulaInterrupter._canonical_formula
+        calls = 0
+
+        def flaky_conversion(value):
+            nonlocal calls
+            calls += 1
+            if calls == 2:
+                raise MathProjectionError('Formula projection failed.')
+            return create(value)
+
+        with patch.object(ChapterFormulaInterrupter, '_canonical_formula', staticmethod(flaky_conversion)):
+            target = await NarrativeXMLTransformer(translator).transform(
+                source, error_policy=False, retry_policy=RetryPolicy(fill=1))
+        self.assertEqual(runtime.context_value.calls, 2)
+        self.assertEqual([item.content for item in content_of(target) if isinstance(item, InlineExpression)], ['x', 'y'])
+        self.assertIn('projection failed', runtime.context_value.messages[1][0][-1].message)
+
+    async def test_native_epub_split_formula_is_mathml_in_serialized_xhtml(self):
+        node = XMLLikeNode(BytesIO(
+            b'<html xmlns="http://www.w3.org/1999/xhtml"><body><p>Equality: '
+            b'<math xmlns="http://www.w3.org/1998/Math/MathML"><mi>x</mi><mo>=</mo><mi>y</mi></math>.'
+            b'</p></body></html>'))
+        translator, runtime = _repairing_translator([
+            '<xml><p id="1"><expression><math-ref key="m1"/></expression> '
+            '等于 <math-ref key="m2"/>。</p></xml>'])
+        translator._translate_text_async = AsyncMock(return_value='$x$ 等于 $y$。')
+        protocol = StructuredTranslation(formulas=XMLInterrupter())
+        node.element, _ = await protocol.translate(translator, TranslationTask(node.element, SubmitKind.REPLACE, None))
+        result = BytesIO()
+        node.save(result)
+        root = fromstring(result.getvalue())
+        maths = root.findall('.//{http://www.w3.org/1998/Math/MathML}math')
+        self.assertEqual(len(maths), 2)
+        self.assertEqual([''.join(math.itertext()) for math in maths], ['x', 'y'])
+        self.assertNotIn('$', ''.join(root.itertext()))
+        self.assertNotIn('expression', result.getvalue().decode())
+        self.assertEqual(runtime.context_value.calls, 1)
+
+    async def test_native_epub_reordered_math_preserves_the_matching_source_attributes(self):
+        source = fromstring('<body><p><math id="x"><mi>x</mi></math> '
+                            'then <math id="y"><mi>y</mi></math>.</p></body>')
+        translator, runtime = _repairing_translator([
+            '<xml><p id="1"><expression id="2"><math-ref key="m1"/></expression> then '
+            '<expression id="3"><math-ref key="m2"/></expression>.</p></xml>'])
+        translator._translate_text_async = AsyncMock(return_value='$y$ then $x$.')
+        result, _ = await StructuredTranslation(formulas=XMLInterrupter()).translate(
+            translator, TranslationTask(source, SubmitKind.REPLACE, None))
+        self.assertEqual([math.get('id') for math in result.findall('.//math')], ['y', 'x'])
+        self.assertEqual([math.find('mi').text for math in result.findall('.//math')], ['y', 'x'])
+        self.assertEqual(runtime.context_value.calls, 1)
+
+    async def test_asset_caption_can_split_math_without_relaxing_field_structure(self):
+        source = SourceAsset(1, 'image', (0, 0, 90, 20), caption=[
+            'Equality: ', expression('x=y'), '.'])
+        translator, runtime = _repairing_translator([
+            '<xml><caption id="1"><expression><math-ref key="m1"/></expression> '
+            '等于 <math-ref key="m2"/>。</caption></xml>'])
+        translator._translate_text_async = AsyncMock(return_value='$x$ 等于 $y$。')
+        result, = await AnchoredContentXMLTransformer(translator).transform_assets([
+            AnchoredContent('a', 0, -1, source, '')], error_policy=False)
+        self.assertIsNotNone(result)
+        assert result is not None
+        self.assertEqual([part.content for part in result.caption if isinstance(part, InlineExpression)], ['x', 'y'])
+        self.assertEqual([part for part in result.caption if isinstance(part, str)], [' 等于 ', '。'])
+        self.assertEqual(runtime.context_value.calls, 1)
+
+    async def test_asset_mixed_cell_and_nested_blocks_preserve_owning_markup(self):
+        def tag(name, children):
+            definition = tag_definition(name)
+            assert definition is not None
+            return HTMLTag(definition, [], children)
+        source = SourceAsset(1, 'table', (0, 0, 90, 20), content=[tag('table', [tag('tr', [
+            tag('td', ['before ', tag('p', ['value ', expression('x=y')]), ' after']),
+        ])])])
+        result, = await AnchoredContentXMLTransformer(offline_translator()).transform_assets([
+            AnchoredContent('a', 0, -1, source, '')], error_policy=False)
+        assert result is not None
+        # Decode through the actual asset pipeline before inspecting the
+        # final table tree; two allocations share the outer td block.
+        encoded = encode(Chapter(None, -1, [StandaloneAsset(SourceAsset(
+            1, 'table', source.bbox, content=result.content))]))
+        self.assertEqual([node.text for node in encoded.findall('.//td/p/inline_expr')], ['x=y'])
+        self.assertEqual(len(encoded.findall('.//td/p')), 1)
+        self.assertNotIn('__PDF_CRAFT', tostring(encoded, encoding='unicode'))
+
+    async def test_source_reuse_does_not_normalize_away_canonical_tex_payload(self):
+        target = await self.translate(chapter([expression(r'\text{a b}')]), r'$\text{a  b}$',
+            '<xml><fragment id="1"><expression><math-ref key="m1"/></expression></fragment></xml>')
+        self.assertEqual([item.content for item in content_of(target) if isinstance(item, InlineExpression)],
+                         [r'\text{a  b}'])

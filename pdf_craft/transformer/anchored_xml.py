@@ -3,6 +3,8 @@
 
 from __future__ import annotations
 
+from copy import deepcopy
+
 from pdf_craft.usage import UsageCollector, adopted_result
 from collections.abc import Mapping
 
@@ -34,6 +36,7 @@ class AsyncXMLTaskTranslator(Protocol):
     ) -> tuple[Element, object]: ...
 
 
+_MATH_UNIT = '__PDF_CRAFT_ASSET_MATH_UNIT'
 
 
 class AnchoredContentXMLTransformer:
@@ -69,14 +72,19 @@ class AnchoredContentXMLTransformer:
             return (None,) * len(assets)
         for asset, item in zip(asset_elements, assets, strict=True):
             asset.set("translation_slot", _slot_key(item))
-        source_structures = {
-            _slot_key(item): _asset_structure(asset)
-            for asset, item in zip(asset_elements, assets, strict=True)
-        }
+        # Only format-owned units can authorize a canonical mathematical
+        # projection. The identity is restored from source attributes, never
+        # accepted from an LLM response.
+        for index, node in enumerate(element.iter()):
+            if node.tag in {'td', 'th', 'title', 'content', 'caption'}:
+                node.set(_MATH_UNIT, str(index))
+        source_assets = {slot: deepcopy(asset) for slot, asset in
+                         zip(expected_slots, asset_elements, strict=True)}
 
         contexts = {_slot_key(item): item.context for item in assets}
         protocol = StructuredTranslation(owner=_asset_unit_owner, formulas=ChapterFormulaInterrupter(),
-                                         context=lambda segments: _asset_context(segments, contexts))
+                                         context=lambda segments: _asset_context(segments, contexts), record_math_units=True,
+                                         identity=lambda owner: owner.get(_MATH_UNIT, str(id(owner))))
         task = TranslationTask(
                 element=element,
                 action=self._mode,
@@ -87,8 +95,10 @@ class AnchoredContentXMLTransformer:
         translated, _ = await protocol.translate(self._translator, task)
         if task.outcomes and not all(task.outcomes.values()):
             return (None,) * len(assets)
+        source_structures = {slot: _asset_structure(asset, protocol.projected_math_units)
+                             for slot, asset in source_assets.items()}
         translated_assets = _decode_assets_by_slot(
-            translated, expected_slots, source_structures,
+            translated, expected_slots, source_structures, protocol.projected_math_units,
         )
         if translated_assets is None:
             from .._policy import recover
@@ -138,6 +148,7 @@ def _decode_assets_by_slot(
     root: Element,
     expected_slots: dict[str, tuple[str, int, int]],
     source_structures: dict[str, tuple[Any, ...]],
+    projected_units: set[str] | None = None,
 ) -> dict[tuple[str, int, int], SourceAsset] | None:
     wrappers = root.findall("flow/standalone-asset")
     if len(wrappers) != len(expected_slots):
@@ -158,12 +169,14 @@ def _decode_assets_by_slot(
         return None
 
     if any(
-        _asset_structure(asset) != source_structures[slot]
+        _asset_structure(asset, projected_units) != source_structures[slot]
         for asset, slot in zip(translated_elements, slot_keys, strict=True)
     ):
         return None
     for asset in translated_elements:
         asset.attrib.pop("translation_slot")
+        for node in asset.iter():
+            node.attrib.pop(_MATH_UNIT, None)
     chapter = decode(root)
     result: dict[tuple[str, int, int], SourceAsset] = {}
     for slot, item in zip(slot_keys, chapter.flow_items, strict=True):
@@ -174,29 +187,33 @@ def _decode_assets_by_slot(
     return result
 
 
-def _asset_structure(element: Element) -> tuple[Any, ...]:
-    """Keep asset markup and mixed-content slots while excluding translated text."""
+def _asset_structure(element: Element, projected_units: set[str] | None = None,
+                     canonical_math: bool = False) -> tuple[Any, ...]:
+    """Preserve markup; only a validated math projection can change math shape."""
+    canonical_math = canonical_math or (projected_units is not None and
+                                       element.get(_MATH_UNIT) in projected_units)
+    leading = bool(element.text and element.text.strip())
+    children = []
+    for child in element:
+        if canonical_math and child.tag == 'inline_expr' and child.get('kind') != 'text':
+            # Typed math occupies the same mixed-content slot as its canonical
+            # text. Do not freeze its old count/value after validating the new
+            # mathematical allocation; keep every non-math markup boundary.
+            if children:
+                structure, _ = children[-1]
+                children[-1] = structure, True
+            else:
+                leading = True
+        else:
+            children.append((_asset_structure(child, projected_units, canonical_math),
+                             bool(child.tail and child.tail.strip())))
     return (
         element.tag,
-        tuple(sorted(
-            (key, value)
-            for key, value in element.attrib.items()
-            if key != "translation_slot"
-        )),
-        # A text/tail slot is part of a formula's position in mixed XML.  Its
-        # Formatting-only indentation is not a text slot. The wording may
-        # change, but moving meaningful wording across a formula must
-        # not make the formula appear before or after a different phrase.
-        bool(element.text and element.text.strip()),
-        (
-            element.text or ""
-            if element.tag == "inline_expr" and element.get("kind") != "text"
-            else None
-        ),
-        tuple(
-            (_asset_structure(child), bool(child.tail and child.tail.strip()))
-            for child in element
-        ),
+        tuple(sorted((key, value) for key, value in element.attrib.items()
+                     if key not in {'translation_slot', _MATH_UNIT})),
+        leading,
+        element.text or '' if element.tag == 'inline_expr' and element.get('kind') != 'text' else None,
+        tuple(children),
     )
 
 

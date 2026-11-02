@@ -1,4 +1,4 @@
-"""Keep PCEX formulas visible to translation while restoring their source form.
+"""Keep PCEX formulas visible and project accepted math into typed formula nodes.
 
 ``Chapter`` XML represents inline formulas as ``inline_expr`` nodes and display
 formulas in the ``content`` of an ``asset ref=\"formula\"``.  Neither shape is
@@ -11,7 +11,8 @@ from collections.abc import Generator, Iterable
 from dataclasses import dataclass
 from xml.etree.ElementTree import Element
 
-from pdf_craft.expression import decode_expression_kind, to_markdown_string
+from pdf_craft.expression import decode_expression_kind, encode_expression_kind, ExpressionKind, to_markdown_string
+from .canonical_projection import MathMapping, SourceMath, formula_content, project_canonical_math
 from pdf_craft.transformer.xml_translator.segment import TextPosition, TextSegment
 from pdf_craft.transformer.xml_translator.xml import (
     DISPLAY_ATTRIBUTE,
@@ -41,12 +42,12 @@ class _Formula:
 
 
 class ChapterFormulaInterrupter:
-    """Expose PCEX formulas as frozen, readable XMLTranslator tokens.
+    """Expose PCEX formulas as readable XMLTranslator allocation tokens.
 
     The temporary ``expression`` nodes never reach a decoded Chapter.  The
     source text shown to the language model contains Markdown-style LaTex
-    delimiters, while the translated stream is replaced with the original
-    ``inline_expr`` text segments. Equation asset *content* is injected as
+    delimiters. Accepted canonical math is projected into ``inline_expr`` nodes;
+    plain prose allocations retain the original formula presentation. Equation asset *content* is injected as
     discarded context into its preceding and following paragraphs, so a token
     budget split cannot hide an equation from either neighboring translation.
     The asset's title and caption remain ordinary translatable Chapter text.
@@ -87,6 +88,23 @@ class ChapterFormulaInterrupter:
                     element.attrib.pop(DISPLAY_ATTRIBUTE, None)
                 else:
                     element.set(DISPLAY_ATTRIBUTE, display)
+
+    def project_math(self, mappings: list[MathMapping | None], canonical: str) -> list[MathMapping | None] | None:
+        identities = {node.get(_FORMULA_ID_KEY) for mapping in mappings if mapping
+                      for segment in mapping[1] for node in segment.parent_stack}
+        formulas = [formula for key, formula in self._formula_by_id.items()
+                    if key in identities and not formula.is_block and ':context:' not in key]
+        sources = [SourceMath(formula.latex, formula.element) for formula in formulas]
+        return project_canonical_math(mappings, canonical, sources, self._canonical_formula)
+
+    @staticmethod
+    def _canonical_formula(value: str) -> Element:
+        content, inline = formula_content(value)
+        kind = ExpressionKind.INLINE_DOLLAR if inline else ExpressionKind.DISPLAY_DOUBLE_DOLLAR
+        node = Element('inline_expr', {'kind': encode_expression_kind(kind), DISPLAY_ATTRIBUTE: 'inline',
+                                       _INLINE_DISPLAY_KEY: json.dumps(None)})
+        node.text = content
+        return node
 
     def interrupt_source_text_segments(
         self, text_segments: Iterable[TextSegment],
@@ -133,11 +151,11 @@ class ChapterFormulaInterrupter:
     def interrupt_translated_text_segments(
         self, text_segments: Iterable[TextSegment],
     ) -> Generator[TextSegment, None, None]:
-        """Restore source formulas after fill and canonical validation succeed.
+        """Restore the remaining source-presentation tokens after acceptance.
 
-        The model may use plain symbols or prose in an ``expression`` slot.
-        Those characters are validated inside the repair loop; this later
-        projection restores source content by ID without another fill request.
+        Canonical math projection has already removed inline allocation tokens.
+        A unit rendered entirely as plain symbols or prose retains the existing
+        source-presentation contract; its remaining tokens are restored here.
         """
         for text_segment in text_segments:
             if any(

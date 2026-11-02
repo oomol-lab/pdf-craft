@@ -26,7 +26,7 @@
         "max_group_tokens": 2600,
         "concurrency": 3,
         "retry_policy": {
-          "fill": 3
+          "fill": 12
         }
       }
     },
@@ -41,7 +41,7 @@
         "max_group_tokens": 2600,
         "concurrency": 3,
         "retry_policy": {
-          "fill": 3
+          "fill": 12
         }
       }
     },
@@ -56,7 +56,7 @@
         "max_group_tokens": 2600,
         "concurrency": 3,
         "retry_policy": {
-          "fill": 3
+          "fill": 12
         }
       }
     }
