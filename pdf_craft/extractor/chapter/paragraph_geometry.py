@@ -3,8 +3,10 @@
 from unicodedata import east_asian_width
 from statistics import median
 from math import sqrt
+import re
 
 from ...pdf import PageLayout
+from ...expression import parse_latex_expressions, ExpressionKind
 from .chapter import SourceTextFragment, TextFlowItem
 from .content import last
 from .mark import NumberClass, transform2mark
@@ -197,3 +199,59 @@ def _math_single_lines(layouts: list[PageLayout]) -> set[tuple[int, int, int, in
             if steps == 1 and gap <= 2 * scale and .8 * scale <= height <= 1.25 * scale:
                 lines.add(layout.det)
     return lines
+
+
+_ISBN_ROW = re.compile(r'^ISBN(?:-1[03])?\s*[:：]?\s*([0-9Xx][0-9Xx -]{8,24})$', re.I)
+_EDITION_ROW = re.compile(r'^[0-9]{4}年[0-9]{1,2}月第[一二三四五六七八九十0-9]+版(?:\s|[0-9]|$)')
+_PRINT_COUNT_ROW = re.compile(r'^(?:印数|印數)\s*[:：]\s*[0-9][0-9\s,，—–\-]*[册冊]\s*$')
+
+
+def colophon_record_starts(layouts: list[PageLayout]) -> set[tuple[int, int, int, int]]:
+    """Keep explicit Chinese edition/count rows apart in an ISBN colophon.
+
+    Require both record conventions and an isolated ISBN-shaped source. A bare
+    date, a prose mention, or a multiline bbox does not establish this context.
+    This is local printed structure, not a book metadata dependency.
+    """
+    text = [layout for layout in layouts if layout.ref == 'text']
+    if not any((match := _ISBN_ROW.fullmatch(layout.text.strip()))
+               and len(re.sub('[^0-9Xx]', '', match[1])) in (10, 13) for layout in text):
+        return set()
+    editions = [layout for layout in text if _EDITION_ROW.match(layout.text.strip())
+                and _single_line_text(layout.text, layout.det)]
+    counts = [layout for layout in text if _PRINT_COUNT_ROW.fullmatch(layout.text.strip())
+              and _single_line_text(layout.text, layout.det)]
+    return {layout.det for layout in editions + counts} if editions and counts else set()
+
+
+_MATH_CONNECTIVE = re.compile(r'(?:whence|or|so that|and|hence|then|thus|where)', re.I)
+
+
+def completed_equation_rows(layouts: list[PageLayout]) -> dict[tuple[int, int, int, int], int]:
+    """Find a short connective beside the end of a punctuated equation row.
+
+    OCR may group multiple equations before the word printed beside their last
+    row. Its last literal expression and actual box supply completion evidence;
+    the caller must still require a separately observed next-paragraph indent.
+    """
+    formulas = []
+    for layout in layouts:
+        if layout.ref not in ('equation', 'formula'):
+            continue
+        parts = [part for part in parse_latex_expressions(layout.text) if part.kind != ExpressionKind.TEXT]
+        if parts and parts[-1].content.rstrip().endswith('.'):
+            formulas.append(layout)
+    rows = {}
+    for layout in layouts:
+        if layout.ref != 'text' or not _MATH_CONNECTIVE.fullmatch(layout.text.strip()):
+            continue
+        _, top, right, bottom = layout.det
+        height = bottom - top
+        if height <= 0:
+            continue
+        matching = [item for item in formulas if right + height <= item.det[0]
+                    and item.det[1] <= top and bottom <= item.det[3]
+                    and item.det[3] - bottom <= 2 * height]
+        if len(matching) == 1:
+            rows[layout.det] = matching[0].det[3]
+    return rows
