@@ -28,10 +28,10 @@ from .mark import transform2mark
 from .reference import References
 from .source import capture_sources
 from .numeric_marks import explicit_numbers, flattened_numbers
-from .marginal_numbers import reading_notes
+from .marginal_numbers import reading_notes, reading_body
 
 
-def _joined(pages: Iterable[Page], footnotes: bool, on_page=None, on_raw_page=None):
+def _joined(pages: Iterable[Page], footnotes: bool, on_page=None, on_raw_page=None, *, includes_footnotes=True):
     sources = {}
 
     def layouts():
@@ -42,7 +42,7 @@ def _joined(pages: Iterable[Page], footnotes: bool, on_page=None, on_raw_page=No
                 on_page(page.index)
             sources.clear()
             sources.update(capture_sources([page]))
-            yield page.index, reading_notes(page) if footnotes else page.body_layouts
+            yield page.index, reading_notes(page) if footnotes else reading_body(page, includes_footnotes=includes_footnotes)
 
     return Jointer(layouts(), sources)
 
@@ -164,7 +164,7 @@ def resolve_to_disk(
                 yield pickle.loads(value)
 
         def paragraphs():
-            for item in _joined(read_pages(), False, on_page=advance_notes).execute():
+            for item in _joined(read_pages(), False, on_page=advance_notes, includes_footnotes=includes_footnotes).execute():
                 if isinstance(item, TextFlowItem):
                     for fragment in item.children:
                         if isinstance(fragment, SourceTextFragment):

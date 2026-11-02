@@ -24,7 +24,7 @@ from .reference import References, extract_head_mark
 from .numeric_marks import (explicit_numbers, html_number, SUPERSCRIPT_NUMBERS, superscript_number,
                             flattened_numbers, flattened_spans, prose_containers)
 from .source import capture_sources, excluded_sources
-from .marginal_numbers import reading_notes
+from .marginal_numbers import reading_notes, reading_body
 
 
 @dataclass(frozen=True)
@@ -269,7 +269,7 @@ def _resolve_pages(
     page_list = list(pages)
     sources = capture_sources(page_list) if sources is None else sources
     body_jointer = Jointer(
-        ((page.index, page.body_layouts) for page in page_list), sources
+        ((page.index, reading_body(page)) for page in page_list), sources
     )
     footnotes_jointer = Jointer(
         ((page.index, reading_notes(page)) for page in page_list), sources

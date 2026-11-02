@@ -43,3 +43,11 @@ class TableMarginCodeTests(unittest.TestCase):
         raw = table_page()
         raw.body_layouts[0].ref = 'image'
         self.assertTrue(projected(raw).citations)
+
+    def test_two_rows_require_stronger_blank_gap_and_table_scale(self):
+        raw = table_page(rows=2, data="Substantial ordinary table content and explanations")
+        self.assertTrue(projected(raw).citations)
+        raw.footnotes_layouts[0].det = (100, 1250, 180, 1270)
+        self.assertFalse(projected(raw).citations)
+        raw.body_layouts[0].det = (100, 100, 900, 400)
+        self.assertTrue(projected(raw).citations)

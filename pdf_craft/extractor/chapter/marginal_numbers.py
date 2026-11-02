@@ -82,7 +82,7 @@ def reading_notes(page):
 def marginal_layouts(page):
     """Share exclusions between note selection and retained ignored sources."""
     candidates = [*marginal_numbers(page), *_marginal_codes(page), *_chapter_footers(page),
-                  *_side_folios(page), *_stacked_folios(page), *_table_codes(page)]
+                  *_side_folios(page), *_stacked_folios(page), *_table_codes(page), *_sole_apparatus(page)]
     return list({id(item): item for item in candidates}.values())
 
 
@@ -254,7 +254,7 @@ def _table_codes(page):
         return []
     table = page.body_layouts[0]
     if (table.ref != 'table' or len(table.text) < 150 or '<table' not in table.text
-            or table.text.count('<tr') < 3):
+            or table.text.count('<tr') < 2):
         return []
     candidates = [item for item in page.footnotes_layouts
                   if item.ref == 'text' and re.fullmatch('[A-Z]{2,5}', item.text)
@@ -275,7 +275,44 @@ def _table_codes(page):
     x1, y1, x2, y2 = candidate.det
     height, width = y2 - y1, x2 - x1
     aligned = x2 <= left or x1 >= right or abs(x1 - left) <= height or abs(x2 - right) <= height
-    if (height > 0 and 0 < width <= 5 * height and y1 - bottom >= 10 * height
-            and bottom - top >= 10 * height and right - left >= 10 * width and aligned):
+    # A two-row table provides less repeated structure; require much stronger
+    # whitespace and table scale instead of treating its nearby caption as code.
+    rows = table.text.count('<tr')
+    gap_ratio, table_ratio = (30, 20) if rows == 2 else (10, 10)
+    if (height > 0 and 0 < width <= 5 * height and y1 - bottom >= gap_ratio * height
+            and bottom - top >= table_ratio * height and right - left >= 10 * width and aligned):
         return [candidate]
+    return []
+
+
+def reading_body(page, *, includes_footnotes=True):
+    """A paired apparatus-only page must not become a spurious body paragraph."""
+    ignored = {id(item) for item in _sole_apparatus(page)} if includes_footnotes else set()
+    return [item for item in page.body_layouts if id(item) not in ignored]
+
+
+def _sole_apparatus(page):
+    """Require a chapter-folio footer plus a remote, same-baseline code.
+
+    Neither a sparse page nor a lone short label proves apparatus. Both OCR
+    streams must independently describe the same isolated lower printing band.
+    """
+    if len(page.body_layouts) != 1 or len(page.footnotes_layouts) != 1:
+        return []
+    footer, code = page.body_layouts[0], page.footnotes_layouts[0]
+    if (footer.ref != 'text' or not _CHAPTER_FOOTER.fullmatch(footer.text)
+            or code.ref != 'text' or not re.fullmatch('[A-Z]{2,5}', code.text)
+            or re.fullmatch('[IVXLCDM]+', code.text)):
+        return []
+    left, top, right, bottom = footer.det
+    x1, y1, x2, y2 = code.det
+    height, code_height = bottom - top, y2 - y1
+    if (height <= 0 or code_height <= 0 or not .5 * height <= code_height <= 1.5 * height
+            or not 3 * height <= right - left <= 30 * height
+            or not 0 < x2 - x1 <= 5 * code_height):
+        return []
+    if (min(top, y1) >= 30 * max(height, code_height)
+            and abs((top + bottom) - (y1 + y2)) <= max(height, code_height)
+            and max(x1 - right, left - x2) >= 10 * max(height, code_height)):
+        return [footer, code]
     return []

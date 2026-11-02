@@ -7,7 +7,7 @@ from .generation import _resolve_jointers
 from .jointer import Jointer, _is_empty_text_layout
 from .page_analysis import analyse_pages
 from .source import capture_sources, excluded_sources
-from .marginal_numbers import reading_notes
+from .marginal_numbers import reading_notes, reading_body
 
 
 def project_page(page, includes_footnotes):
@@ -35,7 +35,7 @@ class PrimaryPages:
         pages = deepcopy({page.index: page for page in (self.body_tail, self.previous, current)
                           if page is not None})
         sources = capture_sources(list(pages.values()))
-        body = Jointer(((page.index, pages[page.index].body_layouts)
+        body = Jointer(((page.index, reading_body(pages[page.index], includes_footnotes=self.includes_footnotes))
                         for page in (self.body_tail, current) if page is not None), sources)
         notes = Jointer(((page.index, reading_notes(pages[page.index]))
                          for page in (self.previous, current) if page is not None and self.includes_footnotes), sources)
@@ -50,7 +50,7 @@ class PrimaryPages:
         _canonicalize(target, analyses, self.previous_analysis)
         if not self.includes_footnotes:
             target = _body_candidates(target)
-        if not any(not _is_empty_text_layout(layout) for layout in current.body_layouts):
+        if not any(not _is_empty_text_layout(layout) for layout in reading_body(current, includes_footnotes=self.includes_footnotes)):
             self.body_tail = None
         elif any(layout.source_order is not None or getattr(layout.source, 'ref', None) == 'formula'
                  for layout in target.layouts if layout.ownership == 'paragraph'):
@@ -68,7 +68,7 @@ def project_window(pages, includes_footnotes=True):
     """
     raw = deepcopy({page.index: page for page in pages if page is not None})
     sources = capture_sources(list(raw.values()))
-    body = Jointer(((page.index, page.body_layouts) for page in raw.values()), sources)
+    body = Jointer(((page.index, reading_body(page, includes_footnotes=includes_footnotes)) for page in raw.values()), sources)
     notes = Jointer(((page.index, reading_notes(page)) for page in raw.values()
                      if includes_footnotes), sources)
     paragraphs, citations = _resolve_jointers(body, notes)
