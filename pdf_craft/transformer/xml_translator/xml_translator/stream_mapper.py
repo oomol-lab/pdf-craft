@@ -12,6 +12,7 @@ from tiktoken import Encoding
 
 from pdf_craft.transformer.xml_translator.segment import InlineSegment, TextSegment, search_inline_segments, search_text_segments
 from pdf_craft.runtime import invoke_callback
+from ...request_batch import ready_window
 from .callbacks import Callbacks
 from .concurrency import run_async_parameters, run_concurrency_async
 from .source_store import source_identity, rebind, NODE_KEY, ROOT_KEY
@@ -34,6 +35,13 @@ AsyncInlineSegmentGroupMap = Callable[
 class _EmptyElement:
     """A consumed root with no resources, not a model translation group."""
     root: Element
+
+
+@dataclass
+class _Work:
+    """An independently accepted unit, with private optional context slots."""
+    segments: list[InlineSegment]
+    primary: list[bool]
 
 
 class XMLStreamMapper:
@@ -71,37 +79,54 @@ class XMLStreamMapper:
             return [(block, texts) for block, texts in mappings if id(block) not in missing]
 
 
-        async def execute(group: Group[_ResourcePayload] | _EmptyElement):
+        def units(group):
             if isinstance(group, _EmptyElement):
-                await invoke_callback(on_empty, group.root)
-                return ()
+                yield group
+                return
             head, body, tail = self._truncate_and_transform_group(group)
             head = [segment.clone() for segment in head]
             tail = [segment.clone() for segment in tail]
             for segment in head + tail:
                 setattr(segment, "_translation_context", True)
-            target_body = (await map(head + body + tail))[len(head) : len(head) + len(body)]
-            return zip(body, target_body, strict=False)
+            body_ids = {id(segment) for segment in body}
+            segments = head + body + tail
+            # Schedule and release semantic units, not entire mapper groups.
+            # In particular a later paragraph's repair must not hold an earlier
+            # accepted paragraph behind a chapter/group completion barrier.
+            groups = ownership.groups(segments) if ownership is not None else [segments]
+            for unit in groups:
+                primary = [id(segment) in body_ids for segment in unit]
+                if any(primary):
+                    yield _Work(unit, primary)
 
+        async def execute(work):
+            if isinstance(work, _EmptyElement):
+                await invoke_callback(on_empty, work.root)
+                return ()
+            mappings = await map(work.segments)
+            return [(origin, target) for origin, target, primary in
+                    zip(work.segments, mappings, work.primary, strict=True) if primary]
+
+        capacity = ready_window(window) if ownership is not None else window
         if isinstance(elements, AsyncIterable):
-            async def groups():
+            async def work_items():
                 try:
                     async for element in elements:
-                        yield_groups = self._split_into_serial_groups(
+                        for group in self._split_into_serial_groups(
                             (element,), callbacks, on_mapping is not None, track_progress, on_empty is not None, ownership,
-                        )
-                        for group in yield_groups:
-                            yield group
+                        ):
+                            for work in units(group):
+                                yield work
                 finally:
                     close = getattr(elements, "aclose", None)
                     if close is not None:
                         await close()
-            results = run_async_parameters(groups(), execute, window, preserve_sources=False)
+            results = run_async_parameters(work_items(), execute, capacity, preserve_sources=False)
         else:
-            results = run_concurrency_async(
-                self._split_into_serial_groups(elements, callbacks, on_mapping is not None, track_progress, on_empty is not None, ownership),
-                execute, window,
-            )
+            work_items_sync = (work for group in self._split_into_serial_groups(
+                elements, callbacks, on_mapping is not None, track_progress, on_empty is not None, ownership,
+            ) for work in units(group))
+            results = run_concurrency_async(work_items_sync, execute, capacity)
         async with aclosing(results):
             async for mapping_pairs in results:
                 for origin, target in mapping_pairs:

@@ -44,11 +44,9 @@ class StructuredTranslation:
         return owner.get('__pdf_craft_stream_node') or str(id(owner))
 
     def groups(self, segments: list[InlineSegment]) -> list[list[InlineSegment]]:
-        if self.owner is None:
-            return [segments]
         groups, previous = [], None
         for segment in segments:
-            owner = self.owner(segment)
+            owner = self.unit(segment)
             if owner is not previous:
                 groups.append([])
                 previous = owner

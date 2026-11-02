@@ -58,7 +58,8 @@ class AnchoredContentXMLTransformer:
     ) -> Sequence[AnchoredContentTranslation | None]:
         if not assets:
             return ()
-        source = Chapter(None, -1, [StandaloneAsset(item.asset) for item in assets])
+        from ..extractor.chapter.asset_text import translatable_asset
+        source = Chapter(None, -1, [StandaloneAsset(translatable_asset(item.asset)) for item in assets])
         element = encode(source)
         asset_elements = element.findall("flow/standalone-asset/asset")
         if len(asset_elements) != len(assets):
@@ -111,7 +112,9 @@ class AnchoredContentXMLTransformer:
                     translated_assets[item.identity].title, source_references,
                 ),
                 _restore_source_references(
-                    translated_assets[item.identity].content, source_references,
+                    (translated_assets[item.identity].content
+                     if item.asset.ref != "image"
+                     else item.asset.content), source_references,
                 ),
                 _restore_source_references(
                     translated_assets[item.identity].caption, source_references,
@@ -159,6 +162,8 @@ def _decode_assets_by_slot(
         for asset, slot in zip(translated_elements, slot_keys, strict=True)
     ):
         return None
+    for asset in translated_elements:
+        asset.attrib.pop("translation_slot")
     chapter = decode(root)
     result: dict[tuple[str, int, int], SourceAsset] = {}
     for slot, item in zip(slot_keys, chapter.flow_items, strict=True):

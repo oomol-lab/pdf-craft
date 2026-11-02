@@ -8,6 +8,7 @@ from pdf_craft import RetryPolicy
 
 
 import asyncio
+import json
 from copy import deepcopy
 import tempfile
 import threading
@@ -526,7 +527,7 @@ class AnchoredContentTranslationTests(unittest.TestCase):
         self.assertEqual(_pdf_patch_text(translated), "However, the Council.")
         self.assertEqual(runtime.context_value.calls, 1)
         initial_messages = runtime.context_value.messages[0][0]
-        self.assertIn("Canonical visible-text constraint", initial_messages[-1].message)
+        self.assertIn("Canonical visible-text constraint", initial_messages[0].message)
 
     def test_fill_repairs_plain_fragment_boundary_to_match_canonical_translation(self):
         """A cross-page fragment split has no anchor but obeys the same rule."""
@@ -651,8 +652,8 @@ class AnchoredContentTranslationTests(unittest.TestCase):
             ]),
         ])
         translator, runtime = _repairing_translator((
-            '<xml><fragment id="1">First canonical.</fragment></xml>',
-            '<xml><fragment id="1">Second canonical.</fragment></xml>',
+            json.dumps([{'id': '1', 'text': '<xml><fragment id="1">Second canonical.</fragment></xml>'},
+                        {'id': '0', 'text': '<xml><fragment id="1">First canonical.</fragment></xml>'}]),
         ))
         sources: list[str] = []
 
@@ -665,7 +666,7 @@ class AnchoredContentTranslationTests(unittest.TestCase):
         translated = asyncio.run(NarrativeXMLTransformer(cast(Any, translator)).transform(chapter))
 
         self.assertEqual(sources, ["First source.", "Second source."])
-        self.assertEqual(runtime.context_value.calls, 2)
+        self.assertEqual(runtime.context_value.calls, 1)
         contents = [
             _text(item.children[0].content)
             for item in translated.flow_items
@@ -741,7 +742,7 @@ class AnchoredContentTranslationTests(unittest.TestCase):
 
         self.assertEqual(
             result[0],
-            AnchoredContentTranslation(("head", 0, 1), ["T:Title"], ["T:Content"], ["T:Caption"]),
+            AnchoredContentTranslation(("head", 0, 1), ["T:Title"], ["Content"], ["T:Caption"]),
         )
         self.assertIn("Nearby narrative.", "\n".join(translator.sources))
 

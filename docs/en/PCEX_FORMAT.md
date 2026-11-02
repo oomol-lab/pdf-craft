@@ -253,7 +253,7 @@ Variable folios are represented structurally rather than as the text of a reusab
 
 ```json
 {
-  "format_version": 4,
+  "format_version": 5,
   "producer": {
     "name": "pdf-craft",
     "version": "2.0.0"
@@ -282,12 +282,12 @@ The top-level value must be a JSON object. Unlisted top-level fields are not all
 
 | Field | Type | Required | Meaning and constraints |
 | --- | --- | --- | --- |
-| `format_version` | integer | Yes | The canonical value is `4`; readers also accept legacy v1/v2/v3 archives. |
+| `format_version` | integer | Yes | The canonical value is `5`; v1–v4 inputs are migrated before business access. |
 | `producer` | object | Yes | Identifies the software that created the archive; must contain exactly `name` and `version` |
 | `created_at` | string or null | No | Archive creation time; a string must be a parseable ISO 8601 datetime |
 | `document` | object | Yes | Document-level metadata; must contain exactly the fields in the next section |
 
-The canonical `format_version` value is the JSON number `4`. Readers retain v1/v2/v3 support so existing extractions remain usable; unknown versions are rejected.
+The canonical `format_version` is the JSON number `5`. Readers validate and migrate v1–v4 inputs on private copies before translation or rendering; unknown versions are rejected.
 
 When pdf-craft writes an archive, `producer.name` is always `pdf-craft`, and `producer.version` is the installed pdf-craft package version. It falls back to `unknown` when the installed version cannot be determined. The current validator permits other producers, but both `name` and `version` must be non-empty strings.
 
@@ -725,6 +725,21 @@ It cannot prove that the input PDF and extraction came from the same source file
 
 ## Version compatibility
 
-The current format version is `4`. The reader accepts canonical v4 archives and legacy `format_version: 1`, `2`, and `3` archives; unknown versions are rejected. v1/v2 chapters are normalized to the v3 flow schema when exported, while a v3 archive is upgraded without being interpreted as containing translation layers.
+The current format version is `5`. Input migrations normalize v1–v4 archives, including source chapters and existing translation layers, before any business operation. Exports always use v5; original archives are never rewritten.
 
 Applications that only need downstream rendering or translation should open the archive through a Craft façade so version and integrity checks run. A ZIP that can merely be extracted is not necessarily a usable PDFCraftExtraction.
+
+### Image-associated descriptions (v5)
+
+Image title and caption are the visible, independently translated fields. Image
+content is opaque source data: it is neither displayed nor translated, even if
+both explicit fields are absent. Table and formula content keep their semantics.
+New extraction writes image-associated prose directly to caption.
+
+Version migrations are the only historical compatibility boundary. For v4 and
+earlier, content-only images without title/caption move content to caption in
+both source chapters and corresponding translation layers. Existing explicit
+fields take precedence; extra content is not merged. Migration preserves asset
+and flow identities, coverage and mixed formulas, and does not modify the input.
+Current-version inputs never trigger this historical rule. Business consumers
+have no version/field-shape fallback and do not classify image pixels.

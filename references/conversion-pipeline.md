@@ -97,7 +97,7 @@ Markdown/EPUB 保留这些定义。正文及脚注 TextFlowItem 共用 narrative
 多次引用或跨章节复用同一来源不重复回填。定义开头的印刷标记在 PDF 输出时恢复。
 格式专有适配留在 PCEX 层，通用 XML translator 无需了解脚注。
 
-PCEX 格式保持兼容。现有归档和译文层按原身份读取、校验和导出，不做推测重编号；
+PCEX 通过输入边界 migration 兼容旧格式，业务只消费当前 v5。迁移保持现有归档和译文层的身份，不做推测重编号；
 缺失 coverage 继续表示 preserved。旧归档若同一章节已有歧义的重复 fragment 身份，仍明确拒绝，
 不声称能够无损迁移。更详细的修复前后证据见 docs/verification/footnote-788.md。
 
@@ -307,3 +307,5 @@ executor、重试、usage 和请求观察；事实不读取邻页评分，不增
 局部 ISBN、版次及印数记录保持独立段界，不依赖 metadata。短连接词与完整公式并排时，
 只有公式句末、位置和下一段缩进共同成立才能断段。相关固定样本与限制见
 [开启脚注验证](../docs/verification/jev-footnote-analysis.md)。
+
+PCEX 版本与历史兼容必须遵守 [PCEX Migration 边界](pcex-migrations.md)。翻译、内容流和渲染器禁止根据旧字段形态兼容；image.content 不展示、不翻译，图外说明使用 title/caption。

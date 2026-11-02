@@ -238,7 +238,7 @@ fragment 的 `(page_index, source_order)`、自然段首 fragment identity、cha
 
 ```json
 {
-  "format_version": 4,
+  "format_version": 5,
   "producer": {
     "name": "pdf-craft",
     "version": "2.0.0"
@@ -267,12 +267,12 @@ fragment 的 `(page_index, source_order)`、自然段首 fragment identity、cha
 
 | 字段 | 类型 | 必需 | 含义与约束 |
 | --- | --- | --- | --- |
-| `format_version` | integer | 是 | 规范值为 `4`；读取器同时接受旧的 v1/v2/v3 归档。 |
+| `format_version` | integer | 是 | 规范值为 `5`；旧 v1–v4 在业务使用前通过 migration 规范化。 |
 | `producer` | object | 是 | 创建归档的软件标识；必须且只能含 `name`、`version` |
 | `created_at` | string 或 null | 否 | 归档创建时间；字符串须为可解析的 ISO 8601 时间 |
 | `document` | object | 是 | 文档级元数据；必须且只能含下一节的字段 |
 
-规范值 `format_version` 是 JSON 数字 `4`。读取器保留 v1/v2/v3 兼容性，未知版本会被拒绝。
+规范值 `format_version` 是 JSON 数字 `5`。输入边界在私有副本上校验并迁移旧 v1–v4，再交给翻译和渲染；未知版本会被拒绝。
 
 pdf-craft 自身写出时，`producer.name` 固定为 `pdf-craft`，`producer.version` 是已安装的 pdf-craft 包版本；无法取得安装版本时为 `unknown`。当前校验器允许其他生产者，但 `name` 和 `version` 都必须是非空字符串。
 
@@ -709,6 +709,12 @@ craft.patch_pdf_with_extraction(
 
 ## 版本兼容
 
-当前格式版本为 `4`。读取器接受规范的 v4 归档和旧的 `format_version: 1`、`2`、`3` 归档，但会拒绝未知版本。v1/v2 章节在导出时规范化为 v3 flow；v3 归档升级时不会被误认为已经包含 translation layer。
+当前格式版本为 `5`。旧 v1–v4 在输入物化副本上校验并迁移，源章节与已有译文层同步转换；之后翻译、渲染和导出只处理当前格式，原始归档不修改。未知版本拒绝。
 
 应用程序若只需要后续渲染或翻译，也应通过 Craft 门面打开归档并执行版本和完整性检查，不要仅凭 ZIP 可解压就认定包可用。
+
+### v5 图片说明与 Migration
+
+图片 title/caption 是展示和独立翻译字段；image.content 是不展示、不翻译的源数据，缺少 title/caption 时也不回退。新提取直接写 caption。表格与公式 content 语义不变。
+
+旧 v1–v4 归档在输入边界迁移到 v5：没有显式 title/caption 的旧图片 content 移到 caption，源章节与对应译文层同步移动；已有显式字段时不合并 content。迁移保留身份、coverage、公式与混合内容，不修改原始文件，导出始终写 v5。历史判断只存在于 migration；业务不探测版本或猜测字段，也不分类图片像素。

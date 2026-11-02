@@ -152,10 +152,11 @@ def _render_asset(
         if asset.asset_hash:
             has_content = True
 
-    if asset.caption:
+    caption = asset.caption
+    if caption:
         caption_str = "".join(
             render_markdown_paragraph(
-                children=asset.caption,
+                children=caption,
                 render_payload=render_member,
             )
         ).strip()

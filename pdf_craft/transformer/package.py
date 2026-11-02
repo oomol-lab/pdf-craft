@@ -21,7 +21,7 @@ from xml.etree.ElementTree import Element
 from pdf_craft.common.xml import read_xml, save_xml
 from pdf_craft.document import PDFCraftExtraction
 from pdf_craft.document.package import (
-    EXTRACTION_SUFFIX, FORMAT_VERSION, _read_manifest, _v3_manifest,
+    EXTRACTION_SUFFIX, _read_manifest,
     validate_translation_id,
 )
 from pdf_craft.runtime import IO_DOMAIN
@@ -405,13 +405,6 @@ def append_translation_layer_to_workspace(
     })
     index_path.write_text(json.dumps(index, ensure_ascii=False, indent=2), encoding="utf-8")
 
-    manifest_path = output_path / "manifest.json"
-    manifest = _read_manifest(manifest_path)
-    if manifest["format_version"] != FORMAT_VERSION:
-        manifest = _v3_manifest(manifest)
-        manifest_path.write_text(
-            json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8",
-        )
     return PDFCraftExtraction._from_workspace(output_path)._validate()
 
 

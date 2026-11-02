@@ -153,7 +153,8 @@ def asset_unit_key(item: AnchoredContent) -> str:
 
 def asset_word_count(asset: SourceAsset) -> int:
     """The same independent source field scope in pre-scan and execution."""
-    return count_xml_words(encode(Chapter(None, -1, [StandaloneAsset(asset)])))
+    from ..extractor.chapter.asset_text import translatable_asset
+    return count_xml_words(encode(Chapter(None, -1, [StandaloneAsset(translatable_asset(asset))])))
 
 
 async def _transform_assets_async(
@@ -261,6 +262,8 @@ def _content_text(content) -> str:
 
 
 def _asset_has_text(asset: SourceAsset) -> bool:
+    from ..extractor.chapter.asset_text import translatable_asset
+    asset = translatable_asset(asset)
     return any(
         _content_text(content).strip()
         for content in (asset.title, asset.content, asset.caption)

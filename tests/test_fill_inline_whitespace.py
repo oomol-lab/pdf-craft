@@ -42,7 +42,7 @@ class InlineWhitespaceTests(TestCase):
         translator._translate_text_async = AsyncMock(return_value='取甲。')
         target = asyncio.run(NarrativeXMLTransformer(translator).transform(source, error_policy=False))
         self.assertEqual(runtime.context_value.calls, 2)
-        self.assertIn('empty contents', runtime.context_value.messages[0][0][1].message)
+        self.assertIn('empty contents', runtime.context_value.messages[0][0][0].message)
         text = target.flow_items[0]
         assert isinstance(text, TextFlowItem)
         fragment = text.children[0]

@@ -3,6 +3,7 @@
 from copy import deepcopy
 import os
 import hashlib
+import json
 import unicodedata
 from typing import cast
 from pathlib import Path
@@ -26,7 +27,7 @@ from tests.test_anchored_content_translation import _repairing_translator, _Resp
 
 
 def image(parts):
-    return SourceAsset(1, 'image', (1, 1, 100, 30), content=parts)
+    return SourceAsset(1, 'image', (1, 1, 100, 30), caption=parts)
 
 
 def neutral_translation(text):
@@ -57,20 +58,20 @@ def offline_translator():
 class StructuredTranslationTests(IsolatedAsyncioTestCase):
     async def test_non_narrative_units_have_independent_canonical_translations(self):
         translator, runtime = _repairing_translator([
-            '<xml><unit id="1">first</unit></xml>',
-            '<xml><unit id="1">second</unit></xml>',
+            json.dumps([{'id': '1', 'text': '<xml><unit id="1">second</unit></xml>'},
+                        {'id': '0', 'text': '<xml><unit id="1">first</unit></xml>'}]),
         ])
         translator._translate_text_async = AsyncMock(side_effect=['first', 'second'])
         protocol = StructuredTranslation(owner=lambda segment: segment.parent)
         root = fromstring('<document><unit>one</unit><unit>two</unit></document>')
         target, _ = await protocol.translate(translator, TranslationTask(root, SubmitKind.REPLACE, None))
         self.assertEqual([node.text for node in target], ['first', 'second'])
-        self.assertEqual(runtime.context_value.calls, 2)
+        self.assertEqual(runtime.context_value.calls, 1)
 
     async def test_asset_uses_canonical_math_references_and_exact_text_acceptance(self):
         translator, runtime = _repairing_translator([
-            '<xml><content id="1">错字 <expression><math-ref key="m1"/></expression> 之后</content></xml>',
-            '<xml><content id="1">之前 <expression><math-ref key="m1"/></expression> 之后</content></xml>',
+            '<xml><caption id="1">错字 <expression><math-ref key="m1"/></expression> 之后</caption></xml>',
+            '<xml><caption id="1">之前 <expression><math-ref key="m1"/></expression> 之后</caption></xml>',
         ])
         translator._translate_text_async = AsyncMock(return_value='之前 $x$ 之后')
         source = image(['before ', InlineExpression(ExpressionKind.INLINE_DOLLAR, 'x'), ' after'])
@@ -80,23 +81,23 @@ class StructuredTranslationTests(IsolatedAsyncioTestCase):
         assert target is not None
         self.assertEqual(runtime.context_value.calls, 2)
         self.assertEqual(source, saved)
-        self.assertEqual(target.content, ['之前 ', InlineExpression(ExpressionKind.INLINE_DOLLAR, 'x'), ' 之后'])
+        self.assertEqual(target.caption, ['之前 ', InlineExpression(ExpressionKind.INLINE_DOLLAR, 'x'), ' 之后'])
 
     async def test_asset_fill_retains_unicode_equivalence_from_narrative(self):
-        translator, runtime = _repairing_translator(['<xml><content id="1">Всё хорошо.</content></xml>'])
+        translator, runtime = _repairing_translator(['<xml><caption id="1">Всё хорошо.</caption></xml>'])
         canonical = 'Все\u0308 хорошо.'
         translator._translate_text_async = AsyncMock(return_value=canonical)
         target, = await AnchoredContentXMLTransformer(translator).transform_assets(
             [AnchoredContent('a', 0, -1, image(['source']), '')], error_policy=False)
         assert target is not None
-        self.assertEqual(unicodedata.normalize('NFC', ''.join(part for part in target.content if isinstance(part, str))),
+        self.assertEqual(unicodedata.normalize('NFC', ''.join(part for part in target.caption if isinstance(part, str))),
                          unicodedata.normalize('NFC', canonical))
         self.assertEqual(runtime.context_value.calls, 1)
 
     async def test_asset_merged_canonical_formula_uses_one_ref_and_restores_empty_slot(self):
         translator, runtime = _repairing_translator([
-            '<xml><content id="1">取 <expression id="2"><math-ref key="m1"/></expression>'
-            '<expression id="3"/>。</content></xml>',
+            '<xml><caption id="1">取 <expression id="2"><math-ref key="m1"/></expression>'
+            '<expression id="3"/>。</caption></xml>',
         ])
         translator._translate_text_async = AsyncMock(return_value=r'取 \(x=y\)。')
         expressions = [InlineExpression(ExpressionKind.INLINE_PAREN, 'x='),
@@ -104,18 +105,18 @@ class StructuredTranslationTests(IsolatedAsyncioTestCase):
         target, = await AnchoredContentXMLTransformer(translator).transform_assets(
             [AnchoredContent('a', 0, -1, image(['before ', *expressions, ' after']), '')], error_policy=False)
         assert target is not None
-        self.assertEqual(target.content, ['取 ', *expressions, '。'])
+        self.assertEqual(target.caption, ['取 ', *expressions, '。'])
         self.assertEqual(runtime.context_value.calls, 1)
 
     async def test_asset_context_is_read_only_not_an_extra_translation_unit(self):
-        translator, runtime = _repairing_translator(['<xml><content id="1">图注</content></xml>'])
+        translator, runtime = _repairing_translator(['<xml><caption id="1">图注</caption></xml>'])
         del translator._translate_text_async
         translation_runtime = _ResponseRuntime(['图注'], translator._translation_runtime)
         translator._translation_runtime = translation_runtime  # type: ignore[assignment]
         result, = await AnchoredContentXMLTransformer(translator).transform_assets(
             [AnchoredContent('a', 0, -1, image(['Figure']), 'Nearby source context')], error_policy=False)
         assert result is not None
-        self.assertEqual(result.content, ['图注'])
+        self.assertEqual(result.caption, ['图注'])
         self.assertEqual(translation_runtime.context_value.calls, 1)
         self.assertEqual(runtime.context_value.calls, 1)
         messages = translation_runtime.context_value.messages[0][0]
@@ -128,8 +129,8 @@ class StructuredTranslationTests(IsolatedAsyncioTestCase):
         target, = await AnchoredContentXMLTransformer(offline_translator()).transform_assets(
             [AnchoredContent('a', 0, -1, source, '')], error_policy=False)
         assert target is not None
-        self.assertEqual(target.content, ['之前 ', expression, ' ', expression, ' 之后'])
-        tree = encode(Chapter(None, -1, [StandaloneAsset(image(target.content))]))
+        self.assertEqual(target.caption, ['之前 ', expression, ' ', expression, ' 之后'])
+        tree = encode(Chapter(None, -1, [StandaloneAsset(image(target.caption))]))
         self.assertFalse(any(key.startswith('__') for node in tree.iter() for key in node.attrib))
         self.assertEqual(len(list(tree.iter('inline_expr'))), 2)
 
@@ -156,10 +157,10 @@ class StructuredTranslationTests(IsolatedAsyncioTestCase):
     async def test_mathml_adapter_uses_shared_canonical_fill_before_restoring_source(self):
         from pdf_craft.pipeline.epub.translation.xml_interrupter import XMLInterrupter
         translator, runtime = _repairing_translator([
-            '<xml><p id="1">Avant <expression><math-ref key="m1"/></expression> après</p>'
-            '<p id="2">Deuxième</p></xml>',
+            json.dumps([{'id': '0', 'text': '<xml><p id="1">Avant <expression><math-ref key="m1"/></expression> après</p></xml>'},
+                        {'id': '1', 'text': '<xml><p id="1">Deuxième</p></xml>'}]),
         ])
-        translator._translate_text_async = AsyncMock(return_value='Avant $x$ après\n\nDeuxième')
+        translator._translate_text_async = AsyncMock(side_effect=['Avant $x$ après', 'Deuxième'])
         root = fromstring('<body><p>Before <math><mi>x</mi></math> after</p><p>Second</p></body>')
         protocol = StructuredTranslation(formulas=XMLInterrupter())
         target, _ = await protocol.translate(translator, TranslationTask(root, SubmitKind.REPLACE, None))
@@ -192,7 +193,7 @@ class StructuredTranslationTests(IsolatedAsyncioTestCase):
                 target_chapter = decode(read_xml(paths.chapters / 'chapter_6.xml'))
                 target = next(slot.payload for slot in _asset_slots(target_chapter) if slot.payload.identity == original.identity)
                 self.assertEqual(target.asset.asset_hash, original.asset.asset_hash)
-                formulas = [part for part in target.asset.content if isinstance(part, InlineExpression)]
+                formulas = [part for part in target.asset.caption if isinstance(part, InlineExpression)]
                 old_formulas = [part for part in original.asset.content if isinstance(part, InlineExpression)]
                 self.assertEqual(formulas, old_formulas)
                 self.assertEqual(len(formulas), 1)
@@ -205,11 +206,26 @@ class StructuredTranslationTests(IsolatedAsyncioTestCase):
                 self.assertNotIn('<expression', xml)
                 self.assertNotIn('<math-ref', xml)
             await craft.render_markdown(output, root / 'translated.md')
-            self.assertTrue((root / 'translated.md').is_file())
-            self.assertTrue(str(target.asset.content[0]).startswith('图注 3'))
-            # Image content is persisted independently of the picture renderer,
-            # which displays title/caption fields rather than image.content.
+            markdown = (root / 'translated.md').read_text()
+            self.assertEqual(markdown.count('图注 3 |'), 1)
+            self.assertIn(r'16\times', markdown)
+            self.assertNotIn('Figure 3 |', markdown)
+            self.assertTrue(str(target.asset.caption[0]).startswith('图注 3'))
+            await craft.render_epub(output, root / 'translated.epub', inline_latex=True)
+            with ZipFile(root / 'translated.epub') as archive:
+                documents = [fromstring(archive.read(name)) for name in archive.namelist()
+                             if name.endswith('.xhtml')]
+            html = '\n'.join(tostring(document, encoding='unicode') for document in documents)
+            self.assertEqual(html.count('图注 3 |'), 1)
+            captions = [node for document in documents for node in document.iter()
+                        if node.get('class') == 'asset-caption'
+                        and ''.join(node.itertext()).startswith('图注 3 |')]
+            self.assertEqual(len(captions), 1)
+            formula_text = [''.join(node.itertext()) for node in captions[0].iter()
+                            if node.tag.endswith('}math')]
+            self.assertEqual(formula_text, ['16×'])
+            self.assertNotIn('Figure 3 |', html)
             print('REAL_ASSET_FORMULA_GATE', {'identity': original.identity, 'formula_count': len(formulas),
                                              'translation_adopted_in_export': True, 'document_render_completed': True,
-                                             'image_content_display': 'existing renderer displays title/caption only',
+                                             'caption_visible_in_markdown_and_epub': True,
                                              'network_requests': 0})

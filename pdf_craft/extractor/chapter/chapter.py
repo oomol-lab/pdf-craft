@@ -161,7 +161,7 @@ def narrative_texts(chapter: Chapter) -> Generator[TextFlowItem, None, None]:
                 yield item
 
 
-def decode(element: Element, *, allow_legacy: bool = True) -> Chapter:
+def decode(element: Element, *, allow_legacy: bool = False) -> Chapter:
     if not allow_legacy:
         if element.tag != "chapter": raise ValueError("PCEX v3 chapter root must be <chapter>")
         _attributes(element, {"id", "level"})

@@ -23,6 +23,7 @@ from pdf_craft.transformer.xml_translator.segment import (
 from pdf_craft.progress import ProgressEvent, UnitKind
 from pdf_craft.transformer.xml_translator.xml import decode_friendly, encode_friendly
 from .callbacks import Callbacks, warp_callbacks
+from ...request_batch import RequestBatcher, with_request_window
 from pdf_craft._policy import current, recover
 from pdf_craft.policies import FailureCategory, RetryScope
 from pdf_craft._failure_sources import tag_locations, segment_locations, task_locations
@@ -106,6 +107,7 @@ class XMLTranslator:
         self._cache_seed_content: str | None = cache_seed_content
         self._max_group_score = max_group_score
         self._stream_mapper: XMLStreamMapper | None = None
+        self._requests = RequestBatcher(max_group_score)
 
     @property
     def target_language(self) -> str:
@@ -171,6 +173,7 @@ class XMLTranslator:
             window=window, unit_counts=unit_counts,
         )
 
+    @with_request_window
     async def _translate_elements(
         self,
         tasks: Iterable[TranslationTask[T]] | AsyncIterable[TranslationTask[T]],
@@ -426,7 +429,7 @@ class XMLTranslator:
                           if translation_protocol is not None else [inline_segments])
         mappings: list[InlineSegmentMapping | None] = []
         for group in segment_groups:
-            mappings.extend(await self._translate_inline_segment_group_async(
+            result = await self._translate_inline_segment_group_async(
                 inline_segments=group,
                 callbacks=callbacks,
                 immutable_elements=(
@@ -437,9 +440,10 @@ class XMLTranslator:
                 canonical_text_validator=canonical_text_validator,
                 source_context=(translation_protocol.context(group)
                                 if translation_protocol is not None and translation_protocol.context else ''),
-            ))
+            )
             if on_round is not None:
                 await on_round(group)
+            mappings.extend(result)
         return mappings
 
     @adopted_result(lambda mappings: any(mapping is not None for mapping in mappings))
@@ -515,7 +519,7 @@ class XMLTranslator:
         async with self._translation_runtime.context(
             cache_seed_content=self._cache_seed_content
         ) as ctx:
-            return await ctx.request(input=[
+            return await self._requests.request(ctx, runtime=self._translation_runtime, stage='translation', messages=[
                 Message(
                     role=MessageRole.SYSTEM,
                     message=template.render(
@@ -543,8 +547,9 @@ class XMLTranslator:
             f"XML template:\n```XML\n{encode_friendly(hill_climbing.request_element())}\n```\n\n"
             f"Translated text:\n{canonical_math.text if canonical_math is not None else translated_text}"
         )
+        canonical_instructions = ''
         if canonical_text_validator is not None:
-            user_message += (
+            canonical_instructions = (
                 "\n\nCanonical visible-text constraint:\n"
                 "For this translation unit, concatenating all visible text in its "
                 "source slots must reproduce the corresponding canonical "
@@ -570,7 +575,7 @@ class XMLTranslator:
             user_message += canonical_math.instructions()
         fill_template = await self._fill_runtime.template("fill")
         fixed_messages = [
-            Message(MessageRole.SYSTEM, fill_template.render()),
+            Message(MessageRole.SYSTEM, fill_template.render() + canonical_instructions),
             Message(MessageRole.USER, user_message),
         ]
         async with self._fill_runtime.context(
@@ -617,8 +622,8 @@ class XMLTranslator:
 
             await run_repair_loop(RepairLoopOptions(
                 messages=fixed_messages,
-                request=lambda current, index, maximum: llm_context.request(
-                    current, retry_index=index, retry_max=maximum, use_cache=False,
+                request=lambda current, index, maximum: self._requests.request(
+                    llm_context, current, runtime=self._fill_runtime, stage='fill', retry_index=index, retry_max=maximum, use_cache=False,
                 ),
                 protocol=_XMLProtocol(),
                 state=None,

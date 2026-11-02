@@ -387,7 +387,7 @@ class TestSmokeMatrix(unittest.TestCase):
             with zipfile.ZipFile(root / "translated.pcex") as archive:
                 manifest = json.loads(archive.read("manifest.json"))
                 index = json.loads(archive.read("translations/index.json"))
-            self.assertEqual(manifest["format_version"], 4)
+            self.assertEqual(manifest["format_version"], 5)
             self.assertEqual(len(index["translations"]), 1)
             translated = craft.open_extraction(root / "translated.pcex")
             translations = craft.list_translations(translated)
