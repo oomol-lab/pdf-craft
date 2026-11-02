@@ -99,7 +99,118 @@ class BodyReviewFactTests(unittest.TestCase):
         self.assertEqual(result['split_numbered_instruction_0'], .2)
 
 
+class ClosedFrameProofTests(unittest.TestCase):
+    def test_closed_left_proof_affects_only_its_syntax_boundary(self):
+        original = {'gap_1_word': .9, 'gap_1_syntax': .8, 'owner_1': .9, 'gap_2_syntax': .7}
+        result = apply_body_facts(original, {'closed_predecessor_frame_1': .95, 'closed_predecessor_main_reading_1': .98})
+        self.assertAlmostEqual(result['gap_1_syntax'], .05)
+        self.assertEqual(result['gap_1_word'], .9)
+        self.assertEqual(result['owner_1'], .9)
+        self.assertEqual(result['gap_2_syntax'], .7)
+        self.assertEqual(original['gap_1_syntax'], .8)
+
+    def test_complete_misclassified_note_cannot_certify_a_main_paragraph_break(self):
+        original = {'gap_1_syntax': .8}
+        result = apply_body_facts(original, {'closed_predecessor_frame_1': .95,
+                                           'closed_predecessor_main_reading_1': .1})
+        self.assertEqual(result, original)
+
+    def test_unconfirmed_left_closure_cannot_erase_a_missing_conditional_command(self):
+        original = {'gap_1_syntax': .8}
+        self.assertEqual(apply_body_facts(original, {'closed_predecessor_frame_1': .2}), original)
+
+    def test_left_frame_question_is_bound_to_the_actual_predecessor(self):
+        value = state([text(0, 'The previous sentence is complete.'),
+                       text(1, 'A separate description.')])
+        packets = [p for base in local_review_requests(value)
+                   for p in body_supplementary_requests(base['state'], {'gap_1_syntax': .8})]
+        packet = next(p for p in packets if 'closed_predecessor_frame_1' in p['questions'])
+        self.assertEqual(packet['state']['checks']['closed_predecessor_frame_1']
+                         ['selected_predecessor']['source_order'], 0)
+
+    def test_neighbor_or_lower_printed_source_cannot_supply_a_closure_proof(self):
+        cases = [state([text(0, 'A main continuation.')], [text(0, 'A completed note.')]),
+                 state([text(0, 'A completed note.', (.1, .9, .9, .95)),
+                        text(1, 'A main continuation.', (.1, .1, .9, .2))])]
+        for value in cases:
+            packets = [p for base in local_review_requests(value)
+                       for p in body_supplementary_requests(base['state'],
+                           {'gap_0_syntax': .9, 'gap_1_syntax': .9})]
+            self.assertFalse(any(k.startswith('closed_predecessor_frame_')
+                                 for p in packets for k in p['questions']))
+
+
+class NonreadingTraceTests(unittest.TestCase):
+    def test_punctuation_only_page_gets_an_independent_trace_question(self):
+        value = state([text(0, '.', (.01, .01, .99, .99), joined=True)])
+        packets = [p for base in local_review_requests(value)
+                   for p in body_supplementary_requests(base['state'], {})]
+        self.assertTrue(any('nonreading_page_trace_0' in p['questions'] for p in packets))
+        result = apply_body_facts({'owner_0': .1, 'gap_0': .1}, {'nonreading_page_trace_0': .9})
+        self.assertEqual(result['nonreading_page_trace_0'], .9)
+
+    def test_ordinary_text_on_page_withholds_the_trace_shortcut(self):
+        value = state([text(0, '.'), text(1, 'An ordinary paragraph.')])
+        packets = [p for base in local_review_requests(value)
+                   for p in body_supplementary_requests(base['state'], {})]
+        self.assertFalse(any(k.startswith('nonreading_page_trace_') for p in packets for k in p['questions']))
+
+
+class ConcreteBodySourceTests(unittest.TestCase):
+    def test_join_binds_the_actual_source_even_when_it_is_a_misclassified_note(self):
+        value = state([text(0, 'the rest of the main clause.', joined=True)],
+            [text(0, 'An unfinished main clause'), text(1, '1. A detached explanatory note.')])
+        packets = list(local_review_requests(value, concrete_joins=True))
+        packet = next(p for p in packets if 'gap_0' in p['questions'])
+        prior = packet['state']['checks']['gap_0']['selected_predecessor']
+        self.assertEqual(prior['source_order'], 1)
+        self.assertEqual(prior['page_index'], 1)
+        self.assertNotIn('若最近一项是注释、页码或页眉，应跳过它', str(packet['questions']))
+
+    def test_apparatus_fact_can_reject_an_accepted_ownership(self):
+        value = state([text(0, '37 Chapter 4 Operating the device', (.05, .94, .4, .96))])
+        original = deepcopy(value)
+        packets = [p for base in local_review_requests(value)
+                   for p in body_supplementary_requests(base['state'], {})]
+        packet = next(p for p in packets if 'publisher_apparatus_0' in p['questions'])
+        self.assertEqual(packet['state']['checks']['publisher_apparatus_0']['source']['raw_text'],
+                         value['target_page']['layouts'][0]['raw_text'])
+        self.assertNotIn('ownership', packet['state']['checks']['publisher_apparatus_0']['source'])
+        self.assertEqual(value, original)
+        result = apply_body_facts({'owner_0': .05, 'gap_1': .9}, {'publisher_apparatus_0': .94})
+        self.assertEqual(result['publisher_apparatus_0'], .94)
+        self.assertEqual(result['gap_1'], .9)
+
+    def test_middle_page_prose_and_already_excluded_footer_need_no_apparatus_fact(self):
+        for excluded in (False, True):
+            value = state([text(0, 'A real paragraph.' if not excluded else '37 Chapter 4',
+                                (.1, .4, .8, .6) if not excluded else (.05, .94, .4, .96))])
+            if excluded:
+                value['target_page']['layouts'][0]['ownership'] = 'ignored'
+            packets = [p for base in local_review_requests(value)
+                       for p in body_supplementary_requests(base['state'], {})]
+            self.assertFalse(any('publisher_apparatus_0' in p['questions'] for p in packets))
+
+
 class BodyReviewFactRuntimeTests(unittest.IsolatedAsyncioTestCase):
+    async def test_apparatus_verdict_is_independent_of_base_ownership_acceptance(self):
+        value = state([text(0, '37 Chapter 4 Operating the device', (.05, .94, .4, .96))])
+        async def evaluate(requests):
+            return [(index, {name: .9 for name in packet['questions']}) for index, packet in requests]
+        probability = await review_body_page(((2, p) for p in local_review_requests(value)), evaluate)
+        assert probability is not None
+        self.assertAlmostEqual(probability, .1)
+
+    async def test_missing_apparatus_fact_is_an_incomplete_review(self):
+        value = state([text(0, '37 Chapter 4 Operating the device', (.05, .94, .4, .96))])
+        async def evaluate(requests):
+            rows = list(requests)
+            if any('publisher_apparatus_0' in packet['questions'] for _, packet in rows):
+                return []
+            return [(index, {name: .9 for name in packet['questions']}) for index, packet in rows]
+        probability = await review_body_page(((2, p) for p in local_review_requests(value)), evaluate)
+        self.assertIsNone(probability)
+
     async def test_accepted_base_still_checks_the_concrete_illustration_edge(self):
         async def evaluate(requests):
             return [(index, {name: .9 for name in packet['questions']}) for index, packet in requests]

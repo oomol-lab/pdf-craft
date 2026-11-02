@@ -3,7 +3,7 @@ from copy import deepcopy
 import re
 
 from .local_review import LOCAL_REVIEW_THRESHOLD, review_batches
-from .review_evidence import previous_paragraph, supplementary_requests
+from .review_evidence import previous_paragraph, supplementary_requests, contradictory_hint
 
 
 def body_supplementary_requests(state, risks):
@@ -17,12 +17,87 @@ def body_supplementary_requests(state, risks):
         yield packet
     yield from review_batches(state, list(_example_setups(state, risks)))
     yield from review_batches(state, list(_numbered_instructions(state)))
-    for packet in review_batches(state, list(_illustration_joins(state))):
+    yield from _role_packets(state, _closed_predecessor_frames(state, risks))
+    yield from _role_packets(state, _publisher_apparatus(state))
+    yield from _role_packets(state, _nonreading_traces(state))
+    yield from _role_packets(state, _illustration_joins(state))
+
+
+def _role_packets(state, facts):
+    for packet in review_batches(state, list(facts)):
         packet['state']['local_raw_evidence'] = _role_evidence(packet['state']['local_raw_evidence'])
         packet['state'].pop('preceding_source_index', None)
         for check in packet['state']['checks'].values():
             check.pop('immediate_paragraph_hint', None)
         yield packet
+
+
+def _closed_predecessor_frames(state, risks):
+    """An odd target cannot retroactively open a complete left construction."""
+    seen = set()
+    for name, check in state['checks'].items():
+        key = 'gap_' + str(check['source_order']) + '_syntax'
+        if (not name.startswith('gap_') or check['present_decision'] or key in seen
+                or risks.get(key, 0) < LOCAL_REVIEW_THRESHOLD):
+            continue
+        seen.add(key)
+        prior = previous_paragraph(state, check)
+        if (prior is None or prior['page_index'] != state['local_raw_evidence']['target_page']['page_index']
+                or contradictory_hint(state, check)):
+            continue
+        label = 'closed_predecessor_frame_' + str(check['source_order'])
+        spec = dict(type='noul', instructions=[
+            f'Judge only checks.{label}. Is the LEFT selected_predecessor already a complete grammatical frame, so the target does not supply any obligatory missing clause or complement to it?',
+            'Locate the exact left source in local_raw_evidence by page_index and source_order. Evaluate what that LEFT text requires, not whether the target looks like a complete sentence. A standalone description, screenplay shot or displayed variable-definition row may start its own paragraph after a complete left frame. Shared topic or the conjunction and does not itself create an unfinished left construction.',
+            'Do not certify a left conditional still requiring its main clause, an incomplete verb/preposition or missing obligatory complement. A semicolon, period or formula alone does not close an actual unfinished surrounding frame. Do not invent missing OCR text or an earlier convenient predecessor. If the left frame is not demonstrably closed, answer FALSE.'],criteria=dict(true='The exact left frame is closed; the target does not complete an obligatory construction.',false='An unfinished left construction remains or closure cannot be established.'))
+        selected = {k: prior[k] for k in ('page_index', 'source_order', 'text_end', 'bbox_normalized')}
+        yield label, spec, dict(check, selected_predecessor=selected)
+        role = 'closed_predecessor_main_reading_' + str(check['source_order'])
+        prompt = dict(type='noul', instructions=[
+            f'Judge only checks.{role}. Is the exact selected_predecessor genuinely in the main reading stream, rather than a detached footnote, caption or publisher apparatus that happens to have been misclassified?',
+            'Read its complete raw source and all local sources on that page, including neighboring note markers, smaller-print regions and continuations. A footnote can have several paragraphs, quotations and a long unmarked final block. Do not accept the last supplied paragraph as main reading merely because it is grammatical. Conversely autonomous commentary sections and ordinary narrative are main reading. Require positive role evidence; ambiguity means FALSE.',
+            'This question only verifies whether this particular source can certify a new main-paragraph break. It does not select or invent a different, earlier predecessor.'], criteria=dict(
+                true='The exact source is genuine main reading.',
+                false='It belongs to an ancillary stream, or its main-reading role is not established.'))
+        yield role, prompt, dict(check, selected_predecessor=selected)
+
+
+def _nonreading_traces(state):
+    """Punctuation-only pages still require positive evidence of scan noise."""
+    page = state['local_raw_evidence']['target_page']
+    texts = [x for x in page['layouts'] if x['source_type'] == 'text']
+    if any(any(c.isalnum() for c in x['raw_text']) for x in texts):
+        return
+    for name, check in state['checks'].items():
+        if not name.startswith('owner_') or check['ownership'] != 'paragraph':
+            continue
+        source = next(x for x in texts if x['source_order'] == check['source_order'])
+        key = 'nonreading_page_trace_' + str(check['source_order'])
+        spec = dict(type='noul', instructions=[f'Judge only checks.{key}. Is this retained punctuation-only source a non-reading scan/OCR trace on a page without textual reading content, rather than an intentional reading unit?',
+            'Use all raw target layouts, literal source text and its normalized box. A tiny punctuation trace represented by an almost whole-page OCR text rectangle, on an otherwise text-empty page, can be noise; it must not be joined to main prose on a neighboring page. The large rectangle is not evidence of a large printed character.',
+            'Punctuation alone does not prove noise. Preserve actual dialogue punctuation, intentional poem/section separators, standalone mathematical notation and signs that have a concrete reading role. Do not invent image pixels or absent text. Require positive evidence of a non-reading artifact; ambiguity means FALSE.'],criteria=dict(true='The source is a non-reading page trace kept as prose.',false='That artifact role is not established.'))
+        source = {k: source[k] for k in ('source_order', 'source_type', 'raw_text', 'bbox_normalized')}
+        yield key, spec, dict(source=source)
+
+
+def _publisher_apparatus(state):
+    """Geometry admits a role question; only positive role evidence adds risk."""
+    page = state['local_raw_evidence']['target_page']
+    for name, check in state['checks'].items():
+        if not name.startswith('owner_') or check['ownership'] != 'paragraph':
+            continue
+        source = next(x for x in page['layouts'] if x['source_type'] == 'text'
+                      and x['source_order'] == check['source_order'])
+        box = source['bbox_normalized']
+        if len(source['raw_text']) > 160 or not (box[3] <= .10 or box[1] >= .90):
+            continue
+        key = 'publisher_apparatus_' + str(check['source_order'])
+        spec = dict(type='noul', instructions=[
+            f'Judge only checks.{key}. Is this exact source a printed page number, running header/footer or repeated publisher/navigation label, incorrectly kept in the main reading stream?',
+            'Use its literal text, page-edge geometry and the surrounding original sources. A combined page number plus chapter/book label at the outer margin can be one apparatus block, including on an otherwise blank page. An empty page does not turn its footer into body text.',
+            'Require positive evidence of a publisher/navigation role. Page-edge position, short length, digits or a personal name alone are insufficient. Preserve real chapter openings, section headings, author attributions, dialogue, numbered exercises, endnotes/footnotes and short narrative paragraphs. A heading may start low on a page and remain real content. Do not infer missing text or a fourth page. Ambiguous evidence means FALSE.'],criteria=dict(true='The exact source is page apparatus, not main reading content.',false='A publisher/navigation role is not established.'))
+        source = {k: source[k] for k in ('source_order', 'source_type', 'raw_text', 'bbox_normalized')}
+        yield key, spec, dict(source=source)
 
 
 def _role_evidence(evidence):
@@ -167,6 +242,14 @@ def apply_body_facts(risks, facts):
             order = name.rsplit('_', 1)[1]
             result['split_numbered_instruction_' + order] = min(
                 value, facts['conditional_command_required_' + order])
+        elif name.startswith('closed_predecessor_frame_') and value >= LOCAL_REVIEW_THRESHOLD:
+            target = 'gap_' + name.rsplit('_', 1)[1] + '_syntax'
+            if result.get(target, 0) >= LOCAL_REVIEW_THRESHOLD:
+                proof = min(value, facts['closed_predecessor_main_reading_' + name.rsplit('_', 1)[1]])
+                if proof >= LOCAL_REVIEW_THRESHOLD:
+                    result[target] = min(result[target], 1-proof)
+        elif name.startswith(('publisher_apparatus_', 'nonreading_page_trace_')):
+            result[name] = value
         elif name.startswith('prior_illustration_unit_'):
             order = name.rsplit('_', 1)[1]
             result['joined_illustration_switch_' + order] = min(

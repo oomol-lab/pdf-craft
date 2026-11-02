@@ -31,8 +31,11 @@ _OWNERSHIP_STANDARD: list[str] = [
     "关闭脚注时，正文中遗留①、上标数字、星号等原始引用字符完全合法；没有相应citation/ref也合法。只有实际把注释解释文字混入正文才是归属错误。"
 ]
 
-def local_review_requests(state: dict[str, Any]) -> Iterator[dict[str, Any]]:
-    """Yield bounded question batches with the same immutable raw neighborhood."""
+def local_review_requests(state: dict[str, Any], *, concrete_joins: bool = False) -> Iterator[dict[str, Any]]:
+    """Yield bounded questions; body-only review binds concrete incoming sources.
+
+    Footnote review keeps its separate ownership and edge-fact protocol.
+    """
     page = state["target_page"]["page_index"]
     index: dict[str, Any] = {}
     jobs: dict[str, list[tuple[str, dict[str, Any], dict[str, Any]]]] = {}
@@ -81,6 +84,14 @@ def local_review_requests(state: dict[str, Any]) -> Iterator[dict[str, Any]]:
                         "真实正文前驱必须是排除附属物后距离当前最近的正文。不能跳过中间一块真实正文去挑更早、看起来能接的语句；候选不是可任意拼接的语料库。若最近正文已经完整结束，当前块独立另起是合法的，即使叙述同一事件。",
                         *_JOIN_RULES["instructions"],
                         _JOIN_RULES["conditional"]], criteria=_JOIN_RULES["criteria"])
+                    if concrete_joins:
+                        check['selected_predecessor'] = next((index[key] for key in reversed(available)
+                            if index[key]['ownership_hint'] == 'paragraph'), None)
+                        prompt['instructions'] = [
+                            f'只审核 checks.{key} 这个实际入向：当前块已经与 selected_predecessor 指定的具体来源归为同一自然段。必须审核实际被拼接的来源，不是清理邻页后理想上应该拼接的正文。',
+                            'selected_predecessor 的原文在 local_raw_evidence 中，page_index 和 source_order 唯一定位。ownership_hint 不是正确性证据，但明确表示本次算法实际选择了它。若它实际是脚注、图片题注或出版附属物，不可假装跳过它再选择更早的正文来批准这个实际入向。',
+                            '仍需区分：邻页本身的独立归属错误不必否决当前页；但当前入向把两个不同的印刷阅读单元确实拼成同一自然段，是当前入向自身的错误。两个本来连续的脚注/引文片段可以相接。只因内容相近或词语巧合而连接不同单元不合法。',
+                            *_JOIN_RULES['instructions'], _JOIN_RULES['conditional']]
                     jobs[key] = [(key, prompt, check)]
                 else:
                     jobs[key] = []

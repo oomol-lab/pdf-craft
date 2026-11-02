@@ -92,7 +92,7 @@ class JevReviewProcessor:
             else:
                 index = state['target_page']['page_index']
                 probability = await review_body_page(
-                    ((index, packet) for packet in local_review_requests(state)), evaluate)
+                    ((index, packet) for packet in local_review_requests(state, concrete_joins=True)), evaluate)
             if probability is not None:
                 cutoff = 1 - self._threshold
                 # Compare on the score's own scale: taking the complement can
@@ -138,7 +138,7 @@ def build_jev_review_requests(
         if includes_footnotes:
             yield from footnote_review_requests(state)
         else:
-            for packet in local_review_requests(state):
+            for packet in local_review_requests(state, concrete_joins=True):
                 yield index, packet
 
 
