@@ -8,6 +8,7 @@ from typing import Any
 
 from ..concurrency import fatal_error_boundary, settle_tasks
 from ..runtime import IO_DOMAIN
+from ..progress import RefinementStatus
 
 MAX_PAGE_JOBS = 8
 MAX_INPUT_LEAD = MAX_PAGE_JOBS + 4
@@ -19,6 +20,7 @@ class PageResult:
     page: Any
     usage: Any = None
     initial: Any = None
+    refinement_status: RefinementStatus = RefinementStatus.NOT_REQUIRED
 
 
 async def refine_ready(pages, process, directory, order, *, window=MAX_PAGE_JOBS, includes_footnotes=True):
@@ -73,7 +75,7 @@ async def refine_ready(pages, process, directory, order, *, window=MAX_PAGE_JOBS
                 usages.pop(index).settle(False)
             raise
         from .progress import page_stage
-        await page_stage(index, 7)
+        await page_stage(index, 7, refinement_status=result.refinement_status)
         completed.add(index)
 
     scanner = asyncio.create_task(fatal_error_boundary(scan)())

@@ -341,12 +341,15 @@ enabled, the dedicated page rubric also checks citation/reference relationships.
 Scores are not calibrated error probabilities and do not impose a refinement quota.
 See the [structural-review scope and limits](../design/jev-structural-review.md).
 
-Migration: remove `risk_threshold` from existing configuration. Parameters after
-`jev` and `llm`, including `max_output_tokens`, are keyword-only. For example:
+Parameters after `jev` and `llm`, including `max_output_tokens`, are keyword-only:
+
 
 ```python
 refinement = Refinement(jev, llm, executor=executor, max_output_tokens=16000)
 ```
+
+PAGE completion events expose `refinement_status` for this page-processing stage;
+it does not track later assembly or final-file adoption. See [progress](TRANSLATION_PROGRESS.md#page-refinement-status).
 
 Each page's question batches share the supplied JEV executor and do not wait for
 other pages. Failed or incomplete review follows the analysis error policy;
@@ -610,7 +613,7 @@ The default patcher preserves source fonts and graphics. Before drawing the back
 - `PDFCraftExtraction` is an opaque handle for a validated extracted or transformed document. Use `PDFCraft.open_extraction("book.pcex")` or `await AsyncPDFCraft.open_extraction(...)` to load it. Ordinary directories are intentionally not public inputs.
 - `PDFExtractor`, `MarkdownRenderer`, and `EpubRenderer` are async-only component APIs behind the façade; their `extract` and `render` methods must be awaited.
 - `OCRTokensMetering` exposes `input_tokens` and `output_tokens`.
-- `ProgressEvent`, `ProgressEventKind`, `OperationKind`, `UnitKind`, and `UnitOutcome` define the [unified progress protocol](TRANSLATION_PROGRESS.md).
+- `ProgressEvent`, `ProgressEventKind`, `OperationKind`, `UnitKind`, `UnitOutcome`, and `RefinementStatus` define the [unified progress protocol](TRANSLATION_PROGRESS.md).
 - `await predownload_models(...)` prepares local OCR models before an offline `local_only=True` run.
 - `PDFError`, `OCRError`, `NoUsableFillPagesError`, and `InterruptedError` are exported error types for application-level handling.
 

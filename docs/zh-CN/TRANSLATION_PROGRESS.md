@@ -38,6 +38,34 @@ PAGE 事件保留真实的 1-based `page_index`。
 单元 `PROGRESS` 提供 `stage`，适用时提供 `unit_completed_words`；翻译还携带整体 `completed_words`。
 words 是累计值，不是增量。总量取开始事件，不要求每次重复。
 
+## PAGE 精修状态
+
+仅 extraction PAGE 的 `COMPLETED` 事件提供非空的 `refinement_status`，类型为
+包顶层导出的 `RefinementStatus`；其他事件该字段为 `None`。
+
+| 状态 | 该页处理阶段的结果 |
+| --- | --- |
+| `DISABLED` | 未启用页面精修。 |
+| `NOT_REQUIRED` | JEV 放行或无可审核项，没有调用 LLM。 |
+| `APPLIED` | LLM 产物通过页内校验，该阶段交付精修结果；原样返回也属于此状态。 |
+| `FALLBACK` | 开启精修但审核、修正或前置处理失败，允许降级后交付初级结果，或跳过无法处理的页。 |
+
+这不是最终文件的采用报告。页状态在原有 stage 7 终点报告，不等自然段组装、TOC 或文件
+发布；后续恢复不会撤回或重发它。`outcome` 仍描述通用页处理结果，两者不能互相推断。
+严格错误或取消若终止该页阶段，不伪造完成事件。
+
+调用者可在回调中按 `page_index` 保存状态，自行生成报告：
+
+```python
+from pdf_craft import ProgressEventKind, UnitKind
+
+refinement_by_page = {}
+
+def on_extraction_event(event):
+    if event.kind == ProgressEventKind.COMPLETED and event.unit_kind == UnitKind.PAGE:
+        refinement_by_page[event.page_index] = event.refinement_status
+```
+
 ## 整数 stage
 
 `max_stage` 是最终步骤的**编号**，不是耗时或百分比。stage 属于单元，不存在全局当前 stage。

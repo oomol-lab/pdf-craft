@@ -44,23 +44,8 @@ anchored 图片/表格文字。
 章节生成在第 5 步内部先为 TOC 排除后的 OCR Page 建立完整来源记录：保留原文、原分类、
 OCR 流内下标和独立阅读位置。正文沿用原 source_order；新提取的脚注使用正文布局数作为
 偏移，写入同一页的 fragment 身份空间。OCR Page 的 order 不变，旧 PCEX 不重新编号。
-阅读顺序保留正文已有的栏序，将脚注分类中的来源按同栏位置插入，不按全页 y 坐标排序。
-通宽锚点限定阅读带；栏尾来源插在所属栏最后成员之后，不能退回整页或整带末尾。
-传统 join、citation 拆分和同页 ref 匹配只建立初始结论，再投影为 PageAnalysis。
-阅读组不能直接等同于自然段：相邻贴边的稀疏 CJK 竖排列框在组内也需经过续接判断，
-保持 OCR 顺序；密集横排窄栏不按竖排列框拆组。六角括号编号属于独立条目线索，
-引号数字只在已有编号条目上下文中提供同类边界，不能截断普通引号术语。
-通宽图片掩盖栏缝时，组内明确的横排换栏也必须经过原有续接判断；同栏段落不强行合并。
-相邻短行共同缩进时，仅在缺少像素观测且最近同栏宽正文提供一致边界时辅助识别，
-不截断未完成词语、不拆开同行归属；旁置资产保留行宽形变保护，不增加等待或修改原始 OCR。
-相关机制与固定 JEV 对照见[自动分析验证](../docs/verification/jev-upstream-automatic-analysis.md)。
-横排同页续接可联合完成句尾与明确的缩进单行判断段界；多行 bbox 不代表首行缩进。
-独立位于两文字框之间的图片/表格不能屏蔽可靠缩进；旁置资产继续保留保护，不用标点单独断段，也不切断未完成词语。
-跨页合并必须把页尾/续页页首 image/table 保留在两侧文字之间，不可挪到整段之后。
-PageAnalysis 的 continuation 表示文字前驱，跳过同一归属流中的图片/表格；资产自身 gap
-保持 false，DisplayFormula 才是硬边界。投影与恢复必须保留段内锚点，精修与校验遵守同一规则。印刷标记的
-完整来源和前缀范围保留到组装：正文投影保留前缀，定义投影才移除前缀。断词修复延后到 ownership
-组装完成后的语义投影；原始文字记录不被改写，投影为空的 fragment 也保留原身份和 bbox。
+阅读顺序保留已有栏序及来源身份；段界和归属的原则见
+[初级页面分析](../docs/design/upstream-dynamic-repair.md)。
 
 `source.py` 仅捕获来源身份和阅读位置，文本解析及断词投影由 `content.py` 承载；
 页边内容排除由 `marginal_numbers.py` 承载，不能反向依赖 `Jointer`。`Jointer` 负责阅读串、
@@ -280,7 +265,8 @@ WorkUnit 的 progress/finish 需串行结算，已失败或取消的结算不能
 
 ## 局部完成与 PDF 回填交付
 
-PAGE 在局部 OCR/JEV/按需精修及必要校验完成处结算，晚到的 OCR 通知和产物恢复不能重开终态；操作完成仍等发布。EPUB mapper 按原子 owner 的最后一个片段界定通知就绪，最终 XML 写回仍以 root 为单位。PDF consumer 使用 deferred content view，把 metadata 留到文件收尾；家具按页快照汇合，源几何预先定义关联窗口，ReplacementFeed 按窗口就绪供 Qt 消费。窗口乱序组成暂存 PDF，最终按原页序写入；正文/脚注各自按槽位子序列交付。相关屏障见 tests/test_realtime_observers.py。
+PAGE 在局部 OCR/JEV/按需精修及必要校验完成处结算，COMPLETED 的 `refinement_status`
+仅记录这一阶段，不等待或追踪后续组装；晚到的 OCR 通知和产物恢复不能重开终态；操作完成仍等发布。EPUB mapper 按原子 owner 的最后一个片段界定通知就绪，最终 XML 写回仍以 root 为单位。PDF consumer 使用 deferred content view，把 metadata 留到文件收尾；家具按页快照汇合，源几何预先定义关联窗口，ReplacementFeed 按窗口就绪供 Qt 消费。窗口乱序组成暂存 PDF，最终按原页序写入；正文/脚注各自按槽位子序列交付。相关屏障见 tests/test_realtime_observers.py。
 
 页面精校通过独立 `refinement: Refinement | None` 配置，与布尔 `footnotes` 正交。
 Refinement 内部 JEV/LLM 必须成套提供。关闭脚注且开启精校时沿用同一页管道，保留第一轮
@@ -306,28 +292,11 @@ local/vendor 首轮渲染严格纯白时保存空页和几何，不请求 OCR；
 判断段界，像素缩进不得拆开未完成词语或跨资产正文。不会增加全书等待。
 
 
-关闭脚注的页审核由 `chapter/local_review.py` 生成基础具名题，
-提示文字位于 `chapter/data/` 的四个英文根模板：`body_base.jinja`、`body_followup.jinja`、
-`footnote_base.jinja`、`footnote_followup.jinja`，按脚注开关与基础/补充两轮划分。仅跨入口
-共用的问题和证据说明提取为共享模板，入口索引为 `chapter/data/README.md`。
-`review_templates.py` 加载根入口；Python 保留字段组织、证据、候选选择和分数聚合，
-不追加提示正文，也不让模板构造 JSON 或宏函数库。
-`review_evidence.py` 按原始局部证据和当前页基础分数筛选独立事实，
-`structural_review.py` 聚合来源特定的风险与容错证明。每请求最多四题，共用现有 JEV
-executor、重试、usage 和请求观察；事实不读取邻页评分，不增加全书屏障。
-关闭脚注的基础入向题显式绑定算法实际选中的前驱，不能跳过其中的误标脚注后审核一个
-假想的修复结果。短页边正文块另查出版附属物角色；几何只用于候选筛选，不直接判错。
-关闭脚注的 `body_review_facts.py` 额外核验既有跨图页连接的具体前驱和当前正文角色，
-两项事实共同成立才增加独立风险；例题设定证明只降低对应连接风险。该模块不供开启脚注路线调用。
-当前/邻页图片证据使用 title/caption 与资产位置，不回退到 image.content，也不等待邻页精修。
-基础或补充批次不完整时按 analysis 错误策略恢复，不生成通过结论。开启脚注使用独立的局部事实协议，
-正文段界与角色事实分离，另查定义起点、引用及脚注续接；两种模式共享 executor 与完整具名分数校验。
-`Refinement` 无公开 threshold，内部按模式固定判定；逐页就绪、stage 和内容流契约不变。
+JEV 的四个根模板及共享内容见[模板索引](../pdf_craft/extractor/chapter/data/README.md)。
+`review_templates.py` 加载模板；Python 负责证据、候选、请求与聚合，不追加提示正文。
+关闭脚注的局部协议由 `local_review.py`、`structural_review.py` 和 `body_review_facts.py` 承载，
+开启脚注由 `footnote_review.py` 及其补充模块承载。两者共享 executor、完整分数校验和局部
+依赖约束，具体判定原则见[JEV 结构审核](../docs/design/jev-structural-review.md)。
 
-
-初级 Jointer 保留实际跨页的行内数学续接；同页、数字编号与独立公式不因此放开。
-局部 ISBN、版次及印数记录保持独立段界，不依赖 metadata。短连接词与完整公式并排时，
-只有公式句末、位置和下一段缩进共同成立才能断段。相关固定样本与限制见
-[开启脚注验证](../docs/verification/jev-footnote-analysis.md)。
 
 PCEX 版本与历史兼容必须遵守 [PCEX Migration 边界](pcex-migrations.md)。翻译、内容流和渲染器禁止根据旧字段形态兼容；image.content 不展示、不翻译，图外说明使用 title/caption。
