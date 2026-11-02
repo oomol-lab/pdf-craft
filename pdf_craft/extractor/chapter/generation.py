@@ -16,7 +16,6 @@ from .chapter import (
 from .content import expand_text_in_content, join_texts_in_content
 from .jointer import Jointer
 from .mark import Mark, search_marks
-from .mergeable import check_mergeable
 from .page_analysis import PageAnalysis, UnindexedCitation, analyse_pages, restore_streams
 from .page_review import load_page_pixel_sizes
 from .punctuation import normalize_punctuation_in_chapter
@@ -342,52 +341,16 @@ def _resolve_jointers(body_jointer: Jointer, footnotes_jointer: Jointer):
 def _assemble_flow_items(
     layouts: Iterable[TextFlowItem | SourceAsset],
 ) -> Generator[FlowItem, None, None]:
-    """Turn the joiner's conservative flat OCR sequence into v3 flow.
+    """Package already-decided author paragraphs without rejoining them.
 
-    The joiner has already decided whether neighbouring OCR text regions form
-    one author paragraph.  Here we preserve a figure/table found between two
-    mergeable text runs as a child of that paragraph.  Equations are never
-    candidates: they are hard reading-flow boundaries.
+    Jointer owns raw paragraph/asset connections. Restored analysis owns its
+    explicit connections. Neither can be overruled by this format adapter.
     """
-    current: TextFlowItem | None = None
-    pending: list[SourceAsset] = []
-
-    def flush() -> Generator[FlowItem, None, None]:
-        nonlocal current, pending
-        if current is not None:
-            yield current
-            current = None
-        for asset in pending:
-            yield DisplayFormula(asset) if asset.ref == "formula" else StandaloneAsset(asset)
-        pending = []
-
     for layout in layouts:
         if isinstance(layout, SourceAsset):
-            pending.append(layout)
-            continue
-        text = layout
-        if current is None:
-            # Leading assets are standalone and must remain before the text.
-            yield from flush()
-            current = text
-            continue
-        can_embed = (
-            pending
-            and not any(asset.ref == "formula" for asset in pending)
-            and current.role == text.role == "body"
-            and current.children and text.children
-            and isinstance(current.children[-1], SourceTextFragment)
-            and isinstance(text.children[0], SourceTextFragment)
-            and check_mergeable(current.children[-1].content, text.children[0].content)
-        )
-        if can_embed:
-            current.children.extend(pending)
-            current.children.extend(text.children)
-            pending = []
-            continue
-        yield from flush()
-        current = text
-    yield from flush()
+            yield DisplayFormula(layout) if layout.ref == "formula" else StandaloneAsset(layout)
+        else:
+            yield layout
 
 
 def _extract_page_references(jointer: Jointer, numeric_marks=None, flat_marks=None) -> Generator[References, None, None]:

@@ -2,7 +2,7 @@
 
 import unittest
 
-from pdf_craft.extractor.chapter.chapter import SourceTextFragment, TextFlowItem
+from pdf_craft.extractor.chapter.chapter import SourceTextFragment, TextFlowItem, SourceAsset
 from pdf_craft.extractor.chapter.jointer import Jointer
 from pdf_craft.extractor.chapter.primary import project_window
 from pdf_craft.extractor.chapter.paragraph_geometry import indented_line_starts
@@ -18,7 +18,9 @@ def _can_join(layouts, *, across_assets=False):
         SourceTextFragment(page_index=1, source_order=x.order, bbox=x.det,
                            content=[x.text])]) for x in layouts]
     return Jointer([])._can_merge_paragraphs(  # pylint: disable=protected-access
-        paragraphs[0], paragraphs[1], across_assets=across_assets)
+        paragraphs[0], paragraphs[1], across_assets=(
+            [SourceAsset(1, "image", (0, layouts[1].det[1], 40, layouts[1].det[3]))]
+            if across_assets else ()))
 
 
 class HorizontalParagraphTests(unittest.TestCase):
@@ -223,17 +225,15 @@ class HorizontalParagraphTests(unittest.TestCase):
         ]
         self.assertTrue(_can_join(layouts))
 
-    def test_image_interposition_keeps_existing_paragraph_join(self):
+    def test_isolated_image_does_not_erase_a_following_indented_paragraph(self):
         layouts = [
             _layout(0, (0, 0, 1000, 200), "這段敘述引出了人物接下來要說的話："),
             _layout(1, (0, 210, 1000, 400), "", "image"),
             _layout(2, (60, 430, 300, 450), "“這是下一句。”"),
         ]
         paragraphs = list(Jointer([(1, layouts)]).execute())
-        self.assertEqual(len(paragraphs), 1)
-        paragraph = paragraphs[0]
-        assert isinstance(paragraph, TextFlowItem)
-        self.assertEqual(len(paragraph.children), 3)
+        self.assertEqual([type(item) for item in paragraphs],
+                         [TextFlowItem, SourceAsset, TextFlowItem])
 
     def test_multiline_bbox_does_not_prove_indentation(self):
         layouts = [
@@ -242,7 +242,7 @@ class HorizontalParagraphTests(unittest.TestCase):
         ]
         self.assertTrue(_can_join(layouts))
 
-    def test_layout_boundary_is_bypassed_across_intervening_asset(self):
+    def test_side_image_can_shape_the_apparent_margin(self):
         layouts = [
             _layout(0, (0, 0, 1000, 200), "這段敘述引出了人物接下來要說的話："),
             _layout(1, (60, 230, 300, 250), "“這是下一段。”"),

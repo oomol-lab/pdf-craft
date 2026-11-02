@@ -182,7 +182,7 @@ def test_children_are_mutated_for_cross_page_fragment_aggregation():
     assert [fragment.source_order for fragment in paragraph.children if isinstance(fragment, SourceTextFragment)] == [1, 2]
 
 
-def test_extraction_anchors_figure_but_never_joins_across_display_formula():
+def test_flow_packaging_preserves_preselected_asset_and_paragraph_boundaries():
     first = TextFlowItem("body", 0, [_fragment(1, "a sentence continues")])
     second = TextFlowItem("body", 0, [_fragment(2, "with its ending.")])
     image = SourceAsset(1, "image", (0, 21, 10, 30), asset_hash="c" * 64)
@@ -190,6 +190,6 @@ def test_extraction_anchors_figure_but_never_joins_across_display_formula():
     third = TextFlowItem("body", 0, [_fragment(3, "after formula")])
 
     result = list(_assemble_flow_items(iter([first, image, second, equation, third])))
-    assert [type(item) for item in result] == [TextFlowItem, DisplayFormula, TextFlowItem]
-    assert isinstance(result[0], TextFlowItem)
-    assert [type(item) for item in result[0].children] == [SourceTextFragment, SourceAsset, SourceTextFragment]
+    assert [type(item) for item in result] == [TextFlowItem, StandaloneAsset, TextFlowItem,
+                                             DisplayFormula, TextFlowItem]
+    assert result[0] is first and result[2] is second and result[4] is third

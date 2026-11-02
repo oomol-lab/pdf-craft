@@ -372,7 +372,8 @@ class PageAnalysisTests(unittest.TestCase):
         second = TextFlowItem("body", -1, [_fragment(1, 2, " to its end.")])
         formula = SourceAsset(1, "formula", (0, 40, 10, 50), content=["x^2"])
         third = TextFlowItem("body", -1, [_fragment(1, 4, "After formula.")])
-        legacy = [first, image, table, second, formula, third]
+        adopted = TextFlowItem("body", -1, [*first.children, image, table, *second.children])
+        legacy = [adopted, formula, third]
 
         restored = restore_streams(analyse_pages([1], legacy, [])).paragraphs
         flow = list(_assemble_flow_items(restored))
