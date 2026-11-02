@@ -276,20 +276,29 @@ class PCEXSchedule:
 async def pcex_schedule(items, transformer, window, *, paths=None, root=None, with_furniture=False, **kwargs):
     """Own all producers until consumers and callbacks have settled."""
     async with temporary_directory('pdf-craft-pcex-ready-') as directory:
+        request_capacity = window
         queue = await IO_DOMAIN.run(ReadyQueue, directory / 'work.sqlite')
         furniture = await IO_DOMAIN.run(FurniturePlan, paths, root or directory, queue) if with_furniture else None
-        # PCEX's window bounds business jobs across every stream. Each job
-        # submits groups serially to the same model runtime/executor, avoiding
-        # a second window multiplying capacity inside every admitted job.
+        # Built-in translation admits a bounded lookahead of content jobs even
+        # when the caller's scheduling window is one. Provider concurrency is
+        # independently bounded by the shared LLM executor; waiting to collect
+        # a batch must never occupy that executor. Custom transformers retain
+        # their original job-window contract.
         from .narrative_xml import NarrativeXMLTransformer
         if isinstance(transformer, NarrativeXMLTransformer) and transformer.supports_stream:
+            from .xml_translator.xml_translator import XMLTranslator
+            if isinstance(transformer._translator, XMLTranslator):
+                from .request_batch import ready_window
+                window = ready_window(window)
             transformer = NarrativeXMLTransformer(transformer._translator, transformer.mode, window=1)
         schedule = PCEXSchedule(items, transformer, window, queue, furniture=furniture, **kwargs)
         from .progress import active_progress
         progress = active_progress()
         if progress is not None:
             progress.pending_streams += 1
-        runner = asyncio.create_task(schedule.run())
+        from .request_batch import request_window
+        with request_window(request_capacity):
+            runner = asyncio.create_task(schedule.run())
         schedule.runner = runner
         try:
             yield schedule

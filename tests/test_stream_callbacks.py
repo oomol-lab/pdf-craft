@@ -219,7 +219,8 @@ class StreamCallbacksTests(unittest.IsolatedAsyncioTestCase):
             self.assertTrue(any(event.kind == ProgressEventKind.STARTED and event.unit_id is not None for event in events))
             self.assertEqual([item.original for item in received], [f'Sentence {i}.' for i in range(8)])
             self.assertEqual(len({item.epubcfi for item in received}), 8)
-            self.assertGreater(len(produced), len(received))
+            # Context-only owners no longer create independent translation work.
+            self.assertEqual(len(produced), len(received))
             self.assertTrue(all(item.translated == '译:' + item.original for item in received))
             self.assertTrue(all(item.epubcfi is not None and item.epubcfi.startswith('epubcfi(/6/2!') for item in received))
             from tests.test_epub_cfi import endpoints

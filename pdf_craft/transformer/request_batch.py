@@ -6,26 +6,69 @@ ready conversations; it never holds model executor capacity while gathering.
 from __future__ import annotations
 
 import asyncio
-from contextvars import copy_context
+from contextlib import contextmanager
+from contextvars import ContextVar, copy_context
+from functools import wraps
+import inspect
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 import json
-from typing import Any
+from typing import Any, TypeVar, cast
 
 from .._policy import current
+from ..common import safe_text
 from ..concurrency import settle_tasks
 from ..llm import Message, MessageRole
 from ..llm.failure_log import active_log, batch_log_scope
 from ..usage import current_usage_scope, shared_request_usage
 
-MAX_BATCH_UNITS = 8
+MAX_BATCH_UNITS = 64
 READY_DELAY = 0.01
 _BATCH_INSTRUCTION = '''Execute each independent conversation in the JSON array below.
-Every entry has an id and messages (role/content). Follow each conversation's
-instructions independently. Preserve all XML IDs and math references within its
+Every entry has an id and messages (role/content). The shared system instructions
+below apply independently to EVERY entry. Individual message histories continue
+only their own conversation. Preserve all XML IDs and math references within its
 own conversation; the same local ID in another conversation is unrelated.
 Return ONLY a JSON array of objects with exactly id and text. Copy every input
 id exactly once. text is that conversation's complete answer as a JSON string,
-including its XML when requested. Never merge, omit or exchange answers.'''
+including its XML when requested. Never merge, omit or exchange answers.
+The JSON array response envelope overrides any single-answer output format in
+the shared instructions. Apply that format inside each entry's text field.'''
+
+
+def ready_window(window: int) -> int:
+    """Bound ready semantic work independently of provider executor capacity."""
+    return max(window, MAX_BATCH_UNITS)
+
+
+_REQUEST_WINDOW: ContextVar[asyncio.Semaphore | None] = ContextVar('translation_request_window', default=None)
+_F = TypeVar('_F', bound=Callable[..., Awaitable[Any]])
+
+
+@contextmanager
+def request_window(window: int):
+    """One operation's request slots, inherited across content adapters."""
+    if window < 1:
+        raise ValueError('window must be at least 1')
+    if _REQUEST_WINDOW.get() is not None:
+        yield
+        return
+    token = _REQUEST_WINDOW.set(asyncio.Semaphore(window))
+    try:
+        yield
+    finally:
+        _REQUEST_WINDOW.reset(token)
+
+
+def with_request_window(function: _F) -> _F:
+    """Keep a method's window as transport capacity, outside ready collection."""
+    signature = inspect.signature(function)
+    @wraps(function)
+    async def invoke(*args, **kwargs):
+        window = signature.bind_partial(*args, **kwargs).arguments.get('window', 1)
+        with request_window(window):
+            return await function(*args, **kwargs)
+    return cast(_F, invoke)
 
 
 class BatchResponseError(ValueError):
@@ -51,6 +94,7 @@ class _Call:
 
 @dataclass
 class _Batch:
+    overhead: int = 0
     calls: list[_Call] = field(default_factory=list)
     task: asyncio.Task | None = None
 
@@ -58,8 +102,8 @@ class _Batch:
 class RequestBatcher:
     """One translator's ready calls, isolated by operation and request settings.
 
-    The caller's existing bounded scheduling window limits producers. A queue
-    holds at most eight conversations and a 10ms readiness deadline. Oversize
+    A separate bounded content lookahead supplies ready work. A queue
+    holds at most 64 conversations and a 10ms readiness deadline. Oversize
     conversations keep the established single-call path rather than truncating
     a semantic unit. Executor concurrency remains owned by LLMRuntime.
     """
@@ -71,28 +115,29 @@ class RequestBatcher:
 
     async def request(self, context, messages, *, runtime, stage, **options):
         encoding = await runtime.encoding()
-        # Include the envelope, prompt, repair history, and an output allowance
-        # equal to the input size. This is deliberately more conservative than
-        # the mapper's source-only score.
-        payload = self._payload(messages, '0')
-        tokens = (len(encoding.encode(json.dumps(payload, ensure_ascii=False), disallowed_special=())) * 2
-                  + len(encoding.encode(_BATCH_INSTRUCTION)))
+        # Shared system instructions are transmitted and charged once. Reserve
+        # output proportional to each unit's actual payload, not N copies of
+        # the shared prompt. Repair histories remain private to each unit.
+        shared = messages[0].message if messages and messages[0].role == MessageRole.SYSTEM else ''
+        payload = self._payload(messages, '0', shared)
+        tokens = len(encoding.encode(json.dumps(payload, ensure_ascii=False), disallowed_special=())) * 2
+        overhead = len(encoding.encode(self._instruction(shared), disallowed_special=())) + 16
         scope = current_usage_scope()
         policy = current()
         key = (policy.task_id, policy.request_headers, id(scope.collector) if scope else None,
-               stage, tuple(sorted(options.items())))
+               shared, stage, tuple(sorted(options.items())))
         loop = asyncio.get_running_loop()
         call = _Call(messages, context, runtime, options, loop.create_future(), active_log(), scope, tokens, copy_context())
         batch = self.pending.get(key)
         if batch is not None and (len(batch.calls) == MAX_BATCH_UNITS or
-                                  sum(item.tokens for item in batch.calls) + tokens > self.budget):
+                                  batch.overhead + sum(item.tokens for item in batch.calls) + tokens > self.budget):
             self._launch(key)
             batch = None
         if batch is None:
-            batch = self.pending[key] = _Batch()
+            batch = self.pending[key] = _Batch(overhead=overhead)
             self.timers[key] = loop.call_later(READY_DELAY, self._launch, key)
         batch.calls.append(call)
-        if tokens >= self.budget or len(batch.calls) >= MAX_BATCH_UNITS:
+        if overhead + tokens >= self.budget or len(batch.calls) >= MAX_BATCH_UNITS:
             self._launch(key)
         try:
             return await call.future
@@ -108,7 +153,15 @@ class RequestBatcher:
                     await settle_tasks([batch.task])
 
     @staticmethod
-    def _payload(messages, identity):
+    def _instruction(shared):
+        return (_BATCH_INSTRUCTION + '\n\nShared system instructions:\n' + shared +
+                '\n\nBatch envelope takes precedence: return ONLY the JSON array of {id, text}. '
+                'Apply the shared output format inside each text string, never as a bare response.')
+
+    @staticmethod
+    def _payload(messages, identity, shared=''):
+        if shared:
+            messages = messages[1:]
         return {'id': identity, 'messages': [
             {'role': message.role.name.lower(), 'content': message.message} for message in messages]}
 
@@ -123,6 +176,20 @@ class RequestBatcher:
                 batch.task = asyncio.create_task(self._execute(batch, key[-2]), context=live[0].execution_context)
 
     async def _execute(self, batch, stage):
+        try:
+            capacity = _REQUEST_WINDOW.get()
+            if capacity is None:
+                await self._deliver(batch, stage)
+            else:
+                async with capacity:
+                    await self._deliver(batch, stage)
+        except asyncio.CancelledError:
+            # Includes cancellation while queued for a transport slot.
+            for call in batch.calls:
+                call.future.cancel()
+            raise
+
+    async def _deliver(self, batch, stage):
         calls = [call for call in batch.calls if not call.future.done()]
         if not calls:
             return
@@ -132,9 +199,10 @@ class RequestBatcher:
                 response = await first.context.request(first.messages, **first.options)
                 answers = {'0': response}
             else:
-                messages = [Message(MessageRole.SYSTEM, _BATCH_INSTRUCTION),
+                shared = first.messages[0].message if first.messages and first.messages[0].role == MessageRole.SYSTEM else ''
+                messages = [Message(MessageRole.SYSTEM, self._instruction(shared)),
                             Message(MessageRole.USER, json.dumps([
-                                self._payload(call.messages, str(index)) for index, call in enumerate(calls)
+                                self._payload(call.messages, str(index), shared) for index, call in enumerate(calls)
                             ], ensure_ascii=False))]
                 with shared_request_usage([call.usage for call in calls]), batch_log_scope(lambda: [call.log for call in calls if not call.future.done()]):
                     # A cancelled first consumer may close its context while
@@ -197,5 +265,8 @@ class RequestBatcher:
                     not isinstance(item['id'], str) or item['id'] not in expected or
                     item['id'] in answers or not isinstance(item['text'], str)):
                 return {}
-            answers[item['id']] = item['text']
+            # JSON escapes become characters only here; match the ordinary
+            # LLM ingress after decoding rather than letting escaped control
+            # characters bypass the runtime's safe_text normalization.
+            answers[item['id']] = safe_text(item['text'])
         return answers
