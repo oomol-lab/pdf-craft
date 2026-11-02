@@ -1,21 +1,19 @@
-"""JEV templates preserve opaque identifiers and isolated JSON question values."""
+"""Prose JEV templates preserve identifiers, question sections and isolation."""
 import unittest
 
 from jinja2 import UndefinedError
 
 from pdf_craft.extractor.chapter.review_questions import question
-from pdf_craft.extractor.chapter.review_templates import review_template
+from pdf_craft.extractor.chapter.review_templates import review_question, review_text
 
 
 class ReviewTemplateTests(unittest.TestCase):
-    def test_zero_source_order_is_not_lost_during_string_interpolation(self):
-        value = review_template('body_review', 'ownership', order=0, meaning='keep',
-                                key='owner_0', _OWNERSHIP_STANDARD=[],
-                                criteria={'true': 'keep', 'false': 'exclude'})
+    def test_zero_source_order_is_not_lost_during_interpolation(self):
+        value = review_question('body/ownership', order=0, key='owner_0', retained=True)
         self.assertIn('source_order=0', value['instructions'][0])
         self.assertEqual(list(value['criteria']), ['true', 'false'])
 
-    def test_dynamic_identifier_survives_json_quoting_verbatim(self):
+    def test_dynamic_identifier_survives_verbatim(self):
         name = 'gap_"quoted"\\path\n中文<&>'
         value = question('gap_word', name)
         self.assertIn('checks.' + name + '.', value['instructions'][0])
@@ -30,15 +28,16 @@ class ReviewTemplateTests(unittest.TestCase):
         self.assertNotEqual(fresh['criteria']['true'], 'changed')
 
     def test_missing_context_does_not_silently_remove_the_question_identity(self):
-        with self.assertRaises((UndefinedError, TypeError)):
-            review_template('body_review', 'publisher_apparatus')
+        with self.assertRaises(UndefinedError):
+            review_question('body/publisher_apparatus')
 
-    def test_empty_optional_role_rules_preserve_the_remaining_instructions(self):
-        value = review_template('footnote_review', 'role_fact', scope='scope',
-                                ask='ask', rule='rule', extra=[])
-        self.assertEqual(value['instructions'][:3], ['scope', 'ask', 'rule'])
-        self.assertEqual(len(value['instructions']), 4)
-        scoped = review_template('footnote_review', 'bound_instructions',
-                                 name='owner_0', spec={'instructions': []})
-        self.assertEqual(len(scoped), 1)
-        self.assertIn('state.checks.owner_0', scoped[0])
+    def test_retained_and_excluded_ownership_share_rules_but_keep_distinct_verdicts(self):
+        kept = review_question('body/ownership', order=0, key='owner_0', retained=True)
+        removed = review_question('body/ownership', order=0, key='owner_0', retained=False)
+        self.assertEqual(kept['instructions'][1:], removed['instructions'][1:])
+        self.assertNotEqual(kept['criteria'], removed['criteria'])
+
+    def test_a_prose_fragment_has_no_question_or_json_wrapper(self):
+        text = review_text('footnote/check_scope', name='owner_0')
+        self.assertTrue(text.startswith('The sole audit target is state.checks.owner_0.'))
+        self.assertNotIn('# Instructions', text)

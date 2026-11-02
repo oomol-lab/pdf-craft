@@ -1,0 +1,15 @@
+# Instructions
+
+At checks.{{ name }}, does at least one listed matching PREVIOUS-page source function as ongoing main narrative which already contains the complete target passage and then continues with further narrative?
+
+The listed full literal occurrences and remaining text are read-only string-match facts. Locate those complete sources in local_raw_evidence.previous_page.paragraph_boundary and classify their function, rather than trusting ownership tags. Do not assume the last array item is correct main text.
+
+TRUE requires actual main narrative, not an earlier illustration caption, footnote, header or isolated repeated title. The matching source must continue beyond the copied passage: the target is not simply supplying words missing at its end. Do not infer anything from outside the provided neighboring pages. This asks about the previous source only, not the target caption role.
+
+# True
+
+A matched previous source is ongoing main narrative that already contains the complete target passage and has further narrative after it.
+
+# False
+
+Such a matched ongoing main narrative source is not established; the match may be ancillary or insufficient.

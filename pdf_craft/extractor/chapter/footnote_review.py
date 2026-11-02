@@ -17,34 +17,18 @@ from .review_encoding import (
     literal_reference_edits,
 )
 from .structural_review import _collect, aggregate_risks
-from .review_templates import review_template
+from .review_templates import review_question, review_instructions, review_text
 
 FOOTNOTE_REVIEW_THRESHOLD = 0.45
 
-_COMMON = review_template('footnote_review', 'common_scope')
-_DEF = review_template('footnote_review', 'definition_rules', _COMMON=_COMMON)
-_REF = review_template('footnote_review', 'reference_rules', _COMMON=_COMMON)
-
-
-def prompt(instructions):
-    return review_template('footnote_review', 'decision', instructions=instructions)
-
-
 def role_fact(kind, *, from_citation=False):
-    scope = review_template('footnote_review', 'role_scope')
-    meanings = review_template('footnote_review', 'role_meanings')
-    ask, rule = meanings[kind]
-    if kind == "main_reading" and from_citation:
-        ask, rule = review_template('footnote_review', 'caption_reading_role')
-    extra = []
-    if kind == "footnote_role":
-        extra = review_template('footnote_review', 'footnote_role_rules')
-    return review_template('footnote_review', 'role_fact', scope=scope, ask=ask, rule=rule, extra=extra)
+    path = 'caption_reading' if kind == 'main_reading' and from_citation else kind
+    return review_question('footnote/' + path)
 
 
 def bound(packet):
     for name, spec in packet["questions"].items():
-        spec["instructions"] = review_template('footnote_review', 'bound_instructions', name=name, spec=spec)
+        spec["instructions"] = [review_text('footnote/check_scope', name=name), *spec['instructions']]
     return packet
 
 
@@ -152,9 +136,7 @@ def footnote_review_requests(state):
             gaps.append(
                 (
                     f"note_gap_{order}",
-                    prompt(
-                        review_template('footnote_review', 'note_gap_instructions', _COMMON=_COMMON)
-                    ),
+                    review_question('footnote/note_gap'),
                     dict(
                         check,
                         present_decision=l["continues_from_previous"],
@@ -167,7 +149,7 @@ def footnote_review_requests(state):
             and (page["citations"] or l["references"])
             and (has_note_evidence or l["references"])
         ):
-            refs.append((f"reference_{order}", prompt(_REF), check))
+            refs.append((f"reference_{order}", review_question('footnote/reference'), check))
     for jobs in (owners, gaps, refs):
         current = base
         if jobs is owners:
@@ -183,7 +165,7 @@ def footnote_review_requests(state):
             else:
                 yield p, packet
     definitions = [
-        (f"definition_{i}", prompt(_DEF), dict(definition=c))
+        (f"definition_{i}", review_question('footnote/definition'), dict(definition=c))
         for i, c in enumerate(page["citations"])
         if c.get("index") is not None
     ]
@@ -206,7 +188,7 @@ def footnote_review_requests(state):
             continue
         order = layout["source_order"]
         name = f"new_note_{order}"
-        spec = review_template('footnote_review', 'new_note', name=name)
+        spec = review_question('footnote/new_note', name=name)
         starts.append(
             (
                 name,
@@ -249,7 +231,7 @@ def _reference_requests(state, packet):
             for d in page["citations"]
             if d["index"] is not None
         ]
-        spec["instructions"] += review_template('footnote_review', 'reference_location_rules')
+        spec["instructions"] += review_instructions('footnote/reference_location')
         jobs.append((name, spec, check))
         if source["references"] and edits is not None:
             location = f"reference_position_{name.rsplit('_', 1)[1]}"
@@ -297,7 +279,7 @@ def supplementary_footnote_requests(state, scores):
             spec = question(kind, name)
             if kind == "section_sequence":
                 spec = question(kind, name)
-                spec["instructions"] += review_template('footnote_review', 'unmarked_note_rules')
+                spec["instructions"] += review_instructions('footnote/unmarked_note')
             jobs.append(
                 (
                     name,
@@ -427,7 +409,7 @@ def _main_section_requests(state):
         for kind in ("section_sequence", "section_member"):
             name = f"main_{kind}_{item['source_order']}"
             spec = question(kind, name)
-            spec["instructions"] += review_template('footnote_review', 'main_section_rules')
+            spec["instructions"] += review_instructions('footnote/main_section')
             jobs.append(
                 (
                     name,

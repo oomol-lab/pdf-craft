@@ -26,7 +26,7 @@ pdf-craft 是一个把扫描书籍 PDF 转换为 Markdown 或 EPUB 的 Python �
 
 ## 项目特有默认规则
 
-- 新增或修改的模型提示正文必须维护在 `.jinja` 模板中，不得内嵌在 Python 字符串里。Python 负责模板选择、上下文、请求编排和结果处理；JEV 模板的位置见[结构审核设计](docs/design/jev-structural-review.md)。
+- 新增或修改的模型提示正文必须维护在 `.jinja` 模板中，不得内嵌在 Python 字符串里。提示说明统一使用英文，原始文档证据保留原语言；模板应是可直接阅读的正文，避免 JSON 拼装与宏函数库。Python 负责模板选择、上下文、请求编排和结果处理；JEV 模板的位置见[结构审核设计](docs/design/jev-structural-review.md)。
 - PCEX 业务代码只处理当前格式。历史格式兼容必须集中在 `pdf_craft/document/migrations.py`，在输入物化边界完成；禁止在翻译、内容流、渲染器中按字段缺失或旧形态添加 fallback。字段语义改变必须升级 PCEX 格式版本并同步迁移源章节与译文层，不能以功能测试通过代替这一架构要求。
 - 这是库项目。除非未来任务引入长期服务，否则不要启动常驻开发服务器。
 - 普通验证应避免 CUDA、模型下载、网络请求和完整 PDF 转换，除非任务明确触及这些行为。

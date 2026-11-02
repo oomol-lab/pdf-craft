@@ -4,10 +4,10 @@ from .review_evidence import _quotes, previous_paragraph
 from .review_questions import question
 from .review_encoding import compact_review_evidence, TEXT_ENCODING_NOTE
 from .structural_review import _decisions
-from .review_templates import review_template
+from .review_templates import review_text
 
 _RECITATION = (
-    review_template('footnote_review', 'recitation_rule')
+    review_text('footnote/recitation')
 )
 
 

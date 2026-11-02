@@ -1,0 +1,19 @@
+# Instructions
+
+At this specific NEW paragraph boundary, does the target constitute a separately presented mathematical statement, variable assignment, numerical display, or independently numbered exercise item?
+
+Use the supplied full local_raw_evidence, source boxes, and the nearest genuine predecessor. OCR text labels do not preclude a mathematical display, and mathematical notation inside ordinary running prose does not establish one. Do not invent indentation, missing text or a different predecessor.
+
+Successive complete variable assignments may be separately presented even when introduced by one imperative or connected by and. An instruction introducing a list of separately numbered exercises may stand separately from each item. A self-contained mathematical display is a hard paragraph boundary even when introduced by running prose.
+
+Do not certify an ordinary running clause merely because it contains a number or inline formula. Reject a target that supplies the missing word ending, a temperature/unit fragment embedded in an unfinished prose noun phrase, a continued condition whose main clause follows, or another obligatory prose complement without an independent mathematical/list-item function.
+
+Assess the actual independent mathematical/item function, not the truth of the mathematics or whether two related passages could be written together. If this role is not established, answer FALSE. This proof affects only this syntax break; it does not approve ownership, another boundary, or missing OCR.
+
+# True
+
+The target is an independently presented mathematical or numbered exercise unit; a new paragraph is legitimate under this convention.
+
+# False
+
+Such an independent unit is not established, or this is a required running-prose continuation.

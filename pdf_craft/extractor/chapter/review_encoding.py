@@ -9,14 +9,14 @@ from difflib import SequenceMatcher
 from itertools import groupby
 import re
 from typing import Any
-from .review_templates import review_template
+from .review_templates import review_text
 
 _REPEAT = re.compile(r'(.{1,64}?)\1{15,}', re.S)
 _SEQUENCE = re.compile(r'(?:[0-9]+\.[ \n]*){32,}')
 _NUMBER = re.compile(r'([0-9]+)(\.[ \n]*)')
 
 TEXT_ENCODING_NOTE = (
-    review_template('shared_review', 'text_encoding_note')
+    review_text('shared/text_encoding')
 )
 
 

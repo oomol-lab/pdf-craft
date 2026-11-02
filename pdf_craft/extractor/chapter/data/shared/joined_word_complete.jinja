@@ -1,0 +1,21 @@
+# Instructions
+
+For the existing JOIN at checks.{{ name }}, does the target opening supply the literal missing ending of a word that starts at the END of the genuine preceding main-text block?
+
+Use full local_raw_evidence and preceding_source_index. Find the actual nearest main-text predecessor; hints and ownership proposals are fallible. Do not skip an intervening genuine main paragraph, invent missing characters, or use a following page as a predecessor.
+
+A word can be split at a page edge. In alphabetic scripts this can be a prefix and suffix, with normal line-end hyphenation. In Chinese and other unspaced scripts a single lexical expression can also span the edge. Require an actual contiguous word completion at the immediate seam, not merely related meanings or the possibility of placing two complete words next to each other.
+
+Judge the literal word seam before any subsequent punctuation or parenthetical author/editor comments. A comment after the completed word does not undo that word completion. This does not approve the comment's semantics or change its ownership.
+
+A heading, new dialogue turn, independent caption/excerpt or a new numbered item must not be certified just because its first characters could accidentally form a compound with earlier text. If the preceding actual source is not the required lexical stem, or the word completion cannot be established, answer FALSE.
+
+This narrow proof applies only to this incoming join. It does not approve other sources, other boundaries or OCR transcription quality.
+
+# True
+
+The actual adjacent main-text pieces form one word across this boundary; the existing join preserves that word.
+
+# False
+
+Such a specific word completion is not established; ordinary semantic continuity or accidental concatenation is insufficient.

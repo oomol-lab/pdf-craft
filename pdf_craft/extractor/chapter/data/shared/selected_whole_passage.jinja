@@ -1,0 +1,17 @@
+# Instructions
+
+At checks.{{ name }}, does the target reproduce a COMPLETE readable passage already present inside the listed earlier source, rather than supply a missing word-ending or unfinished expression at that earlier source's end?
+
+The supplied earlier_whole_text_occurrences_with_following_text records exact complete-target string matches after ASCII-whitespace normalization, with text still following the match. Use the complete previous-page source and target raw text to interpret that measured match; it is not a paragraph-boundary verdict.
+
+TRUE requires a whole independently readable sentence or passage being replayed from within earlier text. A single numeral, isolated name or title, diagram label, lexical suffix, shared short phrase or missing OCR text is not sufficient. The target need not have explicit quotation marks or attribution.
+
+This asks whether the target is a complete selected passage, not whether any page has a caption or whether the target should be deleted. Different printed occurrences are not redundant OCR. Do not infer material outside the supplied pages. If a complete replayed passage is not established, answer FALSE.
+
+# True
+
+The target is a complete readable passage replayed from within the earlier text, not its missing final word or obligatory continuation.
+
+# False
+
+Such a complete replayed passage is not established; the match may be only a fragment, label or an actual continuation.
